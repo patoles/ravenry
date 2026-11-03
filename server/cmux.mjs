@@ -151,6 +151,13 @@ export async function pasteText(workspaceId, surfaceId, text) {
   return run(['paste-buffer', '--name', name, '--workspace', workspaceId, '--surface', surfaceId]);
 }
 
+// Types text as keystrokes, not as a paste. Claude Code only switches its
+// prompt to bash mode on a TYPED "!"; a "!" that arrives inside a paste
+// stays in the command, and the shell reads it as "negate".
+export async function typeText(workspaceId, surfaceId, text) {
+  return run(['send', '--workspace', workspaceId, '--surface', surfaceId, '--', text]);
+}
+
 // One named key: enter, up, down (server/choose.mjs moves a menu's
 // selection with the arrows, since some menus ignore digit keys).
 export async function pressKey(workspaceId, surfaceId, key) {

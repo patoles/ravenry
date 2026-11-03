@@ -1423,13 +1423,25 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
   const ps = (paths || []).map(String).filter(Boolean);
   if (ps.length) msg = (msg ? msg + ' ' : '') + ps.map(escapePath).join(' ');
   if (!msg) return { ok: false, status: 400, error: 'Type something or add a file first.' };
+  // "! command" is Claude Code's bash mode. The prompt only enters it on a
+  // TYPED "!"; pasted, the "!" stays in the command and the shell reads it as
+  // "negate" (`! cd x && gh ...` ran nothing and exited 1). So type the "!",
+  // give the prompt a moment to switch, then paste the command after it.
+  const asked = msg;
+  const bang = /^!\s*/.exec(msg);
+  if (bang && msg.length > bang[0].length) {
+    const k = await term.typeText(tab, '!');
+    if (!k.ok) return { ok: false, status: 500, error: k.err || `${where} refused the text.` };
+    await new Promise((r) => setTimeout(r, 150));
+    msg = msg.slice(bang[0].length);
+  }
   const a = await term.pasteText(tab, msg);
   if (!a.ok) return { ok: false, status: 500, error: a.err || `${where} refused the text.` };
   await new Promise((r) => setTimeout(r, 120));
   const b = await term.pressKey(tab, 'enter');
   if (!b.ok) return { ok: false, status: 500, error: b.err || `${where} refused Enter.` };
   wantTick = true;
-  return { ok: true, delivered: screen.working ? 'after its current step' : 'now', sent: msg };
+  return { ok: true, delivered: screen.working ? 'after its current step' : 'now', sent: asked };
 }
 
 function safeName(name) {

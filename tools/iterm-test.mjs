@@ -216,6 +216,11 @@ try {
   let res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + A, text: 'First line\nsecond line' });
   let k2 = fst().keys[A] || [];
   check('board: a message goes into the iTerm2 tab as one paste, then Enter', res.status === 200 && k2.join('|') === 'text:\x1b[200~First line\nsecond line\x1b[201~|osa:enter', `${res.status} ${JSON.stringify(res.j)} ${JSON.stringify(k2)}`);
+  // A "! command": the "!" is typed on its own so Claude Code enters bash
+  // mode; pasted with the command it stays in it and the shell negates.
+  res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + A, text: '! cd /tmp && echo hi' });
+  k2 = (fst().keys[A] || []).slice(2);
+  check('board: a "! command" types "!" alone, then the command, then Enter', res.status === 200 && k2.join('|') === 'text:!|text:cd /tmp && echo hi|osa:enter' && res.j.sent === '! cd /tmp && echo hi', `${res.status} ${JSON.stringify(res.j)} ${JSON.stringify(k2)}`);
   res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + GONE, text: 'hello' });
   check('board: nothing is typed into a session the board shows watch only', res.status === 400 && !(fst().keys[GONE]), `${res.status} ${JSON.stringify(res.j)}`);
 

@@ -100,6 +100,7 @@ const ADAPTERS = {
   cmux: {
     readScreen: (t, n) => cmuxAdapter.readScreen(t.workspaceId, t.surfaceId, n),
     pasteText: (t, text) => cmuxAdapter.pasteText(t.workspaceId, t.surfaceId, text),
+    typeText: (t, text) => cmuxAdapter.typeText(t.workspaceId, t.surfaceId, text),
     pressKey: (t, k) => cmuxAdapter.pressKey(t.workspaceId, t.surfaceId, k),
     focus: (t) => cmuxAdapter.focusSurface(t.workspaceId, t.surfaceId),
     close: (t) => cmuxAdapter.closeSurface(t.workspaceId, t.surfaceId),
@@ -109,6 +110,8 @@ const ADAPTERS = {
     listTabs: () => iterm.listTabs(),
     readScreen: (t, n) => iterm.readScreen(t.surfaceId, n),
     pasteText: (t, text) => iterm.pasteText(t.surfaceId, text),
+    // AppleScript `write text` with no newline arrives as typed input.
+    typeText: (t, text) => iterm.pasteText(t.surfaceId, text),
     pressKey: (t, k) => iterm.pressKey(t.surfaceId, k),
     focus: (t) => iterm.focus(t.surfaceId),
     close: (t) => iterm.close(t.surfaceId),
@@ -160,6 +163,8 @@ export async function listTabs(kind) {
 export const readScreen = (tab, lines = 40) => adapter(tab).readScreen(tab, lines);
 // Text as written (newlines kept, no Enter). { ok, err }.
 export const pasteText = (tab, text) => adapter(tab).pasteText(tab, text);
+// Text as keystrokes (no paste), for the "!" that turns on bash mode.
+export const typeText = (tab, text) => adapter(tab).typeText(tab, text);
 // One named key: enter, up, down. { ok, err }.
 export const pressKey = (tab, key) => adapter(tab).pressKey(tab, key);
 // Brings the terminal forward on that tab. { ok, err }.
