@@ -110,7 +110,7 @@ const run = (cmd, a, extra = {}) => spawnSync(cmd, a, { cwd: HOME, env: { ...env
 
 const inst = run('npm', ['i', '-g', '--prefix', PREFIX, '--offline', '--no-audit', '--no-fund', TGZ]);
 const BIN = path.join(PREFIX, 'bin', 'ravenry');
-const PKG_DIR = path.join(PREFIX, 'lib', 'node_modules', 'ravenry');
+const PKG_DIR = path.join(PREFIX, 'lib', 'node_modules', 'ravenry-app');
 check('npm i -g --prefix <scratch> <tarball> installs the ravenry command', inst.status === 0 && fs.existsSync(BIN) && fs.existsSync(path.join(PKG_DIR, 'hooks', 'events.mjs')), inst.stderr.trim().split('\n').pop());
 
 const SETTINGS = path.join(HOME, '.claude', 'settings.json');
@@ -208,7 +208,7 @@ const TRANSCRIPT = path.join(TDIR, SID + '.jsonl');
 fs.writeFileSync(TRANSCRIPT, JSON.stringify({ type: 'user', uuid: 'u1', sessionId: SID, cwd: PROJ, timestamp: new Date().toISOString(), message: { role: 'user', content: 'Add a dark mode toggle to the settings page.' } }) + '\n');
 const installed = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
 const fire = (ev, extra = {}) => {
-  const c = cmdsOf(installed, ev).find((x) => x.includes('/ravenry/hooks/events.mjs'));
+  const c = cmdsOf(installed, ev).find((x) => x.endsWith(path.join(PKG_DIR, 'hooks', 'events.mjs')));
   const t0 = Date.now();
   const x = spawnSync('/bin/sh', ['-c', c], { cwd: PROJ, env, input: JSON.stringify({ hook_event_name: ev, session_id: SID, cwd: PROJ, transcript_path: TRANSCRIPT, ...extra }), encoding: 'utf8', timeout: 5000 });
   return { ...x, ms: Date.now() - t0 };

@@ -257,7 +257,7 @@ node tools/install-hook.mjs --remove   # take both out
 installed copy, through the same module (`server/hookinstall.mjs`), after
 showing the exact entries and asking. A hook command names Node and the
 script by absolute path (`<node> <copy>/hooks/events.mjs`): a hook runs
-through `sh -c` with whatever PATH Claude Code has, and `npm i -g ravenry`
+through `sh -c` with whatever PATH Claude Code has, and `npm i -g ravenry-app`
 upgrades in place, so the path holds across upgrades. What can go stale is
 Node (a removed nvm version) or a moved copy: `ravenry doctor` names each
 stale command and `ravenry setup` rewrites it in place. The Node named is a

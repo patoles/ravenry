@@ -31,7 +31,7 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 ## Getting Started
 
 ```sh
-npm i -g ravenry
+npm i -g ravenry-app
 ravenry
 ```
 
@@ -44,7 +44,7 @@ The first `ravenry` runs `ravenry setup`, which:
 
 Then the board starts on http://localhost:4600 and its page opens. A new board is empty: start `claude` in a project's folder and it shows up within a few seconds. Each folder becomes a project.
 
-`npx ravenry` works for a first look, but setup does not install the hooks from it: npx keeps its copy in a cache it may clear, and a hook needs a path that stays put. Install it globally to keep it.
+`npx ravenry-app` works for a first look, but setup does not install the hooks from it: npx keeps its copy in a cache it may clear, and a hook needs a path that stays put. Install it globally to keep it.
 
 ### What setup changes on your Mac
 

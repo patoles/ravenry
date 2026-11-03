@@ -9,7 +9,7 @@
 // A hook command is `<node> <this copy>/hooks/<script>`, both absolute: a
 // hook runs through `sh -c` with whatever PATH Claude Code was started
 // with, so a bare `ravenry` or `node` may not be found there, and an extra
-// launcher would cost every event a second process. `npm i -g ravenry`
+// launcher would cost every event a second process. `npm i -g ravenry-app`
 // upgrades in place (same folder), so the path survives upgrades; what can
 // go stale is Node itself (a removed nvm version, a Homebrew upgrade of a
 // versioned path) or a copy that moved. stableNode() prefers a PATH entry

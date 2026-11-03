@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The `ravenry` command (npm i -g ravenry). See README.md.
+// The `ravenry` command (npm i -g ravenry-app). See README.md.
 //
 //   ravenry              start the board on :4600 (PORT overrides) and open it;
 //                        runs setup first if it never ran
@@ -174,7 +174,7 @@ async function setup({ fromStart = false } = {}) {
   let hooks = 'declined';
   console.log('');
   if (FROM_NPX) {
-    console.log('Hooks: not installed from npx. A hook needs a copy of Ravenry that stays put, and npx keeps its copy in a cache it may clear. Install it for good with:\n\n  npm i -g ravenry\n\nthen run ravenry setup again.');
+    console.log('Hooks: not installed from npx. A hook needs a copy of Ravenry that stays put, and npx keeps its copy in a cache it may clear. Install it for good with:\n\n  npm i -g ravenry-app\n\nthen run ravenry setup again.');
     hooks = 'npx';
   } else {
     let cur;
@@ -227,7 +227,7 @@ async function doctor() {
   else { let v = ''; try { v = execFileSync('/usr/bin/sw_vers', ['-productVersion'], { encoding: 'utf8' }).trim(); } catch { /* old macOS */ } line('ok', `macOS ${v}`); }
   const node = nodeMajorOk();
   line(node.ok ? 'ok' : 'fix', node.ok ? `Node ${process.versions.node}` : `Node ${process.versions.node}: Ravenry needs ${node.want} or newer (https://nodejs.org).`);
-  if (FROM_NPX) line('note', 'Running from npx. For the hooks, install it for good: npm i -g ravenry, then ravenry setup.');
+  if (FROM_NPX) line('note', 'Running from npx. For the hooks, install it for good: npm i -g ravenry-app, then ravenry setup.');
   const claude = claudePath();
   line(claude ? 'ok' : 'fix', claude ? `Claude Code: ${tilde(claude)}` : `Claude Code (claude) is not on your PATH: ${CLAUDE_URL}`);
 

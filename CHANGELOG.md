@@ -4,7 +4,7 @@
 
 The first package.
 
-- `npm i -g ravenry`, then `ravenry`: starts the board on :4600 and opens it
+- `npm i -g ravenry-app`, then `ravenry`: starts the board on :4600 and opens it
   (in a cmux browser pane, an iTerm2 tab, or the default browser).
 - `ravenry setup`: checks macOS, Node, Claude Code and the terminal, shows the
   two hooks it adds to `~/.claude/settings.json`, and asks first (backup
