@@ -1,0 +1,12 @@
+Ravenry
+Copyright 2026 Simon Patole
+
+This product is licensed under the Apache License, Version 2.0 (LICENSE).
+The name "Ravenry" and its logo are trademarks of Simon Patole and are not
+licensed under it (TRADEMARK.md).
+
+This product includes uqr 0.1.2 (https://github.com/unjs/uqr), vendored
+unchanged in server/vendor/uqr.mjs, under the MIT License:
+  Copyright (c) Project Nayuki
+  Copyright (c) 2023 Anthony Fu
+The full MIT License text is at the top of that file.

@@ -1,0 +1,919 @@
+/* Ported from docs/design/Main.dc.html (the accepted design). The token
+   values and component rules below are copied as they are; layout rules
+   that were inline styles in the design are named classes here. */
+
+body{margin:0;background:#161618}
+body.light{background:#F1F0ED}
+a{color:#0A84FF}a:hover{color:#409CFF}
+.mc{--win:#161618;--sheet:#1E1E21;--sheet-ring:#2A2A2E;--card:#28282C;--card2:#313136;--sep:#36363B;--tx:#F2F2F4;--tx2:#A1A1A8;--tx3:#6E6E75;--you:#FF9F0A;--work:#0A84FF;--wait:#BF5AF2;--idle:#636369;--ok:#30D158;--bad:#FF6961;--you-t:rgba(255,159,10,.11);--work-t:rgba(10,132,255,.11);--wait-t:rgba(191,90,242,.11);--idle-t:rgba(255,255,255,.03);--sel:rgba(255,255,255,.09);--btn:#3A3A40;--btn-tx:#F2F2F4;--input:#1A1A1D;--shadow:0 1px 0 rgba(255,255,255,.03) inset}
+.mc.light{--win:#F1F0ED;--sheet:#FFFFFF;--sheet-ring:#E4E2DD;--card:#F6F5F2;--card2:#EEEDE9;--sep:#E4E2DD;--tx:#1D1D1F;--tx2:#5F5F66;--tx3:#8E8E93;--you:#D9770A;--work:#2F6FEB;--wait:#8A4FD8;--idle:#A1A1A6;--ok:#1F9D4C;--bad:#D03A2F;--you-t:rgba(229,133,11,.10);--work-t:rgba(47,111,235,.08);--wait-t:rgba(138,79,216,.08);--idle-t:rgba(0,0,0,.02);--sel:rgba(0,0,0,.06);--btn:#FFFFFF;--btn-tx:#1D1D1F;--input:#FFFFFF}
+.mc button{font-family:inherit;cursor:pointer}
+.mc :focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.t2{color:var(--tx2)}.t3{color:var(--tx3)}
+.num{font-variant-numeric:tabular-nums}
+.seg{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;padding:5px 14px;border-radius:7px;font-size:13px;font-weight:500;color:var(--tx2);min-height:28px}
+.seg:hover{color:var(--tx)}
+.seg.on{background:var(--btn);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.grp{border-radius:10px;padding:4px;display:flex;flex-direction:column;gap:1px}
+.grp-h{display:flex;align-items:center;gap:8px;padding:7px 8px 6px;font-size:12.5px;font-weight:650;margin:0}
+.cnt{min-width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;padding:0 6px;box-sizing:border-box}
+.row{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:5px;width:100%;padding:7px 8px;border-radius:7px;color:var(--tx)}
+.row:hover{background:var(--sel)}
+.row.sel{background:var(--sel);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.mc.light .row.sel{box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.card{background:var(--card);border-radius:12px;box-shadow:var(--shadow)}
+.card-h{display:flex;align-items:baseline;gap:10px;padding:12px 16px;font-weight:600;font-size:14px;margin:0}
+.card-r{display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--sep)}
+.btn{font:inherit;font-weight:500;background:var(--btn);color:var(--btn-tx);border:0;border-radius:7px;padding:7px 13px;min-height:32px;font-size:13px}
+.btn:hover{filter:brightness(1.12)}
+.btn.pri{background:var(--work);color:#FFFFFF}
+.btn.on{background:var(--tx);color:var(--sheet)}
+.btn.sm{padding:4px 10px;min-height:28px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:default;filter:none}
+.bar{position:relative;height:5px;border-radius:3px;background:var(--card2)}
+.bar>.f{height:100%;border-radius:3px}
+.bar>.m{position:absolute;top:-3px;width:2px;height:11px;border-radius:1px;background:var(--you)}
+.dot{width:16px;height:16px;border-radius:50%;box-sizing:border-box;flex:none;display:flex;align-items:center;justify-content:center}
+.pic{width:100%;display:block;aspect-ratio:16/9;object-fit:cover}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,159,10,.5)}100%{box-shadow:0 0 0 6px rgba(255,159,10,0)}}
+.pulse{border-radius:50%;animation:pulse 2s ease-out infinite}
+@media (prefers-reduced-motion: reduce){.pulse{animation:none}}
+
+/* Layout (inline styles in the design) */
+.mc{display:flex;flex-wrap:wrap;align-content:flex-start;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;color:var(--tx);background:var(--win);position:relative}
+/* min-width:0 on every item of the wrapping .mc row: a flex item's automatic
+   minimum is its min-content width, which let the header's tab row push the
+   page 2px past a 390px phone (17px past 375). */
+.mc-top{flex:1 1 100%;min-width:0;display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;padding:10px 16px 2px}
+.mc-title{font-weight:700;font-size:14px;flex:1 1 0;min-width:140px;display:flex;align-items:center;gap:7px}
+/* The Perch mark beside the name (docs/design/Logo.dc.html, round 1 B, "Board top-left, 14 px bold"). */
+.mc-mark{flex:none;display:block}
+.mc-views{display:flex;gap:2px;background:var(--card);border-radius:9px;padding:3px}
+.mc-tools{flex:1 1 0;min-width:140px;display:flex;justify-content:flex-end;align-items:center;gap:4px}
+.icon-btn{all:unset;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:7px;color:var(--tx2)}
+.icon-btn[aria-pressed="true"]{color:var(--you)}
+#alerts:not(.bell-off) .bell-slash{display:none}
+.mc-list{flex:1 1 260px;max-width:290px;min-width:0;padding:12px 10px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:14px}
+.mix{display:flex;flex-direction:column;gap:8px;padding:0 6px}
+.mix-bar{display:flex;height:6px;gap:2px;border-radius:3px;overflow:hidden}
+.mc-sheet{flex:999 1 640px;min-width:0;margin:8px 8px 8px 0;background:var(--sheet);border-radius:12px;box-shadow:0 0 0 1px var(--sheet-ring);display:flex;flex-direction:column;overflow:hidden;overflow:clip;align-self:flex-start}
+.strip{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--sep)}
+.body{padding:24px 30px 36px;display:flex;flex-direction:column;gap:20px}
+.body>div:empty{display:none}
+.cols{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.col-l{flex:3 1 400px;min-width:0;display:flex;flex-direction:column;gap:16px}
+.col-r{flex:2 1 280px;min-width:0;display:flex;flex-direction:column;gap:16px}
+.composer{display:flex;flex-direction:column;gap:8px;background:var(--input);border-radius:10px;padding:10px 10px 8px 12px;border:1px solid var(--sep)}
+.composer.over{border-color:var(--work)}
+.composer textarea{all:unset;min-height:40px;font-size:13.5px;line-height:1.45;color:var(--tx);white-space:pre-wrap;word-break:break-word}
+.composer textarea::placeholder{color:var(--tx3)}
+.composer textarea:disabled{opacity:.6}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;background:var(--card2);border-radius:6px;padding:3px 3px 3px 8px;font-family:ui-monospace,'SF Mono',Menlo,monospace;max-width:100%;word-break:break-all}
+.chip button{all:unset;cursor:pointer;width:22px;height:22px;flex:none;display:flex;align-items:center;justify-content:center;color:var(--tx2)}
+.attach{display:inline-flex;align-items:center;gap:5px;cursor:pointer;position:relative;color:var(--tx2);font-size:12.5px;padding:4px 6px;border-radius:6px}
+.attach input{position:absolute;width:1px;height:1px;opacity:0}
+.attach:focus-within{outline:2px solid var(--work);outline-offset:2px}
+.toast{z-index:30;position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--card2);color:var(--tx);padding:10px 16px;border-radius:10px;font-size:13.5px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);max-width:calc(100vw - 32px);box-sizing:border-box}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.sess{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--sep);color:var(--tx)}
+.sess:hover{background:var(--sel)}
+.sess.sel{background:var(--sel)}
+.empty{padding:40px 30px;color:var(--tx2);font-size:14px;line-height:1.5}
+.empty.first{max-width:520px}
+.empty.first p{margin:0 0 10px}
+.empty.first .first-h{color:var(--tx);font-weight:600;font-size:15px;margin-bottom:6px}
+.empty.first a{color:var(--work)}
+
+/* Phase D views (component rules copied from the design) */
+.inp{display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--tx2)}
+.inp input,.inp textarea,.field{background:var(--input);border:1px solid var(--sep);border-radius:8px;color:var(--tx);padding:9px 11px;font:inherit;font-size:13.5px}
+.inp textarea{min-height:60px;resize:vertical}
+.inp input::placeholder,.inp textarea::placeholder,.field::placeholder{color:var(--tx3)}
+.idea{all:unset;-webkit-user-drag:element;box-sizing:border-box;cursor:grab;display:flex;flex-direction:column;background:var(--card);border-radius:12px;overflow:hidden;width:100%}
+.idea:hover{box-shadow:0 0 0 1px var(--sep)}
+.idea.sel{box-shadow:0 0 0 2px var(--work)}
+.idea.over,.lane.over{box-shadow:0 0 0 2px var(--work)}
+.idea.dragging{opacity:.45}
+.lane{display:flex;flex-direction:column;gap:10px;min-height:120px;padding:8px;border-radius:12px}
+.view{padding:26px 30px 36px;display:flex;flex-direction:column;gap:16px;box-sizing:border-box}
+.view h1{margin:0;font-size:26px;font-weight:700;letter-spacing:-0.02em}
+.linkish{all:unset;cursor:pointer;border-radius:4px}
+.linkish:hover{text-decoration:underline}
+.msg{font-size:13px;line-height:1.45;padding:8px 11px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.you{background:var(--work);color:#FFFFFF;margin-left:36px}
+.msg.claude{background:var(--card2);color:var(--tx);margin-right:36px}
+.msg.err{background:transparent;border:1px solid var(--bad);color:var(--tx);margin-right:36px}
+.msg img{display:block;max-width:100%;border-radius:6px;margin-top:6px}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;display:block}
+.name-in{all:unset;box-sizing:border-box;font-size:20px;font-weight:700;flex:1;min-width:0;border-radius:6px;padding:2px 4px;margin-left:-4px}
+.name-in:hover{background:var(--sel)}
+.name-in:focus{background:var(--input);outline:2px solid var(--work)}
+.x-btn{all:unset;cursor:pointer;width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:6px;background:var(--btn);color:var(--tx)}
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:44px 16px;overflow:auto;box-sizing:border-box;z-index:20}
+.modal{width:100%;max-width:580px;background:var(--sheet);border-radius:14px;box-shadow:0 0 0 1px var(--sheet-ring),0 24px 60px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.cmd{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12.5px;background:var(--input);border:1px solid var(--sep);border-radius:7px;padding:6px 10px;overflow-x:auto;white-space:nowrap;flex:1 1 220px;min-width:0}
+.err-line{color:var(--bad);font-size:12.5px;line-height:1.45}
+/* New project's Folder row (docs/design/NewProjectFolder.dc.html, variant A) */
+.fseg{display:inline-flex;align-self:flex-start;gap:2px;background:var(--card);border-radius:9px;padding:3px}
+.fbody{display:flex;flex-direction:column;gap:6px;min-width:0}
+.fpath{display:flex;align-items:center;gap:8px;color:var(--tx);font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12.5px;min-width:0}
+.fpath svg{color:var(--tx2);flex:none}
+.fpath>span{min-width:0;overflow-wrap:anywhere}
+.mc .fpath-link{flex:none;margin-left:auto;padding-left:6px;color:var(--work);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:12px;font-weight:500}
+.mc .fpath-link:disabled{color:var(--tx3);cursor:default;text-decoration:none}
+.fhint{font-size:12px;color:var(--tx3);line-height:1.4;margin-top:-2px}
+.fhint-taken{color:var(--tx2)}
+.fhint .linkish{color:var(--work)}
+.fnote{font-size:12.5px;color:var(--tx2);line-height:1.45}
+.flist{background:var(--card);border-radius:10px;padding:4px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.frow{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:7px;color:var(--tx);font-size:13px;min-width:0}
+.frow:hover{background:var(--sel)}
+.frow.on{background:var(--sel);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.mc.light .frow.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.radio{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--tx3);box-sizing:border-box;flex:none;display:flex;align-items:center;justify-content:center}
+.frow.on .radio{border-color:var(--work);background:var(--work)}
+.radio i{width:5px;height:5px;border-radius:50%;background:#FFFFFF}
+.fcol{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:1px}
+.fname{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fsub{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:var(--tx3);overflow-wrap:anywhere}
+.fwho{flex:0 1 auto;max-width:48%;font-size:12px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.fmore{padding:4px 8px 3px;font-size:12px}
+.fmore .linkish{color:var(--work)}
+.fchoose{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+.working{animation:breathe 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){.working{animation:none}}
+/* "Doing now" on the answer card (docs/design/LiveCode.dc.html, S2): the
+   working dot breathing, only while the session works; still and solid
+   when motion is reduced. */
+.doing{flex:none;animation:doing 1.6s ease-in-out infinite}
+@keyframes doing{0%,100%{opacity:.45;transform:scale(.82)}50%{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion: reduce){.doing{animation:none;opacity:1;transform:none}}
+
+/* Phone width. The list gives way to the chips (Phone projects, below). */
+@media (max-width: 700px){
+  .mc-top{padding:10px 16px 2px;flex-wrap:nowrap}
+  .mc-title{min-width:0}
+  .mc-tools{min-width:0;flex:0 0 auto}
+  .mc-list{max-width:none;flex-basis:100%;padding:12px 8px 8px}
+  .mc-sheet{margin:8px}
+  .body{padding:20px 16px 28px}
+  .strip{padding:10px 16px;gap:10px}
+  .mc-top{flex-wrap:wrap}
+  .mc-views{order:3;flex:1 1 100%;overflow-x:auto;scrollbar-width:none}
+  /* Five tabs at 10px sides measured 360px against 358px of header at 390
+     and 343px at 375; at 8px they fit and still grow to fill the row. */
+  .mc-views .seg{padding:5px 8px;flex:1 0 auto;justify-content:center}
+  .mc.not-projects .mc-list{display:none}
+  .view{padding:20px 16px 28px}
+  .ideas-main{padding:20px 16px 16px !important}
+  .ideas-panel{padding:0 16px 28px !important;max-width:none !important}
+  .obj-title{flex:1 1 100% !important}
+  .obj-next{flex:1 1 auto !important}
+}
+.draft-tag{all:unset;cursor:pointer;font-size:11px;font-weight:650;letter-spacing:.02em;padding:2px 7px;border-radius:5px;color:var(--you);border:1px solid var(--you);line-height:1.3}
+.draft-tag:hover{background:var(--you-t)}
+.draft-tag:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.obj-src{display:block;color:var(--tx3);font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;margin-top:1px}
+
+/* Sessions page and the top-bar memory readout (docs/design/CloseIdle.dc.html,
+   variant C's page reached from variant A's readout). Component rules
+   copied from the design. */
+.memchip{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:7px;font-size:12px;color:var(--tx);margin-right:4px;white-space:nowrap}
+.memchip svg{color:var(--tx2);flex:none}
+.memchip:hover,.memchip.on{background:var(--sel)}
+.memchip-sep{width:1px;height:12px;background:var(--sep);margin:0 2px}
+.strip-sep{width:1px;height:14px;background:var(--sep)}
+.tick{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--tx3);box-sizing:border-box;display:flex;align-items:center;justify-content:center;flex:none}
+.tick.on{background:var(--work);border-color:var(--work)}
+.tick.off{opacity:.35}
+.ch-s{font-size:13px;padding:10px 16px}
+.crow{display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--sep);cursor:pointer;min-width:0;position:relative}
+.crow:hover{background:var(--sel)}
+.crow.nohover{cursor:default}.crow.nohover:hover{background:none}
+.crow:has(input:focus-visible){outline:2px solid var(--work);outline-offset:-2px}
+.crow-p{flex:0 0 128px;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow-p.folder{font-weight:500;color:var(--tx2)}
+.crow-t{flex:1 1 0;min-width:0;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow-tag{flex:none;font-size:11px;font-weight:650;padding:2px 7px;border-radius:5px;color:var(--you);background:var(--you-t);white-space:nowrap}
+.crow-tag.muted{color:var(--tx2);background:var(--card2)}
+.crow-i{flex:0 0 auto;font-size:12px;color:var(--tx3);text-align:right;white-space:nowrap}
+.crow-m{flex:0 0 56px;text-align:right;font-size:12.5px;font-weight:500;white-space:nowrap}
+.mbar{display:flex;height:6px;gap:2px;border-radius:3px;overflow:hidden}
+.legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;color:var(--tx2)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mono{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px}
+/* The readout sits before the light/dark button; at phone width the top row
+   has no room for it, so the same readout takes its own line under the tabs. */
+.memchip-m{display:none}
+.memchip[hidden]{display:none}
+@media (max-width: 700px){
+  .mc-tools .memchip{display:none}
+  .memchip-m:not([hidden]){display:inline-flex;order:4;margin:0}
+  #s-head>div:first-child{flex:1 1 100% !important}
+  .crow{flex-wrap:wrap;row-gap:3px;padding:9px 16px}
+  .crow-p{flex:1 1 0}
+  .crow-t{order:5;flex:1 1 100%;padding-left:26px}
+  .crow-tag{order:6;margin-left:26px}
+}
+
+/* Rules: Your rules | Suggested (docs/design/Repeats.dc.html). Component
+   rules copied from the design. */
+.rs-switch{align-self:flex-start;margin:-4px 0 -6px}
+.rs-switch .seg{padding:4px 12px;min-height:26px;font-size:12.5px}
+.rs-body{display:flex;flex-direction:column;gap:16px}
+.sec-sub{margin:0;font-size:12.5px;color:var(--tx2);line-height:1.45;overflow-wrap:anywhere}
+.yr-cols{columns:2 420px;column-gap:16px}
+.yr-card{break-inside:avoid;margin:0 0 16px;overflow:hidden;display:inline-block;width:100%}
+.yr-r{padding:8px 16px;border-top:1px solid var(--sep);font-size:13px;line-height:1.5;color:var(--tx)}
+.sg-row{flex-wrap:wrap;gap:10px 18px;padding:14px 16px;align-items:flex-start}
+.sg-main{flex:1 1 380px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.sg-rule{font-weight:600;font-size:14.5px;line-height:1.4}
+.sg-ev{font-size:12.5px;line-height:1.45}
+/* The counts in "Said N times in S sessions" stand out at a glance. */
+.sg-n{color:var(--you);font-weight:600}
+.sg-btns{display:flex;gap:6px;flex-wrap:wrap;flex:none}
+.rp-q{border-left:2px solid var(--sep);padding:1px 0 1px 10px;font-size:13px;line-height:1.45;color:var(--tx2);overflow-wrap:anywhere}
+.rp-src{color:var(--tx3);font-size:11.5px;margin-left:8px;white-space:nowrap}
+.pv{background:var(--input);border:1px solid var(--sep);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px;margin-top:4px}
+.pv-h{font-size:12px;color:var(--tx2);overflow-wrap:anywhere}
+.pv-row{display:flex;gap:10px;align-items:flex-start}
+.pv-l{flex:0 0 66px;font-size:11.5px;color:var(--tx3);padding-top:2px}
+.pv-t{flex:1;min-width:0;font-size:13px;line-height:1.5;overflow-wrap:anywhere;padding-left:9px;border-left:2px solid transparent}
+.pv-t.old{color:var(--tx2);border-left-color:var(--sep)}
+.pv-t.new{color:var(--tx);border-left-color:var(--ok)}
+.pv-btns{display:flex;gap:6px;justify-content:flex-end}
+.quiet-line{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--tx2);padding:2px 4px}
+@media (max-width: 700px){
+  /* The top-bar tab rules must not stretch the switch under the title. */
+  .mc-views.rs-switch{order:0;flex:none;overflow:visible}
+  .mc-views.rs-switch .seg{flex:none;padding:4px 12px}
+  .sg-btns{width:100%}
+}
+
+/* Open on your phone (docs/design/PhoneQR.dc.html, variant A): a popover
+   from the top-bar phone button. Component rules copied from the design. */
+.qr-anchor{position:relative;display:flex}
+.qr-anchor[hidden]{display:none}
+.qr-btn.open{background:var(--sel);color:var(--tx)}
+.qr-pop{position:absolute;top:calc(100% + 10px);left:50%;transform:translateX(-50%);z-index:20;width:296px;background:var(--sheet);border-radius:12px;box-shadow:0 0 0 1px var(--sheet-ring),0 18px 44px rgba(0,0,0,.45);display:flex;flex-direction:column;text-align:left;cursor:default}
+.mc.light .qr-pop{box-shadow:0 0 0 1px var(--sheet-ring),0 14px 36px rgba(0,0,0,.14)}
+.qr-caret{position:absolute;top:-6px;left:50%;width:12px;height:12px;margin-left:-6px;background:var(--sheet);transform:rotate(45deg);border-radius:2px;box-shadow:-1px -1px 0 0 var(--sheet-ring)}
+.qr-head{font-size:13.5px;font-weight:600;padding:14px 16px 2px}
+.qr-body{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 16px 14px;text-align:center}
+.qr-tile{width:176px;height:176px;box-sizing:border-box;border-radius:10px;background:#FFFFFF;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px var(--sep)}
+.qr-svg{display:block}
+.qr-tile.off{background:var(--card);box-shadow:none;border:1.5px dashed var(--sep);color:var(--tx3)}
+.qr-line{font-size:13px;line-height:1.4;color:var(--tx);margin-top:4px}
+.qr-line.warn{color:var(--bad)}
+.qr-addr{color:var(--tx3);font-size:11px;letter-spacing:.01em;white-space:nowrap}
+.qr-foot{border-top:1px solid var(--sep);padding:10px 16px 12px;display:flex;flex-direction:column;gap:4px}
+.qr-foot-r{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--tx2)}
+.qr-hint{font-size:11.5px;color:var(--tx3)}
+.mc.light .qr-foot .btn{box-shadow:0 0 0 1px var(--sep)}
+/* The sign-in toast spans the phone's width, as in the design's phone frame. */
+@media (max-width: 700px){
+  .toast.wide{left:16px;right:16px;bottom:18px;transform:none;max-width:none;font-size:13px;line-height:1.4}
+}
+/* A phone whose key was replaced on the Mac. */
+.signed-out{flex:1 1 100%;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;text-align:center;font-size:15px;line-height:1.45;color:var(--tx2)}
+.signed-out p{margin:0;max-width:320px}
+
+/* Phone projects (docs/design/PhoneProjects.dc.html, variant C): the active
+   projects as chips above the detail, the idle ones in a bottom sheet. The
+   component rules are copied from the design; the frame's absolute sheet is
+   fixed to the screen here. Neither shows at desktop width. */
+.pchips{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:6px;padding:10px 8px 0;box-sizing:border-box;min-width:0}
+.pchip{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 9px;border-radius:16px;font-size:13px;font-weight:550;color:var(--tx);background:var(--t);max-width:100%;white-space:nowrap}
+.pchip svg{flex:none}
+.pchip span{overflow:hidden;text-overflow:ellipsis}
+.pchip.on{box-shadow:inset 0 0 0 1.5px var(--c);font-weight:650}
+.pchip.idle{background:var(--card);color:var(--tx2);padding:0 10px 0 12px;gap:4px}
+.pchip.idle.on{box-shadow:inset 0 0 0 1.5px var(--idle);color:var(--tx)}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:15;touch-action:none}
+.mc.light .scrim{background:rgba(0,0,0,.28)}
+.bsheet{position:fixed;left:0;right:0;bottom:0;max-height:calc(100vh - 58px);max-height:calc(100dvh - 58px);z-index:16;background:var(--sheet);border-radius:14px 14px 0 0;box-shadow:0 0 0 1px var(--sheet-ring),0 -12px 40px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--sep);margin:7px auto 0;flex:none}
+.bs-head{display:flex;align-items:baseline;gap:8px;padding:10px 16px 4px;flex:none}
+.bs-title{font-size:16px;font-weight:700}
+.bs-done{all:unset;cursor:pointer;color:var(--work);font-size:15px;font-weight:600;padding:2px 4px}
+.bs-list{flex:1 1 auto;min-height:0;padding:8px 8px 24px;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
+.pchips,.idle-sheet{display:none}
+@media (max-width: 700px){
+  .mc-list{display:none}
+  .pchips{display:flex}
+  .mc.not-projects .pchips{display:none}
+  .idle-sheet{display:block}
+}
+
+/* Settings (docs/design/HandoffSettings.dc.html, variant A): a popover from
+   the top-bar gear, built like the phone card. The component rules are
+   copied from the design; .hs-auto, the error foot and the thumbs' touch
+   targets are the build's (the on/off switch was asked for after it). */
+.icon-btn.open{background:var(--sel);color:var(--tx)}
+.hs-pop{position:absolute;z-index:30;width:336px;box-sizing:border-box;background:var(--sheet);border-radius:12px;box-shadow:0 0 0 1px var(--sheet-ring),0 18px 44px rgba(0,0,0,.45);text-align:left;font-size:13px;color:var(--tx);cursor:default}
+.mc.light .hs-pop{box-shadow:0 0 0 1px var(--sheet-ring),0 14px 36px rgba(0,0,0,.14)}
+.hs-caret{position:absolute;top:-6px;left:50%;width:12px;height:12px;margin-left:-6px;background:var(--sheet);transform:rotate(45deg);border-radius:2px;box-shadow:-1px -1px 0 0 var(--sheet-ring)}
+.hs-head{font-size:13.5px;font-weight:600;padding:14px 16px 2px}
+.hs-body{padding:12px 16px 6px;display:flex;flex-direction:column}
+.hs-sec{display:flex;align-items:baseline;gap:8px;font-size:12px;font-weight:650;color:var(--tx);padding:0 0 12px}
+.hs-sec span{font-weight:500;color:var(--tx3);font-size:11.5px}
+.hs-track{position:relative;height:6px;border-radius:3px;background:var(--card2);margin:6px 8px 0;touch-action:none}
+.hs-z1,.hs-z2{position:absolute;top:0;bottom:0}
+.hs-z1{background:var(--you);opacity:.38}
+.hs-z2{background:var(--bad);opacity:.38;border-radius:0 3px 3px 0}
+.hs-th{position:absolute;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:#FFFFFF;box-shadow:0 0 0 2.5px var(--you),0 1px 4px rgba(0,0,0,.35);cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.hs-th.c{box-shadow:0 0 0 2.5px var(--bad),0 1px 4px rgba(0,0,0,.35)}
+/* A larger touch target, but never over the other thumb's centre: at the
+   5-point stop the centres sit about 14px apart. */
+.hs-th::before{content:'';position:absolute;inset:-12px -4px}
+.hs-th.drag{cursor:grabbing;z-index:1}
+.hs-th:focus-visible{outline:2px solid var(--work);outline-offset:3px}
+.hs-scale{position:relative;display:flex;justify-content:space-between;font-size:11px;color:var(--tx3);margin:10px 0 4px}
+.hs-row{display:flex;align-items:center;gap:10px;padding:7px 0}
+.hs-row.sep{border-top:1px solid var(--sep);margin-top:6px;padding-top:12px}
+.hs-row.on-row{padding:0 0 10px}
+.hs-dot{width:8px;height:8px;border-radius:50%;flex:none;align-self:flex-start;margin-top:5px}
+.hs-dot.t{background:var(--you)}.hs-dot.c{background:var(--bad)}
+.hs-l{flex:1;min-width:0;line-height:1.35}
+.hs-tok{font-size:11.5px;color:var(--tx3);margin-top:2px}
+.hs-step{display:inline-flex;align-items:center;background:var(--card);border-radius:8px;padding:2px;flex:none}
+.mc.light .hs-step,.mc.light .hs-seg{box-shadow:inset 0 0 0 1px var(--sep)}
+.hs-sb{all:unset;cursor:pointer;width:28px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;font-size:15px;line-height:1;color:var(--tx)}
+.hs-sb:hover{background:var(--sel)}
+.hs-sb:disabled{opacity:.28;cursor:default;background:none}
+.hs-sb:focus-visible,.hs-sw:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.hs-sv{min-width:38px;text-align:center;font-size:13px;font-weight:600}
+.hs-seg{display:inline-flex;gap:2px;background:var(--card);border-radius:8px;padding:2px;flex:none}
+.hs-seg .seg{padding:3px 12px;min-height:24px;font-size:12.5px}
+.mc.light .hs-seg .seg.on{box-shadow:0 0 0 1px var(--sep),0 1px 2px rgba(0,0,0,.08)}
+.hs-sw{all:unset;cursor:pointer;position:relative;flex:none;width:36px;height:22px;border-radius:11px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--sep)}
+.hs-sw span{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.hs-sw.on{background:var(--work);box-shadow:none}
+.hs-sw.on span{left:17px}
+.hs-hint{font-size:11.5px;color:var(--you);line-height:1.4;padding:0 0 4px 18px}
+.hs-hint[hidden]{display:none}
+/* Hand-off off: the line and ceiling stay in view, greyed and inert. */
+.hs-auto.off{opacity:.38;pointer-events:none}
+.hs-auto.off .hs-th{cursor:default}
+.hs-foot{border-top:1px solid var(--sep);padding:10px 16px 12px;font-size:12px;color:var(--tx3);display:flex;align-items:center;gap:6px;min-height:16px}
+.hs-foot svg{flex:none}
+.hs-foot.ok{color:var(--ok);font-weight:550}
+.hs-foot.bad{color:var(--bad);font-weight:550;align-items:flex-start;line-height:1.4}
+@media (prefers-reduced-motion: reduce){.hs-sw span{transition:none}}
+/* On a phone the card spans the width with 16px margins (placeHs sets left
+   and right). */
+@media (max-width: 700px){
+  .hs-pop{width:auto}
+}
+
+/* Phone alerts (docs/design/PhoneAlerts.dc.html, variant B): a section of
+   the Settings card and a setup sheet built like the board's .modal. The
+   pa-* rules are copied from the design; the overlay, the phone's bottom
+   sheet and the red status line are the build's. */
+.pa-top{padding:12px 0 0 !important}
+.hs-row.pa-top .hs-l{display:flex}
+.pa-lbl{font-size:12px;color:var(--tx2);margin-bottom:-4px}
+.pa-seg{display:flex}
+.pa-seg .seg{flex:1 1 auto;justify-content:center;padding:3px 8px !important}
+.pa-step{display:flex;gap:10px;align-items:flex-start}
+.pa-n{flex:none;width:18px;height:18px;border-radius:50%;background:var(--card2);color:var(--tx2);font-size:11px;font-weight:650;display:flex;align-items:center;justify-content:center;margin-top:-1px}
+.pa-sb{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;line-height:1.35}
+.pa-at{font-weight:600}
+.pa-in{box-sizing:border-box;width:100%;min-width:0;flex:1;font-size:12px !important;padding:6px 9px !important}
+.pa-in.mono{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px !important}
+.pa-frow{display:flex;align-items:center;gap:8px;min-width:0}
+.pa-field{flex:1;min-width:0;display:flex;align-items:center;gap:8px;box-sizing:border-box;height:30px;padding:0 9px;border-radius:8px;background:var(--input);border:1px solid var(--sep);font-size:12px}
+.pa-field .pa-val{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--tx2)}
+.pa-field.mono{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px}
+.pa-ok{flex:none;display:inline-flex;align-items:center;gap:3px;color:var(--ok);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:11.5px;font-weight:600}
+.pa-link{all:unset;cursor:pointer;flex:none;color:var(--work);font-size:12px;font-weight:500}
+.pa-link.pa-inline{font-size:inherit}
+.pa-link:focus-visible{outline:2px solid var(--work);outline-offset:2px;border-radius:3px}
+.pa-help{font-size:11.5px;color:var(--tx3);line-height:1.4}
+.pa-lead{font-size:12.5px;padding:0}
+.pa-qr-tile{width:160px;height:160px}
+.pa-topic{display:flex;align-items:baseline;gap:10px;min-width:0;white-space:nowrap}
+.pa-tv{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.pa-test{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-left:28px}
+.pa-res{font-size:12px;display:inline-flex;align-items:center;gap:4px;line-height:1.35}
+.pa-res.ok{color:var(--ok);font-weight:550}
+.pa-res.bad{color:var(--bad);font-weight:550;flex:1 1 180px;min-width:0}
+.pa-sb>.pa-res.bad{flex:none}
+.mc.light .pa-test .btn,.mc.light .pa-btns .btn,.mc.light .pa-frow .btn,.mc.light .pa-sh-f .btn:not(.pri){box-shadow:0 0 0 1px var(--sep)}
+.pa-note{display:flex;gap:7px;align-items:flex-start;font-size:11.5px;color:var(--tx3);line-height:1.4}
+.pa-note svg{flex:none;margin-top:2px}
+.pa-note .pa-bad{color:var(--bad);font-weight:550}
+.hs-body>.pa-note{padding:4px 0 6px}
+.pa-refused{color:var(--tx2);font-size:12.5px}
+.pa-btns{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:0 0 10px}
+.pa-btns .pa-res.bad{flex:1 1 100%}
+.pa-on{color:var(--tx2) !important;display:flex;align-items:center;gap:6px}
+.hs-tok.pa-bad{color:var(--bad);font-weight:550;line-height:1.4}
+.pa-live{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+.pa-back{z-index:35}
+.mc.light .pa-back{background:rgba(0,0,0,.28)}
+.pa-sheet{max-width:420px;font-size:13px;color:var(--tx)}
+.pa-sh-h{display:flex;align-items:center;gap:10px;padding:18px 20px 4px}
+.pa-sh-h h2{margin:0;font-size:17px;font-weight:700;flex:1}
+.pa-sh-b{display:flex;flex-direction:column;gap:12px;padding:8px 20px 16px}
+.pa-sh-f{display:flex;align-items:center;gap:8px;padding:12px 20px 16px;border-top:1px solid var(--sep)}
+.pa-foot{flex:1;font-size:12px}
+/* On a phone the sheet rises from the bottom and scrolls inside itself. */
+/* Where new projects go (docs/design/ProjectsRoot.dc.html): the Projects
+   section of the Settings card and the first-run question. */
+.pr-lbl{line-height:1.35;padding:0 0 7px}
+.pr-frow{padding:0 0 6px}
+.pr-field{flex:1 1 auto;min-height:32px}
+.pr-field svg{flex:none;color:var(--tx2)}
+.pr-field.ro{background:var(--card);border-color:transparent}
+.pr-val{color:var(--tx) !important}
+.pr-lock{flex:none;display:inline-flex;color:var(--tx3)}
+.pr-tok{margin:0;padding:0 0 10px;line-height:1.4}
+.hs-body>.pr-note{padding:0 0 10px}
+#pr-body>.pr-note{padding:0 0 10px}
+.pr-tag{flex:none;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:11.5px;color:var(--tx3)}
+.pr-field.big{flex:none;height:36px;font-size:12.5px}
+.pr-lead{font-size:13px;line-height:1.45}
+.pr-later{flex:1;min-width:0;font-size:12px}
+.pr-first{max-width:440px}
+.pr-first:focus{outline:none}
+#pr-back:not(.bottom){align-items:center}
+.pa-back.bottom{align-items:flex-end;padding:0;overflow:hidden}
+.pa-back.bottom .pa-sheet{max-width:none;border-radius:14px 14px 0 0;max-height:calc(100vh - 58px);max-height:calc(100dvh - 58px);overflow-y:auto;overscroll-behavior:contain}
+.pa-back.bottom .pa-sh-f{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+
+/* The Live screen (docs/design/LiveScreen.dc.html, variant B, with the
+   shorter default height asked for after it: about 18 lines on a desktop and
+   14 on a phone). The component rules are copied from the design; the
+   heights, the slots and the full-screen layer are the build's. The
+   terminal is dark in both themes. .mc-sheet clips with overflow:clip (not
+   hidden) so the card can stay pinned while the page scrolls. */
+.headbox{display:flex;flex-direction:column;gap:6px}
+.lv-slot{display:contents}
+.lv-card{display:flex;flex-direction:column;overflow:hidden}
+.lv-h{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;min-height:44px;box-sizing:border-box;flex-wrap:wrap}
+.lv-h .card-h{padding:0}
+.lv-h .sp{flex:1 1 0}
+.fresh{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);white-space:nowrap}
+.fresh[hidden]{display:none}
+.fresh i{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+.fresh.live i{animation:breathe 1.6s ease-in-out infinite}
+.fresh.slow{color:var(--you)}.fresh.slow i{background:var(--you)}
+.fresh.stale{color:var(--bad)}.fresh.stale i{background:var(--bad)}
+.fresh.watch{color:var(--tx2)}.fresh.watch i{background:transparent;box-shadow:inset 0 0 0 1.5px var(--idle)}
+@media (prefers-reduced-motion: reduce){.fresh.live i{animation:none}}
+.lv-tap{all:unset;cursor:pointer;display:none;align-items:center;gap:5px;font-size:12px;color:var(--tx3);padding:6px 8px 6px 4px;border-radius:6px}
+.lv-tap:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.lv{margin:0 8px 8px;background:#0B0B0C;border-radius:8px;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#C7C7CC}
+.lv.flush{margin:0}
+.lv-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:12px 14px;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12px;line-height:1.55;scrollbar-width:thin;scrollbar-color:#3A3A40 transparent;overscroll-behavior:contain}
+.lv-scroll:focus-visible{outline:2px solid var(--work);outline-offset:-2px}
+.lv-card .lv-scroll{height:calc(18 * 1.55em);flex:none}
+.lv .measure{width:100%;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+.lv.stale .measure{opacity:.6}
+.lv .e{display:flex;gap:8px;min-width:0}
+.lv .e>.g{flex:none;width:1.3ch;text-align:center;white-space:pre}
+.lv .e>.x{flex:1 1 0;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;display:flex;flex-direction:column}
+.lv .e.c>.x,.lv .e.c>.g{color:#F2F2F4}
+.lv .ln{min-height:.7em}
+.lv .pre{white-space:pre;overflow-x:auto;scrollbar-width:thin;scrollbar-color:#3A3A40 transparent}
+.lv .e.t>.g{color:#30D158}
+.lv .e.t>.x{color:#8E8E93}
+.lv .e.t b{font-weight:600;color:#C7C7CC}
+.lv .e.t .tl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.lv .e.t .more{color:#4A4A50}
+.lv .e.u{background:#1C1C1F;border-radius:6px;padding:6px 10px 6px 8px}
+.lv .e.u>.g{color:#8E8E93}.lv .e.u>.x{color:#F2F2F4}
+.lv .e.s>.g,.lv .e.s>.x{color:#6E6E75}
+.lv .e.r>.x{color:#A1A1A8}.lv .e.r>.g{color:#6E6E75}
+.lv .e.mini{font-size:11.5px}
+.lv .e.p>.x{white-space:pre-wrap}
+.lv .lnk{color:#409CFF;text-decoration:underline;text-decoration-color:rgba(64,156,255,.4);text-underline-offset:2px}
+/* Code spans (docs/design/LiveCode.dc.html, C): a chip in Claude Code's
+   periwinkle, its rounded ends kept on each line it wraps over. A "! "
+   command ends in a Copy button: an icon inside the chip on a desktop
+   ("Copy" on hover), a 32 px pill after it on a phone, kept on the chip's
+   line. */
+.lv .cd{background:rgba(255,255,255,.08);border-radius:4px;padding:1px 4px;color:#B1B9F9;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.lv .cp{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:5px;padding:0 1px 0 5px;border-left:1px solid rgba(255,255,255,.14);color:#8E8E93;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:11px;font-weight:500;vertical-align:-1px;line-height:1;white-space:nowrap;text-indent:0}
+.lv .cp svg{flex:none}
+.lv .cp .w{display:none}
+.lv .cd:hover .cp,.lv .cp:focus-visible{color:#F2F2F4}
+.lv .cd:hover .cp .w,.lv .cp:focus-visible .w{display:inline}
+.lv .cp:focus-visible{outline:2px solid var(--work);outline-offset:2px;border-radius:3px}
+.lv .cp.done,.lv .cd:hover .cp.done{color:#30D158}
+.lv .cpm{all:unset;display:none;align-items:center;gap:5px;height:32px;padding:0 11px 0 9px;margin:2px 0 2px 6px;border-radius:8px;background:#26262A;box-shadow:inset 0 0 0 1px #34343A;color:#E5E5EA;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;font-weight:600;vertical-align:middle;white-space:nowrap;line-height:1;text-indent:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.lv .cpm.done{color:#30D158;box-shadow:inset 0 0 0 1px rgba(48,209,88,.35);background:rgba(48,209,88,.10)}
+/* Any other chip: the same Copy, shown only while the pointer is on the span
+   (any of its pieces, .hov) or for the 1.5 s of Copied. It floats past the
+   chip's end on a zero-width anchor, so the line never reflows under the
+   pointer; .flip puts it over the chip's end when the line ends there. */
+.lv .cpa{position:relative}
+.lv .cph{all:unset;cursor:pointer;position:absolute;left:3px;top:-1px;bottom:-1px;z-index:2;display:none;align-items:center;gap:4px;padding:0 6px 0 6px;border-radius:0 4px 4px 0;background:#232326;box-shadow:inset 1px 0 0 rgba(255,255,255,.14),0 2px 6px rgba(0,0,0,.45);color:#F2F2F4;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:11px;font-weight:500;line-height:1;white-space:nowrap;text-indent:0}
+.lv .cph svg{flex:none}
+.lv .cph.flip{left:auto;right:3px;border-radius:4px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),0 2px 6px rgba(0,0,0,.45)}
+.lv .cd:hover .cph,.lv .cd.hov .cph,.lv .cph.done{display:inline-flex}
+.lv .cph.done{color:#30D158}
+.lv .cph:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+@media (max-width: 700px){
+  .lv .cp{display:none}
+  /* A phone has no hover: a tap on the chip copies, and the chip rings
+     green with a check on its last piece for the 1.5 s of Copied. */
+  .lv .cph,.lv .cd:hover .cph,.lv .cd.hov .cph,.lv .cph.done{display:none}
+  .lv .cd[data-lv-chip]{cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .lv .cd.pl.done{color:#30D158;background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.45)}
+  .lv .cd.pl.lst.done::after{content:'';display:inline-block;width:11px;height:11px;margin-left:4px;vertical-align:-1px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat}
+  .lv .cpm{display:inline-flex}
+  .lv .cdw{white-space:nowrap}
+  /* A long command may still wrap inside its chip; the pill keeps to its end. */
+  .lv .cdw.long .cd{white-space:pre-wrap}
+}
+.lv-empty{color:#6E6E75}
+.lv-st{flex:none;border-top:1px solid #232326;padding:8px 14px 9px;display:flex;flex-direction:column;gap:3px;font-size:12px;color:#A1A1A8;background:#101012}
+.lv-st[hidden]{display:none}
+.lv-st-r{display:flex;align-items:center;gap:8px;min-width:0}
+.lv-st-r svg{flex:none}
+.lv-st-r b{color:#F2F2F4;font-weight:600;white-space:nowrap}
+.lv-sub{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv-ag{display:flex;gap:10px;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11px;color:#8E8E93;padding-left:22px;min-width:0}
+.lv-ag span:first-child{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv-ag span:last-child{flex:none}
+.lv-jump{position:absolute;left:50%;transform:translateX(-50%);z-index:2;background:#0A84FF;color:#FFFFFF;border:0;border-radius:15px;padding:6px 13px;font:inherit;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:12px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.5);display:inline-flex;gap:6px;align-items:center;white-space:nowrap;cursor:pointer}
+.lv-jump[hidden]{display:none}
+/* Screen text in a card: long runs wrap inside it, and a terminal rule
+   line is one row clipped to the card (app.js, SCREEN_RULE). */
+.scr-lines{font-size:12.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.scr-rule{white-space:pre;overflow:hidden}
+.q-opts .btn{max-width:100%;overflow-wrap:anywhere}
+/* Full screen: the terminal at a reading width (about 125 characters) with
+   the project's composer under it. */
+.lv-fs{position:fixed;inset:0;z-index:25;background:var(--win);display:flex;flex-direction:column}
+.lv-fs[hidden]{display:none}
+html.lv-lock,html.lv-lock body{overflow:hidden}
+.fs-bar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 12px 8px 14px;min-height:48px;box-sizing:border-box;border-bottom:1px solid var(--sep);background:var(--sheet)}
+.fs-name{font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.state-c{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.kbd{font-size:11px;color:var(--tx3);margin-left:4px}
+.fs-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:8px;padding:10px}
+.fs-body .lv{flex:1 1 auto;min-height:0;margin:0}
+.fs-body .lv-scroll{font-size:13px;padding:18px 22px}
+.fs-body .lv .measure{max-width:1000px;gap:12px}
+.fs-body .lv-st{padding-left:max(22px,calc((100% - 1000px) / 2));padding-right:max(22px,calc((100% - 1000px) / 2))}
+.fs-body .composer{flex:none;width:100%;max-width:1044px;margin:0 auto;box-sizing:border-box}
+/* A menu on screen, in full screen (docs/design/LiveMenu.dc.html, V1): its
+   options in the message box's place. */
+.lvm{flex:none;width:100%;max-width:1044px;margin:0 auto;box-sizing:border-box;display:flex;flex-direction:column;gap:10px;background:var(--you-t);border-radius:10px;padding:11px 12px 11px 14px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--you) 35%,transparent)}
+.lvm-h{display:flex;align-items:center;gap:8px;min-width:0;font-size:13.5px;line-height:1.35}
+.lvm-h svg{flex:none}
+.lvm-h b{font-weight:650;white-space:nowrap;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.lvm-h .ctx{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx2);font-size:12.5px}
+.lvm-o{display:flex;flex-wrap:wrap;gap:8px}
+.lvm-o .btn{max-width:100%;overflow-wrap:anywhere;text-align:left;line-height:1.35}
+.lvm-o .btn.chosen,.lvm-o .btn.chosen:disabled{background:var(--card2);color:var(--tx);box-shadow:0 0 0 1.5px var(--ok);opacity:1}
+.lvm-o .btn.dimmed,.lvm-o .btn.dimmed:disabled{opacity:.35}
+.lvm-f{font-size:12px;color:var(--tx3);line-height:1.4}
+.lvm-sent{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--ok)}
+.lvm-sent svg{flex:none}
+@media (max-width: 700px){
+  .lvm-o{flex-direction:column;flex-wrap:nowrap}
+  .lvm-o .btn{width:100%;min-height:44px;font-size:15px;padding:10px 14px}
+}
+@media (min-width: 701px){
+  /* The columns split evenly and the card leads the right one, pinned. */
+  .col-l{flex:1 1 400px}
+  .col-r{flex:1 1 400px;align-self:stretch}
+  /* The project's right column is pinned as one piece (app.js, pinColumn,
+     sets its top), so nothing in it slides under the Live screen. */
+  .col-r.col-pin{align-self:flex-start;position:sticky;top:12px}
+}
+@media (max-width: 700px){
+  /* The title, the folder and stage line and the hand-off details come
+     first, as on desktop; the card leads the left column, right above the
+     answer card it goes with (#lv-slot-phone). */
+  .lv-exp{display:none}
+  .lv-tap{display:inline-flex}
+  .lv-card{cursor:pointer}
+  .lv-card .lv-scroll{height:calc(14 * 1.55em)}
+  .lv-card .lv-ag{display:none}
+  .fs-bar{padding:6px 12px 6px 8px;display:grid;grid-template-columns:1fr auto 1fr}
+  .lv-back{display:inline-flex;align-items:center;gap:5px;color:var(--work);font-size:15px;font-weight:500;padding:4px;justify-self:start}
+  .lv-mid{text-align:center;max-width:44vw}
+  .lv-end{display:flex;justify-content:flex-end;min-width:0}
+  .fs-body .lv-scroll{font-size:12px;padding:12px 14px}
+  .fs-body .lv .measure{gap:10px}
+  .fs-body .lv-st{padding-left:14px;padding-right:14px}
+  .fs-body{padding:8px 8px max(8px, env(safe-area-inset-bottom))}
+}
+/* Quick mockups on idea cards (docs/design/IdeaMockups.dc.html, variant A) */
+.mk-card .card-h{padding:12px 16px 10px;align-items:center}
+.mk-pad{padding:12px 16px 14px}
+.mk-col{display:flex;flex-direction:column;gap:10px}
+.mk-gap12{gap:12px;padding-bottom:12px}
+.mk-tail{display:flex;flex-direction:column;gap:12px;padding-top:0}
+.mk-tail[hidden]{display:none}
+.mk-rl{font-weight:500;font-size:12px}
+.mk-rounds{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:2px;background:var(--card2);border-radius:8px;padding:2px;max-width:100%}
+.mk-rounds .seg{padding:3px 10px;min-height:24px;font-size:12px}
+.mk-stage{position:relative;margin:0 16px;border-radius:10px;overflow:hidden;background:#000}
+.mk-big{display:block;width:100%;aspect-ratio:16/10;object-fit:cover}
+.mk-badge{position:absolute;left:10px;bottom:10px;display:inline-flex;align-items:center;gap:5px;background:rgba(0,0,0,.62);color:#FFFFFF;font-size:11.5px;font-weight:600;padding:3px 8px 3px 6px;border-radius:6px}
+.mk-badge svg{background:var(--ok);border-radius:50%;padding:2px;width:9px;height:9px}
+.mk-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.mk-tile{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:7px;background:var(--card2)}
+div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep)}
+.mk-th{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:5px;min-width:0;border-radius:9px;padding:3px}
+.mk-th:hover{background:var(--sel)}
+.mk-th.on{box-shadow:0 0 0 2px var(--work)}
+.mk-thl{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--tx2);min-width:0;padding:0 2px 2px}
+.mk-thl b{color:var(--tx);font-weight:650}
+.mk-thl .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mk-pk{display:inline-flex;flex:none}
+.mk-workrow{display:flex;align-items:center;gap:10px}
+.mk-again{display:flex;gap:8px;flex-wrap:wrap}
+.mk-again .field{flex:1 1 140px;min-width:0;font-size:13px;padding:7px 10px}
+.mk-foot{font-size:11.5px;line-height:1.4;overflow-wrap:anywhere}
+.mk-foot .linkish{color:var(--work)}
+.mk-sys{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--tx3);padding:2px 4px;line-height:1.4}
+.mk-sys svg{flex:none;color:var(--work)}
+.mk-crow{display:flex;align-items:center;gap:4px;margin-top:4px;min-width:0}
+.mk-mini{width:34px;height:21px;object-fit:cover;border-radius:4px;flex:none;opacity:.85}
+.mk-mini.on{opacity:1;box-shadow:0 0 0 1.5px var(--ok)}
+.mk-crow .t3{margin-left:4px;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* Plans (docs/design/Plans.dc.html: 1 "Planning it together" variant A, the
+   Plan card and full plan of A, and A+'s one-line PLAN row). Component rules
+   copied from the design; its .mc.phone rules are the phone-width ones. */
+.pl-thumb{display:block;border-radius:5px;flex:none;object-fit:cover;background:var(--card2)}
+.pl-label{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tx2);background:var(--card2);border-radius:5px;padding:2px 7px;flex:none}
+.pl-label.sm{font-size:10px;padding:1px 6px;margin-right:8px;vertical-align:1px}
+.pl-ch{align-items:center}
+.pl-title{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.pl-flow{list-style:none;margin:0;padding:2px 16px 10px;display:flex;flex-direction:column}
+.pl-step{display:grid;grid-template-columns:18px 74px minmax(0,1fr) auto;column-gap:10px;row-gap:6px;align-items:start;padding:8px 0;position:relative}
+.pl-step::before{content:"";position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--sep)}
+.pl-step.first::before{top:17px}
+.pl-step.last::before{bottom:calc(100% - 17px)}
+.pl-step.first.last::before{display:none}
+.pl-step.ld::after{content:"";position:absolute;left:8px;top:17px;bottom:-17px;width:2px;background:var(--ok);opacity:.55;z-index:0}
+.pl-g{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:18px;height:18px}
+.pl-tag{font-size:11px;font-weight:600;color:var(--tx2);background:var(--card2);border-radius:5px;padding:2px 0;text-align:center;line-height:14px;white-space:nowrap}
+.pl-tag.gate{color:var(--you);background:var(--you-t)}
+.pl-t{font-size:13px;line-height:18px;min-width:0;overflow-wrap:anywhere}
+.pl-w{font-size:11.5px;color:var(--tx3);white-space:nowrap;line-height:18px;font-variant-numeric:tabular-nums}
+.pl-w.you{color:var(--you);font-weight:600}
+.pl-w.now{color:var(--work);font-weight:600}
+.pl-sub{grid-column:3 / 5;display:flex;flex-direction:column;gap:6px;min-width:0}
+.pl-ev{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:12px;color:var(--tx2)}
+.pl-e{display:inline-flex;align-items:center;gap:6px;min-width:0;line-height:1.35;overflow-wrap:anywhere}
+.pl-e>svg{flex:none}
+.pl-e b{color:var(--tx);font-weight:600}
+.pl-shot{gap:9px;font-size:12px}
+.pl-file,.pl-mono{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px}
+.pl-file{color:var(--tx3)}
+.pl-step.done .pl-t{color:var(--tx)}
+.pl-step.now .pl-t{font-weight:600}
+.pl-step.you{background:var(--you-t);border-radius:8px;margin:2px -8px;padding:8px 8px}
+.pl-step.you::before{left:16px}
+.pl-step.you .pl-t{font-weight:600}
+.pl-step.todo .pl-t,.pl-step.next .pl-t,.pl-step.skip .pl-t{color:var(--tx3)}
+.pl-step.todo .pl-tag,.pl-step.skip .pl-tag{opacity:.6}
+.pl-opts{display:flex;flex-direction:column;gap:4px}
+.pl-opt{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 8px;border-radius:7px;min-width:0}
+.pl-opt>svg{flex:none}
+.pl-opt.on{background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.35)}
+.mc.light .pl-opt.on{background:rgba(31,157,76,.08);box-shadow:inset 0 0 0 1px rgba(31,157,76,.30)}
+.pl-opt.off{opacity:.45}
+.pl-ot{flex:1 1 auto;min-width:0}
+.pl-ot b{font-weight:600}
+.pl-on{font-size:11.5px;white-space:nowrap;color:var(--tx3)}
+.pl-opt.on .pl-on{color:var(--ok);font-weight:600}
+.pl-ho{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--tx3);padding:4px 0 4px 28px;position:relative}
+.pl-ho::before{content:"";position:absolute;left:8px;top:0;bottom:0;width:2px;background:var(--ok);opacity:.55}
+.pl-ho>svg{flex:none;color:var(--work)}
+.pl-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 16px 12px;border-top:1px solid var(--sep);font-size:12px;color:var(--tx3)}
+.pl-foot>span:first-child{flex:1 1 220px}
+.pl-rulechip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--tx2);background:var(--card2);border-radius:6px;padding:3px 8px;white-space:nowrap}
+.pl-gate{background:var(--you-t) !important}
+.pl-gh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.pl-link{font-size:12px;color:var(--work);font-weight:500}
+.pl-rule{font-size:12.5px;color:var(--tx2);line-height:1.45}
+.pl-evs{display:flex;flex-wrap:wrap;gap:8px}
+.pl-evt{box-sizing:border-box;display:flex;flex-direction:column;gap:3px;background:var(--card);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.35;min-width:0;flex:1 1 130px;box-shadow:0 0 0 1px var(--sep);overflow-wrap:anywhere}
+.pl-evt.evshot{flex:0 0 auto;padding:6px;gap:5px}
+.pl-evt.wide{flex:1 1 100%}
+.pl-evk{font-size:11px;font-weight:600;color:var(--tx3)}
+.pl-okline{display:inline-flex;align-items:center;gap:6px}
+.pl-okline svg{flex:none}
+.mc.light .pl-gate .btn:not(.pri),.mc.light .pl-full-btns .btn,.mc.light .pl-card .btn:not(.pri){box-shadow:0 0 0 1px var(--sep)}
+/* The full plan */
+.pg{display:flex;flex-direction:column;align-items:center;padding:4px 0 8px}
+.pg-n{width:100%;max-width:400px;box-sizing:border-box;background:var(--card);border-radius:10px;padding:11px 14px 12px;display:flex;flex-direction:column;gap:7px;box-shadow:var(--shadow)}
+.pg-n.you{background:var(--you-t);box-shadow:inset 0 0 0 1.5px var(--you)}
+.pg-n.now{box-shadow:inset 0 0 0 1.5px var(--work)}
+.pg-n.todo .pg-t,.pg-n.next .pg-t{color:var(--tx3)}
+.pg-nh{display:flex;align-items:center;gap:8px}
+.pg-nh .pl-tag{padding:2px 8px}
+.pg-nh .pl-w{margin-left:auto}
+.pg-t{font-size:13.5px;line-height:1.4;font-weight:550;overflow-wrap:anywhere}
+.pg-v{width:2px;height:20px;background:var(--sep)}
+.pg-v.ld{background:var(--ok);opacity:.6}
+.pg-fork{width:100%;max-width:820px;height:32px;display:block;overflow:visible}
+.pg-lanes{display:grid;grid-template-columns:repeat(var(--arms,2),minmax(0,1fr));gap:22px;width:100%;max-width:820px}
+.pg-lane{display:flex;flex-direction:column;align-items:center;gap:0;border-radius:12px;padding:10px;box-sizing:border-box;box-shadow:inset 0 0 0 1px var(--sep)}
+.pg-lane .pg-n{max-width:none}
+.pg-lane.on{background:rgba(48,209,88,.07);box-shadow:inset 0 0 0 1px rgba(48,209,88,.35)}
+.mc.light .pg-lane.on{background:rgba(31,157,76,.06);box-shadow:inset 0 0 0 1px rgba(31,157,76,.30)}
+.pg-lane.off{opacity:.42}
+.pg-lh{align-self:stretch;display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;padding:0 2px 9px}
+.pg-taken{margin-left:auto;font-size:11.5px;color:var(--ok);font-weight:650}
+.pg-not{margin-left:auto;font-size:11.5px;color:var(--tx3);font-weight:500}
+.pg-ho{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--tx2);background:var(--card);border-radius:8px;padding:6px 11px;max-width:460px;line-height:1.4}
+.pg-ho svg{color:var(--work);flex:none}
+.pg-gq{font-size:12.5px;color:var(--tx2);line-height:1.45}
+.pg-end{font-size:12px;color:var(--tx3);border:1px dashed var(--sep);border-radius:14px;padding:4px 12px}
+.pl-full-flow{display:none}
+#d-plan:empty,#d-objs:empty{display:none}
+/* The planning conversation */
+.wr-lbl{font-size:12.5px;font-weight:600;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.wr-text{font-size:14px;line-height:1.55;color:var(--tx)}
+.wr-mic{display:inline-flex;align-items:center;gap:6px}
+.wr-mic.on{background:var(--bad);color:#FFFFFF}
+.wr-opts{display:flex;flex-direction:column;gap:3px;font-size:12.5px;line-height:1.4;margin-top:2px;padding-left:10px;border-left:2px solid var(--sep)}
+.wr-opts b{font-weight:600}
+.wr-rule{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.45;color:var(--tx2);background:var(--card);border-radius:10px;padding:10px 14px}
+.wr-rule svg{flex:none;margin-top:3px}
+.wr-rule b{color:var(--tx);font-weight:600}
+.sheet-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px 24px 18px;border-top:1px solid var(--sep)}
+.cv-modal{max-width:1100px}
+.cv-modal.goal{max-width:620px}
+.cv-goal{padding:12px 12px 10px 14px;gap:14px}
+.cv-goal textarea{all:unset;display:block;min-height:48px;font-size:15px;line-height:1.55;color:var(--tx);white-space:pre-wrap;overflow-wrap:anywhere}
+.cv-goal.own textarea{min-height:150px;font-size:14px}
+.cv-goal textarea::placeholder,.cv-chat textarea::placeholder,.cv-cbox textarea::placeholder{color:var(--tx3)}
+.cv-own{font-size:12.5px;color:var(--work);font-weight:500}
+.cv-cols{display:flex;gap:20px;padding:6px 24px 18px;flex-wrap:wrap;align-items:flex-start}
+.cv-left{flex:1 1 340px;max-width:380px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.cv-right{flex:1.6 1 520px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.cv-thread{display:flex;flex-direction:column;gap:10px}
+.cv-me{align-self:flex-end;max-width:88%;background:var(--work);color:#FFFFFF;border-radius:14px 14px 4px 14px;padding:8px 12px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.cv-cl{max-width:94%;background:var(--card);border-radius:14px 14px 14px 4px;padding:9px 12px;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.cv-cl b{font-weight:650}
+.cv-cl.err{color:var(--bad)}
+.cv-work{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--tx2)}
+.cv-work .linkish{color:var(--work);font-weight:500}
+.cv-q{background:var(--you-t);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;box-shadow:inset 0 0 0 1px rgba(255,159,10,.35)}
+.mc.light .cv-q{box-shadow:inset 0 0 0 1px rgba(217,119,10,.30)}
+.cv-q.done{background:var(--card);box-shadow:none}
+.cv-qt{font-size:13px;font-weight:600;line-height:1.4}
+.cv-qb{display:flex;flex-wrap:wrap;gap:6px}
+.cv-qb .btn{display:inline-flex;align-items:center;gap:5px}
+.cv-q.done .cv-qb .btn:not(.pick){opacity:.45}
+.cv-qb .btn.pick{background:var(--tx);color:var(--sheet)}
+.cv-chat{gap:10px}
+.cv-chat textarea{all:unset;display:block;min-height:20px;font-size:13px;line-height:1.45;color:var(--tx);overflow-wrap:anywhere}
+.cv-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;background:var(--card);border-radius:12px;overflow:hidden}
+.cv-s{display:grid;grid-template-columns:12px 16px 74px minmax(0,1fr) 28px;column-gap:9px;padding:9px 10px;border-top:1px solid var(--sep);align-items:start;position:relative;background:var(--card)}
+.cv-s:first-child{border-top:0}
+.cv-drag{color:var(--tx3);opacity:.6;display:flex;align-items:center;height:18px;cursor:grab;touch-action:none}
+.cv-drag.lock{cursor:default;opacity:0}
+.cv-s.dragging{z-index:2;box-shadow:0 6px 20px rgba(0,0,0,.35);opacity:.95}
+.cv-n{font-size:12px;color:var(--tx3);line-height:18px;text-align:right}
+.cv-b{display:flex;flex-direction:column;gap:4px;min-width:0}
+.cv-t{font-size:13px;line-height:18px;font-weight:550;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;overflow-wrap:anywhere}
+.cv-sub{font-size:12px;color:var(--tx2);line-height:1.4;overflow-wrap:anywhere}
+.cv-rule{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tx2);flex-wrap:wrap}
+.cv-rule svg{flex:none}
+.cv-rm{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:4px;font-size:11.5px;color:var(--tx3);padding:1px 6px;border-radius:5px;box-shadow:inset 0 0 0 1px var(--sep)}
+.cv-rm:hover{color:var(--bad)}
+.cv-c{all:unset;cursor:pointer;width:28px;height:24px;margin-top:-3px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--tx3)}
+.cv-c:hover,.cv-c.on{background:var(--sel);color:var(--tx)}
+.cv-s.open{background:var(--sel)}
+.cv-s.lock .cv-t{color:var(--tx2)}
+.cv-cbox{grid-column:4 / 6;margin-top:8px;background:var(--input);border:1px solid var(--work);border-radius:9px;padding:8px 10px;display:flex;flex-direction:column;gap:8px}
+.cv-cbox textarea{all:unset;display:block;min-height:20px;font-size:13px;line-height:1.4;color:var(--tx)}
+.cv-cbtns{display:flex;justify-content:flex-end;gap:6px}
+.cv-s.mk{background:var(--work-t)}
+.cv-mk{font-size:10.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--work);background:var(--work-t);border-radius:4px;padding:1px 6px;box-shadow:inset 0 0 0 1px var(--work)}
+.cv-diff{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--tx2)}
+.cv-diff i{width:10px;height:10px;border-radius:3px;background:var(--work-t);box-shadow:inset 0 0 0 1px var(--work)}
+.cv-skel{background:var(--card);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.cv-skel i{display:block;height:12px;border-radius:6px;background:var(--card2)}
+.mc.light .cv-modal .btn:not(.pri):not(.pick),.mc.light .cv-pbar .btn:not(.pri){box-shadow:0 0 0 1px var(--sep)}
+.cv-pbar{display:none}
+/* Files in the planning sheet, and a plan's References */
+.pl-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.attach.icon{padding:4px;flex:none}
+.cv-cbox.over{box-shadow:0 0 0 2px var(--work)}
+.cv-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.cv-files img{width:52px;height:52px;object-fit:cover;border-radius:7px;display:block;background:rgba(255,255,255,.15)}
+.cv-f{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:11.5px;background:rgba(255,255,255,.2);border-radius:5px;padding:2px 7px;word-break:break-all}
+.pl-refs{display:flex;flex-direction:column;gap:8px;min-width:0;flex:1}
+.pl-refs-h{font-size:12px;font-weight:600;color:var(--tx2)}
+.pl-ref{display:flex;align-items:center;gap:10px;min-width:0}
+.pl-ref a{flex:none;border-radius:6px}
+.pl-ref-t{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
+.pl-refchip{padding:3px 8px;flex:none}
+.pl-refs-ph{display:none;padding:12px 16px}
+.fold-open:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.plan-phone{display:none}
+/* The one-line PLAN row in Objectives */
+.pl-row1.gate{background:linear-gradient(90deg,var(--you-t),transparent 70%)}
+.pl-open{font-weight:600}
+.pl-next{display:flex;flex-direction:column;gap:2px;line-height:1.35}
+.pl-next .you{color:var(--you);font-weight:600}
+.pl-next .now{color:var(--work);font-weight:600}
+.pl-next .pl-link{align-self:flex-start}
+.pl-dots{display:flex;gap:4px;flex:1 1 180px;flex-wrap:wrap;align-items:center}
+@media (max-width: 700px){
+  .pl-step{grid-template-columns:18px 66px minmax(0,1fr)}
+  .pl-w{grid-column:3;grid-row:2;line-height:1.2}
+  .pl-w:empty{display:none}
+  .pl-sub{grid-column:3 / 4}
+  .pl-ch{flex-wrap:wrap}
+  .pl-openbtn{display:none}
+  .pl-evt.evshot{flex:1 1 100%;flex-direction:row;align-items:center;gap:10px}
+  .pl-full-graph{display:none}
+  .pl-full-flow{display:block}
+  .pl-full-side{display:none !important}
+  .pl-full-btns{order:5}
+  /* The planning conversation is a page of its own, the chat box and
+     Start pinned at the bottom (the mockup's phone frames). */
+  .mc.planning #sheet{display:none}
+  .mc.planning .plan-phone{display:flex}
+  .plan-phone .body{gap:12px;padding-bottom:150px}
+  .plan-phone .body.has-chips{padding-bottom:190px}
+  .cv-pbar .pl-chips{max-height:64px;overflow-y:auto}
+  .pl-refs-ph{display:block}
+  .plan-phone .cv-me{max-width:88%}
+  .plan-phone .cv-cl{max-width:none}
+  .cv-s{grid-template-columns:10px 64px minmax(0,1fr) 26px;column-gap:8px;padding:9px 8px}
+  .cv-n{display:none}
+  .cv-cbox{grid-column:3 / 5}
+  .cv-pbar{display:flex;flex-direction:column;gap:10px;position:fixed;left:0;right:0;bottom:0;z-index:15;padding:10px 12px 18px;background:var(--sheet);box-shadow:0 -1px 0 var(--sep)}
+  .cv-pbar .cv-chat{flex-direction:row;align-items:center;padding:6px 6px 6px 12px}
+  .cv-pbar .cv-chat textarea{flex:1;min-width:0}
+  .cv-pbar .cv-chat .btn{flex:none;min-height:28px;font-size:12px}
+  .cv-pbtns{display:flex;align-items:center;gap:10px;justify-content:space-between}
+  .cv-pbtns .btn{flex:0 0 auto;min-height:40px;padding:7px 16px}
+  .cv-pbtns .t2{min-width:0}
+}
+/* The picture gallery (docs/design/Gallery.dc.html, variant B): the whole
+   window, built like the Live screen's full screen. The closed card has a
+   zoom cursor and the count in its corner. */
+.picard{all:unset;display:block;position:relative}
+.mc .picard,.mc .picard img{cursor:zoom-in}
+.picard:focus-visible{outline:2px solid var(--work);outline-offset:-3px}
+.pic-hint{position:absolute;right:8px;bottom:8px;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#F2F2F4;background:rgba(20,20,22,.72);border-radius:11px;padding:3px 8px 3px 7px}
+/* The card with two pictures or more (docs/design/GalleryCard.dc.html,
+   variant B): columns at 2:1 in a 24:9 card, so every tile is 16:9 (to
+   within the 2 px gap); the newest spans both rows on the left. With two,
+   one row: the small one is cropped to its middle. overflow:hidden keeps
+   the pictures from stretching the card past 24:9. */
+.pc-b{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:2px;aspect-ratio:24/9;overflow:hidden}
+.pc-b.n2{grid-template-rows:minmax(0,1fr)}
+.picard.pc-tile{min-width:0;min-height:0;overflow:hidden;background:var(--card2)}
+.pc-b:not(.n2)>.pc-tile:first-child{grid-row:1 / 3}
+.pc-tile>img{display:block;width:100%;height:100%;object-fit:cover}
+.gl-fs{position:fixed;inset:0;z-index:26;background:var(--win);display:flex;flex-direction:column;font-size:13px;color:var(--tx)}
+.gl-fs[hidden]{display:none}
+.gl-fs:focus{outline:none}
+.gl-fs .fs-bar{display:flex;padding:8px 12px 8px 16px}
+.mc.light .gl-fs .btn:not(.pri),.mc.light .gl-fs .x-btn{box-shadow:0 0 0 1px var(--sep)}
+.gb-stage{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:96px minmax(0,1fr) 96px;grid-template-rows:minmax(0,1fr);padding:14px 0 6px}
+.gb-gut{display:flex;align-items:center;justify-content:center}
+.gb-im{display:block;width:100%;height:100%;min-width:0;min-height:0;object-fit:contain}
+.gl-fs .nav-btn{all:unset;box-sizing:border-box;cursor:pointer;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--btn);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.mc.light .gl-fs .nav-btn{box-shadow:0 0 0 1px var(--sep),0 1px 2px rgba(0,0,0,.06)}
+.gl-fs .nav-btn:hover{filter:brightness(1.12)}
+.gl-fs .nav-btn:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.gl-fs .nav-btn:disabled{opacity:.35;cursor:default;filter:none}
+.gb-cap{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;padding:8px 96px 10px;min-width:0}
+.ga-file{font-weight:600;color:var(--tx);overflow-wrap:anywhere}
+.mono-f{font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:12.5px}
+.gb-rel{font-size:12px;overflow-wrap:anywhere;min-width:0}
+.gl-fs .btn.ib{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.gb-strip{flex:none;display:flex;justify-content:center;gap:12px;padding:6px 96px 18px}
+.gl-cell{display:flex;flex-direction:column;gap:5px;min-width:0;flex:0 1 132px}
+.gl-thumb{all:unset;box-sizing:border-box;cursor:pointer;display:block;position:relative;border-radius:6px;aspect-ratio:16/9;overflow:hidden;opacity:.72;background:var(--card2)}
+.gl-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.gl-thumb::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(127,127,127,.22);pointer-events:none}
+.mc.light .gl-thumb:not(.on){opacity:.85}
+.gl-thumb:hover{opacity:1}
+.gl-thumb.on{opacity:1;box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--work)}
+.gl-thumb:focus-visible{outline:2px solid var(--work);outline-offset:4px}
+.gl-time{font-size:11.5px;color:var(--tx3);text-align:center}
+.gl-time.on{color:var(--tx);font-weight:600}
+.gb-ctl{display:none}
+/* Phone: the whole screen, the caption under the picture, square
+   thumbnails and big Previous and Next at thumb height. */
+.gl-fs.gl-p .fs-bar{padding:8px 16px 8px 12px}
+.gl-fs.gl-p .gb-stage{display:block;position:relative;padding:0;margin:12px 0 0}
+.gl-fs.gl-p .gb-im{position:absolute;inset:0}
+.gl-fs.gl-p .gb-cap{flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:3px;padding:12px 16px 8px}
+.gl-fs.gl-p .gb-strip{padding:4px 16px 10px;gap:7px;justify-content:stretch}
+.gl-fs.gl-p .gl-cell{flex:1 1 0}
+.gl-fs.gl-p .gl-thumb{aspect-ratio:1/1}
+.gl-fs.gl-p .gb-ctl{flex:none;display:flex;gap:10px;padding:6px 16px max(28px, env(safe-area-inset-bottom))}
+.gb-big{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:15px;border-radius:10px}
