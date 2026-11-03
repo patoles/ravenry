@@ -41,8 +41,11 @@ const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} 
 
 // ------------------------------------------------------------ the stub
 
-const TOKEN = '8412345678:AAHdQwErTyUiOpAsDfGhJkLzXcVbNm12345';
-const BAD_TOKEN = '8412345678:AAHwrongwrongwrongwrongwrongwrong00';
+// Placeholder tokens for the local stub. They pass the board's shape check
+// (digits, a colon, 30 or more letters) but are plainly not real, and they
+// lack the "AA" a real bot token starts with, so secret scanners skip them.
+const TOKEN = '123456789:YOUR_BOT_TOKEN_FOR_THE_LOCAL_TEST';
+const BAD_TOKEN = '123456789:WRONG_BOT_TOKEN_FOR_THE_LOCAL_TEST';
 const CHAT = '512345678942';
 const reqs = [];
 const stub = { failNext: 0, hangNextMs: 0, buttonInvalid: false, updates: true };
@@ -130,7 +133,7 @@ check('Slack: exact payload (mrkdwn bold, kind, link)', r.ok && q && JSON.string
 check('Discord or Slack: the card names which one', CHANNELS.webhook.label({ url: SLACK }) === 'Slack' && CHANNELS.webhook.label({ url: DISCORD }) === 'Discord');
 r = await CHANNELS.webhook.send(A, { url: `${STUB}/api/webhooks/1/gone` });
 check('Discord: a deleted webhook says so', !r.ok && r.error === 'Discord said the webhook is gone or wrong', r.error);
-check('masks: token, chat, webhooks, topic', al.maskToken(TOKEN) === '84••••••:AAH••••••••••••••••' && al.maskChat(CHAT) === '51•••••42'
+check('masks: token, chat, webhooks, topic', al.maskToken(TOKEN) === '12••••••:YOU••••••••••••••••' && al.maskChat(CHAT) === '51•••••42'
   && ch.maskWebhook('https://discord.com/api/webhooks/123/abc') === 'discord.com/api/webhooks/••••••/••••••••'
   && ch.maskWebhook('https://hooks.slack.com/services/T1/B2/abc') === 'hooks.slack.com/services/••••/••••/••••••••'
   && ch.maskTopic({ server: 'https://ntfy.sh', topic: 'ravenry-abcdefghij0123456789' }) === 'ntfy.sh/ravenry-••••••',
@@ -403,7 +406,7 @@ try {
   x = await api('/api/alerts/telegram/find-chat', {});
   check('Find my chat: getUpdates, the private chat is saved', x.status === 200 && JSON.parse(fs.readFileSync(path.join(MC, 'alerts.json'), 'utf8')).telegram.chatId === CHAT);
   x = await api('/api/alerts/setup');
-  check('the sheet\'s data on the Mac is masked', x.status === 200 && x.j.telegram.token === '84••••••:AAH••••••••••••••••' && x.j.telegram.chat === '51•••••42' && x.j.telegram.bot === 'ravenry_test_bot' && !JSON.stringify(x.j).includes(TOKEN.split(':')[1]), JSON.stringify(x.j.telegram));
+  check('the sheet\'s data on the Mac is masked', x.status === 200 && x.j.telegram.token === '12••••••:YOU••••••••••••••••' && x.j.telegram.chat === '51•••••42' && x.j.telegram.bot === 'ravenry_test_bot' && !JSON.stringify(x.j).includes(TOKEN.split(':')[1]), JSON.stringify(x.j.telegram));
   const topic = JSON.parse(fs.readFileSync(path.join(MC, 'alerts.json'), 'utf8')).ntfy.topic;
   check('a private random ntfy topic is made on first look, and only masked in the data', /^ravenry-[a-z0-9]{20}$/.test(topic) && x.j.ntfy.topic === 'ntfy.sh/ravenry-••••••' && !JSON.stringify({ ...x.j, ntfy: { ...x.j.ntfy, qr: '' } }).includes(topic));
   const qrSvg = x.j.ntfy.qr;
