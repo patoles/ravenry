@@ -1376,6 +1376,15 @@ function escapePath(p) {
 }
 
 // Every write into a terminal goes through here.
+// Smart punctuation back to what a shell expects: em dash to "--", en dash
+// to "-", curly quotes to straight ones, a no-break space to a space.
+export function plainCommand(s) {
+  return String(s)
+    .replace(/—/g, '--').replace(/–/g, '-')
+    .replace(/[“”„«»]/g, '"').replace(/[‘’‚]/g, "'")
+    .replace(/ /g, ' ');
+}
+
 async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
   const project = findProject(projectId);
   if (!project) return { ok: false, status: 404, error: 'No such project.' };
@@ -1433,7 +1442,11 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
     const k = await term.typeText(tab, '!');
     if (!k.ok) return { ok: false, status: 500, error: k.err || `${where} refused the text.` };
     await new Promise((r) => setTimeout(r, 150));
-    msg = msg.slice(bang[0].length);
+    // A shell command must reach the shell as typed. Text fields (macOS
+    // smart punctuation, phone keyboards) turn "--" into an em dash and
+    // quotes into curly ones, which breaks the command ("—otp=..." was read
+    // as a tag name), so put the plain characters back.
+    msg = plainCommand(msg.slice(bang[0].length));
   }
   const a = await term.pasteText(tab, msg);
   if (!a.ok) return { ok: false, status: 500, error: a.err || `${where} refused the text.` };

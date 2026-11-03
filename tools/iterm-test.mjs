@@ -221,6 +221,15 @@ try {
   res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + A, text: '! cd /tmp && echo hi' });
   k2 = (fst().keys[A] || []).slice(2);
   check('board: a "! command" types "!" alone, then the command, then Enter', res.status === 200 && k2.join('|') === 'text:!|text:cd /tmp && echo hi|osa:enter' && res.j.sent === '! cd /tmp && echo hi', `${res.status} ${JSON.stringify(res.j)} ${JSON.stringify(k2)}`);
+  // Smart punctuation from the text field ("--" became an em dash, so npm read
+  // "—otp=..." as a tag name): a "! command" reaches the shell with plain
+  // dashes and quotes. Plain prose keeps its punctuation.
+  res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + A, text: '! npm publish —otp=123456 –v “a b” ‘c’' });
+  k2 = (fst().keys[A] || []).slice(5);
+  check('board: a "! command" gets plain dashes and quotes back', res.status === 200 && k2.join('|') === 'text:!|text:npm publish --otp=123456 -v "a b" \'c\'|osa:enter', `${res.status} ${JSON.stringify(k2)}`);
+  res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + A, text: 'Looks good — ship it' });
+  k2 = (fst().keys[A] || []).slice(8);
+  check('board: a plain message keeps its em dash', res.status === 200 && k2.join('|') === 'text:Looks good — ship it|osa:enter', `${res.status} ${JSON.stringify(k2)}`);
   res = await post('/api/send', { projectId: 'itproj', surfaceId: 'iterm:' + GONE, text: 'hello' });
   check('board: nothing is typed into a session the board shows watch only', res.status === 400 && !(fst().keys[GONE]), `${res.status} ${JSON.stringify(res.j)}`);
 
@@ -257,6 +266,7 @@ try {
   }
 
   // A written hand-off: the fresh session opens in a new tab in its window.
+  const keysOnABefore = (fst().keys[A] || []).length;
   const hand = path.join(MC, 'handoffs');
   fs.mkdirSync(hand, { recursive: true });
   fs.writeFileSync(path.join(hand, SA + '.json'), JSON.stringify({ sessionId: SA, state: 'written', writtenAt: new Date().toISOString(), handoffFile: path.join(PROJ, 'BRIEF.md'), cwd: PROJ, folder: PROJ, projectId: 'itproj' }));
@@ -267,7 +277,7 @@ try {
   const newKeys = opened ? st2.keys[opened.uuid] || [] : [];
   check('board: the fresh session opens in a new iTerm2 tab in the old tab\'s window', m && m.state === 'resumed' && opened && opened.near === A && opened.windowId === '7' && m.resumeSurfaceId === 'iterm:' + opened.uuid, m ? JSON.stringify({ state: m.state, err: m.resumeError, opened }) : 'no marker');
   check('board: it runs cd <folder> && claude \'<prompt>\', then Enter', newKeys.length === 2 && newKeys[0] === `text:cd '${PROJ}' && claude 'Read the Hand-off section of BRIEF.md and continue from it.'` && newKeys[1] === 'osa:enter', JSON.stringify(newKeys));
-  check('board: the old tab got nothing from the hand-off', (fst().keys[A] || []).length === 2);
+  check('board: the old tab got nothing from the hand-off', (fst().keys[A] || []).length === keysOnABefore);
 } finally {
   server.kill();
 }

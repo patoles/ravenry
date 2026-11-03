@@ -388,7 +388,7 @@ function buildSheet(p) {
       <div class="card" id="d-ask" style="padding: 18px; display: flex; flex-direction: column; gap: 14px">
         <div id="d-ask-top" style="display: flex; flex-direction: column; gap: 14px"></div>
         <div class="composer" id="composer">
-          <textarea id="compose" rows="2"></textarea>
+          <textarea id="compose" rows="2" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div id="chips" style="display: flex; flex-wrap: wrap; gap: 6px"></div>
           <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
             <label class="attach"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 6.5L7 11.5a3 3 0 0 1-4.2-4.2L8 2.1a2 2 0 0 1 2.8 2.8L5.7 10"></path></svg>Attach<input type="file" multiple id="pick"></label>
