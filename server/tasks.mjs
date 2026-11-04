@@ -122,13 +122,44 @@ export function finishedTaskIds(transcriptPath, ids) {
   return out;
 }
 
+// Monitor tasks a Monitor call really started, in the session's transcript
+// or a subagent's: its result reads "Monitor started (task <id>, ...". Claude
+// Code also lists watches it keeps for itself as running monitors (a page
+// published with the Artifact tool keeps one for good); nothing launched
+// those, nothing will finish them, and they are not work in progress.
+function launchedMonitors(transcriptPath, ids) {
+  const found = new Set();
+  const look = (text) => { for (const id of ids) if (text.includes(`Monitor started (task ${id}`)) found.add(id); };
+  const main = readTail(transcriptPath);
+  if (main) look(main);
+  if (found.size === ids.length) return found;
+  const dir = path.join(transcriptPath.replace(/\.jsonl$/, ''), 'subagents');
+  let files = [];
+  try { files = fs.readdirSync(dir).filter((f) => /^agent-[A-Za-z0-9_-]+\.jsonl$/.test(f)); } catch { return found; }
+  let budget = 96 * 1024 * 1024;
+  for (const f of files) {
+    if (found.size === ids.length || budget <= 0) break;
+    const text = readTail(path.join(dir, f), Math.min(16 * 1024 * 1024, budget));
+    if (!text) continue;
+    budget -= text.length;
+    look(text);
+  }
+  return found;
+}
+
 // The background tasks of a Stop hook input that are still running.
 export function runningTasks(input, { transcript = true } = {}) {
   const ts = Array.isArray(input && input.background_tasks) ? input.background_tasks : [];
   const live = ts.filter((t) => t && RUNNING.has(String(t.status || '').toLowerCase()) && !HOUSEKEEPING.has(String(t.type || '').toLowerCase()));
   if (!live.length || !transcript || !input.transcript_path) return live;
   const done = finishedTaskIds(input.transcript_path, live.map((t) => t.id));
-  return live.filter((t) => !done.has(t.id));
+  let left = live.filter((t) => !done.has(t.id));
+  const mons = left.filter((t) => String(t.type || '').toLowerCase() === 'monitor').map((t) => t.id);
+  if (mons.length) {
+    const launched = launchedMonitors(input.transcript_path, mons);
+    left = left.filter((t) => String(t.type || '').toLowerCase() !== 'monitor' || launched.has(t.id));
+  }
+  return left;
 }
 
 // A record of what Claude Code really sent, so the next surprise in this

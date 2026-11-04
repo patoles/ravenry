@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.1
+
+- The hand-off no longer waits forever on watches Claude Code keeps for itself: a
+  monitor counts as running work only when a Monitor call started it. Pages
+  published with the Artifact tool each keep such a watch, and six of them held
+  a session past its hand-off line for hours.
+
+## 0.1.0
 
 The first package.
 

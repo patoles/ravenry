@@ -179,6 +179,15 @@ fs.writeFileSync(path.join(subDir, `agent-${agentIds[1]}.jsonl`), subRec('bliveo
 const shells = runningTasks({ transcript_path: tsub, background_tasks: [{ id: 'bdoneowner1', type: 'shell', status: 'running', description: 'x', command: 'npm test' }, { id: 'bliveowner1', type: 'shell', status: 'running', description: 'x', command: 'npm test' }] });
 check("a subagent's shell: finished once its subagent finished, running while it runs", shells.length === 1 && shells[0].id === 'bliveowner1', JSON.stringify(shells.map((x) => x.id)));
 
+// Monitors. Claude Code lists watches it keeps for itself (one per page
+// published with the Artifact tool, for good) as running monitors that no
+// Monitor call started; six of them held a real session queued for hours.
+// A Monitor the session started and that is still open does count.
+const tmon = taskTranscript('tmon', { done: [agentIds[0]] });
+fs.appendFileSync(tmon, JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_mon1', content: 'Monitor started (task mlive00001, expires in 30m unless the source ends first).' }] }, timestamp: '2026-11-02T20:00:30Z' }) + '\n');
+const mons = runningTasks({ transcript_path: tmon, background_tasks: ['sart00001', 'sart00002', 'sart00003', 'sart00004', 'sart00005', 'sart00006'].map((id) => ({ id, type: 'monitor', status: 'running' })).concat([{ id: 'mlive00001', type: 'monitor', status: 'running' }]) });
+check('six monitors no Monitor call started are not work; a started, open Monitor is', mons.length === 1 && mons[0].id === 'mlive00001', JSON.stringify(mons.map((x) => x.id)));
+
 // 10c. A hand-off written while the marker was still queued (here the 11
 // leaked tasks kept it queued; the user then asked by hand). The stop after the
 // write takes a fresh base, so only the bullet's date and the session's own
