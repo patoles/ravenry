@@ -5,6 +5,10 @@
 // picture clicked on the card (the newest when the card has one). Left and right arrows move, Esc closes; on a phone a swipe moves
 // and big Previous and Next buttons sit at thumb height.
 //
+// The picture shown zooms (zoomDown and the rest, below): a pinch, the
+// wheel, a double click or tap; a drag pans while zoomed, Fit or the first
+// Esc goes back, and each picture opens whole.
+//
 // The server sends the 6 with the card's picture (brief.pictures[auto]
 // .gallery: key, name, url, at, by, made, w, h, rel, path) and serves each
 // only while it passes the picture rules (server/pictures.mjs).
@@ -82,11 +86,163 @@ export function createGallery(d) {
     }, { passive: true });
     layer.addEventListener('touchend', (e) => {
       const t = g.touch; g.touch = null;
-      if (!t || !e.changedTouches.length) return;
+      // A finger on a zoomed picture pans it; only a fit picture swipes.
+      if (!t || !e.changedTouches.length || z.s > 1) return;
       const dx = e.changedTouches[0].clientX - t.x, dy = e.changedTouches[0].clientY - t.y;
       if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.2) step(dx < 0 ? 1 : -1);
     });
+    // Zoom: pointers (mouse, finger, pen) on the picture's view pan and
+    // pinch; the wheel and a trackpad pinch (ctrl+wheel in Chromium, gesture
+    // events in WebKit) zoom around the pointer; a double click or double
+    // tap toggles. The view has touch-action: none, so the browser leaves
+    // the fingers to this.
+    layer.addEventListener('pointerdown', zoomDown);
+    layer.addEventListener('pointermove', zoomMove);
+    layer.addEventListener('pointerup', zoomUp);
+    layer.addEventListener('pointercancel', zoomUp);
+    layer.addEventListener('wheel', zoomWheel, { passive: false });
+    layer.addEventListener('dblclick', (e) => {
+      if (!e.target.closest('#gl-view') || e.target.closest('[data-gl-fit]') || z.type === 'touch') return;
+      e.preventDefault();
+      zoomToggle(e.clientX, e.clientY);
+    });
+    layer.addEventListener('gesturestart', (e) => {
+      if (!e.target.closest || !e.target.closest('#gl-view')) return;
+      e.preventDefault();
+      z.gs = z.ptrs.size ? null : { s0: z.s }; // fingers on a touch screen pinch through the pointers instead
+    });
+    layer.addEventListener('gesturechange', (e) => {
+      if (!z.gs) { if (e.target.closest && e.target.closest('#gl-view')) e.preventDefault(); return; }
+      e.preventDefault();
+      const r = viewEl().getBoundingClientRect();
+      zoomAt(z.gs.s0 * e.scale, Number.isFinite(e.clientX) ? e.clientX : r.left + r.width / 2, Number.isFinite(e.clientY) ? e.clientY : r.top + r.height / 2);
+    });
+    layer.addEventListener('gestureend', (e) => { if (z.gs) e.preventDefault(); z.gs = null; });
+    window.addEventListener('resize', () => { if (isOpen() && z.s > 1) zoomApply(); });
     return layer;
+  }
+
+  // ------------------------------------------------------------ zoom
+  // The picture is drawn whole (object-fit: contain) in the view, centred,
+  // so its centre is the view's centre and a transform of translate(x, y)
+  // scale(s) about that centre moves and grows it. s runs from 1 (fit) to
+  // 5, or to the picture's own pixels (one picture pixel per screen pixel)
+  // when that is more; the pan is held so the picture always covers the
+  // view along a side where it is bigger, and stays centred where it is not.
+  const Z_MAX = 5, Z_DOUBLE = 2.5;
+  const z = { s: 1, x: 0, y: 0, ptrs: new Map(), pinch: null, pan: null, multi: false, tap: null, down: null, type: null, gs: null };
+  const viewEl = () => layer && layer.querySelector('#gl-view');
+  const imEl = () => layer && layer.querySelector('#gl-im');
+
+  function fitted() {
+    const v = viewEl(), im = imEl();
+    const r = v.getBoundingClientRect();
+    const nw = (im && im.naturalWidth) || r.width || 1, nh = (im && im.naturalHeight) || r.height || 1;
+    const k = Math.min(r.width / nw, r.height / nh) || 1;
+    return { r, w: nw * k, h: nh * k, k };
+  }
+  function zoomMax(f = fitted()) { return Math.min(12, Math.max(Z_MAX, 1 / (f.k * (window.devicePixelRatio || 1)))); }
+
+  function zoomApply({ animate = false } = {}) {
+    const im = imEl(), v = viewEl();
+    if (!im || !v) return;
+    const f = fitted();
+    z.s = Math.min(zoomMax(f), Math.max(1, z.s));
+    if (z.s < 1.01) { z.s = 1; z.x = 0; z.y = 0; }
+    const mx = Math.max(0, (f.w * z.s - f.r.width) / 2), my = Math.max(0, (f.h * z.s - f.r.height) / 2);
+    z.x = Math.min(mx, Math.max(-mx, z.x));
+    z.y = Math.min(my, Math.max(-my, z.y));
+    const on = z.s > 1;
+    im.style.transition = animate ? 'transform .18s ease-out' : '';
+    im.style.transform = on ? `translate(${z.x}px, ${z.y}px) scale(${z.s})` : '';
+    v.classList.toggle('zoomed', on);
+    const fit = v.querySelector('[data-gl-fit]');
+    if (fit) { fit.hidden = !on; const pct = v.querySelector('#gl-pct'); if (pct) pct.textContent = Math.round(z.s * 100) + '%'; }
+  }
+  // To scale s, keeping the picture's spot under the screen point (px, py) there.
+  function zoomAt(s, px, py, opts) {
+    const r = viewEl().getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const s1 = Math.min(zoomMax(), Math.max(1, s));
+    const qx = (px - cx - z.x) / z.s, qy = (py - cy - z.y) / z.s;
+    z.x = px - cx - s1 * qx; z.y = py - cy - s1 * qy; z.s = s1;
+    zoomApply(opts);
+  }
+  function zoomToggle(px, py) {
+    if (z.s > 1) { z.s = 1; zoomApply({ animate: true }); } else zoomAt(Z_DOUBLE, px, py, { animate: true });
+  }
+  // Back to fit at once, with no gesture in progress (a new picture, a new layout).
+  function zoomClear() {
+    z.s = 1; z.x = 0; z.y = 0; z.ptrs.clear(); z.pinch = null; z.pan = null; z.multi = false; z.tap = null; z.down = null; z.gs = null;
+    zoomApply();
+  }
+
+  function pinchStart() {
+    const [a, b] = [...z.ptrs.values()];
+    const r = viewEl().getBoundingClientRect();
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    z.pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, s0: z.s, qx: (mx - r.left - r.width / 2 - z.x) / z.s, qy: (my - r.top - r.height / 2 - z.y) / z.s };
+    z.pan = null;
+  }
+  function panStart(p) { z.pan = { x0: p.x, y0: p.y, tx: z.x, ty: z.y }; }
+
+  function zoomDown(e) {
+    if (!e.target.closest('#gl-view') || e.target.closest('[data-gl-fit]')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    z.type = e.pointerType;
+    z.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { e.target.setPointerCapture(e.pointerId); } catch { /* gone */ }
+    if (z.ptrs.size === 1) { z.multi = false; z.down = { x: e.clientX, y: e.clientY, t: e.timeStamp, moved: false }; }
+    if (z.ptrs.size === 2) { z.multi = true; pinchStart(); }
+    else if (z.ptrs.size === 1 && z.s > 1) { panStart(z.ptrs.get(e.pointerId)); if (e.pointerType === 'mouse') { e.preventDefault(); viewEl().classList.add('grabbing'); } }
+  }
+  function zoomMove(e) {
+    const p = z.ptrs.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (z.down && Math.hypot(p.x - z.down.x, p.y - z.down.y) > 10) z.down.moved = true;
+    if (z.pinch && z.ptrs.size >= 2) {
+      const [a, b] = [...z.ptrs.values()];
+      const r = viewEl().getBoundingClientRect();
+      const s = Math.min(zoomMax(), Math.max(1, z.pinch.s0 * Math.hypot(a.x - b.x, a.y - b.y) / z.pinch.d0));
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      z.x = mx - r.left - r.width / 2 - s * z.pinch.qx;
+      z.y = my - r.top - r.height / 2 - s * z.pinch.qy;
+      z.s = s;
+      zoomApply();
+    } else if (z.pan) {
+      z.x = z.pan.tx + p.x - z.pan.x0;
+      z.y = z.pan.ty + p.y - z.pan.y0;
+      zoomApply();
+    }
+  }
+  function zoomUp(e) {
+    if (!z.ptrs.has(e.pointerId)) return;
+    z.ptrs.delete(e.pointerId);
+    const v = viewEl();
+    if (v) v.classList.remove('grabbing');
+    if (z.ptrs.size === 1) {
+      // One finger of a pinch lifted: the other pans on from where it is.
+      z.pinch = null;
+      if (z.s > 1) panStart([...z.ptrs.values()][0]); else z.pan = null;
+      return;
+    }
+    if (z.ptrs.size) return;
+    z.pinch = null; z.pan = null;
+    // A double tap: two short taps close together, with one finger.
+    const dn = z.down; z.down = null;
+    if (e.pointerType !== 'touch' || e.type === 'pointercancel' || z.multi || !dn || dn.moved || e.timeStamp - dn.t > 350) { z.tap = null; return; }
+    const tp = z.tap;
+    if (tp && e.timeStamp - tp.t < 320 && Math.hypot(e.clientX - tp.x, e.clientY - tp.y) < 32) { z.tap = null; zoomToggle(e.clientX, e.clientY); }
+    else z.tap = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+  }
+  function zoomWheel(e) {
+    if (!e.target.closest('#gl-view')) return;
+    e.preventDefault();
+    const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    const dy = Math.max(-300, Math.min(300, e.deltaY * px));
+    // A trackpad pinch arrives as ctrl+wheel with small deltas, a wheel notch as about 100.
+    zoomAt(z.s * Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.002)), e.clientX, e.clientY);
   }
 
   // The skeleton, made again only when the layout (phone or desktop) changes.
@@ -94,10 +250,14 @@ export function createGallery(d) {
     const phone = d.phone.matches;
     g.phone = phone;
     g.strip = '';
+    zoomClear();
+    // The picture sits in a view that clips it, so a zoomed picture stays
+    // inside the picture's own area (never over the arrows or the caption).
+    const VIEW = `<div class="gb-view" id="gl-view"><img class="gb-im" id="gl-im" alt="" draggable="false"><button class="btn sm gb-fit" data-gl-fit hidden aria-label="Back to the whole picture"><span class="num t2" id="gl-pct"></span>Fit</button></div>`;
     layer.classList.toggle('gl-p', phone);
     layer.innerHTML = phone
-      ? `<div class="fs-bar" id="gl-bar"></div><div class="gb-stage"><img class="gb-im" id="gl-im" alt=""></div><div class="gb-cap" id="gl-cap"></div><div class="gb-strip" id="gl-strip"></div><div class="gb-ctl"><button class="btn gb-big" data-gl-step="-1">${ICON.left(18)}Previous</button><button class="btn gb-big" data-gl-step="1">Next${ICON.right(18)}</button></div>`
-      : `<div class="fs-bar" id="gl-bar"></div><div class="gb-stage"><span class="gb-gut"><button class="nav-btn" data-gl-step="-1" aria-label="Previous picture">${ICON.left(20)}</button></span><img class="gb-im" id="gl-im" alt=""><span class="gb-gut"><button class="nav-btn" data-gl-step="1" aria-label="Next picture">${ICON.right(20)}</button></span></div><div class="gb-cap" id="gl-cap"></div><div class="gb-strip" id="gl-strip"></div>`;
+      ? `<div class="fs-bar" id="gl-bar"></div><div class="gb-stage">${VIEW}</div><div class="gb-cap" id="gl-cap"></div><div class="gb-strip" id="gl-strip"></div><div class="gb-ctl"><button class="btn gb-big" data-gl-step="-1">${ICON.left(18)}Previous</button><button class="btn gb-big" data-gl-step="1">Next${ICON.right(18)}</button></div>`
+      : `<div class="fs-bar" id="gl-bar"></div><div class="gb-stage"><span class="gb-gut"><button class="nav-btn" data-gl-step="-1" aria-label="Previous picture">${ICON.left(20)}</button></span>${VIEW}<span class="gb-gut"><button class="nav-btn" data-gl-step="1" aria-label="Next picture">${ICON.right(20)}</button></span></div><div class="gb-cap" id="gl-cap"></div><div class="gb-strip" id="gl-strip"></div>`;
   }
 
   function setHtml(el, html) { if (el && el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; } }
@@ -115,7 +275,7 @@ export function createGallery(d) {
       ? `<button class="x-btn" data-gl-close aria-label="Close the pictures">${ICON.x}</button><span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures</span><span style="flex: 1"></span><span class="num t2" style="font-size: 13px">${i + 1} of ${n}</span>`
       : `<span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures from this session</span><span style="flex: 1"></span><span class="t3" style="font-size: 12px">Left and right arrows to move, Esc to close</span><button class="btn sm" data-gl-close>Close</button>`);
     const im = layer.querySelector('#gl-im');
-    if (x && im.getAttribute('src') !== x.url) { im.setAttribute('src', x.url); }
+    if (x && im.getAttribute('src') !== x.url) { zoomClear(); im.setAttribute('src', x.url); } // each picture opens whole
     if (x) im.alt = x.name;
     for (const b of layer.querySelectorAll('[data-gl-step]')) b.disabled = Number(b.dataset.glStep) < 0 ? i <= 0 : i >= n - 1;
     if (x) {
@@ -168,6 +328,7 @@ export function createGallery(d) {
     g.pid = null; g.list = []; g.key = null; g.strip = '';
     layer.hidden = true;
     layer.innerHTML = '';
+    zoomClear();
     document.documentElement.classList.remove('lv-lock');
     if (back && history.state && history.state.glOpen) history.back();
     const b = g.back && g.back.isConnected ? g.back : document.querySelector('.picard');
@@ -206,6 +367,7 @@ export function createGallery(d) {
     if (card) { open(card.dataset.gallery, card.dataset.galleryKey); return; }
     if (!isOpen()) return;
     if (t.closest('[data-gl-close]')) { close(); return; }
+    if (t.closest('[data-gl-fit]')) { z.s = 1; zoomApply({ animate: true }); return; }
     const s = t.closest('[data-gl-step]');
     if (s) { step(Number(s.dataset.glStep)); return; }
     const go = t.closest('[data-gl-go]');
@@ -214,7 +376,8 @@ export function createGallery(d) {
   });
   document.addEventListener('keydown', (e) => {
     if (!isOpen()) return;
-    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); close(); }
+    // Esc on a zoomed picture goes back to fit first; the next Esc closes.
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (z.s > 1) { z.s = 1; zoomApply({ animate: true }); } else close(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       if (e.target && e.target.closest && e.target.closest('input, textarea, [contenteditable]')) return;
       e.preventDefault();

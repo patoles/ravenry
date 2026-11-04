@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ICONS = path.resolve(HERE, '..', '..', 'public', 'icons');
 
-// [source svg, output png, pixel size]
+// [source svg, output png, pixel size, corner radius as a share of the size]
 const OUT = [
   ...[1024, 512, 256, 128, 64, 32, 16].map((n) => ['icon.svg', `icon-${n}.png`, n]),
   ['favicon.svg', 'favicon-32.png', 32],
@@ -26,6 +26,8 @@ const OUT = [
   ['template.svg', 'template-16@2x.png', 32],
   ['template.svg', 'template-32.png', 32],
   ['template.svg', 'template-32@2x.png', 64],
+  // The README's logo: GitHub and npm drop CSS, so the rounding is baked in.
+  ['icon.svg', 'readme-logo.png', 256, 0.225],
 ];
 
 // What the board page serves (public/index.html links these).
@@ -33,11 +35,11 @@ const WEB = ['favicon.svg', 'favicon-32.png', 'favicon-16.png', 'apple-touch-ico
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ deviceScaleFactor: 1 });
-for (const [src, name, n] of OUT) {
+for (const [src, name, n, round = 0] of OUT) {
   const svg = fs.readFileSync(path.join(HERE, src), 'utf8');
   // The SVG drawn at n x n on a clear page: the PNG keeps the alpha.
   await page.setViewportSize({ width: n, height: n });
-  await page.setContent(`<!doctype html><html><head><style>html,body{margin:0;background:transparent}img{display:block;width:${n}px;height:${n}px}</style></head><body><img src="data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}"></body></html>`);
+  await page.setContent(`<!doctype html><html><head><style>html,body{margin:0;background:transparent}img{display:block;width:${n}px;height:${n}px;border-radius:${Math.round(n * round)}px}</style></head><body><img src="data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}"></body></html>`);
   await page.waitForFunction(() => { const i = document.querySelector('img'); return i.complete && i.naturalWidth > 0; });
   await page.screenshot({ path: path.join(HERE, name), omitBackground: true, clip: { x: 0, y: 0, width: n, height: n } });
   console.log('wrote', name, `${n}x${n}`);

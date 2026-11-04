@@ -13,6 +13,7 @@ import { execFile, execFileSync } from 'node:child_process';
 
 import * as term from './terminal.mjs';
 import { parseScreen, parseTitle, trimScreen, tailLines } from './screen.mjs';
+import * as suggest from './suggestion.mjs';
 import { markEntries, spansGen } from './codespans.mjs';
 import { chooseOption } from './choose.mjs';
 import { findTranscript, newestTranscriptFor, readTranscript } from './transcript.mjs';
@@ -72,7 +73,12 @@ let snapshotJson = JSON.stringify(snapshot);
 let tickNo = 0;
 let ticking = false;
 let wantTick = false;
-const screens = new Map();   // surfaceId -> { text, at, live, okAt, full }
+const screens = new Map();   // surfaceId -> { text, at, live, okAt, full, prompt }
+// What each tab's prompt holds: Claude's suggested reply or typed text
+// (server/suggestion.mjs). The history of reads per tab, and the last styled
+// read per tab, kept while its prompt text stays the same.
+const promptHistory = suggest.createTracker();
+const styledSeen = new Map(); // surfaceId -> { text, styled }
 // The Live screen (docs/design/LiveScreen.dc.html, B): the surfaces a board
 // page is showing get 200 lines of scrollback per read; every other surface
 // keeps the 40-line read. `text` is always the last 40 lines, so the state
@@ -197,13 +203,61 @@ async function readSurface(tab) {
   const full = raw != null ? (want ? raw : null) : prev ? prev.full : null;
   const src = full ?? (raw != null ? text : prev ? prev.text : null);
   const prevSrc = prev ? prev.full ?? prev.text : undefined;
+  const parsed = parseScreen(text);
+  const prompt = raw != null ? await judgeRead(tab, parsed, now) : prev ? prev.prompt : null;
   screens.set(surfaceId, {
-    text, at: now, live: parseScreen(text).claudeLive,
+    text, at: now, live: parsed.claudeLive, prompt,
     okAt: raw != null ? now : prev ? prev.okAt : null,
     full,
     ver: prev ? (src === prevSrc ? prev.ver : prev.ver + 1) : 1,
   });
   if (want && process.env.MC_LIVE_LOG === '1') console.log('live read', JSON.stringify({ surfaceId, lines: LIVE_LINES, ms: +readMs.toFixed(1), bytes: raw ? Buffer.byteLength(raw) : 0 }));
+}
+
+// The verdict on what a fresh read's prompt holds (server/suggestion.mjs):
+// { text, kind, sure, by }. Every read goes into the tab's history; a prompt
+// with text also gets a styled read (cmux only), unless one was taken while
+// the prompt held the same text.
+async function judgeRead(tab, screen, at) {
+  const history = promptHistory.see(tab.surfaceId, screen, at);
+  const text = screen.claudeLive ? screen.draft : '';
+  if (!text) { styledSeen.delete(tab.surfaceId); return { text: '', kind: 'empty', sure: true, by: 'screen' }; }
+  const seen = styledSeen.get(tab.surfaceId);
+  if (seen && seen.text === text) return { text, ...suggest.judgePrompt({ text, styled: seen.styled, history }) };
+  const g = await term.readStyled(tab).catch(() => null);
+  const styled = g ? suggest.gridPrompt(g) : null;
+  const v = suggest.judgePrompt({ text, styled, history });
+  // Kept only when it read this very text (the prompt can move between reads).
+  if (v.by === 'style') styledSeen.set(tab.surfaceId, { text, styled }); else styledSeen.delete(tab.surfaceId);
+  return { text, ...v };
+}
+
+// A tab's last read, parsed, with `draft` holding only typed text and
+// Claude's suggestion in `suggestion` (server/suggestion.mjs, withPrompt).
+// Every state rule reads its screen through this.
+function judgedScreen(x) {
+  const screen = parseScreen(x ? x.text : null);
+  return suggest.withPrompt(screen, x && x.prompt && x.prompt.text === screen.draft ? x.prompt : null);
+}
+
+// Before typing into a prompt that shows text, or closing its tab: is that
+// text Claude's suggestion or a half-typed reply? A fresh styled read
+// decides when the terminal has one (cmux); otherwise the probe types one
+// character and reads the prompt again (server/suggestion.mjs, probePrompt).
+// `bang`: the message is a "! command", so the probe's character is its
+// "!", which stays typed over a suggestion (then `bash` is true).
+// { kind: 'suggestion' | 'draft' | 'unknown', sure, by, bash?, error? }
+async function surePrompt(tab, screen, { bang = false } = {}) {
+  const g = await term.readStyled(tab).catch(() => null);
+  const v = suggest.judgePrompt({ text: screen.draft, styled: g ? suggest.gridPrompt(g) : null });
+  if (v.sure) return v;
+  const p = await suggest.probePrompt({
+    read: () => term.readScreen(tab, 40),
+    type: (c) => term.typeText(tab, c),
+    key: (k) => term.pressKey(tab, k),
+    old: screen.draft, bang,
+  });
+  return { kind: p.kind, sure: p.kind !== 'unknown', by: 'probe', bash: !!p.bash, keys: p.keys, error: p.error || null };
 }
 
 // GET /api/live?surface=<id>[&v=<ver>]: the Live screen of one surface,
@@ -517,7 +571,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       const hook = hooks.find((h) => h.surfaceId === s.id) || null;
       const binding = bindings.get(s.id)?.value || null;
       const title = parseTitle(s.title);
-      const screen = parseScreen(screens.get(s.id)?.text ?? null);
+      const screen = judgedScreen(screens.get(s.id));
       const claudeHere = screen.claudeLive || (title.claude && !screen.readable);
       // Events first: the session that last reported from this very tab.
       const evTab = ev.bySurface.get(s.id) || null;
@@ -577,7 +631,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     const kind = e.terminal || (e.surfaceId ? 'cmux' : null);
     const tab = otherTab(e);
     const x = tab ? screens.get(tab.id) : null;
-    const screen = parseScreen(x ? x.text : null);
+    const screen = judgedScreen(x);
     const title = parseTitle(tab ? tab.title : '');
     const q = e.last && e.last.event === 'Stop' && e.last.question;
     if (!(tab && screen.claudeLive) && age(now, e.lastEventAt) > (q ? settings.questionHours : settings.handbackHours) * 3600000) continue;
@@ -834,8 +888,13 @@ function refreshProcs() {
       // not projects), so a half-typed reply or a dialog shows there too.
       const wsOf = new Map(lastWorkspaces.flatMap((w) => w.surfaces.map((x) => [x.id, w])));
       const want = r.procs.filter((p) => p.surfaceId && wsOf.has(p.surfaceId) && !screens.has(p.surfaceId));
-      await term.pool(want, 6, async (p) => { extraScreens.set(p.surfaceId, { text: await term.readScreen({ kind: 'cmux', workspaceId: wsOf.get(p.surfaceId).id, surfaceId: p.surfaceId }, 40), at: Date.now() }); });
-      for (const id of [...extraScreens.keys()]) if (!r.procs.some((p) => p.surfaceId === id)) extraScreens.delete(id);
+      await term.pool(want, 6, async (p) => {
+        const tab = { kind: 'cmux', workspaceId: wsOf.get(p.surfaceId).id, surfaceId: p.surfaceId };
+        const text = await term.readScreen(tab, 40);
+        const now = Date.now();
+        extraScreens.set(p.surfaceId, { text, at: now, prompt: text != null ? await judgeRead(tab, parseScreen(text), now) : null });
+      });
+      for (const id of [...extraScreens.keys()]) if (!r.procs.some((p) => p.surfaceId === id)) { extraScreens.delete(id); if (!screens.has(id)) promptHistory.forget(id); }
       procState = { ...r, error: null };
     } catch (e) {
       procState = { ...procState, error: String(e.message || e) };
@@ -872,7 +931,7 @@ function sessionInfo(sid, p, tab, b, settings, now) {
   const tp = e ? transcriptOf(e) : findTranscript(sid, p.cwd);
   const t = tp ? readTranscript(tp) : null;
   const x = tab ? screens.get(p.surfaceId) || extraScreens.get(p.surfaceId) || null : null;
-  const screen = parseScreen(x ? x.text : null);
+  const screen = judgedScreen(x);
   const title = parseTitle(tab ? tab.s.title : '');
   const st = eventState({ ev: e, screen, screenAt: x ? x.at : null, title, transcript: t }, settings, now)
     || { ...sessionState({ screen, title, transcript: t, hook: null }, settings, now), source: 'screen' };
@@ -983,10 +1042,17 @@ async function closeOne(id, workspaces, allow, settings) {
   const stillTab = still.surfaceId || (still.itermId ? term.tabIdFor('iterm', still.itermId) : null);
   if (stillTab !== row.surfaceId) return fail('Its process is not in that tab.');
   const tab = kind === 'cmux' ? { kind, workspaceId: ws.id, surfaceId: row.surfaceId } : { kind, surfaceId: row.surfaceId };
-  const screen = parseScreen(await term.readScreen(tab, 40));
+  let screen = parseScreen(await term.readScreen(tab, 40));
   if (!screen.readable) return fail(`${name} could not read its tab, so it was left open.`);
   if (!screen.claudeLive) return fail('Claude is not at its prompt in that tab.');
-  if (screen.draft && row.tag !== 'draft') return fail('A reply is half typed in its prompt.');
+  // Text in the prompt that the Sessions page did not show as half typed:
+  // closing is fine over Claude's suggested reply, never over typed text.
+  if (screen.draft && row.tag !== 'draft') {
+    const v = await surePrompt(tab, screen);
+    if (v.kind === 'draft') return fail('A reply is half typed in its prompt.');
+    if (v.kind !== 'suggestion') return fail(`Its prompt holds text the board could not tell from a half-typed reply (${v.error || 'no answer'}), so it was left open.`);
+    screen = suggest.withPrompt(screen, v);
+  }
   const e = events.scan().get(id) || null;
   const tp = e ? transcriptOf(e) : findTranscript(id, row.cwd);
   const t = tp ? readTranscript(tp) : null;
@@ -1409,7 +1475,20 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
   const screen = parseScreen(await term.readScreen(tab, 40));
   const anySurface = project.sendToAnySurface === true; // test registry only
   if (!screen.claudeLive && !anySurface) return { ok: false, status: 409, error: 'No Claude session is running in that tab, so nothing was typed.' };
-  if (screen.draft && !anySurface) return { ok: false, status: 409, error: `There is half-typed text in its prompt. Finish it in ${where} so it is not mixed in.` };
+  // Text in the prompt: Claude's suggested reply (a typed character, a
+  // paste and a typed "!" all replace it) or a half-typed reply, which is
+  // never mixed in (server/suggestion.mjs).
+  let bashOn = false;
+  if (screen.draft && !anySurface) {
+    const half = { ok: false, status: 409, error: `There is half-typed text in its prompt. Finish it in ${where} so it is not mixed in.` };
+    if (screen.dialog) return half;
+    if (choice != null) return { ok: false, status: 409, error: 'No choice is open on screen any more, so nothing was pressed.' };
+    const v = await surePrompt(tab, screen, { bang: /^!\s*\S/.test(String(text || '').trim()) });
+    if (v.kind === 'draft') return half;
+    if (v.kind !== 'suggestion') return { ok: false, status: 409, error: `The board could not tell whether the text in its prompt is Claude's suggestion or a half-typed reply (${v.error || 'no answer'}), so nothing was typed. Look at it in ${where}.` };
+    bashOn = !!v.bash;
+    console.log(`send: the prompt in ${project.id} held Claude's suggested reply (${v.by}${v.keys ? ': ' + v.keys.join(' ') : ''}), typing over it`);
+  }
   if (screen.dialog && !anySurface) {
     if (choice == null) return { ok: false, status: 409, error: `A choice is open on screen. Pick one of its options, or answer in ${where}.` };
     // Arrow keys to the option, then Enter, each step read back from the
@@ -1439,9 +1518,12 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
   const asked = msg;
   const bang = /^!\s*/.exec(msg);
   if (bang && msg.length > bang[0].length) {
-    const k = await term.typeText(tab, '!');
-    if (!k.ok) return { ok: false, status: 500, error: k.err || `${where} refused the text.` };
-    await new Promise((r) => setTimeout(r, 150));
+    // The probe may have typed the "!" already (bash mode is on).
+    if (!bashOn) {
+      const k = await term.typeText(tab, '!');
+      if (!k.ok) return { ok: false, status: 500, error: k.err || `${where} refused the text.` };
+      await new Promise((r) => setTimeout(r, 150));
+    }
     // A shell command must reach the shell as typed. Text fields (macOS
     // smart punctuation, phone keyboards) turn "--" into an em dash and
     // quotes into curly ones, which breaks the command ("—otp=..." was read

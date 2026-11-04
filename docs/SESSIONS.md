@@ -76,7 +76,9 @@ sessions report after the hook change.
 - **Left for you** (listed, not ticked): otherwise idle, but its last message
   ends on a question ("Asked you a question"), or its prompt holds a
   half-typed reply ("Half-typed reply", read from the screen with the same
-  check that stops the board typing into a tab, `parseScreen().draft`).
+  check that stops the board typing into a tab: `parseScreen().draft` judged
+  by `server/suggestion.mjs`, so Claude Code's dim suggested reply is not
+  one; docs/STATE-RULES.md, "The suggested reply").
 - **Handed off** (ticked): its hand-off marker is `written` or `resumed`
   (docs/HANDOFF.md), at any age.
 - **No activity for 24 h or more** (ticked): the rest.
@@ -93,7 +95,10 @@ each one the server checks again, fresh:
 - the process is still alive with the same start time, and its environment
   still names that tab;
 - the tab's screen shows Claude at its prompt, not working, no dialog, no
-  half-typed reply (unless the user ticked a "Half-typed reply" row themselves);
+  half-typed reply (unless the user ticked a "Half-typed reply" row
+  themselves). Text in the prompt is checked with the styled read, else the
+  probe (docs/STATE-RULES.md, "The suggested reply"): Claude's suggested
+  reply does not stop a close, text the board cannot place does;
 - its events, transcript and hand-off marker still put it in Handed off, No
   activity or Left for you.
 

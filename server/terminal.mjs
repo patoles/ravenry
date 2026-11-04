@@ -99,6 +99,7 @@ export function tabIdFor(kind, terminalId) {
 const ADAPTERS = {
   cmux: {
     readScreen: (t, n) => cmuxAdapter.readScreen(t.workspaceId, t.surfaceId, n),
+    readStyled: (t) => cmuxAdapter.readStyled(t.workspaceId, t.surfaceId),
     pasteText: (t, text) => cmuxAdapter.pasteText(t.workspaceId, t.surfaceId, text),
     typeText: (t, text) => cmuxAdapter.typeText(t.workspaceId, t.surfaceId, text),
     pressKey: (t, k) => cmuxAdapter.pressKey(t.workspaceId, t.surfaceId, k),
@@ -109,6 +110,8 @@ const ADAPTERS = {
   iterm: {
     listTabs: () => iterm.listTabs(),
     readScreen: (t, n) => iterm.readScreen(t.surfaceId, n),
+    // iTerm2's AppleScript gives no styles.
+    readStyled: async () => null,
     pasteText: (t, text) => iterm.pasteText(t.surfaceId, text),
     // AppleScript `write text` with no newline arrives as typed input.
     typeText: (t, text) => iterm.pasteText(t.surfaceId, text),
@@ -161,11 +164,18 @@ export async function listTabs(kind) {
 
 // The last `lines` lines of a tab as plain text, or null.
 export const readScreen = (tab, lines = 40) => adapter(tab).readScreen(tab, lines);
+// The screen with its styles (cmux's render grid), or null where the
+// terminal has none (server/suggestion.mjs). MC_NO_STYLED_READ=1 (tests)
+// makes every terminal answer none, so the probe path runs on real cmux.
+export const readStyled = (tab) => {
+  const a = adapter(tab);
+  return a.readStyled && process.env.MC_NO_STYLED_READ !== '1' ? a.readStyled(tab) : Promise.resolve(null);
+};
 // Text as written (newlines kept, no Enter). { ok, err }.
 export const pasteText = (tab, text) => adapter(tab).pasteText(tab, text);
 // Text as keystrokes (no paste), for the "!" that turns on bash mode.
 export const typeText = (tab, text) => adapter(tab).typeText(tab, text);
-// One named key: enter, up, down. { ok, err }.
+// One named key: enter, up, down, backspace. { ok, err }.
 export const pressKey = (tab, key) => adapter(tab).pressKey(tab, key);
 // Brings the terminal forward on that tab. { ok, err }.
 export const focus = (tab) => adapter(tab).focus(tab);

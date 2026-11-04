@@ -1,6 +1,6 @@
 {
   "name": "ravenry-app",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A local board for following every Claude Code session on your Mac, answering agents from one page (cmux or iTerm2), and keeping project briefs.",
   "keywords": [
     "claude",

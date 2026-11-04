@@ -203,6 +203,18 @@ starts with none). Clicking it opens the gallery
   thumbnails and big Previous and Next buttons at thumb height. A swipe
   moves. No Show in Finder.
 - Left and right arrows move, Esc (or Back) closes.
+- **Zoom** on the picture shown (`public/gallery.js`): a two-finger pinch,
+  the wheel or a trackpad pinch (ctrl+wheel in Chromium, gesture events in
+  WebKit) zooms around the fingers or the pointer, a double click or double
+  tap toggles 2.5x, a drag pans while zoomed. 1x to 5x, or up to the
+  picture's own pixels when that is more (12x at most); the pan is held so
+  the picture never leaves its view, which clips it, so it never covers
+  the arrows or the caption. While zoomed a small "250% Fit" button sits in
+  the picture's corner, the first Esc goes back to fit and the next closes,
+  a finger pans instead of swiping, and the arrows, Previous and Next still
+  move; each picture opens whole. The view has `touch-action: none`, since
+  the page's viewport (`maximum-scale=1`) and the swipe left the browser
+  nothing to zoom but the whole page.
 - **Server**: each minute (sooner when the session changes) the board keeps
   the 6 newest allowed pictures the session showed (by file time), each
   checked by the same rule as the single pick was; the newest is the card's
@@ -233,7 +245,9 @@ after the current step. Dropped, pasted or attached files are saved to
 `<project folder>/.inbox/` (which ignores itself in git) and their absolute
 paths are appended to the message. The board refuses to type when the tab has
 no Claude running, when its prompt holds half-typed text, or when a dialog is
-open (then only the dialog's own options are offered). Writes are accepted
+open (then only the dialog's own options are offered). Claude Code's dim
+suggested reply is not half-typed text: the message replaces it
+(`server/suggestion.mjs`; docs/STATE-RULES.md, "The suggested reply"). Writes are accepted
 only from the board's own page.
 
 A dialog's option (a permission prompt, an AskUserQuestion question, the
@@ -929,6 +943,23 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   tripwire: no cmux call at all, New project and Revive open iTerm2 tabs,
   Open, a session's folder becoming a project, a cmux session watch only,
   and the page saying iTerm2. Touches only `.tmp/`.
+- `node tools/suggestion-test.mjs [--real <scratch folder> [--first styled]]`: Claude Code's
+  suggested reply told apart from a half-typed one (docs/STATE-RULES.md,
+  "The suggested reply"): the styled read on captured render grids
+  (`tools/fixtures/prompt/`), the history of reads (a suggestion at the
+  turn's end, typed over, typed during the turn, a turn shorter than a read,
+  a board started mid-rest), the state rules on a judged screen, the probe
+  on an in-memory prompt, then a test board on :4690 whose fake cmux plays
+  prompts (Send over a suggestion with and without the styled read, over
+  typed text, a `! command`). `--real` opens a throwaway
+  `mc-test-suggest-*` workspace running `claude`, asks until it suggests a
+  reply, and runs the board's real Send (test boards on :4691 with
+  `MC_NO_STYLED_READ=1`, the probe path, and :4692) over the suggestion and
+  over a real half-typed reply, which must be refused and left intact.
+  Claude Code rarely offers a second suggestion after one was typed over, so
+  the second of the two sends may print SKIP; `--first styled` runs the
+  styled-read send first. Only that workspace is typed into; it is closed
+  at the end.
 - `node tools/sessions-test.mjs`: the Sessions rules on crafted input
   (which processes count, process to session mapping, groups, records).
   Touches only `.tmp/`.
@@ -951,7 +982,9 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   of the 6 and refusing a phone, then a test board on :4679 with the fake
   cmux and `tools/stub-open.mjs`, driven in headless Chromium at 1440x900
   and 390x844 (the count, opening on the newest, arrows, the strip, Esc,
-  swipe), and a real board of 2026-11-03: a 1273x740 pane with a
+  swipe; zoom by wheel, ctrl+wheel, WebKit gesture events, drag, double
+  click, Fit and Esc at 1440x900, and a real two-finger pinch, pan,
+  double tap and swipe through CDP touch events at 390x844), and a real board of 2026-11-03: a 1273x740 pane with a
   permission prompt whose terminal rules are 200 columns wide and a long
   page scrolled down, checking that no screen text runs out of the answer
   card or the Live screen, each rule is one row, the Live screen never

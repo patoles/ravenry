@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.2
+
+- Replying from the board works again while Claude Code shows its dim
+  suggested reply in the prompt. A plain read of the screen cannot tell that
+  suggestion from typed text, so the board refused to send ("There is
+  half-typed text in its prompt") and showed the session as half typed. The
+  board now reads the prompt's styles in cmux, and elsewhere types one
+  character to look before it sends or closes (taken back at once), so a
+  suggestion is typed over and a real half-typed reply is still refused and
+  left as it was.
+- The gallery's picture zooms: pinch, the wheel or a trackpad pinch, or a
+  double tap or click, and a drag pans while zoomed. Fit or the first Esc goes
+  back to the whole picture, and each picture opens whole.
+- The README shows the Ravenry logo at the top.
+
 ## 0.1.1
 
 - The hand-off no longer waits forever on watches Claude Code keeps for itself: a

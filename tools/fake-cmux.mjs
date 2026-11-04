@@ -16,6 +16,16 @@
 // file is written back. `notify` (a Mac notification) is appended to
 // <fixture>.notify.log instead of shown, or refused when "notifyFail" is set.
 // `new-workspace` is appended to <fixture>.new-workspace.log, then refused.
+// A surface listed in "prompts" (and only such a surface) plays Claude
+// Code's prompt box under its "body" text: { body, ghost, typed, bash,
+// noStyle, sent }. "ghost" is Claude's dim suggested reply, shown while
+// nothing is typed. `send` types (a "!" on an empty prompt turns on bash
+// mode, as the real one does), `paste-buffer` pastes a `set-buffer` buffer,
+// `send-key backspace` deletes (on an empty bash prompt it leaves bash
+// mode), `send-key enter` appends what was typed to "sent" and empties the
+// prompt. `rpc terminal.replay` returns the box's render grid with the
+// suggestion's spans faint, or is refused under "noStyle" (a terminal with
+// no styled read).
 import fs from 'node:fs';
 
 const args = process.argv.slice(2).filter((a) => a !== '--json');
@@ -39,6 +49,7 @@ switch (args[0]) {
     break;
   }
   case 'read-screen': {
+    if (st.prompts && st.prompts[opt('--surface')]) render(opt('--surface'));
     const t = st.screens[opt('--surface')];
     if (t == null) refuse();
     // Like cmux, the last --lines lines (the text ends with a newline).
@@ -66,12 +77,62 @@ switch (args[0]) {
     break;
   }
   case 'surface': if (args[1] === 'resume' && args[2] === 'show') out({ resume_binding: null }); refuse(); break;
+  case 'set-buffer': {
+    // Kept for a later paste-buffer; it names no surface.
+    st.buffers = st.buffers || {};
+    st.buffers[opt('--name')] = args[args.length - 1];
+    save();
+    out('OK\n');
+    break;
+  }
+  case 'paste-buffer': {
+    const sf = opt('--surface');
+    const pr = st.prompts && st.prompts[sf];
+    const b = st.buffers && st.buffers[opt('--name')];
+    if (!pr || b == null) refuse();
+    pr.typed = (pr.typed || '') + b;
+    log(sf, 'paste:' + b);
+    render(sf);
+    save();
+    out('OK\n');
+    break;
+  }
+  case 'rpc': {
+    if (args[1] !== 'terminal.replay') refuse();
+    let p = {};
+    try { p = JSON.parse(args[2] || '{}'); } catch { /* none */ }
+    const pr = st.prompts && st.prompts[p.surface_id];
+    if (!pr || pr.noStyle) refuse();
+    out({ render_grid: grid(pr) });
+    break;
+  }
   case 'send':
   case 'send-key': {
     const sf = opt('--surface');
+    const k = args[args.length - 1];
+    const pr = st.prompts && st.prompts[sf];
+    if (pr) {
+      log(sf, args[0] === 'send' ? 'text:' + k : k);
+      if (args[0] === 'send') {
+        for (const c of k) {
+          if (c === '!' && !pr.typed && !pr.bash) pr.bash = true;
+          else pr.typed = (pr.typed || '') + c;
+        }
+      } else if (k === 'backspace') {
+        if (pr.typed) pr.typed = pr.typed.slice(0, -1);
+        else pr.bash = false;
+      } else if (k === 'enter') {
+        (pr.sent = pr.sent || []).push((pr.bash ? '!' : '') + (pr.typed || ''));
+        pr.typed = '';
+        pr.bash = false;
+        pr.ghost = null;
+      }
+      render(sf);
+      save();
+      out(`OK ${sf}\n`);
+    }
     const m = st.menus && st.menus[sf];
     if (!m) refuse();
-    const k = args[args.length - 1];
     st.keys = st.keys || {};
     (st.keys[sf] = st.keys[sf] || []).push(args[0] === 'send' ? 'text:' + k : k);
     if (args[0] === 'send-key') {
@@ -87,6 +148,42 @@ switch (args[0]) {
     break;
   }
   default: refuse();
+}
+
+function save() {
+  const tmp = process.env.FAKE_CMUX_STATE + '.' + process.pid;
+  fs.writeFileSync(tmp, JSON.stringify(st));
+  fs.renameSync(tmp, process.env.FAKE_CMUX_STATE);
+}
+function log(sf, k) { st.keys = st.keys || {}; (st.keys[sf] = st.keys[sf] || []).push(k); }
+
+// A prompt surface's screen: its body, then the box as Claude Code draws it
+// (a typed "!" on an empty prompt shows bash mode's "!" marker).
+function render(sf) {
+  const pr = st.prompts[sf];
+  const rule = '─'.repeat(99);
+  const line = pr.bash ? '! ' + (pr.typed || '') : '❯ ' + (pr.typed || pr.ghost || '');
+  st.screens[sf] = `${pr.body || ''}\n${rule}\n${line}\n${rule}\n  ⏵⏵ auto mode on (shift+tab to cycle)\n`;
+}
+// The render grid cmux's terminal.replay returns, for the box only: style 0
+// plain, style 1 faint (the suggestion).
+function grid(pr) {
+  const rule = '─'.repeat(99);
+  const base = { blink: false, bold: false, inverse: false, italic: false, foreground: '#FFFFFF', background: '#1E1E1E' };
+  const spans = [
+    { row: 10, column: 0, cell_width: 99, style_id: 0, text: rule },
+    { row: 12, column: 0, cell_width: 99, style_id: 0, text: rule },
+  ];
+  if (pr.bash) spans.push({ row: 11, column: 0, cell_width: 2, style_id: 0, text: '! ' + (pr.typed || '') });
+  else if (pr.typed) spans.push({ row: 11, column: 0, cell_width: 2 + pr.typed.length, style_id: 0, text: '❯ ' + pr.typed });
+  else {
+    spans.push({ row: 11, column: 0, cell_width: 2, style_id: 0, text: '❯ ' });
+    if (pr.ghost) spans.push({ row: 11, column: 2, cell_width: pr.ghost.length, style_id: 1, text: pr.ghost });
+  }
+  return {
+    format: 'cmux.render-grid.v1', columns: 99, rows: 14, cursor: { row: 11, column: 2 + (pr.typed || '').length, visible: true },
+    styles: [{ id: 0, faint: false, ...base }, { id: 1, faint: true, ...base }], row_spans: spans,
+  };
 }
 
 // The option lines of the menu at the bottom of a screen ("❯ 1. Yes",

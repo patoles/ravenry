@@ -180,14 +180,20 @@ export async function pasteText(id, text) {
 const ARROWS = new Set(['up', 'down']);
 
 // One named key. Enter goes through AppleScript (`write text "" newline
-// yes`); Up and Down through iTerm2's Python API (server/iterm-keys.py),
-// as agreed for menus (server/choose.mjs).
+// yes`), Backspace as the DEL character (`write text (character id 127)`),
+// Up and Down through iTerm2's Python API (server/iterm-keys.py), as
+// agreed for menus (server/choose.mjs).
 export async function pressKey(id, key) {
   const u = uuidOf(id);
   if (!u) return { ok: false, err: 'no iTerm2 session named' };
   if (key === 'enter') {
     return osa('enter', `  set {w, t, s} to my findSession(item 1 of argv)
   tell ${APP} to tell s to write text "" newline yes`, [u]);
+  }
+  // Backspace is the DEL character, written as typed input.
+  if (key === 'backspace') {
+    return osa('backspace', `  set {w, t, s} to my findSession(item 1 of argv)
+  tell ${APP} to tell s to write text (character id 127) newline no`, [u]);
   }
   if (!ARROWS.has(key)) return { ok: false, err: `the board does not send the ${key} key to iTerm2` };
   const py = pythonBin();

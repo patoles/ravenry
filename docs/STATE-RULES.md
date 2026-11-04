@@ -89,6 +89,7 @@ Events decide; these only fill what the hooks cannot see:
 - **A dialog on screen** counts at once; its Notification comes about 6 s
   later. A question dialog may never raise one at all.
 - **A half-typed reply** on screen makes an at-rest session **draft**.
+  Claude Code's suggested reply is not one ("The suggested reply", below).
 - **A missing Stop.** A screen read more than 20 s after a prompt event that
   shows Claude at rest (no spinner, no `esc to interrupt`, no agents, no
   busy title) means the turn ended without a Stop.
@@ -126,7 +127,8 @@ So the cmux status is shown as a reason but never decides anything by itself.
 
 | Signal | Source | What it tells |
 | --- | --- | --- |
-| Prompt box | `cmux read-screen` | `────` / `❯ text` / `────` near the bottom means Claude Code is running in that tab. Text after `❯` is a half-typed reply (Claude's dim `Try "..."` placeholder is ignored). |
+| Prompt box | `cmux read-screen` | `────` / `❯ text` / `────` near the bottom means Claude Code is running in that tab. Text after `❯` is either a half-typed reply or Claude Code's dim suggested reply, which a plain read cannot tell apart; `server/suggestion.mjs` decides ("The suggested reply", below). Claude's dim `Try "..."` placeholder is ignored. |
+| Prompt styles | `cmux rpc terminal.replay` | The render grid, a style per span. Faint text after `❯` is Claude Code's suggestion or placeholder; typed text is not faint. cmux only. |
 | Shell below it | screen | A line like `Resume this session with:`, `➜  folder`, or `user@host:path %` after the box means Claude exited and a shell owns the tab. The `claude --resume <id>` line still names the last session. |
 | Spinner line | screen | `· Beaming…`, `✻ Thinking…`, `✻ Waiting for 1 background agent to finish` above the box, or `esc to interrupt` in the footer, means working. |
 | Background agents | screen footer | `◯ general-purpose ...` rows mean subagents are still running. |
@@ -147,7 +149,10 @@ Checked in this order; the first that matches wins.
    a spinner in the title, or the transcript is mid-turn and changed in the
    last 10 minutes.
 4. **draft**: the prompt holds half-typed text. You started an answer, so it
-   needs you (and the board refuses to type into it).
+   needs you (and the board refuses to type into it). Claude Code's
+   suggested reply is not typed text: a prompt that shows one reads as the
+   empty prompt below, and the reasons line says "the prompt shows Claude's
+   suggested reply".
 5. At an empty prompt after a finished turn:
    - **asked**: the last paragraph of Claude's last message asks a question,
      and the turn ended less than 14 days ago.
@@ -155,6 +160,55 @@ Checked in this order; the first that matches wins.
    - **stale**: older than that.
    - **handed**: the session wrote its hand-off (docs/HANDOFF.md), so its
      last message is not a hand-back. Counts like stale.
+
+## The suggested reply
+
+After a turn ends, Claude Code (setting `promptSuggestionEnabled`, on by
+default) shows a dim grey suggested reply after the `❯`, 2 to 6 s after the
+done line (3.3 s measured on Claude Code 2.1.318). `cmux read-screen` and
+iTerm2's AppleScript `contents` are plain text, so it reads exactly like a
+half-typed reply; on 2026-11-04 a reply from the board was refused with
+"There is half-typed text in its prompt" because of one.
+`server/suggestion.mjs` is the one place that tells them apart; every rule
+that reads `screen.draft` (the states above, the Sessions page's tags, the
+composer, Send, Close, the plan runs) gets a screen it has judged, with
+typed text in `draft` and a suggestion in `suggestion`.
+
+Measured on 2.1.318 in cmux 0.64.20: a typed character, a paste, and a
+typed `!` (bash mode) all replace the suggestion; Backspace to an empty
+prompt brings it back; `?` on that prompt opens the shortcuts help instead
+of typing.
+
+Three signals, strongest first:
+
+1. **The styled read** (cmux): `cmux rpc terminal.replay` returns the screen
+   as a render grid with a style per span. The suggestion's spans are
+   `faint`; typed text is not. Read only when the prompt holds text, and
+   once per text (about 30 ms, like a read-screen). Definitive.
+2. **The history of reads** (any terminal, no keystrokes), per tab: a turn
+   is seen ending when a read shows the session working and a later one at
+   rest, or when the done line changes. The text is a suggestion when it was
+   not in the prompt while the turn ran, first showed up within 30 s of the
+   turn's end, and has not changed since; a suggestion that comes back after
+   the user typed and deleted their text is known by its text. Any other
+   text is a draft. Not definitive, so only shown, never acted on.
+3. **The probe** (only on a path that is about to type or close): the board
+   types `1` and reads the prompt again. Over a suggestion the prompt holds
+   just `1`; over typed text it holds the old text with the `1` in it
+   (wherever the cursor was). Either way Backspace takes it back. For a
+   `! command` the probe's character is the command's own `!`: over a
+   suggestion bash mode opens empty and the command follows; over typed text
+   the `!` is taken back. A digit, because in vim mode's NORMAL state a
+   letter is a command that edits the text and a digit is only a count; when
+   the prompt does not take the character, nothing more is pressed and the
+   board says it could not tell. Definitive.
+
+Send and Close use the styled read, else the probe; they never act on the
+history. A board started while a session sat at rest has no history for it
+and, in iTerm2, no styled read: the text then shows as **not** a draft,
+because almost every session at rest holds a suggestion, and calling them all
+half typed would flag most of the board after a restart; Send and Close still
+probe before they act, so typed text is never mixed in or closed.
 
 ## Project state
 
@@ -272,3 +326,11 @@ record it. The bar has a tick at 50%, the hand-off line.
 - An older cmux build (0.64.20 here) has no `surface.input_state`, so the
   board does its own check for a half-typed prompt or an open dialog before
   typing; see `sendMessage` in `server/index.mjs`.
+- `terminal.replay` is not in cmux's CLI help (its mobile app uses it). A
+  cmux without it gives no styled read, and the board falls back to the
+  history and the probe.
+- In iTerm2, a reply typed within 30 s of a turn's end in one go, between
+  two reads, shows as a suggestion until it changes. Send and Close still
+  probe first.
+- parseScreen sees no prompt box while bash mode is on (`!` replaces the
+  `❯`), so such a tab reads as "no Claude on screen" for that moment.

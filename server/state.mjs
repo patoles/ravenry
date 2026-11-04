@@ -44,6 +44,14 @@ function age(now, iso) {
 }
 
 // One session = one Claude Code surface (or the remains of one).
+// The reason line for a prompt that shows Claude's suggested reply.
+function suggestionReason(sc) {
+  const how = sc.prompt && sc.prompt.by === 'style' ? 'its text is dim'
+    : sc.prompt && sc.prompt.kind === 'suggestion' ? 'it appeared as the turn ended'
+      : 'not known to be typed';
+  return `the prompt shows Claude's suggested reply (${how})`;
+}
+
 export function sessionState({ screen, title, transcript: t, hook }, settings, now) {
   const reasons = [];
   if (!screen.readable) reasons.push('screen unreadable');
@@ -64,11 +72,13 @@ export function sessionState({ screen, title, transcript: t, hook }, settings, n
     if (tWorking) reasons.push('transcript is mid-turn and fresh');
     return { state: 'working', since: (t && t.lastPromptAt) || null, reasons };
   }
+  // `draft` holds only typed text: Claude's suggested reply is in
+  // `suggestion` (server/suggestion.mjs), and a prompt holding one is at rest.
   if (screen.draft) return { state: 'draft', since: t && (t.lastTurnEndAt || t.lastTextAt), reasons: ['a reply is half typed in the prompt'] };
 
   // At an empty prompt after a finished turn.
   const endAt = t && (t.lastTurnEndAt || t.lastTextAt);
-  reasons.push('empty prompt' + (screen.done ? `, done ${screen.done.when}` : ''));
+  reasons.push((screen.suggestion ? suggestionReason(screen) : 'empty prompt') + (screen.done ? `, done ${screen.done.when}` : ''));
   if (!t) {
     if (hook && hook.lifecycle === 'needsInput') return { state: 'handback', since: hook.updatedAt, reasons: [...reasons, 'cmux hook says needs input, no transcript'] };
     return { state: 'stale', since: null, reasons: [...reasons, 'no transcript found'] };
@@ -140,6 +150,7 @@ export function eventState({ ev, screen, screenAt, title, transcript: t }, setti
   // At rest: asked, half-typed, handed back or stale, by the age of `endAt`.
   const rest = (endAt, q) => {
     if (sc.readable && sc.draft) { reasons.push('screen shows a half-typed reply'); return out('draft', endAt); }
+    if (sc.readable && sc.suggestion) reasons.push(suggestionReason(sc));
     const a = endAt ? now - Date.parse(endAt) : Infinity;
     if (q && a < settings.questionHours * H) { reasons.push('last message ends on a question'); return out('asked', endAt, { question: q }); }
     if (a < settings.handbackHours * H) return out('handback', endAt);

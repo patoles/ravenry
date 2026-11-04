@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/patoles/ravenry/main/brand/ravenry/readme-logo.png" alt="Ravenry logo: a white raven with a blue eye" width="112"></p>
+
 # Ravenry
 
 One local board for every Claude Code session on your Mac: see which project needs you, answer it from the board, and keep a short brief for each project.

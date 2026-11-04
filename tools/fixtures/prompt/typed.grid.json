@@ -1,0 +1,172 @@
+{
+ "note": "Captured from Claude Code 2.1.318 in cmux 0.64.20 (cmux rpc terminal.replay), trimmed to the rows around the prompt box.",
+ "format": "cmux.render-grid.v1",
+ "columns": 194,
+ "rows": 59,
+ "cursor": {
+  "blinking": true,
+  "column": 15,
+  "row": 18,
+  "style": "block",
+  "visible": true
+ },
+ "styles": [
+  {
+   "background": "#1E1E1E",
+   "background_source": "default",
+   "blink": false,
+   "bold": false,
+   "faint": false,
+   "foreground": "#FFFFFF",
+   "foreground_source": "default",
+   "id": 0,
+   "inverse": false,
+   "invisible": false,
+   "italic": false,
+   "overline": false,
+   "strikethrough": false,
+   "underline": false
+  },
+  {
+   "background": "#1E1E1E",
+   "background_source": "default",
+   "blink": false,
+   "bold": false,
+   "faint": false,
+   "foreground": "#999999",
+   "foreground_source": "rgb",
+   "id": 4,
+   "inverse": false,
+   "invisible": false,
+   "italic": false,
+   "overline": false,
+   "strikethrough": false,
+   "underline": false
+  },
+  {
+   "background": "#1E1E1E",
+   "background_source": "default",
+   "blink": false,
+   "bold": false,
+   "faint": false,
+   "foreground": "#888888",
+   "foreground_source": "rgb",
+   "id": 9,
+   "inverse": false,
+   "invisible": false,
+   "italic": false,
+   "overline": false,
+   "strikethrough": false,
+   "underline": false
+  },
+  {
+   "background": "#1E1E1E",
+   "background_source": "default",
+   "blink": false,
+   "bold": false,
+   "faint": false,
+   "foreground": "#FFC107",
+   "foreground_source": "rgb",
+   "id": 10,
+   "inverse": false,
+   "invisible": false,
+   "italic": false,
+   "overline": false,
+   "strikethrough": false,
+   "underline": false
+  }
+ ],
+ "row_spans": [
+  {
+   "cell_width": 1,
+   "column": 0,
+   "row": 15,
+   "style_id": 4,
+   "text": "✻"
+  },
+  {
+   "cell_width": 6,
+   "column": 2,
+   "row": 15,
+   "style_id": 4,
+   "text": "Cooked"
+  },
+  {
+   "cell_width": 3,
+   "column": 9,
+   "row": 15,
+   "style_id": 4,
+   "text": "for"
+  },
+  {
+   "cell_width": 2,
+   "column": 13,
+   "row": 15,
+   "style_id": 4,
+   "text": "2s"
+  },
+  {
+   "cell_width": 1,
+   "column": 16,
+   "row": 15,
+   "style_id": 4,
+   "text": "·"
+  },
+  {
+   "cell_width": 4,
+   "column": 18,
+   "row": 15,
+   "style_id": 4,
+   "text": "done"
+  },
+  {
+   "cell_width": 5,
+   "column": 23,
+   "row": 15,
+   "style_id": 4,
+   "text": "11:05"
+  },
+  {
+   "cell_width": 2,
+   "column": 29,
+   "row": 15,
+   "style_id": 4,
+   "text": "AM"
+  },
+  {
+   "cell_width": 194,
+   "column": 0,
+   "row": 17,
+   "style_id": 9,
+   "text": "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
+  },
+  {
+   "cell_width": 15,
+   "column": 0,
+   "row": 18,
+   "style_id": 0,
+   "text": "❯ my half reply"
+  },
+  {
+   "cell_width": 194,
+   "column": 0,
+   "row": 19,
+   "style_id": 9,
+   "text": "──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────"
+  },
+  {
+   "cell_width": 15,
+   "column": 2,
+   "row": 20,
+   "style_id": 10,
+   "text": "⏵⏵ auto mode on"
+  },
+  {
+   "cell_width": 21,
+   "column": 17,
+   "row": 20,
+   "style_id": 4,
+   "text": " (shift+tab to cycle)"
+  }
+ ]
+}

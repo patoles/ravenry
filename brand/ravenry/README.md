@@ -19,6 +19,7 @@ node brand/ravenry/build.mjs     # headless Playwright; writes the PNGs here and
 | `template.svg` | macOS menu-bar template: black on clear, eye cut out; the system tints it. |
 | `icon-1024/512/256/128/64/32/16.png` | The tile from `icon.svg` at each size (app icons, docs). |
 | `favicon-32.png`, `favicon-16.png` | PNG favicon fallbacks from `favicon.svg`; `favicon-32.png` is also the iTerm2 "Ravenry board" tab icon. |
+| `readme-logo.png` | The 256 tile with its corners rounded in the PNG (22.5%), shown at the top of the README, because GitHub and npm ignore CSS there. |
 | `apple-touch-icon-180.png` | Home-screen icon for the phone page (iOS rounds the corners). |
 | `template-16.png`, `template-16@2x.png`, `template-32.png`, `template-32@2x.png` | Menu-bar template at 16 and 32 pt, 1x and 2x. |
 

@@ -346,6 +346,117 @@ try {
     check('page: no script errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
+  // ------------------------------------------------------------ zoom
+  // The picture shown zooms: the wheel and a trackpad pinch (ctrl+wheel)
+  // around the pointer, a drag pans it, held so it never leaves the view,
+  // a double click toggles, Fit and the first Esc go back, the arrows still
+  // move and a new picture opens whole.
+  const zs = (pg) => pg.evaluate(() => {
+    const v = document.querySelector('#gl-view'), i = document.querySelector('#gl-im');
+    if (!v || !i) return null;
+    const m = new DOMMatrix(getComputedStyle(i).transform === 'none' ? '' : getComputedStyle(i).transform);
+    const r = v.getBoundingClientRect();
+    const k = Math.min(r.width / i.naturalWidth, r.height / i.naturalHeight);
+    const on = [...document.querySelectorAll('.gl-thumb')].findIndex((b) => b.classList.contains('on'));
+    const fit = document.querySelector('[data-gl-fit]');
+    return { s: +m.a.toFixed(3), x: +m.e.toFixed(1), y: +m.f.toFixed(1), vw: r.width, vh: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2, fw: i.naturalWidth * k, fh: i.naturalHeight * k, on, open: !document.querySelector('#gl-fs').hidden, fit: fit && !fit.hidden ? fit.textContent : null };
+  });
+  // The picture's own spot (in fit pixels from its centre) under a screen point.
+  const spot = (z, px, py) => [(px - z.cx - z.x) / z.s, (py - z.cy - z.y) / z.s];
+  const near = (a, b, e = 1.5) => Math.abs(a - b) <= e;
+  {
+    const { ctx, pg, errs } = await page({ width: 1440, height: 900 }, 'dark');
+    await pg.click('.picard');
+    await settle(pg);
+    await pg.keyboard.press('ArrowLeft'); // shapes.png, 2880 x 1620
+    await settle(pg);
+    let z = await zs(pg);
+    check('zoom desk: opens whole, scale 1, no Fit button', z.s === 1 && z.x === 0 && z.y === 0 && z.fit === null, JSON.stringify(z));
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'zoom-desk-fit.png') });
+    const P1 = [z.cx + 220, z.cy - 120];
+    const before = spot(z, ...P1);
+    await pg.mouse.move(...P1);
+    await pg.mouse.wheel(0, -300);
+    await sleep(120);
+    z = await zs(pg);
+    check('zoom desk: the wheel zooms in', z.s > 1.15 && z.s < 2, JSON.stringify(z));
+    let after = spot(z, ...P1);
+    check('zoom desk: around the pointer (the spot under it stays)', near(before[0], after[0]) && near(before[1], after[1]), JSON.stringify({ before, after }));
+    await pg.keyboard.down('Control');
+    for (let k = 0; k < 5; k++) { await pg.mouse.wheel(0, -10); await sleep(30); }
+    await pg.keyboard.up('Control');
+    await sleep(120);
+    const z2 = await zs(pg);
+    after = spot(z2, ...P1);
+    check('zoom desk: a trackpad pinch (ctrl+wheel) zooms on, around the pointer', z2.s > z.s * 1.2 && near(before[0], after[0]) && near(before[1], after[1]), JSON.stringify({ s0: z.s, s: z2.s, before, after }));
+    const pageZoom = await pg.evaluate(() => [window.visualViewport ? visualViewport.scale : 1, document.documentElement.clientWidth]);
+    check('zoom desk: the page itself did not zoom', pageZoom[0] === 1 && pageZoom[1] === 1440, JSON.stringify(pageZoom));
+    check('zoom desk: the Fit button shows the zoom', z2.fit && new RegExp('^' + Math.round(z2.s * 100) + '%Fit$').test(z2.fit), z2.fit);
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'zoom-desk-zoomed.png') });
+    // Drag pans by as much as the mouse moved.
+    z = z2;
+    await pg.mouse.move(z.cx, z.cy); await pg.mouse.down(); await pg.mouse.move(z.cx - 150, z.cy - 60, { steps: 6 }); await pg.mouse.up();
+    let z3 = await zs(pg);
+    check('zoom desk: a drag pans', near(z3.x, z.x - 150) && near(z3.y, z.y - 60), JSON.stringify({ from: [z.x, z.y], to: [z3.x, z3.y] }));
+    // Dragged far: held at the edge, the picture still covering the view.
+    await pg.mouse.move(z.cx, z.cy); await pg.mouse.down(); await pg.mouse.move(z.cx + 4000, z.cy + 4000, { steps: 8 }); await pg.mouse.up();
+    z3 = await zs(pg);
+    const mx = (z3.fw * z3.s - z3.vw) / 2, my = Math.max(0, (z3.fh * z3.s - z3.vh) / 2);
+    check('zoom desk: panning is held at the picture\'s edge', near(z3.x, mx) && near(z3.y, my), JSON.stringify({ x: z3.x, mx, y: z3.y, my }));
+    check('zoom desk: dragging did not move to another picture or close', z3.on === 4 && z3.open);
+    // Zoomed all the way: 5x (this picture's own pixels are nearer).
+    await pg.mouse.move(z3.cx, z3.cy);
+    for (let k = 0; k < 12; k++) await pg.mouse.wheel(0, -300);
+    await sleep(100);
+    z3 = await zs(pg);
+    check('zoom desk: at most 5x', z3.s === 5, String(z3.s));
+    await pg.keyboard.press('Escape');
+    await sleep(300);
+    z3 = await zs(pg);
+    check('zoom desk: the first Esc goes back to fit, the gallery stays open', z3.s === 1 && z3.open && z3.on === 4, JSON.stringify(z3));
+    await pg.mouse.dblclick(z3.cx + 100, z3.cy + 50);
+    await sleep(300);
+    z3 = await zs(pg);
+    check('zoom desk: a double click zooms in (2.5x)', z3.s === 2.5, String(z3.s));
+    await pg.click('[data-gl-fit]');
+    await sleep(300);
+    z3 = await zs(pg);
+    check('zoom desk: Fit goes back to the whole picture', z3.s === 1 && z3.fit === null, JSON.stringify(z3));
+    // WebKit (cmux's browser, Safari) sends a trackpad pinch as gesture
+    // events, not ctrl+wheel; Playwright cannot make real ones, so these are
+    // made by hand with the fields WebKit's GestureEvent carries.
+    const gest = await pg.evaluate(([x, y]) => {
+      const v = document.querySelector('#gl-view');
+      const ev = (type, scale) => { const e = new Event(type, { bubbles: true, cancelable: true }); Object.defineProperties(e, { scale: { value: scale }, clientX: { value: x }, clientY: { value: y } }); v.dispatchEvent(e); return e.defaultPrevented; };
+      const a = ev('gesturestart', 1), b = ev('gesturechange', 1.6), c = ev('gesturechange', 2.2); ev('gestureend', 2.2);
+      return [a, b, c];
+    }, [z3.cx - 200, z3.cy + 80]);
+    z3 = await zs(pg);
+    check('zoom desk: a WebKit trackpad pinch (gesture events) zooms, the page zoom held off', z3.s === 2.2 && gest.every(Boolean), JSON.stringify({ s: z3.s, prevented: gest }));
+    await pg.click('[data-gl-fit]');
+    await sleep(300);
+    await pg.mouse.dblclick(z3.cx, z3.cy);
+    await sleep(300);
+    await pg.mouse.dblclick(z3.cx, z3.cy);
+    await sleep(300);
+    check('zoom desk: a second double click goes back to fit', (await zs(pg)).s === 1);
+    await pg.mouse.dblclick(z3.cx, z3.cy);
+    await sleep(300);
+    await pg.keyboard.press('ArrowRight');
+    await settle(pg);
+    z3 = await zs(pg);
+    check('zoom desk: zoomed, the right arrow still moves, and the next picture opens whole', z3.on === 5 && z3.s === 1 && z3.fit === null, JSON.stringify(z3));
+    await pg.mouse.dblclick(z3.cx, z3.cy);
+    await sleep(300);
+    await pg.click('.gb-stage [data-gl-step="-1"]');
+    await settle(pg);
+    z3 = await zs(pg);
+    check('zoom desk: zoomed, Previous still moves, the picture opens whole', z3.on === 4 && z3.s === 1, JSON.stringify(z3));
+    await pg.keyboard.press('Escape');
+    check('zoom desk: at fit, Esc closes', (await cur(pg)) === null);
+    check('zoom desk: no script errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
   // ------------------------------------------------------- a real board
   // A user's screenshot (2026-11-03 19:36): a pane about 1273 x 764 in cmux's
   // browser (WebKit), the page scrolled down a long project, a permission
@@ -527,6 +638,85 @@ try {
     check(`phone ${theme}: no script errors`, errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
+  // Zoom on a phone: a real two-finger pinch (CDP touch events, so the
+  // browser's own touch handling runs), a one-finger pan, a double tap,
+  // and the swipe and the X still working at fit.
+  if (!process.env.GL_WEBKIT) {
+    const { ctx, pg, errs } = await page({ width: 390, height: 844 }, 'dark', { hasTouch: true, isMobile: true });
+    const cdp = await ctx.newCDPSession(pg);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    const pinch = async (cx, cy, d0, d1, steps = 10) => {
+      await touch('touchStart', [[cx - d0, cy], [cx + d0, cy]]);
+      for (let k = 1; k <= steps; k++) { const dd = d0 + (d1 - d0) * k / steps; await touch('touchMove', [[cx - dd, cy], [cx + dd, cy]]); await sleep(16); }
+      await touch('touchEnd', []);
+    };
+    const drag = async (x0, y0, x1, y1, steps = 8) => {
+      await touch('touchStart', [[x0, y0]]);
+      for (let k = 1; k <= steps; k++) { await touch('touchMove', [[x0 + (x1 - x0) * k / steps, y0 + (y1 - y0) * k / steps]]); await sleep(16); }
+      await touch('touchEnd', []);
+    };
+    const tap = async (x, y) => { await touch('touchStart', [[x, y]]); await sleep(40); await touch('touchEnd', []); };
+    await pg.click('.picard');
+    await settle(pg);
+    await pg.click('.gb-ctl [data-gl-step="-1"]'); // shapes.png
+    await settle(pg);
+    let z = await zs(pg);
+    check('zoom phone: opens whole', z.s === 1 && z.on === 4, JSON.stringify(z));
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'zoom-phone-fit.png') });
+    const before = spot(z, z.cx + 40, z.cy);
+    await pinch(z.cx + 40, z.cy, 30, 90);
+    await sleep(150);
+    let z2 = await zs(pg);
+    const after = spot(z2, z.cx + 40, z.cy);
+    check('zoom phone: a two-finger pinch zooms in (about 3x for fingers 3x apart)', z2.s > 2.7 && z2.s < 3.2, String(z2.s));
+    check('zoom phone: around the fingers (the spot between them stays)', near(before[0], after[0], 2) && near(before[1], after[1], 2), JSON.stringify({ before, after }));
+    check('zoom phone: the pinch neither moved to another picture nor closed', z2.on === 4 && z2.open, JSON.stringify(z2));
+    const vv = await pg.evaluate(() => (window.visualViewport ? visualViewport.scale : 1));
+    check('zoom phone: the page itself did not zoom', vv === 1, String(vv));
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'zoom-phone-zoomed.png') });
+    // A one-finger sideways drag pans, and is not a swipe.
+    await drag(z2.cx + 100, z2.cy, z2.cx - 40, z2.cy + 30);
+    await sleep(150);
+    let z3 = await zs(pg);
+    check('zoom phone: a one-finger drag pans the zoomed picture', near(z3.x, z2.x - 140, 2) && near(z3.y, z2.y + 30, 2), JSON.stringify({ from: [z2.x, z2.y], to: [z3.x, z3.y] }));
+    check('zoom phone: the pan is not a swipe (same picture)', z3.on === 4 && z3.open);
+    await drag(z2.cx - 150, z2.cy, z2.cx + 200, z2.cy);
+    await drag(z2.cx - 150, z2.cy, z2.cx + 200, z2.cy);
+    z3 = await zs(pg);
+    const mx = (z3.fw * z3.s - z3.vw) / 2;
+    check('zoom phone: the pan is held at the picture\'s edge, still on the same picture', near(z3.x, mx, 1.5) && z3.on === 4, JSON.stringify({ x: z3.x, mx, on: z3.on }));
+    // Pinching in again goes back to fit, never smaller.
+    await pinch(z3.cx, z3.cy, 120, 10);
+    await sleep(150);
+    z3 = await zs(pg);
+    check('zoom phone: pinching in stops at fit', z3.s === 1 && z3.x === 0 && z3.on === 4 && z3.open, JSON.stringify(z3));
+    await tap(z3.cx - 60, z3.cy + 20); await sleep(90); await tap(z3.cx - 60, z3.cy + 20);
+    await sleep(300);
+    z3 = await zs(pg);
+    check('zoom phone: a double tap zooms in (2.5x)', z3.s === 2.5 && z3.on === 4 && z3.open, JSON.stringify(z3));
+    await tap(z3.cx, z3.cy); await sleep(90); await tap(z3.cx, z3.cy);
+    await sleep(300);
+    z3 = await zs(pg);
+    check('zoom phone: a second double tap goes back to fit', z3.s === 1 && z3.on === 4 && z3.open, JSON.stringify(z3));
+    await drag(z3.cx - 120, z3.cy, z3.cx + 120, z3.cy);
+    await sleep(150);
+    z3 = await zs(pg);
+    check('zoom phone: at fit a real swipe right still goes back one', z3.on === 3 && z3.s === 1, JSON.stringify(z3));
+    await drag(z3.cx + 120, z3.cy, z3.cx - 120, z3.cy);
+    await sleep(150);
+    z3 = await zs(pg);
+    check('zoom phone: and a swipe left forward one', z3.on === 4);
+    await pinch(z3.cx, z3.cy, 40, 100);
+    await sleep(150);
+    await pg.click('.gb-ctl [data-gl-step="1"]');
+    await settle(pg);
+    z3 = await zs(pg);
+    check('zoom phone: zoomed, Next still moves, the next picture opens whole', z3.on === 5 && z3.s === 1, JSON.stringify(z3));
+    await pg.click('[data-gl-close]');
+    check('zoom phone: the X closes', (await cur(pg)) === null);
+    check('zoom phone: no script errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  } else console.log('SKIP  zoom phone (CDP touch is Chromium only)');
 } catch (e) {
   check('no exception', false, e.stack);
 } finally {

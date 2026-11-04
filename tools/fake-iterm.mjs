@@ -3,7 +3,7 @@
 // adapter (server/iterm.mjs) runs:
 //   ITERM_OSASCRIPT_BIN=tools/fake-iterm.mjs   osascript -e <script> <args>;
 //     the operation is the script's first line ("-- ravenry:list", read,
-//     write, enter, focus, open, close).
+//     write, enter, backspace, focus, open, close).
 //   RAVENRY_ITERM_PYTHON=tools/fake-iterm.mjs  python3 -I iterm-keys.py <id> <keys>
 // so a test board never reaches the user's real iTerm2.
 //
@@ -15,7 +15,7 @@
 //     "menus": { "<UUID>": { "after", "frozen", "stuck", "lagKeys" } },
 //     "noPython": false }
 // Every write is appended to "keys" by session: "text:<text>" (AppleScript
-// write text), "osa:enter", "py:up", "py:down", "py:enter". A session in
+// write text), "osa:enter", "osa:backspace", "py:up", "py:down", "py:enter". A session in
 // "menus" plays a Claude Code menu as tools/fake-cmux.mjs does: the arrows
 // move the ❯, Enter replaces the screen with "after". "focused", "opened"
 // and "closed" record those calls. "noPython": true makes the Python side
@@ -86,6 +86,7 @@ switch (op) {
   }
   case 'write': need(args[0]); log(args[0], 'text:' + args[1]); save(); done(); break;
   case 'enter': need(args[0]); log(args[0], 'osa:enter'); key(args[0], 'enter'); save(); done(); break;
+  case 'backspace': need(args[0]); log(args[0], 'osa:backspace'); save(); done(); break;
   case 'focus': need(args[0]); (st.focused = st.focused || []).push(args[0]); save(); done('ok'); break;
   case 'close': need(args[0]); st.sessions = st.sessions.filter((s) => s.uuid !== args[0]); (st.closed = st.closed || []).push(args[0]); save(); done('ok'); break;
   case 'open': {

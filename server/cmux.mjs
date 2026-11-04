@@ -103,6 +103,22 @@ export async function readScreen(workspaceId, surfaceId, lines = 40) {
   return r.out;
 }
 
+// The screen with its styles: cmux's render grid (`terminal.replay`, format
+// cmux.render-grid.v1: rows of spans, each with a style id; styles carry
+// `faint`, `inverse` and colours), or null. server/suggestion.mjs reads the
+// prompt's faint text from it, which no plain read shows. Undocumented in
+// cmux's CLI help; a cmux without it returns null and the board falls back.
+export async function readStyled(workspaceId, surfaceId) {
+  const r = await run(['rpc', 'terminal.replay', JSON.stringify({ workspace_id: workspaceId, surface_id: surfaceId })], { timeout: 4000 });
+  if (!r.ok) return null;
+  try {
+    const j = JSON.parse(r.out);
+    return j && j.render_grid && Array.isArray(j.render_grid.row_spans) ? j.render_grid : null;
+  } catch {
+    return null;
+  }
+}
+
 // How cmux would resume this surface: for Claude it names the session id.
 export async function resumeBinding(workspaceId, surfaceId) {
   const r = await run(['surface', 'resume', 'show', '--json', '--workspace', workspaceId, '--surface', surfaceId]);
@@ -159,7 +175,8 @@ export async function typeText(workspaceId, surfaceId, text) {
 }
 
 // One named key: enter, up, down (server/choose.mjs moves a menu's
-// selection with the arrows, since some menus ignore digit keys).
+// selection with the arrows, since some menus ignore digit keys), backspace
+// (server/suggestion.mjs takes its probe character back).
 export async function pressKey(workspaceId, surfaceId, key) {
   return run(['send-key', '--workspace', workspaceId, '--surface', surfaceId, '--', key]);
 }
