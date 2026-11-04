@@ -54,12 +54,15 @@ export function ingest(e) {
 // One session's events folded into what the state rules read.
 export function summarize(sid, events) {
   const s = {
-    sessionId: sid, cwd: null, transcriptPath: null, workspaceId: null, surfaceId: null, pane: null, terminal: null, terminalId: null,
+    sessionId: sid, assistant: null, cwd: null, transcriptPath: null, workspaceId: null, surfaceId: null, pane: null, terminal: null, terminalId: null,
     startedAt: null, source: null, endedAt: null, endReason: null, pid: null, pidAt: null,
     last: null, lastStop: null, lastPromptAt: null, notification: null, lastEventAt: null, count: events.length,
   };
   for (const e of events) {
     s.lastEventAt = e.at;
+    // Which assistant ran the hook (server/assistant.mjs); none recorded is
+    // Claude Code, so events written before there was a second read as before.
+    if (e.assistant) s.assistant = e.assistant;
     if (e.cwd) s.cwd = e.cwd;
     if (e.transcript_path) s.transcriptPath = e.transcript_path;
     if (e.workspace_id) s.workspaceId = e.workspace_id;
@@ -82,6 +85,9 @@ export function summarize(sid, events) {
       s.lastPromptAt = e.at; s.last = e;
     } else if (e.event === 'Stop') {
       s.lastStop = e; s.last = e;
+    } else if (e.event === 'Interrupt') {
+      // Codex's: the turn ended without a Stop (Esc, or a refused approval).
+      s.last = e;
     } else if (e.event === 'Notification') {
       s.notification = e;
       if (NEEDS_YOU.has(e.notification_type) || e.notification_type === IDLE) s.last = e;

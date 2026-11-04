@@ -11,6 +11,14 @@
 // It never fails a stop: any error means exit 0, silently.
 
 import * as h from '../server/handoff.mjs';
+import { assistantOf, codexDaemon } from '../server/assistanthook.mjs';
+import { lastUsage as codexUsage } from '../server/codexrollout.mjs';
+
+// Claude Code's Stop hook, or Codex's (`--assistant=codex` in the command
+// Codex's hooks.json names): Codex's Stop hook blocks a stop the same way,
+// {"decision":"block","reason":...}, and Codex carries on with the reason
+// as its next prompt (measured on 0.166.0, docs/ASSISTANTS.md).
+const ASSISTANT = assistantOf();
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -40,13 +48,15 @@ async function main() {
   if (marker && (marker.state === 'written' || marker.state === 'resumed')) return done();
 
   const { settings, projects } = h.loadSettings();
-  const window = Number(settings.contextWindow) || 1000000;
+  let window = Number(settings.contextWindow) || 1000000;
   // Hand-off off (the board's Settings card): no line asks on its own, so
   // the threshold and ceiling count as never reached. Hand off now still does.
   const enabled = settings.handoffEnabled !== false;
   const threshold = enabled ? Number(settings.handoffThreshold) || 50 : Infinity;
   const ceiling = enabled ? Number(settings.handoffCeiling) || 70 : Infinity;
-  const u = input.transcript_path ? h.lastUsage(input.transcript_path) : null;
+  const u = input.transcript_path ? (ASSISTANT === 'codex' ? codexUsage(input.transcript_path) : h.lastUsage(input.transcript_path)) : null;
+  // A Codex rollout records its model's own window.
+  if (u && u.window) window = u.window;
   const tokens = u && u.tokens != null ? u.tokens : null;
   const pct = tokens != null ? (tokens / window) * 100 : null;
   const now = new Date().toISOString();
@@ -69,8 +79,10 @@ async function main() {
 
   // Past the line, or the user asked. Everything below runs at most a few
   // times per session, so it can afford a git call.
-  const workspaceId = (marker && marker.workspaceId) || process.env.CMUX_WORKSPACE_ID || null;
-  const surfaceId = (marker && marker.surfaceId) || process.env.CMUX_SURFACE_ID || null;
+  // Codex's daemon carries another terminal's variables (server/assistanthook.mjs).
+  const envTab = !(ASSISTANT === 'codex' && await codexDaemon());
+  const workspaceId = (marker && marker.workspaceId) || (envTab && process.env.CMUX_WORKSPACE_ID) || null;
+  const surfaceId = (marker && marker.surfaceId) || (envTab && process.env.CMUX_SURFACE_ID) || null;
   const cwd = input.cwd || (marker && marker.cwd) || process.cwd();
   // Resolved afresh at every stop, never read back from the marker: the
   // registry can gain a brief after the first stop past the line, and the
@@ -79,6 +91,7 @@ async function main() {
   const target = h.resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath: input.transcript_path, projectId: (marker && marker.projectId) || null, projects, root: process.env.MC_PROJECTS_ROOT || settings.projectsRoot || null });
   const common = {
     cwd, transcriptPath: input.transcript_path || null, workspaceId, surfaceId,
+    ...(ASSISTANT !== 'claude' ? { assistant: ASSISTANT } : {}),
     // The file and its section's hash, together: any change after this is the hand-off.
     ...h.targetFields(target),
     pct, tokens, window, threshold, ceiling, lastStopAt: now,
@@ -104,6 +117,7 @@ async function main() {
   const reason = h.reasonText({
     pct, tokens, window, threshold, ceiling, manual,
     file: target.file, autoStart: settings.handoffAutoStart !== false,
+    ...(ASSISTANT === 'codex' ? { name: 'Codex', short: 'Codex' } : {}),
   });
   h.writeMarker(sid, {
     ...common, state: 'requested',

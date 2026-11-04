@@ -358,22 +358,32 @@ export function writeBrief(project, form) {
 // ------------------------------------------------------------ Revive
 
 // `prompt` replaces the default one (a plan's start or answer, server/planrun.mjs).
+// `firstMessage`: the message box's New session switch
+// (docs/design/NewSession.dc.html, D): the user's own words, with file paths
+// appended as Send appends them, as the new session's first prompt. They
+// reach Claude exactly: shellWord when the line is typed into a new tab's
+// shell, and `--` before words that start with a dash. It needs no brief,
+// and the project may have a live session already.
 // `near`: in iTerm2 mode, a tab of the project's whose window gets the new one.
-export async function revive(project, { cfg, settings, reserve, prompt: custom = null, near = null }) {
+export async function revive(project, { cfg, settings, reserve, prompt: custom = null, firstMessage = null, near = null }) {
+  const fm = firstMessage ? String(firstMessage) : null;
   const bp = registry.briefPath(project);
-  if (!bp || !fs.existsSync(bp)) return { ok: false, status: 409, error: `${project.name} has no brief yet. Write the brief first, so the new session has something to read.` };
+  if (!custom && !fm && (!bp || !fs.existsSync(bp))) return { ok: false, status: 409, error: `${project.name} has no brief yet. Write the brief first, so the new session has something to read.` };
   // No folder (an idea with no repo): cmux opens the session in the
   // project's workspace, which keeps it on the card; a new iTerm2 tab would
   // have nothing tying it to the project, so it is not opened.
   if (!project.folder && term.BOARD !== 'cmux') return { ok: false, status: 409, error: `${project.name} has no folder, so there is nowhere to start its session.` };
-  const rel = project.folder ? path.relative(project.folder, bp) : '..';
+  const rel = project.folder && bp ? path.relative(project.folder, bp) : '..';
   const briefRel = rel.startsWith('..') ? bp : rel;
   const prompt = custom || `Read ${briefRel} (Hand-off section first) and continue.`;
-  const cmd = launchLine(cfg, prompt);
+  // `typed`: the line is pasted into a new tab's shell; else it is cmux's
+  // --command for a new workspace, which reads backslashes (quoteWord).
+  const line = (typed) => (fm ? `${cfg.launchCommand} ${fm.startsWith('-') ? '-- ' : ''}${typed ? shellWord(fm) : quoteWord(fm)}` : launchLine(cfg, prompt));
+  const cmd = line(true);
   if (term.BOARD !== 'cmux') {
     const t = await openBoardTab({ cwd: project.folder, command: cmd, near });
     if (!t.ok) return { ok: false, status: 500, error: t.error.charAt(0).toUpperCase() + t.error.slice(1) };
-    return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, message: `New ${t.where} tab for ${project.name}. It reads the brief first.` };
+    return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, message: `New ${t.where} tab for ${project.name}. ${fm ? 'It starts with your first message.' : 'It reads the brief first.'}` };
   }
   const all = await cmux.listWorkspaces();
   const ws = all.find((w) => (project.workspaces || []).includes(w.id));
@@ -391,10 +401,11 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   }
   const release = reserve(project.name);
   try {
-    const nw = await openWorkspace({ name: project.name, cwd: project.folder, command: cmd, focus: settings.focusNewWorkspace === true });
+    const wcmd = line(false);
+    const nw = await openWorkspace({ name: project.name, cwd: project.folder, command: wcmd, focus: settings.focusNewWorkspace === true });
     if (!nw.ok) return { ok: false, status: 500, error: nw.error };
     const reg = registry.update((r) => { const p = r.projects.find((x) => x.id === project.id); if (p) p.workspaces = [...(p.workspaces || []), nw.workspaceId]; });
-    return { ok: true, where: 'workspace', workspaceRef: nw.workspaceRef, workspaceId: nw.workspaceId, command: cmd, reg };
+    return { ok: true, where: 'workspace', workspaceRef: nw.workspaceRef, workspaceId: nw.workspaceId, command: wcmd, reg };
   } finally {
     release();
   }

@@ -122,6 +122,7 @@ function eventWords(e) {
   if (e.event === 'SessionStart') return `session started (${e.source || 'startup'})`;
   if (e.event === 'SessionEnd') return `session ended (${e.reason || 'other'})`;
   if (e.event === 'Notification') return String(e.notification_type || 'notification').replace(/_/g, ' ');
+  if (e.event === 'Interrupt') return 'turn interrupted';
   return e.event;
 }
 
@@ -201,6 +202,11 @@ export function eventState({ ev, screen, screenAt, title, transcript: t }, setti
     if (L.background_tasks > 0) return working(`waiting on ${L.background_tasks} background task${L.background_tasks > 1 ? 's' : ''}`);
     if (movedOn) return working('transcript moved on after it (a stop hook continued the turn)');
     return rest(L.at, L.deferred ? transcriptQuestion() : L.question || null);
+  }
+  // Codex's Interrupt (Esc, or a refused approval): at rest, nothing asked.
+  if (L.event === 'Interrupt') {
+    if (movedOn) return working('transcript moved on after it');
+    return rest(L.at, null);
   }
   if (L.event === 'SessionStart') {
     if (movedOn) return working('transcript moved on after the start');

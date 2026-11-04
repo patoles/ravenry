@@ -13,7 +13,8 @@
 //      one is open. A menu still open after Enter is reported, not assumed.
 // Pure of I/O: the caller passes read() and key() (server/index.mjs gives
 // the terminal interface's readScreen and pressKey for one tab, and `where`,
-// the terminal's name for the messages).
+// the terminal's name for the messages), and `parse`, the assistant's screen
+// reading (server/assistant.mjs; Claude Code's when none is given).
 
 import { parseScreen } from './screen.mjs';
 
@@ -21,8 +22,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // The open menu on a screen, or null: its question, its options (n, label,
 // selected) and the index of the selected one (-1 when no ❯ is seen).
-export function readMenu(text) {
-  const ps = parseScreen(text);
+export function readMenu(text, parse = parseScreen) {
+  const ps = parse(text);
   if (!ps.claudeLive || !ps.dialog || !ps.dialog.options.length) return null;
   let options = ps.dialog.options;
   // Numbers that start again at 1 mean an older numbered list (a prompt in
@@ -48,7 +49,7 @@ const fail = (status, error, extra = {}) => ({ ok: false, status, error, ...extr
 
 // Choose option number `want` on the menu read() shows. Returns
 // { ok, sent: label, keys, after: 'closed' | 'next' } or { ok: false, status, error, keys }.
-export async function chooseOption({ read, key, want, where = 'cmux', settleMs = 1500, afterMs = 4000, pollMs = 120 }) {
+export async function chooseOption({ read, key, want, where = 'cmux', settleMs = 1500, afterMs = 4000, pollMs = 120, parse = parseScreen }) {
   const keys = [];
   const press = async (k) => {
     keys.push(k);
@@ -57,7 +58,7 @@ export async function chooseOption({ read, key, want, where = 'cmux', settleMs =
   };
   const t0text = await read();
   if (t0text == null) return fail(502, 'Could not read the tab, so nothing was pressed.', { keys });
-  const menu0 = readMenu(t0text);
+  const menu0 = readMenu(t0text, parse);
   if (!menu0) return fail(409, 'No choice is open on screen any more.', { keys });
   const opt = menu0.options.find((o) => o.n === Number(want));
   if (!opt) return fail(409, 'That option is no longer on screen.', { keys });
@@ -76,7 +77,7 @@ export async function chooseOption({ read, key, want, where = 'cmux', settleMs =
         await sleep(pollMs);
         const t = await read();
         if (t == null) { m = menu; continue; } // a read that failed proves nothing
-        m = readMenu(t);
+        m = readMenu(t, parse);
         if (!m || m.sig !== menu0.sig) {
           return fail(409, `The menu changed while moving to "${opt.label}", so Enter was not pressed. Check it in ${where}.`, { keys });
         }
@@ -93,7 +94,7 @@ export async function chooseOption({ read, key, want, where = 'cmux', settleMs =
       await sleep(pollMs);
       const t = await read();
       if (t == null) continue; // a read that failed proves nothing
-      const m = readMenu(t);
+      const m = readMenu(t, parse);
       if (!m) return { ok: true, sent: opt.label, keys, after: 'closed' };
       if (m.sig !== menu0.sig) return { ok: true, sent: opt.label, keys, after: 'next' };
     } while (Date.now() - t0 < afterMs);

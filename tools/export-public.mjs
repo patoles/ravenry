@@ -38,7 +38,7 @@ const ALLOW = [
   'brand/ravenry/**',
   'README.md', 'LICENSE', 'NOTICE', 'TRADEMARK.md', 'CHANGELOG.md', 'CONTRIBUTING.md',
   'package.json', 'package-lock.json', '.gitignore',
-  'docs/DEVELOPING.md', 'docs/TERMINALS.md', 'docs/HANDOFF.md',
+  'docs/DEVELOPING.md', 'docs/TERMINALS.md', 'docs/ASSISTANTS.md', 'docs/HANDOFF.md',
   'docs/STATE-RULES.md', 'docs/BRIEF-FORMAT.md', 'docs/BRIEF.example.md',
   'docs/SESSIONS.md', 'docs/PUBLISHING.md',
   'docs/screenshot.png', 'docs/screenshot-phone.png', // drawn from a made-up demo board (docs/PUBLISHING.md)
@@ -47,6 +47,7 @@ const DENY = [
   'docs/design/**',          // mockups drawn from real board data
   'docs/shots/**',           // screenshots of real boards
   'tools/fixtures/live/**',  // captured terminal screens of real sessions
+  'tools/fixtures/codex/**', // captured screens, hook inputs and a rollout of a scratch Codex session (they name this Mac's paths)
   'tools/fixtures/repeats-seed.json', // real typed corrections
   'tools/private/**',        // the audit's personal term list, and anything else private
   'brand/candidates/**',     // the logo rounds: the design record, not needed to run

@@ -49,6 +49,7 @@ const HELP = `Ravenry ${PKG.version}: a local board for every Claude Code sessio
 
   ravenry              start the board (http://localhost:${PORT}) and open it
   ravenry setup        check this Mac and install Ravenry's Claude Code hooks
+                       (and Codex's, when Codex is installed)
   ravenry doctor       say what works and what does not
   ravenry uninstall    take the hooks out (--purge also deletes ~/.ravenry)
   ravenry --version    print the version
@@ -196,6 +197,26 @@ async function setup({ fromStart = false } = {}) {
     }
   }
 
+  // Codex's hooks: only when Codex is installed (docs/ASSISTANTS.md).
+  let codexHooks = null;
+  if (!FROM_NPX && hk.codexInstalled()) {
+    codexHooks = 'declined';
+    let plan;
+    try { plan = hk.codexPlan(); } catch (e) { console.log(`  !!    ${e.message}`); plan = null; }
+    if (plan && !plan.changes.length) { console.log(`  ok    Codex hooks: in ${tilde(plan.hooks.file)}, trusted in ${tilde(plan.config.file)}.`); codexHooks = 'installed'; }
+    else if (plan) {
+      console.log(`\nCodex is installed. The board follows Codex sessions too (state, live screen, replies) through the same two hooks, which Codex runs on its own events. Setup adds only these entries to ${tilde(plan.hooks.file)}${plan.hooks.raw != null ? ' (backed up first)' : ' (a new file)'}, and the trust entries Codex needs to run them to ${tilde(plan.config.file)}${plan.config.raw != null ? ' (backed up first)' : ' (a new file)'}; every other hook and setting stays as it is:\n`);
+      for (const c of plan.changes) console.log('  ' + c);
+      console.log('');
+      if (await ask(`Write them to ${tilde(plan.hooks.file)} and ${tilde(plan.config.file)}?`)) {
+        const backups = hk.codexWrite(plan);
+        console.log(`  ok    Codex hooks installed.${backups.length ? ` Backup${backups.length > 1 ? 's' : ''}: ${backups.map(tilde).join(', ')}` : ''} New Codex sessions pick them up.`);
+        codexHooks = 'installed';
+      } else console.log('  note  Codex hooks not installed. Without them the board shows a Codex session only from its screen in cmux or iTerm2. Run ravenry setup again any time.');
+      if (plan.hooksOff) console.log(`  note  Codex's hooks are turned off in ${tilde(plan.config.file)} ([features] hooks = false). Ravenry leaves that as you set it; turn it on for the board to follow Codex sessions.`);
+    }
+  }
+
   // Rule suggestions: a choice about the user's data and quota, so --yes
   // never turns them on.
   const registry = await import('../server/registry.mjs');
@@ -212,7 +233,7 @@ async function setup({ fromStart = false } = {}) {
   if (!w.ok) console.log(`  !!    ${w.error}`);
   else console.log(`  ${rulesAuto ? 'ok  ' : 'note'}  Rule suggestions ${rulesAuto ? 'on' : 'off (ravenry setup turns them on)'}.`);
 
-  fs.writeFileSync(await setupFile(), JSON.stringify({ version: PKG.version, at: new Date().toISOString(), hooks, terminal, rulesAuto: !!rulesAuto }, null, 2) + '\n');
+  fs.writeFileSync(await setupFile(), JSON.stringify({ version: PKG.version, at: new Date().toISOString(), hooks, ...(codexHooks ? { codexHooks } : {}), terminal, rulesAuto: !!rulesAuto }, null, 2) + '\n');
   console.log(fromStart ? '\nSetup done. Starting the board.\n' : '\nSetup done. Start the board with: ravenry');
   return 0;
 }
@@ -252,6 +273,17 @@ async function doctor() {
     else if (st.state === 'partial') line('fix', `Hooks: only some are in ${tilde(cur.file)} (${st.scripts.map((s) => `${s.script} on ${s.events.join(', ') || 'nothing'}`).join('; ')}). Run ravenry setup.`);
     else line('fix', `Hooks: not installed, so the board sees sessions only in cmux. Run ravenry setup.`);
   } catch (e) { line('fix', e.message); }
+  if (hk.codexInstalled()) {
+    try {
+      const cs = hk.codexStatus();
+      if (cs.state === 'ok') line('ok', `Codex hooks: both in ${tilde(cs.file)}, trusted, running this copy.`);
+      else if (cs.state === 'stale') for (const s of cs.stale) line('note', `Codex hook ${s.script} on ${s.event} is stale: ${s.why}. Run ravenry setup to point it here.`);
+      else if (cs.state === 'untrusted') line('note', `Codex hooks: in ${tilde(cs.file)} but Codex has no trust entry for ${cs.untrusted.length} of them, so outside cmux it skips them. Run ravenry setup.`);
+      else if (cs.state === 'partial') line('note', `Codex hooks: only some are in ${tilde(cs.file)}. Run ravenry setup.`);
+      else line('note', 'Codex hooks: not installed, so the board shows a Codex session only from its screen. Run ravenry setup.');
+      if (cs.hooksOff) line('note', "Codex's hooks are turned off in its config.toml ([features] hooks = false).");
+    } catch (e) { line('note', `Codex hooks: ${e.message}`); }
+  }
 
   const home = await dataHome();
   const setupDone = await readSetup();
@@ -287,6 +319,18 @@ async function uninstall() {
       const backup = hk.writeSettings(cur.file, cur.raw, settings);
       console.log(`Hooks removed. Backup: ${tilde(backup)}`);
     } else { console.log('Nothing changed.'); return 1; }
+  }
+  // Codex's hooks, when Codex is there and they are in its files.
+  if (hk.codexInstalled()) {
+    let cp = null;
+    try { cp = hk.codexPlan({ remove: true }); } catch (e) { console.log(e.message); }
+    if (cp && cp.changes.length) {
+      console.log(`\nTakes only Ravenry's entries out of ${tilde(cp.hooks.file)} and ${tilde(cp.config.file)} (backed up first):\n`);
+      for (const c of cp.changes) console.log('  ' + c);
+      console.log('');
+      if (await ask('Take them out?')) { const b = hk.codexWrite(cp); console.log(`Codex hooks removed. Backup${b.length > 1 ? 's' : ''}: ${b.map(tilde).join(', ')}`); }
+      else console.log('Codex hooks left in place.');
+    }
   }
   // The "Ravenry board" profiles `ravenry` wrote for iTerm2 (its own file).
   const prof = path.join(os.homedir(), 'Library', 'Application Support', 'iTerm2', 'DynamicProfiles', 'ravenry.json');

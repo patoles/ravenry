@@ -2,7 +2,7 @@
 
 # Ravenry
 
-One local board for every Claude Code session on your Mac: see which project needs you, answer it from the board, and keep a short brief for each project.
+One local board for every Claude Code session on your Mac (and OpenAI Codex's): see which project needs you, answer it from the board, and keep a short brief for each project.
 
 ![The Ravenry board: projects grouped by what needs you, a question with its options, and the session's live screen](https://raw.githubusercontent.com/patoles/ravenry/main/docs/screenshot.png)
 
@@ -29,6 +29,7 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 - **Phone access**: the whole board on your phone on your home Wi-Fi, through a QR code.
 - **Phone alerts**: a message when a project starts needing you, through Telegram, Discord, Slack or ntfy, plus Mac notifications.
 - **Terminals**: answer sessions in cmux and iTerm2; sessions in any other terminal are watch only.
+- **Codex too**: OpenAI Codex sessions show up beside Claude Code's, with their state, live screen, context, alerts, replies and menu answers from the board, and the hand-off at half context. Not shown for Codex: pictures, background tasks, memory and Close idle on the Sessions page, recaps and the Rules view.
 
 ## Getting Started
 
@@ -58,6 +59,8 @@ Then the board starts on http://localhost:4600 and its page opens. A new board i
 | Stop | `<node> <ravenry>/hooks/handoff-stop.mjs` |
 
 `<node>` is your Node and `<ravenry>` the installed package, both as full paths (setup prints them). The events hook writes one line per event to `~/.ravenry/events/` and tells the board; the Stop hook asks a session past half context to write a hand-off and start fresh at its next clean point (Settings on the board turns that off). Neither ever blocks a session. If you change Node versions, `ravenry doctor` says the hooks are stale and `ravenry setup` points them at the new one.
+
+**Only if [Codex](https://developers.openai.com/codex) is installed**: the same two hooks in `~/.codex/hooks.json` (with `--assistant=codex`, on Codex's events), and in `~/.codex/config.toml` the trust entries Codex needs to run them, in one marked block. Setup shows them and asks first, and backs both files up; other hooks (cmux's) stay as they are.
 
 **`~/.ravenry/`**, the data folder: your projects (`projects.json`), briefs, ideas, hand-offs, hook events (kept 14 days), phone access and alert settings.
 
@@ -90,9 +93,9 @@ Sessions in any other terminal (Terminal, VS Code, Ghostty, Warp, tmux...) are w
 | Command | Description |
 | --- | --- |
 | `ravenry` | Start the board on http://localhost:4600 and open it (runs setup the first time) |
-| `ravenry setup` | Check this Mac and install Ravenry's Claude Code hooks |
+| `ravenry setup` | Check this Mac and install Ravenry's Claude Code hooks (and Codex's, when Codex is installed) |
 | `ravenry doctor` | Say what works and what does not, and what to do about each |
-| `ravenry uninstall` | Take Ravenry's hooks out of `settings.json` (backup first) |
+| `ravenry uninstall` | Take Ravenry's hooks out of `settings.json`, and out of Codex's files (backup first) |
 | `ravenry uninstall --purge` | Also delete `~/.ravenry` |
 | `ravenry --version` | Print the version |
 | `ravenry help` | List the commands |
@@ -106,6 +109,7 @@ To remove Ravenry completely: `ravenry uninstall --purge`, then `npm rm -g raven
 - macOS
 - [Node.js](https://nodejs.org/) 22 or newer
 - [Claude Code](https://claude.com/claude-code) (`claude` on your PATH)
+- Optional: [Codex](https://developers.openai.com/codex) (`codex` on your PATH; measured on 0.166.0), followed the same way; outside cmux, Codex sessions are found by folder or shown watch only (docs/ASSISTANTS.md)
 - To answer sessions from the board: cmux or [iTerm2](https://iterm2.com)
 
 Playwright is optional, only for the mockup pictures of an idea: `npm i -g playwright && npx playwright install chromium`.
@@ -124,7 +128,7 @@ The board has no runtime dependencies and no build step: `server/` is plain Node
 
 ## Privacy
 
-Ravenry has no telemetry of any kind. Everything stays on your Mac: the board reads your Claude Code transcripts and terminal screens locally and keeps its data in `~/.ravenry`. Two things can leave the Mac, and only when you set them up:
+Ravenry has no telemetry of any kind. Everything stays on your Mac: the board reads your Claude Code (and Codex) transcripts and terminal screens locally and keeps its data in `~/.ravenry`. Two things can leave the Mac, and only when you set them up:
 
 - **Phone alerts** (Telegram, Discord, Slack or ntfy): a short message, sent when a project starts needing you.
 - **Features that ask Claude** (the Ideas thread, mockups, Plans, rule suggestions) run `claude -p` on your own Claude login, like any Claude Code use. Rule suggestions are off unless you turn them on; when on, once a day they send the messages you typed in your sessions to Claude to find the corrections you keep repeating.

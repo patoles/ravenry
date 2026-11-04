@@ -180,3 +180,76 @@ export function preview({ root = ROOT, node } = {}) {
   for (const o of OURS) for (const ev of o.events) (out[ev] = out[ev] || []).push({ hooks: [{ type: 'command', command: hookCommand(o, { root, node }), timeout: o.timeout }] });
   return out;
 }
+
+// ------------------------------------------------------------ Codex
+// The same two scripts in OpenAI Codex's hooks.json, with `--assistant=codex`
+// so they record and answer as Codex's (docs/ASSISTANTS.md), on Codex's
+// events: it has no Notification (PermissionRequest stands in) and an
+// Interrupt event of its own. The trust entries Codex needs go in its
+// config.toml (server/codexhooks.mjs). Only when Codex is installed.
+
+import * as cx from './codexhooks.mjs';
+
+export const CODEX_OURS = [
+  { script: 'handoff-stop.mjs', events: ['Stop'], timeout: 10, what: 'the clean hand-off at the context line' },
+  { script: 'events.mjs', events: ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'PermissionRequest', 'Interrupt'], timeout: 5, what: "each session's state for the board" },
+];
+
+export const codexInstalled = (env = process.env) => {
+  // A test never reaches the real ~/.codex: it names a scratch one.
+  if (env.TEST_RAVENRY === '1' && !env.MC_CODEX_HOME) return false;
+  return cx.codexInstalled(env);
+};
+export const CODEX_HOOKS_FILE = cx.HOOKS_FILE;
+export const CODEX_CONFIG_FILE = cx.CONFIG_FILE;
+
+function codexOurs({ root = ROOT, node } = {}) {
+  return CODEX_OURS.map((o) => ({ ...o, command: `${hookCommand(o, { root, node })} --assistant=codex` }));
+}
+
+// What setup or uninstall would write: { hooks: { file, raw, json }, config:
+// { file, raw, text }, changes, hooksOff }. Reads both files; writes nothing.
+export function codexPlan({ remove = false, root = ROOT, node } = {}) {
+  const ours = codexOurs({ root, node });
+  const isO = (h, o) => isOurs(h, o, { root });
+  const h = cx.readHooks();
+  const c = cx.readConfig();
+  const p = cx.planHooks(h.json, ours, isO, { remove });
+  const drop = cx.ourKeys(h.json, ours, isO, h.file).map((x) => x.key);
+  const text = cx.planConfig(c.raw, p.json, ours, isO, { file: h.file, moves: p.moves, remove, drop });
+  const changes = [...p.changes];
+  if (text !== String(c.raw || '')) changes.push(remove ? `config.toml: removed the trust entries of Ravenry's hooks` : `config.toml: trust entries for Ravenry's hooks`);
+  return { hooks: { file: h.file, raw: h.raw, json: p.json }, config: { file: c.file, raw: c.raw, text }, changes, hooksOff: cx.hooksDisabled(c.raw) };
+}
+
+// Writes a codexPlan, each file backed up first. Returns the backups.
+export function codexWrite(plan) {
+  const out = [];
+  if (JSON.stringify(plan.hooks.json) !== JSON.stringify(plan.hooks.raw != null && plan.hooks.raw.trim() ? JSON.parse(plan.hooks.raw) : {})) out.push(cx.writeFile(plan.hooks.file, plan.hooks.raw, JSON.stringify(plan.hooks.json, null, 2) + '\n'));
+  if (plan.config.text !== String(plan.config.raw || '')) out.push(cx.writeFile(plan.config.file, plan.config.raw, plan.config.text));
+  return out.filter(Boolean);
+}
+
+// { state: 'ok' | 'missing' | 'partial' | 'untrusted' | 'stale', hooksOff, stale: [...] }
+export function codexStatus({ root = ROOT } = {}) {
+  const ours = codexOurs({ root });
+  const isO = (h, o) => isOurs(h, o, { root });
+  const h = cx.readHooks();
+  const c = cx.readConfig();
+  const st = cx.statusOf(h.json, c.raw, ours, isO, { file: h.file });
+  // A command that would not run this copy, as for Claude Code's.
+  const claudeShaped = { hooks: Object.fromEntries(Object.entries((h.json && h.json.hooks) || {})) };
+  const stale = [];
+  for (const o of CODEX_OURS) for (const ev of o.events) {
+    for (const g of claudeShaped.hooks[ev] || []) for (const x of (g && g.hooks) || []) {
+      if (!isO(x, o)) continue;
+      const [nd, script] = splitCommand(x.command);
+      let why = null;
+      if (!nd || !isExe(nd)) why = `its Node (${nd}) is not there any more`;
+      else if (!script || !fs.existsSync(script)) why = `its script (${script}) is not there any more`;
+      else if (realOr(script) !== realOr(path.join(root, 'hooks', o.script))) why = `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
+      if (why) stale.push({ event: ev, script: o.script, command: x.command, why });
+    }
+  }
+  return { ...st, state: stale.length ? 'stale' : st.state, stale, hooksOff: cx.hooksDisabled(c.raw), file: h.file };
+}

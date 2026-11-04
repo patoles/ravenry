@@ -12,11 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
 
 import * as term from './terminal.mjs';
-import { parseScreen, parseTitle, trimScreen, tailLines } from './screen.mjs';
-import * as suggest from './suggestion.mjs';
+import * as asst from './assistant.mjs';
 import { markEntries, spansGen } from './codespans.mjs';
-import { chooseOption } from './choose.mjs';
-import { findTranscript, newestTranscriptFor, readTranscript } from './transcript.mjs';
 import * as registry from './registry.mjs';
 import { readBrief, appendNote } from './brief.mjs';
 import { sessionState, eventState, projectState, describe, plain } from './state.mjs';
@@ -28,7 +25,7 @@ import * as rules from './rules.mjs';
 import * as repeats from './repeats.mjs';
 import { shipView } from './ship.mjs';
 import { plansFor } from './plans.mjs';
-import { sessionFolder, ownerOf, repoRoot, isBroadFolder } from './folders.mjs';
+import { ownerOf, repoRoot, isBroadFolder } from './folders.mjs';
 import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
@@ -73,12 +70,10 @@ let snapshotJson = JSON.stringify(snapshot);
 let tickNo = 0;
 let ticking = false;
 let wantTick = false;
-const screens = new Map();   // surfaceId -> { text, at, live, okAt, full, prompt }
-// What each tab's prompt holds: Claude's suggested reply or typed text
-// (server/suggestion.mjs). The history of reads per tab, and the last styled
-// read per tab, kept while its prompt text stays the same.
-const promptHistory = suggest.createTracker();
-const styledSeen = new Map(); // surfaceId -> { text, styled }
+const screens = new Map();   // surfaceId -> { text, at, live, okAt, full, prompt, assistant }
+// What each tab's prompt holds (Claude Code's suggested reply or typed
+// text) is judged by the tab's assistant (server/assistant.mjs, judgeRead),
+// which keeps the history of reads per tab.
 // The Live screen (docs/design/LiveScreen.dc.html, B): the surfaces a board
 // page is showing get 200 lines of scrollback per read; every other surface
 // keeps the 40-line read. `text` is always the last 40 lines, so the state
@@ -165,7 +160,7 @@ async function refreshSidebars(workspaces, force) {
 }
 
 function looksLikeClaude(surface, hook) {
-  return parseTitle(surface.title).claude || !!hook || (bindings.get(surface.id)?.value?.kind === 'claude') || !!screens.get(surface.id)?.live;
+  return asst.parseTitle(surface.title, 'claude').claude || !!hook || (bindings.get(surface.id)?.value?.kind === 'claude') || !!screens.get(surface.id)?.live;
 }
 
 async function refreshSurfaces(workspaces, hooks) {
@@ -195,7 +190,7 @@ async function readSurface(tab) {
   const t0 = performance.now();
   const raw = await term.readScreen(tab, want ? LIVE_LINES : SCREEN_LINES);
   const readMs = performance.now() - t0;
-  const text = want ? tailLines(raw, SCREEN_LINES) : raw;
+  const text = want ? asst.tailLines(raw, SCREEN_LINES) : raw;
   const prev = screens.get(surfaceId);
   const now = Date.now();
   // okAt and full keep the last good read, for the Live screen's freshness;
@@ -203,10 +198,14 @@ async function readSurface(tab) {
   const full = raw != null ? (want ? raw : null) : prev ? prev.full : null;
   const src = full ?? (raw != null ? text : prev ? prev.text : null);
   const prevSrc = prev ? prev.full ?? prev.text : undefined;
-  const parsed = parseScreen(text);
-  const prompt = raw != null ? await judgeRead(tab, parsed, now) : prev ? prev.prompt : null;
+  // Which assistant draws this tab: its session's, when a live session
+  // reported from it, else the screen's own (server/assistant.mjs, parseAny;
+  // Claude Code's reading first, as before).
+  const known = tabAssistant(surfaceId);
+  const { kind, screen: parsed } = known ? { kind: known, screen: asst.parseScreen(text, known) } : asst.parseAny(text);
+  const prompt = raw != null ? await asst.judgeRead(kind, tab, parsed, now) : prev ? prev.prompt : null;
   screens.set(surfaceId, {
-    text, at: now, live: parsed.claudeLive, prompt,
+    text, at: now, live: parsed.claudeLive, prompt, assistant: kind,
     okAt: raw != null ? now : prev ? prev.okAt : null,
     full,
     ver: prev ? (src === prevSrc ? prev.ver : prev.ver + 1) : 1,
@@ -214,54 +213,31 @@ async function readSurface(tab) {
   if (want && process.env.MC_LIVE_LOG === '1') console.log('live read', JSON.stringify({ surfaceId, lines: LIVE_LINES, ms: +readMs.toFixed(1), bytes: raw ? Buffer.byteLength(raw) : 0 }));
 }
 
-// The verdict on what a fresh read's prompt holds (server/suggestion.mjs):
-// { text, kind, sure, by }. Every read goes into the tab's history; a prompt
-// with text also gets a styled read (cmux only), unless one was taken while
-// the prompt held the same text.
-async function judgeRead(tab, screen, at) {
-  const history = promptHistory.see(tab.surfaceId, screen, at);
-  const text = screen.claudeLive ? screen.draft : '';
-  if (!text) { styledSeen.delete(tab.surfaceId); return { text: '', kind: 'empty', sure: true, by: 'screen' }; }
-  const seen = styledSeen.get(tab.surfaceId);
-  if (seen && seen.text === text) return { text, ...suggest.judgePrompt({ text, styled: seen.styled, history }) };
-  const g = await term.readStyled(tab).catch(() => null);
-  const styled = g ? suggest.gridPrompt(g) : null;
-  const v = suggest.judgePrompt({ text, styled, history });
-  // Kept only when it read this very text (the prompt can move between reads).
-  if (v.by === 'style') styledSeen.set(tab.surfaceId, { text, styled }); else styledSeen.delete(tab.surfaceId);
-  return { text, ...v };
+// A tab's last read, parsed by its assistant, with `draft` holding only
+// typed text (Claude Code's suggestion in `suggestion`). Every state rule
+// reads its screen through this. `kind`: the assistant its session names,
+// when the read was taken as another's (the read's own verdict is then not used).
+function judgedScreen(x, kind = null) {
+  if (x && kind && asst.kindOf(kind) !== asst.kindOf(x.assistant)) return asst.judgedScreen(kind, { text: x.text, prompt: null });
+  return asst.judgedScreen(x ? x.assistant : null, x);
 }
 
-// A tab's last read, parsed, with `draft` holding only typed text and
-// Claude's suggestion in `suggestion` (server/suggestion.mjs, withPrompt).
-// Every state rule reads its screen through this.
-function judgedScreen(x) {
-  const screen = parseScreen(x ? x.text : null);
-  return suggest.withPrompt(screen, x && x.prompt && x.prompt.text === screen.draft ? x.prompt : null);
-}
-
-// Before typing into a prompt that shows text, or closing its tab: is that
-// text Claude's suggestion or a half-typed reply? A fresh styled read
-// decides when the terminal has one (cmux); otherwise the probe types one
-// character and reads the prompt again (server/suggestion.mjs, probePrompt).
-// `bang`: the message is a "! command", so the probe's character is its
-// "!", which stays typed over a suggestion (then `bash` is true).
-// { kind: 'suggestion' | 'draft' | 'unknown', sure, by, bash?, error? }
-async function surePrompt(tab, screen, { bang = false } = {}) {
-  const g = await term.readStyled(tab).catch(() => null);
-  const v = suggest.judgePrompt({ text: screen.draft, styled: g ? suggest.gridPrompt(g) : null });
-  if (v.sure) return v;
-  const p = await suggest.probePrompt({
-    read: () => term.readScreen(tab, 40),
-    type: (c) => term.typeText(tab, c),
-    key: (k) => term.pressKey(tab, k),
-    old: screen.draft, bang,
-  });
-  return { kind: p.kind, sure: p.kind !== 'unknown', by: 'probe', bash: !!p.bash, keys: p.keys, error: p.error || null };
+// The assistant of the live session that last reported from a tab, or null.
+function tabAssistant(surfaceId) {
+  if (term.kindOf(surfaceId) === 'cmux') {
+    const e = ev.bySurface.get(surfaceId);
+    return e && !e.endedAt ? asst.kindOf(e) : null;
+  }
+  let best = null;
+  for (const e of ev.all.values()) {
+    if (e.endedAt || !e.terminal || term.tabIdFor(e.terminal, e.terminalId) !== surfaceId) continue;
+    if (!best || e.lastEventAt > best.lastEventAt) best = e;
+  }
+  return best ? asst.kindOf(best) : null;
 }
 
 // GET /api/live?surface=<id>[&v=<ver>]: the Live screen of one surface,
-// trimmed (server/screen.mjs, trimScreen), with the time of its last good
+// trimmed (server/assistant.mjs, trimScreen), with the time of its last good
 // read. When the page already has that version, only the time comes back. Asking marks the surface wanted, so the next ticks read 200 lines;
 // the first ask reads at once.
 async function liveScreen(surfaceId, ver) {
@@ -274,14 +250,15 @@ async function liveScreen(surfaceId, ver) {
   const now = Date.now();
   if (!x || x.okAt == null) return { status: 200, body: { ok: true, surfaceId, at: null, now, live: false, entries: [], status: null } };
   const bt = boardTabs.find((b) => b.s.surfaceId === surfaceId);
-  const tp = (bt && bt.s.transcript && bt.s.transcript.path) || null;
+  // Code spans come from a Claude Code transcript's text (server/codespans.mjs).
+  const tp = (bt && asst.supports(bt.s.assistant, 'codeSpans') && bt.s.transcript && bt.s.transcript.path) || null;
   const vkey = `${x.ver}\u0000${tp}\u0000${spansGen(tp)}`;
   let lvv = liveVers.get(surfaceId);
   if (!lvv || lvv.key !== vkey) { lvv = { key: vkey, ver: lvv ? lvv.ver + 1 : 1 }; liveVers.set(surfaceId, lvv); }
   if (ver && Number(ver) === lvv.ver) return { status: 200, body: { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, same: true } };
   const src = x.full ?? x.text;
   const t0 = performance.now();
-  if (liveTrim.text !== src) liveTrim = { text: src, value: trimScreen(src) };
+  if (liveTrim.text !== src || liveTrim.kind !== x.assistant) liveTrim = { text: src, kind: x.assistant, value: asst.trimScreen(src, x.assistant) };
   const mkey = vkey + '\u0000' + surfaceId;
   if (liveMarked.key !== mkey || liveMarked.src !== src) liveMarked = { key: mkey, src, entries: markEntries(liveTrim.value.entries, tp) };
   const trimMs = performance.now() - t0;
@@ -290,18 +267,18 @@ async function liveScreen(surfaceId, ver) {
   return { status: 200, body };
 }
 
-// Which Claude session lives in a surface, and how we know.
-function mapSession(surface, hook, binding, folder, taken) {
-  if (hook && hook.agent === 'claude' && hook.sessionId) {
-    const p = hook.transcriptPath && fs.existsSync(hook.transcriptPath) ? hook.transcriptPath : findTranscript(hook.sessionId, hook.cwd);
+// Which session of assistant `kind` lives in a surface, and how we know.
+function mapSession(surface, hook, binding, folder, taken, kind = 'claude') {
+  if (hook && hook.agent === asst.cmuxAgent(kind) && hook.sessionId) {
+    const p = hook.transcriptPath && fs.existsSync(hook.transcriptPath) ? hook.transcriptPath : asst.findTranscript(kind, hook.sessionId, hook.cwd);
     return { sessionId: hook.sessionId, path: p, method: 'cmux hook record', cwd: hook.cwd };
   }
-  if (binding && binding.kind === 'claude' && binding.sessionId) {
-    return { sessionId: binding.sessionId, path: findTranscript(binding.sessionId, binding.cwd), method: 'cmux resume binding', cwd: binding.cwd };
+  if (binding && binding.kind === asst.cmuxAgent(kind) && binding.sessionId) {
+    return { sessionId: binding.sessionId, path: asst.findTranscript(kind, binding.sessionId, binding.cwd), method: 'cmux resume binding', cwd: binding.cwd };
   }
-  const g = eventsInFolder(folder, taken);
+  const g = eventsInFolder(folder, taken, kind);
   if (g) return { sessionId: g.sessionId, path: transcriptOf(g), method: 'hook events in the same folder (guess)', cwd: g.cwd };
-  const n = newestTranscriptFor(folder, taken);
+  const n = asst.newestTranscriptFor(kind, folder, taken);
   if (n) return { sessionId: n.sessionId, path: n.path, method: 'newest transcript in the folder (guess)', cwd: folder };
   return null;
 }
@@ -309,7 +286,7 @@ function mapSession(surface, hook, binding, folder, taken) {
 // The transcript a hook event names, else the one found by session id.
 function transcriptOf(e) {
   if (e.transcriptPath && fs.existsSync(e.transcriptPath)) return e.transcriptPath;
-  return findTranscript(e.sessionId, e.cwd);
+  return asst.findTranscript(asst.kindOf(e), e.sessionId, e.cwd);
 }
 
 // The open tab of a session its events place in a terminal other than
@@ -376,11 +353,12 @@ async function refreshOtherTabs(evAll) {
 
 // A session that reported from this folder but from no tab the board can
 // see: the "else cwd" step of mapping a tab to its events.
-function eventsInFolder(folder, taken) {
+function eventsInFolder(folder, taken, kind = 'claude') {
   if (!folder) return null;
   let best = null;
   for (const e of ev.all.values()) {
     if (e.endedAt || taken.has(e.sessionId) || ev.claimed.has(e.sessionId) || !e.cwd) continue;
+    if (asst.kindOf(e) !== kind) continue; // another assistant's session
     if (e.surfaceId && ev.live.has(e.surfaceId)) continue;
     if (e.terminal && e.terminal !== 'cmux') continue; // it says it runs in another terminal
     if (path.resolve(e.cwd) !== path.resolve(folder)) continue;
@@ -390,8 +368,8 @@ function eventsInFolder(folder, taken) {
 }
 
 // The repo a session works in: its tool calls first, then the hook's cwd.
-function realFolder(tp, e) {
-  const real = tp ? sessionFolder(tp) : null;
+function realFolder(tp, e, kind = asst.kindOf(e)) {
+  const real = tp ? asst.workFolder(kind, tp) : null;
   if (real && real.folder) return real;
   const r = e && e.cwd ? repoRoot(e.cwd) : null;
   return r ? { folder: r, share: null, hits: real ? real.hits : 0, repos: real ? real.repos : [], from: 'hook cwd' } : real;
@@ -521,8 +499,9 @@ function looseSessions(evAll) {
     const real = realFolder(tp, e);
     const folder = (real && real.folder) || e.cwd;
     if (!folder || !isBroadFolder(folder, reg.projects, root) || eventOwner(e, real)) continue;
-    const t = tp ? readTranscript(tp) : null;
-    const name = parseTitle(tab.title || '').topic || (t && t.title) || 'Claude session';
+    const kind = asst.kindOf(e);
+    const t = tp ? asst.readTranscript(kind, tp) : null;
+    const name = asst.parseTitle(tab.title || '', kind).topic || (t && t.title) || `${asst.of(kind).SHORT} session`;
     let id = 'session-' + e.sessionId.slice(0, 8);
     while (ids.has(id)) id += '-s';
     ids.add(id);
@@ -547,6 +526,7 @@ function briefFor(project) {
 // the session the detail view shows first), from its main transcript alone:
 // what that session showed the user, never its subagents' shots.
 function pictureSession(primary) {
+  if (primary && !asst.supports(primary.assistant, 'pictures')) return null;
   return primary && primary.sessionId ? { sessionId: primary.sessionId, path: (primary.transcript && primary.transcript.path) || null } : null;
 }
 
@@ -570,8 +550,12 @@ function buildProject(project, wsById, hooks, settings, now) {
       if (s.type !== 'terminal') continue;
       const hook = hooks.find((h) => h.surfaceId === s.id) || null;
       const binding = bindings.get(s.id)?.value || null;
-      const title = parseTitle(s.title);
-      const screen = judgedScreen(screens.get(s.id));
+      // The assistant this tab shows: its session's (events), else its screen's.
+      const evTab0 = ev.bySurface.get(s.id) || null;
+      const liveEv = evTab0 && !evTab0.endedAt ? evTab0 : null;
+      const kind = liveEv ? asst.kindOf(liveEv) : asst.kindOf(screens.get(s.id) ? screens.get(s.id).assistant : null);
+      const title = asst.parseTitle(s.title, kind);
+      const screen = judgedScreen(screens.get(s.id), liveEv ? kind : null);
       const claudeHere = screen.claudeLive || (title.claude && !screen.readable);
       // Events first: the session that last reported from this very tab.
       const evTab = ev.bySurface.get(s.id) || null;
@@ -581,9 +565,9 @@ function buildProject(project, wsById, hooks, settings, now) {
       const seenAfterEnd = (e) => !!(e && e.endedAt && claudeHere && (screens.get(s.id)?.at || 0) > Date.parse(e.endedAt) + 20000);
       let map = null;
       if (evTab && !seenAfterEnd(evTab)) map = { sessionId: evTab.sessionId, path: transcriptOf(evTab), method: 'hook events (surface id)', cwd: evTab.cwd };
-      else if (claudeHere) map = mapSession(s, hook, binding, project.folder, taken);
-      else if (screen.resumeId) map = { sessionId: screen.resumeId, path: findTranscript(screen.resumeId), method: 'resume line on screen' };
-      else if (binding && binding.kind === 'claude') map = { sessionId: binding.sessionId, path: findTranscript(binding.sessionId, binding.cwd), method: 'cmux resume binding' };
+      else if (claudeHere) map = mapSession(s, hook, binding, project.folder, taken, kind);
+      else if (screen.resumeId) map = { sessionId: screen.resumeId, path: asst.findTranscript(kind, screen.resumeId), method: 'resume line on screen' };
+      else if (binding && binding.kind === asst.cmuxAgent(kind)) map = { sessionId: binding.sessionId, path: asst.findTranscript(kind, binding.sessionId, binding.cwd), method: 'cmux resume binding' };
       else if (hook) map = { sessionId: hook.sessionId, path: hook.transcriptPath, method: 'cmux hook record' };
       if (!map && !claudeHere) continue; // a plain shell that never ran Claude (that we can see)
       if (map) taken.add(map.sessionId);
@@ -592,12 +576,12 @@ function buildProject(project, wsById, hooks, settings, now) {
       if (evs && evs.surfaceId && evs.surfaceId !== s.id && ev.live.has(evs.surfaceId)) evs = null;
       // Ended, yet Claude is on screen: a session the hook never saw (installed later).
       if (seenAfterEnd(evs)) evs = null;
-      const t = map && map.path ? readTranscript(map.path) : null;
+      const t = map && map.path ? asst.readTranscript(kind, map.path) : null;
       if (!claudeHere && !t && !(evs && !evs.endedAt)) continue;
       // The repo this session really works in, from its tool calls. When a
       // workspace's tabs work in different repos, each tab belongs to the
       // project of its own repo (docs/STATE-RULES.md, Which project a tab is in).
-      const real = map ? realFolder(map.path, evs) : null;
+      const real = map ? realFolder(map.path, evs, kind) : null;
       const owners = reg.projects.filter((p) => !p.hidden && (p.workspaces || []).includes(w.id));
       if (owners.length > 1) {
         const own = ownerOf(owners, s.id, real && real.folder, w.surfaces.map((x) => x.id), { projects: reg.projects, root: rootFolder() });
@@ -612,7 +596,7 @@ function buildProject(project, wsById, hooks, settings, now) {
         st = { state: 'handed', since: marker.writtenAt || st.since, reasons: [...st.reasons, 'wrote its hand-off; a fresh session carries on'] };
       }
       sessions.push({
-        marker, paneId: s.paneId, cwd: (evs && evs.cwd) || (hook && hook.cwd) || (t && t.cwd) || (map && map.cwd) || project.folder, terminal: true, term: 'cmux', cannot: null,
+        marker, paneId: s.paneId, cwd: (evs && evs.cwd) || (hook && hook.cwd) || (t && t.cwd) || (map && map.cwd) || project.folder, terminal: true, term: 'cmux', cannot: null, assistant: kind,
         surfaceId: s.id, surfaceRef: s.ref, workspaceId: w.id, workspaceRef: w.ref,
         topic: title.topic || (t && t.title) || s.title, live: screen.claudeLive,
         sessionId: map ? map.sessionId : null, method: map ? map.method : null,
@@ -628,29 +612,30 @@ function buildProject(project, wsById, hooks, settings, now) {
   for (const e of ev.all.values()) {
     if (e.endedAt || ev.claimed.has(e.sessionId) || taken.has(e.sessionId)) continue;
     if (e.surfaceId && ev.cmuxOk) continue; // a cmux tab: shown through it, or closed
-    const kind = e.terminal || (e.surfaceId ? 'cmux' : null);
+    const tkind = e.terminal || (e.surfaceId ? 'cmux' : null);
     const tab = otherTab(e);
     const x = tab ? screens.get(tab.id) : null;
-    const screen = judgedScreen(x);
-    const title = parseTitle(tab ? tab.title : '');
+    const kind = asst.kindOf(e);
+    const screen = judgedScreen(x, kind);
+    const title = asst.parseTitle(tab ? tab.title : '', kind);
     const q = e.last && e.last.event === 'Stop' && e.last.question;
     if (!(tab && screen.claudeLive) && age(now, e.lastEventAt) > (q ? settings.questionHours : settings.handbackHours) * 3600000) continue;
     const tp = transcriptOf(e);
     const real = realFolder(tp, e);
     if (project.loose ? !project.sessionIds.includes(e.sessionId) : (() => { const own = eventOwner(e, real); return !own || own.id !== project.id; })()) continue;
-    const t = tp ? readTranscript(tp) : null;
+    const t = tp ? asst.readTranscript(kind, tp) : null;
     let st = eventState({ ev: e, screen, screenAt: x ? x.at : null, title, transcript: t }, settings, now);
     if (!st && tab) st = { ...sessionState({ screen, title, transcript: t, hook: null }, settings, now), source: 'screen' };
     if (!st) continue;
     taken.add(e.sessionId);
     const marker = markers.get(e.sessionId) || null;
     sessions.push({
-      marker, paneId: null, cwd: e.cwd || (t && t.cwd) || project.folder, terminal: !!tab, term: kind,
-      cannot: tab ? null : cannotFor(kind),
-      surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(kind) + ' tab' : null, workspaceId: e.workspaceId, workspaceRef: null,
+      marker, paneId: null, cwd: e.cwd || (t && t.cwd) || project.folder, terminal: !!tab, term: tkind, assistant: kind,
+      cannot: tab ? null : cannotFor(tkind),
+      surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(tkind) + ' tab' : null, workspaceId: e.workspaceId, workspaceRef: null,
       // Never named after a too-broad folder ("projects" for the projects root).
       topic: title.topic || (t && t.title) || [e.cwd, project.folder].filter((f) => f && !isBroadFolder(f, reg.projects, rootFolder())).map((f) => path.basename(f))[0] || 'Session', live: screen.claudeLive,
-      sessionId: e.sessionId, method: tab ? `hook events (${term.nameOf(kind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
+      sessionId: e.sessionId, method: tab ? `hook events (${term.nameOf(tkind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
     });
   }
   const brief = briefFor(project);
@@ -696,7 +681,9 @@ function buildProject(project, wsById, hooks, settings, now) {
     since = times.length ? times[times.length - 1] : null;
   }
   const cw = settings.contextWindow;
-  const ctx = (s) => (s && s.transcript && s.transcript.contextTokens != null ? { tokens: s.transcript.contextTokens, window: cw, pct: Math.min(100, (s.transcript.contextTokens / cw) * 100), model: s.transcript.model } : null);
+  // The window from the settings, unless the transcript records its own (Codex).
+  const winOf = (t) => t.contextWindow || cw;
+  const ctx = (s) => (s && s.transcript && s.transcript.contextTokens != null ? { tokens: s.transcript.contextTokens, window: winOf(s.transcript), pct: Math.min(100, (s.transcript.contextTokens / winOf(s.transcript)) * 100), model: s.transcript.model } : null);
   const timeline = [];
   if (brief) for (const h of brief.handoff) timeline.push({ when: h.when, text: plain(h.text), from: 'brief' });
   if (primary && primary.transcript) {
@@ -739,6 +726,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       workFolder: s.real && s.real.folder ? short(s.real.folder) : null,
       state: s.st.state, since: s.st.since || null, reasons: s.st.reasons, source: s.st.source || 'screen', terminal: s.terminal !== false,
       term: s.term || null, termName: s.term ? term.nameOf(s.term) : null,
+      assistant: asst.kindOf(s.assistant),
       cannot: s.cannot ? s.cannot.why : null, cannotType: s.cannot ? s.cannot.short : null,
       sidebarStatus: s.sidebarStatus, hookLifecycle: s.hook ? s.hook.lifecycle : null,
       ctx: ctx(s), draft: !!s.screen.draft, dialog: !!s.screen.dialog || s.st.state === 'dialog', working: s.st.state === 'working',
@@ -892,9 +880,9 @@ function refreshProcs() {
         const tab = { kind: 'cmux', workspaceId: wsOf.get(p.surfaceId).id, surfaceId: p.surfaceId };
         const text = await term.readScreen(tab, 40);
         const now = Date.now();
-        extraScreens.set(p.surfaceId, { text, at: now, prompt: text != null ? await judgeRead(tab, parseScreen(text), now) : null });
+        extraScreens.set(p.surfaceId, { text, at: now, prompt: text != null ? await asst.judgeRead('claude', tab, asst.parseScreen(text, 'claude'), now) : null });
       });
-      for (const id of [...extraScreens.keys()]) if (!r.procs.some((p) => p.surfaceId === id)) { extraScreens.delete(id); if (!screens.has(id)) promptHistory.forget(id); }
+      for (const id of [...extraScreens.keys()]) if (!r.procs.some((p) => p.surfaceId === id)) { extraScreens.delete(id); if (!screens.has(id)) asst.forget(id); }
       procState = { ...r, error: null };
     } catch (e) {
       procState = { ...procState, error: String(e.message || e) };
@@ -928,11 +916,12 @@ function sessionInfo(sid, p, tab, b, settings, now) {
       project: b.project, waitingOn: b.waitingOn, words: sessionWords(b.project, b.waitingOn, b.s, now), topic: b.s.topic, cwd: b.s.cwd || p.cwd,
     };
   }
-  const tp = e ? transcriptOf(e) : findTranscript(sid, p.cwd);
-  const t = tp ? readTranscript(tp) : null;
+  const kind = asst.kindOf(e);
+  const tp = e ? transcriptOf(e) : asst.findTranscript(kind, sid, p.cwd);
+  const t = tp ? asst.readTranscript(kind, tp) : null;
   const x = tab ? screens.get(p.surfaceId) || extraScreens.get(p.surfaceId) || null : null;
   const screen = judgedScreen(x);
-  const title = parseTitle(tab ? tab.s.title : '');
+  const title = asst.parseTitle(tab ? tab.s.title : '', kind);
   const st = eventState({ ev: e, screen, screenAt: x ? x.at : null, title, transcript: t }, settings, now)
     || { ...sessionState({ screen, title, transcript: t, hook: null }, settings, now), source: 'screen' };
   const where = e || { cwd: p.cwd };
@@ -1042,22 +1031,23 @@ async function closeOne(id, workspaces, allow, settings) {
   const stillTab = still.surfaceId || (still.itermId ? term.tabIdFor('iterm', still.itermId) : null);
   if (stillTab !== row.surfaceId) return fail('Its process is not in that tab.');
   const tab = kind === 'cmux' ? { kind, workspaceId: ws.id, surfaceId: row.surfaceId } : { kind, surfaceId: row.surfaceId };
-  let screen = parseScreen(await term.readScreen(tab, 40));
+  // Close idle sessions closes Claude Code processes only (docs/SESSIONS.md).
+  let screen = asst.parseScreen(await term.readScreen(tab, 40), 'claude');
   if (!screen.readable) return fail(`${name} could not read its tab, so it was left open.`);
   if (!screen.claudeLive) return fail('Claude is not at its prompt in that tab.');
   // Text in the prompt that the Sessions page did not show as half typed:
   // closing is fine over Claude's suggested reply, never over typed text.
   if (screen.draft && row.tag !== 'draft') {
-    const v = await surePrompt(tab, screen);
+    const v = await asst.surePrompt('claude', tab, screen);
     if (v.kind === 'draft') return fail('A reply is half typed in its prompt.');
     if (v.kind !== 'suggestion') return fail(`Its prompt holds text the board could not tell from a half-typed reply (${v.error || 'no answer'}), so it was left open.`);
-    screen = suggest.withPrompt(screen, v);
+    screen = asst.withPrompt('claude', screen, v);
   }
   const e = events.scan().get(id) || null;
-  const tp = e ? transcriptOf(e) : findTranscript(id, row.cwd);
-  const t = tp ? readTranscript(tp) : null;
+  const tp = e ? transcriptOf(e) : asst.findTranscript('claude', id, row.cwd);
+  const t = tp ? asst.readTranscript('claude', tp) : null;
   const now = Date.now();
-  const title = parseTitle(surface.title);
+  const title = asst.parseTitle(surface.title, 'claude');
   const st = eventState({ ev: e, screen, screenAt: now, title, transcript: t }, settings, now) || sessionState({ screen, title, transcript: t, hook: null }, settings, now);
   const cls = sess.classify({ st, t, ev: e, marker: handoff.readMarker(id), screen, startedAt: row.startedAt }, idleMsFor(id, settings), now);
   if (cls.group === 'use') return fail(`It is in use now (${cls.why}).`);
@@ -1295,7 +1285,7 @@ function freshSessionFor(sid, m) {
   const cands = [...ev.all.values()]
     .filter((e) => e.sessionId !== sid && e.workspaceId === m.workspaceId && !e.endedAt && e.startedAt && Date.parse(e.startedAt) >= since && e.transcriptPath)
     .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
-  return cands.find((e) => handoff.isResumePrompt(handoff.firstPrompt(e.transcriptPath))) || null;
+  return cands.find((e) => handoff.isResumePrompt(asst.firstPrompt(asst.kindOf(e), e.transcriptPath))) || null;
 }
 
 function shellQuote(s) {
@@ -1353,7 +1343,7 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
     const prompt = resumePrompt(m, cwd) + (runningPlan ? ` The brief has a running plan, "${runningPlan.title.replace(/'/g, '')}", under ## Plan: read it first${(runningPlan.refs || []).length ? ', and the References listed under its Goal' : ''}, and carry on from the first step not ticked, by the rules written in it.` : '');
     // cmux opens the tab in the folder; another terminal's tab starts where
     // its profile says, so the command goes there first.
-    const launch = `${settings.handoffCommand || 'claude'} ${shellQuote(prompt)}`;
+    const launch = `${asst.launchCommand(asst.kindOf(ev.all.get(sid) || m), settings)} ${shellQuote(prompt)}`;
     const cmd = tab.kind !== 'cmux' && cwd ? `cd ${shellQuote(cwd)} && ${launch}` : launch;
     const a = await term.pasteText(tab, cmd);
     const b = a.ok ? await term.pressKey(tab, 'enter') : a;
@@ -1441,14 +1431,23 @@ function escapePath(p) {
   return /[\s'"\\()&;|<>$`]/.test(p) ? p.replace(/([\s'"\\()&;|<>$`])/g, '\\$1') : p;
 }
 
+// The words Send types: the text, then each attached file's path, escaped.
+// The New session switch gives a new session the same words.
+function withPaths(text, paths) {
+  let msg = String(text || '').trim();
+  const ps = (Array.isArray(paths) ? paths : []).map(String).filter(Boolean);
+  if (ps.length) msg = (msg ? msg + ' ' : '') + ps.map(escapePath).join(' ');
+  return msg;
+}
+
 // Every write into a terminal goes through here.
-// Smart punctuation back to what a shell expects: em dash to "--", en dash
-// to "-", curly quotes to straight ones, a no-break space to a space.
-export function plainCommand(s) {
-  return String(s)
-    .replace(/—/g, '--').replace(/–/g, '-')
-    .replace(/[“”„«»]/g, '"').replace(/[‘’‚]/g, "'")
-    .replace(/ /g, ' ');
+// The assistant of the session the board shows in that tab, else the one
+// its screen shows (Claude Code when neither says).
+function assistantOf(projectId, surfaceId, raw) {
+  const snap = snapshot.projects.find((x) => x.id === projectId);
+  const s = snap && snap.sessions.find((x) => x.surfaceId === surfaceId);
+  if (s && s.assistant) return asst.kindOf(s.assistant);
+  return asst.parseAny(raw).kind;
 }
 
 async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
@@ -1471,29 +1470,27 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
     tab = t;
   }
   const where = term.nameOf(tab.kind);
-  // Fresh look at the screen, never the cached one.
-  const screen = parseScreen(await term.readScreen(tab, 40));
+  // Fresh look at the screen, never the cached one, read as its session's
+  // assistant (else as the screen shows).
+  const raw = await term.readScreen(tab, 40);
+  const kind = assistantOf(projectId, surfaceId, raw);
+  const screen = asst.parseScreen(raw, kind);
   const anySurface = project.sendToAnySurface === true; // test registry only
   if (!screen.claudeLive && !anySurface) return { ok: false, status: 409, error: 'No Claude session is running in that tab, so nothing was typed.' };
-  // Text in the prompt: Claude's suggested reply (a typed character, a
-  // paste and a typed "!" all replace it) or a half-typed reply, which is
-  // never mixed in (server/suggestion.mjs).
+  // Text in the prompt: a half-typed reply is never mixed in; what else it
+  // can be is the assistant's to say (Claude Code's suggested reply,
+  // server/suggestion.mjs).
   let bashOn = false;
   if (screen.draft && !anySurface) {
-    const half = { ok: false, status: 409, error: `There is half-typed text in its prompt. Finish it in ${where} so it is not mixed in.` };
-    if (screen.dialog) return half;
-    if (choice != null) return { ok: false, status: 409, error: 'No choice is open on screen any more, so nothing was pressed.' };
-    const v = await surePrompt(tab, screen, { bang: /^!\s*\S/.test(String(text || '').trim()) });
-    if (v.kind === 'draft') return half;
-    if (v.kind !== 'suggestion') return { ok: false, status: 409, error: `The board could not tell whether the text in its prompt is Claude's suggestion or a half-typed reply (${v.error || 'no answer'}), so nothing was typed. Look at it in ${where}.` };
-    bashOn = !!v.bash;
-    console.log(`send: the prompt in ${project.id} held Claude's suggested reply (${v.by}${v.keys ? ': ' + v.keys.join(' ') : ''}), typing over it`);
+    const v = await asst.checkPrompt(kind, tab, screen, { text, choice, where, project: project.id });
+    if (!v.ok) return v;
+    bashOn = !!v.bashOn;
   }
   if (screen.dialog && !anySurface) {
     if (choice == null) return { ok: false, status: 409, error: `A choice is open on screen. Pick one of its options, or answer in ${where}.` };
     // Arrow keys to the option, then Enter, each step read back from the
     // screen (server/choose.mjs): some menus ignore the option's digit.
-    const r = await chooseOption({
+    const r = await asst.chooseOption(kind, {
       read: () => term.readScreen(tab, 40),
       key: (k) => term.pressKey(tab, k),
       want: choice,
@@ -1507,34 +1504,11 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
     console.log(`choose: "${r.sent}" taken in ${project.id} (${r.keys.join(' ')}; menu ${r.after})`);
     return { ok: true, delivered: 'now', sent: r.sent, after: r.after };
   }
-  let msg = String(text || '').trim();
-  const ps = (paths || []).map(String).filter(Boolean);
-  if (ps.length) msg = (msg ? msg + ' ' : '') + ps.map(escapePath).join(' ');
+  const msg = withPaths(text, paths);
   if (!msg) return { ok: false, status: 400, error: 'Type something or add a file first.' };
-  // "! command" is Claude Code's bash mode. The prompt only enters it on a
-  // TYPED "!"; pasted, the "!" stays in the command and the shell reads it as
-  // "negate" (`! cd x && gh ...` ran nothing and exited 1). So type the "!",
-  // give the prompt a moment to switch, then paste the command after it.
   const asked = msg;
-  const bang = /^!\s*/.exec(msg);
-  if (bang && msg.length > bang[0].length) {
-    // The probe may have typed the "!" already (bash mode is on).
-    if (!bashOn) {
-      const k = await term.typeText(tab, '!');
-      if (!k.ok) return { ok: false, status: 500, error: k.err || `${where} refused the text.` };
-      await new Promise((r) => setTimeout(r, 150));
-    }
-    // A shell command must reach the shell as typed. Text fields (macOS
-    // smart punctuation, phone keyboards) turn "--" into an em dash and
-    // quotes into curly ones, which breaks the command ("—otp=..." was read
-    // as a tag name), so put the plain characters back.
-    msg = plainCommand(msg.slice(bang[0].length));
-  }
-  const a = await term.pasteText(tab, msg);
-  if (!a.ok) return { ok: false, status: 500, error: a.err || `${where} refused the text.` };
-  await new Promise((r) => setTimeout(r, 120));
-  const b = await term.pressKey(tab, 'enter');
-  if (!b.ok) return { ok: false, status: 500, error: b.err || `${where} refused Enter.` };
+  const typed = await asst.typeMessage(kind, tab, msg, { bashOn, where });
+  if (!typed.ok) return typed;
   wantTick = true;
   return { ok: true, delivered: screen.working ? 'after its current step' : 'now', sent: asked };
 }
@@ -1763,7 +1737,10 @@ async function phaseD(req, res, p) {
     const body = await jsonBody(req);
     const project = findProject(body.projectId);
     if (!project) return sendJson(res, 404, { error: 'No such project.' });
-    const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, near: nearTab(project.id) });
+    // The message box's New session switch sends its text and files here:
+    // they become the new session's first prompt. With neither, Revive.
+    const firstMessage = withPaths(body.text, body.paths) || null;
+    const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, firstMessage, near: nearTab(project.id) });
     if (r.ok) afterRegistry(r.reg);
     const { reg: _r, ...out } = r;
     return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? out : { error: r.error });

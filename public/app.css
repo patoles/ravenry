@@ -73,6 +73,27 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .attach{display:inline-flex;align-items:center;gap:5px;cursor:pointer;position:relative;color:var(--tx2);font-size:12.5px;padding:4px 6px;border-radius:6px}
 .attach input{position:absolute;width:1px;height:1px;opacity:0}
 .attach:focus-within{outline:2px solid var(--work);outline-offset:2px}
+/* The New session switch in the message box (docs/design/NewSession.dc.html,
+   D): discreet beside Attach; on, the box gets the blue ring and Send reads
+   Start session. The Sessions card's "Starting" row is not a button until
+   its tab shows. */
+.ns-tg{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--tx3);padding:4px 6px;border-radius:6px}
+.ns-tg:hover{color:var(--tx2)}
+.ns-tg:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.ns-tg.on{color:var(--work);font-weight:550}
+.ns-sw{position:relative;width:24px;height:14px;border-radius:7px;background:var(--card2);box-shadow:inset 0 0 0 1px var(--sep);flex:none}
+.ns-sw i{position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#FFFFFF;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.ns-tg.on .ns-sw{background:var(--work);box-shadow:none}
+.ns-tg.on .ns-sw i{left:12px}
+.composer.ns-mode{border-color:var(--work);box-shadow:0 0 0 1px var(--work)}
+.sess.ns-starting{cursor:default}
+.sess.ns-starting:hover{background:none}
+/* On a phone Attach and the switch fill the first row; Add as note and
+   Start session wrap to a second row, at the right edge where Send sits. */
+@media (max-width: 700px){
+  .ns-tg~span[style*="flex: 1"]{flex:1 1 40px !important}
+  .composer:has(.ns-tg) #note{margin-left:auto}
+}
 .toast{z-index:30;position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--card2);color:var(--tx);padding:10px 16px;border-radius:10px;font-size:13.5px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.4);max-width:calc(100vw - 32px);box-sizing:border-box}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .sess{all:unset;box-sizing:border-box;cursor:pointer;width:100%;display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1px solid var(--sep);color:var(--tx)}

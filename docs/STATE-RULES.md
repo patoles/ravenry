@@ -210,6 +210,33 @@ because almost every session at rest holds a suggestion, and calling them all
 half typed would flag most of the board after a restart; Send and Close still
 probe before they act, so typed text is never mixed in or closed.
 
+## Codex's screen
+
+A Codex session (docs/ASSISTANTS.md) is read by `server/codex.mjs` into the
+same fields, and the session rules above apply to it unchanged. Its events
+come from Codex's hooks: PermissionRequest is recorded as a
+`permission_prompt` Notification (dialog), and Interrupt (Esc, or No on an
+approval) is at rest, "turn interrupted". A screen is Codex's only when
+Claude Code's reading does not claim it, or when a live Codex session
+reported from that tab. Measured on Codex 0.166.0 in cmux 0.64.20
+(`tools/fixtures/codex/`); Codex draws on the alternate screen, so a read
+holds the visible screen only, whatever lines are asked for.
+
+| Signal | What it looks like | What it tells |
+| --- | --- | --- |
+| Composer | `› text` at column 0, its wrapped lines indented 2, a blank row, then 1 to 4 indented footer lines (`GPT-5.6-Luna low · ~/folder · Thread`, `← for agents · ? for shortcuts`, `tab to queue message`) | Codex is live in the tab. The text is typed text, except its dim placeholder `Ask Codex to do anything` (or `Ask a follow-up question`), fixed text in 0.166.0, which reads as empty. A `!` marker is shell mode (typed text). A `›` line followed by Codex's output is a prompt in the history, not the composer. |
+| Spinner | `• Working (4s • esc to interrupt) · 1 background terminal running · ...` above the composer | working; the first part is the busy line |
+| Done line | `  Worked for 1s • 12:04` | the last turn finished (time without a date) |
+| Menu | numbered options with `›` on the selected one and a hint line: `Press enter to confirm or esc to cancel` (an approval), `enter continue · esc quit` (folder trust), `enter to submit answer` (a question) | dialog; its options are offered on the board, and chosen with the arrows and Enter |
+| Exit | `To continue this session, run:` / `codex resume <id>`, or with Codex's daemon `Disconnected from this task.` / `To reconnect, run:`, then a shell prompt | none; the id names the last session. The daemon sends no SessionEnd, so this is how the board sees it gone. |
+| Title | `⠙ Thread | folder` while it works (a braille spinner glyph), `[ ! ] Action Required | ...` while an approval waits, `Thread | folder` at rest | working when the glyph is there; the thread is the topic |
+
+Codex has no suggested reply, so nothing in its composer is ever typed
+over: text there is half typed, and Send refuses it as for Claude Code.
+Claude Code's reading also takes Codex's approval menu for a dialog but sees
+no option selected in it (`❯` against Codex's `›`); such a screen is Codex's
+when Codex's reading shows its menu with one selected.
+
 ## Project state
 
 1. **Needs you** if any session is dialog, asked or draft.

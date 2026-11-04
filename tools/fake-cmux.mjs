@@ -16,6 +16,10 @@
 // file is written back. `notify` (a Mac notification) is appended to
 // <fixture>.notify.log instead of shown, or refused when "notifyFail" is set.
 // `new-workspace` is appended to <fixture>.new-workspace.log, then refused.
+// `new-surface` (Revive's new tab) is appended to <fixture>.new-surface.log,
+// then refused, unless the fixture has "newSurfaces": true: then the tab is
+// added to its workspace as a prompt surface (below) with an empty body, so
+// the command pasted into it and its Enter land in its "sent".
 // A surface listed in "prompts" (and only such a surface) plays Claude
 // Code's prompt box under its "body" text: { body, ghost, typed, bash,
 // noStyle, sent }. "ghost" is Claude's dim suggested reply, shown while
@@ -28,7 +32,8 @@
 // no styled read).
 import fs from 'node:fs';
 
-const args = process.argv.slice(2).filter((a) => a !== '--json');
+// --json and --id-format <x> lead some calls (new-surface); they change nothing here.
+const args = process.argv.slice(2).filter((a, i, all) => a !== '--json' && a !== '--id-format' && all[i - 1] !== '--id-format');
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 let st = { workspaces: [], screens: {} };
 try { st = JSON.parse(fs.readFileSync(process.env.FAKE_CMUX_STATE, 'utf8')); } catch { /* empty */ }
@@ -74,6 +79,20 @@ switch (args[0]) {
     // like every write, so a test can read the command a Revive would run.
     fs.appendFileSync(process.env.FAKE_CMUX_STATE + '.new-workspace.log', JSON.stringify({ argv: args }) + '\n');
     refuse();
+    break;
+  }
+  case 'new-surface': {
+    fs.appendFileSync(process.env.FAKE_CMUX_STATE + '.new-surface.log', JSON.stringify({ argv: args }) + '\n');
+    const w = st.newSurfaces && st.workspaces.find((x) => x.id === opt('--workspace'));
+    if (!w) refuse();
+    const n = w.surfaces.length + 1;
+    const id = `${String(n).padStart(8, '0')}-0000-4000-8000-${String(Date.now()).slice(-12).padStart(12, '0')}`;
+    const ref = `surface:${90 + n}`;
+    w.surfaces.push({ id, ref, title: 'zsh' });
+    (st.prompts = st.prompts || {})[id] = { body: '' };
+    render(id);
+    save();
+    out({ surface_id: id, surface_ref: ref });
     break;
   }
   case 'surface': if (args[1] === 'resume' && args[2] === 'show') out({ resume_binding: null }); refuse(); break;

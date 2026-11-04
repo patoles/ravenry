@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// Claude Code hook: Ravenry's own record of each session's state.
-// Registered on SessionStart, SessionEnd, UserPromptSubmit, Notification and
-// Stop (no per-tool events, so it stays cheap). See docs/STATE-RULES.md,
+// Claude Code hook (and Codex's, with --assistant=codex): Ravenry's own
+// record of each session's state. Registered on SessionStart, SessionEnd,
+// UserPromptSubmit, Notification and Stop (no per-tool events, so it stays
+// cheap); in Codex on SessionStart, SessionEnd, UserPromptSubmit, Stop,
+// PermissionRequest and Interrupt (docs/ASSISTANTS.md). See docs/STATE-RULES.md,
 // "Events first, screen second".
 //
 // For each event it appends one compact JSON line to
@@ -17,6 +19,7 @@ import { endingQuestion } from '../server/state.mjs';
 import { RAVENRY_HOME } from '../server/home.mjs';
 import { runningTasks, logTasks } from '../server/tasks.mjs';
 import { terminalOf } from '../server/termenv.mjs';
+import { assistantOf, shape, codexDaemon } from '../server/assistanthook.mjs';
 
 const DIR = path.join(RAVENRY_HOME, 'events');
 // The board's port: MC_BOARD_URL, else the one the running board wrote to
@@ -38,6 +41,11 @@ const KEEP = 200;
 const PRUNE_DAYS = 14;
 const SAFE_ID = /^[A-Za-z0-9_-]{6,80}$/;
 
+// Which assistant runs this hook: `--assistant=codex` in the command Codex's
+// hooks.json names (server/hookinstall.mjs); Claude Code's names none.
+// Codex's events come in the board's shape (server/assistanthook.mjs).
+const ASSISTANT = assistantOf();
+
 const bye = () => process.exit(0);
 process.on('uncaughtException', bye);
 process.on('unhandledRejection', bye);
@@ -50,12 +58,15 @@ const cap = (s, n) => {
   return t.length > n ? t.slice(0, n - 3) + '...' : t;
 };
 
-function record(input) {
-  const ev = input.hook_event_name;
+function record(input, daemon = false) {
+  const sh = shape(ASSISTANT, input);
+  if (!sh) return null;
+  const ev = sh.event;
   const r = {
     at: new Date().toISOString(),
     event: ev,
     session_id: input.session_id,
+    assistant: ASSISTANT,
     cwd: input.cwd || undefined,
     transcript_path: input.transcript_path || undefined,
     workspace_id: process.env.CMUX_WORKSPACE_ID || undefined,
@@ -66,17 +77,26 @@ function record(input) {
   // which execs a single command, so the hook's parent is Claude itself. It
   // costs nothing; the board trusts it only when that pid is a live claude
   // process that started before this event.
-  if (process.ppid > 1) r.claude_pid = process.ppid;
+  // Codex's hooks run under Codex or its app-server daemon, which holds many
+  // sessions, so its pid is kept under its own name and never mapped.
+  if (process.ppid > 1) r[ASSISTANT === 'claude' ? 'claude_pid' : ASSISTANT + '_pid'] = process.ppid;
   // Which terminal the session runs in, and its id there (iTerm2's and
   // Terminal's session ids), so the board picks the adapter that can reach
   // it, or shows it watch only (docs/TERMINALS.md, server/termenv.mjs).
-  Object.assign(r, terminalOf(process.env));
-  // Pane ids of terminals with no adapter yet, recorded for a later one.
-  const pane = process.env.TMUX_PANE || process.env.WEZTERM_PANE || process.env.KITTY_WINDOW_ID;
-  if (pane) r.pane = pane;
+  // Not from Codex's daemon, whose environment is another terminal's.
+  if (daemon) {
+    delete r.workspace_id; delete r.surface_id;
+    r.codex_daemon = true;
+  } else {
+    Object.assign(r, terminalOf(process.env));
+    // Pane ids of terminals with no adapter yet, recorded for a later one.
+    const pane = process.env.TMUX_PANE || process.env.WEZTERM_PANE || process.env.KITTY_WINDOW_ID;
+    if (pane) r.pane = pane;
+  }
   if (input.agent_id) r.agent_id = input.agent_id;
   if (ev === 'SessionStart') { r.source = input.source || undefined; r.model = input.model || undefined; }
   else if (ev === 'SessionEnd') r.reason = input.reason || undefined;
+  else if (ev === 'Notification' && sh.extra.notification_type) Object.assign(r, sh.extra);
   else if (ev === 'Notification') {
     r.notification_type = input.notification_type || undefined;
     r.message = cap(input.message, 300);
@@ -148,7 +168,8 @@ async function main() {
   let input;
   try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return; }
   if (!input || !SAFE_ID.test(String(input.session_id || '')) || !input.hook_event_name) return;
-  const r = record(input);
+  const r = record(input, ASSISTANT === 'codex' && await codexDaemon());
+  if (!r) return;
   const line = JSON.stringify(r);
   try {
     fs.mkdirSync(DIR, { recursive: true });

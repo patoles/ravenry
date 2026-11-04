@@ -334,14 +334,16 @@ function k(n) {
   return n >= 1e6 ? (n / 1e6).toFixed(2).replace(/\.?0+$/, '') + 'M' : Math.round(n / 1000) + 'k';
 }
 
-export function reasonText({ pct, tokens, window, threshold, ceiling, manual, file, autoStart }) {
+// `name` and `short` name the assistant the hook asks (Claude Code by
+// default; the Codex hook passes 'Codex' for both).
+export function reasonText({ pct, tokens, window, threshold, ceiling, manual, file, autoStart, name = 'Claude Code', short = 'Claude' }) {
   const where = file ? file : 'HANDOFF.md at the repo root';
   const isBrief = isBriefFile(file);
   const used = tokens != null ? `${Math.round(pct)}% (${k(tokens)} of ${k(window)})` : 'unknown';
   const over = pct != null && pct >= ceiling;
   const lines = [TAG];
   if (over) {
-    lines.push(`Context is at ${used}, past the ${ceiling}% ceiling. Hand off now rather than let Claude Code compact this session.`);
+    lines.push(`Context is at ${used}, past the ${ceiling}% ceiling. Hand off now rather than let ${name} compact this session.`);
     lines.push('Do not start the next step. If a step is half done, finish only that step (or stop where it is safe), then hand off. A work-in-progress commit is fine; say so in its message.');
   } else {
     if (manual) lines.push(`The user asked for a hand-off from Ravenry, with context at ${used}. Do it at a clean point.`);
@@ -358,7 +360,7 @@ export function reasonText({ pct, tokens, window, threshold, ceiling, manual, fi
       : '2. Commit your work and the hand-off together, by pathspec if other agents share this tree, with a message that explains the cause. Do not push.',
     `3. Reply to the user with one line: Hand-off written to ${where}.`,
     autoStart
-      ? 'Ravenry then opens a fresh Claude session in a new tab next to this one that reads it and carries on. Do not open or close any session yourself, and do nothing after that line.'
+      ? `Ravenry then opens a fresh ${short} session in a new tab next to this one that reads it and carries on. Do not open or close any session yourself, and do nothing after that line.`
       : 'The user starts the fresh session from Ravenry. Do not open or close any session yourself, and do nothing after that line.',
   );
   return lines.join('\n');

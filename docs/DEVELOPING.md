@@ -40,6 +40,18 @@ headless test and screenshot tools. The board loads Playwright lazily, only
 to draw idea mockup pictures, and runs without it (the round then says how to
 install it).
 
+- `server/assistant.mjs` is the one assistant interface, beside the
+  terminal one: everything particular to Claude Code or OpenAI Codex (the
+  screen, the prompt, transcripts, how a reply is typed, menus, the rules
+  file, what the board can show) goes through it to an adapter,
+  `server/claude.mjs` (whose parts are `server/screen.mjs`,
+  `server/suggestion.mjs`, `server/transcript.mjs`, `server/tasks.mjs`) or
+  `server/codex.mjs` (with `server/codexrollout.mjs` for its transcripts and
+  `server/codexhooks.mjs` for its hooks.json and trust entries). Sessions
+  carry `assistant` from the events hook (`--assistant=codex` in Codex's
+  hook commands); none is Claude Code. [docs/ASSISTANTS.md](ASSISTANTS.md)
+  has the interface, what works for each, Codex's events, screen and
+  transcript, the hand-off and the install.
 - `server/terminal.mjs` is the one terminal interface: every read, text,
   key, focus, new tab and close goes through it to an adapter,
   `server/cmux.mjs` (the only module that runs the cmux CLI) or
@@ -575,6 +587,17 @@ The top bar switches views; each view lives in the URL (`#/objectives`,
   `claude 'Read BRIEF.md (Hand-off section first) and continue.'`; in iTerm2
   mode a NEW iTerm2 tab, in the window of the project's own iTerm2 session
   when it has one. Old tabs are never touched.
+- **New session** ([docs/design/NewSession.dc.html](design/NewSession.dc.html),
+  variant D): a small switch after Attach in the project's message box, off
+  whenever a project opens. On, the box gets a blue ring and Send reads Start
+  session, which goes through Revive (`POST /api/project/revive` with `text`
+  and `paths`) whether or not a session is live: the new tab runs
+  `claude '<words> <paths>'`, the words and escaped file paths Send would
+  type, as one exact shell word (`--` before words that start with a dash),
+  and needs no brief; empty, it is Revive. After starting, the switch goes
+  off, the box empties, the selection stays on the session being watched,
+  and the new row reads Starting (a dashed blue ring) until its first hook
+  event, a minute at most.
 - **Ideas**: `~/.ravenry/ideas.json`, pictures copied into
   `~/.ravenry/ideas/` (seeded once with five real ideas; originals
   are only copied). Drag between Spark, Mockup, Greenlit and Parked; open a
@@ -960,6 +983,28 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   the second of the two sends may print SKIP; `--first styled` runs the
   styled-read send first. Only that workspace is typed into; it is closed
   at the end.
+- `node tools/assistant-test.mjs`: the assistant interface
+  (docs/ASSISTANTS.md, Tests): Claude Code's reading of every captured screen
+  unchanged since 76873a4, Codex's captured screens (`tools/fixtures/codex/`,
+  private, skipped elsewhere) and their Live screen trim, a Codex menu chosen,
+  the events hook and the hand-off hook with `--assistant=codex` on Codex's
+  real hook inputs, a rollout, the trust hash against cmux's, and setup and
+  uninstall on a scratch CODEX_HOME (`MC_CODEX_HOME`). Touches only `.tmp/`.
+  The live check it does not do, done by hand on 2026-11-04: a throwaway
+  `mc-test-codex` cmux workspace running Codex with a scratch CODEX_HOME
+  (its auth.json copied in, removed after) whose hooks.json got Ravenry's
+  hooks through `hookinstall.codexPlan`, `RAVENRY_HOME` and `MC_BOARD_URL`
+  in Codex's environment pointing at a scratch board on :4699 whose registry
+  holds that workspace; replies, menu choices and Hand off now through that
+  board's routes.
+- `node tools/new-session-test.mjs [--shots <dir>] [--real <scratch folder>]`:
+  the New session switch on a test board on :4686 with the fake cmux (whose
+  `newSurfaces` opens tabs): the route's exact command lines, switch off to
+  Send, on to a new tab with the files, the reset, the Starting row and the
+  phone rows; iTerm2 mode on :4687. `--real` opens a throwaway
+  `mc-test-newsession-*` workspace running `claude`, answers its trust
+  prompt through a board on :4688, runs the page's Start session with "Say
+  hi in one word", reads the new tab back and closes the workspace.
 - `node tools/sessions-test.mjs`: the Sessions rules on crafted input
   (which processes count, process to session mapping, groups, records).
   Touches only `.tmp/`.

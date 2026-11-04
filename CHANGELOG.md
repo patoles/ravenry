@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.0
+
+- The board follows OpenAI Codex sessions too, beside Claude Code's: their
+  state (Needs you, Working, Idle), the Live screen, the context bar (with the
+  model's own window), alerts, replies from the board, Codex's approval and
+  folder-trust menus, and the hand-off at half context. `ravenry setup` adds
+  the board's hooks to `~/.codex/hooks.json`, with the trust entries Codex
+  needs in `~/.codex/config.toml`, only when Codex is installed; every other
+  entry stays, and `ravenry uninstall` takes out only Ravenry's.
+- Not shown for a Codex session: the pictures it showed, background tasks,
+  its memory on the Sessions page (Close idle is Claude Code only), recaps,
+  and its AGENTS.md in the Rules view. Codex started outside cmux runs in a
+  shared daemon whose hooks cannot say which tab a session is in, so there
+  the board finds the tab from the screen and the folder (cmux) or shows the
+  session watch only.
+- Nothing changes for Claude Code: its sessions read exactly as before
+  (docs/ASSISTANTS.md).
+- In Ideas, a seed typed while Add idea was still on its way is no longer
+  wiped when its answer arrives, nor sent into the new idea's pitch box.
+- A New session switch in the project's message box: on, Start session opens a new tab in the project's folder running Claude with your words and files as its first message (empty, it reads the brief like Revive).
+
 ## 0.1.2
 
 - Replying from the board works again while Claude Code shows its dim

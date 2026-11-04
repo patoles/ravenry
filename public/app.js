@@ -35,6 +35,8 @@ const ST = {
   wait: { c: 'var(--wait)', tint: 'var(--wait-t)', word: 'Waiting on others', card: 'Waiting on someone else', dash: '2.2 2', dot: 0, cnt: 'background:var(--wait);color:#FFFFFF' },
   idle: { c: 'var(--idle)', tint: 'var(--idle-t)', word: 'Idle', card: 'Idle', dash: '', dot: 0, cnt: 'background:var(--card2);color:var(--tx2)' },
 };
+// A session the New session switch just started, until its first hook event.
+const ST_STARTING = { c: 'var(--work)', dash: '2.2 2', dot: 0 };
 const ORDER = ['you', 'work', 'wait', 'idle'];
 const FL = { note: 'var(--tx)', hand: 'var(--work)', shared: 'var(--bad)', ship: 'var(--ok)' };
 const SESSION_WORD = { dialog: 'Choice open', asked: 'Asked you', draft: 'Half-typed reply', working: 'Working', handback: 'Back to you', stale: 'Idle', handed: 'Handed off', unknown: 'Unknown', none: 'Ended' };
@@ -52,6 +54,8 @@ const ui = {
   drafts: {},      // projectId -> text
   files: {},       // projectId -> [{ name, path, short, pending }]
   sent: {},        // projectId -> { label, at, delivered }
+  ns: false,       // the message box's New session switch; off whenever a project opens
+  starting: {},    // projectId -> { surfaceId, before, topic, at }: a session started from the switch
   theme: 'dark',
   alerts: false,
   lastStates: {},
@@ -392,6 +396,7 @@ function buildSheet(p) {
           <div id="chips" style="display: flex; flex-wrap: wrap; gap: 6px"></div>
           <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
             <label class="attach"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 6.5L7 11.5a3 3 0 0 1-4.2-4.2L8 2.1a2 2 0 0 1 2.8 2.8L5.7 10"></path></svg>Attach<input type="file" multiple id="pick"></label>
+            <button class="ns-tg" id="ns" role="switch" aria-checked="false"><span class="ns-sw"><i></i></span><span>New session</span></button>
             <span style="flex: 1"></span>
             <button class="btn sm" id="note">Add as note</button>
             <button class="btn sm pri" id="send">Send</button>
@@ -412,6 +417,7 @@ function buildSheet(p) {
 </div>`;
   const ta = $('#compose');
   ta.value = ui.drafts[p.id] || '';
+  ui.ns = false;
   wireComposer(p.id);
   buildLive();
   pinRo.disconnect();
@@ -545,10 +551,22 @@ ${openButton(p, s)}`);
   else if (gateHere) label = 'Or answer in your own words. The plan carries on from your answer';
   else if (state === 'you') label = 'Write an answer';
   else if (s.working) label = 'Message, delivered after its current step';
-  const ph = canSend && !gateHere ? label + '. Paste a path, or drop or paste a file.' : label + '.';
+  let ph = canSend && !gateHere ? label + '. Paste a path, or drop or paste a file.' : label + '.';
+  // The New session switch (docs/design/NewSession.dc.html, D): on, the
+  // same box starts a new session in the project's folder.
+  const ns = ui.ns;
+  const canStart = !!p.folder || boardTerm() === 'cmux';
+  if (ns) { label = 'First message of the new session, optional'; ph = label; }
   if (ta.placeholder !== ph) { ta.placeholder = ph; ta.setAttribute('aria-label', label); }
-  ta.disabled = !canSend && !p.brief && !gateHere;
-  $('#send').disabled = !canSend && !gateHere;
+  ta.disabled = ns ? !canStart : !canSend && !p.brief && !gateHere;
+  $('#send').disabled = ns ? !canStart : !canSend && !gateHere;
+  const sendWord = ns ? 'Start session' : 'Send';
+  if ($('#send').textContent !== sendWord) $('#send').textContent = sendWord;
+  $('#composer').classList.toggle('ns-mode', ns);
+  const tg = $('#ns');
+  tg.classList.toggle('on', ns);
+  tg.setAttribute('aria-checked', ns ? 'true' : 'false');
+  tg.title = canStart ? `Send this as the first message of a new session in ${p.name}` : `${p.name} has no folder, so there is nowhere to start a session`;
   $('#note').disabled = !p.brief;
   $('#note').title = p.brief ? 'Adds the text to the Notes in ' + p.brief.path : 'This project has no BRIEF.md yet';
   renderChips(p.id);
@@ -558,19 +576,33 @@ ${openButton(p, s)}`);
   const startMs = (x) => (x.startedAt ? Date.parse(x.startedAt) : 0);
   const many = p.sessions.filter((x) => x.live || x.state !== 'none')
     .sort((a, b) => (a.handed - b.handed) || (startMs(b) - startMs(a)));
-  if (many.length > 1) {
+  // A session started from the New session switch reads "Starting" (a
+  // dashed blue ring) until its first hook event; a row of its own until
+  // its tab shows on the board. A minute at most, for boards with no hooks.
+  const go = ui.starting[p.id];
+  const fresh = go && p.sessions.find((x) => (go.surfaceId ? x.surfaceId === go.surfaceId : !go.before.includes(x.surfaceId)));
+  if (go && ((fresh && fresh.source === 'events') || Date.now() - go.at > 60000)) delete ui.starting[p.id];
+  const startingId = ui.starting[p.id] && fresh ? fresh.surfaceId : null;
+  const pending = ui.starting[p.id] && !(fresh && many.includes(fresh));
+  if (many.length + (pending ? 1 : 0) > 1) {
     const memSum = many.reduce((n, x) => n + (x.memKb || 0), 0);
-    setHtml('d-sessions', `<div class="card" style="overflow: hidden"><h2 class="card-h"><span style="flex: 1">Sessions</span><span class="t2" style="font-weight: 500; font-size: 12px">${many.length} in ${p.workspaces.length > 1 ? p.workspaces.length + ' workspaces' : 'this workspace'}${memSum ? ', ' + esc(fmtMem(memSum)) : ''}</span></h2>
+    const startRow = (on) => `${stateIcon(ST_STARTING)}
+<span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: ${on ? 600 : 400}">${esc(go.topic)}</span>
+<span style="font-size: 11.5px; font-weight: 600; color: var(--work)">Starting</span>
+<span class="num t3" style="font-size: 11.5px; flex: 0 0 auto"></span>
+<span class="num" style="font-size: 11.5px; flex: 0 0 52px; text-align: right"></span>`;
+    setHtml('d-sessions', `<div class="card" style="overflow: hidden"><h2 class="card-h"><span style="flex: 1">Sessions</span><span class="t2" style="font-weight: 500; font-size: 12px">${many.length + (pending ? 1 : 0)} in ${p.workspaces.length > 1 ? p.workspaces.length + ' workspaces' : 'this workspace'}${memSum ? ', ' + esc(fmtMem(memSum)) : ''}</span></h2>
 ${many.map((x) => {
   const xs = ST[SESSION_STATE[x.state] || 'idle'];
   const on = s && x.surfaceId === s.surfaceId;
+  if (x.surfaceId === startingId) return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${go.topic}, Starting`)}">${startRow(on)}</button>`;
   return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${x.topic}, ${SESSION_WORD[x.state]}, context ${ctxLabel(x.ctx)}${x.memKb != null ? ', memory ' + fmtMem(x.memKb) : ''}`)}">
 ${stateIcon(xs)}
 <span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: ${on ? 600 : 400}">${esc(x.topic)}</span>
 <span style="font-size: 11.5px; font-weight: 600; color: ${xs.c}">${esc(SESSION_WORD[x.state])}</span>
 <span class="num t3" style="font-size: 11.5px; flex: 0 0 auto">${esc(x.ctx ? ctxLabel(x.ctx).split(' ')[0] : '')}</span>
 <span class="num" style="font-size: 11.5px; flex: 0 0 52px; text-align: right">${x.memKb != null ? esc(fmtMem(x.memKb)) : ''}</span></button>`;
-}).join('')}</div>`);
+}).join('')}${pending ? `<div class="sess card-r ns-starting" role="status" aria-label="${esc(`${go.topic}, Starting`)}">${startRow(false)}</div>` : ''}</div>`);
   } else setHtml('d-sessions', '');
 
   // The Plan card (docs/design/Plans.dc.html, A), then the other objectives.
@@ -1358,11 +1390,13 @@ function wireComposer(pid) {
   $('#pick').addEventListener('change', (e) => { addFiles(pid, e.target.files); e.target.value = ''; });
   $('#send').addEventListener('click', sendCompose);
   $('#note').addEventListener('click', addNote);
+  $('#ns').addEventListener('click', () => { ui.ns = !ui.ns; render(); });
 }
 
 async function sendCompose() {
   const p = project(ui.sel);
   if (!p) return;
+  if (ui.ns) { startSession(); return; }
   const { s } = view(p);
   // At a plan gate the composer is the gate card's free answer.
   if (p.planGate && (!s || s.surfaceId === p.primary) && !(ui.files[p.id] || []).length) {
@@ -1386,6 +1420,38 @@ async function sendCompose() {
     const n = fs.length;
     ui.sent[p.id] = { label: text ? (text.length > 40 ? text.slice(0, 40) + '...' : text) : `${n} file${n > 1 ? 's' : ''}`, at: Date.now(), delivered: r.delivered };
     toast(`Typed into ${p.name}'s session${n ? ` with ${n} file path${n > 1 ? 's' : ''}` : ''}${r.delivered === 'now' ? '' : ', delivered after its current step'}`);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    btn.disabled = false;
+    render();
+  }
+}
+
+// The New session switch on: Start session opens a new tab running Claude
+// in the project's folder through Revive, with the box's words and files
+// (the paths Send would type) as its first prompt. Empty, it reads the
+// brief as Revive does. The selection stays on the session being watched.
+async function startSession() {
+  const p = project(ui.sel);
+  if (!p) return;
+  const fs = ui.files[p.id] || [];
+  if (fs.some((f) => f.pending)) { toast('Still saving a file, one moment'); return; }
+  const text = ($('#compose').value || '').trim();
+  if (!text && !fs.length && !p.brief) { toast('Type the first message, or write the brief first so the new session has something to read'); return; }
+  const { s } = view(p);
+  const before = p.sessions.map((x) => x.surfaceId);
+  const btn = $('#send');
+  btn.disabled = true;
+  try {
+    const r = await post('/api/project/revive', { projectId: p.id, text, paths: fs.map((f) => f.path) });
+    if (s) ui.selSession[p.id] = s.surfaceId;
+    ui.drafts[p.id] = '';
+    ui.files[p.id] = [];
+    $('#compose').value = '';
+    ui.ns = false;
+    ui.starting[p.id] = { surfaceId: r.surfaceId || null, before, topic: text ? text.split('\n')[0] : 'New session', at: Date.now() };
+    toast(text || fs.length ? `Started a new session in ${p.name} with your first message` : `Started a new session in ${p.name} reading the brief`);
   } catch (e) {
     toast(e.message);
   } finally {
@@ -2004,12 +2070,25 @@ async function moveIdea(id, to) {
   }
 }
 
+// The seed box is cleared once the board took what was in it, but only if it
+// still holds that: text typed while the answer was on its way stays (an
+// Add idea answer that came back late wiped a new seed typed after it, or
+// moved the focus to the new idea's pitch in the middle of it, and the next
+// Get 3 directions then had nothing to send). A later action in the box
+// also wins over an earlier one's selection.
+let seedActs = 0;
+function clearSeedIf(text) {
+  const el = $('#seed');
+  if (el && el.value.trim() === text) el.value = '';
+}
+
 async function brainstorm() {
   const seed = $('#seed').value.trim();
   if (!seed) { toast('Write a seed first, e.g. a cosy co-op game for the TV'); $('#seed').focus(); return; }
+  seedActs++;
   try {
     await post('/api/ideas/brainstorm', { seed });
-    $('#seed').value = '';
+    clearSeedIf(seed);
     ui.wantBrainstorm = true;
   } catch (e) {
     toast(e.message);
@@ -2019,14 +2098,21 @@ async function brainstorm() {
 async function addIdea() {
   const text = $('#seed').value.trim();
   if (!text) { toast('Type the idea in the box first'); $('#seed').focus(); return; }
+  const act = ++seedActs;
+  // Where the focus was when Add was pressed: the new idea's pitch takes it
+  // only if it is still there (typing a new seed while the answer was on its
+  // way went on in the pitch box instead).
+  const from = document.activeElement;
   try {
     const r = await post('/api/ideas/add', { name: text });
-    $('#seed').value = '';
-    ui.selIdea = r.id;
+    clearSeedIf(text);
     toast('Added to Spark');
+    if (act !== seedActs) { await loadIdeas(); return; } // something newer was asked from the box meanwhile
+    ui.selIdea = r.id;
     await loadIdeas();
     const p = $('#i-pitch');
-    if (p) p.focus();
+    const now = document.activeElement;
+    if (p && act === seedActs && (now === from || !now || now === document.body)) p.focus();
   } catch (e) {
     toast(e.message);
   }
