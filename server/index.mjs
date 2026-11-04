@@ -83,6 +83,17 @@ const LIVE_LINES = 200;
 const SCREEN_LINES = 40;
 const LIVE_WANT_MS = 10000;
 const liveWant = new Map();  // surfaceId -> when a page last asked for it
+// Tabs the board just opened for a new session (Revive, New session, a
+// plan's words): read every tick until Claude shows in them, so the page
+// can move to the new session at once. A plain shell is otherwise read
+// every ~10 s, and a tab whose title does not look like Claude yet (Claude
+// before it names its tab, Codex, which never does) stayed a shell that
+// long.
+const OPENING_MS = 60000;
+const opening = new Map();   // surfaceId -> until when
+function watchOpened(r) {
+  if (r && r.ok && r.surfaceId) opening.set(r.surfaceId, Date.now() + OPENING_MS);
+}
 let liveTrim = { text: null, value: null }; // the last trim, reused for an unchanged screen
 // The Live screen's code spans (server/codespans.mjs) come from the session's
 // transcript, so the version a page holds covers both: it moves when the
@@ -152,20 +163,11 @@ function launchFor(choice) {
   return { kind: choice.kind, command: asst.startCommand(choice.kind, settings), note: choice.note, short: asst.of(choice.kind).SHORT };
 }
 
-// The sessions a project has had, newest first by when they started: the
-// board's own (each with its assistant), else, for a project none of whose
-// sessions is on the board now, the hook events whose folder is its own.
-function projectSessionsFor(project) {
-  const snap = snapshot && snapshot.projects ? snapshot.projects.find((x) => x.id === project.id) : null;
-  const own = (snap ? snap.sessions : []).map((s) => ({ assistant: s.assistant, at: s.startedAt || s.since || null })).filter((s) => s.at);
-  if (own.length || !project.folder) return own;
-  const f = project.folder;
-  const out = [];
-  for (const e of ev.all.values()) if (e.cwd && (e.cwd === f || e.cwd.startsWith(f + '/'))) out.push({ assistant: asst.kindOf(e), at: e.startedAt || e.lastEventAt || null });
-  return out.filter((s) => s.at);
-}
-
-const continueLaunch = (project) => launchFor(asst.continueChoice(reg ? reg.settings : {}, project, projectSessionsFor(project)));
+// A new session for a project (Revive, New session, a plan's start): its
+// own assistant, else startWith, else Claude Code, never its newest
+// session's. A hand-off's fresh session keeps the assistant of the session
+// it hands off from instead (the hand-off, below).
+const continueLaunch = (project) => launchFor(asst.continueChoice(reg ? reg.settings : {}, project));
 
 // The Settings view of it: what is set, what runs, what is installed.
 function assistantsView() {
@@ -210,8 +212,11 @@ async function refreshSurfaces(workspaces, hooks) {
       const b = bindings.get(s.id);
       if (!b || Date.now() - b.at > 30000 || b.title !== s.title) jobs.push(['bind', w, s]);
       const prev = screens.get(s.id);
-      // Claude-looking surfaces every tick; plain shells every ~10 s.
-      if (!prev || looksLikeClaude(s, hook) || Date.now() - prev.at > 10000 || Date.now() - (liveWant.get(s.id) || 0) < LIVE_WANT_MS) jobs.push(['screen', w, s]);
+      // Claude-looking surfaces every tick; plain shells every ~10 s, except
+      // a tab just opened for a new session.
+      const opened = opening.get(s.id);
+      if (opened && (Date.now() > opened || (prev && prev.live))) opening.delete(s.id);
+      if (!prev || looksLikeClaude(s, hook) || opening.has(s.id) || Date.now() - prev.at > 10000 || Date.now() - (liveWant.get(s.id) || 0) < LIVE_WANT_MS) jobs.push(['screen', w, s]);
     }
   }
   await term.pool(jobs, 8, async ([kind, w, s]) => {
@@ -921,14 +926,17 @@ async function tick() {
     // tick without cmux sees fewer sessions and would make false moves.
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
     snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs.iterm.error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects };
-    // The assistant that continues each project (Revive, New session), for
-    // the New session switch's line; and the one it is set to, for the meta
-    // line's "New sessions:" switch, which shows the choice even when the
-    // board starts the other because it is not installed (`assistantNote`).
+    // The assistant each project's next new session starts (Revive, New
+    // session, a plan's start), for the New session switch's line; and the
+    // one it is set to (its own, else startWith), for the meta line's "New
+    // sessions:" switch, which shows the choice even when the board starts
+    // the other because it is not installed (`assistantNote`). Both come
+    // from continueChoice, as continueLaunch's do, so the switch shows what
+    // the next start runs.
     for (const pv of snapshot.projects) {
       const rp = reg.projects.find((x) => x.id === pv.id);
       if (!rp) continue;
-      const ch = asst.continueChoice(settings, rp, projectSessionsFor(rp));
+      const ch = asst.continueChoice(settings, rp);
       pv.assistant = ch.kind;
       pv.assistantWants = ch.wanted;
       pv.assistantNote = ch.fallback ? ch.note : null;
@@ -1426,6 +1434,8 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
       return fail(`It ran in ${term.nameOf(where.kind)}, where the board cannot open a tab. Start the fresh session there yourself.`);
     }
     await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
+    // A hand-off continues the same work, so the fresh session runs the
+    // assistant of the session it hands off from, not continueChoice.
     // A plan running in the project's brief: the fresh session reads it
     // first, and the board logs the pick-up at the step it starts from.
     const owner = snapshot.projects.find((x) => x.sessions.some((y) => y.sessionId === sid));
@@ -1870,6 +1880,7 @@ async function phaseD(req, res, p) {
     // they become the new session's first prompt. With neither, Revive.
     const firstMessage = withPaths(body.text, body.paths) || null;
     const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, firstMessage, near: nearTab(project.id), launch: continueLaunch(project) });
+    watchOpened(r);
     if (r.ok) afterRegistry(r.reg);
     const { reg: _r, ...out } = r;
     return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? out : { error: r.error });
@@ -1955,9 +1966,17 @@ async function deliverPlan(project, text, mode) {
   }
   if (mode === 'note') return { ok: true, via: 'brief' };
   const r = await create.revive(project, { cfg: cfg(), settings: reg.settings, reserve, prompt: text, near: nearTab(project.id), launch: continueLaunch(project) });
+  watchOpened(r);
   if (r.ok) afterRegistry(r.reg);
   const { reg: _r, ...out } = r;
   return r.ok ? { ...out, via: 'revive' } : out;
+}
+
+// The tab a plan's words opened a new session in (deliverPlan through
+// Revive): the page selects the session whose tab it is once it shows on
+// the board, as it does after New session and Revive.
+function opened(r) {
+  return r.via === 'revive' ? { surfaceId: r.surfaceId || null, workspaceId: r.workspaceId || null } : {};
 }
 
 function preflight(project, mode) {
@@ -2020,7 +2039,7 @@ async function planWrite(req, res, p) {
       }
       planner.discard(project.id);
       setTimeout(tick, 30);
-      return sendJson(res, 200, { ok: true, title, via: r.via, delivered: r.delivered || null });
+      return sendJson(res, 200, { ok: true, title, via: r.via, delivered: r.delivered || null, ...opened(r) });
     }
     const snapPlan = snapshot.projects.find((x) => x.id === project.id)?.plan;
     if (!file || !snapPlan) return sendJson(res, 409, { error: 'No plan is running in this project.' });
@@ -2030,7 +2049,7 @@ async function planWrite(req, res, p) {
       const r = await deliverPlan(project, msg, 'answer');
       setTimeout(tick, 30);
       if (!r.ok) return sendJson(res, r.status || 500, { error: `Your answer is written in the brief, but it did not reach the session: ${r.error}` });
-      return sendJson(res, 200, { ok: true, via: r.via, delivered: r.delivered || null, sent: body.choice || body.text });
+      return sendJson(res, 200, { ok: true, via: r.via, delivered: r.delivered || null, sent: body.choice || body.text, ...opened(r) });
     }
     if (act === 'pause' || act === 'stop' || act === 'resume') {
       const msg = planrun.writeState(project, file, snapPlan.title, act === 'pause' ? 'paused' : act === 'stop' ? 'stopped' : 'running');
@@ -2038,7 +2057,7 @@ async function planWrite(req, res, p) {
       const r = await deliverPlan(project, msg, act === 'resume' ? 'start' : 'note');
       setTimeout(tick, 30);
       if (!r.ok) return sendJson(res, r.status || 500, { error: `The plan reads ${act === 'pause' ? 'paused' : act === 'stop' ? 'stopped' : 'running'} in the brief, but the session did not get the message: ${r.error}` });
-      return sendJson(res, 200, { ok: true, via: r.via });
+      return sendJson(res, 200, { ok: true, via: r.via, ...opened(r) });
     }
     return sendJson(res, 404, { error: 'unknown' });
   } catch (e) { return fail(e); }

@@ -331,8 +331,8 @@ export const ASSISTANT_KEYS = ['startWith', 'codexModel'];
 export const ASSISTANT_KINDS = ['claude', 'codex'];
 const MODEL_NAME = /^[A-Za-z0-9][\w.:-]{0,79}$/;
 
-// The assistant a project names for itself, or null (then its newest
-// session's, else startWith).
+// The assistant a project names for itself, or null (then startWith, else
+// Claude Code; never its newest session's).
 export const projectAssistant = (project) => (project && ASSISTANT_KINDS.includes(project.assistant) ? project.assistant : null);
 
 export function assistantSettings(settings) {
@@ -368,13 +368,13 @@ export function saveAssistantSettings(patch) {
 }
 
 // Sets the assistant a project names for itself ('claude' or 'codex'), or
-// clears it (null: its newest session's, else startWith). Its next New
+// clears it (null: startWith, else Claude Code). Its next New
 // session, Revive and plan start use it; running sessions are not touched.
 // The same write path as the settings: a backup (at most one per burst),
 // then only that key of that project, through update().
 // Returns { ok, project, assistant, backup, reg } or { ok: false, status, error }.
 export function saveProjectAssistant(projectId, assistant) {
-  if (assistant !== null && !ASSISTANT_KINDS.includes(assistant)) return { ok: false, status: 400, error: `assistant must be ${ASSISTANT_KINDS.join(' or ')}, or null to follow its sessions.` };
+  if (assistant !== null && !ASSISTANT_KINDS.includes(assistant)) return { ok: false, status: 400, error: `assistant must be ${ASSISTANT_KINDS.join(' or ')}, or null to follow Settings.` };
   const cur = load();
   if (!cur || !cur.projects.some((p) => p && p.id === projectId)) return { ok: false, status: 404, error: 'No such project.' };
   let backup = null;

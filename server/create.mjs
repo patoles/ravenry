@@ -286,7 +286,7 @@ export function takenIn(dir) {
 
 // `launch` is the assistant the board starts ({ kind, command, note,
 // short }); `form.assistant` ('claude' or 'codex'), when given, is kept on
-// the project, so continuing it keeps that assistant.
+// the project, so its later new sessions start that assistant.
 // `adopt`: New project from this folder (docs/design/CodexStage2.dc.html,
 // section 1): the id of a cmux workspace no project lists, whose folder is
 // the Existing folder. The project lists that workspace and nothing is
@@ -387,8 +387,9 @@ export function writeBrief(project, form) {
 // shell, and `--` before words that start with a dash. It needs no brief,
 // and the project may have a live session already.
 // `near`: in iTerm2 mode, a tab of the project's whose window gets the new one.
-// `launch`: the assistant that continues the project ({ kind, command,
-// note, short }, server/assistant.mjs continueChoice), else cfg.launchCommand.
+// `launch`: the assistant the new session starts ({ kind, command, note,
+// short }, server/assistant.mjs continueChoice: the project's own, else
+// startWith, else Claude Code), else cfg.launchCommand.
 export async function revive(project, { cfg, settings, reserve, prompt: custom = null, firstMessage = null, near = null, launch = null }) {
   const L = launchOf(cfg, launch);
   const fm = firstMessage ? String(firstMessage) : null;
@@ -422,7 +423,7 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
     const a = await term.pasteText(tab, cmd);
     const b = a.ok ? await term.pressKey(tab, 'enter') : a;
     if (!b.ok) return { ok: false, status: 500, error: 'The new tab opened but the command was not typed: ' + (b.err || '') };
-    return { ok: true, where: 'tab', workspaceRef: ws.ref, surfaceRef: made.surfaceRef, surfaceId: made.surfaceId, command: cmd, ...chosen(L) };
+    return { ok: true, where: 'tab', workspaceRef: ws.ref, workspaceId: ws.id, surfaceRef: made.surfaceRef, surfaceId: made.surfaceId, command: cmd, ...chosen(L) };
   }
   const release = reserve(project.name);
   try {

@@ -6,8 +6,9 @@
 //   one exact word for both (an apostrophe, $, backticks, !, a leading dash
 //   after --), checked through /bin/sh;
 // - startWith and its fallback when the chosen assistant is not installed,
-//   the New project form's choice over it, and continuing a project keeping
-//   its own assistant, else its newest session's;
+//   the New project form's choice over it, and a project's new sessions
+//   starting its own assistant, else startWith, else Claude Code, never its
+//   newest session's;
 // - the assistant settings' check and write path;
 // - codex exec's argv (no tools, no hooks, read-only, the schema, the
 //   pictures), its JSONL read into text and tokens, a refused model run
@@ -18,6 +19,12 @@
 //   and New project typing `codex` or `claude` as chosen, and a plan draft,
 //   an Ideas reply, Get 3 directions and a mockup round going to `codex
 //   exec` with startWith codex, and to `claude -p` (stubs) with claude.
+// - then a test board on :4694 with no startWith (the maintainer, 2026-11-04:
+//   "Initiating the Ravenry project from brief started a codex session"): a
+//   project whose newest session is a throwaway Codex one Revives on Claude
+//   Code and its "New sessions:" switch shows Claude; with startWith codex
+//   both say Codex; a project set to Codex starts Codex; and a hand-off from
+//   that Codex session still continues on Codex.
 //
 // --real: measures that the real `codex` takes a leading-dash prompt only
 // after `--` (no terminal, so it stops after parsing: no model call), then
@@ -117,16 +124,15 @@ c = asst.startChoice({ startWith: 'bogus' }, null, { installed: both });
 check('startWith: an unknown value is Claude Code', c.kind === 'claude', JSON.stringify(c));
 c = asst.startChoice({ startWith: 'claude' }, 'codex', { installed: both });
 check('New project: the form\'s choice wins over startWith', c.kind === 'codex' && c.from === 'form', JSON.stringify(c));
-const S = (assistant, at) => ({ assistant, at });
-c = asst.continueChoice({ startWith: 'codex' }, { assistant: 'claude' }, [S('codex', '2026-11-04T10:00:00Z')], { installed: both });
-check('continuing: the project\'s own assistant wins over its sessions and startWith', c.kind === 'claude' && c.from === 'project', JSON.stringify(c));
-c = asst.continueChoice({ startWith: 'claude' }, {}, [S('claude', '2026-11-03T10:00:00Z'), S('codex', '2026-11-04T10:00:00Z')], { installed: both });
-check('continuing: else the newest session\'s assistant', c.kind === 'codex' && c.from === 'session', JSON.stringify(c));
-c = asst.continueChoice({ startWith: 'codex' }, {}, [S(null, '2026-11-04T10:00:00Z')], { installed: both });
-check('continuing: a session that names none is Claude Code\'s', c.kind === 'claude', JSON.stringify(c));
-c = asst.continueChoice({ startWith: 'codex' }, {}, [], { installed: both });
-check('continuing: no session at all is startWith', c.kind === 'codex' && c.from === 'startWith', JSON.stringify(c));
-c = asst.continueChoice({}, { assistant: 'codex' }, [], { installed: { claude: true, codex: false } });
+c = asst.continueChoice({ startWith: 'codex' }, { assistant: 'claude' }, { installed: both });
+check('new session: the project\'s own assistant wins over startWith', c.kind === 'claude' && c.from === 'project', JSON.stringify(c));
+c = asst.continueChoice({ startWith: 'claude' }, { assistant: 'codex' }, { installed: both });
+check('new session: a project set to Codex starts Codex under startWith claude', c.kind === 'codex' && c.from === 'project', JSON.stringify(c));
+c = asst.continueChoice({}, {}, { installed: both });
+check('new session: a project with no assistant and no startWith is Claude Code', c.kind === 'claude' && c.wanted === 'claude' && c.from === 'default', JSON.stringify(c));
+c = asst.continueChoice({ startWith: 'codex' }, {}, { installed: both });
+check('new session: a project with no assistant is startWith (Codex)', c.kind === 'codex' && c.from === 'startWith', JSON.stringify(c));
+c = asst.continueChoice({}, { assistant: 'codex' }, { installed: { claude: true, codex: false } });
 check('continuing: a project\'s Codex not installed falls back and says so', c.kind === 'claude' && c.fallback && /Codex is not installed/.test(c.note), JSON.stringify(c));
 check('installed: a test counts Codex only with MC_CODEX or a scratch CODEX_HOME', cx.installed({}, { TEST_RAVENRY: '1', PATH: process.env.PATH }) === false && cx.installed({}, { MC_CODEX: '1' }) === true && cx.installed({}, { MC_CODEX: '0', PATH: process.env.PATH }) === false);
 check('installed: cmux\'s shims are not the real binary', cx.isShim('/var/folders/x/T/cmux-cli-shims/ABC/codex') && cx.isShim('/Applications/cmux.app/Contents/Resources/bin/codex') && !cx.isShim('/opt/homebrew/bin/codex'));
@@ -272,7 +278,8 @@ try {
   check('New session: ...and /bin/sh gives them back unchanged', sh(line) === tricky, sh(line));
   r = await b.post('/api/project/revive', { projectId: 'boat', text: '- one\n- two' });
   check('New session: words that start with a dash come after -- for codex too', sentIn(r.j.surfaceId)[0] === "codex -- '- one\n- two'", JSON.stringify(sentIn(r.j.surfaceId)));
-  // Mill's newest session is a Claude Code one (its hook events): continuing keeps it.
+  // Mill's newest session is a Claude Code one (its hook events): a new
+  // session still starts startWith (Codex), not its newest session's.
   const hook = (input, assistant) => new Promise((resolve) => {
     const ch = spawn(process.execPath, [path.join(ROOT, 'hooks', 'events.mjs'), ...(assistant === 'codex' ? ['--assistant=codex'] : [])], { env: { ...cleanEnv, RAVENRY_HOME: MC, MC_BOARD_URL: b.base } });
     ch.on('close', resolve);
@@ -282,11 +289,11 @@ try {
   await hook({ hook_event_name: 'SessionEnd', session_id: '11111111-2222-4333-8444-000000000001', cwd: P('mill'), reason: 'exit' }, 'claude');
   await sleep(2500);
   r = await b.post('/api/project/revive', { projectId: 'mill' });
-  check('Revive: continuing keeps the assistant of the project\'s newest session (Claude Code) under startWith codex', r.status === 200 && r.j.assistant === 'claude' && /^claude 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
+  check('Revive: a project whose newest session is Claude Code starts startWith (Codex), not the session\'s', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
   await hook({ hook_event_name: 'SessionStart', session_id: '11111111-2222-4333-8444-000000000002', cwd: P('mill'), source: 'startup', model: 'gpt-5.6-luna' }, 'codex');
   await sleep(2500);
   r = await b.post('/api/project/revive', { projectId: 'mill' });
-  check('Revive: ...and a newer Codex session makes it Codex', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
+  check('Revive: ...and with a newer Codex session it is still startWith (Codex)', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
   // New project: cmux's new-workspace is recorded, then refused (fake cmux).
   r = await b.post('/api/project/new', { name: 'Pond', goal: 'A pond for the boat.' });
   let nw = newWorkspaces().pop() || [];
@@ -388,8 +395,9 @@ try {
   await b.post('/api/plan/discard', { projectId: 'boat' });
 
   // ---- a project's assistant after it was created: the API (the page's
-  // "New sessions:" switch is checked on :4696 below). Mill continues on
-  // Codex, its newest session's.
+  // "New sessions:" switch is checked on :4696 below). Mill has no
+  // assistant of its own and Settings now says Claude; its newest session
+  // is a Codex one, which plays no part.
   const regNow = () => JSON.parse(fs.readFileSync(path.join(MC, 'projects.json'), 'utf8'));
   const millOf = () => regNow().projects.find((x) => x.id === 'mill');
   let pa = await b.post('/api/project/assistant', { projectId: 'mill', assistant: 'claude' }, {});
@@ -401,9 +409,12 @@ try {
   await sleep(400);
   check('project assistant: /api/state carries it', (await b.state()).projects.find((x) => x.id === 'mill').assistant === 'claude');
   r = await b.post('/api/project/revive', { projectId: 'mill' });
-  check('project assistant: the next Revive starts it over the newest session\'s (Codex)', r.status === 200 && r.j.assistant === 'claude' && /^claude 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
+  check('project assistant: the next Revive starts it (Claude Code)', r.status === 200 && r.j.assistant === 'claude' && /^claude 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
   pa = await b.post('/api/project/assistant', { projectId: 'mill', assistant: null });
-  check('project assistant: null clears it, and the project follows its newest session again (Codex)', pa.status === 200 && pa.j.assistant === null && pa.j.starts === 'codex' && !('assistant' in millOf()), JSON.stringify(pa.j));
+  check('project assistant: null clears it, and the project follows Settings again (Claude Code), not its newest session (Codex)', pa.status === 200 && pa.j.assistant === null && pa.j.starts === 'claude' && !('assistant' in millOf()), JSON.stringify(pa.j));
+  await sleep(400);
+  const millSt = (await b.state()).projects.find((x) => x.id === 'mill');
+  check('project assistant: ...and /api/state\'s switch value says Claude too', millSt.assistant === 'claude' && millSt.assistantWants === 'claude', JSON.stringify({ assistant: millSt.assistant, wants: millSt.assistantWants }));
   const bad = [await b.post('/api/project/assistant', { projectId: 'mill', assistant: 'gemini' }), await b.post('/api/project/assistant', { projectId: 'nope', assistant: 'codex' }), await b.post('/api/project/assistant', { projectId: 'mill' })];
   check('project assistant: an unknown assistant (400), an unknown project (404) and a missing value (400) are refused, nothing written', bad[0].status === 400 && /claude or codex/.test(bad[0].j.error) && bad[1].status === 404 && bad[2].status === 400 && !('assistant' in millOf()), JSON.stringify(bad.map((x) => [x.status, x.j && x.j.error])));
 } catch (e) {
@@ -412,6 +423,86 @@ try {
 } finally {
   for (const s of servers) { try { s.kill(); } catch { /* gone */ } }
 }
+
+// ------------------------------------------------------------ 5b. no startWith, a throwaway Codex session
+// The maintainer, 2026-11-04: "Initiating the Ravenry project from brief
+// started a codex session". His settings had no startWith and the project no
+// assistant; its newest session was a Codex live check run in its folder,
+// and the board started Codex from that. A board on :4694 with that
+// registry: Raven (no assistant) whose newest session is Codex, Owl (set
+// to Codex).
+async function noStartWithChecks() {
+  const NMC = path.join(T, 'mc-nostart');
+  fs.mkdirSync(NMC, { recursive: true });
+  for (const n of ['raven', 'owl']) { fs.mkdirSync(P(n), { recursive: true }); fs.writeFileSync(path.join(P(n), 'BRIEF.md'), BRIEF(n)); }
+  fs.writeFileSync(path.join(NMC, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, ruleSources: [], globalClaudeMd: path.join(T, 'CLAUDE.md'), backupDir: path.join(T, 'backups'), projectsRoot: path.join(T, 'projects'), repeatsAuto: false, launchCommand: 'claude' }, projects: [
+    { id: 'raven', name: 'Raven', folder: P('raven'), workspaces: ['ws-raven'], brief: 'BRIEF.md' },
+    { id: 'owl', name: 'Owl', folder: P('owl'), workspaces: ['ws-owl'], brief: 'BRIEF.md', assistant: 'codex' },
+  ] }, null, 2));
+  const NF = path.join(T, 'fake-cmux-nostart.json');
+  fs.writeFileSync(NF, JSON.stringify({ newSurfaces: true, workspaces: ['raven', 'owl'].map((n, i) => ({ id: 'ws-' + n, ref: `workspace:${i + 1}`, title: n, cwd: P(n), surfaces: [] })), screens: {}, prompts: {} }));
+  const nsent = (id) => (((JSON.parse(fs.readFileSync(NF, 'utf8')).prompts || {})[id] || {}).sent || []);
+  // Auto-start on, for the hand-off's fresh session.
+  const nb = await startBoard({ port: 4694, mc: NMC, env: { CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: NF, MC_CODEX: '1', MC_CLAUDE: '1', MC_CODEX_HOME: BCXH, MC_NO_AUTOSTART: '0' } });
+  const hookTo = (input, assistant) => new Promise((resolve) => {
+    const ch = spawn(process.execPath, [path.join(ROOT, 'hooks', 'events.mjs'), ...(assistant === 'codex' ? ['--assistant=codex'] : [])], { env: { ...cleanEnv, RAVENRY_HOME: NMC, MC_BOARD_URL: nb.base } });
+    ch.on('close', resolve);
+    ch.stdin.end(JSON.stringify(input));
+  });
+  const CX_SID = '22222222-3333-4444-8555-000000000002';
+  try {
+    check('no startWith: the registry has none', !('startWith' in JSON.parse(fs.readFileSync(path.join(NMC, 'projects.json'), 'utf8')).settings));
+    // An older Claude Code session, then the throwaway Codex check: the newest.
+    await hookTo({ hook_event_name: 'SessionStart', session_id: '22222222-3333-4444-8555-000000000001', cwd: P('raven'), source: 'startup' }, 'claude');
+    await hookTo({ hook_event_name: 'SessionEnd', session_id: '22222222-3333-4444-8555-000000000001', cwd: P('raven'), reason: 'exit' }, 'claude');
+    await sleep(300);
+    await hookTo({ hook_event_name: 'SessionStart', session_id: CX_SID, cwd: P('raven'), source: 'startup', model: 'gpt-5.6-luna' }, 'codex');
+    await sleep(2500);
+    let st = (await nb.state()).projects.find((x) => x.id === 'raven');
+    check('no startWith: the switch (/api/state) shows Claude for a project whose newest session is Codex', st && st.assistant === 'claude' && st.assistantWants === 'claude', JSON.stringify(st && { assistant: st.assistant, wants: st.assistantWants }));
+    let r = await nb.post('/api/project/revive', { projectId: 'raven' });
+    check('no startWith: Revive (start from brief) starts Claude Code, not the newest session\'s Codex', r.status === 200 && r.j.assistant === 'claude' && /^claude 'Read BRIEF/.test(nsent(r.j.surfaceId)[0] || ''), `${r.status} ${JSON.stringify(r.j)} ${JSON.stringify(nsent(r.j && r.j.surfaceId))}`);
+    r = await nb.post('/api/project/revive', { projectId: 'raven', text: 'Fix the switch' });
+    check('no startWith: New session starts Claude Code too', r.status === 200 && r.j.assistant === 'claude' && /^claude 'Fix the switch'/.test(nsent(r.j.surfaceId)[0] || ''), JSON.stringify(nsent(r.j && r.j.surfaceId)));
+    // The page's "New sessions:" switch, headless.
+    let chromium = null;
+    try { ({ chromium } = await import('playwright')); } catch { console.log('SKIP  no startWith, the page: Playwright is not installed'); }
+    const pageBtns = async (hash) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const pg = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+        await pg.goto(`${nb.base}/?theme=dark#${hash}`);
+        await pg.waitForSelector('#d-meta .pas-meta');
+        await pg.waitForFunction((h) => document.querySelector('#d-head h1') && document.querySelector('#d-head h1').textContent.toLowerCase().includes(h), hash);
+        return await pg.evaluate(() => [...document.querySelectorAll('#d-meta [data-pas]')].map((b) => b.textContent + (b.classList.contains('on') && b.getAttribute('aria-pressed') === 'true' ? '*' : '')).join(','));
+      } finally { await browser.close(); }
+    };
+    if (chromium) { const btns = await pageBtns('raven'); check('no startWith: the page\'s "New sessions:" switch shows Claude', btns === 'Claude*,Codex', btns); }
+    // A project set to Codex starts Codex.
+    st = (await nb.state()).projects.find((x) => x.id === 'owl');
+    r = await nb.post('/api/project/revive', { projectId: 'owl' });
+    check('no startWith: a project set to Codex Revives on Codex and its switch says Codex', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(nsent(r.j.surfaceId)[0] || '') && st.assistantWants === 'codex', `${JSON.stringify(r.j)} ${JSON.stringify(nsent(r.j && r.j.surfaceId))} ${st.assistantWants}`);
+    // A hand-off from the Codex session continues on Codex: the session's
+    // assistant, not the project's or Settings' (both Claude Code here).
+    fs.mkdirSync(path.join(NMC, 'handoffs'), { recursive: true });
+    fs.writeFileSync(path.join(NMC, 'handoffs', CX_SID + '.json'), JSON.stringify({ sessionId: CX_SID, state: 'written', assistant: 'codex', cwd: P('raven'), folder: P('raven'), workspaceId: 'ws-raven', writtenAt: new Date().toISOString(), history: [{ state: 'written', at: new Date().toISOString() }] }, null, 2));
+    let m = null;
+    for (let i = 0; i < 40; i++) { await sleep(250); try { m = JSON.parse(fs.readFileSync(path.join(NMC, 'handoffs', CX_SID + '.json'), 'utf8')); } catch { m = null; } if (m && (m.state === 'resumed' || m.resumeError)) break; }
+    check('hand-off: a Codex session\'s fresh session starts Codex, under no startWith and a project with no assistant', m && m.state === 'resumed' && /^codex 'Read the Hand-off section/.test(m.resumeCommand || '') && /^codex 'Read the Hand-off/.test(nsent(m.resumeSurfaceId)[0] || ''), JSON.stringify(m && { state: m.state, cmd: m.resumeCommand, err: m.resumeError }));
+    // Settings to Codex: the same project now starts Codex and says so.
+    await nb.post('/api/settings/assistant', { startWith: 'codex' });
+    await sleep(1500);
+    st = (await nb.state()).projects.find((x) => x.id === 'raven');
+    check('startWith codex: the switch (/api/state) shows Codex for the same project', st && st.assistant === 'codex' && st.assistantWants === 'codex', JSON.stringify(st && { assistant: st.assistant, wants: st.assistantWants }));
+    r = await nb.post('/api/project/revive', { projectId: 'raven' });
+    check('startWith codex: Revive starts Codex', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(nsent(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(nsent(r.j && r.j.surfaceId))}`);
+    if (chromium) { const btns = await pageBtns('raven'); check('startWith codex: the page\'s "New sessions:" switch shows Codex', btns === 'Claude,Codex*', btns); }
+  } finally {
+    nb.board.kill();
+  }
+}
+
+await noStartWithChecks().catch((e) => { console.error(e); fails++; });
 
 // ------------------------------------------------------------ 6. the page
 // docs/design/CodexStage2.dc.html, section 3, variant A, on a test board on

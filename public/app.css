@@ -519,9 +519,9 @@ a{color:#0A84FF}a:hover{color:#409CFF}
    periwinkle, its rounded ends kept on each line it wraps over. A code
    block (a fenced block, or a "! " command alone on its line) is the same
    chip as a block of its own, its text wrapping inside it, and ends in a
-   Copy button: an icon inside it on a desktop ("Copy" on hover), a 32 px
-   pill after it on a phone. Inline code in a sentence has no button in the
-   line, so the sentence keeps its line height. */
+   Copy icon on a desktop ("Copy" on hover). Inline code in a sentence has
+   no button in the line, so the sentence keeps its line height. On a phone
+   there is no Copy button at all: a tap on a chip or a block copies it. */
 .lv .cd{background:rgba(255,255,255,.08);border-radius:4px;padding:1px 4px;color:#B1B9F9;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .lv .cp{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:5px;padding:0 1px 0 5px;border-left:1px solid rgba(255,255,255,.14);color:#8E8E93;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:11px;font-weight:500;vertical-align:-1px;line-height:1;white-space:nowrap;text-indent:0}
 .lv .cp svg{flex:none}
@@ -530,13 +530,10 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .lv .cd:hover .cp .w,.lv .cp:focus-visible .w{display:inline}
 .lv .cp:focus-visible{outline:2px solid var(--work);outline-offset:2px;border-radius:3px}
 .lv .cp.done,.lv .cd:hover .cp.done{color:#30D158}
-.lv .cpm{all:unset;display:none;align-items:center;gap:5px;height:32px;padding:0 11px 0 9px;margin:2px 0 2px 6px;border-radius:8px;background:#26262A;box-shadow:inset 0 0 0 1px #34343A;color:#E5E5EA;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;font-weight:600;vertical-align:middle;white-space:nowrap;line-height:1;text-indent:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.lv .cpm.done{color:#30D158;box-shadow:inset 0 0 0 1px rgba(48,209,88,.35);background:rgba(48,209,88,.10)}
 .lv .cbw{display:flex;align-items:flex-end;min-width:0;margin:2px 0;text-indent:0}
 .lv .cb{display:flex;align-items:flex-start;flex:0 1 auto;min-width:0;padding:3px 6px}
 .lv .cbt{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .lv .cb .cp{flex:none;align-self:flex-start;height:1.55em;margin-left:8px}
-.lv .cbw .cpm{flex:none}
 /* Any other chip: the same Copy, shown only while the pointer is on the span
    (any of its pieces, .hov) or for the 1.5 s of Copied. It floats past the
    chip's end on a zero-width anchor, so the line never reflows under the
@@ -556,12 +553,11 @@ a{color:#0A84FF}a:hover{color:#409CFF}
   .lv .cd[data-lv-chip]{cursor:pointer;-webkit-tap-highlight-color:transparent}
   .lv .cd.pl.done{color:#30D158;background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.45)}
   .lv .cd.pl.lst.done::after{content:'';display:inline-block;width:11px;height:11px;margin-left:4px;vertical-align:-1px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat}
-  .lv .cpm{display:inline-flex}
-  /* A block at least as tall as its pill: one line sits level with it, a
-     longer block keeps the pill at its last line. */
-  .lv .cbw{margin:3px 0}
-  .lv .cb{min-height:32px;box-sizing:border-box;align-items:center}
-  .lv .cbw .cpm{margin:0 0 0 6px}
+  /* A code block takes the whole width; tapped, it rings green like a chip,
+     the check in its top right corner, in room kept for it so nothing moves. */
+  .lv .cb{flex:1 1 auto;position:relative;padding-right:22px}
+  .lv .cd.cb.done{color:#30D158;background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.45)}
+  .lv .cd.cb.done::after{content:'';position:absolute;right:7px;top:7px;width:11px;height:11px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat}
 }
 .lv-empty{color:#6E6E75}
 .lv-st{flex:none;border-top:1px solid #232326;padding:8px 14px 9px;display:flex;flex-direction:column;gap:3px;font-size:12px;color:#A1A1A8;background:#101012}

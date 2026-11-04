@@ -542,13 +542,14 @@ async function plainChipChecks(page, tag, phone) {
   const c3 = await rec();
   check(`${tag}: chips: without navigator.clipboard, a tap copies the exact text through the fallback`, c3.length === 1 && c3[0].via === 'execCommand' && c3[0].t === 'ravenry-public' && !(await fsOpen()), JSON.stringify(c3));
   await page.evaluate(() => { delete navigator.clipboard; });
-  // A code block's own text copies too; its pill shows Copied.
+  // A tap on a code block copies it, with the chips' feedback: green ring, a check after its text.
   await page.waitForTimeout(1700);
+  await page.$eval('#lv-lines .cb', (b) => { b.dataset.h0 = String(b.getBoundingClientRect().height); });
   await page.locator('#lv-lines .cb').first().tap({ position: { x: 6, y: 6 } });
   await page.waitForTimeout(200);
   const c4 = await rec();
-  const pill = await page.$eval('#lv-lines .cpm', (b) => b.classList.contains('done') && /Copied/.test(b.textContent));
-  check(`${tag}: chips: a tap on a code block's text copies the block and its pill says Copied`, c4.length === 1 && c4[0].t === 'node tools/live-screen-test.mjs' && pill && !(await fsOpen()), JSON.stringify(c4));
+  const fb = await page.$eval('#lv-lines .cb', (b) => ({ done: b.classList.contains('done'), color: getComputedStyle(b).color, ring: getComputedStyle(b).boxShadow, check: getComputedStyle(b, '::after').content !== 'none', h: b.getBoundingClientRect().height, h0: Number(b.dataset.h0) }));
+  check(`${tag}: chips: a tap on a code block copies the block, green ring and check like a chip, nothing moves`, c4.length === 1 && c4[0].t === 'node tools/live-screen-test.mjs' && fb.done && fb.color === 'rgb(48, 209, 88)' && /rgba\(48, 209, 88/.test(fb.ring) && fb.check && fb.h === fb.h0 && !(await fsOpen()), JSON.stringify([c4, fb]));
   // "! npm login" in its sentence is a chip like any other: a tap copies it, no pill.
   await page.waitForTimeout(1700);
   await chip('! npm login').tap();
@@ -603,8 +604,8 @@ async function spanChecks(page, ctx, tag, phone) {
       user: chips(document.querySelector('#lv-lines > .e.u')),
       tool: chips(document.querySelector('#lv-lines > .e.t')),
       broken: chips(ent(/The fixture lives/)),
-      buttons: Array.from(document.querySelectorAll('#lv-lines .cp[data-lv-copy], #lv-lines .cpm[data-lv-copy]')).map((b) => b.dataset.lvCopy),
-      cmdButtons: cmd.querySelectorAll('.cp, .cpm').length,
+      buttons: Array.from(document.querySelectorAll('#lv-lines .cp[data-lv-copy]')).map((b) => b.dataset.lvCopy),
+      cmdButtons: cmd.querySelectorAll('.cp').length,
       blocks: Array.from(document.querySelectorAll('#lv-lines .cb')).map(text),
       style: st(cmd.querySelector('.cd')),
       longLines: long ? long.getClientRects().length : 0,
@@ -616,17 +617,18 @@ async function spanChecks(page, ctx, tag, phone) {
   check(`${tag}: spans: a message without code marks nothing, though its words are code elsewhere`, marks.plain.length === 0, JSON.stringify(marks.plain));
   check(`${tag}: spans: user and tool lines are never marked`, marks.user.length === 0 && marks.tool.length === 0, JSON.stringify([marks.user, marks.tool]));
   check(`${tag}: spans: a span broken over two lines is two pieces, and the fenced block's line is marked`, JSON.stringify(marks.broken) === JSON.stringify(['tools/fixtures/', 'live/checks.mjs', 'node tools/live-screen-test.mjs']), JSON.stringify(marks.broken));
-  check(`${tag}: spans: only the code block has a copy button (icon and pill); "! npm login" in its sentence has none`, JSON.stringify(marks.buttons) === JSON.stringify(['node tools/live-screen-test.mjs', 'node tools/live-screen-test.mjs']) && marks.cmdButtons === 0 && JSON.stringify(marks.blocks) === JSON.stringify(['node tools/live-screen-test.mjs']), JSON.stringify(marks));
+  check(`${tag}: spans: only the code block has a copy button (icon and pill); "! npm login" in its sentence has none`, JSON.stringify(marks.buttons) === JSON.stringify(['node tools/live-screen-test.mjs']) && marks.cmdButtons === 0 && JSON.stringify(marks.blocks) === JSON.stringify(['node tools/live-screen-test.mjs']), JSON.stringify(marks));
   check(`${tag}: spans: chip is periwinkle on an 8% tint, 4 px radius, cloned across wraps`, marks.style.color === 'rgb(177, 185, 249)' && marks.style.bg === 'rgba(255, 255, 255, 0.08)' && marks.style.radius === '4px' && marks.style.clone === 'clone', JSON.stringify(marks.style));
   check(`${tag}: spans: the long span wraps over lines in the card`, marks.longLines >= 2, String(marks.longLines));
 
-  // The copy button: the one this width shows.
-  const sel = phone ? '#lv-lines .cpm' : '#lv-lines .cp';
-  const vis = await page.evaluate(() => ({ cp: getComputedStyle(document.querySelector('#lv-lines .cp')).display, cpm: getComputedStyle(document.querySelector('#lv-lines .cpm')).display }));
-  check(`${tag}: spans: ${phone ? 'the pill shows, the icon does not' : 'the icon shows, the pill does not'}`, phone ? vis.cpm === 'flex' && vis.cp === 'none' : vis.cp === 'flex' && vis.cpm === 'none', JSON.stringify(vis));
+  // What copies: on a desktop the block's icon; on a phone the block itself,
+  // with no Copy button anywhere on the Live screen.
+  const sel = phone ? '#lv-lines .cb' : '#lv-lines .cp';
+  const vis = await page.evaluate(() => ({ cp: getComputedStyle(document.querySelector('#lv-lines .cp')).display, pill: document.querySelectorAll('#lv-lines .cpm').length, shown: Array.from(document.querySelectorAll('#lv-lines button')).filter((b) => getComputedStyle(b).display !== 'none').length }));
+  check(`${tag}: spans: ${phone ? 'no Copy button anywhere on the Live screen' : 'the icon shows, no pill'}`, phone ? vis.cp === 'none' && vis.pill === 0 && vis.shown === 0 : vis.cp === 'flex' && vis.pill === 0, JSON.stringify(vis));
   if (phone) {
-    const geo = await page.evaluate(() => { const b = document.querySelector('#lv-lines .cpm').getBoundingClientRect(); const c = document.querySelector('#lv-lines .cb').getBoundingClientRect(); return { h: b.height, same: Math.abs(b.bottom - c.bottom) <= 3 && b.left >= c.right }; });
-    check(`${tag}: spans: the pill is 32 px, after its block, at the block's end`, geo.h === 32 && geo.same, JSON.stringify(geo));
+    const geo = await page.evaluate(() => { const c = document.querySelector('#lv-lines .cb').getBoundingClientRect(); const x = document.querySelector('#lv-lines .cb').closest('.x').getBoundingClientRect(); return { w: c.width, x: x.width }; });
+    check(`${tag}: spans: the code block spans the content width`, Math.abs(geo.w - geo.x) <= 1, JSON.stringify(geo));
   } else {
     await page.hover('#lv-lines .cb');
     const hov = await page.$eval('#lv-lines .cp', (b) => ({ word: getComputedStyle(b.querySelector('.w')).display, text: b.textContent.trim() }));
@@ -645,7 +647,7 @@ async function spanChecks(page, ctx, tag, phone) {
   });
   const before = await page.evaluate(() => !document.querySelector('#lv-fs').hidden);
   await page.click(sel);
-  const done1 = await waitFor(page, (q) => { const b = document.querySelector(q); return b.classList.contains('done') && /Copied/.test(b.textContent); }, sel, 3000);
+  const done1 = await waitFor(page, ([q, ph]) => { const b = document.querySelector(q); return b.classList.contains('done') && (ph || /Copied/.test(b.textContent)); }, [sel, phone], 3000);
   const c1 = await page.evaluate(() => window.__copied.slice());
   check(`${tag}: spans: copy writes the block with navigator.clipboard, then shows Copied`, done1 && c1.length && c1[0].via === 'clipboard' && c1[0].t === 'node tools/live-screen-test.mjs', JSON.stringify(c1));
   if (!phone) {
@@ -655,7 +657,7 @@ async function spanChecks(page, ctx, tag, phone) {
   check(`${tag}: spans: tapping the button does not open full screen`, (await page.evaluate(() => !document.querySelector('#lv-fs').hidden)) === before);
   await page.screenshot({ path: path.join(SHOTS, `spans-copied-${w}.png`) });
   await page.waitForTimeout(1700);
-  check(`${tag}: spans: Copied goes after 1.5 s`, await page.$eval(sel, (b) => !b.classList.contains('done') && /Copy/.test(b.textContent) && !/Copied/.test(b.textContent)));
+  check(`${tag}: spans: Copied goes after 1.5 s`, await page.$eval(sel, (b, ph) => !b.classList.contains('done') && (ph || (/Copy/.test(b.textContent) && !/Copied/.test(b.textContent))), phone));
   // The phone page over plain http on the LAN has no navigator.clipboard.
   if (!phone) await page.evaluate(() => navigator.clipboard.writeText('something else'));
   await page.evaluate(() => { window.__copied = []; Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); });
@@ -678,7 +680,7 @@ async function spanChecks(page, ctx, tag, phone) {
   if (!phone) await page.hover('#lv-lines .cb');
   await page.screenshot({ path: path.join(SHOTS, `spans-full-${w}.png`) });
   if (phone) {
-    await page.click('#lv-fs .cpm');
+    await page.tap('#lv-fs .cb');
     await page.waitForTimeout(150);
     await page.screenshot({ path: path.join(SHOTS, `spans-full-copied-${w}.png`) });
   }
@@ -757,6 +759,10 @@ async function npmMessageChecks(page, tag, w, phone) {
       text: b.querySelector('.cbt').textContent,
       oneBox: b.querySelector('.cbt').children.length === 0,
       copies: Array.from(b.closest('.cbw').querySelectorAll('[data-lv-copy]')).map((x) => x.dataset.lvCopy),
+      chip: b.dataset.lvChip,
+      buttonsShown: Array.from(document.querySelectorAll('#lv-lines button')).filter((x) => getComputedStyle(x).display !== 'none').length,
+      pills: document.querySelectorAll('#lv-lines .cpm').length,
+      blockW: b.getBoundingClientRect().width, contentW: b.closest('.x').getBoundingClientRect().width,
       chips,
       codeEls: document.querySelectorAll('#lv-lines code').length,
       prose: /in place of <code>:/.test(words(ent)),
@@ -772,7 +778,8 @@ async function npmMessageChecks(page, tag, w, phone) {
   const alone = await page.evaluate(() => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /check the login first/.test(x.textContent)); const b = ent && ent.querySelector('.cb'); return b ? { text: b.querySelector('.cbt').textContent, copy: b.querySelector('[data-lv-copy]').dataset.lvCopy, inline: ent.querySelectorAll('.cd.pl').length } : null; });
   check(`${tag}: npm: a "! " command alone on its line is a code block with Copy`, !!alone && alone.text === '! npm whoami' && alone.copy === '! npm whoami' && alone.inline === 0, JSON.stringify(alone));
   check(`${tag}: npm: the fenced command is one code block showing the whole command`, shown && v.blocks === 1 && v.text === CMD && v.oneBox, JSON.stringify(v));
-  check(`${tag}: npm: its Copy copies the whole command, <code> included`, v.copies.length === 2 && v.copies.every((c) => c === CMD), JSON.stringify(v.copies));
+  check(`${tag}: npm: its Copy copies the whole command, <code> included`, v.copies.length === 1 && v.copies[0] === CMD && v.chip === CMD, JSON.stringify([v.copies, v.chip]));
+  if (phone) check(`${tag}: npm: no Copy button anywhere on the Live screen, the block spans the content width`, v.buttonsShown === 0 && v.pills === 0 && Math.abs(v.blockW - v.contentW) <= 1, JSON.stringify({ shown: v.buttonsShown, pills: v.pills, blockW: v.blockW, contentW: v.contentW }));
   check(`${tag}: npm: the reply's code is "<code>", the block and "! npm login", nothing split`, JSON.stringify(v.chips) === JSON.stringify(['<code>', CMD, '! npm login']), JSON.stringify(v.chips));
   check(`${tag}: npm: "<code>" is shown as text, never as markup`, v.prose && v.codeEls === 0, JSON.stringify(v));
   check(`${tag}: npm: "! npm login" stays in its sentence, no button in the line at rest`, v.inSentence && v.paraButtons === 0 && v.paraShown === 0, JSON.stringify(v));
@@ -793,11 +800,23 @@ async function npmMessageChecks(page, tag, w, phone) {
       if (navigator.clipboard) { const orig = navigator.clipboard.writeText.bind(navigator.clipboard); navigator.clipboard.writeText = (t) => { window.__copied.push({ via: 'clipboard', t }); return orig(t); }; }
     }
   });
-  const btn = phone ? '.cpm' : '.cp';
-  await page.evaluate((q) => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); ent.querySelector(q).click(); }, btn);
-  const done = await waitFor(page, (q) => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); const b = ent.querySelector(q); return b.classList.contains('done') && /Copied/.test(b.textContent); }, btn, 3000);
+  // On a phone a tap on the block itself; on a desktop its Copy icon.
+  const ent = page.locator('#lv-lines > .e.c', { hasText: 'Run this, with your npm code' });
+  const btn = phone ? '.cb' : '.cp';
+  if (phone) await ent.locator('.cb').tap({ position: { x: 20, y: 10 } });
+  else await ent.locator('.cp').click();
+  const done = await waitFor(page, ([q, ph]) => { const e = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); const b = e.querySelector(q); return b.classList.contains('done') && (ph || /Copied/.test(b.textContent)); }, [btn, phone], 3000);
   const got = await page.evaluate(() => window.__copied.splice(0));
-  check(`${tag}: npm: Copy puts exactly the command on the clipboard and says Copied`, done && got.length >= 1 && got[got.length - 1].t === CMD, JSON.stringify(got));
+  check(`${tag}: npm: ${phone ? 'a tap on the block' : 'Copy'} puts exactly the command on the clipboard${phone ? ', and it rings green' : ' and says Copied'}`, done && got.length >= 1 && got[got.length - 1].t === CMD, JSON.stringify(got));
+  if (phone) {
+    await page.waitForTimeout(150);
+    await (await page.$('#lv-card')).screenshot({ path: path.join(SHOTS, `npm-message-${w}-tapped-card.png`) });
+    await page.waitForTimeout(1700);
+    await ent.locator('.cd.pl', { hasText: '! npm login' }).tap();
+    await page.waitForTimeout(200);
+    const got2 = await page.evaluate(() => window.__copied.splice(0));
+    check(`${tag}: npm: a tap on "! npm login" in its sentence copies it`, got2.length >= 1 && got2[got2.length - 1].t === '! npm login', JSON.stringify(got2));
+  }
   await page.waitForTimeout(1700);
   await page.click(phone ? '#lv-tap' : '#lv-exp');
   await page.waitForTimeout(400);

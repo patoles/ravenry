@@ -129,10 +129,15 @@ export const launchCommand = (kind, settings) => of(kind).launchCommand(settings
 // Which assistant the board starts (docs/ASSISTANTS.md, "Starting
 // sessions"): `startWith` in the registry settings for a new project ('claude'
 // or 'codex', Claude Code when unset), the New project form's choice over
-// it; continuing a project (Revive, New session, a plan's start) keeps the
-// project's `assistant`, else the assistant of its newest session. A chosen
-// assistant that is not installed gives way to the one that is, and the
-// choice says so in `note`.
+// it; a new session for a project (Revive, start from brief, New session, a
+// plan's start, and the sheet's "New sessions:" switch that shows it) is the
+// project's own `assistant`, else startWith, else Claude Code. Never the
+// assistant of the project's newest session: that one may be a throwaway
+// check run in its folder. A hand-off's fresh session is not a new start:
+// it continues with the assistant of the session it hands off from
+// (server/index.mjs, the hand-off), not through here. A chosen assistant
+// that is not installed gives way to the one that is, and the choice says
+// so in `note`.
 
 // The command New project, Revive and New session run, the prompt appended.
 export const startCommand = (kind, settings) => of(kind).startCommand(settings || {});
@@ -164,16 +169,12 @@ export function startChoice(settings = {}, wanted = null, { from = null, install
   return { ...out, note: `Neither Claude Code nor Codex was found on this Mac; the board runs ${nameOf(want)}'s command as set.` };
 }
 
-// The assistant that continues a project: its `assistant`, else the one of
-// its newest session (`sessions`: [{ assistant, at }]), else startWith.
-export function continueChoice(settings = {}, project = null, sessions = [], opts = {}) {
+// The assistant a new session for a project starts (Revive, New session, a
+// plan's start) and the one its "New sessions:" switch shows: the project's
+// own `assistant`, else startWith, else Claude Code. The project's sessions
+// play no part, so the switch always shows what the next start runs.
+export function continueChoice(settings = {}, project = null, opts = {}) {
   if (project && isKind(project.assistant)) return startChoice(settings, project.assistant, { ...opts, from: 'project' });
-  let best = null;
-  for (const s of sessions || []) {
-    if (!s || !s.at) continue;
-    if (!best || String(s.at) > String(best.at)) best = s;
-  }
-  if (best) return startChoice(settings, kindOf(best.assistant), { ...opts, from: 'session' });
   return startChoice(settings, null, opts);
 }
 

@@ -20,7 +20,10 @@
 // `new-surface` (Revive's new tab) is appended to <fixture>.new-surface.log,
 // then refused, unless the fixture has "newSurfaces": true: then the tab is
 // added to its workspace as a prompt surface (below) with an empty body, so
-// the command pasted into it and its Enter land in its "sent".
+// the command pasted into it and its Enter land in its "sent". With
+// "newSurfacesShell": true as well, the new tab draws a plain shell prompt
+// (as a real tab does before Claude starts in it) until the test sets its
+// prompt's "shell" to false: then it draws Claude's box.
 // A surface listed in "prompts" (and only such a surface) plays Claude
 // Code's prompt box under its "body" text: { body, ghost, typed, bash,
 // noStyle, sent }. "ghost" is Claude's dim suggested reply, shown while
@@ -91,7 +94,7 @@ switch (args[0]) {
     const id = `${String(n).padStart(8, '0')}-0000-4000-8000-${String(Date.now()).slice(-12).padStart(12, '0')}`;
     const ref = `surface:${90 + n}`;
     w.surfaces.push({ id, ref, title: 'zsh' });
-    (st.prompts = st.prompts || {})[id] = { body: '' };
+    (st.prompts = st.prompts || {})[id] = st.newSurfacesShell ? { body: '', shell: true } : { body: '' };
     render(id);
     save();
     out({ surface_id: id, surface_ref: ref });
@@ -182,6 +185,7 @@ function log(sf, k) { st.keys = st.keys || {}; (st.keys[sf] = st.keys[sf] || [])
 // (a typed "!" on an empty prompt shows bash mode's "!" marker).
 function render(sf) {
   const pr = st.prompts[sf];
+  if (pr.shell) { st.screens[sf] = `Last login: Tue Nov  4 09:00:00 on ttys004\nsimon@mac paper-boat % ${pr.typed || ''}\n`; return; }
   const rule = '─'.repeat(99);
   const line = pr.bash ? '! ' + (pr.typed || '') : '❯ ' + (pr.typed || pr.ghost || '');
   st.screens[sf] = `${pr.body || ''}\n${rule}\n${line}\n${rule}\n  ⏵⏵ auto mode on (shift+tab to cycle)\n`;

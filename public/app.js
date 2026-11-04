@@ -56,6 +56,7 @@ const ui = {
   sent: {},        // projectId -> { label, at, delivered }
   ns: false,       // the message box's New session switch; off whenever a project opens
   starting: {},    // projectId -> { surfaceId, before, topic, at }: a session started from the switch
+  follow: {},      // projectId -> { surfaceId, workspaceId, before, at, late }: a new session the sheet moves to once it shows
   theme: 'dark',
   alerts: false,
   lastStates: {},
@@ -205,6 +206,45 @@ function selectedSession(p) {
   }
   return p.sessions.find((s) => s.surfaceId === want) || p.sessions.find((s) => s.surfaceId === p.primary) || p.sessions.find((s) => s.live) || p.sessions[0] || null;
 }
+// A session the board just opened (New session, Revive, a plan's start, or
+// a plan's words when no session was running): the sheet moves to it as
+// soon as it shows on the board, matched by the tab the start call names
+// (a cmux surface or an iTerm2 session; a new workspace when Revive had to
+// open one). Until then the sheet stays where it was and says it is
+// starting; after FOLLOW_MS it says the session did not show and stays
+// put. Picking a session in the meantime cancels the move.
+const FOLLOW_MS = 30000;
+function followStart(pid, r, before) {
+  if (!r) return;
+  ui.follow[pid] = { surfaceId: r.surfaceId || null, workspaceId: r.surfaceId ? null : r.workspaceId || null, before, at: Date.now(), late: false };
+  setTimeout(render, FOLLOW_MS + 100);
+}
+const sameTab = (a, b) => String(a || '').toUpperCase() === String(b || '').toUpperCase();
+function followed(p, f) {
+  return p.sessions.find((x) => (x.live || x.state !== 'none' || x.source === 'events')
+    && (f.surfaceId ? sameTab(x.surfaceId, f.surfaceId) : f.workspaceId ? x.workspaceId === f.workspaceId && !f.before.includes(x.surfaceId) : !f.before.includes(x.surfaceId))) || null;
+}
+function followNew() {
+  for (const [pid, f] of Object.entries(ui.follow)) {
+    const p = project(pid);
+    if (!p) { delete ui.follow[pid]; continue; }
+    const x = followed(p, f);
+    // Late: it stayed put; the line goes when the session shows after all,
+    // or two minutes on.
+    if (f.late) { if (x || Date.now() - f.at > FOLLOW_MS + 120000) delete ui.follow[pid]; continue; }
+    // Moved: the "Sent" line was about the session it left.
+    if (x) { ui.selSession[pid] = x.surfaceId; delete ui.follow[pid]; delete ui.sent[pid]; continue; }
+    if (Date.now() - f.at > FOLLOW_MS) f.late = true;
+  }
+}
+// The line on the message box's card while it waits, or after it gave up.
+function followLine(p) {
+  const f = ui.follow[p.id];
+  if (!f) return '';
+  if (!f.late) return `<div class="working" role="status" style="display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--work)">${stateIcon(ST_STARTING)}Starting a new session...</div>`;
+  return `<div role="status" style="font-size: 13px; line-height: 1.45; font-weight: 600; color: var(--tx2)">The new session has not shown on the board after ${FOLLOW_MS / 1000} s, so the sheet stays here. Look for its tab in ${esc(boardTerm())}. Once it reports, it shows under Sessions.</div>`;
+}
+
 // What the detail sheet shows: the project, seen through the chosen session.
 function view(p) {
   const s = selectedSession(p);
@@ -575,6 +615,7 @@ ${openButton(p, s)}`);
 <div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(headline)}</div>`;
   if (w.dialog && w.dialog.length) top += `<div class="t2 scr-lines">${w.dialog.slice(0, 8).map((l) => `<div${SCREEN_RULE.test(l) ? ' class="scr-rule"' : ''}>${esc(l)}</div>`).join('')}</div>`;
   if (w.draft) top += `<div class="t2" style="font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere">Typed in its prompt, not sent: "${esc(w.draft.length > 160 ? w.draft.slice(0, 157) + '...' : w.draft)}"</div>`;
+  top += followLine(p);
   if (showSent) top += `<div style="font-size: 13px; color: var(--ok); font-weight: 600">Sent "${esc(sent.label)}". ${sent.delivered === 'now' ? "It's back to work." : 'Delivered after its current step.'}</div>`;
   if (state === 'you' && !showSent && w.quick && w.quick.length && s && s.live && !s.draft) {
     top += `<div class="q-opts" style="display: flex; flex-wrap: wrap; gap: 8px">${w.quick.map((o, k) => `<button class="btn ${k === 0 ? 'pri' : ''}" data-act="quick" data-k="${k}">${esc(o.label)}</button>`).join('')}</div>`;
@@ -909,17 +950,18 @@ function lvText(s) {
 // codespans.mjs), as `cs`: [{ t, cmd?, b?, whole?, r: [[line, start, end], ...] }].
 // Two kinds, and only the first carries a Copy button:
 // - A code block (`b`: a fenced block, or a "! " command alone on its line)
-//   is one block of its own, however the terminal wrapped it, with a Copy
-//   at its end that copies its whole text: an icon inside the block on a
-//   desktop, a 32 px pill after it on a phone (both are drawn, CSS shows one).
+//   is one block of its own, however the terminal wrapped it, copying its
+//   whole text: on a desktop with a Copy icon inside the block ("Copy" on
+//   hover); on a phone with no button, a tap on the block copies it.
 // - Inline code in a sentence is a chip in the text, at the text's line
 //   height, with no button in the line (a Copy floats over it on hover, a
 //   tap copies it on a phone; see lvChip).
+// On a phone nothing on the Live screen is a Copy button: a tap on the
+// highlighted code copies, and it rings green with a check for 1.5 s.
 // Terminal text is always text: every piece goes through escRaw.
 const LV_COPY = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1.6"/><path d="M9.5 2.6V2.5A1 1 0 0 0 8.5 1.5H3A1.5 1.5 0 0 0 1.5 3v5.5a1 1 0 0 0 1 1h.1"/></svg>';
 const LV_CHECK = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7"/></svg>';
 const lvCopyIn = (done) => (done ? `${LV_CHECK}<span>Copied</span>` : `${LV_COPY}<span class="w">Copy</span>`);
-const lvPillIn = (done) => (done ? `${LV_CHECK}Copied` : `${LV_COPY}Copy`);
 // Every other chip copies too: on a desktop a Copy button floats past its
 // end while the pointer is on any piece of the span (nothing at rest, so
 // prose stays clean, and nothing moves); on a phone a tap on the chip copies
@@ -931,10 +973,11 @@ function lvChip(text, span, last, i) {
   return `<span class="cd pl${last ? ' lst' : ''}" data-lv-chip="${t}" data-lv-i="${i}">${escRaw(text)}${last ? `<span class="cpa"><button class="cph" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></span>` : ''}</span>`;
 }
 // A code block: its text as one block (pre-wrap, so the screen width wraps
-// it, never a split into chips), indented as on screen, Copy at its end.
+// it, never a split into chips), indented as on screen, the desktop's Copy
+// icon at its end.
 function lvBlock(shown, span, i, indent) {
   const t = escRaw(span.t);
-  return `<div class="cbw"${indent ? ` style="margin-left: ${indent}ch"` : ''}><div class="cd cb" data-lv-chip="${t}" data-lv-i="${i}"><span class="cbt">${escRaw(shown)}</span><button class="cp" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></div><button class="cpm" data-lv-copy="${t}" aria-label="Copy ${t}">${lvPillIn(false)}</button></div>`;
+  return `<div class="cbw"${indent ? ` style="margin-left: ${indent}ch"` : ''}><div class="cd cb" data-lv-chip="${t}" data-lv-i="${i}"><span class="cbt">${escRaw(shown)}</span><button class="cp" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></div></div>`;
 }
 // One line of text from `from` on, with its marks ([start, end, span, last]).
 function lvMarked(x, from, marks) {
@@ -1057,9 +1100,9 @@ function lvShowCopied() {
     const done = on && b.dataset.lvCopy === lvCopied.text;
     if (b.classList.contains('done') === done) continue;
     b.classList.toggle('done', done);
-    b.innerHTML = b.classList.contains('cpm') ? lvPillIn(done) : lvCopyIn(done);
+    b.innerHTML = lvCopyIn(done);
   }
-  for (const c of document.querySelectorAll('#lv-lines .cd.pl')) c.classList.toggle('done', on && c.dataset.lvChip === lvCopied.text);
+  for (const c of document.querySelectorAll('#lv-lines .cd.pl, #lv-lines .cd.cb')) c.classList.toggle('done', on && c.dataset.lvChip === lvCopied.text);
 }
 document.addEventListener('click', (e) => {
   // A button copies anywhere; on a phone a tap on the chip itself does too
@@ -1586,7 +1629,8 @@ async function sendCompose() {
 // The New session switch on: Start session opens a new tab running Claude
 // in the project's folder through Revive, with the box's words and files
 // (the paths Send would type) as its first prompt. Empty, it reads the
-// brief as Revive does. The selection stays on the session being watched.
+// brief as Revive does. The selection stays on the session being watched
+// until the new one shows, then moves to it (followStart).
 async function startSession() {
   const p = project(ui.sel);
   if (!p) return;
@@ -1606,6 +1650,7 @@ async function startSession() {
     $('#compose').value = '';
     ui.ns = false;
     ui.starting[p.id] = { surfaceId: r.surfaceId || null, before, topic: text ? text.split('\n')[0] : 'New session', at: Date.now() };
+    followStart(p.id, r, before);
     toast(text || fs.length ? `Started a new session in ${p.name} with your first message` : `Started a new session in ${p.name} reading the brief`);
   } catch (e) {
     toast(e.message);
@@ -2776,8 +2821,13 @@ async function submitModal() {
 async function revive(pid) {
   const p = project(pid);
   if (!p) return;
+  const { s } = view(p);
+  const before = p.sessions.map((x) => x.surfaceId);
   try {
     const r = await post('/api/project/revive', { projectId: pid });
+    if (s) ui.selSession[pid] = s.surfaceId;
+    followStart(pid, r, before);
+    render();
     toast(r.message ? r.message : r.where === 'tab' ? `New tab ${r.surfaceRef || ''} in ${r.workspaceRef}. It reads the brief first.` : `New workspace ${r.workspaceRef} for ${p.name}. It reads the brief first.`);
   } catch (e) {
     toast(e.message);
@@ -2929,7 +2979,9 @@ async function planAnswer(body) {
   const p = project(ui.sel);
   if (!p) return;
   try {
+    const before = p.sessions.map((x) => x.surfaceId);
     const r = await post('/api/plan/answer', { projectId: p.id, ...body });
+    if (r.via === 'revive') followStart(p.id, r, before);
     ui.sent[p.id] = { label: body.choice || body.text, at: Date.now(), delivered: r.delivered };
     toast(r.via === 'revive' ? `Answer written. A new session in ${p.name} reads the plan and carries on.` : `Sent "${body.choice || body.text}" to ${p.name}. The plan carries on.`);
     return true;
@@ -2941,7 +2993,9 @@ async function planAct(pid, act) {
   if (!p) return;
   if (act === 'stop' && !confirm(`Stop the plan "${p.plan ? p.plan.title : ''}"? Its session finishes the step in hand and starts no other.`)) return;
   try {
+    const before = p.sessions.map((x) => x.surfaceId);
     const r = await post('/api/plan/' + act, { projectId: pid });
+    if (r.via === 'revive') { followStart(pid, r, before); render(); }
     toast({ pause: 'Paused. The session finishes the step in hand, then waits.', stop: 'Stopped. The plan stays in the brief.', resume: 'Resumed. The session carries on from the step it was at.' }[act] + (r.via === 'brief' ? ' No session was running, so only the brief changed.' : ''), 4500, true);
   } catch (e) { toast(e.message, 5000, true); }
 }
@@ -3319,9 +3373,12 @@ async function plClick(e) {
   if (a === 'start') {
     b.disabled = true;
     const p = project(pl.pid);
+    const before = p ? p.sessions.map((x) => x.surfaceId) : [];
     const r = await plPost('start', {});
     if (r && r.ok) {
+      if (p && r.via === 'revive') { const { s } = view(p); if (s) ui.selSession[p.id] = s.surfaceId; followStart(p.id, r, before); }
       closePlanSheet();
+      render();
       toast(d.mode === 'change' ? `Plan changed. ${p.name}'s session re-reads it.` : r.via === 'revive' ? `"${r.title}" is in the brief. A new session in ${p.name} reads it and starts.` : `"${r.title}" is in the brief and ${p.name}'s session has started it${r.delivered === 'now' ? '' : ', after its current step'}.`, 5000, true);
     }
   }
@@ -3648,6 +3705,7 @@ function render() {
   renderViews();
   renderMemchip();
   paintBell();
+  followNew();
   if (!ui.sel || !project(ui.sel)) {
     const ps = ui.snap.projects;
     const first = ORDER.map((k) => ps.filter((p) => p.state === k)).find((a) => a.length);
@@ -3728,6 +3786,8 @@ document.addEventListener('click', (e) => {
   if (act === 'handoff-start') handoffStart();
   if (act === 'session') {
     ui.selSession[ui.sel] = a.dataset.surface;
+    // Picked while a new session was starting: theirs, not moved again.
+    delete ui.follow[ui.sel];
     // Chose a session that already handed off: keep it chosen.
     const cs = (project(ui.sel) || { sessions: [] }).sessions.find((x) => x.surfaceId === a.dataset.surface);
     if (cs && cs.handed) handedMoved.add(cs.surfaceId);
@@ -3929,7 +3989,7 @@ const projWho = (p) => (p && p.assistant === 'codex' ? 'Codex' : 'Claude');
 // switch at the end of the sheet's meta line, saved at once through POST
 // /api/project/assistant. The next New session, Revive and plan start use
 // it; running sessions keep theirs. It shows what the project is set to
-// (its own, else its newest session's, else Settings), even when the board
+// (its own, else Settings, never its newest session's), even when the board
 // starts the other one because that one is not installed (its note is the
 // title). A flip shows at once; a failed save snaps back with the error
 // beside the switch. ui.pas: { pid, want, until } while a flip waits for

@@ -148,10 +148,17 @@ session, which runs the assistant of the session it hands off from.
 - **New project**: the form's `assistant` (`'claude'` or `'codex'`), else
   the registry setting `startWith` (`'claude'` or `'codex'`; Claude Code when
   unset). A form value is kept on the project as `assistant`.
-- **Continuing a project** (Revive, New session, a plan's start): the
-  project's `assistant`, else the assistant of its newest session (the
-  board's sessions of the project, by when they started; with none on the
-  board, the hook events whose folder is the project's), else `startWith`.
+- **A new session for a project** (Revive, which starts it from its brief,
+  New session, a plan's start): the project's `assistant`, else
+  `startWith`, else Claude Code. The project's sessions play no part:
+  until 0.3.1 a project with no `assistant` took the assistant of its
+  newest session, so a throwaway Codex check run in its folder made the
+  next Revive start Codex under a Claude Code setting. The sheet's "New
+  sessions:" switch shows this same choice, so it always shows what the
+  next start runs.
+- **A hand-off's fresh session** continues the same work, so it runs the
+  assistant of the session it hands off from (its hook events, else its
+  marker), whatever the project or `startWith` say.
 - **Not installed**: when the chosen assistant is not on this Mac and the
   other one is, the board starts the other and the answer says so
   (`assistantNote`: "Codex is not installed on this Mac, so the board starts
@@ -180,15 +187,15 @@ session, which runs the assistant of the session it hands off from.
   keys) and refused without the board's write header. `/api/project/new`
   and `/api/project/revive` answer with `assistant` and, when there was one,
   `assistantNote`. `POST /api/project/assistant` with `{ projectId,
-  assistant }` (`'claude'`, `'codex'`, or `null` to follow its newest
-  session) sets a project's own assistant after it was created, through the
+  assistant }` (`'claude'`, `'codex'`, or `null` to follow
+  `startWith`) sets a project's own assistant after it was created, through the
   registry's write path (a backup, only that key), refused without the
   board's write header; it answers with what the project now starts. The
   next New session, Revive and plan start use it; running sessions are not
   touched. On the page it is the sheet's "New sessions:" switch (below).
   `/api/state` gives each project `assistant` (the one its next session
-  starts), `assistantWants` (the one it is set to: its own, else its newest
-  session's, else `startWith`) and `assistantNote` (the fallback's note when
+  starts), `assistantWants` (the one it is set to: its own, else `startWith`, else
+  Claude Code) and `assistantNote` (the fallback's note when
   those differ because one is not installed).
 
 - **The page** ([docs/design/CodexStage2.dc.html](design/CodexStage2.dc.html),
@@ -197,7 +204,7 @@ session, which runs the assistant of the session it hands off from.
   the switch takes less space) that saves at once, with the fallback's note under it when the chosen one is
   not installed; New project has an Assistant row under Folder, set from
   Settings and sent only when changed for this project; and in a project
-  that continues on Codex (`assistant` on each project in `/api/state`), the
+  whose new sessions start Codex (`assistant` on each project in `/api/state`), the
   New session switch's line reads "Opens a new cmux tab in <folder> running
   Codex, this project's assistant."
 - **A project's switch** ([docs/design/ProjectAssistant.dc.html](design/ProjectAssistant.dc.html),
@@ -402,14 +409,17 @@ and without it a test process counts Codex as not installed.
 
 `node tools/start-with-test.mjs [--real]` (Starting sessions, Print mode):
 the launch command per assistant and the words through `/bin/sh`,
-`startWith` and its fallback, continuing a project, the settings' check,
+`startWith` and its fallback, a project's new sessions, the settings' check,
 `codex exec`'s argv and output, a refused model and a missing feature
 against `tools/stub-codex.mjs`, then a test board on :4695 with the fake
 cmux and the stub (the settings routes, Revive, New session and New project
 typing the chosen assistant, a plan, an Ideas reply, Get 3 directions and a
 mockup round on Codex, and on `claude -p` again with `startWith: 'claude'`),
-and the page on a test board on :4696 (the Settings section, the New
-project row, the New session line; `--shots <dir>` saves each at 1440x900
+a test board on :4694 with no `startWith` (a project whose newest session
+is Codex Revives on Claude Code and its switch shows Claude, both say Codex
+with `startWith: 'codex'`, a project set to Codex starts Codex, a Codex
+session's hand-off continues on Codex), and the page on a test board on
+:4696 (the Settings section, the New project row, the New session line; `--shots <dir>` saves each at 1440x900
 and 390x844, dark and light).
 `--real` measures the leading dash on the real `codex`, runs one plan draft
 through the real `codex exec` (a scratch CODEX_HOME, auth.json copied in and

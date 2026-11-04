@@ -605,9 +605,21 @@ The top bar switches views; each view lives in the URL (`#/objectives`,
   `claude '<words> <paths>'`, the words and escaped file paths Send would
   type, as one exact shell word (`--` before words that start with a dash),
   and needs no brief; empty, it is Revive. After starting, the switch goes
-  off, the box empties, the selection stays on the session being watched,
-  and the new row reads Starting (a dashed blue ring) until its first hook
-  event, a minute at most.
+  off, the box empties, and the new row reads Starting (a dashed blue ring)
+  until its first hook event, a minute at most. The sheet stays on the
+  session being watched, with "Starting a new session..." on the message
+  box's card, until the new session shows on the board (its hook events or
+  Claude on its screen), matched by the tab the start call returns
+  (`surfaceId`: a cmux surface or an iTerm2 session; `workspaceId` when
+  Revive opened a workspace); then it selects it. After 30 s it says the
+  session has not shown and stays put; picking a session meanwhile keeps
+  that pick. Revive from the brief and a plan's words that open a session
+  (`/api/plan/start`, `answer`, `resume` with `via: 'revive'`, which return
+  the same `surfaceId`) follow the same rule. The board reads a cmux tab it
+  just opened every tick for a minute, until Claude shows in it
+  (`opening`, server/index.mjs), where a plain shell is read every ~10 s
+  and a tab's title may not look like Claude yet. The terminal is not switched:
+  the new cmux tab opens with `--focus false`, as every board-opened tab.
 - **Ideas**: `~/.ravenry/ideas.json`, pictures copied into
   `~/.ravenry/ideas/` (seeded once with five real ideas; originals
   are only copied). Drag between Spark, Mockup, Greenlit and Parked; open a
@@ -1019,8 +1031,8 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
 - `node tools/start-with-test.mjs [--real]`: which assistant the board
   starts and Plans and Ideas on Codex (docs/ASSISTANTS.md, Starting sessions
   and Print mode, and its Tests): the launch command per assistant and the
-  words through `/bin/sh`, `startWith` and its fallback, continuing a
-  project, the settings' check, `codex exec`'s argv and output against
+  words through `/bin/sh`, `startWith` and its fallback, a project's
+  new sessions (never its newest session's assistant), the settings' check, `codex exec`'s argv and output against
   `tools/stub-codex.mjs` (`MC_CODEX_BIN`; `STUB_CODEX_ARGV_FILE` records each
   run), then a test board on :4695 with the fake cmux (also: replies,
   busy lines and restart lines naming Codex, and `POST

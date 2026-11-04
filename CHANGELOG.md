@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.1
+
+- A new session for a project (Revive from its brief, New session, a
+  plan's start) starts the project's own assistant, else Settings' "Start
+  new sessions with", else Claude Code, and its "New sessions:" switch
+  shows the same; before, a project with no assistant of its own took the
+  assistant of its newest session, so a throwaway Codex check run in its
+  folder made Revive start Codex. A hand-off's fresh session still
+  continues on the assistant of the session it hands off from.
+- After Start session with the New session switch on, the sheet moves to
+  the new session as soon as it shows on the board (its Live screen, the
+  message box back to Send for it), on a desktop and a phone. Until then
+  the message box's card reads "Starting a new session..."; after 30 s it
+  says the session has not shown and the sheet stays where it was. Picking
+  another session in the meantime keeps that pick. Revive from the brief
+  and a plan that opens a new session follow the same rule. The board
+  reads a tab it just opened every 2 s for a minute, until Claude shows in
+  it, instead of every 10 s as for a plain shell, so the move does not wait
+  on the tab's title. Before, the sheet stayed on the session that was
+  selected, so the new one had to be found by hand.
+- On a phone the Live screen has no Copy button: a tap on highlighted code,
+  a code block or an inline chip, copies it and rings it green with a
+  check, and a code block takes the whole width the pill used to take. A
+  desktop keeps the Copy icon inside a code block.
+
 ## 0.3.0
 
 - Code on the Live screen: a fenced block is now one code block, however

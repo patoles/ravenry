@@ -11,9 +11,17 @@
 //   project's workspace and folder whose command is `claude '<the words>'`,
 //   attached files' paths appended exactly as Send appends them;
 // - after starting: the switch is off, the box and its chips empty, the
-//   toast says so, the selection stays on the session being watched, and the
-//   new session shows in the Sessions card as Starting until its first hook
-//   event; empty, it reads the brief like Revive;
+//   toast says so, the sheet stays on the session being watched with
+//   "Starting a new session..." on the message box's card, and the new
+//   session shows in the Sessions card as Starting until its first hook
+//   event; then the sheet moves to the new session (its row selected, its
+//   Live screen read, the box back to Send); empty, it reads the brief like
+//   Revive;
+// - picking another session while one starts keeps that pick when the new
+//   one shows; Revive from the brief moves to its new session the same way;
+//   a new session that has not shown after 30 s (the page's clock run
+//   forward) gets a line saying so and the sheet stays put, also when it
+//   shows later;
 // - the words reach Claude exactly (an apostrophe, a dollar sign, a leading
 //   dash), a project with no brief can start one with words, and Revive with
 //   no words is unchanged.
@@ -108,6 +116,7 @@ const S1 = 'AAAAAAAA-0000-4000-8000-0000000000A1';
 const BODY = '\n⏺ Tilted the hull 4 degrees and ran the float test again: it holds for 40 s.\n\n✻ Worked for 1m 12s\n';
 const resetFake = () => fs.writeFileSync(FAKE, JSON.stringify({
   newSurfaces: true,
+  newSurfacesShell: true,
   workspaces: [
     { id: 'ws-boat', ref: 'workspace:1', title: 'Paper Boat', cwd: BOAT, surfaces: [{ id: S1, ref: 'surface:1', title: '✳ Tilting the hull' }] },
     { id: 'ws-bare', ref: 'workspace:2', title: 'Bare', cwd: BARE, surfaces: [{ id: 'BBBBBBBB-0000-4000-8000-0000000000B1', ref: 'surface:2', title: '✳ Bare' }] },
@@ -120,6 +129,8 @@ const fst = () => JSON.parse(fs.readFileSync(FAKE, 'utf8'));
 const newTabs = () => { try { return fs.readFileSync(FAKE + '.new-surface.log', 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).argv); } catch { return []; } };
 const optOf = (argv, k) => argv[argv.indexOf(k) + 1];
 const sentIn = (id) => ((fst().prompts || {})[id] || {}).sent || [];
+// Claude starts in a new tab: its box replaces the shell prompt on screen.
+const claudeUp = (id) => { const f = fst(); f.prompts[id].shell = false; f.prompts[id].typed = ''; const rule = '─'.repeat(99); f.screens[id] = `\n${rule}\n❯ \n${rule}\n  ⏵⏵ auto mode on (shift+tab to cycle)\n`; fs.writeFileSync(FAKE, JSON.stringify(f)); };
 
 function hook(base, input, envx) {
   return new Promise((resolve) => {
@@ -185,11 +196,16 @@ try {
       rows: [...document.querySelectorAll('#d-sessions .sess')].map((x) => ({ surface: x.dataset.surface || null, text: x.textContent.replace(/\s+/g, ' ').trim(), button: x.tagName === 'BUTTON' })),
       dashed: [...document.querySelectorAll('#d-sessions .sess circle')].some((c) => c.getAttribute('stroke-dasharray') === '2.2 2'),
       toast: document.querySelector('#toast').hidden ? '' : document.querySelector('#toast').textContent,
+      askTop: document.querySelector('#d-ask-top').textContent.replace(/\s+/g, ' ').trim(),
     };
   });
+  const PENDING = 'Starting a new session...';
+  const LATE = /has not shown on the board after 30 s, so the sheet stays here/;
 
   {
     const { ctx, pg, errs } = await open({ width: 1440, height: 900 }, 'dark');
+    const liveReads = [];
+    pg.on('request', (q) => { const u = new URL(q.url()); if (u.pathname === '/api/live') liveReads.push(u.searchParams.get('surface')); });
     let x = await box(pg);
     check('page: the switch sits right after Attach, a switch, off', x.afterAttach && x.role === 'switch' && x.checked === 'false' && !x.on && !x.ring && x.send === 'Send', JSON.stringify(x));
     // Off: Send goes to the running session.
@@ -228,15 +244,27 @@ try {
     await pg.waitForFunction(() => document.querySelectorAll('#d-sessions .sess').length === 2, null, { timeout: 8000 }).catch(() => {});
     x = await box(pg);
     check('page: the new session shows in the Sessions card as Starting, a dashed blue ring', x.rows.length === 2 && x.rows.some((y) => /Fix the end screen on small phones\s*Starting/.test(y.text)) && x.dashed, JSON.stringify(x.rows));
-    check('page: the selection stays on the session being watched', x.sel === S1, x.sel);
-    // Its first hook event: the row reads like any other.
+    check('page: until the new session shows, the sheet stays on the session being watched', x.sel === S1, x.sel);
+    check('page: ...and the message box\'s card says it is starting, breathing like a busy line', x.askTop.includes(PENDING) && await pg.evaluate((t) => [...document.querySelectorAll('#d-ask-top .working')].some((e) => e.textContent.includes(t)), PENDING), x.askTop);
+    // Claude starts in it and its first hook events come in: the sheet moves to it.
+    claudeUp(newId);
     await hook(b.base, { hook_event_name: 'SessionStart', session_id: '11111111-2222-4333-8444-555555555555', cwd: BOAT, source: 'startup' }, { CMUX_WORKSPACE_ID: 'ws-boat', CMUX_SURFACE_ID: newId });
     await hook(b.base, { hook_event_name: 'UserPromptSubmit', session_id: '11111111-2222-4333-8444-555555555555', cwd: BOAT, prompt: 'Fix the end screen on small phones' }, { CMUX_WORKSPACE_ID: 'ws-boat', CMUX_SURFACE_ID: newId });
-    await pg.waitForFunction((id) => { const r = document.querySelector(`#d-sessions .sess[data-surface="${id}"]`); return r && !/Starting/.test(r.textContent); }, newId, { timeout: 10000 }).catch(() => {});
+    await pg.waitForFunction((id) => { const r = document.querySelector(`#d-sessions .sess[data-surface="${id}"]`); return r && !/Starting/.test(r.textContent) && r.classList.contains('sel'); }, newId, { timeout: 10000 }).catch(() => {});
+    await sleep(600);
     x = await box(pg);
     const row = x.rows.find((y) => y.surface === newId);
-    check('page: after its first hook event the new row is a session like any other, still not selected', !!row && row.button && !/Starting/.test(row.text) && x.sel === S1, JSON.stringify(x.rows));
-    // Empty: it reads the brief.
+    check('page: once the new session reports, the sheet selects it', !!row && row.button && !/Starting/.test(row.text) && x.sel === newId, JSON.stringify({ sel: x.sel, rows: x.rows }));
+    check('page: ...its Live screen is the one read', liveReads[liveReads.length - 1] === newId, JSON.stringify(liveReads.slice(-3)));
+    check('page: ...the starting line is gone and the box is back to Send for it', !x.askTop.includes(PENDING) && x.checked === 'false' && !x.ring && x.send === 'Send' && /^Message/.test(x.ph), JSON.stringify({ askTop: x.askTop, send: x.send, ph: x.ph }));
+    if (SHOTS) for (const [tag, vp] of [['1440', { width: 1440, height: 900 }], ['412', { width: 412, height: 915 }]]) {
+      await pg.setViewportSize(vp);
+      await sleep(400);
+      await pg.screenshot({ path: path.join(SHOTS, `follow-${tag}-2-switched.png`), fullPage: true });
+    }
+    await pg.setViewportSize({ width: 1440, height: 900 });
+    // Empty: it reads the brief. Picking another session while it starts
+    // keeps that pick.
     await sleep(3400);
     await pg.click('#ns');
     const n1 = newTabs().length;
@@ -245,6 +273,30 @@ try {
     x = await box(pg);
     const id2 = fst().workspaces[0].surfaces[2] && fst().workspaces[0].surfaces[2].id;
     check('page: empty, Start session starts the way Revive does', newTabs().length === n1 + 1 && id2 && sentIn(id2)[0] === "claude 'Read BRIEF.md (Hand-off section first) and continue.'" && x.toast === 'Started a new session in Paper Boat reading the brief' && x.checked === 'false', JSON.stringify({ sent: id2 && sentIn(id2), toast: x.toast }));
+    check('page: ...it waits on the session that was selected, the new one from before', x.sel === newId && x.askTop.includes(PENDING), JSON.stringify({ sel: x.sel, askTop: x.askTop }));
+    await pg.click(`#d-sessions .sess[data-surface="${S1}"]`);
+    claudeUp(id2);
+    await hook(b.base, { hook_event_name: 'SessionStart', session_id: '22222222-2222-4333-8444-555555555555', cwd: BOAT, source: 'startup' }, { CMUX_WORKSPACE_ID: 'ws-boat', CMUX_SURFACE_ID: id2 });
+    await hook(b.base, { hook_event_name: 'UserPromptSubmit', session_id: '22222222-2222-4333-8444-555555555555', cwd: BOAT, prompt: 'Read BRIEF.md' }, { CMUX_WORKSPACE_ID: 'ws-boat', CMUX_SURFACE_ID: id2 });
+    await pg.waitForFunction((id) => !!document.querySelector(`#d-sessions button.sess[data-surface="${id}"]`), id2, { timeout: 10000 }).catch(() => {});
+    await sleep(1500);
+    x = await box(pg);
+    check('page: picking another session while one starts keeps that pick when the new one reports', x.rows.some((y) => y.surface === id2 && y.button) && x.sel === S1 && !x.askTop.includes(PENDING), JSON.stringify({ sel: x.sel, askTop: x.askTop, rows: x.rows }));
+    // Revive from the brief: the same rule.
+    const st0 = (await b.state()).projects.find((q) => q.id === 'paper-boat');
+    const reviveBtn = await pg.$('#d-ask-top [data-act="revive"]');
+    if (reviveBtn) {
+      await reviveBtn.click();
+      await pg.waitForFunction(() => /reads the brief first/.test(document.querySelector('#toast').textContent));
+      x = await box(pg);
+      const id3 = fst().workspaces[0].surfaces[3] && fst().workspaces[0].surfaces[3].id;
+      check('page: Revive from the brief waits on the session being watched, saying it is starting', !!id3 && x.sel === S1 && x.askTop.includes(PENDING), JSON.stringify({ id3, sel: x.sel, askTop: x.askTop }));
+      // This one shows from its screen, before any hook event: Claude draws its box.
+      claudeUp(id3);
+      await pg.waitForFunction((id) => { const r = document.querySelector(`#d-sessions .sess.sel`); return r && r.dataset.surface === id; }, id3, { timeout: 10000 }).catch(() => {});
+      x = await box(pg);
+      check('page: ...then moves to its new session once it shows (from its screen, no hook yet)', x.sel === id3 && !x.askTop.includes(PENDING) && liveReads[liveReads.length - 1] === id3, JSON.stringify({ sel: x.sel, live: liveReads.slice(-2) }));
+    } else check('page: Revive from the brief shows on an idle project', false, `state ${st0 && st0.state}`);
     // Never persists: on, open another project, come back.
     await pg.click('#ns');
     await pg.evaluate(() => { location.hash = '#kite'; });
@@ -260,6 +312,55 @@ try {
     check('page: a reload starts with the switch off', k.checked === 'false', k.checked);
     await c2.close();
     check('page: no page errors', !errs.length, errs.join(' | '));
+  }
+
+  // ---- a new session that never shows in time: the page's clock runs 30 s on
+  {
+    resetFake();
+    await sleep(2500);
+    for (const [tag, vp] of [['1440', { width: 1440, height: 900 }], ['412', { width: 412, height: 915 }]]) {
+      const ctx = await browser.newContext({ viewport: vp, deviceScaleFactor: 2 });
+      const pg = await ctx.newPage();
+      await pg.clock.install();
+      await pg.goto(`${b.base}/?theme=dark#paper-boat`);
+      await pg.waitForSelector('#ns');
+      await pg.waitForFunction(() => !document.querySelector('#send').disabled);
+      await pg.click('#ns');
+      await pg.fill('#compose', 'Tilt the hull again');
+      const n0 = newTabs().length;
+      await pg.click('#send');
+      await pg.waitForFunction(() => /Started a new session/.test(document.querySelector('#toast').textContent));
+      const late = fst().workspaces[0].surfaces.find((q) => q.id !== S1 && sentIn(q.id).length && /Tilt the hull again/.test(sentIn(q.id)[0]));
+      let x = await box(pg);
+      check(`timeout ${tag}: Start session opened a tab and says it is starting, still on the watched session`, newTabs().length === n0 + 1 && !!late && x.askTop.includes(PENDING) && x.sel !== late.id, JSON.stringify({ sel: x.sel, askTop: x.askTop }));
+      if (SHOTS) {
+        await pg.evaluate(() => { if (document.activeElement) document.activeElement.blur(); const el = document.querySelector('#d-ask'); scrollTo(0, Math.max(0, el.getBoundingClientRect().top + scrollY - 70)); });
+        await pg.mouse.move(0, 0);
+        await pg.clock.runFor(200);
+        await pg.screenshot({ path: path.join(SHOTS, `follow-${tag}-1-pending.png`), fullPage: true });
+      }
+      await pg.clock.fastForward(31000);
+      await pg.waitForFunction((re) => new RegExp(re).test(document.querySelector('#d-ask-top').textContent), LATE.source, { timeout: 8000 }).catch(() => {});
+      x = await box(pg);
+      check(`timeout ${tag}: after 30 s it says the new session has not shown, where the starting line was, and stays put`, LATE.test(x.askTop) && !x.askTop.includes(PENDING) && (x.sel === S1 || x.sel === null), JSON.stringify({ sel: x.sel, askTop: x.askTop }));
+      if (SHOTS) {
+        await pg.evaluate(() => { const el = document.querySelector('#d-ask'); scrollTo(0, Math.max(0, el.getBoundingClientRect().top + scrollY - 70)); });
+        await pg.clock.runFor(200);
+        await pg.screenshot({ path: path.join(SHOTS, `follow-${tag}-3-timeout.png`), fullPage: true });
+      }
+      // Shows after all: the sheet still stays, the line goes.
+      claudeUp(late.id);
+      const sidN = tag === '1440' ? '44444444-2222-4333-8444-555555555555' : '55555555-2222-4333-8444-555555555555';
+      await hook(b.base, { hook_event_name: 'SessionStart', session_id: sidN, cwd: BOAT, source: 'startup' }, { CMUX_WORKSPACE_ID: 'ws-boat', CMUX_SURFACE_ID: late.id });
+      await hook(b.base, { hook_event_name: 'UserPromptSubmit', session_id: sidN, cwd: BOAT, prompt: 'Tilt the hull again' }, { CMUX_WORKSPACE_ID: 'ws-boat', CMUX_SURFACE_ID: late.id });
+      await pg.waitForFunction((id) => !!document.querySelector(`#d-sessions button.sess[data-surface="${id}"]`), late.id, { timeout: 10000 }).catch(() => {});
+      await pg.clock.runFor(1500);
+      x = await box(pg);
+      check(`timeout ${tag}: when it shows later the sheet stays where it is and the line goes`, x.rows.some((y) => y.surface === late.id && y.button) && x.sel === S1 && !LATE.test(x.askTop), JSON.stringify({ sel: x.sel, askTop: x.askTop, rows: x.rows }));
+      await ctx.close();
+      resetFake();
+      await sleep(2500);
+    }
   }
 
   // ---- phone: Attach and the switch on the first row, Add as note and Send on the second, at the right
