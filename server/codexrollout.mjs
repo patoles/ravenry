@@ -154,12 +154,15 @@ export function readRollout(file) {
   return value;
 }
 
-// The hand-off hook's reading: { tokens, window, model, lastText } from the
-// end of the rollout, or null when it cannot be read.
+// The hand-off hook's reading: { tokens, window, model, lastText,
+// lastPromptAt, lastPrompt } from the end of the rollout, or null when it
+// cannot be read. lastPromptAt is the newest prompt the user typed (a Stop
+// hook's reason comes back wrapped in <hook_prompt>, so it is not one): the
+// hook's deferral waits for it.
 export function lastUsage(file) {
   const v = readRollout(file);
   if (!v) return null;
-  return { tokens: v.contextTokens, window: v.contextWindow, model: v.model, lastText: v.lastText };
+  return { tokens: v.contextTokens, window: v.contextWindow, model: v.model, lastText: v.lastText, lastPromptAt: v.lastPromptAt, lastPrompt: v.lastPrompt };
 }
 
 // Finds the rollout of a session id: rollout-*-<id>.jsonl under

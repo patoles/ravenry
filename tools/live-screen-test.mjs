@@ -25,6 +25,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium, webkit, devices } from 'playwright';
 import { trimScreen, tailLines, parseScreen } from '../server/screen.mjs';
+import { markEntries } from '../server/codespans.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'live-screen-test');
@@ -128,11 +129,115 @@ const crafted = [
   check('crafted: status agents carry task and time', JSON.stringify(r.status.agents) === JSON.stringify([{ type: 'general-purpose', task: 'Shoot the board at 390', took: '1m 4s' }, { type: 'Explore', task: 'Find the composer', took: '22s' }]), JSON.stringify(r.status.agents));
   check('crafted: status has the done line', r.status.done && r.status.done.when === '2:15 PM');
 }
+// Background notices (a report on 2026-11-04: "you can see sometimes there's
+// this kind of spam"): Claude Code prints one each time an agent stops on
+// its own background work, so a run of them is one row with a count.
+const WAIT = (who, t) => `⏺ Agent "${who}" is waiting on its own background work · ${t}`;
+const noticeScreen = (body) => [...body, RULE, '❯ ', RULE, '  ⏵⏵ auto mode on (shift+tab to cycle)', ''].join('\n');
+const sixteen = [];
+for (let i = 0; i < 16; i++) sixteen.push(WAIT('Finish Claude-only leftovers', `${9 + i}m ${10 + i}s`), '');
+{
+  const r = trimScreen(noticeScreen(['⏺ Hand-off deferred: not at a clean point.', '', ...sixteen]));
+  const t = r.entries.filter((e) => e.k === 't');
+  check('notices: 16 of the same notice with blank lines between are one entry with x 16', r.entries.length === 2 && t.length === 1 && t[0].x === 16, JSON.stringify(r.entries));
+  check('notices: the folded entry keeps the newest notice\'s text', t[0] && t[0].b === 'Agent "Finish Claude-only leftovers" is waiting on its own background work · 24m 25s', JSON.stringify(t[0]));
+  const one = trimScreen(noticeScreen([WAIT('Solo', '1m 2s')])).entries;
+  check('notices: a single notice has no count', one.length === 1 && one[0].b && !('x' in one[0]), JSON.stringify(one));
+}
+{
+  const body = [];
+  for (let i = 0; i < 4; i++) body.push(WAIT('Alpha', `${i}m 1s`), '', WAIT('Beta', `${i}m 2s`), '');
+  const t = trimScreen(noticeScreen(body)).entries;
+  check('notices: two agents interleaved do not fold across each other', t.length === 8 && t.every((e) => !e.x) && t.map((e) => e.b.slice(7, 11)).join(' ') === 'Alph Beta Alph Beta Alph Beta Alph Beta', JSON.stringify(t));
+}
+{
+  const t = trimScreen(noticeScreen([WAIT('Alpha', '1m 1s'), '', WAIT('Alpha', '1m 9s'), '', WAIT('Alpha', '2m 0s'), '', '⏺ Bash(git status)', '  ⎿  clean', '', WAIT('Alpha', '3m 1s'), '', WAIT('Alpha', '3m 5s'), ''])).entries;
+  check('notices: a tool call between makes two runs', t.length === 3 && t[0].x === 3 && t[1].n === 'Bash' && t[2].x === 2, JSON.stringify(t));
+}
+{
+  const t = trimScreen(noticeScreen([WAIT('Alpha', '1m 1s'), '', WAIT('Alpha', '1m 9s'), '', '⏺ Agent "Alpha" finished · 2m 0s', '', '⏺ Agent "Alpha" finished · 2m 0s', ''])).entries;
+  check('notices: the same agent\'s "finished" is its own run', t.length === 2 && t[0].x === 2 && /is waiting/.test(t[0].b) && t[1].x === 2 && /finished/.test(t[1].b), JSON.stringify(t));
+}
 {
   const shell = 'some output\n\n\nyou@mac:~/x % ls\nREADME.md\nyou@mac:~/x % \n';
   const r = trimScreen(shell);
   check('shell: no Claude, the lines verbatim in one block', !r.live && r.entries.length === 1 && r.entries[0].k === 'p' && r.entries[0].l.join('|') === 'some output||you@mac:~/x % ls|README.md|you@mac:~/x %', JSON.stringify(r.entries));
   check('null screen: nothing', trimScreen(null).entries.length === 0);
+}
+
+// Code blocks, inline code and Copy (a report on 2026-11-04 with a phone
+// screenshot: "some formatting issue"). The message as Claude wrote it; the
+// screen as Claude Code draws it (no backticks, a fenced block's lines at the
+// text column, every row word-wrapped at the terminal's width with the rest
+// of a wrapped row at the same column). One code block per fenced block,
+// whose text is the whole command; inline code stays inline.
+const NPM_CMD = '! cd ~/work/side-projects/ravenry-public && git push && npm publish --otp=<code>';
+const NPM_MD = 'Run this, with your npm code in place of `<code>`:\n\n```\n' + NPM_CMD + '\n```\n\nIf publish answers 404, your npm login has expired: run `! npm login`, then the line again. Once it\'s published, I\'ll install 0.3.0 on your Mac and restart the board so you see the switch and the folded notices.';
+// Markdown to Claude Code's screen rows at width w: backticks and fence lines
+// gone, each paragraph or code line greedily wrapped, "⏺ " on the first row.
+function drawReply(md, w) {
+  const rows = [];
+  let inFence = false;
+  for (const line of md.split('\n')) {
+    if (/^\s*```/.test(line)) { inFence = !inFence; continue; }
+    const text = inFence ? line : line.replace(/`/g, '');
+    if (!text.trim()) { rows.push(''); continue; }
+    const lead = text.match(/^ */)[0];
+    let cur = '  ' + lead;
+    let started = false;
+    for (const word of text.slice(lead.length).split(' ')) {
+      if (started && Array.from(cur + ' ' + word).length > w) { rows.push(cur); cur = '  ' + lead + word; continue; }
+      cur += (started ? ' ' : '') + word;
+      started = true;
+    }
+    rows.push(cur);
+  }
+  while (rows.length && !rows[rows.length - 1]) rows.pop();
+  rows[0] = '⏺ ' + rows[0].slice(2);
+  return rows;
+}
+const spanScreen = (rows, w) => [...rows, '', '─'.repeat(w), '❯ ', '─'.repeat(w), '  ⏵⏵ auto mode on (shift+tab to cycle)', ''].join('\n');
+let spanFile = 0;
+function marked(md, rows, w) {
+  const file = path.join(T, 'spans', `t${spanFile++}.jsonl`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ type: 'assistant', uuid: 'x' + spanFile, message: { role: 'assistant', content: [{ type: 'text', text: md }] } }) + '\n');
+  const es = markEntries(trimScreen(spanScreen(rows, w)).entries, file);
+  return es.find((e) => e.k === 'c') || {};
+}
+for (const w of [194, 80, 60]) {
+  const e = marked(NPM_MD, drawReply(NPM_MD, w), w);
+  const cs = e.cs || [];
+  const blocks = cs.filter((x) => x.b);
+  check(`code: at ${w} columns the fenced command is one code block whose text is the whole command`, blocks.length === 1 && blocks[0].t === NPM_CMD && blocks[0].whole === true && blocks[0].cmd === true, JSON.stringify(cs));
+  check(`code: at ${w} columns "<code>" in the sentence and "! npm login" are inline, not blocks`, JSON.stringify(cs.filter((x) => !x.b).map((x) => x.t)) === JSON.stringify(['<code>', '! npm login']), JSON.stringify(cs));
+  check(`code: at ${w} columns every piece is on screen text, "<code>" kept as text`, cs.every((x) => x.r.every(([li, a, z]) => e.l[li].slice(a, z).length > 0)) && e.l.join('\n').split('<code>').length === 3, JSON.stringify(e.l));
+}
+{
+  // The command wrapped by the terminal where the browser split it: the
+  // rest of the row on its own row at the text column.
+  const rows = drawReply(NPM_MD, 194);
+  const k = rows.findIndex((r) => r.includes('--otp='));
+  rows.splice(k, 1, rows[k].replace('<code>', ''), '  <code>');
+  const e = marked(NPM_MD, rows, 194);
+  const b = (e.cs || []).filter((x) => x.b);
+  check('code: a command row broken before "<code>" is still one block with the whole command', b.length === 1 && b[0].t === NPM_CMD && b[0].whole, JSON.stringify(e));
+}
+{
+  // A multi-line block with indentation, a blank line, && and quotes.
+  const code = ['npm ci', '  node tools/x.mjs --name "a b" && echo \'done <ok>\'', '', 'npm test'];
+  const md = 'Then:\n\n```sh\n' + code.join('\n') + '\n```\n\nThe last word is `npm test`';
+  const e = marked(md, drawReply(md, 100), 100);
+  const b = (e.cs || []).filter((x) => x.b);
+  check('code: a multi-line block is one block copying its source exactly (indent, blank line, && and quotes)', b.length === 1 && b[0].t === code.join('\n') && b[0].whole && !b[0].cmd, JSON.stringify(e.cs));
+  const end = (e.cs || []).find((x) => !x.b);
+  check('code: inline code at the end of a line stays inline', !!end && end.t === 'npm test' && e.l[end.r[0][0]].endsWith('npm test'), JSON.stringify(e.cs));
+  // Its first line scrolled off: the rest is a block of what is on screen.
+  const rows = drawReply(md, 100);
+  const cut = rows.slice(rows.findIndex((r) => /node tools/.test(r)));
+  const p = marked(md, cut, 100);
+  const pb = (p.cs || []).filter((x) => x.b);
+  check('code: part of a block on screen is a block of the lines shown', pb.length === 1 && !pb[0].whole && pb[0].t === [code[1].trim(), code[3]].join('\n'), JSON.stringify(p.cs));
 }
 
 // parseScreen is unchanged: the same outputs as the module before this work.
@@ -200,6 +305,8 @@ const MD = {
   plain: 'Plain words this time: npm login and ravenry-public, said again without any code at all.',
   cmd: 'Your browser may keep the old favicon for a while. To publish the package, run `! npm login` in this prompt, then I run `npm publish --access public --tag next --registry https://registry.npmjs.org/` from `ravenry-public`. After that, npm login is not needed again.',
   broken: 'The fixture lives in `tools/fixtures/live/checks.mjs` and the test reads it.\n\n```sh\nnode tools/live-screen-test.mjs\n```',
+  npm: NPM_MD,
+  alone: 'If it asks who you are, check the login first:\n\n`! npm whoami`',
 };
 const rec = (text, n) => JSON.stringify({ type: 'assistant', uuid: 'u' + n, message: { role: 'assistant', content: [{ type: 'text', text }] } });
 const writeTranscript = (keys) => fs.writeFileSync(TRANSCRIPT, keys.map((k, n) => rec(MD[k], n)).join('\n') + '\n');
@@ -343,8 +450,8 @@ async function menuChecks(page, tag, phone) {
 // Every chip copies (a plain command like npm start is worth copying too): on a
 // desktop a Copy floats past any chip's end on hover, nothing at rest; on a
 // phone a tap on any chip copies it and rings it green with a check. The
-// copied text is the whole span, a wrapped one too; the "! " chips are as
-// they were (the checks above).
+// copied text is the whole span, a wrapped one too; "! npm login" in its
+// sentence is such a chip. The code block's own Copy is checked above.
 async function plainChipChecks(page, tag, phone) {
   const w = phone ? 390 : 1440;
   const SHOT = process.env.CHIP_SHOTS || SHOTS;
@@ -435,13 +542,19 @@ async function plainChipChecks(page, tag, phone) {
   const c3 = await rec();
   check(`${tag}: chips: without navigator.clipboard, a tap copies the exact text through the fallback`, c3.length === 1 && c3[0].via === 'execCommand' && c3[0].t === 'ravenry-public' && !(await fsOpen()), JSON.stringify(c3));
   await page.evaluate(() => { delete navigator.clipboard; });
-  // A "! " chip's own text copies too; its pill shows Copied as before.
+  // A code block's own text copies too; its pill shows Copied.
   await page.waitForTimeout(1700);
-  await page.locator('#lv-lines .cdw .cd').first().tap({ position: { x: 6, y: 6 } });
+  await page.locator('#lv-lines .cb').first().tap({ position: { x: 6, y: 6 } });
   await page.waitForTimeout(200);
   const c4 = await rec();
   const pill = await page.$eval('#lv-lines .cpm', (b) => b.classList.contains('done') && /Copied/.test(b.textContent));
-  check(`${tag}: chips: a tap on the "! " chip's text copies the command and its pill says Copied`, c4.length === 1 && c4[0].t === '! npm login' && pill && !(await fsOpen()), JSON.stringify(c4));
+  check(`${tag}: chips: a tap on a code block's text copies the block and its pill says Copied`, c4.length === 1 && c4[0].t === 'node tools/live-screen-test.mjs' && pill && !(await fsOpen()), JSON.stringify(c4));
+  // "! npm login" in its sentence is a chip like any other: a tap copies it, no pill.
+  await page.waitForTimeout(1700);
+  await chip('! npm login').tap();
+  await page.waitForTimeout(200);
+  const c6 = await rec();
+  check(`${tag}: chips: a tap on "! npm login" in its sentence copies it`, c6.length === 1 && c6[0].t === '! npm login' && !(await fsOpen()), JSON.stringify(c6));
   // Full screen: the tapped state as he sees it.
   await page.waitForTimeout(1700);
   await page.tap('#lv-tap');
@@ -478,7 +591,7 @@ async function spanChecks(page, ctx, tag, phone) {
   });
   check(`${tag}: spans: incremental update redraws the reply when its spans arrive, and only it`, got && inc.reDrawn && inc.othersKept, JSON.stringify(inc));
   const marks = await page.evaluate(() => {
-    const text = (cd) => Array.from(cd.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('');
+    const text = (cd) => (cd.querySelector('.cbt') ? cd.querySelector('.cbt').textContent : Array.from(cd.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join(''));
     const ent = (re) => Array.from(document.querySelectorAll('#lv-lines > .e')).find((x) => re.test(x.textContent));
     const chips = (n) => (n ? Array.from(n.querySelectorAll('.cd')).map(text) : []);
     const cmd = ent(/To publish the package/);
@@ -490,8 +603,9 @@ async function spanChecks(page, ctx, tag, phone) {
       user: chips(document.querySelector('#lv-lines > .e.u')),
       tool: chips(document.querySelector('#lv-lines > .e.t')),
       broken: chips(ent(/The fixture lives/)),
-      buttons: Array.from(cmd.querySelectorAll('.cp[data-lv-copy], .cpm[data-lv-copy]')).map((b) => b.dataset.lvCopy),
-      brokenButtons: ent(/The fixture lives/).querySelectorAll('.cp, .cpm').length,
+      buttons: Array.from(document.querySelectorAll('#lv-lines .cp[data-lv-copy], #lv-lines .cpm[data-lv-copy]')).map((b) => b.dataset.lvCopy),
+      cmdButtons: cmd.querySelectorAll('.cp, .cpm').length,
+      blocks: Array.from(document.querySelectorAll('#lv-lines .cb')).map(text),
       style: st(cmd.querySelector('.cd')),
       longLines: long ? long.getClientRects().length : 0,
       cmdText: cmd.textContent,
@@ -502,19 +616,19 @@ async function spanChecks(page, ctx, tag, phone) {
   check(`${tag}: spans: a message without code marks nothing, though its words are code elsewhere`, marks.plain.length === 0, JSON.stringify(marks.plain));
   check(`${tag}: spans: user and tool lines are never marked`, marks.user.length === 0 && marks.tool.length === 0, JSON.stringify([marks.user, marks.tool]));
   check(`${tag}: spans: a span broken over two lines is two pieces, and the fenced block's line is marked`, JSON.stringify(marks.broken) === JSON.stringify(['tools/fixtures/', 'live/checks.mjs', 'node tools/live-screen-test.mjs']), JSON.stringify(marks.broken));
-  check(`${tag}: spans: only the "! " command has a copy button (icon and pill)`, JSON.stringify(marks.buttons) === JSON.stringify(['! npm login', '! npm login']) && marks.brokenButtons === 0, JSON.stringify(marks.buttons));
+  check(`${tag}: spans: only the code block has a copy button (icon and pill); "! npm login" in its sentence has none`, JSON.stringify(marks.buttons) === JSON.stringify(['node tools/live-screen-test.mjs', 'node tools/live-screen-test.mjs']) && marks.cmdButtons === 0 && JSON.stringify(marks.blocks) === JSON.stringify(['node tools/live-screen-test.mjs']), JSON.stringify(marks));
   check(`${tag}: spans: chip is periwinkle on an 8% tint, 4 px radius, cloned across wraps`, marks.style.color === 'rgb(177, 185, 249)' && marks.style.bg === 'rgba(255, 255, 255, 0.08)' && marks.style.radius === '4px' && marks.style.clone === 'clone', JSON.stringify(marks.style));
   check(`${tag}: spans: the long span wraps over lines in the card`, marks.longLines >= 2, String(marks.longLines));
 
   // The copy button: the one this width shows.
   const sel = phone ? '#lv-lines .cpm' : '#lv-lines .cp';
   const vis = await page.evaluate(() => ({ cp: getComputedStyle(document.querySelector('#lv-lines .cp')).display, cpm: getComputedStyle(document.querySelector('#lv-lines .cpm')).display }));
-  check(`${tag}: spans: ${phone ? 'the pill shows, the icon does not' : 'the icon shows, the pill does not'}`, phone ? vis.cpm === 'inline-flex' && vis.cp === 'none' : vis.cp === 'inline-flex' && vis.cpm === 'none', JSON.stringify(vis));
+  check(`${tag}: spans: ${phone ? 'the pill shows, the icon does not' : 'the icon shows, the pill does not'}`, phone ? vis.cpm === 'flex' && vis.cp === 'none' : vis.cp === 'flex' && vis.cpm === 'none', JSON.stringify(vis));
   if (phone) {
-    const geo = await page.evaluate(() => { const b = document.querySelector('#lv-lines .cpm').getBoundingClientRect(); const c = document.querySelector('#lv-lines .cdw .cd').getClientRects(); const last = c[c.length - 1]; return { h: b.height, same: Math.abs((b.top + b.bottom) / 2 - (last.top + last.bottom) / 2) < 8 && b.left >= last.right }; });
-    check(`${tag}: spans: the pill is 32 px and on its chip's line`, geo.h === 32 && geo.same, JSON.stringify(geo));
+    const geo = await page.evaluate(() => { const b = document.querySelector('#lv-lines .cpm').getBoundingClientRect(); const c = document.querySelector('#lv-lines .cb').getBoundingClientRect(); return { h: b.height, same: Math.abs(b.bottom - c.bottom) <= 3 && b.left >= c.right }; });
+    check(`${tag}: spans: the pill is 32 px, after its block, at the block's end`, geo.h === 32 && geo.same, JSON.stringify(geo));
   } else {
-    await page.hover('#lv-lines .cdw .cd');
+    await page.hover('#lv-lines .cb');
     const hov = await page.$eval('#lv-lines .cp', (b) => ({ word: getComputedStyle(b.querySelector('.w')).display, text: b.textContent.trim() }));
     check(`${tag}: spans: hover on the chip shows "Copy"`, hov.word !== 'none' && hov.text === 'Copy', JSON.stringify(hov));
     await page.screenshot({ path: path.join(SHOTS, `spans-card-hover-${w}.png`) });
@@ -533,10 +647,10 @@ async function spanChecks(page, ctx, tag, phone) {
   await page.click(sel);
   const done1 = await waitFor(page, (q) => { const b = document.querySelector(q); return b.classList.contains('done') && /Copied/.test(b.textContent); }, sel, 3000);
   const c1 = await page.evaluate(() => window.__copied.slice());
-  check(`${tag}: spans: copy writes "! npm login" with navigator.clipboard, then shows Copied`, done1 && c1.length && c1[0].via === 'clipboard' && c1[0].t === '! npm login', JSON.stringify(c1));
+  check(`${tag}: spans: copy writes the block with navigator.clipboard, then shows Copied`, done1 && c1.length && c1[0].via === 'clipboard' && c1[0].t === 'node tools/live-screen-test.mjs', JSON.stringify(c1));
   if (!phone) {
     const real = await page.evaluate(() => navigator.clipboard.readText().catch((e) => 'ERR ' + e.message));
-    check(`${tag}: spans: the clipboard really holds "! npm login"`, real === '! npm login', real);
+    check(`${tag}: spans: the clipboard really holds the block`, real === 'node tools/live-screen-test.mjs', real);
   }
   check(`${tag}: spans: tapping the button does not open full screen`, (await page.evaluate(() => !document.querySelector('#lv-fs').hidden)) === before);
   await page.screenshot({ path: path.join(SHOTS, `spans-copied-${w}.png`) });
@@ -548,10 +662,10 @@ async function spanChecks(page, ctx, tag, phone) {
   await page.click(sel);
   const done2 = await waitFor(page, (q) => document.querySelector(q).classList.contains('done'), sel, 3000);
   const c2 = await page.evaluate(() => window.__copied.slice());
-  check(`${tag}: spans: without navigator.clipboard, a hidden textarea and execCommand copy the exact text`, done2 && c2.length === 1 && c2[0].via === 'execCommand' && c2[0].t === '! npm login', JSON.stringify(c2));
+  check(`${tag}: spans: without navigator.clipboard, a hidden textarea and execCommand copy the exact text`, done2 && c2.length === 1 && c2[0].via === 'execCommand' && c2[0].t === 'node tools/live-screen-test.mjs', JSON.stringify(c2));
   if (!phone) {
     const real = await page.evaluate(() => window.__clip.readText().catch((e) => 'ERR ' + e.message));
-    check(`${tag}: spans: the fallback really put "! npm login" on the clipboard`, real === '! npm login', real);
+    check(`${tag}: spans: the fallback really put the block on the clipboard`, real === 'node tools/live-screen-test.mjs', real);
   }
   check(`${tag}: spans: the fallback leaves no textarea behind`, await page.evaluate(() => !document.querySelector('body > textarea')));
   await page.evaluate(() => { delete navigator.clipboard; });
@@ -561,7 +675,7 @@ async function spanChecks(page, ctx, tag, phone) {
   await page.click(phone ? '#lv-tap' : '#lv-exp');
   await page.waitForTimeout(400);
   check(`${tag}: spans: full screen shows the chips`, await page.evaluate(() => document.querySelectorAll('#lv-fs .cd').length >= 6));
-  if (!phone) await page.hover('#lv-lines .cdw .cd');
+  if (!phone) await page.hover('#lv-lines .cb');
   await page.screenshot({ path: path.join(SHOTS, `spans-full-${w}.png`) });
   if (phone) {
     await page.click('#lv-fs .cpm');
@@ -609,6 +723,120 @@ async function spanChecks(page, ctx, tag, phone) {
   await page.click('#lv-fs [data-lv-close]');
   await page.evaluate(() => document.querySelector('#theme').click());
   await page.waitForTimeout(200);
+}
+
+// The message from the report ("some formatting issue"), on the page: the
+// fenced command is one code block whose Copy copies all of it, "<code>" is
+// text, and "! npm login" stays in its sentence at the text's line height.
+async function npmMessageChecks(page, tag, w, phone) {
+  writeTranscript(['plain', 'cmd', 'broken', 'npm', 'alone']);
+  setSteps(2, [...SPAN_TAIL, ...drawReply(NPM_MD, BW), '', ...drawReply(MD.alone, BW), '']);
+  const shown = await waitFor(page, () => { const e = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); return e && e.querySelector('.cb'); }, null, 12000);
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(1700);
+  const v = await page.evaluate(() => {
+    const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent));
+    const blocks = Array.from(ent.querySelectorAll('.cb'));
+    const b = blocks[0];
+    const chips = Array.from(ent.querySelectorAll('.cd')).map((c) => (c.querySelector('.cbt') ? c.querySelector('.cbt').textContent : Array.from(c.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')));
+    const para = Array.from(ent.querySelectorAll('.x > div')).find((d) => /If publish answers 404/.test(d.textContent));
+    const lh = parseFloat(getComputedStyle(document.querySelector('#lv-scroll')).lineHeight);
+    const range = document.createRange();
+    range.selectNodeContents(para);
+    // Line tops: a chip's box starts a pixel above its line's text, so tops
+    // within 4 px are one line.
+    const tops = [];
+    for (const t of Array.from(range.getClientRects()).filter((r) => r.width > 0).map((r) => r.top).sort((x, y) => x - y)) if (!tops.length || t - tops[tops.length - 1] > 4) tops.push(t);
+    // The words as read: buttons (hidden or not) are not text.
+    const words = (n) => { const c = n.cloneNode(true); for (const x of c.querySelectorAll('button')) x.remove(); return c.textContent; };
+    const rows = Math.round(para.getBoundingClientRect().height / lh);
+    const sc = document.querySelector('#lv-scroll').getBoundingClientRect();
+    const wrap = b.closest('.cbw').getBoundingClientRect();
+    return {
+      blocks: blocks.length,
+      text: b.querySelector('.cbt').textContent,
+      oneBox: b.querySelector('.cbt').children.length === 0,
+      copies: Array.from(b.closest('.cbw').querySelectorAll('[data-lv-copy]')).map((x) => x.dataset.lvCopy),
+      chips,
+      codeEls: document.querySelectorAll('#lv-lines code').length,
+      prose: /in place of <code>:/.test(words(ent)),
+      paraButtons: para.querySelectorAll('.cp, .cpm, .cbw').length,
+      paraShown: Array.from(para.querySelectorAll('button')).filter((x) => getComputedStyle(x).display !== 'none').length,
+      inSentence: /run ! npm login, then the line again/.test(words(para)),
+      lh, rows, h: para.getBoundingClientRect().height, steps: tops.slice(1).map((t, k) => Math.round((t - tops[k]) * 10) / 10),
+      inside: wrap.right <= sc.right + 0.5 && wrap.left >= sc.left,
+      sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth,
+    };
+  });
+  const CMD = NPM_CMD;
+  const alone = await page.evaluate(() => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /check the login first/.test(x.textContent)); const b = ent && ent.querySelector('.cb'); return b ? { text: b.querySelector('.cbt').textContent, copy: b.querySelector('[data-lv-copy]').dataset.lvCopy, inline: ent.querySelectorAll('.cd.pl').length } : null; });
+  check(`${tag}: npm: a "! " command alone on its line is a code block with Copy`, !!alone && alone.text === '! npm whoami' && alone.copy === '! npm whoami' && alone.inline === 0, JSON.stringify(alone));
+  check(`${tag}: npm: the fenced command is one code block showing the whole command`, shown && v.blocks === 1 && v.text === CMD && v.oneBox, JSON.stringify(v));
+  check(`${tag}: npm: its Copy copies the whole command, <code> included`, v.copies.length === 2 && v.copies.every((c) => c === CMD), JSON.stringify(v.copies));
+  check(`${tag}: npm: the reply's code is "<code>", the block and "! npm login", nothing split`, JSON.stringify(v.chips) === JSON.stringify(['<code>', CMD, '! npm login']), JSON.stringify(v.chips));
+  check(`${tag}: npm: "<code>" is shown as text, never as markup`, v.prose && v.codeEls === 0, JSON.stringify(v));
+  check(`${tag}: npm: "! npm login" stays in its sentence, no button in the line at rest`, v.inSentence && v.paraButtons === 0 && v.paraShown === 0, JSON.stringify(v));
+  check(`${tag}: npm: the sentence keeps its line height (every line step is one line)`, v.steps.length >= 1 && v.steps.every((d) => Math.abs(d - v.lh) <= 1) && Math.abs(v.h - v.rows * v.lh) <= 1, JSON.stringify({ lh: v.lh, steps: v.steps, h: v.h, rows: v.rows }));
+  check(`${tag}: npm: the block fits the screen, no sideways scroll`, v.inside && v.sw <= v.cw, JSON.stringify(v));
+  // The message itself in view, from its first line.
+  const toMessage = () => page.evaluate(() => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); const sc = document.querySelector('#lv-scroll'); sc.scrollTop += ent.getBoundingClientRect().top - sc.getBoundingClientRect().top - 12; });
+  await page.$eval('#lv-card', (el) => el.scrollIntoView({ block: 'start' }));
+  await toMessage();
+  await page.waitForTimeout(200);
+  await (await page.$('#lv-card')).screenshot({ path: path.join(SHOTS, `npm-message-${w}-card.png`) });
+  // Copy, with the button this width shows.
+  await page.evaluate(() => {
+    window.__copied = [];
+    if (!window.__npmHook) {
+      window.__npmHook = true;
+      document.addEventListener('copy', (e) => { const t = e.target && e.target.value != null ? e.target.value : String(getSelection()); window.__copied.push({ via: 'execCommand', t }); });
+      if (navigator.clipboard) { const orig = navigator.clipboard.writeText.bind(navigator.clipboard); navigator.clipboard.writeText = (t) => { window.__copied.push({ via: 'clipboard', t }); return orig(t); }; }
+    }
+  });
+  const btn = phone ? '.cpm' : '.cp';
+  await page.evaluate((q) => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); ent.querySelector(q).click(); }, btn);
+  const done = await waitFor(page, (q) => { const ent = Array.from(document.querySelectorAll('#lv-lines > .e.c')).find((x) => /Run this, with your npm code/.test(x.textContent)); const b = ent.querySelector(q); return b.classList.contains('done') && /Copied/.test(b.textContent); }, btn, 3000);
+  const got = await page.evaluate(() => window.__copied.splice(0));
+  check(`${tag}: npm: Copy puts exactly the command on the clipboard and says Copied`, done && got.length >= 1 && got[got.length - 1].t === CMD, JSON.stringify(got));
+  await page.waitForTimeout(1700);
+  await page.click(phone ? '#lv-tap' : '#lv-exp');
+  await page.waitForTimeout(400);
+  const fs1 = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth, n: document.querySelectorAll('#lv-fs .cb').length }));
+  check(`${tag}: npm: full screen shows the same block, no sideways scroll`, fs1.n >= 2 && fs1.sw <= fs1.cw, JSON.stringify(fs1));
+  await toMessage();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(SHOTS, `npm-message-${w}-full.png`) });
+  await page.click('#lv-fs [data-lv-close]');
+  await page.waitForTimeout(300);
+  setSteps(130);
+  await waitFor(page, () => /Step 130:/.test(document.querySelector('#lv-lines').textContent), null, 12000);
+}
+
+// A run of 16 of the same background notice on the page: one row, the text
+// cut with an ellipsis where it does not fit, the count always in view.
+async function noticeChecks(page, tag, w) {
+  setSteps(2, ['⏺ Hand-off deferred: not at a clean point. The hook asks again at a later stop.', '', ...sixteen]);
+  const shown = await waitFor(page, () => /×16/.test(document.querySelector('#lv-lines').textContent), null, 12000);
+  await page.waitForTimeout(300);
+  const v = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('#lv-lines > .e')).filter((e) => /is waiting on its own background work/.test(e.textContent));
+    const row = rows[0];
+    if (!row) return { rows: 0 };
+    const tb = row.querySelector('.tn .tb');
+    const more = row.querySelector('.tn .more');
+    const x = row.querySelector('.x').getBoundingClientRect();
+    const m = more.getBoundingClientRect();
+    return { rows: rows.length, count: more.textContent, cut: tb.scrollWidth > tb.clientWidth, ellipsis: getComputedStyle(tb).textOverflow, inView: m.width > 0 && m.right <= x.right + 0.5 && m.left >= x.left, colour: getComputedStyle(more).color, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth };
+  });
+  check(`${tag}: notices: 16 of the same notice are one row ending in ×16`, shown && v.rows === 1 && v.count === '×16', JSON.stringify(v));
+  check(`${tag}: notices: the count stays in view, in the dim "+N lines" colour`, v.inView && v.colour === 'rgb(74, 74, 80)' && v.ellipsis === 'ellipsis' && v.sw <= v.cw, JSON.stringify(v));
+  if (w < 600) check(`${tag}: notices: on a phone the text is cut, not the count`, v.cut, JSON.stringify(v));
+  await page.$eval('#lv-card', (el) => el.scrollIntoView({ block: 'start' }));
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(SHOTS, `notices-${w}.png`) });
+  await (await page.$('#lv-card')).screenshot({ path: path.join(SHOTS, `notices-${w}-card.png`) });
+  setSteps(130);
+  await waitFor(page, () => /Step 130:/.test(document.querySelector('#lv-lines').textContent), null, 12000);
 }
 
 try {
@@ -779,9 +1007,25 @@ try {
       await page.waitForTimeout(200);
       check(`${tag}: the Exit full screen button closes it`, await page.$eval('#lv-fs', (l) => l.hidden));
     }
+    await noticeChecks(page, tag, phone ? 390 : 1440);
     await spanChecks(page, ctx, tag, phone);
+    await npmMessageChecks(page, tag, phone ? 390 : 1440, phone);
     await menuChecks(page, tag, phone);
     check(`${tag}: no page errors`, errs.length === 0, errs.join(' | '));
+    await browser.close();
+  }
+  {
+    // A phone in Chrome on Android, 412 wide.
+    const browser = await chromium.launch({ headless: true });
+    const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2.625, isMobile: true, hasTouch: true, colorScheme: 'dark' });
+    const page = await ctx.newPage();
+    const errs = [];
+    page.on('pageerror', (e) => errs.push(e.message));
+    await page.goto(`http://127.0.0.1:${PORT}/?theme=dark#live`);
+    await page.waitForSelector('#lv-lines .e', { timeout: 15000 });
+    await noticeChecks(page, 'chromium 412', 412);
+    await npmMessageChecks(page, 'chromium 412', 412, true);
+    check('chromium 412: no page errors', errs.length === 0, errs.join(' | '));
     await browser.close();
   }
 } finally {

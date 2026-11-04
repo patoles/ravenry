@@ -14,6 +14,9 @@
 // brief and the rules are in the prompt), a JSON schema for the answer, and
 // the answer checked again here (validateDraft). Each call logs its time and
 // tokens to the board's output and to <RAVENRY_HOME>/plans/calls.jsonl.
+// When new sessions start with Codex (cfg.printAssistant, server/assistant.mjs
+// printWith) the same prompts and schema go to `codex exec` instead
+// (callCodex, docs/ASSISTANTS.md "Print mode").
 //
 // Files: the goal box, the chat box and a step's comment box take files
 // (saved into the project's .inbox by the composer's route). They become the
@@ -32,6 +35,7 @@ import { spawn } from 'node:child_process';
 
 import { RAVENRY_HOME } from './home.mjs';
 import * as repeats from './repeats.mjs';
+import * as asst from './assistant.mjs';
 import { plainRule } from './rules.mjs';
 import { oneLine, KINDS } from './planfmt.mjs';
 
@@ -260,10 +264,14 @@ const HOW = [
 
 // What the model is told about the files: each path, why the user sent it (their
 // words, where they said them), and to name a file in a step that uses it.
-export function filesBlock(refs) {
+// Codex has no Read tool in a board call (server/codexexec.mjs): its
+// pictures go with the prompt and the other files' text after it.
+export function filesBlock(refs, kind = 'claude') {
   if (!refs || !refs.length) return '';
   return [
-    'Files the user attached (references). Read each one with the Read tool before you plan; they are part of what they want:',
+    kind === 'codex'
+      ? 'Files the user attached (references). The pictures among them are attached to this message and the text of the others is at the end; look at each one before you plan; they are part of what they want:'
+      : 'Files the user attached (references). Read each one with the Read tool before you plan; they are part of what they want:',
     ...refs.map((r) => `- ${r.path} (${r.where || 'attached'}${r.note ? `: "${oneLine(r.note)}"` : ''})`),
     'When a step depends on one of them, name the file in that step by its path from the project folder, like "match the look of .inbox/style.png". The board also lists them under the plan as References.',
   ].join('\n');
@@ -275,18 +283,18 @@ function rulesBlock(rules) {
 
 const stepsJson = (steps) => JSON.stringify(steps.map((s) => ({ id: s.id, kind: s.kind, text: s.text, detail: s.detail || '', arms: s.arms || [], choices: s.choices || [], rule: s.ruleId || '', ...(s.locked ? { done: true } : {}) })), null, 1);
 
-export function draftPrompt({ project, brief, rules, goal, own, refs = [] }) {
+export function draftPrompt({ project, brief, rules, goal, own, refs = [], kind = 'claude' }) {
   return [
     projectContext(project, brief), '', rulesBlock(rules), '', ...HOW, '',
-    ...(refs.length ? [filesBlock(refs), ''] : []),
+    ...(refs.length ? [filesBlock(refs, kind), ''] : []),
     own
       ? `The user wrote the plan themselves, in their words below. Turn it into steps, keeping their words and their order. Ask a question only where their words leave a step that cannot be checked or that could go two ways. reply: one sentence, like "Here are your steps." plus why you ask, if you ask.\n\nTheir words: "${oneLine(own)}"`
       : `What the user wants done: "${oneLine(goal)}"\n\nDraft the plan. Every step gets id "new". reply: one sentence, like "Here is a draft plan." and, when you ask questions, why, in a few words ("Two questions first, because a wrong guess would change the steps:").`,
   ].join('\n');
 }
 
-export function revisePrompt({ project, brief, rules, goal, steps, asks, answers, openQuestions, refs = [] }) {
-  const l = [projectContext(project, brief), '', rulesBlock(rules), '', ...HOW, '', `What the user wants done: "${oneLine(goal)}"`, '', ...(refs.length ? [filesBlock(refs), ''] : []), 'The plan now (JSON):', stepsJson(steps), ''];
+export function revisePrompt({ project, brief, rules, goal, steps, asks, answers, openQuestions, refs = [], kind = 'claude' }) {
+  const l = [projectContext(project, brief), '', rulesBlock(rules), '', ...HOW, '', `What the user wants done: "${oneLine(goal)}"`, '', ...(refs.length ? [filesBlock(refs, kind), ''] : []), 'The plan now (JSON):', stepsJson(steps), ''];
   if (answers.length) l.push('The user answered your questions:', ...answers.map((a) => `- ${a.q} -> ${a.a}`), '');
   if (asks.length) l.push('The user asks for these changes:', ...asks.map((a) => `- ${a}`), '');
   l.push(openQuestions.length ? `Questions still open: ${openQuestions.map((q) => q.text).join(' | ')}. Ask them again only if they still matter.` : 'Ask no question again that they answered.');
@@ -303,7 +311,46 @@ function logCall(rec) {
   console.log(`plans: ${rec.what} for ${rec.project} in ${(rec.ms / 1000).toFixed(1)} s, ${u ? `${u.in} tokens in, ${u.out} out${u.cost ? `, $${u.cost.toFixed(3)}` : ''}` : 'no usage reported'}${rec.ok ? '' : `, failed: ${rec.error}`}`);
 }
 
+// Codex's call (cfg.printAssistant 'codex'): `codex exec` with the plan's
+// SCHEMA as --output-schema, no tools, the system words first in the
+// prompt (exec has no system prompt of its own), the attached pictures with
+// -i and the other files' text appended (at most 40 KB each).
+export const SYSTEM_CODEX = 'You turn what the user wants done in one of their projects into a plan that a coding agent session (Claude Code or Codex) will run there on its own, step by step. Answer only with the JSON object the output schema describes. Plain words, no em dashes.';
+const MAX_TEXT_REF = 40 * 1024;
+// Measured on three real drafts (2026-11-04): at low effort one plan for a
+// Settings change had no picture gate and opened with a "done" step; at
+// medium it had the gate and read right (18 s against 13 s).
+const PLAN_EFFORT = 'medium';
+
+export function codexPrompt(prompt, files = []) {
+  const texts = [];
+  for (const f of files) {
+    if (IMAGE_RE.test(f)) continue;
+    let t = '';
+    try { const b = fs.readFileSync(f); t = b.subarray(0, MAX_TEXT_REF).toString('utf8'); if (b.length > MAX_TEXT_REF) t += '\n[cut at 40 KB]'; } catch { continue; }
+    texts.push(`File ${f}:\n\`\`\`\n${t}\n\`\`\``);
+  }
+  return [SYSTEM_CODEX, '', prompt, ...(texts.length ? ['', 'The text of the attached files:', '', texts.join('\n\n')] : [])].join('\n');
+}
+
+async function callCodex(cfg, prompt, { key, onChild, files = [] }) {
+  const r = await asst.runCodex({
+    prompt: codexPrompt(prompt, files), schema: SCHEMA, images: files.filter((f) => IMAGE_RE.test(f)),
+    cwd: files.length ? EMPTY : DIR, timeoutMs: cfg.planTimeoutMs, settings: cfg.printSettings || {},
+    envExtra: { MC_PLAN_JOB: key || '1' }, onChild, stopped: () => stopped.has(key), what: 'plan', effort: PLAN_EFFORT,
+  });
+  const usage = r.usage ? { in: r.usage.in, out: r.usage.out, cost: null, model: r.model || null } : null;
+  if (r.stopped) return { ok: false, error: 'Stopped.', stopped: true };
+  if (r.timedOut) return { ok: false, error: `No answer after ${Math.round(cfg.planTimeoutMs / 1000)} s, so it was stopped. Try again.` };
+  if (!r.ok) return { ok: false, usage, error: `Codex stopped without an answer (${r.error}).` };
+  let data = null;
+  try { data = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { /* prose */ }
+  if (!data) return { ok: false, usage, error: 'Codex gave no plan (its answer was not JSON).' };
+  return { ok: true, data, usage };
+}
+
 export function callModel(cfg, prompt, { key, onChild, files = [] } = {}) {
+  if (cfg.printAssistant === 'codex') return callCodex(cfg, prompt, { key, onChild, files });
   return new Promise((resolve) => {
     const { cmd, args, cwd } = callArgs(cfg, files);
     fs.mkdirSync(cwd, { recursive: true });
@@ -347,11 +394,15 @@ const stopped = new Set();
 const fileOf = (id) => path.join(DRAFTS, `${String(id).replace(/[^\w.-]+/g, '-')}.json`);
 const now = () => new Date().toISOString();
 
+// The assistant drafting (busy.who, from cfg.printAssistant when the job
+// started), by name; a job recorded with none was Claude's.
+export const busyWho = (busy) => asst.of(busy && busy.who === 'codex' ? 'codex' : 'claude').SHORT;
+
 export function get(id) {
   if (drafts.has(id)) return drafts.get(id);
   let d = null;
   try { d = JSON.parse(fs.readFileSync(fileOf(id), 'utf8')); } catch { /* none */ }
-  if (d && d.busy) { d.busy = null; d.error = d.error || 'The board restarted while Claude was drafting. Send it again.'; }
+  if (d && d.busy) { const k = busyWho(d.busy); d.busy = null; d.error = d.error || `The board restarted while ${k} was drafting. Send it again.`; }
   drafts.set(id, d);
   return d;
 }
@@ -399,7 +450,7 @@ export function view(id) {
 }
 
 async function run(d, what, prompt, ctx, apply) {
-  d.busy = { since: now(), what };
+  d.busy = { since: now(), what, who: ctx.kind };
   d.error = null;
   save(d);
   const t0 = Date.now();
@@ -423,14 +474,15 @@ async function run(d, what, prompt, ctx, apply) {
   cur.busy = null;
   cur.calls = [...(cur.calls || []), ...calls.map((c) => ({ what, ...c }))];
   if (wasStopped) { cur.error = null; save(cur); return; }
-  if (!r.ok || !v.ok) { cur.error = r.ok ? `Claude's plan did not check out: ${v.error}` : r.error; save(cur); return; }
+  if (!r.ok || !v.ok) { cur.error = r.ok ? `${ctx.who}'s plan did not check out: ${v.error}` : r.error; save(cur); return; }
   apply(cur, v.value);
   save(cur);
 }
 
 function ctxFor(cfg, project, refs = []) {
   const rules = collectRules(cfg, project);
-  return { cfg, rules, ruleMap: new Map(rules.map((r) => [r.id, r.text])), refs: readableRefs(project, refs) };
+  const kind = cfg.printAssistant === 'codex' ? 'codex' : 'claude';
+  return { cfg, rules, ruleMap: new Map(rules.map((r) => [r.id, r.text])), refs: readableRefs(project, refs), kind, who: kind === 'codex' ? 'Codex' : 'Claude' };
 }
 
 // New files as references of the draft and as the chips under their message.
@@ -441,7 +493,7 @@ function addRefs(d, files, note, where) {
 }
 
 function guardBusy(d) {
-  if (d && d.busy) { const e = new Error('Claude is still on the last change. Wait for it, or press Stop.'); e.status = 409; throw e; }
+  if (d && d.busy) { const e = new Error(`${busyWho(d.busy)} is still on the last change. Wait for it, or press Stop.`); e.status = 409; throw e; }
 }
 
 // The first draft, from the goal sentence (or from the user's own words).
@@ -454,14 +506,14 @@ export function start(project, brief, { goal, own, files }, cfg) {
   const chips = addRefs(d, attached, words, own ? 'with the plan they wrote' : 'with what they want done');
   d.thread.push({ who: 'you', text: words, ...(chips.length ? { files: chips } : {}), at: now() });
   const ctx = ctxFor(cfg, project, d.refs);
-  run(d, own ? 'structure' : 'draft', draftPrompt({ project, brief, rules: ctx.rules, goal: words, own, refs: ctx.refs }), ctx, (cur, v) => {
+  run(d, own ? 'structure' : 'draft', draftPrompt({ project, brief, rules: ctx.rules, goal: words, own, refs: ctx.refs, kind: ctx.kind }), ctx, (cur, v) => {
     let n = 0;
     cur.title = v.title;
     cur.steps = v.steps.map((s) => ({ ...s, id: 's' + (++n) }));
     const qs = v.questions.map((q, k) => ({ id: `q${k + 1}`, text: q.text, options: q.options, answer: null }));
     cur.questions = qs;
     cur.marks = {};
-    cur.thread.push({ who: 'claude', text: v.reply || 'Here is a draft plan.', questions: qs.map((q) => q.id), at: now() });
+    cur.thread.push({ who: ctx.kind, text: v.reply || 'Here is a draft plan.', questions: qs.map((q) => q.id), at: now() });
   }).catch((e) => console.error('plans:', e.message));
   return d;
 }
@@ -495,7 +547,7 @@ export function revise(project, brief, { comment, message, files }, cfg) {
   const ctx = ctxFor(cfg, project, d.refs);
   const open = d.questions.filter((q) => q.answer == null);
   const before = d.steps.map((s) => ({ ...s }));
-  run(d, 'revise', revisePrompt({ project, brief, rules: ctx.rules, goal: d.goal, steps: before, asks, answers, openQuestions: open, refs: ctx.refs }), ctx, (cur, v) => {
+  run(d, 'revise', revisePrompt({ project, brief, rules: ctx.rules, goal: d.goal, steps: before, asks, answers, openQuestions: open, refs: ctx.refs, kind: ctx.kind }), ctx, (cur, v) => {
     // Finished steps of a running plan stay exactly as they were.
     const lockedIds = new Set(before.filter((s) => s.locked).map((s) => s.id));
     const m = markChanges(before, v.steps.map((s) => (lockedIds.has(s.id) ? before.find((b) => b.id === s.id) : s)));
@@ -509,7 +561,7 @@ export function revise(project, brief, { comment, message, files }, cfg) {
     cur.questions = cur.questions.filter((q) => q.answer != null || still.includes(q.text));
     const fresh = v.questions.filter((q) => !cur.questions.some((x) => x.text === q.text)).map((q, k) => ({ id: `q${cur.questions.length + k + 1}`, text: q.text, options: q.options, answer: null }));
     cur.questions.push(...fresh);
-    cur.thread.push({ who: 'claude', text: v.reply || 'Revised.', revised: true, questions: fresh.map((q) => q.id), at: now() });
+    cur.thread.push({ who: ctx.kind, text: v.reply || 'Revised.', revised: true, questions: fresh.map((q) => q.id), at: now() });
   }).catch((e) => console.error('plans:', e.message));
   return d;
 }

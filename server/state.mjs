@@ -52,15 +52,16 @@ function suggestionReason(sc) {
   return `the prompt shows Claude's suggested reply (${how})`;
 }
 
-export function sessionState({ screen, title, transcript: t, hook }, settings, now) {
+// `who` names the session's assistant in the reasons ("no Codex on screen").
+export function sessionState({ screen, title, transcript: t, hook, who = 'Claude' }, settings, now) {
   const reasons = [];
   if (!screen.readable) reasons.push('screen unreadable');
   if (!screen.claudeLive) {
     if (!screen.readable && title.claude) {
       if (title.busy) return { state: 'working', since: null, reasons: [...reasons, 'title shows a spinner'] };
-      return { state: 'unknown', since: t && t.lastTurnEndAt, reasons: [...reasons, 'title says Claude, screen not readable'] };
+      return { state: 'unknown', since: t && t.lastTurnEndAt, reasons: [...reasons, `title says ${who}, screen not readable`] };
     }
-    return { state: 'none', since: t && (t.lastTurnEndAt || t.lastTextAt), reasons: [...reasons, screen.exited ? 'Claude exited, shell prompt below it' : 'no Claude on screen'] };
+    return { state: 'none', since: t && (t.lastTurnEndAt || t.lastTextAt), reasons: [...reasons, screen.exited ? `${who} exited, shell prompt below it` : `no ${who} on screen`] };
   }
   if (screen.dialog) return { state: 'dialog', since: (t && t.lastActivityAt) || null, reasons: ['a question or permission dialog is open'] };
 

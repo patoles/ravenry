@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { HOME_OVERRIDE, SCRATCH_DATA, inRepoTmp } from './home.mjs';
+import { codexHome } from './codexrollout.mjs';
 
 const H = os.homedir();
 const env = process.env;
@@ -20,15 +21,17 @@ export function claudeProjectDir(folder) {
 // The scope for rule suggestions (the Rules view): every project on the
 // board with a folder, plus the projects root (sessions started there).
 // Each source's transcripts are read from claudeProjectDir(folder), or from
-// `transcripts` when a source names it (tests). A registry can list its own
-// in settings.ruleSources.
+// `transcripts` when a source names it (tests); Codex's sessions in it come
+// from Codex's rollouts by their folder (server/repeats.mjs). Its rules files
+// are CLAUDE.md (Claude Code) and AGENTS.md (Codex) at the folder's root. A
+// registry can list its own in settings.ruleSources.
 export function defaultRuleSources(projects = [], root = null) {
   const seen = new Set();
   const out = [];
   const add = (label, folder) => {
     if (!folder || seen.has(folder)) return;
     seen.add(folder);
-    out.push({ label, folder, memory: path.join(claudeProjectDir(folder), 'memory'), claudeMd: path.join(folder, 'CLAUDE.md') });
+    out.push({ label, folder, memory: path.join(claudeProjectDir(folder), 'memory'), claudeMd: path.join(folder, 'CLAUDE.md'), agentsMd: path.join(folder, 'AGENTS.md') });
   };
   for (const p of projects || []) if (p && !p.hidden && p.folder && !inRepoTmp(p.folder)) add(p.name || path.basename(p.folder), p.folder);
   if (root) add('Projects folder', root);
@@ -61,6 +64,13 @@ function configRaw(settings, projects) {
     // A test's scratch folder is never a real board's root (home.mjs).
     projectsRoot: [env.MC_PROJECTS_ROOT, settings.projectsRoot].find((r) => r && (SCRATCH_DATA || !inRepoTmp(r))) || null,
     globalClaudeMd: env.MC_GLOBAL_CLAUDE_MD || settings.globalClaudeMd || path.join(H, '.claude', 'CLAUDE.md'),
+    // Codex's global rules file (<CODEX_HOME>/AGENTS.md), where a rule
+    // suggestion from Codex sessions is written, and the folder of Codex's
+    // rollouts the repeats detector reads. A test reaches neither in the
+    // real ~/.codex: without MC_CODEX_HOME (a scratch one) or a setting they
+    // are null there.
+    globalAgentsMd: env.MC_GLOBAL_AGENTS_MD || settings.globalAgentsMd || (env.TEST_RAVENRY === '1' && !env.MC_CODEX_HOME ? null : path.join(codexHome(), 'AGENTS.md')),
+    codexSessions: settings.codexSessions || (env.TEST_RAVENRY === '1' && !env.MC_CODEX_HOME ? null : path.join(codexHome(), 'sessions')),
     backupDir: env.MC_BACKUP_DIR || settings.backupDir || path.join(H, '.claude', 'backups'),
     ruleSources: Array.isArray(settings.ruleSources) ? settings.ruleSources : defaultRuleSources(projects, [env.MC_PROJECTS_ROOT, settings.projectsRoot].find((r) => r && (SCRATCH_DATA || !inRepoTmp(r))) || null),
     // What a new or revived cmux or iTerm2 tab runs; the prompt is appended quoted.

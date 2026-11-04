@@ -133,7 +133,9 @@ async function setup({ fromStart = false } = {}) {
   console.log(`  ok    macOS, Node ${process.versions.node}`);
 
   const claude = claudePath();
-  console.log(claude ? `  ok    Claude Code: ${tilde(claude)}` : `  !!    Claude Code (claude) is not on your PATH. Ravenry follows Claude Code sessions, so install it first: ${CLAUDE_URL}`);
+  // A Mac with only Codex is fine: the board follows and starts Codex there.
+  const codexToo = !claude && (await import('../server/hookinstall.mjs')).codexInstalled();
+  console.log(claude ? `  ok    Claude Code: ${tilde(claude)}` : codexToo ? `  note  Claude Code (claude) is not on your PATH, so Ravenry follows Codex sessions here. For Claude Code's too: ${CLAUDE_URL}` : `  !!    Claude Code (claude) is not on your PATH. Ravenry follows Claude Code sessions, so install it first: ${CLAUDE_URL}`);
 
   // The terminal: where the board can answer sessions.
   const here = await hereTerminal();
@@ -224,7 +226,9 @@ async function setup({ fromStart = false } = {}) {
   const auto = reg && reg.settings && reg.settings.repeatsAuto;
   let rulesAuto = auto === true || (auto == null && !!reg);
   if (!rulesAuto && process.stdin.isTTY && !YES) {
-    console.log('\nThe Rules view can suggest CLAUDE.md lines from the corrections you keep typing. For that, once a day Ravenry sends the messages you typed in your sessions to Claude through claude -p, on your own Claude login (at most 3 calls a day).');
+    // The calls run on the assistant new sessions start with (printWith).
+    const viaCodex = (await import('../server/assistant.mjs')).printWith((reg && reg.settings) || {}) === 'codex';
+    console.log(`\nThe Rules view can suggest CLAUDE.md and AGENTS.md lines from the corrections you keep typing. For that, once a day Ravenry sends the messages you typed in your sessions to ${viaCodex ? 'Codex through codex exec, on your own Codex login' : 'Claude through claude -p, on your own Claude login'} (at most 3 calls a day).`);
     rulesAuto = await ask('Turn rule suggestions on?');
   }
   // Written only when it changes what the board does (a registry from before
@@ -250,7 +254,8 @@ async function doctor() {
   line(node.ok ? 'ok' : 'fix', node.ok ? `Node ${process.versions.node}` : `Node ${process.versions.node}: Ravenry needs ${node.want} or newer (https://nodejs.org).`);
   if (FROM_NPX) line('note', 'Running from npx. For the hooks, install it for good: npm i -g ravenry-app, then ravenry setup.');
   const claude = claudePath();
-  line(claude ? 'ok' : 'fix', claude ? `Claude Code: ${tilde(claude)}` : `Claude Code (claude) is not on your PATH: ${CLAUDE_URL}`);
+  const codexOnly = !claude && (await import('../server/hookinstall.mjs')).codexInstalled();
+  line(claude ? 'ok' : codexOnly ? 'note' : 'fix', claude ? `Claude Code: ${tilde(claude)}` : codexOnly ? `Claude Code (claude) is not on your PATH; Ravenry follows Codex sessions here: ${CLAUDE_URL}` : `Claude Code (claude) is not on your PATH: ${CLAUDE_URL}`);
 
   const here = await hereTerminal();
   const nameOf = await names();

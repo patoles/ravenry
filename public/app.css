@@ -122,7 +122,7 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .linkish:hover{text-decoration:underline}
 .msg{font-size:13px;line-height:1.45;padding:8px 11px;border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere}
 .msg.you{background:var(--work);color:#FFFFFF;margin-left:36px}
-.msg.claude{background:var(--card2);color:var(--tx);margin-right:36px}
+.msg.claude,.msg.codex{background:var(--card2);color:var(--tx);margin-right:36px}
 .msg.err{background:transparent;border:1px solid var(--bad);color:var(--tx);margin-right:36px}
 .msg img{display:block;max-width:100%;border-radius:6px;margin-top:6px}
 .thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;display:block}
@@ -505,6 +505,9 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .lv .e.t b{font-weight:600;color:#C7C7CC}
 .lv .e.t .tl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
 .lv .e.t .more{color:#4A4A50}
+.lv .e.t .tn{display:flex;gap:1ch}
+.lv .e.t .tn .tb{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv .e.t .tn .more{flex:none}
 .lv .e.u{background:#1C1C1F;border-radius:6px;padding:6px 10px 6px 8px}
 .lv .e.u>.g{color:#8E8E93}.lv .e.u>.x{color:#F2F2F4}
 .lv .e.s>.g,.lv .e.s>.x{color:#6E6E75}
@@ -513,10 +516,12 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .lv .e.p>.x{white-space:pre-wrap}
 .lv .lnk{color:#409CFF;text-decoration:underline;text-decoration-color:rgba(64,156,255,.4);text-underline-offset:2px}
 /* Code spans (docs/design/LiveCode.dc.html, C): a chip in Claude Code's
-   periwinkle, its rounded ends kept on each line it wraps over. A "! "
-   command ends in a Copy button: an icon inside the chip on a desktop
-   ("Copy" on hover), a 32 px pill after it on a phone, kept on the chip's
-   line. */
+   periwinkle, its rounded ends kept on each line it wraps over. A code
+   block (a fenced block, or a "! " command alone on its line) is the same
+   chip as a block of its own, its text wrapping inside it, and ends in a
+   Copy button: an icon inside it on a desktop ("Copy" on hover), a 32 px
+   pill after it on a phone. Inline code in a sentence has no button in the
+   line, so the sentence keeps its line height. */
 .lv .cd{background:rgba(255,255,255,.08);border-radius:4px;padding:1px 4px;color:#B1B9F9;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 .lv .cp{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:5px;padding:0 1px 0 5px;border-left:1px solid rgba(255,255,255,.14);color:#8E8E93;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:11px;font-weight:500;vertical-align:-1px;line-height:1;white-space:nowrap;text-indent:0}
 .lv .cp svg{flex:none}
@@ -527,6 +532,11 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .lv .cp.done,.lv .cd:hover .cp.done{color:#30D158}
 .lv .cpm{all:unset;display:none;align-items:center;gap:5px;height:32px;padding:0 11px 0 9px;margin:2px 0 2px 6px;border-radius:8px;background:#26262A;box-shadow:inset 0 0 0 1px #34343A;color:#E5E5EA;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue',sans-serif;font-size:13px;font-weight:600;vertical-align:middle;white-space:nowrap;line-height:1;text-indent:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .lv .cpm.done{color:#30D158;box-shadow:inset 0 0 0 1px rgba(48,209,88,.35);background:rgba(48,209,88,.10)}
+.lv .cbw{display:flex;align-items:flex-end;min-width:0;margin:2px 0;text-indent:0}
+.lv .cb{display:flex;align-items:flex-start;flex:0 1 auto;min-width:0;padding:3px 6px}
+.lv .cbt{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.lv .cb .cp{flex:none;align-self:flex-start;height:1.55em;margin-left:8px}
+.lv .cbw .cpm{flex:none}
 /* Any other chip: the same Copy, shown only while the pointer is on the span
    (any of its pieces, .hov) or for the 1.5 s of Copied. It floats past the
    chip's end on a zero-width anchor, so the line never reflows under the
@@ -547,9 +557,11 @@ a{color:#0A84FF}a:hover{color:#409CFF}
   .lv .cd.pl.done{color:#30D158;background:rgba(48,209,88,.10);box-shadow:inset 0 0 0 1px rgba(48,209,88,.45)}
   .lv .cd.pl.lst.done::after{content:'';display:inline-block;width:11px;height:11px;margin-left:4px;vertical-align:-1px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 7.5l3 3 6-7'/%3E%3C/svg%3E") center/contain no-repeat}
   .lv .cpm{display:inline-flex}
-  .lv .cdw{white-space:nowrap}
-  /* A long command may still wrap inside its chip; the pill keeps to its end. */
-  .lv .cdw.long .cd{white-space:pre-wrap}
+  /* A block at least as tall as its pill: one line sits level with it, a
+     longer block keeps the pill at its last line. */
+  .lv .cbw{margin:3px 0}
+  .lv .cb{min-height:32px;box-sizing:border-box;align-items:center}
+  .lv .cbw .cpm{margin:0 0 0 6px}
 }
 .lv-empty{color:#6E6E75}
 .lv-st{flex:none;border-top:1px solid #232326;padding:8px 14px 9px;display:flex;flex-direction:column;gap:3px;font-size:12px;color:#A1A1A8;background:#101012}
@@ -943,3 +955,74 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
 .gl-fs.gl-p .gl-thumb{aspect-ratio:1/1}
 .gl-fs.gl-p .gb-ctl{flex:none;display:flex;gap:10px;padding:6px 16px max(28px, env(safe-area-inset-bottom))}
 .gb-big{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:15px;border-radius:10px}
+
+/* The assistant (docs/design/CodexStage2.dc.html, section 3, A): the
+   Settings switch, the New project row, the New session switch's line. */
+.as-sw{display:flex;padding:2px 0 4px}
+.as-sw .hs-seg{width:100%;display:flex}
+.as-sw .seg{flex:1 1 0;justify-content:center}
+.as-div{height:1px;background:var(--sep);margin:6px 0 10px}
+.as-note{line-height:1.4;margin:2px 0 4px}
+.as-hint{font-size:12px;line-height:1.4;font-weight:400}
+.fseg.as-f{align-self:flex-start}
+.ns-hint{font-size:12px;line-height:1.6}
+/* The meta line's "New sessions:" switch (docs/design/ProjectAssistant.dc.html,
+   round 2, A1): the Settings switch at the meta line's size. The label and
+   the switch's words share one baseline inside the group; the group's
+   negative block margins take the switch's extra height off its layout box
+   (one line, 1lh tall, the switch's centre on the line's centre), so the
+   group's words sit where a plain fact's words sit and the line keeps its
+   height. nowrap keeps the label and the switch on one row. */
+.pas-meta{--pas-h:22px;display:inline-flex;align-items:baseline;gap:7px;white-space:nowrap;margin-block:calc((1lh - var(--pas-h)) / 2)}
+.pas-meta .hs-seg{padding:2px;box-sizing:border-box;height:var(--pas-h);align-items:stretch}
+.pas-meta .seg{padding:0 9px;min-height:0;font-size:12px}
+.pas-err{color:var(--bad)}
+/* Codex stage two (docs/design/CodexStage2.dc.html). The assistant tag: a
+   small neutral word, the same style for both assistants (section 2, A). */
+.as-tag{display:inline-flex;align-items:center;flex:none;font-size:10.5px;font-weight:600;line-height:1;padding:3px 6px;border-radius:5px;color:var(--tx2);box-shadow:inset 0 0 0 1px var(--sep);white-space:nowrap;letter-spacing:.01em;font-style:normal}
+.as-tag[hidden]{display:none}
+.lv-h .as-tag{margin-left:-2px}
+/* A Sessions card row: the topic, then its tag; on a phone the tag goes under it. */
+.ss-t{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
+.ss-n{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ss-t .as-tag{margin-left:auto}
+#note[hidden],.ns-tg[hidden]{display:none}
+/* Not in a project (section 1, C): the folder glyph, the group, the dashed chip. */
+.un-ic{display:inline-flex;flex:none;color:var(--tx3)}
+.un-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:var(--tx);display:inline-flex;align-items:center;gap:6px}
+.un-sub{font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.grp.un-grp{background:transparent;box-shadow:inset 0 0 0 1px var(--sep)}
+.pchip.un{background:var(--card);outline:1px dashed var(--tx3);outline-offset:-1px}
+.pchip.un.on{outline:0;box-shadow:inset 0 0 0 1.5px var(--c)}
+.pchip.un .un-ic{margin-right:-2px}
+.un-card{position:relative;display:flex;align-items:center;gap:12px 16px;flex-wrap:wrap;padding:14px 16px;box-shadow:var(--shadow),0 0 0 1px var(--sep)}
+.un-card .un-t{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:3px;font-size:13px;line-height:1.45}
+.un-card .un-t b{font-weight:600;font-size:14px}
+.un-card .un-b{display:flex;gap:6px;flex-wrap:wrap}
+.un-pop{position:absolute;z-index:6;top:calc(100% + 6px);right:16px;width:300px;background:var(--sheet);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35),0 0 0 1px var(--sheet-ring);padding:6px;display:flex;flex-direction:column;gap:1px;box-sizing:border-box}
+.un-pop .un-ph{font-size:11.5px;font-weight:650;color:var(--tx3);padding:6px 8px 4px;letter-spacing:.02em}
+.un-pop button{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;font-size:13px;color:var(--tx);min-width:0}
+.un-pop button:hover,.un-pop button:focus-visible{background:var(--sel)}
+.un-pop .un-pf{font-size:11.5px;line-height:1.4;color:var(--tx3);padding:6px 8px 4px;border-top:1px solid var(--sep);margin-top:4px}
+.un-dot{width:8px;height:8px;border-radius:50%;flex:none}
+/* Rules: each scope's CLAUDE.md beside its AGENTS.md (section 4, A). */
+.rl-scope{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:22px 0 10px;font-size:15px;font-weight:650}
+.rl-scope:first-child{margin-top:4px}
+.rl-scope span{font-size:12px;font-weight:500;color:var(--tx3)}
+.rl-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.rl-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.rl-col .yr-card{display:block;margin:0}
+.rl-file{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--tx2);min-width:0}
+.rl-file .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rl-none{font-size:12.5px;color:var(--tx3);padding:2px 0}
+@media (max-width: 700px){
+  .ss-t{flex-direction:column;align-items:flex-start;gap:4px}
+  .ss-n{max-width:100%}
+  .ss-t .as-tag{margin-left:0}
+  .un-card{padding:14px}
+  .un-card .un-t{flex-basis:100%}
+  .un-card .un-b{width:100%}
+  .un-card .un-b .btn{flex:1 1 0}
+  .un-pop{left:0;right:0;width:auto}
+  .rl-cols{grid-template-columns:1fr}
+}

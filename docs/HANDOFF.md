@@ -12,10 +12,13 @@ finished, the work committed, nothing running.
    shows the four clean-point checks. Nothing happens to the session yet.
 2. **Requested.** At the session's next stop (the end of a Claude turn), the
    Stop hook `hooks/handoff-stop.mjs` blocks the stop once and tells Claude:
-   if you are mid-task, have background agents or tests running, or are
-   waiting on the user, reply `Hand-off deferred: not at a clean point.` and
-   carry on; otherwise write the hand-off, commit, and say so in one line.
-   The hook asks again at later stops until the hand-off is written.
+   if you are mid-task or have background agents or tests running, reply
+   `Hand-off deferred: not at a clean point.` and carry on; otherwise write
+   the hand-off, commit, and say so in one line. Waiting on the user's
+   answer is a clean point: the hand-off puts the open question in its
+   `Open items:` so the fresh session asks it again. After a deferral the
+   hook stays quiet until something changes (Deferrals, below), then asks
+   again, until the hand-off is written.
 3. **Written.** Claude adds a dated bullet at the top of the `## Hand-off`
    section of the project's BRIEF.md, with `State:`, `Next step:`,
    `Open items:` and `Key files:` sub-bullets, and commits. Without a
@@ -40,9 +43,36 @@ as never reached, the board shows no tick and no queued hand-off, and a
 session queued by the line before it was turned off is not asked either.
 Hand off now still works.
 
+**Deferrals.** A session waiting on agents or on the user stops often (each
+task notification, each new turn), and the hook used to ask at nearly every
+one. Now a deferral holds the ask back. The hook records one (`deferredAt`,
+`deferredOver`, `deferrals` in the marker) at the first stop after an ask
+that did not bring the hand-off: Claude's last message starts with the
+DEFERRED line, or the stop comes with `stop_hook_active` (Claude carried on
+and stopped again; past the ceiling the words offer no deferral line, so
+this is how a ceiling ask is deferred). Once per ask, so a later stop that
+still shows the DEFERRED line never pushes it on. Until one of these, it
+asks nothing and the board shows "deferred at 14:02; asks again after your
+next message or at 14:12":
+
+- a prompt the user typed since the deferral. For Claude Code that is a
+  `user` record in the transcript's tail that is not meta, not a
+  subagent's, not a tool result, not Claude Code's own wrapped text (a
+  `<task-notification>`, a command, a system reminder), not
+  `[Request interrupted by user]`, and not the hook's own reason (it
+  carries the tag). For Codex it is the rollout's newest user message that
+  is not Codex's own (`<hook_prompt>`, the hook's reason fed back, among
+  them), from `server/codexrollout.mjs`. Background work still running
+  keeps it queued as before, and it asks once that work is done;
+- Hand off now pressed since (`manualAt` after `deferredAt`);
+- the context crossed the ceiling since (the deferral was taken below it),
+  so the ceiling ask fires on the first stop past it; a deferral taken past
+  the ceiling holds there too;
+- 10 minutes since the deferral.
+
 **Hand off now.** The sheet's button asks for a hand-off whatever the
 context, and whether or not hand-off is on: it writes a request marker the hook acts on at the session's next
-stop, with the same clean-point rule. A session sitting idle at its prompt
+stop, with the same clean-point rule, even inside a deferral's 10 minutes. A session sitting idle at its prompt
 has no next stop until it gets a message, so the sheet says to send one.
 
 ## Plans and hand-offs
@@ -89,9 +119,11 @@ The hook never blocks a stop when:
   other status counts as not running, so an unknown word can never hold a
   hand-off back. The events hook logs each list it gets (ids, types and
   statuses only) to `~/.ravenry/logs/background-tasks.jsonl`;
-- Claude's last message ends on a question (the question stays on screen for
-  the user; the hook asks after their answer);
+- Claude deferred and nothing has changed since (Deferrals, above);
 - the hand-off for this session is already written.
+
+A last message that ends on a question does not hold it back: the hand-off
+carries the question.
 
 Everything else (mid-task or not) is Claude's call, because only Claude
 knows. The board's four checks are a picture of the same thing: past the
@@ -126,7 +158,9 @@ atomically. `state` moves `queued -> requested -> written -> resumed`, and
 of the request; the hand-off counts as written when the section changes from
 it, so a note added to the brief does not), `workspaceId` and `surfaceId`
 (from cmux's `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`, which Claude Code
-passes to its hooks), `manualAt`, `asks`, `lastCheck`, `resumedAt`,
+passes to its hooks), `manualAt`, `asks`, `lastCheck`, `deferredAt`,
+`deferredOver` (the deferral was taken past the ceiling), `deferrals`,
+`resumedAt`,
 `resumeSurfaceRef`, `resumeError`. Delete a marker to forget a hand-off.
 
 ## Settings
@@ -219,7 +253,12 @@ work without it.
 - `node tools/handoff-hook-test.mjs [<real transcript>]` pipes crafted Stop
   input into the hook against a throwaway RAVENRY_HOME under `.tmp/`: below the
   line, past it, stop_hook_active, asking again, written, a note that is not
-  a hand-off, ceiling, manual request, background task, question, no brief,
+  a hand-off, ceiling, manual request, background task, a question (asks),
+  deferrals (a task-notification stop, a tool result, the hook's own reason
+  and an interrupt hold; a new prompt asks, after any running shell; 11
+  minutes asks; Hand off now asks inside the cooldown; the first stop past
+  the ceiling asks, then the cooldown holds there; Codex's `<hook_prompt>`
+  holds and its typed prompt asks), no brief,
   hand-off off (past the line, past the ceiling, a manual request, a
   session queued before it was turned off), the line moved to 60, garbage
   input, and the speed on a copy of a real transcript.
@@ -231,8 +270,10 @@ work without it.
 
 ## Known limits
 
-- "Mid-task" is Claude's judgement. The hook can only see background tasks,
-  scheduled loops and a closing question.
+- "Mid-task" is Claude's judgement. The hook can only see background tasks
+  and scheduled loops.
+- A prompt older than the transcript's last 16 MB (or the rollout's last
+  768 KB) is not seen; the 10 minutes still end the deferral.
 - A session at rest when its context crosses the line (or when "Hand off
   now" is pressed) waits for its next stop, which needs a message.
 - The fresh session reads the hand-off; the old tab stays open for the user

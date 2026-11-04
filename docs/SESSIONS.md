@@ -12,14 +12,16 @@ section of its own, opened from A's top button rather than a new tab). Code: `se
 
 ## Where it shows
 
-- **Top bar:** "Claude 10.2 GB | 14 idle", before the light/dark button, on
+- **Top bar:** "Sessions 10.2 GB | 14 idle" (Claude Code's and Codex's), before the light/dark button, on
   every view. It opens the Sessions page (`#/sessions`) in the main area and
   shows its "on" state there; no tab is highlighted, since Sessions has no
   tab. At phone width the same readout takes its own line under the tabs.
 - **Sessions page:** the total, a memory bar split by state, the rule, then
   Handed off, No activity for 24 h or more and Left for you (ticked rows on
-  the left), In use, Not mapped (only when there is one) and Recently closed
-  on the right. The button closes the ticked rows.
+  the left), In use, Not in a project (sessions in use whose workspace no
+  project lists, docs/STATE-RULES.md), Not mapped (only when there is one)
+  and Recently closed on the right. Each row has its assistant's tag,
+  "Claude" or "Codex". The button closes the ticked rows.
 - **Project sheet:** "Memory 849 MB" next to Context in the strip, for the
   session the sheet shows, and a figure per session in the Sessions card.
 

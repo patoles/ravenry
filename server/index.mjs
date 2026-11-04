@@ -23,6 +23,7 @@ import * as create from './create.mjs';
 import * as ideas from './ideas.mjs';
 import * as rules from './rules.mjs';
 import * as repeats from './repeats.mjs';
+import * as rulefiles from './rulefiles.mjs';
 import { shipView } from './ship.mjs';
 import { plansFor } from './plans.mjs';
 import { ownerOf, repoRoot, isBroadFolder } from './folders.mjs';
@@ -115,6 +116,7 @@ const reopening = new Set();
 let lastResult = null;       // the last close, shown on the page for a while
 let picBudget = 0;           // project pictures worked out this tick (server/pictures.mjs)
 let loose = [];              // this tick's cards for sessions no project holds, in a too-broad folder
+let unowned = [];            // this tick's cmux workspaces no project lists ("Not in a project")
 
 // Whether this copy's hooks are in ~/.claude/settings.json ('ok', 'missing',
 // 'partial', 'stale', or null when the file cannot be read), read at most
@@ -134,7 +136,43 @@ function cfg() {
   // Where new projects go: MC_PROJECTS_ROOT, the setting, the folder most
   // projects share, else the first-run suggestion (server/projectsroot.mjs).
   c.projectsRoot = projectsRoot.resolve(reg).path;
+  // Plans and Ideas run on the assistant new sessions start with
+  // (server/assistant.mjs printWith): `claude -p` as before, or `codex exec`.
+  c.printAssistant = asst.printWith(reg ? reg.settings : {});
+  c.printSettings = reg ? reg.settings : {};
   return c;
+}
+
+// ------------------------------------------------------------ which assistant starts
+// docs/ASSISTANTS.md, "Starting sessions".
+
+// What a launch runs for a choice (asst.startChoice, continueChoice).
+function launchFor(choice) {
+  const settings = reg ? reg.settings : {};
+  return { kind: choice.kind, command: asst.startCommand(choice.kind, settings), note: choice.note, short: asst.of(choice.kind).SHORT };
+}
+
+// The sessions a project has had, newest first by when they started: the
+// board's own (each with its assistant), else, for a project none of whose
+// sessions is on the board now, the hook events whose folder is its own.
+function projectSessionsFor(project) {
+  const snap = snapshot && snapshot.projects ? snapshot.projects.find((x) => x.id === project.id) : null;
+  const own = (snap ? snap.sessions : []).map((s) => ({ assistant: s.assistant, at: s.startedAt || s.since || null })).filter((s) => s.at);
+  if (own.length || !project.folder) return own;
+  const f = project.folder;
+  const out = [];
+  for (const e of ev.all.values()) if (e.cwd && (e.cwd === f || e.cwd.startsWith(f + '/'))) out.push({ assistant: asst.kindOf(e), at: e.startedAt || e.lastEventAt || null });
+  return out.filter((s) => s.at);
+}
+
+const continueLaunch = (project) => launchFor(asst.continueChoice(reg ? reg.settings : {}, project, projectSessionsFor(project)));
+
+// The Settings view of it: what is set, what runs, what is installed.
+function assistantsView() {
+  const settings = reg ? reg.settings : {};
+  const set = registry.assistantSettings(settings);
+  const ch = asst.startChoice(settings);
+  return { ...set, starts: ch.kind, installed: ch.installed, fallback: ch.fallback, note: ch.note, print: ch.kind, codex: ch.installed.codex ? asst.codexModel(settings) : null };
 }
 
 // While the board opens a workspace for a project, the tick must not import
@@ -510,6 +548,41 @@ function looseSessions(evAll) {
   return out;
 }
 
+// The folder a cmux workspace works in: its sidebar's, else a hook's or an
+// event's cwd (the same guess that names an imported workspace).
+function workspaceCwd(w, hooks, evAll) {
+  const sb = sidebars.get(w.id)?.value;
+  const hook = hooks.find((h) => h.workspaceId === w.id && h.cwd);
+  const e = [...evAll.values()].find((x) => x.workspaceId === w.id && x.cwd);
+  return (sb && sb.cwd) || (hook && hook.cwd) || (e && e.cwd) || null;
+}
+
+// The cmux workspaces no project lists (docs/STATE-RULES.md, "Not in a
+// project"; docs/design/CodexStage2.dc.html, section 1, variant C): each is
+// a card of its own for this tick, keyed "ws:<workspace id>", named after its
+// folder, with no brief and nothing written to the registry. A workspace a
+// hidden project lists stays hidden, one in ignoreWorkspaces is never shown,
+// one the board is opening right now is left to its project, and a folder
+// too broad to hold a project (the projects root, home) is never its
+// folder, so no session is guessed into it by folder. A real board leaves
+// out the board tests' own mc-test* workspaces, as importing does.
+function unownedWorkspaces(workspaces, hooks, evAll) {
+  if (!reg) return [];
+  const listed = new Set(reg.projects.flatMap((p) => p.workspaces || []));
+  const ignored = new Set(Array.isArray(reg.ignoreWorkspaces) ? reg.ignoreWorkspaces : []);
+  const root = rootFolder();
+  const out = [];
+  for (const w of workspaces) {
+    if (listed.has(w.id) || ignored.has(w.id) || reserved.has(w.title)) continue;
+    if (!SCRATCH_DATA && /^mc-test/.test(w.title || '')) continue;
+    const at = workspaceCwd(w, hooks, evAll);
+    const folder = at && path.isAbsolute(at) && path.resolve(at) !== HOME && fs.existsSync(at) && !isBroadFolder(at, reg.projects, root) ? at : null;
+    const name = folder ? path.basename(folder) : registry.nameFromWorkspace(w, null);
+    out.push({ id: 'ws:' + w.id, name, folder, workspaces: [w.id], brief: null, waitingOn: null, unowned: true, workspaceTitle: w.title || w.ref || name });
+  }
+  return out;
+}
+
 function briefFor(project) {
   const p = registry.briefPath(project);
   const b = readBrief(p);
@@ -588,7 +661,7 @@ function buildProject(project, wsById, hooks, settings, now) {
         if (own && own.id !== project.id) continue;
       }
       let st = eventState({ ev: evs, screen, screenAt: screens.get(s.id)?.at || null, title, transcript: t }, settings, now);
-      if (!st) st = { ...sessionState({ screen, title, transcript: t, hook }, settings, now), source: 'screen' };
+      if (!st) st = { ...sessionState({ screen, title, transcript: t, hook, who: asst.of(kind).SHORT }, settings, now), source: 'screen' };
       const marker = map ? markers.get(map.sessionId) || null : null;
       // A session that handed off is done; its "hand-off written" line is
       // not a hand-back to the user.
@@ -625,7 +698,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     if (project.loose ? !project.sessionIds.includes(e.sessionId) : (() => { const own = eventOwner(e, real); return !own || own.id !== project.id; })()) continue;
     const t = tp ? asst.readTranscript(kind, tp) : null;
     let st = eventState({ ev: e, screen, screenAt: x ? x.at : null, title, transcript: t }, settings, now);
-    if (!st && tab) st = { ...sessionState({ screen, title, transcript: t, hook: null }, settings, now), source: 'screen' };
+    if (!st && tab) st = { ...sessionState({ screen, title, transcript: t, hook: null, who: asst.of(kind).SHORT }, settings, now), source: 'screen' };
     if (!st) continue;
     taken.add(e.sessionId);
     const marker = markers.get(e.sessionId) || null;
@@ -692,7 +765,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       timeline.push({ at: turn.at, text: first.length > 220 ? first.slice(0, 217).replace(/\s+\S*$/, '') + '...' : first, from: 'transcript' });
     }
   }
-  const shared = registry.sharedWith(reg, project);
+  const shared = project.unowned ? [] : registry.sharedWith(reg, project);
   const openNotes = brief ? brief.notes.filter((n) => !n.fixed).length : 0;
   for (const s of sessions) s.handoff = handoffView(project, s, ctx(s), settings, now);
   const flags = [];
@@ -708,6 +781,7 @@ function buildProject(project, wsById, hooks, settings, now) {
 
   return {
     id: project.id, name: project.name, state: pstate, since, loose: !!project.loose,
+    unowned: !!project.unowned, workspaceTitle: project.unowned ? project.workspaceTitle : undefined,
     plan: plan ? planView(project, plan) : null, planGate,
     planDraft: (() => { try { const d = planner.get(project.id); return d ? { busy: !!d.busy, steps: d.steps.length } : null; } catch { return null; } })(),
     folder: project.folder, folderShort: short(project.folder), shared,
@@ -715,7 +789,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     line: words.line, headline: words.headline, quick: words.quick, question: words.question, dialog: words.dialog || null, draft: words.draft || null,
     brief: brief ? { path: short(brief.path), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules } : null,
     briefExpected: registry.briefPath(project) ? short(registry.briefPath(project)) : null,
-    plans: plansFor(project, reg.projects, now),
+    plans: project.unowned ? [] : plansFor(project, reg.projects, now),
     timeline: timeline.slice(0, 5),
     handoffRecent: recent,
     primary: primary ? primary.surfaceId : null,
@@ -785,12 +859,7 @@ async function tick() {
     const fullRead = driven ? cmuxOk : !(otherTabs.iterm && otherTabs.iterm.ok === false);
     if (cmuxOk && (!reg || reg.settings.autoImport !== false)) {
       try {
-        const res = registry.importWorkspaces(reg, workspaces, (w) => {
-          const sb = sidebars.get(w.id)?.value;
-          const hook = hooks.find((h) => h.workspaceId === w.id && h.cwd);
-          const e = [...evAll.values()].find((x) => x.workspaceId === w.id && x.cwd);
-          return (sb && sb.cwd) || (hook && hook.cwd) || (e && e.cwd) || null;
-        }, (w) => reserved.has(w.title));
+        const res = registry.importWorkspaces(reg, workspaces, (w) => workspaceCwd(w, hooks, evAll), (w) => reserved.has(w.title));
         reg = res.reg;
         regSeen = regMtime();
         if (res.added.length) console.log('registry: added', res.added.map((p) => p.name).join(', '));
@@ -806,8 +875,11 @@ async function tick() {
     const adopted = projectsRoot.adopt(reg);
     if (adopted) reg = adopted;
     const mine = workspaces.filter((w) => reg.projects.some((p) => !p.hidden && (p.workspaces || []).includes(w.id)));
+    // Workspaces no project lists are read the same way, so a session waiting
+    // there (Codex's "Trust this folder?") shows as a folder.
+    unowned = unownedWorkspaces(workspaces, hooks, evAll);
     for (const [sid, at] of liveWant) if (Date.now() - at > LIVE_WANT_MS * 6) liveWant.delete(sid);
-    await refreshSurfaces(mine, hooks);
+    await refreshSurfaces([...mine, ...workspaces.filter((w) => unowned.some((u) => u.workspaces[0] === w.id))], hooks);
     const live = new Set(workspaces.flatMap((w) => w.surfaces.map((x) => x.id)));
     const bySurface = new Map([...events.bySurface(evAll)].filter(([sid]) => live.has(sid)));
     // Sessions some open tab already names, so none shows twice.
@@ -831,7 +903,8 @@ async function tick() {
     boardTabs = [];
     picBudget = 3;
     loose = looseSessions(evAll);
-    const build = () => [...reg.projects.filter((p) => !p.hidden), ...loose].map((p) => buildProject(p, wsById, hooks, settings, now));
+    // An unowned workspace is on the board only while a session runs in it.
+    const build = () => [...reg.projects.filter((p) => !p.hidden), ...loose, ...unowned].map((p) => buildProject(p, wsById, hooks, settings, now)).filter((p) => !p.unowned || p.sessions.length);
     let projects = build();
     if (noticeWritten(projects)) { boardTabs = []; projects = build(); }
     if (cmuxOk) lastWorkspaces = workspaces;
@@ -847,7 +920,19 @@ async function tick() {
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
-    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs.iterm.error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects };
+    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs.iterm.error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects };
+    // The assistant that continues each project (Revive, New session), for
+    // the New session switch's line; and the one it is set to, for the meta
+    // line's "New sessions:" switch, which shows the choice even when the
+    // board starts the other because it is not installed (`assistantNote`).
+    for (const pv of snapshot.projects) {
+      const rp = reg.projects.find((x) => x.id === pv.id);
+      if (!rp) continue;
+      const ch = asst.continueChoice(settings, rp, projectSessionsFor(rp));
+      pv.assistant = ch.kind;
+      pv.assistantWants = ch.wanted;
+      pv.assistantNote = ch.fallback ? ch.note : null;
+    }
     if (process.env.MC_NO_AUTOSTART !== '1') autoStarts(workspaces, cmuxOk);
   } catch (e) {
     snapshot = { ...snapshot, cmuxOk: false, error: 'The board could not read its terminals: ' + String(e.message || e), generatedAt: new Date().toISOString() };
@@ -880,7 +965,8 @@ function refreshProcs() {
         const tab = { kind: 'cmux', workspaceId: wsOf.get(p.surfaceId).id, surfaceId: p.surfaceId };
         const text = await term.readScreen(tab, 40);
         const now = Date.now();
-        extraScreens.set(p.surfaceId, { text, at: now, prompt: text != null ? await asst.judgeRead('claude', tab, asst.parseScreen(text, 'claude'), now) : null });
+        const k = asst.kindOf(p.assistant);
+        extraScreens.set(p.surfaceId, { text, at: now, assistant: k, prompt: text != null ? await asst.judgeRead(k, tab, asst.parseScreen(text, k), now) : null });
       });
       for (const id of [...extraScreens.keys()]) if (!r.procs.some((p) => p.surfaceId === id)) { extraScreens.delete(id); if (!screens.has(id)) asst.forget(id); }
       procState = { ...r, error: null };
@@ -916,14 +1002,14 @@ function sessionInfo(sid, p, tab, b, settings, now) {
       project: b.project, waitingOn: b.waitingOn, words: sessionWords(b.project, b.waitingOn, b.s, now), topic: b.s.topic, cwd: b.s.cwd || p.cwd,
     };
   }
-  const kind = asst.kindOf(e);
+  const kind = asst.kindOf(e || p.assistant);
   const tp = e ? transcriptOf(e) : asst.findTranscript(kind, sid, p.cwd);
   const t = tp ? asst.readTranscript(kind, tp) : null;
   const x = tab ? screens.get(p.surfaceId) || extraScreens.get(p.surfaceId) || null : null;
   const screen = judgedScreen(x);
   const title = asst.parseTitle(tab ? tab.s.title : '', kind);
   const st = eventState({ ev: e, screen, screenAt: x ? x.at : null, title, transcript: t }, settings, now)
-    || { ...sessionState({ screen, title, transcript: t, hook: null }, settings, now), source: 'screen' };
+    || { ...sessionState({ screen, title, transcript: t, hook: null, who: asst.of(kind).SHORT }, settings, now), source: 'screen' };
   const where = e || { cwd: p.cwd };
   const own = eventOwner(where, realFolder(tp, where)) || loose.find((l) => l.sessionIds.includes(sid)) || null;
   return { st, t, ev: e, marker: markers.get(sid) || null, screen, startedAt: p.startedAt, project: own || null, waitingOn: own ? own.waitingOn || null : null, words: null, topic: (t && t.title) || null, cwd: (e && e.cwd) || p.cwd };
@@ -951,12 +1037,12 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     if (itermTab) p = { ...p, surfaceId: itermTab };
     const m = sess.mapProcess(p, { evAll: ev.all, hooks, boardTab });
     const base = {
-      pid: p.pid, startedAt: p.startedAt, memKb: p.rssKb, cwd: p.cwd, folder: short(p.cwd),
+      pid: p.pid, startedAt: p.startedAt, memKb: p.rssKb, cwd: p.cwd, folder: short(p.cwd), assistant: asst.kindOf(p.assistant),
       surfaceId: tab ? p.surfaceId : null, workspaceId: tab ? tab.w.id : null, workspaceRef: tab ? tab.w.ref : null, inCmux: !!tab && tab.kind === 'cmux',
       sessionId: m ? m.sessionId : null, method: m ? m.method : null,
     };
     if (!m) {
-      rows.push({ ...base, group: 'unmapped', mix: 'unmapped', label: sess.folderLabel(p.cwd), isFolder: true, projectId: null, state: 'unknown',
+      rows.push({ ...base, group: 'unmapped', mix: 'unmapped', label: sess.folderLabel(p.cwd), isFolder: true, unowned: true, projectId: null, state: 'unknown',
         line: `No session found for pid ${p.pid}`, tag: null, since: p.startedAt, closable: false, blocked: 'Not mapped to a session' });
       continue;
     }
@@ -967,9 +1053,13 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     if (!tab) blocked = itermTab ? 'Its iTerm2 tab is gone' : p.surfaceId ? (term.canDrive('cmux') ? 'Its cmux tab is gone' : 'In cmux') : `Outside ${term.nameOf(term.BOARD)}`;
     else if (p.surfaceId === process.env.CMUX_SURFACE_ID || (boardIterm && p.surfaceId === boardIterm)) blocked = 'The tab this board runs in';
     else if (sc && !sc.claudeLive) blocked = 'Claude is not on screen in its tab';
+    // Close idle ends Claude Code sessions only (docs/SESSIONS.md).
+    if (!blocked && base.assistant !== 'claude') blocked = `Close idle ends Claude Code sessions only; end ${asst.nameOf(base.assistant)} in its tab`;
     rows.push({
       ...base, group: cls.group, tag: cls.tag || null, useWhy: cls.why || null, since: cls.since || cls.lastAt,
-      label: info.project ? info.project.name : sess.folderLabel(info.cwd), isFolder: !info.project, projectId: info.project ? info.project.id : null,
+      // A session in a workspace no project lists is "Not in a project", as
+      // on the project list (docs/design/CodexStage2.dc.html, section 2).
+      label: info.project ? info.project.name : sess.folderLabel(info.cwd), isFolder: !info.project || !!info.project.unowned, unowned: !info.project || !!info.project.unowned, projectId: info.project ? info.project.id : null,
       line: cls.group === 'use' && info.words && info.words.line ? info.words.line : sess.lastLine({ t: info.t, marker: info.marker, cls, topic: info.topic }),
       state: info.st ? info.st.state : 'unknown', mix: mixOf(info.st, info.waitingOn), closable: !blocked, blocked,
     });
@@ -1396,7 +1486,7 @@ function requestHandoff({ projectId, surfaceId }) {
   const p = snapshot.projects.find((x) => x.id === projectId);
   if (!p) return { ok: false, status: 404, error: 'No such project.' };
   const s = p.sessions.find((x) => x.surfaceId === surfaceId) || p.sessions.find((x) => x.surfaceId === p.primary);
-  if (!s || !s.sessionId) return { ok: false, status: 409, error: 'No Claude session to hand off here.' };
+  if (!s || !s.sessionId) return { ok: false, status: 409, error: `No ${asst.of(s ? s.assistant : p.assistant).SHORT} session to hand off here.` };
   const prev = handoff.readMarker(s.sessionId);
   if (prev && (prev.state === 'written' || prev.state === 'resumed')) return { ok: false, status: 409, error: 'This session has already handed off.' };
   const now = new Date().toISOString();
@@ -1424,7 +1514,7 @@ function nearTab(projectId) {
 
 // A registered project, else this tick's card for a loose session.
 function findProject(id) {
-  return (reg && reg.projects.find((p) => p.id === id && !p.hidden)) || loose.find((p) => p.id === id) || null;
+  return (reg && reg.projects.find((p) => p.id === id && !p.hidden)) || loose.find((p) => p.id === id) || unowned.find((p) => p.id === id) || null;
 }
 
 function escapePath(p) {
@@ -1476,7 +1566,7 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
   const kind = assistantOf(projectId, surfaceId, raw);
   const screen = asst.parseScreen(raw, kind);
   const anySurface = project.sendToAnySurface === true; // test registry only
-  if (!screen.claudeLive && !anySurface) return { ok: false, status: 409, error: 'No Claude session is running in that tab, so nothing was typed.' };
+  if (!screen.claudeLive && !anySurface) return { ok: false, status: 409, error: `No ${asst.of(kind).SHORT} session is running in that tab, so nothing was typed.` };
   // Text in the prompt: a half-typed reply is never mixed in; what else it
   // can be is the assistant's to say (Claude Code's suggested reply,
   // server/suggestion.mjs).
@@ -1675,11 +1765,35 @@ async function phaseD(req, res, p) {
   const fail = (e) => sendJson(res, e.status || 500, { error: e.message || String(e) });
   if (p === '/api/project/new') {
     const body = await jsonBody(req);
-    const r = await create.createProject(body, { cfg: c, settings: reg.settings, reserve });
+    // New project from this folder: the workspace must still be one no
+    // project lists, and the folder its own, so nothing else is taken over.
+    let adopt = null;
+    if (body.workspaceId != null && body.workspaceId !== '') {
+      const u = unowned.find((x) => x.workspaces[0] === String(body.workspaceId));
+      if (!u) return sendJson(res, 409, { error: 'That workspace is in a project now, or closed. Nothing was made.' });
+      const real = (x) => { try { return fs.realpathSync(x); } catch { return path.resolve(x); } };
+      if (!u.folder || !body.existingFolder || real(String(body.existingFolder)) !== real(u.folder)) return sendJson(res, 400, { error: `A project made from ${u.name} starts in its folder. Pick Existing.` });
+      adopt = u.workspaces[0];
+    }
+    const r = await create.createProject(body, { cfg: c, settings: reg.settings, reserve, adopt, launch: launchFor(asst.startChoice(reg.settings, asst.isKind(body.assistant) ? body.assistant : null)) });
     if (r.reg) afterRegistry(r.reg);
     if (r.ok && body.ideaId) { try { ideas.promoted(String(body.ideaId), r.id); } catch { /* idea gone */ } }
     const { reg: _r, ...out } = r;
-    return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? out : { error: r.error, code: r.code, folder: r.folder });
+    return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? out : { error: r.error, code: r.code, folder: r.folder, assistant: r.assistant, assistantNote: r.assistantNote });
+  }
+  if (p === '/api/project/add-workspace') {
+    // Add to a project: the cmux workspace of a session that is not in a
+    // project joins the project picked (docs/design/CodexStage2.dc.html,
+    // section 1). Only a workspace the board shows as Not in a project now.
+    let body = {};
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+    const u = unowned.find((x) => x.id === body.from || x.workspaces[0] === body.workspaceId);
+    if (!u) return sendJson(res, 409, { error: 'That session is in a project now, or its workspace is closed.' });
+    const r = registry.addWorkspace(String(body.projectId || ''), u.workspaces[0]);
+    if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
+    afterRegistry(r.reg);
+    console.log(`registry: workspace ${u.workspaceTitle} (${u.name}) added to ${r.project.id}`);
+    return sendJson(res, 200, { ok: true, projectId: r.project.id, project: r.project.name, workspace: u.workspaceTitle, backup: r.backup ? short(r.backup) : null });
   }
   if (p === '/api/project/open-folder') {
     // Finder opens on the Mac's screen: never for a phone.
@@ -1733,6 +1847,21 @@ async function phaseD(req, res, p) {
     const { reg: _r, ...out } = r;
     return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? out : { error: r.error });
   }
+  if (p === '/api/project/assistant') {
+    // A project's own assistant after it was created (docs/ASSISTANTS.md,
+    // "Starting sessions"): { projectId, assistant: 'claude' | 'codex' | null }.
+    // The next New session, Revive and plan start use it; running sessions
+    // are not touched. The page's switch is the sheet's "New sessions:"
+    // (docs/design/ProjectAssistant.dc.html, round 2, A1).
+    let body;
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+    if (!body || typeof body.projectId !== 'string' || !('assistant' in body)) return sendJson(res, 400, { error: 'Send { projectId, assistant }.' });
+    const r = registry.saveProjectAssistant(body.projectId, body.assistant);
+    if (!r.ok) return sendJson(res, r.status, { error: r.error });
+    afterRegistry(r.reg);
+    const launch = continueLaunch(r.project);
+    return sendJson(res, 200, { ok: true, projectId: body.projectId, assistant: r.assistant, starts: launch.kind, note: launch.note || null, backup: r.backup ? short(r.backup) : null });
+  }
   if (p === '/api/project/revive') {
     const body = await jsonBody(req);
     const project = findProject(body.projectId);
@@ -1740,7 +1869,7 @@ async function phaseD(req, res, p) {
     // The message box's New session switch sends its text and files here:
     // they become the new session's first prompt. With neither, Revive.
     const firstMessage = withPaths(body.text, body.paths) || null;
-    const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, firstMessage, near: nearTab(project.id) });
+    const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, firstMessage, near: nearTab(project.id), launch: continueLaunch(project) });
     if (r.ok) afterRegistry(r.reg);
     const { reg: _r, ...out } = r;
     return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? out : { error: r.error });
@@ -1825,7 +1954,7 @@ async function deliverPlan(project, text, mode) {
     return r.ok ? { ...r, via: 'session', surfaceId: s.surfaceId } : r;
   }
   if (mode === 'note') return { ok: true, via: 'brief' };
-  const r = await create.revive(project, { cfg: cfg(), settings: reg.settings, reserve, prompt: text, near: nearTab(project.id) });
+  const r = await create.revive(project, { cfg: cfg(), settings: reg.settings, reserve, prompt: text, near: nearTab(project.id), launch: continueLaunch(project) });
   if (r.ok) afterRegistry(r.reg);
   const { reg: _r, ...out } = r;
   return r.ok ? { ...out, via: 'revive' } : out;
@@ -1868,7 +1997,7 @@ async function planWrite(req, res, p) {
     if (act === 'start') {
       const d = planner.get(project.id);
       if (!d || !d.steps.length) return sendJson(res, 409, { error: 'There is no plan to start.' });
-      if (d.busy) return sendJson(res, 409, { error: 'Claude is still on the last change.' });
+      if (d.busy) return sendJson(res, 409, { error: `${planner.busyWho(d.busy)} is still on the last change.` });
       if (d.questions.some((q) => q.answer == null)) return sendJson(res, 409, { error: 'Answer the open questions first.' });
       let title = d.written;
       if (!title) {
@@ -1985,6 +2114,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/api/settings/projects-root') return sendJson(res, 200, { ok: true, local: !!req.mcLocal, ...projectsRoot.view(registry.load() || reg) });
     if (req.method === 'GET' && p === '/api/settings/handoff') return sendJson(res, 200, { ok: true, settings: registry.handoffSettings(registry.load()?.settings) });
+    if (req.method === 'GET' && p === '/api/settings/assistant') return sendJson(res, 200, { ok: true, ...assistantsView() });
     if (req.method === 'GET' && p === '/api/alerts') return sendJson(res, 200, { ok: true, local: !!req.mcLocal, ...alerts.status() });
     if (req.method === 'GET' && p === '/api/alerts/setup') {
       if (!req.mcLocal) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
@@ -1992,7 +2122,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/api/meta') {
       const c = cfg();
-      return sendJson(res, 200, { kinds: create.KINDS, globalRules: rules.globalHeadings(c), globalPath: short(c.globalClaudeMd), projectsRoot: short(c.projectsRoot), launchCommand: c.launchCommand });
+      return sendJson(res, 200, { kinds: create.KINDS, globalRules: rules.globalHeadings(c), globalPath: short(c.globalClaudeMd), projectsRoot: short(c.projectsRoot), launchCommand: c.launchCommand, assistants: assistantsView() });
     }
     if (req.method === 'GET' && p === '/api/project/folders') return sendJson(res, 200, projectFolders());
     if (req.method === 'GET' && p === '/api/plan/draft') {
@@ -2007,7 +2137,9 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': TYPES[path.extname(abs).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'max-age=3600' });
       return fs.createReadStream(abs).on('error', () => res.end()).pipe(res);
     }
-    if (req.method === 'GET' && p === '/api/rules/mine') return sendJson(res, 200, repeats.mine(cfg()));
+    // Your rules: the global CLAUDE.md as before (its count is the tab's),
+    // and every scope's CLAUDE.md beside its AGENTS.md (server/rulefiles.mjs).
+    if (req.method === 'GET' && p === '/api/rules/mine') { const c = cfg(); return sendJson(res, 200, { ...repeats.mine(c), scopes: rulefiles.scopes(c, reg ? reg.projects : [], { root: rootFolder() }) }); }
     if (req.method === 'GET' && p === '/api/rules/repeats') {
       const c = cfg();
       // A board that never ran the detector loads the seed on first look
@@ -2124,6 +2256,16 @@ const server = http.createServer(async (req, res) => {
         if (!r.ok) return sendJson(res, r.status, { error: r.error });
         afterRegistry(r.reg);
         return sendJson(res, 200, { ok: true, settings: r.settings, backup: r.backup ? short(r.backup) : null });
+      }
+      if (p === '/api/settings/assistant') {
+        // Start new sessions with: Claude Code or Codex, and the model Codex
+        // runs when its configured one is refused. Any signed-in page.
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = registry.saveAssistantSettings(body);
+        if (!r.ok) return sendJson(res, r.status, { error: r.error });
+        afterRegistry(r.reg);
+        return sendJson(res, 200, { ok: true, ...assistantsView(), backup: r.backup ? short(r.backup) : null });
       }
       if (p === '/api/handoff') {
         const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');

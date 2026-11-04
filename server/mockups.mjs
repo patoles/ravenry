@@ -33,7 +33,7 @@ export function prompt({ idea, picturePath, thread, from, note }) {
   ];
   if (picturePath) lines.push(`Its picture: ${picturePath} (read it if it helps)`);
   if (thread && thread.length) {
-    lines.push('', 'What the user and Claude said about it so far:');
+    lines.push('', 'What the user and their assistant said about it so far:');
     for (const m of thread.slice(-12)) lines.push(`${m.who}: ${m.text}`);
   }
   lines.push('');

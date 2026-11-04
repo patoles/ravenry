@@ -1,4 +1,5 @@
-// Claude processes, the memory they hold, and closing the idle ones.
+// Claude Code and Codex processes, the memory they hold, and closing the
+// idle Claude Code ones.
 // The rules are written up in docs/SESSIONS.md; keep the two in step.
 //
 // Reads only: `ps` (every claude process, its RSS and argv), `ps -E` (its
@@ -54,18 +55,57 @@ export function argvSession(command) {
   return m ? m[1].toLowerCase() : null;
 }
 
+// What a codex process is: an interactive session (counted), a helper, or
+// not codex at all. Only argv[0] named exactly `codex` counts: the native
+// binary the npm package execs (its node launcher is `node .../codex`), so
+// the launcher never counts twice. Measured on Codex 0.166.0 (`codex
+// --help`): the terminal interface runs with no subcommand, or `resume` or
+// `fork`; every other subcommand (exec, which Plans and Ideas run, review,
+// app-server, the daemon and VS Code's, mcp, login...) is not a session in
+// a tab. Options before the subcommand are skipped, with the value of the
+// ones that take one (`codex -c features.x=true app-server`).
+const CODEX_SESSION_CMDS = new Set(['resume', 'fork']);
+const CODEX_VALUE_OPTS = new Set(['-c', '--config', '-m', '--model', '-p', '--profile', '-C', '--cd', '-s', '--sandbox', '-a', '--ask-for-approval', '-i', '--image', '--enable', '--disable', '--add-dir', '--local-provider', '--remote']);
+export function codexKind(command) {
+  const words = String(command || '').split(/\s+/).filter(Boolean);
+  if (!words.length || path.basename(words[0]) !== 'codex') return null;
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i];
+    if (w === '--') return 'session';
+    if (w.startsWith('-')) { if (CODEX_VALUE_OPTS.has(w)) i++; continue; }
+    // The first word that is not an option: a subcommand, or the prompt.
+    return /^[a-z][a-z-]*$/.test(w) && !CODEX_SESSION_CMDS.has(w) && CODEX_HELPERS.has(w) ? 'helper' : 'session';
+  }
+  return 'session';
+}
+const CODEX_HELPERS = new Set(['agents', 'exec', 'e', 'review', 'login', 'logout', 'mcp', 'mcp-server', 'plugin', 'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor', 'sandbox', 'debug', 'apply', 'a', 'queue', 'archive', 'delete', 'migrate-rollouts', 'migrate-nfs-db', 'unarchive', 'cloud', 'exec-server', 'features', 'help']);
+
+// The assistant and kind of a process: { assistant, kind } or null.
+export function processKind(command) {
+  const c = claudeKind(command);
+  if (c) return { assistant: 'claude', kind: c };
+  const x = codexKind(command);
+  return x ? { assistant: 'codex', kind: x } : null;
+}
+
+// The session a codex process was launched with: `codex resume <id>`.
+export function codexArgvSession(command) {
+  const m = String(command || '').match(/\sresume\s+['"]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=['"\s]|$)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
 const PS_LINE = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d\d:\d\d:\d\d\s+\d{4})\s+(.*)$/;
 
-// `ps -axww -o pid=,ppid=,rss=,lstart=,command=` -> claude processes.
+// `ps -axww -o pid=,ppid=,rss=,lstart=,command=` -> claude and codex processes.
 export function parsePs(text) {
   const out = [];
   for (const line of String(text || '').split('\n')) {
     const m = line.match(PS_LINE);
     if (!m) continue;
-    const kind = claudeKind(m[5]);
-    if (!kind) continue;
+    const k = processKind(m[5]);
+    if (!k) continue;
     const started = new Date(m[4]);
-    out.push({ pid: Number(m[1]), ppid: Number(m[2]), rssKb: Number(m[3]), startedAt: isNaN(started) ? null : started.toISOString(), kind, command: m[5] });
+    out.push({ pid: Number(m[1]), ppid: Number(m[2]), rssKb: Number(m[3]), startedAt: isNaN(started) ? null : started.toISOString(), kind: k.kind, assistant: k.assistant, command: m[5] });
   }
   return out;
 }
@@ -102,7 +142,7 @@ export function parseLsof(text) {
 
 const envCache = new Map(); // pid -> { startedAt, surfaceId, workspaceId }
 
-// Every claude session process with its memory, cmux tab and folder.
+// Every claude and codex session process with its memory, tab and folder.
 export async function readProcesses() {
   const ps = await run(PS_BIN, ['-axww', '-o', 'pid=,ppid=,rss=,lstart=,command=']);
   if (ps == null) throw new Error('ps did not answer');
@@ -121,7 +161,7 @@ export async function readProcesses() {
     helpers: all.length - procs.length,
     procs: procs.map((p) => {
       const e = envCache.get(p.pid) || {};
-      return { pid: p.pid, rssKb: p.rssKb, startedAt: p.startedAt, surfaceId: e.surfaceId || null, workspaceId: e.workspaceId || null, itermId: (!e.surfaceId && e.itermId) || null, cwd: cwds.get(p.pid) || null, argvSession: argvSession(p.command) };
+      return { pid: p.pid, rssKb: p.rssKb, startedAt: p.startedAt, assistant: p.assistant, surfaceId: e.surfaceId || null, workspaceId: e.workspaceId || null, itermId: (!e.surfaceId && e.itermId) || null, cwd: cwds.get(p.pid) || null, argvSession: p.assistant === 'codex' ? codexArgvSession(p.command) : argvSession(p.command) };
     }),
   };
 }
@@ -130,7 +170,7 @@ export async function readProcesses() {
 // still a claude session, and still in the same tab (cmux or iTerm2).
 export async function stillThere(pid, startedAt) {
   const ps = await run(PS_BIN, ['-ww', '-o', 'pid=,ppid=,rss=,lstart=,command=', '-p', String(pid)]);
-  const p = parsePs(ps).find((x) => x.pid === pid && x.kind === 'session');
+  const p = parsePs(ps).find((x) => x.pid === pid && x.kind === 'session' && x.assistant === 'claude');
   if (!p || p.startedAt !== startedAt) return null;
   const env = parseEnv(await run(PS_BIN, ['-E', '-ww', '-o', 'pid=,command=', '-p', String(pid)])).get(pid) || {};
   return { rssKb: p.rssKb, surfaceId: env.surfaceId || null, itermId: (!env.surfaceId && env.itermId) || null };

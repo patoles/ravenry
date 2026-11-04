@@ -193,7 +193,7 @@ if (SHOTS && pw) { fs.mkdirSync(SHOTS, { recursive: true }); browserP = pw.chrom
 if (SHOTS && pw) {
   for (const [name, w, h, theme, mobile] of [['first-run-desktop-light', 1440, 900, 'light', false], ['first-run-desktop-dark', 1440, 900, 'dark', false], ['first-run-phone-light', 390, 844, 'light', true], ['first-run-phone-dark', 390, 844, 'dark', true]]) {
     const x = await shot(PORT, name, w, h, theme, mobile);
-    check(`shot ${name}: the first-run empty state, no page error, no sideways scroll`, x && /No Claude Code sessions yet/.test(x.text) && !x.errs.length && !x.wide, x && (x.errs.join('; ') || x.file));
+    check(`shot ${name}: the first-run empty state, no page error, no sideways scroll`, x && /No sessions yet/.test(x.text) && !x.errs.length && !x.wide, x && (x.errs.join('; ') || x.file));
   }
 }
 

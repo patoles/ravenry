@@ -6,7 +6,8 @@
 // Fixture: $FAKE_CMUX_STATE (JSON), re-read on every call:
 //   { "workspaces": [{ "id", "ref", "title", "cwd", "surfaces": [{ "id", "ref", "title" }] }],
 //     "screens": { "<surface id>": "<screen text>" },
-//     "menus": { "<surface id>": { "after", "frozen", "stuck", "lagKeys" } } }
+//     "menus": { "<surface id>": { "after", "frozen", "stuck", "lagKeys" } },
+//     "hookSessions": [<cmux's own hook records, as `cmux sessions --json`>] }
 // A surface listed in "menus" (and only such a surface) plays a Claude Code
 // menu on its screen: `send-key up|down` moves the ❯ between the option
 // lines, `send-key enter` replaces the screen with "after" (unless "stuck"),
@@ -47,7 +48,8 @@ switch (args[0]) {
       panes: [{ id: 'pane-' + w.id, surfaces: w.surfaces.map((s) => ({ id: s.id, ref: s.ref, title: s.title || '', type: 'terminal' })) }],
     })) }] });
     break;
-  case 'sessions': out({ sessions: [] }); break;
+  // cmux's own hook records ("hookSessions" in the fixture, in cmux's JSON shape).
+  case 'sessions': out({ sessions: st.hookSessions || [] }); break;
   case 'sidebar-state': {
     const w = st.workspaces.find((x) => x.id === opt('--workspace'));
     out(w ? `cwd=${w.cwd || ''}\nfocused_cwd=${w.cwd || ''}\ngit_branch=none\n` : '');

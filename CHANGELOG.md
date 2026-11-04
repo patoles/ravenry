@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.3.0
+
+- Code on the Live screen: a fenced block is now one code block, however
+  the terminal or the screen width wraps it, with one Copy at its end that
+  copies the block's own text (a command with `&&`, quotes or a `<code>`
+  placeholder exactly; a block of several lines with its indentation and
+  blank lines). A `! ` command alone on its line is a code block too.
+  Inline code in a sentence is a chip at the text's line height with no
+  button in the line: on a desktop a Copy floats over it on hover, on a
+  phone a tap copies it. Before, a fenced line was drawn as an inline chip,
+  so a long command wrapped into pieces that looked like separate chips,
+  and every `! ` span, even mid-sentence, carried a 32 px Copy pill on a
+  phone that pushed its line apart.
+- The hand-off no longer asks at every stop. After a session defers, the
+  hook waits for a new prompt from the user, Hand off now, the ceiling, or
+  10 minutes before it asks again; task notifications and its own reason
+  fed back do not count. The board says when it asks next. Waiting on the
+  user's answer is now a clean point: the hand-off carries the open
+  question in its open items.
+- The board can start Codex as well as Claude Code. A registry setting,
+  `startWith` (`claude` or `codex`, Claude Code by default), picks the
+  assistant New project starts, and a project created with its own
+  `assistant` keeps it. Revive, New session and a plan's start continue a
+  project with its own assistant, else the one of its newest session. When
+  the chosen assistant is not installed the board starts the other one and
+  says so. Settings opens on an Assistant section, "Start new sessions
+  with" Claude or Codex; New project has an Assistant row under Folder,
+  set from Settings; in a Codex project the New session switch says it
+  opens Codex. `GET` and `POST /api/settings/assistant` read and write the
+  setting.
+- Plans, the Ideas thread, Get 3 directions and idea mockups follow the same
+  setting: with Codex they run `codex exec` (read-only, no tools, no hooks),
+  so a Codex-only Mac keeps them. They log tokens only, since Codex reports
+  no cost.
+- When the model in Codex's `config.toml` is one the account refuses, the
+  board's calls run again on `codexModel` (a registry setting) or Codex's own
+  default, and the sessions it starts get `-m` with that model. Codex's
+  config is never edited.
+- Rule suggestions read Codex's sessions too (its rollouts, the user's own
+  prompts only), with the same clustering and thresholds. A suggestion says
+  whose sessions it came from, and accepting it writes to CLAUDE.md for
+  Claude Code's, AGENTS.md (`~/.codex/AGENTS.md`, or the project's) for
+  Codex's, both when both, with the same backups and guards. The
+  detector's calls run on `codex exec` when new sessions start with Codex.
+- In Ideas, a reply Codex wrote is stored and shown as Codex's. Busy,
+  restart and error lines in Ideas and Plans, and the page's lines about a
+  project's sessions, name the assistant actually running (for example
+  "Codex is still answering the last one.").
+- `POST /api/project/assistant` sets a project's assistant after it was
+  created (or clears it); the next New session, Revive and plan start use
+  it.
+- The project sheet's meta line ends on "New sessions:" and a Claude /
+  Codex switch: the assistant this project's new sessions start with (New
+  session, Revive, a plan's start), saved at once. Running sessions keep
+  theirs. Its words sit on the meta line's baseline and the line keeps its
+  height; on a phone the label and the switch move to a row together.
+- Nothing changes for Claude Code: the same commands, the same `claude -p`
+  calls (docs/ASSISTANTS.md).
+- A session in a cmux workspace no project lists is on the board: in Needs
+  you by its folder name when it waits on you (Codex's "Trust this folder?"
+  included), else in a "Not in a project" group under Idle. Its sheet
+  answers like any other and offers Add to a project and New project from
+  this folder.
+- Every session carries a small "Claude" or "Codex" tag: the Sessions card,
+  the Live screen header, the Sessions page and folder rows. The top bar
+  reads Sessions, and the Sessions page lists Codex sessions with their
+  memory (Close idle still ends Claude Code sessions only).
+- Your rules shows each scope's CLAUDE.md beside its AGENTS.md.
+- A Codex menu's text showed twice on the Live screen; it shows once. The
+  Live screen's tooltip names the session's assistant.
+- The Live screen shows a run of the same background notice once, with a
+  count: 16 rows of `Agent "X" is waiting on its own background work` are
+  one row ending in "×16". Another agent's notice, another text such as
+  "finished", or any other line in between starts a new row.
+
 ## 0.2.0
 
 - The board follows OpenAI Codex sessions too, beside Claude Code's: their

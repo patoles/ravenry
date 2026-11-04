@@ -3,7 +3,8 @@
 //   CLAUDE.md does not cite by name yet (it cites file names in parentheses);
 // - repeats: corrections they typed in two or more sessions (server/repeats.mjs).
 // Memory files are only ever read. Accepting a rule APPENDS one line to a
-// "## Added from the board" section, after a timestamped backup. The one
+// "## Added from the board" section, after a timestamped backup. The same
+// write path serves Codex's AGENTS.md for a repeat said in Codex sessions. The one
 // rewrite allowed is a repeat's Reword rule: it replaces exactly one rule
 // line of a CLAUDE.md, after a timestamped backup, and only while that line
 // still reads exactly as it did when the suggestion was made. No other line
@@ -125,10 +126,11 @@ function stamp(d = new Date()) {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-export function backup(file, cfg, tag) {
+// `name` is the rules file's: CLAUDE (Claude Code's) or AGENTS (Codex's).
+export function backup(file, cfg, tag, name = 'CLAUDE') {
   if (!fs.existsSync(file)) return null;
   fs.mkdirSync(cfg.backupDir, { recursive: true });
-  const to = path.join(cfg.backupDir, `${tag}-CLAUDE-before-board-rule-${stamp()}-${process.pid}${Math.random().toString(36).slice(2, 5)}.md`);
+  const to = path.join(cfg.backupDir, `${tag}-${name}-before-board-rule-${stamp()}-${process.pid}${Math.random().toString(36).slice(2, 5)}.md`);
   fs.copyFileSync(file, to, fs.constants.COPYFILE_EXCL);
   return to;
 }

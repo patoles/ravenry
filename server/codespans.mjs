@@ -8,6 +8,11 @@
 // lines of its fenced blocks). Only 'c' entries are marked; tool lines and
 // the user's prompts never are.
 //
+// A fenced block comes out as one mark with `b` (a code block): its lines'
+// pieces together, and as its text the block's own source (indentation and
+// all) when every line of it is on screen, so the page draws it as one block
+// with one Copy that copies the whole block, however the terminal wrapped it.
+//
 // Matching, in two steps, on the letters and digits alone (so markdown
 // syntax, list bullets, box lines and the terminal's wrapping all drop out):
 // 1. An entry belongs to the recent message whose text holds it: sampled
@@ -37,12 +42,24 @@ const AL = /[\p{L}\p{N}]/u;
 // The code spans of one markdown text, in order: { t: text, a, b } where a, b
 // are its place in the source. Inline spans follow CommonMark backtick runs
 // (a run of N backticks closes on the next run of exactly N); every
-// non-blank line of a fenced block is a span of its own.
+// non-blank line of a fenced block is a span of its own, with `blk` (the
+// block's number in the message) and `bt` (the block's whole text).
 export function spansOf(md) {
   const out = [];
   const lines = md.split('\n');
   let pos = 0;
   let fence = null;
+  let blk = -1;     // the open block's number
+  let body = [];    // its lines, as written
+  let lead = 0;     // the fence's indent, taken off each line
+  let first = 0;    // its first span in out
+  const close = () => {
+    while (body.length && !body[body.length - 1].trim()) body.pop();
+    while (body.length && !body[0].trim()) body.shift();
+    const bt = body.join('\n');
+    for (let k = first; k < out.length; k++) out[k].bt = bt;
+    fence = null;
+  };
   let para = []; // [{ text, at }] lines of prose, scanned together (a span may cross a soft break)
   const flush = () => {
     if (!para.length) return;
@@ -58,19 +75,27 @@ export function spansOf(md) {
   for (const line of lines) {
     const m = line.match(/^ {0,3}(`{3,}|~{3,})/);
     if (fence) {
-      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) fence = null;
-      else if (line.trim()) {
-        const lead = line.length - line.trimStart().length;
-        const t = line.trim();
-        out.push({ t, a: pos + lead, b: pos + lead + t.length, fenced: true });
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) close();
+      else {
+        body.push(line.slice(Math.min(lead, line.length - line.trimStart().length)));
+        if (line.trim()) {
+          const sp = line.length - line.trimStart().length;
+          const t = line.trim();
+          out.push({ t, a: pos + sp, b: pos + sp + t.length, fenced: true, blk });
+        }
       }
     } else if (m && !(m[1][0] === '`' && line.slice(m[0].length).includes('`'))) {
       flush();
       fence = m[1];
+      blk++;
+      body = [];
+      lead = m[0].length - m[1].length;
+      first = out.length;
     } else if (!line.trim()) flush();
     else para.push({ text: line, at: pos });
     pos += line.length + 1;
   }
+  if (fence) close(); // a block still being written: what there is so far
   flush();
   return out;
 }
@@ -120,8 +145,12 @@ function prepare(text) {
   const L = lettersOf(text.replace(/^ {0,3}(?:`{3,}|~{3,})[^\n]*$/gm, (x) => ' '.repeat(x.length)));
   // A source offset to a letter index: the first letter at or after it.
   const idx = (off) => { let lo = 0, hi = L.at.length; while (lo < hi) { const m = (lo + hi) >> 1; if (L.at[m] < off) lo = m + 1; else hi = m; } return lo; };
-  const spans = spansOf(text).map((x) => ({ t: x.t, a: idx(x.a), b: idx(x.b) })).filter((x) => x.b > x.a);
-  return { s: L.s, spans };
+  const all = spansOf(text);
+  const spans = all.map((x) => ({ t: x.t, a: idx(x.a), b: idx(x.b), ...(x.fenced ? { blk: x.blk, bt: x.bt } : {}) })).filter((x) => x.b > x.a);
+  // How many lines each block has, to tell a whole block on screen from part of one.
+  const blkLines = {};
+  for (const x of spans) if (x.blk != null) blkLines[x.blk] = (blkLines[x.blk] || 0) + 1;
+  return { s: L.s, spans, blkLines };
 }
 
 // ------------------------------------------------------------ the transcript
@@ -273,12 +302,35 @@ function marksFor(lines, msg) {
     }
     if (!r.length) continue;
     const x = { t: sp.t, r };
-    if (sp.t.startsWith('! ')) x.cmd = true;
+    if (sp.blk != null) { x.blk = sp.blk; x.bt = sp.bt; }
     out.push(x);
   }
   // In reading order, so the page can lay them out line by line.
   out.sort((x, y) => x.r[0][0] - y.r[0][0] || x.r[0][1] - y.r[0][1]);
-  return out;
+  // A fenced block's lines become one code block (`b`): its pieces
+  // together, its text the block's source when all its lines are on screen
+  // (`whole`), else the lines that are, one per line.
+  const merged = [];
+  for (const x of out) {
+    const prev = merged[merged.length - 1];
+    if (x.blk != null && prev && prev.blk === x.blk) {
+      prev.r.push(...x.r);
+      prev.lines.push(x.t);
+      continue;
+    }
+    merged.push(x.blk != null ? { blk: x.blk, bt: x.bt, r: [...x.r], lines: [x.t] } : x);
+  }
+  for (const x of merged) {
+    if (x.blk != null) {
+      const whole = x.lines.length === msg.blkLines[x.blk];
+      x.t = whole ? x.bt : x.lines.join('\n');
+      x.b = true;
+      if (whole) x.whole = true;
+      delete x.blk; delete x.bt; delete x.lines;
+    }
+    if (x.t.startsWith('! ')) x.cmd = true;
+  }
+  return merged;
 }
 
 const entryCache = new Map(); // gen + entry text -> marks

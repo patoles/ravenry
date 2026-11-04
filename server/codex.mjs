@@ -31,6 +31,7 @@
 import * as term from './terminal.mjs';
 import { isShellLine } from './screen.mjs';
 import { readRollout, findRollout, firstPrompt as rolloutFirstPrompt } from './codexrollout.mjs';
+import * as exec from './codexexec.mjs';
 
 export const KIND = 'codex';
 export const NAME = 'Codex';
@@ -103,6 +104,22 @@ function findDialog(lines) {
     if (DIALOG_HINTS.some((re) => re.test(lines[i]))) return i;
   }
   return -1;
+}
+
+// The first option line of the open menu whose hint line is `at`, or -1:
+// up from the hint, over the options, the lines a long option wrapped onto
+// and blank lines, to the first line that is none of them (the menu's text,
+// such as "Trust this folder?", or the command it asks about).
+function menuStart(lines, at) {
+  let first = -1;
+  for (let i = at - 1; i >= Math.max(0, at - 20); i--) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    if (OPTION.test(l)) { first = i; continue; }
+    if (first >= 0 && /^\s{4,}\S/.test(l)) continue;
+    break;
+  }
+  return first;
 }
 
 function readDialog(lines, at) {
@@ -237,7 +254,13 @@ export function trimScreen(text) {
   const box = findComposer(lines);
   const dialogAt = findDialog(lines);
   const dialogLive = dialogAt >= 0 && (!box || dialogAt > box.at);
-  const above = lines.slice(0, dialogLive ? lines.length : box.at);
+  // An open menu: everything above its options is read as usual (its own
+  // text is plain lines), and the options and hint follow that text once,
+  // as drawn. Reading the whole screen and then adding the menu's lines
+  // again showed its text twice, the first time with "› 1. Trust and
+  // continue" taken for a prompt you sent (tools/fixtures/codex/01-trust.txt).
+  const menuAt = dialogLive ? (() => { const m = menuStart(lines, dialogAt); return m >= 0 ? m : dialogAt; })() : -1;
+  const above = lines.slice(0, dialogLive ? menuAt : box.at);
   const entries = [];
   let cur = null;
   const push = (e) => { entries.push(e); cur = e; return e; };
@@ -273,7 +296,12 @@ export function trimScreen(text) {
     if (e.l) { const x = { k: e.k, l: e.l }; if (x.l.length) out.entries.push(x); continue; }
     out.entries.push(e);
   }
-  if (dialogLive) out.entries.push({ k: 'p', l: lines.slice(Math.max(0, dialogAt - 20), dialogAt + 1).filter((x) => x.trim()) });
+  if (dialogLive) {
+    const menu = lines.slice(menuAt, dialogAt + 1).filter((x) => x.trim());
+    const last = out.entries[out.entries.length - 1];
+    if (last && last.k === 'p') last.l.push(...menu);
+    else out.entries.push({ k: 'p', l: menu });
+  }
   out.status = { busy: ps.busyLine, agents: [], done: ps.done };
   return out;
 }
@@ -337,4 +365,22 @@ export const readTranscript = (file) => readRollout(file);
 // The repo comes from the hook's cwd: a rollout's tool calls are scripts.
 export const workFolder = () => null;
 export const firstPrompt = (file) => rolloutFirstPrompt(file);
-export const launchCommand = (settings) => (settings && settings.codexCommand) || 'codex';
+// The command that starts a fresh session (New project, Revive, New
+// session and the hand-off's): `codexCommand`, else `codex`, with `-m` when
+// the board measured the model in Codex's config.toml refused by the
+// account (server/codexexec.mjs): a session started on it fails its first
+// turn.
+export function launchCommand(settings) {
+  if (settings && settings.codexCommand) return settings.codexCommand;
+  const m = exec.startModel(settings || {});
+  return m ? `codex -m ${m}` : 'codex';
+}
+export const startCommand = launchCommand;
+
+// Is Codex on this Mac (the real binary, not cmux's shim)?
+export const installed = (settings, env) => exec.installed(settings || {}, env);
+
+// Print mode: one `codex exec` run (server/codexexec.mjs).
+export const print = (opts) => exec.run(opts);
+export const modelState = (env) => exec.modelState(env);
+export const configuredModel = (env) => exec.configuredModel(env);

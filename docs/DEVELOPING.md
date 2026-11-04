@@ -49,9 +49,12 @@ install it).
   `server/codex.mjs` (with `server/codexrollout.mjs` for its transcripts and
   `server/codexhooks.mjs` for its hooks.json and trust entries). Sessions
   carry `assistant` from the events hook (`--assistant=codex` in Codex's
-  hook commands); none is Claude Code. [docs/ASSISTANTS.md](ASSISTANTS.md)
-  has the interface, what works for each, Codex's events, screen and
-  transcript, the hand-off and the install.
+  hook commands); none is Claude Code. New project, Revive and New session
+  start the assistant `startWith` (registry settings) or the project names,
+  and Plans and Ideas run `claude -p` or `codex exec` by the same setting.
+  [docs/ASSISTANTS.md](ASSISTANTS.md) has the interface, what works for
+  each, Codex's events, screen and transcript, the hand-off, starting
+  sessions, print mode and the install.
 - `server/terminal.mjs` is the one terminal interface: every read, text,
   key, focus, new tab and close goes through it to an adapter,
   `server/cmux.mjs` (the only module that runs the cmux CLI) or
@@ -86,8 +89,8 @@ install it).
   "Ravenry" workspace that shows this board in a cmux browser pane.
 - The accepted design this ports: [docs/design/Main.dc.html](design/Main.dc.html).
 - Memory and closing idle sessions: [docs/SESSIONS.md](SESSIONS.md).
-  The top bar shows what every claude process holds ("Claude 10.2 GB |
-  14 idle"); it opens the Sessions page, which closes the ticked idle
+  The top bar shows what every claude and codex process holds ("Sessions
+  10.2 GB | 14 idle"); it opens the Sessions page, which closes the ticked idle
   sessions through cmux or iTerm2 and can reopen them for 14 days.
 
 ## Open on your phone
@@ -151,7 +154,10 @@ variant B, with a shorter default height).
   and everything under it (mode line, footer, agent list), folded tool
   groups such as "Read 1 file (ctrl+o to expand)", "Message from" notices,
   spinner lines and Claude Code's notes under tool output are removed; each
-  tool call is one dim line with its output's line count; lines Claude Code
+  tool call is one dim line with its output's line count; a run of the same
+  background notice ("Agent "X" is waiting on its own background work",
+  times aside, blank lines between) is one line with "×N" at its end, the
+  text cut before the count on a narrow card (`foldNotices`); lines Claude Code
   wrapped at the terminal width are joined again and wrap to the card;
   tables keep their drawing and scroll sideways. A screen with no Claude
   shows verbatim.
@@ -466,7 +472,11 @@ Objectives).
   dashes) and asked once more with the reason when it fails. Each call logs
   its time and tokens to the board's output and `plans/calls.jsonl`. The
   draft lives in `plans/drafts/<project>.json`, so a reload or a phone picks
-  the conversation up.
+  the conversation up. With `startWith: 'codex'` (or Claude Code not
+  installed) the same prompts and schema go to `codex exec` instead, with the
+  schema as `--output-schema`, no tools, at medium effort
+  ([docs/ASSISTANTS.md](ASSISTANTS.md), Print mode); it logs tokens and no
+  cost.
 - **Storage**: Start writes the plan first under the brief's `## Plan`, in
   the format of docs/BRIEF-FORMAT.md (Plans), through `writeBriefSafe`: a
   backup in `~/.ravenry/backups/briefs/`, then a temp file and a rename, the
@@ -607,7 +617,10 @@ The top bar switches views; each view lives in the URL (`#/objectives`,
   thread box goes with the next message. Each thread message and "Get 3
   directions" runs `claude -p --no-session-persistence --tools Read` in
   `~/.ravenry/ideas` with the idea as context, one at a time, stopped
-  after 3 minutes with a clear message.
+  after 3 minutes with a clear message. With `startWith: 'codex'` (or
+  Claude Code not installed) the thread, the directions and the mockup
+  rounds run `codex exec` instead, the idea's pictures attached with `-i`
+  ([docs/ASSISTANTS.md](ASSISTANTS.md), Print mode).
   - **Mockups** ([docs/design/IdeaMockups.dc.html](design/IdeaMockups.dc.html),
     variant A): a card between the open idea and its thread. "Mock it up"
     runs one round: the same `claude -p --no-session-persistence --tools
@@ -679,9 +692,11 @@ The top bar switches views; each view lives in the URL (`#/objectives`,
   results, task notifications, compact summaries, pasted content, system
   reminders or board hand-off prompts). It keeps a per-file offset, size and
   inode and reads only new bytes; a new inode or a shorter file is read
-  again from 0. Every kept message is stored verbatim, with its verdict, in
-  `~/.ravenry/repeats/`, because Claude Code deletes transcripts
-  after 30 days.
+  again from 0. Codex's sessions are read the same way from its rollouts
+  (`~/.codex/sessions`), each going to the source its folder is in, the
+  user's own prompts only (docs/ASSISTANTS.md, "Rules"). Every kept message
+  is stored verbatim, with its verdict, in `~/.ravenry/repeats/`, because
+  Claude Code deletes transcripts after 30 days.
 - Model calls: `claude -p --no-session-persistence --model sonnet --tools ""
   --strict-mcp-config --setting-sources project,local --output-format json`
   with a short `--system-prompt` and a `--json-schema`, on your own
@@ -691,11 +706,15 @@ The top bar switches views; each view lives in the URL (`#/objectives`,
   (each message is a cluster, a new cluster, or not a correction), then one
   draft call for up to 10 clusters that just reached 2 sessions (rule line,
   matching line in a CLAUDE.md or memory, reword). Each call stops after 5
-  minutes.
+  minutes. When new sessions start with Codex (`startWith`), the same
+  calls run through `codex exec` (docs/ASSISTANTS.md, "Print mode").
 - Plain code does the rest: counts, dates, dedupe (a message re-sent with
   an addition counts once), whether the rule was in that session's scope
   when you said it (which picks Reword, Add to every project or Add rule),
   and quotes, which are cut from the stored text, never from model output.
+  Accepting a row writes to CLAUDE.md for what Claude Code's sessions said
+  and to AGENTS.md (`globalAgentsMd`, `<CODEX_HOME>/AGENTS.md` by default,
+  or a project's) for what Codex's said, both when both did.
 - It runs once a day while the board is up, and at start when the last run
   is more than 24 h old (a failed run is retried after 6 h). Each run logs
   its message count and tokens to the board's output and to
@@ -997,6 +1016,32 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   in Codex's environment pointing at a scratch board on :4699 whose registry
   holds that workspace; replies, menu choices and Hand off now through that
   board's routes.
+- `node tools/start-with-test.mjs [--real]`: which assistant the board
+  starts and Plans and Ideas on Codex (docs/ASSISTANTS.md, Starting sessions
+  and Print mode, and its Tests): the launch command per assistant and the
+  words through `/bin/sh`, `startWith` and its fallback, continuing a
+  project, the settings' check, `codex exec`'s argv and output against
+  `tools/stub-codex.mjs` (`MC_CODEX_BIN`; `STUB_CODEX_ARGV_FILE` records each
+  run), then a test board on :4695 with the fake cmux (also: replies,
+  busy lines and restart lines naming Codex, and `POST
+  /api/project/assistant`), and the page on
+  :4696 (`--shots <dir>`: Settings, New project and the New session line at
+  1440x900 and 390x844, dark and light). `--real` runs one
+  plan draft through the real `codex exec` in a scratch CODEX_HOME (auth.json
+  copied in, deleted after) and a New session on a board on :4697 into a
+  throwaway `mc-test-codexstart-*` workspace, closed at the end. Touches only
+  `.tmp/` and that workspace. Env for tests: `MC_CODEX=0|1` and
+  `MC_CLAUDE=0|1` say whether each assistant is installed.
+- `node tools/codex-stage2-test.mjs [--shots <dir>]`: Codex stage two
+  ([docs/design/CodexStage2.dc.html](design/CodexStage2.dc.html), sections 1,
+  2 and 4): a Codex menu's Live screen text once, which processes are Codex
+  sessions, the Rules scopes on scratch files, then a test board on :4696
+  with the fake cmux (`hookSessions` in its fixture) and the ps stub: a
+  Codex trust menu in a workspace no project lists in Needs you as a folder,
+  an idle one in Not in a project, hidden and ignored workspaces nowhere, the
+  menu answered from the board, Add to a project and New project from this
+  folder writing the registry, the tags, the Sessions page and Rules in two
+  columns. Touches only `.tmp/`.
 - `node tools/new-session-test.mjs [--shots <dir>] [--real <scratch folder>]`:
   the New session switch on a test board on :4686 with the fake cmux (whose
   `newSurfaces` opens tabs): the route's exact command lines, switch off to
@@ -1012,7 +1057,11 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   on crafted transcripts, temp CLAUDE.md and memory files under `.tmp/`,
   with `tools/stub-repeats-claude.mjs` as the model (no quota): offsets
   (truncated and replaced files), dedupe, citation keeping, the line-replace
-  guard, Add rule, a memory-only rule, Not now and rows coming back.
+  guard, Add rule, a memory-only rule, Not now and rows coming back; then
+  Codex's sessions on made-up rollouts in a scratch sessions folder (what
+  counts as the user's typing, which project a rollout is in, offsets, the
+  calls through `tools/stub-codex.mjs` with a strict schema, and writes to a
+  scratch global and project AGENTS.md beside CLAUDE.md).
 - `node tools/open-folder-test.mjs`: the folder path's Open in Finder on a
   test board on :4675 with the fake cmux and `tools/stub-open.mjs` for
   `open`: the registered folder only, 403 for a phone and for another site's

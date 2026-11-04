@@ -173,6 +173,22 @@ function taskDot(state) {
   return c;
 }
 function project(id) { return ui.snap && ui.snap.projects.find((p) => p.id === id); }
+
+// The assistant tag (docs/design/CodexStage2.dc.html, section 2, A): one small
+// neutral word on every session, the same style for both. "Claude", not
+// "Claude Code", which takes more room.
+const AS_WORD = { claude: 'Claude', codex: 'Codex' };
+const AS_NAME = { claude: 'Claude Code', codex: 'Codex' };
+const asKind = (k) => (k === 'codex' ? 'codex' : 'claude');
+function asTag(kind, cls = '') {
+  const k = asKind(kind);
+  return `<span class="as-tag${cls ? ' ' + cls : ''}" title="${AS_NAME[k]} session">${AS_WORD[k]}</span>`;
+}
+// A session that is not in a project (section 1, C) is shown by its folder
+// name with a folder glyph.
+const UN_ICON = '<span class="un-ic"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.6h5.6a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"></path></svg></span>';
+// The session a project's row speaks for: its primary, else its first.
+function mainSession(p) { return (p.sessions || []).find((x) => x.surfaceId === p.primary) || (p.sessions || [])[0] || null; }
 // A chosen session that hands off gives the choice to its fresh session
 // (or back to the primary when the fresh one is not on the board yet),
 // once: chosen again afterwards, it stays chosen.
@@ -233,10 +249,14 @@ async function post(url, body, headers = {}) {
 
 // The projects of each state, in the order the list shows them. The phone's
 // chips and idle sheet use the same order.
+// A session that is not in a project and needs you sits in Needs you; the
+// quiet ones (working, idle) go to `un`, the "Not in a project" group under
+// Idle (docs/design/CodexStage2.dc.html, section 1, variant C).
 function groups(ps) {
   const out = {};
+  out.un = ps.filter((p) => p.unowned && p.state !== 'you').sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || (Date.parse(b.since || 0) - Date.parse(a.since || 0)) || a.name.localeCompare(b.name));
   for (const k of ORDER) {
-    const items = ps.filter((p) => p.state === k);
+    const items = ps.filter((p) => p.state === k && !(p.unowned && k !== 'you'));
     // Needs you: oldest first is not useful; newest ask on top.
     items.sort((a, b) => k === 'work' ? a.name.localeCompare(b.name) : (Date.parse(b.since || 0) - Date.parse(a.since || 0)) || a.name.localeCompare(b.name));
     out[k] = items;
@@ -268,6 +288,20 @@ ${pic ? `<img class="pic" src="${escRaw(pic.url)}" alt="${esc(pic.alt)}" style="
 </button>`;
 }
 
+// A row for a session that is not in a project: its folder name, the
+// folder glyph, its assistant's tag, the time, and its line.
+function unRow(p, k) {
+  const sel = ui.sel === p.id;
+  const since = rowSince(p);
+  const s = mainSession(p);
+  const line = p.line || (p.headline || '').replace(/^Last: /, '');
+  const word = (ST[p.state] || ST.idle).word.toLowerCase();
+  return `<button class="row un-row ${sel ? 'sel' : ''}" data-id="${escRaw(p.id)}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(`${p.name}, not in a project, ${word}${line ? ': ' + line : ''}`)}">
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span class="un-name" style="font-weight: ${sel ? 650 : k === 'you' ? 550 : 500}">${UN_ICON}<span style="overflow: hidden; text-overflow: ellipsis">${esc(p.name)}</span></span>${s ? asTag(s.assistant) : ''}<span class="num t3" style="font-size: 11.5px">${esc(since)}</span></span>
+${line ? `<span class="t2 un-sub">${esc(line)}</span>` : ''}
+</button>`;
+}
+
 function renderList() {
   const snap = ui.snap;
   if (!snap) return;
@@ -283,10 +317,14 @@ function renderList() {
     const t = ST[k];
     h += `<section class="grp" style="background: ${t.tint}" aria-labelledby="g-${k}">
 <h2 class="grp-h" id="g-${k}" style="color: ${t.c}">${stateIcon(t)}<span style="flex: 1">${t.word}</span><span class="cnt num" style="${t.cnt}" aria-label="${items.length} projects">${items.length}</span></h2>`;
-    for (const p of items) h += rowHtml(p, k);
+    for (const p of items) h += p.unowned ? unRow(p, k) : rowHtml(p, k);
     h += '</section>';
   }
-  if (!ps.length) h += `<p class="t2" style="padding: 0 8px">No projects yet. ${boardTerm() !== 'cmux' ? 'Start one with New project, or start Claude in a terminal.' : snap.cmuxOk ? 'cmux shows no workspaces.' : 'Waiting for cmux.'}</p>`;
+  if (g.un.length) {
+    h += `<section class="grp un-grp" aria-labelledby="g-un">
+<h2 class="grp-h" id="g-un" style="color: var(--tx2)">${stateIcon({ c: 'var(--tx3)', dash: '2.2 2', dot: 0 })}<span style="flex: 1">Not in a project</span><span class="cnt num" style="background: var(--card2); color: var(--tx2)" aria-label="${g.un.length} sessions">${g.un.length}</span></h2>${g.un.map((p) => unRow(p, p.state)).join('')}</section>`;
+  }
+  if (!ps.length) h += `<p class="t2" style="padding: 0 8px">No projects yet. ${boardTerm() !== 'cmux' ? 'Start one with New project, or start Claude Code or Codex in a terminal.' : snap.cmuxOk ? 'cmux shows no workspaces.' : 'Waiting for cmux.'}</p>`;
   const focusedId = document.activeElement && document.activeElement.closest && document.activeElement.closest('#list .row') ? document.activeElement.closest('#list .row').dataset.id : null;
   setHtml('list', h);
   if (focusedId) { const el = document.querySelector(`#list .row[data-id="${CSS.escape(focusedId)}"]`); if (el) el.focus(); }
@@ -304,6 +342,8 @@ const CHEV_DOWN = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" s
 function pchipHtml(p, k) {
   const t = ST[k];
   const sel = ui.sel === p.id;
+  // Not in a project: a dashed chip with the folder glyph, in its state's place.
+  if (p.unowned) return `<button class="pchip un ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: var(--card)" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(`${p.name}, not in a project, ${t.word.toLowerCase()}`)}">${k === 'idle' ? '' : stateIcon(t)}${UN_ICON}<span>${esc(p.name)}</span></button>`;
   // The idle tint is nearly clear; a selected idle project's chip sits on the
   // card colour like the idle chip beside it.
   return `<button class="pchip ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: ${k === 'idle' ? 'var(--card)' : t.tint}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(rowLabel(p, k))}">${stateIcon(t)}<span>${esc(p.name)}</span></button>`;
@@ -312,6 +352,10 @@ function pchipHtml(p, k) {
 function renderProjectChips() {
   if (!ui.snap) return;
   const g = groups(ui.snap.projects);
+  // On the phone (section 1, as B): a working session not in a project gets
+  // its dashed chip after the working ones; an idle one joins the idle chip.
+  g.work = [...g.work, ...g.un.filter((p) => p.state === 'work')];
+  g.idle = [...g.idle, ...g.un.filter((p) => p.state === 'idle')];
   let h = '';
   for (const k of ['you', 'work', 'wait']) for (const p of g[k]) h += pchipHtml(p, k);
   const selIdle = g.idle.find((p) => p.id === ui.sel);
@@ -332,7 +376,7 @@ function renderIdleSheet(idle) {
   if (!ui.idleOpen) { setHtml('idle-sheet', ''); return; }
   const list = $('#idle-sheet .bs-list');
   const top = list ? list.scrollTop : 0;
-  setHtml('idle-sheet', `<div class="scrim" data-idle-close></div><div class="bsheet" role="dialog" aria-modal="true" aria-label="Idle projects"><div class="grab"></div><div class="bs-head"><span class="bs-title">Idle</span><span class="t3 num" style="font-size: 12px; flex: 1">${idle.length}, newest first</span><button class="bs-done" data-idle-close>Done</button></div><div class="bs-list"><section class="grp" style="background: var(--idle-t)" aria-label="Idle projects">${idle.map((p) => rowHtml(p, 'idle')).join('')}</section></div></div>`);
+  setHtml('idle-sheet', `<div class="scrim" data-idle-close></div><div class="bsheet" role="dialog" aria-modal="true" aria-label="Idle projects"><div class="grab"></div><div class="bs-head"><span class="bs-title">Idle</span><span class="t3 num" style="font-size: 12px; flex: 1">${idle.length}, newest first</span><button class="bs-done" data-idle-close>Done</button></div><div class="bs-list"><section class="grp" style="background: var(--idle-t)" aria-label="Idle projects">${idle.map((p) => (p.unowned ? unRow(p, 'idle') : rowHtml(p, 'idle'))).join('')}</section></div></div>`);
   const again = $('#idle-sheet .bs-list');
   if (again && top) again.scrollTop = top;
 }
@@ -361,7 +405,7 @@ function emptyHtml() {
   const s = ui.snap;
   if (s && s.error) return `<div class="empty">${esc(s.error)}</div>`;
   if (!s || !s.generatedAt || (s.projects || []).length) return '<div class="empty">Pick a project on the left.</div>';
-  const l = ['<p class="first-h">No Claude Code sessions yet</p>', '<p>Start <span class="mono">claude</span> in a project\'s folder, in any terminal, and it shows up here within a few seconds.</p>'];
+  const l = ['<p class="first-h">No sessions yet</p>', '<p>Start <span class="mono">claude</span> or <span class="mono">codex</span> in a project\'s folder, in any terminal, and it shows up here within a few seconds.</p>'];
   if (s.hooks && s.hooks !== 'ok') l.push(`<p>Ravenry's hooks are ${s.hooks === 'stale' ? 'out of date' : 'not installed'}, so it cannot see sessions yet. Run <span class="mono">ravenry setup</span> in a terminal.</p>`);
   if (s.board && s.board.installed === false) l.push('<p>Watch only: answering from the board needs iTerm2 (free) or cmux. <a href="https://iterm2.com" target="_blank" rel="noopener">Get iTerm2</a></p>');
   return `<div class="empty first">${l.join('')}</div>`;
@@ -394,6 +438,7 @@ function buildSheet(p) {
         <div class="composer" id="composer">
           <textarea id="compose" rows="2" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div id="chips" style="display: flex; flex-wrap: wrap; gap: 6px"></div>
+          <div class="t3 ns-hint" id="ns-hint" hidden></div>
           <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
             <label class="attach"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 6.5L7 11.5a3 3 0 0 1-4.2-4.2L8 2.1a2 2 0 0 1 2.8 2.8L5.7 10"></path></svg>Attach<input type="file" multiple id="pick"></label>
             <button class="ns-tg" id="ns" role="switch" aria-checked="false"><span class="ns-sw"><i></i></span><span>New session</span></button>
@@ -461,7 +506,7 @@ function renderSheet() {
   // The orange tick follows the Settings card's line, and goes when hand-off is off.
   const hc = handoffCfg();
   const past = !!(hc.enabled && ctx && ctx.pct >= hc.threshold);
-  setHtml('d-strip', `<span class="t3" style="font-size: 12.5px; flex: 1 1 auto">Projects<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">${esc(p.name)}</span></span>
+  setHtml('d-strip', `<span class="t3" style="font-size: 12.5px; flex: 1 1 auto">${p.unowned ? 'Not in a project' : 'Projects'}<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">${esc(p.name)}</span></span>
 <span class="t2" style="font-size: 12px" id="ctx-l">Context</span>
 <div class="bar" style="width: 150px" role="meter" aria-labelledby="ctx-l" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ctx ? Math.round(ctx.pct) : 0}" aria-valuetext="${esc(ctxLabel(ctx))}${past ? `, past the ${hc.threshold}% hand-off line` : ''}"><div class="f" style="width: ${ctx ? ctx.pct.toFixed(1) : 0}%; background: ${past ? 'var(--work)' : 'var(--tx)'}"></div>${hc.enabled ? `<div class="m" style="left: ${hc.threshold}%" title="Hand-off line at ${hc.threshold}%"></div>` : ''}</div>
 <span class="num" style="font-size: 12px">${esc(ctxLabel(ctx))}</span>
@@ -486,23 +531,31 @@ ${openButton(p, s)}`);
   const SOURCE = { events: 'From hook events', screen: 'Read from the screen' };
   const gateHere = !!(p.planGate && p.plan && (!s || s.surfaceId === p.primary));
   const why = gateHere ? `From the plan: step ${p.planGate.n} is ${p.planGate.unforeseen ? 'not in the plan, so it stopped to ask' : `a gate, "${p.planGate.text.charAt(0).toLowerCase() + p.planGate.text.slice(1)}"`}`
-    : s ? `${SOURCE[s.source] || SOURCE.screen}: ${s.reasons.join('; ')}` : 'No Claude session in this project';
+    : s ? `${SOURCE[s.source] || SOURCE.screen}: ${s.reasons.join('; ')}` : `No ${projWho(p)} session in this project`;
   const meta = [];
   // On the Mac the folder opens in Finder; a phone keeps it plain text.
   meta.push(ui.local === true && p.folder ? `<button class="linkish fold-open" data-act="open-folder" data-pid="${escRaw(p.id)}" title="Open in Finder">${esc(p.folderShort || p.folder)}</button>` : `<span>${esc(p.folderShort || 'No folder')}</span>`);
-  if (p.brief) {
+  // Not in a project: its cmux workspace instead of a brief's kind and stage.
+  if (p.unowned) meta.push(`<span>cmux workspace ${esc(p.workspaceTitle || p.name)}</span>`);
+  else if (p.brief) {
     if (p.brief.kind) meta.push(`<span>${esc(p.brief.kind)}</span>`);
     meta.push(`<span>${esc(p.brief.stage ? p.brief.stage + ' stage' : 'No stage')}</span>`);
   } else meta.push('<span>No brief yet</span>');
   if (s && s.sessionId) meta.push(`<span title="${esc('Found by ' + s.method)}">Session ${esc(s.sessionId.slice(0, 8))}, via ${esc(s.method)}</span>`);
+  // Codex reports a session id with its first prompt (docs/ASSISTANTS.md).
+  else if (p.unowned && s && asKind(s.assistant) === 'codex' && s.live) meta.push('<span>Session not started yet: Codex reports it with its first prompt</span>');
   else meta.push('<span>No session</span>');
+  // "New sessions:" and its Claude / Codex switch, last on the line.
+  if (!p.unowned) meta.push(pasHtml(p));
   setHtml('d-head', `<div style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: ${t.c}" title="${esc(why)}">${stateIcon(t, state === 'you' ? 'pulse' : '')}${esc(statusLine)}<span class="sr-only">. </span></div>
 <div class="t3" id="d-why" style="font-size: 12px; line-height: 1.4; overflow-wrap: anywhere">${esc(why)}</div>
 <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">${esc(p.name)}</h1>`);
   setHtml('d-meta', meta.join(''));
 
-  // Shared folder card
-  setHtml('d-shared', p.shared.length ? `<div class="card" style="padding: 11px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+  // Shared folder card, or for a session that is not in a project the "Not
+  // in a project" card (docs/design/CodexStage2.dc.html, section 1).
+  if (p.unowned) setHtml('d-shared', unCardHtml(p));
+  else setHtml('d-shared', p.shared.length ? `<div class="card" style="padding: 11px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
 <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--bad)" aria-hidden="true"></span>
 <span style="flex: 1 1 0; min-width: 0">Shares its folder with <b>${esc(joinNames(p.shared))}</b>. Two agents in one folder can overwrite each other's work.</span></div>` : '');
 
@@ -514,7 +567,7 @@ ${openButton(p, s)}`);
   const showSent = sent && Date.now() - sent.at < 120000;
   const cardTitle = state === 'idle' && p.brief && p.brief.parked ? 'Parked' : (state === 'you' && s && s.state === 'handback' ? 'Handed back to you' : t.card);
   const live = p.sessions.some((x) => x.live);
-  let headline = w.headline || (state === 'idle' ? (p.brief && p.brief.goal ? p.brief.goal : live ? 'At the prompt, nothing pending.' : 'No Claude session running.') : '');
+  let headline = w.headline || (state === 'idle' ? (p.brief && p.brief.goal ? p.brief.goal : live ? 'At the prompt, nothing pending.' : `No ${projWho(p)} session running.`) : '');
   // While it works, the label carries the working dot, breathing
   // (docs/design/LiveCode.dc.html, S2).
   const doing = state === 'work' && cardTitle === t.card;
@@ -530,8 +583,8 @@ ${openButton(p, s)}`);
     const pk = p.brief.parked;
     top += `<div class="t2" style="line-height: 1.5">Parked${pk.since ? ' ' + esc(pk.since) : ''}.${pk.why ? ' Why: ' + esc(pk.why) + '.' : ''}${pk.back ? ' Comes back when: ' + esc(pk.back) + '.' : ''}</div>`;
   }
-  if (state === 'idle') {
-    top += `<div style="display: flex; gap: 8px; flex-wrap: wrap"><button class="btn" data-act="revive" data-pid="${escRaw(p.id)}" ${!p.folder && boardTerm() !== 'cmux' ? `disabled title="${escRaw(p.name)} has no folder, so there is nowhere to start its session"` : p.brief ? 'title="Opens a new tab running Claude, which reads the brief (Hand-off section first)"' : 'disabled title="Write the brief first, so the new session has something to read"'}>Revive from the brief</button>${p.brief ? '' : `<button class="btn" data-act="write-brief" data-pid="${escRaw(p.id)}" ${p.folder ? '' : 'disabled title="No folder on disk"'}>Write the brief</button>`}</div>`;
+  if (state === 'idle' && !p.unowned) {
+    top += `<div style="display: flex; gap: 8px; flex-wrap: wrap"><button class="btn" data-act="revive" data-pid="${escRaw(p.id)}" ${!p.folder && boardTerm() !== 'cmux' ? `disabled title="${escRaw(p.name)} has no folder, so there is nowhere to start its session"` : p.brief ? `title="Opens a new tab running ${projWho(p)}, which reads the brief (Hand-off section first)"` : 'disabled title="Write the brief first, so the new session has something to read"'}>Revive from the brief</button>${p.brief ? '' : `<button class="btn" data-act="write-brief" data-pid="${escRaw(p.id)}" ${p.folder ? '' : 'disabled title="No folder on disk"'}>Write the brief</button>`}</div>`;
   }
   // A plan waiting at a gate: the answer card becomes the gate card.
   if (gateHere) top = gateTopHtml(p);
@@ -543,8 +596,8 @@ ${openButton(p, s)}`);
   let label = 'Message';
   const tn = termOf(s);
   if (s && s.terminal === false) label = (s.cannotType || `This session runs outside ${boardTerm()}, so the board cannot type into it`).replace(/\.$/, '');
-  else if (!s && boardTerm() !== 'cmux') label = 'No Claude session is running here. Revive it from the brief to start one';
-  else if (!s || !s.live) label = `No Claude session is running here. Open it in ${tn} to start one`;
+  else if (!s && boardTerm() !== 'cmux') label = `No ${projWho(p)} session is running here. Revive it from the brief to start one`;
+  else if (!s || !s.live) label = `No ${projWho(p)} session is running here. Open it in ${tn} to start one`;
   else if (s.dialog && !(w.quick && w.quick.some((o) => o.choice != null))) label = `A prompt is open in its tab (a permission or a question). Answer it in ${tn}`;
   else if (s.dialog) label = `A choice is open on screen. Pick an option above or answer in ${tn}`;
   else if (s.draft) label = `Its prompt already holds a half-typed reply. Finish or clear it in ${tn} first, so the two are not mixed`;
@@ -563,10 +616,19 @@ ${openButton(p, s)}`);
   const sendWord = ns ? 'Start session' : 'Send';
   if ($('#send').textContent !== sendWord) $('#send').textContent = sendWord;
   $('#composer').classList.toggle('ns-mode', ns);
+  // In a project that continues on Codex, the switch's line says so.
+  const hint = $('#ns-hint');
+  const nsCodex = ns && canStart && p.assistant === 'codex';
+  const hintHtml = nsCodex ? `Opens a new ${esc(boardTerm())} tab${p.folderShort ? ` in ${esc(p.folderShort)}` : ''} running <span class="as-tag" title="Codex session">Codex</span>, this project's assistant.` : '';
+  if (hint.hidden !== !nsCodex) hint.hidden = !nsCodex;
+  if (hint.innerHTML !== hintHtml) hint.innerHTML = hintHtml;
   const tg = $('#ns');
   tg.classList.toggle('on', ns);
   tg.setAttribute('aria-checked', ns ? 'true' : 'false');
   tg.title = canStart ? `Send this as the first message of a new session in ${p.name}` : `${p.name} has no folder, so there is nowhere to start a session`;
+  // Add as note and the New session switch need a project.
+  $('#note').hidden = !!p.unowned;
+  tg.hidden = !!p.unowned;
   $('#note').disabled = !p.brief;
   $('#note').title = p.brief ? 'Adds the text to the Notes in ' + p.brief.path : 'This project has no BRIEF.md yet';
   renderChips(p.id);
@@ -598,7 +660,7 @@ ${many.map((x) => {
   if (x.surfaceId === startingId) return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${go.topic}, Starting`)}">${startRow(on)}</button>`;
   return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${x.topic}, ${SESSION_WORD[x.state]}, context ${ctxLabel(x.ctx)}${x.memKb != null ? ', memory ' + fmtMem(x.memKb) : ''}`)}">
 ${stateIcon(xs)}
-<span style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: ${on ? 600 : 400}">${esc(x.topic)}</span>
+<span class="ss-t"><span class="ss-n" style="font-weight: ${on ? 600 : 400}">${esc(x.topic)}</span>${asTag(x.assistant)}</span>
 <span style="font-size: 11.5px; font-weight: 600; color: ${xs.c}">${esc(SESSION_WORD[x.state])}</span>
 <span class="num t3" style="font-size: 11.5px; flex: 0 0 auto">${esc(x.ctx ? ctxLabel(x.ctx).split(' ')[0] : '')}</span>
 <span class="num" style="font-size: 11.5px; flex: 0 0 52px; text-align: right">${x.memKb != null ? esc(fmtMem(x.memKb)) : ''}</span></button>`;
@@ -606,7 +668,9 @@ ${stateIcon(xs)}
   } else setHtml('d-sessions', '');
 
   // The Plan card (docs/design/Plans.dc.html, A), then the other objectives.
-  setHtml('d-plan', planCardHtml(p));
+  // A session not in a project has no brief, plan or notes.
+  for (const id of ['d-timeline', 'd-notes']) { const el = document.getElementById(id); if (el) el.hidden = !!p.unowned; }
+  setHtml('d-plan', p.unowned ? '' : planCardHtml(p));
   let objs = '';
   const allObjs = objectivesOf(p).filter((o) => !(p.plan && o.plan && o.title === p.plan.title));
   if (allObjs.length) {
@@ -634,7 +698,7 @@ ${o.source || o.updatedAt ? `<div class="card-r t2" style="font-size: 12px">${es
 <div style="padding: 0 16px 12px"><div class="bar"><div class="f" style="width: 0%; background: var(--tx)"></div></div></div>
 <div class="card-r t2" style="font-size: 12px"><span style="flex: 1">${esc(msg)}</span>${!p.brief && p.folder && state !== 'idle' ? `<button class="btn sm" data-act="write-brief" data-pid="${escRaw(p.id)}">Write the brief</button>` : ''}</div></div>`;
   }
-  setHtml('d-objs', objs);
+  setHtml('d-objs', p.unowned ? '' : objs);
 
   // Hand-backs
   const tl = s && !(s.surfaceId === p.primary) ? [] : p.timeline.slice();
@@ -657,6 +721,52 @@ ${notes.length ? '' : `<div class="card-r t2">${p.brief ? 'None. "Add as note" t
 
   renderLive(p, s, state);
 }
+
+// ------------------------------------------------------------ not in a project
+// docs/design/CodexStage2.dc.html, section 1: a session in a cmux workspace no
+// project lists has no brief, plan or notes, so its sheet carries this card:
+// Add to a project (a menu of the projects; the workspace joins the one
+// picked, POST /api/project/add-workspace) or New project from this folder
+// (the New project form, its name, the folder and the session's assistant
+// filled in, and the workspace joining the new project).
+
+function unCardHtml(p) {
+  const open = ui.unPick === p.id;
+  const list = (ui.snap.projects || []).filter((x) => !x.unowned && !x.loose).sort((a, b) => a.name.localeCompare(b.name));
+  const pop = open ? `<div class="un-pop" role="menu" aria-label="Add to a project"><div class="un-ph">Add ${esc(p.name)} to</div>${list.length ? list.map((x) => `<button role="menuitem" data-un-add="${escRaw(x.id)}"><span class="un-dot" style="background: ${(ST[x.state] || ST.idle).c}"></span><span class="ell">${esc(x.name)}</span></button>`).join('') : '<div class="un-pf" style="border-top: 0; margin-top: 0">No project yet. Make one from this folder.</div>'}<div class="un-pf">The workspace joins that project: its sessions show there from now on. The folder stays where it is.</div></div>` : '';
+  return `<div class="card un-card"><div class="un-t"><b>Not in a project</b><span class="t2">No project lists this cmux workspace, so it has no brief, plan or notes. Its session answers here like any other.</span></div>
+<div class="un-b"><button class="btn sm pri" data-un="pick" aria-haspopup="menu" aria-expanded="${open ? 'true' : 'false'}">Add to a project</button><button class="btn sm" data-un="new" ${p.folder ? '' : 'disabled title="This workspace has no folder of its own, so a project cannot start there"'}>New project from this folder</button></div>${pop}</div>`;
+}
+
+async function unAdd(fromId, projectId) {
+  const p = project(fromId);
+  ui.unPick = null;
+  try {
+    const r = await post('/api/project/add-workspace', { from: fromId, projectId });
+    toast(`${p ? p.name : 'The session'} joined ${r.project}. Its sessions show there from now on.`);
+    ui.sel = r.projectId;
+    store.set('sel', r.projectId);
+    history.replaceState(null, '', '#' + encodeURIComponent(r.projectId));
+  } catch (e) { toast(e.message, 4500); }
+  render();
+}
+
+function unNewProject(p) {
+  ui.unPick = null;
+  const s = mainSession(p);
+  // "kite-tracker" -> "Kite Tracker".
+  const name = p.name.replace(/[-_.]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase());
+  openModal({ mode: 'new', prefill: { name }, from: { id: p.id, name: p.name, folder: p.folder, folderShort: p.folderShort, workspaceId: (p.workspaces[0] || {}).id, assistant: s ? asKind(s.assistant) : null } });
+}
+
+document.addEventListener('click', (e) => {
+  const u = e.target.closest('[data-un], [data-un-add]');
+  if (u && u.dataset.unAdd) { unAdd(ui.sel, u.dataset.unAdd); return; }
+  if (u && u.dataset.un === 'pick') { ui.unPick = ui.unPick === ui.sel ? null : ui.sel; renderSheet(); const first = $('.un-pop button'); if (first && ui.unPick) first.focus(); return; }
+  if (u && u.dataset.un === 'new') { const p = project(ui.sel); if (p) unNewProject(p); return; }
+  if (ui.unPick && !e.target.closest('.un-pop')) { ui.unPick = null; if (ui.view === 'projects') renderSheet(); }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.unPick) { ui.unPick = null; renderSheet(); const b = $('[data-un="pick"]'); if (b) b.focus(); } });
 
 // ------------------------------------------------------------ live screen
 // docs/design/LiveScreen.dc.html, variant B, with a shorter default height
@@ -701,7 +811,7 @@ function buildLive() {
   const card = document.createElement('div');
   card.className = 'card lv-card';
   card.id = 'lv-card';
-  card.innerHTML = `<div class="lv-h"><h2 class="card-h">Live screen</h2><span class="fresh" data-fresh="card"><i></i><span></span></span><span class="sp"></span><button class="icon-btn lv-exp" id="lv-exp" aria-label="Full screen" title="Full screen">${LV_ICON.expand}</button><button class="lv-tap" id="lv-tap">${LV_ICON.expand}Tap to expand</button></div>
+  card.innerHTML = `<div class="lv-h"><h2 class="card-h">Live screen</h2><span class="as-tag" id="lv-tag" hidden></span><span class="fresh" data-fresh="card"><i></i><span></span></span><span class="sp"></span><button class="icon-btn lv-exp" id="lv-exp" aria-label="Full screen" title="Full screen">${LV_ICON.expand}</button><button class="lv-tap" id="lv-tap">${LV_ICON.expand}Tap to expand</button></div>
 <div class="lv" id="lv">
 <div class="lv-scroll" id="lv-scroll" tabindex="0" role="log" aria-label="Live screen: the terminal, trimmed"><div class="measure" id="lv-lines"></div></div>
 <button class="lv-jump" id="lv-jump" hidden>${LV_ICON.down}<span></span></button>
@@ -775,7 +885,7 @@ function renderFresh() {
     const f = freshWords(form);
     kind = f.kind;
     el.className = 'fresh ' + f.kind;
-    el.title = lv.watch ? lv.empty : "The board reads Claude's screen every 2 s";
+    el.title = lv.watch ? lv.empty : `The board reads ${lv.asst === 'codex' ? "Codex's" : "Claude's"} screen every 2 s`;
     const t = el.querySelector('span');
     if (t.textContent !== f.text) t.textContent = f.text;
     el.hidden = !!lv.empty && !lv.watch;
@@ -796,10 +906,16 @@ function lvText(s) {
 }
 // Code spans (docs/design/LiveCode.dc.html, C): the server marks, in each
 // Claude entry, the text its own message had in backticks (server/
-// codespans.mjs), as `cs`: [{ t, cmd?, r: [[line, start, end], ...] }]. Each
-// piece is a chip; a span that starts with "! " gets a Copy button at the
-// end of its last piece: an icon inside the chip on a desktop, a 32 px pill
-// after it on a phone (both are drawn, CSS shows one).
+// codespans.mjs), as `cs`: [{ t, cmd?, b?, whole?, r: [[line, start, end], ...] }].
+// Two kinds, and only the first carries a Copy button:
+// - A code block (`b`: a fenced block, or a "! " command alone on its line)
+//   is one block of its own, however the terminal wrapped it, with a Copy
+//   at its end that copies its whole text: an icon inside the block on a
+//   desktop, a 32 px pill after it on a phone (both are drawn, CSS shows one).
+// - Inline code in a sentence is a chip in the text, at the text's line
+//   height, with no button in the line (a Copy floats over it on hover, a
+//   tap copies it on a phone; see lvChip).
+// Terminal text is always text: every piece goes through escRaw.
 const LV_COPY = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1.6"/><path d="M9.5 2.6V2.5A1 1 0 0 0 8.5 1.5H3A1.5 1.5 0 0 0 1.5 3v5.5a1 1 0 0 0 1 1h.1"/></svg>';
 const LV_CHECK = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 7.5l3 3 6-7"/></svg>';
 const lvCopyIn = (done) => (done ? `${LV_CHECK}<span>Copied</span>` : `${LV_COPY}<span class="w">Copy</span>`);
@@ -812,10 +928,13 @@ const lvPillIn = (done) => (done ? `${LV_CHECK}Copied` : `${LV_COPY}Copy`);
 // and copy as one.
 function lvChip(text, span, last, i) {
   const t = escRaw(span.t);
-  const chip = (btn, cls = '') => `<span class="cd${cls}" data-lv-chip="${t}" data-lv-i="${i}">${escRaw(text)}${btn}</span>`;
-  if (!span.cmd) return chip(last ? `<span class="cpa"><button class="cph" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></span>` : '', last ? ' pl lst' : ' pl');
-  if (!last) return chip('');
-  return `<span class="cdw${span.t.length > 24 ? ' long' : ''}">${chip(`<button class="cp" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button>`)}<button class="cpm" data-lv-copy="${t}" aria-label="Copy ${t}">${lvPillIn(false)}</button></span>`;
+  return `<span class="cd pl${last ? ' lst' : ''}" data-lv-chip="${t}" data-lv-i="${i}">${escRaw(text)}${last ? `<span class="cpa"><button class="cph" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></span>` : ''}</span>`;
+}
+// A code block: its text as one block (pre-wrap, so the screen width wraps
+// it, never a split into chips), indented as on screen, Copy at its end.
+function lvBlock(shown, span, i, indent) {
+  const t = escRaw(span.t);
+  return `<div class="cbw"${indent ? ` style="margin-left: ${indent}ch"` : ''}><div class="cd cb" data-lv-chip="${t}" data-lv-i="${i}"><span class="cbt">${escRaw(shown)}</span><button class="cp" data-lv-copy="${t}" aria-label="Copy ${t}" title="Copy">${lvCopyIn(false)}</button></div><button class="cpm" data-lv-copy="${t}" aria-label="Copy ${t}">${lvPillIn(false)}</button></div>`;
 }
 // One line of text from `from` on, with its marks ([start, end, span, last]).
 function lvMarked(x, from, marks) {
@@ -834,7 +953,13 @@ function lvMarked(x, from, marks) {
 // stay as drawn, in a box that scrolls sideways.
 function lvLines(l, cs) {
   const byLine = new Map();
+  const blocks = new Map(); // first line -> { span, i, hi }
   for (const [i, span] of (cs || []).entries()) {
+    if (span.b) {
+      const ls = span.r.map(([li]) => li);
+      blocks.set(Math.min(...ls), { span, i, hi: Math.max(...ls) });
+      continue;
+    }
     span.r.forEach(([li, a, b], k) => {
       if (!byLine.has(li)) byLine.set(li, []);
       byLine.get(li).push([a, b, span, k === span.r.length - 1, i]);
@@ -844,7 +969,20 @@ function lvLines(l, cs) {
   const out = [];
   let pre = [];
   const flush = () => { if (pre.length) { out.push(`<div class="pre">${pre.map(escRaw).join('\n')}</div>`); pre = []; } };
-  for (const [li, x] of l.entries()) {
+  const ind = (x) => x.match(/^ */)[0].length;
+  for (let li = 0; li < l.length; li++) {
+    const x = l[li];
+    const blk = blocks.get(li);
+    if (blk) {
+      // The block's screen lines (the code, as the terminal drew it) give
+      // way to its own text when all of it is on screen.
+      flush();
+      const rows = l.slice(li, blk.hi + 1);
+      const indent = Math.min(...rows.filter((r) => r.trim()).map(ind));
+      out.push(lvBlock(blk.span.whole ? blk.span.t : rows.map((r) => r.slice(Math.min(indent, ind(r)))).join('\n'), blk.span, blk.i, indent));
+      li = blk.hi;
+      continue;
+    }
     if (SCREEN_RULE.test(x)) { flush(); out.push(`<div class="scr-rule">${escRaw(x)}</div>`); continue; }
     if (LV_BOX.test(x)) { pre.push(x); continue; }
     flush();
@@ -852,7 +990,13 @@ function lvLines(l, cs) {
     const m = x.match(/^( *)((?:[-*•]|\d{1,3}[.)])\s+)?/);
     const pad = m[1].length + (m[2] ? m[2].length : 0);
     const hang = m[2] ? m[2].length : 0;
-    out.push(`<div${pad ? ` style="padding-left: ${pad}ch; text-indent: -${hang}ch"` : ''}>${lvMarked(x, m[1].length, byLine.get(li))}</div>`);
+    const marks = byLine.get(li);
+    // A "! " command alone on its line is a line to run: a code block too.
+    if (!m[2] && marks && marks.length === 1) {
+      const [a, b, span, , i] = marks[0];
+      if (span.cmd && span.r.length === 1 && a === m[1].length && b === x.length) { out.push(lvBlock(x.slice(a, b), span, i, m[1].length)); continue; }
+    }
+    out.push(`<div${pad ? ` style="padding-left: ${pad}ch; text-indent: -${hang}ch"` : ''}>${lvMarked(x, m[1].length, marks)}</div>`);
   }
   flush();
   return out.join('');
@@ -866,6 +1010,9 @@ function lvEntry(e) {
   if (e.k === 'o') return row('s', '⎿', escRaw(e.t));
   if (e.k === 'todo') return row('s', '⎿', lvLines(e.l));
   if (e.k === 't') {
+    // A run of the same notice (server/screen.mjs foldNotices): the text
+    // gives way to the count, which stays in view.
+    if (e.b && e.x > 1) return row('t mini', '⏺', `<span class="tl tn"><span class="tb">${escRaw(e.b)}</span><span class="more">×${e.x}</span></span>`);
     const label = e.b ? escRaw(e.b) : `<b>${escRaw(e.n)}</b> ${escRaw(e.a)}`;
     const more = e.m ? ` <span class="more">+${e.m} line${e.m > 1 ? 's' : ''}</span>` : '';
     return row('t mini', '⏺', `<span class="tl">${label}${more}</span>`);
@@ -1079,6 +1226,14 @@ function renderLiveStatus(p) {
 function renderLive(p, s, state) {
   if (!$('#lv-card')) buildLive();
   placeLive();
+  // The session's assistant: the tag next to "Live screen", and the name in
+  // the freshness tooltip.
+  lv.asst = s ? asKind(s.assistant) : null;
+  const tagEl = $('#lv-tag');
+  if (tagEl) {
+    tagEl.hidden = !s;
+    if (s && tagEl.textContent !== AS_WORD[lv.asst]) { tagEl.textContent = AS_WORD[lv.asst]; tagEl.title = AS_NAME[lv.asst] + ' session'; }
+  }
   const sid = s && s.terminal !== false ? s.surfaceId : null;
   const watch = !!s && s.terminal === false;
   const why = watch ? (s.cannot || `This session runs outside ${boardTerm()}, so there is no screen to show.`) : '';
@@ -1629,7 +1784,7 @@ function renderObjectives() {
 <span style="display: flex; align-items: center; gap: 6px"><svg width="13" height="13" viewBox="0 0 18 18" aria-hidden="true"><path d="M9 15V10M9 10L5 4.5M9 10l4-5.5" fill="none" style="stroke: var(--tx2)" stroke-width="2" stroke-linecap="round"/></svg>Branch</span>
 </div>
 <div id="o-rows" style="display: flex; flex-direction: column; gap: 16px"></div></div>`);
-  const ps = ui.snap.projects.slice().sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.name.localeCompare(b.name));
+  const ps = ui.snap.projects.filter((p) => !p.unowned).sort((a, b) => ORDER.indexOf(a.state) - ORDER.indexOf(b.state) || a.name.localeCompare(b.name));
   const nameOf = (p, w = 600) => `<button class="linkish" data-goto="${escRaw(p.id)}" style="font-weight: ${w}">${esc(p.name)}</button>`;
   const without = ps.filter((p) => !p.brief && !(p.plans || []).length);
   // Projects without a brief: one quiet line each, in one card at the end.
@@ -1690,6 +1845,11 @@ function renderRules() {
   if (tab === 'mine') {
     if (!M) { setHtml('r-body', '<p class="t2">Reading your CLAUDE.md...</p>'); return; }
     if (M.error) { setHtml('r-body', `<p class="err-line">${esc(M.error)}</p>`); return; }
+    // Each scope (every project, then each project) as two columns: the
+    // CLAUDE.md Claude Code reads and the AGENTS.md Codex reads, each whole
+    // with its path; on a phone they stack (docs/design/CodexStage2.dc.html,
+    // section 4, A).
+    if (M.scopes) { setHtml('r-body', M.scopes.map(rulesScope).join('')); return; }
     const cards = M.groups.map((g) => `<div class="card yr-card"><h3 class="card-h ch-s"><span style="flex: 1">${esc(g.heading)}</span></h3>${g.rules.map((r) => `<div class="yr-r">${codeSpans(esc(r))}</div>`).join('')}</div>`).join('');
     setHtml('r-body', `<p class="sec-sub">From <span class="mono">${esc(M.path)}</span>. Every session in every project reads these.</p>
 <div class="yr-cols">${cards || '<p class="t2">No rules in it yet.</p>'}</div>`);
@@ -1702,17 +1862,27 @@ function renderRules() {
   const R = ui.rules;
   const more = R && !R.error ? R.pending : 0;
   setHtml('r-body', `<p class="sec-sub">Things you corrected more than once, from your last ${P.sessions} sessions in ${esc(P.scope)}.</p>
-${rows ? `<div class="card" style="overflow: hidden">${rows}</div>` : P.auto === false && !P.lastRun ? '<div class="card"><div class="card-r t2" style="border-top: 0">Suggestions are off. To turn them on, run <span class="mono">ravenry setup</span> in a terminal: once a day the board then sends the messages you typed to Claude, on your own Claude login, to find what you keep correcting.</div></div>' : '<div class="card"><div class="card-r t2" style="border-top: 0">Nothing you keep saying is waiting. The board keeps counting.</div></div>'}
+${rows ? `<div class="card" style="overflow: hidden">${rows}</div>` : P.auto === false && !P.lastRun ? '<div class="card"><div class="card-r t2" style="border-top: 0">Suggestions are off. To turn them on, run <span class="mono">ravenry setup</span> in a terminal: once a day the board then sends the messages you typed to ${printWho()}, on your own ${printWho()} login, to find what you keep correcting.</div></div>' : '<div class="card"><div class="card-r t2" style="border-top: 0">Nothing you keep saying is waiting. The board keeps counting.</div></div>'}
 <div class="quiet-line"><span>${more} more from project memory</span><button class="linkish" style="color: var(--work)" data-act="rules-more" aria-expanded="${ui.rulesMore ? 'true' : 'false'}">${ui.rulesMore ? 'Hide' : 'Show'}</button></div>
 ${ui.rulesMore ? '<div id="r-rows"></div>' : ''}`);
   if (ui.rulesMore) renderMemoryRules();
+}
+
+function rulesScope(sc) {
+  const col = (f, kind) => {
+    const name = kind === 'codex' ? 'AGENTS.md' : 'CLAUDE.md';
+    const none = !f.exists ? (sc.folder ? `No ${name} in this project.` : `No ${f.path} yet.`) : !f.groups.length ? 'No rules in it yet.' : '';
+    return `<div class="rl-col"><div class="rl-file"><span class="mono">${esc(f.path)}</span>${asTag(kind)}</div>${none ? `<div class="rl-none">${esc(none)}</div>` : f.groups.map((g) => `<div class="card yr-card rl-card"><h3 class="card-h ch-s"><span style="flex: 1">${esc(g.heading)}</span></h3>${g.rules.map((r) => `<div class="yr-r">${codeSpans(esc(r))}</div>`).join('')}</div>`).join('')}</div>`;
+  };
+  return `<div class="rl-scope">${esc(sc.name)}<span>${esc(sc.folder || 'read by every session')}</span></div><div class="rl-cols">${col(sc.claude, 'claude')}${col(sc.codex, 'codex')}</div>`;
 }
 
 function repeatRow(r, k) {
   const open = ui.openRepeat === r.id;
   const q = r.quote ? `<div class="rp-q"><span class="rp-qt">${esc(r.quote.text)}</span><span class="rp-src">${esc(r.quote.project)}, ${esc(r.quote.date)}</span></div>` : '';
   // The two counts are coloured, so they read in one look.
-  const ev = `Said <span class="sg-n">${r.messages} times</span> in <span class="sg-n">${r.sessions} sessions</span>, last on ${esc(r.last)}.${r.tail ? ' ' + esc(r.tail) : ''}`;
+  // sessionsText names the assistant whose sessions said it ("2 Codex sessions").
+  const ev = `Said <span class="sg-n">${r.messages} times</span> in <span class="sg-n">${esc(r.sessionsText || r.sessions + ' sessions')}</span>, last on ${esc(r.last)}.${r.tail ? ' ' + esc(r.tail) : ''}`;
   const head = `<div class="sg-rule">${esc(r.rule)}</div><div class="t2 sg-ev">${ev}</div>${q}`;
   const top = k === 0 ? 'border-top: 0' : '';
   if (!open) {
@@ -1723,7 +1893,7 @@ function repeatRow(r, k) {
   const err = ui.repeatError && ui.repeatError.id === r.id ? `<p class="err-line" style="margin: 0">${esc(ui.repeatError.text)}</p>` : '';
   const busy = ui.repeatBusy === r.id ? 'disabled' : '';
   return `<div class="card-r sg-row open" style="${top}"><div class="sg-main">${head}
-<div class="pv"><div class="pv-h">${esc(v.lead)} <span class="mono">${esc(v.file)}</span>${esc(v.after)}</div>
+<div class="pv"><div class="pv-h">${v.parts ? v.parts.map((x) => (x.file ? `<span class="mono">${esc(x.file)}</span>` : esc(x.text))).join('') : `${esc(v.lead)} <span class="mono">${esc(v.file)}</span>${esc(v.after)}`}</div>
 ${v.now ? `<div class="pv-row"><span class="pv-l">${esc(v.nowLabel)}</span><span class="pv-t old">${codeSpans(esc(v.now))}</span></div>` : ''}
 <div class="pv-row"><span class="pv-l">${esc(v.nextLabel)}</span><span class="pv-t new">${codeSpans(esc(v.next))}</span></div>${err}
 <div class="pv-btns"><button class="btn sm pri" data-rep="${escRaw(r.id)}" data-rep-act="save" ${busy}>Save</button><button class="btn sm" data-rep="${escRaw(r.id)}" data-rep-act="cancel" ${busy}>Cancel</button></div></div></div></div>`;
@@ -1860,7 +2030,7 @@ function renderIdeas() {
 <div class="ideas-main" style="flex: 999 1 560px; min-width: 0; padding: 26px 30px 36px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box">
 <h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em">Ideas</h1>
 <div class="card" style="padding: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
-<input id="seed" class="field" aria-label="Brainstorm seed, or a new idea" placeholder="Brainstorm with Claude: a seed, e.g. a cosy co-op game for the TV" style="flex: 1 1 320px; min-width: 0">
+<input id="seed" class="field" aria-label="Brainstorm seed, or a new idea" placeholder="Brainstorm with ${printWho()}: a seed, e.g. a cosy co-op game for the TV" style="flex: 1 1 320px; min-width: 0">
 <button class="btn" id="add-idea" title="Adds it to Spark as it is">Add idea</button>
 <button class="btn pri" id="brainstorm">Get 3 directions</button>
 <div id="i-brain" style="flex: 1 1 100%"></div>
@@ -1883,15 +2053,19 @@ ${it.img ? `<img class="pic" src="${escRaw(it.img)}" alt="${esc(it.alt)}" dragga
 <div style="padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px">
 <span style="font-weight: 600; font-size: 14px">${esc(it.name)}</span>
 ${it.pitch ? `<span class="t2" style="font-size: 12.5px; line-height: 1.4">${esc(it.pitch)}</span>` : ''}
-${it.pending ? '<span class="working" style="font-size: 11.5px; color: var(--work)">Claude is answering...</span>' : mkCardLine(it) || (it.thread.length ? `<span class="t3" style="font-size: 11.5px">${it.thread.length} message${it.thread.length === 1 ? '' : 's'}</span>` : '')}
+${it.pending ? `<span class="working" style="font-size: 11.5px; color: var(--work)">${jobWho(it.pending)} is answering...</span>` : mkCardLine(it) || (it.thread.length ? `<span class="t3" style="font-size: 11.5px">${it.thread.length} message${it.thread.length === 1 ? '' : 's'}</span>` : '')}
 </div></button>`).join('')}
 </div>`;
   }).join(''));
   // Brainstorm state
   let b = '';
-  if (D.brainstorm) b = `<span class="working" style="font-size: 12.5px; color: var(--work)">Claude is thinking up 3 directions for "${esc(D.brainstorm.seed)}". ${secs(D.brainstorm.startedAt)} so far; it stops at 3 minutes.</span>`;
+  if (D.brainstorm) b = `<span class="working" style="font-size: 12.5px; color: var(--work)">${jobWho(D.brainstorm)} is thinking up 3 directions for "${esc(D.brainstorm.seed)}". ${secs(D.brainstorm.startedAt)} so far; it stops at 3 minutes.</span>`;
   else if (D.brainstormError) b = `<span class="err-line">${esc(D.brainstormError)}</span> <button class="btn sm" id="brain-ok" style="margin-left: 6px">OK</button>`;
   setHtml('i-brain', b);
+  // The page is drawn before the board's state names who Ideas run on.
+  const sd = $('#seed');
+  const sp = `Brainstorm with ${printWho()}: a seed, e.g. a cosy co-op game for the TV`;
+  if (sd && sd.placeholder !== sp) sd.placeholder = sp;
   const bb = $('#brainstorm');
   if (bb) bb.disabled = !!D.brainstorm;
   renderIdeaPanel();
@@ -1926,7 +2100,7 @@ function renderIdeaPanel() {
 <div class="mk-pad mk-tail" id="mk-tail"><div class="mk-again"><input class="field" id="mk-note" aria-label="What to change in the next round" placeholder="What to change next" autocomplete="off"><button class="btn" data-mk="again" id="mk-again">Another round</button></div><span class="t3 mk-foot" id="mk-foot"></span></div>
 </div>
 <div class="card" style="overflow: hidden">
-<h2 class="card-h">Talk it through with Claude</h2>
+<h2 class="card-h" id="i-talk">Talk it through with ${printWho()}</h2>
 <div style="padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px">
 <div id="i-thread" style="display: flex; flex-direction: column; gap: 8px" aria-live="polite"></div>
 <div id="i-chips" style="display: flex; flex-wrap: wrap; gap: 6px"></div>
@@ -1955,8 +2129,10 @@ function renderIdeaPanel() {
   setHtml('i-pic', it.img && !hasRounds ? `<img class="pic" src="${escRaw(it.img)}" alt="${esc(it.alt)}">` : '');
   renderMockups(it);
   setHtml('i-stages', IDEA_COLS.map(([k, label]) => `<button class="btn sm" data-stage="${k}" aria-pressed="${it.stage === k}" style="flex: 1; background: ${it.stage === k ? 'var(--btn)' : 'transparent'}">${label}</button>`).join(''));
-  const th = it.thread.map((m) => m.who === 'board' ? `<div class="mk-sys">${PICTURE_ICON}<span>${esc(m.text)}</span></div>` : `<div class="msg ${m.error ? 'err' : m.who}">${m.error ? '<b style="color: var(--bad)">Not answered. </b>' : ''}${m.who === 'claude' ? esc(m.text).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>') : esc(m.text)}${m.images.map((u) => `<img src="${escRaw(u)}" alt="Attached picture">`).join('')}</div>`);
-  if (it.pending) th.push(`<div class="msg claude working" id="i-pending">Claude is thinking, ${secs(it.pending.startedAt)}. It stops at 3 minutes.</div>`);
+  const th = it.thread.map((m) => m.who === 'board' ? `<div class="mk-sys">${PICTURE_ICON}<span>${esc(m.text)}</span></div>` : `<div class="msg ${m.error ? 'err' : m.who}">${m.error ? '<b style="color: var(--bad)">Not answered. </b>' : ''}${m.who === 'claude' || m.who === 'codex' ? esc(m.text).replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>') : esc(m.text)}${m.images.map((u) => `<img src="${escRaw(u)}" alt="Attached picture">`).join('')}</div>`);
+  if (it.pending) th.push(`<div class="msg claude working" id="i-pending">${jobWho(it.pending)} is thinking, ${secs(it.pending.startedAt)}. It stops at 3 minutes.</div>`);
+  const tk = $('#i-talk');
+  if (tk && tk.textContent !== `Talk it through with ${printWho()}`) tk.textContent = `Talk it through with ${printWho()}`;
   setHtml('i-thread', th.join('') || '<span class="t3" style="font-size: 12px">Nothing said yet. Ask anything, or start from a suggestion.</span>');
   const chips = CHIPS[it.stage === 'green' ? 'green' : it.stage === 'park' ? 'park' : 'other'];
   setHtml('i-chips', chips.map((c) => `<button class="btn sm" data-chip="${escRaw(c)}" ${it.pending ? 'disabled' : ''}>${esc(c)}</button>`).join(''));
@@ -2185,7 +2361,7 @@ const L = (k) => String(k).toUpperCase();
 function mkCardLine(it) {
   const m = it.mockups;
   if (!m) return '';
-  if (m.job) return `<span class="working" style="font-size: 11.5px; color: var(--work)" data-mk-since="${escRaw(m.job.startedAt)}" data-mk-text="Claude is drawing round ${m.job.round}, ">Claude is drawing round ${m.job.round}, ${secs(m.job.startedAt)}</span>`;
+  if (m.job) return `<span class="working" style="font-size: 11.5px; color: var(--work)" data-mk-since="${escRaw(m.job.startedAt)}" data-mk-text="${jobWho(m.job)} is drawing round ${m.job.round}, ">${jobWho(m.job)} is drawing round ${m.job.round}, ${secs(m.job.startedAt)}</span>`;
   if (m.error) return `<span style="font-size: 11.5px; color: var(--bad)">Round ${m.error.round} did not come back</span>`;
   const last = m.rounds[m.rounds.length - 1];
   if (!last) return '';
@@ -2206,7 +2382,7 @@ function renderMockups(it) {
   if (m.job) {
     setHtml('mk-head', `<span class="t2 num mk-rl">Round ${m.job.round}</span>`);
     setHtml('mk-body', `<div class="mk-pad mk-col"><div class="mk-strip">${[0, 1, 2].map(() => '<div class="mk-tile working"></div>').join('')}</div>
-<div class="mk-workrow"><span class="working" style="flex: 1; font-size: 12.5px; color: var(--work); line-height: 1.4" data-mk-since="${escRaw(m.job.startedAt)}" data-mk-text="Claude is drawing 3 variants, " data-mk-after=". It stops at 3 minutes.">Claude is drawing 3 variants, ${secs(m.job.startedAt)}. It stops at 3 minutes.</span><button class="btn sm" data-mk="stop">${STOP_ICON}<span style="margin-left: 6px">Stop</span></button></div>
+<div class="mk-workrow"><span class="working" style="flex: 1; font-size: 12.5px; color: var(--work); line-height: 1.4" data-mk-since="${escRaw(m.job.startedAt)}" data-mk-text="${jobWho(m.job)} is drawing 3 variants, " data-mk-after=". It stops at 3 minutes.">${jobWho(m.job)} is drawing 3 variants, ${secs(m.job.startedAt)}. It stops at 3 minutes.</span><button class="btn sm" data-mk="stop">${STOP_ICON}<span style="margin-left: 6px">Stop</span></button></div>
 ${m.job.note ? `<span class="t3" style="font-size: 12px; line-height: 1.4">Your note: "${esc(m.job.note)}"</span>` : ''}</div>`);
     tail.hidden = true;
     return;
@@ -2220,7 +2396,7 @@ ${m.job.note ? `<span class="t3" style="font-size: 12px; line-height: 1.4">Your 
   }
   if (!m.rounds.length) {
     setHtml('mk-head', '');
-    setHtml('mk-body', `<div class="mk-pad mk-col" style="align-items: flex-start"><span class="t2" style="font-size: 12.5px; line-height: 1.45">Claude draws 3 quick pictures of this idea, side by side, in about a minute and a half. Pick one for the card.</span><button class="btn pri" data-mk="start"${busy ? ' disabled' : ''}>Mock it up</button></div>`);
+    setHtml('mk-body', `<div class="mk-pad mk-col" style="align-items: flex-start"><span class="t2" style="font-size: 12.5px; line-height: 1.45">${printWho()} draws 3 quick pictures of this idea, side by side, in about a minute and a half. Pick one for the card.</span><button class="btn pri" data-mk="start"${busy ? ' disabled' : ''}>Mock it up</button></div>`);
     tail.hidden = true;
     return;
   }
@@ -2309,7 +2485,7 @@ setInterval(() => {
   if (ui.view !== 'ideas' || !ui.ideas) return;
   const it = ideaById(ui.selIdea);
   const el = $('#i-pending');
-  if (el && it && it.pending) el.textContent = `Claude is thinking, ${secs(it.pending.startedAt)}. It stops at 3 minutes.`;
+  if (el && it && it.pending) el.textContent = `${jobWho(it.pending)} is thinking, ${secs(it.pending.startedAt)}. It stops at 3 minutes.`;
   // Mockup rounds being drawn: the card line and the Mockups card count up.
   document.querySelectorAll('[data-mk-since]').forEach((x) => { x.textContent = `${x.dataset.mkText}${secs(x.dataset.mkSince)}${x.dataset.mkAfter || ''}`; });
   if (ui.ideas.brainstorm) { delete ui.html['i-brain']; renderIdeas(); }
@@ -2329,10 +2505,15 @@ function slugify(s) {
   return String(s).toLowerCase().normalize('NFKD').replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
 }
 
-async function openModal({ mode, projectId, ideaId, prefill = {} }) {
+// `from`: New project from this folder (docs/design/CodexStage2.dc.html,
+// section 1): { id, name, folder, folderShort, workspaceId, assistant } of a
+// session that is not in a project. The folder row starts on Existing with
+// that folder, and the assistant is the session's.
+async function openModal({ mode, projectId, ideaId, prefill = {}, from = null }) {
   const meta = await loadMeta();
   const p = projectId ? project(projectId) : null;
-  ui.modal = { mode, projectId, ideaId, kind: prefill.kind || (mode === 'new' ? 'Web game' : null), stage: prefill.stage || null, folderMode: 'new', pick: null, finder: [], showAll: false, known: null, choosing: false, parent: null, parentWaiting: false };
+  const asDefault = asView().startWith === 'codex' ? 'codex' : 'claude';
+  ui.modal = { mode, projectId, ideaId, kind: prefill.kind || (mode === 'new' ? 'Web game' : null), stage: prefill.stage || null, folderMode: from ? 'existing' : 'new', pick: null, finder: [], showAll: false, known: null, choosing: false, parent: null, parentWaiting: false, from, asDefault, assistant: from && from.assistant ? asKind(from.assistant) : asDefault };
   const title = mode === 'brief' ? `Brief for ${p ? p.name : ''}` : 'New project';
   const briefWhere = p ? (p.briefExpected || (p.shared.length ? `${p.folderShort}/BRIEF-${p.id}.md` : `${p.folderShort}/BRIEF.md`)) : '';
   $('#modal').innerHTML = `<div class="modal-back" id="modal-back">
@@ -2340,7 +2521,8 @@ async function openModal({ mode, projectId, ideaId, prefill = {} }) {
 <div style="display: flex; align-items: center; padding: 16px 20px 8px"><h2 id="modal-title" style="margin: 0; font-size: 20px; font-weight: 700; flex: 1">${esc(title)}</h2><button class="x-btn" id="modal-close" aria-label="Close">${X_ICON}</button></div>
 <form id="modal-form" style="padding: 8px 20px 20px; display: flex; flex-direction: column; gap: 14px">
 ${mode === 'new' ? `<label class="inp">Name<input name="name" placeholder="e.g. Garden planner" autocomplete="off" required></label>
-<div class="inp" id="m-folder-row">Folder<div class="fseg" role="group" aria-label="Folder"><button type="button" class="seg on" data-fmode="new" aria-pressed="true">New folder</button><button type="button" class="seg" data-fmode="existing" aria-pressed="false">Existing</button></div><div id="m-folder" class="fbody"></div></div>` : ''}
+<div class="inp" id="m-folder-row">Folder<div class="fseg" role="group" aria-label="Folder"><button type="button" class="seg on" data-fmode="new" aria-pressed="true">New folder</button><button type="button" class="seg" data-fmode="existing" aria-pressed="false">Existing</button></div><div id="m-folder" class="fbody"></div></div>
+<div class="inp" id="m-asst-row">Assistant<div class="fseg as-f" role="group" aria-label="Assistant">${['claude', 'codex'].map((k) => `<button type="button" class="seg ${ui.modal.assistant === k ? 'on' : ''}" data-asst="${k}" aria-pressed="${ui.modal.assistant === k}">${k === 'codex' ? 'Codex' : 'Claude'}</button>`).join('')}</div><span class="t3 as-hint">${ui.modal.from ? "The session's, from this folder." : 'From Settings (Start new sessions with).'} This project's sessions, Revive and hand-offs use it.</span></div>` : ''}
 <div class="inp">Kind
 <div style="display: flex; flex-wrap: wrap; gap: 6px" id="kinds" role="group" aria-label="Kind">${(meta.kinds || KINDS).map((k) => `<button type="button" class="btn sm ${ui.modal.kind === k ? 'on' : ''}" data-kind="${escRaw(k)}" aria-pressed="${ui.modal.kind === k}">${esc(k)}</button>`).join('')}</div>
 <input name="kindText" aria-label="Describe the kind in your own words" placeholder="Or in your own words, e.g. a Mac menu-bar app, a music practice tool">
@@ -2353,13 +2535,20 @@ ${meta.globalRules && meta.globalRules.length ? `<div style="display: flex; flex
 <textarea name="rules" style="min-height: 40px" placeholder="Add project rules, one per line, e.g. Unity batteries run batchmode only"></textarea>
 </div>
 <div id="m-err" class="err-line" hidden></div>
-<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 6px"><span class="t2" id="m-foot" style="flex: 1; font-size: 12.5px; min-width: 200px">${mode === 'new' ? `Writes BRIEF.md, then opens ${newPlace()} with Claude reading it` : `Writes ${esc(briefWhere)}. Nothing is started.`}</span><button class="btn pri" type="submit" id="m-go">${mode === 'new' ? `Start in ${esc(boardTerm())}` : 'Write the brief'}</button></div>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 6px"><span class="t2" id="m-foot" style="flex: 1; font-size: 12.5px; min-width: 200px">${mode === 'new' ? `Writes BRIEF.md, then opens ${newPlace()} with ${modalWho()} reading it` : `Writes ${esc(briefWhere)}. Nothing is started.`}</span><button class="btn pri" type="submit" id="m-go">${mode === 'new' ? `Start in ${esc(boardTerm())}` : 'Write the brief'}</button></div>
 </form></div></div>`;
   const f = $('#modal-form');
   for (const [k, v] of Object.entries(prefill)) if (f.elements[k] && v != null) f.elements[k].value = v;
   if (mode === 'new') {
     f.elements.name.addEventListener('input', () => renderFolder());
     $('#m-folder-row').addEventListener('click', onFolderClick);
+    $('#m-asst-row').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-asst]');
+      if (!b) return;
+      ui.modal.assistant = b.dataset.asst;
+      $('#m-asst-row').querySelectorAll('[data-asst]').forEach((x) => { const on = x.dataset.asst === ui.modal.assistant; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+      renderFolder();
+    });
     renderFolder();
     loadFolders();
   }
@@ -2414,6 +2603,9 @@ function idFor(name) {
   return id;
 }
 
+// The assistant the New project form starts, by its short name.
+const modalWho = () => (ui.modal && ui.modal.assistant === 'codex' ? 'Codex' : 'Claude');
+
 function renderFolder() {
   const m = ui.modal;
   const f = $('#modal-form');
@@ -2434,7 +2626,17 @@ function renderFolder() {
     const hint = m.parent ? `Made in the folder you picked, for this project only. New projects still go in ${esc(root)}.` : 'A new folder, named after the project as you type. Made when you start.';
     box.innerHTML = `<div class="fpath">${FOLDER_ICON}<span><span class="t3">${wbr(parent)}/<wbr></span>${esc(slug || '...')}</span>${link}</div>
 ${taken ? `<div class="fhint fhint-taken">${esc(slug)} already exists and has files in it. <button type="button" class="linkish" data-act="use-taken">Pick it under Existing</button> to start there.</div>` : `<div class="fhint">${hint}</div>`}`;
-    foot.textContent = `Makes ${slug || 'the folder'}, writes BRIEF.md, then opens ${newPlace()} with Claude reading it`;
+    foot.textContent = `Makes ${slug || 'the folder'}, writes BRIEF.md, then opens ${newPlace()} with ${modalWho()} reading it`;
+    return;
+  }
+  const go = $('#m-go');
+  if (m.from && go) { const w = m.folderMode === 'existing' ? 'Create project' : `Start in ${boardTerm()}`; if (go.textContent !== w && !go.disabled) go.textContent = w; }
+  if (m.from) {
+    // From a folder: that folder, whole, and what joining means.
+    const fs0 = m.from.folderShort || m.from.folder;
+    const cut = fs0.lastIndexOf('/');
+    box.innerHTML = `<div class="fpath">${FOLDER_ICON}<span><span class="t3">${wbr(fs0.slice(0, cut + 1))}<wbr></span>${esc(fs0.slice(cut + 1))}</span></div><div class="fhint">The folder of the ${esc(m.from.name)} workspace. The workspace and its session join the project; nothing is moved.</div>`;
+    foot.textContent = `Writes the brief in ${m.from.name}. Nothing new is opened: the session already there joins the project`;
     return;
   }
   const all = folderList();
@@ -2460,8 +2662,8 @@ ${taken ? `<div class="fhint fhint-taken">${esc(slug)} already exists and has fi
   box.innerHTML = `${list}${choose}${note ? `<div class="fnote">${esc(note)}</div>` : ''}`;
   if (pick) {
     const brief = pick.projects.length || pick.hasBrief ? `BRIEF-${idFor(name || 'project')}.md` : 'BRIEF.md';
-    foot.textContent = `Writes ${brief} in ${pick.name}, then opens ${newPlace()} with Claude reading it`;
-  } else foot.textContent = `Pick a folder, then Start opens ${newPlace()} with Claude reading the brief`;
+    foot.textContent = `Writes ${brief} in ${pick.name}, then opens ${newPlace()} with ${modalWho()} reading it`;
+  } else foot.textContent = `Pick a folder, then Start opens ${newPlace()} with ${modalWho()} reading the brief`;
 }
 
 async function onFolderClick(e) {
@@ -2547,11 +2749,14 @@ async function submitModal() {
   go.textContent = m.mode === 'new' ? 'Starting...' : 'Writing...';
   try {
     if (m.mode === 'new') {
-      const pick = m.folderMode === 'existing' ? folderPicked() : null;
+      const fromHere = !!(m.from && m.folderMode === 'existing');
+      const pick = fromHere ? { folder: m.from.folder } : m.folderMode === 'existing' ? folderPicked() : null;
       if (m.folderMode === 'existing' && !pick) { show('Pick a folder first.'); return; }
-      const r = await post('/api/project/new', { ...v, kind: m.kind, stage: m.stage, existingFolder: pick ? pick.folder : undefined, parentFolder: !pick && m.parent ? m.parent.folder : undefined, ideaId: m.ideaId });
+      // From a folder the session's assistant is always sent (it starts on
+      // the session's); otherwise only when changed for this project.
+      const r = await post('/api/project/new', { ...v, kind: m.kind, stage: m.stage, existingFolder: pick ? pick.folder : undefined, parentFolder: !pick && m.parent ? m.parent.folder : undefined, ideaId: m.ideaId, ...(fromHere ? { workspaceId: m.from.workspaceId } : {}), assistant: m.from || m.assistant !== m.asDefault ? m.assistant : undefined });
       closeModal();
-      toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. Claude is reading the brief in cmux ${r.workspaceRef}.`);
+      toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. ${r.assistant === 'codex' ? 'Codex' : 'Claude'} is reading the brief in cmux ${r.workspaceRef}.`);
       ui.sel = r.id;
       store.set('sel', r.id);
       setView('projects');
@@ -2686,7 +2891,7 @@ function planCardHtml(p) {
   if (!plan) {
     if (!p.brief) return '';
     const d = p.planDraft;
-    return `<div class="card pl-card"><div class="card-h pl-ch"><span class="pl-label">Plan</span><span style="flex: 1; min-width: 0" class="t2">${d ? (d.busy ? 'Claude is drafting a plan' : 'A plan is being drafted') : 'No plan running'}</span><button class="btn sm pri" data-act="plan-new" data-pid="${escRaw(p.id)}">${d ? 'Open the draft' : 'New plan'}</button></div><div class="card-r t2" style="line-height: 1.45">Say what you want done and hand the work over. Claude drafts the plan and you go over it together.</div></div>`;
+    return `<div class="card pl-card"><div class="card-h pl-ch"><span class="pl-label">Plan</span><span style="flex: 1; min-width: 0" class="t2">${d ? (d.busy ? `${jobWho(d.busy)} is drafting a plan` : 'A plan is being drafted') : 'No plan running'}</span><button class="btn sm pri" data-act="plan-new" data-pid="${escRaw(p.id)}">${d ? 'Open the draft' : 'New plan'}</button></div><div class="card-r t2" style="line-height: 1.45">Say what you want done and hand the work over. ${printWho()} drafts the plan and you go over it together.</div></div>`;
   }
   return `<div class="card pl-card"><div class="card-h pl-ch"><span class="pl-label">Plan</span><button class="linkish pl-title" data-act="plan-open" data-pid="${escRaw(p.id)}">${esc(plan.title)}</button><span class="num t2" style="font-weight: 500; font-size: 12px; white-space: nowrap">Step ${plan.current} of ${plan.total}</span><button class="btn sm pl-openbtn" data-act="plan-open" data-pid="${escRaw(p.id)}">Open the plan</button></div>
 ${planFlow(plan)}
@@ -2954,16 +3159,16 @@ function plThreadHtml(d) {
       out.push(`<div class="cv-q ${q.answer != null ? 'done' : ''}"><div class="cv-qt">${esc(q.text)}</div><div class="cv-qb">${q.options.map((o) => `<button class="btn sm ${q.answer === o ? 'pick' : ''}" data-pl="answer" data-q="${escRaw(q.id)}" data-o="${escRaw(o)}" ${d.busy ? 'disabled' : ''}>${q.answer === o ? PG.check : ''}${esc(o)}</button>`).join('')}</div></div>`);
     }
   }
-  if (d.busy) out.push(`<div class="cv-work" role="status">${PG.now.replace('width="18" height="18"', 'width="14" height="14"')}<span>${d.busy.what === 'revise' ? 'Claude is revising the plan' : 'Claude is drafting the plan'}, <span id="pl-secs" class="num">${secs(d.busy.since)}</span></span><button class="linkish" data-pl="halt">Stop</button></div>`);
+  if (d.busy) out.push(`<div class="cv-work" role="status">${PG.now.replace('width="18" height="18"', 'width="14" height="14"')}<span>${jobWho(d.busy)} is ${d.busy.what === 'revise' ? 'revising' : 'drafting'} the plan, <span id="pl-secs" class="num">${secs(d.busy.since)}</span></span><button class="linkish" data-pl="halt">Stop</button></div>`);
   if (d.error) out.push(`<div class="cv-cl err" role="alert">${esc(d.error)}</div>`);
   return out.join('');
 }
 
 function plFootNote(d) {
   const open = d.questions.filter((q) => q.answer == null).length;
-  if (d.busy) return d.busy.what === 'revise' ? 'Claude is revising the plan.' : 'Claude is drafting the plan.';
+  if (d.busy) return `${jobWho(d.busy)} is ${d.busy.what === 'revise' ? 'revising' : 'drafting'} the plan.`;
   if (open) return `Answer the ${open === 1 ? 'question' : `${open} questions`} to start.`;
-  if (pl.cFor) return 'Add comment sends it to Claude, who revises the plan.';
+  if (pl.cFor) return `Add comment sends it to ${printWho()}, who revises the plan.`;
   return d.mode === 'change' ? 'Saved in the brief, and the session re-reads it.' : 'Saved in the brief when it starts, so it survives hand-offs.';
 }
 
@@ -2983,12 +3188,12 @@ function plSheetHtml(p, d, phone) {
     const box = own
       ? `<label class="wr-lbl" style="font-size: 14px" for="pl-goal">Your plan, in your words</label>
 <div class="composer cv-goal own" data-plbox="goal"><textarea id="pl-goal" rows="6" placeholder="Research how other rhythm games show long notes. If most use a held trail, build the trail; if most use a ribbon, mock up both and ask me. Done when the gesture test passes and a screenshot shows it. Ask me before installing.">${esc(pl.ownText)}</textarea>${plChips('goal')}<div style="display: flex; align-items: center; gap: 6px">${plAttach('goal')}${plMic('pl-goal')}<span style="flex: 1"></span><button class="btn sm pri" data-pl="own">Turn into steps</button></div></div>
-<div class="t3" style="font-size: 12px; line-height: 1.45">Say it however you like: "if this then that", "done when", "ask me before". Claude keeps your words and order, and asks back only where a step could go two ways.</div>`
+<div class="t3" style="font-size: 12px; line-height: 1.45">Say it however you like: "if this then that", "done when", "ask me before". ${printWho()} keeps your words and order, and asks back only where a step could go two ways.</div>`
       : `<label class="wr-lbl" style="font-size: 14px" for="pl-goal">What do you want done?</label>
 <div class="composer cv-goal" data-plbox="goal"><textarea id="pl-goal" rows="2" placeholder="Make long notes on the paths feel good">${esc(pl.goal)}</textarea>${plChips('goal')}<div style="display: flex; align-items: center; gap: 6px">${plAttach('goal')}${plMic('pl-goal')}<span style="flex: 1"></span><button class="btn sm pri" data-pl="draft">Draft a plan</button></div></div>
-<div class="t3" style="font-size: 12px; line-height: 1.45">A sentence is enough: the outcome you want. Claude reads the brief and your rules for the rest. Attach a file and say what it is for, like "I like this style".</div>`;
-    const sub = 'Say what you want; Claude drafts the plan and you go over it together. Nothing runs until you start it.';
-    const swap = `<button class="linkish cv-own" data-pl="${own ? 'goal-mode' : 'own-mode'}">${own ? 'Let Claude draft it' : 'Write the plan yourself'}</button>`;
+<div class="t3" style="font-size: 12px; line-height: 1.45">A sentence is enough: the outcome you want. ${printWho()} reads the brief and your rules for the rest. Attach a file and say what it is for, like "I like this style".</div>`;
+    const sub = `Say what you want; ${printWho()} drafts the plan and you go over it together. Nothing runs until you start it.`;
+    const swap = `<button class="linkish cv-own" data-pl="${own ? 'goal-mode' : 'own-mode'}">${own ? `Let ${printWho()} draft it` : 'Write the plan yourself'}</button>`;
     if (phone) {
       return `<div class="strip"><span class="t3" style="font-size: 12.5px; flex: 1 1 auto">${esc(p.name)}<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">New plan</span></span><button class="btn sm" data-pl="cancel">Cancel</button></div>
 <div class="body"><h1 style="margin: 0; font-size: 22px; font-weight: 700">New plan</h1><div class="t3" style="font-size: 12px; line-height: 1.45">${esc(sub)}</div>${box}<div>${swap}</div></div>`;
@@ -3004,7 +3209,7 @@ function plSheetHtml(p, d, phone) {
   const steps = d.steps.length
     ? `<ol class="cv-list" id="pl-list">${d.steps.map((s, i) => plStepHtml(s, i + 1, d)).join('')}</ol>`
     : `<div class="cv-skel" aria-hidden="true"><i style="width: 70%"></i><i style="width: 52%"></i><i style="width: 64%"></i><i style="width: 40%"></i></div>`;
-  const always = `<div class="wr-rule">${PG.lock}<span><b>Always on:</b> anything the plan doesn't foresee is a gate. Claude stops and asks.</span></div>`;
+  const always = `<div class="wr-rule">${PG.lock}<span><b>Always on:</b> anything the plan doesn't foresee is a gate. ${projWho(p)} stops and asks.</span></div>`;
   const chatPh = marks || d.mode === 'change' ? 'Anything else to change? Say it here.' : 'Bigger changes: say them here.';
   if (phone) {
     return `<div class="strip"><span class="t3" style="font-size: 12.5px; flex: 1 1 auto">${esc(p.name)}<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">${d.mode === 'change' ? 'Change the plan' : 'New plan'}</span></span><button class="btn sm" data-pl="cancel">Cancel</button></div>
@@ -3267,9 +3472,11 @@ function renderMemchip() {
     b.hidden = false;
     b.classList.toggle('on', on);
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
-    b.title = `Memory held by all ${plural(v.count, 'Claude session')}. ${v.idleCount === 1 ? '1 is' : v.idleCount + ' are'} idle and can be closed.`;
-    b.setAttribute('aria-label', `Sessions: Claude uses ${fmtMem(v.totalKb)}, ${v.idleCount} idle`);
-    setHtml(id, `${MEM_ICON}<span class="t2">Claude</span><span class="num" style="font-weight: 600">${esc(fmtMem(v.totalKb))}</span><span class="memchip-sep"></span><span class="num t3">${v.idleCount} idle</span>`);
+    // "Sessions", not "Claude": Codex sessions count too
+    // (docs/design/CodexStage2.dc.html, section 2, A).
+    b.title = `Memory held by all ${plural(v.count, 'session')}. ${v.idleCount === 1 ? '1 is' : v.idleCount + ' are'} idle and can be closed.`;
+    b.setAttribute('aria-label', `Sessions: they use ${fmtMem(v.totalKb)}, ${v.idleCount} idle`);
+    setHtml(id, `${MEM_ICON}<span class="t2">Sessions</span><span class="num" style="font-weight: 600">${esc(fmtMem(v.totalKb))}</span><span class="memchip-sep"></span><span class="num t3">${v.idleCount} idle</span>`);
   }
 }
 
@@ -3296,7 +3503,7 @@ function crow(r) {
 <input type="checkbox" class="sr-only" data-tick="${escRaw(r.sessionId || 'pid-' + r.pid)}" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} aria-label="${esc(`${r.label}: ${r.line}, idle ${idleWord(r)}, ${fmtMem(r.memKb)}${can ? '' : '. ' + (r.blocked || 'Cannot be closed')}`)}">
 <span class="tick ${on ? 'on' : ''} ${can ? '' : 'off'}" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 10 10"><path d="${on ? CHECK : ''}" stroke="#FFFFFF" stroke-width="2" fill="none"></path></svg></span>
 <span class="crow-p ${r.isFolder ? 'folder' : ''}" title="${esc(r.isFolder ? 'Folder outside any project: ' + (r.folder || '') : r.label)}">${esc(r.label)}</span>
-<span class="crow-t">${esc(r.line)}</span>${tag}${blocked}
+<span class="crow-t">${esc(r.line)}</span>${tag}${blocked}${asTag(r.assistant)}
 <span class="crow-i num">${esc(idleWord(r))}</span>
 <span class="crow-m num">${esc(fmtMem(r.memKb))}</span></label>`;
 }
@@ -3324,12 +3531,12 @@ function renderSessions() {
   const tickKb = ticked.reduce((n, r) => n + r.memKb, 0);
   const busy = ui.closingNow || v.closing;
   const btn = busy ? 'Closing...' : ticked.length ? `Close ${plural(ticked.length, 'session')}, frees ${fmtMem(tickKb)}` : 'Nothing ticked';
-  setHtml('s-head', `<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px"><h1>Sessions</h1><div class="t2" style="font-size: 13px">${plural(v.count, 'Claude session')} ${v.count === 1 ? 'holds' : 'hold'} <b class="num" style="color: var(--tx)">${esc(fmtMem(v.totalKb))}</b> of memory. Read from each process every minute.</div></div><button class="btn pri" id="close-idle" ${!ticked.length || busy ? 'disabled' : ''}>${esc(btn)}</button>`);
+  setHtml('s-head', `<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px"><h1>Sessions</h1><div class="t2" style="font-size: 13px">${plural(v.count, 'session')} ${v.count === 1 ? 'holds' : 'hold'} <b class="num" style="color: var(--tx)">${esc(fmtMem(v.totalKb))}</b> of memory. Read from each process every minute.</div></div><button class="btn pri" id="close-idle" ${!ticked.length || busy ? 'disabled' : ''}>${esc(btn)}</button>`);
 
   const res = v.result;
   let rh = '';
   if (res) {
-    if (res.closed) rh += `<div style="font-size: 13px; color: var(--ok); font-weight: 600">Closed ${plural(res.closed, 'session')} and freed ${esc(fmtMem(res.freedKb))}. Claude now uses ${esc(fmtMem(res.nowKb))}.</div>`;
+    if (res.closed) rh += `<div style="font-size: 13px; color: var(--ok); font-weight: 600">Closed ${plural(res.closed, 'session')} and freed ${esc(fmtMem(res.freedKb))}. The sessions now hold ${esc(fmtMem(res.nowKb))}.</div>`;
     for (const f of res.failed || []) rh += `<div class="err-line">Left open: ${esc(f.label)}. ${esc(f.error)}</div>`;
   }
   setHtml('s-result', rh ? `<div style="display: flex; flex-direction: column; gap: 4px">${rh}</div>` : '');
@@ -3353,9 +3560,15 @@ function renderSessions() {
   if (!lh) lh = sessCard('Nothing idle', '', `<div class="card-r t2" style="font-size: 12.5px; line-height: 1.45">No session has been quiet for ${v.idleHours} h or more. They show up here once one has.</div>`);
   setHtml('s-left', lh);
 
-  const use = rows.filter((r) => r.group === 'use').sort((a, b) => ORDER.indexOf(a.mix) - ORDER.indexOf(b.mix) || b.memKb - a.memKb);
-  let rh2 = sessCard('In use', use.length ? countMem(use) : 'None', use.length ? use.map((r) => `<div class="card-r" style="gap: 10px" title="${esc(`${r.folder || ''}, session ${r.sessionId ? r.sessionId.slice(0, 8) : ''} via ${r.method}, pid ${r.pid}`)}">${stateIcon(ST[r.mix] || ST.idle)}<span class="ell" style="flex: 1"><b style="font-weight: 600">${esc(r.label)}</b> <span class="t2">${esc(r.line)}</span></span><span class="num" style="font-size: 12px; white-space: nowrap">${esc(fmtMem(r.memKb))}</span></div>`).join('')
-    : '<div class="card-r t2" style="font-size: 12.5px">Every session is idle.</div>');
+  // In use, then the ones not in a project in a card of their own
+  // (docs/design/CodexStage2.dc.html, section 2, A), each with its tag.
+  const byMix = (a, b) => ORDER.indexOf(a.mix) - ORDER.indexOf(b.mix) || b.memKb - a.memKb;
+  const use = rows.filter((r) => r.group === 'use' && !r.unowned).sort(byMix);
+  const useUn = rows.filter((r) => r.group === 'use' && r.unowned).sort(byMix);
+  const useRow = (r) => `<div class="card-r" style="gap: 10px" title="${esc(`${r.folder || ''}, session ${r.sessionId ? r.sessionId.slice(0, 8) : ''} via ${r.method}, pid ${r.pid}`)}">${stateIcon(ST[r.mix] || ST.idle)}<span class="ell" style="flex: 1"><b style="${r.unowned ? 'font-weight: 500; color: var(--tx2)' : 'font-weight: 600'}">${esc(r.label)}</b> <span class="t2">${esc(r.line)}</span></span>${asTag(r.assistant)}<span class="num" style="font-size: 12px; white-space: nowrap">${esc(fmtMem(r.memKb))}</span></div>`;
+  let rh2 = sessCard('In use', use.length ? countMem(use) : 'None', use.length ? use.map(useRow).join('')
+    : `<div class="card-r t2" style="font-size: 12.5px">${useUn.length ? 'Every session in a project is idle.' : 'Every session is idle.'}</div>`);
+  if (useUn.length) rh2 += sessCard('Not in a project', countMem(useUn), useUn.map(useRow).join(''));
   const un = rows.filter((r) => r.group === 'unmapped');
   if (un.length) {
     rh2 += sessCard('Not mapped', countMem(un), un.map((r) => `<div class="card-r" style="gap: 10px" title="${esc(r.folder || '')}"><span class="ell" style="flex: 1"><b style="font-weight: 500; color: var(--tx2)">${esc(r.label)}</b> <span class="t3">pid ${r.pid}, no session found, so it is not closed from here</span></span><span class="num" style="font-size: 12px; white-space: nowrap">${esc(fmtMem(r.memKb))}</span></div>`).join(''));
@@ -3490,12 +3703,14 @@ document.addEventListener('click', (e) => {
   const rp = e.target.closest('[data-rep]');
   if (rp) { repeatAction(rp.dataset.rep, rp.dataset.repAct); return; }
   const cp = e.target.closest('[data-copy]');
-  if (cp) { lvCopyText(cp.dataset.copy).then((ok) => { if (!ok) throw new Error('copy'); }).then(() => toast(cp.dataset.copyMsg || `Copied. Paste it into a Claude prompt in ${boardTerm()} when you decide.`), () => toast(cp.dataset.copyMsg ? 'Copy did not work. The path is ' + cp.dataset.copy : 'Copy did not work; select the line instead')); return; }
+  if (cp) { lvCopyText(cp.dataset.copy).then((ok) => { if (!ok) throw new Error('copy'); }).then(() => toast(cp.dataset.copyMsg || `Copied. Paste it into a session's prompt in ${boardTerm()} when you decide.`), () => toast(cp.dataset.copyMsg ? 'Copy did not work. The path is ' + cp.dataset.copy : 'Copy did not work; select the line instead')); return; }
   if (e.target.closest('#memchip, #memchip-m')) { setView('sessions'); return; }
   const ro = e.target.closest('[data-reopen]');
   if (ro) { reopenClosed(ro.dataset.reopen, ro); return; }
   if (e.target.closest('#close-idle')) { closeIdle(); return; }
   if (e.target.closest('[data-closed-all]')) { ui.closedAll = !ui.closedAll; render(); return; }
+  const pab = e.target.closest('[data-pas]');
+  if (pab) { pasChange(pab.dataset.pid, pab.dataset.pas); return; }
   const a = e.target.closest('[data-act]');
   if (!a) return;
   const act = a.dataset.act;
@@ -3696,10 +3911,100 @@ function hsSwitch(id) {
   return `<button class="hs-sw" role="switch" id="${id}" aria-labelledby="${id}-l" aria-checked="false"><span></span></button>`;
 }
 
+// docs/design/CodexStage2.dc.html, section 3, variant A: an Assistant
+// section first, "Start new sessions with" and a two-way switch (short
+// labels, Claude and Codex, so it takes less space), saved through
+// /api/settings/assistant.
+const AS_HINT = 'New project, New session and Revive start it; Plans and Ideas run on it. A project set to the other one, and work carried on (a hand-off, Revive), keep theirs.';
+const asView = () => (ui.snap && ui.snap.assistants) || { startWith: 'claude' };
+// Who a line names: the assistant Plans, Ideas and rule suggestions run on
+// (assistants.print), the one a running job started on (its `who`; none was
+// Claude), and a project's own (the one its next session starts).
+const printWho = () => (asView().print === 'codex' ? 'Codex' : 'Claude');
+const jobWho = (j) => (j && j.who === 'codex' ? 'Codex' : 'Claude');
+const projWho = (p) => (p && p.assistant === 'codex' ? 'Codex' : 'Claude');
+
+// A project's own assistant for its NEW sessions (docs/design/
+// ProjectAssistant.dc.html, round 2, A1): "New sessions:" and the Settings
+// switch at the end of the sheet's meta line, saved at once through POST
+// /api/project/assistant. The next New session, Revive and plan start use
+// it; running sessions keep theirs. It shows what the project is set to
+// (its own, else its newest session's, else Settings), even when the board
+// starts the other one because that one is not installed (its note is the
+// title). A flip shows at once; a failed save snaps back with the error
+// beside the switch. ui.pas: { pid, want, until } while a flip waits for
+// the board's state to agree, { pid, err, until } after a failure.
+const pasSet = (p) => asKind(p.assistantWants || p.assistant || asView().startWith);
+const pasNow = (pid) => (ui.pas && ui.pas.pid === pid && Date.now() < ui.pas.until ? ui.pas : null);
+function pasHtml(p) {
+  const pa = pasNow(p.id);
+  const on = pa && pa.want ? pa.want : pasSet(p);
+  const tip = `The assistant ${p.name}'s new sessions start with (New session, Revive, a plan's start). Running sessions keep theirs.${!pa && p.assistantNote ? ' ' + p.assistantNote : ''}`;
+  const btn = (k) => `<button type="button" class="seg ${on === k ? 'on' : ''}" data-pas="${k}" data-pid="${escRaw(p.id)}" aria-pressed="${on === k}">${AS_WORD[k]}</button>`;
+  return `<span class="pas-meta" title="${esc(tip)}"><span id="pas-l">New sessions:</span><span class="hs-seg" role="group" aria-labelledby="pas-l">${btn('claude')}${btn('codex')}</span></span>${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}`;
+}
+
+async function pasChange(pid, kind) {
+  const p = project(pid);
+  const pa = pasNow(pid);
+  if (!p || (pa && pa.saving)) return;
+  if ((pa && pa.want ? pa.want : pasSet(p)) === kind) return;
+  ui.pas = { pid, want: kind, saving: true, until: Date.now() + 15000 };
+  render();
+  try {
+    const r = await post('/api/project/assistant', { projectId: pid, assistant: kind });
+    // The board's next state carries it too; until then this copy does.
+    const q = project(pid);
+    if (q) Object.assign(q, { assistantWants: kind, assistant: r.starts || q.assistant, assistantNote: r.note || null });
+    ui.pas = { pid, want: kind, until: Date.now() + 4000 };
+  } catch (e) {
+    ui.pas = { pid, err: `Not saved: ${/\.$/.test(e.message) ? e.message : e.message + '.'}`, until: Date.now() + 8000 };
+    setTimeout(() => { if (ui.pas && ui.pas.err && Date.now() >= ui.pas.until) { ui.pas = null; render(); } }, 8100);
+  }
+  render();
+}
+
+function asHtml() {
+  return `<div class="hs-sec">Assistant<span>every project</span></div>
+<div class="hs-row" style="padding-top: 0"><div class="hs-l"><div id="as-l">Start new sessions with</div><div class="hs-tok">${AS_HINT}</div></div></div>
+<div class="as-sw"><span class="hs-seg" role="group" aria-labelledby="as-l"><button class="seg" data-as="claude" aria-pressed="false">Claude</button><button class="seg" data-as="codex" aria-pressed="false">Codex</button></span></div>
+<div class="hs-tok as-note" id="as-note" hidden></div>
+<div class="as-div"></div>`;
+}
+
+function asPaint() {
+  const v = asView();
+  for (const b of document.querySelectorAll('#hs-pop [data-as]')) {
+    const on = b.dataset.as === (v.startWith === 'codex' ? 'codex' : 'claude');
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  // The chosen one not installed: the board starts the other, and says so.
+  const n = $('#as-note');
+  if (n) { n.hidden = !v.fallback; n.textContent = v.fallback ? v.note : ''; }
+}
+
+async function asChange(kind) {
+  if (asView().startWith === kind || hs.asSaving) return;
+  hs.asSaving = true;
+  try {
+    const r = await post('/api/settings/assistant', { startWith: kind });
+    if (ui.snap) ui.snap.assistants = { ...(ui.snap.assistants || {}), ...r };
+    hs.foot = 'saved-as';
+  } catch (e) {
+    hs.foot = 'error';
+    hs.err = /\.$/.test(e.message) ? e.message : e.message + '.';
+  }
+  hs.asSaving = false;
+  hsPaint();
+  asPaint();
+}
+
 function hsHtml() {
   return `<div class="hs-pop" id="hs-pop" role="dialog" aria-label="Settings"><span class="hs-caret" aria-hidden="true"></span>
 <div class="hs-head">Settings</div>
 <div class="hs-body">
+${asHtml()}
 <div class="hs-sec">Hand-off<span>every project</span></div>
 <div class="hs-row on-row"><div class="hs-l"><div id="hs-on-l">Hand off automatically</div><div class="hs-tok" id="hs-on-sub"></div></div>${hsSwitch('hs-on')}</div>
 <div class="hs-auto" id="hs-auto">
@@ -3744,15 +4049,16 @@ function hsPaint() {
   const dis = { 't-': L.tMinusOff, 't+': L.tPlusOff, 'c-': L.cMinusOff, 'c+': L.cPlusOff };
   for (const b of pop.querySelectorAll('.hs-sb')) b.disabled = !on || dis[b.dataset.hs];
   $('#hs-hint').hidden = !on || !(L.tPlusOff || L.cMinusOff);
-  for (const b of pop.querySelectorAll('.hs-seg .seg')) {
+  for (const b of pop.querySelectorAll('.hs-seg .seg[data-hs]')) {
     const sel = (b.dataset.hs === 'w200' && w === 200000) || (b.dataset.hs === 'w1m' && w === 1000000);
     b.classList.toggle('on', sel);
     b.setAttribute('aria-pressed', String(sel));
   }
   sw('hs-fresh', c.handoffAutoStart);
   const f = $('#hs-foot');
-  f.className = 'hs-foot' + (hs.foot === 'saved' ? ' ok' : hs.foot === 'error' ? ' bad' : '');
+  f.className = 'hs-foot' + (hs.foot === 'saved' || hs.foot === 'saved-as' ? ' ok' : hs.foot === 'error' ? ' bad' : '');
   if (hs.foot === 'saved') f.innerHTML = HS_CHECK + 'Saved. Applies at each session\'s next stop.';
+  else if (hs.foot === 'saved-as') f.innerHTML = HS_CHECK + `Saved. New sessions start with ${AS_NAME[asView().startWith] || 'Claude Code'}.`;
   else if (hs.foot === 'error') f.textContent = 'Not saved: ' + hs.err;
   else f.textContent = 'Applies to every project. Saves as you change it.';
 }
@@ -3793,6 +4099,8 @@ async function openHs() {
   $('#mc').insertAdjacentHTML('beforeend', hsHtml());
   wireHs();
   hsPaint();
+  asPaint();
+  asRefresh();
   paPaintCard();
   pr.saved = false;
   pr.err = '';
@@ -3800,6 +4108,15 @@ async function openHs() {
   placeHs();
   paRefresh();
   prRefresh();
+}
+
+// The assistant settings fresh from the board (the snapshot may be a tick old).
+async function asRefresh() {
+  try {
+    const r = await getJson('/api/settings/assistant');
+    if (ui.snap) ui.snap.assistants = { ...(ui.snap.assistants || {}), ...r };
+    if (hs.open) asPaint();
+  } catch { /* the snapshot's copy stays */ }
 }
 
 function closeHs() {
@@ -3857,6 +4174,7 @@ function wireHs() {
     if (!b || b.disabled || !hs.cur) return;
     if (b.id === 'pa-on' || b.dataset.pa) return paCardClick(b);
     if (b.dataset.pr) return prChange();
+    if (b.dataset.as) return asChange(b.dataset.as);
     const c = hs.cur;
     if (b.id === 'hs-on') return hsChange({ handoffEnabled: !c.handoffEnabled });
     if (b.id === 'hs-fresh') return hsChange({ handoffAutoStart: !c.handoffAutoStart });

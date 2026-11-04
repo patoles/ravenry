@@ -1,7 +1,8 @@
 // New project, Write the brief, and Revive: the three ways the board starts
 // work. Each writes a BRIEF.md in the format of docs/BRIEF-FORMAT.md and, for
-// New project and Revive, opens a NEW cmux workspace or tab running Claude,
-// or a NEW iTerm2 tab when the board runs in iTerm2 mode (term.BOARD).
+// New project and Revive, opens a NEW cmux workspace or tab running Claude
+// Code or Codex (server/assistant.mjs startChoice, continueChoice), or a NEW
+// iTerm2 tab when the board runs in iTerm2 mode (term.BOARD).
 // Nothing here ever types into, selects or closes an existing tab.
 
 import fs from 'node:fs';
@@ -77,9 +78,18 @@ export function quoteWord(s) {
   return `'${t.replace(/'/g, '')}'`;
 }
 
-function launchLine(cfg, prompt) {
-  return `${cfg.launchCommand} ${quoteWord(prompt)}`;
+// `command` is the chosen assistant's (server/assistant.mjs startCommand):
+// `claude` (the launchCommand setting) or `codex`. Both take a prompt that
+// starts with a dash only after `--` (measured for Codex 0.166.0: `codex
+// '-x hi'` is "unexpected argument '-x'", `codex -- '-x hi'` is the prompt).
+function launchLine(command, prompt) {
+  return `${command} ${quoteWord(prompt)}`;
 }
+
+// What a launch runs: the assistant the board chose (`launch`: { kind,
+// command, note }, from server/index.mjs), else cfg.launchCommand as before.
+const launchOf = (cfg, launch) => ({ kind: (launch && launch.kind) || 'claude', command: (launch && launch.command) || cfg.launchCommand, note: (launch && launch.note) || null, short: (launch && launch.short) || 'Claude' });
+const chosen = (l) => ({ assistant: l.kind, ...(l.note ? { assistantNote: l.note } : {}) });
 
 // Opens a NEW workspace and returns its UUID (cmux prints only the ref, and
 // refs can move, so it is resolved at once).
@@ -274,9 +284,18 @@ export function takenIn(dir) {
 
 // ------------------------------------------------------------ New project
 
-export async function createProject(form, { cfg, settings, reserve }) {
+// `launch` is the assistant the board starts ({ kind, command, note,
+// short }); `form.assistant` ('claude' or 'codex'), when given, is kept on
+// the project, so continuing it keeps that assistant.
+// `adopt`: New project from this folder (docs/design/CodexStage2.dc.html,
+// section 1): the id of a cmux workspace no project lists, whose folder is
+// the Existing folder. The project lists that workspace and nothing is
+// opened: the session already running there joins the project.
+export async function createProject(form, { cfg, settings, reserve, launch = null, adopt = null }) {
   const err = validate(form);
   if (err) return { ok: false, status: 400, error: err };
+  if (form.assistant != null && form.assistant !== '' && !registry.ASSISTANT_KINDS.includes(form.assistant)) return { ok: false, status: 400, error: 'The assistant must be claude or codex.' };
+  const L = launchOf(cfg, launch);
   const name = oneLine(form.name);
   const slug = registry.slug(name);
   let cur = registry.load() || { projects: [] };
@@ -320,23 +339,26 @@ export async function createProject(form, { cfg, settings, reserve }) {
   fs.writeFileSync(briefAbs, briefMarkdown(form, { stage: form.stage || 'Start' }), { flag: 'wx' });
   const entry = { id, name, folder, workspaces: [], brief: briefRel, waitingOn: null, created: new Date().toISOString(), kind: kindOf(form) };
   if (form.ideaId) entry.fromIdea = String(form.ideaId);
+  if (registry.ASSISTANT_KINDS.includes(form.assistant)) entry.assistant = form.assistant;
+  if (adopt) entry.workspaces = [String(adopt)];
   let reg = registry.update((r) => { r.projects.push(entry); });
+  if (adopt) return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), adopted: true, ...chosen(L), message: `${name} is in ${short(folder)}, with the session already running there. The brief is ${briefRel}.` };
   const prompt = `Read ${briefRel} and start on the first milestone.`;
   if (term.BOARD !== 'cmux') {
-    const t = await openBoardTab({ cwd: folder, command: launchLine(cfg, prompt) });
-    if (!t.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), error: `Folder and brief are ready, but ${t.error}` };
-    return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: t.where, surfaceId: t.surfaceId, gitInit: made, message: `${name} is in ${short(folder)}. Claude is reading the brief in a new ${t.where} tab.` };
+    const t = await openBoardTab({ cwd: folder, command: launchLine(L.command, prompt) });
+    if (!t.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), ...chosen(L), error: `Folder and brief are ready, but ${t.error}` };
+    return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: t.where, surfaceId: t.surfaceId, gitInit: made, ...chosen(L), message: `${name} is in ${short(folder)}. ${L.short} is reading the brief in a new ${t.where} tab.` };
   }
   const release = reserve(name);
   let ws;
   try {
-    ws = await openWorkspace({ name, cwd: folder, command: launchLine(cfg, prompt), focus: settings.focusNewWorkspace === true });
+    ws = await openWorkspace({ name, cwd: folder, command: launchLine(L.command, prompt), focus: settings.focusNewWorkspace === true });
     if (ws.ok) reg = registry.update((r) => { const p = r.projects.find((x) => x.id === id); if (p) p.workspaces = [ws.workspaceId]; });
   } finally {
     release();
   }
-  if (!ws.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), error: `Folder and brief are ready, but ${ws.error}` };
-  return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: ws.workspaceRef, gitInit: made };
+  if (!ws.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), ...chosen(L), error: `Folder and brief are ready, but ${ws.error}` };
+  return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: ws.workspaceRef, gitInit: made, ...chosen(L) };
 }
 
 // ------------------------------------------------------------ Write the brief
@@ -365,7 +387,10 @@ export function writeBrief(project, form) {
 // shell, and `--` before words that start with a dash. It needs no brief,
 // and the project may have a live session already.
 // `near`: in iTerm2 mode, a tab of the project's whose window gets the new one.
-export async function revive(project, { cfg, settings, reserve, prompt: custom = null, firstMessage = null, near = null }) {
+// `launch`: the assistant that continues the project ({ kind, command,
+// note, short }, server/assistant.mjs continueChoice), else cfg.launchCommand.
+export async function revive(project, { cfg, settings, reserve, prompt: custom = null, firstMessage = null, near = null, launch = null }) {
+  const L = launchOf(cfg, launch);
   const fm = firstMessage ? String(firstMessage) : null;
   const bp = registry.briefPath(project);
   if (!custom && !fm && (!bp || !fs.existsSync(bp))) return { ok: false, status: 409, error: `${project.name} has no brief yet. Write the brief first, so the new session has something to read.` };
@@ -378,12 +403,12 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   const prompt = custom || `Read ${briefRel} (Hand-off section first) and continue.`;
   // `typed`: the line is pasted into a new tab's shell; else it is cmux's
   // --command for a new workspace, which reads backslashes (quoteWord).
-  const line = (typed) => (fm ? `${cfg.launchCommand} ${fm.startsWith('-') ? '-- ' : ''}${typed ? shellWord(fm) : quoteWord(fm)}` : launchLine(cfg, prompt));
+  const line = (typed) => (fm ? `${L.command} ${fm.startsWith('-') ? '-- ' : ''}${typed ? shellWord(fm) : quoteWord(fm)}` : launchLine(L.command, prompt));
   const cmd = line(true);
   if (term.BOARD !== 'cmux') {
     const t = await openBoardTab({ cwd: project.folder, command: cmd, near });
     if (!t.ok) return { ok: false, status: 500, error: t.error.charAt(0).toUpperCase() + t.error.slice(1) };
-    return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, message: `New ${t.where} tab for ${project.name}. ${fm ? 'It starts with your first message.' : 'It reads the brief first.'}` };
+    return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, ...chosen(L), message: `New ${t.where} tab for ${project.name}. ${fm ? 'It starts with your first message.' : 'It reads the brief first.'}` };
   }
   const all = await cmux.listWorkspaces();
   const ws = all.find((w) => (project.workspaces || []).includes(w.id));
@@ -397,7 +422,7 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
     const a = await term.pasteText(tab, cmd);
     const b = a.ok ? await term.pressKey(tab, 'enter') : a;
     if (!b.ok) return { ok: false, status: 500, error: 'The new tab opened but the command was not typed: ' + (b.err || '') };
-    return { ok: true, where: 'tab', workspaceRef: ws.ref, surfaceRef: made.surfaceRef, surfaceId: made.surfaceId, command: cmd };
+    return { ok: true, where: 'tab', workspaceRef: ws.ref, surfaceRef: made.surfaceRef, surfaceId: made.surfaceId, command: cmd, ...chosen(L) };
   }
   const release = reserve(project.name);
   try {
@@ -405,7 +430,7 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
     const nw = await openWorkspace({ name: project.name, cwd: project.folder, command: wcmd, focus: settings.focusNewWorkspace === true });
     if (!nw.ok) return { ok: false, status: 500, error: nw.error };
     const reg = registry.update((r) => { const p = r.projects.find((x) => x.id === project.id); if (p) p.workspaces = [...(p.workspaces || []), nw.workspaceId]; });
-    return { ok: true, where: 'workspace', workspaceRef: nw.workspaceRef, workspaceId: nw.workspaceId, command: wcmd, reg };
+    return { ok: true, where: 'workspace', workspaceRef: nw.workspaceRef, workspaceId: nw.workspaceId, command: wcmd, reg, ...chosen(L) };
   } finally {
     release();
   }

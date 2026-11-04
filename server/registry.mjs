@@ -237,6 +237,39 @@ export function update(fn) {
   return load();
 }
 
+// Add to a project (docs/design/CodexStage2.dc.html, section 1): a cmux
+// workspace no project lists joins one project's workspaces, through the
+// registry's write path (a backup at most once per burst, then update(),
+// so hand edits made meanwhile survive). Refused when the project is gone or
+// hidden, or when some project, or ignoreWorkspaces, lists the workspace by
+// the time of the write. Returns { ok, reg, project, backup } or
+// { ok: false, status, error }.
+export function addWorkspace(projectId, workspaceId) {
+  const wid = String(workspaceId || '');
+  if (!wid) return { ok: false, status: 400, error: 'Name the workspace to add.' };
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8')); } catch (e) { return { ok: false, status: 500, error: `Could not read ${path.basename(REGISTRY_PATH)} (${e.code === 'ENOENT' ? 'it is not there' : e.message})` }; }
+  const projects = Array.isArray(raw.projects) ? raw.projects : [];
+  const target = projects.find((p) => p && p.id === projectId && !p.hidden);
+  if (!target) return { ok: false, status: 404, error: 'No such project.' };
+  const owner = projects.find((p) => p && (p.workspaces || []).includes(wid));
+  if (owner) return { ok: false, status: 409, error: `${owner.name || owner.id} lists that workspace already.` };
+  if ((raw.ignoreWorkspaces || []).includes(wid)) return { ok: false, status: 409, error: 'That workspace is in ignoreWorkspaces, so it is not added.' };
+  let backup = null;
+  let r;
+  try {
+    backup = backupRegistry();
+    r = update((reg) => {
+      const p = reg.projects.find((x) => x && x.id === projectId);
+      if (p && !(p.workspaces || []).includes(wid)) p.workspaces = [...(p.workspaces || []), wid];
+    });
+  } catch (e) {
+    const why = { EACCES: 'permission denied', EPERM: 'permission denied', EROFS: 'the disk is read-only', ENOSPC: 'the disk is full' }[e.code] || e.message;
+    return { ok: false, status: e.code === 'EREFUSED' ? 409 : 500, error: `Could not write ${path.basename(REGISTRY_PATH)} (${why})` };
+  }
+  return { ok: true, reg: r, project: { id: target.id, name: target.name }, backup };
+}
+
 export function uniqueId(reg, name) {
   const ids = new Set(reg.projects.map((p) => p.id));
   const base = slug(name);
@@ -285,6 +318,82 @@ export function checkHandoffPatch(patch, current) {
   const next = { ...handoffSettings(current), ...patch };
   if (next.handoffCeiling - next.handoffThreshold < HANDOFF_GAP) return `The ceiling (${next.handoffCeiling}%) must stay at least ${HANDOFF_GAP} points above the clean-point line (${next.handoffThreshold}%).`;
   return null;
+}
+
+// ------------------------------------------------------------ assistant settings
+// Which assistant the board starts (docs/ASSISTANTS.md, "Starting
+// sessions"): `startWith` ('claude' | 'codex', Claude Code when unset) and
+// `codexModel`, the model Codex runs when the one in its config.toml is
+// refused (empty: Codex's own default). A project may name its own
+// `assistant` (the New project form's choice).
+
+export const ASSISTANT_KEYS = ['startWith', 'codexModel'];
+export const ASSISTANT_KINDS = ['claude', 'codex'];
+const MODEL_NAME = /^[A-Za-z0-9][\w.:-]{0,79}$/;
+
+// The assistant a project names for itself, or null (then its newest
+// session's, else startWith).
+export const projectAssistant = (project) => (project && ASSISTANT_KINDS.includes(project.assistant) ? project.assistant : null);
+
+export function assistantSettings(settings) {
+  const s = settings || {};
+  return {
+    startWith: ASSISTANT_KINDS.includes(s.startWith) ? s.startWith : 'claude',
+    codexModel: typeof s.codexModel === 'string' && MODEL_NAME.test(s.codexModel) ? s.codexModel : null,
+  };
+}
+
+// A patch of assistant keys: null when it is fine, else the reason. A
+// codexModel of null or '' clears it.
+export function checkAssistantPatch(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'Send an object of assistant settings.';
+  const keys = Object.keys(patch);
+  if (!keys.length) return 'Nothing to change.';
+  const unknown = keys.filter((k) => !ASSISTANT_KEYS.includes(k));
+  if (unknown.length) return `Not a setting the board changes: ${unknown.join(', ')}.`;
+  if ('startWith' in patch && !ASSISTANT_KINDS.includes(patch.startWith)) return `startWith must be ${ASSISTANT_KINDS.join(' or ')}.`;
+  if ('codexModel' in patch && patch.codexModel != null && patch.codexModel !== '' && !(typeof patch.codexModel === 'string' && MODEL_NAME.test(patch.codexModel))) return 'codexModel must be a model name like gpt-5.6-luna, or empty.';
+  return null;
+}
+
+// Validates, backs up, then writes only the patched keys (writeSettings).
+export function saveAssistantSettings(patch) {
+  const why = checkAssistantPatch(patch);
+  if (why) return { ok: false, status: 400, error: why };
+  const p = { ...patch };
+  if ('codexModel' in p && (p.codexModel == null || p.codexModel === '')) p.codexModel = undefined;
+  const w = writeSettings(p);
+  if (!w.ok) return w;
+  return { ok: true, settings: assistantSettings(w.reg && w.reg.settings), backup: w.backup, reg: w.reg };
+}
+
+// Sets the assistant a project names for itself ('claude' or 'codex'), or
+// clears it (null: its newest session's, else startWith). Its next New
+// session, Revive and plan start use it; running sessions are not touched.
+// The same write path as the settings: a backup (at most one per burst),
+// then only that key of that project, through update().
+// Returns { ok, project, assistant, backup, reg } or { ok: false, status, error }.
+export function saveProjectAssistant(projectId, assistant) {
+  if (assistant !== null && !ASSISTANT_KINDS.includes(assistant)) return { ok: false, status: 400, error: `assistant must be ${ASSISTANT_KINDS.join(' or ')}, or null to follow its sessions.` };
+  const cur = load();
+  if (!cur || !cur.projects.some((p) => p && p.id === projectId)) return { ok: false, status: 404, error: 'No such project.' };
+  let backup = null;
+  let r;
+  try {
+    backup = backupRegistry();
+    r = update((reg) => {
+      const p = reg.projects.find((x) => x && x.id === projectId);
+      if (!p) { const e = new Error('No such project.'); e.status = 404; throw e; }
+      if (assistant === null) delete p.assistant;
+      else p.assistant = assistant;
+    });
+  } catch (e) {
+    if (e.status === 404) return { ok: false, status: 404, error: e.message };
+    const why = { EACCES: 'permission denied', EPERM: 'permission denied', EROFS: 'the disk is read-only', ENOSPC: 'the disk is full' }[e.code] || e.message;
+    return { ok: false, status: 500, error: `Could not write ${path.basename(REGISTRY_PATH)} (${why})` };
+  }
+  const project = r.projects.find((x) => x && x.id === projectId) || null;
+  return { ok: true, project, assistant: projectAssistant(project), backup, reg: r };
 }
 
 // projects.json.bak-YYYYMMDD-HHMMSS next to it, local time, the name the

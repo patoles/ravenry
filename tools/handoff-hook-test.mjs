@@ -82,14 +82,37 @@ check('reason: starts with the [ravenry hand-off] tag; the board knows it and th
 check('marker: requested, asks 1, workspace from env', marker(SID)?.state === 'requested' && marker(SID).asks === 1 && marker(SID).workspaceId === 'ws-proj' && marker(SID).surfaceId === 'sf-1');
 if (r.out) fs.writeFileSync(path.join(T, 'reason-50.txt'), r.out.reason);
 
-// 3. The stop right after (stop_hook_active): never blocks.
+// 3. The stop right after (stop_hook_active): never blocks. Claude deferred,
+// so the marker records the deferral and the board's line says when it asks.
 r = run(stop(SID, high, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
 check('stop_hook_active: no block', r.code === 0 && r.out === null);
 check('marker stays requested', marker(SID)?.state === 'requested');
+const HOLD = /^deferred at \d\d:\d\d; asks again after your next message or at \d\d:\d\d$/;
+check('deferral recorded: deferredAt, deferrals 1, the board line', !!marker(SID)?.deferredAt && marker(SID).deferrals === 1 && HOLD.test(marker(SID).lastCheck?.why), marker(SID)?.lastCheck?.why);
 
-// 4. A later ordinary stop asks again (Claude deferred last time).
+// 4. After a deferral the hook asks again only once something changed. The
+// stops a session waiting on agents or on the user makes do not count.
+const addRec = (tp, rec) => fs.appendFileSync(tp, JSON.stringify({ timestamp: new Date().toISOString(), ...rec }) + '\n');
 r = run(stop(SID, high));
-check('later stop: asks again', r.out && r.out.decision === 'block' && marker(SID).asks === 2);
+check('deferral, then an ordinary stop with nothing new: no ask', r.out === null && marker(SID).asks === 1 && HOLD.test(marker(SID).lastCheck.why), marker(SID).lastCheck.why);
+const highS = path.join(TR, 'high-sid.jsonl');
+fs.copyFileSync(high, highS);
+addRec(highS, { type: 'user', message: { role: 'user', content: '<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent "work" completed</summary>\n</task-notification>' } });
+r = run(stop(SID, highS));
+check('deferral, then a task-notification stop: no ask', r.out === null && marker(SID).asks === 1);
+addRec(highS, { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'x1', content: 'ok' }] } });
+addRec(highS, { type: 'user', isMeta: true, message: { role: 'user', content: 'Stop hook feedback:\n[ravenry hand-off]\nContext is at 52%' } });
+addRec(highS, { type: 'user', message: { role: 'user', content: '[ravenry hand-off]\nContext is at 52%' } });
+addRec(highS, { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } });
+r = run(stop(SID, highS));
+check("deferral, then a tool result, the hook's own reason fed back and an interrupt: no ask", r.out === null && marker(SID).asks === 1);
+r = run(stop(SID, highS, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
+check('a later stop still showing the DEFERRED line does not push the cooldown on', marker(SID).deferrals === 1);
+addRec(highS, { type: 'user', message: { role: 'user', content: 'looks good, carry on' } });
+r = run(stop(SID, highS, { background_tasks: [{ id: 'blive-s001', type: 'shell', status: 'running', description: 'x' }] }));
+check('deferral, then a new user prompt while a shell runs: no ask, queued for the shell', r.out === null && marker(SID).asks === 1 && marker(SID).lastCheck.why === '1 background task running', marker(SID).lastCheck.why);
+r = run(stop(SID, highS));
+check('deferral, then a new user prompt with nothing running: asks', r.out && r.out.decision === 'block' && marker(SID).asks === 2);
 
 // 5. Claude writes the hand-off; the stop after it records "written".
 fs.writeFileSync(BRIEF, fs.readFileSync(BRIEF, 'utf8').replace('## Hand-off\n', '## Hand-off\n- 2026-11-02 21:10 Finished the hook.\n  - State: done\n  - Next step: board side\n'));
@@ -214,9 +237,78 @@ check('stop after a hand-off written while queued: marker written, no block', r.
 r = run(stop(SQ2, tq2, { background_tasks: [{ id: 'blive-0002', type: 'shell', status: 'running', description: 'x' }] }));
 check('the other session stays queued', marker(SQ2)?.state === 'queued');
 
-// 11. Ended on a question to the user: no block, so the question stays.
+// 11. Ended on a question to the user: a clean point now. The hand-off
+// carries the question in its open items.
 r = run(stop('sess-ask-0001', high, { last_assistant_message: 'The board is done.\n\nShould the button be blue or grey?' }));
-check('ended on a question: no block, queued', r.out === null && marker('sess-ask-0001')?.state === 'queued');
+check('ended on a question: asks', r.out && r.out.decision === 'block' && marker('sess-ask-0001')?.state === 'requested' && marker('sess-ask-0001').lastCheck.clean === true);
+check("reason: waiting on the user's answer is a clean point, the question goes in the open items", r.out && !/or are waiting on the user's answer, do not hand off/.test(r.out.reason) && /even if you are waiting on the user's answer/.test(r.out.reason) && /put it word for word in "Open items:"/.test(r.out.reason));
+
+// 11b. The cooldown: 10 minutes after a deferral the hook asks again.
+const SC = 'sess-cool-0001';
+run(stop(SC, high));
+run(stop(SC, high, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
+r = run(stop(SC, high));
+check('cooldown: no ask inside 10 minutes', r.out === null && marker(SC).asks === 1);
+const setMarker = (sid, patch, dir = MC) => { const f = path.join(dir, 'handoffs', sid + '.json'); fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), ...patch })); };
+setMarker(SC, { deferredAt: new Date(Date.now() - 11 * 60 * 1000).toISOString() });
+r = run(stop(SC, high));
+check('cooldown: 11 minutes after the deferral, asks again', r.out && r.out.decision === 'block' && marker(SC).asks === 2);
+
+// 11c. Hand off now pressed inside the cooldown: asks at the next stop.
+const SMD = 'sess-mandef-01';
+run(stop(SMD, high));
+run(stop(SMD, high, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
+r = run(stop(SMD, high));
+check('manual inside the cooldown: held before the press', r.out === null && marker(SMD).asks === 1);
+setMarker(SMD, { manualAt: new Date().toISOString() });
+r = run(stop(SMD, high));
+check('manual inside the cooldown: the press asks at the next stop', r.out && r.out.decision === 'block' && /The user asked for a hand-off/.test(r.out.reason) && marker(SMD).asks === 2);
+run(stop(SMD, high, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
+r = run(stop(SMD, high));
+check('manual, deferred again: held again until something new', r.out === null && marker(SMD).asks === 2 && marker(SMD).deferrals === 2);
+
+// 11d. The ceiling: the first stop past it asks even inside a cooldown taken
+// below it; after that the cooldown holds past it too. Its words offer no
+// deferral line, so a stop that answered it without a hand-off is the deferral.
+const SCE = 'sess-ceildef-1';
+run(stop(SCE, high));
+run(stop(SCE, high, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
+r = run(stop(SCE, ceil));
+check('ceiling: the first stop past it asks inside a cooldown taken below it', r.out && /past the 70% ceiling/.test(r.out.reason) && marker(SCE).asks === 2);
+r = run(stop(SCE, ceil, { stop_hook_active: true, last_assistant_message: 'Finishing the step first; agents still running.' }));
+check('ceiling: answered without a hand-off, counts as a deferral past the ceiling', r.out === null && marker(SCE).deferrals === 2 && marker(SCE).deferredOver === true && HOLD.test(marker(SCE).lastCheck.why), marker(SCE).lastCheck?.why);
+r = run(stop(SCE, ceil));
+check('ceiling: the cooldown holds past it too', r.out === null && marker(SCE).asks === 2);
+
+// 11e. Codex: the rollout says when the user last typed; a Stop hook's
+// reason comes back as a <hook_prompt>, which is not the user.
+const rollout = (name) => {
+  const p = path.join(TR, name + '.jsonl');
+  const ts = '2026-11-02T20:00:00Z';
+  const recs = [
+    { timestamp: ts, type: 'session_meta', payload: { id: name, cwd: PROJ } },
+    { timestamp: ts, type: 'turn_context', payload: { model: 'gpt-5.5', cwd: PROJ } },
+    { timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'do the thing' }] } },
+    { timestamp: ts, type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] } },
+    { timestamp: ts, type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { total_tokens: 150000 }, model_context_window: 258400 } } },
+    { timestamp: ts, type: 'event_msg', payload: { type: 'task_complete' } },
+  ];
+  fs.writeFileSync(p, recs.map((x) => JSON.stringify(x)).join('\n') + '\n');
+  return p;
+};
+const runCx = (input) => { const x = spawnSync(process.execPath, [HOOK, '--assistant=codex'], { input: JSON.stringify(input), env: { ...process.env, RAVENRY_HOME: MC }, encoding: 'utf8' }); try { return x.stdout.trim() ? JSON.parse(x.stdout) : null; } catch { return { raw: x.stdout }; } };
+const SX = 'cccccccc-3333-4333-8333-cccccccccccc';
+const rx = rollout('rollout-cx');
+let o = runCx(stop(SX, rx, { last_assistant_message: 'Done.' }));
+check('Codex: past the line, asks', o && o.decision === 'block' && /Codex/.test(o.reason));
+runCx(stop(SX, rx, { stop_hook_active: true, last_assistant_message: 'Hand-off deferred: not at a clean point.' }));
+check('Codex: deferral recorded', marker(SX)?.deferrals === 1);
+addRec(rx, { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<hook_prompt>[ravenry hand-off] Context is at 58%</hook_prompt>' }] } });
+o = runCx(stop(SX, rx, { last_assistant_message: 'Still waiting on the build.' }));
+check("Codex: deferral, then a stop after the hook's own <hook_prompt>: no ask", o === null && marker(SX).asks === 1, JSON.stringify(o));
+addRec(rx, { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'ok, go on' }] } });
+o = runCx(stop(SX, rx, { last_assistant_message: 'Done.' }));
+check('Codex: deferral, then a new user prompt: asks', o && o.decision === 'block' && marker(SX).asks === 2);
 
 // 12. A project with no BRIEF.md: HANDOFF.md at the repo root.
 r = run(stop('sess-bare-0001', high, { cwd: BARE }), { CMUX_WORKSPACE_ID: 'ws-bare' });

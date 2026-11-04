@@ -1,8 +1,8 @@
 // Stands in for `claude -p ... --output-format json --json-schema` in the
 // repeats tests, so they spend no quota. Classify: a message holding
 // "STUB:new:<id>" starts cluster <id>, "STUB:<id>" joins it, anything else is
-// not a correction. Draft: a cluster whose id holds "reword" matches G1,
-// one holding "memory" matches M1, the rest match nothing.
+// not a correction. Draft: a cluster whose id holds "agentsline" matches Q1
+// (a project AGENTS.md line), "reword" G1, "memory" M1, the rest nothing.
 const args = process.argv.slice(2);
 const schema = args[args.indexOf('--json-schema') + 1] || '';
 let input = '';
@@ -24,7 +24,7 @@ process.stdin.on('end', () => {
     const drafts = [];
     for (const m of input.matchAll(/^## ([a-z0-9-]+) /gm)) {
       const id = m[1];
-      drafts.push({ id, rule: `Stub rule for ${id}`, match: id.includes('reword') ? 'G1' : id.includes('memory') ? 'M1' : '', line: `- Stub line for ${id} (stub-name)`, quote: { k: 0, sentence: 1 } });
+      drafts.push({ id, rule: `Stub rule for ${id}`, match: id.includes('agentsline') ? 'Q1' : id.includes('reword') ? 'G1' : id.includes('memory') ? 'M1' : '', line: `- Stub line for ${id} (stub-name)`, quote: { k: 0, sentence: 1 } });
     }
     out = { drafts };
   }

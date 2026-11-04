@@ -2,10 +2,16 @@
 // They feed the Rules view's Suggested tab (docs/design/Repeats.dc.html).
 //
 // Plain code reads the user's own typed messages from the transcripts of the
-// projects in config.ruleSources, a few new bytes at a time (a per-file
-// offset, size and inode), and keeps every kept message verbatim under
-// <RAVENRY_HOME>/repeats/, because Claude Code deletes transcripts after 30 days.
-// A model call (claude -p, the Ideas thread's print mode) sorts each new
+// projects in config.ruleSources (Claude Code's, and Codex's rollouts whose
+// session worked in one of their folders), a few new bytes at a time (a
+// per-file offset, size and inode), and keeps every kept message verbatim
+// under <RAVENRY_HOME>/repeats/, because Claude Code deletes transcripts
+// after 30 days. A Codex message is stored with assistant: 'codex'; one with
+// none is Claude Code's. Accepting a suggestion writes to the rules file of
+// each assistant whose sessions said it: CLAUDE.md for Claude Code's,
+// AGENTS.md for Codex's (docs/ASSISTANTS.md, "Rules").
+// A model call (claude -p, or codex exec when new sessions start with Codex:
+// the Ideas thread's print mode) sorts each new
 // message into a cluster, a new cluster, or "not a correction", and, when a
 // cluster first reaches two sessions, drafts its rule line, matches it to an
 // existing rule line and drafts the reword. Everything else is plain code:
@@ -29,6 +35,7 @@ import { RAVENRY_HOME } from './registry.mjs';
 import * as registry from './registry.mjs';
 import { claudeProjectDir } from './config.mjs';
 import * as rules from './rules.mjs';
+import * as asst from './assistant.mjs';
 
 const HOME = os.homedir();
 // The seed: clusters a first start begins from. None ships: a new board
@@ -82,22 +89,101 @@ export function typedText(d) {
     if (c.some((b) => b && b.type === 'tool_result')) return null;
     text = c.filter((b) => b && b.type === 'text').map((b) => b.text || '').join('\n');
   } else return null;
-  text = text.replace(PASTE, '[pasted]').replace(SYSR, '').replace(TAGS, '').trim();
+  return cleanTyped(text);
+}
+
+// What both assistants' typed text goes through: pastes, reminders and
+// harness tags out; the board's hand-off prompts and harness lines dropped.
+function cleanTyped(raw) {
+  const text = String(raw).replace(PASTE, '[pasted]').replace(SYSR, '').replace(TAGS, '').trim();
   if (!text) return null;
   if (/^\[(ravenry|mission-control) hand-off\]/.test(text) || /^\[Request interrupted/.test(text) || /^Caveat:/.test(text) || /^This session is being continued/.test(text)) return null;
   if (/^<[a-z-]+>/.test(text)) return null;
   return text;
 }
 
+// The text the user typed in one Codex rollout record (server/
+// codexrollout.mjs has the format), or null: a user message that is not
+// Codex's own (<environment_context>, a Stop hook's <hook_prompt>,
+// <turn_aborted>) nor another agent's ("<task>", which Claude Code's Codex
+// plugin sends). Codex's VS Code extension puts the editor's context first
+// ("# Context from my IDE setup:", open tabs, the active file) and the
+// request after "## My request for Codex:"; only the request is kept.
+const IDE_HEAD = /^\s*# Context from my IDE setup:/;
+const IDE_ASK = '## My request for Codex:';
+export function codexTypedText(d) {
+  if (!d || d.type !== 'response_item') return null;
+  const p = d.payload || {};
+  if (p.type !== 'message' || p.role !== 'user' || !Array.isArray(p.content)) return null;
+  let text = p.content.filter((b) => b && b.type === 'input_text' && typeof b.text === 'string').map((b) => b.text).join('\n');
+  if (/^\s*</.test(text)) return null;
+  if (IDE_HEAD.test(text)) {
+    const i = text.indexOf(IDE_ASK);
+    if (i < 0) return null;
+    text = text.slice(i + IDE_ASK.length);
+  }
+  return cleanTyped(text);
+}
+
+// A rollout's first record (session_meta): its session id and folder, and
+// why it is not the user's own typing, when it is not: a session another
+// program drove (Claude Code's Codex plugin is its originator; codex exec,
+// Codex as an MCP server, a subagent). null while the line is not written.
+export function codexMeta(file) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return null; }
+  try {
+    const CH = 256 * 1024;
+    const buf = Buffer.allocUnsafe(CH);
+    let head = Buffer.alloc(0);
+    let pos = 0;
+    let nl = -1;
+    while (nl < 0 && head.length < 8 * CH) {
+      const n = fs.readSync(fd, buf, 0, CH, pos);
+      if (n <= 0) break;
+      pos += n;
+      head = Buffer.concat([head, buf.subarray(0, n)]);
+      nl = head.indexOf(10);
+    }
+    if (nl < 0) return null;
+    let d;
+    try { d = JSON.parse(head.subarray(0, nl).toString('utf8')); } catch { return { session: null, cwd: null, skip: 'unreadable' }; }
+    const p = (d && d.payload) || {};
+    if (d.type !== 'session_meta' || !p.id) return { session: null, cwd: null, skip: 'no session_meta' };
+    const src = p.source;
+    const skip = /claude/i.test(String(p.originator || '')) ? 'started by Claude Code'
+      : src != null && typeof src !== 'string' ? 'a subagent'
+        : ['exec', 'mcp'].includes(src) || p.originator === 'codex_exec' ? `codex ${src || 'exec'}` : null;
+    return { session: p.id, cwd: p.cwd || null, skip };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // ------------------------------------------------------------ incremental reads
 
 const USER = Buffer.from('"type":"user"');
+const CODEX_USER = Buffer.from('"role":"user"');
+
+// Claude Code's transcript line as a message, or null.
+const claudeLine = (d) => {
+  const text = typedText(d);
+  return text ? { uuid: d.uuid || null, session: d.sessionId, ts: d.timestamp, src: d.promptSource || null, text } : null;
+};
+// A Codex rollout's line, for the session its session_meta names.
+const codexLine = (session) => (d) => {
+  const text = codexTypedText(d);
+  return text ? { uuid: null, session, ts: d.timestamp, src: null, text } : null;
+};
 
 // Reads one transcript from where the last read stopped to its last complete
 // line. A new inode, or a file now shorter than what was read, means it was
 // replaced or truncated: read it again from 0 (stored keys keep that from
-// counting anything twice). Calls onText for each typed message.
-export async function scanFile(file, prev, onText) {
+// counting anything twice). Calls onText for each typed message. `marker`
+// and `read` say which lines are worth parsing and how one becomes a
+// message: Claude Code's transcript by default, a Codex rollout with
+// { marker: CODEX_USER, read: codexLine(session) }.
+export async function scanFile(file, prev, onText, { marker = USER, read = claudeLine } = {}) {
   let st;
   try { st = fs.statSync(file); } catch { return null; }
   const same = prev && prev.ino === st.ino && st.size >= prev.offset && st.size >= (prev.size || 0);
@@ -120,11 +206,11 @@ export async function scanFile(file, prev, onText) {
       let nl;
       while ((nl = data.indexOf(10, from)) !== -1) {
         const line = data.subarray(from, nl);
-        if (line.indexOf(USER) !== -1) {
+        if (line.indexOf(marker) !== -1) {
           let d = null;
           try { d = JSON.parse(line.toString('utf8')); } catch { /* a torn or foreign line */ }
-          const text = d && typedText(d);
-          if (text) onText({ uuid: d.uuid || null, session: d.sessionId, ts: d.timestamp, src: d.promptSource || null, text });
+          const x = d && read(d);
+          if (x) onText(x);
         }
         from = nl + 1;
       }
@@ -145,6 +231,34 @@ export function sources(cfg) {
 }
 
 const keyOf = (m) => m.uuid || `${m.session}|${m.ts}`;
+
+// Codex's rollouts: <codexSessions>/YYYY/MM/DD/rollout-*.jsonl.
+export function rolloutFiles(root) {
+  if (!root) return [];
+  const out = [];
+  const list = (d) => { try { return fs.readdirSync(d).sort(); } catch { return []; } };
+  for (const y of list(root)) for (const mo of list(path.join(root, y))) for (const d of list(path.join(root, y, mo))) {
+    for (const f of list(path.join(root, y, mo, d))) if (/^rollout-.*\.jsonl$/.test(f)) out.push(path.join(root, y, mo, d, f));
+  }
+  return out;
+}
+
+// The source a Codex session belongs to, by the folder it worked in: the
+// source with that folder, else the deepest one holding it (a session in a
+// project's subfolder still reads that project's AGENTS.md), except the
+// projects root, which takes only sessions started in it, as Claude Code's
+// transcripts of it hold only those.
+export function sourceFor(cfg, cwd) {
+  if (!cwd) return null;
+  let best = null;
+  for (const s of cfg.ruleSources || []) {
+    if (!s || !s.folder) continue;
+    if (cwd === s.folder) return s;
+    if (s.folder === cfg.projectsRoot) continue;
+    if (cwd.startsWith(s.folder + path.sep) && (!best || s.folder.length > best.folder.length)) best = s;
+  }
+  return best;
+}
 
 // ------------------------------------------------------------ the store
 
@@ -174,6 +288,7 @@ export function load() {
   if (mem) return mem;
   const state = readJson(F.state, null) || { version: 1, offsets: {}, names: {}, tries: {}, seeded: null, lastRun: null };
   state.offsets = state.offsets || {};
+  state.codex = state.codex || {};
   state.names = state.names || {};
   state.tries = state.tries || {};
   const messages = new Map();
@@ -230,6 +345,38 @@ export async function ingest(cfg) {
       fresh.push(...add);
       m.state.offsets[file] = r.next;
     }
+  }
+  // Codex keeps every project's rollouts in one folder: each goes to the
+  // source its session worked in, read the same way, its messages marked
+  // assistant: 'codex'. A rollout no source takes is looked at again next
+  // run (its project may be on the board by then).
+  for (const file of rolloutFiles(cfg.codexSessions)) {
+    let meta = m.state.codex[file];
+    if (!meta) {
+      meta = codexMeta(file);
+      if (!meta) continue;
+      m.state.codex[file] = meta;
+    }
+    if (meta.skip || !meta.session) continue;
+    const src = sourceFor(cfg, meta.cwd);
+    if (!src) continue;
+    const got = [];
+    const r = await scanFile(file, m.state.offsets[file], (x) => got.push(x), { marker: CODEX_USER, read: codexLine(meta.session) });
+    if (!r) continue;
+    files++;
+    bytes += r.bytes;
+    if (r.reset) resets.push(file);
+    const add = [];
+    for (const x of got) {
+      if (!x.ts) continue;
+      const rec = { key: keyOf(x), session: x.session, ts: x.ts, project: src.label, folder: src.folder || null, dir: null, src: null, text: x.text, assistant: 'codex' };
+      if (m.messages.has(rec.key)) continue;
+      m.messages.set(rec.key, rec);
+      add.push(rec);
+    }
+    appendLines(F.messages, add);
+    fresh.push(...add);
+    m.state.offsets[file] = r.next;
   }
   saveState();
   viewCache = null;
@@ -368,6 +515,9 @@ function since(match, state) {
 // Was the rule in that session's scope? A global line reaches every
 // session; a project CLAUDE.md reaches sessions in its folder or below; a
 // memory note reaches only sessions of the project whose folder holds it.
+// The scope is the same for both assistants: a Codex session in a project
+// is in that project's scope (its own rules file there is AGENTS.md, which
+// the write below covers), and a memory note's project is its folder.
 export function inScope(match, msg) {
   if (!match) return false;
   if (match.source === 'global') return true;
@@ -375,8 +525,111 @@ export function inScope(match, msg) {
     const f = match.folder || path.dirname(match.file);
     return !!msg.folder && (msg.folder === f || msg.folder.startsWith(f + path.sep));
   }
-  if (match.source === 'memory') return !!match.dir && msg.dir === match.dir;
+  if (match.source === 'memory') return msg.assistant === 'codex' ? !!match.folder && msg.folder === match.folder : !!match.dir && msg.dir === match.dir;
   return false;
+}
+
+// ------------------------------------------------------------ where a rule is written
+
+const KINDS = ['claude', 'codex'];
+const RULES_NAME = { claude: 'CLAUDE.md', codex: 'AGENTS.md' };
+export const assistantOf = (msg) => (msg && msg.assistant === 'codex' ? 'codex' : 'claude');
+// The assistants whose sessions said it, Claude Code first.
+export function assistantsOf(kept) {
+  const have = new Set(kept.map(assistantOf));
+  return KINDS.filter((k) => have.has(k));
+}
+// A matched line's assistant: an AGENTS.md line is Codex's, a CLAUDE.md
+// line or a memory note Claude Code's.
+const matchAssistant = (match) => (match && match.assistant === 'codex' ? 'codex' : 'claude');
+
+// Codex reads AGENTS.override.md instead of AGENTS.md in a folder that has
+// one (its own resolution, globally and per folder), so a rule goes there.
+// An empty one is passed over, as Codex and Your rules pass it over
+// (server/rulefiles.mjs): writing to it would hide the AGENTS.md beside it.
+export function agentsTarget(file) {
+  if (!file || path.basename(file) !== 'AGENTS.md') return file || null;
+  const o = path.join(path.dirname(file), 'AGENTS.override.md');
+  let md = null;
+  try { md = fs.readFileSync(o, 'utf8'); } catch {}
+  return md != null && md.trim() ? o : file;
+}
+
+function globalFile(cfg, a) {
+  return a === 'codex' ? agentsTarget(cfg.globalAgentsMd || null) : cfg.globalClaudeMd;
+}
+
+function projectFile(cfg, a, folder) {
+  if (!folder) return null;
+  const src = (cfg.ruleSources || []).find((x) => x && x.folder === folder) || {};
+  return a === 'codex' ? agentsTarget(src.agentsMd || path.join(folder, 'AGENTS.md')) : src.claudeMd || path.join(folder, 'CLAUDE.md');
+}
+
+// What accepting a row writes, one entry per assistant whose sessions said
+// it, in the same scope: a Reword replaces the matched line in its own
+// file (and the same line in the other assistant's file of that scope,
+// when it was copied there) and adds the reworded line to the other's; a
+// memory reword adds it to the project's CLAUDE.md and AGENTS.md; Add rule
+// and Add to every project add it to the global CLAUDE.md and AGENTS.md.
+// A cluster only Claude Code's sessions said writes exactly what it wrote
+// before there were two assistants.
+export function opsFor(c, kind, kept, cfg) {
+  const ops = [];
+  const ma = c.match ? matchAssistant(c.match) : null;
+  for (const a of assistantsOf(kept)) {
+    if (kind === 'reword' && c.match.source !== 'memory') {
+      if (a === ma) { ops.push({ assistant: a, op: 'replace', file: c.match.file, scope: c.match.source }); continue; }
+      const folder = c.match.source === 'project' ? c.match.folder || path.dirname(c.match.file) : null;
+      const file = c.match.source === 'global' ? globalFile(cfg, a) : projectFile(cfg, a, folder);
+      const same = !!file && parseBlocks(readMd(file)).some((b) => b.raw === c.match.text);
+      ops.push({ assistant: a, op: same ? 'replace' : 'append', file, scope: c.match.source, folder, label: c.match.label });
+    } else if (kind === 'reword') {
+      ops.push({ assistant: a, op: 'append', file: a === 'claude' ? c.match.claudeMd || null : projectFile(cfg, a, c.match.folder), scope: 'project', folder: c.match.folder || null, label: c.match.label });
+    } else {
+      ops.push({ assistant: a, op: 'append', file: globalFile(cfg, a), scope: 'global' });
+    }
+  }
+  return ops;
+}
+
+// The row's "Rewords this line in ..." sentence, in parts: { text } and
+// { file } (the page shows a file in mono). lead, file and after are the
+// same sentence for one file, as the page read it before.
+function previewOf(c, kind, ops) {
+  const rep = ops.filter((o) => o.op === 'replace');
+  const app = ops.filter((o) => o.op === 'append');
+  const name = (o) => (o.file ? short(o.file) : RULES_NAME[o.assistant]);
+  const parts = [];
+  const files = (list) => list.forEach((o, k) => { if (k) parts.push({ text: ' and ' }); parts.push({ file: name(o) }); });
+  if (rep.length) {
+    parts.push({ text: 'Rewords this line in ' });
+    files(rep);
+    if (app.length) { parts.push({ text: ' and adds it to ' }); files(app); }
+  } else {
+    parts.push({ text: kind === 'reword' ? 'Adds the reworded line to ' : 'Adds this line to ' });
+    files(app);
+  }
+  let tail = '.';
+  if (kind === 'reword' && c.match.source === 'memory') tail += ` ${c.match.label} memory stays as it is.`;
+  tail += ops.length > 1 ? ' A backup of each is made first.' : ' A backup is made first.';
+  parts.push({ text: tail });
+  const preview = { lead: parts[0].text.trim(), file: parts[1] ? parts[1].file : '', after: parts.slice(2).map((x) => x.text || x.file).join(''), parts };
+  if (kind === 'reword' && c.match.source !== 'memory') {
+    const own = rep.some((o) => o.assistant === matchAssistant(c.match));
+    const line = rules.plainRule(splitCite(norm(c.match.text.replace(/^-\s+/, ''))).body);
+    Object.assign(preview, { nowLabel: 'Now', now: own ? line : `${RULES_NAME[matchAssistant(c.match)]}: ${line}`, nextLabel: 'Reworded' });
+  } else if (kind === 'reword') {
+    Object.assign(preview, { nowLabel: 'Now', now: `${c.match.label} memory: ${rules.plainRule(c.match.text)}`, nextLabel: 'Reworded' });
+  } else {
+    preview.nextLabel = 'Adds';
+  }
+  return preview;
+}
+
+const SESSIONS_OF = { claude: 'Claude Code', codex: 'Codex' };
+// "3 Claude Code sessions", "2 Codex sessions", "4 sessions (Claude Code and Codex)".
+export function sessionsText(n, who) {
+  return who.length === 1 ? `${n} ${SESSIONS_OF[who[0]]} sessions` : `${n} sessions (${who.map((k) => SESSIONS_OF[k]).join(' and ')})`;
 }
 
 // Reword when the rule could already be seen everywhere the user repeated it
@@ -432,18 +685,15 @@ function rowOf(c, kept, cfg, state) {
   const tail = kind === 'add' ? 'No rule says this yet.'
     : kind === 'every' ? `Only ${label} knows this one.`
       : c.match.source === 'memory' ? `${label} has it in memory and you still said it.` : '';
-  let preview;
-  if (kind === 'reword' && c.match.source !== 'memory') {
-    preview = { lead: 'Rewords this line in', file: short(c.match.file), after: '. A backup is made first.', nowLabel: 'Now', now: rules.plainRule(splitCite(norm(c.match.text.replace(/^-\s+/, ''))).body), nextLabel: 'Reworded' };
-  } else if (kind === 'reword') {
-    preview = { lead: 'Adds the reworded line to', file: short(c.match.claudeMd), after: `. ${label} memory stays as it is. A backup is made first.`, nowLabel: 'Now', now: `${label} memory: ${rules.plainRule(c.match.text)}`, nextLabel: 'Reworded' };
-  } else {
-    preview = { lead: 'Adds this line to', file: short(cfg.globalClaudeMd), after: '. A backup is made first.', nextLabel: 'Adds' };
-  }
+  const ops = opsFor(c, kind, kept, cfg);
+  const preview = previewOf(c, kind, ops);
   preview.next = rules.plainRule(splitCite(c.line).body);
+  const who = assistantsOf(kept);
   return {
     id: c.id, rule: rules.plainRule(c.rule), kind, button: LABEL[kind],
     messages: kept.length, sessions, lastTs: last, last: dayWord(last), tail,
+    // Which assistant's sessions said it, and the files accepting writes.
+    assistants: who, sessionsText: sessionsText(sessions, who), targets: ops.map((o) => (o.file ? short(o.file) : RULES_NAME[o.assistant])),
     quote: quoteOf(c), preview,
   };
 }
@@ -624,6 +874,41 @@ export function callClaude(cfg, system, prompt, schema) {
   });
 }
 
+// Codex's structured output takes a strict schema: every property listed
+// in required, no others allowed. Optional fields then come back empty
+// ("" or []), which the run reads as absent.
+export function strictSchema(x) {
+  if (!x || typeof x !== 'object') return x;
+  if (Array.isArray(x)) return x.map(strictSchema);
+  const o = {};
+  for (const [k, v] of Object.entries(x)) o[k] = k === 'properties' ? Object.fromEntries(Object.entries(v).map(([p, d]) => [p, strictSchema(d)])) : strictSchema(v);
+  if (o.type === 'object' && o.properties) { o.required = Object.keys(o.properties); o.additionalProperties = false; }
+  return o;
+}
+
+// The same call through `codex exec` (server/codexexec.mjs), when new
+// sessions start with Codex (cfg.printAssistant): the system words first in
+// the prompt (exec has no system prompt), the schema as --output-schema, no
+// tools, low effort, in the same folder. Tokens only: Codex reports no cost.
+async function callCodex(cfg, system, prompt, schema) {
+  const r = await asst.runCodex({
+    prompt: `${system}\n\n${prompt}`, schema: strictSchema(schema), cwd: DIR, timeoutMs: cfg.repeatsTimeoutMs,
+    settings: cfg.printSettings || {}, envExtra: { MC_REPEATS_JOB: '1' }, what: 'repeats call', effort: 'low',
+  });
+  const usage = r.usage ? { in: r.usage.in, out: r.usage.out, cost: 0 } : null;
+  if (r.timedOut) return { ok: false, usage, error: `no answer after ${Math.round(cfg.repeatsTimeoutMs / 1000)} s` };
+  if (!r.ok) return { ok: false, usage, error: `Codex: ${String(r.error || 'no answer').slice(0, 200)}` };
+  let data = null;
+  try { data = JSON.parse(String(r.text).trim().replace(/^```(?:json)?\s*|\s*```$/g, '')); } catch { /* prose */ }
+  if (!data) return { ok: false, usage, error: 'no structured answer (Codex did not answer in JSON)' };
+  return { ok: true, data, usage };
+}
+
+// The board's own model call for a run: claude -p as before, or codex exec.
+export function callModel(cfg, system, prompt, schema) {
+  return cfg.printAssistant === 'codex' ? callCodex(cfg, system, prompt, schema) : callClaude(cfg, system, prompt, schema);
+}
+
 const SYSTEM = 'You read messages the user typed to their AI coding agents and find the corrections they make again and again. Answer only through the structured output.';
 
 const CLASSIFY_SCHEMA = {
@@ -664,7 +949,8 @@ const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').re
 
 function classifyPrompt(batch, clusters) {
   const list = Object.values(clusters).map((c) => `${c.id}: ${rules.plainRule(c.rule)}`).join('\n') || '(none yet)';
-  return `The user works with Claude Code agents. Below are messages they typed to them, and the clusters of corrections found so far.
+  const agents = batch.some((x) => x.assistant === 'codex') ? (batch.every((x) => x.assistant === 'codex') ? 'Codex' : 'Claude Code and Codex') : 'Claude Code';
+  return `The user works with ${agents} agents. Below are messages they typed to them, and the clusters of corrections found so far.
 
 A correction is a message where they tell the agent how to work, or that it did something the wrong way: process, behaviour, verification, pace, asking them things, taste, writing style. A bug report about the thing being built ("the ball goes through the wall") is not a correction, unless it also says how the agent should work ("stop running tests for hours"). Questions, new tasks, approvals and plain answers are not corrections.
 
@@ -681,10 +967,27 @@ Messages:
 ${batch.map((x, k) => `[${k}] (${x.project}, ${x.ts.slice(0, 10)}) ${clip(x.text, MSG_CHARS)}`).join('\n\n')}`;
 }
 
-function candidates(cfg) {
+// The rule lines a draft may match. With Codex sessions in the store, the
+// AGENTS.md lines too (A = the global one, Q = a project's), so a rule Codex
+// already reads is reworded rather than added again; a board with only
+// Claude Code's sessions asks exactly as before.
+function candidates(cfg, { codex = false } = {}) {
   const out = [];
   let g = 0;
   for (const b of parseBlocks(readMd(cfg.globalClaudeMd))) out.push({ id: `G${++g}`, source: 'global', file: cfg.globalClaudeMd, text: b.raw, show: b.text });
+  if (codex) {
+    const ga = globalFile(cfg, 'codex');
+    let a = 0;
+    if (ga) for (const b of parseBlocks(readMd(ga))) out.push({ id: `A${++a}`, source: 'global', assistant: 'codex', file: ga, text: b.raw, show: `global AGENTS.md: ${b.text}` });
+    let q = 0;
+    const seenA = new Set();
+    for (const s of cfg.ruleSources || []) {
+      const file = s && s.folder ? projectFile(cfg, 'codex', s.folder) : null;
+      if (!file || seenA.has(file)) continue;
+      seenA.add(file);
+      for (const b of parseBlocks(readMd(file))) out.push({ id: `Q${++q}`, source: 'project', assistant: 'codex', file, label: s.label, folder: s.folder || null, text: b.raw, show: `${s.label} AGENTS.md: ${b.text}` });
+    }
+  }
   let p = 0;
   const seenMd = new Set();
   const srcs = sources(cfg);
@@ -706,9 +1009,10 @@ function candidates(cfg) {
 }
 
 function draftPrompt(list, cands) {
+  const ids = cands.some((x) => x.assistant === 'codex') ? 'G = their global CLAUDE.md, P = a project CLAUDE.md, M = a project memory note, A = their global AGENTS.md, Q = a project AGENTS.md' : 'G = their global CLAUDE.md, P = a project CLAUDE.md, M = a project memory note';
   return `The user said each thing below in two or more sessions with their AI coding agents. For each cluster, write:
 - rule: the instruction as one short line in their own words and vocabulary, as they would say it to the agent (for example "Show me a mockup first; don't build before I've seen the picture."). No em dashes.
-- match: the id of the existing rule line below that already says this (G = their global CLAUDE.md, P = a project CLAUDE.md, M = a project memory note), or "" when none does.
+- match: the id of the existing rule line below that already says this (${ids}), or "" when none does.
 - line: the CLAUDE.md line to write, starting with "- ". With a match, reword the matched line so that an agent reading it would not need to be told again: keep what it says that still matters and make the part they keep repeating impossible to miss. Without a match, a new line. Write about the user in the third person, like the existing lines. No citations in parentheses, no em dashes.
 - quote: the message (k) that says it most plainly, and which sentence of it (0-based).
 
@@ -751,7 +1055,7 @@ async function doRun(cfg, reason, log) {
     const batch = [];
     let chars = 0;
     while (i < pending.length && batch.length < BATCH_MESSAGES && (chars < BATCH_CHARS || !batch.length)) { const x = pending[i++]; batch.push(x); chars += Math.min(x.text.length, MSG_CHARS); }
-    const r = await callClaude(cfg, SYSTEM, classifyPrompt(batch, m.clusters), CLASSIFY_SCHEMA);
+    const r = await callModel(cfg, SYSTEM, classifyPrompt(batch, m.clusters), CLASSIFY_SCHEMA);
     usage(r);
     if (!r.ok) { rec.errors.push('classify: ' + r.error); break; }
     const at = new Date().toISOString();
@@ -774,7 +1078,7 @@ async function doRun(cfg, reason, log) {
         m.clusters[id] = { id, rule: rules.plainRule(it.gist || norm(x.text).slice(0, 120)), line: null, cite: [], match: null, quote: null, createdAt: at, drafted: null };
         rec.newClusters.push(id);
       }
-      const ids = [id, ...(Array.isArray(it.also) ? it.also : []).filter((a) => m.clusters[a] && a !== id)];
+      const ids = [id, ...(Array.isArray(it.also) ? it.also : []).filter((a) => a && m.clusters[a] && a !== id)];
       vs.push({ key: x.key, v: 'cluster', clusters: ids, gist: it.gist ? rules.plainRule(it.gist) : undefined, by: 'model', at });
       rec.corrections++;
     });
@@ -799,9 +1103,9 @@ async function doRun(cfg, reason, log) {
     return d && d.action !== 'notnow' && d.at > c.drafted.at && lastOf(c.id) > d.at;
   }).sort((a, b) => (after[b.id] || 0) - (after[a.id] || 0)).slice(0, MAX_DRAFTS);
   if (want.length) {
-    const cands = candidates(cfg);
+    const cands = candidates(cfg, { codex: [...m.messages.values()].some((x) => x.assistant === 'codex') });
     const list = want.map((c) => ({ c, msgs: dedupe(by.get(c.id) || []).slice(-10) }));
-    const r = await callClaude(cfg, SYSTEM, draftPrompt(list, cands), DRAFT_SCHEMA);
+    const r = await callModel(cfg, SYSTEM, draftPrompt(list, cands), DRAFT_SCHEMA);
     usage(r);
     if (!r.ok) rec.errors.push('draft: ' + r.error);
     else {
@@ -811,7 +1115,7 @@ async function doRun(cfg, reason, log) {
         if (!item) continue;
         const c = item.c;
         const cand = cands.find((x) => x.id === String(d.match || '').trim());
-        const match = cand ? { source: cand.source, file: cand.file, text: cand.text, label: cand.label, dir: cand.dir, folder: cand.folder, memory: cand.memory, claudeMd: cand.claudeMd } : null;
+        const match = cand ? { source: cand.source, file: cand.file, text: cand.text, label: cand.label, dir: cand.dir, folder: cand.folder, memory: cand.memory, claudeMd: cand.claudeMd, ...(cand.assistant ? { assistant: cand.assistant } : {}) } : null;
         if (match && match.source !== 'memory') {
           const ls = m.state.lineSeen || (m.state.lineSeen = {});
           if (!ls[match.text]) ls[match.text] = at;
@@ -907,48 +1211,68 @@ export function decide(id, action, cfg) {
   const row = view(cfg).rows.find((r) => r.id === id) || (viewCache = null, view(cfg).rows.find((r) => r.id === id));
   if (!row) throw fail(409, 'That suggestion is not waiting any more.');
   if (action !== row.kind) throw fail(400, `This suggestion is "${row.button}", not ${action}.`);
-  let rec;
-  if (action === 'reword' && c.match.source !== 'memory') {
-    const file = c.match.file;
-    const b = parseBlocks(readMd(file)).find((x) => x.raw === c.match.text);
-    if (!b) {
-      c.needsDraft = true;
-      saveClusters();
-      throw fail(409, `That line in ${short(file)} changed since this was suggested, so nothing was written. The next run drafts the reword again.`);
-    }
-    const text = mergeCite(c.line, splitCite(b.text).cite, c.cite || []);
-    const raw = b.raw.includes('\n') ? wrapRule(text) : '- ' + text;
-    const bk = rules.backup(file, cfg, c.match.source === 'global' ? 'global' : tagOf(c.match.label));
-    const r = replaceLine(file, c.match.text, raw);
-    if (!r.ok) throw fail(409, `That line in ${short(file)} changed while saving, so nothing was written.`);
-    c.match = { ...c.match, text: raw };
-    const ls = m.state.lineSeen || (m.state.lineSeen = {});
-    ls[raw] = at;
-    rec = { action, at, target: [file], backup: [bk], line: raw };
-  } else if (action === 'reword') {
+  const kept = dedupe(clusterMessages().get(id) || []);
+  const ops = opsFor(c, action, kept, cfg);
+  const memoryReword = action === 'reword' && c.match.source === 'memory';
+  // Every check before any write: the matched line or memory note still
+  // reads as it did, and every file to write is known.
+  if (memoryReword) {
     const cur = memoryDescription(c.match.file);
     if (cur !== c.match.text) {
       c.needsDraft = true;
       saveClusters();
       throw fail(409, `That memory (${c.match.memory}) changed since this was suggested, so nothing was written. The next run drafts it again.`);
     }
-    const target = c.match.claudeMd;
-    if (!target) throw fail(409, `No CLAUDE.md is known for ${c.match.label}.`);
-    const line = '- ' + mergeCite(c.line, '', [...(c.cite || []), c.match.memory].filter(Boolean));
-    const bk = rules.backup(target, cfg, tagOf(c.match.label));
-    const r = rules.appendRule(target, line);
-    c.match = { source: 'project', file: target, text: line, label: c.match.label, folder: c.match.folder };
-    (m.state.lineSeen || (m.state.lineSeen = {}))[line] = at;
-    rec = { action, at, target: [target], backup: [bk], line, already: r.already };
-  } else {
-    const names = [...(c.cite || []), ...(c.match && c.match.memory ? [c.match.memory] : [])];
-    const line = '- ' + mergeCite(c.line, '', names);
-    const bk = rules.backup(cfg.globalClaudeMd, cfg, 'global');
-    const r = rules.appendRule(cfg.globalClaudeMd, line);
-    c.match = { source: 'global', file: cfg.globalClaudeMd, text: line };
-    (m.state.lineSeen || (m.state.lineSeen = {}))[line] = at;
-    rec = { action, at, target: [cfg.globalClaudeMd], backup: [bk], line, already: r.already };
   }
+  const blocks = new Map();
+  for (const op of ops) {
+    if (!op.file) throw fail(409, op.scope === 'global' ? `No global ${RULES_NAME[op.assistant]} is known on this Mac, so nothing was written.` : `No ${RULES_NAME[op.assistant]} is known for ${op.label || 'that project'}.`);
+    if (op.op !== 'replace') continue;
+    const b = parseBlocks(readMd(op.file)).find((x) => x.raw === c.match.text);
+    if (!b) {
+      c.needsDraft = true;
+      saveClusters();
+      throw fail(409, `That line in ${short(op.file)} changed since this was suggested, so nothing was written. The next run drafts the reword again.`);
+    }
+    blocks.set(op, b);
+  }
+  // The reworded text keeps the matched line's citation; a new line cites
+  // the memory notes it came from.
+  const matchCite = c.match && c.match.source !== 'memory' ? splitCite((parseBlocks(readMd(c.match.file)).find((x) => x.raw === c.match.text) || { text: c.match.text.replace(/^-\s+/, '') }).text).cite : '';
+  const names = memoryReword ? [...(c.cite || []), c.match.memory].filter(Boolean) : [...(c.cite || []), ...(c.match && c.match.memory ? [c.match.memory] : [])];
+  const appendLine = '- ' + (action === 'reword' && !memoryReword ? mergeCite(c.line, matchCite, c.cite || []) : mergeCite(c.line, '', names));
+  const target = [];
+  const backup = [];
+  const written = [];
+  let already = true;
+  for (const op of ops) {
+    const tag = op.scope === 'global' ? 'global' : tagOf(op.label);
+    if (op.op === 'replace') {
+      const b = blocks.get(op);
+      const text = mergeCite(c.line, splitCite(b.text).cite, c.cite || []);
+      const raw = b.raw.includes('\n') ? wrapRule(text) : '- ' + text;
+      const bk = rules.backup(op.file, cfg, tag, RULES_NAME[op.assistant].replace(/\.md$/, ''));
+      const r = replaceLine(op.file, c.match.text, raw);
+      if (!r.ok) throw fail(409, `That line in ${short(op.file)} changed while saving, so nothing was written${written.length ? ` there (${written.map((w) => short(w.file)).join(' and ')} already has it)` : ''}.`);
+      target.push(op.file); backup.push(bk); written.push({ op, line: raw });
+      already = false;
+    } else {
+      const bk = rules.backup(op.file, cfg, tag, RULES_NAME[op.assistant].replace(/\.md$/, ''));
+      const r = rules.appendRule(op.file, appendLine);
+      target.push(op.file); backup.push(bk); written.push({ op, line: appendLine });
+      if (!r.already) already = false;
+    }
+  }
+  // The cluster now matches the line written (Claude Code's when it wrote
+  // one), so a repeat of it after this is a Reword of that line.
+  const main = written.find((w) => w.op.assistant === 'claude') || written[0];
+  const ls = m.state.lineSeen || (m.state.lineSeen = {});
+  for (const w of written) ls[w.line] = at;
+  const o = main.op;
+  c.match = o.op === 'replace' && o.assistant === matchAssistant(c.match)
+    ? { ...c.match, text: main.line }
+    : { source: o.scope === 'global' ? 'global' : 'project', file: o.file, text: main.line, ...(o.scope === 'global' ? {} : { label: o.label, folder: o.folder }), ...(o.assistant === 'codex' ? { assistant: 'codex' } : {}) };
+  const rec = { action, at, target, backup, line: main.line, ...(written.some((w) => w.op.op === 'append') ? { already } : {}) };
   saveClusters();
   saveState();
   d.repeats[id] = rec;

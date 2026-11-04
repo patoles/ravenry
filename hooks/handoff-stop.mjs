@@ -7,6 +7,9 @@
 // line is never reached, so only a manual request ("Hand off now") asks. Past the line, once per stop
 // and never while stop_hook_active is set, it blocks the stop with a reason
 // that asks Claude to hand off if (and only if) it is at a clean point.
+// When Claude defers, it does not ask again until the user types a new
+// prompt, presses Hand off now, the context crosses the ceiling, or 10
+// minutes pass (h.deferralHold).
 //
 // It never fails a stop: any error means exit 0, silently.
 
@@ -103,16 +106,45 @@ async function main() {
     return done();
   };
 
-  // Never loop: Claude is already answering a block from a stop hook.
-  if (input.stop_hook_active) return queue('Claude was already continuing for a stop hook');
+  // A deferral: the first stop after an ask that did not bring the hand-off
+  // (written is caught above). Either Claude answered with the DEFERRED
+  // line, or it carried on and stopped again without a hand-off (the stop
+  // that answers a block comes with stop_hook_active; past the ceiling the
+  // words offer no DEFERRED line, so this is how a ceiling ask is deferred).
+  // Recorded once per ask, so a later stop that still shows the DEFERRED
+  // line never pushes the cooldown on.
+  const over = pct != null && pct >= ceiling;
+  const last = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : (u && u.lastText);
+  const askAt = marker && Date.parse(marker.lastAskAt);
+  const deferAt = marker && Date.parse(marker.deferredAt);
+  const unanswered = !!askAt && !isNaN(askAt) && (!deferAt || isNaN(deferAt) || askAt > deferAt);
+  if (unanswered && ((last && last.trim().startsWith(h.DEFERRED)) || input.stop_hook_active)) {
+    Object.assign(common, { deferredAt: now, deferredOver: over, deferrals: ((marker && marker.deferrals) || 0) + 1 });
+  }
 
-  // Clean-point checks the hook can see for itself.
+  // After a deferral, ask again only once something changed: a prompt the
+  // user typed since (Claude Code: from the transcript's tail; Codex: from
+  // the rollout, where a hook's reason is a <hook_prompt>), Hand off now
+  // pressed since, the ceiling crossed since, or 10 minutes gone by.
+  const held = { ...(marker || {}), ...common };
+  let hold = h.deferralHold(held, { over });
+  if (hold) {
+    const promptAt = ASSISTANT === 'codex'
+      ? (u && u.lastPromptAt && !h.hasTag(u.lastPrompt) ? u.lastPromptAt : null)
+      : (input.transcript_path ? h.lastPromptAt(input.transcript_path, held.deferredAt) : null);
+    hold = h.deferralHold(held, { over, promptAt });
+  }
+
+  // Never loop: Claude is already answering a block from a stop hook.
+  if (input.stop_hook_active) return queue(hold || `${ASSISTANT === 'codex' ? 'Codex' : 'Claude'} was already continuing for a stop hook`);
+  if (hold) return queue(hold);
+
+  // Clean-point checks the hook can see for itself. A question to the user
+  // does not hold the hand-off back: the hand-off carries it in its open items.
   const tasks = h.runningTasks(input);
   if (tasks.length) return queue(`${tasks.length} background task${tasks.length > 1 ? 's' : ''} running`);
   const crons = Array.isArray(input.session_crons) ? input.session_crons : [];
   if (crons.length) return queue(`${crons.length} scheduled loop${crons.length > 1 ? 's' : ''} set in this session`);
-  const last = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : (u && u.lastText);
-  if (last && !last.startsWith(h.DEFERRED) && h.endsOnQuestion(last)) return queue('waiting on your answer to a question');
 
   const reason = h.reasonText({
     pct, tokens, window, threshold, ceiling, manual,
@@ -123,8 +155,8 @@ async function main() {
     ...common, state: 'requested',
     requestedAt: (marker && marker.requestedAt) || now,
     asks: ((marker && marker.asks) || 0) + 1, lastAskAt: now,
-    over: pct != null && pct >= ceiling,
-    lastCheck: { at: now, clean: true, why: 'no background tasks, not waiting on you' },
+    over,
+    lastCheck: { at: now, clean: true, why: 'no background tasks running' },
   });
   return done({ decision: 'block', reason });
 }

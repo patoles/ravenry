@@ -297,6 +297,41 @@ real folder from the transcript), so a hand-off lands in the brief of the
 tab's own project. The sheet shows a session's real folder in its payload as
 `workFolder`.
 
+### Not in a project
+
+A cmux workspace no project lists is not left off the board
+([docs/design/CodexStage2.dc.html](design/CodexStage2.dc.html), section 1,
+variant C). Every tick its tabs are read like a project's, with the same
+state, screen and transcript rules, and the workspace becomes a card of its
+own (`unownedWorkspaces` in `server/index.mjs`): keyed `ws:<workspace id>`,
+named after its folder (the sidebar's cwd, else a hook's or an event's, as an
+imported workspace is named), with no brief, plan or notes, and nothing
+written to the registry. It is on the board only while a session runs in it.
+
+- One that needs you (a question, a menu or dialog such as Codex's "Trust
+  this folder?", a hand-back) sits in Needs you by its folder name with a
+  folder glyph; the quiet ones (working, idle) go to a "Not in a project"
+  group under Idle. On a phone it is a dashed chip in its state's place, and
+  an idle one joins the idle chip.
+- Never shown: a workspace a hidden project lists, one in
+  `ignoreWorkspaces`, one the board is opening right now for a project, and,
+  on a real board, the tests' own `mc-test*` workspaces (a test board shows
+  them). A folder too broad to hold a project (below) is never its folder,
+  so no session is guessed into it by folder; the card is then named after
+  the workspace.
+- Its sheet answers like any project's (the Live screen, the menu's options,
+  the message box without Add as note and the New session switch). **Add to
+  a project** (`POST /api/project/add-workspace`, `registry.addWorkspace`)
+  appends the workspace to the project picked, after a registry backup, and
+  is refused when the project is gone or hidden or some project lists the
+  workspace by then. **New project from this folder** opens New project with
+  the name, Existing on that folder and the session's assistant filled in;
+  the new project lists the workspace and nothing is opened
+  (`createProject` with `adopt`).
+- With `autoImport` on (the default), a new workspace becomes a project on
+  the first tick, so this card mostly shows workspaces a registry with
+  `autoImport: false` leaves out.
+
 ### Too-broad folders
 
 A folder too broad to be one project's own never holds a session by folder:

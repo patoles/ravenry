@@ -3,7 +3,8 @@
 // (MC_PS_BIN, MC_LSOF_BIN), so the board lists made-up Claude processes
 // instead of this Mac's own. STUB_PS_STATE is a JSON file:
 //   [{ "pid": 501, "ppid": 1, "rssKb": 412000, "startedAt": "<ISO>",
-//      "command": "claude --resume <session id>", "cwd": "<folder>" }]
+//      "command": "claude --resume <session id>", "cwd": "<folder>",
+//      "env": "CMUX_SURFACE_ID=<id>" (optional: what `ps -E` adds after argv) }]
 // It answers the calls server/sessions.mjs makes: the process list
 // (`-o pid=,ppid=,rss=,lstart=,command=`, all or `-p <pids>`), the
 // environment (`-E`, nothing beyond argv here) and lsof's working folders
@@ -24,6 +25,6 @@ const lstart = (iso) => {
 };
 let out = '';
 if (args.includes('-Fn')) for (const p of procs) out += `p${p.pid}\nfcwd\nn${p.cwd}\n`;
-else if (args.includes('-E')) for (const p of procs) out += `${p.pid} ${p.command}\n`;
+else if (args.includes('-E')) for (const p of procs) out += `${p.pid} ${p.command}${p.env ? ' ' + p.env : ''}\n`;
 else for (const p of procs) out += `${String(p.pid).padStart(5)} ${String(p.ppid || 1).padStart(5)} ${String(p.rssKb).padStart(7)} ${lstart(p.startedAt)} ${p.command}\n`;
 process.stdout.write(out);

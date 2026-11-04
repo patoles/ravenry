@@ -314,13 +314,82 @@ export function targetFields(target) {
 
 // ------------------------------------------------------------ clean point
 
-// Does the last paragraph ask something? Then Claude is waiting on the user,
-// which is not a clean point: the question must stay on screen.
-export function endsOnQuestion(text) {
-  const ps = String(text || '').trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  if (!ps.length) return false;
-  const last = ps[ps.length - 1].replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ');
-  return /\?["')\]*_]*\s*$/m.test(last) || /\?\s+[A-Z]/.test(last);
+// A question to the user is a clean point: the hand-off carries it in its
+// open items, and the fresh session asks it again.
+
+// After a deferral (DEFERRED, or a stop that answered an ask without a
+// hand-off), the hook does not ask again until something has changed: the
+// user typed a new prompt since, the user pressed Hand off now since, the
+// context crossed the ceiling since, or DEFER_COOLDOWN_MS went by.
+export const DEFER_COOLDOWN_MS = 10 * 60 * 1000;
+
+const hhmm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+// Is the hook holding its ask back after a deferral? null when it may ask,
+// else the line the board shows ("deferred at 14:02; asks again after your
+// next message or at 14:12"). `promptAt` is the newest prompt the user typed
+// (lastPromptAt / codexrollout lastUsage), `over` whether context is past
+// the ceiling now.
+export function deferralHold(marker, { nowMs = Date.now(), promptAt = null, over = false } = {}) {
+  const at = marker && Date.parse(marker.deferredAt);
+  if (!at || isNaN(at)) return null;
+  if (nowMs - at >= DEFER_COOLDOWN_MS) return null;
+  if (marker.manualAt && Date.parse(marker.manualAt) > at) return null;
+  if (over && !marker.deferredOver) return null;
+  const p = promptAt ? Date.parse(promptAt) : NaN;
+  if (!isNaN(p) && p > at) return null;
+  return `deferred at ${hhmm(at)}; asks again after your next message or at ${hhmm(at + DEFER_COOLDOWN_MS)}`;
+}
+
+function promptText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.filter((c) => c && c.type === 'text' && c.text).map((c) => c.text).join('\n');
+}
+
+// A prompt the user typed, in a Claude Code transcript: a user record that
+// is not meta, not a subagent's, not a tool result, not Claude Code's own
+// wrapped text (a task notification, a command, a system reminder), not an
+// interrupt, and not the hook's own reason fed back.
+export function isUserPrompt(rec) {
+  if (!rec || rec.type !== 'user' || rec.isMeta || rec.isSidechain || !rec.message) return false;
+  const c = rec.message.content;
+  if (Array.isArray(c) && c.some((x) => x && x.type === 'tool_result')) return false;
+  const t = promptText(c).trim();
+  if (!t || hasTag(t)) return false;
+  if (/^</.test(t) || /^\[Request interrupted by user/.test(t)) return false;
+  return true;
+}
+
+// The time of the newest prompt the user typed, from the transcript's end,
+// or null. Stops at the first record older than `sinceIso`: nothing before
+// it can be newer.
+export function lastPromptAt(file, sinceIso = null) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return null; }
+  const since = sinceIso ? Date.parse(sinceIso) : NaN;
+  try {
+    const { size } = fs.fstatSync(fd);
+    for (const want of [256 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024]) {
+      const start = Math.max(0, size - want);
+      const buf = Buffer.alloc(size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      const lines = buf.toString('utf8').split('\n');
+      if (start > 0) lines.shift();
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const l = lines[i];
+        if (!l) continue;
+        let rec;
+        try { rec = JSON.parse(l); } catch { continue; }
+        if (rec.isSidechain) continue;
+        const at = Date.parse(rec.timestamp);
+        if (!isNaN(since) && !isNaN(at) && at < since) return null;
+        if (isUserPrompt(rec)) return rec.timestamp || null;
+      }
+      if (start === 0) break;
+    }
+    return null;
+  } catch { return null; } finally { fs.closeSync(fd); }
 }
 
 // Which background tasks are still running: server/tasks.mjs, shared with
@@ -348,13 +417,13 @@ export function reasonText({ pct, tokens, window, threshold, ceiling, manual, fi
   } else {
     if (manual) lines.push(`The user asked for a hand-off from Ravenry, with context at ${used}. Do it at a clean point.`);
     else lines.push(`Context is at ${used}, past the ${threshold}% hand-off line. Hand off to a fresh session, but only at a clean point.`);
-    lines.push(`If you are in the middle of a task, have background agents, tests or jobs still running, or are waiting on the user's answer, do not hand off yet: reply with exactly this one line and nothing else, then carry on as before: ${DEFERRED} The hook asks again at a later stop.`);
-    lines.push('Otherwise you are at a clean point. Hand off:');
+    lines.push(`If you are in the middle of a task, or have background agents, tests or jobs still running, do not hand off yet: reply with exactly this one line and nothing else, then carry on as before: ${DEFERRED} The hook asks again after the user's next message, or in 10 minutes.`);
+    lines.push("Otherwise you are at a clean point, even if you are waiting on the user's answer to a question. Hand off:");
   }
   lines.push(
     `1. Write the hand-off for a fresh session that has none of this context. ${isBrief
       ? `In ${where}, add a new bullet at the top of the "## Hand-off" section (create the section if it is missing):`
-      : `Create or replace ${where} with a "## Hand-off" section holding one bullet:`} "- YYYY-MM-DD HH:MM <one line: what this session finished and where the next starts>", with indented sub-bullets "State:", "Next step:", "Open items:" and "Key files:" (absolute paths). ${isBrief ? 'Update "## Next step" too if the brief has one. ' : ''}Keep the project's writing rules (no em dashes).`,
+      : `Create or replace ${where} with a "## Hand-off" section holding one bullet:`} "- YYYY-MM-DD HH:MM <one line: what this session finished and where the next starts>", with indented sub-bullets "State:", "Next step:", "Open items:" and "Key files:" (absolute paths). If you asked the user a question that is not answered yet, put it word for word in "Open items:" so the fresh session asks it again. ${isBrief ? 'Update "## Next step" too if the brief has one. ' : ''}Keep the project's writing rules (no em dashes).`,
     file && isInside(path.resolve(file), path.resolve(RAVENRY_HOME))
       ? `2. Commit your work, by pathspec if other agents share this tree, with a message that explains the cause. Do not push. The brief lives in ${RAVENRY_HOME}, outside the repo, so it is saved but not committed.`
       : '2. Commit your work and the hand-off together, by pathspec if other agents share this tree, with a message that explains the cause. Do not push.',

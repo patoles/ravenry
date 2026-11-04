@@ -13,6 +13,10 @@
 // typing over a prompt (surePrompt, checkPrompt) and the "! command" send
 // (typeMessage).
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import * as term from './terminal.mjs';
 import { parseScreen, parseTitle, trimScreen } from './screen.mjs';
 import * as suggest from './suggestion.mjs';
@@ -46,6 +50,28 @@ export { firstPrompt };
 
 // The command that starts a fresh session (the hand-off's).
 export const launchCommand = (settings) => (settings && settings.handoffCommand) || 'claude';
+// The command New project, Revive and New session run (`launchCommand` in
+// the registry settings, server/config.mjs), the prompt appended quoted.
+export const startCommand = (settings) => (settings && settings.launchCommand) || 'claude';
+
+// cmux's shims (on a cmux tab's PATH) start its wrapper, which needs the
+// real binary behind it, so a shim alone is not Claude Code installed.
+const isShim = (p) => /\/cmux-cli-shims(\/|$)/.test(p) || /\/Contents\/Resources\/bin\/[^/]+$/.test(p);
+// Is Claude Code on this Mac? MC_CLAUDE=0|1 decides in tests; else
+// MC_CLAUDE_BIN or the claudeBin setting, `claude` on PATH that is not
+// cmux's shim, or where its installer puts it.
+export function installed(settings, env = process.env) {
+  if (env.MC_CLAUDE === '0') return false;
+  if (env.MC_CLAUDE === '1') return true;
+  if (env.MC_CLAUDE_BIN || (settings && settings.claudeBin)) return true;
+  const home = os.homedir();
+  const dirs = [...String(env.PATH || '').split(':').filter(Boolean), path.join(home, '.local', 'bin'), path.join(home, '.claude', 'local')];
+  return dirs.some((d) => {
+    const p = path.join(d, 'claude');
+    if (isShim(p)) return false;
+    try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; }
+  });
+}
 
 // What each tab's prompt holds: Claude's suggested reply or typed text
 // (server/suggestion.mjs). The history of reads per tab, and the last styled

@@ -186,6 +186,29 @@ export function tailLines(text, n) {
 const TOOL_HEAD = /^⏺ ((?:[\w.-]+ - [\w.-]+ \(MCP\))|[A-Z][\w-]*(?: [A-Z][\w-]*)?)\((.*)$/;
 // "⏺ Agent "Build phone chips" finished · 8m 7s": a background task's notice.
 const TOOL_NOTICE = /^⏺ ([A-Z][\w-]*(?: [a-z]+)?) "[^"]*"/;
+// The time at the end of a notice: " · 9m 15s", " · 45s", " · 1h 2m".
+const NOTICE_TIME = /\s+·\s+\d+(?:\.\d+)?[hms](?:\s+\d+(?:\.\d+)?[hms])*\s*$/;
+// Claude Code prints a background task's notice each time the task stops,
+// and an agent that waits on its own background work stops again and again:
+// "⏺ Agent "X" is waiting on its own background work · 9m 15s" can fill the
+// screen. A run of notices with the same text (their times aside) is one
+// entry with the count in `x` and the newest notice's text in `b`. Only the
+// shown entries count: blank lines and lines the trim drops sit inside a
+// run, any other entry ends it. Notices of other agents, or of the same
+// agent with other words ("finished"), are their own runs.
+export function foldNotices(entries) {
+  const out = [];
+  const key = (b) => b.replace(NOTICE_TIME, '');
+  for (const e of entries) {
+    const prev = out[out.length - 1];
+    if (e.k === 't' && e.b && prev && prev.k === 't' && prev.b && key(prev.b) === key(e.b)) {
+      out[out.length - 1] = { ...e, x: (prev.x || 1) + 1 };
+      continue;
+    }
+    out.push(e);
+  }
+  return out;
+}
 // Lines of a tool's output that are Claude Code's own notes, not output.
 const OUT_CHROME = [
   /^Shell cwd was reset/,
@@ -255,7 +278,7 @@ function agentRow(line) {
 //   u  the user's prompt       { k, l: [lines] }
 //   c  Claude's text           { k, l, orphan? }  (orphan: its ⏺ line scrolled off)
 //   t  a tool call, one line   { k, n: name, a: first line of its input, m: output lines }
-//      or a background notice  { k, b: text }
+//      or a background notice  { k, b: text, x?: how many in a row (foldNotices) }
 //   s  a done line             { k, g: glyph, t }
 //   r  a recap                 { k, l }
 //   o  an interruption note    { k, t }
@@ -378,6 +401,7 @@ export function trimScreen(text) {
     }
     out.entries.push(e);
   }
+  out.entries = foldNotices(out.entries);
   out.status = {
     busy: spinAt >= 0 ? busyWords(above[spinAt]) : null,
     agents,

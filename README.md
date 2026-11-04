@@ -25,11 +25,11 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 - **Hand-off at half context**: a session past half its context writes a hand-off at its next clean point, and a fresh session picks it up.
 - **Plans with gates**: hand work over as a plan with steps; it runs on its own and stops at the gates you set.
 - **Project briefs and a pictures gallery**: a short brief per project (goal, plan, next step, notes) and the last pictures each session showed you.
-- **Rule suggestions**: corrections you keep typing in your sessions, offered as rules for your CLAUDE.md (off until you turn them on).
+- **Rule suggestions**: corrections you keep typing in your sessions, offered as rules for your CLAUDE.md, or AGENTS.md for what you told Codex (off until you turn them on).
 - **Phone access**: the whole board on your phone on your home Wi-Fi, through a QR code.
 - **Phone alerts**: a message when a project starts needing you, through Telegram, Discord, Slack or ntfy, plus Mac notifications.
 - **Terminals**: answer sessions in cmux and iTerm2; sessions in any other terminal are watch only.
-- **Codex too**: OpenAI Codex sessions show up beside Claude Code's, with their state, live screen, context, alerts, replies and menu answers from the board, and the hand-off at half context. Not shown for Codex: pictures, background tasks, memory and Close idle on the Sessions page, recaps and the Rules view.
+- **Codex too**: OpenAI Codex sessions show up beside Claude Code's, with their state, live screen, context, alerts, replies and menu answers from the board, the hand-off at half context, their memory on the Sessions page, and their AGENTS.md beside CLAUDE.md in the Rules view. Not shown for Codex: pictures, background tasks, Close idle on the Sessions page and recaps.
 
 ## Getting Started
 
@@ -131,7 +131,7 @@ The board has no runtime dependencies and no build step: `server/` is plain Node
 Ravenry has no telemetry of any kind. Everything stays on your Mac: the board reads your Claude Code (and Codex) transcripts and terminal screens locally and keeps its data in `~/.ravenry`. Two things can leave the Mac, and only when you set them up:
 
 - **Phone alerts** (Telegram, Discord, Slack or ntfy): a short message, sent when a project starts needing you.
-- **Features that ask Claude** (the Ideas thread, mockups, Plans, rule suggestions) run `claude -p` on your own Claude login, like any Claude Code use. Rule suggestions are off unless you turn them on; when on, once a day they send the messages you typed in your sessions to Claude to find the corrections you keep repeating.
+- **Features that ask Claude** (the Ideas thread, mockups, Plans, rule suggestions) run `claude -p` on your own Claude login, like any Claude Code use. When new sessions start with Codex, the Ideas thread, mockups, Plans and rule suggestions run `codex exec` on your own Codex login instead. Rule suggestions are off unless you turn them on; when on, once a day they send the messages you typed in your sessions (Claude Code's and Codex's) to that assistant to find the corrections you keep repeating.
 
 ## Troubleshooting
 

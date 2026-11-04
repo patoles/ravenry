@@ -1,6 +1,8 @@
 // The Ideas board: ~/.ravenry/ideas.json, pictures copied into
 // ~/.ravenry/ideas/. Each thread message and
-// "Get 3 directions" runs `claude -p` in that folder, one at a time per idea.
+// "Get 3 directions" runs `claude -p` in that folder, one at a time per idea
+// (`codex exec` when new sessions start with Codex, docs/ASSISTANTS.md
+// "Print mode").
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +11,7 @@ import { spawn } from 'node:child_process';
 
 import { RAVENRY_HOME } from './registry.mjs';
 import * as mk from './mockups.mjs';
+import * as asst from './assistant.mjs';
 
 export const IDEAS_PATH = path.join(RAVENRY_HOME, 'ideas.json');
 export const IDEAS_DIR = path.join(RAVENRY_HOME, 'ideas');
@@ -66,12 +69,19 @@ export function load() {
   }
   // A reply that was running when the board stopped will never land.
   let fixed = false;
-  for (const it of db.ideas) if (it.pending) { it.thread.push({ who: 'claude', error: true, text: 'The board restarted before Claude answered. Send it again.', at: now() }); delete it.pending; fixed = true; }
+  for (const it of db.ideas) if (it.pending) { const k = jobKind(it.pending); it.thread.push({ who: k, error: true, text: `The board restarted before ${who(k)} answered. Send it again.`, at: now() }); delete it.pending; fixed = true; }
   for (const it of db.ideas) if (it.mockups && it.mockups.job) { it.mockups.error = { round: it.mockups.job.round, text: `The board restarted before round ${it.mockups.job.round} came back.`, note: it.mockups.job.note || '', from: it.mockups.job.from || null }; delete it.mockups.job; fixed = true; }
   if (db.brainstorm) { db.brainstormError = 'The board restarted before the directions came back. Try again.'; delete db.brainstorm; fixed = true; }
   if (fixed) save();
   return db;
 }
+
+// Which assistant runs a job: the one Plans and Ideas run on when it starts
+// (cfg.printAssistant), kept on the job so every line about it names that
+// one. A job or reply stored with none was Claude's.
+const kindOfCfg = (cfg) => (cfg && cfg.printAssistant === 'codex' ? 'codex' : 'claude');
+const jobKind = (job) => (job && job.who === 'codex' ? 'codex' : 'claude');
+const who = (kind) => asst.of(kind).SHORT;
 
 function find(id) {
   const it = load().ideas.find((x) => x.id === id && !x.archived);
@@ -193,7 +203,10 @@ function day(d) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function runClaude(key, prompt, cfg, done, argv = cfg.printCommand) {
+// `images`: the pictures the prompt names, attached for Codex (its board
+// calls have no Read tool, server/codexexec.mjs); Claude reads them itself.
+function runClaude(key, prompt, cfg, done, argv = cfg.printCommand, { images = [] } = {}) {
+  if (cfg.printAssistant === 'codex') return runCodex(key, prompt, cfg, done, { images });
   fs.mkdirSync(IDEAS_DIR, { recursive: true });
   const [cmd, ...args] = argv;
   let out = '';
@@ -225,10 +238,39 @@ function runClaude(key, prompt, cfg, done, argv = cfg.printCommand) {
   child.stdin.end(prompt);
 }
 
+// The same job as runClaude's, through `codex exec`: the answer's text in
+// `text`, and its tokens in `usage` (Codex reports no cost).
+function runCodex(key, prompt, cfg, done, { images = [] } = {}) {
+  fs.mkdirSync(IDEAS_DIR, { recursive: true });
+  let finished = false;
+  const t0 = Date.now();
+  const job = { child: null, timer: null, stopped: false };
+  jobs.set(key, job);
+  const finish = (result) => {
+    if (finished) return;
+    finished = true;
+    if (jobs.get(key) === job) jobs.delete(key);
+    done(result);
+  };
+  asst.runCodex({
+    prompt, images, cwd: IDEAS_DIR, timeoutMs: cfg.claudeTimeoutMs, settings: cfg.printSettings || {},
+    envExtra: { MC_IDEA_JOB: key }, onChild: (c) => { job.child = c; }, stopped: () => job.stopped, what: 'idea call',
+  }).then((r) => {
+    if (r.usage) console.log(`ideas: Codex answered in ${mk.took(Date.now() - t0)}, ${r.usage.in} tokens in, ${r.usage.out} out${r.model ? ` (${r.model})` : ''}`);
+    if (r.ok && String(r.text).trim()) return finish({ ok: true, text: String(r.text).trim(), usage: { input: r.usage ? r.usage.in : null, output: r.usage ? r.usage.out : null, thinking: r.usage ? r.usage.thinking : null, costUsd: null, model: r.model || null, turns: null } });
+    if (r.timedOut) {
+      const t = cfg.claudeTimeoutMs >= 60000 ? `${Math.round(cfg.claudeTimeoutMs / 60000)} minutes` : `${Math.round(cfg.claudeTimeoutMs / 1000)} seconds`;
+      return finish({ ok: false, error: `No answer after ${t}, so it was stopped. Send it again, or ask something smaller.` });
+    }
+    finish({ ok: false, error: `Codex stopped without an answer${r.error ? ': ' + String(r.error).slice(0, 200) : ''}.` });
+  }).catch((e) => finish({ ok: false, error: `Could not run codex: ${e.message}` }));
+}
+
 function stop(key) {
   const j = jobs.get(key);
   if (!j) return;
   clearTimeout(j.timer);
+  j.stopped = true;
   try { j.child.kill('SIGTERM'); } catch { /* gone */ }
   jobs.delete(key);
 }
@@ -247,7 +289,7 @@ function context(it) {
   const th = (it.thread || []).filter((m) => !m.error);
   if (th.length > 1) {
     lines.push('', 'The conversation so far:');
-    for (const m of th.slice(0, -1).slice(-16)) lines.push(m.mockupRound ? `Board: ${roundContext(it, m.mockupRound)}` : `${m.who === 'you' ? 'User' : 'Claude'}: ${m.text}${(m.images || []).length ? ` [pictures: ${m.images.map((f) => path.join(IDEAS_DIR, f)).join(', ')}]` : ''}`);
+    for (const m of th.slice(0, -1).slice(-16)) lines.push(m.mockupRound ? `Board: ${roundContext(it, m.mockupRound)}` : `${m.who === 'you' ? 'User' : who(jobKind(m))}: ${m.text}${(m.images || []).length ? ` [pictures: ${m.images.map((f) => path.join(IDEAS_DIR, f)).join(', ')}]` : ''}`);
   }
   const last = th[th.length - 1];
   lines.push('', `The user now says: ${last.text}${(last.images || []).length ? `\n(They attached: ${last.images.map((f) => path.join(IDEAS_DIR, f)).join(', ')}. Read them.)` : ''}`);
@@ -259,11 +301,12 @@ export function say(id, text, images, cfg) {
   const t = String(text || '').trim();
   const imgs = (images || []).map(String).filter((f) => picturePath(f));
   if (!t && !imgs.length) { const e = new Error('Type a message first.'); e.status = 400; throw e; }
-  if (it.pending) { const e = new Error('Claude is still answering the last one.'); e.status = 409; throw e; }
-  if (it.mockups && it.mockups.job) { const e = new Error(`Claude is drawing round ${it.mockups.job.round}. Send it when the pictures are back.`); e.status = 409; throw e; }
+  if (it.pending) { const e = new Error(`${who(jobKind(it.pending))} is still answering the last one.`); e.status = 409; throw e; }
+  if (it.mockups && it.mockups.job) { const e = new Error(`${who(jobKind(it.mockups.job))} is drawing round ${it.mockups.job.round}. Send it when the pictures are back.`); e.status = 409; throw e; }
   it.thread = it.thread || [];
   it.thread.push({ who: 'you', text: t || '(a picture)', images: imgs, at: now() });
-  it.pending = { startedAt: now(), timeoutMs: cfg.claudeTimeoutMs };
+  const kind = kindOfCfg(cfg);
+  it.pending = { startedAt: now(), timeoutMs: cfg.claudeTimeoutMs, who: kind };
   it.updated = now();
   save(); changed();
   runClaude(id, context(it), cfg, (r) => {
@@ -271,11 +314,22 @@ export function say(id, text, images, cfg) {
     if (!cur) return;
     delete cur.pending;
     if (cur.archived) { save(); return; }
-    cur.thread.push(r.ok ? { who: 'claude', text: noDash(r.text), at: now() } : { who: 'claude', error: true, text: r.error, at: now() });
+    // Stored under the assistant that answered: 'claude' or 'codex'.
+    cur.thread.push(r.ok ? { who: kind, text: noDash(r.text), at: now() } : { who: kind, error: true, text: r.error, at: now() });
     cur.updated = now();
     save(); changed();
-  });
+  }, undefined, { images: ideaPictures(it) });
   return it;
+}
+
+// The pictures an idea's thread names (its own and every message's), as
+// files, for an assistant that cannot read them itself.
+function ideaPictures(it) {
+  const out = [];
+  const add = (f) => { const abs = f ? picturePath(f) : null; if (abs && !out.includes(abs)) out.push(abs); };
+  if (it.img) add(it.img);
+  for (const m of (it.thread || []).filter((x) => !x.error).slice(-16)) for (const f of m.images || []) add(f);
+  return out.slice(-8);
 }
 
 // Pulls the first JSON array out of a reply, tolerating a code fence.
@@ -298,8 +352,8 @@ export function brainstorm(seed, cfg) {
   const d = load();
   const s = String(seed || '').replace(/\s+/g, ' ').trim();
   if (!s) { const e = new Error('Write a seed first, e.g. a cosy co-op game for the TV.'); e.status = 400; throw e; }
-  if (d.brainstorm) { const e = new Error('Claude is still working on the last seed.'); e.status = 409; throw e; }
-  d.brainstorm = { seed: s, startedAt: now(), timeoutMs: cfg.claudeTimeoutMs };
+  if (d.brainstorm) { const e = new Error(`${who(jobKind(d.brainstorm))} is still working on the last seed.`); e.status = 409; throw e; }
+  d.brainstorm = { seed: s, startedAt: now(), timeoutMs: cfg.claudeTimeoutMs, who: kindOfCfg(cfg) };
   delete d.brainstormError;
   save(); changed();
   const existing = d.ideas.filter((x) => !x.archived).map((x) => `- ${x.name}: ${x.pitch}`).join('\n');
@@ -315,7 +369,7 @@ export function brainstorm(seed, cfg) {
     delete cur.brainstorm;
     const dirs = r.ok ? parseDirections(r.text) : null;
     if (!dirs) {
-      cur.brainstormError = r.ok ? 'Claude answered, but not with 3 directions the board could read. Try again.' : r.error;
+      cur.brainstormError = r.ok ? `${who(kindOfCfg(cfg))} answered, but not with 3 directions the board could read. Try again.` : r.error;
     } else {
       const when = day(new Date());
       const made = dirs.map((x) => ({ id: newId(), name: x.name.slice(0, 80), stage: 'spark', pitch: x.pitch, status: `From the seed "${s}", ${when}.`, img: null, alt: null, thread: [], created: now(), updated: now() }));
@@ -372,7 +426,7 @@ function mockupsView(x) {
       tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : null,
       variants: r.variants.map((v) => ({ key: v.key, title: v.title, note: v.note, img: imgUrl(pngRel(x.id, r.n, v.key)) })),
     })),
-    job: m.job ? { round: m.job.round, startedAt: m.job.startedAt, timeoutMs: m.job.timeoutMs, note: m.job.note || '' } : null,
+    job: m.job ? { round: m.job.round, startedAt: m.job.startedAt, timeoutMs: m.job.timeoutMs, note: m.job.note || '', who: jobKind(m.job) } : null,
     error: m.error ? { round: m.error.round, text: m.error.text, note: m.error.note || '', from: m.error.from || null } : null,
     dropped: x.dropped && x.img !== x.dropped && picturePath(x.dropped) ? imgUrl(x.dropped) : null,
     folder: shortPath(mk.dir(IDEAS_DIR, x.id)),
@@ -386,10 +440,10 @@ const fail = (msg, status) => { const e = new Error(msg); e.status = status; ret
 // over the change listeners.
 export function startMockups(id, { note, from } = {}, cfg) {
   const it = find(id);
-  if (it.pending) throw fail('Claude is still answering the last message. Mock it up when it is back.', 409);
+  if (it.pending) throw fail(`${who(jobKind(it.pending))} is still answering the last message. Mock it up when it is back.`, 409);
   it.mockups = it.mockups || { rounds: [] };
   const m = it.mockups;
-  if (m.job) throw fail(`Claude is still drawing round ${m.job.round}.`, 409);
+  if (m.job) throw fail(`${who(jobKind(m.job))} is still drawing round ${m.job.round}.`, 409);
   const n = m.rounds.length + 1;
   const text = noDash(note).replace(/\s+/g, ' ').trim().slice(0, 500);
   let base = null;
@@ -402,11 +456,11 @@ export function startMockups(id, { note, from } = {}, cfg) {
     base = { round: r.n, key: v.key, title: v.title, picked: r.picked === v.key, html };
   }
   const token = newId();
-  m.job = { token, round: n, startedAt: now(), timeoutMs: cfg.claudeTimeoutMs, note: text, from: base ? { round: base.round, key: base.key } : null };
+  m.job = { token, round: n, startedAt: now(), timeoutMs: cfg.claudeTimeoutMs, note: text, from: base ? { round: base.round, key: base.key } : null, who: kindOfCfg(cfg) };
   delete m.error;
   it.updated = now();
   save(); changed();
-  const thread = (it.thread || []).filter((x) => !x.error).map((x) => (x.mockupRound ? { who: 'Board', text: roundContext(it, x.mockupRound) } : { who: x.who === 'you' ? 'User' : 'Claude', text: x.text }));
+  const thread = (it.thread || []).filter((x) => !x.error).map((x) => (x.mockupRound ? { who: 'Board', text: roundContext(it, x.mockupRound) } : { who: x.who === 'you' ? 'User' : who(jobKind(x)), text: x.text }));
   const promptText = mk.prompt({
     idea: { name: it.name, stageName: STAGES[it.stage], pitch: it.pitch, status: it.status },
     picturePath: it.img && !String(it.img).includes('/mockups/') ? path.join(IDEAS_DIR, it.img) : null,
@@ -425,11 +479,12 @@ export function startMockups(id, { note, from } = {}, cfg) {
   };
   runClaude(id, promptText, cfg, async (r) => {
     if (!current()) return; // stopped
-    if (!r.ok) return failed(/No answer after/.test(r.error) ? `Claude stopped at ${Math.round(cfg.claudeTimeoutMs / 60000) >= 1 ? Math.round(cfg.claudeTimeoutMs / 60000) + ' minutes' : Math.round(cfg.claudeTimeoutMs / 1000) + ' seconds'} without an answer` : r.error.replace(/\.$/, ''));
-    const un = mk.unwrap(r.text);
+    const name = who(kindOfCfg(cfg));
+    if (!r.ok) return failed(/No answer after/.test(r.error) ? `${name} stopped at ${Math.round(cfg.claudeTimeoutMs / 60000) >= 1 ? Math.round(cfg.claudeTimeoutMs / 60000) + ' minutes' : Math.round(cfg.claudeTimeoutMs / 1000) + ' seconds'} without an answer` : r.error.replace(/\.$/, ''));
+    const un = r.usage ? { text: r.text, usage: r.usage } : mk.unwrap(r.text);
     if (un.error) return failed(un.error.replace(/\.$/, ''));
     const vs = mk.parseVariants(un.text);
-    if (!vs) return failed('Claude answered, but not with 3 pictures the board could read');
+    if (!vs) return failed(`${name} answered, but not with 3 pictures the board could read`);
     const dir = mk.dir(IDEAS_DIR, id);
     let files;
     try {
@@ -453,7 +508,7 @@ export function startMockups(id, { note, from } = {}, cfg) {
     try { fs.appendFileSync(path.join(dir, 'rounds.jsonl'), JSON.stringify(log) + '\n'); } catch { /* the folder went away */ }
     console.log(`ideas: mockup round ${n} for ${cur.name}: 3 variants in ${mk.took(ms)}, ${u ? `${u.input} tokens in, ${u.output} out (${u.thinking} thinking)${u.turns ? `, ${u.turns} turn${u.turns === 1 ? '' : 's'}` : ''}${u.costUsd != null ? `, $${u.costUsd.toFixed(3)}` : ''}` : 'no usage reported'}`);
     save(); changed();
-  }, cfg.mockupCommand);
+  }, cfg.mockupCommand, { images: it.img && !String(it.img).includes('/mockups/') ? [path.join(IDEAS_DIR, it.img)] : [] });
   return m.job;
 }
 

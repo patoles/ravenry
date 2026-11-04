@@ -124,3 +124,69 @@ export const workFolder = (kind, file) => of(kind).workFolder(file);
 export const firstPrompt = (kind, file) => of(kind).firstPrompt(file);
 // The command that starts a fresh session of this assistant.
 export const launchCommand = (kind, settings) => of(kind).launchCommand(settings);
+
+// ------------------------------------------------------------ starting sessions
+// Which assistant the board starts (docs/ASSISTANTS.md, "Starting
+// sessions"): `startWith` in the registry settings for a new project ('claude'
+// or 'codex', Claude Code when unset), the New project form's choice over
+// it; continuing a project (Revive, New session, a plan's start) keeps the
+// project's `assistant`, else the assistant of its newest session. A chosen
+// assistant that is not installed gives way to the one that is, and the
+// choice says so in `note`.
+
+// The command New project, Revive and New session run, the prompt appended.
+export const startCommand = (kind, settings) => of(kind).startCommand(settings || {});
+
+// { claude, codex }: which assistants are on this Mac. Read at most every
+// 30 s (the board asks on every tick).
+let seen = { at: 0, key: '', value: null };
+export function installedAll(settings = {}, env = process.env) {
+  const key = JSON.stringify([settings.claudeBin || '', settings.codexBin || '', env.PATH || '', env.MC_CLAUDE || '', env.MC_CODEX || '', env.MC_CLAUDE_BIN || '', env.MC_CODEX_BIN || '', env.MC_CODEX_HOME || '']);
+  if (seen.value && seen.key === key && Date.now() - seen.at < 30000) return seen.value;
+  const value = Object.fromEntries(KINDS.map((k) => [k, !!ADAPTERS[k].installed(settings, env)]));
+  seen = { at: Date.now(), key, value };
+  return value;
+}
+
+export const isKind = (k) => KINDS.includes(k);
+
+// The assistant to start: `wanted` (a form's choice, a project's), else
+// startWith, else Claude Code; the installed one when it is missing.
+// { kind, wanted, from, installed, fallback, note }.
+export function startChoice(settings = {}, wanted = null, { from = null, installed = installedAll(settings) } = {}) {
+  const set = isKind(settings.startWith) ? settings.startWith : DEFAULT;
+  const want = isKind(wanted) ? wanted : set;
+  const src = isKind(wanted) ? from || 'form' : isKind(settings.startWith) ? 'startWith' : 'default';
+  const out = { kind: want, wanted: want, from: src, installed, fallback: false, note: null };
+  if (installed[want]) return out;
+  const other = KINDS.find((k) => k !== want && installed[k]);
+  if (other) return { ...out, kind: other, fallback: true, note: `${nameOf(want)} is not installed on this Mac, so the board starts ${nameOf(other)} instead.` };
+  return { ...out, note: `Neither Claude Code nor Codex was found on this Mac; the board runs ${nameOf(want)}'s command as set.` };
+}
+
+// The assistant that continues a project: its `assistant`, else the one of
+// its newest session (`sessions`: [{ assistant, at }]), else startWith.
+export function continueChoice(settings = {}, project = null, sessions = [], opts = {}) {
+  if (project && isKind(project.assistant)) return startChoice(settings, project.assistant, { ...opts, from: 'project' });
+  let best = null;
+  for (const s of sessions || []) {
+    if (!s || !s.at) continue;
+    if (!best || String(s.at) > String(best.at)) best = s;
+  }
+  if (best) return startChoice(settings, kindOf(best.assistant), { ...opts, from: 'session' });
+  return startChoice(settings, null, opts);
+}
+
+// ------------------------------------------------------------ print mode
+// The board's own model calls (Plans, the Ideas thread, Get 3 directions,
+// idea mockups) follow startWith too. Claude Code's are the `claude -p`
+// command lines in server/config.mjs, unchanged; Codex's are one `codex
+// exec` run each (server/codexexec.mjs): { ok, text, usage, model, error }.
+export const printWith = (settings = {}) => startChoice(settings).kind;
+export const runCodex = (opts) => codex.print(opts);
+// What the board knows about Codex's model: the one config.toml names and,
+// once a call found it refused, the one the board uses instead.
+export function codexModel(settings = {}) {
+  const st = codex.modelState();
+  return { configured: codex.configuredModel(), refused: !!(st && st.refused), using: st && st.refused ? (settings.codexModel || st.using) : null, message: st ? st.message || null : null, setting: settings.codexModel || null };
+}
