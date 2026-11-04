@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- On a phone the gallery's thumbnails stay small whatever the number of
+  pictures: each is a sixth of the strip, centred. Before, they split the
+  strip's width between them, so with one picture its thumbnail was a
+  full-width square that took more room than the picture above it.
+
 ## 0.3.1
 
 - A new session for a project (Revive from its brief, New session, a

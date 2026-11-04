@@ -946,8 +946,10 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
 .gl-fs.gl-p .gb-stage{display:block;position:relative;padding:0;margin:12px 0 0}
 .gl-fs.gl-p .gb-view{position:absolute;inset:0}
 .gl-fs.gl-p .gb-cap{flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:3px;padding:12px 16px 8px}
-.gl-fs.gl-p .gb-strip{padding:4px 16px 10px;gap:7px;justify-content:stretch}
-.gl-fs.gl-p .gl-cell{flex:1 1 0}
+/* Each thumbnail is a sixth of the strip whatever the count, so one or two
+   pictures do not grow into squares bigger than the picture above them. */
+.gl-fs.gl-p .gb-strip{padding:4px 16px 10px;gap:7px;justify-content:center}
+.gl-fs.gl-p .gl-cell{flex:0 0 calc((100% - 35px) / 6)}
 .gl-fs.gl-p .gl-thumb{aspect-ratio:1/1}
 .gl-fs.gl-p .gb-ctl{flex:none;display:flex;gap:10px;padding:6px 16px max(28px, env(safe-area-inset-bottom))}
 .gb-big{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:15px;border-radius:10px}
