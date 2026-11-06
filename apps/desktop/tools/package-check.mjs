@@ -27,7 +27,7 @@
 // 3. The hub service file the app wrote, then the hub run exactly as it
 //    says (the app's executable as Node), on a spare port: it must answer,
 //    stop cleanly on SIGTERM, and leave every daemon running.
-import { guardSpawns } from '../../../tools/test-env.mjs';
+import { guardSpawns, isTestPath } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
@@ -51,9 +51,18 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
 guardSpawns();
+// Every folder a ravenryd, hub or app of this check uses is a test's
+// (tools/test-env.mjs): OUT when it is one (a test root, a .tmp of the
+// repository, or outside the user's folders), else a fresh folder in the
+// system's temporary folder. OUT keeps the results and logs either way. A
+// CI runner's own temp folder sits inside its home, so OUT there is not one
+// unless RAVENRY_TEST_ROOT names it.
+const SCRATCH = isTestPath(OUT) ? OUT : fs.mkdtempSync(path.join(process.env.RAVENRY_SHORT_TMP || os.tmpdir(), 'ravenry-check-'));
+if (!isTestPath(SCRATCH)) { console.error(`check: no test folder for ravenryd: ${OUT} and ${SCRATCH} are both in the user's own folders; set RAVENRY_TEST_ROOT`); process.exit(1); }
+if (SCRATCH !== OUT) fs.writeFileSync(path.join(OUT, 'scratch.txt'), `ravenryd, the hub and the app ran in ${SCRATCH}\n`);
 // What the checks before the app run (extracting an AppImage, ravenryd
 // version) run with: throwaway folders, never the real user's.
-const PRE = path.join(OUT, '.pre');
+const PRE = path.join(SCRATCH, '.pre');
 const preEnv = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: path.join(PRE, 'home'), LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: path.join(PRE, 'run'), RAVENRY_STATE_DIR: path.join(PRE, 'state'), RAVENRY_DESKTOP_DATA: path.join(PRE, 'data') };
 
 const results = [];
@@ -166,7 +175,7 @@ if (CONTENTS_ONLY || !runsHere) {
 
 // ------------------------------------------------------------- 2. the app
 
-const WORK = path.join(OUT, '.work');
+const WORK = path.join(SCRATCH, '.work');
 const HOME = path.join(WORK, 'home');
 const DATA = path.join(WORK, 'app-package');
 fs.mkdirSync(HOME, { recursive: true });

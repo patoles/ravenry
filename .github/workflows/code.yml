@@ -84,7 +84,8 @@ jobs:
       - name: Shells
         run: sudo apt-get install -y --no-install-recommends zsh fish && zsh --version && bash --version | head -1 && fish --version
       - run: go vet ./...
-      - run: go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd && "$RUNNER_TEMP/ravenryd" version
+      # Its version, with throwaway folders (never the runner's own HOME).
+      - run: go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd && v=$(mktemp -d) && env -i PATH=/usr/bin:/bin HOME="$v" RAVENRY_RUNTIME_DIR="$v/run" RAVENRY_STATE_DIR="$v/state" "$RUNNER_TEMP/ravenryd" version
       # Two more versions, for the remote installer's update test.
       - run: |
           go build -ldflags "-X main.version=0.8.0" -o "$RUNNER_TEMP/ravenryd-0.8.0" ./cmd/ravenryd

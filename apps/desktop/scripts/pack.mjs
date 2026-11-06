@@ -33,11 +33,13 @@
 // machine that built it or after the quarantine is removed, and cannot
 // update itself; this says so loudly. No keychain is ever searched.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { assertTestEnv } from '../../../tools/test-env.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(APP, '..', '..');
@@ -92,8 +94,15 @@ function stageHub() {
   if (!fs.existsSync(path.join(dst, 'server', 'index.mjs'))) throw new Error('the hub has no server/index.mjs');
 }
 
+// Its version, asked with throwaway folders only (tools/test-env.mjs): a
+// ravenryd started here never uses the real user's.
 function ravenrydVersion(bin) {
-  try { return JSON.parse(execFileSync(bin, ['version', '--json'], { encoding: 'utf8' })); } catch { return null; }
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ravenry-pack-'));
+  const env = { PATH: '/usr/bin:/bin', HOME: tmp, LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: path.join(tmp, 'run'), RAVENRY_STATE_DIR: path.join(tmp, 'state') };
+  try {
+    assertTestEnv(env, 'ravenryd version --json');
+    return JSON.parse(execFileSync(bin, ['version', '--json'], { encoding: 'utf8', env }));
+  } catch { return null; } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
 function stageRavenryd(arch) {

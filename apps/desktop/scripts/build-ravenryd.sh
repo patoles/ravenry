@@ -37,4 +37,8 @@ case "$(go env GOOS)" in
     ;;
 esac
 CGO_ENABLED=1 go build -trimpath ${tags:+-tags "$tags"} -ldflags "$ldflags" -o "$out" ./cmd/ravenryd
-"$out" version
+# Its version, with throwaway folders: a ravenryd started here never uses
+# the real user's (tools/test-env.mjs keeps the same rule for every tool).
+chk=$(mktemp -d "${TMPDIR:-/tmp}/ravenryd-version.XXXXXX")
+env -i PATH=/usr/bin:/bin HOME="$chk" RAVENRY_RUNTIME_DIR="$chk/run" RAVENRY_STATE_DIR="$chk/state" "$out" version
+rm -rf "$chk"
