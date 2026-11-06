@@ -18,7 +18,8 @@ RFC 2119.
 
 1. [Connecting](#1-connecting)
 2. [Messages](#2-messages)
-3. [Panes, marks and the log](#3-panes-marks-and-the-log)
+3. [Panes, marks and the log](#3-panes-marks-and-the-log), shell
+   marks, the agent in a pane
 4. [Methods](#4-methods)
 5. [Streams and binary frames](#5-streams-and-binary-frames)
 6. [Events](#6-events)
@@ -118,10 +119,11 @@ the daemon sends (section 10).
 **Order.** The daemon starts requests in the order they arrive.
 
 - Most requests answer at once, in order.
-- `pane.wait`, `pane.settle`, `pane.close` and `pane.send` can take time
-  (a send waits for earlier input of the connection, and typed text takes
-  a pause per character). Other requests are handled meanwhile, so their
-  results can arrive in another order. Match results to requests by `id`.
+- `pane.wait`, `pane.settle`, `pane.close`, `pane.restart`, `pane.send`
+  and `agent.report` with `decide` can take time (a send waits for
+  earlier input of the connection, and typed text takes a pause per
+  character). Other requests are handled meanwhile, so their results can
+  arrive in another order. Match results to requests by `id`.
 - Input keeps its order: the input of `pane.send`, `pane.settle` and
   binary input frames on one connection reaches the panes in the order it
   arrived, even when one of them takes time (typed text).
@@ -171,6 +173,57 @@ client can ask for what came after: `pane.send` returns the mark just
 before its input, and `pane.wait` with `since` set to it sees exactly what
 the input caused.
 
+**Shell marks.** A shell with shell integration marks each step of a
+command with OSC 133: `A` a prompt starts, `B` the prompt is drawn and
+input starts, `C` a command runs, `D` it ended (`D;<status>` with its exit
+status). Once a pane's program sent one, its Pane object has `shell`:
+
+- `state`: `running` from a command's start (`C`) to its end (`D`), else
+  `prompt`.
+- `command`: the running or last command, when the shell sent it.
+- `exit_code`: the last finished command's status, when the shell sent it.
+- `mark` and `at`: when the state last changed.
+
+`pane.wait` with `prompt` holds once a prompt starts (`A` or `B`) after
+its `since`, so "send a command, wait for the next prompt" works whatever
+the command prints. A shell without shell integration sends no marks;
+`shell` then stays absent and a `prompt` wait times out.
+
+**The agent in a pane.** The daemon keeps the state of the agent (a coding
+assistant, or any program that reports on itself) running in each pane,
+from the reports it gets (section 4, Agents):
+
+- **From the agent's hooks.** An assistant runs `ravenryd hook` from its
+  hooks (Claude Code's and Codex's, or any assistant that runs a command
+  with a JSON object on its standard input), which sends `agent.report`.
+- **From the program itself.** A program may print an OSC 7501 program
+  status report (`ESC ] 7501 ; state=working:app=<name> ST`, and
+  `blocked` with a `kind`, `idle`, `done`, `error`, `clear`; the
+  libghostty program status protocol). Its own record (no `id`) becomes a
+  report with the source `program`: `working` is working, `blocked` needs
+  you (`kind` permission, question or auth), the others idle. The daemon
+  also answers the program's support query (`ESC ] 7501 ; ? ST`).
+- **From the daemon.** When the pane's process exits, or the shell draws
+  its prompt again after a command (`D` then `A`), the agent that ran
+  there is gone: an agent that was working or needed you ends (`ended`;
+  `idle` for a program's own report, which the program status protocol
+  drops at the next prompt). The source is `daemon`, the event `exit` or
+  `prompt`.
+
+The state, in the Pane object's `agent` once an agent reported:
+
+| Field | |
+| --- | --- |
+| `state` | `working` (busy, needs nobody), `needs_you` (waits for a person), `idle` (done with its turn, waits for the next prompt) or `ended` (its session ended, or it is gone). |
+| `need` | With `needs_you`: `kind` (`permission`, `question`, `auth` or `other`) and `message`. |
+| `since` | When it entered this state. |
+| `assistant`, `session` | Who reports (`claude`, `codex`, ...), and the assistant's own session id. |
+| `event`, `at`, `source`, `seq` | The last report: its event, time, source (`hook`, `program` or `daemon`) and number. |
+
+A report that names no state (a notification that changes nothing) only
+moves `event` and `at`. Messages are text from programs: show them as
+text, never as markup.
+
 **The log.** The daemon keeps each pane's raw output in a log file with a
 size cap (16 MiB by default; it keeps between half and all of the cap of
 the latest output). `pane.read` reads from it by mark, and a subscription
@@ -211,8 +264,12 @@ connection cancels everything it was waiting for.
 
 ### events.subscribe
 
-No fields. Result: `{}`. From then on the connection receives the pane and
-daemon events of section 6.
+| Field | | |
+| --- | --- | --- |
+| `display` | boolean, optional | This connection shows panes to a person (a terminal window, the phone), so it also gets `pane.focus`. |
+
+Result: `{}`. From then on the connection receives the pane, agent and
+daemon events of section 6. Subscribing again updates `display`.
 
 ### pane.new
 
@@ -236,7 +293,8 @@ first process, which leads the pane's session), `cols`, `rows`, `hidden`,
 or 2, else empty), `mark` (the end of its output so far), `last_output_at`
 (once it printed), `state` (`running` or `exited`), and for an exited pane
 `exit` (`code`, -1 when a signal ended it, and `signal`, such as
-`SIGKILL`) and `exited_at`.
+`SIGKILL`) and `exited_at`. Once known, `shell` (OSC 133 shell marks) and
+`agent` (the agent's state), section 3.
 
 ### pane.list
 
@@ -313,7 +371,7 @@ to the pty) and `mark` (the output position just before the input).
 ### pane.wait
 
 Returns when the first of its conditions holds. At least one of `text`,
-`quiet_ms` and `exit: true` is required.
+`quiet_ms`, `exit: true` and `prompt: true` is required.
 
 | Field | | |
 | --- | --- | --- |
@@ -322,13 +380,14 @@ Returns when the first of its conditions holds. At least one of `text`,
 | `screen` | boolean, optional | Match `text` against the visible screen instead (rows joined with newlines; use `(?m)` for `^` and `$` per row). It may hold at once. |
 | `quiet_ms` | integer, optional | Holds once the pane printed nothing for this long, counted from the later of the start of the wait and its last output. |
 | `exit` | boolean, optional | Holds once the first process exited and its output has been read to the end (at once if it already has). When a background process keeps the pty open, it holds 250 ms after the exit. |
+| `prompt` | boolean, optional | Holds once the shell starts a prompt (OSC 133 `A` or `B`) after `since` (section 3, Shell marks). |
 | `since` | mark, optional | Where new output starts. Default: now. A past mark makes the wait see output that came before it. |
 | `timeout_ms` | integer, optional | Default 30000, at most 24 hours. |
 
 The result says what happened and what changed:
 
-- `condition`: `text`, `quiet`, `exit` or `timeout` (a timeout is a
-  result, not an error).
+- `condition`: `text`, `quiet`, `exit`, `prompt` or `timeout` (a timeout
+  is a result, not an error).
 - `since` and `mark`: the output the wait covered.
 - `output`: that output as text, the last 64 KiB of it (`truncated` when
   cut).
@@ -337,6 +396,9 @@ The result says what happened and what changed:
 - `changes`: the visible rows that differ from the start of the wait
   (`row`, `before`, `after`).
 - `screen`: the visible rows now.
+- `shell`: the pane's shell state (section 3), once its shell sent marks.
+  After a `prompt` wait, `shell.exit_code` is the command's status when
+  the shell sent it.
 
 ### pane.settle
 
@@ -368,6 +430,114 @@ Result: `pane` and `channel`. The stream's frames follow the result
 ### pane.unsubscribe
 
 `channel`. Result: `{}`. No frame of the channel follows the result.
+
+### pane.process
+
+`pane`. What runs in the pane's foreground now. Result: `pane` and
+`foreground`, a Process: the leader of the terminal's foreground process
+group, which is the shell at its prompt or the command it runs (when the
+leader has exited and others of its group run on, the oldest of them).
+
+**The Process object:** `pid`, `argv` (its arguments, `argv[0]` first),
+and when the system tells them, `exe` (its executable's path), `cwd` (its
+working directory now) and `started_at`. Fails with `failed` once the
+pane's first process has exited.
+
+### pane.restart
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `grace_ms` | integer, optional | As in `pane.close`. |
+
+Closes the pane as `pane.close` does, then starts its command again in a
+new pane: the same `command` (the login shell when none was given), `cwd`,
+`env`, `name`, `hidden`, `ttl_ms` and `scrollback`, at the pane's current
+size, with the daemon's environment as it is now. Result: `pane`, the new
+pane (with a new id), and `replaced`, the old pane as it ended. The events
+are those of a close and a new pane.
+
+### pane.focus
+
+`pane`. Asks the connections that display panes (`events.subscribe` with
+`display: true`) to show this pane: each gets the `pane.focus` event.
+Result: `displays`, how many were asked. With none, no window shows
+panes now.
+
+### Agents
+
+The agent status channel (section 3, The agent in a pane), and hook
+decisions: a hook that may hold its assistant (Claude Code's or Codex's
+Stop, for a hand-off) asks the deciders, normally the hub, what to answer,
+and lets the session go on when none answers in time.
+
+#### agent.report
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id, optional | The pane the agent runs in. Left out when the reporter cannot tell (a process shared by several panes, such as Codex's app-server). |
+| `assistant` | string | `claude`, `codex`, or any name of 1 to 32 characters `a-z 0-9 . _ -`, starting with a letter or digit. |
+| `event` | string | The assistant's own event name (`hook_event_name`), 1 to 64 characters. |
+| `session` | string, optional | The assistant's session id. |
+| `state` | optional | The state the event puts the agent in: `working`, `needs_you`, `idle` or `ended`. Left out, the state stays. |
+| `need` | object, optional | With `needs_you`: `kind` and `message`. |
+| `message` | string, optional | One line for people, at most 1000 bytes. |
+| `cwd` | string, optional | |
+| `pid` | integer, optional | The agent's process (a hook's parent). |
+| `data` | object, optional | The hook's input as it came, at most 256 KiB as JSON, for clients that read more than the state (the hub's hand-off, questions at the end of a turn). |
+| `decide` | boolean, optional | Ask the deciders what the hook answers. |
+| `timeout_ms` | integer, optional | With `decide`: how long to wait, 1 to 60000. Default 2000. |
+
+The report is recorded with the next `seq` (each daemon numbers its
+reports 1, 2, 3, ...), the pane's agent state is updated, and every
+connection subscribed to events gets `agent.report`.
+
+With `decide`, every connection that called `agent.decisions` gets
+`agent.decision`. The result waits for the first reply that decides, or
+until every decider passed, left or the timeout ran out.
+
+Result: `seq`, `asked` (how many deciders were asked: 0 without `decide`
+or with none connected) and `reply` when one decided: `stdout`, `stderr`
+and `exit_code` (0 to 255, default 0), which `ravenryd hook` writes and
+exits with as they are, so a decider speaks each assistant's own hook
+format. Without `reply`, the hook prints nothing and exits 0, which
+Claude Code and Codex take as "go on".
+
+#### agent.events
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id, optional | Only this pane's reports. |
+| `since` | integer, optional | Reports after this `seq`. Default 0. |
+| `limit` | integer, optional | 1 to 1000. Default 200. |
+
+Result: `reports`, oldest first (AgentReport objects), `seq` (the newest
+report's number) and `truncated` (the daemon no longer holds every report
+after `since`). The daemon keeps the last 2048 reports, and at most 16 MiB
+of them; the reports of a closed pane stay until they roll out. A client
+that connects (the hub after a restart) reads what it missed from here,
+then follows `agent.report`.
+
+**The AgentReport object:** `seq`, `at`, `pane` (absent when unknown),
+`assistant`, `source` (`hook`, `program` or `daemon`), `event`, and when
+set `session`, `state`, `need`, `message`, `cwd`, `pid` and `data`.
+
+#### agent.decisions
+
+No fields. Result: `{}`. From then on this connection decides: it gets
+`agent.decision` for every report sent with `decide`, until it closes.
+Several connections may decide; the first reply that decides wins.
+
+#### agent.decide
+
+| Field | | |
+| --- | --- | --- |
+| `request` | integer | The `request` of an `agent.decision` event. |
+| `reply` | object, optional | `stdout`, `stderr` (each at most 1 MiB) and `exit_code`. Left out: this connection passes. |
+
+Result: `{}`. Fails with `not_found` when that decision is no longer
+waiting for this connection (it timed out, or this connection answered
+already).
 
 ## 5. Streams and binary frames
 
@@ -440,7 +610,21 @@ After `events.subscribe`:
 | `pane.title` | `pane` | A pane's title changed. |
 | `pane.exited` | `pane` | A pane's first process exited. |
 | `pane.closed` | `pane` | A pane was closed and removed. |
+| `pane.prompt` | `pane` | A pane's shell state changed (its `shell`: a command started or ended). A prompt redrawn in the same state sends nothing. |
+| `agent.report` | `report`, `pane` | An agent report was recorded. `pane` is the pane as it is after it (with its `agent`), when the report names a pane that is still there. |
 | `daemon.draining` | `newer` | A newer daemon version runs beside this one (section 9). |
+
+On a connection that subscribed with `display: true`:
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `pane.focus` | `pane` | Someone asked to show this pane (`pane.focus`). |
+
+On a connection that called `agent.decisions`:
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `agent.decision` | `request`, `report`, `timeout_ms` | A hook waits for a decision: answer with `agent.decide` within `timeout_ms`. |
 
 On any connection with a stream, whether or not it subscribed to events:
 
@@ -491,7 +675,7 @@ case sensitive.
 | `bad_request` | The message is not valid: a missing or unknown field, a value out of range, a bad regular expression or key name, another protocol version. |
 | `hello_required` | A request came before `hello`. |
 | `unknown_method` | The daemon has no such method. |
-| `not_found` | No such pane, channel or running request. |
+| `not_found` | No such pane, channel, running request or waiting decision. |
 | `pane_closed` | The pane was closed while the request ran. |
 | `failed` | The request was valid but did not work, such as a program that does not exist. |
 | `cancelled` | `cancel` stopped the request. |

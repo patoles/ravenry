@@ -68,8 +68,9 @@ type Client struct {
 	events  chan proto.Event
 	err     error
 	// Hello is the daemon's answer to hello.
-	Hello proto.HelloResult
-	done  chan struct{}
+	Hello  proto.HelloResult
+	done   chan struct{}
+	socket string
 }
 
 type reply struct {
@@ -80,11 +81,18 @@ type reply struct {
 
 // Dial connects to a daemon's unix socket.
 func Dial(ctx context.Context, socket string, o Options) (*Client, error) {
-	return DialWith(ctx, func(ctx context.Context) (net.Conn, error) {
+	c, err := DialWith(ctx, func(ctx context.Context) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "unix", socket)
 	}, o)
+	if c != nil {
+		c.socket = socket
+	}
+	return c, err
 }
+
+// Socket is the unix socket the client dialled, or empty.
+func (c *Client) Socket() string { return c.socket }
 
 // DialWith connects over any byte stream, such as the standard input and
 // output of `ssh host ravenryd proxy`.

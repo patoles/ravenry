@@ -19,7 +19,7 @@ func listProcs() []proc {
 		if err != nil {
 			sid = -1
 		}
-		out = append(out, proc{pid: pid, ppid: int(kps[i].Eproc.Ppid), sid: sid})
+		out = append(out, proc{pid: pid, ppid: int(kps[i].Eproc.Ppid), sid: sid, pgid: int(kps[i].Eproc.Pgid)})
 	}
 	return out
 }

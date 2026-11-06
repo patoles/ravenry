@@ -2,19 +2,27 @@ package pane
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"ravenryd/internal/vt"
 )
 
-// Event is a change in the set of panes.
+// Event is a change in the set of panes, or something a pane's program
+// reported.
 type Event struct {
-	// Type is "created", "exited", "closed" or "title".
-	Type string
-	Pane Info
+	// Type is "created", "exited", "closed", "title", "prompt" (the
+	// shell's OSC 133 state changed) or "status" (an OSC 7501 report,
+	// in Status).
+	Type   string
+	Pane   Info
+	Status *vt.ProgramStatus
 }
 
 // ManagerOptions configures a Manager.
@@ -101,7 +109,10 @@ func (m *Manager) Watch(fn func(Event)) (cancel func()) {
 }
 
 func (m *Manager) emit(typ string, info Info) {
-	ev := Event{Type: typ, Pane: info}
+	m.emitEvent(Event{Type: typ, Pane: info})
+}
+
+func (m *Manager) emitEvent(ev Event) {
 	m.mu.Lock()
 	fns := make([]func(Event), 0, len(m.watchers))
 	for _, fn := range m.watchers {
@@ -133,6 +144,16 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 	}
 	p.keep = !cfg.Hidden
 	p.onTitle = func(p *Pane) { m.emit("title", p.Info()) }
+	p.onPrompt = func(p *Pane, sh Shell) {
+		// The shell as it was at this mark, which a later mark in the
+		// same chunk may have moved on from.
+		i := p.Info()
+		i.Shell = &sh
+		m.emit("prompt", i)
+	}
+	p.onStatus = func(p *Pane, st vt.ProgramStatus) {
+		m.emitEvent(Event{Type: "status", Pane: p.Info(), Status: &st})
+	}
 	p.onExit = func(p *Pane) {
 		m.emit("exited", p.Info())
 		time.AfterFunc(m.o.KeepExited, func() { m.Close(p.id, time.Second) })
@@ -228,6 +249,34 @@ func withExit(i Info, p *Pane) Info {
 	}
 	i.Mark = p.offset
 	return i
+}
+
+// Restart closes a pane (as Close does) and starts its command again: the
+// same command, working directory, environment, name, hidden and TTL
+// settings and scrollback, at the pane's current size. The new pane has a
+// new id. It returns the new pane and the old one as it ended.
+func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
+	m.mu.Lock()
+	p, ok := m.panes[id]
+	m.mu.Unlock()
+	if !ok {
+		return nil, Info{}, ErrNotFound
+	}
+	cfg := p.orig
+	cfg.Env = maps.Clone(p.orig.Env)
+	cfg.Command = slices.Clone(p.orig.Command)
+	if info := p.Info(); info.Cols > 0 {
+		cfg.Cols, cfg.Rows = info.Cols, info.Rows
+	}
+	old, _, err := m.Close(id, grace)
+	if err != nil {
+		return nil, Info{}, err
+	}
+	np, err := m.New(cfg)
+	if err != nil {
+		return nil, old, err
+	}
+	return np, old, nil
 }
 
 // Shutdown closes every pane.

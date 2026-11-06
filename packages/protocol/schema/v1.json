@@ -8,6 +8,18 @@
       "description": "Every JSON message a client sends.",
       "oneOf": [
         {
+          "$ref": "#/$defs/request.agent.decide"
+        },
+        {
+          "$ref": "#/$defs/request.agent.decisions"
+        },
+        {
+          "$ref": "#/$defs/request.agent.events"
+        },
+        {
+          "$ref": "#/$defs/request.agent.report"
+        },
+        {
           "$ref": "#/$defs/request.cancel"
         },
         {
@@ -23,16 +35,25 @@
           "$ref": "#/$defs/request.pane.close"
         },
         {
+          "$ref": "#/$defs/request.pane.focus"
+        },
+        {
           "$ref": "#/$defs/request.pane.list"
         },
         {
           "$ref": "#/$defs/request.pane.new"
         },
         {
+          "$ref": "#/$defs/request.pane.process"
+        },
+        {
           "$ref": "#/$defs/request.pane.read"
         },
         {
           "$ref": "#/$defs/request.pane.resize"
+        },
+        {
+          "$ref": "#/$defs/request.pane.restart"
         },
         {
           "$ref": "#/$defs/request.pane.send"
@@ -58,6 +79,18 @@
       "description": "Every JSON message the daemon sends.",
       "oneOf": [
         {
+          "$ref": "#/$defs/result.agent.decide"
+        },
+        {
+          "$ref": "#/$defs/result.agent.decisions"
+        },
+        {
+          "$ref": "#/$defs/result.agent.events"
+        },
+        {
+          "$ref": "#/$defs/result.agent.report"
+        },
+        {
           "$ref": "#/$defs/result.cancel"
         },
         {
@@ -73,16 +106,25 @@
           "$ref": "#/$defs/result.pane.close"
         },
         {
+          "$ref": "#/$defs/result.pane.focus"
+        },
+        {
           "$ref": "#/$defs/result.pane.list"
         },
         {
           "$ref": "#/$defs/result.pane.new"
         },
         {
+          "$ref": "#/$defs/result.pane.process"
+        },
+        {
           "$ref": "#/$defs/result.pane.read"
         },
         {
           "$ref": "#/$defs/result.pane.resize"
+        },
+        {
+          "$ref": "#/$defs/result.pane.restart"
         },
         {
           "$ref": "#/$defs/result.pane.send"
@@ -103,6 +145,12 @@
           "$ref": "#/$defs/error"
         },
         {
+          "$ref": "#/$defs/event.agent.decision"
+        },
+        {
+          "$ref": "#/$defs/event.agent.report"
+        },
+        {
           "$ref": "#/$defs/event.daemon.draining"
         },
         {
@@ -115,12 +163,195 @@
           "$ref": "#/$defs/event.pane.exited"
         },
         {
+          "$ref": "#/$defs/event.pane.focus"
+        },
+        {
+          "$ref": "#/$defs/event.pane.prompt"
+        },
+        {
           "$ref": "#/$defs/event.pane.title"
         },
         {
           "$ref": "#/$defs/event.stream.end"
         }
       ]
+    },
+    "AgentReport": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "#/$defs/Seq"
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId",
+          "description": "Absent when the reporter could not say which pane it runs in."
+        },
+        "assistant": {
+          "$ref": "#/$defs/AssistantName"
+        },
+        "source": {
+          "enum": [
+            "hook",
+            "program",
+            "daemon"
+          ],
+          "description": "hook: agent.report (an assistant's hook through ravenryd hook). program: an OSC 7501 status report the program printed. daemon: inferred by the daemon (the pane's process exited, or the shell drew its prompt again)."
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The assistant's own event name (Claude Code's and Codex's hook_event_name), status for a program's report, exit or prompt for the daemon's."
+        },
+        "session": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "state": {
+          "$ref": "#/$defs/AgentState",
+          "description": "The state the report puts the agent in. Absent: it changes no state."
+        },
+        "need": {
+          "$ref": "#/$defs/Need"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The agent's process, when the reporter knows it (a hook's parent)."
+        },
+        "data": {
+          "type": "object",
+          "description": "The hook's input as it came, at most 256 KiB as JSON."
+        }
+      },
+      "required": [
+        "seq",
+        "at",
+        "assistant",
+        "source",
+        "event"
+      ],
+      "additionalProperties": false,
+      "description": "One recorded agent event.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "needs_you"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {},
+          "else": {
+            "not": {
+              "required": [
+                "need"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "AgentState": {
+      "enum": [
+        "working",
+        "needs_you",
+        "idle",
+        "ended"
+      ],
+      "description": "working: busy, needs nobody. needs_you: waits for a person (need says for what). idle: done with its turn, waits for the next prompt. ended: the agent's session ended or its program is gone."
+    },
+    "AgentStatus": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/$defs/AgentState"
+        },
+        "since": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "When the agent entered this state."
+        },
+        "assistant": {
+          "$ref": "#/$defs/AssistantName"
+        },
+        "session": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "The assistant's own session id, when reported."
+        },
+        "need": {
+          "$ref": "#/$defs/Need"
+        },
+        "event": {
+          "type": "string",
+          "description": "The last report's event."
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "The last report's time."
+        },
+        "source": {
+          "enum": [
+            "hook",
+            "program",
+            "daemon"
+          ],
+          "description": "The last report's source."
+        },
+        "seq": {
+          "$ref": "#/$defs/Seq"
+        }
+      },
+      "required": [
+        "state",
+        "since",
+        "assistant",
+        "event",
+        "at",
+        "source",
+        "seq"
+      ],
+      "additionalProperties": false,
+      "description": "The state of the agent in a pane.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "needs_you"
+              }
+            }
+          },
+          "then": {},
+          "else": {
+            "not": {
+              "required": [
+                "need"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "AssistantName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+      "description": "Who reports: claude, codex, any other assistant's name, the program's own name for an OSC 7501 report (\"program\" when it gave none)."
     },
     "Channel": {
       "type": "integer",
@@ -292,6 +523,29 @@
       "maximum": 9007199254740991,
       "description": "A position in a pane's output: the number of bytes the pane had printed before it."
     },
+    "Need": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "permission",
+            "question",
+            "auth",
+            "other"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "One line for people. Text from the program: show it as text, never as markup."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "description": "What an agent waits for from a person."
+    },
     "Pane": {
       "type": "object",
       "properties": {
@@ -360,6 +614,14 @@
         },
         "exited_at": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "shell": {
+          "$ref": "#/$defs/Shell",
+          "description": "Set once the program marked a prompt with OSC 133."
+        },
+        "agent": {
+          "$ref": "#/$defs/AgentStatus",
+          "description": "Set once an agent reported on this pane."
         }
       },
       "required": [
@@ -416,6 +678,61 @@
       "maxLength": 64,
       "description": "Opaque. ravenryd makes ids unique across daemons in practice (\"p\" and 7 random characters)."
     },
+    "Process": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Its arguments, argv[0] first."
+        },
+        "exe": {
+          "type": "string",
+          "description": "Its executable's path."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Its working directory now."
+        },
+        "started_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "pid",
+        "argv"
+      ],
+      "additionalProperties": false,
+      "description": "A process. Fields the system would not tell are left out."
+    },
+    "Reply": {
+      "type": "object",
+      "properties": {
+        "stdout": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "stderr": {
+          "type": "string",
+          "maxLength": 1048576
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Default 0."
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "description": "What the hook answers its assistant with: these bytes on its standard output and error, and this exit status."
+    },
     "RequestId": {
       "type": "integer",
       "minimum": 0,
@@ -464,6 +781,45 @@
         "mark"
       ],
       "additionalProperties": false
+    },
+    "Seq": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "An agent report's number. Each daemon numbers its reports 1, 2, 3, ... in the order it records them."
+    },
+    "Shell": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "enum": [
+            "prompt",
+            "running"
+          ],
+          "description": "running from a command's start (OSC 133 C) to its end (D), else prompt."
+        },
+        "command": {
+          "type": "string",
+          "description": "The running command, or the last one, when the shell sent it."
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "The last finished command's status, when the shell sent it."
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark"
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "state",
+        "mark",
+        "at"
+      ],
+      "additionalProperties": false,
+      "description": "What the shell's OSC 133 marks say. mark and at: when the state last changed."
     },
     "Span": {
       "type": "object",
@@ -539,6 +895,7 @@
             "text",
             "quiet",
             "exit",
+            "prompt",
             "timeout"
           ]
         },
@@ -580,6 +937,10 @@
             "type": "string"
           },
           "description": "The visible rows now."
+        },
+        "shell": {
+          "$ref": "#/$defs/Shell",
+          "description": "The shell's state when the wait ended, once the program sent OSC 133 marks."
         }
       },
       "required": [
@@ -627,6 +988,173 @@
         }
       ]
     },
+    "request.agent.decide": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "agent.decide"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "request": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "The request of an agent.decision event."
+        },
+        "reply": {
+          "$ref": "#/$defs/Reply",
+          "description": "The decision. Leave it out to let the session go on, as far as this connection is concerned."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "request"
+      ],
+      "additionalProperties": false,
+      "description": "Answers an agent.decision."
+    },
+    "request.agent.decisions": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "agent.decisions"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "This connection decides what hooks answer: it gets agent.decision events."
+    },
+    "request.agent.events": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "agent.events"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId",
+          "description": "Only this pane's reports."
+        },
+        "since": {
+          "$ref": "#/$defs/Seq",
+          "description": "Reports after this one (default 0: the oldest kept)."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Default 200."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "Reads the recorded agent reports, oldest first."
+    },
+    "request.agent.report": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "agent.report"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId",
+          "description": "The pane the agent runs in. Leave it out when unknown (a process shared by several panes)."
+        },
+        "assistant": {
+          "$ref": "#/$defs/AssistantName"
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "session": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "state": {
+          "$ref": "#/$defs/AgentState"
+        },
+        "need": {
+          "$ref": "#/$defs/Need"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "cwd": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "type": "object",
+          "description": "The hook's input, at most 256 KiB as JSON."
+        },
+        "decide": {
+          "type": "boolean",
+          "description": "Ask the deciders (agent.decisions) what the hook answers, and wait for the first that decides."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000,
+          "description": "With decide: how long to wait (default 2000)."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "assistant",
+        "event"
+      ],
+      "additionalProperties": false,
+      "description": "Records what an agent did (ravenryd hook sends it for an assistant's hooks).",
+      "dependentRequired": {
+        "timeout_ms": [
+          "decide"
+        ],
+        "need": [
+          "state"
+        ]
+      }
+    },
     "request.cancel": {
       "type": "object",
       "properties": {
@@ -663,6 +1191,10 @@
         },
         "id": {
           "$ref": "#/$defs/RequestId"
+        },
+        "display": {
+          "type": "boolean",
+          "description": "This connection shows panes to a person, so it gets pane.focus."
         }
       },
       "required": [
@@ -778,6 +1310,31 @@
       ],
       "additionalProperties": false,
       "description": "Ends every process of the pane and removes it."
+    },
+    "request.pane.focus": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.focus"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Asks the connections that display panes to show this one."
     },
     "request.pane.list": {
       "type": "object",
@@ -906,6 +1463,31 @@
         }
       ]
     },
+    "request.pane.process": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.process"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "What runs in the pane's foreground."
+    },
     "request.pane.read": {
       "type": "object",
       "properties": {
@@ -984,6 +1566,37 @@
       ],
       "additionalProperties": false,
       "description": ""
+    },
+    "request.pane.restart": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.restart"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "grace_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000,
+          "description": "As in pane.close (default 1000)."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Closes the pane as pane.close does and starts its command again, in a new pane with the same command, working directory, env, name, hidden setting, TTL and scrollback, at its current size."
     },
     "request.pane.send": {
       "type": "object",
@@ -1149,6 +1762,10 @@
         "exit": {
           "type": "boolean"
         },
+        "prompt": {
+          "type": "boolean",
+          "description": "Holds once the shell starts a prompt (OSC 133 A or B) after since."
+        },
         "since": {
           "$ref": "#/$defs/Mark"
         },
@@ -1187,6 +1804,16 @@
           "required": [
             "exit"
           ]
+        },
+        {
+          "properties": {
+            "prompt": {
+              "const": true
+            }
+          },
+          "required": [
+            "prompt"
+          ]
         }
       ],
       "dependentRequired": {
@@ -1194,6 +1821,159 @@
           "text"
         ]
       }
+    },
+    "result.agent.decide": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "agent.decide"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.agent.decisions": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "agent.decisions"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.agent.events": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "agent.events"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "reports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AgentReport"
+              }
+            },
+            "seq": {
+              "$ref": "#/$defs/Seq",
+              "description": "The newest report's number."
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "The daemon no longer holds every report after since."
+            }
+          },
+          "required": [
+            "reports",
+            "seq",
+            "truncated"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.agent.report": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "agent.report"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "$ref": "#/$defs/Seq"
+            },
+            "asked": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many deciders were asked (0 without decide, or with no decider connected)."
+            },
+            "reply": {
+              "$ref": "#/$defs/Reply",
+              "description": "The first decider's reply that decided. Absent: answer the assistant with nothing, so it goes on."
+            }
+          },
+          "required": [
+            "seq",
+            "asked"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
     },
     "result.cancel": {
       "type": "object",
@@ -1459,6 +2239,45 @@
       ],
       "additionalProperties": false
     },
+    "result.pane.focus": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.focus"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "displays": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many connections were asked (subscribed to events with display: true)."
+            }
+          },
+          "required": [
+            "displays"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
     "result.pane.list": {
       "type": "object",
       "properties": {
@@ -1523,6 +2342,48 @@
           },
           "required": [
             "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.process": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.process"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "foreground": {
+              "$ref": "#/$defs/Process",
+              "description": "The leader of the terminal's foreground process group: the shell at its prompt, or the command it runs."
+            }
+          },
+          "required": [
+            "pane",
+            "foreground"
           ],
           "additionalProperties": false
         }
@@ -1633,6 +2494,49 @@
           },
           "required": [
             "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.restart": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.restart"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane",
+              "description": "The new pane (a new id)."
+            },
+            "replaced": {
+              "$ref": "#/$defs/Pane",
+              "description": "The old pane, as it ended."
+            }
+          },
+          "required": [
+            "pane",
+            "replaced"
           ],
           "additionalProperties": false
         }
@@ -1886,6 +2790,73 @@
       ],
       "additionalProperties": false
     },
+    "event.agent.decision": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "agent.decision"
+        },
+        "request": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Answer with agent.decide and this number."
+        },
+        "report": {
+          "$ref": "#/$defs/AgentReport"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How long the hook waits; a later answer is refused."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "request",
+        "report",
+        "timeout_ms"
+      ],
+      "additionalProperties": false,
+      "description": "A hook waits for a decision (sent to connections that called agent.decisions)."
+    },
+    "event.agent.report": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "agent.report"
+        },
+        "report": {
+          "$ref": "#/$defs/AgentReport"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane",
+          "description": "The pane as it is after the report (its agent field), when the report names a pane that is still there."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "report"
+      ],
+      "additionalProperties": false,
+      "description": "An agent report was recorded."
+    },
     "event.daemon.draining": {
       "type": "object",
       "properties": {
@@ -1985,6 +2956,56 @@
       ],
       "additionalProperties": false,
       "description": "A pane's first process exited. The pane stays, with its screen, until it is closed (or one hour later)."
+    },
+    "event.pane.focus": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.focus"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Show this pane to the person (sent to connections that subscribed with display: true)."
+    },
+    "event.pane.prompt": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.prompt"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's shell state changed (its shell field: a command started or ended)."
     },
     "event.pane.title": {
       "type": "object",

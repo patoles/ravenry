@@ -8,7 +8,7 @@ import (
 
 // proc is one process of this user, as the process table shows it.
 type proc struct {
-	pid, ppid, sid int
+	pid, ppid, sid, pgid int
 }
 
 // treeOf returns every process that belongs to a pane: the descendants of

@@ -57,6 +57,56 @@ func New(o Options) (Screen, error) {
 		bell := o.Bell
 		opts = append(opts, gt.WithBell(func(*gt.Terminal) { bell() }))
 	}
+	if o.Prompt != nil {
+		fn := o.Prompt
+		opts = append(opts, gt.WithSemanticPrompt(func(_ *gt.Terminal, ev gt.TerminalSemanticPrompt) {
+			m := PromptMark{Command: ev.Command, ExitCode: ev.ExitCode, HasExitCode: ev.HasExitCode}
+			switch ev.Kind {
+			case gt.SemanticPromptStart:
+				m.Kind = PromptStart
+			case gt.SemanticPromptInputStart:
+				m.Kind = InputStart
+			case gt.SemanticPromptOutputStart:
+				m.Kind = OutputStart
+			case gt.SemanticPromptCommandEnd:
+				m.Kind = CommandEnd
+			default:
+				return // a kind added after this build
+			}
+			fn(m)
+		}))
+	}
+	if o.Status != nil {
+		fn := o.Status
+		opts = append(opts, gt.WithProgramStatus(func(_ *gt.Terminal, st gt.ProgramStatus) {
+			r := ProgramStatus{Progress: int(st.Progress), ID: st.ID, App: st.App, Title: st.Title, Message: st.Message}
+			switch st.State {
+			case gt.ProgramStatusStateIdle:
+				r.State = "idle"
+			case gt.ProgramStatusStateWorking:
+				r.State = "working"
+			case gt.ProgramStatusStateDone:
+				r.State = "done"
+			case gt.ProgramStatusStateBlocked:
+				r.State = "blocked"
+			case gt.ProgramStatusStateError:
+				r.State = "error"
+			case gt.ProgramStatusStateClear:
+				r.State = "clear"
+			default:
+				return // a state added after this build
+			}
+			switch st.Kind {
+			case gt.ProgramStatusKindPermission:
+				r.Kind = "permission"
+			case gt.ProgramStatusKindQuestion:
+				r.Kind = "question"
+			case gt.ProgramStatusKindAuth:
+				r.Kind = "auth"
+			}
+			fn(r)
+		}))
+	}
 	t, err := gt.NewTerminal(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("vt: new terminal: %w", err)

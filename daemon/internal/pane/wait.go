@@ -18,6 +18,9 @@ type WaitSpec struct {
 	Quiet time.Duration
 	// Exit holds once the pane's first process has exited.
 	Exit bool
+	// Prompt holds once the shell starts a prompt (OSC 133 A or B) after
+	// Since.
+	Prompt bool
 	// Since is the mark new output is counted from; nil means now.
 	Since *uint64
 	// Timeout ends the wait; zero means no limit (the context still can).
@@ -47,6 +50,9 @@ type WaitResult struct {
 	// Changes are the visible rows that differ from the start of the wait.
 	Changes []RowChange
 	Screen  []string
+	// Shell is the shell's state when the wait ended, once the program
+	// sent OSC 133 marks.
+	Shell *Shell
 }
 
 // OutputLimit caps WaitResult.Output; matching sees up to matchWindow.
@@ -60,12 +66,12 @@ const (
 const exitDrain = 250 * time.Millisecond
 
 // ErrBadSpec is returned for a wait with no condition.
-var ErrBadSpec = errors.New("wait needs at least one condition: text, quiet or exit")
+var ErrBadSpec = errors.New("wait needs at least one condition: text, quiet, exit or prompt")
 
 // Wait waits for a condition. before, when not nil, is the screen to
 // compare against instead of the screen at the start of the wait.
 func (p *Pane) Wait(ctx context.Context, spec WaitSpec, before []string) (*WaitResult, error) {
-	if spec.Text == nil && spec.Quiet <= 0 && !spec.Exit {
+	if spec.Text == nil && spec.Quiet <= 0 && !spec.Exit && !spec.Prompt {
 		return nil, ErrBadSpec
 	}
 	start := time.Now()
@@ -151,6 +157,9 @@ func (p *Pane) Wait(ctx context.Context, spec WaitSpec, before []string) (*WaitR
 				cond = "text"
 			}
 		}
+		if cond == "" && spec.Prompt && p.promptAfter(since) {
+			cond = "prompt"
+		}
 		var quietLeft time.Duration
 		if cond == "" && spec.Quiet > 0 {
 			from := start
@@ -222,6 +231,7 @@ func (p *Pane) result(cond string, since uint64, text []byte, before []string) *
 	after, _ := p.screen.Text()
 	r.Screen = after
 	r.Changes = diffRows(before, after)
+	r.Shell = p.shellCopy()
 	return r
 }
 

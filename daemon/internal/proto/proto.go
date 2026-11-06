@@ -6,6 +6,7 @@ package proto
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 )
 
@@ -38,6 +39,8 @@ var Methods = []string{
 	"pane.capture", "pane.read",
 	"pane.send", "pane.wait", "pane.settle",
 	"pane.subscribe", "pane.unsubscribe",
+	"pane.process", "pane.restart", "pane.focus",
+	"agent.report", "agent.events", "agent.decisions", "agent.decide",
 }
 
 // Envelope is what every JSON message starts with.
@@ -71,16 +74,22 @@ type ErrorBody struct {
 }
 
 // Event is something the daemon reports without being asked:
-// pane.created, pane.title, pane.exited and pane.closed carry Pane;
-// stream.end carries Channel and Mark; daemon.draining carries Newer.
+// pane.created, pane.title, pane.exited, pane.closed, pane.prompt and
+// pane.focus carry Pane; stream.end carries Channel and Mark;
+// daemon.draining carries Newer; agent.report carries Report (and Pane
+// when the report names one); agent.decision carries Request, Report and
+// TimeoutMs.
 type Event struct {
-	V       int     `json:"v"`
-	Type    string  `json:"type"` // "event"
-	Event   string  `json:"event"`
-	Pane    *Pane   `json:"pane,omitempty"`
-	Channel *uint32 `json:"channel,omitempty"`
-	Mark    *uint64 `json:"mark,omitempty"`
-	Newer   string  `json:"newer,omitempty"`
+	V         int          `json:"v"`
+	Type      string       `json:"type"` // "event"
+	Event     string       `json:"event"`
+	Pane      *Pane        `json:"pane,omitempty"`
+	Channel   *uint32      `json:"channel,omitempty"`
+	Mark      *uint64      `json:"mark,omitempty"`
+	Newer     string       `json:"newer,omitempty"`
+	Report    *AgentReport `json:"report,omitempty"`
+	Request   *uint64      `json:"request,omitempty"`
+	TimeoutMs *int64       `json:"timeout_ms,omitempty"`
 }
 
 // Ack acknowledges output a client has processed.
@@ -128,6 +137,9 @@ type CancelRequest struct {
 
 type EventsSubscribeRequest struct {
 	Envelope
+	// Display says this connection shows panes to a person, so it gets
+	// pane.focus.
+	Display bool `json:"display,omitempty"`
 }
 
 type Empty struct{}
@@ -270,6 +282,7 @@ type WaitRequest struct {
 	Screen    bool    `json:"screen,omitempty"`
 	QuietMs   *int64  `json:"quiet_ms,omitempty"`
 	Exit      bool    `json:"exit,omitempty"`
+	Prompt    bool    `json:"prompt,omitempty"`
 	Since     *uint64 `json:"since,omitempty"`
 	TimeoutMs *int64  `json:"timeout_ms,omitempty"`
 }
@@ -286,6 +299,7 @@ type WaitResult struct {
 	Exit      *Exit       `json:"exit,omitempty"`
 	Changes   []RowChange `json:"changes"`
 	Screen    []string    `json:"screen"`
+	Shell     *Shell      `json:"shell,omitempty"`
 }
 
 type RowChange struct {
@@ -343,6 +357,154 @@ type Pane struct {
 	State        string   `json:"state"`
 	Exit         *Exit    `json:"exit,omitempty"`
 	ExitedAt     string   `json:"exited_at,omitempty"`
+	// Shell is set once the program marked a prompt with OSC 133.
+	Shell *Shell `json:"shell,omitempty"`
+	// Agent is set once an agent reported on this pane.
+	Agent *AgentStatus `json:"agent,omitempty"`
+}
+
+// Shell is what OSC 133 marks say about the shell in a pane.
+type Shell struct {
+	// State is "running" from a command's start to its end, else "prompt".
+	State string `json:"state"`
+	// Command is the running command, or the last one, when the shell
+	// sent it.
+	Command string `json:"command,omitempty"`
+	// ExitCode is the last finished command's status, when the shell sent it.
+	ExitCode *int `json:"exit_code,omitempty"`
+	// Mark and At say when the state last changed.
+	Mark uint64 `json:"mark"`
+	At   string `json:"at"`
+}
+
+// Need is what an agent waits for from a person.
+type Need struct {
+	// Kind is "permission", "question", "auth" or "other".
+	Kind    string `json:"kind"`
+	Message string `json:"message,omitempty"`
+}
+
+// AgentStatus is the state of the agent in a pane.
+type AgentStatus struct {
+	// State is "working", "needs_you", "idle" or "ended".
+	State     string `json:"state"`
+	Since     string `json:"since"`
+	Assistant string `json:"assistant"`
+	Session   string `json:"session,omitempty"`
+	Need      *Need  `json:"need,omitempty"`
+	// Event, At and Source describe the last report.
+	Event  string `json:"event"`
+	At     string `json:"at"`
+	Source string `json:"source"`
+	Seq    uint64 `json:"seq"`
+}
+
+// AgentReport is one recorded agent event.
+type AgentReport struct {
+	Seq       uint64          `json:"seq"`
+	At        string          `json:"at"`
+	Pane      string          `json:"pane,omitempty"`
+	Assistant string          `json:"assistant"`
+	Source    string          `json:"source"`
+	Event     string          `json:"event"`
+	Session   string          `json:"session,omitempty"`
+	State     string          `json:"state,omitempty"`
+	Need      *Need           `json:"need,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Cwd       string          `json:"cwd,omitempty"`
+	PID       int             `json:"pid,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+// Process describes a process.
+type Process struct {
+	PID       int      `json:"pid"`
+	Argv      []string `json:"argv"`
+	Exe       string   `json:"exe,omitempty"`
+	Cwd       string   `json:"cwd,omitempty"`
+	StartedAt string   `json:"started_at,omitempty"`
+}
+
+type ProcessRequest struct {
+	Envelope
+	Pane string `json:"pane"`
+}
+
+type ProcessResult struct {
+	Pane       string  `json:"pane"`
+	Foreground Process `json:"foreground"`
+}
+
+type RestartRequest struct {
+	Envelope
+	Pane    string `json:"pane"`
+	GraceMs *int64 `json:"grace_ms,omitempty"`
+}
+
+type RestartResult struct {
+	Pane     Pane `json:"pane"`
+	Replaced Pane `json:"replaced"`
+}
+
+type FocusRequest struct {
+	Envelope
+	Pane string `json:"pane"`
+}
+
+type FocusResult struct {
+	Displays int `json:"displays"`
+}
+
+type AgentReportRequest struct {
+	Envelope
+	Pane      string          `json:"pane,omitempty"`
+	Assistant string          `json:"assistant"`
+	Event     string          `json:"event"`
+	Session   string          `json:"session,omitempty"`
+	State     string          `json:"state,omitempty"`
+	Need      *Need           `json:"need,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Cwd       string          `json:"cwd,omitempty"`
+	PID       int             `json:"pid,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Decide    bool            `json:"decide,omitempty"`
+	TimeoutMs *int64          `json:"timeout_ms,omitempty"`
+}
+
+// Reply is what a decider tells a hook to answer its assistant with.
+type Reply struct {
+	Stdout   string `json:"stdout,omitempty"`
+	Stderr   string `json:"stderr,omitempty"`
+	ExitCode int    `json:"exit_code,omitempty"`
+}
+
+type AgentReportResult struct {
+	Seq   uint64 `json:"seq"`
+	Asked int    `json:"asked"`
+	Reply *Reply `json:"reply,omitempty"`
+}
+
+type AgentEventsRequest struct {
+	Envelope
+	Pane  string  `json:"pane,omitempty"`
+	Since *uint64 `json:"since,omitempty"`
+	Limit *int    `json:"limit,omitempty"`
+}
+
+type AgentEventsResult struct {
+	Reports   []AgentReport `json:"reports"`
+	Seq       uint64        `json:"seq"`
+	Truncated bool          `json:"truncated"`
+}
+
+type AgentDecisionsRequest struct {
+	Envelope
+}
+
+type AgentDecideRequest struct {
+	Envelope
+	Request *uint64 `json:"request"`
+	Reply   *Reply  `json:"reply,omitempty"`
 }
 
 type Exit struct {

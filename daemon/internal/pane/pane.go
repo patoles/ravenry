@@ -8,9 +8,11 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -70,7 +72,27 @@ type Info struct {
 	LastOutput time.Time
 	Exit       *Exit
 	ExitedAt   time.Time
+	// Shell is set once the program marked a prompt with OSC 133.
+	Shell *Shell
 }
+
+// Shell is what OSC 133 marks say about the shell in a pane.
+type Shell struct {
+	// State is "running" from a command's start (OSC 133 C) to its end
+	// (D), else "prompt".
+	State string
+	// Command is the running or last command, when the shell sent it.
+	Command string
+	// ExitCode is the last finished command's status, when the shell sent it.
+	ExitCode *int
+	// Mark and At say when the state last changed.
+	Mark uint64
+	At   time.Time
+}
+
+// maxPromptMarks is how many prompt marks a pane keeps for waits that
+// start from a past mark.
+const maxPromptMarks = 64
 
 // Running reports whether the pane's first process is still running.
 func (i Info) Running() bool { return i.Exit == nil }
@@ -79,6 +101,7 @@ func (i Info) Running() bool { return i.Exit == nil }
 type Pane struct {
 	id      string
 	cfg     Config
+	orig    Config // as asked for, to restart it
 	created time.Time
 	cmd     *exec.Cmd
 	pty     *os.File
@@ -105,11 +128,30 @@ type Pane struct {
 	exitedAt   time.Time
 	closed     bool
 
+	// OSC 133 marks: the shell's state, the marks where a prompt started
+	// (for waits), and the end of the chunk being written, which is the
+	// mark a prompt seen in it gets.
+	shell    *Shell
+	prompts  []uint64
+	writeEnd uint64
+	// notes are what the program reported while a chunk was written, in
+	// order, for after the lock is released.
+	notes []note
+
 	done   chan struct{} // closed when the output loop has ended
 	exited chan struct{} // closed when the first process has exited
 
-	onExit  func(*Pane)
-	onTitle func(*Pane)
+	onExit   func(*Pane)
+	onTitle  func(*Pane)
+	onPrompt func(*Pane, Shell)
+	onStatus func(*Pane, vt.ProgramStatus)
+}
+
+// note is one thing the program reported: a new shell state (OSC 133) or
+// a status report (OSC 7501).
+type note struct {
+	shell  *Shell
+	status *vt.ProgramStatus
 }
 
 // tap receives every chunk of output, under the pane's lock.
@@ -150,8 +192,12 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket string)
 	if fi, err := os.Stat(cfg.Cwd); err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("working directory %q does not exist", cfg.Cwd)
 	}
+	orig := cfg
+	orig.Env = maps.Clone(cfg.Env)
+	orig.Command = slices.Clone(cfg.Command)
 	p := &Pane{
 		id:      newID(),
+		orig:    orig,
 		created: time.Now(),
 		subs:    map[*Sub]struct{}{},
 		taps:    map[*tap]struct{}{},
@@ -183,7 +229,9 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket string)
 
 	screen, err := vt.New(vt.Options{
 		Cols: cfg.Cols, Rows: cfg.Rows, Scrollback: cfg.Scrollback,
-		Reply: func(b []byte) { p.replies = append(p.replies, b...) },
+		Reply:  func(b []byte) { p.replies = append(p.replies, b...) },
+		Prompt: p.promptMark,
+		Status: func(st vt.ProgramStatus) { p.notes = append(p.notes, note{status: &st}) },
 	})
 	if err != nil {
 		return nil, err
@@ -307,6 +355,7 @@ func (p *Pane) output(b []byte) {
 	for s := range p.subs {
 		s.push(b, mark)
 	}
+	p.writeEnd = mark + uint64(len(b))
 	p.screen.Write(b)
 	for t := range p.taps {
 		t.fn(b)
@@ -321,6 +370,8 @@ func (p *Pane) output(b []byte) {
 	if t := p.screen.Title(); t != p.title {
 		p.title, titleChanged = t, true
 	}
+	notes := p.notes
+	p.notes = nil
 	p.broadcast()
 	p.mu.Unlock()
 	if len(replies) > 0 {
@@ -331,6 +382,64 @@ func (p *Pane) output(b []byte) {
 	if titleChanged && p.onTitle != nil {
 		p.onTitle(p)
 	}
+	for _, n := range notes {
+		switch {
+		case n.shell != nil && p.onPrompt != nil:
+			p.onPrompt(p, *n.shell)
+		case n.status != nil && p.onStatus != nil:
+			p.onStatus(p, *n.status)
+		}
+	}
+}
+
+// promptMark follows the shell through its OSC 133 marks. It runs inside
+// screen.Write, with the pane's lock held. A change of state, command or
+// exit code is reported (onPrompt) once the chunk is written; a prompt
+// redrawn in the same state is not.
+func (p *Pane) promptMark(m vt.PromptMark) {
+	before := Shell{}
+	if p.shell != nil {
+		before = *p.shell
+	} else {
+		p.shell = &Shell{}
+	}
+	sh := p.shell
+	switch m.Kind {
+	case vt.PromptStart, vt.InputStart:
+		sh.State = "prompt"
+		p.prompts = append(p.prompts, p.writeEnd)
+		if len(p.prompts) > maxPromptMarks {
+			p.prompts = p.prompts[len(p.prompts)-maxPromptMarks:]
+		}
+	case vt.OutputStart:
+		sh.State = "running"
+		sh.Command = m.Command
+		sh.ExitCode = nil
+	case vt.CommandEnd:
+		sh.State = "prompt"
+		if m.HasExitCode {
+			c := m.ExitCode
+			sh.ExitCode = &c
+		}
+	}
+	same := before.State == sh.State && before.Command == sh.Command &&
+		(before.ExitCode == nil) == (sh.ExitCode == nil) &&
+		(before.ExitCode == nil || *before.ExitCode == *sh.ExitCode)
+	if !same {
+		sh.Mark, sh.At = p.writeEnd, time.Now()
+		p.notes = append(p.notes, note{shell: p.shellCopy()})
+	}
+}
+
+// promptAfter reports whether a prompt started after mark. The pane's
+// lock is held.
+func (p *Pane) promptAfter(mark uint64) bool {
+	for i := len(p.prompts) - 1; i >= 0; i-- {
+		if p.prompts[i] > mark {
+			return true
+		}
+	}
+	return false
 }
 
 // broadcast wakes every wait. The pane's lock is held.
@@ -395,7 +504,21 @@ func (p *Pane) Info() Info {
 		e := *p.exit
 		i.Exit = &e
 	}
+	i.Shell = p.shellCopy()
 	return i
+}
+
+// shellCopy copies the shell state; the pane's lock is held.
+func (p *Pane) shellCopy() *Shell {
+	if p.shell == nil {
+		return nil
+	}
+	sh := *p.shell
+	if sh.ExitCode != nil {
+		c := *sh.ExitCode
+		sh.ExitCode = &c
+	}
+	return &sh
 }
 
 // Mark returns the position just after the pane's latest output.

@@ -55,6 +55,50 @@ type Options struct {
 	Reply func(p []byte)
 	// Bell is called on BEL.
 	Bell func()
+	// Prompt is called when the shell marks a step of a command with OSC
+	// 133 (shell integration): a prompt starts, input starts, a command
+	// starts running, a command ends. It runs while Write processes the
+	// output, after the screen has been updated.
+	Prompt func(PromptMark)
+	// Status is called for an OSC 7501 program status report (a program
+	// saying it is working, blocked on the user, idle, done or failed).
+	// When it is set, the terminal also answers a program that asks
+	// whether reports are supported. It runs while Write processes the
+	// output.
+	Status func(ProgramStatus)
+}
+
+// PromptKind is the step of a shell command an OSC 133 mark reports.
+type PromptKind uint8
+
+const (
+	// PromptStart: the shell starts drawing a prompt (OSC 133 A).
+	PromptStart PromptKind = iota + 1
+	// InputStart: the prompt is drawn and the user can type (OSC 133 B).
+	InputStart
+	// OutputStart: a command was submitted and runs (OSC 133 C).
+	OutputStart
+	// CommandEnd: the command finished (OSC 133 D).
+	CommandEnd
+)
+
+// PromptMark is one OSC 133 mark.
+type PromptMark struct {
+	Kind PromptKind
+	// Command is the command line, for OutputStart, when the shell sent it.
+	Command string
+	// ExitCode is the command's status, for CommandEnd, when HasExitCode.
+	ExitCode    int
+	HasExitCode bool
+}
+
+// ProgramStatus is an OSC 7501 report. State is "idle", "working",
+// "done", "blocked", "error" or "clear"; Kind, for "blocked", is
+// "permission", "question", "auth" or empty. Progress is 0 to 100, or -1.
+type ProgramStatus struct {
+	State, Kind             string
+	Progress                int
+	ID, App, Title, Message string
 }
 
 // CaptureOptions selects what Capture returns.

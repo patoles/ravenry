@@ -24,6 +24,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"ravenryd/internal/agent"
 	"ravenryd/internal/pane"
 	"ravenryd/internal/paths"
 	"ravenryd/internal/proto"
@@ -53,6 +54,17 @@ type Server struct {
 	draining string
 	stop     chan struct{}
 	stopOnce sync.Once
+
+	agents    *agent.Tracker
+	deciders  map[*conn]struct{}
+	decisions map[uint64]*decision
+	nextDec   uint64
+}
+
+// decision is a hook's report waiting for a decider's reply.
+type decision struct {
+	asked map[*conn]bool // deciders that have not answered yet
+	ch    chan *proto.Reply
 }
 
 // New returns a Server.
@@ -60,8 +72,12 @@ func New(o Options) *Server {
 	if o.Log == nil {
 		o.Log = log.New(io.Discard, "", 0)
 	}
-	s := &Server{o: o, started: time.Now(), conns: map[*conn]struct{}{}, stop: make(chan struct{})}
+	s := &Server{
+		o: o, started: time.Now(), conns: map[*conn]struct{}{}, stop: make(chan struct{}),
+		agents: agent.New(), deciders: map[*conn]struct{}{}, decisions: map[uint64]*decision{},
+	}
 	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, ErrorLog: o.Log}
+	o.Manager.Watch(s.paneEvent)
 	return s
 }
 
@@ -208,6 +224,7 @@ type conn struct {
 	next    uint32
 	reqs    map[uint64]context.CancelFunc
 	unwatch func()
+	display bool
 
 	events chan proto.Event
 	input  chan func()
@@ -259,6 +276,7 @@ func (c *conn) close() {
 	if unwatch != nil {
 		unwatch()
 	}
+	c.s.dropDecider(c)
 	c.ws.CloseNow()
 }
 
@@ -480,6 +498,13 @@ func init() {
 		"pane.settle":      (*conn).paneSettle,
 		"pane.subscribe":   (*conn).paneSubscribe,
 		"pane.unsubscribe": (*conn).paneUnsubscribe,
+		"pane.process":     (*conn).paneProcess,
+		"pane.restart":     (*conn).paneRestart,
+		"pane.focus":       (*conn).paneFocus,
+		"agent.report":     (*conn).agentReport,
+		"agent.events":     (*conn).agentEvents,
+		"agent.decisions":  (*conn).agentDecisions,
+		"agent.decide":     (*conn).agentDecide,
 	}
 }
 
@@ -534,12 +559,16 @@ func (c *conn) eventsSubscribe(id uint64, data []byte) {
 	}
 	c.mu.Lock()
 	already := c.unwatch != nil
+	c.display = r.Display
 	c.mu.Unlock()
 	if !already {
 		// Reply first, so the result comes before any event.
 		c.reply(id, "events.subscribe", proto.Empty{})
 		unwatch := c.s.o.Manager.Watch(func(ev pane.Event) {
-			p := paneInfo(ev.Pane)
+			if ev.Type == "status" {
+				return // reported as agent.report
+			}
+			p := c.s.paneInfo(ev.Pane)
 			c.event(proto.Event{V: proto.Version, Type: "event", Event: "pane." + ev.Type, Pane: &p})
 		})
 		c.mu.Lock()
@@ -593,7 +622,7 @@ func (c *conn) paneNew(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	c.reply(id, "pane.new", proto.PaneResult{Pane: paneInfo(p.Info())})
+	c.reply(id, "pane.new", proto.PaneResult{Pane: c.s.paneInfo(p.Info())})
 }
 
 func (c *conn) paneList(id uint64, data []byte) {
@@ -605,7 +634,7 @@ func (c *conn) paneList(id uint64, data []byte) {
 	infos := c.s.o.Manager.List(r.Hidden)
 	out := make([]proto.Pane, 0, len(infos))
 	for _, i := range infos {
-		out = append(out, paneInfo(i))
+		out = append(out, c.s.paneInfo(i))
 	}
 	c.reply(id, "pane.list", proto.ListResult{Panes: out})
 }
@@ -634,7 +663,7 @@ func (c *conn) paneClose(id uint64, data []byte) {
 			c.failErr(id, err)
 			return
 		}
-		c.reply(id, "pane.close", proto.CloseResult{Pane: paneInfo(info), Signalled: n})
+		c.reply(id, "pane.close", proto.CloseResult{Pane: c.s.paneInfo(info), Signalled: n})
 	})
 }
 
@@ -657,7 +686,7 @@ func (c *conn) paneResize(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	c.reply(id, "pane.resize", proto.PaneResult{Pane: paneInfo(p.Info())})
+	c.reply(id, "pane.resize", proto.PaneResult{Pane: c.s.paneInfo(p.Info())})
 }
 
 func (c *conn) paneCapture(id uint64, data []byte) {
@@ -906,7 +935,8 @@ func (c *conn) paneWait(id uint64, data []byte) {
 		}
 		spec.Timeout = t
 	}
-	if spec.Text == nil && spec.Quiet == 0 && !spec.Exit {
+	spec.Prompt = r.Prompt
+	if spec.Text == nil && spec.Quiet == 0 && !spec.Exit && !spec.Prompt {
 		c.failErr(id, bad("%v", pane.ErrBadSpec))
 		return
 	}
@@ -943,6 +973,7 @@ func waitResult(id string, w *pane.WaitResult) proto.WaitResult {
 	if res.Screen == nil {
 		res.Screen = []string{}
 	}
+	res.Shell = shellInfo(w.Shell)
 	return res
 }
 
@@ -1106,7 +1137,7 @@ func (c *conn) paneUnsubscribe(id uint64, data []byte) {
 	c.reply(id, "pane.unsubscribe", proto.Empty{})
 }
 
-func paneInfo(i pane.Info) proto.Pane {
+func (s *Server) paneInfo(i pane.Info) proto.Pane {
 	p := proto.Pane{
 		ID: i.ID, Name: i.Name, Command: i.Command, Cwd: i.Cwd, PID: i.PID, Cols: i.Cols, Rows: i.Rows,
 		Hidden: i.Hidden, TTLMs: i.TTL.Milliseconds(), CreatedAt: stamp(i.Created), Title: i.Title,
@@ -1119,5 +1150,14 @@ func paneInfo(i pane.Info) proto.Pane {
 		p.State = "exited"
 		p.Exit = &proto.Exit{Code: i.Exit.Code, Signal: i.Exit.Signal}
 	}
+	p.Shell = shellInfo(i.Shell)
+	p.Agent = statusInfo(s.agents.Status(i.ID))
 	return p
+}
+
+func shellInfo(sh *pane.Shell) *proto.Shell {
+	if sh == nil {
+		return nil
+	}
+	return &proto.Shell{State: sh.State, Command: sh.Command, ExitCode: sh.ExitCode, Mark: sh.Mark, At: stamp(sh.At)}
 }

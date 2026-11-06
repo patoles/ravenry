@@ -124,6 +124,43 @@ func TestTitle(t *testing.T) {
 	}
 }
 
+func TestPromptMarksAndProgramStatus(t *testing.T) {
+	var marks []PromptMark
+	var reports []ProgramStatus
+	var replies []byte
+	s, err := New(Options{
+		Cols: 40, Rows: 5,
+		Reply:  func(p []byte) { replies = append(replies, p...) },
+		Prompt: func(m PromptMark) { marks = append(marks, m) },
+		Status: func(st ProgramStatus) { reports = append(reports, st) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.Write([]byte("\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07out\r\n\x1b]133;D;2\x07"))
+	want := []PromptKind{PromptStart, InputStart, OutputStart, CommandEnd}
+	if len(marks) != 4 {
+		t.Fatalf("marks %+v", marks)
+	}
+	for i, k := range want {
+		if marks[i].Kind != k {
+			t.Fatalf("mark %d: %+v", i, marks[i])
+		}
+	}
+	if !marks[3].HasExitCode || marks[3].ExitCode != 2 {
+		t.Fatalf("command end %+v", marks[3])
+	}
+	s.Write([]byte("\x1b]7501;state=blocked:kind=question:app=claude-code:msg=V2hpY2g/\x1b\\\x1b]7501;state=done\x07\x1b]7501;?\x1b\\"))
+	if len(reports) != 2 || reports[0].State != "blocked" || reports[0].Kind != "question" || reports[0].App != "claude-code" ||
+		reports[0].Message != "Which?" || reports[1].State != "done" || reports[1].Progress != -1 {
+		t.Fatalf("reports %+v", reports)
+	}
+	if !strings.Contains(string(replies), "7501;?:states=") {
+		t.Fatalf("support query reply %q", replies)
+	}
+}
+
 // roundTrip writes a snapshot into a fresh screen and checks that it reads
 // back the same: text, styles, cursor, scrollback, alt screen.
 func roundTrip(t *testing.T, src Screen) Screen {

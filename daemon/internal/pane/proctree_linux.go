@@ -29,8 +29,9 @@ func listProcs() []proc {
 			continue
 		}
 		ppid, _ := strconv.Atoi(f[1])
+		pgid, _ := strconv.Atoi(f[2])
 		sid, _ := strconv.Atoi(f[3])
-		out = append(out, proc{pid: pid, ppid: ppid, sid: sid})
+		out = append(out, proc{pid: pid, ppid: ppid, sid: sid, pgid: pgid})
 	}
 	return out
 }
