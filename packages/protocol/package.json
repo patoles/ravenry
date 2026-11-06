@@ -1,0 +1,13 @@
+{
+  "name": "@ravenry/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Ravenry protocol spec, versioned from v1.",
+  "license": "Apache-2.0",
+  "author": "Simon Patole",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/patoles/ravenry-app.git",
+    "directory": "packages/protocol"
+  }
+}
