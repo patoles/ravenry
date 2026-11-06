@@ -118,6 +118,10 @@ jobs:
         run: |
           npm --workspace @ravenry/desktop run pack -- --linux --arch x64 --dir --skip-build --ravenryd "$RUNNER_TEMP/rv"
           xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/package-check.mjs apps/desktop/release/linux-unpacked "$RUNNER_TEMP/smoke/package" --old-ravenryd "$RUNNER_TEMP/old/ravenryd"
+      # A first run of the packaged app, from launch to a working session,
+      # with a stand-in Claude Code: it must take under 30 seconds.
+      - name: The packaged app's first run, timed
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/first-run.mjs apps/desktop/release/linux-unpacked "$RUNNER_TEMP/smoke/first-run" --budget 30000
       # The checks stop their daemons with SIGTERM and return; a daemon still
       # removing its pane logs while the folder is zipped fails the upload.
       - name: Let the test daemons exit

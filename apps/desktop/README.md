@@ -188,6 +188,15 @@ service says. CI's release workflow (`.github/workflows/release.yml`)
 builds every target on a machine of its own, checks every artifact and,
 on a `v*` tag, uploads them to a draft release, never published by CI.
 
+**The first run, timed.** `node tools/first-run.mjs APP [OUT] [--runs N]`
+opens a packaged app for the first time in a fresh throwaway HOME (a
+project in ~/code and a stand-in Claude Code, `tools/stand-in-claude.sh`,
+in ~/.local/bin, off the PATH as for an app started from the Finder),
+starts the hub as its written service says the moment it appears, and
+times the window, the first prompt of a new shell, and Start Claude on
+the first-launch screen (hook offer accepted) until the session is in the
+sidebar. It fails over 30 s (`--budget`); CI runs it on the Linux package.
+
 **Signing (macOS).** With a Developer ID certificate (`CSC_LINK`,
 `CSC_KEY_PASSWORD`) the app is signed with the hardened runtime, and with
 an App Store Connect API key (`APPLE_API_KEY` as the .p8's path,
