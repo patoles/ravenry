@@ -27,8 +27,8 @@ export async function runApp(opts) {
     RAVENRY_NEW_SHELL: shell, PS1: 'you@mac %1~ %# ',
     RAVENRY_OFFSCREEN: '1', RAVENRY_THEME: 'dark', RAVENRY_WIDTH: String(width), RAVENRY_HEIGHT: String(height),
     RAVENRY_DRIVER: path.join(HERE, 'driver.cjs'), RAVENRY_DRIVE: plan, RAVENRY_DRIVE_LOG: process.env.RAVENRY_DRIVE_LOG || '',
-    ...(process.env.DISPLAY ? { DISPLAY: process.env.DISPLAY } : {}),
-    ...(process.env.XDG_RUNTIME_DIR ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
+    // The X server (xvfb-run sets DISPLAY and XAUTHORITY) and the user's runtime folder.
+    ...Object.fromEntries(['DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR'].filter((k) => process.env[k]).map((k) => [k, process.env[k]])),
     ...more,
   };
   // Linux CI has no setuid sandbox helper.
