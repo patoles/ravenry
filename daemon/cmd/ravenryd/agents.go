@@ -43,10 +43,65 @@ func cmdProcess(in []string) error {
 	if f.Exe != "" {
 		fmt.Printf("exe\t%s\n", f.Exe)
 	}
+	if f.ExeModifiedAt != "" {
+		fmt.Printf("exe-modified\t%s\n", f.ExeModifiedAt)
+	}
 	if f.StartedAt != "" {
 		fmt.Printf("started\t%s\n", f.StartedAt)
 	}
+	if g := f.Git; g != nil {
+		fmt.Printf("git\t%s\n", g.Root)
+		switch {
+		case g.Head == "":
+			fmt.Printf("head\tno commit yet\n")
+		case g.Branch != "":
+			fmt.Printf("head\t%s on %s\n", short(g.Head), g.Branch)
+		default:
+			fmt.Printf("head\t%s (detached)\n", short(g.Head))
+		}
+		if g.StartedOn != "" {
+			fmt.Printf("started-on\t%s\n", short(g.StartedOn))
+		} else if f.StartedAt != "" {
+			fmt.Printf("started-on\tunknown (the HEAD reflog does not tell)\n")
+		}
+	}
+	if f.Changed != nil {
+		if !*f.Changed {
+			fmt.Printf("changed\tno\n")
+		} else {
+			why := []string{}
+			for _, c := range f.Changes {
+				switch c {
+				case "head":
+					why = append(why, "HEAD moved since it started")
+				case "files":
+					why = append(why, "tracked files were edited since it started")
+				case "exe":
+					why = append(why, "its executable was rebuilt since it started")
+				default:
+					why = append(why, c)
+				}
+			}
+			fmt.Printf("changed\tyes: %s; restart it to run the new code\n", strings.Join(why, ", "))
+		}
+	}
+	if g := f.Git; g != nil {
+		for _, e := range g.Edited {
+			fmt.Printf("edited\t%s\n", e)
+		}
+		if g.Partial {
+			fmt.Printf("partial\tnot every tracked file was checked\n")
+		}
+	}
 	return nil
+}
+
+// short is a commit's first 12 characters.
+func short(commit string) string {
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
 }
 
 func cmdRestart(in []string) error {
@@ -66,6 +121,9 @@ func cmdRestart(in []string) error {
 		}
 		params["grace_ms"] = d.Milliseconds()
 	}
+	if a.bools["command"] {
+		params["shell_command"] = true
+	}
 	ctx, cancel := callCtx(90 * time.Second)
 	defer cancel()
 	c, err := connectFor(ctx, a.g, id)
@@ -79,6 +137,10 @@ func cmdRestart(in []string) error {
 	}
 	if a.g.json {
 		return printJSON(r)
+	}
+	if r.Mark != nil {
+		fmt.Println(*r.Mark)
+		return nil
 	}
 	fmt.Println(r.Pane.ID)
 	return nil

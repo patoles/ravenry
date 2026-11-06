@@ -66,6 +66,27 @@ export interface Process {
   exe?: string;
   cwd?: string;
   started_at?: string;
+  /** pane.process: when its executable file was last modified. */
+  exe_modified_at?: string;
+  /** pane.process: the git work tree of its working directory. */
+  git?: GitState;
+  /** pane.process: whether its code changed since it started (left out when its start is unknown). */
+  changed?: boolean;
+  /** Why it changed: HEAD moved, tracked files edited, executable rebuilt. */
+  changes?: ('head' | 'files' | 'exe')[];
+}
+
+/** The git work tree a process works in (pane.process). */
+export interface GitState {
+  root: string;
+  head?: string;
+  branch?: string;
+  /** The commit HEAD named when the process started, from the HEAD reflog. */
+  started_on?: string;
+  /** Tracked files modified since it started, newest first, at most 20. */
+  edited?: string[];
+  /** Not every tracked file was checked. */
+  partial?: true;
 }
 
 export interface Reply {
@@ -330,7 +351,10 @@ export interface Methods {
     result: WaitResult;
   };
   'pane.process': { params: { pane: PaneId }; result: { pane: PaneId; foreground: Process } };
-  'pane.restart': { params: { pane: PaneId; grace_ms?: number }; result: { pane: Pane; replaced: Pane } };
+  'pane.restart': {
+    params: { pane: PaneId; grace_ms?: number; shell_command?: boolean };
+    result: { pane: Pane; replaced: Pane; command?: string; mark?: Mark; stopped_by?: 'interrupt' | 'SIGTERM' | 'SIGKILL' };
+  };
   'pane.focus': { params: { pane: PaneId }; result: { displays: number } };
   'agent.report': {
     params: {

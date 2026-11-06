@@ -674,6 +674,44 @@
       "additionalProperties": false,
       "description": "How a pane's first process ended."
     },
+    "GitState": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "The work tree's top folder."
+        },
+        "head": {
+          "type": "string",
+          "description": "The commit HEAD names now. Left out in a repository with no commit."
+        },
+        "branch": {
+          "type": "string",
+          "description": "The branch HEAD is on. Left out when HEAD is detached."
+        },
+        "started_on": {
+          "type": "string",
+          "description": "The commit HEAD named when the process started: the last HEAD reflog entry at or before started_at. Left out when the reflog cannot tell."
+        },
+        "edited": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "description": "Tracked files modified more than a second after the process started, relative to root, newest first, at most 20."
+        },
+        "partial": {
+          "const": true,
+          "description": "Not every tracked file was checked: there were more than 20000, or git did not answer in time."
+        }
+      },
+      "required": [
+        "root"
+      ],
+      "additionalProperties": false,
+      "description": "The git work tree a process works in, read when asked."
+    },
     "Input": {
       "description": "One piece of input. Text always names its mode; a key is a name from the spec's key list or one character, with modifiers.",
       "oneOf": [
@@ -985,6 +1023,29 @@
         },
         "started_at": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "exe_modified_at": {
+          "$ref": "#/$defs/Timestamp",
+          "description": "When its executable file was last modified (built or installed). pane.process only."
+        },
+        "git": {
+          "$ref": "#/$defs/GitState",
+          "description": "The git work tree of its working directory, when it is in one. pane.process only."
+        },
+        "changed": {
+          "type": "boolean",
+          "description": "Whether the code it runs changed since it started, by any of changes. Left out when its start is unknown. pane.process only."
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "head",
+              "files",
+              "exe"
+            ]
+          },
+          "description": "Why changed is true: head, HEAD names another commit than it started on; files, a tracked file was modified more than a second after it started; exe, its executable file was."
         }
       },
       "required": [
@@ -2263,6 +2324,10 @@
           "minimum": 0,
           "maximum": 60000,
           "description": "As in pane.close (default 1000)."
+        },
+        "shell_command": {
+          "type": "boolean",
+          "description": "Restart only the command the pane's shell runs, in the same pane: interrupt it as Ctrl-C does (then SIGTERM to the foreground process group at half of grace_ms, SIGKILL at its end), wait for the prompt, and type the same command line (OSC 133 C) and Enter. Fails with failed when the shell sent no command line or is at its prompt."
         }
       },
       "required": [
@@ -3586,11 +3651,27 @@
           "properties": {
             "pane": {
               "$ref": "#/$defs/Pane",
-              "description": "The new pane (a new id)."
+              "description": "The new pane (a new id). With shell_command, the same pane, as it is now."
             },
             "replaced": {
               "$ref": "#/$defs/Pane",
-              "description": "The old pane, as it ended."
+              "description": "The old pane, as it ended. With shell_command, the same pane as pane."
+            },
+            "command": {
+              "type": "string",
+              "description": "With shell_command: the command line typed again."
+            },
+            "mark": {
+              "$ref": "#/$defs/Mark",
+              "description": "With shell_command: the mark just before the command line was typed."
+            },
+            "stopped_by": {
+              "enum": [
+                "interrupt",
+                "SIGTERM",
+                "SIGKILL"
+              ],
+              "description": "With shell_command: what ended the command."
             }
           },
           "required": [

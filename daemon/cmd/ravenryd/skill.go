@@ -69,6 +69,12 @@ newest daemon on this machine (and start one if none runs).
   suggestion is not typed text.
 - **A timed-out wait is not a failure of the command.** It exits 124; look
   at the pane (` + "`capture`" + `) before you send anything again.
+- **Check what runs before you say a fix is live.** A server or board
+  started before your change still runs the old code. ` + "`ravenry process PANE`" + `
+  gives its command, executable, start, the git HEAD it started on and
+  ` + "`changed`" + ` with why (HEAD moved, files edited, executable rebuilt). When it
+  changed, ` + "`ravenry restart PANE --command`" + ` reruns the shell's command in the
+  same pane (` + "`ravenry restart PANE`" + ` restarts a pane that runs it directly).
 - **Clean up.** ` + "`ravenry close PANE`" + ` ends the pane and every process it
   started, including ones that detached. For a pane only you need, use
   ` + "`new --hidden --ttl 30m`" + ` so it goes by itself.

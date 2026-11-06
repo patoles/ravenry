@@ -436,11 +436,37 @@ func (c *conn) paneProcess(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	fg := proto.Process{PID: pr.PID, Argv: pr.Argv, Exe: pr.Exe, Cwd: pr.Cwd, StartedAt: stamp(pr.Started)}
+	// What changed since it started runs git: off the connection's loop.
+	c.track(id, func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+		defer cancel()
+		pane.CheckSource(ctx, pr)
+		if err := ctx.Err(); errors.Is(err, context.Canceled) {
+			c.failErr(id, err)
+			return
+		}
+		c.reply(id, "pane.process", proto.ProcessResult{Pane: r.Pane, Foreground: processOf(pr)})
+	})
+}
+
+// sourceTimeout bounds what pane.process does to tell what changed since
+// the process started.
+const sourceTimeout = 5 * time.Second
+
+func processOf(pr *pane.Process) proto.Process {
+	fg := proto.Process{PID: pr.PID, Argv: pr.Argv, Exe: pr.Exe, Cwd: pr.Cwd, StartedAt: stamp(pr.Started),
+		ExeModifiedAt: stamp(pr.ExeModified)}
 	if fg.Argv == nil {
 		fg.Argv = []string{}
 	}
-	c.reply(id, "pane.process", proto.ProcessResult{Pane: r.Pane, Foreground: fg})
+	if g := pr.Git; g != nil {
+		fg.Git = &proto.GitState{Root: g.Root, Head: g.Head, Branch: g.Branch, StartedOn: g.StartedOn, Edited: g.Edited, Partial: g.Partial}
+	}
+	if pr.Checked {
+		changed := len(pr.Changes) > 0
+		fg.Changed, fg.Changes = &changed, pr.Changes
+	}
+	return fg
 }
 
 func (c *conn) paneRestart(id uint64, data []byte) {
@@ -457,8 +483,21 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 		}
 		grace = time.Duration(*r.GraceMs) * time.Millisecond
 	}
-	if _, err := c.pane(r.Pane); err != nil {
+	p, err := c.pane(r.Pane)
+	if err != nil {
 		c.failErr(id, err)
+		return
+	}
+	if r.ShellCommand {
+		c.track(id, func(ctx context.Context) {
+			rr, err := p.RerunCommand(ctx, grace)
+			if err != nil {
+				c.failErr(id, err)
+				return
+			}
+			pi := c.s.paneInfo(p.Info())
+			c.reply(id, "pane.restart", proto.RestartResult{Pane: pi, Replaced: pi, Command: rr.Command, Mark: &rr.Mark, StoppedBy: rr.StoppedBy})
+		})
 		return
 	}
 	c.track(id, func(context.Context) {

@@ -205,7 +205,7 @@ func (l *lockedBuffer) String() string {
 	return l.b.String()
 }
 
-func startDaemon(t *testing.T) *daemon {
+func startDaemon(t *testing.T, opts ...func(*pane.ManagerOptions)) *daemon {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "rv")
 	if err != nil {
@@ -218,7 +218,11 @@ func startDaemon(t *testing.T) *daemon {
 	env := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8"}
 	testenv.Check(t, env)
 	testenv.CheckDirs(t, dir)
-	mgr := pane.NewManager(pane.ManagerOptions{LogDir: dir, Socket: sock, Env: env})
+	mo := pane.ManagerOptions{LogDir: dir, Socket: sock, Env: env}
+	for _, o := range opts {
+		o(&mo)
+	}
+	mgr := pane.NewManager(mo)
 	lb := &lockedBuffer{}
 	srv := New(Options{Version: "0.0.0-test", Manager: mgr, Socket: sock, Log: log.New(lb, "", 0)})
 	ln, err := net.Listen("unix", sock)

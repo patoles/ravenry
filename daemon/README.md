@@ -58,8 +58,13 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   no answer in time, the hook prints nothing and exits 0, so the session
   goes on.
 - **What runs in a pane, and restart.** The foreground process with its
-  arguments, executable, working directory and start time; restart
-  starts the pane's command again with the same directory and env.
+  arguments, executable (and when it was modified), working directory
+  and start time, and whether the code it runs changed since it started:
+  the git HEAD it started on (from the HEAD reflog) against HEAD now,
+  tracked files edited since, a rebuilt executable. Worked out when
+  asked, with git bounded by timeouts. Restart starts the pane's command
+  again with the same directory and env, or, with `--command`, only the
+  command its shell runs (OSC 133), in the same pane.
 - **Updates that never kill a session.** Each version listens on its own
   socket. A new version starts beside the old one, new panes go to it, and
   the old one keeps its panes and exits once none of them is running.
@@ -147,7 +152,8 @@ ravenry wait "$id" --quiet 300ms --since "$mark"
 ravenry capture "$id" --styles --json
 ravenry settle "$id" --paste 'git status' --key Enter   # prints the rows that changed
 ravenry wait "$id" --prompt              # the next prompt (with shell integration)
-ravenry process "$id"                     # what runs there: pid, argv, cwd
+ravenry process "$id"                     # what runs there: pid, argv, cwd, and whether its code changed since it started
+ravenry restart "$id" --command           # Ctrl-C the shell's command and type it again, in the same pane
 ravenry agents                            # the agent state of every pane
 ravenry close "$id"
 

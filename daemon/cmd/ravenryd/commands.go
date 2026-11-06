@@ -110,7 +110,7 @@ func init() {
 			{"limit", valueFlag, "BYTES", "at most this much (default 1 MiB)"},
 			{"raw", boolFlag, "", "the bytes, escapes kept"},
 		}, run: cmdRead},
-		{name: "process", group: "Panes", args: "PANE", summary: "what runs in its foreground: pid, arguments, executable, folder", run: cmdProcess},
+		{name: "process", group: "Panes", args: "PANE", summary: "what runs in its foreground: pid, arguments, executable and when it was built, folder, start, the git HEAD it started on, and whether its code changed since (HEAD moved, files edited, executable rebuilt)", run: cmdProcess},
 		{name: "update", group: "Panes", args: "PANE", summary: "rename a pane, or set and remove its labels", flags: []flagDoc{
 			{"name", valueFlag, "NAME", "its new name (empty clears it)"},
 			{"label", listFlag, "KEY=VALUE", "set a label (repeatable)"},
@@ -119,6 +119,7 @@ func init() {
 		{name: "resize", group: "Panes", args: "PANE COLSxROWS", summary: "change its size", run: cmdResize},
 		{name: "restart", group: "Panes", args: "PANE", summary: "close it and start its command again (same env, its current folder, name and labels); prints the new id", flags: []flagDoc{
 			{"grace", valueFlag, durationArg, "how long its processes get to end (default 1s)"},
+			{"command", boolFlag, "", "only the command its shell runs, in the same pane: Ctrl-C (then SIGTERM, SIGKILL within --grace), wait for the prompt, type the same command line; prints the mark just before it"},
 		}, run: cmdRestart},
 		{name: "close", group: "Panes", args: "PANE", summary: "end the pane and every process it started", flags: []flagDoc{
 			{"grace", valueFlag, durationArg, "how long its processes get to end (default 1s)"},

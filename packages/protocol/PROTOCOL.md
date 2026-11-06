@@ -129,7 +129,7 @@ the daemon sends (section 10).
 
 - Most requests answer at once, in order.
 - `pane.wait`, `pane.settle`, `pane.close`, `pane.restart`, `pane.send`,
-  `checkpoint.wait` and `agent.report` with `decide` can take time (a send waits for
+  `pane.process`, `checkpoint.wait` and `agent.report` with `decide` can take time (a send waits for
   earlier input of the connection, and typed text takes a pause per
   character). Other requests are handled meanwhile, so their results can
   arrive in another order. Match results to requests by `id`.
@@ -535,12 +535,39 @@ and when the system tells them, `exe` (its executable's path), `cwd` (its
 working directory now) and `started_at`. Fails with `failed` once the
 pane's first process has exited.
 
+**What changed since it started.** `pane.process` also says whether the
+code the process runs is still the code on disk, so a client can tell a
+server or board that needs a restart to load new code. It is worked out
+when asked (git runs then, each command bounded by a timeout, the whole
+by a few seconds), never tracked in the background. The foreground
+Process gets:
+
+- `exe_modified_at`: when its executable file was last modified (built
+  or installed). Its version is not probed: the path and this time are
+  what can be known of any program.
+- `git`, when `cwd` is in a git work tree, a GitState: `root` (the work
+  tree's top folder), `head` (the commit HEAD names now; left out with no
+  commit yet), `branch` (left out when HEAD is detached), `started_on`
+  (the commit HEAD named when the process started: the last entry of the
+  HEAD reflog at or before `started_at`; left out when the reflog cannot
+  tell), `edited` (tracked files modified more than a second after the
+  start, relative to `root`, newest first, at most 20) and `partial`
+  (`true` when not every tracked file was checked: at most 20000 are, and
+  git must answer in time).
+- `changed`, with `started_at` known: `true` when the code changed since
+  the start, and then `changes` says why, in this order: `head` (HEAD
+  names another commit than `started_on`), `files` (`edited` is not
+  empty) and `exe` (`exe_modified_at` is more than a second after
+  `started_at`: a rebuilt binary). The second of slack is there because
+  Linux gives a start time against a boot time in whole seconds.
+
 ### pane.restart
 
 | Field | | |
 | --- | --- | --- |
 | `pane` | id | |
 | `grace_ms` | integer, optional | As in `pane.close`. |
+| `shell_command` | boolean, optional | Keep the pane and start only the command its shell runs again (below). |
 
 Closes the pane as `pane.close` does, then starts its command again in a
 new pane: the same `command` (the login shell when none was given),
@@ -550,6 +577,22 @@ environment as it is now. The environment a secret was given in
 (checkpoints) is not kept. Result: `pane`, the new
 pane (with a new id), and `replaced`, the old pane as it ended. The events
 are those of a close and a new pane.
+
+**Restarting the command a shell runs.** With `shell_command: true`,
+the pane is kept and only the command its shell runs starts again: the
+command line the shell reported when it started it (OSC 133 C, section
+3). The daemon interrupts the command as Ctrl-C
+does; when the shell's prompt has not come back after half of
+`grace_ms`, it sends SIGTERM to the terminal's foreground process group,
+and SIGKILL at the end of `grace_ms` (never to the group of the pane's
+first process, the shell). Once the prompt is back, it types the same
+command line (as a paste) and Enter. It fails with `failed` when the
+shell sent no OSC 133 marks, is at its prompt, did not report the command
+line, or did not draw its prompt again. Result: `pane` and `replaced`,
+both the same pane as it is now (its id does not change), `command` (the
+command line typed again), `mark` (the mark just before it was typed:
+wait from it for what it prints) and `stopped_by` (`interrupt`, `SIGTERM`
+or `SIGKILL`). The events are those of the shell's own state.
 
 ### pane.focus
 

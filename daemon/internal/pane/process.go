@@ -16,6 +16,14 @@ type Process struct {
 	Exe     string
 	Cwd     string
 	Started time.Time
+
+	// Filled by CheckSource: the executable file's modification time, the
+	// git work tree of Cwd, and what changed since the start (Checked
+	// once the start is known, so Changes empty means nothing did).
+	ExeModified time.Time
+	Git         *Git
+	Checked     bool
+	Changes     []string
 }
 
 // ErrExited is returned for what needs the pane's process running.

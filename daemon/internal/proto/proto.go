@@ -461,6 +461,21 @@ type Process struct {
 	Exe       string   `json:"exe,omitempty"`
 	Cwd       string   `json:"cwd,omitempty"`
 	StartedAt string   `json:"started_at,omitempty"`
+	// What changed since it started (pane.process).
+	ExeModifiedAt string    `json:"exe_modified_at,omitempty"`
+	Git           *GitState `json:"git,omitempty"`
+	Changed       *bool     `json:"changed,omitempty"`
+	Changes       []string  `json:"changes,omitempty"`
+}
+
+// GitState is the git work tree a process works in.
+type GitState struct {
+	Root      string   `json:"root"`
+	Head      string   `json:"head,omitempty"`
+	Branch    string   `json:"branch,omitempty"`
+	StartedOn string   `json:"started_on,omitempty"`
+	Edited    []string `json:"edited,omitempty"`
+	Partial   bool     `json:"partial,omitempty"`
 }
 
 type ProcessRequest struct {
@@ -475,13 +490,19 @@ type ProcessResult struct {
 
 type RestartRequest struct {
 	Envelope
-	Pane    string `json:"pane"`
-	GraceMs *int64 `json:"grace_ms,omitempty"`
+	Pane         string `json:"pane"`
+	GraceMs      *int64 `json:"grace_ms,omitempty"`
+	ShellCommand bool   `json:"shell_command,omitempty"`
 }
 
 type RestartResult struct {
 	Pane     Pane `json:"pane"`
 	Replaced Pane `json:"replaced"`
+	// With shell_command: the command line typed again, the mark just
+	// before it, and what ended the command.
+	Command   string  `json:"command,omitempty"`
+	Mark      *uint64 `json:"mark,omitempty"`
+	StoppedBy string  `json:"stopped_by,omitempty"`
 }
 
 type FocusRequest struct {
