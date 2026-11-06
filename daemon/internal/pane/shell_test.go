@@ -20,7 +20,9 @@ func shellHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	files := map[string]string{
-		".zshenv":   "export ENV_MARK=zshenv-ok\n",
+		// skip_global_compinit: Debian's /etc/zsh/zshrc runs compinit,
+		// which on a CI runner stops at a question about insecure folders.
+		".zshenv":   "export ENV_MARK=zshenv-ok\nskip_global_compinit=1\n",
 		".zprofile": "export PROFILE_MARK=zprofile-ok\n",
 		".zshrc":    "export RC_MARK=zshrc-ok\nPS1='zsh-user> '\n",
 		".bash_profile": "export PROFILE_MARK=bash_profile-ok\n" +
