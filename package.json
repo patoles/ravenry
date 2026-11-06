@@ -21,6 +21,7 @@
   },
   "workspaces": [
     "packages/client",
-    "apps/desktop"
+    "apps/desktop",
+    "apps/phone"
   ]
 }
