@@ -22,6 +22,10 @@
 // failed send is shown in the status and the log and tried once more after
 // RETRY_MS (30 s).
 //
+// The phone apps (server/push.mjs, docs/PHONE.md) are a third, with their
+// own trigger and state: an app alert carries the question and its buttons,
+// encrypted for each paired phone, and goes whenever an app is paired.
+//
 // Mac notifications (the bell, server/desktop.mjs) are a second channel with
 // the same triggers, wording and dedupe, run by their own trigger with its
 // own state, and their own switch: on unless the user turns the bell off
@@ -38,6 +42,7 @@ import { execFile } from 'node:child_process';
 
 import { RAVENRY_HOME } from './home.mjs';
 import * as desktop from './desktop.mjs';
+import * as push from './push.mjs';
 import {
   CHANNELS, DEFAULT_NTFY, telegramTokenOk, telegramMe, telegramFindChat,
   webhookKind, maskWebhook, ntfySubscribeLink, maskTopic, ntfyServerOk,
@@ -263,7 +268,10 @@ function testAlert(boardUrl) {
 // Send a test now through `id` (the sheet's channel) or the active one. A
 // test that goes through makes that channel the active one.
 export async function sendTest(id, boardUrl) {
+  // Paired apps get a test too (server/push.mjs), whatever the channel.
+  const apps = push.ready() ? push.send(push.testMessage()) : 0;
   const d = load();
+  if (apps && !CHANNELS[id || d.channel]) return { ok: true, apps };
   const ch = id || d.channel;
   if (!CHANNELS[ch]) return fail(409, 'Set up where alerts go first.');
   if (!ready(d, ch)) return fail(409, ch === 'telegram' ? 'Paste the token and find your chat first.' : ch === 'webhook' ? 'Paste a webhook URL first.' : 'Make a topic first.');
@@ -395,6 +403,13 @@ const phoneTrigger = makeTrigger({
   start: (alert) => { deliver(alert).catch((e) => console.error('alerts:', e.message)); },
 });
 
+// The phone apps' trigger: on whenever an app is paired; its alert is
+// drawn by server/push.mjs from the project, with the question and buttons.
+const appTrigger = makeTrigger({
+  on: () => push.ready(),
+  start: (alert, p) => { push.fromProject({ ...alert, gateKey: alert.kind === 'gate' ? gateKey(p) : null }, p); },
+});
+
 const desktopTrigger = makeTrigger({
   on: () => load().desktop.enabled !== false,
   start: (alert, p) => { deliverDesktop({ kind: alert.kind, projectId: alert.projectId, title: alert.title, body: alert.body, ...desktop.targetFor(p) }).catch((e) => console.error('desktop:', e.message)); },
@@ -413,6 +428,8 @@ async function deliverDesktop(alert) {
 export function observe(projects, opts = {}) {
   const out = phoneTrigger(projects, opts);
   out.desktop = desktopTrigger(projects, opts);
+  out.apps = appTrigger(projects, opts);
+  try { push.syncProjects(projects); } catch (e) { console.error('push:', e.message); }
   return out;
 }
 
@@ -433,5 +450,6 @@ export function checkpointAlert(cp, { project = null, machine = null, boardUrl =
   const d = load();
   if (d.enabled && ready(d, d.channel)) deliver(alert).catch((e) => console.error('alerts:', e.message));
   if (d.desktop.enabled !== false) deliverDesktop({ kind: 'checkpoint', projectId: alert.projectId, title: alert.title, body: alert.body }).catch((e) => console.error('desktop:', e.message));
+  try { push.fromCheckpoint(cp, { project, machine }); } catch (e) { console.error('push:', e.message); }
   return alert;
 }

@@ -10,6 +10,8 @@
 //   ravenry page check FILE, ravenry page docs [TOPIC]
 //                        a sidebar page file checked as the board reads it,
 //                        and the page docs (as the app's ravenry binary does)
+//   ravenry phone pair   turns phone access on and prints the pairing link and
+//                        its QR code for the Ravenry app (docs/PHONE.md)
 //   ravenry --version, ravenry help
 //
 // Where the board runs, by where `ravenry` is typed:
@@ -62,6 +64,8 @@ const HELP = `Ravenry ${PKG.version}: a local board for every Claude Code sessio
                        reads it, each problem with its line
   ravenry page docs [TOPIC]
                        the page docs, or one topic of them (board, ask, ...)
+  ravenry phone pair   turn phone access on and show the code that pairs the
+                       Ravenry app (needs the board running)
   ravenry --version    print the version
   ravenry help         this
 
@@ -472,6 +476,44 @@ async function page() {
   return 2;
 }
 
+// ------------------------------------------------------------ the phone app
+
+// Turns phone access on and prints what pairs the app: the link, a QR code
+// drawn with block characters, the code to type and its check number. The
+// board judges these calls like any other person's (server/person.mjs).
+async function phoneCmd() {
+  if (words[1] !== 'pair') { console.error('ravenry phone pair'); return 2; }
+  const base = `http://127.0.0.1:${PORT}`;
+  const call = async (method, p, body) => {
+    try {
+      const r = await fetch(base + p, method === 'GET' ? { signal: AbortSignal.timeout(5000) } : { method, headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+      return { status: r.status, body: await r.json().catch(() => ({})) };
+    } catch { return { status: 0, body: { error: `The board does not answer on ${base}. Start it with ravenry.` } }; }
+  };
+  let r = await call('GET', '/api/phone?code=new');
+  if (r.status === 200 && !r.body.access) r = await call('POST', '/api/phone/access', { on: true });
+  if (r.status !== 200 || !r.body.app) { console.error(r.body.error || 'The board did not give a pairing code.'); return 1; }
+  const a = r.body.app;
+  const { encode } = await import('../server/vendor/uqr.mjs');
+  const q = encode(a.link, { ecc: 'L', border: 2 });
+  const rows = q.data;
+  const out = [];
+  for (let y = 0; y < rows.length; y += 2) {
+    let line = '';
+    for (let x = 0; x < rows.length; x++) {
+      // White on black whatever the terminal's colours: a light module is drawn.
+      const top = !rows[y][x], bot = y + 1 < rows.length ? !rows[y + 1][x] : true;
+      line += top && bot ? '\u2588' : top ? '\u2580' : bot ? '\u2584' : ' ';
+    }
+    out.push(`\x1b[97;40m${line}\x1b[0m`);
+  }
+  console.log(`Scan this with the Ravenry app (phone access is on, port ${a.port}):\n\n${out.join('\n')}\n`);
+  console.log(`Or type it: ${a.hosts[0] || 'this computer'}, code ${a.code}`);
+  console.log(`Check number: ${a.check}`);
+  console.log(`The code works once, until ${new Date(a.expires).toLocaleTimeString()}.`);
+  return 0;
+}
+
 // ------------------------------------------------------------ main
 
 async function main() {
@@ -485,6 +527,7 @@ async function main() {
     case 'uninstall': return uninstall();
     case 'serve': return serve();
     case 'page': return page();
+    case 'phone': return phoneCmd();
     default: console.log(`Unknown command "${cmd}".\n\n${HELP}`); return 2;
   }
 }

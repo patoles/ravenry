@@ -30,6 +30,9 @@ import { ownerOf, repoRoot, isBroadFolder } from './folders.mjs';
 import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
+import * as phonetls from './phonetls.mjs';
+import * as push from './push.mjs';
+import * as termproxy from './termproxy.mjs';
 import * as pictures from './pictures.mjs';
 import * as alerts from './alerts.mjs';
 import * as projectsRoot from './projectsroot.mjs';
@@ -974,6 +977,8 @@ async function tick() {
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
+    // An app's alert for a checkpoint that closed comes off the phone (server/push.mjs).
+    try { push.syncCheckpoints(checkpoints.list().filter((c) => c.state === 'open').map((c) => c.id)); } catch (e) { console.error('push:', e.message); }
     // The sidebar's pages (server/pages.mjs): read again when a file
     // changed, with each one's number from its items.
     pagesProjects = projects;
@@ -1763,9 +1768,11 @@ function readBody(req, limit) {
 // it opened (the Host check in the request handler already vetted it).
 function allowedWrite(req) {
   const host = (req.headers.host || '').toLowerCase();
-  if (!req.mcPhone && !new RegExp(`^(localhost|127\\.0\\.0\\.1|\\[::1\\]):${PORT}$`).test(host)) return false;
+  if (!req.mcPhone && !req.mcTls && !new RegExp(`^(localhost|127\\.0\\.0\\.1|\\[::1\\]):${PORT}$`).test(host)) return false;
+  // An app on the phone port (docs/PHONE.md) sends no Origin; a page there
+  // would be https.
   const origin = req.headers.origin;
-  if (origin && origin.toLowerCase() !== `http://${host}`) return false;
+  if (origin && origin.toLowerCase() !== `${req.mcTls ? 'https' : 'http'}://${host}`) return false;
   // X-Mission-Control is the header's name from before the rename (the board
   // was Mission Control): a page opened before it still sends that one.
   return req.headers['x-ravenry'] === '1' || req.headers['x-mission-control'] === '1';
@@ -2326,7 +2333,18 @@ async function refusedAsPerson(req, res, p) {
 }
 
 // Phone access gate (server/phone.mjs). Returns true when it answered.
+// On the phone port (server/phonetls.mjs, docs/PHONE.md section 2) every
+// request is a phone's: it carries a device token, except the pairing and
+// hello, and nothing there is ever the Mac, loopback included.
 function gate(req, res, url) {
+  if (req.mcTls) {
+    const open = (req.method === 'POST' && url.pathname === '/api/phone/pair') || (req.method === 'GET' && url.pathname === '/api/phone/hello');
+    const c = phone.check(req);
+    if (c.ok) { req.mcPhone = c.hash; req.mcDevice = c.id; return false; }
+    if (open) { req.mcPairing = req.method === 'POST'; return false; }
+    sendJson(res, 401, { error: c.had ? phone.SIGNED_OUT : phone.NOT_SIGNED_IN, signedOut: true });
+    return true;
+  }
   if (!phone.hostOk(req.headers.host, PORT)) {
     res.writeHead(421, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('Misdirected request: this board answers only to localhost or its own Wi-Fi address.\n');
@@ -2338,38 +2356,139 @@ function gate(req, res, url) {
     return true;
   }
   const c = phone.check(req);
-  if (c.ok) { req.mcPhone = c.hash; return false; }
+  if (c.ok) { req.mcPhone = c.hash; req.mcDevice = c.id; return false; }
   const page = req.method === 'GET' && (url.pathname === '/' || url.pathname.endsWith('.html'));
   if (page) phone.signedOutPage(res, 401, c.had ? phone.SIGNED_OUT : phone.NOT_SIGNED_IN);
   else sendJson(res, 401, { error: phone.SIGNED_OUT, signedOut: true });
   return true;
 }
 
-// The QR card and New key: the Mac only, never a phone.
-function phoneCard() { return { ok: true, ...phone.card(PORT) }; }
+// The QR card and New key: the Mac only, never a phone. While phone
+// access is on it also pairs the app (docs/PHONE.md section 3).
+const PHONE_PORT = phonetls.phonePort(PORT);
+function phoneApp() { return { port: PHONE_PORT, pin: phonetls.identity().pin, hosts: phone.phoneHosts(phonetls.tailscaleAddresses()) }; }
+function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT }; }
 
-// After New key, live streams held by phones end, so their pages find out.
-function dropPhoneStreams() {
-  for (const res of clients) if (res.mcPhone) { clients.delete(res); try { res.end(); } catch { /* gone */ } }
+// After New key, live streams held by phones end, so their pages find out;
+// with a device id, only that device's (revoked, or signed out).
+function dropPhoneStreams(device = null) {
+  for (const res of clients) if (res.mcPhone && (!device || res.mcDevice === device)) { clients.delete(res); try { res.end(); } catch { /* gone */ } }
 }
 
-const server = http.createServer(async (req, res) => {
+// The phone port follows the phone access switch.
+function syncPhonePort() {
+  if (phone.access()) phonetls.start(PHONE_PORT, handleRequest, handleUpgrade);
+  else phonetls.stop();
+}
+
+// An app's alerts reach its live streams too (server/push.mjs).
+push.onLive((device, msg) => {
+  const j = JSON.stringify(msg);
+  for (const res of clients) if (res.mcDevice === device) res.write(`event: phone\ndata: ${j}\n\n`);
+});
+
+// The phone's own routes (docs/PHONE.md section 3): hello and pairing on
+// the phone port, then what a signed-in device asks about itself. Returns
+// true when it answered.
+async function phoneDeviceRoute(req, res, p) {
+  if (req.method === 'GET' && p === '/api/phone/hello') return sendJson(res, 200, { ok: true, name: phone.hubName(), api: 1, port: PHONE_PORT }), true;
+  if (req.method === 'POST' && p === '/api/phone/pair') {
+    if (await refusedAsPerson(req, res, p)) return true;
+    if (!req.mcTls) return sendJson(res, 404, { error: `Pair on the phone port (${PHONE_PORT}).` }), true;
+    let body;
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }), true; }
+    const r = phone.pair({ ...body, ua: req.headers['user-agent'] });
+    if (!r.ok) return sendJson(res, r.status, { error: r.error }), true;
+    console.log(`phone: paired ${r.device.name} (${r.device.id})`);
+    return sendJson(res, 200, { ok: true, device: r.device, token: r.token, hub: { name: phone.hubName(), pin: phonetls.identity().pin, port: PHONE_PORT, api: 1 } }), true;
+  }
+  if (req.method === 'GET' && p === '/api/phone/me') {
+    if (!req.mcDevice) return sendJson(res, 401, { error: phone.NOT_SIGNED_IN, signedOut: true }), true;
+    return sendJson(res, 200, { ok: true, device: phone.device(req.mcDevice), hub: { name: phone.hubName(), port: PHONE_PORT, api: 1 }, access: phone.access() }), true;
+  }
+  if (req.method === 'POST' && (p === '/api/phone/unpair' || p === '/api/phone/push')) {
+    if (!allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' }), true;
+    if (await refusedAsPerson(req, res, p)) return true;
+    if (!req.mcDevice) return sendJson(res, 401, { error: phone.NOT_SIGNED_IN, signedOut: true }), true;
+    let body;
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }), true; }
+    if (p === '/api/phone/unpair') {
+      phone.revoke(req.mcDevice);
+      console.log(`phone: ${req.mcDevice} signed itself out`);
+      setTimeout(() => dropPhoneStreams(req.mcDevice), 0);
+      return sendJson(res, 200, { ok: true }), true;
+    }
+    const t = push.checkTarget(body);
+    if (!t.ok) return sendJson(res, t.status, { error: t.error }), true;
+    phone.setPush(req.mcDevice, t.target);
+    return sendJson(res, 200, { ok: true, push: t.target ? t.target.kind : 'none' }), true;
+  }
+  return false;
+}
+
+// A WebSocket upgrade: the terminal on the phone (server/termproxy.mjs,
+// docs/PHONE.md section 6), a person row. On the board's own port only
+// from this machine, judged like any other caller.
+async function handleUpgrade(req, sock, head) {
+  sock.on('error', () => {});
+  const url = new URL(req.url, 'http://localhost');
+  const p = url.pathname;
+  const no = (status, text) => { try { sock.end(`HTTP/1.1 ${status}\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\nContent-Length: ${Buffer.byteLength(text)}\r\n\r\n${text}`); } catch { /* gone */ } };
+  if (p !== '/api/term') return no('404 Not Found', 'No such stream.');
+  if (req.mcTls) {
+    const c = phone.check(req);
+    if (!c.ok) return no('401 Unauthorized', phone.SIGNED_OUT);
+    req.mcPhone = c.hash; req.mcDevice = c.id;
+  } else if (!phone.isLoopback(req)) return no('403 Forbidden', 'The terminal stream is on the phone port.');
+  const r = person.personRoute('GET', p);
+  const who = await person.fromPerson(req, term.ravenryBin(), { daemons: term.ravenryDaemonsHere });
+  if (!who.ok) {
+    console.log(`refused GET ${p}: ${who.why}`);
+    return no('403 Forbidden', `${person.refusal(r)} This request was refused: ${who.why}.`);
+  }
+  return termproxy.handle(req, sock, head, url);
+}
+
+async function handleRequest(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
   try {
     if (gate(req, res, url)) return;
     if (req.method === 'GET' && p === '/api/whoami') return sendJson(res, 200, { local: !!req.mcLocal });
     if (p === '/api/phone' || p.startsWith('/api/phone/')) {
+      if (await phoneDeviceRoute(req, res, p)) return;
       if (!req.mcLocal) return sendJson(res, 403, { error: 'Only the Mac shows the phone code.' });
       if (req.method === 'POST' && !allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' });
       if (await refusedAsPerson(req, res, p)) return;
-      if (req.method === 'GET' && p === '/api/phone') return sendJson(res, 200, phoneCard());
+      if (req.method === 'GET' && p === '/api/phone') return sendJson(res, 200, phoneCard({ fresh: url.searchParams.get('code') === 'new' }));
+      if (req.method === 'GET' && p === '/api/phone/devices') return sendJson(res, 200, { ok: true, devices: phone.devices() });
       if (req.method === 'POST' && p === '/api/phone/new-key') {
         phone.rotate();
         dropPhoneStreams();
         return sendJson(res, 200, phoneCard());
       }
+      let body;
+      try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+      if (p === '/api/phone/devices/revoke') {
+        const id = String((body && body.id) || '');
+        if (!phone.revoke(id)) return sendJson(res, 404, { error: 'No such device.' });
+        console.log(`phone: revoked ${id}`);
+        dropPhoneStreams(id);
+        return sendJson(res, 200, { ok: true, devices: phone.devices() });
+      }
+      if (p === '/api/phone/access') {
+        phone.setAccess(!!(body && body.on === true));
+        syncPhonePort();
+        if (!phone.access()) dropPhoneStreams();
+        return sendJson(res, 200, phoneCard());
+      }
       return sendJson(res, 404, { error: 'unknown' });
+    }
+    if (p === '/api/term') {
+      // The terminal stream is a WebSocket (handleUpgrade); a plain request
+      // is still judged first, as every person row is.
+      if (await refusedAsPerson(req, res, p)) return;
+      return sendJson(res, 426, { error: 'Open /api/term as a WebSocket with the subprotocol ravenry.v1.' });
     }
     if (req.method === 'GET' && p === '/api/state') return sendJson(res, 200, snapshot);
     if (req.method === 'GET' && p === '/api/machines') return sendJson(res, 200, { ok: true, machines: machines.status(), ...(req.mcLocal ? { hosts: machines.sshHosts() } : {}) });
@@ -2440,6 +2559,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
       res.write(`event: state\ndata: ${snapshotJson}\n\n`);
       res.mcPhone = req.mcPhone || null;
+      res.mcDevice = req.mcDevice || null;
       clients.add(res);
       const hb = setInterval(() => res.write(': hb\n\n'), 15000);
       req.on('close', () => { clients.delete(res); clearInterval(hb); });
@@ -2662,7 +2782,10 @@ const server = http.createServer(async (req, res) => {
     console.error(req.method, p, e);
     if (!res.headersSent) sendJson(res, 500, { error: String(e.message || e) });
   }
-});
+}
+
+const server = http.createServer(handleRequest);
+server.on('upgrade', handleUpgrade);
 
 // cmux reruns `npm start` when it restores this board's terminal, and a
 // board may already hold the port (a second tab, a manual start). A board of
@@ -2709,6 +2832,8 @@ server.listen(PORT, () => {
   process.once('exit', forgetPort);
   const lan = phone.lanAddresses()[0];
   console.log(`Ravenry on http://localhost:${PORT}${lan ? `, phones on http://${lan.address}:${PORT}` : ''}  (registry ${registry.REGISTRY_PATH})`);
+  // Phone access on: the phone port opens with the board (docs/PHONE.md).
+  syncPhonePort();
 });
 // The hub's record of plan gates starts from what the briefs say once, the
 // first time there is none (server/gates.mjs adopt).

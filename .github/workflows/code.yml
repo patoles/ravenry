@@ -14,6 +14,9 @@
 # user's (tools/test-env.mjs, daemon/internal/testenv), and one that would
 # drive a real cmux, iTerm2 or Rex; the sidebar's pages as files, with the
 # ravenry binary's page check against a real board (hub/tools/pages-test.mjs);
+# the phone apps' side of the hub: the phone port's TLS and pin, pairing,
+# devices, end-to-end encrypted push and the terminal stream
+# (hub/tools/phone-app-test.mjs);
 # node --check over every script, and the hub suites that need no macOS
 # tool and no browser.
 name: code
@@ -100,6 +103,7 @@ jobs:
           node hub/tools/machines-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/hub-api-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/person-routes-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+          node hub/tools/phone-app-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/pages-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
       - name: Measurements
         run: grep '^MEASURE' "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -122,7 +126,7 @@ jobs:
       # none of its dev dependencies (Playwright, jsQR).
       - name: Hub suites that run on Linux
         run: |
-          for t in data-guard-test sessions-test events-hook-test handoff-hook-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test; do
+          for t in data-guard-test sessions-test events-hook-test handoff-hook-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test phone-app-test; do
             echo "::group::$t"
             node "tools/$t.mjs"
             echo "::endgroup::"

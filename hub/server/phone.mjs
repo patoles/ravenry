@@ -11,9 +11,17 @@
 //   HttpOnly cookie and redirects to / so the key leaves the address bar.
 // - New key rotates the key and forgets every token.
 //
-// State: <RAVENRY_HOME>/phone.json (mode 0600): { key, tokens: [{ hash, ua,
-// created, lastSeen }] }. Tokens are kept as SHA-256 hashes. The key is never
-// logged.
+// The phone apps (docs/PHONE.md) build on the same store: each token is a
+// device ({ id, name, platform, app }), carried as the cookie by a phone
+// browser or as `Authorization: Bearer` by an app on the phone port
+// (server/phonetls.mjs). An app pairs with a one-time pairing code the
+// Mac's card shows (pairingCode, pair), only while phone access is on
+// (the `access` switch).
+//
+// State: <RAVENRY_HOME>/phone.json (mode 0600): { key, access, tokens: [{
+// hash, id, name, platform, app, ua, created, lastSeen, push }] }. Tokens
+// are kept as SHA-256 hashes. The key, a token and a pairing code are
+// never logged.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -37,6 +45,17 @@ let lastSave = 0;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
 const shaHex = (s) => sha(s).toString('hex');
 const newSecret = () => crypto.randomBytes(32).toString('base64url');
+const B32 = '0123456789abcdefghjkmnpqrstvwxyz';
+const newId = () => 'd' + [...crypto.randomBytes(10)].map((b) => B32[b & 31]).join('');
+
+// A phone browser's name from its user agent: "iPhone", "Android", else "Browser".
+function browserName(ua) {
+  const u = String(ua || '');
+  if (/iPhone/.test(u)) return 'iPhone';
+  if (/iPad/.test(u)) return 'iPad';
+  if (/Android/.test(u)) return 'Android';
+  return 'Browser';
+}
 
 function save() {
   fs.mkdirSync(RAVENRY_HOME, { recursive: true });
@@ -53,10 +72,14 @@ function load() {
   let d = null;
   try { d = JSON.parse(fs.readFileSync(PHONE_FILE, 'utf8')); } catch { /* none yet */ }
   if (d && typeof d.key === 'string' && d.key.length >= 43) {
-    data = { key: d.key, tokens: Array.isArray(d.tokens) ? d.tokens.filter((t) => t && typeof t.hash === 'string') : [] };
+    data = { key: d.key, access: d.access === true, tokens: Array.isArray(d.tokens) ? d.tokens.filter((t) => t && typeof t.hash === 'string') : [] };
     try { fs.chmodSync(PHONE_FILE, 0o600); } catch { /* ignore */ }
+    // A token from before devices (a phone browser's cookie) gets an id.
+    let added = false;
+    for (const t of data.tokens) if (typeof t.id !== 'string') { t.id = newId(); t.platform = t.platform || 'browser'; t.name = t.name || browserName(t.ua); added = true; }
+    if (added) { try { save(); } catch { /* next time */ } }
   } else {
-    data = { key: newSecret(), tokens: [] };
+    data = { key: newSecret(), access: false, tokens: [] };
     save();
   }
   return data;
@@ -113,9 +136,16 @@ export function cookies(req) {
   return out;
 }
 
-// { ok, hash } for a valid phone cookie; { ok: false, had } otherwise.
+// The token a request carries: `Authorization: Bearer <token>` (an app),
+// else the phone cookie (a phone browser).
+export function tokenOf(req) {
+  const m = /^Bearer\s+([A-Za-z0-9_-]{20,200})\s*$/.exec(String(req.headers.authorization || ''));
+  return m ? m[1] : cookies(req)[COOKIE] || null;
+}
+
+// { ok, hash, id } for a valid device token; { ok: false, had } otherwise.
 export function check(req) {
-  const tok = cookies(req)[COOKIE];
+  const tok = tokenOf(req);
   if (!tok) return { ok: false, had: false };
   const d = load();
   const hash = shaHex(tok);
@@ -123,7 +153,7 @@ export function check(req) {
   if (!t) return { ok: false, had: true };
   t.lastSeen = new Date().toISOString();
   if (Date.now() - lastSave > SEEN_SAVE_MS) { try { save(); } catch { /* next time */ } }
-  return { ok: true, hash };
+  return { ok: true, hash, id: t.id };
 }
 
 function keyMatches(given) {
@@ -142,7 +172,8 @@ export function signIn(req, res, given) {
   if (!already.ok) {
     const tok = newSecret();
     const now = new Date().toISOString();
-    load().tokens.push({ hash: shaHex(tok), ua: String(req.headers['user-agent'] || '').slice(0, 300), created: now, lastSeen: now });
+    const ua = String(req.headers['user-agent'] || '').slice(0, 300);
+    load().tokens.push({ hash: shaHex(tok), id: newId(), name: browserName(ua), platform: 'browser', app: null, ua, created: now, lastSeen: now, push: null });
     save();
     set.unshift(`${COOKIE}=${tok}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${YEAR_S}`);
   }
@@ -156,12 +187,131 @@ function redirect(res, setCookie) {
 
 export function phoneCount() { return load().tokens.length; }
 
-// New key: a fresh key, every token forgotten.
+// New key: a fresh key, every token forgotten. Phone access stays as it was.
 export function rotate() {
-  load();
-  data = { key: newSecret(), tokens: [] };
+  const access = load().access;
+  data = { key: newSecret(), access, tokens: [] };
+  pairing = null;
   save();
 }
+
+// ------------------------------------------------------------ devices (docs/PHONE.md section 3)
+
+export const access = () => load().access === true;
+
+export function setAccess(on) {
+  const d = load();
+  d.access = !!on;
+  if (!on) pairing = null;
+  save();
+}
+
+const pub = (t) => ({ id: t.id, name: t.name || null, platform: t.platform || null, app: t.app || null, created: t.created || null, lastSeen: t.lastSeen || null, push: t.push ? t.push.kind : null });
+
+// Every device, without its hash or push secrets.
+export const devices = () => load().tokens.map(pub);
+export function device(id) { const t = load().tokens.find((x) => x.id === id); return t ? pub(t) : null; }
+
+// The device record itself (push.mjs reads its target).
+export function deviceRecord(id) { return load().tokens.find((x) => x.id === id) || null; }
+
+// Signs one device out. Returns whether it was there.
+export function revoke(id) {
+  const d = load();
+  const n = d.tokens.length;
+  d.tokens = d.tokens.filter((t) => t.id !== id);
+  if (d.tokens.length === n) return false;
+  save();
+  return true;
+}
+
+// Sets (or clears, with null) a device's push target (server/push.mjs checks it).
+export function setPush(id, target) {
+  const t = load().tokens.find((x) => x.id === id);
+  if (!t) return false;
+  t.push = target || null;
+  save();
+  return true;
+}
+
+// Every device with a push target.
+export const pushDevices = () => load().tokens.filter((t) => t.push && t.push.kind && t.push.kind !== 'none');
+
+// What the phone calls this computer.
+export function hubName() {
+  return String(process.env.RAVENRY_HUB_NAME || os.hostname() || 'Ravenry').replace(/\.local\.?$/i, '') || 'Ravenry';
+}
+
+// ------------------------------------------------------------ pairing
+
+const PAIR_MS = 10 * 60 * 1000;
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+let pairing = null;   // { hash, expires }
+let misses = [];      // times of wrong codes in the last minute
+let lockedUntil = 0;
+
+// A new one-time pairing code, 16 characters of Crockford base32 (80 bits),
+// good for 10 minutes; the one before stops working.
+export function pairingCode(now = Date.now()) {
+  const bytes = crypto.randomBytes(10);
+  let bitsLeft = 0, acc = 0, out = '';
+  for (const b of bytes) {
+    acc = (acc << 8) | b; bitsLeft += 8;
+    while (bitsLeft >= 5) { out += CROCKFORD[(acc >> (bitsLeft - 5)) & 31]; bitsLeft -= 5; }
+    acc &= (1 << bitsLeft) - 1;
+  }
+  // The code itself stays in memory only, so the card can show it again.
+  pairing = { hash: sha(out), code: out, expires: now + PAIR_MS };
+  return { code: out, display: out.match(/.{4}/g).join('-'), expires: new Date(now + PAIR_MS).toISOString() };
+}
+
+// A typed code, cleaned the Crockford way: case, dashes and spaces ignored,
+// O as 0, I and L as 1.
+export function normalizeCode(c) {
+  return String(c || '').toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+}
+
+// The check number of a pin (docs/PHONE.md section 3): its first five
+// bytes as a big-endian number, modulo 10^12, as two groups of six digits.
+export function checkNumber(pin) {
+  const b = Buffer.from(String(pin), 'base64url');
+  let n = 0n;
+  for (const x of b.subarray(0, 5)) n = (n << 8n) | BigInt(x);
+  const s = String(n % 1000000000000n).padStart(12, '0');
+  return `${s.slice(0, 6)} ${s.slice(6)}`;
+}
+
+// The pairing link of docs/PHONE.md section 3.
+export function pairLink({ name, hosts, port, pin, code }) {
+  const q = new URLSearchParams({ v: '1', name, hosts: hosts.join(','), port: String(port), pin, code });
+  return `ravenry://pair?${q}`;
+}
+
+// A pairing: { ok, token, device } or { ok: false, status, error }.
+export function pair({ code, name, platform, app, ua }, now = Date.now()) {
+  if (!access()) return { ok: false, status: 403, error: 'Phone access is off on the computer. Turn it on there, then scan the code again.' };
+  misses = misses.filter((t) => now - t < 60000);
+  if (now < lockedUntil) return { ok: false, status: 429, error: 'Too many wrong codes. Wait a minute, then scan the code again.' };
+  const given = normalizeCode(code);
+  const ok = !!pairing && now <= pairing.expires && /^[0-9A-Z]{16}$/.test(given) && crypto.timingSafeEqual(sha(given), pairing.hash);
+  if (!ok) {
+    misses.push(now);
+    if (misses.length >= 5) { lockedUntil = now + 60000; misses = []; }
+    const old = pairing && now > pairing.expires;
+    return { ok: false, status: 401, error: old ? 'This code is out of date. Show the code on the computer again.' : 'That code is wrong or used already. Show the code on the computer again.' };
+  }
+  pairing = null;
+  const tok = newSecret();
+  const at = new Date(now).toISOString();
+  const clip = (v, n) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);
+  const t = { hash: shaHex(tok), id: newId(), name: clip(name, 60) || 'Phone', platform: clip(platform, 20) || 'unknown', app: clip(app, 30), ua: String(ua || '').slice(0, 300), created: at, lastSeen: at, push: null };
+  load().tokens.push(t);
+  save();
+  return { ok: true, token: tok, device: { id: t.id, name: t.name } };
+}
+
+// For tests: forget the pairing state kept in memory.
+export function _resetPairing() { pairing = null; misses = []; lockedUntil = 0; }
 
 // ------------------------------------------------------------ the card
 
@@ -183,12 +333,37 @@ export function qrSvg(text, px = 168, label = 'QR code for the board address') {
 
 // What the Mac's card shows. The key itself never leaves the server except
 // inside the QR picture.
-export function card(port) {
+//
+// `app` ({ port, pin, hosts }, the phone port's) adds, while phone access
+// is on, what pairs the app (docs/PHONE.md section 3): the pairing link,
+// its QR picture, the code as it is typed and the check number. The code
+// shown is the live one while it has two minutes left, so a card that
+// refreshes while a phone scans keeps its code; `fresh` makes a new one
+// (the card opened again), and the one before stops working.
+export function card(port, app = null, { fresh = false } = {}) {
   const lan = lanAddresses()[0];
   const phones = phoneCount();
-  if (!lan) return { address: null, svg: null, phones };
-  const origin = `http://${lan.address}:${port}`;
-  return { address: `${origin}/?k=`, svg: qrSvg(`${origin}/?k=${load().key}`), phones };
+  const out = lan
+    ? { address: `http://${lan.address}:${port}/?k=`, svg: qrSvg(`http://${lan.address}:${port}/?k=${load().key}`), phones }
+    : { address: null, svg: null, phones };
+  out.access = access();
+  out.devices = devices();
+  if (app && out.access) {
+    const c = !fresh && pairing && pairing.code && pairing.expires - Date.now() > 2 * 60 * 1000 ? shown(pairing) : pairingCode();
+    const link = pairLink({ name: hubName(), hosts: app.hosts, port: app.port, pin: app.pin, code: c.code });
+    out.app = { name: hubName(), hosts: app.hosts, port: app.port, link, svg: qrSvg(link, 168, 'QR code that pairs the Ravenry app'), code: c.display, expires: c.expires, check: checkNumber(app.pin) };
+  }
+  return out;
+}
+
+const shown = (p) => ({ code: p.code, display: p.code.match(/.{4}/g).join('-'), expires: new Date(p.expires).toISOString() });
+
+// Where a phone finds this computer, in order: the Wi-Fi's addresses, then
+// Tailscale's, then RAVENRY_PHONE_HOSTS (comma separated; an emulator's
+// 10.0.2.2).
+export function phoneHosts(tailscale = []) {
+  const extra = String(process.env.RAVENRY_PHONE_HOSTS || '').split(',').map((x) => x.trim()).filter((x) => /^[A-Za-z0-9.:-]{1,253}$/.test(x));
+  return [...new Set([...lanAddresses().map((a) => a.address), ...tailscale, ...extra])];
 }
 
 // ------------------------------------------------------------ signed out

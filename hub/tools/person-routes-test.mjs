@@ -186,6 +186,10 @@ const bodies = {
   '/api/pages/customize': { key: 'objectives' },
   '/api/pages/ask': { key: 'notes', at: { scope: 'page', index: 1 } },
   '/api/pages/run': { key: 'notes', at: { scope: 'page', index: 2 } },
+  '/api/phone/pair': { code: 'ABCDEFGHJKMNPQRS', name: 'An agent' },
+  '/api/phone/push': { kind: 'unifiedpush', endpoint: 'https://push.invalid/up', p256dh: 'x', auth: 'x' },
+  '/api/phone/access': { on: true },
+  '/api/phone/devices/revoke': { id: 'dnone' },
 };
 const bodyOf = (r) => bodies[eg(r)] || { projectId: 'proj' };
 

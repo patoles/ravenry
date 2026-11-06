@@ -19,7 +19,12 @@ acts as the person), and `server/person.mjs` applies it to the HTTP API:
   process that holds the connection and judges it with the daemon's own
   code. The board page in a browser and the desktop app run outside
   every pane and pass.
-- **The phone** (another address, with its device token) is the person.
+- **The phone** (another address, with its device token) is the person,
+  on the board's port and on the phone port
+  ([../../docs/PHONE.md](../../docs/PHONE.md)). A pairing on the phone
+  port from another address is the person too: its one-time code proves
+  it. A phone's token used from this machine (an emulator, or a program
+  that took it) proves nothing and is judged like any local caller.
 - **An open row** is fine for agents too: it adds something the person
   reads later, and runs nothing, removes nothing and decides nothing.
 - **A POST under `/api/` that no row names is a person's**, so a new
@@ -75,8 +80,9 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-65 person rows (21 of them judged ambiguous), 7 open rows. GET routes not
-listed are reads and stay open; the two listed hand out a pairing secret.
+71 person rows (21 of them judged ambiguous), 7 open rows. GET routes not
+listed are reads and stay open; the two `GET /api/phone...` rows hand out a
+pairing secret, and `GET /api/term` opens a terminal.
 
 | Endpoint | Class | Why |
 | --- | --- | --- |
@@ -121,6 +127,12 @@ listed are reads and stay open; the two listed hand out a pairing secret.
 | `/api/settings/projects-root` | person | A setting the person chose. |
 | `GET /api/phone` | person | The code holds the phone's sign-in key: whoever has it acts as the phone. |
 | `/api/phone/new-key` | person | A new key signs the phone out. |
+| `/api/phone/pair` | person | Pairing gives a device the person's power. On the phone port the one-time code from the computer proves it is the person's phone; from this machine it is judged like every person row. |
+| `/api/phone/unpair` | person | It signs the device out, so its alerts stop: an agent could cut the person off. |
+| `/api/phone/push` | person | It sets where the device's alerts go: an agent could send the person's alerts to itself. |
+| `/api/phone/devices/revoke` | person | Signing a device out is the person's call; an agent could cut the person off. |
+| `/api/phone/access` | person | Phone access opens a port on the home Wi-Fi and Tailscale for paired phones. |
+| `GET /api/term` | person | It types into panes and reads their screens through the hub, which the daemons take as the person. |
 | `GET /api/alerts/setup` | person | It shows the alert channels' tokens and topic. |
 | `/api/alerts/switch` | person | Judged (ambiguous): an agent could silence the alerts that call the person. |
 | `/api/alerts/desktop` | person | Judged (ambiguous): as the switch. |

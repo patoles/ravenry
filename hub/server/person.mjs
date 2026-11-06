@@ -6,7 +6,9 @@
 // - The HTTP API refuses those writes to a program on this machine that
 //   runs inside a ravenryd pane (an agent, or anything it started) or in
 //   an ssh session. A request from the phone (another address, with its
-//   device token: server/phone.mjs) is the person. A request from this
+//   device token: server/phone.mjs, on the board's port or the phone
+//   port of server/phonetls.mjs) is the person, and so is a pairing on the
+//   phone port from another address, which its one-time code proves. A request from this
 //   machine, on localhost or on one of its own addresses (a phone token
 //   used from here proves nothing), is judged by `ravenryd peer --tcp
 //   <its port> --to <ours>`: the daemon's own code finds the process that
@@ -113,6 +115,13 @@ export const ROUTES = [
   // Phone and alerts
   { m: 'GET', p: '/api/phone', c: P, what: 'see the phone\'s pairing code', why: 'The code holds the phone\'s sign-in key: whoever has it acts as the phone.' },
   { m: 'POST', p: '/api/phone/new-key', c: P, what: 'pair the phone again', why: 'A new key signs the phone out.' },
+  // The phone apps (docs/PHONE.md)
+  { m: 'POST', p: '/api/phone/pair', c: P, what: 'pair a phone', why: 'Pairing gives a device the person\'s power. On the phone port the one-time code from the computer proves it is the person\'s phone; from this machine it is judged like every person row.' },
+  { m: 'POST', p: '/api/phone/unpair', c: P, what: 'sign a phone out', why: 'It signs the device out, so its alerts stop: an agent could cut the person off.' },
+  { m: 'POST', p: '/api/phone/push', c: P, what: 'change where a phone\'s alerts go', why: 'It sets where the device\'s alerts go: an agent could send the person\'s alerts to itself.' },
+  { m: 'POST', p: '/api/phone/devices/revoke', c: P, what: 'sign a phone out', why: 'Signing a device out is the person\'s call; an agent could cut the person off.' },
+  { m: 'POST', p: '/api/phone/access', c: P, what: 'turn phone access on or off', why: 'Phone access opens a port on the home Wi-Fi and Tailscale for paired phones.' },
+  { m: 'GET', p: '/api/term', c: P, what: 'open a terminal through the hub', why: 'It types into panes and reads their screens through the hub, which the daemons take as the person.' },
   { m: 'GET', p: '/api/alerts/setup', c: P, what: 'see the alert setup', why: 'It shows the alert channels\' tokens and topic.' },
   { m: 'POST', p: '/api/alerts/switch', c: P, what: 'turn phone alerts on or off', why: 'Ambiguous, so the safer class: an agent could silence the alerts that call the person.' },
   { m: 'POST', p: '/api/alerts/desktop', c: P, what: 'turn Mac notifications on or off', why: 'Ambiguous, so the safer class: as the switch.' },
@@ -176,6 +185,9 @@ export const refusal = (r) => (r.p === '/api/checkpoints/answer' ? REFUSED : `On
 export async function fromPerson(req, bin, { strict = false, daemons = null } = {}) {
   const s = req.socket;
   if (req.mcPhone && !fromThisMachine(s && s.remoteAddress)) return { ok: true };
+  // A pairing on the phone port from another address: its one-time code,
+  // which the route checks, proves it (docs/PHONE.md section 3).
+  if (req.mcTls && req.mcPairing && !fromThisMachine(s && s.remoteAddress)) return { ok: true };
   if (!bin) {
     if (strict || !daemons) return { ok: false, why: 'ravenryd is not installed, so the board cannot tell who sent it' };
     if ((await daemons()).length === 0) return { ok: true };
