@@ -146,6 +146,7 @@ func init() {
 		}, wait...), run: cmdAsk},
 		{name: "approve", group: "Checkpoints", args: "COMMAND | -- PROGRAM ARGS...", summary: "propose a command that runs only once a person approves it, in a new pane; prints its output and exits with its status", flags: append([]flagDoc{
 			{"why", valueFlag, "TEXT", "why it should run, shown with it"},
+			{"warn", valueFlag, "TEXT", "what can't be undone or could go wrong, shown as your warning"},
 			{"cwd", valueFlag, "DIR", "where it runs (default: this pane's folder)"},
 		}, wait...), run: cmdApprove},
 		{name: "secret", group: "Checkpoints", args: "TITLE [-- PROGRAM ARGS...]", summary: "ask a person to type a secret that goes to a program, never to you", flags: append([]flagDoc{
@@ -161,9 +162,10 @@ func init() {
 			{"wait", boolFlag, "", "wait until it closes, then exit as ask, approve or secret would"},
 			{"timeout", valueFlag, durationArg, "with --wait: give up after (exit 124)"},
 			{"cancel", boolFlag, "", "withdraw it (it must still be open)"},
-			{"reason", valueFlag, "TEXT", "with --cancel: why, for people"},
+			{"reason", valueFlag, "TEXT", "with --cancel: why, for people; with --decline: why, for the agent"},
 			{"answer", valueFlag, "TEXT", "a person answers an ask: an option's number or text, or typed text (refused inside a pane)"},
 			{"approve", boolFlag, "", "a person approves it, and its command runs (refused inside a pane)"},
+			{"command", valueFlag, "TEXT", "with --approve: run this instead, the command as the person edited it"},
 			{"decline", boolFlag, "", "a person declines it (refused inside a pane)"},
 		}, run: cmdCheckpoint},
 		// Agents

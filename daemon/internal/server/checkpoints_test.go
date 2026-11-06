@@ -162,6 +162,91 @@ func TestCheckpointApproveRunsTheExactCommand(t *testing.T) {
 	}
 }
 
+// TestCheckpointApproveEditedRunsTheEdit: the person edits the command
+// before approving it. Their text runs, the proposed one never does, and
+// the agent's result says it changed and holds the final text. A decline
+// carries the person's reason, and the agent's warning is kept as its own.
+func TestCheckpointApproveEditedRunsTheEdit(t *testing.T) {
+	d := startDaemon(t)
+	agent := d.dial(client.Options{Name: "agent"})
+	person := d.dial(client.Options{Name: "app"})
+	dir := t.TempDir()
+	proposed := `touch proposed.txt`
+	edited := `touch edited.txt && echo "edited ran"`
+	cp := newCheckpoint(t, agent, map[string]any{"kind": "approve", "title": "Publish", "command": proposed, "cwd": dir, "warning": "Publishing to npm can't be undone"})
+	if cp.Warning != "Publishing to npm can't be undone" {
+		t.Fatalf("warning %+v", cp)
+	}
+	got := waitCheckpoint(t, agent, cp.ID)
+	a := answer(t, person, map[string]any{"checkpoint": cp.ID, "approve": true, "command": edited, "by": "desktop"})
+	if a.State != "running" || a.Answer == nil || a.Answer.Command != edited || a.Command != proposed {
+		t.Fatalf("approve edited %+v %+v", a, a.Answer)
+	}
+	w := <-got
+	if w.State != "answered" || w.Run == nil || w.Run.Exit == nil || w.Run.Exit.Code != 0 || !strings.Contains(w.Run.Output, "edited ran") || w.Answer.Command != edited {
+		t.Fatalf("result %+v %+v", w, w.Run)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "edited.txt")); err != nil {
+		t.Fatal("the edited command did not run")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "proposed.txt")); err == nil {
+		t.Fatal("the proposed command ran instead of the edited one")
+	}
+	l := call[proto.ListResult](t, person, "pane.list", map[string]any{"labels": map[string]string{"ravenry.checkpoint": cp.ID}})
+	if len(l.Panes) != 1 || l.Panes[0].Command[len(l.Panes[0].Command)-1] != edited {
+		t.Fatalf("run pane %+v", l.Panes)
+	}
+
+	// The same text as proposed is no edit: answer.command stays empty.
+	cp = newCheckpoint(t, agent, map[string]any{"kind": "approve", "title": "x", "command": "true", "cwd": dir})
+	got = waitCheckpoint(t, agent, cp.ID)
+	if a = answer(t, person, map[string]any{"checkpoint": cp.ID, "approve": true, "command": "true"}); a.Answer.Command != "" {
+		t.Fatalf("unchanged edit %+v", a.Answer)
+	}
+	<-got
+
+	// A decline with a reason: the agent reads it.
+	cp = newCheckpoint(t, agent, map[string]any{"kind": "approve", "title": "x", "command": "touch nope.txt", "cwd": dir})
+	got = waitCheckpoint(t, agent, cp.ID)
+	if a = answer(t, person, map[string]any{"checkpoint": cp.ID, "decline": true, "reason": "Run the tests first"}); a.State != "declined" || a.Answer.Reason != "Run the tests first" {
+		t.Fatalf("decline %+v", a.Answer)
+	}
+	if w = <-got; w.Answer.Reason != "Run the tests first" {
+		t.Fatalf("the agent got %+v", w.Answer)
+	}
+
+	sendingInvalid.Store(true)
+	defer sendingInvalid.Store(false)
+	cp = newCheckpoint(t, agent, map[string]any{"kind": "approve", "title": "x", "command": "touch nope.txt", "cwd": dir})
+	for _, bad := range []map[string]any{
+		{"checkpoint": cp.ID, "command": "ls"},                        // command without approve
+		{"checkpoint": cp.ID, "decline": true, "command": "ls"},       // command with decline
+		{"checkpoint": cp.ID, "approve": true, "reason": "x"},         // reason without decline
+		{"checkpoint": cp.ID, "approve": true, "command": ""},         // empty command
+		{"checkpoint": cp.ID, "approve": true, "command": "ls\x00rm"}, // a control character
+		{"checkpoint": cp.ID, "decline": true, "reason": strings.Repeat("r", 1001)},
+	} {
+		if e := callErr(t, person, "checkpoint.answer", bad); e.Code != proto.CodeBadRequest {
+			t.Fatalf("%v: %s", bad, e.Code)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "nope.txt")); err == nil {
+		t.Fatal("a refused answer ran the command")
+	}
+	ask := newCheckpoint(t, agent, map[string]any{"kind": "ask", "title": "x", "options": []string{"a"}})
+	if e := callErr(t, person, "checkpoint.answer", map[string]any{"checkpoint": ask.ID, "choice": 0, "command": "ls"}); e.Code != proto.CodeBadRequest {
+		t.Fatalf("command on an ask: %s", e.Code)
+	}
+	for _, bad := range []map[string]any{
+		{"kind": "ask", "title": "x", "options": []string{"a"}, "warning": "careful"},
+		{"kind": "approve", "title": "x", "command": "ls", "warning": strings.Repeat("w", 1001)},
+	} {
+		if e := callErr(t, agent, "checkpoint.new", bad); e.Code != proto.CodeBadRequest {
+			t.Fatalf("%v: %s", bad, e.Code)
+		}
+	}
+}
+
 // TestSecretNeverLeaks gives a secret three ways (into a program's input,
 // into a command it starts, into a command's environment) to programs
 // that echo it, then looks for it everywhere a client or a file could

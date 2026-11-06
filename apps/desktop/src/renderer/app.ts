@@ -19,7 +19,7 @@ import { api } from './api.ts';
 import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
 import { cardFor, cardKey, clearHiddenSecrets, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
 import type { CardCtx, Reply } from './cards.ts';
-import { Checkpoints, hubAnswer, isOpen, markOf } from './checkpoints.ts';
+import { Checkpoints, daemonAnswer, hubAnswer, isOpen, markOf } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 import { Daemons } from './daemons.ts';
 import { h, replace, svg } from './dom.ts';
@@ -261,8 +261,6 @@ function paneName(pane: string | undefined, machine: string | null | undefined):
   return 'its session';
 }
 
-const EDIT_GAP = 'This version of ravenryd can only run the command as proposed. Run it as it is, or refuse it and tell the agent what to run instead.';
-
 /** Whether this window may answer a checkpoint: the daemon that holds it, or else the hub, takes it as the person. */
 function canAnswer(k: Known): boolean {
   if (k.socket && !S.notPerson.has(k.socket)) return true;
@@ -270,16 +268,18 @@ function canAnswer(k: Known): boolean {
   return !S.hubRefused;
 }
 
-/** Answers a checkpoint: through the daemon that holds it when this window holds it, else through the hub. */
+/**
+ * Answers a checkpoint: through the daemon that holds it when this window
+ * holds it, else through the hub. An edited command and a reason go with
+ * the answer both ways; a daemon too old for them refuses the answer
+ * (bad_request), and then nothing ran.
+ */
 async function answerCp(k: Known, reply: Reply): Promise<void> {
-  const edited = 'command' in reply;
   if (k.socket) {
     const c = await daemons.get(k.socket).catch(() => null);
     if (c && !c.closed) {
       try {
-        // An edited command is not in protocol v1 yet: today's daemons
-        // refuse the field (bad_request), and the error says so.
-        const { checkpoint } = await c.request('checkpoint.answer', { checkpoint: k.cp.id, by: 'desktop', ...reply } as never) as { checkpoint: Checkpoint };
+        const { checkpoint } = await c.request('checkpoint.answer', daemonAnswer(k.cp.id, reply));
         S.cps.update(checkpoint);
         render();
         return;
@@ -287,15 +287,13 @@ async function answerCp(k: Known, reply: Reply): Promise<void> {
         const code = (e as { code?: string }).code;
         if (code === 'forbidden') { S.notPerson.add(k.socket); render(); throw new NotPerson(); }
         if (code === 'not_found') throw new Error('It closed already: answered somewhere else, withdrawn, or out of time.');
-        if (edited && code === 'bad_request') throw new Error(EDIT_GAP);
+        if (code === 'bad_request' && ('command' in reply || 'reason' in reply)) throw new Error(`This ravenryd did not take the answer, so nothing ran: ${(e as Error).message}. An older ravenryd cannot run an edited command or pass a reason on; update it, or answer without them.`);
         if (!k.hub) throw new Error(`ravenryd did not take the answer: ${(e as Error).message}`);
       }
     }
   }
   if (!k.hub) throw new Error('The daemon that asked is not reachable any more.');
-  // The hub passes only the fields it knows: an edited command would run as proposed.
-  if (edited) throw new Error(EDIT_GAP);
-  const r = await api().hubAnswer(hubAnswer(k.cp.id, reply as never));
+  const r = await api().hubAnswer(hubAnswer(k.cp.id, reply));
   if (r.status === 403) { S.hubRefused = true; render(); throw new NotPerson(); }
   if (!r.ok) throw new Error(r.error || 'The board did not take the answer.');
   if (r.checkpoint) S.cps.update(r.checkpoint as HubCheckpoint);

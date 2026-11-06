@@ -5,6 +5,8 @@
 //   - POST /api/sessions/start starts a session in a labelled pane;
 //   - a checkpoint an agent opens shows in /api/checkpoints and the state,
 //     and POST /api/checkpoints/answer answers it (the agent goes on);
+//   - an edited command runs instead of the proposed one through the hub,
+//     a refusal carries its reason, and the agent's warning reaches it;
 //   - only a person answers: from inside a real pane, the command line, a
 //     raw call on the daemon's socket and curl to the API are refused and
 //     the checkpoint stays open; from outside every pane it is taken;
@@ -142,6 +144,38 @@ check('the board logged the refusal', /refused a checkpoint answer: process \d+ 
 const pa = await post('/api/checkpoints/answer', { id: apprId, approve: true });
 check('the same answer from outside every pane is taken, and the command runs', pa.status === 200 && ['running', 'answered'].includes(pa.body.checkpoint.state) && !!(await until(async () => fs.existsSync(ran))), pa.text);
 dc.close();
+
+// ------------------------------------------------------------ edit then run, refuse with a reason, the agent's warning
+// The person edits the command in the app: through the hub, the edited
+// one runs and the proposed one never does, and the agent is told so with
+// the final text. A refusal carries the person's reason to the agent. The
+// agent's own warning reaches the board as its own field.
+const proposedRan = path.join(T, 'proposed-ran');
+const editedRan = path.join(T, 'edited-ran');
+const edAgent = spawn(BIN, ['approve', '--cwd', T, '--warn', 'Publishing to npm can\'t be undone', `touch '${proposedRan}'`], { env: agentEnv });
+let edOut = '';
+edAgent.stdout.on('data', (d) => { edOut += d; });
+edAgent.stderr.on('data', (d) => { edOut += d; });
+const edDone = new Promise((r) => edAgent.on('exit', r));
+const ecp = await until(async () => (await get('/api/checkpoints')).body.checkpoints.find((c) => c.command === `touch '${proposedRan}'` && c.state === 'open'));
+check('the agent\'s warning reaches the board as its own field', !!ecp && ecp.warning === 'Publishing to npm can\'t be undone', JSON.stringify(ecp));
+const wrongField = await post('/api/checkpoints/answer', { id: ecp.id, approve: true, edited: `touch '${editedRan}'` });
+check('a field the board does not know is refused, not dropped', wrongField.status === 400 && /does not know edited/.test(wrongField.body.error), wrongField.text);
+const cmdOnDecline = await post('/api/checkpoints/answer', { id: ecp.id, decline: true, command: 'true' });
+check('an edited command with decline is refused', cmdOnDecline.status === 400, cmdOnDecline.text);
+const edited = await post('/api/checkpoints/answer', { id: ecp.id, approve: true, command: `touch '${editedRan}' && echo edited-output` });
+check('edit then run through the hub: taken, answer.command holds the edit', edited.status === 200 && edited.body.checkpoint.answer.command === `touch '${editedRan}' && echo edited-output`, edited.text);
+check('the agent is told it was edited, with the final text, and gets its output', (await edDone) === 0 && edOut.includes(`a person edited the command before approving it; it ran as:\ntouch '${editedRan}' && echo edited-output`) && edOut.includes('edited-output'), edOut);
+check('the edited command ran and the proposed one did not', fs.existsSync(editedRan) && !fs.existsSync(proposedRan));
+const rfAgent = spawn(BIN, ['approve', '--cwd', T, `touch '${proposedRan}'`], { env: agentEnv });
+let rfOut = '';
+rfAgent.stderr.on('data', (d) => { rfOut += d; });
+const rfDone = new Promise((r) => rfAgent.on('exit', r));
+const rcp = await until(async () => (await get('/api/checkpoints')).body.checkpoints.find((c) => c.command === `touch '${proposedRan}'` && c.state === 'open'));
+const refused = await post('/api/checkpoints/answer', { id: rcp.id, decline: true, reason: 'Run the tests first' });
+check('refuse with a reason through the hub', refused.status === 200 && refused.body.checkpoint.state === 'declined' && refused.body.checkpoint.answer.reason === 'Run the tests first', refused.text);
+check('the agent reads the reason', (await rfDone) === 125 && rfOut.includes('Run the tests first'), rfOut);
+check('the refused command did not run', !fs.existsSync(proposedRan));
 
 // ------------------------------------------------------------ a secret through the API
 const TYPED = 'api-s3cret-90210';

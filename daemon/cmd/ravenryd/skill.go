@@ -89,11 +89,15 @@ person never needs to come back to your chat.
 - **Approve and run.** For a command you must not run yourself (a push, a
   publish, anything the person keeps for themselves):
 
-      ravenry approve 'git push && npm publish' --why "Release 0.4.1"
+      ravenry approve 'git push && npm publish' --why "Release 0.4.1" --warn "Publishing to npm can't be undone"
 
   They see the exact text, and it runs only if they approve, in a new pane
   in your folder they can watch. You get its output and its exit status,
-  as if you had run it. Never retry a declined command another way.
+  as if you had run it. ` + "`--warn`" + ` says what can't be undone; it shows as
+  your warning, beside Ravenry's own guess. The person may edit the
+  command before approving it: then the edited one runs, and you are told
+  so with its final text. A declined command comes with their reason when
+  they gave one. Never retry a declined command another way.
 - **Secrets.** Never ask the person to paste a password, token or code into
   your chat. Ask for it here; it goes to the program, never to you, and is
   masked in the pane's output, logs and captures:

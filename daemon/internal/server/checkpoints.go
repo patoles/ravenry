@@ -42,6 +42,8 @@ const (
 	maxAnswerText        = 4 << 10
 	maxSecret            = 4 << 10
 	maxBy                = 64
+	maxWarning           = 1000
+	maxReason            = 1000
 	runOutput            = 64 << 10
 	maxRun               = 7 * 24 * time.Hour
 )
@@ -117,6 +119,9 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 	}
 	noAsk := len(r.Options) > 0 || r.FreeText
 	noRun := r.Command != "" || r.Cwd != "" || r.Why != ""
+	if r.Warning != "" && r.Kind != kindApprove {
+		return zero, 0, bad("warning is for an approve: what the person should know before the command runs")
+	}
 	switch r.Kind {
 	case kindAsk:
 		if noRun || r.Secret != nil {
@@ -141,7 +146,10 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 		if err := checkRun(r); err != nil {
 			return zero, 0, err
 		}
-		cp.Command, cp.Why = r.Command, r.Why
+		if len(r.Warning) > maxWarning || !textOK(r.Warning) {
+			return zero, 0, bad("warning is at most %d bytes with no control characters but newlines", maxWarning)
+		}
+		cp.Command, cp.Why, cp.Warning = r.Command, r.Why, r.Warning
 	case kindSecret:
 		if noAsk || r.Why != "" {
 			return zero, 0, bad("a secret takes secret (and command and cwd with to: run or env), not options, free_text or why")
@@ -422,6 +430,22 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 		c.failErr(id, bad("by is at most %d bytes", maxBy))
 		return
 	}
+	if r.Command != nil && !r.Approve {
+		c.failErr(id, bad("command goes with approve: the command as the person edited it"))
+		return
+	}
+	if r.Reason != nil && !r.Decline {
+		c.failErr(id, bad("reason goes with decline: why the person said no"))
+		return
+	}
+	if r.Command != nil && (*r.Command == "" || len(*r.Command) > maxCommand || !textOK(*r.Command)) {
+		c.failErr(id, bad("command is 1 to %d bytes with no control characters but newlines", maxCommand))
+		return
+	}
+	if r.Reason != nil && (len(*r.Reason) > maxReason || !textOK(*r.Reason)) {
+		c.failErr(id, bad("reason is at most %d bytes with no control characters but newlines", maxReason))
+		return
+	}
 	s := c.s
 	x, err := s.checkpoint(r.Checkpoint)
 	if err != nil {
@@ -445,6 +469,9 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 	}
 	if r.Decline {
 		ans.Declined = true
+		if r.Reason != nil {
+			ans.Reason = *r.Reason
+		}
 		reply(s.closeCheckpoint(cp.ID, stOpen, stDeclined, ans, ""))
 		return
 	}
@@ -481,8 +508,17 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 		}
 		yes := true
 		ans.Approved = &yes
+		// An edited command runs instead of the proposed one, and the
+		// answer holds it, so the agent is told and gets the final text.
+		if r.Command != nil && *r.Command != cp.Command {
+			ans.Command = *r.Command
+		}
 		reply(s.startRun(cp, ans, nil, nil))
 	case kindSecret:
+		if r.Command != nil {
+			c.failErr(id, bad("only an approve's command can be edited"))
+			return
+		}
 		if r.Secret == nil {
 			c.failErr(id, bad("a secret is answered with secret or decline"))
 			return
@@ -555,14 +591,20 @@ func (s *Server) claim(id, to string) (proto.Checkpoint, bool) {
 // startRun runs an approved command in a new pane, in the checkpoint's
 // folder, with the secret in its environment (secretEnv, for to: env) or
 // typed once it waits for input (typed, for to: run), and closes the
-// checkpoint with its exit and the end of its output once it ended.
+// checkpoint with its exit and the end of its output once it ended. The
+// command is the one the person approved: ans.Command when they edited
+// it, else the proposed one.
 func (s *Server) startRun(cp proto.Checkpoint, ans *proto.CheckpointAnswer, secretEnv map[string]string, typed []byte) (proto.Checkpoint, bool) {
 	if _, ok := s.claim(cp.ID, stRunning); !ok {
 		return proto.Checkpoint{}, false
 	}
-	name := "Approved: " + clip(strings.Join(strings.Fields(cp.Command), " "), 60)
+	command := cp.Command
+	if ans != nil && ans.Command != "" {
+		command = ans.Command
+	}
+	name := "Approved: " + clip(strings.Join(strings.Fields(command), " "), 60)
 	p, err := s.o.Manager.New(pane.Config{
-		Command:   []string{s.o.Manager.LoginShell(), "-c", cp.Command},
+		Command:   []string{s.o.Manager.LoginShell(), "-c", command},
 		Cwd:       cp.Cwd,
 		Name:      name,
 		Labels:    map[string]string{"ravenry.checkpoint": cp.ID},

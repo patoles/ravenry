@@ -135,13 +135,21 @@ func waitCheckpoint(ctx context.Context, c *client.Client, a *args, id string, t
 		say("nobody answered %s before it expired", id)
 		return exitCode(exitTimeout)
 	case "declined":
-		say("a person declined %s", id)
+		if cp.Answer != nil && cp.Answer.Reason != "" {
+			say("a person declined %s: %s", id, cp.Answer.Reason)
+		} else {
+			say("a person declined %s", id)
+		}
 		return exitCode(exitDeclined)
 	case "cancelled":
 		say("%s was cancelled%s", id, map[bool]string{true: ": " + cp.Reason, false: ""}[cp.Reason != ""])
 		return exitCode(exitDeclined)
 	}
 	ans := cp.Answer
+	if ans != nil && ans.Command != "" {
+		// The person changed the command before it ran: what ran is theirs.
+		say("a person edited the command before approving it; it ran as:\n%s", ans.Command)
+	}
 	if cp.Run != nil || cp.Command != "" {
 		if cp.Run == nil || cp.Run.Exit == nil {
 			say("%s", firstOf(cp.Reason, "the command did not run"))
@@ -240,6 +248,9 @@ func cmdApprove(in []string) error {
 	p["command"] = command
 	if v := a.values["why"]; v != "" {
 		p["why"] = v
+	}
+	if v := a.values["warn"]; v != "" {
+		p["warning"] = v
 	}
 	return openCheckpoint(a, p)
 }
@@ -353,7 +364,7 @@ func cmdCheckpoint(in []string) error {
 		return err
 	}
 	if len(a.pos) != 1 {
-		return fmt.Errorf("usage: ravenry checkpoint ID [--wait [--timeout T]] [--cancel [--reason TEXT]] [--answer TEXT | --approve | --decline]")
+		return fmt.Errorf("usage: ravenry checkpoint ID [--wait [--timeout T]] [--cancel [--reason TEXT]] [--answer TEXT | --approve [--command TEXT] | --decline [--reason TEXT]]")
 	}
 	id := a.pos[0]
 	answering := a.values["answer"] != "" || a.bools["approve"] || a.bools["decline"]
@@ -442,15 +453,27 @@ func answerCheckpoint(ctx context.Context, c *client.Client, a *args, id string)
 		return fmt.Errorf("no checkpoint %s", id)
 	}
 	cp := l.Checkpoints[i]
+	if a.values["command"] != "" && !a.bools["approve"] {
+		return errors.New("--command goes with --approve: the command as you edited it")
+	}
+	if a.values["reason"] != "" && !a.bools["decline"] {
+		return errors.New("--reason goes with --decline (or --cancel)")
+	}
 	params := map[string]any{"checkpoint": id, "by": "terminal"}
 	switch v := a.values["answer"]; {
 	case a.bools["decline"]:
 		params["decline"] = true
+		if r := a.values["reason"]; r != "" {
+			params["reason"] = r
+		}
 	case a.bools["approve"]:
 		if cp.Kind != "approve" {
 			return fmt.Errorf("%s is a %s, not an approve: answer it with --answer or --decline", id, cp.Kind)
 		}
 		params["approve"] = true
+		if c := a.values["command"]; c != "" {
+			params["command"] = c
+		}
 	case cp.Kind == "secret":
 		return fmt.Errorf("a secret is typed in the Ravenry app or on the phone, never on a command line (its history would keep it); --decline declines %s", id)
 	case cp.Kind != "ask":

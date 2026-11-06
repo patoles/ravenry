@@ -100,6 +100,8 @@ export interface Pane {
   shell?: Shell;
   /** Once an agent reported. */
   agent?: AgentStatus;
+  /** With pane.list's `processes`, on a running pane: the processes that belong to it now (PROTOCOL.md section 3). */
+  pids?: number[];
 }
 
 export interface FileInfo {
@@ -137,8 +139,12 @@ export interface CheckpointAnswer {
   option?: string;
   text?: string;
   approved?: boolean;
+  /** The command as the person edited it, only when it differs from the proposed one: this is what ran. */
+  command?: string;
   delivered?: boolean;
   declined?: boolean;
+  /** Why the person declined, when they said. */
+  reason?: string;
   by?: string;
   at: string;
 }
@@ -161,9 +167,13 @@ export interface Checkpoint {
   assistant?: string;
   options?: string[];
   free_text?: boolean;
+  /** As the agent proposed it; answer.command is what ran when the person edited it. */
   command?: string;
   cwd?: string;
+  /** The agent's words: why it should run. */
   why?: string;
+  /** approve: the agent's own warning (what can't be undone). Show it as the agent's words. */
+  warning?: string;
   secret?: SecretTarget;
   created_at: string;
   expires_at: string;
@@ -173,13 +183,17 @@ export interface Checkpoint {
   run?: CheckpointRun;
 }
 
-/** checkpoint.answer: exactly one of choice, text, approve, secret, decline. */
+/**
+ * checkpoint.answer: exactly one of choice, text, approve, secret, decline.
+ * An approve may carry `command`, the command as the person edited it
+ * (it runs instead); a decline may carry `reason`, for the agent.
+ */
 export type CheckpointReply =
   | { choice: number }
   | { text: string }
-  | { approve: true }
+  | { approve: true; command?: string }
   | { secret: string }
-  | { decline: true };
+  | { decline: true; reason?: string };
 
 export interface HelloResult {
   protocol: 1;
@@ -202,6 +216,7 @@ export type Input =
   | { key: string };
 
 export interface SendResult {
+  pane: PaneId;
   bytes: number;
   mark: Mark;
 }
@@ -213,6 +228,7 @@ export interface RowChange {
 }
 
 export interface WaitResult {
+  pane: PaneId;
   condition: 'text' | 'quiet' | 'exit' | 'prompt' | 'timeout';
   since: Mark;
   mark: Mark;
@@ -283,7 +299,7 @@ export interface Methods {
     };
     result: { pane: Pane };
   };
-  'pane.list': { params: { hidden?: boolean; labels?: Labels }; result: { panes: Pane[] } };
+  'pane.list': { params: { hidden?: boolean; labels?: Labels; processes?: boolean }; result: { panes: Pane[] } };
   'pane.update': { params: { pane: PaneId; name?: string; labels?: Record<string, string | null> }; result: { pane: Pane } };
   'pane.close': { params: { pane: PaneId; grace_ms?: number }; result: { pane: Pane; signalled: number } };
   'pane.resize': { params: { pane: PaneId; cols: number; rows: number }; result: { pane: Pane } };
@@ -353,6 +369,7 @@ export interface Methods {
       command?: string;
       cwd?: string;
       why?: string;
+      warning?: string;
       secret?: SecretTarget;
       timeout_ms?: number;
     };

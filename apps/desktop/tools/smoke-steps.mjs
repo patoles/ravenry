@@ -57,7 +57,9 @@ export function smokeSteps(OUT, WORK = path.join(OUT, '.work')) {
 // Checkpoints, answered through the window (tools/smoke.mjs runs these
 // after smokeSteps, in the shell left open): a real `ravenryd ask` answered
 // with the 1 key, one answered in words with Enter, a `ravenryd approve`
-// whose command runs once Run is pressed, and a `ravenryd secret` whose
+// whose command runs once Run is pressed (then one the window edits before
+// it runs, with the agent's own warning, and one it refuses with a reason),
+// and a `ravenryd secret` whose
 // program checks the secret (by its checksum, `sum`) without printing it.
 // The secret is typed into the card's field; a half-typed one is gone once
 // the field loses focus. What the window held afterwards goes to
@@ -96,6 +98,32 @@ export function checkpointSteps(OUT, WORK, { secret, sum }) {
     { until: `${has('approved-42')} && ${has('approve-exit=0')}`, timeout: 20000 },
     { until: after('Ran on') },
     { shot: path.join(OUT, 'smoke-approve-after.png') },
+    // 3b. The agent's own warning, and edit then run: the edited command
+    // runs, the proposed one never does, and the agent is told.
+    { type: `"$SMOKE_RAVENRYD" approve 'echo proposed-ran' --warn 'The smoke test warns about this'; echo "edit-exit=$?"\r` },
+    { until: `${card('approve')} && document.querySelector('#panel .cp .risk.agent')`, timeout: 20000 },
+    { until: `document.querySelector('#panel .cp .risk.agent').textContent === 'The agent warns: The smoke test warns about this'` },
+    { js: click('Edit') },
+    { until: `document.querySelector('#panel .cp .cmd-in')` },
+    { js: `(() => { const t = document.querySelector('#panel .cp .cmd-in'); t.value = 'echo edited-$((40+3))'; t.dispatchEvent(new Event('input')); })()` },
+    { shot: path.join(OUT, 'smoke-approve-edit.png') },
+    { js: click('Run edited command') },
+    { until: `${has('edit-exit=0')} && ${R}.text().split('\\n').some((l) => l.trim() === 'edited-43')`, timeout: 20000 },
+    { until: `${has('a person edited the command before approving it; it ran as:')} && !${R}.text().split('\\n').some((l) => l.trim() === 'proposed-ran')` },
+    { until: after('Ran on') },
+    { shot: path.join(OUT, 'smoke-approve-edited-after.png') },
+    // 3c. Refuse with a reason: the agent reads it.
+    { type: `"$SMOKE_RAVENRYD" approve 'echo never-$((1+1))'; echo "refuse-exit=$?"\r` },
+    { until: card('approve'), timeout: 20000 },
+    { js: click('Refuse') },
+    { until: `document.querySelector('#panel .cp input.rsn')` },
+    { js: `document.querySelector('#panel .cp input.rsn').focus()` },
+    { type: 'Run the tests first', after: 200 },
+    { shot: path.join(OUT, 'smoke-refuse-reason.png') },
+    { key: 'Return', char: '\r' },
+    { until: `${has('refuse-exit=125')} && ${has(': Run the tests first')} && !${has('never-2')}`, timeout: 20000 },
+    { until: after('Refused') },
+    { shot: path.join(OUT, 'smoke-refuse-after.png') },
     // 4. A secret for a program: typed into the card, never into the terminal.
     { type: `"$SMOKE_RAVENRYD" secret 'Smoke test key' -- sh -c 'printf "Key: "; IFS= read -r k; [ "$(printf %s "$k" | cksum)" = "${sum}" ]'; echo "secret-exit=$?"\r` },
     { until: card('secret'), timeout: 20000 },

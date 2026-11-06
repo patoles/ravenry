@@ -128,6 +128,30 @@ export function riskOf(command: string | null | undefined): string | null {
   return null;
 }
 
+/** One warning line on an approve card, with whose words it is. */
+export interface Warning { from: 'agent' | 'ravenry'; label: string; text: string }
+
+/**
+ * The warnings an approve card shows: the agent's own (`warning`, its
+ * words, labelled as its), then Ravenry's guess from the command (labelled
+ * as Ravenry's). Both show when both exist, so an agent's reassuring
+ * "warning" never hides Ravenry's guess. `command` is the text that would
+ * run (the edited one while the person edits it).
+ */
+export function warningsOf(cp: Checkpoint, command: string | null | undefined = cp.command): Warning[] {
+  const out: Warning[] = [];
+  const mine = String(cp.warning || '').trim();
+  if (mine) out.push({ from: 'agent', label: `${who(cp)} warns:`, text: mine });
+  const guess = riskOf(command);
+  if (guess) out.push({ from: 'ravenry', label: 'Ravenry\'s guess:', text: guess });
+  return out;
+}
+
+/** The command that ran (or runs): the person's edit when they made one, else the proposed one. */
+export function ranCommand(cp: Checkpoint): string | null {
+  return cp.answer?.command || cp.command || null;
+}
+
 /** The program a command runs and its plain words, for "Sent to wrangler secret put". */
 export function shortCommand(command: string | null | undefined): string {
   const words = String(command || '').trim().split(/\s+/).filter(Boolean);
@@ -185,8 +209,10 @@ export interface After {
   small: string | null;
   /** The answer or the secret's name, large. */
   big: string | null;
-  /** The command, greyed (approve). */
+  /** The command, greyed (approve): the one that ran, edited or not. */
   command: string | null;
+  /** The person edited the command before it ran. */
+  edited: boolean;
   text: string;
   /** The pane the command ran in, to show it. */
   runPane: string | null;
@@ -196,12 +222,13 @@ export function afterOf(cp: HubCheckpoint, now: number, platform: string, here =
   const w = who(cp);
   const a = cp.answer;
   const time = timeOf(cp.closed_at || a?.at || null, now);
-  const base: After = { ok: false, head: '', time, small: null, big: null, command: null, text: '', runPane: null };
+  const base: After = { ok: false, head: '', time, small: null, big: null, command: null, edited: false, text: '', runPane: null };
   const where = machineName(cp.machine, platform);
   if (cp.state === 'cancelled') return { ...base, head: 'Withdrawn', text: `${w} withdrew it${cp.reason ? `: ${cp.reason}` : '.'}` };
   if (cp.state === 'expired') return { ...base, head: 'Nobody answered', text: `${w} gave up waiting at ${time || timeOf(cp.expires_at, now)}.` };
   if (cp.state === 'declined' || a?.declined) {
-    return { ...base, head: 'Refused', small: kindOf(cp) === 'ask' ? splitTitle(cp.title).head : null, command: kindOf(cp) === 'approve' ? cp.command || null : null, text: `You said no ${byText(a?.by, here)}. ${w} was told.` };
+    const why = a?.reason ? `: "${a.reason}"` : '';
+    return { ...base, head: 'Refused', small: kindOf(cp) === 'ask' ? splitTitle(cp.title).head : null, command: kindOf(cp) === 'approve' ? cp.command || null : null, text: `You said no ${byText(a?.by, here)}${why}. ${w} was told.` };
   }
   const k = kindOf(cp);
   if (k === 'ask') {
@@ -209,8 +236,10 @@ export function afterOf(cp: HubCheckpoint, now: number, platform: string, here =
     return { ...base, ok: true, head: 'Answered', small: splitTitle(cp.title).head, big: answer ?? null, text: `You answered ${byText(a?.by, here)}.` };
   }
   if (k === 'approve') {
+    const edited = !!a?.command;
+    const approved = edited ? `You edited it and approved it ${byText(a?.by, here)}` : `You approved it ${byText(a?.by, here)}`;
     if (cp.state === 'running') {
-      return { ...base, ok: true, head: `Running on ${where}`, time: timeOf(a?.at, now), command: cp.command || null, text: `You approved it ${byText(a?.by, here)}. ${w} gets the output when it ends.`, runPane: cp.run?.pane || null };
+      return { ...base, ok: true, head: `Running on ${where}`, time: timeOf(a?.at, now), command: ranCommand(cp), edited, text: `${approved}. ${w} gets the output when it ends${edited ? ', and is told you changed it' : ''}.`, runPane: cp.run?.pane || null };
     }
     const exit = cp.run?.exit;
     const took = a?.at && cp.closed_at ? duration(Date.parse(cp.closed_at) - Date.parse(a.at)) : null;
@@ -218,7 +247,7 @@ export function afterOf(cp: HubCheckpoint, now: number, platform: string, here =
       : exit.code === 0 ? `Finished${took ? ` in ${took}` : ''} with no errors.`
         : exit.signal ? `Stopped by ${exit.signal}${took ? ` after ${took}` : ''}.`
           : `Ended with exit code ${exit.code}${took ? ` after ${took}` : ''}.`;
-    return { ...base, ok: !!exit && exit.code === 0, head: `Ran on ${where}`, command: cp.command || null, text: `${how} You approved it ${byText(a?.by, here)}; ${whoMid(cp)} has the output.`, runPane: cp.run?.pane || null };
+    return { ...base, ok: !!exit && exit.code === 0, head: `Ran on ${where}`, command: ranCommand(cp), edited, text: `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane: cp.run?.pane || null };
   }
   if (k === 'secret') {
     const to = cp.secret?.to === 'input' ? 'the program in its pane' : shortCommand(cp.command) || 'its command';

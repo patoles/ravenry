@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Checkpoint } from '@ravenry/client';
 import {
-  afterOf, changedRange, characters, Checkpoints, daemonAnswer, digitChoice, duration, givesUp, heading, hubAnswer, markOf, riskOf, runLabel, SecretField,
+  afterOf, changedRange, characters, Checkpoints, daemonAnswer, digitChoice, duration, givesUp, heading, hubAnswer, markOf, ranCommand, riskOf, runLabel, SecretField, warningsOf,
   secretProblem, shortCommand, splitTitle, waiting, wantsLine,
 } from '../src/renderer/checkpoints.ts';
 import type { HubCheckpoint } from '../src/renderer/checkpoints.ts';
@@ -55,6 +55,42 @@ test('the approve card names the machine, warns when it cannot be undone', () =>
   assert.equal(riskOf('git push origin main'), null);
   assert.equal(riskOf('npm test'), null);
   assert.equal(riskOf('psql -c "DROP TABLE users"'), 'Dropping data can\'t be undone');
+});
+
+test('the agent\'s warning shows as its own, and never hides Ravenry\'s guess', () => {
+  // Only Ravenry's guess: the fallback, labelled as Ravenry's.
+  assert.deepEqual(warningsOf(approve), [{ from: 'ravenry', label: 'Ravenry\'s guess:', text: 'Publishing to npm can\'t be undone' }]);
+  // The agent declares one: shown as its words, and the guess stays.
+  const reassuring = { ...approve, warning: 'Nothing here can go wrong' };
+  assert.deepEqual(warningsOf(reassuring).map((w) => `${w.from}|${w.label} ${w.text}`), [
+    'agent|Codex warns: Nothing here can go wrong',
+    'ravenry|Ravenry\'s guess: Publishing to npm can\'t be undone',
+  ]);
+  // The agent's warning alone, on a command Ravenry has no guess for.
+  assert.deepEqual(warningsOf({ ...approve, command: 'make deploy', warning: 'This restarts the production server' }).map((w) => w.from), ['agent']);
+  // While the person edits, the guess follows the edited text.
+  assert.deepEqual(warningsOf(approve, 'git push origin main'), []);
+  assert.deepEqual(warningsOf({ ...approve, warning: '  ' }, 'npm test'), []);
+});
+
+test('edit then run, and refuse with a reason: the answer carries them, the card says so after', () => {
+  assert.deepEqual(daemonAnswer('capp0001', { approve: true, command: 'npm publish --tag beta' }), { checkpoint: 'capp0001', by: 'desktop', approve: true, command: 'npm publish --tag beta' });
+  assert.deepEqual(hubAnswer('capp0001', { approve: true, command: 'npm publish --tag beta' }), { id: 'capp0001', by: 'desktop', approve: true, command: 'npm publish --tag beta' });
+  assert.deepEqual(hubAnswer('capp0001', { decline: true, reason: 'Run the tests first' }), { id: 'capp0001', by: 'desktop', decline: true, reason: 'Run the tests first' });
+  const ed = { ...approve, state: 'answered' as const, answer: { approved: true, command: 'npm publish --tag beta', by: 'desktop', at: at(1) }, closed_at: at(0), run: { pane: 'pd', exit: { code: 0 } } };
+  assert.equal(ranCommand(ed), 'npm publish --tag beta');
+  const after = afterOf(ed, NOW, 'darwin');
+  assert.equal(after.command, 'npm publish --tag beta');
+  assert.equal(after.edited, true);
+  assert.match(after.text, /You edited it and approved it here; codex has the output and knows you changed it\./i);
+  const running = afterOf({ ...ed, state: 'running', run: { pane: 'pd' } }, NOW, 'darwin');
+  assert.match(running.text, /You edited it and approved it here\. Codex gets the output when it ends, and is told you changed it\./);
+  const plain = afterOf({ ...ed, answer: { approved: true, by: 'desktop', at: at(1) } }, NOW, 'darwin');
+  assert.equal(plain.command, approve.command);
+  assert.equal(plain.edited, false);
+  const refused = afterOf({ ...approve, state: 'declined', closed_at: at(0), answer: { declined: true, reason: 'Run the tests first', by: 'desktop', at: at(0) } }, NOW, 'darwin');
+  assert.equal(refused.text, 'You said no here: "Run the tests first". Codex was told.');
+  assert.equal(afterOf({ ...approve, state: 'declined', closed_at: at(0), answer: { declined: true, by: 'phone', at: at(0) } }, NOW, 'darwin').text, 'You said no on your phone. Codex was told.');
 });
 
 test('number keys pick an answer; edits are tinted where they changed', () => {

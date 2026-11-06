@@ -52,14 +52,14 @@ function save() {
 
 // Only the fields the protocol defines, so nothing else a daemon might send
 // is ever stored or shown.
-const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'secret', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
+const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'secret', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
 function clean(cp) {
   const out = {};
   for (const k of FIELDS) if (cp[k] !== undefined) out[k] = cp[k];
   if (out.secret) out.secret = { to: out.secret.to, ...(out.secret.pane ? { pane: out.secret.pane } : {}), ...(out.secret.env ? { env: out.secret.env } : {}), ...(out.secret.enter === false ? { enter: false } : {}) };
   if (out.answer) {
     const a = out.answer;
-    out.answer = { at: a.at, ...(a.choice != null ? { choice: a.choice, option: a.option } : {}), ...(a.text != null ? { text: a.text } : {}), ...(a.approved ? { approved: true } : {}), ...(a.delivered ? { delivered: true } : {}), ...(a.declined ? { declined: true } : {}), ...(a.by ? { by: a.by } : {}) };
+    out.answer = { at: a.at, ...(a.choice != null ? { choice: a.choice, option: a.option } : {}), ...(a.text != null ? { text: a.text } : {}), ...(a.approved ? { approved: true } : {}), ...(typeof a.command === 'string' && a.command ? { command: a.command } : {}), ...(a.delivered ? { delivered: true } : {}), ...(a.declined ? { declined: true } : {}), ...(typeof a.reason === 'string' && a.reason ? { reason: a.reason } : {}), ...(a.by ? { by: a.by } : {}) };
   }
   return out;
 }
@@ -93,8 +93,12 @@ export function list({ all = false } = {}) {
 }
 
 // A person's answer, from the board's API: { id, choice | text | approve |
-// secret | decline, by }. `send(daemon, params)` reaches the daemon that
-// holds it. The reply never echoes a secret back.
+// secret | decline, by }, with `command` (approve: the command as the
+// person edited it, which runs instead) or `reason` (decline: why, for the
+// agent). Every field the person gave reaches the daemon or the answer is
+// refused: an edited command never runs as proposed because a field was
+// dropped on the way. `send(daemon, params)` reaches the daemon that holds
+// it. The reply never echoes a secret back.
 export async function answer(body, send) {
   load();
   const b = body && typeof body === 'object' ? body : {};
@@ -104,6 +108,16 @@ export async function answer(body, send) {
   const keys = ['choice', 'text', 'approve', 'secret', 'decline'].filter((k) => b[k] !== undefined && b[k] !== null && b[k] !== false);
   if (keys.length !== 1) return { ok: false, status: 400, error: 'Answer with exactly one of choice, text, approve, secret or decline.' };
   const k = keys[0];
+  // Fields this board does not know are refused, not dropped.
+  const known = new Set(['id', 'by', 'choice', 'text', 'approve', 'secret', 'decline', 'command', 'reason']);
+  const unknown = Object.keys(b).filter((x) => !known.has(x));
+  if (unknown.length) return { ok: false, status: 400, error: `This board does not know ${unknown.join(', ')}, so it did not pass the answer on.` };
+  const hasCommand = b.command !== undefined && b.command !== null;
+  const hasReason = b.reason !== undefined && b.reason !== null;
+  if (hasCommand && k !== 'approve') return { ok: false, status: 400, error: 'An edited command goes with approve.' };
+  if (hasReason && k !== 'decline') return { ok: false, status: 400, error: 'A reason goes with decline.' };
+  if (hasCommand && (typeof b.command !== 'string' || !b.command.trim())) return { ok: false, status: 400, error: 'The edited command is empty.' };
+  if (hasReason && typeof b.reason !== 'string') return { ok: false, status: 400, error: 'The reason is text.' };
   const params = { checkpoint: cp.id, ...(typeof b.by === 'string' && b.by ? { by: b.by.slice(0, 64) } : {}) };
   if (k === 'choice') {
     if (!Number.isInteger(b.choice)) return { ok: false, status: 400, error: 'choice is a number.' };
@@ -113,6 +127,9 @@ export async function answer(body, send) {
     if (typeof b.secret !== 'string' || b.secret.length < 4) return { ok: false, status: 400, error: 'Type the whole secret (at least 4 characters).' };
     params.secret = b.secret;
   } else params[k] = true;
+  if (hasCommand) params.command = b.command;
+  // An empty reason is no reason.
+  if (hasReason && b.reason.trim()) params.reason = b.reason.trim();
   if (!KINDS.has(cp.kind) && k !== 'decline') return { ok: false, status: 400, error: 'This board does not know that kind of checkpoint; it can only decline it.' };
   try {
     const r = await send(cp.daemon, params);
@@ -121,6 +138,8 @@ export async function answer(body, send) {
   } catch (e) {
     // The daemon's own words, never the request (it may hold the secret).
     if (e && e.code === 'forbidden') return { ok: false, status: 403, error: `${cp.machine ? cp.machine : 'The daemon'} did not take the answer from this hub: ${e.message}` };
+    // A daemon older than the field refuses it: nothing ran.
+    if (e && e.code === 'bad_request' && (params.command || params.reason)) return { ok: false, status: 400, error: `${cp.machine ? `ravenryd on ${cp.machine}` : 'ravenryd'} did not take the answer, so nothing ran: ${e.message}. An older ravenryd cannot run an edited command or pass a reason; update it there, or answer without them.` };
     const why = e && e.code === 'not_found' ? 'It closed already: answered somewhere else, cancelled or expired.' : `The daemon did not take the answer (${e && e.code ? e.code : 'unreachable'}).`;
     return { ok: false, status: e && e.code === 'not_found' ? 409 : 502, error: why };
   } finally {

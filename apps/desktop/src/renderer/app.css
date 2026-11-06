@@ -255,8 +255,11 @@ body.first .sl { flex: none; }
 .cmd-edit .chg { background: var(--chg); border-radius: 3px; }
 .cmd-in { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; border: 0; outline: 0; resize: none; overflow: hidden; background: transparent; color: transparent; caret-color: var(--tx); padding: 9px 11px; font: 12px/1.5 ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .cmd-in::selection { background: rgba(64, 156, 255, .35); color: transparent; }
-.risk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--you); font-weight: 550; }
-.risk svg { flex: none; }
+.risk { display: flex; align-items: flex-start; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--you); font-weight: 550; overflow-wrap: anywhere; }
+.risk svg { flex: none; margin-top: 1px; }
+/* Whose warning it is: the agent's words, or Ravenry's own guess. */
+.risk .wl { color: var(--tx2); font-weight: 500; }
+.fld.rsn-f { align-items: center; }
 .sec .says, .says { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--tx2); overflow-wrap: anywhere; }
 .says span { color: var(--tx3); }
 .btn.no { color: var(--bad); }

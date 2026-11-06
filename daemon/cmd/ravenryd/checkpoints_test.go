@@ -13,6 +13,7 @@ import (
 
 	"ravenryd/internal/client"
 	"ravenryd/internal/proto"
+	"ravenryd/internal/testenv"
 )
 
 // ravenry is the binary under its people-and-agents name.
@@ -26,6 +27,7 @@ func (e *env) ravenry(version string, args ...string) *exec.Cmd {
 	}
 	c := exec.Command(link, args...)
 	c.Env = e.vars
+	testenv.Check(e.t, c.Env)
 	c.Dir = e.dir
 	return c
 }
@@ -153,13 +155,37 @@ func TestCheckpointCommands(t *testing.T) {
 		t.Fatalf("approve: %d %q %+v", code, out, cp)
 	}
 
-	done = startCmd(t, e.ravenry("0.2.0", "approve", "--", "touch", "never ran"))
+	done = startCmd(t, e.ravenry("0.2.0", "approve", "--cwd", e.dir, "--", "touch", "never ran"))
 	cp = person(t, e, func(proto.Checkpoint) map[string]any { return map[string]any{"decline": true} })
 	if out, code := done(); code != exitDeclined || cp.Command != "touch 'never ran'" {
 		t.Fatalf("declined: %d %q %q", code, out, cp.Command)
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, "never ran")); err == nil {
 		t.Fatal("a declined command ran")
+	}
+
+	// The agent's warning; the person edits the command, and the agent is
+	// told it changed, with what ran; the proposed one never runs.
+	done = startCmd(t, e.ravenry("0.2.0", "approve", "touch proposed-ran", "--cwd", e.dir, "--warn", "Publishing to npm can't be undone"))
+	cp = person(t, e, func(proto.Checkpoint) map[string]any {
+		return map[string]any{"approve": true, "command": "touch edited-ran && echo edited-output"}
+	})
+	if out, code := done(); code != 0 || !strings.Contains(out, "a person edited the command before approving it; it ran as:\ntouch edited-ran && echo edited-output") || !strings.Contains(out, "edited-output") || cp.Warning != "Publishing to npm can't be undone" {
+		t.Fatalf("edited: %d %q %+v", code, out, cp)
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "edited-ran")); err != nil {
+		t.Fatal("the edited command did not run")
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "proposed-ran")); err == nil {
+		t.Fatal("the proposed command ran instead of the edited one")
+	}
+	// A decline with the person's reason.
+	done = startCmd(t, e.ravenry("0.2.0", "approve", "touch never-ran-2", "--cwd", e.dir))
+	person(t, e, func(proto.Checkpoint) map[string]any {
+		return map[string]any{"decline": true, "reason": "Run the tests first"}
+	})
+	if out, code := done(); code != exitDeclined || !strings.Contains(out, ": Run the tests first") {
+		t.Fatalf("declined with a reason: %d %q", code, out)
 	}
 
 	done = startCmd(t, e.ravenry("0.2.0", "secret", "Mail service API key", "--", "sh", "-c", "printf 'Enter a secret value: '; read v; echo stored-$v"))
@@ -230,6 +256,24 @@ func TestOnlyAPersonAnswersFromTheCommandLine(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, "ran")); err != nil {
 		t.Fatal("the approved command did not run")
+	}
+	// The person edits it at the terminal, or declines with a reason.
+	id, _, _ = runCmd(t, e.ravenry("0.2.0", "approve", "touch not-this", "--cwd", e.dir, "--no-wait"))
+	id = strings.TrimSpace(id)
+	if out, errs, code := runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--approve", "--command", "touch this-instead")); code != 0 || strings.TrimSpace(out) != "running" {
+		t.Fatalf("edited at the terminal: %d %q %q", code, out, errs)
+	}
+	runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--wait", "--timeout", "10s"))
+	if _, err := os.Stat(filepath.Join(e.dir, "this-instead")); err != nil {
+		t.Fatal("the command edited at the terminal did not run")
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "not-this")); err == nil {
+		t.Fatal("the proposed command ran")
+	}
+	id, _, _ = runCmd(t, e.ravenry("0.2.0", "approve", "true", "--no-wait"))
+	id = strings.TrimSpace(id)
+	if out, _, code := runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--decline", "--reason", "Not today", "--json")); code != 0 || jsonOut[proto.CheckpointResult](t, out).Checkpoint.Answer.Reason != "Not today" {
+		t.Fatalf("decline with a reason: %d %s", code, out)
 	}
 	// An ask, by an option's text; a secret is never typed here.
 	id, _, _ = runCmd(t, e.ravenry("0.2.0", "ask", "Ready?", "--option", "Yes", "--option", "Not yet", "--no-wait"))

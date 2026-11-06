@@ -7,7 +7,11 @@
 # machines through a fake ssh, and the hub's API on a real board, with the
 # rule that only a person answers a checkpoint (from inside a real pane,
 # the command line, a raw socket call and curl to the hub are refused, and
-# so is every hub write that stands for a person's decision);
+# so is every hub write that stands for a person's decision, and a plan's
+# gate ticked in BRIEF.md from a pane is not taken as passed); an edited
+# command runs through the daemon and the hub instead of the proposed one;
+# every test that starts ravenryd or the hub refuses a folder of the real
+# user's (tools/test-env.mjs, daemon/internal/testenv);
 # node --check over every script, and the hub suites that need no macOS
 # tool and no browser.
 name: code

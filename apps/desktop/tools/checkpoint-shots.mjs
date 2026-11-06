@@ -16,6 +16,7 @@
 // after state, at 1440x900 (wide) and 900x700 (narrow), and the first
 // launch's hook offer (hooks-offer.png; its Set up runs against the
 // throwaway HOME only and is checked there).
+import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,8 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { startDemoHub } from './demo-hub.mjs';
 import { APP, runApp, stopDaemons } from './run-app.mjs';
+
+guardSpawns();
 
 const OUT = path.resolve(process.argv[2] || path.join(APP, '.tmp', 'checkpoint-shots'));
 const WORK = path.join(OUT, '.work');
@@ -45,7 +48,7 @@ const DEVBOX_HOME = path.join(WORK, 'devbox-home');
 for (const d of [STAND, FAKE, DEVBOX_HOME]) fs.mkdirSync(d, { recursive: true });
 const script = (dir, name, body) => fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 script(STAND, 'git', `case "$1" in push) sleep 2; echo "To devbox:code/recipe-box.git"; echo "   4be1f0a..9c2d7e1  main -> main";; *) exec /usr/bin/git "$@";; esac`);
-script(STAND, 'npm', `case "$1" in publish) sleep 3; echo "+ recipe-box@2.3.0";; *) echo "npm $*";; esac`);
+script(STAND, 'npm', `case "$1" in publish) sleep 3; echo "+ recipe-box@2.3.0"; [ $# -gt 1 ] && echo "npm $*";; *) echo "npm $*";; esac`);
 script(STAND, 'npx', `[ "$1" = wrangler ] || exit 1; printf "? Enter a secret value: "; IFS= read -r v; [ \${#v} -ge 4 ] || exit 1; echo; echo "Success! Uploaded secret MAIL_API_KEY"`);
 fs.symlinkSync(BIN, path.join(FAKE, 'ravenryd'));
 const DEVBOX_ENV = { HOME: DEVBOX_HOME, PATH: `${FAKE}:${STAND}:/usr/bin:/bin`, SHELL: '/bin/sh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: RR, RAVENRY_STATE_DIR: path.join(WORK, 'devbox-state') };
@@ -107,7 +110,7 @@ try {
   });
   const approve = sessionScript(S3['recipe-box'], {
     screen: `${C.dim}›${C.r} ${C.w}Publish 2.3.0 once the import tests pass${C.r}\\n\\n• Ran ${C.w}npm test -- import${C.r}\\n${C.dim}  └ ${C.g}48 passed${C.dim}, 0 failed (2.4 s)${C.r}\\n\\n• The import tests pass. Pushing and publishing are on your list of things\\n  I can not run alone, so I asked Ravenry to run them once you approve.\\n\\n${C.y}•${C.r} Waiting for approval in Ravenry\\n${C.dim}  └ git push origin main && npm publish${C.r}\\n`,
-    wait: `'${BIN}' approve 'git push origin main && npm publish' --why ${q('The import tests pass. This pushes the 2.3.0 commit and publishes it.')} --timeout 30m`,
+    wait: `'${BIN}' approve 'git push origin main && npm publish' --why ${q('The import tests pass. This pushes the 2.3.0 commit and publishes it.')} --warn ${q('Everyone who installs recipe-box gets 2.3.0 at once')} --timeout 30m`,
     after: `\\n• Published recipe-box 2.3.0.\\n`,
   });
   const secret = sessionScript(S3['garden-planner'], {
@@ -136,6 +139,11 @@ try {
     // Wide: each card open, the command being edited, the secret being typed.
     pick('ask'), cardIs('ask'), shot('ask-wide.png'),
     pick('approve'), cardIs('approve'), shot('approve-wide.png'),
+    // Refuse opens the reason field; Back closes it again.
+    button('Refuse'), { until: `document.querySelector('#panel .cp input.rsn')` },
+    { js: `document.querySelector('#panel .cp input.rsn').focus()` },
+    { type: 'Run the full test suite first', after: 200 }, shot('approve-refuse-wide.png'),
+    button('Back'), { until: `!document.querySelector('#panel .cp input.rsn')` },
     button('Edit'), { until: `document.querySelector('#panel .cmd-in')` }, { sleep: 200 },
     { type: ' --tag beta', after: 200 }, shot('approve-edit-wide.png'),
     button('Cancel'),
@@ -162,7 +170,10 @@ try {
     { save: { expr: `[...${R}.S.cps.items.values()].find((x) => x.cp.kind === 'ask').cp.id`, out: path.join(WORK, 'ask-id.json') } },
     { signal: sig('phone') }, { wait: go('phone') },
     pick('ask'), afterIs('Answered'), shot('ask-after-wide.png'),
-    pick('approve'), cardIs('approve'), button('Run on devbox'), afterIs('Ran on devbox'), shot('approve-after-wide.png'),
+    // Edit then run, through the board (devbox is reached through the hub):
+    // the edited command runs there.
+    pick('approve'), cardIs('approve'), button('Edit'), { until: `document.querySelector('#panel .cmd-in')` }, { sleep: 200 },
+    { type: ' --tag beta', after: 200 }, button('Run edited command'), afterIs('Ran on devbox'), shot('approve-after-wide.png'),
     pick('secret'), cardIs('secret'), { js: `document.querySelector('#panel .cp input.si').focus()` },
     { type: SECRET, after: 200 }, button('Send to the terminal'), afterIs('Secret sent'), shot('secret-after-wide.png'),
     { size: [900, 700] }, { js: 'window.dispatchEvent(new Event("resize"))' },
@@ -183,6 +194,9 @@ try {
   const after = fs.readFileSync(path.join(WORK, 'after.json'), 'utf8');
   if (after.includes(SECRET)) throw new Error('the secret is in the window after it was sent');
   const ended = JSON.parse(after).cps.map((c) => `${c.kind}:${c.state}:${c.answer && c.answer.by}`).sort();
+  const rb = JSON.parse(after).cps.find((c) => c.kind === 'approve');
+  if (!rb || rb.answer?.command !== 'git push origin main && npm publish --tag beta' || !/npm publish --tag beta/.test(rb.run?.output || '')) throw new Error(`the edited command did not run on devbox through the board: ${JSON.stringify(rb)}`);
+  console.log('edited on devbox, through the board:', rb.answer.command);
   console.log('answered:', ended.join(', '));
   stopDaemons(BIN, RT);
   hub.stop(); hub = null;

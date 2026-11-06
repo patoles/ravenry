@@ -486,6 +486,10 @@
         "why": {
           "type": "string"
         },
+        "warning": {
+          "type": "string",
+          "description": "approve: the agent's own warning."
+        },
         "secret": {
           "$ref": "#/$defs/SecretTarget"
         },
@@ -535,12 +539,20 @@
         "approved": {
           "type": "boolean"
         },
+        "command": {
+          "type": "string",
+          "description": "The command as the person edited it, set only when it differs from the proposed one: this is what ran."
+        },
         "delivered": {
           "type": "boolean",
           "description": "A secret went where it was asked to. The secret itself is never here."
         },
         "declined": {
           "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the person declined, when they said."
         },
         "by": {
           "type": "string"
@@ -1488,6 +1500,12 @@
         "approve": {
           "const": true
         },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "With approve: the command as the person edited it. It runs instead of the proposed one."
+        },
         "secret": {
           "type": "string",
           "minLength": 4,
@@ -1496,6 +1514,11 @@
         },
         "decline": {
           "const": true
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "With decline: why, for the agent."
         },
         "by": {
           "type": "string",
@@ -1510,6 +1533,14 @@
         "checkpoint"
       ],
       "additionalProperties": false,
+      "dependentRequired": {
+        "command": [
+          "approve"
+        ],
+        "reason": [
+          "decline"
+        ]
+      },
       "description": "A person answers a checkpoint. Exactly one of choice, text, approve, secret, decline.",
       "oneOf": [
         {
@@ -1644,6 +1675,11 @@
         "why": {
           "type": "string",
           "maxLength": 1000
+        },
+        "warning": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "approve: what the agent warns the person about (what can't be undone). A client shows it as the agent's words."
         },
         "secret": {
           "$ref": "#/$defs/SecretTarget"

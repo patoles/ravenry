@@ -632,14 +632,18 @@ type SecretTarget struct {
 }
 
 // CheckpointAnswer is what a person answered. It never holds a secret:
-// a delivered secret is only Delivered.
+// a delivered secret is only Delivered. Command is the command as the
+// person edited it before approving (it ran instead of the proposed one),
+// set only when it differs; Reason is why they declined, when they said.
 type CheckpointAnswer struct {
 	Choice    *int    `json:"choice,omitempty"`
 	Option    string  `json:"option,omitempty"`
 	Text      *string `json:"text,omitempty"`
 	Approved  *bool   `json:"approved,omitempty"`
+	Command   string  `json:"command,omitempty"`
 	Delivered bool    `json:"delivered,omitempty"`
 	Declined  bool    `json:"declined,omitempty"`
+	Reason    string  `json:"reason,omitempty"`
 	By        string  `json:"by,omitempty"`
 	At        string  `json:"at"`
 }
@@ -667,6 +671,7 @@ type Checkpoint struct {
 	Command   string            `json:"command,omitempty"`
 	Cwd       string            `json:"cwd,omitempty"`
 	Why       string            `json:"why,omitempty"`
+	Warning   string            `json:"warning,omitempty"`
 	Secret    *SecretTarget     `json:"secret,omitempty"`
 	CreatedAt string            `json:"created_at"`
 	ExpiresAt string            `json:"expires_at"`
@@ -686,6 +691,7 @@ type CheckpointNewRequest struct {
 	Command   string        `json:"command,omitempty"`
 	Cwd       string        `json:"cwd,omitempty"`
 	Why       string        `json:"why,omitempty"`
+	Warning   string        `json:"warning,omitempty"`
 	Secret    *SecretTarget `json:"secret,omitempty"`
 	TimeoutMs *int64        `json:"timeout_ms,omitempty"`
 }
@@ -717,7 +723,12 @@ type CheckpointAnswerRequest struct {
 	Approve    bool    `json:"approve,omitempty"`
 	Secret     *string `json:"secret,omitempty"`
 	Decline    bool    `json:"decline,omitempty"`
-	By         string  `json:"by,omitempty"`
+	// Command, with Approve: the command as the person edited it, which
+	// runs instead of the proposed one.
+	Command *string `json:"command,omitempty"`
+	// Reason, with Decline: why, for the agent.
+	Reason *string `json:"reason,omitempty"`
+	By     string  `json:"by,omitempty"`
 }
 
 type CheckpointCancelRequest struct {

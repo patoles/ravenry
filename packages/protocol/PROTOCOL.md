@@ -699,11 +699,14 @@ Three kinds:
 
 - **`ask`**: a question with buttons (`options`) and, with `free_text`,
   room to type an answer.
-- **`approve`**: a `command` (and `why`) that runs only once a person
-  approves it. The person sees the exact text that runs. It runs as
-  `$SHELL -c <command>` in a new pane, in `cwd`, labelled
-  `ravenry.checkpoint: <id>` so a window can show it; the checkpoint
-  closes once it ended, with its exit and the end of its output.
+- **`approve`**: a `command` (and `why`, and the agent's own `warning`)
+  that runs only once a person approves it. The person sees the exact
+  text that runs, and may edit it first: then their text runs instead,
+  and `answer.command` holds it, so the agent learns that it changed and
+  what ran. It runs as `$SHELL -c <command>` in a new pane, in `cwd`,
+  labelled `ravenry.checkpoint: <id>` so a window can show it; the
+  checkpoint closes once it ended, with its exit and the end of its
+  output.
 - **`secret`**: a person types a secret, which goes where `secret.to`
   says and never to the agent: `input`, typed into a running pane
   (`secret.pane`, never the asking pane); `run`, typed into `command`,
@@ -722,14 +725,23 @@ last 64 closed ones, and at most 64 open at a time.
 
 **The Checkpoint object:** `id` (ravenryd's are "c" and 7 characters),
 `kind`, `state`, `title`, and when set `pane` (the asking pane),
-`assistant` (the agent that ran there), `options`, `free_text`, `command`,
-`cwd`, `why`, `secret` (`to`, `pane`, `enter`, `env`), then `created_at`,
-`expires_at`, `closed_at`, `reason` (why it was cancelled, or why an
-approved command did not run), `answer` (`choice` and `option`, `text`,
-`approved`, `delivered`, `declined`, `by`, `at`) and `run` (`pane`, and
-once it ended `exit`, `output`: the last 64 KiB as text, `truncated`).
+`assistant` (the agent that ran there), `options`, `free_text`, `command`
+(as the agent proposed it), `cwd`, `why`, `warning`, `secret` (`to`,
+`pane`, `enter`, `env`), then `created_at`, `expires_at`, `closed_at`,
+`reason` (why it was cancelled, or why an approved command did not run),
+`answer` (`choice` and `option`, `text`, `approved`, `command` (the
+command as the person edited it, only when it differs from the proposed
+one: what ran), `delivered`, `declined`, `reason` (why they declined,
+when they said), `by`, `at`) and `run` (`pane`, and once it ended `exit`,
+`output`: the last 64 KiB as text, `truncated`).
 A client that does not know a checkpoint's kind shows its title and
 offers only to decline it.
+
+`why` and `warning` are the agent's words. A client shows them as the
+agent's, never as its own judgement, so a reassuring sentence cannot
+stand in for the command. A client may add its own guess of what cannot
+be undone; it shows that as its own, beside the agent's warning, and an
+agent's warning never hides it.
 
 Only a person answers: `checkpoint.answer` fails with `forbidden` on a
 connection from inside a pane, so an agent cannot answer a checkpoint,
@@ -748,6 +760,7 @@ below). An agent opens, lists, waits on and cancels them.
 | `command` | string, optional | approve, and secret with `to` `run` or `env`: the exact command line, 1 to 8 KiB. |
 | `cwd` | string, optional | With `command`: where it runs. Default: the asking pane's `cwd`, else the home directory. |
 | `why` | string, optional | approve: why it should run, at most 1000 bytes. |
+| `warning` | string, optional | approve: what the agent warns the person about (what cannot be undone), at most 1000 bytes. |
 | `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
 | `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
 
@@ -780,12 +793,21 @@ A person's answer: exactly one of
 | `secret` | string | secret: 4 to 4096 bytes on one line. Given, it is delivered (and for `run` and `env`, the command runs). |
 | `decline` | `true` | Any kind: the person says no. |
 
-plus `checkpoint` (id) and `by` (optional, at most 64 bytes: where they
-answered, for people: `desktop`, `phone`). Result: `checkpoint`, closed,
-or `running` for a command. Fails with `not_found` when it is not open
-(answered elsewhere first, cancelled or expired), and with `forbidden`
-when this connection may not act as the person; the checkpoint then
-stays as it was.
+plus `checkpoint` (id), `by` (optional, at most 64 bytes: where they
+answered, for people: `desktop`, `phone`), and with some answers:
+
+| Field | | |
+| --- | --- | --- |
+| `command` | string, optional | With `approve`: the command as the person edited it, 1 to 8 KiB. It runs instead of the proposed one, and `answer.command` holds it when it differs. |
+| `reason` | string, optional | With `decline`: why, for the agent, at most 1000 bytes. |
+
+Result: `checkpoint`, closed, or `running` for a command. Fails with
+`not_found` when it is not open (answered elsewhere first, cancelled or
+expired), and with `forbidden` when this connection may not act as the
+person; the checkpoint then stays as it was. A daemon older than these
+fields refuses them with `bad_request`, so an edited command never runs
+as proposed by mistake: whoever passes an answer on (the hub) passes
+every field or none.
 
 #### checkpoint.cancel
 

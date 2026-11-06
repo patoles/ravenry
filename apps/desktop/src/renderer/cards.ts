@@ -12,12 +12,12 @@ import type { CheckpointReply } from '@ravenry/client';
 import { h, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
-  afterOf, changedRange, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, riskOf, runLabel, SecretField, splitTitle, waiting, who,
+  afterOf, changedRange, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
 } from './checkpoints.ts';
 import type { Known } from './checkpoints.ts';
 
-/** An approval with the command as the person edited it (not in protocol v1 yet; see answerEdited in app.ts). */
-export type Reply = CheckpointReply | { approve: true; command: string };
+/** An answer: an approval may carry the command as the person edited it, a refusal its reason. */
+export type Reply = CheckpointReply;
 
 export interface CardCtx {
   now(): number;
@@ -50,7 +50,7 @@ export class NotPerson extends Error {
   constructor() { super(NOT_PERSON); this.name = 'NotPerson'; }
 }
 
-interface UI { editing: boolean; edit: string; busy: boolean; error: string | null; draft: string; reveal: boolean }
+interface UI { editing: boolean; edit: string; refusing: boolean; reason: string; busy: boolean; error: string | null; draft: string; reveal: boolean }
 
 interface View {
   key: string;
@@ -66,7 +66,7 @@ const uis = new Map<string, UI>();
 
 function ui(id: string): UI {
   let u = uis.get(id);
-  if (!u) { u = { editing: false, edit: '', busy: false, error: null, draft: '', reveal: false }; uis.set(id, u); }
+  if (!u) { u = { editing: false, edit: '', refusing: false, reason: '', busy: false, error: null, draft: '', reveal: false }; uis.set(id, u); }
   return u;
 }
 
@@ -79,7 +79,7 @@ function changed(id: string): void { stamp++; const v = views.get(id); if (v) v.
 /** The card for a checkpoint, built once per state and kept. */
 export function cardFor(k: Known, ctx: CardCtx): HTMLElement {
   const u = ui(k.cp.id);
-  const key = `${k.cp.state}|${u.editing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}`;
+  const key = `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}`;
   const had = views.get(k.cp.id);
   if (had && had.key === key) { had.refresh(); return had.el; }
   had?.secret?.clear();
@@ -124,6 +124,8 @@ async function send(k: Known, ctx: CardCtx, reply: Reply): Promise<void> {
   try {
     await ctx.answer(k, reply);
     u.editing = false;
+    u.refusing = false;
+    u.reason = '';
     u.draft = '';
     ctx.answered();
   } catch (e) {
@@ -215,6 +217,41 @@ function askCard(k: Known, ctx: CardCtx, u: UI): View {
   };
 }
 
+/**
+ * Refuse, with a reason if the person types one (the picture's note: Refuse
+ * sends "refused", with a reason if you type one). The first click opens a
+ * one-line field under the card's words; Enter or Refuse sends, with or
+ * without text; Escape or Back closes it.
+ */
+function refuseRow(k: Known, ctx: CardCtx, u: UI, off: boolean): { els: (HTMLElement | null)[]; field: HTMLInputElement } {
+  const cp = k.cp;
+  const field = h('input.fi.rsn', { type: 'text', placeholder: `Why not? Optional, ${whoMid(cp)} reads it`, 'aria-label': `Why you refuse, for ${whoMid(cp)}`, maxlength: '1000', spellcheck: 'true', disabled: off }) as HTMLInputElement;
+  field.value = u.reason;
+  const go = (): void => { const r = field.value.trim(); void send(k, ctx, r ? { decline: true, reason: r } : { decline: true }); };
+  field.addEventListener('input', () => { u.reason = field.value; });
+  field.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); u.refusing = false; changed(cp.id); return; }
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); go(); }
+    e.stopPropagation();
+  });
+  return {
+    field,
+    els: [
+      h('div.fld.rsn-f', field),
+      h('div.qa',
+        h('button.btn.sm.no', { disabled: off, on: { click: () => go() } }, 'Refuse'),
+        h('button.btn.sm', { disabled: off, on: { click: () => { u.refusing = false; changed(cp.id); } } }, 'Back')),
+      errorLine(u, k, ctx),
+      h('div.cp-f', `${who(cp)} is told you said no, with your reason if you give one.`),
+    ],
+  };
+}
+
+/** The card's Refuse button: it opens the reason field. */
+function refuseButton(k: Known, u: UI, off: boolean, cls = 'button.btn.sm.ghost.no'): HTMLElement {
+  return h(cls, { disabled: off, on: { click: () => { u.refusing = true; u.editing = false; u.error = null; changed(k.cp.id); requestAnimationFrame(() => focusCard(k.cp.id)); } } }, 'Refuse');
+}
+
 function approveCard(k: Known, ctx: CardCtx, u: UI): View {
   const off = u.busy || !ctx.canAnswer(k);
   const cp = k.cp;
@@ -223,7 +260,8 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
   const hd = header(k, ctx, I.RUN);
   const ft = footer(k, ctx);
   const remote = isRemote(cp.machine);
-  const risk = riskOf(u.editing ? u.edit : command);
+  // The agent's own warning and Ravenry's guess, each labelled as whose.
+  const warnings = warningsOf(cp, u.editing ? u.edit : command);
   const kv = h('div.kv',
     h('span', 'Folder'), h('span.mono', ctx.tilde(cp.cwd)),
     h('span', 'Machine'), h('span', remote ? h('span.mt', svg(I.MACHINE), cp.machine!) : machineLine(cp.machine, ctx.platform)),
@@ -260,7 +298,8 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
     if (!v.trim()) { editor?.focus(); return; }
     void send(k, ctx, v === command ? { approve: true } : { approve: true, command: v });
   }
-  const buttons = u.editing
+  const refuse = u.refusing && !u.editing ? refuseRow(k, ctx, u, off) : null;
+  const buttons = refuse ? refuse.els : u.editing
     ? [h('div.qa',
       h('button.btn.sm.pri', { disabled: off, on: { click: () => runEdited() } }, 'Run edited command'),
       h('button.btn.sm', { disabled: off, on: { click: () => { u.editing = false; changed(cp.id); } } }, 'Cancel')),
@@ -269,19 +308,19 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
     : [h('div.qa',
       h('button.btn.sm.pri', { disabled: off, on: { click: () => void send(k, ctx, { approve: true }) } }, runLabel(cp.machine, ctx.platform)),
       h('button.btn.sm', { disabled: off, on: { click: () => { u.editing = true; u.edit = command; u.error = null; changed(cp.id); requestAnimationFrame(() => focusCard(cp.id)); } } }, 'Edit'),
-      h('button.btn.sm.ghost.no', { disabled: off, on: { click: () => void send(k, ctx, { decline: true }) } }, 'Refuse')),
+      refuseButton(k, u, off)),
     errorLine(u, k, ctx),
     ft.el];
   const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${command}` },
     hd.el, box, kv,
-    risk ? h('div.risk', svg(I.WARN), risk) : null,
+    ...warnings.map((x) => h(`div.risk.${x.from}`, svg(I.WARN), h('span', h('span.wl', x.label), ' ', x.text))),
     cp.why ? h('p.says', h('span', `${w} says:`), ' ', cp.why) : null,
     buttons);
   return {
     key: '', el,
     refresh: () => { hd.refresh(); ft.refresh(); },
     focus: () => {
-      if (editor) { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); } else el.focus();
+      if (editor) { editor.focus(); editor.setSelectionRange(editor.value.length, editor.value.length); } else if (refuse) refuse.field.focus(); else el.focus();
     },
   };
 }
@@ -357,12 +396,12 @@ function otherCard(k: Known, ctx: CardCtx, u: UI): View {
   const hd = header(k, ctx, I.ASK);
   const ft = footer(k, ctx);
   const { head, body } = splitTitle(k.cp.title);
+  const refuse = u.refusing ? refuseRow(k, ctx, u, off) : null;
   const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': k.cp.id },
     hd.el, h('div.cp-q', head), body ? h('p.cp-d', body) : null,
     h('p.cp-d', 'This version of Ravenry does not know this kind of question. You can only refuse it.'),
-    h('div.qa', h('button.btn.sm.ghost.no', { disabled: off, on: { click: () => void send(k, ctx, { decline: true }) } }, 'Refuse')),
-    errorLine(u, k, ctx), ft.el);
-  return { key: '', el, refresh: () => { hd.refresh(); ft.refresh(); }, focus: () => el.focus() };
+    ...(refuse ? refuse.els : [h('div.qa', refuseButton(k, u, off)), errorLine(u, k, ctx), ft.el]));
+  return { key: '', el, refresh: () => { hd.refresh(); ft.refresh(); }, focus: () => (refuse ? refuse.field.focus() : el.focus()) };
 }
 
 // ---------------------------------------------------------------- after
