@@ -226,7 +226,7 @@ check('iterm: npm run iterm from a shell with a test\'s RAVENRY_HOME is refused 
 
 // ------------------------------------------------------------ 6. the real port
 
-r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { cwd: ROOT, env: { ...bare, HOME: path.join(T, 'home'), RAVENRY_HOME: path.join(T, 'board'), PORT: '4600', MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(T, 'fake-cmux.json') }, encoding: 'utf8', timeout: 20000 });
+r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { cwd: ROOT, env: { ...bare, HOME: path.join(T, 'home'), RAVENRY_RUNTIME_DIR: path.join(T, 'run'), RAVENRY_STATE_DIR: path.join(T, 'state'), RAVENRY_HOME: path.join(T, 'board'), PORT: '4600', MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(T, 'fake-cmux.json') }, encoding: 'utf8', timeout: 20000 });
 check('board: a board on a test\'s data refuses :4600, the real board\'s port', r.status === 1 && /is a test's, and :4600 is the real board's port/.test(r.stderr), (r.stderr || '').trim().split('\n').pop());
 
 fs.rmSync(FAKE, { recursive: true, force: true });
