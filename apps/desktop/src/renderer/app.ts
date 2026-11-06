@@ -164,6 +164,19 @@ function toast(text: string, undo?: { label: string; run: () => void }): void {
   toastTimer = window.setTimeout(() => { el.hidden = true; }, undo ? 8000 : 5000);
 }
 
+// A toast belongs to the view it was said on: moving to another page, tab or
+// session takes it away (renderCentre), so it never follows the person. A
+// toast that explains a move (a pane that is gone) is said after the move.
+let toastWhere = '';
+function toastFollows(where: string): void {
+  if (where === toastWhere) return;
+  const first = !toastWhere;
+  toastWhere = where;
+  if (first) return;
+  clearTimeout(toastTimer);
+  $('toast').hidden = true;
+}
+
 function shellLabel(t: ShellTab): { name: string; sub: string | null } {
   // The pane's title when its program set one, else the program's name;
   // then the folder it is in (~ for home).
@@ -619,6 +632,7 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
 
 async function renderCentre(): Promise<void> {
   const v = S.view;
+  toastFollows(JSON.stringify(v));
   const onPage = v.kind === 'page';
   $('centre').hidden = onPage;
   $('page').hidden = !onPage;
@@ -626,12 +640,12 @@ async function renderCentre(): Promise<void> {
   if (firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
   if (v.kind === 'none') { term.hide(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
-    await showPane(`pane|${v.socket}|${v.pane}`, () => daemons.get(v.socket), v.pane, (e) => { toast(`That pane is gone: ${e.message}`); setView(S.tabs[0] ? { kind: 'tab', id: S.tabs[0].id } : { kind: 'none' }); });
+    await showPane(`pane|${v.socket}|${v.pane}`, () => daemons.get(v.socket), v.pane, (e) => { setView(S.tabs[0] ? { kind: 'tab', id: S.tabs[0].id } : { kind: 'none' }); toast(`That pane is gone: ${e.message}`); });
     return;
   }
   const t = tabOfView();
   if (t && t.kind === 'shell') {
-    await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { toast(`That shell is gone: ${e.message}`); removeTab(t.id); });
+    await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { removeTab(t.id); toast(`That shell is gone: ${e.message}`); });
     return;
   }
   const key = viewSessionKey();
@@ -1227,6 +1241,7 @@ async function boot(): Promise<void> {
     call: (method, p, body) => api().hubCall(method, p, body),
     toast: (text, undo) => toast(text, undo),
     pickSession: (key) => pickSession(key),
+    openPage: (key) => openPage(key),
     pickProject: (id) => {
       const p = (S.hub?.projects || []).find((x) => x.id === id || x.name.toLowerCase() === String(id).toLowerCase());
       if (!p || !p.sessions.length) return false;

@@ -261,6 +261,13 @@ function setHtml(id, html) {
   el.innerHTML = html;
 }
 
+// A toast belongs to the view it was said on: setView and openPlanPage take
+// it away, so it never follows the person to another tab. A toast that
+// tells what a move did is said after the move.
+function hideToast() {
+  clearTimeout(toast._t);
+  $('#toast').hidden = true;
+}
 function toast(msg, ms = 3200, wide = false) {
   const t = $('#toast');
   t.textContent = undash(String(msg ?? ''));
@@ -1849,6 +1856,7 @@ function setView(v, { push = true } = {}) {
   if (v.startsWith('plan/')) { openPlanPage(v.slice(5)); return; }
   if (!PAGES.some(([k]) => k === v) && !v.startsWith('page/')) v = 'projects';
   if (ui.view === v) return;
+  hideToast();
   ui.view = v;
   ui.built = null;
   ui.idleOpen = false;
@@ -2883,11 +2891,11 @@ async function submitModal() {
       // the session's); otherwise only when changed for this project.
       const r = await post('/api/project/new', { ...v, kind: m.kind, stage: m.stage, existingFolder: pick ? pick.folder : undefined, parentFolder: !pick && m.parent ? m.parent.folder : undefined, ideaId: m.ideaId, ...(fromHere ? { workspaceId: m.from.workspaceId } : {}), assistant: m.from || m.assistant !== m.asDefault ? m.assistant : undefined });
       closeModal();
-      toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. ${r.assistant === 'codex' ? 'Codex' : 'Claude'} is reading the brief in cmux ${r.workspaceRef}.`);
       ui.sel = r.id;
       store.set('sel', r.id);
       setView('projects');
       history.replaceState(null, '', '#' + encodeURIComponent(r.id));
+      toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. ${r.assistant === 'codex' ? 'Codex' : 'Claude'} is reading the brief in cmux ${r.workspaceRef}.`);
     } else {
       const r = await post('/api/project/brief', { ...v, projectId: m.projectId, kind: m.kind });
       closeModal();
@@ -3205,6 +3213,7 @@ ${(plan.refs || []).length ? `<div class="card pl-refs-ph">${planRefsHtml(plan)}
 }
 
 function openPlanPage(pid) {
+  if (ui.view !== 'plan' || ui.planFor !== pid) hideToast();
   ui.planFor = pid;
   ui.sel = pid;
   store.set('sel', pid);

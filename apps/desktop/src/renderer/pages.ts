@@ -46,6 +46,8 @@ export interface PagesHost {
   call(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   toast(text: string, undo?: { label: string; run: () => void }): void;
   pickSession(key: string): void;
+  /** Another page in the middle, as its sidebar row opens it. */
+  openPage(key: string): void;
   pickProject(id: string): boolean;
   /** The project of the session the person last had open, for Ask Claude to fix. */
   lastProject(): string | null;
@@ -428,7 +430,7 @@ export class Pages {
       case 'item': if (item) this.openItem(v, item, sec); return;
       case 'file': if (item && item.file) this.host.openPath(this.itemPath(v, item, sec)); return;
       case 'folder': this.host.openPath(this.itemPath(v, item, sec).replace(/\/[^/]*$/, '')); return;
-      case 'page': { const r = this.rows.find((x) => x.id === t.page || x.route === t.page); if (r) this.show(r.key); else this.host.toast(`No page called ${t.page}.`); return; }
+      case 'page': { const r = this.rows.find((x) => x.id === t.page || x.route === t.page); if (r) this.host.openPage(r.key); else this.host.toast(`No page called ${t.page}.`); return; }
       case 'link': { const url = valueText(item ? getField(item, t.field) : ''); if (/^https?:\/\//.test(url)) { this.modal = { kind: 'link', url }; this.render(); } return; }
       case 'project': case 'session': { const name = fillText(t.text, item || {}); if (!this.host.pickProject(name)) this.host.toast(`No project called ${name}.`); return; }
     }
@@ -715,20 +717,37 @@ export class Pages {
     return h('span.tm.num', svg(CLOCK_S), timeText(val, this.host.now()));
   }
 
+  // A progress slot always says its value in words: a list whose entries
+  // have text is drawn as the Ship card draws a brief's Ship section (a
+  // dot, the entry's text, You, Now or Someone else); dots and a bar get
+  // their count beside them. Never a row of bare dots or a bare bar.
   private progress(item: Item, p: Progress | null): HTMLElement | null {
     if (!p) return null;
     let done = 0, total = 0, states: string[] | null = null;
-    if (p.kind === 'number') { done = Number(getField(item, p.field)) || 0; total = 100; }
+    if (p.kind === 'number') { done = Math.max(0, Math.min(100, Number(getField(item, p.field)) || 0)); total = 100; }
     else if (p.kind === 'ratio') { done = Number(getField(item, p.done)) || 0; total = Number(getField(item, p.total)) || 0; }
     else {
       const list = getField(item, p.list);
-      states = Array.isArray(list) ? list.map((x) => String((x as Item).state || 'todo')) : [];
+      const entries = Array.isArray(list) ? list : [];
+      states = entries.map((x) => String((x && typeof x === 'object' && (x as Item).state) || 'todo'));
       done = states.filter((x) => x === 'done').length; total = states.length;
+      const texts = entries.map(entryText);
+      if (total && p.style === 'dots' && texts.every(Boolean)) {
+        return h('div.ptasks', entries.map((_, i) => {
+          const t = TASK_TAG[states![i]];
+          return h(`div.ptask${t ? '.on' : states![i] === 'done' ? '.done' : ''}`, taskDot(states![i]), h('span.tx', texts[i]), t ? h('span.tg', { style: { color: `var(${t[1]})` } }, t[0]) : null);
+        }));
+      }
     }
     if (!total) return null;
-    if (p.style === 'count') return h('span.pc-count.num', p.kind === 'number' ? `${done}%` : `${done} of ${total}`);
-    if (p.style === 'dots' || states) return h('span.ds', (states || Array.from({ length: total }, (_, i) => (i < done ? 'done' : 'todo'))).map((st) => taskDot(st)));
-    return h('div.bar.pbar', h('div.f', { style: { width: `${Math.min(100, Math.round((done / total) * 100))}%`, background: 'var(--tx)' } }));
+    const words = p.kind === 'number' ? `${done}%` : `${done} of ${total}`;
+    if (p.style === 'count') return h('span.pc-count.num', words);
+    if (p.style === 'dots') {
+      // A number is ten dots, one for each tenth.
+      const marks = states || (p.kind === 'number' ? Array.from({ length: 10 }, (_, i) => (i < Math.round(done / 10) ? 'done' : 'todo')) : Array.from({ length: total }, (_, i) => (i < done ? 'done' : 'todo')));
+      return h('span.pdots', h('span.ds', marks.map((st) => taskDot(st))), h('span.pc-count.num', words));
+    }
+    return h('span.pbarw', h('div.bar.pbar', h('div.f', { style: { width: `${Math.min(100, Math.round((done / total) * 100))}%`, background: 'var(--tx)' } })), h('span.pc-count.num', words));
   }
 
   private checklistEl(v: PageView, item: Item, spec: ItemSpec, sec: [number, number]): HTMLElement | null {
@@ -775,10 +794,12 @@ export class Pages {
     const objRows = spec.place === 'ravenry:objective-rows';
     const rowOf = (it: Item) => {
       const st = it.state && ['you', 'work', 'idle'].includes(String(it.state)) && !it.$hash ? String(it.state) : null;
+      const pg = this.progress(it, spec.progress);
+      const block = !!pg && pg.classList.contains('ptasks');
       return h('div.orow.lrow', { role: spec.detail || it.$hash ? 'button' : undefined, on: { click: () => this.openItem(v, it, sec) } },
-        st ? h('span.sti', { class: `c-${st}` }, svg(RING[st])) : null,
-        h('div.lt', h('span.lti', valueText(getField(it, spec.title))), this.subtitle(it, spec), this.excerpt(it, spec.excerpt), this.checklistEl(v, it, spec, sec), objRows ? null : this.place(v, it, spec, sec)),
-        this.badges(it, spec, s), this.progress(it, spec.progress), this.timeEl(it, spec),
+        st ? ring(st) : null,
+        h('div.lt', h('span.lti', valueText(getField(it, spec.title))), this.subtitle(it, spec), this.excerpt(it, spec.excerpt), block ? pg : null, this.checklistEl(v, it, spec, sec), objRows ? null : this.place(v, it, spec, sec)),
+        this.badges(it, spec, s), block ? null : pg, this.timeEl(it, spec),
         h('div.ra', this.itemButtons(v, spec, it, sec)));
     };
     const head = s.title ? h('div.ocard-h.sec-t', s.title, h('span.num.t3', String(items.length))) : null;
@@ -800,7 +821,7 @@ export class Pages {
         const r = it.$ravenry as { rows?: ObjRow[] } | undefined;
         const st = String(it.state || 'idle');
         return h('div.ocard',
-          h('div.ocard-h', h('span.sti', { class: `c-${st}` }, svg(RING[st] || RING.idle)),
+          h('div.ocard-h', ring(RING[st] ? st : 'idle'),
             h('button.linkish', { on: { click: () => this.openItem(v, it, sec) } }, valueText(getField(it, spec.title))),
             this.badges(it, spec, s), h('span.g', valueText(spec.subtitle ? getField(it, spec.subtitle) : '') || 'No goal in the brief yet'),
             this.itemButtons(v, spec, it, sec)),
@@ -917,9 +938,12 @@ export class Pages {
       const can = spec.actions.some((a) => a.kind === 'toggle') && !this.off(v);
       // The k-th box of the text is the k-th of the file (its line there).
       const boxes = (it.$boxes as { line: number }[] | undefined) || [];
+      const pg = this.progress(it, spec.progress);
+      const block = !!pg && pg.classList.contains('ptasks');
       return h('div.ocard.pdoc',
-        h('div.ocard-h', h('span', valueText(getField(it, spec.title))), this.badges(it, spec, s), this.progress(it, spec.progress), h('span.sp'),
+        h('div.ocard-h', h('span', valueText(getField(it, spec.title))), this.badges(it, spec, s), block ? null : pg, h('span.sp'),
           it.$hash || it.done !== undefined ? h('button.btn.sm.quiet', { on: { click: () => this.host.openPath(this.itemPath(v, it, sec)) } }, svg(FILE_IC), 'Open') : null),
+        block ? h('div.pdoc-t', pg) : null,
         h('div.pdoc-b', markdown(valueText(it.body), can ? (k, text, done) => void this.toggle(v, it, sec, boxes[k] ? boxes[k].line : 0, text, done) : undefined)),
         h('div.pc-a', this.itemButtons(v, spec, it, sec)));
     };
@@ -1097,6 +1121,17 @@ type ObjRow =
   | { kind: 'tasks'; title: string; plan: boolean; tasks: { text: string; state: string }[]; count: string; next: string }
   | { kind: 'file'; title: string; done: number; total: number; count: string; updated: string | null; source: string | null }
   | { kind: 'none'; title: string; plan: boolean };
+
+// The words beside a task's dot (public/app.js taskDot's tag).
+const TASK_TAG: Record<string, [string, string]> = { you: ['You', '--you'], now: ['Now', '--work'], wait: ['Someone else', '--wait'] };
+const entryText = (x: unknown): string => (x && typeof x === 'object' ? valueText((x as Item).text ?? (x as Item).title ?? (x as Item).name) : typeof x === 'string' ? x : '');
+
+// An item's state ring says its state when pointed at and to a screen
+// reader, in the sidebar's words for the same ring.
+const RING_WORD: Record<string, string> = { you: 'Needs you', work: 'Working', idle: 'Idle', wait: 'Waiting on others' };
+function ring(st: string): HTMLElement {
+  return h('span.sti', { class: `c-${st}`, title: RING_WORD[st], role: 'img', 'aria-label': RING_WORD[st] }, svg(RING[st]));
+}
 
 function taskDot(st: string): HTMLElement {
   const style = { done: 'background:var(--ok)', now: 'background:var(--work)', you: 'border:2px solid var(--you)', wait: 'border:2px dashed var(--wait)' }[st] || 'border:1.5px solid var(--idle)';

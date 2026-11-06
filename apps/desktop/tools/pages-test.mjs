@@ -18,7 +18,9 @@
 //     would do, then trusted, and its run button shows an approval card
 //     with the row's value as a variable, never in the command;
 //   - Customize, then "Default page, changed since your copy" and See what
-//     changed.
+//     changed; Customize's toast stays on Objectives and is gone on Ideas;
+//   - Ship: each brief's Ship section under its repo, every dot with its
+//     words, as the board's Ship card shows it.
 // Nothing opens on the screen: the app writes what it would open to
 // RAVENRY_OPEN_LOG. Every frame of docs/design/RavenryPages.dc.html is
 // saved to <outDir> (light, as drawn there; `dark` for the dark theme).
@@ -272,6 +274,8 @@ const steps = [
   { until: `document.querySelector('#page .pg-h .btn') && document.querySelector('#page .pg-h .btn').textContent === 'Customize'` },
   { js: `document.querySelector('#page .pg-h .btn').click()` },
   { until: `document.querySelector('#page .chip') && document.querySelector('#page .chip').textContent === 'Your copy'`, timeout: 10000 },
+  { until: `!document.getElementById('toast').hidden`, timeout: 5000 },
+  save('toast0', `({ text: document.getElementById('toast').textContent, at: Date.now() })`),
   { signal: sig('bump') }, { wait: go('bump') },
   { until: `document.querySelector('#page .nb.info')`, timeout: 10000 },
   save('copy', `({ bar: document.querySelector('#page .nb.info').textContent, src: document.querySelector('#page .pg-src').textContent, rows: ${rowsText} })`),
@@ -285,6 +289,7 @@ const steps = [
   { js: `window.__ravenry.openPage('ideas')` },
   { until: `document.querySelectorAll('#page .lane').length === 4 && document.querySelector('#page .bs')`, timeout: 10000 },
   save('ideas', `${lanes}`),
+  save('toast1', `({ hidden: document.getElementById('toast').hidden, at: Date.now() })`),
   shot('7-ideas.png'),
   { js: `window.__ravenry.openPage('plans')` },
   { until: `document.querySelectorAll('#page .lrow').length >= 2`, timeout: 10000 },
@@ -292,7 +297,7 @@ const steps = [
   shot('7-plans.png'),
   { js: `window.__ravenry.openPage('ship')` },
   { until: `document.querySelectorAll('#page .pstat').length === 3 && document.querySelectorAll('#page .pcard').length >= 1`, timeout: 15000 },
-  save('ship', `({ stats: [...document.querySelectorAll('#page .pstat')].map((x) => x.textContent), lines: [...document.querySelectorAll('#page .pcard .sub')].map((x) => x.textContent) })`),
+  save('ship', `({ stats: [...document.querySelectorAll('#page .pstat')].map((x) => x.textContent), lines: [...document.querySelectorAll('#page .pcard .sub')].map((x) => x.textContent), tasks: [...document.querySelectorAll('#page .pcard')].map((c) => c.querySelector('.ti').textContent + ':' + [...c.querySelectorAll('.ptask')].map((t) => t.textContent).join('|')), bare: [...document.querySelectorAll('#page .dot')].filter((d) => !(d.closest('.ptask, .pdots, .orow, .prow, .legend2'))).length, toast: document.getElementById('toast').hidden })`),
   shot('7-ship.png'),
   { js: `window.__ravenry.openPage('rules')` },
   { until: `document.querySelector('#page .ptabs') && document.querySelectorAll('#page .pdoc').length >= 1`, timeout: 10000 },
@@ -373,6 +378,8 @@ if (has('copy')) check('Customize: the copy takes Objectives\' place; the defaul
 if (has('changed')) check('See what changed: the default\'s change, line by line', /What changed in the default Objectives page/.test(read('changed').text) && read('changed').added.some((x) => /time: updated/.test(x)), JSON.stringify(read('changed').added));
 if (has('ideas')) check('Ideas: its board from the idea files, by stage', read('ideas') === 'Spark2,Mockup1,Greenlit1,Parked0', read('ideas'));
 if (has('plans')) check('Plans: the running plans from the briefs', /Radar tiles/.test(read('plans')) && /Reminder emails/.test(read('plans')), read('plans'));
+if (has('toast1')) check('a toast stays on the page it was said on: Customize\'s is gone on Ideas', /^Your copy is .*objectives\.page\.yaml/.test(read('toast0').text) && read('toast1').hidden, `${JSON.stringify(read('toast0').text)}, Ideas ${read('toast1').at - read('toast0').at} ms after it, hidden: ${read('toast1').hidden}`);
+if (has('ship')) check('Ship: each brief\'s Ship section under its repo, every dot with its words, as the Ship card shows it', read('ship').tasks.includes('recipe-box:Publish 2.3.0 to npmYou') && read('ship').tasks.includes('paper-boat:Upload the beta to the storeYou|Send it to the testersYou') && read('ship').bare === 0 && read('ship').toast, JSON.stringify(read('ship').tasks));
 if (has('ship')) check('Ship: its numbers, and each repo\'s line as the Ship card said it', read('ship').stats.length === 3 && read('ship').lines.length >= 1 && read('ship').lines.every((l) => /^(\d+ commits? to push|Uncommitted changes|No upstream|Pushed and clean)$/.test(l)), JSON.stringify(read('ship')));
 const opened = fs.existsSync(OPEN_LOG) ? fs.readFileSync(OPEN_LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
 check('Customize opened the copy, logged instead of opened (nothing on the screen)', opened.some((o) => o.kind === 'path' && o.what.endsWith('/.ravenry/pages/objectives.page.yaml')), JSON.stringify(opened));

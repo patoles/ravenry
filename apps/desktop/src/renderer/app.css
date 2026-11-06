@@ -417,6 +417,15 @@ body.first .sl { flex: none; }
 .prow .nx { color: var(--tx2); flex: 0 1 260px; min-width: 0; }
 .pc-count { font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pbar { width: 120px; flex: none; }
+.pdots, .pbarw { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.pdots .ds { flex: none; }
+.ptasks { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+.ptask { display: flex; align-items: center; gap: 8px; color: var(--tx2); }
+.ptask.on, .ptask.done { color: var(--tx); }
+.ptask.on .tx { font-weight: 600; }
+.ptask .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ptask .tg { font-size: 11.5px; font-weight: 600; flex: none; }
+.pdoc-t { padding: 0 16px 10px; }
 
 /* Cards */
 .pcards { display: flex; flex-direction: column; gap: 10px; flex: none; }
