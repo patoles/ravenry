@@ -1,0 +1,21 @@
+Ravenry
+Copyright 2026 Simon Patole
+
+This repository is under two licences (LICENSING.md):
+- Everything outside packages/ (the app, daemon/, hub/, apps/, docs/ and
+  tools/) is licensed under the GNU General Public License, version 3 only
+  (LICENSE).
+- Everything in packages/ is licensed under the Apache License, Version 2.0
+  (packages/LICENSE).
+
+The name "Ravenry" and its logo are trademarks of Simon Patole and are not
+licensed under either licence (TRADEMARK.md).
+
+Ravenry 0.4.x and earlier, as published, remain available under the Apache
+License, Version 2.0.
+
+This product includes uqr 0.1.2 (https://github.com/unjs/uqr), vendored
+unchanged in hub/server/vendor/uqr.mjs, under the MIT License:
+  Copyright (c) Project Nayuki
+  Copyright (c) 2023 Anthony Fu
+The full MIT License text is at the top of that file.
