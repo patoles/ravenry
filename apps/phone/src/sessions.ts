@@ -26,7 +26,7 @@ export function appBar(): HTMLElement {
   return h('header.ab',
     svg(I.LOGO), h('span.ab-t', 'Ravenry'), h('span.sp'),
     h('span.conn', { title: up ? 'Connected' : hub.live.error || 'Not connected' }, h(`span.sd${up ? '' : '.off'}`), label),
-    h('button.icon-btn', { 'aria-label': 'Settings', on: { click: () => void sh.call('open.settings').catch(() => {}) } }, svg(I.GEAR)));
+    h('button.icon-btn', { 'aria-label': 'Settings', on: { click: () => go('/settings') } }, svg(I.GEAR)));
 }
 
 /**

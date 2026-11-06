@@ -288,3 +288,21 @@ textarea.pcmd.edit { width: 100%; resize: vertical; background: var(--input); co
 .pgphone .nb { flex-wrap: wrap; }
 .pgphone .nb .nbt { flex: 1 1 calc(100% - 40px); min-width: 0; }
 .pgphone .nb .bb { width: 100%; padding-left: 28px; }
+
+/* Settings (the approved mock, frame b) */
+.setgs { display: flex; flex-direction: column; gap: 16px; padding: 4px 20px 24px; }
+.setg { display: flex; flex-direction: column; border-radius: 14px; background: var(--card); padding: 2px 0; }
+@media (prefers-color-scheme: light) { .setg { background: var(--sheet); box-shadow: 0 0 0 1px var(--sep); } }
+.setr { display: flex; align-items: center; gap: 12px; padding: 13px 16px; font-size: 15px; border-top: 1px solid var(--sep); width: 100%; }
+.setr:first-child { border-top: 0; }
+.setr .tx { flex: 1; min-width: 0; }
+.setr .s { font-size: 12.5px; color: var(--tx2); margin-top: 2px; line-height: 1.35; }
+.setr .r { margin-left: auto; font-size: 13.5px; color: var(--tx2); white-space: nowrap; }
+.setr .r.ok { color: var(--ok); }
+.setr.red { color: var(--bad); }
+.setn { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tx2); }
+.tg { width: 44px; height: 26px; border-radius: 13px; background: var(--work); position: relative; flex: none; }
+.tg::after { content: ""; position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border-radius: 10px; background: #FFFFFF; }
+.tg.off { background: var(--card2); }
+.tg.off::after { right: auto; left: 3px; }
+.tg:disabled { opacity: .45; }

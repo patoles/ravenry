@@ -38,6 +38,7 @@ import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
 import { TerminalView } from './terminal.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
+import { PhoneCard } from './phonecard.ts';
 
 // ---------------------------------------------------------------- state
 
@@ -121,6 +122,8 @@ const shortcut = (k: string) => (isMac() ? `⌘${k}` : `Ctrl+Shift+${k}`);
 const wide = () => window.innerWidth >= PANEL_FOLD_WIDTH;
 const base = (p?: string) => (p ? p.replace(/\/+$/, '').split('/').pop() || p : '');
 const now = () => Date.now();
+// The phone button's card (phonecard.ts): pair the Ravenry app, phone access, devices.
+const phoneCard = new PhoneCard({ call: (method, p, body) => api().hubCall(method, p, body), toast: (text) => toast(text), now });
 // A folder said against the home of the machine it is on (hub/public/
 // homepath.mjs): this computer's from the app, a machine's from the hub.
 const tilde = (p?: string, machine?: string | null) => {
@@ -446,7 +449,7 @@ function renderSidebar(): void {
   const mem = memoryLine(S.hub);
   const foot = h('div.foot',
     h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => openBoard('') } }, svg(I.SETTINGS)),
-    empty ? null : h('button.icon-btn', { title: 'Open on your phone', 'aria-label': 'Open on your phone', on: { click: () => openBoard('') } }, svg(I.PHONE)),
+    empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
     empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', on: { click: () => openBoard('') } }, svg(I.BELL)),
     h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => setView({ kind: 'machines' }) } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
     h('span.sp'),

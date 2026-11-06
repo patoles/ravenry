@@ -18,11 +18,18 @@ import org.unifiedpush.android.connector.data.PushMessage
 object Push {
     fun register(activity: Activity) {
         if (Store.get(activity).paired() == null) return
+        if (Store.get(activity).pushOff) { target(activity.applicationContext, JSONObject().put("kind", "none")); return }
         UnifiedPush.tryUseCurrentOrDefaultDistributor(activity) { ok ->
             if (ok) UnifiedPush.register(activity, messageForDistributor = "Ravenry")
             else target(activity.applicationContext, JSONObject().put("kind", "none"))
         }
     }
+
+    /** The distributors on this phone and the one in use, for Settings. */
+    fun status(context: Context): JSONObject = JSONObject()
+        .put("distributors", org.json.JSONArray(runCatching { UnifiedPush.getDistributors(context) }.getOrDefault(emptyList())))
+        .put("current", runCatching { UnifiedPush.getAckDistributor(context) }.getOrNull() ?: JSONObject.NULL)
+        .put("off", Store.get(context).pushOff)
 
     fun unregister(context: Context) {
         runCatching { UnifiedPush.unregister(context) }

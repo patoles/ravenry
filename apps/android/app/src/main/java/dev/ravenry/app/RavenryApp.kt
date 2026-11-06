@@ -26,7 +26,7 @@ class RavenryApp : Application() {
         // arrive without push too. Android lets a foreground service start
         // only while the app is in front, so it starts then and keeps running.
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) { if (Store.get(this@RavenryApp).paired() != null) ConnectionService.start(this@RavenryApp) }
+            override fun onStart(owner: LifecycleOwner) { if (Store.get(this@RavenryApp).paired() != null && Store.get(this@RavenryApp).stayConnected) ConnectionService.start(this@RavenryApp) }
         })
     }
 }

@@ -148,3 +148,12 @@ export function parentOf(route: string): string | null {
   if (route.startsWith('/fb/')) return `/cp/${route.slice(4)}`;
   return '/';
 }
+
+/** A distributor's package as people know it: io.heckel.ntfy is ntfy. */
+export function distributorName(pkg: string | null | undefined): string | null {
+  if (!pkg) return null;
+  if (/ntfy/i.test(pkg)) return 'ntfy';
+  if (/nextpush|nextcloud/i.test(pkg)) return 'NextPush';
+  if (/sunup/i.test(pkg)) return 'Sunup';
+  return pkg.split('.').pop() || pkg;
+}

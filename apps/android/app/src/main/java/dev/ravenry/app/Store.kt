@@ -78,6 +78,16 @@ class Store(context: Context) {
         return false
     }
 
+    /** Alerts by push turned off in Settings (the target is then `none`). */
+    var pushOff: Boolean
+        get() = prefs.getBoolean("pushOff", false)
+        set(v) { prefs.edit().putBoolean("pushOff", v).apply() }
+
+    /** Stay connected (the foreground service holding the live stream); on by default. */
+    var stayConnected: Boolean
+        get() = prefs.getBoolean("stayConnected", true)
+        set(v) { prefs.edit().putBoolean("stayConnected", v).apply() }
+
     var notificationsAsked: Boolean
         get() = prefs.getBoolean("notificationsAsked", false)
         set(v) { prefs.edit().putBoolean("notificationsAsked", v).apply() }

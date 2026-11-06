@@ -1,0 +1,81 @@
+// The app's settings, behind the gear (the approved mock, frame b): the
+// computer this phone is paired with and whether it answers, alerts by push
+// (UnifiedPush) on or off, the held connection on or off, that Run always
+// asks for a fingerprint (said, not a switch), and Sign out.
+//
+// Wired to the hub (GET /api/phone/me) and to the shell (push.status,
+// push.set, connection.get, connection.set, pair.reset).
+
+import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
+import * as I from './icons.ts';
+import * as hub from './hub.ts';
+import { current } from './shell.ts';
+import { back, sheet, toast } from './main.ts';
+import { distributorName } from './logic.ts';
+import type { Screen } from './main.ts';
+
+interface Me { device?: { id: string; name: string; push?: string | null } | null; hub?: { name: string } | null; access?: boolean }
+interface PushStatus { distributors: string[]; current: string | null; off: boolean }
+
+export function settingsScreen(): Screen {
+  const el = h('div.scr.settings');
+  const sh = current();
+  const st: { me: Me | null; push: PushStatus | null; conn: boolean | null; busy: boolean } = { me: null, push: null, conn: null, busy: false };
+
+  const toggle = (on: boolean, enabled: boolean, flip: () => void, label: string) =>
+    h(`button.tg${on ? '' : '.off'}`, { role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': label, disabled: !enabled || st.busy, on: { click: flip } });
+
+  async function load(): Promise<void> {
+    const r = await hub.call('GET', '/api/phone/me').catch(() => null);
+    if (r && r.status === 200) st.me = r.body as Me;
+    st.push = await sh.call<PushStatus>('push.status').catch(() => null);
+    st.conn = await sh.call<{ on: boolean }>('connection.get').then((x) => x.on, () => null);
+    paint();
+  }
+
+  async function setPush(on: boolean): Promise<void> {
+    st.busy = true; paint();
+    try { st.push = await sh.call<PushStatus>('push.set', { on }); } catch (e) { toast((e as Error).message); }
+    st.busy = false;
+    await load();
+  }
+
+  async function setConn(on: boolean): Promise<void> {
+    st.busy = true; paint();
+    try { st.conn = (await sh.call<{ on: boolean }>('connection.set', { on })).on; } catch (e) { toast((e as Error).message); }
+    st.busy = false; paint();
+  }
+
+  async function signOut(name: string): Promise<void> {
+    const i = await sheet(`Sign out of ${name}? This phone forgets the computer, and the computer forgets this phone.`, [{ label: `Sign out of ${name}`, danger: true }, { label: 'Keep it' }]);
+    if (i !== 0) return;
+    try { await sh.call('pair.reset'); } catch (e) { toast((e as Error).message); }
+  }
+
+  function paint(): void {
+    const name = st.me?.hub?.name || sh.hello.hub.name;
+    const up = hub.live.link === 'up';
+    const device = st.me?.device?.name || sh.hello.device?.name || 'this phone';
+    const dist = st.push ? distributorName(st.push.current || st.push.distributors[0]) : null;
+    const pushOn = !!st.push && !st.push.off && st.me?.device?.push === 'unifiedpush';
+    const pushSub = !st.push ? 'Not available here'
+      : !st.push.distributors.length ? 'No UnifiedPush app on this phone (ntfy, for one): alerts come while Ravenry is connected'
+        : st.push.off ? `Off: ${dist} sends nothing. Alerts come while Ravenry is connected`
+          : `Through ${dist} (UnifiedPush), encrypted for this phone`;
+    replace(el,
+      h('header.sh.pgtop', h('button.icon-btn.fg', { 'aria-label': 'Back', on: { click: back } }, svg(I.BACK)), h('span.pgt', 'Settings')),
+      h('div.scroll', h('div.setgs',
+        h('div.setg',
+          h('div.setr', h('div.tx', h('div', name), h('div.s', `Paired as ${device}`)), h(`span.r${up ? '.ok' : ''}`, up ? 'Connected' : 'Not connected')),
+          h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', pushSub)), toggle(pushOn, !!st.push && st.push.distributors.length > 0, () => void setPush(!pushOn), 'Alerts by push')),
+          h('div.setr', h('div.tx', h('div', 'Stay connected'), h('div.s', 'Shows alerts at once without push; a silent notification says so')), toggle(!!st.conn, st.conn !== null, () => void setConn(!st.conn), 'Stay connected'))),
+        h('div.setg',
+          h('div.setr', h('div.tx', h('div', 'Run asks for a fingerprint'), h('div.s', 'Always, from the shade and in the app')), h('span.r', 'Always'))),
+        h('div.setg', h('button.setr.red', { on: { click: () => void signOut(name) } }, `Sign out of ${name}`)),
+        h('p.setn', `${name} can sign this phone out too, from its phone button.`))));
+  }
+
+  paint();
+  void load();
+  return { el, update: paint, dispose: () => {} };
+}

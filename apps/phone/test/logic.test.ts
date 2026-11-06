@@ -2,7 +2,7 @@
 // (src/shell.ts), without a page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checksOf, connLabel, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, strip, topLabel, waitOf } from '../src/logic.ts';
+import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, strip, topLabel, waitOf } from '../src/logic.ts';
 import { BRIDGE_VERSION, Wire } from '../src/shell.ts';
 import { board } from '../../desktop/src/renderer/model.ts';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
@@ -87,6 +87,12 @@ test('Back goes up a level, and the sessions are the top', () => {
   assert.equal(parentOf('/'), null);
   assert.equal(parentOf('/s/x'), '/');
   assert.equal(parentOf('/fb/c1'), '/cp/c1');
+});
+
+test('a push distributor is called by the name people know', () => {
+  assert.equal(distributorName('io.heckel.ntfy'), 'ntfy');
+  assert.equal(distributorName(null), null);
+  assert.equal(distributorName('org.example.pusher'), 'pusher');
 });
 
 test('the wire matches replies to requests and passes events on', async () => {

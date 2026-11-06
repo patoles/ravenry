@@ -112,6 +112,13 @@ class PairActivity : ComponentActivity() {
         setContent { Screen() }
     }
 
+    // A theme change keeps this activity (and the step the person is on,
+    // manifest configChanges): the bar icons follow the new theme here.
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        enableEdgeToEdge()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         fromIntent(intent)
@@ -244,8 +251,7 @@ class PairActivity : ComponentActivity() {
         }, color = tx2, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.clickable {
             runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tailscale.com/download"))) }
         })
-        // The typed code's screen has no picture yet: it is drawn as a mock
-        // and stays out of the launch build until it is approved.
+        // The typed code's screen: drawn as a mock first, then approved.
         if (!TYPED_CODE) return
         Spacer(Modifier.height(22.dp))
         Text(buildAnnotatedString {
@@ -360,5 +366,5 @@ class PairActivity : ComponentActivity() {
     }
 }
 
-/** "Type the code instead" and its screens: off until their mock is approved. */
-private const val TYPED_CODE = false
+/** "Type the code instead" and its screens (their mock is approved). */
+private const val TYPED_CODE = true

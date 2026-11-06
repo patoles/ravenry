@@ -313,7 +313,10 @@ The shell sends events as `{ "event": "...", ... }`.
 | `speech` | | voice typing for the reply field: `{ text }` |
 | `alerts.clear` | `id` | |
 | `pair.reset` | | sign out on this phone and go back to pairing |
-| `open.settings` | | the app's settings (on Android, for now, its notification settings) |
+| `push.status` | | `{ distributors, current, off }`: the UnifiedPush apps on the phone, the one in use, and whether alerts by push are off |
+| `push.set` | `on` | alerts by push on (register with the distributor) or off (target `none`); the new status |
+| `connection.get`, `connection.set` | `on` | the held connection (Stay connected) on or off: `{ on }` |
+| `open.settings` | | the system's notification settings for the app |
 
 Events also carry `open` `{ alert }` when the person taps an alert, and
 `back` when they press Back (the page answers with `back.done` when it

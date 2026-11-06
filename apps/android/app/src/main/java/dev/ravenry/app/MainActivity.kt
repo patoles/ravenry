@@ -239,8 +239,9 @@ class MainActivity : FragmentActivity() {
             needPermission(Manifest.permission.POST_NOTIFICATIONS, {}, {})
         }
         Push.register(this)
-        // Paired now (the first open after pairing too): hold the connection.
-        ConnectionService.start(this)
+        // Paired now (the first open after pairing too): hold the connection,
+        // unless Settings turned that off.
+        if (Store.get(this).stayConnected) ConnectionService.start(this)
     }
 
     private fun leave() {
@@ -418,6 +419,21 @@ class MainActivity : FragmentActivity() {
                         finish()
                     }
                 }
+            }
+            // Settings (the phone board's #/settings): push and the held connection.
+            "push.status" -> reply(id, true, Push.status(this))
+            "push.set" -> {
+                val on = o.optBoolean("on", true)
+                Store.get(this).pushOff = !on
+                if (on) Push.register(this) else { Push.unregister(this); Push.target(applicationContext, JSONObject().put("kind", "none")) }
+                reply(id, true, Push.status(this))
+            }
+            "connection.get" -> reply(id, true, JSONObject().put("on", Store.get(this).stayConnected))
+            "connection.set" -> {
+                val on = o.optBoolean("on", true)
+                Store.get(this).stayConnected = on
+                if (on) ConnectionService.start(this) else ConnectionService.stop(this)
+                reply(id, true, JSONObject().put("on", on))
             }
             "open.settings" -> {
                 runCatching { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
