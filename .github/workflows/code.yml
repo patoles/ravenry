@@ -1,8 +1,11 @@
 # The code checks that run on Linux. The hub targets macOS (cmux, iTerm2,
 # Rex, osascript), so its suites that drive a terminal or a headless
 # browser run on a Mac, not here. Here: the daemon (libghostty-vt built with
-# Zig, then gofmt, go vet, go build and every Go test), node --check over
-# every script, and the hub suites that need no macOS tool and no browser.
+# Zig, then gofmt, go vet, go build and every Go test), then against that
+# build @ravenry/node-client and the hub's Ravenry adapter (its seven
+# terminal operations, the agent status channel and hook decisions);
+# node --check over every script, and the hub suites that need no macOS
+# tool and no browser.
 name: code
 
 on:
@@ -46,8 +49,23 @@ jobs:
           echo "PKG_CONFIG_PATH=$(scripts/libghostty.sh)" >> "$GITHUB_ENV"
       - run: go vet ./...
       - run: go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd && "$RUNNER_TEMP/ravenryd" version
+      # pipefail: without it the step takes tee's status, and a failing
+      # test would not fail the job.
       - name: go test
-        run: go test -count=1 -v ./... 2>&1 | tee "$RUNNER_TEMP/test.log"
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./... 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: node-client and the hub's Ravenry adapter against this daemon
+        working-directory: .
+        env:
+          RAVENRYD_BIN: ${{ runner.temp }}/ravenryd
+        run: |
+          set -o pipefail
+          node --test packages/node-client/test/*.test.mjs
+          node hub/tools/ravenryd-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
       - name: Measurements
         run: grep '^MEASURE' "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -64,12 +82,12 @@ jobs:
       - name: node --check over every script
         working-directory: .
         run: |
-          find hub tools -path '*/node_modules' -prune -o -path '*/.tmp' -prune -o \( -name '*.mjs' -o -name '*.js' -o -name '*.cjs' \) -type f -print0 | xargs -0 -n1 node --check
+          find hub tools packages/node-client -path '*/node_modules' -prune -o -path '*/.tmp' -prune -o \( -name '*.mjs' -o -name '*.js' -o -name '*.cjs' \) -type f -print0 | xargs -0 -n1 node --check
       # No npm ci: the hub's package says os darwin, and these suites use
       # none of its dev dependencies (Playwright, jsQR).
       - name: Hub suites that run on Linux
         run: |
-          for t in data-guard-test sessions-test events-hook-test handoff-hook-test plans-test assistant-test rules-repeats-test; do
+          for t in data-guard-test sessions-test events-hook-test handoff-hook-test plans-test assistant-test rules-repeats-test ravenryd-test; do
             echo "::group::$t"
             node "tools/$t.mjs"
             echo "::endgroup::"
