@@ -32,13 +32,16 @@ jobs:
           bad=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$bad" ]; then echo "$bad"; echo "gofmt: the files above need gofmt -w"; exit 1; fi
       # scripts/libghostty.sh takes the ghostty commit from the go-libghostty
-      # version in go.mod, so go.sum keys the cache.
+      # version in go.mod, so go.sum keys the cache. The "build" number is
+      # bumped by hand to rebuild once on purpose: the Zig install below
+      # only runs on a miss, so a bump is how it gets proven in CI (build 2,
+      # 2026-11-06: its first run since it replaced setup-zig).
       - name: Cache libghostty-vt
         id: libghostty
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: daemon/.deps/libghostty-vt-*
-          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
+          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-build-2-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
       # Zig from its release tarball, pinned by the SHA-256 that
       # ziglang.org/download/index.json lists for 0.17.1. mlugg/setup-zig
       # still runs on the deprecated Node 20 (v2.2.1, its latest release,
