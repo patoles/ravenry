@@ -39,10 +39,25 @@ jobs:
         with:
           path: daemon/.deps/libghostty-vt-*
           key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+      # Zig from its release tarball, pinned by the SHA-256 that
+      # ziglang.org/download/index.json lists for 0.17.1. mlugg/setup-zig
+      # still runs on the deprecated Node 20 (v2.2.1, its latest release,
+      # and its main branch as of 2026-11-06), and a pinned checksum needs no
+      # action at all. Community mirrors first, as ziglang.org asks of CI;
+      # the checksum makes any of them safe.
+      - name: Install Zig 0.17.1
         if: steps.libghostty.outputs.cache-hit != 'true'
-        with:
-          version: 0.17.1
+        working-directory: ${{ runner.temp }}
+        run: |
+          f=zig-x86_64-linux-0.17.1.tar.xz
+          sum=3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a
+          for url in https://ziglang.freetls.fastly.net/$f https://pkg.hexops.org/zig/$f https://zigmirror.hryx.net/zig/$f https://ziglang.org/download/0.17.1/$f; do
+            if curl -fsSL --retry 2 --max-time 300 -o "$f" "$url" && echo "$sum  $f" | sha256sum -c --quiet; then
+              tar -xJf "$f" && echo "$RUNNER_TEMP/${f%.tar.xz}" >> "$GITHUB_PATH" && exit 0
+            fi
+            echo "no good copy from $url"
+          done
+          exit 1
       - name: Build libghostty-vt
         run: |
           command -v pkg-config >/dev/null || sudo apt-get install -y pkg-config
