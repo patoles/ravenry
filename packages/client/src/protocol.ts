@@ -15,6 +15,65 @@ export interface Exit {
   signal?: string;
 }
 
+/** A shell's state from its OSC 133 marks (section 3, Shell marks). */
+export interface Shell {
+  state: 'prompt' | 'running';
+  command?: string;
+  exit_code?: number;
+  mark?: Mark;
+  at?: string;
+}
+
+export type AgentStateName = 'working' | 'needs_you' | 'idle' | 'ended';
+
+export interface Need {
+  kind: 'permission' | 'question' | 'auth' | 'other';
+  message?: string;
+}
+
+/** The agent running in a pane (section 3, The agent in a pane). */
+export interface AgentStatus {
+  state: AgentStateName;
+  since?: string;
+  assistant?: string;
+  session?: string;
+  need?: Need;
+  event?: string;
+  at?: string;
+  source?: 'hook' | 'program' | 'daemon';
+  seq?: number;
+}
+
+export interface AgentReport {
+  seq: number;
+  at: string;
+  pane?: PaneId;
+  assistant: string;
+  source: 'hook' | 'program' | 'daemon';
+  event: string;
+  session?: string;
+  state?: AgentStateName;
+  need?: Need;
+  message?: string;
+  cwd?: string;
+  pid?: number;
+  data?: Record<string, unknown>;
+}
+
+export interface Process {
+  pid: number;
+  argv: string[];
+  exe?: string;
+  cwd?: string;
+  started_at?: string;
+}
+
+export interface Reply {
+  stdout?: string;
+  stderr?: string;
+  exit_code?: number;
+}
+
 export interface Pane {
   id: PaneId;
   name?: string;
@@ -32,6 +91,10 @@ export interface Pane {
   state: 'running' | 'exited';
   exit?: Exit;
   exited_at?: string;
+  /** Once its shell sent OSC 133 marks. */
+  shell?: Shell;
+  /** Once an agent reported. */
+  agent?: AgentStatus;
 }
 
 export interface HelloResult {
@@ -64,7 +127,7 @@ export interface RowChange {
 }
 
 export interface WaitResult {
-  condition: 'text' | 'quiet' | 'exit' | 'timeout';
+  condition: 'text' | 'quiet' | 'exit' | 'prompt' | 'timeout';
   since: Mark;
   mark: Mark;
   output: string;
@@ -74,6 +137,7 @@ export interface WaitResult {
   exit?: Exit;
   changes: RowChange[];
   screen: string[];
+  shell?: Shell;
 }
 
 export interface Span {
@@ -117,7 +181,7 @@ export interface ReadResult {
 export interface Methods {
   hello: { params: { client: { name: string; version?: string } }; result: HelloResult };
   cancel: { params: { request: number }; result: Record<string, never> };
-  'events.subscribe': { params: Record<string, never>; result: Record<string, never> };
+  'events.subscribe': { params: { display?: boolean }; result: Record<string, never> };
   'pane.new': {
     params: {
       command?: string[];
@@ -151,11 +215,35 @@ export interface Methods {
       screen?: boolean;
       quiet_ms?: number;
       exit?: boolean;
+      prompt?: boolean;
       since?: Mark;
       timeout_ms?: number;
     };
     result: WaitResult;
   };
+  'pane.process': { params: { pane: PaneId }; result: { pane: PaneId; foreground: Process } };
+  'pane.restart': { params: { pane: PaneId; grace_ms?: number }; result: { pane: Pane; replaced: Pane } };
+  'pane.focus': { params: { pane: PaneId }; result: { displays: number } };
+  'agent.report': {
+    params: {
+      pane?: PaneId;
+      assistant: string;
+      event: string;
+      session?: string;
+      state?: AgentStateName;
+      need?: Need;
+      message?: string;
+      cwd?: string;
+      pid?: number;
+      data?: Record<string, unknown>;
+      decide?: boolean;
+      timeout_ms?: number;
+    };
+    result: { seq: number; asked: number; reply?: Reply };
+  };
+  'agent.events': { params: { pane?: PaneId; since?: number; limit?: number }; result: { reports: AgentReport[]; seq: number; truncated: boolean } };
+  'agent.decisions': { params: Record<string, never>; result: Record<string, never> };
+  'agent.decide': { params: { request: number; reply?: Reply }; result: Record<string, never> };
   'pane.settle': {
     params: { pane: PaneId; input: Input[]; quiet_ms?: number; timeout_ms?: number };
     result: { sent: SendResult; wait: WaitResult };
@@ -185,6 +273,10 @@ export type DaemonEvent =
   | { event: 'pane.title'; pane: Pane }
   | { event: 'pane.exited'; pane: Pane }
   | { event: 'pane.closed'; pane: Pane }
+  | { event: 'pane.prompt'; pane: Pane }
+  | { event: 'pane.focus'; pane: Pane }
+  | { event: 'agent.report'; report: AgentReport; pane?: Pane }
+  | { event: 'agent.decision'; request: number; report: AgentReport; timeout_ms: number }
   | { event: 'daemon.draining'; newer: string }
   | { event: 'stream.end'; channel: Channel; mark: Mark };
 
