@@ -1,0 +1,22 @@
+claude
+Last login: Tue Nov  3 17:16:57 on ttys013
+➜  trust-a claude
+
+───────────────────────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /private/tmp/claude-501/-Users-you-projects-sample-app-for-a-menu-testx/6f6f6f6f-0000-4000-8000-0
+ 23cb44a21e5/scratchpad/trust-a
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a
+ well-known open source project, or work from your team). If not, take a moment to review what's
+ in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- maximum-scale=1: iOS Safari zooms in on focus of any field under 16px
+     (the composer is 13.5px) and leaves the page wider than the screen.
+     Pinch zoom still works on iOS. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Ravenry</title>
+<!-- The Perch mark (brand/ravenry/; public/icons/ is copied there by
+     brand/ravenry/build.mjs, never edited by hand). -->
+<link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/icons/favicon-16.png" type="image/png" sizes="16x16">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" sizes="180x180">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="mc" class="mc">
+  <header class="mc-top">
+    <span class="mc-title"><svg class="mc-mark" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(4.77 -2.10) scale(0.8954)"><path d="M95 34 C89 28 82 24 75 23 C66 21 58 24 54 30 C50 36 46 40 40 46 C32 54 24 64 18 74 L6 92 L20 94 L28 84 C36 80 48 78 56 76 C68 72 76 62 76 52 C76 46 74 43 78 40 C84 37 90 36 95 34 Z" fill-rule="evenodd" fill="var(--tx)"/><path d="M50 74 h5 v12 h-5 Z M60 72 h5 v14 h-5 Z M34 85 H86 a3 3 0 0 1 0 6 H34 a3 3 0 0 1 0 -6 Z" fill-rule="evenodd" fill="var(--tx)"/><circle cx="65" cy="32" r="6.5" fill="var(--work)"/></g></svg>Ravenry</span>
+    <nav aria-label="Views" class="mc-views" id="views"></nav>
+    <button id="memchip-m" class="memchip memchip-m" hidden></button>
+    <div class="mc-tools">
+      <button id="memchip" class="memchip" hidden></button>
+      <span id="phone-anchor" class="qr-anchor" hidden><button id="phone" class="icon-btn qr-btn" aria-label="Open on your phone" title="Open on your phone" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2"></rect><path d="M7 12h2" stroke-linecap="round"></path></svg></button></span>
+      <button id="theme" class="icon-btn" aria-label="Switch light or dark" title="Light or dark"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 2a6 6 0 0 0 0 12z" fill="currentColor"></path></svg></button>
+      <button id="alerts" class="icon-btn" aria-pressed="true" aria-label="Mac notifications on" title="Mac notifications on: a question, a hand-back, a permission prompt or a plan gate"><svg width="14" height="15" viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 11V7a4 4 0 0 1 8 0v4l1.2 1.6H1.8z"></path><path d="M5.6 14.2a1.5 1.5 0 0 0 2.8 0"></path><path class="bell-slash" d="M1.6 1.8l10.8 12.6"></path></svg></button>
+      <button id="gear" class="icon-btn" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M12.78 6.55L14.53 7.03L14.53 8.97L12.78 9.45L12.41 10.36L13.30 11.93L11.93 13.30L10.36 12.41L9.45 12.78L8.97 14.53L7.03 14.53L6.55 12.78L5.64 12.41L4.07 13.30L2.70 11.93L3.59 10.36L3.22 9.45L1.47 8.97L1.47 7.03L3.22 6.55L3.59 5.64L2.70 4.07L4.07 2.70L5.64 3.59L6.55 3.22L7.03 1.47L8.97 1.47L9.45 3.22L10.36 3.59L11.93 2.70L13.30 4.07L12.41 5.64Z"></path><circle cx="8" cy="8" r="2.1"></circle></svg></button>
+      <button class="btn sm" id="new-project" style="margin-left: 6px">New project</button>
+    </div>
+  </header>
+
+  <nav id="list" aria-label="Projects" class="mc-list"></nav>
+  <!-- Phone width only (docs/design/PhoneProjects.dc.html, variant C): the
+       active projects as chips and the idle ones behind one chip's sheet. -->
+  <nav id="pchips" aria-label="Projects" class="pchips"></nav>
+
+  <main id="sheet" class="mc-sheet" aria-live="off"></main>
+  <!-- Phone width: the planning conversation as a page of its own
+       (docs/design/Plans.dc.html, section 1's phone frames). -->
+  <main id="plan-phone" class="mc-sheet plan-phone" aria-label="New plan"></main>
+
+  <!-- The Live screen's full-screen layer (docs/design/LiveScreen.dc.html, B). -->
+  <div id="lv-fs" class="lv-fs" hidden></div>
+  <div id="idle-sheet" class="idle-sheet"></div>
+  <div id="modal"></div>
+  <div id="toast" role="status" class="toast" hidden></div>
+  <div id="announce" class="sr-only" aria-live="polite"></div>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

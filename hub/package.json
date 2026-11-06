@@ -1,0 +1,60 @@
+{
+  "name": "ravenry-app",
+  "version": "0.4.0",
+  "description": "A local board for following every Claude Code session on your Mac, answering agents from one page (cmux, iTerm2 or Rex), and keeping project briefs.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agents",
+    "dashboard",
+    "cmux",
+    "iterm2",
+    "rex",
+    "macos",
+    "terminal",
+    "hooks"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/patoles/ravenry.git",
+    "directory": "hub"
+  },
+  "homepage": "https://github.com/patoles/ravenry/tree/main/hub#readme",
+  "bugs": {
+    "url": "https://github.com/patoles/ravenry/issues"
+  },
+  "license": "GPL-3.0-only",
+  "author": "Simon Patole",
+  "type": "module",
+  "bin": {
+    "ravenry": "bin/ravenry.mjs"
+  },
+  "files": [
+    "bin/",
+    "server/",
+    "hooks/",
+    "public/",
+    "tools/open-in-iterm.mjs",
+    "tools/iterm-board-split.py",
+    "brand/ravenry/*.png",
+    "brand/ravenry/*.svg",
+    "CHANGELOG.md",
+    "NOTICE"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "iterm": "node tools/open-in-iterm.mjs",
+    "shots": "node tools/shoot.mjs",
+    "pack:check": "node tools/package-test.mjs"
+  },
+  "devDependencies": {
+    "jsqr": "1.4.0",
+    "playwright": "^1.61.1"
+  }
+}
