@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "seededAt": "2026-10-28T09:12:44.120Z",
+  "ideas": [
+    {
+      "id": "mh9q1x2abc",
+      "name": "Tide Pool",
+      "stage": "spark",
+      "pitch": "A cosy co-op game for the TV: two players keep a rock pool alive between tides.",
+      "status": "From the seed \"a cosy co-op game for the TV\", Nov 4.",
+      "img": null,
+      "alt": null,
+      "thread": [
+        { "who": "you", "text": "What would make the second player matter?", "images": [], "at": "2026-11-04T18:02:11.000Z" },
+        { "who": "claude", "text": "Give each player one tool the other lacks: one moves rocks, one moves water.\n- The pool only survives if both act each tide.\nRecommendation: start with the water player.", "at": "2026-11-04T18:02:40.000Z" },
+        { "who": "you", "text": "Like this sketch?", "images": ["mh9q1x2abc-mhk2a1.png"], "at": "2026-11-04T18:05:01.000Z" },
+        { "who": "claude", "error": true, "text": "No answer after 3 minutes, so it was stopped. Send it again, or ask something smaller.", "at": "2026-11-04T18:08:01.000Z" }
+      ],
+      "created": "2026-11-04T17:58:00.000Z",
+      "updated": "2026-11-04T18:08:01.000Z"
+    },
+    {
+      "id": "mh7k3p9def",
+      "name": "Paper Boat",
+      "stage": "mock",
+      "pitch": "Steer a paper boat down a gutter river without sinking.",
+      "status": "Two mockup rounds; B picked.",
+      "img": "mh7k3p9def/mockups/r2-b.png",
+      "alt": "Paper Boat: mockup round 2, B, Rain at night",
+      "dropped": "mh7k3p9def-mh7k4b.png",
+      "thread": [
+        { "who": "you", "text": "Mock up the first 30 seconds", "images": [], "at": "2026-11-02T10:00:00.000Z" },
+        { "who": "board", "mockupRound": 1, "at": "2026-11-02T10:03:12.000Z" },
+        { "who": "board", "mockupRound": 2, "at": "2026-11-02T11:20:40.000Z" }
+      ],
+      "mockups": {
+        "rounds": [
+          { "n": 1, "at": "2026-11-02T10:03:12.000Z", "note": "", "from": null, "picked": null, "ms": 191000, "usage": { "input": 4210, "output": 9120, "thinking": 2100, "turns": 1, "costUsd": 0.212, "model": "claude-opus-5-5" }, "model": "claude-opus-5-5",
+            "variants": [{ "key": "a", "title": "Morning gutter", "note": "Bright, slow start" }, { "key": "b", "title": "Rain at dusk", "note": "Moody" }, { "key": "c", "title": "Drain rush", "note": "Fast" }] },
+          { "n": 2, "at": "2026-11-02T11:20:40.000Z", "note": "darker, more rain", "from": { "round": 1, "key": "b" }, "picked": "b", "ms": 203000, "usage": { "input": 5110, "output": 9902, "thinking": 2400, "turns": 1, "costUsd": 0.231, "model": "claude-opus-5-5" }, "model": "claude-opus-5-5",
+            "variants": [{ "key": "a", "title": "Storm drain", "note": "Water rising" }, { "key": "b", "title": "Rain at night", "note": "Street lamps" }, { "key": "c", "title": "Puddle jump", "note": "Playful" }] }
+        ]
+      },
+      "created": "2026-11-01T09:00:00.000Z",
+      "updated": "2026-11-02T11:21:00.000Z"
+    },
+    {
+      "id": "mh5b8c1ghi",
+      "name": "Garden Planner",
+      "stage": "green",
+      "pitch": "A planting calendar that says what to sow and when, bed by bed.",
+      "status": "Greenlit Nov 3: brief next.",
+      "img": "mh5b8c1ghi-mh5b9z.png",
+      "alt": "Garden Planner: beds.png",
+      "dropped": "mh5b8c1ghi-mh5b9z.png",
+      "thread": [],
+      "created": "2026-10-30T08:00:00.000Z",
+      "updated": "2026-11-03T12:00:00.000Z"
+    },
+    {
+      "id": "mh3z0q4jkl",
+      "name": "Radar Widget",
+      "stage": "park",
+      "pitch": "Rain radar on the home screen, updated every 5 minutes.",
+      "status": "Parked: needs a tile source.",
+      "img": null,
+      "alt": null,
+      "thread": [{ "who": "you", "text": "Kill or keep?", "images": [], "at": "2026-10-29T15:00:00.000Z" }],
+      "pending": { "startedAt": "2026-10-29T15:00:01.000Z", "timeoutMs": 180000, "who": "codex" },
+      "created": "2026-10-29T14:00:00.000Z",
+      "updated": "2026-10-29T15:00:01.000Z"
+    },
+    {
+      "id": "mh2y7r5mno",
+      "name": "Recipe Box",
+      "stage": "green",
+      "pitch": "Every family recipe in one place, searchable by what is in the fridge.",
+      "status": "Added Oct 25.",
+      "img": null,
+      "alt": null,
+      "thread": [],
+      "created": "2026-10-25T08:00:00.000Z",
+      "updated": "2026-10-27T08:00:00.000Z",
+      "archived": true,
+      "archivedAt": "2026-10-27T08:00:00.000Z",
+      "archivedWhy": "promoted",
+      "promotedTo": "recipe-box"
+    },
+    {
+      "id": "mh1x6s6pqr",
+      "name": "Notes: Sync, again",
+      "stage": "spark",
+      "pitch": "Quick notes that sync between a phone and a laptop: yes, another one.",
+      "status": "Added Oct 22.",
+      "img": null,
+      "alt": null,
+      "thread": [],
+      "created": "2026-10-22T08:00:00.000Z",
+      "updated": "2026-10-22T08:00:00.000Z",
+      "archived": true,
+      "archivedAt": "2026-10-23T08:00:00.000Z",
+      "archivedWhy": "killed"
+    }
+  ],
+  "brainstorm": { "seed": "a calm puzzle game", "startedAt": "2026-11-05T09:00:00.000Z", "timeoutMs": 180000, "who": "claude" },
+  "lastBrainstorm": { "seed": "a cosy co-op game for the TV", "ids": ["mh9q1x2abc"], "at": "2026-11-04T17:58:00.000Z" }
+}

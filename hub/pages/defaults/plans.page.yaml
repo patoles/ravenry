@@ -1,0 +1,36 @@
+# Plans, as Ravenry ships it: every plan running in any project's brief,
+# the ones waiting at a gate for you included, newest first. Opening one
+# shows its whole flow. Finished plans are listed below.
+version: 1
+id: plans
+revision: 1
+title: Plans
+nav: { icon: plans, count: { state: [running, gate, paused] }, count_label: running, route: plans }
+source:
+  provider: plans
+sections:
+  - view: list
+    where: { state: [running, gate, paused] }
+    sort: [last]
+    empty: No plan is running. A plan starts from a project's brief.
+    item:
+      title: title
+      subtitle: project_name
+      time: last
+      place: ravenry:plan-row
+      detail: ravenry:plan
+      actions:
+        - { label: Open the plan, open: item }
+        - { label: Open the project, open: { project: "{project}" } }
+  - view: list
+    title: Finished
+    where: { state: [done, stopped] }
+    sort: [last]
+    limit: 10
+    item:
+      title: title
+      subtitle: project_name
+      badges: [state]
+      progress: { done: done, total: total, style: count }
+      time: last
+      detail: ravenry:plan

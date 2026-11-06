@@ -1,0 +1,39 @@
+# Rules, as Ravenry ships it. Your rules: every rules file your agents
+# read, for every project and for each project. Suggested: what you
+# corrected in more than one session that no rule says yet, then the rules
+# found in project memory.
+version: 1
+id: rules
+revision: 1
+title: Rules
+nav: { icon: rules, count: true, count_label: new, route: rules }
+source:
+  provider: repeats
+tabs:
+  - label: Your rules
+    sections:
+      - view: document
+        source: { provider: rule-files }
+        group_by: scope_name
+        item:
+          title: path
+          badges: [assistant]
+        empty: No rules files yet.
+  - label: Suggested
+    count: true
+    sections:
+      - view: list
+        sort: [-messages, -sessions]
+        empty: Nothing you keep saying is waiting. Ravenry keeps counting.
+        item:
+          title: rule
+          subtitle: sessions_text
+          excerpt: quote.text
+          time: last
+          actions:
+            - { label: Add rule, when: { kind: add }, plugin: ravenry:save-rule }
+            - { label: Add to every project, when: { kind: every }, plugin: ravenry:save-rule }
+            - { label: Reword rule, when: { kind: reword }, plugin: ravenry:save-rule }
+            - { label: Not now, plugin: ravenry:not-now }
+      - view: ravenry:memory-rules
+        title: From project memory

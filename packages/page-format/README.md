@@ -68,39 +68,23 @@ item operations (read, patch, toggle, checklist) with the file each result
 must equal byte for byte. `test/conformance.test.ts` runs them here; the Go
 checker and the apps run the same file.
 
-## Where it plugs in (not wired yet)
+## Where it plugs in
 
-Nothing uses this package yet: the hub, the daemon and the app are wired
-after the work in progress there lands.
-
-- **The hub (hub/server):**
-  - Providers: one function per provider id building its items, in the
-    field names of providers-1.json, from what the hub already computes:
-    `projects` from `buildProject` (snapshot.projects), `brief` from
-    `readBrief`, `plans` from each brief's plan objectives through
-    planfmt's `derive`, `plan-files` from plans.mjs `plansFor`, `git` from
-    ship.mjs `shipView`, `rule-files` from rulefiles.mjs `scopes`, `repeats`
-    from repeats.mjs `view`, `sessions` from `buildSessions`' rows.
-  - Pages: read `~/.ravenry/pages/`, each project's `.ravenry/pages/` and
-    `defaults/`, `resolvePages`, read each folder source's items with
-    `readItem`, and serve the model and items to the app and the phone.
-    Writes go through `patchItem`, `toggle`, `makeItem` and `archivePath`,
-    then a temp file and a rename. A default page's folder resolves against
-    `~/.ravenry/pages/`.
-  - Ideas move off `~/.ravenry/ideas.json` to `~/.ravenry/pages/ideas/`,
-    one file per idea (name to title; stage mock, green and park to
-    mockup, greenlit and parked; img to picture), with a one-time migration.
-  - `run` buttons go through approve-and-run; `ask` in the background asks
-    the first time and again when the page file's hash changes.
-- **The app (apps/desktop renderer, and the phone):** the sidebar rows come
-  from each resolved page's `nav` and `navNumber` (today five fixed
-  `navRow` calls in app.ts); the page draws the typed model; a page with
-  errors keeps its last good render under a bar built from
-  `formatProblem`, with a red dot on its row; a project page shows the
-  trust bar from `trustState` and `explainActions`; Customize writes
-  `customize(defaultText)` to `~/.ravenry/pages/`, and `defaultChanged`
-  shows "changed since your copy".
-- **`ravenry page check` and `ravenry page docs` (hub/bin/ravenry.mjs):**
-  `checkPage` with the file name, each problem through `formatProblem`,
-  `OK` and `describePage` when it passes, exit 1 on errors; `docs` prints
-  docs/pages.md or `docsTopic(docs, topic)`.
+- **The hub** (hub/docs/PAGES.md): `hub/server/providers.mjs` builds each
+  provider's items; `hub/server/pages.mjs` reads, resolves and watches the
+  page files, reads their items, makes every item write (`patchItem`,
+  `toggle`, `makeItem`, `archivePath`, then a temp file and a rename),
+  keeps trust and background-ask approvals, and serves `ravenry page
+  check`. The hub uses a bundle of this package
+  (`hub/server/vendor/page-format.mjs`, from
+  `hub/tools/vendor-page-format.mjs`, which also copies `defaults/` and
+  `docs/pages.md`); CI fails when it is not current.
+- **Ideas** live in `~/.ravenry/pages/ideas/`, one file per idea
+  (`hub/server/ideasfiles.mjs`), moved once off `~/.ravenry/ideas.json`.
+- **The desktop app** (`apps/desktop/src/renderer/pages.ts`) imports this
+  package's source: the sidebar's rows from each page's `nav`, the page in
+  the middle and right columns, the problem bar, the trust bar, Customize
+  and "changed since your copy".
+- **`ravenry page check` and `ravenry page docs`** are in the ravenry
+  binary (`daemon/cmd/ravenryd/page.go`, which asks the hub, and carries a
+  copy of `docs/pages.md`) and in npm's `ravenry` (`hub/bin/ravenry.mjs`).

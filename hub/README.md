@@ -98,6 +98,8 @@ Sessions in any other terminal (Terminal, VS Code, Ghostty, Warp, tmux...) are w
 | `ravenry doctor` | Say what works and what does not, and what to do about each |
 | `ravenry uninstall` | Take Ravenry's hooks out of `settings.json`, and out of Codex's files (backup first) |
 | `ravenry uninstall --purge` | Also delete `~/.ravenry` |
+| `ravenry page check FILE` | Check a sidebar page file (`*.page.yaml`) as the board reads it, each problem with its line |
+| `ravenry page docs [TOPIC]` | The page format's docs, or one topic (board, ask, run, ...), for you or your agent |
 | `ravenry --version` | Print the version |
 | `ravenry help` | List the commands |
 
@@ -125,7 +127,7 @@ npx playwright install chromium   # for the headless tests
 npm start                         # the board from this checkout, on :4600
 ```
 
-The board has no runtime dependencies and no build step: `server/` is plain Node and `public/` is the page. Each test is a plain script, for example `node tools/gallery-test.mjs`; every test keeps its data in the repo's `.tmp/` and runs its own board on a test port, never your real one. `npm run pack:check` proves the npm package from its tarball in a scratch install, and `node tools/readme-shot.mjs` redraws this README's screenshots from a made-up demo board. [docs/DEVELOPING.md](docs/DEVELOPING.md) describes how the board works and lists every test; [CONTRIBUTING.md](../CONTRIBUTING.md) says how to send a change.
+The board has no runtime dependencies and no build step: `server/` is plain Node and `public/` is the page. The page file format (`packages/page-format`, with the yaml package it uses) is bundled into `server/vendor/page-format.mjs` by `node tools/vendor-page-format.mjs`, which also copies the shipped pages to `pages/`; [docs/PAGES.md](docs/PAGES.md) says how the board uses page files. Each test is a plain script, for example `node tools/gallery-test.mjs`; every test keeps its data in the repo's `.tmp/` and runs its own board on a test port, never your real one. `npm run pack:check` proves the npm package from its tarball in a scratch install, and `node tools/readme-shot.mjs` redraws this README's screenshots from a made-up demo board. [docs/DEVELOPING.md](docs/DEVELOPING.md) describes how the board works and lists every test; [CONTRIBUTING.md](../CONTRIBUTING.md) says how to send a change.
 
 ## Privacy
 

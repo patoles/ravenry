@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- The sidebar's pages are page files (docs/PAGES.md): Objectives, Plans,
+  Ideas, Rules and Ship ship as defaults, and you or your agent can copy
+  one (Customize) or write a new one in `~/.ravenry/pages/`. A project can
+  bring its own in `.ravenry/pages/`; its buttons stay off until you trust
+  it. The board reads them live, serves them to the app and the phone, and
+  writes their items field by field, never over a change made meanwhile.
+- The board's tabs come from the page files: their labels and numbers, and
+  the pages you or an agent added, as read-only lists.
+- Ideas are one markdown file per idea in `~/.ravenry/pages/ideas/`. The
+  first start moves `ideas.json` there once, with its threads, mockup
+  rounds and pictures, after a backup; `ideas.json` stays as it was.
+- `ravenry page check FILE` and `ravenry page docs [TOPIC]`.
+- The Ship page's line for each repository ("3 commits to push", "Pushed
+  and clean") is the git provider's `status_text`.
+
 ## 0.4.0
 
 - Rex is the third terminal the board drives, beside cmux and iTerm2. A

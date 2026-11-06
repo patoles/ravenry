@@ -52,7 +52,7 @@ function save() {
 
 // Only the fields the protocol defines, so nothing else a daemon might send
 // is ever stored or shown.
-const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'secret', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
+const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
 function clean(cp) {
   const out = {};
   for (const k of FIELDS) if (cp[k] !== undefined) out[k] = cp[k];

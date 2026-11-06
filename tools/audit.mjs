@@ -73,6 +73,8 @@ const ALLOWED = [
   { file: '.github/workflows/release.yml', sha256: '52f2744c17405e14538da64eba088af99dd323085fa1efda963928444df360e5', why: 'the SHA-256 of the Zig 0.17.1 release tarball for aarch64 Linux, from ziglang.org/download/index.json' },
   { file: '.github/workflows/release.yml', sha256: 'c09cf4327d049fad910131bcf71e10038e6996b1ed48825909f2734084240a98', why: 'the SHA-256 of the Zig 0.17.1 release tarball for x86_64 macOS, from ziglang.org/download/index.json' },
   { file: '.github/workflows/release.yml', sha256: '415a1245e3d8a53a6ba70584e5fe62cb28eb18f158d905d332763799c5c3f8ef', why: 'the SHA-256 of the Zig 0.17.1 release tarball for aarch64 macOS, from ziglang.org/download/index.json' },
+  { file: 'hub/server/vendor/page-format.mjs', sha256: '77ae22ae1f20b65edb73b3fbbfac406010c0991c5bf5745754b42eeb37fd4483', why: "the yaml package's copyright line in its ISC licence, which every copy must carry" },
+  { file: 'hub/tools/vendor-page-format.mjs', sha256: '77ae22ae1f20b65edb73b3fbbfac406010c0991c5bf5745754b42eeb37fd4483', why: "the yaml package's copyright line in its ISC licence, which the bundle it writes carries" },
   { file: 'package-lock.json', sha256: 'b0373516d594ddd199b25c3655332b354837e065c5cc232f5043189897900ca7', why: "the public address in glob 7's npm deprecation notice (glob comes with electron-builder's @electron/asar)" },
 ];
 

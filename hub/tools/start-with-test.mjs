@@ -45,8 +45,11 @@
 // height unchanged at 1440. --shots <dir> saves each at 1440x900 and
 // 390x844 (the meta line also at 412), dark and light.
 //
+// --real DRIVES THE REAL CMUX (a throwaway workspace in the cmux on this
+// Mac): refused unless RAVENRY_TEST_REAL_TERMINAL=1 (tools/test-env.mjs).
+// Only the person runs it; no tool and no CI sets that.
 // Usage: node tools/start-with-test.mjs [--real] [--shots <dir>]
-import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome, requireRealTerminal } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -345,8 +348,9 @@ try {
   let ideasView = null;
   for (let i = 0; i < 40; i++) { await sleep(250); ideasView = await b.get('/api/ideas'); if (!ideasView.brainstorm) break; }
   check('Ideas: Get 3 directions goes to Codex and lands 3 ideas', ['Codex 1', 'Codex 2', 'Codex 3'].every((n) => ideasView.ideas.some((x) => x.name === n)) && !ideasView.brainstormError, JSON.stringify(ideasView.ideas.map((x) => x.name)));
-  const storedIdea = (id) => JSON.parse(fs.readFileSync(path.join(MC, 'ideas.json'), 'utf8')).ideas.find((x) => x.id === id);
-  check('Ideas: Codex\'s reply is stored as Codex\'s (who "codex"), in ideas.json and on the page\'s feed', lastMsg && lastMsg.who === 'codex' && storedIdea(ideaId).thread.slice(-1)[0].who === 'codex', JSON.stringify(lastMsg));
+  // Its record beside the idea's file (server/ideasfiles.mjs).
+  const storedIdea = (id) => JSON.parse(fs.readFileSync(path.join(MC, 'pages', 'ideas', '.ravenry', `${id}.json`), 'utf8'));
+  check('Ideas: Codex\'s reply is stored as Codex\'s (who "codex"), in the idea\'s record and on the page\'s feed', lastMsg && lastMsg.who === 'codex' && storedIdea(ideaId).thread.slice(-1)[0].who === 'codex', JSON.stringify(lastMsg));
   // ---- busy lines name the assistant running the job: the stub hangs on
   // SLOW until the board's 8 s stop (claudeTimeoutMs, planTimeoutMs).
   r = await b.post('/api/ideas/add', { name: 'Slow boat', pitch: 'A boat that waits' });
@@ -387,7 +391,7 @@ try {
   await b.post(`/api/ideas/${ideaId}/say`, { text: 'And with Claude?' });
   for (let i = 0; i < 40; i++) { await sleep(250); iv = (await b.get('/api/ideas')).ideas.find((x) => x.id === ideaId); if (iv && !iv.pending) break; }
   const lm = iv.thread[iv.thread.length - 1];
-  check('Ideas: with startWith claude the thread goes to claude -p as before', /^Stub reply \(stage Spark, cwd mc\/ideas\): And with Claude\?/.test(lm.text) && bruns().length === n1, JSON.stringify(lm));
+  check('Ideas: with startWith claude the thread goes to claude -p as before', /^Stub reply \(stage Spark, cwd pages\/ideas\): And with Claude\?/.test(lm.text) && bruns().length === n1, JSON.stringify(lm));
   check('Ideas: Claude\'s reply is stored as Claude\'s, and the earlier Codex reply stays as it was', lm.who === 'claude' && iv.thread.find((m) => /^Codex stub reply/.test(m.text)).who === 'codex', JSON.stringify(iv.thread.map((m) => m.who)));
   await b.post('/api/plan/draft', { projectId: 'boat', goal: 'Make the boat float longer' });
   for (let i = 0; i < 40; i++) { await sleep(250); d = (await b.get('/api/plan/draft?projectId=boat')).draft; if (d && !d.busy) break; }
@@ -837,6 +841,7 @@ async function liveLaunch(RH) {
 }
 
 if (REAL) {
+  requireRealTerminal('cmux', 'its --real section');
   const RH = path.join(T, 'codex-home-real');
   fs.mkdirSync(RH, { recursive: true });
   const realHome = path.join(os.homedir(), '.codex');

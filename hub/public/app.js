@@ -1759,16 +1759,95 @@ const FOLDER_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none"
 const wbr = (s) => esc(s).replace(/\//g, '/<wbr>');
 const X_ICON = '<svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"></path></svg>';
 
+// The tabs come from the sidebar's pages (server/pages.mjs, docs/PAGES.md),
+// in their order, with each one's label and number from its file: Projects
+// first (the board itself), then Objectives, Ideas, Rules and Ship, which
+// the board draws with its own views (a customized copy keeps them, with
+// its own label), then pages you or an agent added, and a project's, drawn
+// here as read-only lists (their buttons are in the app). Plans are on
+// Projects. A board too old to send pages keeps the five fixed tabs.
+const OWN_VIEWS = new Set(['objectives', 'ideas', 'rules', 'ship']);
+function viewTabs() {
+  const rows = ui.snap && Array.isArray(ui.snap.pages) && ui.snap.pages.length ? ui.snap.pages : null;
+  if (!rows) {
+    const n = (ui.snap && ui.snap.views) || {};
+    return VIEWS.map(([k, label]) => ({ k, label, n: { ideas: n.ideas, rules: n.rules, ship: n.ship }[k] || null }));
+  }
+  const out = [{ k: 'projects', label: 'Projects', n: null }];
+  for (const r of rows) {
+    if (r.id === 'plans' && r.origin !== 'project') continue;
+    const own = OWN_VIEWS.has(r.id) && r.origin !== 'project';
+    out.push({ k: own ? r.id : `page/${r.key}`, label: r.label, n: r.number ? `${r.number}${r.countLabel ? ' ' + r.countLabel : ''}` : null, err: r.error, project: r.project });
+  }
+  return out;
+}
+
 function renderViews() {
-  const n = (ui.snap && ui.snap.views) || {};
-  const counts = { ideas: n.ideas, rules: n.rules, ship: n.ship };
   const cur = ui.view === 'plan' ? 'projects' : ui.view;
-  setHtml('views', VIEWS.map(([k, label]) => `<button class="seg ${cur === k ? 'on' : ''}" data-view="${k}" ${cur === k ? 'aria-current="page"' : ''}>${label}${counts[k] ? `<span class="num" style="font-size: 11.5px; color: var(--tx3); margin-left: 6px">${counts[k]}</span>` : ''}</button>`).join(''));
+  setHtml('views', viewTabs().map((t) => `<button class="seg ${cur === t.k ? 'on' : ''}" data-view="${escRaw(t.k)}" ${cur === t.k ? 'aria-current="page"' : ''}>${esc(t.label)}${t.err ? '<span class="pg-err" title="This page file has a problem"></span>' : ''}${t.n ? `<span class="num" style="font-size: 11.5px; color: var(--tx3); margin-left: 6px">${esc(t.n)}</span>` : ''}</button>`).join(''));
+}
+
+// A page the board does not draw itself (an added one, a project's): its
+// items as a read-only list, grouped as its board or list groups them.
+const pv = { key: null, rev: null, page: null, error: null, busy: false };
+async function loadPageView(key) {
+  pv.busy = true;
+  try {
+    const r = await fetch('/api/pages/page?key=' + encodeURIComponent(key));
+    if (r.status === 401) signedOut();
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+    pv.page = j.page; pv.error = null;
+  } catch (e) { pv.page = null; pv.error = e.message; }
+  pv.busy = false;
+  if (ui.view === 'page/' + key) render();
+}
+
+const pvTime = (v) => { const d = parseT(String(v)); return d && !Number.isNaN(d.getTime()) ? (within24(d) ? clock(d) : day(d)) : String(v || ''); };
+const pvText = (v) => (Array.isArray(v) ? v.map(pvText).join(', ') : v && typeof v === 'object' ? '' : String(v ?? ''));
+const pvField = (it, f) => f.split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), it);
+
+function renderPageView() {
+  const key = ui.view.slice(5);
+  const row = ((ui.snap && ui.snap.pages) || []).find((r) => r.key === key);
+  if (pv.key !== key || (row && pv.rev !== row.rev && !pv.busy)) { pv.key = key; pv.rev = row ? row.rev : null; if (!pv.busy) loadPageView(key); }
+  buildView('page/' + key, '<div class="view" style="max-width: 1000px"><h1 id="pv-t"></h1><div id="pv-b" style="display: flex; flex-direction: column; gap: 14px"></div></div>');
+  setHtml('pv-t', esc(row ? row.label : 'Page'));
+  const P = pv.page;
+  if (!P) { setHtml('pv-b', `<p class="t2">${esc(pv.error || 'Reading the page...')}</p>`); return; }
+  const m = P.model;
+  const bar = P.problems.filter((x) => x.severity === 'error').slice(0, 1).map((x) => `<p class="err-line">${esc(x.text)}${P.stale ? ' Showing the last version that worked.' : ''}</p>`).join('');
+  const note = `<p class="t3" style="font-size: 12px; margin: 0">${esc(P.path)}${P.project ? `, from ${esc(P.project.name)}` : ''}. Its buttons are in the Ravenry app.</p>`;
+  if (!m) { setHtml('pv-b', bar + note); return; }
+  const out = [];
+  m.tabs.forEach((t, ti) => t.sections.forEach((sec, si) => {
+    if (sec.kind !== 'core') return;
+    const items = ((P.items.sections[ti] || [])[si] || []).slice(0, 200);
+    const spec = sec.item;
+    const rowHtml = (it) => {
+      const img = spec.image && pvField(it, spec.image) && it.$base ? `<img src="/api/pages/img?key=${encodeURIComponent(key)}&path=${encodeURIComponent(it.$base + pvField(it, spec.image))}" alt="" style="width: 76px; height: 46px; object-fit: cover; border-radius: 6px; flex: none">` : '';
+      const badges = (spec.badges || []).map((b) => pvText(pvField(it, b))).filter(Boolean).map((b) => `<span class="as-tag">${esc(b)}</span>`).join(' ');
+      const sub = spec.subtitle ? pvText(pvField(it, spec.subtitle)) : '';
+      const time = spec.time && pvField(it, spec.time) ? `<span class="t3 num" style="font-size: 11.5px; margin-left: auto">${esc(pvTime(pvField(it, spec.time)))}</span>` : '';
+      return `<div class="card-r" style="gap: 12px"><div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">${esc(pvText(pvField(it, spec.title)))}</span>${sub ? `<span class="t2" style="font-size: 12.5px">${esc(sub)}</span>` : ''}<span style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap">${badges}${time}</span></div>${img}</div>`;
+    };
+    const group = sec.groupBy;
+    if (group) {
+      const values = sec.source && sec.source.fields && sec.source.fields[group] && sec.source.fields[group].values ? sec.source.fields[group].values : [...new Set(items.map((it) => pvText(pvField(it, group))))];
+      for (const v of values) {
+        const g = items.filter((it) => pvText(pvField(it, group)) === v);
+        out.push(`<div class="card" style="overflow: hidden"><h2 class="card-h" style="font-size: 13px">${esc(String(v).charAt(0).toUpperCase() + String(v).slice(1).replace(/_/g, ' '))}<span class="num t3" style="font-weight: 500">${g.length}</span></h2>${g.map(rowHtml).join('')}</div>`);
+      }
+    } else {
+      out.push(`<div class="card" style="overflow: hidden">${sec.title ? `<h2 class="card-h" style="font-size: 13px">${esc(sec.title)}</h2>` : ''}${items.length ? items.map(rowHtml).join('') : `<div class="card-r t2">${esc(sec.empty || 'Nothing here.')}</div>`}</div>`);
+    }
+  }));
+  setHtml('pv-b', bar + note + out.join(''));
 }
 
 function setView(v, { push = true } = {}) {
   if (v.startsWith('plan/')) { openPlanPage(v.slice(5)); return; }
-  if (!PAGES.some(([k]) => k === v)) v = 'projects';
+  if (!PAGES.some(([k]) => k === v) && !v.startsWith('page/')) v = 'projects';
   if (ui.view === v) return;
   ui.view = v;
   ui.built = null;
@@ -3735,6 +3814,7 @@ function render() {
   else if (ui.view === 'rules') renderRules();
   else if (ui.view === 'ship') renderShip();
   else if (ui.view === 'sessions') renderSessions();
+  else if (ui.view.startsWith('page/')) renderPageView();
   else if (ui.view === 'plan') renderPlanPage();
   else renderSheet();
 }
@@ -4788,7 +4868,7 @@ const h0 = decodeURIComponent(location.hash.slice(1));
 ui.view = h0.startsWith('/') ? h0.slice(1) : (q.get('view') || (h0 ? 'projects' : store.get('view', 'projects')));
 // #/plan/<project>: the full plan of that project.
 if (ui.view.startsWith('plan/')) { ui.planFor = ui.view.slice(5); ui.view = 'plan'; }
-else if (!PAGES.some(([k]) => k === ui.view)) ui.view = 'projects';
+else if (!PAGES.some(([k]) => k === ui.view) && !ui.view.startsWith('page/')) ui.view = 'projects';
 $('#mc').classList.toggle('not-projects', ui.view !== 'projects' && ui.view !== 'plan');
 ui.sel = ui.planFor || (!h0.startsWith('/') && h0) || q.get('p') || store.get('sel', null);
 ui.selIdea = q.get('idea') || store.get('selIdea', null);

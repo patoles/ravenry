@@ -297,6 +297,31 @@ export async function startSession({ machine = null, cwd, line, label = null, la
   return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine };
 }
 
+// A page's run button (server/pages.mjs): an approve checkpoint on this
+// machine's daemon, which the person sees and approves (or edits, or
+// refuses) like an agent's; the item's values go in `env`, never in the
+// command line. A daemon too old for env refuses it (bad_request), and
+// then nothing is shown or run. Returns { ok, checkpoint } or { ok: false,
+// status, error }.
+export async function newApprove({ title, command, cwd, env = {}, why = '' }) {
+  if (held()) return { ok: false, status: 409, error: 'a test board does not reach the real ravenryd' };
+  let d = (await daemons()).find((x) => !x.machine) || null;
+  if (!d) {
+    const started = await startDaemon();
+    if (!started.ok) return { ok: false, status: 502, error: `Page buttons that run a command need ravenryd, and ${started.err}.` };
+    d = (await daemons()).find((x) => !x.machine) || null;
+    if (!d) return { ok: false, status: 502, error: 'ravenryd started but does not answer.' };
+  }
+  try {
+    const params = { kind: 'approve', title: String(title).slice(0, 1000), command, cwd, ...(why ? { why: String(why).slice(0, 1000) } : {}), ...(Object.keys(env).length ? { env } : {}) };
+    const { checkpoint } = await d.c.request('checkpoint.new', params, { timeoutMs: 10000 });
+    return { ok: true, checkpoint, daemon: d.id };
+  } catch (e) {
+    if (e.code === 'bad_request' && Object.keys(env).length && /env/.test(e.message)) return { ok: false, status: 409, error: `This ravenryd (${d.version || 'an older one'}) cannot pass a page's values to a command yet, so nothing was asked or run. Update Ravenry.` };
+    return { ok: false, status: 502, error: `ravenryd did not take it: ${e.message}` };
+  }
+}
+
 // A person's answer to a checkpoint, sent to the daemon that holds it
 // (server/checkpoints.mjs). `daemon` is the id the hub gave it.
 export async function answerCheckpoint(daemon, params) {

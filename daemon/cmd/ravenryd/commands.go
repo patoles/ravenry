@@ -68,7 +68,7 @@ func specOf(name string) map[string]flagKind {
 }
 
 // The groups, in the order help lists them.
-var groups = []string{"Panes", "Waiting and input", "Checkpoints", "Agents", "Guide", "Daemon"}
+var groups = []string{"Panes", "Waiting and input", "Checkpoints", "Agents", "Pages", "Guide", "Daemon"}
 
 func init() {
 	durationArg := "DURATION"
@@ -175,6 +175,8 @@ func init() {
 			{"limit", valueFlag, "N", "at most this many"},
 			{"follow", boolFlag, "", "keep printing new ones"},
 		}, run: cmdReports},
+		// Pages
+		{name: "page", group: "Pages", args: "check FILE | docs [TOPIC]", summary: "check a Ravenry page file (*.page.yaml) the way the sidebar reads it, with each problem's line, or print the page docs (a topic: board, ask, run, fields, ...); exits 1 when the file has errors", run: cmdPage},
 		// Guide
 		{name: "skill", group: "Guide", summary: "print the guide for agents: every command, the traps, the exit codes", run: cmdSkill},
 		{name: "help", aliases: []string{"--help", "-h"}, group: "Guide", summary: "this list", run: nil},

@@ -43,6 +43,7 @@ import * as checkpoints from './checkpoints.mjs';
 import * as gates from './gates.mjs';
 import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
+import * as pages from './pages.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -120,6 +121,7 @@ const targets = new Map();   // cwd|workspace -> { value, at }
 const starting = new Set();  // sessionIds whose fresh session is being opened
 const reserved = new Map();  // workspace name -> count: being opened by the board, never auto-imported
 let shipWaiting = null;      // Ship badge: items waiting on the user in the briefs' Ship sections
+let lastShip = null;         // the last Ship view (server/ship.mjs), for the pages' git provider
 // Sessions page (docs/SESSIONS.md): every claude process, read once a minute.
 let procState = { at: null, procs: [], helpers: 0, error: 'starting' };
 let procBusy = null;
@@ -819,7 +821,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     folder: project.folder, folderShort: short(project.folder), shared,
     waitingOn, flags,
     line: words.line, headline: words.headline, quick: words.quick, question: words.question, dialog: words.dialog || null, draft: words.draft || null,
-    brief: brief ? { path: short(brief.path), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules } : null,
+    brief: brief ? { path: short(brief.path), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
     briefExpected: registry.briefPath(project) ? short(registry.briefPath(project)) : null,
     plans: project.unowned ? [] : plansFor(project, reg.projects, now),
     timeline: timeline.slice(0, 5),
@@ -972,7 +974,13 @@ async function tick() {
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
-    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: machines.status(), checkpoints: checkpointsView(projects) };
+    // The sidebar's pages (server/pages.mjs): read again when a file
+    // changed, with each one's number from its items.
+    pagesProjects = projects;
+    pagesSessions = sessionsView;
+    let pageRows = [];
+    try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
+    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: machines.status(), checkpoints: checkpointsView(projects) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -1583,12 +1591,17 @@ function nearTab(projectId) {
 // A registered project, else this tick's card for a loose session.
 // The open checkpoints for the board and the app, each with the project and
 // session whose pane asked, when the board knows it.
+// Approvals a page's run button opened (the person pressed it, no agent
+// asked): checkpoint id -> { page, label, project }.
+const pageRuns = new Map();
+
 function checkpointsView(projects) {
   return checkpoints.list().map((cp) => {
     const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
     const p = tab ? projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
     const { daemon: _d, ...rest } = cp;
-    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : null, surfaceId: tab };
+    const run = pageRuns.get(cp.id);
+    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}) };
   });
 }
 
@@ -1628,7 +1641,9 @@ function assistantOf(projectId, surfaceId, raw) {
   return asst.parseAny(raw).kind;
 }
 
-async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
+// `prefill`: types the text into the prompt and leaves it there for the
+// person to send (a page's ask button), never pressing Enter.
+async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill = false }) {
   const project = findProject(projectId);
   if (!project) return { ok: false, status: 404, error: 'No such project.' };
   let tab;
@@ -1665,6 +1680,7 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
     bashOn = !!v.bashOn;
   }
   if (screen.dialog && !anySurface) {
+    if (prefill) return { ok: false, status: 409, error: `A choice is open on screen in ${where}, so nothing was typed. Answer it, then press the button again.` };
     if (choice == null) return { ok: false, status: 409, error: `A choice is open on screen. Pick one of its options, or answer in ${where}.` };
     // Arrow keys to the option, then Enter, each step read back from the
     // screen (server/choose.mjs): some menus ignore the option's digit.
@@ -1684,6 +1700,12 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
   }
   const msg = withPaths(text, paths);
   if (!msg) return { ok: false, status: 400, error: 'Type something or add a file first.' };
+  if (prefill) {
+    const a = await term.pasteText(tab, msg.replace(/[\r\n]+/g, ' '));
+    if (!a.ok) return { ok: false, status: 502, error: `Could not type it into ${where}: ${a.err || 'no answer'}` };
+    wantTick = true;
+    return { ok: true, delivered: 'typed', sent: msg };
+  }
   const asked = msg;
   const typed = await asst.typeMessage(kind, tab, msg, { bashOn, where });
   if (!typed.ok) return typed;
@@ -1802,10 +1824,122 @@ async function refreshShip() {
   try {
     const v = await shipView(shipProjects(), briefFor);
     shipWaiting = v.totals.waitingYou || null;
+    lastShip = v;
     return v;
   } catch (e) {
     console.error('ship:', e.message);
     return null;
+  }
+}
+
+// ------------------------------------------------------------ pages
+// The sidebar's pages (server/pages.mjs, docs/PAGES.md). The providers read
+// this tick's projects and sessions, the last Ship view, and the rules
+// files and suggested rules (each kept a few seconds).
+
+let pagesProjects = [];
+let pagesSessions = null;
+let scopesKept = { at: 0, value: [] };
+function pageScopes() {
+  if (Date.now() - scopesKept.at > 10000) {
+    try { scopesKept = { at: Date.now(), value: rulefiles.scopes(cfg(), reg ? reg.projects : [], { root: rootFolder() }) }; } catch (e) { console.error('pages: rules files:', e.message); }
+  }
+  return scopesKept.value;
+}
+const expand = (p) => (p && p.startsWith('~/') ? path.join(HOME, p.slice(2)) : p);
+pages.setContext(() => {
+  const c = cfg();
+  return {
+    projects: pagesProjects, regProjects: reg ? reg.projects : [], ship: lastShip, sessions: pagesSessions,
+    get scopes() { return pageScopes(); },
+    get repeats() { try { return repeats.view(c); } catch { return null; } },
+    gatesFor: (file, o) => gates.forPlan(file, o),
+    read: (p) => { try { return fs.readFileSync(expand(p), 'utf8'); } catch { return null; } },
+  };
+});
+let pagePoke = null;
+pages.onChange(() => { wantTick = true; setTimeout(tick, 30); });
+// The shipped Ideas page's items carry what ravenry:mockup-rounds and
+// ravenry:idea-thread draw, from the board's Ideas code.
+pages.setDecorate((e, src, items) => {
+  if (e.id !== 'ideas' || e.origin === 'project' || src.folder.replace(/\/$/, '') !== 'ideas') return items;
+  const byId = new Map(ideas.view().ideas.map((x) => [x.id, x]));
+  return items.map((it) => {
+    const x = byId.get(it.id || String(it.file || '').replace(/\.md$/, ''));
+    if (!x) return it;
+    const rounds = (x.mockups && x.mockups.rounds) || [];
+    const last = rounds[rounds.length - 1] || null;
+    return { ...it, $ravenry: { id: x.id, messages: (x.thread || []).length, pending: !!x.pending, mockups: last ? { round: last.n, picked: last.picked, rounds: rounds.length, variants: last.variants.map((v) => ({ key: v.key, title: v.title, img: v.img })) } : null, job: x.mockups && x.mockups.job ? x.mockups.job.round : null } };
+  });
+});
+pages.watch(() => { if (pagePoke) return; pagePoke = setTimeout(() => { pagePoke = null; wantTick = true; tick(); }, 60); });
+
+// The session an ask button types into: the project named (its id or its
+// name), its main session, live in its tab.
+function askTarget(name) {
+  const n = String(name || '').trim().toLowerCase();
+  const snap = (snapshot.projects || []).find((p) => !p.unowned && (p.id.toLowerCase() === n || String(p.name).toLowerCase() === n));
+  if (!snap) return { error: `No project called ${name || '(none)'} is on the board.`, status: 404 };
+  const live = snap.sessions.filter((s) => s.terminal !== false && !s.cannot);
+  const s = live.find((x) => x.surfaceId === snap.primary) || live[0];
+  if (!s) return { error: `No ${snap.name} session is open to type into. Start one, then press the button again.`, status: 409 };
+  return { project: snap, session: s };
+}
+
+async function pagesWrite(req, res, p) {
+  let body;
+  try { body = await jsonBody(req, 1e6); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+  const key = String((body && body.key) || '');
+  const ok = (v) => { wantTick = true; setTimeout(tick, 30); return sendJson(res, 200, { ok: true, ...v }); };
+  try {
+    switch (p) {
+      case '/api/pages/check': return sendJson(res, 200, { ok: true, ...pages.check(body.text, body.path ? expand(String(body.path)) : null) });
+      case '/api/pages/item/set': return ok(pages.setFields(key, body));
+      case '/api/pages/item/toggle': return ok(pages.toggleBox(key, body));
+      case '/api/pages/item/create': return ok(pages.createItem(key, body));
+      case '/api/pages/item/archive': return ok(pages.archive(key, body));
+      case '/api/pages/item/restore': return ok(pages.restore(key, body));
+      case '/api/pages/trust': return ok(pages.trust(key, body));
+      case '/api/pages/approve': return ok(pages.approve(key, body));
+      case '/api/pages/dismiss': return ok(pages.dismiss(key));
+      case '/api/pages/customize': return ok(pages.customize(key));
+      case '/api/pages/ask': {
+        // A page's ask button, or the app's own (Ask Claude to fix, Ask
+        // Claude to bring these in: { key, kind, text, session }).
+        let plan;
+        if (body.kind === 'fix' || body.kind === 'merge') {
+          const e = pages.get(key);
+          if (!e) return sendJson(res, 404, { error: 'No such page.' });
+          plan = { text: String(body.text || '').slice(0, 4000), session: e.project ? e.project.id : String(body.session || ''), background: false };
+        } else {
+          plan = pages.askPlan(key, body.at, body.item);
+          if (plan.background && !plan.approved) {
+            return sendJson(res, 409, { error: 'This page asks an agent to work on its own. Allow it first.', needsApproval: true, does: plan.does, hash: plan.page.hash });
+          }
+        }
+        const t = askTarget(plan.session);
+        if (t.error) return sendJson(res, t.status, { error: t.error });
+        const r = await sendMessage({ projectId: t.project.id, surfaceId: t.session.surfaceId, text: plan.text, prefill: !plan.background });
+        if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
+        return ok({ projectId: t.project.id, surfaceId: t.session.surfaceId, typed: plan.text, sent: !!plan.background });
+      }
+      case '/api/pages/run': {
+        const plan = pages.runPlan(key, body.at, body.item);
+        const r = await term.ravenryApprove({ title: plan.title, command: plan.command, cwd: plan.cwd, env: plan.env });
+        if (!r.ok) return sendJson(res, r.status || 502, { error: r.error });
+        pageRuns.set(r.checkpoint.id, { page: plan.page.page.title, label: plan.action.label, project: plan.page.project ? plan.page.project.name : null });
+        if (pageRuns.size > 200) pageRuns.delete(pageRuns.keys().next().value);
+        // Known now, before (or without) the daemon's event: the phone and
+        // the app see it as the page's.
+        onCheckpoint(r.checkpoint, { machine: null, daemon: r.daemon });
+        return ok({ checkpoint: (({ daemon: _d, ...c }) => ({ ...c, page: { title: plan.page.page.title, label: plan.action.label } }))(r.checkpoint) });
+      }
+      default: return sendJson(res, 404, { error: 'unknown' });
+    }
+  } catch (e) {
+    if (!e.status) console.error('pages:', p, e);
+    const { status: _s, message: _m, stack: _t, ...extra } = e;
+    return sendJson(res, e.status || 500, { error: e.message || String(e), ...extra });
   }
 }
 
@@ -2264,6 +2398,21 @@ const server = http.createServer(async (req, res) => {
       if (!project) return sendJson(res, 404, { error: 'No such project.' });
       return sendJson(res, 200, { ok: true, draft: planner.view(project.id) });
     }
+    if (req.method === 'GET' && p === '/api/pages') return sendJson(res, 200, { ok: true, pages: snapshot.pages || [] });
+    if (req.method === 'GET' && p === '/api/pages/page') {
+      const v = pages.view(url.searchParams.get('key') || '');
+      return v ? sendJson(res, 200, { ok: true, page: v }) : sendJson(res, 404, { error: 'No such page.' });
+    }
+    if (req.method === 'GET' && p === '/api/pages/img') {
+      const pic = pages.picture(url.searchParams.get('key') || '', url.searchParams.get('path') || '');
+      if (!pic) return sendJson(res, 404, { error: 'not a picture of this page' });
+      res.writeHead(200, { 'Content-Type': pic.type, 'Cache-Control': 'no-cache' });
+      return fs.createReadStream(pic.file).on('error', () => res.end()).pipe(res);
+    }
+    if (req.method === 'GET' && p === '/api/pages/docs') {
+      const t = pages.docs(url.searchParams.get('topic') || '');
+      return t ? sendJson(res, 200, { ok: true, text: t }) : sendJson(res, 404, { error: `No topic called ${url.searchParams.get('topic')} in the page docs. Run ravenry page docs for all of them.` });
+    }
     if (req.method === 'GET' && p === '/api/ideas') return sendJson(res, 200, ideas.view());
     if (req.method === 'GET' && p.startsWith('/api/ideas/img/')) {
       const abs = ideas.picturePath(decodeURIComponent(p.slice(15)));
@@ -2331,6 +2480,7 @@ const server = http.createServer(async (req, res) => {
       if (await refusedAsPerson(req, res, p)) return;
       if (p.startsWith('/api/alerts/')) return alertsWrite(req, res, p);
       if (p.startsWith('/api/plan/')) return planWrite(req, res, p);
+      if (p.startsWith('/api/pages/')) return pagesWrite(req, res, p);
       if (await phaseD(req, res, p) !== false) return;
       if (p === '/api/hook-event') {
         // hooks/events.mjs: the event is on disk already; this makes the

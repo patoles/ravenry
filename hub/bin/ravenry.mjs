@@ -7,6 +7,9 @@
 //                        ~/.claude/settings.json if you say yes
 //   ravenry doctor       says what works and what does not
 //   ravenry uninstall    takes the hooks out again (--purge also deletes ~/.ravenry)
+//   ravenry page check FILE, ravenry page docs [TOPIC]
+//                        a sidebar page file checked as the board reads it,
+//                        and the page docs (as the app's ravenry binary does)
 //   ravenry --version, ravenry help
 //
 // Where the board runs, by where `ravenry` is typed:
@@ -54,6 +57,11 @@ const HELP = `Ravenry ${PKG.version}: a local board for every Claude Code sessio
                        (and Codex's, when Codex is installed)
   ravenry doctor       say what works and what does not
   ravenry uninstall    take the hooks out (--purge also deletes ~/.ravenry)
+  ravenry page check FILE
+                       check a sidebar page file (*.page.yaml) as the board
+                       reads it, each problem with its line
+  ravenry page docs [TOPIC]
+                       the page docs, or one topic of them (board, ask, ...)
   ravenry --version    print the version
   ravenry help         this
 
@@ -436,6 +444,34 @@ async function start() {
   return null;
 }
 
+// ------------------------------------------------------------ page files
+
+// The same checker and docs the board uses (server/pages.mjs), so a file
+// that passes here draws in the sidebar.
+async function page() {
+  const [, sub, arg] = words;
+  const pages = await import('../server/pages.mjs');
+  if (sub === 'docs') {
+    const t = pages.docs(arg || '');
+    if (!t) { console.error(`No topic called "${arg}" in the page docs. Run ravenry page docs for all of them.`); return 1; }
+    process.stdout.write(t);
+    return 0;
+  }
+  if (sub === 'check' && arg && words.length === 3) {
+    const file = path.resolve(arg);
+    let text;
+    try { text = fs.readFileSync(file, 'utf8'); } catch (e) { console.error(`Cannot read ${arg}: ${e.message}`); return 1; }
+    const r = pages.check(text, file);
+    if (flags.has('--json')) { console.log(JSON.stringify(r, null, 2)); return r.ok ? 0 : 1; }
+    for (const p of r.problems) if (p.severity === 'error') console.log(p.text);
+    if (r.ok) console.log(`OK  ${r.summary}`);
+    for (const p of r.problems) if (p.severity !== 'error') console.log(`warning: ${p.text}`);
+    return r.ok ? 0 : 1;
+  }
+  console.error('ravenry page check FILE, or ravenry page docs [TOPIC]');
+  return 2;
+}
+
 // ------------------------------------------------------------ main
 
 async function main() {
@@ -448,6 +484,7 @@ async function main() {
     case 'doctor': return doctor();
     case 'uninstall': return uninstall();
     case 'serve': return serve();
+    case 'page': return page();
     default: console.log(`Unknown command "${cmd}".\n\n${HELP}`); return 2;
   }
 }

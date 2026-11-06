@@ -81,6 +81,7 @@ const forbidden = (p) => /(^|\/)(\.tmp|docs|fixtures|candidates|shots)\//.test(p
 check('every shipped file is one that runs (bin, server, hooks, public, the iTerm2 opener, icons, README, LICENSE, NOTICE, CHANGELOG)', files.every(allowed), files.filter((p) => !allowed(p)).join(' '));
 check('no test, fixture, docs, .tmp or brand candidate ships', !files.some(forbidden), files.filter(forbidden).join(' '));
 check('the bin, the hooks, the board and its page are in', ['bin/ravenry.mjs', 'hooks/events.mjs', 'hooks/handoff-stop.mjs', 'server/index.mjs', 'server/hookinstall.mjs', 'public/index.html', 'public/app.js', 'README.md', 'LICENSE', 'NOTICE', 'CHANGELOG.md'].every((f) => files.includes(f)));
+check('the page format and the shipped pages are in', ['server/vendor/page-format.mjs', 'server/pages.mjs', 'pages/pages.md', 'pages/defaults/objectives.page.yaml', 'pages/defaults/ship.page.yaml'].every((f) => files.includes(f)));
 check(`tarball under ${MAX_TGZ / 1024} KB`, info.size < MAX_TGZ, `${(info.size / 1024).toFixed(1)} KB packed, ${(info.unpackedSize / 1024).toFixed(1)} KB unpacked, ${files.length} files`);
 const personal = [];
 for (const f of files) {

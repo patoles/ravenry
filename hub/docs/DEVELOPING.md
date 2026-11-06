@@ -964,7 +964,13 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   scratch workspace running `tools/fake-claude.mjs`. Start one with
   `RAVENRY_HOME=<scratch dir> PORT=4601 MC_NO_EVENTS=1 npm start`.
 - `node tools/handoff-hook-test.mjs` and `node tools/handoff-e2e.mjs`: the
-  hand-off proofs (docs/HANDOFF.md, Tests).
+  hand-off proofs (docs/HANDOFF.md, Tests). `handoff-e2e` drives the real
+  cmux, so it refuses to run unless `RAVENRY_TEST_REAL_TERMINAL=1`; so do
+  the `--real` parts of the choose, suggestion, codex-stage2, new-session
+  and start-with tests. Only a person sets that variable: the test guard
+  (`../tools/test-env.mjs`) refuses, for every test, a child that is cmux,
+  osascript, Rex's command or iTerm2's Python API, and a board whose
+  terminal is the real one.
 - `node tools/events-hook-test.mjs`: pipes crafted input for each of the five
   events into `hooks/events.mjs` (lines written, silent exit 0, timing,
   board down, hung or up, rotation, pruning) and proves the installer on a
@@ -1160,6 +1166,17 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   `RAVENRY_HOME` (or `MC_HOME`).
 - `node tools/shoot-views.mjs <outDir> [--url ...] [--idea name]`: headless
   shots of the phase D views at 1440 and 390 wide.
+- `node tools/pages-test.mjs`: the sidebar's pages as files (docs/PAGES.md):
+  every built-in provider against fixtures, the move of a realistic
+  `ideas.json` (`tools/fixtures/ideas`) on a copy, and a board on scratch
+  data: its page rows, a page's items, writes and conflicts, a mistake kept
+  under its last good version, trust, Customize and "changed since your
+  copy", page check and docs, live updates and the web board's tabs. With
+  `RAVENRYD_BIN` it also runs the ravenry binary's `page check` and `page
+  docs` against that board.
+- `node tools/vendor-page-format.mjs [--check]`: bundles
+  `packages/page-format` into `server/vendor/page-format.mjs` and copies the
+  shipped pages and the page docs; `--check` fails when they are not current.
 - `node tools/plans-test.mjs`: Plans on crafted input under `.tmp/`: the plan
   format's parse, write and round trip, old plans read exactly as the parser
   before plans read them (every brief in docs/ and, read only, the drafted

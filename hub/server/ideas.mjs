@@ -1,8 +1,13 @@
-// The Ideas board: ~/.ravenry/ideas.json, pictures copied into
-// ~/.ravenry/ideas/. Each thread message and
-// "Get 3 directions" runs `claude -p` in that folder, one at a time per idea
-// (`codex exec` when new sessions start with Codex, docs/ASSISTANTS.md
-// "Print mode").
+// The Ideas board: one markdown file per idea in ~/.ravenry/pages/ideas/,
+// the folder the shipped Ideas page reads (server/ideasfiles.mjs has the
+// layout, and the one-time move off ~/.ravenry/ideas.json). Each thread
+// message and "Get 3 directions" runs `claude -p` in that folder, one at a
+// time per idea (`codex exec` when new sessions start with Codex,
+// docs/ASSISTANTS.md "Print mode").
+//
+// The ideas are held here as before and written back on every change, the
+// file field by field; a change made to the files meanwhile (an agent, an
+// editor, the Ideas page's own buttons) is read again before the next look.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,9 +17,14 @@ import { spawn } from 'node:child_process';
 import { RAVENRY_HOME } from './registry.mjs';
 import * as mk from './mockups.mjs';
 import * as asst from './assistant.mjs';
+import * as files from './ideasfiles.mjs';
 
-export const IDEAS_PATH = path.join(RAVENRY_HOME, 'ideas.json');
-export const IDEAS_DIR = path.join(RAVENRY_HOME, 'ideas');
+const D = files.dirsOf(RAVENRY_HOME);
+// Before 0.6: one JSON file, and its pictures in ~/.ravenry/ideas/.
+export const IDEAS_PATH = D.oldJson;
+export const IDEAS_DIR = D.dir;
+const PICS_DIR = D.pictures;
+const mockDir = (id) => path.join(D.mockups, id);
 export const STAGES = { spark: 'Spark', mock: 'Mockup', green: 'Greenlit', park: 'Parked' };
 const IMG_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);
 const H = os.homedir();
@@ -34,38 +44,76 @@ const now = () => new Date().toISOString();
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const noDash = (s) => String(s ?? '').replace(/\s*—\s*/g, ', ');
 
+// What each idea and the board looked like when last written, so only what
+// changed is written again.
+const written = new Map();
+let seen = null; // the folder's signature after the last read or write
+
 function save() {
-  fs.mkdirSync(RAVENRY_HOME, { recursive: true });
-  const tmp = IDEAS_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2) + '\n');
-  fs.renameSync(tmp, IDEAS_PATH);
+  fs.mkdirSync(IDEAS_DIR, { recursive: true });
+  for (const it of db.ideas) {
+    const j = JSON.stringify(it);
+    if (written.get(it.id) === j && it.file) continue;
+    try { it.file = files.saveIdea(it); } catch (e) { console.error(`ideas: ${it.name} not written: ${e.message}`); continue; }
+    written.set(it.id, JSON.stringify(it));
+  }
+  const board = { seededAt: db.seededAt, brainstorm: db.brainstorm, brainstormError: db.brainstormError, lastBrainstorm: db.lastBrainstorm, order: db.ideas.map((x) => x.id) };
+  try { files.saveBoard(JSON.parse(JSON.stringify(board))); } catch (e) { console.error('ideas: board not written:', e.message); }
+  seen = files.signature();
 }
 
 function copyPicture(src, stem) {
   if (!src || !fs.existsSync(src)) return null;
-  fs.mkdirSync(IDEAS_DIR, { recursive: true });
+  fs.mkdirSync(PICS_DIR, { recursive: true });
   const ext = path.extname(src).toLowerCase();
   const name = `${stem}-${Date.now().toString(36)}${ext}`;
-  fs.copyFileSync(src, path.join(IDEAS_DIR, name), fs.constants.COPYFILE_EXCL);
+  fs.copyFileSync(src, path.join(PICS_DIR, name), fs.constants.COPYFILE_EXCL);
   return name;
 }
 
+// Reads the folder: the ideas in the board's order (ideas made since, by
+// an agent or by hand, first, newest first), archived ones last.
+function readFolder() {
+  const board = files.readBoard();
+  const all = files.readAll();
+  const rank = new Map((board.order || []).map((id, i) => [id, i]));
+  all.sort((a, b) => {
+    if (!!a.archived !== !!b.archived) return a.archived ? 1 : -1;
+    const ra = rank.has(a.id) ? rank.get(a.id) : -1, rb = rank.has(b.id) ? rank.get(b.id) : -1;
+    if (ra !== rb) return ra - rb;
+    return String(b.created || '').localeCompare(String(a.created || ''));
+  });
+  const out = { version: 2, ideas: all };
+  for (const k of ['seededAt', 'brainstorm', 'brainstormError', 'lastBrainstorm']) if (board[k] != null) out[k] = board[k];
+  return out;
+}
+
+// Reads the folder again when something else changed it.
+function fresh() {
+  if (!db) return;
+  const sig = files.signature();
+  if (sig === seen) return;
+  db = readFolder();
+  written.clear();
+  for (const it of db.ideas) written.set(it.id, JSON.stringify(it));
+  seen = sig;
+}
+
 export function load() {
-  if (db) return db;
-  try {
-    db = JSON.parse(fs.readFileSync(IDEAS_PATH, 'utf8'));
-    db.ideas = Array.isArray(db.ideas) ? db.ideas : [];
-  } catch (e) {
-    if (e.code !== 'ENOENT') { console.error('ideas: cannot read', IDEAS_PATH, e.message); db = { version: 1, ideas: [], broken: true }; return db; }
-    // First run: seed once with the real ideas.
-    db = { version: 1, seededAt: now(), ideas: [] };
+  if (db) { fresh(); return db; }
+  try { files.migrate(RAVENRY_HOME); } catch (e) { console.error('ideas: the move to files stopped:', e.message); }
+  db = readFolder();
+  for (const it of db.ideas) written.set(it.id, JSON.stringify(it));
+  seen = files.signature();
+  if (!db.ideas.length && !db.seededAt) {
+    db.seededAt = now();
     for (const s of SEED) {
       const id = newId();
       let img = null;
       try { img = copyPicture(s.src, id); } catch (err) { console.error('ideas: picture not copied', s.src, err.message); }
       db.ideas.push({ id, name: s.name, stage: s.stage, pitch: s.pitch, status: s.status, img, alt: img ? s.alt : null, thread: [], created: now(), updated: now() });
     }
-    save();
+    if (SEED.length) save();
   }
   // A reply that was running when the board stopped will never land.
   let fixed = false;
@@ -170,9 +218,9 @@ export function savePicture(id, filename, buf, { asReference = false } = {}) {
     else if (buf.slice(8, 12).toString() === 'WEBP') ext = '.webp';
     else { const e = new Error('Only pictures can go on an idea (png, jpg, gif, webp).'); e.status = 415; throw e; }
   }
-  fs.mkdirSync(IDEAS_DIR, { recursive: true });
+  fs.mkdirSync(PICS_DIR, { recursive: true });
   const name = `${it.id}-${Date.now().toString(36)}${ext}`;
-  fs.writeFileSync(path.join(IDEAS_DIR, name), buf, { flag: 'wx' });
+  fs.writeFileSync(path.join(PICS_DIR, name), buf, { flag: 'wx' });
   if (!asReference) {
     it.img = name;
     it.dropped = name;
@@ -188,12 +236,12 @@ export function picturePath(file) {
   const m = String(file).match(/^([\w-]+)\/mockups\/(r\d{1,3}-[abc]\.png)$/);
   if (m) {
     if (!load().ideas.some((x) => x.id === m[1])) return null;
-    const abs = path.join(IDEAS_DIR, m[1], 'mockups', m[2]);
+    const abs = path.join(mockDir(m[1]), m[2]);
     return fs.existsSync(abs) ? abs : null;
   }
   const base = path.basename(String(file));
   if (base !== file || !IMG_EXT.has(path.extname(base).toLowerCase())) return null;
-  const abs = path.join(IDEAS_DIR, base);
+  const abs = path.join(PICS_DIR, base);
   return fs.existsSync(abs) ? abs : null;
 }
 
@@ -285,14 +333,14 @@ function context(it) {
     `Pitch: ${it.pitch || '(none yet)'}`,
     `Where it stands: ${it.status || '(nothing written)'}`,
   ];
-  if (it.img) lines.push(`Its picture: ${path.join(IDEAS_DIR, it.img)} (read it if it helps)`);
+  if (it.img) lines.push(`Its picture: ${picturePath(it.img) || path.join(PICS_DIR, it.img)} (read it if it helps)`);
   const th = (it.thread || []).filter((m) => !m.error);
   if (th.length > 1) {
     lines.push('', 'The conversation so far:');
-    for (const m of th.slice(0, -1).slice(-16)) lines.push(m.mockupRound ? `Board: ${roundContext(it, m.mockupRound)}` : `${m.who === 'you' ? 'User' : who(jobKind(m))}: ${m.text}${(m.images || []).length ? ` [pictures: ${m.images.map((f) => path.join(IDEAS_DIR, f)).join(', ')}]` : ''}`);
+    for (const m of th.slice(0, -1).slice(-16)) lines.push(m.mockupRound ? `Board: ${roundContext(it, m.mockupRound)}` : `${m.who === 'you' ? 'User' : who(jobKind(m))}: ${m.text}${(m.images || []).length ? ` [pictures: ${m.images.map((f) => path.join(PICS_DIR, f)).join(', ')}]` : ''}`);
   }
   const last = th[th.length - 1];
-  lines.push('', `The user now says: ${last.text}${(last.images || []).length ? `\n(They attached: ${last.images.map((f) => path.join(IDEAS_DIR, f)).join(', ')}. Read them.)` : ''}`);
+  lines.push('', `The user now says: ${last.text}${(last.images || []).length ? `\n(They attached: ${last.images.map((f) => path.join(PICS_DIR, f)).join(', ')}. Read them.)` : ''}`);
   return lines.join('\n');
 }
 
@@ -412,7 +460,7 @@ function roundLine(it, n) {
 function roundContext(it, n) {
   const r = ((it.mockups && it.mockups.rounds) || []).find((x) => x.n === n);
   if (!r) return `Mockup round ${n}.`;
-  const vs = r.variants.map((v) => `${LETTER(v.key)} "${v.title}" (${path.join(IDEAS_DIR, pngRel(it.id, n, v.key))})`).join(', ');
+  const vs = r.variants.map((v) => `${LETTER(v.key)} "${v.title}" (${path.join(mockDir(it.id), `r${n}-${v.key}.png`)})`).join(', ');
   const v = r.variants.find((x) => x.key === r.picked);
   return `Mockup round ${n}${r.note ? ` from their note "${r.note}"` : ''}: ${vs}.${v ? ` They picked ${LETTER(v.key)}.` : ''} Read the pictures if they help.`;
 }
@@ -429,7 +477,7 @@ function mockupsView(x) {
     job: m.job ? { round: m.job.round, startedAt: m.job.startedAt, timeoutMs: m.job.timeoutMs, note: m.job.note || '', who: jobKind(m.job) } : null,
     error: m.error ? { round: m.error.round, text: m.error.text, note: m.error.note || '', from: m.error.from || null } : null,
     dropped: x.dropped && x.img !== x.dropped && picturePath(x.dropped) ? imgUrl(x.dropped) : null,
-    folder: shortPath(mk.dir(IDEAS_DIR, x.id)),
+    folder: shortPath(mockDir(x.id)),
   };
 }
 
@@ -452,7 +500,7 @@ export function startMockups(id, { note, from } = {}, cfg) {
     const v = r && r.variants.find((x) => x.key === from.key);
     if (!v) throw fail('That variant is not there any more.', 400);
     let html = '';
-    try { html = fs.readFileSync(path.join(mk.dir(IDEAS_DIR, id), `r${r.n}-${v.key}.html`), 'utf8'); } catch { throw fail('That variant\'s page is missing from the mockups folder.', 409); }
+    try { html = fs.readFileSync(path.join(mockDir(id), `r${r.n}-${v.key}.html`), 'utf8'); } catch { throw fail('That variant\'s page is missing from the mockups folder.', 409); }
     base = { round: r.n, key: v.key, title: v.title, picked: r.picked === v.key, html };
   }
   const token = newId();
@@ -463,7 +511,7 @@ export function startMockups(id, { note, from } = {}, cfg) {
   const thread = (it.thread || []).filter((x) => !x.error).map((x) => (x.mockupRound ? { who: 'Board', text: roundContext(it, x.mockupRound) } : { who: x.who === 'you' ? 'User' : who(jobKind(x)), text: x.text }));
   const promptText = mk.prompt({
     idea: { name: it.name, stageName: STAGES[it.stage], pitch: it.pitch, status: it.status },
-    picturePath: it.img && !String(it.img).includes('/mockups/') ? path.join(IDEAS_DIR, it.img) : null,
+    picturePath: it.img && !String(it.img).includes('/mockups/') ? path.join(PICS_DIR, it.img) : null,
     thread, from: base, note: text,
   });
   const t0 = Date.now();
@@ -485,7 +533,7 @@ export function startMockups(id, { note, from } = {}, cfg) {
     if (un.error) return failed(un.error.replace(/\.$/, ''));
     const vs = mk.parseVariants(un.text);
     if (!vs) return failed(`${name} answered, but not with 3 pictures the board could read`);
-    const dir = mk.dir(IDEAS_DIR, id);
+    const dir = mockDir(id);
     let files;
     try {
       fs.mkdirSync(dir, { recursive: true });
@@ -508,7 +556,7 @@ export function startMockups(id, { note, from } = {}, cfg) {
     try { fs.appendFileSync(path.join(dir, 'rounds.jsonl'), JSON.stringify(log) + '\n'); } catch { /* the folder went away */ }
     console.log(`ideas: mockup round ${n} for ${cur.name}: 3 variants in ${mk.took(ms)}, ${u ? `${u.input} tokens in, ${u.output} out (${u.thinking} thinking)${u.turns ? `, ${u.turns} turn${u.turns === 1 ? '' : 's'}` : ''}${u.costUsd != null ? `, $${u.costUsd.toFixed(3)}` : ''}` : 'no usage reported'}`);
     save(); changed();
-  }, cfg.mockupCommand, { images: it.img && !String(it.img).includes('/mockups/') ? [path.join(IDEAS_DIR, it.img)] : [] });
+  }, cfg.mockupCommand, { images: it.img && !String(it.img).includes('/mockups/') ? [path.join(PICS_DIR, it.img)] : [] });
   return m.job;
 }
 

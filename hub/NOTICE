@@ -12,3 +12,9 @@ unchanged in server/vendor/uqr.mjs, under the MIT License:
   Copyright (c) Project Nayuki
   Copyright (c) 2023 Anthony Fu
 The full MIT License text is at the top of that file.
+
+This product includes @ravenry/page-format (packages/page-format in the
+Ravenry repository, Apache License 2.0) and yaml 2.9.1
+(https://github.com/eemeli/yaml) under the ISC License, bundled in
+server/vendor/page-format.mjs. The ISC License text and its copyright line
+are at the top of that file.

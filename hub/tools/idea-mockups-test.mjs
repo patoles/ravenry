@@ -18,8 +18,12 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'idea-mockups');
 fs.rmSync(T, { recursive: true, force: true });
 const MC = path.join(T, 'mc');
-const IDEAS = path.join(MC, 'ideas');
-fs.mkdirSync(IDEAS, { recursive: true });
+// Before the move: the board's old pictures folder, which ideas.json names.
+const OLD = path.join(MC, 'ideas');
+fs.mkdirSync(OLD, { recursive: true });
+// After it: one file per idea in pages/ideas/ (server/ideasfiles.mjs), the
+// mockup rounds in its mockups/<id>/, where every call runs.
+const IDEAS = path.join(MC, 'pages', 'ideas');
 process.env.RAVENRY_HOME = MC;
 const mk = await import('../server/mockups.mjs');
 
@@ -50,7 +54,7 @@ const BASE = `http://localhost:${PORT}`;
 const LOG = path.join(T, 'prompts.jsonl');
 const FAKE = path.join(T, 'fake-cmux.json');
 fs.writeFileSync(FAKE, JSON.stringify({ workspaces: [], screens: {} }));
-fs.copyFileSync(path.join(ROOT, 'brand/ravenry/icon-256.png'), path.join(IDEAS, 'kites-drop.png'));
+fs.copyFileSync(path.join(ROOT, 'brand/ravenry/icon-256.png'), path.join(OLD, 'kites-drop.png'));
 fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, ruleSources: [], globalClaudeMd: path.join(T, 'CLAUDE.md'), backupDir: path.join(T, 'backups'), printCommand: [process.execPath, path.join(ROOT, 'tools/stub-mockup-claude.mjs')], claudeTimeoutMs: 4000 }, projects: [] }, null, 2));
 const ID = 'kitestest';
 fs.writeFileSync(path.join(MC, 'ideas.json'), JSON.stringify({ version: 1, seededAt: new Date().toISOString(), ideas: [
@@ -66,7 +70,7 @@ const api = async (p, body) => { const r = await fetch(BASE + p, { method: 'POST
 const idea = async () => (await (await fetch(BASE + '/api/ideas')).json()).ideas.find((x) => x.id === ID);
 const until = async (fn, ms = 15000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(200); } return null; };
 const calls = () => (fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
-const DIR = path.join(IDEAS, ID, 'mockups');
+const DIR = path.join(IDEAS, 'mockups', ID);
 const pngSize = (f) => { const b = fs.readFileSync(f); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
 
 try {
@@ -91,7 +95,7 @@ try {
   check('the call is claude -p without user settings or MCP servers, with --model sonnet --output-format json, in the ideas folder', c1 && c1.argv.join(' ') === '--strict-mcp-config --setting-sources project,local --model sonnet --output-format json' && fs.realpathSync(c1.cwd) === fs.realpathSync(IDEAS), c1 && c1.argv.join(' '));
   check('the prompt is the idea and its thread, asking for 3 {title, note, html} at 800x500', c1 && /Idea: KITES/.test(c1.prompt) && /Is the low angle readable\?/.test(c1.prompt) && /800x500/.test(c1.prompt) && /\{"title": "2 to 4 words"/.test(c1.prompt) && /Its picture: .*kites-drop\.png/.test(c1.prompt));
   const files = ['a', 'b', 'c'].flatMap((k) => [`r1-${k}.html`, `r1-${k}.png`]);
-  check('files: r1-a/b/c .html and .png in ideas/<id>/mockups', files.every((f) => fs.existsSync(path.join(DIR, f))), fs.existsSync(DIR) ? fs.readdirSync(DIR).join(' ') : 'no folder');
+  check('files: r1-a/b/c .html and .png in pages/ideas/mockups/<id>', files.every((f) => fs.existsSync(path.join(DIR, f))), fs.existsSync(DIR) ? fs.readdirSync(DIR).join(' ') : 'no folder');
   check('each PNG is 800x500', ['a', 'b', 'c'].every((k) => pngSize(path.join(DIR, `r1-${k}.png`)).join('x') === '800x500'));
   check('the pages keep no script', !/<script/i.test(fs.readFileSync(path.join(DIR, 'r1-a.html'), 'utf8')));
   check('the round logs its time and tokens', /mockup round 1 for KITES: 3 variants in \d+ s, 2002 tokens in, 3000 out \(1000 thinking\), \$0\.012/.test(serverLog) && /"round":1,.*"input":2002,"output":3000/.test(fs.readFileSync(path.join(DIR, 'rounds.jsonl'), 'utf8')), (serverLog.match(/ideas: mockup.*/) || [''])[0]);

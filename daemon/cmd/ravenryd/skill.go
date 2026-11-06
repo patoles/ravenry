@@ -42,6 +42,7 @@ newest daemon on this machine (and start one if none runs).
 | ask me, check with me | ` + "`ravenry ask --wait \"...\" --option Done`" + ` |
 | I'll run it myself / needs my OK | ` + "`ravenry approve 'COMMAND'`" + ` |
 | a password, a token, a one-time code | ` + "`ravenry secret \"...\" -- PROGRAM ARGS`" + ` |
+| a page in Ravenry's sidebar (playtest notes, a reading list) | write ` + "`~/.ravenry/pages/<id>.page.yaml`" + ` and its items, then ` + "`ravenry page check FILE`" + `; ` + "`ravenry page docs`" + ` has the format |
 
 ## Rules that save you
 

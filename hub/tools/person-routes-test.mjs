@@ -1,8 +1,8 @@
 // Proves who acts as the person on the hub's HTTP API (server/person.mjs
 // ROUTES, docs/PERSON.md):
-//   - every route the server has is classed: each `p === '/api/...'`, each
-//     plan action and each idea action in server/index.mjs has a row, and a
-//     POST no row names is a person's;
+//   - every route the server has is classed: each `p === '/api/...'` and
+//     `case '/api/...'`, each plan action and each idea action in
+//     server/index.mjs has a row, and a POST no row names is a person's;
 //   - against a real board and a real ravenryd (RAVENRYD_BIN), every
 //     person row sent with curl from inside a real pane gets 403 and changes
 //     nothing (no file of the board, its home or the project, no pane, the
@@ -35,7 +35,7 @@ const eg = (r) => (typeof r.p === 'string' ? r.p : r.eg);
 const src = fs.readFileSync(path.join(ROOT, 'server/index.mjs'), 'utf8');
 // The literals a write compares the path with (a read's are open), the
 // plan's actions, and the idea routes' actions.
-const lits = new Set([...src.matchAll(/(?<!req\.method === 'GET' && )p === '(\/api\/[^']+)'/g)].map((m) => m[1]));
+const lits = new Set([...src.matchAll(/(?<!req\.method === 'GET' && )p === '(\/api\/[^']+)'/g), ...src.matchAll(/case '(\/api\/[^']+)':/g)].map((m) => m[1]));
 const planSrc = src.slice(src.indexOf('async function planWrite('));
 const planActs = [...planSrc.slice(0, planSrc.indexOf('\n}\n')).matchAll(/act === '(\w+)'/g)].map((m) => '/api/plan/' + m[1]);
 const ideaRoutes = [];
@@ -49,6 +49,7 @@ check(`every write route has a row (${lits.size} paths, ${planActs.length} plan 
 const rows = person.ROUTES;
 check('every row has a reason, and every person row the words of its refusal', rows.every((r) => r.why && (r.c === 'open' || r.what)));
 const known = new Set([...lits, ...planActs, ...dynamic, ...[...src.matchAll(/p === '(\/api\/[^']+)'/g)].map((m) => m[1])]);
+check('the pages\' routes are among them', lits.has('/api/pages/item/set') && lits.has('/api/pages/run') && lits.has('/api/pages/check'));
 check('every row names a route the server has', rows.every((r) => known.has(eg(r))), rows.filter((r) => !known.has(eg(r))).map(eg).join(', '));
 check('a POST no row names is a person\'s; a read no row names is open', !!person.personRoute('POST', '/api/something-new') && !person.personRoute('GET', '/api/state') && !person.personRoute('POST', '/api/note'));
 const docs = fs.readFileSync(path.join(ROOT, 'docs/PERSON.md'), 'utf8');
@@ -82,6 +83,20 @@ fs.writeFileSync(BRIEF, [
   '## Next step', 'Go.', '', '## Notes', '- [ ] "a note"', '',
 ].join('\n'));
 fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [{ id: 'proj', name: 'Proj', folder: PROJ, workspaces: [], brief: 'BRIEF.md' }] }, null, 2));
+// A page of the person's with a note, and a page that came with the
+// project, so every pages row has something it would change.
+fs.mkdirSync(path.join(MC, 'pages', 'notes', '.archive'), { recursive: true });
+fs.writeFileSync(path.join(MC, 'pages', 'notes.page.yaml'), [
+  'version: 1', 'id: notes', 'title: Notes', 'nav: { icon: flag, count: { status: new } }', 'source:', '  folder: notes/', '  fields:', '    status: { type: enum, values: [new, done] }',
+  'sections:', '  - view: list', '    item:', '      title: title', '      checklist: body', '      actions:', '        - { label: Done, set: { status: done } }', '        - { label: Tick, toggle: body }',
+  'actions:', '  - { label: New note, create: { status: new } }', '  - label: Ask', '    ask: { session: proj, background: "Look at the notes" }', '  - label: Run it', '    run: { argv: [touch, ran.txt] }', '',
+].join('\n'));
+const NOTE_TEXT = '---\ntitle: A note\nstatus: new\n---\n- [ ] a box\n';
+fs.writeFileSync(path.join(MC, 'pages', 'notes', 'a-note.md'), NOTE_TEXT);
+fs.writeFileSync(path.join(MC, 'pages', 'notes', '.archive', 'old.md'), '---\ntitle: Old\nstatus: done\n---\n');
+fs.mkdirSync(path.join(PROJ, '.ravenry', 'pages'), { recursive: true });
+fs.writeFileSync(path.join(PROJ, '.ravenry', 'pages', 'tiles.page.yaml'), 'version: 1\nid: tiles\ntitle: Tiles\nnav: { icon: table }\nsource:\n  folder: regions/\n  fields:\n    status: { type: enum, values: [checked, stale] }\nsections:\n  - view: table\n    columns: [title, status]\n');
+const NOTE_HASH = crypto.createHash('sha256').update(NOTE_TEXT).digest('hex');
 const SETTINGS = path.join(T, 'claude-settings.json');
 fs.writeFileSync(SETTINGS, '{}');
 const D = fs.mkdtempSync(path.join(os.tmpdir(), 'rvp-'));
@@ -161,6 +176,16 @@ const bodies = {
   '/api/open': { projectId: 'proj', surfaceId: 'ravenry:' + agentPane.id },
   '/api/rules/x': { action: 'add' },
   '/api/repeats/x': { action: 'add' },
+  '/api/pages/item/set': { key: 'notes', file: 'a-note.md', hash: NOTE_HASH, patch: { status: 'done' } },
+  '/api/pages/item/toggle': { key: 'notes', file: 'a-note.md', line: 5, text: 'a box' },
+  '/api/pages/item/archive': { key: 'notes', file: 'a-note.md' },
+  '/api/pages/item/restore': { key: 'notes', file: 'old.md' },
+  '/api/pages/trust': { key: 'proj/tiles' },
+  '/api/pages/approve': { key: 'notes' },
+  '/api/pages/dismiss': { key: 'notes' },
+  '/api/pages/customize': { key: 'objectives' },
+  '/api/pages/ask': { key: 'notes', at: { scope: 'page', index: 1 } },
+  '/api/pages/run': { key: 'notes', at: { scope: 'page', index: 2 } },
 };
 const bodyOf = (r) => bodies[eg(r)] || { projectId: 'proj' };
 
@@ -240,6 +265,8 @@ const OPEN = [
   ['/api/note', { projectId: 'proj', text: 'from an agent' }, 200],
   ['/api/ideas/add', { name: 'An agent\'s idea', text: 'x' }, 200],
   ['/api/hook-event', {}, 400],
+  ['/api/pages/check', { text: 'version: 1\nid: x\n' }, 200],
+  ['/api/pages/item/create', { key: 'notes', action: { scope: 'page', index: 0 }, fields: { title: 'From an agent' } }, 200],
 ];
 const olines = OPEN.map(([p, b], i) => {
   fs.writeFileSync(path.join(OUT, `open${i}.body`), JSON.stringify(b));
@@ -249,7 +276,7 @@ fs.writeFileSync(SCRIPT, olines.join('\n') + `\necho done > '${OUT}/open-finishe
 const openPane = (await dc.request('pane.new', { command: ['/bin/sh', SCRIPT], cols: 200, rows: 10 })).pane;
 await until(async () => fs.existsSync(path.join(OUT, 'open-finished')), 30000);
 const ocodes = fs.readFileSync(path.join(OUT, 'open-codes'), 'utf8').trim().split('\n').map((l) => Number(l.split(' ')[1]));
-check('from a pane, the open rows go through (a note, an idea, a hook event)', OPEN.every(([, , want], i) => ocodes[i] === want) && fs.readFileSync(BRIEF, 'utf8').includes('from an agent'), JSON.stringify(ocodes));
+check('from a pane, the open rows go through (a note, an idea, a hook event, a page check, a new page item)', OPEN.every(([, , want], i) => ocodes[i] === want) && fs.readFileSync(BRIEF, 'utf8').includes('from an agent') && fs.existsSync(path.join(MC, 'pages', 'notes', 'from-an-agent.md')), JSON.stringify(ocodes));
 await dc.request('pane.close', { pane: openPane.id });
 
 // ------------------------------------------------------------ a gate ticked in the file
@@ -305,7 +332,13 @@ const mr = await call('POST', '/api/machines/remove', bodies['/api/machines/remo
 check('from outside, a machine is added and removed', ma.status === 200 && ma.body.machines.some((m) => m.name === 'box') && mr.status === 200 && !mr.body.machines.some((m) => m.name === 'box'), ma.text + ' ' + mr.text);
 const hs = await call('POST', '/api/settings/handoff', bodies['/api/settings/handoff']);
 check('from outside, the hand-off settings are saved', hs.status === 200 && hs.body.settings && hs.body.settings.handoffEnabled === false, hs.text);
-const done = new Set(['/api/plan/answer', '/api/checkpoints/answer', '/api/machines/add', '/api/machines/remove', '/api/settings/handoff']);
+const ps = await call('POST', '/api/pages/item/set', bodies['/api/pages/item/set']);
+const pt = await call('POST', '/api/pages/trust', bodies['/api/pages/trust']);
+check('from outside, a page\'s item is changed and a project page trusted', ps.status === 200 && /status: done/.test(fs.readFileSync(path.join(MC, 'pages', 'notes', 'a-note.md'), 'utf8')) && pt.status === 200 && JSON.parse(fs.readFileSync(path.join(MC, 'pages.json'), 'utf8')).trust.length === 1, ps.text + pt.text);
+const pr = await call('POST', '/api/pages/run', bodies['/api/pages/run']);
+const prCp = pr.body && pr.body.checkpoint;
+check('from outside, a page\'s run button opens an approve checkpoint for the person, and nothing runs yet', pr.status === 200 && prCp && prCp.kind === 'approve' && prCp.state === 'open' && prCp.command === 'touch ran.txt' && !fs.existsSync(path.join(MC, 'pages', 'ran.txt')), pr.text);
+const done = new Set(['/api/plan/answer', '/api/checkpoints/answer', '/api/machines/add', '/api/machines/remove', '/api/settings/handoff', '/api/pages/item/set', '/api/pages/trust', '/api/pages/run']);
 const blocked = [];
 for (const r of personRows) {
   if (done.has(eg(r))) continue;

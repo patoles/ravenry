@@ -75,7 +75,7 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-55 person rows (16 of them judged ambiguous), 5 open rows. GET routes not
+65 person rows (21 of them judged ambiguous), 7 open rows. GET routes not
 listed are reads and stay open; the two listed hand out a pairing secret.
 
 | Endpoint | Class | Why |
@@ -137,6 +137,18 @@ listed are reads and stay open; the two listed hand out a pairing secret.
 | `/api/ideas/<id>/mockups` | person | Judged (ambiguous): it runs a model on the person's account. |
 | `/api/ideas/<id>/mockups/stop` | person | It stops a run the person started. |
 | `/api/ideas/<id>/mockups/pick` | person | Picking a variant is the person's taste. |
+| `/api/pages/check` | open | Checks a page file's text and says what is wrong with it; writes nothing. Agents run it through `ravenry page check`. |
+| `/api/pages/item/create` | open | Adds a new item file to a page's folder from its form; nothing is replaced (a taken name gets -2), and the person sees it on the page. An agent can write the same file itself. |
+| `/api/pages/item/set` | person | Judged (ambiguous): it rewrites a field the person or their agent wrote (a status set to fixed is a decision), as an idea's update is. |
+| `/api/pages/item/toggle` | person | Ticking a box says the thing is done: the person's call. |
+| `/api/pages/item/archive` | person | It takes an item off the page (into .archive/), as dropping an idea is. |
+| `/api/pages/item/restore` | person | Judged (ambiguous): it undoes the person's archive. |
+| `/api/pages/trust` | person | Trust turns on buttons someone else wrote; an agent would trust its own page. |
+| `/api/pages/approve` | person | It lets a page type into a session and send it without the person seeing it first. |
+| `/api/pages/dismiss` | person | Judged (ambiguous): it hides "changed since your copy", shown to the person. |
+| `/api/pages/customize` | person | Judged (ambiguous): the copy takes the shipped page's place in the sidebar. An agent can write a page file itself. |
+| `/api/pages/ask` | person | It types into a session, and a background ask sends it: what the composer does. |
+| `/api/pages/run` | person | Judged (ambiguous): it puts a command in front of the person to approve as if they pressed the button (an agent asks with `ravenry approve` instead). |
 | `/api/note` | open | Adds a line under Notes in the brief. |
 | `/api/inbox/<project>` | open | Puts a file in the project's inbox folder; nothing is sent or run. |
 | `/api/hook-event` | open | The hooks inside every session post it: it only makes the board look at events already on disk. |
