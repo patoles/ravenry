@@ -27,8 +27,11 @@
 //
 // --real <scratch folder>: the live check (section 3 below), on the real cmux.
 //
+// --real DRIVES THE REAL CMUX (a throwaway workspace in the cmux on this
+// Mac): refused unless RAVENRY_TEST_REAL_TERMINAL=1 (tools/test-env.mjs).
+// Only the person runs it; no tool and no CI sets that.
 // Usage: node tools/codex-stage2-test.mjs [--shots <dir>] [--real <scratch folder>]
-import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome, requireRealTerminal } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -446,6 +449,7 @@ try {
 // workspace is closed. Only that workspace is typed into.
 const ri = process.argv.indexOf('--real');
 if (ri >= 0) {
+  requireRealTerminal('cmux', 'its --real section');
   const { execFileSync } = await import('node:child_process');
   const CMUX = process.env.CMUX_BIN_REAL || '/Applications/cmux.app/Contents/Resources/bin/cmux';
   const cm = (args, json) => {

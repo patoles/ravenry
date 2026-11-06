@@ -141,6 +141,8 @@ async function appPath(id) {
 export async function hasBrowserPlugin(e = env) {
   if (e.RAVENRY_ITERM_BROWSER === '0') return false;
   if (e.RAVENRY_ITERM_BROWSER === '1') return true;
+  // With a stand-in for osascript (a test), the real one is never asked.
+  if (e.ITERM_OSASCRIPT_BIN) return false;
   return !!(await appPath(PLUGIN_ID));
 }
 
@@ -358,7 +360,7 @@ export async function main(argv = process.argv.slice(2), say = console.log, { ru
   const url = boardUrl(port);
   const tv = env.ITERM_OSASCRIPT_BIN ? [] : testVars();
   if (tv.length) { say(`Refused: this shell carries a test's settings (${tv.join(', ')}), and a board started from it would run on a test's data. Open a fresh shell, or unset them, and run this again.`); return 1; }
-  if (!(await appPath(ITERM_ID)) && !env.ITERM_OSASCRIPT_BIN) { say(`iTerm2 is not installed (https://iterm2.com). Start the board with ${runCmd ? 'ravenry' : 'npm start'} in your terminal instead.`); return 1; }
+  if (!env.ITERM_OSASCRIPT_BIN && !(await appPath(ITERM_ID))) { say(`iTerm2 is not installed (https://iterm2.com). Start the board with ${runCmd ? 'ravenry' : 'npm start'} in your terminal instead.`); return 1; }
 
   if (argv.includes('--close')) {
     const found = await findBoardTab(port).catch(() => []);

@@ -141,6 +141,28 @@ console.log(t.childKind('/x/node_modules/electron/dist/Electron.app/Contents/Mac
 // On macOS Electron keeps its data in the account's ~/Library whatever HOME
 // says; on Linux it follows HOME (~/.config).
 check('guard: the app needs its own data folder on macOS (Electron ignores HOME there); ravenryd in sh -c is seen', r.out === `app ${process.platform === 'darwin' ? 1 : 0} 0 daemon null`, r.out || r.err);
+// Real terminal apps (2026-11-06: tools/handoff-e2e.mjs put a cmux
+// workspace on the person's screen): a test never starts cmux, osascript or
+// Rex's command, nor a hub whose terminal would be the real one, unless
+// the person ran it with RAVENRY_TEST_REAL_TERMINAL=1.
+const TERM = (allow) => `const g = await import(${S('tools/test-guard.mjs')}); const { spawnSync, execFileSync } = await import('node:child_process');
+const out = [];
+const tryIt = (f) => { try { f(); out.push('ran'); } catch (e) { out.push(/would drive the real/.test(e.message) ? 'refused' : 'error ' + e.message.slice(0, 80)); } };
+tryIt(() => spawnSync('/Applications/cmux.app/Contents/Resources/bin/cmux', ['--version'], { env: { PATH: '/usr/bin:/bin' } }));
+tryIt(() => spawnSync('/usr/bin/osascript', ['-e', 'return 1'], { env: { PATH: '/usr/bin:/bin' } }));
+tryIt(() => execFileSync('/bin/sh', ['-c', 'cmux new-workspace || true'], { env: { PATH: '/nonexistent' } }));
+tryIt(() => spawnSync(process.execPath, [${S('server/index.mjs')}, '--check-only'], { env: { HOME: ${J(path.join(T, 'home'))}, RAVENRY_HOME: ${J(path.join(T, 'board3'))}, RAVENRY_RUNTIME_DIR: ${J(path.join(T, 'rt3'))}, RAVENRY_STATE_DIR: ${J(path.join(T, 'st3'))}, PORT: '1', MC_NO_EVENTS: '1' }, timeout: 1 }));
+tryIt(() => spawnSync('/bin/echo', ['fake'], { env: { PATH: '/usr/bin:/bin' } }));
+console.log(out.join(','));`;
+r = child(TERM());
+check('guard: cmux, osascript, a shell running cmux, and a hub whose cmux is the real one are refused; anything else runs', r.out === 'refused,refused,refused,refused,ran', r.out + r.err);
+r = child(`const t = await import(${S('../tools/test-env.mjs')}); console.log([t.boardRealTerminal({ CMUX_BIN: ${S('tools/fake-cmux.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'ravenry' }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'iterm', ITERM_OSASCRIPT_BIN: ${S('tools/stub-osascript.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'rex', RAVENRY_REX_BIN: ${S('tools/fake-rex.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'iterm' }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'rex' })].join(','));`);
+check('guard: a hub with a stand-in for its terminal starts; with the real iTerm2 or Rex it is refused', r.out === ',,,,iTerm2,Rex', r.out || r.err);
+const forbidden = tests.filter((f) => /RAVENRY_TEST_REAL_TERMINAL\s*(:|\]?\s*=(?!=))\s*['"`]1/.test((read(path.join(ROOT, 'tools', f)) || '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')));
+check('guard: no test sets RAVENRY_TEST_REAL_TERMINAL itself', forbidden.length === 0, forbidden.join(', '));
+const marked = tests.filter((f) => /requireRealTerminal\(/.test(read(path.join(ROOT, 'tools', f)) || ''));
+const unmarked = marked.filter((f) => !/DRIVES THE REAL (CMUX|ITERM2|REX)/.test((read(path.join(ROOT, 'tools', f)) || '').split('\nimport ')[0]));
+check(`guard: the ${marked.length} tests that drive a real terminal on purpose say so in their header`, marked.length >= 6 && unmarked.length === 0, unmarked.join(', '));
 fs.rmSync(RT0, { recursive: true, force: true });
 
 // ------------------------------------------------------------ 3. registry.save

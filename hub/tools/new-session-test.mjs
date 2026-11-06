@@ -40,8 +40,11 @@
 // the new tab's screen read back; then the workspace is closed. Only that
 // workspace is read or typed into.
 //
+// --real DRIVES THE REAL CMUX (a throwaway workspace in the cmux on this
+// Mac): refused unless RAVENRY_TEST_REAL_TERMINAL=1 (tools/test-env.mjs).
+// Only the person runs it; no tool and no CI sets that.
 // Usage: node tools/new-session-test.mjs [--shots <dir>] [--real <scratch folder>]
-import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome, requireRealTerminal } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -467,6 +470,7 @@ try {
 
 const ri = process.argv.indexOf('--real');
 if (ri >= 0) {
+  requireRealTerminal('cmux', 'its --real section');
   const { parseScreen } = await import('../server/screen.mjs');
   const { readMenu } = await import('../server/choose.mjs');
   const CMUX = process.env.CMUX_BIN_REAL || '/Applications/cmux.app/Contents/Resources/bin/cmux';

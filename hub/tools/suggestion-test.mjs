@@ -26,8 +26,11 @@
 //    and left intact). Only that workspace is ever typed into; it is closed
 //    at the end.
 //
+// --real DRIVES THE REAL CMUX (a throwaway workspace in the cmux on this
+// Mac): refused unless RAVENRY_TEST_REAL_TERMINAL=1 (tools/test-env.mjs).
+// Only the person runs it; no tool and no CI sets that.
 // Usage: node tools/suggestion-test.mjs [--real <scratch folder> [--first styled]]
-import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome, requireRealTerminal } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -279,6 +282,7 @@ try {
 
 const ri = process.argv.indexOf('--real');
 if (ri >= 0) {
+  requireRealTerminal('cmux', 'its --real section');
   const CMUX = process.env.CMUX_BIN_REAL || '/Applications/cmux.app/Contents/Resources/bin/cmux';
   const cm = (args, json) => {
     const out = execFileSync(CMUX, json ? ['--json', '--id-format', 'both', ...args] : args, { encoding: 'utf8', env: { ...process.env, CMUX_QUIET: '1' } });

@@ -8,14 +8,19 @@
 //   in the same workspace running the resume command -> resumed. Then it
 //   proves the start never repeats, even across a server restart.
 //
-// Usage: node tools/handoff-e2e.mjs <shotsDir>
-import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+// DRIVES THE REAL CMUX: it makes a workspace in the cmux on this Mac, so it
+// refuses to run unless RAVENRY_TEST_REAL_TERMINAL=1 (tools/test-env.mjs).
+// Only the person runs it; no tool and no CI sets that.
+//
+// Usage: RAVENRY_TEST_REAL_TERMINAL=1 node tools/handoff-e2e.mjs <shotsDir>
+import { withTestHome, requireRealTerminal } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
+requireRealTerminal('cmux');
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SHOTS = path.resolve(process.argv[2] || path.join(ROOT, '.tmp/shots/phase-c'));
 const PORT = 4601;

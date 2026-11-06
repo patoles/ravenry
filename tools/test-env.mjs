@@ -27,6 +27,16 @@
 // guardSpawns() enforces it for the whole tool: every child it starts
 // through node:child_process that is ravenryd, the hub or the app is
 // checked with the environment it is given, so no tool can forget.
+//
+// Real terminal apps: a test never drives the person's own cmux, iTerm2 or
+// Rex (on 2026-11-06 a run of tools/handoff-e2e.mjs put a cmux workspace on
+// the person's screen). guardSpawns() refuses, unless the person ran the
+// test with RAVENRY_TEST_REAL_TERMINAL=1, every child that is one of them
+// (cmux, osascript, which drives iTerm2, Rex's rex, iTerm2's Python API)
+// and every hub whose environment would make it drive one (its terminal's
+// command not a test's stand-in, such as tools/fake-cmux.mjs). A test made
+// to drive one on purpose says so in its header and calls
+// requireRealTerminal() first. Tools never set the variable themselves.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -157,17 +167,75 @@ export function childKind(file, args = [], env = null) {
 
 const NAMES = { daemon: 'ravenryd', hub: 'the hub', app: 'the app' };
 
+// ------------------------------------------------------------ real terminal apps
+
+export const REAL_TERMINAL_VAR = 'RAVENRY_TEST_REAL_TERMINAL';
+/** The person asked for a test that drives their real cmux, iTerm2 or Rex. */
+export const realTerminalAllowed = (env = process.env) => env[REAL_TERMINAL_VAR] === '1';
+
+const REAL_APP_BIN = /[/\\](cmux|iTerm|iTerm2|Rex)\.app[/\\]/;
+const TERMINAL_NAMES = { cmux: 'cmux', osascript: 'iTerm2 (through osascript)', rex: 'Rex' };
+const TERMINAL_IN_SHELL = /(^|[\s;&|('"/])(cmux|osascript|rex)['"]?(\s|$)/;
+
+/** The real terminal app a child would drive, or null: cmux, osascript
+ * (iTerm2's scripting), Rex's command, iTerm2's Python API, or a shell
+ * command line running one of them. */
+export function realTerminalOf(file, args = []) {
+  const f = String(file || '');
+  if (!f) return null;
+  const base = path.basename(f);
+  if (REAL_APP_BIN.test(f)) return /cmux/.test(f) ? 'cmux' : /Rex/.test(f) ? 'Rex' : 'iTerm2';
+  if (TERMINAL_NAMES[base]) return TERMINAL_NAMES[base];
+  if (/^python3?$/.test(base) && (args || []).some((a) => /iterm-keys\.py$/.test(String(a)))) return 'iTerm2 (its Python API)';
+  if (/^(ba|z|da)?sh$/.test(base) && args[0] === '-c') {
+    const m = String(args[1] || '').match(TERMINAL_IN_SHELL);
+    if (m) return TERMINAL_NAMES[m[2]];
+  }
+  return null;
+}
+
+// A stand-in a test gives the hub for a terminal's command: anything that
+// is not the real app's (tools/fake-cmux.mjs, a stub, "none").
+const realBin = (bin) => !bin || !!realTerminalOf(bin);
+
+/** The real terminal app a hub started with this environment would drive
+ * as its board's terminal (server/terminal.mjs boardKind), or null. */
+export function boardRealTerminal(env) {
+  const want = String(env.RAVENRY_TERMINAL || '').toLowerCase().replace(/^iterm2$/, 'iterm');
+  const kind = want || (env.CMUX_SURFACE_ID || env.CMUX_WORKSPACE_ID ? 'cmux' : env.ITERM_SESSION_ID ? 'iterm' : env.REX_SESSION ? 'rex' : 'cmux');
+  if (kind === 'cmux' && realBin(env.CMUX_BIN)) return 'cmux';
+  if (kind === 'iterm' && realBin(env.ITERM_OSASCRIPT_BIN) && env.MC_APPS !== 'none') return 'iTerm2';
+  if (kind === 'rex' && realBin(env.RAVENRY_REX_BIN)) return 'Rex';
+  return null;
+}
+
+/** Ends a test made to drive a real terminal app unless the person asked
+ * for it (RAVENRY_TEST_REAL_TERMINAL=1). `what`: the app, for the message. */
+export function requireRealTerminal(what, why = 'this test') {
+  if (realTerminalAllowed()) return;
+  console.error(`Refused: ${why} drives the real ${what}, which puts windows on your screen. Run it yourself with ${REAL_TERMINAL_VAR}=1 when you mean to.`);
+  process.exit(2);
+}
+
+function checkTerminal(file, args, env, kind) {
+  if (realTerminalAllowed()) return;
+  const t = realTerminalOf(file, args) || (kind === 'hub' ? boardRealTerminal(env) : null);
+  if (t) throw new Error(`Refused to start ${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''}: it would drive the real ${t}. A test uses a stand-in (tools/fake-cmux.mjs, stub-osascript.mjs, fake-rex.mjs), or runs with ${REAL_TERMINAL_VAR}=1 when the person asks for it.`);
+}
+
 function check(file, args, opts) {
   const env = (opts && opts.env) || process.env;
   const kind = childKind(file, args, env);
   if (kind) assertTestEnv(env, `${NAMES[kind]} (${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''})`, { app: kind === 'app' });
+  checkTerminal(file, args, env, kind);
 }
 
 let guarded = false;
 
 /**
  * From now on, every ravenryd, hub or app this process starts through
- * node:child_process is checked first (assertTestEnv): a refused one
+ * node:child_process is checked first (assertTestEnv), and so is every
+ * child that would drive a real terminal app (checkTerminal): a refused one
  * throws before it starts. ESM named imports see it too.
  */
 export function guardSpawns() {

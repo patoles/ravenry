@@ -26,7 +26,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guardSpawns, isTestPath } from '../../tools/test-env.mjs';
+import { guardSpawns, isTestPath, requireRealTerminal } from '../../tools/test-env.mjs';
+
+// A test that drives the person's real cmux, iTerm2 or Rex on purpose
+// calls this first: it ends the test unless RAVENRY_TEST_REAL_TERMINAL=1.
+export { requireRealTerminal };
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TMP = path.join(REPO, '.tmp');
