@@ -232,7 +232,7 @@
         },
         "data": {
           "type": "object",
-          "description": "The hook's input as it came, at most 256 KiB as JSON."
+          "description": "What the status and the hand-off read of the hook's input (PROTOCOL.md, agent.report): never the prompt, a tool's input or output."
         }
       },
       "required": [
@@ -1124,7 +1124,7 @@
         },
         "data": {
           "type": "object",
-          "description": "The hook's input, at most 256 KiB as JSON."
+          "description": "The hook's input, at most 256 KiB as JSON. The daemon keeps only the fields PROTOCOL.md lists under agent.report (no prompt text, tool input or output)."
         },
         "decide": {
           "type": "boolean",

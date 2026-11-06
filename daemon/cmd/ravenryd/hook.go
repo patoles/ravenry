@@ -8,9 +8,9 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 
+	"ravenryd/internal/agent"
 	"ravenryd/internal/client"
 	"ravenryd/internal/pane"
 	"ravenryd/internal/proto"
@@ -22,6 +22,10 @@ import (
 // daemon of the pane the assistant runs in, and for the events that may
 // be held (the Stop of a turn, for the hand-off) it waits a short while
 // for a decider, the hub, to say what the hook answers.
+//
+// It forwards only what the agent's status and the hub's hand-off need
+// (agent.HookData): the prompt, tool inputs and outputs and the rest of
+// the hook's input never leave it.
 //
 // It never holds a session: without a pane (RAVENRY_PANE, RAVENRY_SOCKET),
 // without a daemon, without a decider, on any error, or when its time is
@@ -44,13 +48,6 @@ const hookUsage = `usage: ravenryd hook --assistant NAME [--state STATE [--need 
 
 // maxHookInput caps what the hook reads from its standard input.
 const maxHookInput = 4 << 20
-
-// maxHookData is the largest hook input sent as is; above it, long
-// strings are cut (protocol limit: 256 KiB).
-const (
-	maxHookData   = 256 << 10
-	longStringCut = 16 << 10
-)
 
 // hookSpec is what an event means for the agent's state.
 type hookSpec struct {
@@ -140,8 +137,11 @@ func cmdHook(in []string) error {
 		}
 		params["need"] = need
 	}
-	if data := hookData(input); data != nil {
-		params["data"] = data
+	// Only the fields the status and the hand-off read: never the
+	// prompt, a tool's input or output, or what the assistant wrote
+	// beyond the question its turn ended on.
+	if data := agent.HookData(raw); data != nil {
+		params["data"] = json.RawMessage(data)
 	}
 	if spec.decide {
 		params["decide"] = true
@@ -232,25 +232,23 @@ func hookSpecFor(assistant, event string, in map[string]any) hookSpec {
 func hookMessage(assistant, event string, in map[string]any) string {
 	if event == "Notification" {
 		s, _ := in["message"].(string)
-		return oneLine(s)
+		return agent.OneLine(s)
 	}
 	if assistant == "codex" && event == "PermissionRequest" {
 		ti, _ := in["tool_input"].(map[string]any)
 		if s, _ := ti["description"].(string); s != "" {
-			return oneLine(s)
+			return agent.OneLine(s)
 		}
 		if s, _ := ti["command"].(string); s != "" {
-			return oneLine("Run " + s)
+			return agent.OneLine("Run " + s)
 		}
 		if s, _ := in["tool_name"].(string); s != "" {
-			return "Codex asks to use " + oneLine(s)
+			return "Codex asks to use " + agent.OneLine(s)
 		}
 		return "Codex asks to use a tool"
 	}
 	return ""
 }
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 func clipString(s string, n int) string {
 	if len(s) <= n {
@@ -260,43 +258,6 @@ func clipString(s string, n int) string {
 		n--
 	}
 	return s[:n]
-}
-
-// hookData is the hook's input to send along: as it came when it fits the
-// protocol's limit, else with every string longer than 16 KiB cut (and
-// ravenry_cut set), else nothing.
-func hookData(in map[string]any) any {
-	if b, err := json.Marshal(in); err == nil && len(b) <= maxHookData {
-		return json.RawMessage(b)
-	}
-	var cut func(v any) any
-	cut = func(v any) any {
-		switch x := v.(type) {
-		case string:
-			if len(x) > longStringCut {
-				return clipString(x, longStringCut)
-			}
-		case map[string]any:
-			out := make(map[string]any, len(x))
-			for k, e := range x {
-				out[k] = cut(e)
-			}
-			return out
-		case []any:
-			out := make([]any, len(x))
-			for i, e := range x {
-				out[i] = cut(e)
-			}
-			return out
-		}
-		return v
-	}
-	m := cut(in).(map[string]any)
-	m["ravenry_cut"] = true
-	if b, err := json.Marshal(m); err == nil && len(b) <= maxHookData {
-		return json.RawMessage(b)
-	}
-	return nil
 }
 
 // codexAppServer reports whether pid is Codex's shared app-server.

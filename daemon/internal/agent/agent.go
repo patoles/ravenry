@@ -53,7 +53,8 @@ type Report struct {
 	Message string
 	Cwd     string
 	PID     int
-	// Data is the hook's input as it came (a JSON object), or nil.
+	// Data is what HookData keeps of the hook's input (a JSON object),
+	// or nil.
 	Data []byte
 }
 

@@ -484,9 +484,29 @@ and lets the session go on when none answers in time.
 | `message` | string, optional | One line for people, at most 1000 bytes. |
 | `cwd` | string, optional | |
 | `pid` | integer, optional | The agent's process (a hook's parent). |
-| `data` | object, optional | The hook's input as it came, at most 256 KiB as JSON, for clients that read more than the state (the hub's hand-off, questions at the end of a turn). |
+| `data` | object, optional | What the status and the hub's hand-off read of the hook's input, at most 256 KiB as JSON (below). The daemon keeps only those fields. |
 | `decide` | boolean, optional | Ask the deciders what the hook answers. |
 | `timeout_ms` | integer, optional | With `decide`: how long to wait, 1 to 60000. Default 2000. |
+
+**Reports carry no prompt text.** Of a hook's input, `ravenryd hook`
+forwards, and the daemon keeps from any reporter, only these fields of
+`data` (each when present and of the right type):
+
+- Every event: `hook_event_name`, `session_id`, `cwd`, `transcript_path`,
+  `agent_id`, `source`, `reason`, `notification_type`, `tool_name`,
+  `model` and `stop_hook_active`.
+- `Notification`: `message` and `title`, each as one line (what the
+  assistant asks of a person, such as a permission).
+- `Stop`: `last_assistant_message` cut to the hand-off's marker line
+  (`Hand-off deferred: ...`) or, when the last paragraph asks a question,
+  to that paragraph (at most its last 2000 bytes), else empty;
+  `background_tasks` as `id`, `type`, `status` and `agent_type`;
+  `session_crons` as their `id`.
+
+Everything else is dropped: the prompt a person typed, a tool's input and
+output, the rest of what the assistant wrote. A need's line comes in
+`message` and `need.message` instead: a notification's text, or for a
+Codex approval its description or `Run <command>`.
 
 The report is recorded with the next `seq` (each daemon numbers its
 reports 1, 2, 3, ...), the pane's agent state is updated, and every

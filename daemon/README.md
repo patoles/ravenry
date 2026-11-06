@@ -127,7 +127,9 @@ command with `--assistant codex`):
 
 It reads the hook's JSON on standard input and reports it to the daemon of
 its pane (`RAVENRY_PANE`, `RAVENRY_SOCKET`). Outside a ravenryd pane it does
-nothing. Any other assistant names the state each event means:
+nothing. It forwards only what the status and the hand-off read (the event,
+session, folder, transcript path, a need's line, the question a turn ended
+on, PROTOCOL.md section 4): never the prompt, a tool's input or output. Any other assistant names the state each event means:
 `ravenryd hook --assistant gemini --state working`.
 
 `ravenryd help` lists every command. Every command takes `--json`.

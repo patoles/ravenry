@@ -123,10 +123,10 @@ rv.startStatus({
 });
 await until(() => changes > 0, 3000);
 
-function hook(input, extraEnv = {}) {
+function hook(input, extraEnv = {}, assistant = 'claude') {
   return new Promise((resolve) => {
     const t0 = process.hrtime.bigint();
-    const c = spawn(BIN, ['hook', '--assistant', 'claude'], { env: { ...DENV, RAVENRY_PANE: PANE, RAVENRY_SOCKET: SOCK, ...extraEnv } });
+    const c = spawn(BIN, ['hook', '--assistant', assistant], { env: { ...DENV, RAVENRY_PANE: PANE, RAVENRY_SOCKET: SOCK, ...extraEnv } });
     let out = ''; let err = '';
     c.stdout.on('data', (d) => { out += d; });
     c.stderr.on('data', (d) => { err += d; });
@@ -150,6 +150,12 @@ const rec = await until(() => records.find((x) => x.session_id === SID && x.even
 check('a hook in a pane reaches the board as its record', r.code === 0 && r.out === '' && !!rec && rec.terminal === 'ravenry' && rec.terminal_id === PANE && rec.assistant === 'claude' && rec.cwd === PROJ && !('prompt' in rec), JSON.stringify(rec));
 const sum = events.scan().get(SID);
 check('the board reads the session from the daemon: running in its Ravenry tab', !!sum && sum.terminal === 'ravenry' && term.tabIdFor(sum.terminal, sum.terminalId) === ID && sum.last && sum.last.event === 'UserPromptSubmit');
+
+// A Codex approval: the daemon passes on no tool input, and the board's
+// record still names what it asks, from the hook's own line.
+await hook({ session_id: 'sess-ravenryd-codex1', hook_event_name: 'PermissionRequest', cwd: PROJ, tool_name: 'Bash', tool_input: { command: 'rm -rf build' } }, {}, 'codex');
+const appr = await until(() => records.find((x) => x.session_id === 'sess-ravenryd-codex1'));
+check('a Codex approval reaches the board with what it asks', !!appr && appr.event === 'Notification' && appr.notification_type === 'permission_prompt' && appr.message === 'Run rm -rf build' && appr.title === 'Bash', JSON.stringify(appr));
 
 // A Stop below the hand-off line: the hub passes, the session goes on.
 const stop = (tp, extra = {}) => ({ session_id: SID, hook_event_name: 'Stop', cwd: PROJ, transcript_path: tp, stop_hook_active: false, last_assistant_message: 'Done. Shall I push it?', ...extra });

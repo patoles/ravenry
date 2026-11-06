@@ -300,7 +300,15 @@ export function recordOf(rep) {
   if (!rep) return null;
   if (rep.source === 'hook' && rep.data && typeof rep.data.session_id === 'string') {
     const paneEnv = rep.pane ? { RAVENRY_PANE: rep.pane, TERM_PROGRAM: 'ravenry' } : {};
-    return record(rep.assistant, rep.data, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at });
+    const r = record(rep.assistant, rep.data, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at });
+    // The daemon passes on no tool input (PROTOCOL.md, agent.report), so a
+    // Codex approval's line ("Run <command>") comes from the report's
+    // message, which ravenryd hook made from it.
+    if (r && r.source_event === 'PermissionRequest' && typeof rep.message === 'string' && rep.message) {
+      const t = rep.message.replace(/\s+/g, ' ').trim();
+      r.message = t.length > 300 ? t.slice(0, 297) + '...' : t;
+    }
+    return r;
   }
   // The daemon saw the agent go: its pane's process exited, or the shell's
   // prompt came back without a SessionEnd.

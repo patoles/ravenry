@@ -266,7 +266,10 @@ func (c *conn) checkReport(r proto.AgentReportRequest) (agent.Report, time.Durat
 		rep.Need = &agent.Need{Kind: r.Need.Kind, Message: r.Need.Message}
 	}
 	if len(r.Data) > 0 {
-		rep.Data = append([]byte(nil), r.Data...)
+		// Whatever the reporter sent, only the fields the status and the
+		// hand-off read are kept and passed on: no prompt text, tool
+		// input or output.
+		rep.Data = agent.HookData(r.Data)
 	}
 	return rep, timeout, nil
 }

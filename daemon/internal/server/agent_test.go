@@ -64,7 +64,9 @@ func TestAgentReportsAndDecisions(t *testing.T) {
 		t.Fatalf("agent.report event %+v", ev)
 	}
 	var data map[string]any
-	if json.Unmarshal(ev.Report.Data, &data) != nil || data["prompt"] != "hi" {
+	// The daemon keeps only the fields the status and the hand-off read:
+	// never the prompt.
+	if json.Unmarshal(ev.Report.Data, &data) != nil || data["prompt"] != nil || data["hook_event_name"] != "UserPromptSubmit" {
 		t.Fatalf("data %s", ev.Report.Data)
 	}
 

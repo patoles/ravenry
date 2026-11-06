@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -142,7 +143,7 @@ func TestHook(t *testing.T) {
 		t.Fatalf("held Stop: %d %q %q", code, out, errs)
 	}
 	got := <-asked
-	if got.Event != "Stop" || got.Pane != id || !bytes.Contains(got.Data, []byte(`"last_assistant_message":"Done."`)) {
+	if got.Event != "Stop" || got.Pane != id || !bytes.Contains(got.Data, []byte(`"stop_hook_active":false`)) {
 		t.Fatalf("the decider was asked about %+v", got)
 	}
 
@@ -238,5 +239,101 @@ func TestHook(t *testing.T) {
 	}
 	if out := e.ok("0.1.0", "agents"); !strings.Contains(out, id) || !strings.Contains(out, "gemini") {
 		t.Fatalf("agents:\n%s", out)
+	}
+}
+
+// What a person typed, what a tool saw and what the assistant wrote never
+// reach a subscriber: the hook forwards only the fields the status and the
+// hand-off read, and the daemon keeps only those whoever reports.
+func TestHookKeepsNoPromptText(t *testing.T) {
+	e := newEnv(t)
+	e.serve("0.1.0")
+	sock := filepath.Join(e.dir, "run", "ravenryd-0.1.0.sock")
+	id := jsonOut[proto.PaneResult](t, e.ok("0.1.0", "new", "--json", "--", "/bin/sh", "-c", "exec cat")).Pane.ID
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub, err := client.Dial(ctx, sock, client.Options{Name: "test-subscriber"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	if err := sub.Call(ctx, "events.subscribe", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan []byte, 100)
+	go func() {
+		for ev := range sub.Events() {
+			if ev.Event == "agent.report" {
+				b, _ := json.Marshal(ev)
+				got <- b
+			}
+		}
+	}()
+
+	const secret = "SECRET-7f3a"
+	inputs := []string{
+		`{"session_id":"s-1","hook_event_name":"UserPromptSubmit","cwd":"/tmp","transcript_path":"/tmp/t.jsonl","prompt":"deploy with token ` + secret + `"}`,
+		`{"session_id":"s-1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo ` + secret + `","description":"` + secret + `"}}`,
+		`{"session_id":"s-1","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"cat .env"},"tool_response":{"stdout":"KEY=` + secret + `"}}`,
+		`{"session_id":"s-1","hook_event_name":"Stop","transcript_path":"/tmp/t.jsonl","stop_hook_active":false,"last_assistant_message":"I used ` + secret + ` to log in.\n\nDone. Shall I push it?","background_tasks":[{"id":"b1","type":"shell","status":"running","description":"` + secret + `","command":"tail -f ` + secret + `"}],"session_crons":[{"id":"c1","prompt":"` + secret + `"}]}`,
+	}
+	for _, in := range inputs {
+		if out, errs, code, _ := e.hook(id, sock, in, "--assistant", "claude"); out != "" || code != 0 {
+			t.Fatalf("hook: %d %q %q", code, out, errs)
+		}
+	}
+	// The daemon keeps only those fields from any reporter, not only from
+	// ravenryd hook.
+	var r proto.AgentReportResult
+	if err := sub.Call(ctx, "agent.report", map[string]any{
+		"pane": id, "assistant": "claude", "event": "UserPromptSubmit", "state": "working",
+		"data": map[string]any{"session_id": "s-1", "hook_event_name": "UserPromptSubmit", "prompt": "again " + secret, "cwd": "/tmp"},
+	}, &r); err != nil {
+		t.Fatal(err)
+	}
+
+	var reports [][]byte
+	for len(reports) < len(inputs)+1 {
+		select {
+		case b := <-got:
+			reports = append(reports, b)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("got %d of %d reports", len(reports), len(inputs)+1)
+		}
+	}
+	for _, b := range reports {
+		if bytes.Contains(b, []byte(secret)) {
+			t.Fatalf("a subscriber got prompt or tool text: %s", b)
+		}
+	}
+	// What the status and the hand-off read is still there.
+	var stop struct {
+		Report struct {
+			Data struct {
+				SessionID       string `json:"session_id"`
+				TranscriptPath  string `json:"transcript_path"`
+				Last            string `json:"last_assistant_message"`
+				StopHookActive  *bool  `json:"stop_hook_active"`
+				BackgroundTasks []struct {
+					ID, Type, Status string
+				} `json:"background_tasks"`
+				SessionCrons []map[string]any `json:"session_crons"`
+			} `json:"data"`
+		} `json:"report"`
+	}
+	json.Unmarshal(reports[3], &stop)
+	d := stop.Report.Data
+	if d.SessionID != "s-1" || d.TranscriptPath != "/tmp/t.jsonl" || d.Last != "Done. Shall I push it?" || d.StopHookActive == nil ||
+		len(d.BackgroundTasks) != 1 || d.BackgroundTasks[0].ID != "b1" || d.BackgroundTasks[0].Status != "running" || len(d.SessionCrons) != 1 {
+		t.Fatalf("the Stop report lost what the hand-off reads: %s", reports[3])
+	}
+	// Nor does the ring keep it, for a client that reads what it missed.
+	var evs proto.AgentEventsResult
+	if err := sub.Call(ctx, "agent.events", map[string]any{"pane": id}, &evs); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(evs); len(evs.Reports) < len(reports) || bytes.Contains(b, []byte(secret)) {
+		t.Fatalf("agent.events: %s", b)
 	}
 }
