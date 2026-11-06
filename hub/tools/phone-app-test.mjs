@@ -174,7 +174,9 @@ const env = withTestHome({
   CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: path.join(T, 'claude'),
   MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
   RAVENRY_DAEMON_BIN: BIN || 'none', MC_PUSH_RETRY_MS: '60000',
-  ...(BIN ? { RAVENRY_TERMINAL: 'ravenry', RAVENRY_RUNTIME_DIR: RUN, RAVENRY_STATE_DIR: path.join(D, 'state') } : {}),
+  // The daemon's folders are always a test's, a daemon or not (on Linux they
+  // would default to the real /run/user).
+  ...(BIN ? { RAVENRY_TERMINAL: 'ravenry', RAVENRY_RUNTIME_DIR: RUN, RAVENRY_STATE_DIR: path.join(D, 'state') } : { RAVENRY_RUNTIME_DIR: path.join(T, 'run'), RAVENRY_STATE_DIR: path.join(T, 'state') }),
 });
 const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
