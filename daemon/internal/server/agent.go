@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode"
 
+	"golang.org/x/sys/unix"
+
 	"ravenryd/internal/agent"
 	"ravenryd/internal/pane"
 	"ravenryd/internal/proto"
@@ -71,6 +73,13 @@ func (s *Server) paneEvent(ev pane.Event) {
 	case "closed":
 		s.agents.Forget(ev.Pane.ID)
 	}
+}
+
+// processAlive reports whether a process runs (or is a zombie not yet
+// reaped).
+func processAlive(pid int) bool {
+	err := unix.Kill(pid, 0)
+	return err == nil || err == unix.EPERM
 }
 
 // report records a report and tells the subscribers.

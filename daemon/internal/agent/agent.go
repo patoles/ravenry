@@ -70,6 +70,9 @@ type Status struct {
 	At     time.Time
 	Source string
 	Seq    uint64
+	// PID is the agent's process, from the last hook report (0 when it
+	// did not say).
+	PID int
 }
 
 // Limits of the ring of reports.
@@ -86,6 +89,9 @@ type Tracker struct {
 	bytes  int
 	status map[string]*Status
 	now    func() time.Time
+	// Alive, when set, reports whether a process still runs. An agent
+	// whose process still runs is not gone at a prompt (see Gone).
+	Alive func(pid int) bool
 }
 
 // New returns an empty Tracker.
@@ -145,6 +151,9 @@ func (t *Tracker) Add(r Report) (Report, *Status) {
 		st.Need = nil
 	}
 	st.Event, st.At, st.Source, st.Seq = r.Event, r.At, r.Source, r.Seq
+	if r.Source == SourceHook {
+		st.PID = r.PID
+	}
 	return r, st.copy()
 }
 
@@ -173,12 +182,15 @@ func (t *Tracker) Status(pane string) *Status {
 // command ended (event "prompt"). An agent that is working or needs you
 // then ended. After a hook report it counts as ended; a program's own
 // status report counts as idle (OSC 7501 asks to drop working and
-// blocked records at the next prompt). It returns the report it recorded,
-// or false when nothing changed.
+// blocked records at the next prompt). At a prompt, an agent whose hook
+// named a process that still runs (Alive) is not gone: its hook ran from
+// the shell itself, not from a program that has now ended. It returns the
+// report it recorded, or false when nothing changed.
 func (t *Tracker) Gone(pane, event string) (Report, *Status, bool) {
 	t.mu.Lock()
 	st := t.status[pane]
-	if st == nil || st.State == Ended || (st.State == Idle && (event == "prompt" || st.Source == SourceProgram)) {
+	if st == nil || st.State == Ended || (st.State == Idle && (event == "prompt" || st.Source == SourceProgram)) ||
+		(event == "prompt" && st.Source == SourceHook && st.PID > 0 && t.Alive != nil && t.Alive(st.PID)) {
 		t.mu.Unlock()
 		return Report{}, nil, false
 	}

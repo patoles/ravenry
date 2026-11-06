@@ -76,6 +76,7 @@ func New(o Options) *Server {
 		o: o, started: time.Now(), conns: map[*conn]struct{}{}, stop: make(chan struct{}),
 		agents: agent.New(), deciders: map[*conn]struct{}{}, decisions: map[uint64]*decision{},
 	}
+	s.agents.Alive = processAlive
 	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, ErrorLog: o.Log}
 	o.Manager.Watch(s.paneEvent)
 	return s

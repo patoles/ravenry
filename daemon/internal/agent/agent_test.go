@@ -39,6 +39,20 @@ func TestStates(t *testing.T) {
 	if !ok || st.State != Ended || r.Source != SourceDaemon || r.Assistant != "claude" {
 		t.Fatalf("gone: %v %+v %+v", ok, st, r)
 	}
+	// A hook run from the shell itself: its process (the shell) still
+	// runs, so the prompt that follows does not end it; the pane's exit
+	// does.
+	tr.Alive = func(pid int) bool { return pid == 4242 }
+	tr.Add(Report{Pane: "p3", Assistant: "claude", Source: SourceHook, Event: "Notification", State: NeedsYou, PID: 4242})
+	if _, _, ok := tr.Gone("p3", "prompt"); ok {
+		t.Fatal("an agent whose process runs is not gone at a prompt")
+	}
+	tr.Add(Report{Pane: "p3", Assistant: "claude", Source: SourceHook, Event: "UserPromptSubmit", State: Working, PID: 77})
+	if _, st, ok := tr.Gone("p3", "prompt"); !ok || st.State != Ended {
+		t.Fatalf("an agent whose process ended is gone at the prompt: %+v", st)
+	}
+	tr.Forget("p3")
+	tr.Alive = nil
 	tr.Add(Report{Pane: "p2", Assistant: "cargo", Source: SourceProgram, Event: "status", State: Working})
 	if _, st, ok := tr.Gone("p2", "prompt"); !ok || st.State != Idle {
 		t.Fatalf("a program's working record ends at the prompt as idle: %+v", st)
@@ -48,7 +62,7 @@ func TestStates(t *testing.T) {
 		t.Fatal("a report without a pane has no status")
 	}
 	all, last, trunc := tr.Since("", 0, 100)
-	if len(all) != 10 || last != 10 || trunc {
+	if len(all) != 13 || last != 13 || trunc {
 		t.Fatalf("since: %d %d %v", len(all), last, trunc)
 	}
 	p2, _, _ := tr.Since("p2", 0, 100)

@@ -225,7 +225,8 @@ from the reports it gets (section 4, Agents):
   there is gone: an agent that was working or needed you ends (`ended`;
   `idle` for a program's own report, which the program status protocol
   drops at the next prompt). The source is `daemon`, the event `exit` or
-  `prompt`.
+  `prompt`. At a prompt, an agent whose last hook report named a process
+  (`pid`) that still runs stays: that hook ran from the shell itself.
 
 The state, in the Pane object's `agent` once an agent reported:
 
