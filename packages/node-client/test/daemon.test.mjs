@@ -69,3 +69,37 @@ test('the real daemon: panes, streams, agent reports and decisions', { skip: !BI
   hub.close();
   c.close();
 });
+
+test('the real daemon: labels, files and a checkpoint a person answers', { skip: !BIN && 'set RAVENRYD_BIN to a ravenryd binary' }, async (t) => {
+  const { socket, dir } = await daemon(t);
+  const agent = await connectSocket(socket, { name: 'agent' });
+  const app = await connectSocket(socket, { name: 'app' });
+  const events = [];
+  app.on('event', (e) => events.push(e));
+  await app.request('events.subscribe', { activity: true });
+
+  const { pane } = await agent.request('pane.new', { command: ['/bin/cat'], labels: { 'ravenry.kind': 'shell' } });
+  const { pane: renamed } = await agent.request('pane.update', { pane: pane.id, name: 'Shell 1', labels: { 'ravenry.kind': null, 'test/x': '1' } });
+  assert.equal(renamed.name, 'Shell 1');
+  assert.deepEqual(renamed.labels, { 'test/x': '1' });
+  assert.equal((await agent.request('pane.list', { labels: { 'test/x': '1' } })).panes.length, 1);
+
+  const f = path.join(dir, 'transcript.jsonl');
+  fs.writeFileSync(f, 'one\ntwo\nthree\n');
+  const r = await agent.request('file.read', { path: f, tail: 6 });
+  assert.equal(r.text, 'three\n');
+  assert.equal((await agent.request('file.stat', { paths: [f] })).files[0].type, 'file');
+
+  const { checkpoint } = await agent.request('checkpoint.new', { kind: 'ask', pane: pane.id, title: 'Ready?', options: ['Yes', 'No'] });
+  const waiting = agent.request('checkpoint.wait', { checkpoint: checkpoint.id });
+  for (let i = 0; i < 100 && !events.some((e) => e.event === 'checkpoint.opened'); i++) await new Promise((res) => setTimeout(res, 20));
+  await app.request('checkpoint.answer', { checkpoint: checkpoint.id, choice: 0, by: 'test' });
+  const done = await waiting;
+  assert.equal(done.checkpoint.state, 'answered');
+  assert.equal(done.checkpoint.answer.option, 'Yes');
+  assert.ok(events.some((e) => e.event === 'pane.updated' && e.pane.id === pane.id));
+
+  await agent.request('pane.close', { pane: pane.id });
+  agent.close();
+  app.close();
+});

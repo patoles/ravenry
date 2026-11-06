@@ -74,10 +74,15 @@ export interface Reply {
   exit_code?: number;
 }
 
+/** Key-value tags for programs (PROTOCOL.md section 3, Name and labels). */
+export type Labels = Record<string, string>;
+
 export interface Pane {
   id: PaneId;
   name?: string;
+  labels?: Labels;
   command: string[];
+  /** Where it started, then the last folder its program reported with OSC 7. */
   cwd: string;
   pid: number;
   cols: number;
@@ -96,6 +101,85 @@ export interface Pane {
   /** Once an agent reported. */
   agent?: AgentStatus;
 }
+
+export interface FileInfo {
+  path: string;
+  type: 'file' | 'dir' | 'other' | 'none';
+  size?: number;
+  modified_at?: string;
+}
+
+export interface FileReadResult {
+  path: string;
+  size: number;
+  modified_at: string;
+  from: number;
+  to: number;
+  text?: string;
+  data?: string;
+}
+
+export type CheckpointId = string;
+export type CheckpointKind = 'ask' | 'approve' | 'secret';
+export type CheckpointState = 'open' | 'running' | 'answered' | 'declined' | 'cancelled' | 'expired';
+
+/** Where a secret goes; never to the agent. */
+export interface SecretTarget {
+  to: 'input' | 'run' | 'env';
+  pane?: PaneId;
+  enter?: boolean;
+  env?: string;
+}
+
+/** What a person answered. Never holds a secret: only `delivered`. */
+export interface CheckpointAnswer {
+  choice?: number;
+  option?: string;
+  text?: string;
+  approved?: boolean;
+  delivered?: boolean;
+  declined?: boolean;
+  by?: string;
+  at: string;
+}
+
+export interface CheckpointRun {
+  pane: PaneId;
+  exit?: Exit;
+  output?: string;
+  truncated?: boolean;
+}
+
+/** A point where an agent waits for a person (PROTOCOL.md section 4, Checkpoints). */
+export interface Checkpoint {
+  id: CheckpointId;
+  /** A kind this client does not know: show the title and offer decline. */
+  kind: CheckpointKind | string;
+  state: CheckpointState;
+  title: string;
+  pane?: PaneId;
+  assistant?: string;
+  options?: string[];
+  free_text?: boolean;
+  command?: string;
+  cwd?: string;
+  why?: string;
+  secret?: SecretTarget;
+  created_at: string;
+  expires_at: string;
+  closed_at?: string;
+  reason?: string;
+  answer?: CheckpointAnswer;
+  run?: CheckpointRun;
+}
+
+/** checkpoint.answer: exactly one of choice, text, approve, secret, decline. */
+export type CheckpointReply =
+  | { choice: number }
+  | { text: string }
+  | { approve: true }
+  | { secret: string }
+  | { decline: true };
 
 export interface HelloResult {
   protocol: 1;
@@ -181,7 +265,7 @@ export interface ReadResult {
 export interface Methods {
   hello: { params: { client: { name: string; version?: string } }; result: HelloResult };
   cancel: { params: { request: number }; result: Record<string, never> };
-  'events.subscribe': { params: { display?: boolean }; result: Record<string, never> };
+  'events.subscribe': { params: { display?: boolean; activity?: boolean }; result: Record<string, never> };
   'pane.new': {
     params: {
       command?: string[];
@@ -190,13 +274,15 @@ export interface Methods {
       cols?: number;
       rows?: number;
       name?: string;
+      labels?: Labels;
       hidden?: boolean;
       ttl_ms?: number;
       scrollback?: number;
     };
     result: { pane: Pane };
   };
-  'pane.list': { params: { hidden?: boolean }; result: { panes: Pane[] } };
+  'pane.list': { params: { hidden?: boolean; labels?: Labels }; result: { panes: Pane[] } };
+  'pane.update': { params: { pane: PaneId; name?: string; labels?: Record<string, string | null> }; result: { pane: Pane } };
   'pane.close': { params: { pane: PaneId; grace_ms?: number }; result: { pane: Pane; signalled: number } };
   'pane.resize': { params: { pane: PaneId; cols: number; rows: number }; result: { pane: Pane } };
   'pane.capture': {
@@ -253,6 +339,27 @@ export interface Methods {
     result: { pane: PaneId; channel: Channel };
   };
   'pane.unsubscribe': { params: { channel: Channel }; result: Record<string, never> };
+  'file.stat': { params: { paths: string[] }; result: { files: FileInfo[] } };
+  'file.read': { params: { path: string; offset?: number; tail?: number; limit?: number; format?: 'text' | 'raw' }; result: FileReadResult };
+  'checkpoint.new': {
+    params: {
+      kind: CheckpointKind;
+      title: string;
+      pane?: PaneId;
+      options?: string[];
+      free_text?: boolean;
+      command?: string;
+      cwd?: string;
+      why?: string;
+      secret?: SecretTarget;
+      timeout_ms?: number;
+    };
+    result: { checkpoint: Checkpoint };
+  };
+  'checkpoint.list': { params: { all?: boolean }; result: { checkpoints: Checkpoint[] } };
+  'checkpoint.wait': { params: { checkpoint: CheckpointId; timeout_ms?: number }; result: { checkpoint: Checkpoint } };
+  'checkpoint.answer': { params: { checkpoint: CheckpointId; by?: string } & CheckpointReply; result: { checkpoint: Checkpoint } };
+  'checkpoint.cancel': { params: { checkpoint: CheckpointId; reason?: string }; result: { checkpoint: Checkpoint } };
 }
 
 export type Method = keyof Methods;
@@ -274,7 +381,13 @@ export type DaemonEvent =
   | { event: 'pane.exited'; pane: Pane }
   | { event: 'pane.closed'; pane: Pane }
   | { event: 'pane.prompt'; pane: Pane }
+  | { event: 'pane.cwd'; pane: Pane }
+  | { event: 'pane.updated'; pane: Pane }
+  | { event: 'pane.activity'; pane: Pane }
   | { event: 'pane.focus'; pane: Pane }
+  | { event: 'checkpoint.opened'; checkpoint: Checkpoint }
+  | { event: 'checkpoint.running'; checkpoint: Checkpoint }
+  | { event: 'checkpoint.closed'; checkpoint: Checkpoint }
   | { event: 'agent.report'; report: AgentReport; pane?: Pane }
   | { event: 'agent.decision'; request: number; report: AgentReport; timeout_ms: number }
   | { event: 'daemon.draining'; newer: string }
