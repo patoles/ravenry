@@ -225,6 +225,16 @@ export function revoke(id) {
   return true;
 }
 
+// Gives a device the name the person chose on the Mac's card.
+export function rename(id, name) {
+  const t = load().tokens.find((x) => x.id === id);
+  const n = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!t || !n) return false;
+  t.name = n;
+  save();
+  return true;
+}
+
 // Sets (or clears, with null) a device's push target (server/push.mjs checks it).
 export function setPush(id, target) {
   const t = load().tokens.find((x) => x.id === id);

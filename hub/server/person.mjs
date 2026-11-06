@@ -121,6 +121,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/phone/pair', c: P, what: 'pair a phone', why: 'Pairing gives a device the person\'s power. On the phone port the one-time code from the computer proves it is the person\'s phone; from this machine it is judged like every person row.' },
   { m: 'POST', p: '/api/phone/unpair', c: P, what: 'sign a phone out', why: 'It signs the device out, so its alerts stop: an agent could cut the person off.' },
   { m: 'POST', p: '/api/phone/push', c: P, what: 'change where a phone\'s alerts go', why: 'It sets where the device\'s alerts go: an agent could send the person\'s alerts to itself.' },
+  { m: 'POST', p: '/api/phone/devices/rename', c: P, what: 'rename a phone', why: 'Ambiguous, so the safer class: it changes the name the person reads on the phone card and on the phone itself, which an agent could use to pass one device off as another.' },
   { m: 'POST', p: '/api/phone/devices/revoke', c: P, what: 'sign a phone out', why: 'Signing a device out is the person\'s call; an agent could cut the person off.' },
   { m: 'POST', p: '/api/phone/access', c: P, what: 'turn phone access on or off', why: 'Phone access opens a port on the home Wi-Fi and Tailscale for paired phones.' },
   { m: 'GET', p: '/api/term', c: P, what: 'open a terminal through the hub', why: 'It types into panes and reads their screens through the hub, which the daemons take as the person.' },

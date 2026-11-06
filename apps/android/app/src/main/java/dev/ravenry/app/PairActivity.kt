@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.util.Size
 import androidx.activity.ComponentActivity
@@ -157,7 +156,7 @@ class PairActivity : ComponentActivity() {
         error.value = null
         Hub.io.execute {
             val c = HubClient(link.hosts, link.port, pin, null)
-            val body = JSONObject().put("code", link.code).put("name", Build.MODEL).put("platform", "android").put("app", BuildConfig.VERSION_NAME)
+            val body = JSONObject().put("code", link.code).put("name", DeviceName.of(this@PairActivity)).put("platform", "android").put("app", BuildConfig.VERSION_NAME)
             val r = runCatching { c.call("POST", "/api/phone/pair", body.toString()) }
             val o = r.getOrNull()?.let { runCatching { JSONObject(it.text) }.getOrNull() }
             val err = when {
@@ -175,7 +174,7 @@ class PairActivity : ComponentActivity() {
             val hosts = (listOf(c.host) + link.hosts).distinct()
             Store.get(this).save(Paired(
                 hubName = hub.optString("name").ifEmpty { link.name }, hosts = hosts, port = hub.optInt("port", link.port), pin = pin,
-                token = o.getString("token"), deviceId = dev.optString("id"), deviceName = dev.optString("name").ifEmpty { Build.MODEL }, lastHost = c.host,
+                token = o.getString("token"), deviceId = dev.optString("id"), deviceName = dev.optString("name").ifEmpty { DeviceName.of(this@PairActivity) }, lastHost = c.host,
             ))
             Hub.reset()
             runOnUiThread {

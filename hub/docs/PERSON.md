@@ -80,7 +80,7 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-73 person rows (21 of them judged ambiguous), 7 open rows. GET routes not
+74 person rows (22 of them judged ambiguous), 7 open rows. GET routes not
 listed are reads and stay open; the two `GET /api/phone...` rows hand out a
 pairing secret, and `GET /api/term` opens a terminal.
 
@@ -132,6 +132,7 @@ pairing secret, and `GET /api/term` opens a terminal.
 | `/api/phone/pair` | person | Pairing gives a device the person's power. On the phone port the one-time code from the computer proves it is the person's phone; from this machine it is judged like every person row. |
 | `/api/phone/unpair` | person | It signs the device out, so its alerts stop: an agent could cut the person off. |
 | `/api/phone/push` | person | It sets where the device's alerts go: an agent could send the person's alerts to itself. |
+| `/api/phone/devices/rename` | person | Judged (ambiguous): it changes the name the person reads on the phone card and on the phone itself, which an agent could use to pass one device off as another. |
 | `/api/phone/devices/revoke` | person | Signing a device out is the person's call; an agent could cut the person off. |
 | `/api/phone/access` | person | Phone access opens a port on the home Wi-Fi and Tailscale for paired phones. |
 | `GET /api/term` | person | It types into panes and reads their screens through the hub, which the daemons take as the person. |

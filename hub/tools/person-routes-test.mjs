@@ -191,6 +191,7 @@ const bodies = {
   '/api/phone/pair': { code: 'ABCDEFGHJKMNPQRS', name: 'An agent' },
   '/api/phone/push': { kind: 'unifiedpush', endpoint: 'https://push.invalid/up', p256dh: 'x', auth: 'x' },
   '/api/phone/access': { on: true },
+  '/api/phone/devices/rename': { id: 'dnone', name: 'An agent' },
   '/api/phone/devices/revoke': { id: 'dnone' },
 };
 const bodyOf = (r) => bodies[eg(r)] || { projectId: 'proj' };

@@ -105,6 +105,9 @@ that the phone pins that key exactly as if it had scanned it.
 
 `POST /api/phone/pair` on the phone port, body
 `{ "code": "...", "name": "Pixel 8", "platform": "android", "app": "0.1.0" }`.
+The name is the one the person gave the phone: the system device name
+(Settings.Global DEVICE_NAME), then Bluetooth's name, then maker and model
+(never Build.MODEL alone, a code like "SM-F731B"). The Mac's card can rename it.
 
 - **200** `{ ok, device: { id, name }, token, hub: { name, pin, port, api } }`.
   `token` is 32 random bytes, base64url. The hub keeps only its SHA-256.
@@ -128,6 +131,7 @@ its cookie is its token). The same token store serves both; the cookie
 | `POST /api/phone/unpair` | the device | person | signs this device out (its token is forgotten) |
 | `POST /api/phone/push` | the device | person | sets this device's push target (section 4) |
 | `GET /api/phone/devices` | the Mac | read | every device, without hashes |
+| `POST /api/phone/devices/rename` | the Mac | person | `{ id, name }`: the name the card and the phone's settings show (60 characters at most) |
 | `POST /api/phone/devices/revoke` | the Mac | person | `{ id }`: that device is signed out at once, its open streams end |
 | `POST /api/phone/access` | the Mac | person | `{ on }`: phone access on or off |
 | `POST /api/phone/new-key` | the Mac | person | as before: a new sign-in key, every device signed out |

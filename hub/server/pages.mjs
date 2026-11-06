@@ -38,6 +38,7 @@ import * as pf from './vendor/page-format.mjs';
 import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
 import { itemsOf } from './providers.mjs';
 import { sayPath } from '../public/homepath.mjs';
+import { sayFolder } from './homes.mjs';
 
 const HUB = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PKG = JSON.parse(fs.readFileSync(path.join(HUB, 'package.json'), 'utf8'));
@@ -365,7 +366,7 @@ export function navRows() {
 
 function explain(e) {
   if (!e.page) return [];
-  const root = short(e.project ? e.project.folder : e.dir);
+  const root = e.project ? sayFolder(e.project.folder, e.project.machine) : short(e.dir);
   return pf.explainActions(e.page, root);
 }
 
@@ -377,7 +378,7 @@ export function view(key) {
   const items = itemsFor(e);
   const defText = e.origin !== 'default' ? readText(path.join(DEFAULTS_DIR, `${e.id}.page.yaml`))?.text || null : null;
   return {
-    key: e.key, id: e.id, origin: e.origin, path: short(e.path), file: e.path, dir: short(e.dir), project: e.project ? { id: e.project.id, name: e.project.name, folder: short(e.project.folder) } : null,
+    key: e.key, id: e.id, origin: e.origin, path: short(e.path), file: e.path, dir: short(e.dir), project: e.project ? { id: e.project.id, name: e.project.name, folder: sayFolder(e.project.folder, e.project.machine) } : null,
     ok: e.ok, stale: e.stale, model: e.page, problems: e.problems,
     trust: e.trust ? { state: e.trust.state, actions: explain(e) } : null,
     defaultChanged: e.defaultChanged,
@@ -670,7 +671,7 @@ export function askPlan(key, a, ref) {
   if (a.scope === 'item' && !item.title && !item.id) throw fail('That item is not on the page any more.', 404);
   const text = pf.fillText(act.text, item);
   const session = act.session ? pf.fillText(act.session, item) : String(item.project || item.id || (e.project && e.project.id) || '');
-  const root = short(e.project ? e.project.folder : e.dir);
+  const root = e.project ? sayFolder(e.project.folder, e.project.machine) : short(e.dir);
   return { page: e, action: act, text, session, background: !!act.background, approved: approved(e), does: pf.explainAction(act, root) };
 }
 

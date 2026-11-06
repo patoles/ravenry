@@ -33,12 +33,33 @@ check('a machine with no known home', homeOf(homes, 'gpu') === null && sayPathOn
 
 // ------------------------------------------------------------ the phone's alerts
 const push = await import('../server/push.mjs');
-push.setHomes({ devbox: '/srv/dev' });
+(await import('../server/homes.mjs')).setHomes({ devbox: '/srv/dev' });
 const cp = { id: 'cabcdefg', kind: 'approve', state: 'open', title: 'Publish', command: 'npm publish', cwd: '/srv/dev/code/recipe-box', created_at: new Date().toISOString() };
 const remote = push.checkpointMessage(cp, { machine: 'devbox' });
 check('the alert for a command on devbox says devbox\'s ~', /in ~\/code\/recipe-box$/.test(remote.detail), remote.detail);
 const local = push.checkpointMessage({ ...cp, cwd: path.join(os.homedir(), 'code', 'x') }, {});
 check('the alert for a command here says this computer\'s ~', /in ~\/code\/x$/.test(local.detail), local.detail);
+
+// ------------------------------------------------------------ remote folders
+// A folder on devbox is said against devbox's home on every screen the hub
+// feeds: rows outside a project, and (below) every project, brief, session
+// and page folder the hub sends goes through homes.mjs with its machine.
+const homesMod = await import('../server/homes.mjs');
+const sessions = await import('../server/sessions.mjs');
+homesMod.setHomes({ devbox: '/srv/dev' });
+check('a remote folder is said against its machine\'s home', homesMod.sayFolder('/srv/dev/code/x', 'devbox') === '~/code/x');
+check('a remote folder is never said against this computer\'s home', homesMod.sayFolder(path.join(os.homedir(), 'code', 'x'), 'devbox') === path.join(os.homedir(), 'code', 'x'));
+check('a session row outside a project, on devbox', sessions.folderLabel('/srv/dev/code/x', 'devbox') === '~/code/x' && sessions.folderLabel('/srv/dev', 'devbox') === '~ (home folder)');
+check('the same folder name here is not devbox\'s', !sessions.folderLabel('/srv/dev/code/x', null).startsWith('~'));
+// No hub module says a folder that can be on another machine (a project's,
+// a brief's, a session's, a page's, a checkpoint's) with this computer's
+// home: those go through homes.sayFolder with their machine.
+const REMOTE = /\b(short|shortPath|sayPath)\(([^()]*\b(project|p|s|e|x|r|info|cp)\.(folder|cwd|top)\b|[^()]*brief\.path|[^()]*briefPath\(|[^()]*\.real\.folder)/;
+const hubFiles = fs.readdirSync(path.join(ROOT, 'server')).filter((f) => f.endsWith('.mjs')).map((f) => path.join(ROOT, 'server', f));
+const localSaid = hubFiles.flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l]).filter(([, , l]) => REMOTE.test(l)));
+check('no remote folder is said against this computer\'s home in the hub', localSaid.length === 0, localSaid.map(([f, n]) => `${path.basename(f)}:${n}`).join(', '));
+const uses = ['index.mjs', 'ship.mjs', 'pages.mjs', 'providers.mjs', 'sessions.mjs', 'push.mjs'].filter((f) => !/homes\.mjs['"]/.test(fs.readFileSync(path.join(ROOT, 'server', f), 'utf8')));
+check('the project, Ship, pages, sessions and alert code use the machines\' homes', uses.length === 0, uses.join(', '));
 
 // ------------------------------------------------------------ one helper
 // Code that builds "~" + a path itself says folders its own way.
@@ -50,7 +71,7 @@ roots.forEach(walk);
 const own = files.filter((f) => !f.endsWith('homepath.mjs') && fs.readFileSync(f, 'utf8').split('\n').some((l) => OWN.test(l) && !/^\s*\/\//.test(l)));
 check(`no code says a folder with ~ its own way (${files.length} files)`, own.length === 0, own.map((f) => path.relative(REPO, f)).join(', '));
 const users = files.filter((f) => /homepath\.mjs['"]/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(REPO, f));
-check('the hub, the desktop app and the phone board use the helper', ['hub/server/index.mjs', 'hub/server/pages.mjs', 'hub/server/push.mjs', 'apps/desktop/src/renderer/app.ts', 'apps/desktop/src/main/local.ts', 'apps/phone/src/checkpoint.ts'].every((u) => users.includes(u)), users.join(', '));
+check('the hub, the desktop app and the phone board use the helper', ['hub/server/index.mjs', 'hub/server/pages.mjs', 'hub/server/homes.mjs', 'apps/desktop/src/renderer/app.ts', 'apps/desktop/src/main/local.ts', 'apps/phone/src/checkpoint.ts'].every((u) => users.includes(u)), users.join(', '));
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

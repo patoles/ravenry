@@ -25,6 +25,7 @@ import { codexHome } from './codexrollout.mjs';
 import { isBroadFolder } from './folders.mjs';
 import { SCRATCH_DATA, inRepoTmp } from './home.mjs';
 import { sayPath } from '../public/homepath.mjs';
+import { sayLocal } from './homes.mjs';
 
 const HOME = os.homedir();
 const short = (p) => sayPath(p, HOME);
@@ -89,7 +90,7 @@ export function scopes(cfg, projects = [], { root = null, codex = codexHome() } 
     const cx = fileView([path.join(e.folder, 'AGENTS.override.md'), path.join(e.folder, 'AGENTS.md')], (f) => path.basename(f));
     if (!claude.exists && !cx.exists) continue;
     const names = e.names.sort((a, b) => a.localeCompare(b));
-    rest.push({ key: k, name: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0], folder: short(e.folder), claude, codex: cx });
+    rest.push({ key: k, name: names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0], folder: sayLocal(e.folder), claude, codex: cx });
   }
   rest.sort((a, b) => a.name.localeCompare(b.name));
   return [...out, ...rest].map(({ claude, codex: x, ...s }) => ({ ...s, claude: strip(claude), codex: strip(x) }));

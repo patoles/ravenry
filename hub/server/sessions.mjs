@@ -10,16 +10,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { RAVENRY_HOME } from './registry.mjs';
 import { plain, endingQuestion } from './state.mjs';
-import { sayPath } from '../public/homepath.mjs';
+import { sayFolder } from './homes.mjs';
 
 export const CLOSED_DIR = path.join(RAVENRY_HOME, 'closed');
 export const KEEP_DAYS = 14;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const HOME = os.homedir();
 // A test or demo board reads made-up processes instead of this Mac's own
 // (tools/stub-ps.mjs, which stands in for both).
 const PS_BIN = process.env.MC_PS_BIN || '/bin/ps';
@@ -280,12 +278,12 @@ export function lastLine({ t, marker, cls, topic }) {
   return s || (t && t.title) || topic || '';
 }
 
-// A folder outside every project, short enough for a row: ~ for home,
-// otherwise ~/.../parent/name.
-export function folderLabel(cwd) {
+// A folder outside every project, short enough for a row: ~ for its
+// machine's home, otherwise ~/.../parent/name.
+export function folderLabel(cwd, machine = null) {
   if (!cwd) return 'Unknown folder';
-  if (cwd === HOME) return '~ (home folder)';
-  const s = sayPath(cwd, HOME);
+  const s = sayFolder(cwd, machine);
+  if (s === '~') return '~ (home folder)';
   const parts = s.split('/');
   return parts.length > 4 ? `${parts[0] || '/'}/.../${parts.slice(-2).join('/')}`.replace('//', '/') : s;
 }

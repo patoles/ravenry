@@ -22,7 +22,7 @@
 import crypto from 'node:crypto';
 import os from 'node:os';
 import * as phone from './phone.mjs';
-import { sayPathOn } from '../public/homepath.mjs';
+import { sayFolder } from './homes.mjs';
 
 const env = process.env;
 const num = (v, d) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
@@ -187,11 +187,6 @@ const sessionOf = (project, pane) => {
   return (project.sessions || []).find((s) => s.surfaceId === `ravenry:${pane}`) || null;
 };
 
-// The home folders the hub knows, by machine ("" is this computer), set by
-// the hub as its daemons connect: a folder is said against its own machine's.
-let homes = { '': os.homedir() };
-export function setHomes(h) { homes = { '': os.homedir(), ...(h || {}) }; }
-
 // The program a command runs, past npx, sudo and the like: "wrangler".
 export function program(command) {
   const words = String(command || '').trim().split(/\s+/).filter(Boolean);
@@ -227,7 +222,7 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
   } else if (cp.kind === 'approve') {
     msg.title = `${name} wants to run a command`;
     msg.body = String(cp.command || '');
-    msg.detail = `on ${machine || phone.hubName()}${cp.cwd ? `, in ${sayPathOn(cp.cwd, machine, homes)}` : ''}`;
+    msg.detail = `on ${machine || phone.hubName()}${cp.cwd ? `, in ${sayFolder(cp.cwd, machine)}` : ''}`;
     msg.checkpoint.command = String(cp.command || '');
     msg.checkpoint.cwd = cp.cwd || null;
     if (cp.warning) msg.checkpoint.warning = clip(cp.warning, 300);

@@ -7,6 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { sayPath } from '../public/homepath.mjs';
+import { sayFolder } from './homes.mjs';
 
 const HOME = os.homedir();
 const short = (p) => sayPath(p, HOME);
@@ -74,7 +75,7 @@ export async function shipView(projects, briefOf) {
         ship: b && b.ship && b.ship.length ? b.ship : null,
         shipCommand: p.shipCommand ? String(p.shipCommand) : null,
         picture: b && b.pictures && b.pictures[0] ? b.pictures[0] : null,
-        folder: short(p.folder), subdir: path.relative(top, p.folder) || null,
+        folder: sayFolder(p.folder, p.machine), subdir: path.relative(top, p.folder) || null,
       };
     });
     return { ...c.value, projects: members };

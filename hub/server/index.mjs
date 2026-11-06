@@ -49,6 +49,7 @@ import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
+import * as homes from './homes.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -211,7 +212,7 @@ function homesNow() {
     const h = m.c && m.c.hello && m.c.hello.daemon && m.c.hello.daemon.home;
     if (h && !out[m.name]) out[m.name] = h;
   }
-  push.setHomes(out);
+  homes.setHomes(out);
   return out;
 }
 
@@ -830,17 +831,21 @@ function buildProject(project, wsById, hooks, settings, now) {
   const recent = sessions.map((s) => s.handoff).filter((x) => x.state === 'resumed' && age(now, x.resumedAt) < 6 * 3600 * 1000)
     .sort((a, b) => Date.parse(b.resumedAt) - Date.parse(a.resumedAt))[0] || null;
   if (shared.length) flags.push({ kind: 'shared', title: 'Shares a folder' });
+  // The machine its folder is on (its own; the registry's folders are this
+  // computer's otherwise): it is said against that machine's home. A
+  // session's folder goes with the session's machine.
+  const where = project.machine || null;
 
   return {
     id: project.id, name: project.name, state: pstate, since, loose: !!project.loose,
     unowned: !!project.unowned, workspaceTitle: project.unowned ? project.workspaceTitle : undefined,
     plan: plan ? planView(project, plan) : null, planGate,
     planDraft: (() => { try { const d = planner.get(project.id); return d ? { busy: !!d.busy, steps: d.steps.length } : null; } catch { return null; } })(),
-    folder: project.folder, folderShort: short(project.folder), shared,
+    folder: project.folder, folderShort: homes.sayFolder(project.folder, where), shared,
     waitingOn, flags,
     line: words.line, headline: words.headline, quick: words.quick, question: words.question, dialog: words.dialog || null, draft: words.draft || null,
-    brief: brief ? { path: short(brief.path), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
-    briefExpected: registry.briefPath(project) ? short(registry.briefPath(project)) : null,
+    brief: brief ? { path: homes.sayFolder(brief.path, where), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
+    briefExpected: registry.briefPath(project) ? homes.sayFolder(registry.briefPath(project), where) : null,
     plans: project.unowned ? [] : plansFor(project, reg.projects, now),
     timeline: timeline.slice(0, 5),
     handoffRecent: recent,
@@ -852,7 +857,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     sessions: sessions.map((s) => ({
       surfaceId: s.surfaceId, surfaceRef: s.surfaceRef, workspaceId: s.workspaceId, workspaceRef: s.workspaceRef,
       topic: s.topic, live: s.live, sessionId: s.sessionId, method: s.method,
-      workFolder: s.real && s.real.folder ? short(s.real.folder) : null,
+      workFolder: s.real && s.real.folder ? homes.sayFolder(s.real.folder, sessionMachine(s)) : null,
       state: s.st.state, since: s.st.since || null, reasons: s.st.reasons, source: s.st.source || 'screen', terminal: s.terminal !== false,
       term: s.term || null, termName: s.term ? term.nameOf(s.term) : null,
       // The machine it runs on (a remote ravenryd), null on this one.
@@ -1126,7 +1131,7 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     if (otherId) p = { ...p, surfaceId: otherId };
     const m = sess.mapProcess(p, { evAll: ev.all, hooks, boardTab });
     const base = {
-      pid: p.pid, startedAt: p.startedAt, memKb: p.rssKb, cwd: p.cwd, folder: short(p.cwd), assistant: asst.kindOf(p.assistant),
+      pid: p.pid, startedAt: p.startedAt, memKb: p.rssKb, cwd: p.cwd, folder: homes.sayLocal(p.cwd), assistant: asst.kindOf(p.assistant),
       surfaceId: tab ? p.surfaceId : null, workspaceId: tab ? tab.w.id : null, workspaceRef: tab ? tab.w.ref : null, inCmux: !!tab && tab.kind === 'cmux',
       sessionId: m ? m.sessionId : null, method: m ? m.method : null,
     };
@@ -2049,10 +2054,10 @@ async function phaseD(req, res, p) {
     if (!project) return sendJson(res, 404, { error: 'No such project.' });
     let isDir = false;
     try { isDir = !!project.folder && path.isAbsolute(project.folder) && fs.statSync(project.folder).isDirectory(); } catch { /* gone */ }
-    if (!isDir) return sendJson(res, 409, { error: project.folder ? `${project.name}'s folder is not on disk: ${short(project.folder)}.` : `${project.name} has no folder.` });
+    if (!isDir) return sendJson(res, 409, { error: project.folder ? `${project.name}'s folder is not on disk: ${homes.sayFolder(project.folder, project.machine)}.` : `${project.name} has no folder.` });
     const r = await openFolder(project.folder);
     if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
-    return sendJson(res, 200, { ok: true, folder: short(project.folder) });
+    return sendJson(res, 200, { ok: true, folder: homes.sayFolder(project.folder, project.machine) });
   }
   if (p === '/api/project/reveal-picture') {
     // The gallery's Show in Finder (docs/design/Gallery.dc.html, B): `open
@@ -2490,6 +2495,10 @@ async function handleRequest(req, res) {
         if (!phone.revoke(id)) return sendJson(res, 404, { error: 'No such device.' });
         console.log(`phone: revoked ${id}`);
         dropPhoneStreams(id);
+        return sendJson(res, 200, { ok: true, devices: phone.devices() });
+      }
+      if (p === '/api/phone/devices/rename') {
+        if (!phone.rename(String((body && body.id) || ''), body && body.name)) return sendJson(res, 404, { error: 'No such device, or no name.' });
         return sendJson(res, 200, { ok: true, devices: phone.devices() });
       }
       if (p === '/api/phone/access') {

@@ -21,3 +21,7 @@
 .phc-tg.off { background: var(--card2); }
 .phc-tg.off::after { right: auto; left: 3px; }
 .phc-tg:disabled { opacity: .5; }
+.phc-nm { display: block; max-width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phc-nm:hover { text-decoration: underline dotted var(--tx2); text-underline-offset: 3px; }
+.phc-in { width: 100%; box-sizing: border-box; font: inherit; color: var(--tx); background: var(--input); border: 1px solid var(--sep); border-radius: 6px; padding: 2px 6px; margin: -3px 0 -3px -7px; outline: none; }
+.phc-in:focus { border-color: var(--selring); }

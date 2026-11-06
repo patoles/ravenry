@@ -146,7 +146,7 @@ const auth = crypto.randomBytes(16);
   check('a device\'s token from another address is the person', a.ok);
   check('the same token from this machine is judged (here: refused, nobody could say who)', !b.ok);
   check('a pairing on the phone port from another address is taken (its code is checked after); from here it is judged', c.ok && !d.ok);
-  check('the new routes are person rows', ['/api/phone/pair', '/api/phone/unpair', '/api/phone/push', '/api/phone/devices/revoke', '/api/phone/access'].every((p) => person.personRoute('POST', p)) && !!person.personRoute('GET', '/api/term') && !person.personRoute('GET', '/api/phone/me'));
+  check('the new routes are person rows', ['/api/phone/pair', '/api/phone/unpair', '/api/phone/push', '/api/phone/devices/revoke', '/api/phone/devices/rename', '/api/phone/access'].every((p) => person.personRoute('POST', p)) && !!person.personRoute('GET', '/api/term') && !person.personRoute('GET', '/api/phone/me'));
 }
 
 // ------------------------------------------------------------ a board
@@ -335,6 +335,14 @@ if (BIN) {
   const noTokWs = await wsOpen(`/api/term?pane=${pane.id}`, null);
   check('the terminal stream without a token: 401', /^HTTP\/1\.1 401/.test(noTokWs.head));
 }
+
+// Rename on the Mac's card: the phone's own settings read the new name.
+const rn = await mac('POST', '/api/phone/devices/rename', { id: DEV, name: '  Kitchen   phone ' });
+const me2 = await phoneReq('GET', '/api/phone/me', { token: TOKEN });
+check('the Mac renames the device, and the phone reads the new name', rn.status === 200 && rn.body.devices.some((d) => d.id === DEV && d.name === 'Kitchen phone') && me2.body.device.name === 'Kitchen phone', rn.text);
+const rnEmpty = await mac('POST', '/api/phone/devices/rename', { id: DEV, name: '   ' });
+const rnPhone = await phoneReq('POST', '/api/phone/devices/rename', { token: TOKEN, body: { id: DEV, name: 'Mine' } });
+check('an empty name is refused, and a phone cannot rename', rnEmpty.status === 404 && rnPhone.status === 403);
 
 // Revoke: its stream ends, its token is signed out.
 const rv = await mac('POST', '/api/phone/devices/revoke', { id: DEV });

@@ -25,6 +25,7 @@ import path from 'node:path';
 import { derive } from './planfmt.mjs';
 import { rowModel } from '../public/plan-view.js';
 import { sayPath } from '../public/homepath.mjs';
+import { sayFolder, sayLocal } from './homes.mjs';
 
 const HOME = os.homedir();
 const short = (p) => sayPath(p, HOME);
@@ -117,7 +118,7 @@ export function projects(ctx) {
       ...clean({
         id: p.id, name: p.name, state: ['you', 'work', 'idle'].includes(p.state) ? p.state : 'idle', since: p.since,
         updated: newest(b ? mtime(b.file) : null, p.plan && p.plan.lastAt, ...planFiles.map((f) => f.updated)),
-        line: p.line, question: p.question, folder: p.folderShort || short(p.folder), machine: p.machine,
+        line: p.line, question: p.question, folder: p.folderShort || sayFolder(p.folder, p.machine), machine: p.machine,
         sessions: (p.sessions || []).length, picture: b ? picUrl(p.id, (b.pictures || [])[0]) : null,
         brief: briefFields(b), objectives: b ? objectivesOf(b) : null, plan,
         plan_files: planFiles.length ? planFiles : null,
@@ -205,7 +206,7 @@ export function git(ctx) {
     const cmd = r.projects.map((p) => p.shipCommand).find(Boolean);
     const pic = r.projects.map((p) => (p.picture ? { p, pic: p.picture } : null)).find(Boolean);
     return clean({
-      path: r.topShort || short(r.top), project: r.projects[0] && r.projects[0].id, projects: r.projects.map((p) => p.name),
+      path: r.topShort || sayLocal(r.top), project: r.projects[0] && r.projects[0].id, projects: r.projects.map((p) => p.name),
       branch: r.branch, upstream: r.upstream, ahead: r.ahead, behind: r.behind, changed: r.changed,
       ...gitStatus(r),
       last_commit: r.lastCommit ? clean({ hash: r.lastCommit.hash, at: r.lastCommit.at, subject: r.lastCommit.subject }) : null,

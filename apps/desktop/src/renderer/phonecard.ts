@@ -1,8 +1,8 @@
 // The phone button's card (the approved mock, frame c): the switch for phone
 // access, the Ravenry app's QR code with its one-time code and check number,
 // every device signed in with Sign out, and New key. It reads GET /api/phone
-// and writes /api/phone/access, /api/phone/devices/revoke and
-// /api/phone/new-key (hub/server/phone.mjs, docs/PHONE.md section 3).
+// and writes /api/phone/access, /api/phone/devices/rename (click an app's
+// name), /api/phone/devices/revoke and /api/phone/new-key (hub/server/phone.mjs, docs/PHONE.md section 3).
 
 import './phonecard.css';
 import { h, replace } from './dom.ts';
@@ -52,6 +52,7 @@ export class PhoneCard {
   private data: PhoneCardData | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
+  private editing: string | null = null;
   private ctx: PhoneCardCtx;
   constructor(ctx: PhoneCardCtx) { this.ctx = ctx; }
 
@@ -90,7 +91,7 @@ export class PhoneCard {
     if (!this.el) return;
     if (r && r.status === 200) this.data = r.body as PhoneCardData;
     else if (r) this.data = { ...(this.data || {}), app: null };
-    this.paint();
+    if (!this.editing) this.paint();
   }
 
   private async post(p: string, body: unknown, fail: string): Promise<void> {
@@ -100,8 +101,40 @@ export class PhoneCard {
       const r = await this.ctx.call('POST', p, body);
       if (r.status !== 200) this.ctx.toast(String((r.body as { error?: string } | null)?.error || fail));
       else if ((r.body as PhoneCardData).access !== undefined) this.data = r.body as PhoneCardData;
+      else if ((r.body as PhoneCardData).devices && this.data) this.data = { ...this.data, devices: (r.body as PhoneCardData).devices };
     } finally { this.busy = false; }
     await this.load();
+  }
+
+  // An app's name, which the person can rename here: click it, type, Enter
+  // (Escape keeps the old name). The phone's own settings show the new name.
+  private nameOf(x: PhoneDevice, name: string): HTMLElement {
+    if (x.platform === 'browser') return h('div', name);
+    if (this.editing !== x.id) {
+      return h('button.phc-nm', { title: 'Rename', disabled: this.busy, on: { click: () => { this.editing = x.id; this.paint(); } } }, name);
+    }
+    let done = false;
+    const finish = (save: boolean) => {
+      if (done) return;
+      done = true;
+      this.editing = null;
+      const v = input.value.replace(/\s+/g, ' ').trim();
+      if (save && v && v !== name) void this.post('/api/phone/devices/rename', { id: x.id, name: v }, 'The name did not change.');
+      else this.paint();
+    };
+    const input = h('input.phc-in', {
+      value: name, maxlength: '60', 'aria-label': 'Phone name', spellcheck: 'false',
+      on: {
+        keydown: (e: Event) => {
+          const k = (e as KeyboardEvent).key;
+          if (k === 'Enter') { e.preventDefault(); finish(true); }
+          else if (k === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+        },
+        blur: () => finish(true),
+      },
+    }) as HTMLInputElement;
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+    return input;
   }
 
   private paint(): void {
@@ -124,7 +157,7 @@ export class PhoneCard {
           : h('div.phc-b.t2', on ? 'No Wi-Fi or Tailscale address, so a phone cannot reach this computer.' : 'Phone access is off. Turn it on to pair a phone.'),
       d && d.devices && d.devices.length ? h('div.phc-dev', d.devices.map((x) => {
         const l = deviceLine(x, now);
-        return h('div.phc-dr', h('div.phc-dn', h('div', l.name), h('div.s', l.sub)),
+        return h('div.phc-dr', h('div.phc-dn', this.nameOf(x, l.name), h('div.s', l.sub)),
           h('button.btn.sm', { disabled: this.busy, on: { click: () => void this.post('/api/phone/devices/revoke', { id: x.id }, 'It was not signed out.') } }, 'Sign out'));
       })) : null,
       h('div.phc-f', h('span', on ? 'Phone access on: the phone port listens on the Wi-Fi and Tailscale.' : 'Phone access off: nothing listens for phones.'), h('span.sp'),
