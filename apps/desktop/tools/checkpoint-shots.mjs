@@ -61,7 +61,7 @@ script(FAKE, 'ssh', `while [ $# -gt 0 ]; do
     *) shift; [ "$1" = "--" ] && shift; break ;;
   esac
 done
-exec env -i ${Object.entries(DEVBOX_ENV).map(([k, v]) => `${k}='${v}'`).join(' ')} SSH_CONNECTION='127.0.0.1 50022 127.0.0.1 22' SSH_CLIENT='127.0.0.1 50022 22' "$@"`);
+exec env -i ${Object.entries(DEVBOX_ENV).map(([k, v]) => `${k}='${v}'`).join(' ')} SSH_CONNECTION='127.0.0.1 50022 127.0.0.1 22' SSH_CLIENT='127.0.0.1 50022 22' /bin/sh -c "$*"`);
 
 const HOME_STATE = path.join(WORK, 'state');
 const localEnv = (home) => ({ HOME: home, PATH: `${STAND}:/usr/bin:/bin:/usr/sbin:/sbin`, SHELL: '/bin/sh', LANG: 'en_US.UTF-8', TERM: 'xterm-256color', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: HOME_STATE });

@@ -108,6 +108,8 @@ export const ROUTES = [
   { m: 'POST', p: '/api/machines/add', c: P, what: 'add a machine', why: 'Adding a machine pairs this hub with it over ssh.' },
   { m: 'POST', p: '/api/machines/remove', c: P, what: 'remove a machine', why: 'Removing a machine is the person\'s call.' },
   { m: 'POST', p: '/api/machines/retry', c: P, what: 'reconnect a machine', why: 'Ambiguous, so the safer class: it runs ssh with the person\'s keys.' },
+  { m: 'POST', p: '/api/machines/install', c: P, what: 'install Ravenry on a machine', why: 'It runs ssh with the person\'s keys and puts ravenryd and its hooks in Claude Code\'s and Codex\'s settings on another machine.' },
+  { m: 'POST', p: '/api/machines/uninstall', c: P, what: 'uninstall Ravenry from a machine', why: 'It stops ravenryd on another machine, which can end the sessions there, and takes its files and hooks off.' },
   { m: 'POST', p: '/api/setup/hooks', c: P, what: 'install the hooks', why: 'It changes Claude Code\'s and Codex\'s settings.' },
   { m: 'POST', p: '/api/settings/handoff', c: P, what: 'change the hand-off settings', why: 'A setting the person chose; an agent could turn its own hand-off off.' },
   { m: 'POST', p: '/api/settings/assistant', c: P, what: 'change which assistant starts', why: 'A setting the person chose.' },

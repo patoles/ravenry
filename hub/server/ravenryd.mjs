@@ -114,7 +114,7 @@ function remoteEntry(m) {
   let d = remotes.get(m.c);
   if (!d) {
     const h = m.c.hello && m.c.hello.daemon ? m.c.hello.daemon : {};
-    d = { c: m.c, version: m.version || h.version, key: `${m.name}|${h.pid}:${h.started_at}`, id: `ssh:${m.name}`, machine: m.name };
+    d = { c: m.c, version: m.version || h.version, key: `${m.name}|${h.pid}:${h.started_at}`, id: m.id || `ssh:${m.name}`, machine: m.name };
     remotes.set(m.c, d);
   }
   return d;
@@ -130,8 +130,8 @@ export async function startMachines() {
   const { connect } = await nodeClient();
   machines.start({
     connect,
-    onUp: (m) => { const d = remoteEntry({ name: m.m.name, c: m.c, version: m.version }); if (statusOpts) follow(d).then(() => statusOpts && statusOpts.onChange()); },
-    onDown: (m) => { if (statusOpts) { if (statusOpts.onLost) statusOpts.onLost(`ssh:${m.m.name}`); statusOpts.onChange(); } },
+    onUp: (m) => { const d = remoteEntry({ name: m.m.name, id: m.id, c: m.c, version: m.version }); if (statusOpts) follow(d).then(() => statusOpts && statusOpts.onChange()); },
+    onDown: (m) => { if (statusOpts) { if (statusOpts.onLost) statusOpts.onLost(m.id || `ssh:${m.m.name}`); statusOpts.onChange(); } },
   });
 }
 export function stopMachines() { machinesOn = false; machines.stop(); }
@@ -141,7 +141,8 @@ export function stopMachines() { machinesOn = false; machines.stop(); }
 export function machineOfTab(id) {
   const p = paneOf(id);
   const at = p ? where.get(p) : null;
-  return at && at.startsWith('ssh:') ? at.slice(4) : null;
+  // "ssh:<name>", or "ssh:<name>@<version>" for an older daemon there.
+  return at && at.startsWith('ssh:') ? at.slice(4).split('@')[0] : null;
 }
 
 // The daemon that holds a pane: the last listing's, else asked.

@@ -143,15 +143,23 @@ export function oursFor(assistant, { root = ROOT, node, ravenryd = null } = {}) 
 // The settings with our hooks added, updated or removed, and what changed.
 // `json` is not modified. `ravenryd`: the daemon's path to add its hook
 // with (undefined keeps the one there; false removes it).
-export function plan(json, { remove = false, root = ROOT, node, ravenryd } = {}) {
+//
+// A remote machine (server/remoteinstall.mjs) has no Node and no hub, so
+// it gets the daemon's hook only: `scripts: false` leaves the two scripts
+// out (and alone, when someone put them there), and `daemonMatch(h)` says
+// which `ravenryd hook` entries are this install's (by default every one).
+export function plan(json, { remove = false, root = ROOT, node, ravenryd, scripts = true, daemonMatch = null } = {}) {
   const settings = JSON.parse(JSON.stringify(json || {}));
   const hadHooks = !!settings.hooks;
   settings.hooks = settings.hooks || {};
   const changes = [];
   const rv = ravenryd === undefined ? ravenrydIn(json, 'claude') : ravenryd || null;
-  const ours = oursFor('claude', { root, node, ravenryd: remove ? null : rv });
+  const isDaemon = (h) => isRavenrydHook(h, 'claude') && (!daemonMatch || daemonMatch(h));
+  const ours = oursFor('claude', { root, node, ravenryd: remove ? null : rv })
+    .filter((o) => scripts || o.script === 'ravenryd hook')
+    .map((o) => (o.script === 'ravenryd hook' ? { ...o, match: isDaemon } : o));
   // Removing (or dropping the daemon's hook): it goes too.
-  if (remove || ravenryd === false) ours.push({ script: 'ravenryd hook', events: RAVENRYD_EVENTS.claude, remove: true, match: (h) => isRavenrydHook(h, 'claude') });
+  if (remove || ravenryd === false) ours.push({ script: 'ravenryd hook', events: RAVENRYD_EVENTS.claude, remove: true, match: isDaemon });
   for (const o of ours) {
     const cmd = o.command;
     const drop = remove || o.remove;
@@ -280,25 +288,42 @@ function codexOurs({ root = ROOT, node, ravenryd = null } = {}) {
 // What setup or uninstall would write: { hooks: { file, raw, json }, config:
 // { file, raw, text }, changes, hooksOff }. Reads both files; writes nothing.
 // `ravenryd` as in plan().
-export function codexPlan({ remove = false, root = ROOT, node, ravenryd } = {}) {
-  const h = cx.readHooks();
-  const c = cx.readConfig();
+export function codexPlan(opts = {}) {
+  return codexPlanOf(cx.readHooks(), cx.readConfig(), opts);
+}
+
+// The same from files already read ({ file, raw, json } and { file, raw }),
+// for a machine reached over ssh. `scripts` and `daemonMatch` as in plan():
+// with `scripts: false` only the daemon's hook is added or removed, and the
+// trust block keeps the entries of every other Ravenry hook still there.
+export function codexPlanOf(h0, c, { remove = false, root = ROOT, node, ravenryd, scripts = true, daemonMatch = null } = {}) {
+  const h = { ...h0 };
   const rv = ravenryd === undefined ? ravenrydIn(h.json, 'codex') : ravenryd || null;
-  const ours = codexOurs({ root, node, ravenryd: remove ? null : rv });
+  const isDaemon = (x) => isRavenrydHook(x, 'codex') && (!daemonMatch || daemonMatch(x));
+  const all = codexOurs({ root, node, ravenryd: remove ? null : rv }).map((o) => (o.script === 'ravenryd hook' ? { ...o, match: isDaemon } : o));
+  const ours = all.filter((o) => scripts || o.script === 'ravenryd hook');
+  const gone = { script: 'ravenryd hook', events: RAVENRYD_EVENTS.codex, timeout: 10, command: '', match: isDaemon };
   if (remove || ravenryd === false) {
     // Taken out of hooks.json (and so out of the trust block) like the others.
-    const gone = { script: 'ravenryd hook', events: RAVENRYD_EVENTS.codex, timeout: 10, command: '', match: (x) => isRavenrydHook(x, 'codex') };
-    if (!remove) {
+    if (!remove || !scripts) {
       const p0 = cx.planHooks(h.json, [gone], (x, o) => o.match(x), { remove: true });
+      h.dropped = cx.ourKeys(h.json, [gone], (x, o) => o.match(x), h.file).map((x) => x.key);
       h.json = p0.json;
+      h.moves = p0.moves;
+      h.changes0 = p0.changes;
     } else ours.push(gone);
   }
   const isO = (x, o) => o.match(x);
-  const p = cx.planHooks(h.json, ours, isO, { remove });
-  const drop = cx.ourKeys(h.json, ours, isO, h.file).map((x) => x.key);
-  const text = cx.planConfig(c.raw, p.json, ours, isO, { file: h.file, moves: p.moves, remove, drop });
-  const changes = [...p.changes];
-  if (text !== String(c.raw || '')) changes.push(remove ? `config.toml: removed the trust entries of Ravenry's hooks` : `config.toml: trust entries for Ravenry's hooks`);
+  const removeAll = remove && scripts;
+  const p = cx.planHooks(h.json, removeAll ? ours : ours.filter((o) => !(remove && o.script === 'ravenryd hook')), isO, { remove: removeAll });
+  // The trust block names every Ravenry hook in the file: with `scripts:
+  // false` the scripts (and any other ravenryd hook) someone else put there
+  // keep theirs.
+  const trusted = scripts ? ours : [...codexOurs({ root, node, ravenryd: null }), { ...gone, match: (x) => isRavenrydHook(x, 'codex') }];
+  const drop = [...(h.dropped || []), ...cx.ourKeys(h.json, trusted, isO, h.file).map((x) => x.key)];
+  const text = cx.planConfig(c.raw, p.json, trusted, isO, { file: h.file, moves: [...(h.moves || []), ...p.moves], remove: removeAll, drop });
+  const changes = [...(h.changes0 || []), ...p.changes];
+  if (text !== String(c.raw || '')) changes.push(removeAll || (remove && !scripts) ? `config.toml: removed the trust entries of Ravenry's hooks` : `config.toml: trust entries for Ravenry's hooks`);
   return { hooks: { file: h.file, raw: h.raw, json: p.json }, config: { file: c.file, raw: c.raw, text }, changes, hooksOff: cx.hooksDisabled(c.raw) };
 }
 

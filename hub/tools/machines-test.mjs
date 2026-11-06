@@ -47,8 +47,9 @@ const DOWN = path.join(D, 'ssh-down');
 const PIDS = path.join(D, 'ssh-pids');
 const LOG = path.join(D, 'ssh-log');
 // The fake ssh: drops its options, records the host and argv, and runs
-// the remote command here with the "remote" machine's environment, which
-// says it runs in an ssh session as sshd's would (SSH_CONNECTION).
+// the remote command line here through sh (as sshd runs it through the
+// login shell), with the "remote" machine's environment, which says it
+// runs in an ssh session as sshd's would (SSH_CONNECTION).
 fs.writeFileSync(path.join(FAKE, 'ssh'), `#!/bin/sh
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -62,7 +63,7 @@ done
 echo "$host $*" >> '${LOG}'
 if [ -f '${DOWN}' ]; then echo "ssh: connect to host $host port 22: Connection refused" >&2; exit 255; fi
 echo $$ >> '${PIDS}'
-exec env -i HOME='${R.home}' PATH='${FAKE}:/usr/bin:/bin' SHELL=/bin/sh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR='${R.run}' RAVENRY_STATE_DIR='${R.state}' SSH_CONNECTION='127.0.0.1 50022 127.0.0.1 22' SSH_CLIENT='127.0.0.1 50022 22' "$@"
+exec env -i HOME='${R.home}' PATH='${FAKE}:/usr/bin:/bin' SHELL=/bin/sh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR='${R.run}' RAVENRY_STATE_DIR='${R.state}' SSH_CONNECTION='127.0.0.1 50022 127.0.0.1 22' SSH_CLIENT='127.0.0.1 50022 22' /bin/sh -c "$*"
 `, { mode: 0o755 });
 
 process.env.RAVENRY_HOME = MC;

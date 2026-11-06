@@ -160,6 +160,8 @@ const bodies = {
   '/api/machines/add': { name: 'box', host: 'box' },
   '/api/machines/remove': { name: 'box' },
   '/api/machines/retry': { name: 'box' },
+  '/api/machines/install': { name: 'box' },
+  '/api/machines/uninstall': { name: 'box', endSessions: true },
   '/api/setup/hooks': { ravenryd: BIN, dry: true },
   '/api/settings/handoff': { handoffEnabled: false },
   '/api/settings/assistant': { start: 'codex' },
@@ -254,6 +256,10 @@ const dppid = fs.readFileSync(path.join(OUT, 'detached-ppid'), 'utf8').trim();
 // pane where the machine has one.
 check('from a pane, a double-forked curl with its environment wiped, a child of launchd or init, gets 403 too', dcode === '403' && (dppid === 'ppid=1' || (process.platform === 'linux' && /^ppid=\d+$/.test(dppid))), `${dcode} ${dppid} ${(() => { try { return fs.readFileSync(path.join(OUT, 'detached.json'), 'utf8'); } catch { return ''; } })()}`);
 check(`from a pane, all ${personRows.length} person rows get 403 with a plain message`, notRefused.length === 0 && codes.size === personRows.length, notRefused.join('\n      '));
+// The remote installer's two routes by name: each from a pane got 403,
+// before its body was read, so no ssh ran.
+const installRows = ['/api/machines/install', '/api/machines/uninstall'].map((x) => personRows.findIndex((r) => eg(r) === x));
+check('from a pane, installing on and uninstalling from a machine get 403', installRows.every((i) => i >= 0 && codes.get(i) === 403 && /^Only a person can (install|uninstall) Ravenry/.test((() => { try { return JSON.parse(fs.readFileSync(path.join(OUT, `${i}.json`), 'utf8')).error; } catch { return ''; } })())), JSON.stringify(installRows.map((i) => codes.get(i))));
 console.log(`MEASURE  ${personRows.length} refused calls from a pane in ${inPaneMs} ms (one ravenryd peer each)`);
 await dc.request('pane.close', { pane: curlPane.id });
 await sleep(500);

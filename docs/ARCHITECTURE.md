@@ -80,7 +80,10 @@ travels changes.
   command, and `ravenryd proxy` bridges SSH's standard input and output to
   the remote machine's own unix socket. It respects `~/.ssh/config` and
   jump hosts, needs no open port on the remote machine, and adds no login
-  of its own: SSH does the authentication.
+  of its own: SSH does the authentication. The app installs ravenryd
+  there the same way, in the remote user's home with no sudo: it carries
+  the builds for macOS and Linux on arm64 and x86-64, and puts the daemon's
+  hook in Claude Code's and Codex's settings there.
 - **To the phone:** TLS, on the home Wi-Fi or a Tailscale interface, and
   only while phone access is on. Pairing is a QR code that carries the
   hub's public key; the phone pins that key, so a different server is

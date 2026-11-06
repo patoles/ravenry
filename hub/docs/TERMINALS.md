@@ -341,6 +341,46 @@ The API: `GET /api/machines` (each machine's state and error, and on the
 Mac the hosts of ~/.ssh/config), `POST /api/machines/add` `{ host, name,
 command }` and `/remove` `{ name }` (the Mac only), `/retry` `{ name }`.
 
+**Versions on a machine.** Each machine in `GET /api/machines` says its
+daemon's `version`, `os`, `arch` and `protocol` (from its hello), `ours`
+(the version of ravenryd this app carries) and `compare`: `older`, `same`,
+`newer`, `missing` (its command exits 127: ravenryd is not there) or
+`protocol` (it does not speak protocol 1; the hub asks `<command> version
+--json` and keeps its answer in `remote`). An older or newer machine keeps
+working: the app says so on the Machines page, puts a dot on its mark and
+says it once in a toast, and offers the installer. After an update, the
+older daemon keeps its panes until they end, and the hub reaches it with
+`<command> proxy --version <v>` beside the new one (`older` lists them).
+
+**Installing on a machine** (server/remoteinstall.mjs). `POST
+/api/machines/install` `{ name, replaceHooks }` and `/uninstall` `{ name,
+endSessions }` (the Mac only, person routes) answer at once; the steps
+show in `job` on `GET /api/machines`. Over ssh with BatchMode, never with
+sudo, and only inside the remote user's home: it finds the system with
+uname, copies the app's build for it to `~/.ravenry/bin/ravenryd` (checked
+by SHA-256 there and run once before it goes into place; a `ravenry` link
+beside it), puts `ravenryd hook --assistant claude|codex` in Claude Code's
+settings and, when Codex is there, Codex's hooks and trust entries,
+through server/hookinstall.mjs's plan() with `scripts: false` (no Node and
+no hub there), each file backed up and written only if it did not change
+meanwhile; it writes what it did to `~/.ravenry/remote-install.json`,
+points the machine's command at the installed path and checks that the
+board reaches that version. Hooks someone set up by hand (a `ravenryd
+hook` of another binary) are left alone with a warning, unless
+`replaceHooks`; uninstall then puts them back. Run again, it changes
+nothing that is right already. Uninstall stops the daemons there (it asks
+first while sessions run, `endSessions` ends them), takes out exactly the
+hooks and files the record names, and takes the machine off the list; the
+daemon's state folder (pane logs) stays. The builds: the packaged app
+carries all four (macOS and Linux, arm64 and x86-64), gzipped, with their
+SHA-256 in `remote/builds.json` (apps/desktop/scripts/pack.mjs), copied
+beside its ravenryd at launch, where the hub finds them; in development,
+the repo's daemon/ravenryd for this machine's system. A failure says what
+happened and what to do: ssh wanting a password (with `ssh-copy-id`), a
+system with no build, a full disk (checked with df first, and while
+copying), a settings file that is not JSON.
+`tools/remote-install-test.mjs` proves it through a fake ssh.
+
 **Starting a session.** `POST /api/sessions/start` `{ projectId, folder,
 machine, assistant, text, cols, rows }` (server/sessionstart.mjs) opens a
 pane in the folder, here or on the machine, labelled `ravenry.session` and

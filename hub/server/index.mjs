@@ -42,6 +42,7 @@ import * as planrun from './planrun.mjs';
 import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp } from './home.mjs';
 import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
+import * as remoteinstall from './remoteinstall.mjs';
 import * as checkpoints from './checkpoints.mjs';
 import * as gates from './gates.mjs';
 import * as person from './person.mjs';
@@ -985,7 +986,7 @@ async function tick() {
     pagesSessions = sessionsView;
     let pageRows = [];
     try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
-    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: machines.status(), checkpoints: checkpointsView(projects) };
+    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), checkpoints: checkpointsView(projects) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -1955,6 +1956,7 @@ function afterRegistry(r) {
   wantTick = true;
   setTimeout(tick, 30);
 }
+remoteinstall.onRegistryChange(afterRegistry);
 
 // New project's Folder row: the folders the board knows, most recently
 // active first, and which names under the projects root are already taken
@@ -2491,7 +2493,13 @@ async function handleRequest(req, res) {
       return sendJson(res, 426, { error: 'Open /api/term as a WebSocket with the subprotocol ravenry.v1.' });
     }
     if (req.method === 'GET' && p === '/api/state') return sendJson(res, 200, snapshot);
-    if (req.method === 'GET' && p === '/api/machines') return sendJson(res, 200, { ok: true, machines: machines.status(), ...(req.mcLocal ? { hosts: machines.sshHosts() } : {}) });
+    if (req.method === 'GET' && p === '/api/machines') {
+      // Each machine with its version beside this hub's build, and the last
+      // install or uninstall (server/remoteinstall.mjs); on the Mac, the
+      // hosts of ~/.ssh/config and the builds it can install.
+      const b = req.mcLocal ? remoteinstall.builds() : null;
+      return sendJson(res, 200, { ok: true, machines: remoteinstall.view(), ...(req.mcLocal ? { hosts: machines.sshHosts(), builds: b ? { version: b.version, systems: Object.keys(b.systems), source: b.source } : null } : {}) });
+    }
     if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => c) : []) });
     if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => hookinstall.status(hookinstall.readSettings().json)), codex: hookinstall.codexInstalled() ? safe(() => hookinstall.codexStatus()) : null });
     if (req.method === 'GET' && p === '/api/live') {
@@ -2680,12 +2688,27 @@ async function handleRequest(req, res) {
         if (!req.mcLocal && p !== '/api/machines/retry') return sendJson(res, 403, { error: 'Add and remove machines on the Mac.' });
         let body;
         try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
-        if (p === '/api/machines/retry') return sendJson(res, 200, { ok: machines.retry(String(body.name || '')), machines: machines.status() });
+        if (p === '/api/machines/retry') return sendJson(res, 200, { ok: machines.retry(String(body.name || '')), machines: remoteinstall.view() });
         const r = p === '/api/machines/add' ? machines.add(body || {}) : machines.remove(String((body && body.name) || ''));
         if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
         afterRegistry(r.reg);
         wantTick = true; setTimeout(tick, 30);
-        return sendJson(res, 200, { ok: true, machines: machines.status() });
+        return sendJson(res, 200, { ok: true, machines: remoteinstall.view() });
+      }
+      if (p === '/api/machines/install' || p === '/api/machines/uninstall') {
+        // ravenryd and the hooks put on a machine over ssh, or taken off it
+        // (server/remoteinstall.mjs). On the Mac only: it runs ssh with the
+        // Mac's keys. Answers at once; GET /api/machines shows the steps.
+        if (!req.mcLocal) return sendJson(res, 403, { error: 'Install and uninstall on the Mac.' });
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const name = String((body && body.name) || '');
+        const r = p === '/api/machines/install'
+          ? remoteinstall.install(name, { replaceHooks: !!body.replaceHooks })
+          : remoteinstall.uninstall(name, { endSessions: !!body.endSessions });
+        if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
+        wantTick = true; setTimeout(tick, 30);
+        return sendJson(res, 200, { ok: true, job: r.job, machines: remoteinstall.view() });
       }
       if (p === '/api/setup/hooks') {
         // The app's first-launch setup: Ravenry's hooks in Claude Code's and

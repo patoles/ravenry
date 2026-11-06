@@ -80,7 +80,7 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-71 person rows (21 of them judged ambiguous), 7 open rows. GET routes not
+73 person rows (21 of them judged ambiguous), 7 open rows. GET routes not
 listed are reads and stay open; the two `GET /api/phone...` rows hand out a
 pairing secret, and `GET /api/term` opens a terminal.
 
@@ -121,6 +121,8 @@ pairing secret, and `GET /api/term` opens a terminal.
 | `/api/machines/add` | person | Adding a machine pairs this hub with it over ssh. |
 | `/api/machines/remove` | person | Removing a machine is the person's call. |
 | `/api/machines/retry` | person | Judged (ambiguous): it runs ssh with the person's keys. |
+| `/api/machines/install` | person | It runs ssh with the person's keys and puts ravenryd and its hooks in Claude Code's and Codex's settings on another machine. |
+| `/api/machines/uninstall` | person | It stops ravenryd on another machine, which can end the sessions there, and takes its files and hooks off. |
 | `/api/setup/hooks` | person | It changes Claude Code's and Codex's settings. |
 | `/api/settings/handoff` | person | A setting the person chose; an agent could turn its own hand-off off. |
 | `/api/settings/assistant` | person | A setting the person chose. |

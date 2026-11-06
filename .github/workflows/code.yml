@@ -4,7 +4,9 @@
 # Zig, then gofmt, go vet, go build and every Go test), then against that
 # build @ravenry/node-client and the hub's Ravenry adapter (its seven
 # terminal operations, the agent status channel and hook decisions), remote
-# machines through a fake ssh, and the hub's API on a real board, with the
+# machines through a fake ssh (and the remote installer: install, update
+# while a session runs on an older build, the failures, uninstall), and the
+# hub's API on a real board, with the
 # rule that only a person answers a checkpoint (from inside a real pane,
 # the command line, a raw socket call and curl to the hub are refused, and
 # so is every hub write that stands for a person's decision, and a plan's
@@ -83,6 +85,10 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends zsh fish && zsh --version && bash --version | head -1 && fish --version
       - run: go vet ./...
       - run: go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd && "$RUNNER_TEMP/ravenryd" version
+      # Two more versions, for the remote installer's update test.
+      - run: |
+          go build -ldflags "-X main.version=0.8.0" -o "$RUNNER_TEMP/ravenryd-0.8.0" ./cmd/ravenryd
+          go build -ldflags "-X main.version=0.9.0" -o "$RUNNER_TEMP/ravenryd-0.9.0" ./cmd/ravenryd
       # pipefail: without it the step takes tee's status, and a failing
       # test would not fail the job.
       - name: go test
@@ -101,6 +107,7 @@ jobs:
           node --test packages/node-client/test/*.test.mjs
           node hub/tools/ravenryd-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/machines-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+          RAVENRYD_OLD_BIN="$RUNNER_TEMP/ravenryd-0.8.0" RAVENRYD_NEW_BIN="$RUNNER_TEMP/ravenryd-0.9.0" node hub/tools/remote-install-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/hub-api-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/person-routes-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/phone-app-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
