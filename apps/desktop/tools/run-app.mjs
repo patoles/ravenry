@@ -1,10 +1,15 @@
 // Runs the built app offscreen (never on screen) with a driver plan
 // (driver.cjs), in a throwaway HOME, data folder and daemon runtime folder.
+// Every ravenryd, hub and app a tool here starts is checked first
+// (tools/test-env.mjs): none starts with a folder of the real user's.
+import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+guardSpawns();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const APP = path.resolve(HERE, '..');
@@ -50,10 +55,15 @@ export async function runApp(opts) {
   return log;
 }
 
+/** The environment for a ravenryd command a tool runs on a test's daemons: no folder of the real user's. */
+export function cliEnv(rt, home, state = path.join(home, 'state')) {
+  return { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: home, LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: state };
+}
+
 /** Stops the daemons in a runtime folder (the ones the run started). */
 export function stopDaemons(bin, rt) {
   try {
-    const out = execFileSync(bin, ['daemons', '--json'], { env: { ...process.env, RAVENRY_RUNTIME_DIR: rt }, encoding: 'utf8' });
+    const out = execFileSync(bin, ['daemons', '--json', '--no-start'], { env: cliEnv(rt, rt), encoding: 'utf8' });
     for (const d of JSON.parse(out)) { try { process.kill(d.pid, 'SIGTERM'); } catch { /* gone */ } }
   } catch { /* none */ }
 }

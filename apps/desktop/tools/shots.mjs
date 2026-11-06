@@ -14,12 +14,15 @@
 //   narrow-arrival.png   900x700: a question arrived, the panel over the terminal
 //   first-launch.png     1440x900: no session anywhere yet
 //   echo.json            keystroke echo, median and p95
+import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { startDemoHub } from './demo-hub.mjs';
 import { APP, runApp, stopDaemons } from './run-app.mjs';
+
+guardSpawns();
 
 const OUT = path.resolve(process.argv[2] || path.join(APP, '.tmp', 'shots'));
 const WORK = path.join(OUT, '.work');

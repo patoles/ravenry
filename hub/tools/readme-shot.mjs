@@ -13,7 +13,7 @@
 // (made-up processes, never this Mac's), and hook events written as
 // hooks/events.mjs writes them. Headless Chromium, dark theme: 1440x900 and
 // 390x844. Never touches the board on :4600. The PNGs carry no text chunks.
-import './test-guard.mjs'; // first: keeps this off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -177,7 +177,7 @@ const env = { ...process.env, HOME, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_
   MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-open.mjs')]), STUB_OPEN_LOG: path.join(T, 'open.jsonl'), CMUX_SURFACE_ID: '', CMUX_WORKSPACE_ID: '',
   MC_PS_BIN: path.join(ROOT, 'tools/stub-ps.mjs'), MC_LSOF_BIN: path.join(ROOT, 'tools/stub-ps.mjs'), STUB_PS_STATE: PS,
   MC_OSASCRIPT_BIN: path.join(ROOT, 'tools/stub-osascript.mjs'), ITERM_OSASCRIPT_BIN: path.join(ROOT, 'tools/stub-osascript.mjs'), STUB_OSASCRIPT_LOG: path.join(T, 'osascript.jsonl') };
-const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { cwd: HOME, env, stdio: ['ignore', 'pipe', 'pipe'] });
+const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { cwd: HOME, env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 child.stdout.on('data', (d) => { log += d; });
 child.stderr.on('data', (d) => { log += d; });

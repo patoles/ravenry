@@ -7,7 +7,7 @@
 // not blocking the server, timed out, 403 for a phone). Touches only .tmp/.
 //
 // Usage: node tools/new-project-folder-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -113,7 +113,7 @@ const env = {
   MC_CHOOSE_FOLDER_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-choose-folder.mjs')]),
   STUB_CHOOSE_FILE: CHOOSE, MC_CHOOSE_FOLDER_TIMEOUT_MS: '1500',
 };
-const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 server.stdout.on('data', (d) => { serverLog += d; });
 server.stderr.on('data', (d) => { serverLog += d; });

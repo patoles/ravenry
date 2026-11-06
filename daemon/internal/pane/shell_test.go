@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"ravenryd/internal/testenv"
 	"regexp"
 	"strings"
 	"testing"
@@ -47,11 +48,14 @@ func shellHome(t *testing.T) string {
 
 func shellManager(t *testing.T, home, shellPath string) *Manager {
 	t.Helper()
+	env := []string{"PATH=" + filepath.Dir(shellPath) + ":/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8",
+		"SHELL=" + shellPath, "BASH_SILENCE_DEPRECATION_WARNING=1"}
+	logs, shells := t.TempDir(), filepath.Join(t.TempDir(), "state dir", "shell")
+	testenv.Check(t, env)
+	testenv.CheckDirs(t, logs, shells)
 	m := NewManager(ManagerOptions{
 		// A space, as in macOS's "Application Support".
-		LogDir: t.TempDir(), ShellDir: filepath.Join(t.TempDir(), "state dir", "shell"),
-		Env: []string{"PATH=" + filepath.Dir(shellPath) + ":/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8",
-			"SHELL=" + shellPath, "BASH_SILENCE_DEPRECATION_WARNING=1"},
+		LogDir: logs, ShellDir: shells, Env: env,
 	})
 	t.Cleanup(func() { m.Shutdown(time.Second) })
 	if m.shell == "" {

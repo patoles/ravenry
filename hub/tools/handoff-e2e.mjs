@@ -9,7 +9,7 @@
 //   proves the start never repeats, even across a server restart.
 //
 // Usage: node tools/handoff-e2e.mjs <shotsDir>
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
@@ -92,10 +92,11 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
   projects: [{ id: 'handoff-test', name: 'Handoff test', folder: PROJ, workspaces: [WS], brief: 'BRIEF.md', waitingOn: null }],
 }, null, 2));
 
-const env = { ...process.env, RAVENRY_HOME: MC, MC_CLAUDE_PROJECTS: CLAUDE, PORT: String(PORT), MC_NO_EVENTS: '1' };
+// Its own projects root: with the test's scratch HOME there is no real one to find.
+const env = { ...process.env, RAVENRY_HOME: MC, MC_CLAUDE_PROJECTS: CLAUDE, MC_PROJECTS_ROOT: path.join(MC, 'root'), PORT: String(PORT), MC_NO_EVENTS: '1' };
 let server;
 const startServer = async () => {
-  server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   server.stdout.on('data', (d) => process.stdout.write('  [server] ' + d));
   server.stderr.on('data', (d) => process.stdout.write('  [server!] ' + d));
   for (let i = 0; i < 40; i++) { try { if ((await fetch(BASE + '/api/state')).ok) return; } catch { /* not yet */ } await sleep(250); }

@@ -18,6 +18,7 @@ import (
 
 	"ravenryd/internal/client"
 	"ravenryd/internal/proto"
+	"ravenryd/internal/testenv"
 )
 
 // The tests build ravenryd twice, as two versions, and run them with a
@@ -64,6 +65,7 @@ func newEnv(t *testing.T) *env {
 		"HOME=" + home, "PATH=/usr/bin:/bin", "SHELL=/bin/sh", "LANG=en_US.UTF-8",
 		"RAVENRY_RUNTIME_DIR=" + filepath.Join(dir, "run"), "RAVENRY_STATE_DIR=" + filepath.Join(dir, "state"),
 	}}
+	testenv.Check(t, e.vars)
 	t.Cleanup(func() {
 		// Stop every daemon this test started, then remove the files.
 		ents, _ := os.ReadDir(filepath.Join(dir, "run"))
@@ -88,6 +90,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) cmd(version string, args ...string) *exec.Cmd {
 	c := exec.Command(bins[version], args...)
 	c.Env = e.vars
+	testenv.Check(e.t, c.Env)
 	c.Dir = e.dir
 	return c
 }

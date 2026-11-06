@@ -10,7 +10,7 @@
 // tab shows a "claude --resume <id>" line, which names its current session).
 // Never touches the board on :4600.
 // Usage: node tools/pictures-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -274,9 +274,9 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
 }, null, 2));
 
 const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], {
-  env: { ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+  env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
     CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE, MC_SCRATCH_ROOT: SCRATCH,
-    MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups') },
+    MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups') }),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 child.log = '';

@@ -6,7 +6,7 @@
 // Requests sent to the Mac's own LAN address arrive as non-loopback, so they
 // stand in for a phone. Never touches the board on :4600.
 // Usage: node tools/phone-access-test.mjs [shotsDir]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -64,7 +64,7 @@ function board(home, port, extra = {}) {
     CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: path.join(T, 'claude'),
     MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'), ...extra,
   };
-  const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   child.log = '';
   child.stdout.on('data', (d) => { child.log += d; });
   child.stderr.on('data', (d) => { child.log += d; });

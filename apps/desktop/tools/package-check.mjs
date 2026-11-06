@@ -24,6 +24,7 @@
 // 3. The hub service file the app wrote, then the hub run exactly as it
 //    says (the app's executable as Node), on a spare port: it must answer,
 //    stop cleanly on SIGTERM, and leave every daemon running.
+import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -42,6 +43,12 @@ const APP_PATH = path.resolve(pos[0]);
 const OUT = path.resolve(pos[1] || path.join(os.tmpdir(), 'ravenry-package-check'));
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
+
+guardSpawns();
+// What the checks before the app run (extracting an AppImage, ravenryd
+// version) run with: throwaway folders, never the real user's.
+const PRE = path.join(OUT, '.pre');
+const preEnv = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: path.join(PRE, 'home'), LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: path.join(PRE, 'run'), RAVENRY_STATE_DIR: path.join(PRE, 'state'), RAVENRY_DESKTOP_DATA: path.join(PRE, 'data') };
 
 const results = [];
 const cleanups = [];
@@ -83,7 +90,7 @@ if (target.endsWith('.app')) {
   platform = 'linux';
   fs.chmodSync(target, 0o755);
   // Only an AppImage of this machine's architecture extracts itself.
-  const r = spawnSync(target, ['--appimage-extract'], { cwd: X, stdio: 'ignore', env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '' } });
+  const r = spawnSync(target, ['--appimage-extract'], { cwd: X, stdio: 'ignore', env: { ...preEnv, APPIMAGE_EXTRACT_AND_RUN: '' } });
   if (r.status !== 0) fail(`${path.basename(target)} did not extract itself on this machine (${process.arch})`);
   resources = path.join(X, 'squashfs-root', 'resources');
   exe = target;
@@ -112,7 +119,7 @@ if (platform === 'linux') {
 ok(`ravenryd: ${fileType}`);
 const runsHere = process.platform === platform && bundledArch === process.arch;
 if (runsHere) {
-  const v = JSON.parse(execFileSync(bundled, ['version', '--json'], { encoding: 'utf8' }));
+  const v = JSON.parse(execFileSync(bundled, ['version', '--json'], { env: preEnv, encoding: 'utf8' }));
   if (v.version !== build.version || v.os !== platform || v.arch !== goarch(bundledArch)) fail(`ravenryd ${JSON.stringify(v)} does not match the app ${build.version} ${platform}/${bundledArch}`);
   ok(`ravenryd version ${v.version} ${v.os}/${v.arch}, libghostty-vt ${v.libghostty_vt}`);
 }
@@ -145,7 +152,7 @@ const DATA = path.join(WORK, 'app-package');
 fs.mkdirSync(HOME, { recursive: true });
 const RT = fs.mkdtempSync(path.join(process.env.RAVENRY_SHORT_TMP || os.tmpdir(), 'rvp-'));
 fs.chmodSync(RT, 0o700);
-const daemonsEnv = { ...process.env, RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state') };
+const daemonsEnv = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state') };
 const LINK = path.join(DATA, 'bin', 'ravenryd');
 const STAGED = path.join(DATA, 'versions', build.version, 'ravenryd');
 const daemons = (bin = LINK) => JSON.parse(execFileSync(bin, ['daemons', '--json'], { env: daemonsEnv, encoding: 'utf8' }));
@@ -160,7 +167,7 @@ try {
   let oldPane = null;
   let oldVersion = null;
   if (OLD) {
-    oldVersion = JSON.parse(execFileSync(OLD, ['version', '--json'], { encoding: 'utf8' })).version;
+    oldVersion = JSON.parse(execFileSync(OLD, ['version', '--json'], { env: daemonsEnv, encoding: 'utf8' })).version;
     execFileSync(OLD, ['serve', '--detach'], { env: daemonsEnv, stdio: 'ignore' });
     oldPane = JSON.parse(execFileSync(OLD, ['new', '--hidden', '--json', '--name', 'old-session', '--', '/bin/sh', '-c', 'echo old-session-alive; exec sleep 600'], { env: daemonsEnv, encoding: 'utf8' }));
     oldPane = oldPane.pane?.id || oldPane.id;

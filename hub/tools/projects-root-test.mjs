@@ -18,7 +18,7 @@
 // Touches only .tmp/.
 //
 // Usage: node tools/projects-root-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -117,7 +117,7 @@ async function board(name, port, regJson, extraEnv = {}) {
     STUB_CHOOSE_FILE: choose, ...extraEnv,
   };
   if (!('MC_PROJECTS_ROOT' in extraEnv)) delete env.MC_PROJECTS_ROOT;
-  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   srv.stdout.on('data', (d) => { log += d; });
   srv.stderr.on('data', (d) => { log += d; });

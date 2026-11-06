@@ -115,7 +115,7 @@ const added = machines.add({ name: 'devbox', host: 'devbox' });
 check('add: written to the registry', added.ok && JSON.parse(fs.readFileSync(path.join(MC, 'projects.json'), 'utf8')).settings.machines[0].host === 'devbox', JSON.stringify(added));
 const up = await until(() => machines.status().find((m) => m.name === 'devbox' && m.state === 'connected'), 10000);
 check('it connects through `ssh devbox ravenryd proxy`, which starts the daemon there', !!up && fs.readFileSync(LOG, 'utf8').includes('devbox ravenryd proxy'), JSON.stringify(machines.status()));
-const version = /ravenryd (\S+)/.exec(execFileSync(BIN, ['version'], { encoding: 'utf8' }))[1];
+const version = /ravenryd (\S+)/.exec(execFileSync(BIN, ['version'], { env: REMOTE_ENV, encoding: 'utf8' }))[1];
 const RSOCK = path.join(R.run, `ravenryd-${version}.sock`);
 
 // ------------------------------------------------------------ a session there

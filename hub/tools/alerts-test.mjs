@@ -22,7 +22,7 @@
 // Usage: node tools/alerts-test.mjs [--real-ntfy]
 //   --real-ntfy also publishes once to a throwaway random ntfy.sh topic
 //   (never a saved one) and reads it back, to prove the request shape.
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -366,7 +366,7 @@ const env = {
   MC_COPY_COMMAND: JSON.stringify(['/bin/sh', '-c', `cat > ${COPY_LOG}`]),
 };
 delete env.MC_ALERT_COOLDOWN_MS;
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 board.stdout.on('data', (d) => { log += d; });
 board.stderr.on('data', (d) => { log += d; });

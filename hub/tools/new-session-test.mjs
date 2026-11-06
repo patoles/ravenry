@@ -41,7 +41,7 @@
 // workspace is read or typed into.
 //
 // Usage: node tools/new-session-test.mjs [--shots <dir>] [--real <scratch folder>]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -83,7 +83,7 @@ async function startBoard({ port, mc, env }) {
   };
   for (const [k, v] of Object.entries(e)) if (v === null) delete e[k];
   fs.mkdirSync(e.MC_CLAUDE_PROJECTS, { recursive: true });
-  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
+  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(e), stdio: ['ignore', 'pipe', 'pipe'] });
   servers.push(board);
   const b = { board, base: `http://localhost:${port}`, log: '' };
   board.stdout.on('data', (d) => { b.log += d; });

@@ -9,6 +9,7 @@ import (
 
 	"ravenryd/internal/client"
 	"ravenryd/internal/proto"
+	"ravenryd/internal/testenv"
 	"ravenryd/internal/testprog"
 )
 
@@ -89,6 +90,7 @@ func TestOverSSHOnlyTheTrustedKeyAnswers(t *testing.T) {
 		c := exec.Command(exe)
 		c.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + d.home, "RAVENRY_TESTPROG=answer", "RAVENRY_TESTPROG_SOCKET=" + d.socket,
 			"RAVENRY_TESTPROG_CP=" + cp, "SSH_CONNECTION=10.0.0.1 50000 10.0.0.2 22"}
+		testenv.Check(t, c.Env)
 		if key != "" {
 			c.Env = append(c.Env, "RAVENRY_TESTPROG_KEY="+key)
 		}

@@ -15,10 +15,18 @@
 //   server/terminal.mjs (which loads home.mjs) before it set RAVENRY_HOME,
 //   then saved its scratch registry through server/registry.mjs into the
 //   real ~/.ravenry/projects.json.
+// - Every ravenryd, hub and app the test starts is checked first
+//   (../../tools/test-env.mjs, guardSpawns): HOME, the hub's data, the
+//   daemon's runtime and state folders (and the app's data) must be a
+//   test's, or it is refused before it starts. On 2026-11-06 a test run
+//   started a daemon with the real HOME, which made the real
+//   ~/Library/Application Support/Ravenry. withTestHome(env) gives a
+//   board the test's own scratch HOME.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { guardSpawns, isTestPath } from '../../tools/test-env.mjs';
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TMP = path.join(REPO, '.tmp');
@@ -41,3 +49,18 @@ if (!process.env.RAVENRY_HOME && !process.env.MC_HOME) {
 }
 
 export const GUARD_HOME = process.env.RAVENRY_HOME || process.env.MC_HOME;
+
+guardSpawns();
+
+// A scratch HOME for what the test starts: .tmp/<test>/home.
+export const TEST_HOME = path.join(TMP, path.basename(process.argv[1] || 'test', '.mjs'), 'home');
+
+// `env` with HOME set to the test's scratch home, unless it is one already.
+// Playwright's browsers stay where they are installed (a cache of programs,
+// not Ravenry's data), so a board that renders pictures still finds them.
+export function withTestHome(env = process.env) {
+  if (env.HOME && isTestPath(env.HOME, env)) return env;
+  fs.mkdirSync(TEST_HOME, { recursive: true });
+  const browsers = env.PLAYWRIGHT_BROWSERS_PATH || (env.HOME ? path.join(env.HOME, process.platform === 'darwin' ? 'Library/Caches' : '.cache', 'ms-playwright') : null);
+  return { ...env, HOME: TEST_HOME, ...(browsers ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {}) };
+}

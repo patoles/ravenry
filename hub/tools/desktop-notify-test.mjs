@@ -17,7 +17,7 @@
 // Touches only .tmp/.
 //
 // Usage: node tools/desktop-notify-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -177,7 +177,7 @@ const env = { ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS
 let server = null;
 let log = '';
 async function start() {
-  server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   server.stdout.on('data', (d) => { log += d; });
   server.stderr.on('data', (d) => { log += d; });
   for (let i = 0; i < 40; i++) { try { if ((await fetch(BASE + '/api/state')).ok) break; } catch { /* */ } await sleep(250); }

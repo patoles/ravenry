@@ -18,7 +18,7 @@
 //   --shots: also saves the gallery at 1440x900 and 390x844, light and dark,
 //   on the 5th of 6 pictures, where the mockup's B frames are (shapes.png), plus
 //   the closed card and a portrait picture.
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -216,10 +216,10 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
 }, null, 2));
 const OPEN_LOG = path.join(T, 'open.jsonl');
 const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], {
-  env: { ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+  env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
     CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE, MC_SCRATCH_ROOT: SCRATCH,
     MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
-    STUB_OPEN_LOG: OPEN_LOG, MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-open.mjs')]) },
+    STUB_OPEN_LOG: OPEN_LOG, MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-open.mjs')]) }),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let log = '';

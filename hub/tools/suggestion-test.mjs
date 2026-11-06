@@ -27,7 +27,7 @@
 //    at the end.
 //
 // Usage: node tools/suggestion-test.mjs [--real <scratch folder> [--first styled]]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -199,7 +199,7 @@ async function startBoard({ port, mc, env: extra }) {
     MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'), ...extra,
   };
   fs.mkdirSync(env.MC_CLAUDE_PROJECTS, { recursive: true });
-  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   const out = { board, log: '' };
   board.stdout.on('data', (d) => { out.log += d; });
   board.stderr.on('data', (d) => { out.log += d; });

@@ -28,7 +28,7 @@
 // --real <scratch folder>: the live check (section 3 below), on the real cmux.
 //
 // Usage: node tools/codex-stage2-test.mjs [--shots <dir>] [--real <scratch folder>]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -225,7 +225,7 @@ const env = {
   MC_PS_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), MC_LSOF_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), STUB_PS_STATE: PS,
 };
 fs.mkdirSync(env.MC_CLAUDE_PROJECTS, { recursive: true });
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 board.stdout.on('data', (d) => { log += d; });
 board.stderr.on('data', (d) => { log += d; });
@@ -479,7 +479,7 @@ if (ri >= 0) {
     const sf = ws.panes.flatMap((p) => p.surfaces)[0];
     const renv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(RAVENRY_|MC_|PORT$)/.test(k)));
     Object.assign(renv, { RAVENRY_HOME: RMC, PORT: '4697', MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0', MC_GLOBAL_CLAUDE_MD: GLOBAL_MD, MC_CODEX_HOME: CODEX_HOME, MC_CODEX: '0', MC_PS_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), MC_LSOF_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), STUB_PS_STATE: path.join(RT, 'ps.json') });
-    rb = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: renv, stdio: ['ignore', 'pipe', 'pipe'] });
+    rb = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(renv), stdio: ['ignore', 'pipe', 'pipe'] });
     rb.stdout.on('data', (d) => { rlog += d; });
     rb.stderr.on('data', (d) => { rlog += d; });
     const key = 'ws:' + ws.id;

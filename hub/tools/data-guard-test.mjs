@@ -110,8 +110,38 @@ check('guard: a test with RAVENRY_HOME outside .tmp refuses to start', r.code ==
 r = child(`const g = await import(${S('tools/test-guard.mjs')}); const h = await import(${S('server/home.mjs')}); console.log(g.GUARD_HOME, h.RAVENRY_HOME, process.env.TEST_RAVENRY);`);
 check('guard: a test with no RAVENRY_HOME gets a guard home inside .tmp, before home.mjs loads', r.code === 0 && r.out.split(' ')[0].startsWith(path.join(ROOT, '.tmp') + path.sep) && r.out.split(' ')[0] === r.out.split(' ')[1] && r.out.endsWith(' 1'), r.out || r.err);
 const tests = fs.readdirSync(path.join(ROOT, 'tools')).filter((f) => /-(test|e2e)\.mjs$/.test(f));
-const unguarded = tests.filter((f) => !/^import '\.\/test-guard\.mjs';/m.test((read(path.join(ROOT, 'tools', f)) || '').split('\n').find((l) => l.startsWith('import ')) || ''));
+const unguarded = tests.filter((f) => !/^import (\{[\w\s,]*\} from )?'\.\/test-guard\.mjs';/m.test((read(path.join(ROOT, 'tools', f)) || '').split('\n').find((l) => l.startsWith('import ')) || ''));
 check(`guard: every test (${tests.length}) imports test-guard.mjs first`, unguarded.length === 0, unguarded.join(', '));
+
+// What a test starts (../tools/test-env.mjs, guardSpawns): ravenryd, the
+// hub or the app with any of its folders in the real user's is refused
+// before it starts; the same with a test's folders starts. The 2026-11-06
+// incident's shape (the real HOME with only RAVENRY_RUNTIME_DIR changed)
+// is the first case.
+const J = JSON.stringify;
+const FBIN = path.join(T, 'fakebin');
+fs.mkdirSync(FBIN, { recursive: true });
+fs.writeFileSync(path.join(FBIN, 'ravenryd'), '#!/bin/sh\necho started\n', { mode: 0o755 });
+const SPAWN = (env) => `const g = await import(${S('tools/test-guard.mjs')}); const os = await import('node:os'); const { spawnSync } = await import('node:child_process');
+const real = os.userInfo().homedir; const env = ${env};
+try { const r = spawnSync(${J(path.join(FBIN, 'ravenryd'))}, ['serve'], { env, encoding: 'utf8' }); console.log('ran ' + r.stdout.trim()); } catch (e) { console.log('refused ' + e.message.split('\\n').slice(1).map((l) => l.trim().split(' ')[0]).join(',')); }`;
+const RT0 = fs.mkdtempSync(path.join(os.tmpdir(), 'rvg-'));
+r = child(SPAWN(`{ ...process.env, HOME: real, RAVENRY_RUNTIME_DIR: ${J(RT0)} }`));
+check('guard: ravenryd with the real HOME and only RAVENRY_RUNTIME_DIR changed is refused (the 2026-11-06 incident)', /^refused HOME,the\b/.test(r.out), r.out || r.err);
+r = child(SPAWN(`{ PATH: '/usr/bin:/bin', HOME: ${J(path.join(T, 'home'))}, RAVENRY_RUNTIME_DIR: ${J(RT0)} }`));
+check('guard: ravenryd with a test HOME (state folder under it) starts', r.out === 'ran started', r.out || r.err);
+r = child(SPAWN(`{ PATH: '/usr/bin:/bin', HOME: ${J(path.join(T, 'home'))}, RAVENRY_STATE_DIR: real + '/Library/Application Support/Ravenry' }`));
+check('guard: ravenryd with a test HOME but the real state folder is refused', r.out.startsWith('refused') && !r.out.includes('HOME'), r.out || r.err);
+r = child(`const g = await import(${S('tools/test-guard.mjs')}); const { spawn } = await import('node:child_process');
+try { spawn(${J(path.join(ROOT, 'server', 'index.mjs'))}.replace(/.*/, process.execPath), [${J(path.join(ROOT, 'server', 'index.mjs'))}], { env: { ...process.env, HOME: (await import('node:os')).userInfo().homedir, RAVENRY_HOME: ${J(path.join(T, 'board2'))} } }).kill(); console.log('ran'); } catch (e) { console.log('refused'); }
+const w = g.withTestHome({ HOME: (await import('node:os')).userInfo().homedir }); console.log(w.HOME === g.TEST_HOME ? 'scratch' : w.HOME);`);
+check('guard: the hub with the real HOME is refused; withTestHome gives it the test\'s', r.out === 'refused\nscratch', r.out || r.err);
+r = child(`const t = await import(${S('../tools/test-env.mjs')}); const env = { HOME: ${J(path.join(T, 'home'))}, RAVENRY_RUNTIME_DIR: ${J(RT0)}, RAVENRY_STATE_DIR: ${J(path.join(T, 'st'))} };
+console.log(t.childKind('/x/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron', ['/x/apps/desktop']), t.problems(env, { app: true }).length, t.problems({ ...env, RAVENRY_DESKTOP_DATA: ${J(path.join(T, 'app'))} }, { app: true }).length, t.childKind('/bin/sh', ['-c', "'/x/daemon/ravenryd' serve"]), t.childKind('/bin/sh', ['-c', 'cd /x/ravenry-app && ls']));`);
+// On macOS Electron keeps its data in the account's ~/Library whatever HOME
+// says; on Linux it follows HOME (~/.config).
+check('guard: the app needs its own data folder on macOS (Electron ignores HOME there); ravenryd in sh -c is seen', r.out === `app ${process.platform === 'darwin' ? 1 : 0} 0 daemon null`, r.out || r.err);
+fs.rmSync(RT0, { recursive: true, force: true });
 
 // ------------------------------------------------------------ 3. registry.save
 
@@ -196,7 +226,7 @@ check('iterm: npm run iterm from a shell with a test\'s RAVENRY_HOME is refused 
 
 // ------------------------------------------------------------ 6. the real port
 
-r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { cwd: ROOT, env: { ...bare, RAVENRY_HOME: path.join(T, 'board'), PORT: '4600', MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(T, 'fake-cmux.json') }, encoding: 'utf8', timeout: 20000 });
+r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { cwd: ROOT, env: { ...bare, HOME: path.join(T, 'home'), RAVENRY_HOME: path.join(T, 'board'), PORT: '4600', MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(T, 'fake-cmux.json') }, encoding: 'utf8', timeout: 20000 });
 check('board: a board on a test\'s data refuses :4600, the real board\'s port', r.status === 1 && /is a test's, and :4600 is the real board's port/.test(r.stderr), (r.stderr || '').trim().split('\n').pop());
 
 fs.rmSync(FAKE, { recursive: true, force: true });

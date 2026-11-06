@@ -17,11 +17,14 @@
 // (a test board follows none without it), `env` adds to the board's
 // environment, `settings` to its registry's (machines), and `alerts` turns
 // phone alerts on, sent to a closed local port.
+import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+
+guardSpawns();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB = path.resolve(HERE, '..', '..', '..', 'hub');

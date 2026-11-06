@@ -27,7 +27,7 @@
 //    in the project's Rex session, and the page says Rex.
 //
 // Usage: node tools/rex-test.mjs [shotsDir]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -238,7 +238,7 @@ const boardEnv = (mc, port, extra = {}) => ({
   ...extra,
 });
 function startBoard(env) {
-  const p = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const p = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   p.log = '';
   p.stdout.on('data', (d) => { p.log += d; });
   p.stderr.on('data', (d) => { p.log += d; });

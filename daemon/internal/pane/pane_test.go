@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"ravenryd/internal/testenv"
 	"ravenryd/internal/testprog"
 	"ravenryd/internal/vt"
 )
@@ -27,7 +28,10 @@ func newManager(t *testing.T) *Manager {
 	t.Helper()
 	home := t.TempDir()
 	logs := t.TempDir()
-	m := NewManager(ManagerOptions{LogDir: logs, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8"}})
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8"}
+	testenv.Check(t, env)
+	testenv.CheckDirs(t, logs)
+	m := NewManager(ManagerOptions{LogDir: logs, Env: env})
 	t.Cleanup(func() { m.Shutdown(time.Second) })
 	return m
 }

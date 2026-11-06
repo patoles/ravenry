@@ -10,7 +10,7 @@
 // No model call, no real cmux. Touches only .tmp/.
 //
 // Usage: node tools/plan-files-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -152,7 +152,7 @@ async function board(name, port, extraEnv = {}) {
     STUB_PLAN_ARGV_FILE: path.join(T, name, 'plan-argv.jsonl'), ...extraEnv,
   };
   for (const [k, v] of Object.entries(env)) if (v === null) delete env[k];
-  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   srv.stdout.on('data', (d) => { log += d; });
   srv.stderr.on('data', (d) => { log += d; });

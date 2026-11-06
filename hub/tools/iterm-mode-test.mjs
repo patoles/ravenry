@@ -24,7 +24,7 @@
 //    ("Watch only", never "Not read yet") on desktop and phone.
 //
 // Usage: node tools/iterm-mode-test.mjs [shotsDir]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -182,7 +182,7 @@ const env = {
   CMUX_BIN: TRIP, MC_CLAUDE_PROJECTS: CLAUDE, ITERM_OSASCRIPT_BIN: FAKE_BIN, RAVENRY_ITERM_PYTHON: FAKE_BIN, FAKE_ITERM_STATE: FAKE_IT,
   MC_PROJECTS_ROOT: ROOTDIR, MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'), MC_OSASCRIPT_BIN: path.join(ROOT, 'tools', 'stub-osascript.mjs'),
 };
-const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 srv.stdout.on('data', (d) => { log += d; });
 srv.stderr.on('data', (d) => { log += d; });
@@ -328,7 +328,7 @@ fs.writeFileSync(FAKE2, JSON.stringify({ running: true, sessions: [{ uuid: L, wi
 const env2 = {
   ...env, HOME: HOME2, GIT_CEILING_DIRECTORIES: HOME2, PORT: String(PORT2), RAVENRY_HOME: MC2, MC_CLAUDE_PROJECTS: CLAUDE2, FAKE_ITERM_STATE: FAKE2, MC_PROJECTS_ROOT: ROOT2,
 };
-const srv2 = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: env2, stdio: ['ignore', 'pipe', 'pipe'] });
+const srv2 = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env2), stdio: ['ignore', 'pipe', 'pipe'] });
 let log2 = '';
 srv2.stdout.on('data', (d) => { log2 += d; });
 srv2.stderr.on('data', (d) => { log2 += d; });

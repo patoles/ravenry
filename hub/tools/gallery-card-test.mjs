@@ -18,7 +18,7 @@
 //   GL_WEBKIT=1 runs it in WebKit (cmux's browser) instead of Chromium.
 //   --shots: the card at both sizes in light and dark, the 2 and 1 picture
 //   cards, the mockup's B frames, and each pair side by side.
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -110,10 +110,10 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
 // ------------------------------------------------------------ the board
 const PORT = 4689;
 const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], {
-  env: { ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+  env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
     CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE, MC_SCRATCH_ROOT: SCRATCH,
     MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
-    MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-open.mjs')]), STUB_OPEN_LOG: path.join(T, 'open.jsonl') },
+    MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-open.mjs')]), STUB_OPEN_LOG: path.join(T, 'open.jsonl') }),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let log = '';

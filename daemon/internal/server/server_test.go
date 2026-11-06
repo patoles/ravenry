@@ -24,6 +24,7 @@ import (
 	"ravenryd/internal/pane"
 	"ravenryd/internal/paths"
 	"ravenryd/internal/proto"
+	"ravenryd/internal/testenv"
 	"ravenryd/internal/testprog"
 )
 
@@ -214,10 +215,10 @@ func startDaemon(t *testing.T) *daemon {
 	home := filepath.Join(dir, "home")
 	os.Mkdir(home, 0o700)
 	sock := filepath.Join(dir, "d.sock")
-	mgr := pane.NewManager(pane.ManagerOptions{
-		LogDir: dir, Socket: sock,
-		Env: []string{"PATH=/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8"},
-	})
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8"}
+	testenv.Check(t, env)
+	testenv.CheckDirs(t, dir)
+	mgr := pane.NewManager(pane.ManagerOptions{LogDir: dir, Socket: sock, Env: env})
 	lb := &lockedBuffer{}
 	srv := New(Options{Version: "0.0.0-test", Manager: mgr, Socket: sock, Log: log.New(lb, "", 0)})
 	ln, err := net.Listen("unix", sock)
@@ -708,6 +709,7 @@ func TestNewerDaemonDrainsTheOld(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	t.Setenv("RAVENRY_RUNTIME_DIR", dir)
 	env := []string{"PATH=/usr/bin:/bin", "HOME=" + dir}
+	testenv.Check(t, append(env, "RAVENRY_RUNTIME_DIR="+dir, "RAVENRY_STATE_DIR="+dir))
 	start := func(version string, onDrained func()) (*Server, string) {
 		sock, err := paths.SocketPath(version)
 		if err != nil {

@@ -4,7 +4,9 @@
 # ships it (libghostty-vt with Zig, cached as in code.yml; static): it
 # starts the daemon, opens real shells, types, pastes, switches tabs and
 # closes one, then answers a real ask, approve and secret in the window
-# (the secret is then found nowhere). Then the app packaged (unpacked, no installer) and checked:
+# (the secret is then found nowhere), runs an approve it edited (the edit
+# runs, not the proposal) and refuses one with a reason. Every tool there
+# refuses a folder of the real user's (tools/test-env.mjs). Then the app packaged (unpacked, no installer) and checked:
 # it finds its own ravenryd, starts it beside an older one, writes its hub
 # service in dry-run mode into a throwaway HOME, and the hub runs as that
 # service says. release.yml builds every installer.
@@ -40,6 +42,11 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
+      # The runner's temp folder sits inside its home: the test tools refuse
+      # any folder of the real user's (tools/test-env.mjs) unless a test
+      # root names it.
+      - name: The runner's temp folder is a test root
+        run: echo "RAVENRY_TEST_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

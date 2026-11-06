@@ -46,7 +46,7 @@
 // 390x844 (the meta line also at 412), dark and light.
 //
 // Usage: node tools/start-with-test.mjs [--real] [--shots <dir>]
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -194,7 +194,7 @@ async function startBoard({ port, mc, env }) {
     MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'), ...env,
   };
   fs.mkdirSync(e.MC_CLAUDE_PROJECTS, { recursive: true });
-  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
+  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(e), stdio: ['ignore', 'pipe', 'pipe'] });
   servers.push(board);
   const b = { board, base: `http://localhost:${port}`, log: '' };
   board.stdout.on('data', (d) => { b.log += d; });

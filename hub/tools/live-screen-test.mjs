@@ -16,7 +16,7 @@
 //    presses Send, Add as note or anything else that writes.
 //
 // Usage: node tools/live-screen-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -356,9 +356,9 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
   projects: [{ id: 'live', name: 'Live test', folder: FOLDER, workspaces: [WS] }],
 }, null, 2));
 const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], {
-  env: { ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+  env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
     CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: path.join(T, 'claude'),
-    MC_SCRATCH_ROOT: path.join(T, 'scratch'), MC_PROJECTS_ROOT: T, MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups') },
+    MC_SCRATCH_ROOT: path.join(T, 'scratch'), MC_PROJECTS_ROOT: T, MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups') }),
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 child.log = '';

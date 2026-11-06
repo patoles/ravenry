@@ -8,7 +8,7 @@
 // Dragging into the Mockup column starts nothing. Touches only .tmp/.
 //
 // Usage: node tools/idea-mockups-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -58,7 +58,7 @@ fs.writeFileSync(path.join(MC, 'ideas.json'), JSON.stringify({ version: 1, seede
   { id: 'other', name: 'Other', stage: 'spark', pitch: 'x', status: '', img: null, alt: null, thread: [], created: new Date().toISOString(), updated: new Date().toISOString() },
 ] }, null, 2));
 
-const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: { ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, STUB_PROMPT_LOG: LOG }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, STUB_PROMPT_LOG: LOG }), stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 server.stdout.on('data', (d) => { serverLog += d; });
 server.stderr.on('data', (d) => { serverLog += d; });
