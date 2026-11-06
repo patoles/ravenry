@@ -45,9 +45,8 @@ jobs:
         working-directory: .
         run: |
           find hub tools -path '*/node_modules' -prune -o -path '*/.tmp' -prune -o \( -name '*.mjs' -o -name '*.js' -o -name '*.cjs' \) -type f -print0 | xargs -0 -n1 node --check
-      - run: npm ci
-        env:
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      # No npm ci: the hub's package says os darwin, and these suites use
+      # none of its dev dependencies (Playwright, jsQR).
       - name: Hub suites that run on Linux
         run: |
           for t in data-guard-test sessions-test events-hook-test handoff-hook-test plans-test assistant-test rules-repeats-test; do
