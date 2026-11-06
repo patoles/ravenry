@@ -64,8 +64,36 @@ export function stableNode(execPath = process.execPath, envPath = process.env.PA
 // byte what they were.
 const q = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
 
-export function hookCommand(o, { root = ROOT, node = stableNode() } = {}) {
-  return `${q(node)} ${q(path.join(root, 'hooks', o.script))}`;
+// The desktop app's hub runs on the app's own executable as Node
+// (ELECTRON_RUN_AS_NODE=1, apps/desktop/src/main/install.ts). Started
+// without that variable, as Claude Code or Codex would start a hook, that
+// executable opens the app instead (or, with the app open, brings its
+// window up), so the hooks of such a hub set it in front of the command.
+// A hook runs through `sh -c`, which reads the assignment.
+export const AS_NODE = 'ELECTRON_RUN_AS_NODE=1';
+const onElectron = () => !!process.versions.electron;
+
+export function hookCommand(o, { root = ROOT, node = stableNode(), electron = onElectron() } = {}) {
+  return `${electron ? `${AS_NODE} ` : ''}${q(node)} ${q(path.join(root, 'hooks', o.script))}`;
+}
+
+// A hook command's words after its leading NAME=value assignments: the
+// program, then its arguments.
+export function commandWords(cmd) {
+  const w = splitCommand(cmd);
+  let i = 0;
+  while (i < w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i])) i++;
+  return w.slice(i);
+}
+
+// Why one of our script commands would not run this copy, or null.
+function staleWhy(command, script0, root) {
+  const [node, script] = commandWords(command);
+  if (!node || !isExe(node)) return `its Node (${node}) is not there any more`;
+  if (!script || !fs.existsSync(script)) return `its script (${script}) is not there any more`;
+  if (realOr(script) !== realOr(path.join(root, 'hooks', script0))) return `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
+  if (onElectron() && realOr(node) === realOr(process.execPath) && !splitCommand(command).includes(AS_NODE)) return `it starts the Ravenry app without ${AS_NODE}, which opens the app instead of running the hook`;
+  return null;
 }
 
 // Matches this script wherever its copy was when it was installed, under
@@ -75,6 +103,9 @@ export function hookCommand(o, { root = ROOT, node = stableNode() } = {}) {
 export function isOurs(h, o, { root = ROOT } = {}) {
   if (!h || typeof h.command !== 'string') return false;
   if (new RegExp(`(^|[/\\s"'])(ravenry|mission-control)/hooks/${o.script.replace('.', '\\.')}(["'\\s]|$)`).test(h.command)) return true;
+  // The desktop app's hub, in any version folder of the app (an update
+  // moves it to a new one).
+  if (new RegExp(`/versions/[^/\\s"']+/hub/hooks/${o.script.replace('.', '\\.')}(["'\\s]|$)`).test(h.command)) return true;
   return splitCommand(h.command).includes(path.join(root, 'hooks', o.script));
 }
 
@@ -211,11 +242,7 @@ export function status(json, { root = ROOT } = {}) {
       const cmds = (Array.isArray(hooks[ev]) ? hooks[ev] : []).flatMap((e) => (e && Array.isArray(e.hooks) ? e.hooks : [])).filter((h) => isOurs(h, o)).map((h) => h.command);
       if (cmds.length) on.push(ev);
       for (const c of cmds) {
-        const [node, script] = splitCommand(c);
-        let why = null;
-        if (!node || !isExe(node)) why = `its Node (${node}) is not there any more`;
-        else if (!script || !fs.existsSync(script)) why = `its script (${script}) is not there any more`;
-        else if (realOr(script) !== realOr(path.join(root, 'hooks', o.script))) why = `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
+        const why = staleWhy(c, o.script, root);
         if (why) stale.push({ event: ev, script: o.script, command: c, why });
       }
     }
@@ -348,11 +375,7 @@ export function codexStatus({ root = ROOT } = {}) {
   for (const o of ours.filter((x) => x.script !== 'ravenryd hook')) for (const ev of o.events) {
     for (const g of claudeShaped.hooks[ev] || []) for (const x of (g && g.hooks) || []) {
       if (!isO(x, o)) continue;
-      const [nd, script] = splitCommand(x.command);
-      let why = null;
-      if (!nd || !isExe(nd)) why = `its Node (${nd}) is not there any more`;
-      else if (!script || !fs.existsSync(script)) why = `its script (${script}) is not there any more`;
-      else if (realOr(script) !== realOr(path.join(root, 'hooks', o.script))) why = `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
+      const why = staleWhy(x.command, o.script, root);
       if (why) stale.push({ event: ev, script: o.script, command: x.command, why });
     }
   }
@@ -381,5 +404,39 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
     out.codex = { file: cp.hooks.file, changes: cp.changes, backups: [], hooksOff: cp.hooksOff };
     if (!dry && cp.changes.length) out.codex.backups = codexWrite(cp);
   }
+  return out;
+}
+
+// ------------------------------------------------------------ app updates
+
+// The desktop app's hub lives in <data>/versions/<version>/hub, so after an
+// update the hooks it wrote name a version folder the app later removes,
+// and hooks written before ELECTRON_RUN_AS_NODE was added open the app.
+// At start, the app's hub (RAVENRY_HUB_SERVICE=1) rewrites our entries in
+// place to this copy when every stale one is its own: a script of another
+// version of this same app, or of this copy, or one whose Node or script
+// is gone. Another copy of Ravenry (a git checkout, npm's) is left alone,
+// and hooks the person never set up are never added. Each file is backed
+// up first. Returns the changes per file.
+export function refreshAppHooks({ root = ROOT, node } = {}) {
+  const versions = path.dirname(path.dirname(root));
+  const ownOrGone = (st) => st.stale.length > 0 && st.stale.every((x) => {
+    const script = commandWords(x.command)[1] || '';
+    return !fs.existsSync(script) || path.dirname(path.dirname(path.dirname(path.dirname(script)))) === versions || realOr(script) === realOr(path.join(root, 'hooks', x.script));
+  });
+  const out = { claude: [], codex: [] };
+  try {
+    const cur = readSettings();
+    if (ownOrGone(status(cur.json, { root }))) {
+      const p = plan(cur.json, { root, node });
+      if (p.changes.length) { writeSettings(cur.file, cur.raw, p.settings); out.claude = p.changes; }
+    }
+  } catch { /* unreadable: left as it is */ }
+  try {
+    if (codexInstalled() && ownOrGone(codexStatus({ root }))) {
+      const cp = codexPlan({ root, node });
+      if (cp.changes.length) { codexWrite(cp); out.codex = cp.changes; }
+    }
+  } catch { /* unreadable: left as it is */ }
   return out;
 }

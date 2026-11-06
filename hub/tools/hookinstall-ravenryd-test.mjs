@@ -79,5 +79,42 @@ const s2 = read(SETTINGS);
 check('remove: all of ours goes, theirs stays', off.ok && JSON.stringify(s2.hooks) === JSON.stringify({ Stop: [{ hooks: [theirs] }] }) && s2.model === 'opus', JSON.stringify(s2.hooks));
 check('remove: Codex too, with its trust entries', cmds(read(path.join(CODEX, 'hooks.json')), 'Stop').join() === 'their-codex-hook' && !/ravenry/i.test(fs.readFileSync(path.join(CODEX, 'config.toml'), 'utf8')));
 
+// The desktop app's hub runs on the app's executable as Node: its hooks
+// set ELECTRON_RUN_AS_NODE=1, or the executable would open the app.
+const APPHUB = (v) => path.join(T, 'data', 'versions', v, 'hub');
+for (const v of ['0.1.0', '0.2.0']) { fs.mkdirSync(path.join(APPHUB(v), 'hooks'), { recursive: true }); for (const f of ['events.mjs', 'handoff-stop.mjs']) fs.writeFileSync(path.join(APPHUB(v), 'hooks', f), ''); }
+const APPEXE = path.join(T, 'Ravenry.app', 'Contents', 'MacOS', 'Ravenry');
+fs.mkdirSync(path.dirname(APPEXE), { recursive: true });
+fs.writeFileSync(APPEXE, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const ev = hk.OURS.find((o) => o.script === 'events.mjs');
+const appCmd = hk.hookCommand(ev, { root: APPHUB('0.1.0'), node: APPEXE, electron: true });
+check('an app hub\'s hook runs its executable with ELECTRON_RUN_AS_NODE=1', appCmd.startsWith('ELECTRON_RUN_AS_NODE=1 ') && hk.commandWords(appCmd)[0] === APPEXE && hk.commandWords(appCmd)[1] === path.join(APPHUB('0.1.0'), 'hooks', 'events.mjs'), appCmd);
+check('a plain Node hub\'s hook has no prefix', !hk.hookCommand(ev, { root: APPHUB('0.1.0'), node: '/usr/bin/node', electron: false }).includes('ELECTRON_RUN_AS_NODE'));
+check('a hook of any version of the app is ours', hk.isOurs({ command: appCmd }, ev, { root: APPHUB('0.2.0') }));
+
+// After an update: 0.1.0's hooks, with their old folder gone, follow the
+// 0.2.0 hub in place; theirs stay; nothing is added twice.
+fs.writeFileSync(SETTINGS, JSON.stringify({ hooks: { Stop: [{ hooks: [theirs] }] } }, null, 2));
+const old = hk.plan(read(SETTINGS), { root: APPHUB('0.1.0'), node: APPEXE, ravenryd: BIN });
+fs.writeFileSync(SETTINGS, JSON.stringify(old.settings, null, 2));
+fs.rmSync(APPHUB('0.1.0'), { recursive: true, force: true });
+check('status: the old version\'s hooks are stale', hk.status(read(SETTINGS), { root: APPHUB('0.2.0') }).state === 'stale');
+const moved = hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE });
+const after = read(SETTINGS);
+const scripts = cmds(after, 'Stop').filter((c) => /hooks\/(events|handoff-stop)\.mjs/.test(c));
+check('refresh: they now run the new version, once each, theirs kept', moved.claude.length > 0 && scripts.length === 2 && scripts.every((c) => c.includes(APPHUB('0.2.0'))) && cmds(after, 'Stop').includes(theirs.command) && cmds(after, 'Stop').includes(`${BIN} hook --assistant claude`), JSON.stringify(cmds(after, 'Stop')));
+check('refresh: a second run changes nothing', hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE }).claude.length === 0);
+// Another copy of Ravenry's hooks (a checkout) are never taken over.
+const other = path.join(T, 'checkout', 'ravenry');
+fs.mkdirSync(path.join(other, 'hooks'), { recursive: true });
+fs.writeFileSync(path.join(other, 'hooks', 'events.mjs'), '');
+fs.writeFileSync(path.join(other, 'hooks', 'handoff-stop.mjs'), '');
+const theirsCopy = hk.plan({}, { root: other, node: '/bin/sh' });
+fs.writeFileSync(SETTINGS, JSON.stringify(theirsCopy.settings, null, 2));
+check('refresh: another copy of Ravenry is left alone', hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE }).claude.length === 0 && JSON.stringify(read(SETTINGS)) === JSON.stringify(theirsCopy.settings));
+// A hook with no settings file: nothing is added.
+fs.rmSync(SETTINGS);
+check('refresh: hooks never set up are never added', hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE }).claude.length === 0 && !fs.existsSync(SETTINGS));
+
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);
