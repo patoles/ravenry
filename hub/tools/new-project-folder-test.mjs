@@ -113,7 +113,7 @@ const env = {
   MC_CHOOSE_FOLDER_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-choose-folder.mjs')]),
   STUB_CHOOSE_FILE: CHOOSE, MC_CHOOSE_FOLDER_TIMEOUT_MS: '1500',
 };
-const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env, T), stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 server.stdout.on('data', (d) => { serverLog += d; });
 server.stderr.on('data', (d) => { serverLog += d; });
@@ -138,7 +138,7 @@ try {
   check('folders: ids for the brief name, and the taken names under the projects root', fl.ids.includes('alpha') && fl.taken.some((t) => t.name === 'taken') && fl.taken.some((t) => t.name === 'shared-repo' && t.hasBrief), JSON.stringify(fl.taken));
 
   // ---- refusals through the route
-  for (const [label, p, re] of [['the home folder', os.homedir(), /home folder itself/], ['~/Library', path.join(os.homedir(), 'Library'), /Library/], ['a file', path.join(PROJECTS, 'taken', 'notes.txt'), /is a file/], ['a folder outside home', '/private/tmp', /outside your home folder|system folder/]]) {
+  for (const [label, p, re] of [['the home folder', T, /home folder itself/], ['~/Library', path.join(T, 'Library'), /Library/], ['a file', path.join(PROJECTS, 'taken', 'notes.txt'), /is a file/], ['a folder outside home', '/private/tmp', /outside your home folder|system folder/]]) {
     const x = await api('/api/project/new', form('Refused one', { existingFolder: p }));
     check(`new project refuses ${label} with a plain sentence`, x.status === 400 && re.test(x.j.error), `${x.status} ${x.j.error}`);
   }
@@ -187,7 +187,7 @@ try {
   fs.writeFileSync(CHOOSE, 'cancel\n');
   x = await api('/api/project/choose-folder');
   check('choose: cancelled leaves nothing to change', x.status === 200 && x.j.cancelled === true && !x.j.entry, JSON.stringify(x.j));
-  fs.writeFileSync(CHOOSE, path.join(os.homedir(), 'Library') + '\n');
+  fs.writeFileSync(CHOOSE, path.join(T, 'Library') + '\n');
   x = await api('/api/project/choose-folder');
   check('choose: a refused folder comes back as a plain sentence', x.status === 400 && /Library/.test(x.j.error), x.j.error);
   fs.writeFileSync(CHOOSE, `sleep 900\n${FINDER}\n`);

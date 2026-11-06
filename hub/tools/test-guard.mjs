@@ -55,12 +55,15 @@ guardSpawns();
 // A scratch HOME for what the test starts: .tmp/<test>/home.
 export const TEST_HOME = path.join(TMP, path.basename(process.argv[1] || 'test', '.mjs'), 'home');
 
-// `env` with HOME set to the test's scratch home, unless it is one already.
+// `env` with HOME set to the test's scratch home (or `home`, a folder of
+// the test that holds its projects, for a board that judges folders by
+// whether they are in the home folder), unless it is one already.
 // Playwright's browsers stay where they are installed (a cache of programs,
 // not Ravenry's data), so a board that renders pictures still finds them.
-export function withTestHome(env = process.env) {
-  if (env.HOME && isTestPath(env.HOME, env)) return env;
-  fs.mkdirSync(TEST_HOME, { recursive: true });
+export function withTestHome(env = process.env, home = null) {
+  if (!home && env.HOME && isTestPath(env.HOME, env)) return env;
+  if (home && !isTestPath(home, env)) throw new Error(`withTestHome: ${home} is not a test's folder`);
+  fs.mkdirSync(home || TEST_HOME, { recursive: true });
   const browsers = env.PLAYWRIGHT_BROWSERS_PATH || (env.HOME ? path.join(env.HOME, process.platform === 'darwin' ? 'Library/Caches' : '.cache', 'ms-playwright') : null);
-  return { ...env, HOME: TEST_HOME, ...(browsers ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {}) };
+  return { ...env, HOME: home || TEST_HOME, ...(browsers ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {}) };
 }

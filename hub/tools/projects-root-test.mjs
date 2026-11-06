@@ -117,7 +117,7 @@ async function board(name, port, regJson, extraEnv = {}) {
     STUB_CHOOSE_FILE: choose, ...extraEnv,
   };
   if (!('MC_PROJECTS_ROOT' in extraEnv)) delete env.MC_PROJECTS_ROOT;
-  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
+  const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env, T), stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   srv.stdout.on('data', (d) => { log += d; });
   srv.stderr.on('data', (d) => { log += d; });
@@ -153,11 +153,11 @@ try {
   let st = await b.state();
   check('board: the snapshot says where it came from: 3 of 4 projects', st.projectsRoot && st.projectsRoot.from === 'shared' && st.projectsRoot.count === 3 && st.projectsRoot.total === 4 && !st.projectsRoot.ask && !st.projectsRoot.locked, JSON.stringify(st.projectsRoot));
   let meta = await b.get('/api/meta');
-  check('board: New project\'s path line uses it', meta.projectsRoot === PROJ.replace(os.homedir(), '~'), meta.projectsRoot);
+  check('board: New project\'s path line uses it', meta.projectsRoot === PROJ.replace(T, '~'), meta.projectsRoot);
 
-  let y = await b.post('/api/settings/projects-root', { path: path.join(os.homedir(), 'Library'), from: 'chosen' });
+  let y = await b.post('/api/settings/projects-root', { path: path.join(T, 'Library'), from: 'chosen' });
   check('route: ~/Library refused with a sentence', y.status === 400 && /Library/.test(y.j.error), y.j.error);
-  y = await b.post('/api/settings/projects-root', { path: os.homedir(), from: 'chosen' });
+  y = await b.post('/api/settings/projects-root', { path: T, from: 'chosen' });
   check('route: the home folder refused', y.status === 400 && /home folder itself/.test(y.j.error), y.j.error);
   y = await b.post('/api/settings/projects-root', { path: b.mc, from: 'chosen' });
   check("route: the board's own data folder refused", y.status === 400 && /data folder/.test(y.j.error), y.j.error);
@@ -180,7 +180,7 @@ try {
   y = await b.post('/api/project/new', { name: 'Fresh root', goal: 'Prove the root.', kind: 'Tool or CLI' });
   check('change: a new project is made in the new root', y.status === 200 && fs.existsSync(path.join(NEWROOT, 'fresh-root', 'BRIEF.md')), JSON.stringify(y.j).slice(0, 160));
   meta = await b.get('/api/meta');
-  check('change: the New project path line follows it', meta.projectsRoot === fs.realpathSync(NEWROOT).replace(os.homedir(), '~'), meta.projectsRoot);
+  check('change: the New project path line follows it', meta.projectsRoot === fs.realpathSync(NEWROOT).replace(T, '~'), meta.projectsRoot);
   // Restarting does not re-adopt: the chosen setting stays.
   check('change: no second adopt on later ticks', b.reg().settings.projectsRootFrom === 'chosen');
 
@@ -201,7 +201,7 @@ try {
   check('this one: a name taken in the chosen parent is refused and points at Existing', y.status === 409 && y.j.code === 'exists' && /other-parent\/busy already exists/.test(y.j.error), y.j.error);
   y = await b.post('/api/project/new', { name: 'Busy', goal: 'Not taken in the default.' });
   check('this one: the same name in the default root is still free', y.status === 200 && fs.existsSync(path.join(rootBefore, 'busy', 'BRIEF.md')), JSON.stringify(y.j).slice(0, 120));
-  for (const [label, pp, re] of [['~/Library', path.join(os.homedir(), 'Library'), /Library/], ['the home folder', os.homedir(), /home folder itself/], ["the board's data folder", b.mc, /data folder/], ['a missing folder', path.join(OTHER, 'gone'), /not there/]]) {
+  for (const [label, pp, re] of [['~/Library', path.join(T, 'Library'), /Library/], ['the home folder', T, /home folder itself/], ["the board's data folder", b.mc, /data folder/], ['a missing folder', path.join(OTHER, 'gone'), /not there/]]) {
     y = await b.post('/api/project/new', { name: 'Guarded', goal: 'Refused.', parentFolder: pp });
     check(`this one: ${label} as the parent is refused`, y.status === 400 && re.test(y.j.error), y.j.error);
   }
@@ -230,7 +230,7 @@ try {
   fs.mkdirSync(LOCK, { recursive: true });
   const b2 = await board('b2', 4669, { ...base1, settings: { ...base1.settings, projectsRoot: PROJ } }, { MC_PROJECTS_ROOT: LOCK });
   st = await b2.state();
-  check('env: the row is locked on MC_PROJECTS_ROOT', st.projectsRoot.locked === true && st.projectsRoot.source === 'env' && st.projectsRoot.path === LOCK.replace(os.homedir(), '~'), JSON.stringify(st.projectsRoot));
+  check('env: the row is locked on MC_PROJECTS_ROOT', st.projectsRoot.locked === true && st.projectsRoot.source === 'env' && st.projectsRoot.path === LOCK.replace(T, '~'), JSON.stringify(st.projectsRoot));
   y = await b2.post('/api/settings/projects-root', { path: PROJ, from: 'chosen' });
   check('env: saving is refused while MC_PROJECTS_ROOT holds it', y.status === 409 && /MC_PROJECTS_ROOT/.test(y.j.error), y.j.error);
   check('env: the setting in the file is left alone', b2.reg().settings.projectsRoot === PROJ);

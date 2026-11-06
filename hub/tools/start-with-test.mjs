@@ -194,7 +194,7 @@ async function startBoard({ port, mc, env }) {
     MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'), ...env,
   };
   fs.mkdirSync(e.MC_CLAUDE_PROJECTS, { recursive: true });
-  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(e), stdio: ['ignore', 'pipe', 'pipe'] });
+  const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(e, T), stdio: ['ignore', 'pipe', 'pipe'] });
   servers.push(board);
   const b = { board, base: `http://localhost:${port}`, log: '' };
   board.stdout.on('data', (d) => { b.log += d; });
@@ -730,7 +730,7 @@ async function pageChecks() {
         await pg.fill('#compose', 'Fix the end screen on small phones');
         await pg.waitForFunction(() => !document.querySelector('#ns-hint').hidden);
         const hint = await pg.evaluate(() => document.querySelector('#ns-hint').textContent);
-        if (first) check('page: in a Codex project the switch\'s line says it starts Codex', hint === `Opens a new cmux tab in ${'~' + P('boat').slice(os.homedir().length)} running Codex, this project's assistant.`, hint);
+        if (first) check('page: in a Codex project the switch\'s line says it starts Codex', hint === `Opens a new cmux tab in ${'~' + P('boat').slice(T.length)} running Codex, this project's assistant.`, hint);
         if (SH) {
           await pg.evaluate(() => document.querySelector('#composer').scrollIntoView({ block: 'center' }));
           await pg.screenshot({ path: path.join(SH, `newsession-${tag}-${theme}.png`) });

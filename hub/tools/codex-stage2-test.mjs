@@ -225,7 +225,7 @@ const env = {
   MC_PS_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), MC_LSOF_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), STUB_PS_STATE: PS,
 };
 fs.mkdirSync(env.MC_CLAUDE_PROJECTS, { recursive: true });
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
+const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env, T), stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 board.stdout.on('data', (d) => { log += d; });
 board.stderr.on('data', (d) => { log += d; });
