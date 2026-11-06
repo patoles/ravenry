@@ -15,6 +15,10 @@
   },
   "scripts": {
     "audit": "node tools/audit.mjs",
-    "hub": "npm --prefix hub start"
-  }
+    "hub": "npm --prefix hub start",
+    "test:client": "npm --workspace @ravenry/client test"
+  },
+  "workspaces": [
+    "packages/client"
+  ]
 }
