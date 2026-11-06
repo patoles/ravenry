@@ -94,21 +94,54 @@ export function stateRank(s) {
   return STATES.indexOf(s);
 }
 
-// ------------------------------------------------------------ context
+// ------------------------------------------------------------ reading files
 
-// Context in use, from the last assistant record with `usage`, reading the
-// transcript from its end in growing chunks (they reach 100 MB).
-export function lastUsage(file) {
+// Every file read below goes through an `io`: this machine's files
+// (localIo), or a view of files fetched from the machine a remote session
+// runs on (server/ravenryd.mjs remoteIo), so the same decision works for
+// both. tail(file, n) gives { buf, start, size } (start > 0 when the read
+// begins inside the file; a remote view may hold less than asked), or
+// null when the file cannot be read.
+function readAt(file, from, n) {
   let fd;
   try { fd = fs.openSync(file, 'r'); } catch { return null; }
   try {
     const { size } = fs.fstatSync(fd);
+    const start = from == null ? Math.max(0, size - n) : Math.min(from, size);
+    const len = from == null ? size - start : Math.min(n, size - start);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, start);
+    return { buf, start, size };
+  } catch { return null; } finally { fs.closeSync(fd); }
+}
+
+function gitRootLocal(dir) {
+  try {
+    return execFileSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch { return null; }
+}
+
+export const localIo = {
+  remote: false,
+  exists: (p) => fs.existsSync(p),
+  text: (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } },
+  tail: (p, n) => readAt(p, null, n),
+  head: (p, n) => { const r = readAt(p, 0, n); return r ? r.buf : null; },
+  gitRoot: gitRootLocal,
+};
+
+// ------------------------------------------------------------ context
+
+// Context in use, from the last assistant record with `usage`, reading the
+// transcript from its end in growing chunks (they reach 100 MB).
+export function lastUsage(file, io = localIo) {
+  {
     let text = null;
     for (const want of [64 * 1024, 512 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024]) {
-      const start = Math.max(0, size - want);
-      const buf = Buffer.alloc(size - start);
-      fs.readSync(fd, buf, 0, buf.length, start);
-      const lines = buf.toString('utf8').split('\n');
+      const t = io.tail(file, want);
+      if (!t) return text ? { tokens: null, model: null, lastText: null } : null;
+      const start = t.start;
+      const lines = t.buf.toString('utf8').split('\n');
       if (start > 0) lines.shift();
       let usage = null; let model = null; let lastText = null;
       for (let i = lines.length - 1; i >= 0; i--) {
@@ -128,11 +161,9 @@ export function lastUsage(file) {
         return { tokens, model, lastText };
       }
       text = lines;
-      if (start === 0) break;
+      if (start === 0 || t.buf.length < Math.min(want, t.size)) break;
     }
     return text ? { tokens: null, model: null, lastText: null } : null;
-  } finally {
-    fs.closeSync(fd);
   }
 }
 
@@ -140,9 +171,9 @@ export function lastUsage(file) {
 
 // The text of the "## Hand-off" section of a brief, or the whole file for a
 // HANDOFF.md. null when the file or the section is missing.
-export function handoffText(file) {
-  let md;
-  try { md = fs.readFileSync(file, 'utf8'); } catch { return null; }
+export function handoffText(file, io = localIo) {
+  const md = file ? io.text(file) : null;
+  if (md == null) return null;
   if (!isBriefFile(file)) return md.trim() || null;
   const lines = md.replace(/\r/g, '').split('\n');
   const start = lines.findIndex((l) => /^##\s+(hand-?\s?off)\s*:?\s*$/i.test(l.trim()));
@@ -152,15 +183,15 @@ export function handoffText(file) {
   return lines.slice(start + 1, end).join('\n').trim() || null;
 }
 
-export function handoffHash(file) {
-  const t = handoffText(file);
+export function handoffHash(file, io = localIo) {
+  const t = handoffText(file, io);
   return t == null ? null : crypto.createHash('sha1').update(t).digest('hex');
 }
 
 // Written = the section exists now and is not what it was at the request.
-export function handoffWritten(marker) {
+export function handoffWritten(marker, io = localIo) {
   if (!marker || !marker.handoffFile) return false;
-  const h = handoffHash(marker.handoffFile);
+  const h = handoffHash(marker.handoffFile, io);
   return h != null && h !== (marker.handoffBase ?? null);
 }
 
@@ -172,12 +203,12 @@ export function handoffWritten(marker) {
 // section's newest bullet is dated at or after the minute it was queued,
 // and this session's own transcript wrote to the hand-off file since then
 // (another session past the line on the same brief did not).
-export function writtenWhileQueued(marker, transcriptPath) {
+export function writtenWhileQueued(marker, transcriptPath, io = localIo) {
   if (!marker || marker.state !== 'queued' || !marker.handoffFile || !marker.queuedAt) return false;
-  const top = newestBulletAt(handoffText(marker.handoffFile));
+  const top = newestBulletAt(handoffText(marker.handoffFile, io));
   const since = Date.parse(marker.queuedAt);
   if (top == null || isNaN(since) || top < Math.floor(since / 60000) * 60000) return false;
-  return wroteFile(transcriptPath, marker.handoffFile, marker.queuedAt, marker.cwd);
+  return wroteFile(transcriptPath, marker.handoffFile, marker.queuedAt, marker.cwd, io);
 }
 
 // The time of the section's newest bullet, "- YYYY-MM-DD HH:MM ...", read
@@ -195,18 +226,11 @@ const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash
 
 // Did this session (not a subagent) call a tool that writes, naming the
 // file, at or after `sinceIso`? Reads the transcript's last 64 MB.
-export function wroteFile(transcriptPath, file, sinceIso, cwd) {
+export function wroteFile(transcriptPath, file, sinceIso, cwd, io = localIo) {
   if (!transcriptPath || !file) return false;
-  let fd;
-  try { fd = fs.openSync(transcriptPath, 'r'); } catch { return false; }
-  let text;
-  try {
-    const { size } = fs.fstatSync(fd);
-    const start = Math.max(0, size - 64 * 1024 * 1024);
-    const buf = Buffer.alloc(size - start);
-    fs.readSync(fd, buf, 0, buf.length, start);
-    text = buf.toString('utf8');
-  } catch { return false; } finally { fs.closeSync(fd); }
+  const t = io.tail(transcriptPath, 64 * 1024 * 1024);
+  if (!t) return false;
+  const text = t.buf.toString('utf8');
   const names = [file];
   if (cwd) { const rel = path.relative(cwd, file); if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) names.push(rel); }
   const since = Date.parse(sinceIso) || 0;
@@ -252,11 +276,6 @@ export function firstPrompt(transcriptPath) {
 
 export const isResumePrompt = (t) => /^Read the Hand-off section of /.test(String(t || ''));
 
-function gitRoot(dir) {
-  try {
-    return execFileSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
-  } catch { return null; }
-}
 
 function isInside(child, parent) {
   const rel = path.relative(parent, child);
@@ -276,7 +295,7 @@ export function isBriefFile(file) {
 // The project: the one the board names (projectId), else the one this tab
 // belongs to among the projects listing its workspace (by "surfaces", then
 // by the repo the session's tool calls work in), else by folder.
-export function resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath, projectId, projects, root = null }) {
+export function resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath, projectId, projects, root = null, io = localIo }) {
   const live = (projects || []).filter((p) => !p.hidden);
   let project = projectId ? live.find((p) => p.id === projectId) || null : null;
   if (!project && workspaceId) {
@@ -291,15 +310,15 @@ export function resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath
   }
   if (project && project.brief && (project.folder || path.isAbsolute(project.brief))) {
     const b = path.isAbsolute(project.brief) ? project.brief : path.join(project.folder, project.brief);
-    if (fs.existsSync(b)) return { file: b, projectId: project.id, folder: project.folder || null };
+    if (io.exists(b)) return { file: b, projectId: project.id, folder: project.folder || null };
   }
-  let base = (cwd && gitRoot(cwd)) || cwd || (project && project.folder) || null;
+  let base = (cwd && io.gitRoot(cwd)) || cwd || (project && project.folder) || null;
   // Never a HANDOFF.md dropped into the projects root or the home folder.
   if (base && isBroadFolder(base, live, root)) base = null;
   if (!base) return { file: null, projectId: project ? project.id : null, folder: null };
   const sharers = live.filter((p) => p.folder && path.resolve(p.folder) === path.resolve(base));
   const shared = sharers.length > 1;
-  if (!shared && fs.existsSync(path.join(base, 'BRIEF.md'))) return { file: path.join(base, 'BRIEF.md'), projectId: project ? project.id : null, folder: base };
+  if (!shared && io.exists(path.join(base, 'BRIEF.md'))) return { file: path.join(base, 'BRIEF.md'), projectId: project ? project.id : null, folder: base };
   const name = shared && project ? `HANDOFF-${project.id}.md` : 'HANDOFF.md';
   return { file: path.join(base, name), projectId: project ? project.id : null, folder: base };
 }
@@ -307,9 +326,9 @@ export function resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath
 // The marker fields for a resolved target. The file and the hash of its
 // Hand-off section always travel together, so handoffWritten() never
 // compares one file's section against another file's base.
-export function targetFields(target) {
+export function targetFields(target, io = localIo) {
   const file = (target && target.file) || null;
-  return { handoffFile: file, handoffBase: handoffHash(file), projectId: (target && target.projectId) || null, folder: (target && target.folder) || null };
+  return { handoffFile: file, handoffBase: handoffHash(file, io), projectId: (target && target.projectId) || null, folder: (target && target.folder) || null };
 }
 
 // ------------------------------------------------------------ clean point
@@ -364,17 +383,14 @@ export function isUserPrompt(rec) {
 // The time of the newest prompt the user typed, from the transcript's end,
 // or null. Stops at the first record older than `sinceIso`: nothing before
 // it can be newer.
-export function lastPromptAt(file, sinceIso = null) {
-  let fd;
-  try { fd = fs.openSync(file, 'r'); } catch { return null; }
+export function lastPromptAt(file, sinceIso = null, io = localIo) {
   const since = sinceIso ? Date.parse(sinceIso) : NaN;
   try {
-    const { size } = fs.fstatSync(fd);
     for (const want of [256 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024]) {
-      const start = Math.max(0, size - want);
-      const buf = Buffer.alloc(size - start);
-      fs.readSync(fd, buf, 0, buf.length, start);
-      const lines = buf.toString('utf8').split('\n');
+      const t = io.tail(file, want);
+      if (!t) return null;
+      const start = t.start;
+      const lines = t.buf.toString('utf8').split('\n');
       if (start > 0) lines.shift();
       for (let i = lines.length - 1; i >= 0; i--) {
         const l = lines[i];
@@ -386,10 +402,10 @@ export function lastPromptAt(file, sinceIso = null) {
         if (!isNaN(since) && !isNaN(at) && at < since) return null;
         if (isUserPrompt(rec)) return rec.timestamp || null;
       }
-      if (start === 0) break;
+      if (start === 0 || t.buf.length < Math.min(want, t.size)) break;
     }
     return null;
-  } catch { return null; } finally { fs.closeSync(fd); }
+  } catch { return null; }
 }
 
 // Which background tasks are still running: server/tasks.mjs, shared with

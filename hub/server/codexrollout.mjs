@@ -159,10 +159,25 @@ export function readRollout(file) {
 // cannot be read. lastPromptAt is the newest prompt the user typed (a Stop
 // hook's reason comes back wrapped in <hook_prompt>, so it is not one): the
 // hook's deferral waits for it.
-export function lastUsage(file) {
-  const v = readRollout(file);
+//
+// `io` (server/handoff.mjs localIo, or the hub's view of a remote machine)
+// reads a rollout that is on another machine.
+export function lastUsage(file, io = null) {
+  const v = io && io.remote ? remoteRollout(file, io) : readRollout(file);
   if (!v) return null;
   return { tokens: v.contextTokens, window: v.contextWindow, model: v.model, lastText: v.lastText, lastPromptAt: v.lastPromptAt, lastPrompt: v.lastPrompt };
+}
+
+function remoteRollout(file, io) {
+  const t = io.tail(file, 6 * 1024 * 1024);
+  if (!t) return null;
+  let text = t.buf.toString('utf8');
+  if (t.start > 0) text = text.slice(text.indexOf('\n') + 1);
+  try {
+    const value = parseRollout(text);
+    value.contextTokens = tokensOf(value.usage);
+    return value;
+  } catch { return null; }
 }
 
 // Finds the rollout of a session id: rollout-*-<id>.jsonl under

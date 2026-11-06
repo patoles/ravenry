@@ -255,4 +255,8 @@ export const rexWatch = (ids, onEvent) => rex.watch(ids, onEvent);
 // panes' hooks report, as hook records, and the hub's answer to a hook that
 // waits), and the hand-off decider that answers it.
 export const ravenryStatus = (o) => ravenry.startStatus(o);
-export const ravenryDecider = (report) => ravenry.handoffDecider(report);
+export const ravenryDecider = (report, where) => ravenry.handoffDecider(report, where);
+// Remote machines, sessions started through the hub, checkpoint answers.
+export const ravenryMachineOf = (surfaceId) => ravenry.machineOfTab(surfaceId);
+export const ravenryStart = (o) => ravenry.startSession(o);
+export const ravenryAnswer = (daemon, params) => ravenry.answerCheckpoint(daemon, params);

@@ -72,7 +72,7 @@ export function ingestDaemon(e) {
 // One session's events folded into what the state rules read.
 export function summarize(sid, events) {
   const s = {
-    sessionId: sid, assistant: null, cwd: null, transcriptPath: null, workspaceId: null, surfaceId: null, pane: null, terminal: null, terminalId: null, terminalSession: null,
+    sessionId: sid, assistant: null, machine: null, cwd: null, transcriptPath: null, workspaceId: null, surfaceId: null, pane: null, terminal: null, terminalId: null, terminalSession: null,
     startedAt: null, source: null, endedAt: null, endReason: null, pid: null, pidAt: null,
     last: null, lastStop: null, lastPromptAt: null, notification: null, lastEventAt: null, count: events.length,
   };
@@ -86,6 +86,8 @@ export function summarize(sid, events) {
     if (e.workspace_id) s.workspaceId = e.workspace_id;
     if (e.surface_id) s.surfaceId = e.surface_id;
     if (e.pane) s.pane = e.pane;
+    // A session on a remote machine (server/ravenryd.mjs tags its records).
+    if (e.machine) s.machine = e.machine;
     // The terminal of its latest event that names one (a /resume in another
     // terminal moves it).
     if (e.terminal) { s.terminal = e.terminal; s.terminalId = e.terminal_id || null; s.terminalSession = e.terminal_session || null; }

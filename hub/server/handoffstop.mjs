@@ -20,7 +20,10 @@ import { lastUsage as codexUsage } from './codexrollout.mjs';
 const RANK = (s) => h.stateRank(s);
 const atLeast = (prev, s) => (prev && RANK(prev) > RANK(s) ? prev : s);
 
-export async function decideStop(input, { assistant = 'claude', tab = null, env = process.env, codexDaemon = async () => false } = {}) {
+// `io` reads the session's files: this machine's (the default), or, for a
+// session on a remote machine, what the hub fetched through its daemon
+// (server/ravenryd.mjs remoteIo). The markers are always the hub's own.
+export async function decideStop(input, { assistant = 'claude', tab = null, env = process.env, codexDaemon = async () => false, io = h.localIo } = {}) {
   const ASSISTANT = assistant;
   const done = (out) => out || null;
   const sid = input && input.session_id;
@@ -37,7 +40,7 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   const enabled = settings.handoffEnabled !== false;
   const threshold = enabled ? Number(settings.handoffThreshold) || 50 : Infinity;
   const ceiling = enabled ? Number(settings.handoffCeiling) || 70 : Infinity;
-  const u = input.transcript_path ? (ASSISTANT === 'codex' ? codexUsage(input.transcript_path) : h.lastUsage(input.transcript_path)) : null;
+  const u = input.transcript_path ? (ASSISTANT === 'codex' ? codexUsage(input.transcript_path, io) : h.lastUsage(input.transcript_path, io)) : null;
   // A Codex rollout records its model's own window.
   if (u && u.window) window = u.window;
   const tokens = u && u.tokens != null ? u.tokens : null;
@@ -45,14 +48,14 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   const now = new Date().toISOString();
 
   // Asked earlier, and the hand-off is now on disk: record it, let it stop.
-  if (marker && marker.state === 'requested' && h.handoffWritten(marker)) {
+  if (marker && marker.state === 'requested' && h.handoffWritten(marker, io)) {
     h.writeMarker(sid, { state: 'written', writtenAt: now, writtenSeenBy: 'hook', pct, tokens });
     return done();
   }
   // Written while still queued (on its own, or asked by hand). The hash
   // check above cannot see it: the base below is taken afresh at every
   // queued stop, so the stop after the write swallows the change.
-  if (marker && marker.state === 'queued' && h.writtenWhileQueued(marker, input.transcript_path || marker.transcriptPath)) {
+  if (marker && marker.state === 'queued' && h.writtenWhileQueued(marker, input.transcript_path || marker.transcriptPath, io)) {
     h.writeMarker(sid, { state: 'written', writtenAt: now, writtenSeenBy: 'hook', pct, tokens });
     return done();
   }
@@ -68,17 +71,18 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   const envTab = !tab && !(ASSISTANT === 'codex' && await codexDaemon());
   const workspaceId = (marker && marker.workspaceId) || (tab && tab.workspaceId) || (envTab && env.CMUX_WORKSPACE_ID) || null;
   const surfaceId = (marker && marker.surfaceId) || (tab && tab.surfaceId) || (envTab && env.CMUX_SURFACE_ID) || null;
-  const cwd = input.cwd || (marker && marker.cwd) || process.cwd();
+  const cwd = input.cwd || (marker && marker.cwd) || (io.remote ? null : process.cwd());
   // Resolved afresh at every stop, never read back from the marker: the
   // registry can gain a brief after the first stop past the line, and the
   // marker's projectId (from an earlier stop) is only a hint for which
   // project this session belongs to.
-  const target = h.resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath: input.transcript_path, projectId: (marker && marker.projectId) || null, projects, root: env.MC_PROJECTS_ROOT || settings.projectsRoot || null });
+  const target = h.resolveHandoffFile({ cwd, workspaceId, surfaceId, transcriptPath: input.transcript_path, projectId: (marker && marker.projectId) || null, projects, root: env.MC_PROJECTS_ROOT || settings.projectsRoot || null, io });
   const common = {
     cwd, transcriptPath: input.transcript_path || null, workspaceId, surfaceId,
     ...(ASSISTANT !== 'claude' ? { assistant: ASSISTANT } : {}),
     // The file and its section's hash, together: any change after this is the hand-off.
-    ...h.targetFields(target),
+    ...h.targetFields(target, io),
+    ...(tab && tab.machine ? { machine: tab.machine } : {}),
     pct, tokens, window, threshold, ceiling, lastStopAt: now,
   };
   if (!marker || !marker.queuedAt) common.queuedAt = now;
@@ -113,7 +117,7 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   if (hold) {
     const promptAt = ASSISTANT === 'codex'
       ? (u && u.lastPromptAt && !h.hasTag(u.lastPrompt) ? u.lastPromptAt : null)
-      : (input.transcript_path ? h.lastPromptAt(input.transcript_path, held.deferredAt) : null);
+      : (input.transcript_path ? h.lastPromptAt(input.transcript_path, held.deferredAt, io) : null);
     hold = h.deferralHold(held, { over, promptAt });
   }
 

@@ -15,6 +15,14 @@
 // decides what a waiting hook answers (the hand-off at a Stop). If the hub
 // is down, the daemon lets the session go on.
 //
+// Remote machines (server/machines.mjs): the daemons the hub reaches with
+// `ssh host ravenryd proxy` count as daemons here too. Their panes keep the
+// same "ravenry:<id>" tab ids, and everything below (listing, typing, the
+// status channel, hook decisions, checkpoints) works on them unchanged;
+// each pane, record and checkpoint says its `machine` (null on this one).
+// The hand-off on a remote pane reads the transcript and the brief on that
+// machine through the daemon's file.stat and file.read (remoteIo).
+//
 // A test board (RAVENRY_HOME or MC_HOME set) never talks to a daemon of the
 // user's: it needs RAVENRY_RUNTIME_DIR set to the test's own folder.
 
@@ -25,6 +33,7 @@ import { spawn } from 'node:child_process';
 import { HOME_OVERRIDE, RAVENRY_HOME } from './home.mjs';
 import { record } from './hookrecord.mjs';
 import { decideStop } from './handoffstop.mjs';
+import * as machines from './machines.mjs';
 
 const env = process.env;
 export const PREFIX = 'ravenry:';
@@ -65,12 +74,16 @@ export function findBin(e = env, has = fs.existsSync) {
 
 // ---------------------------------------------------------------- daemons
 
-// socket -> { c (client), version, key } for every daemon that answered.
+// socket -> { c (client), version, key, id, machine } for every local
+// daemon that answered; remote ones (machine set, id "ssh:<name>") come
+// from server/machines.mjs.
 const conns = new Map();
+const remotes = new WeakMap(); // a remote machine's client -> its entry
 let statusOpts = null;
 
 // Connects to every daemon in the runtime folder (newest first) and drops
-// the connections that closed. Returns the live ones.
+// the connections that closed. Returns the live ones, local first, then
+// one per connected machine.
 async function daemons() {
   if (held()) return [];
   const { daemonSockets, connectSocket } = await nodeClient();
@@ -79,13 +92,47 @@ async function daemons() {
   await Promise.all(socks.filter((s) => !conns.has(s.socket)).map(async (s) => {
     try {
       const c = await connectSocket(s.socket, { name: 'ravenry-hub', timeoutMs: 2000 });
-      const d = { c, version: s.version, key: `${c.hello.daemon.pid}:${c.hello.daemon.started_at}` };
+      const d = { c, version: s.version, key: `${c.hello.daemon.pid}:${c.hello.daemon.started_at}`, id: s.socket, machine: null };
       conns.set(s.socket, d);
-      c.on('close', () => { if (conns.get(s.socket) === d) conns.delete(s.socket); });
+      c.on('close', () => { if (conns.get(s.socket) === d) conns.delete(s.socket); if (statusOpts && statusOpts.onLost) statusOpts.onLost(s.socket); });
       if (statusOpts) await follow(d);
     } catch { /* a socket left by a daemon that is gone */ }
   }));
-  return socks.map((s) => conns.get(s.socket)).filter(Boolean);
+  return [...socks.map((s) => conns.get(s.socket)).filter(Boolean), ...machines.connected().map(remoteEntry)];
+}
+
+function remoteEntry(m) {
+  let d = remotes.get(m.c);
+  if (!d) {
+    const h = m.c.hello && m.c.hello.daemon ? m.c.hello.daemon : {};
+    d = { c: m.c, version: m.version || h.version, key: `${m.name}|${h.pid}:${h.started_at}`, id: `ssh:${m.name}`, machine: m.name };
+    remotes.set(m.c, d);
+  }
+  return d;
+}
+
+// Keeps a connection to every machine in the registry's settings, and
+// follows each one's status channel once it connects (the hub calls it at
+// start, with startStatus; tests call it on its own).
+let machinesOn = false;
+export async function startMachines() {
+  if (machinesOn || held()) return;
+  machinesOn = true;
+  const { connect } = await nodeClient();
+  machines.start({
+    connect,
+    onUp: (m) => { const d = remoteEntry({ name: m.m.name, c: m.c, version: m.version }); if (statusOpts) follow(d).then(() => statusOpts && statusOpts.onChange()); },
+    onDown: (m) => { if (statusOpts) { if (statusOpts.onLost) statusOpts.onLost(`ssh:${m.m.name}`); statusOpts.onChange(); } },
+  });
+}
+export function stopMachines() { machinesOn = false; machines.stop(); }
+
+// The machine a pane runs on, as the last listing saw it: a name, or null
+// for this machine (and for a pane it does not know).
+export function machineOfTab(id) {
+  const p = paneOf(id);
+  const at = p ? where.get(p) : null;
+  return at && at.startsWith('ssh:') ? at.slice(4) : null;
 }
 
 // The daemon that holds a pane: the last listing's, else asked.
@@ -94,12 +141,12 @@ async function daemonOf(id) {
   const p = paneOf(id);
   if (!p) return null;
   const live = await daemons();
-  const known = live.find((d) => d.c.socket === where.get(p));
+  const known = live.find((d) => d.id === where.get(p));
   if (known) return known;
   for (const d of live) {
     try {
       const { panes } = await d.c.request('pane.list', { hidden: true }, { timeoutMs: 3000 });
-      if (panes.some((x) => x.id === p)) { where.set(p, d.c.socket); return d; }
+      if (panes.some((x) => x.id === p)) { where.set(p, d.id); return d; }
     } catch { /* that daemon went away */ }
   }
   return null;
@@ -124,8 +171,9 @@ export async function check() {
 
 // ---------------------------------------------------------------- reads
 
-// Every pane of every daemon: { id: "ravenry:<id>", paneId, title, name,
-// cwd, agent, shell, daemon }. Throws when no daemon answers, so the board
+// Every pane of every daemon, this machine's and the remote ones: { id:
+// "ravenry:<id>", paneId, title, name, labels, cwd, agent, shell, daemon,
+// machine }. Throws when no daemon answers, so the board
 // shows the sessions there watch only, with the reason.
 export async function listTabs() {
   const live = await daemons();
@@ -135,8 +183,8 @@ export async function listTabs() {
     let panes = [];
     try { ({ panes } = await d.c.request('pane.list', {}, { timeoutMs: 3000 })); } catch { continue; }
     for (const p of panes) {
-      where.set(p.id, d.c.socket);
-      tabs.push({ id: PREFIX + p.id, paneId: p.id, title: p.title || p.name || '', name: p.name || '', cwd: p.cwd, state: p.state, agent: p.agent || null, shell: p.shell || null, daemon: d.version });
+      where.set(p.id, d.id);
+      tabs.push({ id: PREFIX + p.id, paneId: p.id, title: p.title || p.name || '', name: p.name || '', labels: p.labels || {}, cwd: p.cwd, state: p.state, agent: p.agent || null, shell: p.shell || null, daemon: d.version, machine: d.machine });
     }
   }
   return tabs;
@@ -191,25 +239,66 @@ export async function focus(id) {
 // daemon, which is started when none runs (RAVENRY_DAEMON_BIN or ravenryd
 // on the PATH). The caller types the command into it, so the pane outlives
 // the command. Returns { ok, surfaceId, surfaceRef }.
-export async function openTab({ near = null, cwd = null, label = null } = {}) {
+export async function openTab({ near = null, cwd = null, label = null, machine = null, labels = null } = {}) {
   if (held()) return { ok: false, err: 'a test board does not reach the real ravenryd' };
   let d = near ? await daemonOf(near) : null;
-  if (!d) d = (await daemons())[0] || null;
+  if (!d && machine) {
+    d = (await daemons()).find((x) => x.machine === machine) || null;
+    if (!d) return { ok: false, err: `${machine} is not connected${machineError(machine)}` };
+  }
+  if (!d) d = (await daemons()).find((x) => !x.machine) || null;
   if (!d) {
     const started = await startDaemon();
     if (!started.ok) return started;
-    d = (await daemons())[0] || null;
+    d = (await daemons()).find((x) => !x.machine) || null;
     if (!d) return { ok: false, err: 'ravenryd started but does not answer' };
   }
-  const dir = cwd && fs.existsSync(cwd) ? cwd : os.homedir();
+  // A folder on another machine is checked there, by the daemon.
+  const dir = d.machine ? cwd || undefined : cwd && fs.existsSync(cwd) ? cwd : os.homedir();
   const name = String(label || (cwd ? path.basename(cwd) : '') || 'Claude').slice(0, 60);
   try {
-    const { pane } = await d.c.request('pane.new', { cwd: dir, name }, { timeoutMs: 10000 });
-    where.set(pane.id, d.c.socket);
-    return { ok: true, surfaceId: PREFIX + pane.id, surfaceRef: 'Ravenry tab' };
+    const { pane } = await d.c.request('pane.new', { ...(dir ? { cwd: dir } : {}), name, ...(labels && d.c.has('pane.update') ? { labels } : {}) }, { timeoutMs: 10000 });
+    where.set(pane.id, d.id);
+    return { ok: true, surfaceId: PREFIX + pane.id, surfaceRef: d.machine ? `Ravenry tab on ${d.machine}` : 'Ravenry tab', machine: d.machine, pane };
   } catch (e) {
     return { ok: false, err: `ravenryd did not open a pane: ${e.message}` };
   }
+}
+
+// A session started through the hub (server/sessionstart.mjs): a new pane
+// running the login shell in `cwd` on `machine` (or here), labelled, then
+// the assistant's line typed once the shell drew its prompt, so the pane
+// outlives the assistant. Returns { ok, surfaceId, pane, machine } or
+// { ok: false, err }.
+export async function startSession({ machine = null, cwd, line, label = null, labels = null, cols = null, rows = null }) {
+  const made = await openTab({ machine, cwd, label, labels });
+  if (!made.ok) return made;
+  const d = await daemonOf(made.surfaceId);
+  if (!d) return { ok: false, err: 'its pane closed at once' };
+  const pane = paneOf(made.surfaceId);
+  try {
+    if (cols && rows) await d.c.request('pane.resize', { pane, cols, rows }, { timeoutMs: 3000 });
+    // The shell's first prompt (shell integration); without it, a quiet moment.
+    const w = await d.c.request('pane.wait', { pane, prompt: true, since: 0, timeout_ms: 4000 }, { timeoutMs: 6000 });
+    if (w.condition === 'timeout') await d.c.request('pane.wait', { pane, quiet_ms: 300, timeout_ms: 3000 }, { timeoutMs: 5000 });
+    await d.c.request('pane.send', { pane, input: [{ text: line, mode: 'paste' }, { key: 'Enter' }] }, { timeoutMs: 6000 });
+  } catch (e) {
+    return { ok: false, err: `the pane opened but the command was not typed: ${e.message}`, surfaceId: made.surfaceId };
+  }
+  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine };
+}
+
+// A person's answer to a checkpoint, sent to the daemon that holds it
+// (server/checkpoints.mjs). `daemon` is the id the hub gave it.
+export async function answerCheckpoint(daemon, params) {
+  const d = (await daemons()).find((x) => x.id === daemon);
+  if (!d) { const e = new Error('that daemon is not connected'); e.code = 'disconnected'; throw e; }
+  return d.c.request('checkpoint.answer', params, { timeoutMs: 15000 });
+}
+
+function machineError(name) {
+  const m = machines.status().find((x) => x.name === name);
+  return m && m.error ? ` (${m.error})` : '';
 }
 
 function startDaemon() {
@@ -240,8 +329,9 @@ export async function close(id) {
 let poll = null;
 const lastSeq = new Map(); // daemon key -> last report seen
 export function startStatus(opts) {
-  statusOpts = { onRecord: () => {}, onChange: () => {}, decide: async () => null, everyMs: 5000, ...opts };
+  statusOpts = { onRecord: () => {}, onChange: () => {}, onCheckpoint: () => {}, decide: async () => null, everyMs: 5000, ...opts };
   for (const d of conns.values()) follow(d);
+  startMachines().then(() => { for (const m of machines.connected()) follow(remoteEntry(m)); }).catch(() => {});
   const tickNow = () => { daemons().catch(() => {}); };
   tickNow();
   if (poll) clearInterval(poll);
@@ -252,6 +342,7 @@ export function startStatus(opts) {
 
 export function stopStatus() {
   statusOpts = null;
+  stopMachines();
   if (poll) clearInterval(poll);
   poll = null;
   for (const d of conns.values()) d.c.close();
@@ -265,11 +356,17 @@ async function follow(d) {
   d.c.on('event', (e) => {
     if (e.event === 'agent.report') { take(d, e.report); o.onChange(); }
     else if (e.event === 'agent.decision') answer(d, e);
+    else if (String(e.event).startsWith('checkpoint.') && e.checkpoint) { o.onCheckpoint(e.checkpoint, { machine: d.machine, daemon: d.id, event: e.event }); o.onChange(); }
     else if (String(e.event).startsWith('pane.')) o.onChange();
   });
   try {
     await d.c.request('events.subscribe', {});
     if (d.c.has('agent.decisions')) await d.c.request('agent.decisions', {});
+    // The checkpoints open while the hub was away.
+    if (d.c.has('checkpoint.list')) {
+      const { checkpoints } = await d.c.request('checkpoint.list', {});
+      for (const cp of checkpoints) o.onCheckpoint(cp, { machine: d.machine, daemon: d.id, event: 'checkpoint.listed' });
+    }
     // What this daemon reported while the hub was not following it.
     for (;;) {
       const r = await d.c.request('agent.events', { since: lastSeq.get(d.key) || 0, limit: 1000 });
@@ -283,20 +380,27 @@ async function follow(d) {
 function take(d, rep) {
   if (!rep || rep.seq <= (lastSeq.get(d.key) || 0)) return;
   lastSeq.set(d.key, rep.seq);
-  const rec = recordOf(rep);
+  const rec = recordOf(rep, d.machine);
+  if (rec && rep.pane) where.set(rep.pane, d.id);
   if (rec && statusOpts) statusOpts.onRecord(rec);
 }
 
 async function answer(d, e) {
   let reply = null;
-  try { reply = await statusOpts.decide(e.report); } catch { reply = null; }
+  try { reply = await statusOpts.decide(e.report, { machine: d.machine, client: d.c }); } catch { reply = null; }
   try { await d.c.request('agent.decide', { request: e.request, ...(reply ? { reply } : {}) }, { timeoutMs: 2000 }); } catch { /* timed out on the daemon's side */ }
 }
 
 // A daemon's agent report as the board's hook record (server/hookrecord.mjs),
 // or null for a report the board's sessions do not use (a program's own
 // status report, which the app shows from the pane).
-export function recordOf(rep) {
+export function recordOf(rep, machine = null) {
+  const r = recordOfReport(rep);
+  if (r && machine) r.machine = machine;
+  return r;
+}
+
+function recordOfReport(rep) {
   if (!rep) return null;
   if (rep.source === 'hook' && rep.data && typeof rep.data.session_id === 'string') {
     const paneEnv = rep.pane ? { RAVENRY_PANE: rep.pane, TERM_PROGRAM: 'ravenry' } : {};
@@ -320,13 +424,90 @@ export function recordOf(rep) {
 
 // The hub's answer to a waiting hook: the clean hand-off at a Stop of
 // Claude Code or Codex (server/handoffstop.mjs), in their hook format.
-export async function handoffDecider(rep) {
+//
+// On a remote machine the transcript and the brief are there, not here:
+// the decision reads them through that daemon (remoteIo), and the hand-off
+// file it names is on that machine too.
+export async function handoffDecider(rep, { machine = null, client = null } = {}) {
   if (!rep || rep.source !== 'hook' || rep.event !== 'Stop' || !rep.data) return null;
   if (rep.assistant !== 'claude' && rep.assistant !== 'codex') return null;
+  const io = machine && client ? await remoteIo(client, rep.data) : null;
+  if (machine && client && !io) return null; // cannot read there in time: let it stop
   const out = await decideStop(rep.data, {
     assistant: rep.assistant,
-    tab: rep.pane ? { surfaceId: PREFIX + rep.pane } : null,
+    tab: rep.pane ? { surfaceId: PREFIX + rep.pane, machine } : null,
     codexDaemon: async () => !rep.pane,
+    ...(io ? { io } : {}),
   });
   return out ? { stdout: JSON.stringify(out) + '\n' } : null;
+}
+
+// ---------------------------------------------------------------- remote files
+
+// What the hand-off reads on the machine a session runs on, fetched
+// through its daemon before the (synchronous) decision runs: the end of
+// the transcript (TRANSCRIPT_TAIL, where the last usage and prompt are),
+// whether each folder from the session's cwd up holds .git or BRIEF.md,
+// the brief or HANDOFF.md the decision may name, and the hand-off file of
+// a marker that waits. Anything not fetched reads as missing, so a slow or
+// failed read lets the session stop rather than guess.
+export const TRANSCRIPT_TAIL = 4 << 20;
+export const remoteStats = { reads: 0, stats: 0 };
+
+export async function remoteIo(c, input, { markerFile = null, extra = [] } = {}) {
+  if (!c.has('file.read')) return null;
+  const files = new Map(); // path -> { buf, start, size } (start > 0: only the tail)
+  const kinds = new Map(); // path -> 'file' | 'dir' | 'none'
+  const read = async (p, tail) => {
+    if (!p || files.has(p)) return;
+    try {
+      remoteStats.reads++;
+      const r = await c.request('file.read', { path: p, ...(tail ? { tail } : {}), limit: tail || (1 << 20), format: 'raw' }, { timeoutMs: 4000 });
+      files.set(p, { buf: Buffer.from(r.data || '', 'base64'), start: r.from, size: r.size });
+      kinds.set(p, 'file');
+    } catch { kinds.set(p, kinds.get(p) || 'none'); }
+  };
+  const cwd = typeof input.cwd === 'string' && input.cwd.startsWith('/') ? input.cwd : null;
+  const ups = [];
+  for (let d = cwd; d && ups.length < 24; d = path.dirname(d)) { ups.push(d); if (d === '/') break; }
+  const probe = [...ups.flatMap((d) => [path.join(d, '.git'), path.join(d, 'BRIEF.md'), path.join(d, 'HANDOFF.md')]), ...extra].slice(0, 64);
+  try {
+    if (probe.length) {
+      remoteStats.stats++;
+      const { files: st } = await c.request('file.stat', { paths: probe }, { timeoutMs: 4000 });
+      for (const f of st) kinds.set(f.path, f.type);
+    }
+    await Promise.all([
+      typeof input.transcript_path === 'string' && input.transcript_path.startsWith('/') ? read(input.transcript_path, TRANSCRIPT_TAIL) : null,
+      markerFile ? read(markerFile) : null,
+      ...probe.filter((p) => /\/(BRIEF|HANDOFF)[^/]*\.md$/.test(p) && kinds.get(p) === 'file').map((p) => read(p)),
+    ]);
+  } catch { return null; }
+  return makeIo(files, kinds, cwd);
+}
+
+// A synchronous view of fetched files, in the shape server/handoff.mjs reads
+// through (localIo there).
+function makeIo(files, kinds, cwd) {
+  const gitRoot = (dir) => {
+    for (let d = dir; d; d = path.dirname(d)) {
+      if (kinds.get(path.join(d, '.git')) && kinds.get(path.join(d, '.git')) !== 'none') return d;
+      if (d === '/') break;
+    }
+    return null;
+  };
+  return {
+    remote: true,
+    exists: (p) => (kinds.get(p) || 'none') !== 'none',
+    text: (p) => { const f = files.get(p); return f && f.start === 0 ? f.buf.toString('utf8') : null; },
+    tail: (p, want) => {
+      const f = files.get(p);
+      if (!f) return null;
+      const start = Math.max(f.start, f.size - want);
+      return { buf: f.buf.subarray(start - f.start), start, size: f.size };
+    },
+    head: (p, want) => { const f = files.get(p); return f && f.start === 0 ? f.buf.subarray(0, want) : null; },
+    gitRoot,
+    cwd,
+  };
 }
