@@ -34,6 +34,7 @@ import { HOME_OVERRIDE, RAVENRY_HOME } from './home.mjs';
 import { record } from './hookrecord.mjs';
 import { decideStop } from './handoffstop.mjs';
 import * as machines from './machines.mjs';
+import { answerKey } from './person.mjs';
 
 const env = process.env;
 export const PREFIX = 'ravenry:';
@@ -91,7 +92,7 @@ async function daemons() {
   for (const [sock, d] of conns) if (d.c.closed || !socks.some((s) => s.socket === sock)) { d.c.close(); conns.delete(sock); }
   await Promise.all(socks.filter((s) => !conns.has(s.socket)).map(async (s) => {
     try {
-      const c = await connectSocket(s.socket, { name: 'ravenry-hub', timeoutMs: 2000 });
+      const c = await connectSocket(s.socket, { name: 'ravenry-hub', timeoutMs: 2000, answerKey: answerKey() });
       const d = { c, version: s.version, key: `${c.hello.daemon.pid}:${c.hello.daemon.started_at}`, id: s.socket, machine: null };
       conns.set(s.socket, d);
       c.on('close', () => { if (conns.get(s.socket) === d) conns.delete(s.socket); if (statusOpts && statusOpts.onLost) statusOpts.onLost(s.socket); });

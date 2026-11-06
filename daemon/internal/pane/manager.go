@@ -266,6 +266,17 @@ func (m *Manager) Running() int {
 	return n
 }
 
+// Roots maps the first process of every running pane to its pane id.
+func (m *Manager) Roots() map[int]string {
+	out := map[int]string{}
+	for _, i := range m.List(true) {
+		if i.Running() && i.PID > 0 {
+			out[i.PID] = i.ID
+		}
+	}
+	return out
+}
+
 // Count counts the panes, running or not.
 func (m *Manager) Count() int {
 	m.mu.Lock()

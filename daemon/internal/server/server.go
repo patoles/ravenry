@@ -42,6 +42,9 @@ type Options struct {
 	// OnDrained is called once a newer daemon runs and this one has no
 	// running panes left.
 	OnDrained func()
+	// AnswerKeyFile keeps the answer key this machine trusts over ssh
+	// (peer.go). Empty: kept in memory.
+	AnswerKeyFile string
 }
 
 // Server serves the protocol.
@@ -61,6 +64,8 @@ type Server struct {
 	nextDec   uint64
 
 	cps *checkpoints
+
+	keys *answerKeys
 }
 
 // decision is a hook's report waiting for a decider's reply.
@@ -80,10 +85,11 @@ func New(o Options) *Server {
 	}
 	s.agents.Alive = processAlive
 	s.cps = newCheckpoints()
+	s.keys = &answerKeys{path: o.AnswerKeyFile}
 	o.Manager.WantActivity(func() bool {
 		return len(s.connections(func(c *conn) bool { return c.unwatch != nil && c.activity })) > 0
 	})
-	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, ErrorLog: o.Log}
+	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, ErrorLog: o.Log, ConnContext: connContext}
 	o.Manager.Watch(s.paneEvent)
 	return s
 }
@@ -200,6 +206,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ws.SetReadLimit(16 << 20)
 	c := newConn(s, ws)
+	if nc, ok := r.Context().Value(connKey{}).(net.Conn); ok {
+		c.peer = peerPID(nc)
+	}
 	s.mu.Lock()
 	s.conns[c] = struct{}{}
 	s.mu.Unlock()
@@ -236,6 +245,12 @@ type conn struct {
 
 	events chan proto.Event
 	input  chan func()
+
+	// peer is the process at the other end of the socket; person says
+	// whether it may act as the person, and notPerson why not (peer.go).
+	peer      int
+	person    bool
+	notPerson string
 }
 
 type stream struct {
@@ -423,6 +438,9 @@ func (c *conn) message(data []byte) {
 		c.fail(&id, proto.CodeUnknownMethod, fmt.Sprintf("no method %q", env.Type))
 		return
 	}
+	if personOnly[env.Type] && !c.asPerson(id, env.Type) {
+		return
+	}
 	h(c, id, data)
 }
 
@@ -541,6 +559,10 @@ func (c *conn) hello_(id uint64, data []byte) {
 		c.failErr(id, bad("client.name is required"))
 		return
 	}
+	if len(r.AnswerKey) > 256 {
+		c.failErr(id, bad("answer_key is at most 256 bytes"))
+		return
+	}
 	c.mu.Lock()
 	again := c.hello
 	c.hello = true
@@ -550,7 +572,11 @@ func (c *conn) hello_(id uint64, data []byte) {
 		c.failErr(id, bad("hello was already sent on this connection"))
 		return
 	}
-	c.reply(id, "hello", proto.HelloResult{Protocol: proto.Version, Daemon: c.s.daemonInfo(), Methods: proto.Methods})
+	c.judge(r.AnswerKey)
+	c.mu.Lock()
+	person := c.person
+	c.mu.Unlock()
+	c.reply(id, "hello", proto.HelloResult{Protocol: proto.Version, Daemon: c.s.daemonInfo(), Methods: proto.Methods, Person: person})
 }
 
 func (c *conn) cancel_(id uint64, data []byte) {

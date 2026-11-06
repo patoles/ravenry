@@ -57,8 +57,12 @@ c.on('event', (e) => {
 
 ## API
 
-- `connectSocket(path, { name, version, timeoutMs })` and
+- `connectSocket(path, { name, version, timeoutMs, answerKey })` and
   `connect(duplex, opts)`: the handshake and `hello`. Resolve to a Client.
+  `answerKey` is a hub's answer key: over ssh, a daemon lets only the
+  connection with the key it trusts act as the person (PROTOCOL.md
+  section 4, Who acts as the person); `client.hello.person` says whether
+  this one may.
 - `client.request(method, params, { timeoutMs, signal })`: resolves to the
   result, rejects with a `RavenryError` whose `code` is the protocol's
   error code (or `disconnected`, `timeout`, `cancelled`). A request that

@@ -6,6 +6,13 @@
 // every pane, agent report, hook decision and checkpoint of a remote
 // machine reaches the board the same way, tagged with its machine.
 //
+// Answers: over ssh the remote daemon cannot see this machine, so it takes
+// a person's answers (checkpoints, hook decisions) only from a connection
+// that gives the answer key it trusts, the first one it was given
+// (server/person.mjs). The hub gives its key on every connection, so the
+// first hub to connect pairs; `answers` in status() says whether this one
+// did.
+//
 // The list lives in the registry's settings (projects.json, "machines"):
 // [{ name, host, command }]. `name` is what the board shows, `host` what
 // ssh is given (a ~/.ssh/config alias, user@host, ...), `command` the
@@ -26,6 +33,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as registry from './registry.mjs';
+import { answerKey } from './person.mjs';
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/;
 // A host as ssh takes it: an alias, user@host, host:port is not ssh's form.
@@ -142,7 +150,7 @@ function dial(l) {
   child.on('exit', () => {
     if (!settled) { settled = true; down(l, sshError(err) || 'ssh closed the connection'); }
   });
-  opts.connect(stream, { name: 'ravenry-hub', timeoutMs: 15000 }).then((c) => {
+  opts.connect(stream, { name: 'ravenry-hub', timeoutMs: 15000, answerKey: answerKey() }).then((c) => {
     if (settled || l.removed) { c.close(); return; }
     l.c = c;
     l.state = 'connected';
@@ -150,6 +158,9 @@ function dial(l) {
     l.tries = 0;
     l.since = new Date().toISOString();
     l.version = c.hello && c.hello.daemon ? c.hello.daemon.version : null;
+    // Whether that machine takes this hub's answers (PROTOCOL.md section
+    // 4, Who acts as the person): it trusts this hub's answer key.
+    l.person = !!(c.hello && c.hello.person);
     c.on('close', () => {
       if (settled) return;
       settled = true;
@@ -199,7 +210,7 @@ export function status() {
   const list = opts ? opts.list() : configured();
   return list.map((m) => {
     const l = links.get(m.name);
-    return { name: m.name, host: m.host, command: m.command, state: l ? l.state : 'off', error: l && l.state !== 'connected' ? l.error : null, since: l ? l.since : null, version: l && l.state === 'connected' ? l.version : null };
+    return { name: m.name, host: m.host, command: m.command, state: l ? l.state : 'off', error: l && l.state !== 'connected' ? l.error : null, since: l ? l.since : null, version: l && l.state === 'connected' ? l.version : null, answers: l && l.state === 'connected' ? l.person : null };
   });
 }
 

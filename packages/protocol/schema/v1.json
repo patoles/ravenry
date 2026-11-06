@@ -1825,6 +1825,12 @@
             "name"
           ],
           "additionalProperties": false
+        },
+        "answer_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The hub's answer key: a connection over ssh that gives the key this machine trusts may act as the person (section 4, Who acts as the person)."
         }
       },
       "required": [
@@ -3074,12 +3080,17 @@
                 "type": "string"
               },
               "uniqueItems": true
+            },
+            "person": {
+              "type": "boolean",
+              "description": "Whether this connection may act as the person: answer checkpoints, decide for hooks."
             }
           },
           "required": [
             "protocol",
             "daemon",
-            "methods"
+            "methods",
+            "person"
           ],
           "additionalProperties": false
         }
@@ -3781,7 +3792,8 @@
                 "failed",
                 "cancelled",
                 "shutting_down",
-                "internal"
+                "internal",
+                "forbidden"
               ]
             },
             "message": {

@@ -34,6 +34,9 @@ type Options struct {
 	OnMessage func(dir string, text bool, data []byte)
 	// SkipHello leaves out the hello request (tests of the protocol use it).
 	SkipHello bool
+	// AnswerKey goes in hello: over ssh, the key that lets a hub act as
+	// the person (PROTOCOL.md section 4, Who acts as the person).
+	AnswerKey string
 }
 
 // Frame is a binary frame of a stream.
@@ -122,7 +125,11 @@ func DialWith(ctx context.Context, dial func(context.Context) (net.Conn, error),
 	if o.Name == "" {
 		o.Name = "ravenryd-client"
 	}
-	err = c.Call(ctx, "hello", map[string]any{"client": proto.ClientInfo{Name: o.Name, Version: o.Version}}, &c.Hello)
+	hello := map[string]any{"client": proto.ClientInfo{Name: o.Name, Version: o.Version}}
+	if o.AnswerKey != "" {
+		hello["answer_key"] = o.AnswerKey
+	}
+	err = c.Call(ctx, "hello", hello, &c.Hello)
 	if err != nil {
 		c.Close()
 		return nil, err

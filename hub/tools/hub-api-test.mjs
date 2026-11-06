@@ -5,6 +5,9 @@
 //   - POST /api/sessions/start starts a session in a labelled pane;
 //   - a checkpoint an agent opens shows in /api/checkpoints and the state,
 //     and POST /api/checkpoints/answer answers it (the agent goes on);
+//   - only a person answers: from inside a real pane, the command line, a
+//     raw call on the daemon's socket and curl to the API are refused and
+//     the checkpoint stays open; from outside every pane it is taken;
 //   - a secret typed through the API reaches the program, masked, and is
 //     in no response, no file of the hub and no line it logs;
 //   - /api/machines refuses a bad host; /api/setup/hooks works on scratch
@@ -98,6 +101,47 @@ check('answer: taken, by the desktop', a.status === 200 && a.body.checkpoint.sta
 check('the agent goes on with the answer', (await askDone) === 0 && askOut.trim() === 'Not yet', askOut);
 const twice = await post('/api/checkpoints/answer', { id: listed.id, choice: 0 });
 check('a second answer is refused', twice.status === 409, twice.text);
+
+// ------------------------------------------------------------ only a person answers
+// From inside a real pane (where an agent runs), an answer is refused
+// however it is sent: the command line, a raw call on the daemon's
+// socket, and curl to this API. The checkpoint stays open and its command
+// does not run. The same answer from this test process, outside every
+// pane (as the board page and the desktop app send it), is taken.
+const { connectSocket } = await import('../../packages/node-client/index.mjs');
+const ran = path.join(T, 'approved-ran');
+const appr = spawnSync(BIN, ['approve', '--no-wait', '--cwd', T, `touch '${ran}'`], { env: agentEnv, encoding: 'utf8' });
+const apprId = appr.stdout.trim();
+await until(async () => (await get('/api/checkpoints')).body.checkpoints.find((c) => c.id === apprId));
+const RAW = path.join(T, 'raw-answer.mjs');
+fs.writeFileSync(RAW, `import { connectSocket } from ${JSON.stringify(path.resolve(ROOT, '../packages/node-client/index.mjs'))};
+const c = await connectSocket(process.env.RAVENRY_SOCKET, { name: 'raw' });
+let code = 'ok';
+try { await c.request('checkpoint.answer', { checkpoint: process.argv[2], approve: true }); } catch (e) { code = e.code; }
+console.log('raw=' + code + ' person=' + c.hello.person);
+c.close();
+`);
+const script = [
+  `'${BIN}' checkpoint ${apprId} --approve; echo "cli=$?"`,
+  `'${process.execPath}' '${RAW}' ${apprId}`,
+  `curl -s -o '${T}/curl.json' -w 'curl=%{http_code}\\n' -X POST -H 'Content-Type: application/json' -H 'X-Ravenry: 1' --data '{"id":"${apprId}","approve":true}' http://localhost:${PORT}/api/checkpoints/answer`,
+  'echo all-tried', 'exec sleep 60',
+].join('; ');
+const dc = await connectSocket(SOCK, { name: 'hub-api-test' });
+const inPane = (await dc.request('pane.new', { command: ['/bin/sh', '-c', script], cols: 300, rows: 20 })).pane;
+await dc.request('pane.wait', { pane: inPane.id, text: 'all-tried', since: 0, timeout_ms: 20000 });
+const screen = (await dc.request('pane.capture', { pane: inPane.id })).lines.map((l) => l.text).join('\n');
+dc.request('pane.close', { pane: inPane.id }).catch(() => {});
+const curlBody = (() => { try { return JSON.parse(fs.readFileSync(path.join(T, 'curl.json'), 'utf8')); } catch { return null; } })();
+check('from a pane, the command line is refused with a plain message', /only a person can answer c\w+, in the Ravenry app or on the phone/.test(screen) && screen.includes('cli=1'), screen);
+check('from a pane, a raw call on the daemon\'s socket is refused (forbidden)', screen.includes('raw=forbidden person=false'), screen);
+check('from a pane, curl to the hub is refused (403, a plain message)', screen.includes('curl=403') && !!curlBody && /Only a person can answer a checkpoint/.test(curlBody.error) && /inside pane/.test(curlBody.error), JSON.stringify({ curlBody }));
+const still = (await get('/api/checkpoints')).body.checkpoints.find((c) => c.id === apprId);
+check('the checkpoint stays open and its command did not run', !!still && still.state === 'open' && !fs.existsSync(ran), JSON.stringify(still));
+check('the board logged the refusal', /refused a checkpoint answer: process \d+ \(curl\) runs inside pane/.test(boardLog), boardLog.slice(-500));
+const pa = await post('/api/checkpoints/answer', { id: apprId, approve: true });
+check('the same answer from outside every pane is taken, and the command runs', pa.status === 200 && ['running', 'answered'].includes(pa.body.checkpoint.state) && !!(await until(async () => fs.existsSync(ran))), pa.text);
+dc.close();
 
 // ------------------------------------------------------------ a secret through the API
 const TYPED = 'api-s3cret-90210';

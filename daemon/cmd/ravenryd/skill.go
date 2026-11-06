@@ -111,6 +111,10 @@ person never needs to come back to your chat.
 - ` + "`--no-wait`" + ` prints the checkpoint id and returns: arm it, do other work,
   then ` + "`ravenry checkpoint ID --wait`" + `. Withdraw one you no longer need with
   ` + "`ravenry checkpoint ID --cancel`" + `.
+- **Only the person answers.** You cannot answer a checkpoint, yours or
+  another agent's: ` + "`checkpoint ID --answer`" + `, ` + "`--approve`" + ` and ` + "`--decline`" + ` are for
+  the person at a terminal, and the daemon and the hub refuse an answer
+  from any program inside a pane, however it connects. Wait for them.
 
 ## Two names, one binary
 

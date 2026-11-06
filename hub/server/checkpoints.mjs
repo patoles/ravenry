@@ -120,6 +120,7 @@ export async function answer(body, send) {
     return { ok: true, checkpoint: byId.get(cp.id) };
   } catch (e) {
     // The daemon's own words, never the request (it may hold the secret).
+    if (e && e.code === 'forbidden') return { ok: false, status: 403, error: `${cp.machine ? cp.machine : 'The daemon'} did not take the answer from this hub: ${e.message}` };
     const why = e && e.code === 'not_found' ? 'It closed already: answered somewhere else, cancelled or expired.' : `The daemon did not take the answer (${e && e.code ? e.code : 'unreachable'}).`;
     return { ok: false, status: e && e.code === 'not_found' ? 409 : 502, error: why };
   } finally {

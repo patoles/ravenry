@@ -47,7 +47,8 @@ const DOWN = path.join(D, 'ssh-down');
 const PIDS = path.join(D, 'ssh-pids');
 const LOG = path.join(D, 'ssh-log');
 // The fake ssh: drops its options, records the host and argv, and runs
-// the remote command here with the "remote" machine's environment.
+// the remote command here with the "remote" machine's environment, which
+// says it runs in an ssh session as sshd's would (SSH_CONNECTION).
 fs.writeFileSync(path.join(FAKE, 'ssh'), `#!/bin/sh
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -61,7 +62,7 @@ done
 echo "$host $*" >> '${LOG}'
 if [ -f '${DOWN}' ]; then echo "ssh: connect to host $host port 22: Connection refused" >&2; exit 255; fi
 echo $$ >> '${PIDS}'
-exec env -i HOME='${R.home}' PATH='${FAKE}:/usr/bin:/bin' SHELL=/bin/sh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR='${R.run}' RAVENRY_STATE_DIR='${R.state}' "$@"
+exec env -i HOME='${R.home}' PATH='${FAKE}:/usr/bin:/bin' SHELL=/bin/sh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR='${R.run}' RAVENRY_STATE_DIR='${R.state}' SSH_CONNECTION='127.0.0.1 50022 127.0.0.1 22' SSH_CLIENT='127.0.0.1 50022 22' "$@"
 `, { mode: 0o755 });
 
 process.env.RAVENRY_HOME = MC;
@@ -193,6 +194,40 @@ check('a secret typed for a command there: delivered, masked in its output', !!s
 const hubFiles = spawnSync('grep', ['-rl', TYPED, MC], { encoding: 'utf8' }).stdout.trim();
 check('the secret is in no file of the hub', !hubFiles, hubFiles);
 check('the hub keeps the closed checkpoints, with no secret', JSON.stringify(cps.list({ all: true })).includes('"delivered":true') && !JSON.stringify(cps.list({ all: true })).includes(TYPED));
+
+// ------------------------------------------------------------ who answers there
+// Over ssh the remote daemon cannot see this machine: it takes answers
+// only from the connection with the answer key it trusts, the first one
+// it was given, which is the hub's (PROTOCOL.md section 4, Who acts as
+// the person). Anything else that runs `ssh devbox ravenryd proxy` (an
+// agent here) is refused, and the checkpoint stays open.
+const { connect } = await import('../../packages/node-client/index.mjs');
+const { Duplex } = await import('node:stream');
+const { answerKey } = await import('../server/person.mjs');
+check('the hub pairs with the machine: it takes the hub\'s answers', machines.status()[0].answers === true, JSON.stringify(machines.status()));
+const keyFile = fs.readFileSync(path.join(R.state, 'answer-key'), 'utf8');
+check('the machine keeps only a hash of the hub\'s key, mode 0600', keyFile.startsWith('sha256:') && !keyFile.includes(answerKey()) && (fs.statSync(path.join(R.state, 'answer-key')).mode & 0o777) === 0o600, keyFile);
+async function viaSsh(key) {
+  const child = spawn(path.join(FAKE, 'ssh'), ['-T', 'devbox', '--', 'ravenryd', 'proxy'], { stdio: ['pipe', 'pipe', 'ignore'] });
+  const c = await connect(Duplex.from({ readable: child.stdout, writable: child.stdin }), { name: 'not-the-hub', timeoutMs: 10000, ...(key ? { answerKey: key } : {}) });
+  return { c, end: () => { c.close(); child.kill('SIGTERM'); } };
+}
+const appr = spawn(BIN, ['approve', '--no-wait', '--cwd', R.home, 'touch approved-there'], { env: { ...REMOTE_ENV, RAVENRY_PANE: PANE, RAVENRY_SOCKET: RSOCK } });
+let apprId = '';
+appr.stdout.on('data', (d) => { apprId += d; });
+await new Promise((r) => appr.on('exit', r));
+apprId = apprId.trim();
+await until(() => seenCps.find((x) => x.cp.id === apprId));
+for (const [name, key] of [['with no key', null], ['with another key', 'a'.repeat(43)]]) {
+  const o = await viaSsh(key);
+  let code = 'ok';
+  try { await o.c.request('checkpoint.answer', { checkpoint: apprId, approve: true }); } catch (e) { code = e.code; }
+  const list = await o.c.request('checkpoint.list', {});
+  o.end();
+  check(`another ssh connection ${name}: not the person, its answer refused, the checkpoint stays open`, o.c.hello.person === false && code === 'forbidden' && list.checkpoints.some((x) => x.id === apprId && x.state === 'open'), JSON.stringify({ person: o.c.hello.person, code }));
+}
+const apprAns = await cps.answer({ id: apprId, approve: true, by: 'test' }, rv.answerCheckpoint);
+check('the hub\'s answer there takes, and the command runs', apprAns.ok && !!(await until(() => fs.existsSync(path.join(R.home, 'approved-there')))), JSON.stringify(apprAns));
 
 // ------------------------------------------------------------ the connection drops
 const pids = () => fs.readFileSync(PIDS, 'utf8').trim().split('\n').map(Number);

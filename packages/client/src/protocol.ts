@@ -192,6 +192,8 @@ export interface HelloResult {
     draining?: string;
   };
   methods: string[];
+  /** This connection may act as the person: answer checkpoints, decide for hooks (PROTOCOL.md section 4, Who acts as the person). */
+  person: boolean;
 }
 
 export type Input =
@@ -263,7 +265,7 @@ export interface ReadResult {
 
 /** Each method's request fields (without v, type and id) and its result. */
 export interface Methods {
-  hello: { params: { client: { name: string; version?: string } }; result: HelloResult };
+  hello: { params: { client: { name: string; version?: string }; answer_key?: string }; result: HelloResult };
   cancel: { params: { request: number }; result: Record<string, never> };
   'events.subscribe': { params: { display?: boolean; activity?: boolean }; result: Record<string, never> };
   'pane.new': {
@@ -373,7 +375,8 @@ export type ErrorCode =
   | 'failed'
   | 'cancelled'
   | 'shutting_down'
-  | 'internal';
+  | 'internal'
+  | 'forbidden';
 
 export type DaemonEvent =
   | { event: 'pane.created'; pane: Pane }

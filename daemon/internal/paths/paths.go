@@ -42,18 +42,20 @@ func StateDir() (string, error) {
 	return d, EnsurePrivateDir(d)
 }
 
-func stateDir() (string, error) {
-	if d := os.Getenv("RAVENRY_STATE_DIR"); d != "" {
+func stateDir() (string, error) { return stateDirFor(os.Getenv) }
+
+func stateDirFor(getenv func(string) string) (string, error) {
+	if d := getenv("RAVENRY_STATE_DIR"); d != "" {
 		return d, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("paths: no home directory: %w", err)
+	home := getenv("HOME")
+	if home == "" {
+		return "", errors.New("paths: no home directory: $HOME is not defined")
 	}
 	if runtime.GOOS == "darwin" {
 		return filepath.Join(home, "Library", "Application Support", "Ravenry"), nil
 	}
-	if x := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
+	if x := getenv("XDG_STATE_HOME"); filepath.IsAbs(x) {
 		return filepath.Join(x, "ravenry"), nil
 	}
 	return filepath.Join(home, ".local", "state", "ravenry"), nil
@@ -68,18 +70,22 @@ func RuntimeDir() (string, error) {
 	return d, EnsurePrivateDir(d)
 }
 
-func runtimeDir() (string, error) {
-	if d := os.Getenv("RAVENRY_RUNTIME_DIR"); d != "" {
+func runtimeDir() (string, error) { return RuntimeDirFor(os.Getenv) }
+
+// RuntimeDirFor is the runtime directory of a process with this
+// environment (another daemon's, read from the process table).
+func RuntimeDirFor(getenv func(string) string) (string, error) {
+	if d := getenv("RAVENRY_RUNTIME_DIR"); d != "" {
 		return d, nil
 	}
 	if runtime.GOOS == "linux" {
-		if x := os.Getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(x) {
+		if x := getenv("XDG_RUNTIME_DIR"); filepath.IsAbs(x) {
 			if fi, err := os.Stat(x); err == nil && fi.IsDir() {
 				return filepath.Join(x, "ravenry"), nil
 			}
 		}
 	}
-	s, err := stateDir()
+	s, err := stateDirFor(getenv)
 	if err != nil {
 		return "", err
 	}

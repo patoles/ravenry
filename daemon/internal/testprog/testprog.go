@@ -12,9 +12,17 @@
 //	daemon    starts "sleep" in a new session, prints "daemon <pid>", exits
 //	rawecho   switches the terminal to raw mode, prints $RAVENRY_TESTPROG_INIT,
 //	          then "ready", then "read <quoted bytes>" for every read
+//	answer    connects to $RAVENRY_TESTPROG_SOCKET (else $RAVENRY_SOCKET)
+//	          straight on the socket, says hello (with the answer key
+//	          $RAVENRY_TESTPROG_KEY when set) and declines checkpoint
+//	          $RAVENRY_TESTPROG_CP, then asks to decide for hooks
+//	          (agent.decisions); prints "person=<bool> answer=<ok or the
+//	          error code> decide=<ok or the error code>"
 package testprog
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,6 +32,8 @@ import (
 	"time"
 
 	"golang.org/x/term"
+
+	"ravenryd/internal/client"
 )
 
 // Env is the variable that selects a program.
@@ -54,6 +64,8 @@ func Run() {
 		fmt.Printf("daemon %d\n", c.Process.Pid)
 	case "rawecho":
 		rawecho()
+	case "answer":
+		answer()
 	default:
 		fmt.Fprintf(os.Stderr, "testprog: unknown program %q\n", prog)
 		os.Exit(2)
@@ -120,4 +132,34 @@ func rawecho() {
 			return
 		}
 	}
+}
+
+func answer() {
+	sock := os.Getenv("RAVENRY_TESTPROG_SOCKET")
+	if sock == "" {
+		sock = os.Getenv("RAVENRY_SOCKET")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := client.Dial(ctx, sock, client.Options{Name: "testprog", AnswerKey: os.Getenv("RAVENRY_TESTPROG_KEY")})
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(1)
+	}
+	defer c.Close()
+	code := func(err error) string {
+		var ce *client.Error
+		switch {
+		case err == nil:
+			return "ok"
+		case errors.As(err, &ce):
+			return ce.Code
+		}
+		fmt.Println("error", err)
+		os.Exit(1)
+		return ""
+	}
+	ans := code(c.Call(ctx, "checkpoint.answer", map[string]any{"checkpoint": os.Getenv("RAVENRY_TESTPROG_CP"), "decline": true}, nil))
+	dec := code(c.Call(ctx, "agent.decisions", map[string]any{}, nil))
+	fmt.Printf("person=%v answer=%s decide=%s\n", c.Hello.Person, ans, dec)
 }

@@ -82,7 +82,7 @@ func cmdServe(in []string) error {
 	var once sync.Once
 	done := make(chan struct{})
 	stop := func() { once.Do(func() { close(done) }) }
-	srv := server.New(server.Options{Version: version, Manager: mgr, Socket: sock, Log: logger, OnDrained: stop})
+	srv := server.New(server.Options{Version: version, Manager: mgr, Socket: sock, Log: logger, OnDrained: stop, AnswerKeyFile: server.AnswerKeyFile(state)})
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE)

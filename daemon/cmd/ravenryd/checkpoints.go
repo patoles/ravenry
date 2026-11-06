@@ -2,14 +2,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"ravenryd/internal/client"
+	"ravenryd/internal/pane"
+	"ravenryd/internal/paths"
 	"ravenryd/internal/proto"
 )
 
@@ -347,9 +353,22 @@ func cmdCheckpoint(in []string) error {
 		return err
 	}
 	if len(a.pos) != 1 {
-		return fmt.Errorf("usage: ravenry checkpoint ID [--wait [--timeout T]] [--cancel [--reason TEXT]]")
+		return fmt.Errorf("usage: ravenry checkpoint ID [--wait [--timeout T]] [--cancel [--reason TEXT]] [--answer TEXT | --approve | --decline]")
 	}
 	id := a.pos[0]
+	answering := a.values["answer"] != "" || a.bools["approve"] || a.bools["decline"]
+	if answering {
+		// Said here before anything else, so an agent reads it plainly.
+		sc := pane.Scope{}
+		if s := pinned(a.g); s != "" {
+			sc.Dir = filepath.Dir(s)
+		} else {
+			sc.Dir, _ = paths.RuntimeDirFor(os.Getenv)
+		}
+		if o := pane.OriginOf(os.Getpid(), sc); o.Pane {
+			return errPersonOnly(id)
+		}
+	}
 	cctx, ccancel := callCtx(10 * time.Second)
 	defer ccancel()
 	c, err := connectForCheckpoint(cctx, a.g, id)
@@ -358,6 +377,8 @@ func cmdCheckpoint(in []string) error {
 	}
 	defer c.Close()
 	switch {
+	case answering:
+		return answerCheckpoint(cctx, c, a, id)
 	case a.bools["cancel"]:
 		params := map[string]any{"checkpoint": id}
 		if v := a.values["reason"]; v != "" {
@@ -392,4 +413,70 @@ func cmdCheckpoint(in []string) error {
 		}
 	}
 	return fmt.Errorf("no checkpoint %s", id)
+}
+
+// errPersonOnly is what an agent reads when it tries to answer.
+func errPersonOnly(id string) error {
+	return fmt.Errorf("only a person can answer %s, in the Ravenry app or on the phone; a program inside a pane cannot answer it", id)
+}
+
+// answerCheckpoint is a person's answer from a terminal: --answer for an
+// ask, --approve, or --decline. A secret is never typed on a command line,
+// where the shell's history would keep it.
+func answerCheckpoint(ctx context.Context, c *client.Client, a *args, id string) error {
+	n := 0
+	for _, set := range []bool{a.values["answer"] != "", a.bools["approve"], a.bools["decline"]} {
+		if set {
+			n++
+		}
+	}
+	if n != 1 {
+		return errors.New("answer with exactly one of --answer, --approve and --decline")
+	}
+	var l proto.CheckpointListResult
+	if err := c.Call(ctx, "checkpoint.list", map[string]any{"all": true}, &l); err != nil {
+		return err
+	}
+	i := slices.IndexFunc(l.Checkpoints, func(cp proto.Checkpoint) bool { return cp.ID == id })
+	if i < 0 {
+		return fmt.Errorf("no checkpoint %s", id)
+	}
+	cp := l.Checkpoints[i]
+	params := map[string]any{"checkpoint": id, "by": "terminal"}
+	switch v := a.values["answer"]; {
+	case a.bools["decline"]:
+		params["decline"] = true
+	case a.bools["approve"]:
+		if cp.Kind != "approve" {
+			return fmt.Errorf("%s is a %s, not an approve: answer it with --answer or --decline", id, cp.Kind)
+		}
+		params["approve"] = true
+	case cp.Kind == "secret":
+		return fmt.Errorf("a secret is typed in the Ravenry app or on the phone, never on a command line (its history would keep it); --decline declines %s", id)
+	case cp.Kind != "ask":
+		return fmt.Errorf("%s is a %s: answer it with --approve or --decline", id, cp.Kind)
+	default:
+		if k, err := strconv.Atoi(v); err == nil && k >= 1 && k <= len(cp.Options) {
+			params["choice"] = k - 1
+		} else if k := slices.Index(cp.Options, v); k >= 0 {
+			params["choice"] = k
+		} else if cp.FreeText {
+			params["text"] = v
+		} else {
+			return fmt.Errorf("%q is not one of the options of %s: %s", v, id, strings.Join(cp.Options, ", "))
+		}
+	}
+	var r proto.CheckpointResult
+	if err := c.Call(ctx, "checkpoint.answer", params, &r); err != nil {
+		var ce *client.Error
+		if errors.As(err, &ce) && ce.Code == proto.CodeForbidden {
+			return fmt.Errorf("only a person can answer %s, in the Ravenry app or on the phone (the daemon refused this one: %s)", id, ce.Message)
+		}
+		return err
+	}
+	if a.g.json {
+		return printJSON(r)
+	}
+	fmt.Println(r.Checkpoint.State)
+	return nil
 }

@@ -260,3 +260,4 @@ export const ravenryDecider = (report, where) => ravenry.handoffDecider(report, 
 export const ravenryMachineOf = (surfaceId) => ravenry.machineOfTab(surfaceId);
 export const ravenryStart = (o) => ravenry.startSession(o);
 export const ravenryAnswer = (daemon, params) => ravenry.answerCheckpoint(daemon, params);
+export const ravenryBin = () => ravenry.findBin();

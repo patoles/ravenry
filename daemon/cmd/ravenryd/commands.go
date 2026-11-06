@@ -157,11 +157,14 @@ func init() {
 		{name: "checkpoints", group: "Checkpoints", summary: "list open checkpoints", flags: []flagDoc{
 			{"all", boolFlag, "", "with the closed ones the daemon still holds"},
 		}, run: cmdCheckpoints},
-		{name: "checkpoint", group: "Checkpoints", args: "ID", summary: "show one checkpoint, wait for it, or cancel it", flags: []flagDoc{
+		{name: "checkpoint", group: "Checkpoints", args: "ID", summary: "show one checkpoint, wait for it, or cancel it; a person may answer it", flags: []flagDoc{
 			{"wait", boolFlag, "", "wait until it closes, then exit as ask, approve or secret would"},
 			{"timeout", valueFlag, durationArg, "with --wait: give up after (exit 124)"},
 			{"cancel", boolFlag, "", "withdraw it (it must still be open)"},
 			{"reason", valueFlag, "TEXT", "with --cancel: why, for people"},
+			{"answer", valueFlag, "TEXT", "a person answers an ask: an option's number or text, or typed text (refused inside a pane)"},
+			{"approve", boolFlag, "", "a person approves it, and its command runs (refused inside a pane)"},
+			{"decline", boolFlag, "", "a person declines it (refused inside a pane)"},
 		}, run: cmdCheckpoint},
 		// Agents
 		{name: "agents", group: "Agents", summary: "the agent state of every pane", run: cmdAgents},
@@ -189,6 +192,11 @@ func init() {
 			{"timeout", valueFlag, durationArg, "how long to wait for the hub (default 2s, at most 60s)"},
 		}, run: cmdHook},
 		{name: "daemons", service: true, group: "Daemon", summary: "list the daemons running here", run: cmdDaemons},
+		{name: "peer", service: true, group: "Daemon", summary: "tell whether a process may act as the person: not inside a pane, not over ssh (the hub asks about who sent an answer)", flags: []flagDoc{
+			{"pid", valueFlag, "PID", "this process"},
+			{"tcp", valueFlag, "PORT", "the process that holds the TCP connection from this local port..."},
+			{"to", valueFlag, "PORT", "...to this local port (the server's)"},
+		}, run: cmdPeer},
 		{name: "version", aliases: []string{"--version", "-v"}, service: true, group: "Daemon", summary: "this binary's version", run: cmdVersion},
 	}
 }

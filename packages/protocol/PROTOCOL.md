@@ -20,7 +20,8 @@ RFC 2119.
 2. [Messages](#2-messages)
 3. [Panes, marks and the log](#3-panes-marks-and-the-log), shell
    marks, the agent in a pane, labels, secrets in output
-4. [Methods](#4-methods): panes, agents, files, checkpoints
+4. [Methods](#4-methods): panes, agents, files, checkpoints, who acts
+   as the person
 5. [Streams and binary frames](#5-streams-and-binary-frames)
 6. [Events](#6-events)
 7. [Input and keys](#7-input-and-keys)
@@ -45,6 +46,11 @@ exist in v1; there is no TCP listener.
   machine. The proxy does not read or change the bytes, so the client
   speaks exactly the same protocol, WebSocket handshake included, as over
   the socket.
+
+Every client of the user may use every method, except the few that act
+as the person (answering a checkpoint, deciding for a hook): the daemon
+refuses those to a program inside a pane, and over ssh to a connection
+without the answer key (section 4, Who acts as the person).
 
 ### The handshake
 
@@ -147,7 +153,10 @@ it.
   `COLORTERM=truecolor`, `TERM_PROGRAM=ravenry`, `RAVENRY_PANE=<id>` and
   `RAVENRY_SOCKET=<the daemon's socket>`, plus the `env` of `pane.new`.
   `RAVENRY_PANE` lets a hook say which pane it runs in; `RAVENRY_SOCKET`
-  lets a program in the pane reach the daemon that runs it.
+  lets a program in the pane reach the daemon that runs it. Both also mark
+  the pane's processes: closing the pane finds them by it, and the daemon
+  refuses them what only a person may do (section 4, Who acts as the
+  person).
 - **Running and exited.** When the first process exits, the pane stays,
   with its screen, as `exited`, so its last screen can still be read. It is
   removed when a client closes it, or one hour after the exit.
@@ -292,11 +301,13 @@ Must be the first request.
 | --- | --- | --- |
 | `client.name` | string | Who the client is, for logs. |
 | `client.version` | string, optional | |
+| `answer_key` | string, optional | A hub's answer key, at most 256 bytes: over ssh, the key that lets this connection act as the person (Who acts as the person, below). |
 
 Result: `protocol` (1), `daemon` (`version`, `pid`, `os`, `arch`,
 `started_at`, and `draining` when a newer daemon runs beside this one, see
-section 9), and `methods`, the methods this daemon supports. A client
-checks `methods` before using a method added after v1.0 (section 10).
+section 9), `methods`, the methods this daemon supports, and `person`,
+whether this connection may act as the person. A client checks `methods`
+before using a method added after v1.0 (section 10).
 
 ### cancel
 
@@ -610,7 +621,10 @@ set `session`, `state`, `need`, `message`, `cwd`, `pid` and `data`.
 
 No fields. Result: `{}`. From then on this connection decides: it gets
 `agent.decision` for every report sent with `decide`, until it closes.
-Several connections may decide; the first reply that decides wins.
+Several connections may decide; the first reply that decides wins. A
+decider speaks for the person (it may hold an assistant and tell it what
+to do), so this and `agent.decide` fail with `forbidden` on a connection
+that may not act as the person.
 
 #### agent.decide
 
@@ -702,9 +716,10 @@ once it ended `exit`, `output`: the last 64 KiB as text, `truncated`).
 A client that does not know a checkpoint's kind shows its title and
 offers only to decline it.
 
-There is no permission check between connections yet: any client of the
-daemon may answer. An agent must never answer its own checkpoint; the
-command line has no command for it.
+Only a person answers: `checkpoint.answer` fails with `forbidden` on a
+connection from inside a pane, so an agent cannot answer a checkpoint,
+its own or another's, however it connects (Who acts as the person,
+below). An agent opens, lists, waits on and cancels them.
 
 #### checkpoint.new
 
@@ -753,13 +768,106 @@ A person's answer: exactly one of
 plus `checkpoint` (id) and `by` (optional, at most 64 bytes: where they
 answered, for people: `desktop`, `phone`). Result: `checkpoint`, closed,
 or `running` for a command. Fails with `not_found` when it is not open
-(answered elsewhere first, cancelled or expired).
+(answered elsewhere first, cancelled or expired), and with `forbidden`
+when this connection may not act as the person; the checkpoint then
+stays as it was.
 
 #### checkpoint.cancel
 
 `checkpoint`, and `reason` (optional). The agent withdraws an open
 checkpoint. Result: `checkpoint`. Fails with `not_found` when it is not
 open.
+
+### Who acts as the person
+
+A checkpoint exists so that a person answers it, and a hook decision is
+the person's hub speaking. These methods act as the person:
+
+- `checkpoint.answer`
+- `agent.decisions` and `agent.decide`
+
+The daemon refuses them with `forbidden` to a connection that does not
+come from the person. Every other method stays open to every client,
+agents included.
+
+**How the daemon decides.** At `hello`, it asks the kernel which process
+is at the other end of the socket (`LOCAL_PEERPID` on macOS,
+`SO_PEERCRED` on Linux), then where that process comes from:
+
+1. **Inside a pane: never the person.** The process, or one of its
+   ancestors (by parent; and the leader of its session, with that
+   leader's ancestors), is a pane's first process or the child of a
+   ravenryd daemon (`ravenryd serve`), or started with `RAVENRY_SOCKET`
+   (or `RAVENRY_PANE` alone) in its environment: the marks closing a pane
+   looks for (section 3). The panes that count are those of the daemons
+   of this daemon's runtime directory (section 9), the ones that share
+   this machine's panes; a daemon in another runtime directory is another
+   Ravenry (a test's). How the process connects does not matter: the
+   command line, a raw call on the socket, a script, `ravenryd proxy`
+   started in the pane.
+2. **Over ssh: the person only with the answer key.** The process, or one
+   of its ancestors, runs in an ssh session (`SSH_CONNECTION`,
+   `SSH_CLIENT` or `SSH_TTY` in its environment, or an `sshd` ancestor):
+   `ravenryd proxy` reached with `ssh host ravenryd proxy`, or anything
+   else run over ssh. The daemon cannot see the machine such a connection
+   comes from, so it cannot tell the person's hub from an agent there
+   that runs ssh itself. Such a connection acts as the person only when
+   its `hello` gives the answer key this machine trusts: the first key a
+   connection over ssh gave, from outside every pane. The daemon keeps
+   that key's SHA-256 in `<state>/answer-key` (section 9); a key given
+   from inside a pane is never kept. To trust another hub, delete the
+   file on that machine: the next hub that connects pairs. The hub gives
+   its key (made once, kept in its data folder) on every connection, so
+   it pairs with a machine when it first connects to it, which is when
+   the person adds the machine.
+3. **Otherwise: the person.** A process of the user's outside every pane
+   and outside ssh: the desktop app, the hub, a shell in another terminal
+   app where the person types.
+
+A process the daemon cannot read (it has exited, or it is not the
+user's) is not the person. `hello`'s `person` says what the daemon
+decided for the connection.
+
+**The hub** applies the same rule to the answers its HTTP API takes. A
+request from the phone (another address, with the phone's token) is the
+person. A request from this machine, on localhost or on one of its own
+addresses, is judged by the process that holds the connection:
+`ravenryd peer --tcp <its port> --to <the hub's port>` finds that process
+(libproc on macOS, `/proc/net/tcp` and `/proc/*/fd` on Linux) and judges
+it with the daemon's own code. So `curl` to the hub from a pane is
+refused like a raw call on the socket, while the board page in a browser
+and the desktop app answer as before.
+
+**Limits.** This closes every direct route an agent has to answering;
+it is not a sandbox around agents.
+
+- **Same-user processes outside every pane are the person.** A script the
+  person runs in another terminal app, a cron job, a launchd or systemd
+  service. So is a program an agent has another service start outside
+  its pane (a terminal multiplexer server started earlier, `launchctl`,
+  `systemd-run`, `at`, a ravenryd daemon of its own in another runtime
+  directory), and one that both moves to a new session of its own and
+  leaves its parents (a double fork) with its environment wiped of
+  `RAVENRY_*`. On macOS, which hides the environment of Apple's own
+  programs (`/bin/sh`, `curl`), moving to a new session and leaving its
+  parents is enough for one of those. (`ssh` to this machine does not
+  help: what it runs is in an ssh session.)
+- **Ravenry's secrets are the user's files.** The hub's answer key and
+  the phone's sign-in key can be read by any program of the user, an
+  agent included: with the first, it can answer over ssh as the hub;
+  with the second, it can answer through the hub from another machine
+  as the phone. The file of the key a machine trusts can be deleted over
+  ssh, so the next connection pairs. Each is a deliberate attack, not a
+  mistake; the agent's own permissions must keep it out of Ravenry's
+  files.
+- **UI automation is out of scope until per-pane permissions (phase
+  2).** A program that clicks the app's buttons (`osascript`,
+  accessibility APIs) acts with the person's hands, and so does input
+  sent to a pane (`pane.send`, which agents use to drive other panes),
+  for example into a pane where another assistant asks its own
+  permission question.
+- **A hub or an app started from inside a pane** (while developing them)
+  is inside it, and cannot answer.
 
 ## 5. Streams and binary frames
 
@@ -914,6 +1022,7 @@ case sensitive.
 | `cancelled` | `cancel` stopped the request. |
 | `shutting_down` | The daemon is stopping. |
 | `internal` | A fault in the daemon. |
+| `forbidden` | Only a person may do this, and this connection does not come from one (section 4, Who acts as the person). |
 
 `message` is for people; clients branch on `code`.
 
@@ -929,7 +1038,8 @@ One daemon runs per user and version. Its socket is
   private tmpfs, `/run/user/<uid>`). Otherwise `<state>/run`.
 - **macOS:** `<state>/run`.
 
-The state directory, which also holds the pane logs (`<state>/panes`):
+The state directory, which also holds the pane logs (`<state>/panes`) and
+the answer key the daemon trusts over ssh (`<state>/answer-key`):
 
 - `$RAVENRY_STATE_DIR`, when set.
 - **macOS:** `~/Library/Application Support/Ravenry`.

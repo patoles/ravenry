@@ -184,3 +184,62 @@ func TestCheckpointCommands(t *testing.T) {
 		t.Fatalf("checkpoints: %s", out)
 	}
 }
+
+// Only a person answers (PROTOCOL.md section 4, Who acts as the person):
+// `ravenry checkpoint ID --approve` from inside a pane says so and changes
+// nothing; over ssh without the hub's key the daemon refuses it; from the
+// test process, a terminal outside every pane, it answers.
+func TestOnlyAPersonAnswersFromTheCommandLine(t *testing.T) {
+	e := newEnv(t)
+	e.serve("0.2.0")
+	link := e.ravenry("0.2.0").Path
+	id, _, code := runCmd(t, e.ravenry("0.2.0", "approve", "touch ran", "--cwd", e.dir, "--no-wait"))
+	id = strings.TrimSpace(id)
+	if code != 0 || !strings.HasPrefix(id, "c") {
+		t.Fatalf("approve --no-wait: %d %q", code, id)
+	}
+	state := func() string {
+		cp := jsonOut[proto.Checkpoint](t, e.ok("0.2.0", "checkpoint", id))
+		return cp.State
+	}
+	p := jsonOut[proto.PaneResult](t, e.ok("0.2.0", "new", "--json", "--size", "300x10", "--", "/bin/sh", "-c",
+		"'"+link+"' checkpoint "+id+" --approve; echo \"exit=$?\"; exec sleep 30"))
+	e.ok("0.2.0", "wait", p.Pane.ID, "--text", `exit=\d`, "--since", "0", "--timeout", "10s")
+	if out := e.ok("0.2.0", "capture", p.Pane.ID); !strings.Contains(out, "only a person can answer "+id+", in the Ravenry app or on the phone") || !strings.Contains(out, "exit=1") {
+		t.Fatalf("from a pane:\n%s", out)
+	}
+	if s := state(); s != "open" {
+		t.Fatalf("after the pane tried: %s", s)
+	}
+	// Outside every pane but over ssh, with no answer key: the daemon
+	// refuses it.
+	c := e.ravenry("0.2.0", "checkpoint", id, "--approve")
+	c.Env = append(append([]string{}, e.vars...), "SSH_CONNECTION=10.0.0.1 50000 10.0.0.2 22")
+	if _, errs, code := runCmd(t, c); code != 1 || !strings.Contains(errs, "the daemon refused this one") || !strings.Contains(errs, "ssh") {
+		t.Fatalf("over ssh: %d %q", code, errs)
+	}
+	if s := state(); s != "open" {
+		t.Fatalf("after ssh tried: %s", s)
+	}
+	// The person, at a terminal.
+	if out, errs, code := runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--approve")); code != 0 || strings.TrimSpace(out) != "running" {
+		t.Fatalf("the person: %d %q %q", code, out, errs)
+	}
+	if _, _, code := runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--wait", "--timeout", "10s")); code != 0 {
+		t.Fatalf("the approved command: %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "ran")); err != nil {
+		t.Fatal("the approved command did not run")
+	}
+	// An ask, by an option's text; a secret is never typed here.
+	id, _, _ = runCmd(t, e.ravenry("0.2.0", "ask", "Ready?", "--option", "Yes", "--option", "Not yet", "--no-wait"))
+	id = strings.TrimSpace(id)
+	if out, _, code := runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--answer", "Not yet", "--json")); code != 0 || jsonOut[proto.CheckpointResult](t, out).Checkpoint.Answer.Option != "Not yet" {
+		t.Fatalf("ask: %d %s", code, out)
+	}
+	id, _, _ = runCmd(t, e.ravenry("0.2.0", "secret", "Token", "--no-wait", "--", "sh", "-c", "read v"))
+	id = strings.TrimSpace(id)
+	if _, errs, code := runCmd(t, e.ravenry("0.2.0", "checkpoint", id, "--answer", "hunter22")); code != 1 || !strings.Contains(errs, "never on a command line") {
+		t.Fatalf("secret: %d %q", code, errs)
+	}
+}

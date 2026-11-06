@@ -4,7 +4,9 @@
 # Zig, then gofmt, go vet, go build and every Go test), then against that
 # build @ravenry/node-client and the hub's Ravenry adapter (its seven
 # terminal operations, the agent status channel and hook decisions), remote
-# machines through a fake ssh, and the hub's API on a real board;
+# machines through a fake ssh, and the hub's API on a real board, with the
+# rule that only a person answers a checkpoint (from inside a real pane,
+# the command line, a raw socket call and curl to the hub are refused);
 # node --check over every script, and the hub suites that need no macOS
 # tool and no browser.
 name: code

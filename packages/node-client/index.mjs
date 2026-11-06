@@ -105,7 +105,19 @@ export function connectSocket(socket, opts = {}) {
 export async function connect(stream, opts = {}) {
   const c = new Client(stream);
   await c._handshake(opts.timeoutMs ?? 5000);
-  c.hello = await c.request('hello', { client: { name: opts.name || 'node-client', ...(opts.version ? { version: opts.version } : {}) } });
+  const client = { name: opts.name || 'node-client', ...(opts.version ? { version: opts.version } : {}) };
+  if (opts.answerKey) {
+    // The hub's answer key (PROTOCOL.md section 4, Who acts as the
+    // person). A daemon from before it refuses the field: say hello again
+    // without it.
+    try {
+      c.hello = await c.request('hello', { client, answer_key: opts.answerKey });
+      return c;
+    } catch (e) {
+      if (!(e instanceof RavenryError) || e.code !== 'bad_request' || !/answer_key/.test(e.message)) throw e;
+    }
+  }
+  c.hello = await c.request('hello', { client });
   return c;
 }
 

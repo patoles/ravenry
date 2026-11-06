@@ -40,6 +40,7 @@ import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp } from './home.mjs
 import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
 import * as checkpoints from './checkpoints.mjs';
+import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -2328,9 +2329,15 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
       }
       if (p === '/api/checkpoints/answer') {
-        // A person's answer (the app, the phone). The body may hold a
-        // secret: it is parsed here, never echoed in an error or a log, and
-        // goes only to the daemon that holds the checkpoint.
+        // A person's answer (the app, the phone), never a program inside a
+        // pane (server/person.mjs). The body may hold a secret: it is
+        // parsed here, never echoed in an error or a log, and goes only to
+        // the daemon that holds the checkpoint.
+        const who = await person.fromPerson(req, term.ravenryBin());
+        if (!who.ok) {
+          console.log(`refused a checkpoint answer: ${who.why}`);
+          return sendJson(res, 403, { error: `${person.REFUSED} This request was refused: ${who.why}.`, notPerson: true });
+        }
         let body = null;
         try { body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}'); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         const by = typeof body.by === 'string' && body.by ? body.by : req.mcPhone ? 'phone' : 'desktop';

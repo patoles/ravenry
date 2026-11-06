@@ -358,6 +358,20 @@ checkpointAlert: who and what kind, never the agent's text). `POST
 answers it through the daemon that holds it. A secret goes only there: it
 is never stored, put in the state, echoed in an error or logged.
 
+**Only a person answers** (server/person.mjs, PROTOCOL.md section 4, Who
+acts as the person). The answer API takes a request from the phone (its
+token, from another address); one from this machine only when the
+process that sent it runs outside every ravenryd pane and outside ssh,
+which `ravenryd peer --tcp <its port> --to <ours>` tells with the
+daemon's own code. An agent's `curl` gets 403 and the checkpoint stays
+open; the desktop app and the board page answer as before. The hub gives
+its answer key (`<RAVENRY_HOME>/answer-key`, mode 0600) in `hello` on
+every daemon connection: a machine reached over ssh takes answers and
+hook decisions only from the connection with the key it trusts, the
+first one it was given, so the hub pairs with a machine when it first
+connects; `GET /api/machines` says `answers: true` once it has. To pair
+another hub, delete `answer-key` in that machine's ravenryd state folder.
+
 A test board (RAVENRY_HOME or MC_HOME set) reaches a daemon only when
 RAVENRY_RUNTIME_DIR names the test's own folder. `tools/ravenryd-test.mjs`
 proves all of the above against a real daemon (RAVENRYD_BIN), and

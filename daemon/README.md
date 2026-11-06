@@ -69,7 +69,12 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   and status) and `ravenry secret` (a secret typed by a person that goes
   into a program's input or a command's environment, never to the agent,
   and is masked in the pane's output). The hub shows them, alerts the
-  phone and answers with `checkpoint.answer`.
+  phone and answers with `checkpoint.answer`. Only a person answers: the
+  daemon refuses `checkpoint.answer` (and deciding for hooks) to any
+  program inside a pane, and over ssh to a connection without the hub's
+  answer key (PROTOCOL.md section 4, Who acts as the person).
+  `ravenryd peer` gives the hub the same judgement about who sent an
+  answer to its HTTP API.
 - **Files.** `file.stat` and `file.read`, so the hub can read a remote
   session's transcript and brief for the hand-off.
 - **Shell integration.** zsh, bash and fish started in a pane send OSC 133

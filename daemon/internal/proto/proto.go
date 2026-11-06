@@ -30,6 +30,7 @@ const (
 	CodeCancelled     = "cancelled"
 	CodeShuttingDown  = "shutting_down"
 	CodeInternal      = "internal"
+	CodeForbidden     = "forbidden"
 )
 
 // Methods, in the order the spec lists them.
@@ -111,6 +112,10 @@ type Ack struct {
 type HelloRequest struct {
 	Envelope
 	Client ClientInfo `json:"client"`
+	// AnswerKey is the hub's answer key, which a connection over ssh
+	// gives so it may act as the person (section 4, Who acts as the
+	// person).
+	AnswerKey string `json:"answer_key,omitempty"`
 }
 
 type ClientInfo struct {
@@ -122,6 +127,9 @@ type HelloResult struct {
 	Protocol int        `json:"protocol"`
 	Daemon   DaemonInfo `json:"daemon"`
 	Methods  []string   `json:"methods"`
+	// Person: this connection may act as the person (answer checkpoints,
+	// decide for hooks).
+	Person bool `json:"person"`
 }
 
 type DaemonInfo struct {
