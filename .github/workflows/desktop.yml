@@ -1,0 +1,82 @@
+# The desktop app and its protocol client, on Linux. Typecheck and unit
+# tests for packages/client and apps/desktop; then the app end to end in a
+# headless Electron under xvfb, against a ravenryd built here (libghostty-vt
+# with Zig, cached as in code.yml): it starts the daemon, opens real shells,
+# types, pastes, switches tabs and closes one.
+name: desktop
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Typecheck
+        run: |
+          npm --workspace @ravenry/client run typecheck
+          npm --workspace @ravenry/desktop run typecheck
+      - name: packages/client tests
+        run: npm --workspace @ravenry/client test
+      - name: apps/desktop unit tests
+        run: npm --workspace @ravenry/desktop test
+      - name: Build
+        run: npm --workspace @ravenry/desktop run build
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/go.mod
+          cache: false
+      - name: Cache libghostty-vt
+        id: libghostty
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: daemon/.deps/libghostty-vt-*
+          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        if: steps.libghostty.outputs.cache-hit != 'true'
+        with:
+          version: 0.17.1
+      - name: Build ravenryd
+        working-directory: daemon
+        run: |
+          command -v pkg-config >/dev/null || sudo apt-get install -y pkg-config
+          export PKG_CONFIG_PATH=$(scripts/libghostty.sh)
+          go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd
+          "$RUNNER_TEMP/ravenryd" version
+          echo "RAVENRYD=$RUNNER_TEMP/ravenryd" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Electron and what it needs on Linux
+        run: |
+          node node_modules/electron/install.js
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxtst6
+      - name: packages/client against the real daemon
+        run: npm --workspace @ravenry/client test
+      - name: The app end to end (headless Electron, xvfb)
+        run: |
+          npm --workspace @ravenry/desktop run build
+          xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/smoke.mjs "$RUNNER_TEMP/smoke"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: desktop-smoke
+          path: ${{ runner.temp }}/smoke
+          include-hidden-files: true
+          if-no-files-found: ignore
