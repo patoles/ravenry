@@ -1,0 +1,19 @@
+# The customized Objectives copy from the picture: newest first, no
+# "No brief yet" list.
+version: 1
+id: objectives
+from: ravenry/objectives@3
+title: Objectives
+nav: { icon: target }
+source:
+  provider: projects
+sections:
+  - view: cards
+    where: { has: brief }
+    sort: [updated]              # mine: newest first
+    item:
+      title: name
+      subtitle: brief.goal
+      progress: { list: objectives, style: dots }
+      place: ravenry:plan-row
+# mine: no "No brief yet" list

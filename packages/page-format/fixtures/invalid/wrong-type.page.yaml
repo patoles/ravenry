@@ -1,0 +1,7 @@
+version: 1
+id: wrong-type
+title: A limit that is not a number
+source: { folder: notes/ }
+sections:
+  - view: list
+    limit: ten

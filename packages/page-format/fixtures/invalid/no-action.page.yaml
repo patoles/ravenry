@@ -1,0 +1,9 @@
+version: 1
+id: no-action
+title: A button doing nothing
+source: { folder: notes/ }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Nothing }

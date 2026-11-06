@@ -1,0 +1,6 @@
+version: 1
+id: requires-newer
+title: Needs a newer Ravenry
+requires: ">=9.1"
+source: { folder: notes/ }
+sections: [{ view: list }]

@@ -1,0 +1,25 @@
+# A project page from a cloned repository (the picture's trail-map): its
+# buttons stay off until the person trusts the file.
+version: 1
+id: tiles
+title: Map tiles
+nav: { icon: table }
+source:
+  folder: regions/
+  fields:
+    region: { type: string, required: true }
+    tiles: { type: number }
+    built: { type: date, label: Last built }
+    status: { type: enum, values: [checked, needs a look, out of date] }
+sections:
+  - view: table
+    columns: [region, tiles, built, status]
+    item:
+      title: region
+      actions:
+        - label: Rebuild tiles
+          run: { argv: [npm, run, "build:tiles"], env: { REGION: region } }
+        - { label: Mark checked, set: { status: checked } }
+actions:
+  - label: Ask Claude about tiles
+    ask: { session: trail-map, prefill: "About the map tiles: " }

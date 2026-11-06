@@ -1,0 +1,5 @@
+version: 2
+id: version-2
+title: Written for version 2
+source: { folder: notes/ }
+sections: [{ view: list }]

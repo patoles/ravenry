@@ -1,0 +1,13 @@
+version: 1
+id: run-placeholder-in-argv
+title: Item data in argv
+source:
+  folder: regions/
+  fields:
+    region: { type: string }
+sections:
+  - view: list
+    item:
+      actions:
+        - label: Rebuild
+          run: { argv: [npm, run, build, "{region}"] }

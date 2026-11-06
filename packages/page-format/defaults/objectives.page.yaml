@@ -1,0 +1,48 @@
+# Objectives, as Ravenry ships it. One card per project that has a brief or
+# a plan file: its goal, a row per objective with its dot strip and what
+# comes next, and the running plan with its gate. Projects with neither
+# get one quiet line each at the end.
+#
+# To change it, use Customize: it copies this file to
+# ~/.ravenry/pages/objectives.page.yaml, and the copy is used from then on.
+version: 1
+id: objectives
+revision: 1
+title: Objectives
+nav: { icon: target, route: objectives }
+source:
+  provider: projects
+sections:
+  - view: cards
+    where: { any: [{ has: brief }, { has: plan_files }] }
+    sort: [state, name]
+    item:
+      title: name
+      subtitle: brief.goal
+      badges: [machine]
+      place: ravenry:objective-rows
+      detail: ravenry:session-sheet
+      actions:
+        - label: Write the brief
+          when: { not: { has: brief } }
+          plugin: ravenry:write-brief
+          fallback:
+            label: Write the brief
+            ask:
+              session: "{id}"
+              prefill: "Write this project's BRIEF.md: its goal, what done means, and its plan."
+  - view: list
+    title: No brief yet
+    where: { not: { any: [{ has: brief }, { has: plan_files }] } }
+    sort: [state, name]
+    item:
+      title: name
+      detail: ravenry:session-sheet
+      actions:
+        - label: Write the brief
+          plugin: ravenry:write-brief
+          fallback:
+            label: Write the brief
+            ask:
+              session: "{id}"
+              prefill: "Write this project's BRIEF.md: its goal, what done means, and its plan."

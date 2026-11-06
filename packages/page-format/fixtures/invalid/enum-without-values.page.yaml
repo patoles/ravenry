@@ -1,0 +1,8 @@
+version: 1
+id: enum-without-values
+title: An enum with no values
+source:
+  folder: notes/
+  fields:
+    status: { type: enum }
+sections: [{ view: list }]

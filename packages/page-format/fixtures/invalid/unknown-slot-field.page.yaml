@@ -1,0 +1,9 @@
+version: 1
+id: unknown-slot-field
+title: A slot naming a provider field that does not exist
+source: { provider: projects }
+sections:
+  - view: cards
+    item:
+      title: name
+      subtitle: brief.gaol

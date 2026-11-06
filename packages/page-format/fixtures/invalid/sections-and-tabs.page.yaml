@@ -1,0 +1,6 @@
+version: 1
+id: sections-and-tabs
+title: Both
+source: { folder: notes/ }
+sections: [{ view: list }]
+tabs: [{ label: All, sections: [{ view: list }] }]

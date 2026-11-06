@@ -1,0 +1,8 @@
+version: 1
+id: reserved-field
+title: A field every item already has
+source:
+  folder: notes/
+  fields:
+    body: { type: string }
+sections: [{ view: list }]

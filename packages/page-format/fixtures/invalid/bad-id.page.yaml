@@ -1,0 +1,5 @@
+version: 1
+id: Playtest
+title: Bad id
+source: { folder: notes/ }
+sections: [{ view: list }]

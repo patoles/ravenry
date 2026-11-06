@@ -1,0 +1,7 @@
+version: 1
+id: board-without-group-by
+title: Board without lanes
+source: { folder: notes/ }
+sections:
+  - view: board
+    item: { title: title }

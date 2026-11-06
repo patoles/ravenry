@@ -1,0 +1,10 @@
+version: 1
+id: filter-value
+title: A filter value the field never has
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixing, fixed] }
+sections:
+  - view: list
+    where: { status: nwe }

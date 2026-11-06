@@ -1,0 +1,8 @@
+version: 1
+id: field-default
+title: A default that is not a value
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixing, fixed], default: neww }
+sections: [{ view: list }]

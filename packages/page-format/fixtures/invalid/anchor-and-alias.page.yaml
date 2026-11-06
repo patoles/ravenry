@@ -1,0 +1,7 @@
+version: 1
+id: anchor-and-alias
+title: Anchors
+source: &src { folder: notes/ }
+sections:
+  - view: list
+    source: *src

@@ -1,0 +1,5 @@
+version: 1
+id: folder-outside
+title: A folder outside the page's folder
+source: { folder: ../secrets/ }
+sections: [{ view: list }]

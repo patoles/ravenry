@@ -1,0 +1,6 @@
+version: 1
+id: unknown-icon
+title: An icon Ravenry does not have
+nav: { icon: flags }
+source: { folder: notes/ }
+sections: [{ view: list, actions: [{ label: New, icon: rocket, create: {} }] }]

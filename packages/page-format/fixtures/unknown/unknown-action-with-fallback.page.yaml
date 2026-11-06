@@ -1,0 +1,16 @@
+version: 1
+id: unknown-action-with-fallback
+title: A button from a newer Ravenry
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixed] }
+sections:
+  - view: list
+    item:
+      actions:
+        - label: Move
+          move: { to: archive/ }
+          fallback: { label: Archive, archive: true }
+        - label: Pin
+          pin: true

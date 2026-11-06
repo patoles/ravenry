@@ -1,0 +1,37 @@
+# Every kind of button, on items and on the page.
+version: 1
+id: every-action
+title: Every action
+source:
+  folder: regions/
+  fields:
+    region: { type: string }
+    status: { type: enum, values: [checked, needs-a-look, out-of-date] }
+    site: { type: string }
+sections:
+  - view: table
+    columns: [region, status]
+    actions:
+      - { label: Open settings, open: { page: settings } }
+    item:
+      actions:
+        - { label: Open, open: item }
+        - { label: Edit, open: file }
+        - { label: Folder, open: folder }
+        - { label: Site, open: { link: site } }
+        - { label: Project, open: { project: "trail-{region}" } }
+        - { label: Session, open: { session: "{region} tiles" } }
+        - { label: Mark checked, set: { status: checked } }
+        - { label: Tick, toggle: body }
+        - { label: Copy, copy: "{region}" }
+        - { label: Archive, archive: true }
+        - { label: Ask, ask: { prefill: "Look at {region}" } }
+        - { label: Ask later, ask: { session: trail-map, background: "Rebuild the {region} tiles and report" } }
+        - label: Rebuild tiles
+          confirm: Rebuild {region}?
+          run: { argv: [npm, run, "build:tiles", --, --fast], env: { REGION: region, STATUS: status }, cwd: tools/ }
+        - { label: Save, plugin: ravenry:save-rule, with: { target: global } }
+actions:
+  - { label: New region, create: {} }
+  - { label: Rebuild all, run: { argv: [npm, run, "build:tiles"] } }
+  - { label: Copy list, copy: All regions }

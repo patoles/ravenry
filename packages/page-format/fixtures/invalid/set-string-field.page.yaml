@@ -1,0 +1,12 @@
+version: 1
+id: set-string-field
+title: Set a string field
+source:
+  folder: notes/
+  fields:
+    device: { type: string }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Pixel, set: { device: Pixel 8 } }

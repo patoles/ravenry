@@ -1,0 +1,5 @@
+version: 1
+id: empty-source
+title: Empty source
+source: { fields: { status: { type: string } } }
+sections: [{ view: list }]

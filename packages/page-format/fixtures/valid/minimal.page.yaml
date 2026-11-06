@@ -1,0 +1,6 @@
+version: 1
+id: minimal
+title: Minimal
+source: { folder: notes/ }
+sections:
+  - view: list

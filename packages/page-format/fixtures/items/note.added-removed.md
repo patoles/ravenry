@@ -1,0 +1,10 @@
+---
+title: Boat clips through the dock on the left turn
+status: new   # set by the tester
+project: paper-boat
+device: "yes"
+tags: [dock, left turn, physics]
+---
+Third run, turning left past the dock at about half speed.
+The bow goes inside the planks for a moment, then pops
+back out. Every time on the left side, never on the right.

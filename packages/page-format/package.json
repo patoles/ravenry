@@ -1,0 +1,39 @@
+{
+  "name": "@ravenry/page-format",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ravenry page files (*.page.yaml), version 1: the JSON Schema, a parser and checker with line-numbered errors, item files, the shipped default pages, the generated agent docs and the conformance fixtures.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema/page-1.json": "./schema/page-1.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "schema",
+    "defaults",
+    "docs",
+    "fixtures",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "build": "tsc -p tsconfig.build.json",
+    "docs": "node tools/docs.ts --write",
+    "docs:check": "node tools/docs.ts --check"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}

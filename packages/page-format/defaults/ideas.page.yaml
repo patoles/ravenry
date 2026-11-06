@@ -1,0 +1,30 @@
+# Ideas, as Ravenry ships it: a board from spark to greenlit, one markdown
+# file per idea in ~/.ravenry/pages/ideas/. Drag a card to another lane to
+# move it. Opening one shows its thread with your agent and its mockup
+# rounds.
+version: 1
+id: ideas
+revision: 1
+title: Ideas
+nav: { icon: idea, count: true, route: ideas }
+source:
+  folder: ideas/
+  fields:
+    stage: { type: enum, values: [spark, mockup, greenlit, parked], default: spark, required: true }
+    pitch: { type: string }
+    status: { type: string }
+    picture: { type: image }
+sections:
+  - view: ravenry:brainstorm
+  - view: board
+    group_by: stage
+    item:
+      title: title
+      excerpt: pitch
+      image: picture
+      place: ravenry:mockup-rounds
+      detail: ravenry:idea-thread
+      actions:
+        - { label: Archive, archive: true, confirm: "Archive {title}? Undo brings it back." }
+actions:
+  - { label: Add idea, create: { stage: spark } }

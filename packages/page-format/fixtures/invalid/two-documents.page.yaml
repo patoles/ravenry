@@ -1,0 +1,7 @@
+version: 1
+id: two-documents
+title: Two documents
+source: { folder: notes/ }
+sections: [{ view: list }]
+---
+version: 1

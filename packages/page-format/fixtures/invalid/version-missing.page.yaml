@@ -1,0 +1,4 @@
+id: version-missing
+title: No version
+source: { folder: notes/ }
+sections: [{ view: list }]

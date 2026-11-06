@@ -1,0 +1,8 @@
+version: 1
+id: field-name-case
+title: A field name in capitals
+source:
+  folder: notes/
+  fields:
+    Status: { type: string }
+sections: [{ view: list }]

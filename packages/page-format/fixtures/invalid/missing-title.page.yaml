@@ -1,0 +1,4 @@
+version: 1
+id: missing-title
+source: { folder: notes/ }
+sections: [{ view: list }]

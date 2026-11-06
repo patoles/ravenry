@@ -1,0 +1,7 @@
+version: 1
+id: bad-indent
+title: Bad indent
+source:
+  folder: notes/
+ fields: {}
+sections: [{ view: list }]

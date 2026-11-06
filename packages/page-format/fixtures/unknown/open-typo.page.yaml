@@ -1,0 +1,9 @@
+version: 1
+id: open-typo
+title: An open target misspelt
+source: { folder: notes/ }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Open, open: iten }

@@ -1,0 +1,27 @@
+version: 1
+id: playtest
+title: Playtest notes
+nav: { icon: flag, count: { status: new } }
+source:
+  folder: playtest/
+  fields:
+    status:  { type: enum, values: [new, fixing, fixed] }
+    project: { type: string }
+    device:  { type: string }
+    picture: { type: image }
+sections:
+  - view: board
+    group_by: status
+    item:
+      title: title
+      badges: [project, device]
+      image: picture
+      time: modified
+      actions:
+        - { label: Fixed, set: { status: fixed } }
+        - label: Ask Claude to fix
+          ask:
+            session: "{project}"
+            prefill: "Fix this playtest note: {title}"
+actions:
+  - { label: New note, create: { status: new } }

@@ -1,0 +1,4 @@
+version: 1
+id: no-sections
+title: Nothing to show
+source: { folder: notes/ }

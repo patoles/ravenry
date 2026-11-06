@@ -1,0 +1,7 @@
+version: 1
+id: placeholder-in-page-action
+title: A placeholder in a page button
+source: { folder: notes/ }
+sections: [{ view: list }]
+actions:
+  - { label: Copy, copy: "{title}" }

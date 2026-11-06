@@ -1,0 +1,10 @@
+version: 1
+id: placeholder-unknown-field
+title: A placeholder naming no field
+source: { folder: notes/ }
+sections:
+  - view: list
+    item:
+      actions:
+        - label: Ask
+          ask: { prefill: "Fix {titel}" }

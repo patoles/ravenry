@@ -1,0 +1,8 @@
+version: 1
+id: unknown-builtin
+title: A ravenry piece that does not exist
+source: { provider: plans }
+sections:
+  - view: ravenry:plans
+  - view: list
+    item: { title: title, place: ravenry:plan-rows }

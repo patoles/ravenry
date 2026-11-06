@@ -1,0 +1,63 @@
+# One section of each core view over a folder, with every item slot.
+version: 1
+id: every-view
+title: Every view
+requires: ">=0.1"
+nav: { label: Views, icon: board, count: { status: [open, doing] }, count_label: open, route: pages/every-view }
+source:
+  folder: tasks/
+  fields:
+    title: { type: string, required: true }
+    status: { type: enum, values: [open, doing, done], default: open, label: State }
+    points: { type: number, default: 1 }
+    due: { type: date }
+    urgent: { type: bool, default: false }
+    tags: { type: list }
+    shot: { type: image }
+sections:
+  - view: stats
+    stats:
+      - { label: Open, count: { status: open } }
+      - { label: All, count: true }
+      - { label: Points, sum: points, note: Every task }
+      - { label: Next due, min: due }
+      - { label: Biggest, max: points }
+  - view: list
+    title: Urgent
+    where: { urgent: true, status: { not: done } }
+    sort: [due, -points]
+    limit: 5
+    empty: Nothing urgent.
+    item:
+      title: title
+      subtitle: status
+      badges: [tags, points]
+      progress: points
+      time: due
+      checklist: body
+      excerpt: body
+      actions:
+        - { label: Tick, toggle: body }
+        - { label: Done, icon: check, set: { status: done, urgent: false }, when: { status: [open, doing] } }
+  - view: cards
+    where: { has: shot }
+    item: { title: title, image: shot, excerpt: body, actions: [{ label: Open, open: item }] }
+  - view: board
+    group_by: status
+    item:
+      title: title
+      badges: [tags]
+      progress: { done: points, total: points, style: count }
+      actions:
+        - { label: Archive, archive: true, confirm: "Archive {title}?" }
+        - { label: Edit, open: file }
+  - view: table
+    columns: [title, { field: points, label: Pts, align: end }, due, status]
+    item: { actions: [{ label: Copy, copy: "{title}: {status} {{done}}" }] }
+  - view: document
+    source: { files: "docs/**/TODO*.md" }
+    item: { title: title, progress: { done: done, total: total } }
+actions:
+  - { label: New task, icon: inbox, create: { status: open, urgent: true } }
+  - { label: Ask for a plan, ask: { session: tools, prefill: Plan the open tasks } }
+x-owner-notes: anything here is kept and ignored

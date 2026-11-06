@@ -1,0 +1,12 @@
+version: 1
+id: two-verbs
+title: A button doing two things
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixed] }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Fix it, set: { status: fixed }, ask: { prefill: Fix it } }

@@ -1,0 +1,33 @@
+# Tabs, each section with its own provider, and plugin pieces.
+version: 1
+id: tabs-and-providers
+title: Tabs and providers
+nav: { icon: chart, sum: ahead }
+source: { provider: git }
+tabs:
+  - label: Repos
+    count: { ahead: { gt: 0 } }
+    sections:
+      - view: stats
+        stats: [{ label: Unpushed, sum: ahead }, { label: Last commit, max: last_commit.at }]
+      - view: list
+        sort: [-ahead, last_commit.at]
+        item: { title: path, subtitle: last_commit.subject, time: last_commit.at, progress: { list: ship, style: dots } }
+  - label: Projects
+    sections:
+      - view: cards
+        source: { provider: projects }
+        where: { any: [{ state: you }, { has: question }], not: { brief.draft: true } }
+        item: { title: name, subtitle: brief.goal, badges: [machine], place: ravenry:objective-rows, detail: ravenry:session-sheet }
+      - view: ravenry:sessions
+        source: { provider: sessions }
+      - view: list
+        source: { provider: plans }
+        where: { state: gate, last: { gte: "2026-01-01" } }
+        item: { title: title, subtitle: question, place: ravenry:plan-row, detail: ravenry:plan }
+  - label: Rules
+    sections:
+      - view: document
+        source: { provider: rule-files }
+        where: { exists: true }
+        item: { title: path, badges: [assistant] }

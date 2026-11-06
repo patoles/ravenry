@@ -1,0 +1,30 @@
+# Ship, as Ravenry ships it: what is not pushed, what is not committed and
+# what waits for your call, from git and the briefs' Ship sections. Ravenry
+# never deploys or pushes: a project's ship command is only shown, for you
+# to run.
+version: 1
+id: ship
+revision: 1
+title: Ship
+nav: { icon: ship, sum: ship_waiting, route: ship }
+source:
+  provider: git
+sections:
+  - view: stats
+    stats:
+      - { label: Unpushed commits, sum: ahead, note: In repos with an upstream }
+      - { label: Uncommitted work, count: { changed: { gt: 0 } }, note: Repos with tracked files changed }
+      - { label: Waiting for your call, sum: ship_waiting, note: Prod deploys stay yours }
+  - view: cards
+    sort: [-ahead, -changed, last_commit.at]
+    empty: No project lives in a git repo.
+    item:
+      title: projects
+      subtitle: path
+      badges: [branch, upstream]
+      image: picture
+      time: last_commit.at
+      progress: { list: ship, style: dots }
+      actions:
+        - { label: Open the project, open: { project: "{project}" } }
+        - { label: Copy the ship command, when: { has: ship_command }, copy: "! {ship_command}" }

@@ -1,0 +1,7 @@
+version: 1
+id: unknown-provider
+title: A provider this Ravenry does not have
+source: { provider: tickets }
+sections:
+  - view: list
+    item: { title: summary }

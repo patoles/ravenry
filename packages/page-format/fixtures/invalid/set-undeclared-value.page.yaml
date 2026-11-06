@@ -1,0 +1,12 @@
+version: 1
+id: set-undeclared-value
+title: Set to a value the field does not have
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixing, fixed] }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Fixed, set: { status: fixd } }

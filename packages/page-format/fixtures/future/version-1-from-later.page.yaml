@@ -1,0 +1,23 @@
+# A version 1 file written for a later Ravenry: a new key, a new view, a
+# new button kind and a new filter-free option, each with a way back.
+version: 1
+id: version-1-from-later
+title: From a later Ravenry
+requires: ">=0.9"
+density: compact
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixed] }
+    rating: { type: stars, max: 5 }
+sections:
+  - view: calendar
+    fallback: list
+    date_field: modified
+    item: { title: title }
+  - view: list
+    item:
+      title: title
+      highlight: status
+      actions:
+        - { label: Snooze, snooze: { days: 1 }, fallback: { label: Fixed, set: { status: fixed } } }

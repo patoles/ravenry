@@ -1,0 +1,7 @@
+version: 1
+id: unknown-view-placeholder
+title: A view nobody knows
+source: { folder: notes/ }
+sections:
+  - view: gallery
+    columns: 3

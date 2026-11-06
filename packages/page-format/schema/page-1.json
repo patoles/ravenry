@@ -1,0 +1,1504 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ravenry:page:1",
+  "title": "Ravenry page file, version 1",
+  "description": "A Ravenry page: one *.page.yaml file that says where a page's items come from, how they are drawn and which buttons they have. Version 1 only grows by additions: no field is ever renamed, retyped or given a new default. Keys starting with x- are yours and are never read by Ravenry. Every pattern here is RE2-compatible, so the Go checker uses the same schema.",
+  "type": "object",
+  "required": [
+    "version",
+    "id",
+    "title"
+  ],
+  "properties": {
+    "version": {
+      "title": "the number 1",
+      "description": "The page format version. Always 1 for this format. A file with a higher number needs a newer Ravenry.",
+      "const": 1,
+      "examples": [
+        1
+      ]
+    },
+    "id": {
+      "title": "lower case letters, digits and -, starting with a letter, at most 40 long",
+      "description": "The page's id. Pages are matched by id: a project page replaces a global page, which replaces the shipped default with the same id. The file is named <id>.page.yaml.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}$",
+      "examples": [
+        "playtest"
+      ]
+    },
+    "title": {
+      "title": "text of 1 to 80 characters",
+      "description": "The page's title, shown at the top of the page and, unless nav.label says otherwise, in the sidebar.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "examples": [
+        "Playtest notes"
+      ]
+    },
+    "revision": {
+      "title": "a whole number from 1",
+      "description": "Only in the pages Ravenry ships: the default's own revision, raised whenever the default changes. Customize writes it into the copy's from line.",
+      "type": "integer",
+      "minimum": 1,
+      "examples": [
+        3
+      ]
+    },
+    "from": {
+      "title": "<owner>/<id>@<revision>, such as ravenry/objectives@3",
+      "description": "Stamped by Customize on a copy of a shipped page: which default it came from and that default's revision. Ravenry uses it to say when the default has changed since the copy. It never merges anything.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}/[a-z][a-z0-9-]{0,39}@[1-9][0-9]{0,5}$",
+      "examples": [
+        "ravenry/objectives@3"
+      ]
+    },
+    "requires": {
+      "title": "a Ravenry version such as >=0.6 or >=0.6.2",
+      "description": "The oldest Ravenry that can draw this page. An older Ravenry shows a line asking for an update instead of the page.",
+      "type": "string",
+      "pattern": "^>= ?[0-9]{1,4}\\.[0-9]{1,4}(\\.[0-9]{1,4})?$",
+      "examples": [
+        ">=0.6"
+      ]
+    },
+    "nav": {
+      "$ref": "#/$defs/nav"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "sections": {
+      "title": "a list of sections",
+      "description": "What the page shows, top to bottom. A page has either sections or tabs.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/section"
+      }
+    },
+    "tabs": {
+      "title": "a list of tabs",
+      "description": "Instead of sections: a switch at the top of the page, each tab with its own sections.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/tab"
+      },
+      "examples": [
+        [
+          {
+            "label": "Open",
+            "sections": [
+              {
+                "view": "list",
+                "where": {
+                  "status": "open"
+                }
+              }
+            ]
+          },
+          {
+            "label": "Done",
+            "sections": [
+              {
+                "view": "list",
+                "where": {
+                  "status": "done"
+                }
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    "actions": {
+      "title": "a list of buttons",
+      "description": "Buttons at the top of the page. They have no item, so their text cannot use {field}.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      },
+      "examples": [
+        [
+          {
+            "label": "New note",
+            "create": {
+              "status": "new"
+            }
+          }
+        ]
+      ]
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "oneOf": [
+    {
+      "required": [
+        "sections"
+      ]
+    },
+    {
+      "required": [
+        "tabs"
+      ]
+    }
+  ],
+  "$defs": {
+    "fieldName": {
+      "title": "a field name: lower case letters, digits and _, starting with a letter, at most 40 long",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,39}$"
+    },
+    "fieldPath": {
+      "title": "a field name, or a dotted path such as brief.goal",
+      "description": "A field of the items. A provider's fields can hold fields of their own, reached with a dot: brief.goal.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,39}(\\.[a-z][a-z0-9_]{0,39}){0,3}$"
+    },
+    "pluginName": {
+      "title": "<plugin>:<name>, such as ravenry:plan",
+      "description": "A view or action from a plugin. Ravenry's own pieces use the ravenry: namespace.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}:[a-z][a-z0-9-]{0,39}$"
+    },
+    "relPath": {
+      "title": "a path inside the page's folder, such as notes/ (not starting with / or ~, no ..)",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "pattern": "^[^/~\\\\][^\\\\]*$"
+    },
+    "text": {
+      "title": "text",
+      "description": "Text. In an item's buttons it can hold {field}, filled from that item's own fields as data.",
+      "type": "string",
+      "maxLength": 2000
+    },
+    "word": {
+      "title": "a lower-case word",
+      "description": "A name a newer Ravenry may know. This one warns and uses its default.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}$"
+    },
+    "icon": {
+      "title": "an icon name such as flag",
+      "description": "One of Ravenry's icons: target, plans, idea, rules, ship, flag, list, cards, board, table, chart, doc, check, star, bug, inbox, clock, folder, terminal, tag, heart, bolt, page. An unknown name draws the page icon.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}$",
+      "examples": [
+        "flag"
+      ]
+    },
+    "nav": {
+      "title": "a mapping",
+      "description": "The page's row in the sidebar (and on the phone).",
+      "type": "object",
+      "properties": {
+        "label": {
+          "title": "text of 1 to 40 characters",
+          "description": "The row's text. Defaults to the title.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "examples": [
+            "Playtest"
+          ]
+        },
+        "icon": {
+          "$ref": "#/$defs/icon"
+        },
+        "count": {
+          "title": "true, false or a filter",
+          "description": "The number after the label: true counts every item of the page's source, a filter counts the items it matches. Off when left out.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/filter"
+            }
+          ],
+          "examples": [
+            {
+              "status": "new"
+            }
+          ]
+        },
+        "sum": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "Instead of count: the number after the label is this number field added up over the page's items.",
+          "examples": [
+            "ship_waiting"
+          ]
+        },
+        "count_label": {
+          "title": "text of 1 to 20 characters",
+          "description": "A word after the number, such as running in \"2 running\".",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20,
+          "examples": [
+            "new"
+          ]
+        },
+        "route": {
+          "title": "a route: lower case letters, digits, - and /",
+          "description": "Where the page opens in the app. Defaults to pages/<id>.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9/-]{0,79}$",
+          "examples": [
+            "pages/playtest"
+          ]
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "examples": [
+        {
+          "icon": "flag",
+          "count": {
+            "status": "new"
+          }
+        }
+      ]
+    },
+    "source": {
+      "title": "a mapping with one of folder, files or provider",
+      "description": "Where the items come from: a folder of markdown files (one per item, fields in the frontmatter), files matched by a glob (read for their checkboxes), or a provider (Ravenry's own read-only data). A section can have its own source; otherwise it uses the page's.",
+      "type": "object",
+      "properties": {
+        "folder": {
+          "$ref": "#/$defs/relPath",
+          "description": "A folder of markdown files, one per item, next to the page file: playtest/ beside playtest.page.yaml. For a shipped page, beside where its copy would go (~/.ravenry/pages/). Each file's frontmatter holds the fields; its body is the item's text.",
+          "examples": [
+            "playtest/"
+          ]
+        },
+        "fields": {
+          "title": "a mapping of field names to fields",
+          "description": "With folder only: the fields each item has. They also build the New and Edit forms. Every item also has title, body, file, created and modified.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/field"
+          },
+          "examples": [
+            {
+              "status": {
+                "type": "enum",
+                "values": [
+                  "new",
+                  "fixing",
+                  "fixed"
+                ]
+              },
+              "device": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "files": {
+          "title": "a glob such as docs/**/PLAN*.md",
+          "description": "Markdown files matched by a glob inside the page's folder (the project's folder for a project page), one item per file, read for their checkboxes: done, total, title.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^[^/~\\\\][^\\\\]*$",
+          "examples": [
+            "docs/**/PLAN*.md"
+          ]
+        },
+        "provider": {
+          "title": "a provider id such as projects, or <plugin>:<name>",
+          "description": "Ravenry's own data, read only: projects, brief, plans, plan-files, git, rule-files, repeats, sessions. Their field names are fixed (see providers-1.json). A plugin's provider is <plugin>:<name>.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,39}(:[a-z][a-z0-9-]{0,39})?$",
+          "examples": [
+            "projects"
+          ]
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "oneOf": [
+        {
+          "required": [
+            "folder"
+          ]
+        },
+        {
+          "required": [
+            "files"
+          ]
+        },
+        {
+          "required": [
+            "provider"
+          ]
+        }
+      ],
+      "examples": [
+        {
+          "folder": "playtest/",
+          "fields": {
+            "status": {
+              "type": "enum",
+              "values": [
+                "new",
+                "fixing",
+                "fixed"
+              ]
+            }
+          }
+        },
+        {
+          "provider": "projects"
+        }
+      ]
+    },
+    "field": {
+      "title": "a mapping with a type",
+      "description": "One field of a folder's items.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "title": "one of string, number, date, bool, enum, list or image",
+          "description": "string: one line of text. number. date: YYYY-MM-DD, or with a time. bool: true or false. enum: one of its values. list: a list of short texts. image: a picture file inside the page's folder (never a web address). A type from a newer Ravenry is read as text, with a warning.",
+          "anyOf": [
+            {
+              "enum": [
+                "string",
+                "number",
+                "date",
+                "bool",
+                "enum",
+                "list",
+                "image"
+              ]
+            },
+            {
+              "$ref": "#/$defs/word"
+            }
+          ],
+          "examples": [
+            "enum"
+          ]
+        },
+        "label": {
+          "title": "text of 1 to 40 characters",
+          "description": "The field's name in forms and table headers. Defaults to the field name, capitalised.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "examples": [
+            "Device"
+          ]
+        },
+        "values": {
+          "title": "a list of values",
+          "description": "With enum only: the values, in order. A board shows one lane per value in this order.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "examples": [
+            [
+              "new",
+              "fixing",
+              "fixed"
+            ]
+          ]
+        },
+        "default": {
+          "title": "a value of the field's type",
+          "description": "The value a new item starts with.",
+          "examples": [
+            "new"
+          ]
+        },
+        "required": {
+          "title": "true or false",
+          "description": "The New and Edit forms ask for it.",
+          "type": "boolean",
+          "examples": [
+            true
+          ]
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "enum"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          }
+        }
+      ],
+      "examples": [
+        {
+          "type": "enum",
+          "values": [
+            "new",
+            "fixing",
+            "fixed"
+          ],
+          "default": "new"
+        }
+      ]
+    },
+    "filter": {
+      "title": "a filter (a mapping)",
+      "description": "Which items to keep. Every line must hold. field: value keeps items whose field is that value; field: [a, b] keeps either; field: { gt: 0 } compares (gt, gte, lt, lte, not); has: field keeps items where the field is set and not empty; not: {filter} and any: [filters] combine. There are no formulas.",
+      "type": "object",
+      "properties": {
+        "has": {
+          "title": "a field or a list of fields",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/fieldPath"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/fieldPath"
+              }
+            }
+          ],
+          "examples": [
+            "brief"
+          ]
+        },
+        "not": {
+          "$ref": "#/$defs/filter"
+        },
+        "any": {
+          "title": "a list of filters",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/filter"
+          }
+        }
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/fieldPath"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/scalar"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          {
+            "$ref": "#/$defs/compare"
+          }
+        ]
+      },
+      "examples": [
+        {
+          "status": "new"
+        },
+        {
+          "has": "brief"
+        },
+        {
+          "state": [
+            "running",
+            "gate"
+          ]
+        },
+        {
+          "ahead": {
+            "gt": 0
+          }
+        },
+        {
+          "not": {
+            "has": "brief"
+          }
+        }
+      ]
+    },
+    "scalar": {
+      "title": "text, a number or true or false",
+      "type": [
+        "string",
+        "number",
+        "boolean"
+      ]
+    },
+    "compare": {
+      "title": "a comparison such as { gt: 0 }",
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "gt": {
+          "title": "a number or a date",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "gte": {
+          "title": "a number or a date",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "lt": {
+          "title": "a number or a date",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "lte": {
+          "title": "a number or a date",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "not": {
+          "title": "a value or a list of values",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/scalar"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/scalar"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "tab": {
+      "title": "a mapping with label and sections",
+      "description": "One tab of a page with tabs.",
+      "type": "object",
+      "required": [
+        "label",
+        "sections"
+      ],
+      "properties": {
+        "label": {
+          "title": "text of 1 to 40 characters",
+          "description": "The tab's name.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "examples": [
+            "Suggested"
+          ]
+        },
+        "count": {
+          "title": "true, false or a filter",
+          "description": "A number after the tab's name: true counts the items of its first section, a filter counts the ones it matches.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/filter"
+            }
+          ],
+          "examples": [
+            true
+          ]
+        },
+        "sections": {
+          "title": "a list of sections",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/section"
+          }
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      }
+    },
+    "coreView": {
+      "title": "one of list, cards, board, table, stats or document",
+      "description": "list: rows. cards: a grid of cards. board: lanes by an enum field, and dragging a card sets that field (below about 240 px a lane, a grouped list). table: rows and columns. stats: a row of numbers. document: each item's text as a document.",
+      "enum": [
+        "list",
+        "cards",
+        "board",
+        "table",
+        "stats",
+        "document"
+      ]
+    },
+    "section": {
+      "title": "a mapping with a view",
+      "description": "One part of a page: a view of items from a source.",
+      "type": "object",
+      "required": [
+        "view"
+      ],
+      "properties": {
+        "view": {
+          "title": "a view: list, cards, board, table, stats, document or <plugin>:<name>",
+          "description": "How the items are drawn: list, cards, board, table, stats, document, or a plugin's view such as ravenry:plan. A view this Ravenry does not know draws the section's fallback, or a placeholder.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,39}(:[a-z][a-z0-9-]{0,39})?$",
+          "examples": [
+            "board"
+          ]
+        },
+        "title": {
+          "title": "text of 1 to 80 characters",
+          "description": "A heading above the section.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "examples": [
+            "No brief yet"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "where": {
+          "$ref": "#/$defs/filter"
+        },
+        "sort": {
+          "title": "a list of fields, each optionally starting with -",
+          "description": "The order of the items: by the first field, then the next. Dates go newest first and everything else A to Z or smallest first; a - in front reverses it.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "title": "a field, optionally starting with -",
+            "pattern": "^-?[a-z][a-z0-9_]{0,39}(\\.[a-z][a-z0-9_]{0,39}){0,3}$"
+          },
+          "examples": [
+            [
+              "modified"
+            ],
+            [
+              "state",
+              "name"
+            ]
+          ]
+        },
+        "limit": {
+          "title": "a whole number from 1 to 500",
+          "description": "Show at most this many items, then an \"N more\" line.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "examples": [
+            20
+          ]
+        },
+        "empty": {
+          "title": "text of 1 to 200 characters",
+          "description": "What the section says when it has no items.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "examples": [
+            "Nothing waiting."
+          ]
+        },
+        "actions": {
+          "title": "a list of buttons",
+          "description": "Buttons above the section. Like the page's, they have no item.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        "fallback": {
+          "title": "a view name or a section",
+          "description": "What to draw when this Ravenry does not know the view (a plugin that is not installed, or a view from a newer Ravenry): a core view name, which keeps the rest of the section, or a whole section.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/coreView"
+            },
+            {
+              "$ref": "#/$defs/section"
+            }
+          ],
+          "examples": [
+            "list"
+          ]
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "enum": [
+                  "list",
+                  "cards",
+                  "board",
+                  "table",
+                  "document"
+                ]
+              }
+            },
+            "required": [
+              "view"
+            ]
+          },
+          "then": {
+            "properties": {
+              "item": {
+                "$ref": "#/$defs/item"
+              },
+              "group_by": {
+                "$ref": "#/$defs/fieldPath",
+                "description": "Group the items by a field: a heading per value. A board needs it, and it must be an enum field there: one lane per value, and dragging a card to a lane sets the field.",
+                "examples": [
+                  "status"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "const": "board"
+              }
+            },
+            "required": [
+              "view"
+            ]
+          },
+          "then": {
+            "required": [
+              "group_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "const": "table"
+              }
+            },
+            "required": [
+              "view"
+            ]
+          },
+          "then": {
+            "properties": {
+              "columns": {
+                "title": "a list of columns",
+                "description": "The table's columns, left to right: a field, or { field, label, align }. Defaults to the title.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/column"
+                },
+                "examples": [
+                  [
+                    "region",
+                    {
+                      "field": "tiles",
+                      "align": "end"
+                    },
+                    "status"
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "const": "stats"
+              }
+            },
+            "required": [
+              "view"
+            ]
+          },
+          "then": {
+            "required": [
+              "stats"
+            ],
+            "properties": {
+              "stats": {
+                "title": "a list of numbers",
+                "description": "The numbers, left to right.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/stat"
+                },
+                "examples": [
+                  [
+                    {
+                      "label": "Unpushed commits",
+                      "sum": "ahead"
+                    },
+                    {
+                      "label": "Repos with changes",
+                      "count": {
+                        "changed": {
+                          "gt": 0
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "pattern": ":"
+              }
+            },
+            "required": [
+              "view"
+            ]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "title": "a mapping",
+                "description": "Settings for a plugin's view, as that plugin documents them.",
+                "type": "object",
+                "examples": [
+                  {
+                    "state": "running"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "examples": [
+        {
+          "view": "board",
+          "group_by": "status",
+          "item": {
+            "title": "title",
+            "badges": [
+              "project"
+            ]
+          }
+        }
+      ]
+    },
+    "column": {
+      "title": "a field or { field, label, align }",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/fieldPath"
+        },
+        {
+          "type": "object",
+          "required": [
+            "field"
+          ],
+          "properties": {
+            "field": {
+              "$ref": "#/$defs/fieldPath"
+            },
+            "label": {
+              "title": "text of 1 to 40 characters",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "align": {
+              "title": "start or end",
+              "anyOf": [
+                {
+                  "enum": [
+                    "start",
+                    "end"
+                  ]
+                },
+                {
+                  "$ref": "#/$defs/word"
+                }
+              ]
+            }
+          },
+          "patternProperties": {
+            "^x-": {}
+          }
+        }
+      ]
+    },
+    "stat": {
+      "title": "a mapping with a label and one of count, sum, min or max",
+      "description": "One number: count (true, or a filter) counts items; sum, min and max take a number field.",
+      "type": "object",
+      "required": [
+        "label"
+      ],
+      "properties": {
+        "label": {
+          "title": "text of 1 to 40 characters",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "count": {
+          "title": "true or a filter",
+          "anyOf": [
+            {
+              "const": true
+            },
+            {
+              "$ref": "#/$defs/filter"
+            }
+          ]
+        },
+        "sum": {
+          "$ref": "#/$defs/fieldPath"
+        },
+        "min": {
+          "$ref": "#/$defs/fieldPath"
+        },
+        "max": {
+          "$ref": "#/$defs/fieldPath"
+        },
+        "note": {
+          "title": "text of 1 to 120 characters",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "oneOf": [
+        {
+          "required": [
+            "count"
+          ]
+        },
+        {
+          "required": [
+            "sum"
+          ]
+        },
+        {
+          "required": [
+            "min"
+          ]
+        },
+        {
+          "required": [
+            "max"
+          ]
+        }
+      ],
+      "examples": [
+        {
+          "label": "Unpushed commits",
+          "sum": "ahead"
+        }
+      ]
+    },
+    "item": {
+      "title": "a mapping of slots",
+      "description": "What each item shows. Every slot names a field; none holds text of its own.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "The item's name. Defaults to title.",
+          "examples": [
+            "title"
+          ]
+        },
+        "subtitle": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "A line under the title.",
+          "examples": [
+            "brief.goal"
+          ]
+        },
+        "badges": {
+          "title": "a list of fields",
+          "description": "Small tags after the title, one per field that has a value.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fieldPath"
+          },
+          "examples": [
+            [
+              "project",
+              "device"
+            ]
+          ]
+        },
+        "progress": {
+          "title": "a number field, { done, total, style } or { list, style }",
+          "description": "A bar or dots: a number field from 0 to 100, done of total, or a list whose entries have a state (done, now, you, wait, todo). style is bar, dots or count.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/fieldPath"
+            },
+            {
+              "type": "object",
+              "required": [
+                "done",
+                "total"
+              ],
+              "properties": {
+                "done": {
+                  "$ref": "#/$defs/fieldPath"
+                },
+                "total": {
+                  "$ref": "#/$defs/fieldPath"
+                },
+                "style": {
+                  "$ref": "#/$defs/progressStyle"
+                }
+              },
+              "patternProperties": {
+                "^x-": {}
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "list"
+              ],
+              "properties": {
+                "list": {
+                  "$ref": "#/$defs/fieldPath"
+                },
+                "style": {
+                  "$ref": "#/$defs/progressStyle"
+                }
+              },
+              "patternProperties": {
+                "^x-": {}
+              }
+            }
+          ],
+          "examples": [
+            {
+              "done": "done",
+              "total": "total",
+              "style": "bar"
+            }
+          ]
+        },
+        "image": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "A picture: an image field. Only files inside the page's folder are shown, never a web address.",
+          "examples": [
+            "picture"
+          ]
+        },
+        "time": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "A date field, shown as a time (16:52, Yesterday, Mon).",
+          "examples": [
+            "modified"
+          ]
+        },
+        "checklist": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "The checkboxes (- [ ] and - [x] lines) of a text field, usually body. They can be ticked when the item has a toggle button.",
+          "examples": [
+            "body"
+          ]
+        },
+        "excerpt": {
+          "$ref": "#/$defs/fieldPath",
+          "description": "The first lines of a text field, usually body.",
+          "examples": [
+            "body"
+          ]
+        },
+        "place": {
+          "$ref": "#/$defs/pluginName",
+          "description": "A plugin's view drawn inside the item, such as ravenry:plan-row.",
+          "examples": [
+            "ravenry:plan-row"
+          ]
+        },
+        "detail": {
+          "$ref": "#/$defs/pluginName",
+          "description": "A plugin's view shown when the item is opened, instead of its fields and text.",
+          "examples": [
+            "ravenry:plan"
+          ]
+        },
+        "actions": {
+          "title": "a list of buttons",
+          "description": "The item's buttons. Their text can use {field} from this item.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          },
+          "examples": [
+            [
+              {
+                "label": "Fixed",
+                "set": {
+                  "status": "fixed"
+                }
+              }
+            ]
+          ]
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "examples": [
+        {
+          "title": "title",
+          "badges": [
+            "project",
+            "device"
+          ],
+          "image": "picture",
+          "time": "modified"
+        }
+      ]
+    },
+    "progressStyle": {
+      "title": "bar, dots or count",
+      "anyOf": [
+        {
+          "enum": [
+            "bar",
+            "dots",
+            "count"
+          ]
+        },
+        {
+          "$ref": "#/$defs/word"
+        }
+      ]
+    },
+    "action": {
+      "title": "a mapping with a label and one of open, set, create, toggle, copy, archive, ask, run or plugin",
+      "description": "A button. It does exactly one thing, from a closed list. One this Ravenry does not know draws its fallback, or a button that is off.",
+      "type": "object",
+      "required": [
+        "label"
+      ],
+      "properties": {
+        "label": {
+          "title": "text of 1 to 40 characters",
+          "description": "The button's text. It never holds {field}, so a trust prompt can list it as written.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "examples": [
+            "Fixed"
+          ]
+        },
+        "icon": {
+          "$ref": "#/$defs/icon"
+        },
+        "confirm": {
+          "$ref": "#/$defs/text",
+          "description": "A question asked before the button does anything. Can use {field}.",
+          "examples": [
+            "Archive {title}?"
+          ]
+        },
+        "when": {
+          "$ref": "#/$defs/filter",
+          "description": "Show the button only on items this filter keeps."
+        },
+        "fallback": {
+          "$ref": "#/$defs/action",
+          "description": "The button to show instead when this Ravenry does not know this one's kind (a plugin action that is not installed, or one from a newer Ravenry)."
+        },
+        "open": {
+          "title": "item, file, folder, or { page }, { link }, { project } or { session }",
+          "description": "Opens something: item (the item, with its fields and text), file (its file in your editor), folder (its folder), { page: <id> } another page, { link: <field> } the address in a field (shown in full before it opens), { project: <text> } or { session: <text> } a project's or session's view.",
+          "anyOf": [
+            {
+              "enum": [
+                "item",
+                "file",
+                "folder"
+              ]
+            },
+            {
+              "$ref": "#/$defs/word"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "title": "a page id",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{0,39}$"
+                },
+                "link": {
+                  "$ref": "#/$defs/fieldPath"
+                },
+                "project": {
+                  "$ref": "#/$defs/text"
+                },
+                "session": {
+                  "$ref": "#/$defs/text"
+                }
+              },
+              "oneOf": [
+                {
+                  "required": [
+                    "page"
+                  ]
+                },
+                {
+                  "required": [
+                    "link"
+                  ]
+                },
+                {
+                  "required": [
+                    "project"
+                  ]
+                },
+                {
+                  "required": [
+                    "session"
+                  ]
+                }
+              ]
+            }
+          ],
+          "examples": [
+            "item",
+            {
+              "project": "{project}"
+            }
+          ]
+        },
+        "set": {
+          "title": "a mapping of fields to values",
+          "description": "Sets fields of the item's file, only to declared values: an enum field to one of its values, a bool field to true or false. The rest of the file stays as it is.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/scalar"
+          },
+          "examples": [
+            {
+              "status": "fixed"
+            }
+          ]
+        },
+        "create": {
+          "title": "a mapping of fields to values",
+          "description": "Opens the New form built from the fields, starting with these values. Saving writes a new file in the folder. Page and section buttons only.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "examples": [
+            {
+              "status": "new"
+            }
+          ]
+        },
+        "toggle": {
+          "title": "body",
+          "description": "Lets the item's checklist be ticked: each box flips its own line, after checking the line still says what the screen showed.",
+          "anyOf": [
+            {
+              "enum": [
+                "body"
+              ]
+            },
+            {
+              "$ref": "#/$defs/word"
+            }
+          ],
+          "examples": [
+            "body"
+          ]
+        },
+        "copy": {
+          "$ref": "#/$defs/text",
+          "description": "Copies text to the clipboard. Can use {field}.",
+          "examples": [
+            "{title} on {device}"
+          ]
+        },
+        "archive": {
+          "title": "true",
+          "description": "Moves the item's file into the folder's .archive/ folder. Undo moves it back.",
+          "const": true,
+          "examples": [
+            true
+          ]
+        },
+        "ask": {
+          "title": "a mapping with prefill or background, and optionally session",
+          "description": "Asks an agent. prefill types the text into a session's box and waits for you to press Enter. background runs it on its own: Ravenry asks you the first time, and again whenever the page file changes. session names the project or session; defaults to the item's project. All three can use {field}.",
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/text"
+            },
+            "prefill": {
+              "$ref": "#/$defs/text"
+            },
+            "background": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "prefill"
+              ]
+            },
+            {
+              "required": [
+                "background"
+              ]
+            }
+          ],
+          "examples": [
+            {
+              "session": "{project}",
+              "prefill": "Fix this playtest note: {title}"
+            }
+          ]
+        },
+        "run": {
+          "title": "a mapping with argv, and optionally env and cwd",
+          "description": "Runs a program, always through approve-and-run: you see the command and approve every run. argv is fixed, word by word, with no {field} and no shell. Item data goes in only as environment variables: env maps a variable name to a field. cwd is a folder inside the page's folder (the project's for a project page).",
+          "type": "object",
+          "required": [
+            "argv"
+          ],
+          "properties": {
+            "argv": {
+              "title": "a list of words",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              }
+            },
+            "env": {
+              "title": "a mapping of variable names to fields",
+              "type": "object",
+              "propertyNames": {
+                "title": "an environment variable name in capitals, such as REGION",
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]{0,63}$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/fieldPath"
+              }
+            },
+            "cwd": {
+              "$ref": "#/$defs/relPath"
+            }
+          },
+          "examples": [
+            {
+              "argv": [
+                "npm",
+                "run",
+                "build:tiles"
+              ],
+              "env": {
+                "REGION": "region"
+              }
+            }
+          ]
+        },
+        "plugin": {
+          "$ref": "#/$defs/pluginName",
+          "description": "A plugin's action, such as ravenry:save-rule. with holds its settings.",
+          "examples": [
+            "ravenry:save-rule"
+          ]
+        },
+        "with": {
+          "title": "a mapping",
+          "description": "With plugin only: the action's settings, as that plugin documents them.",
+          "type": "object"
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "examples": [
+        {
+          "label": "Fixed",
+          "set": {
+            "status": "fixed"
+          }
+        }
+      ]
+    }
+  }
+}

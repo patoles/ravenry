@@ -1,0 +1,9 @@
+version: 1
+id: placeholder-in-label
+title: A placeholder in a label
+source: { folder: notes/ }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: "Open {title}", open: item }

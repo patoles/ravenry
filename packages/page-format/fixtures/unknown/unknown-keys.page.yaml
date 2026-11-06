@@ -1,0 +1,9 @@
+version: 1
+id: unknown-keys
+title: Unknown keys
+colour: blue
+x-mine: kept and ignored
+source: { folder: notes/ }
+sections:
+  - view: list
+    gruop_by: title

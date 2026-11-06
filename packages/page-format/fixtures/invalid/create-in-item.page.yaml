@@ -1,0 +1,9 @@
+version: 1
+id: create-in-item
+title: Create on an item
+source: { folder: notes/ }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Copy note, create: {} }

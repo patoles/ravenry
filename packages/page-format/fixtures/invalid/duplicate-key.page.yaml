@@ -1,0 +1,6 @@
+version: 1
+id: duplicate-key
+title: One
+title: Two
+source: { folder: notes/ }
+sections: [{ view: list }]

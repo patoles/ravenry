@@ -1,0 +1,9 @@
+version: 1
+id: set-on-provider
+title: Set on provider items
+source: { provider: plans }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Stop, set: { state: stopped } }

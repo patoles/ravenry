@@ -1,0 +1,14 @@
+version: 1
+id: unknown-view-with-fallback
+title: A view from a newer Ravenry
+source:
+  folder: notes/
+  fields:
+    status: { type: enum, values: [new, fixed] }
+    due: { type: date }
+sections:
+  - view: timeline
+    by: due
+    fallback: board
+    group_by: status
+    item: { title: title, time: due }

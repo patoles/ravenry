@@ -1,0 +1,954 @@
+{
+  "description": "Conformance cases for Ravenry page files, version 1. Every implementation (this TypeScript one, the Go checker, the apps) must give exactly these results. pages: each file is checked with its options (plugins: the plugins installed, when the checker knows; ravenryVersion: for requires) and its file name; errors and warnings are compared in order, each by code, line, column, message and hint. model: values in the typed model, by dotted path. items: item file operations; base is the file the screen was drawn from (its hash, and its fields when baseFields is true); text names the file the result must equal byte for byte.",
+  "version": 1,
+  "pages": [
+    {
+      "file": "valid/every-action.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "model": {
+        "tabs.0.sections.0.item.actions.12.kind": "run",
+        "tabs.0.sections.0.item.actions.12.env.REGION": "region",
+        "tabs.0.sections.0.item.actions.11.background": true
+      }
+    },
+    {
+      "file": "valid/every-view.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "valid/minimal.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "model": {
+        "nav.label": "Minimal",
+        "nav.icon": "page",
+        "nav.route": "pages/minimal",
+        "tabbed": false,
+        "tabs.0.label": null,
+        "tabs.0.sections.0.item.title": "title"
+      }
+    },
+    {
+      "file": "valid/objectives.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "model": {"from.revision": 3, "tabs.0.sections.0.sort.0.field": "updated", "tabs.0.sections.0.item.progress.kind": "list", "tabs.0.sections.0.item.place": "ravenry:plan-row"}
+    },
+    {
+      "file": "valid/tiles.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "model": {"tabs.0.sections.0.columns.1.align": "end", "tabs.0.sections.0.columns.2.label": "Last built", "tabs.0.sections.0.item.actions.0.argv.2": "build:tiles"}
+    },
+    {
+      "file": "valid/tabs-and-providers.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "model": {"tabbed": true, "tabs.1.label": "Projects", "tabs.1.sections.1.kind": "plugin", "nav.sum": "ahead"}
+    },
+    {
+      "file": "playtest/playtest.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "model": {"nav.count.all.0.op": "eq", "nav.count.all.0.field": "status", "nav.count.all.0.value": "new", "tabs.0.sections.0.view": "board"}
+    },
+    {
+      "file": "invalid/anchor-and-alias.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "yaml-anchor", "line": 4, "column": 14, "message": "Anchors (&src) are not allowed in a page file. Write the value out where it is used."},
+        {"code": "yaml-alias", "line": 7, "column": 13, "message": "Aliases (*src) are not allowed in a page file. Write the value out again."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/bad-id.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "invalid",
+          "line": 2,
+          "column": 5,
+          "message": "id must be lower case letters, digits and -, starting with a letter, at most 40 long.",
+          "hint": "Did you mean playtest?"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/bad-indent.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "yaml-syntax", "line": 6, "column": 1, "message": "The indentation here is off."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/board-on-string.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "group-by-not-enum",
+          "line": 10,
+          "column": 15,
+          "message": "A board's lanes come from an enum field, and device is a string. Use an enum field, or view: list."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/board-without-group-by.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "required", "line": 6, "column": 5, "message": "Section 1 (board) needs a group_by line."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/create-in-item.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "create-in-item",
+          "line": 9,
+          "column": 31,
+          "message": "create makes a new item, so it belongs in the page's or a section's actions, not an item's."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/duplicate-key.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "yaml-duplicate-key", "line": 4, "column": 1, "message": "This key appears twice in the same mapping."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/empty-source.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "one-of", "line": 4, "column": 1, "message": "source needs one of folder, files or provider."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/empty.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "empty", "line": 1, "column": 1, "message": "The page file is empty."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/enum-without-values.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "required", "line": 7, "column": 5, "message": "Field status needs a values line."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/field-default.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "field-default",
+          "line": 7,
+          "column": 66,
+          "message": "The default of status must be one of new, fixing or fixed.",
+          "hint": "Did you mean new?"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/field-name-case.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "property-name",
+          "line": 7,
+          "column": 5,
+          "message": "'Status' is not a field name: lower case letters, digits and _, starting with a letter, at most 40 long.",
+          "hint": "Did you mean status?"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/filter-value.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "filter-value",
+          "line": 10,
+          "column": 22,
+          "message": "status is never 'nwe': its values are new, fixing and fixed.",
+          "hint": "Did you mean new?"
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/folder-outside.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "path-outside", "line": 4, "column": 19, "message": "folder must stay inside the page's folder: no .., no / or ~ at the start."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/group-by-typo.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "unknown-field", "line": 14, "column": 15, "message": "'stauts' is not a field.", "hint": "Did you mean status?"}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/id-not-file-name.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "id-file-name",
+          "line": 2,
+          "column": 5,
+          "message": "id is 'playtest' but the file is id-not-file-name.page.yaml. They must match: pages are matched by id even when a file can't be read."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/missing-title.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "required", "line": 1, "column": 1, "message": "The page needs a title line."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/no-action.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "no-action",
+          "line": 9,
+          "column": 11,
+          "message": "The \"Nothing\" button does nothing: give it one of open, set, create, toggle, copy, archive, ask, run or plugin."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/no-sections.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "one-of", "line": 1, "column": 1, "message": "The page needs sections or tabs."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/no-source.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "no-source",
+          "line": 5,
+          "column": 5,
+          "message": "Section 1 (list) has no source, and the page has none. Add a source with a folder, files or provider."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/not-mapping.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "not-mapping", "line": 1, "column": 1, "message": "A page file is a mapping of keys such as version, id and title."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/placeholder-in-label.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "placeholder-not-allowed",
+          "line": 9,
+          "column": 20,
+          "message": "label is shown as written, so {title} would stay as it is. {field} only fills a button's confirm, copy, ask and open text."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/placeholder-in-page-action.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "placeholder-no-item",
+          "line": 7,
+          "column": 26,
+          "message": "This button has no item, so {title} has nothing to fill it. Move the button into item.actions, or write the text out."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/placeholder-unknown-field.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "unknown-field", "line": 10, "column": 27, "message": "'{titel}' is not a field of this item.", "hint": "Did you mean title?"}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/reserved-field.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "reserved-field", "line": 7, "column": 5, "message": "'body' is a field every item already has; pick another name."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/run-placeholder-in-argv.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "run-placeholder",
+          "line": 13,
+          "column": 42,
+          "message": "run never puts item data in argv. Pass it as an environment variable: env: { NAME: field }."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/sections-and-tabs.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "both", "line": 6, "column": 1, "message": "The page has both sections and tabs. Use one."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/set-on-provider.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "read-only-source",
+          "line": 9,
+          "column": 26,
+          "message": "set writes to an item's file, and a provider's items are read-only. It needs a folder source."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/set-string-field.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "set-type", "line": 12, "column": 34, "message": "set can only change enum and bool fields, to one of their values; device is a string."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/set-undeclared-value.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "set-value", "line": 12, "column": 42, "message": "'fixd' is not a value of status: new, fixing and fixed.", "hint": "Did you mean fixed?"}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/tag.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "yaml-tag",
+          "line": 3,
+          "column": 14,
+          "message": "Tags such as !!str are not allowed in a page file. Remove it, and quote the value if it must stay text."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/two-documents.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "yaml-multi-doc",
+          "line": 6,
+          "column": 1,
+          "message": "The page file holds more than one YAML document. Remove the --- line and what follows, or move it to its own file."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/two-verbs.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "both",
+          "line": 12,
+          "column": 52,
+          "message": "The \"Fix it\" button has both set and ask. A button does one thing; make one button for each."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/unknown-slot-field.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "unknown-field", "line": 9, "column": 17, "message": "'brief.gaol' is not a field.", "hint": "Did you mean brief.goal?"}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/version-missing.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "version-missing", "line": 1, "column": 1, "message": "The page needs version: 1 as its first line."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/version-text.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "version-invalid", "line": 1, "column": 10, "message": "version must be the number 1."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "invalid/wrong-type.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {"code": "type", "line": 7, "column": 12, "message": "limit must be a whole number from 1 to 500."}
+      ],
+      "warnings": []
+    },
+    {
+      "file": "unknown/open-typo.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "unknown-value",
+          "line": 9,
+          "column": 32,
+          "message": "open: iten is not something this Ravenry can open, so the button is drawn turned off.",
+          "hint": "Did you mean item?"
+        }
+      ],
+      "model": {"tabs.0.sections.0.item.actions.0.kind": "off"}
+    },
+    {
+      "file": "unknown/plugin-not-installed.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {"code": "unknown-plugin", "line": 6, "column": 11, "message": "The view tiles:map needs a plugin that is not installed. It shows its fallback."},
+        {
+          "code": "unknown-plugin",
+          "line": 11,
+          "column": 36,
+          "message": "The action tiles:render needs a plugin that is not installed. It shows its fallback."
+        },
+        {
+          "code": "unknown-plugin",
+          "line": 12,
+          "column": 35,
+          "message": "The action tiles:share needs a plugin that is not installed. It is drawn turned off."
+        }
+      ],
+      "model": {
+        "tabs.0.sections.0.kind": "core",
+        "tabs.0.sections.0.view": "table",
+        "tabs.0.sections.1.item.actions.0.kind": "open",
+        "tabs.0.sections.1.item.actions.1.kind": "off",
+        "tabs.0.sections.1.item.actions.1.reason": "This button needs the plugin tiles."
+      }
+    },
+    {
+      "file": "unknown/requires-newer.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "needs": "9.1",
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "unknown/unknown-action-with-fallback.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "unknown-action",
+          "line": 13,
+          "column": 11,
+          "message": "The \"Move\" button uses move, which this Ravenry doesn't know. It shows its fallback."
+        },
+        {
+          "code": "unknown-action",
+          "line": 16,
+          "column": 11,
+          "message": "The \"Pin\" button uses pin, which this Ravenry doesn't know. It is drawn turned off."
+        }
+      ],
+      "model": {
+        "tabs.0.sections.0.item.actions.0.kind": "archive",
+        "tabs.0.sections.0.item.actions.0.label": "Archive",
+        "tabs.0.sections.0.item.actions.1.kind": "off",
+        "tabs.0.sections.0.item.actions.1.reason": "This button needs a newer Ravenry."
+      }
+    },
+    {
+      "file": "unknown/unknown-builtin.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "unknown-plugin",
+          "line": 6,
+          "column": 11,
+          "message": "ravenry:plans is not one of Ravenry's built-in views. It shows a placeholder.",
+          "hint": "Did you mean ravenry:plan?"
+        },
+        {
+          "code": "unknown-plugin",
+          "line": 8,
+          "column": 34,
+          "message": "ravenry:plan-rows is not one of Ravenry's built-in views. It shows a placeholder.",
+          "hint": "Did you mean ravenry:plan-row?"
+        }
+      ],
+      "model": {"tabs.0.sections.0.kind": "placeholder", "tabs.0.sections.1.item.place": null}
+    },
+    {
+      "file": "unknown/unknown-icon.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "unknown-icon",
+          "line": 4,
+          "column": 14,
+          "message": "'flags' is not one of Ravenry's icons, so the row shows the page icon.",
+          "hint": "Did you mean flag?"
+        },
+        {"code": "unknown-icon", "line": 6, "column": 56, "message": "'rocket' is not one of Ravenry's icons, so the button shows none."}
+      ],
+      "model": {"nav.icon": "page", "tabs.0.sections.0.actions.0.icon": null}
+    },
+    {
+      "file": "unknown/unknown-keys.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {"code": "unknown-key", "line": 4, "column": 1, "message": "Unknown key 'colour' in the page. It is ignored."},
+        {
+          "code": "unknown-key",
+          "line": 9,
+          "column": 5,
+          "message": "Unknown key 'gruop_by' in section 1 (list). It is ignored.",
+          "hint": "Did you mean group_by?"
+        }
+      ],
+      "model": {"extra.x-mine": "kept and ignored"}
+    },
+    {
+      "file": "unknown/unknown-provider.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {"code": "unknown-provider", "line": 4, "column": 21, "message": "'tickets' is not a provider this Ravenry knows, so this part shows a placeholder."}
+      ],
+      "model": {"tabs.0.sections.0.kind": "placeholder", "tabs.0.sections.0.reason": "This part needs a newer Ravenry."}
+    },
+    {
+      "file": "unknown/unknown-view-placeholder.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "unknown-view",
+          "line": 6,
+          "column": 11,
+          "message": "Section 1 uses the view 'gallery', which this Ravenry doesn't know. It shows a placeholder."
+        }
+      ],
+      "model": {"tabs.0.sections.0.kind": "placeholder", "tabs.0.sections.0.reason": "This part needs a newer Ravenry."}
+    },
+    {
+      "file": "unknown/unknown-view-with-fallback.page.yaml",
+      "options": {
+        "ravenryVersion": "0.5.0",
+        "plugins": {
+          "views": [],
+          "actions": [],
+          "providers": []
+        }
+      },
+      "ok": true,
+      "errors": [],
+      "warnings": [
+        {
+          "code": "unknown-view",
+          "line": 10,
+          "column": 11,
+          "message": "Section 1 uses the view 'timeline', which this Ravenry doesn't know. It shows its fallback."
+        }
+      ],
+      "model": {"tabs.0.sections.0.kind": "core", "tabs.0.sections.0.view": "board", "tabs.0.sections.0.groupBy": "status"}
+    },
+    {
+      "file": "future/version-1-from-later.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "needs": "0.9",
+      "errors": [],
+      "warnings": [
+        {"code": "unknown-key", "line": 7, "column": 1, "message": "Unknown key 'density' in the page. It is ignored."},
+        {"code": "unknown-type", "line": 12, "column": 21, "message": "'stars' is not a field type this Ravenry knows, so rating is read as text."},
+        {"code": "unknown-key", "line": 12, "column": 28, "message": "Unknown key 'max' in field rating. It is ignored."},
+        {
+          "code": "unknown-view",
+          "line": 14,
+          "column": 11,
+          "message": "Section 1 uses the view 'calendar', which this Ravenry doesn't know. It shows its fallback."
+        },
+        {"code": "unknown-key", "line": 21, "column": 7, "message": "Unknown key 'highlight' in the item of section 2 (list). It is ignored."},
+        {
+          "code": "unknown-action",
+          "line": 23,
+          "column": 28,
+          "message": "The \"Snooze\" button uses snooze, which this Ravenry doesn't know. It shows its fallback."
+        }
+      ],
+      "model": {
+        "tabs.0.sections.0.kind": "core",
+        "tabs.0.sections.0.view": "list",
+        "source.fields.rating.type": "string",
+        "source.fields.rating.writable": false,
+        "tabs.0.sections.1.item.actions.0.kind": "set"
+      }
+    },
+    {
+      "file": "future/version-2.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "version-future",
+          "line": 1,
+          "column": 10,
+          "message": "This page is written for page format version 2, and this Ravenry reads version 1. Update Ravenry to show it."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "future/version-7-unknown-shape.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": false,
+      "errors": [
+        {
+          "code": "version-future",
+          "line": 1,
+          "column": 10,
+          "message": "This page is written for page format version 7, and this Ravenry reads version 1. Update Ravenry to show it."
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "file": "../defaults/objectives.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "../defaults/plans.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "../defaults/ideas.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "../defaults/rules.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "file": "../defaults/ship.page.yaml",
+      "options": {"ravenryVersion": "0.5.0"},
+      "ok": true,
+      "errors": [],
+      "warnings": []
+    }
+  ],
+  "items": [
+    {
+      "name": "read a note",
+      "op": "read",
+      "file": "items/note.md",
+      "expect": {
+        "title": "Boat clips through the dock on the left turn",
+        "status": "new",
+        "project": "paper-boat",
+        "device": "Pixel 8",
+        "picture": "shots/dock-clip.png",
+        "file": "note.md"
+      }
+    },
+    {
+      "name": "read a file with no frontmatter: the title is its first heading",
+      "op": "read",
+      "file": "items/plain.md",
+      "expect": {"title": "Splash sound plays twice", "file": "plain.md"}
+    },
+    {
+      "name": "set a field, nothing changed meanwhile",
+      "op": "patch",
+      "file": "items/note.md",
+      "base": "items/note.md",
+      "patch": {"status": "fixed"},
+      "expect": {"ok": true, "rebased": false, "text": "items/note.status-fixed.md"}
+    },
+    {
+      "name": "set a field after another field changed: made again on the new text",
+      "op": "patch",
+      "file": "items/note.device-changed.md",
+      "base": "items/note.md",
+      "baseFields": true,
+      "patch": {"status": "fixed"},
+      "expect": {"ok": true, "rebased": true, "text": "items/note.device-changed.status-fixed.md"}
+    },
+    {
+      "name": "set a field that changed meanwhile: a conflict, nothing written",
+      "op": "patch",
+      "file": "items/note.status-fixing.md",
+      "base": "items/note.md",
+      "baseFields": true,
+      "patch": {"status": "fixed"},
+      "expect": {
+        "ok": false,
+        "conflict": [
+          {"field": "status", "base": "new", "current": "fixing", "wanted": "fixed"}
+        ]
+      }
+    },
+    {
+      "name": "the file changed and the screen sent only its hash: a conflict",
+      "op": "patch",
+      "file": "items/note.device-changed.md",
+      "base": "items/note.md",
+      "patch": {"status": "fixed"},
+      "expect": {
+        "ok": false,
+        "conflict": [
+          {"field": "status", "base": null, "current": "new", "wanted": "fixed"}
+        ]
+      }
+    },
+    {
+      "name": "change, add and remove fields; a value that would read as true is quoted",
+      "op": "patch",
+      "file": "items/note.md",
+      "base": "items/note.md",
+      "patch": {
+        "device": "yes",
+        "picture": null,
+        "tags": ["dock", "left turn", "physics"]
+      },
+      "expect": {"ok": true, "rebased": false, "text": "items/note.added-removed.md"}
+    },
+    {
+      "name": "a field on a file with no frontmatter adds one",
+      "op": "patch",
+      "file": "items/plain.md",
+      "base": "items/plain.md",
+      "patch": {"status": "new"},
+      "expect": {"ok": true, "rebased": false, "text": "items/plain.status-new.md"}
+    },
+    {
+      "name": "tick a box on its line",
+      "op": "toggle",
+      "file": "items/checklist.md",
+      "box": {"line": 7, "text": "Write the changelog"},
+      "expect": {"ok": true, "line": 7, "done": true, "moved": false, "text": "items/checklist.changelog-done.md"}
+    },
+    {
+      "name": "the box moved down a line: found by its text",
+      "op": "toggle",
+      "file": "items/checklist.moved.md",
+      "box": {"line": 7, "text": "Write the changelog"},
+      "expect": {"ok": true, "line": 8, "done": true, "moved": true, "text": "items/checklist.moved.changelog-done.md"}
+    },
+    {
+      "name": "the box was reworded: nothing changes",
+      "op": "toggle",
+      "file": "items/checklist.reworded.md",
+      "box": {"line": 7, "text": "Write the changelog"},
+      "expect": {"ok": false, "reason": "changed"}
+    },
+    {
+      "name": "a box inside fenced code is not a box",
+      "op": "toggle",
+      "file": "items/checklist.md",
+      "box": {"line": 13, "text": "Not a box: inside code"},
+      "expect": {"ok": false, "reason": "changed"}
+    },
+    {
+      "name": "the checklist of a file",
+      "op": "checklist",
+      "file": "items/checklist.md",
+      "expect": [
+        {"line": 6, "text": "Bump the version", "done": true, "indent": 0},
+        {"line": 7, "text": "Write the changelog", "done": false, "indent": 0},
+        {"line": 8, "text": "Mention the dock fix", "done": false, "indent": 2},
+        {"line": 9, "text": "Tag the release", "done": false, "indent": 0}
+      ]
+    }
+  ]
+}

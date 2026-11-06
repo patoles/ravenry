@@ -1,0 +1,10 @@
+version: 1
+id: board-on-string
+title: Board on a string field
+source:
+  folder: notes/
+  fields:
+    device: { type: string }
+sections:
+  - view: board
+    group_by: device

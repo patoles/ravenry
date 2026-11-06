@@ -1,0 +1,12 @@
+version: 1
+id: plugin-not-installed
+title: A plugin view and button that are not installed
+source: { folder: regions/ }
+sections:
+  - view: tiles:map
+    fallback: { view: table, columns: [title] }
+  - view: list
+    item:
+      actions:
+        - { label: Render, plugin: tiles:render, fallback: { label: Open, open: file } }
+        - { label: Share, plugin: tiles:share }
