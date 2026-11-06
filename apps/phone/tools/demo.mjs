@@ -161,6 +161,15 @@ newPane(localEnv(WORK), S['garden-planner'], secretS, 'Reminder emails');
 newPane(localEnv(WORK), S['weather-widget'], liveS, 'Cache forecasts');
 
 const info = { url: hub.url, port: PORT, runtime: RT, home: hub.home, phone: null };
+if (PHONE) {
+  // Phone access on, as the Mac's switch does (POST /api/phone/access, a
+  // person's call: this process is outside every pane), and the app's link.
+  const r = await fetch(`${hub.url}/api/phone/access`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ on: true }) });
+  const card = await r.json();
+  if (!r.ok || !card.app) { console.error('phone access did not turn on:', JSON.stringify(card)); process.exit(1); }
+  info.phone = { link: card.app.link, port: card.app.port, check: card.app.check, code: card.app.code };
+  console.log(`phone port ${card.app.port}, pairing link: ${card.app.link}`);
+}
 fs.writeFileSync(path.join(WORK, 'demo.json'), JSON.stringify(info, null, 2));
 console.log(`demo hub on ${hub.url} (data under ${path.relative(process.cwd(), WORK)})`);
 const stop = () => {

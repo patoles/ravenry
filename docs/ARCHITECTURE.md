@@ -59,7 +59,9 @@ the role above.
 ### The clients
 
 - **The desktop app** (`apps/desktop/`): Electron with xterm.js panes.
-- **The Android app** (`apps/android/`): Kotlin around a WebView.
+- **The Android app** (`apps/android/`): Kotlin around a WebView that shows
+  the phone board (`apps/phone/`), web code the iOS app will share
+  ([PHONE.md](PHONE.md)).
 - **The browser page** the hub serves, which works today.
 
 A client holds no state that matters. It shows what the hub and ravenryd
@@ -118,6 +120,7 @@ the shell around the web interface, and how ravenryd stores things.
 | `hub/` | the hub, today's board | Node | GPL-3.0-only |
 | `apps/desktop/` | the desktop app | Electron, xterm.js | GPL-3.0-only |
 | `apps/android/` | the Android app | Kotlin, WebView | GPL-3.0-only |
+| `apps/phone/` | the phone board, the web code the phone apps show | TypeScript, xterm.js | GPL-3.0-only |
 | `packages/` | the protocol spec, plugin SDK, specs, adapter contracts | | Apache-2.0 |
 | `docs/` | this guide and others | | GPL-3.0-only |
 | `tools/` | repository tools, such as the personal-data audit | Node | GPL-3.0-only |
