@@ -157,12 +157,14 @@ function fieldTone(item: Item, field: string): ReturnType<typeof toneOf> {
 // ---------------------------------------------------------------- markdown (document view)
 
 /** Markdown as elements: headings, lists, checkboxes, quotes, code. Raw
- * HTML stays text, and no image is ever loaded. */
-export function markdown(md: string, onBox?: (line: number, text: string, done: boolean) => void, firstLine = 1): HTMLElement {
+ * HTML stays text, and no image is ever loaded. `onBox` gets a box's place
+ * among the text's boxes (the k-th), its text and the state it should take. */
+export function markdown(md: string, onBox?: (k: number, text: string, done: boolean) => void): HTMLElement {
   const out = h('div.md');
   const lines = String(md || '').split('\n');
   let list: HTMLElement | null = null;
   let code: string[] | null = null;
+  let boxes = 0;
   const inline = (t: string): (Node | string)[] => {
     const parts: (Node | string)[] = [];
     const re = /(`[^`]+`|\*\*[^*]+\*\*)/g;
@@ -176,7 +178,7 @@ export function markdown(md: string, onBox?: (line: number, text: string, done: 
     if (last < t.length) parts.push(t.slice(last));
     return parts;
   };
-  lines.forEach((raw, i) => {
+  lines.forEach((raw) => {
     const l = raw.replace(/\r$/, '');
     if (code) {
       if (/^\s*(```|~~~)/.test(l)) { out.appendChild(h('pre.md-code', code.join('\n'))); code = null; } else code.push(l);
@@ -191,8 +193,8 @@ export function markdown(md: string, onBox?: (line: number, text: string, done: 
       if (!list) { list = h('ul.md-ul'); out.appendChild(list); }
       if (box) {
         const done = box[1] !== ' ';
-        const line = firstLine + i;
-        list.appendChild(h(`li.md-box${done ? '.on' : ''}`, h(`button.bx${done ? '.on' : ''}`, { disabled: !onBox, 'aria-label': done ? 'Untick' : 'Tick', on: { click: () => onBox?.(line, box[2].trim(), !done) } }, done ? svg(I.CHECK) : null), h('span', inline(box[2]))));
+        const k = boxes++;
+        list.appendChild(h(`li.md-box${done ? '.on' : ''}`, h(`button.bx${done ? '.on' : ''}`, { disabled: !onBox, 'aria-label': done ? 'Untick' : 'Tick', on: { click: () => onBox?.(k, box[2].trim(), !done) } }, done ? svg(I.CHECK) : null), h('span', inline(box[2]))));
       } else list.appendChild(h('li', inline(li![1])));
       return;
     }
@@ -913,12 +915,12 @@ export class Pages {
     if (!items.length) return h('div.ocard', h('div.orow.t2.empty', s.empty || 'Nothing here.'));
     const doc = (it: Item) => {
       const can = spec.actions.some((a) => a.kind === 'toggle') && !this.off(v);
+      // The k-th box of the text is the k-th of the file (its line there).
       const boxes = (it.$boxes as { line: number }[] | undefined) || [];
-      const bodyStart = boxes.length ? null : 1;
       return h('div.ocard.pdoc',
         h('div.ocard-h', h('span', valueText(getField(it, spec.title))), this.badges(it, spec, s), this.progress(it, spec.progress), h('span.sp'),
           it.$hash || it.done !== undefined ? h('button.btn.sm.quiet', { on: { click: () => this.host.openPath(this.itemPath(v, it, sec)) } }, svg(FILE_IC), 'Open') : null),
-        h('div.pdoc-b', markdown(valueText(it.body), can ? (line, text, done) => void this.toggle(v, it, sec, line, text, done) : undefined, bodyStart ?? 1)),
+        h('div.pdoc-b', markdown(valueText(it.body), can ? (k, text, done) => void this.toggle(v, it, sec, boxes[k] ? boxes[k].line : 0, text, done) : undefined)),
         h('div.pc-a', this.itemButtons(v, spec, it, sec)));
     };
     if (s.groupBy) {
