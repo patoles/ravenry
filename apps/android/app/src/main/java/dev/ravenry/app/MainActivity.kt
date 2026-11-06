@@ -122,6 +122,11 @@ class MainActivity : FragmentActivity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (::web.isInitialized) web.url?.let { outState.putString(STATE_URL, it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Store.get(this).paired() == null) {
@@ -225,7 +230,10 @@ class MainActivity : FragmentActivity() {
         }
         onBackPressedDispatcher.addCallback(this, back)
         pending = intent?.getStringExtra(Notifier.EXTRA_ALERT)
-        web.loadUrl("$ORIGIN/phone/index.html")
+        // A new theme (light or dark) or a new window size makes a new
+        // activity: the page comes back on the screen it was on.
+        val was = savedInstanceState?.getString(STATE_URL)?.takeIf { it.startsWith("$ORIGIN/phone/index.html") && pending == null }
+        web.loadUrl(was ?: "$ORIGIN/phone/index.html")
         if (Build.VERSION.SDK_INT >= 33 && !Store.get(this).notificationsAsked) {
             Store.get(this).notificationsAsked = true
             needPermission(Manifest.permission.POST_NOTIFICATIONS, {}, {})
@@ -583,3 +591,5 @@ object HubGate {
 
     fun refused() = WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
 }
+
+private const val STATE_URL = "ravenry.page"
