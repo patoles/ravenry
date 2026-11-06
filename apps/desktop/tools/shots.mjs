@@ -3,7 +3,7 @@
 // window renders offscreen and is captured. Each run gets its own HOME,
 // app data, daemon runtime folder and demo board, all under OUT/.work.
 //
-//   node build.mjs && node tools/shots.mjs <outDir>
+//   node build.mjs && node tools/shots.mjs <outDir> [board|first]
 //
 // Needs a ravenryd binary: RAVENRYD, else ../../daemon/ravenryd.
 // Writes to <outDir>:
@@ -175,10 +175,11 @@ try {
     ],
   });
   }
-  if (ONLY) process.exit(0);
+  if (!ONLY) {
   console.log('wrote', fs.readdirSync(OUT).filter((f) => !f.startsWith('.')).join(', '));
   console.log('echo', fs.readFileSync(path.join(OUT, 'echo.json'), 'utf8'));
   console.log('state', fs.readFileSync(path.join(WORK, 'board-state.json'), 'utf8'));
+  }
 } finally {
   stopAll();
   hub?.stop();
