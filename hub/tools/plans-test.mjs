@@ -217,6 +217,76 @@ check('flow: the hand-off line sits before the step the fresh session started', 
 check('flow: the line under a done step into a done one is green', fl[0].ld === true && fl[fl.length - 1].ld === false);
 check('gate tiles: the last proofs before the gate and the newest screenshot', (() => { const t = view.gateTiles(gp2); return t.length === 3 && t[t.length - 1].type === 'shot' && t[0].type !== 'shot'; })());
 
+// ---------------------------------------------------------------- the hub's record of gates
+// docs/PERSON.md, "A plan's gate": a gate counts as passed only when the
+// person passed it (server/gates.mjs); the file alone never passes one.
+{
+  const gates = await import('../server/gates.mjs');
+  const gdir = fs.mkdtempSync(path.join(MC, 'gates-'));
+  const gf = path.join(gdir, 'BRIEF.md');
+  fs.writeFileSync(gf, '# Gates\n\nGoal: Prove the gates.\n\n## Next step\nGo.\n');
+  const gdraft = { mode: 'new', title: 'Two gates', goal: 'Two gates', steps: [
+    { id: 'a', kind: 'do', text: 'Build it', detail: '', arms: [], choices: [] },
+    { id: 'b', kind: 'gate', text: 'Ask me before shipping', detail: '', arms: [], choices: ['Ship it', 'Not yet'] },
+    { id: 'c', kind: 'do', text: 'Ship it', detail: '', arms: [], choices: [] },
+    { id: 'd', kind: 'gate', text: 'Ask me before telling the testers', detail: '', arms: [], choices: [] },
+    { id: 'e', kind: 'do', text: 'Tell the testers', detail: '', arms: [], choices: [] },
+  ] };
+  planrun.writeStart(gf, gdraft);
+  const read = () => brief.parseBrief(fs.readFileSync(gf, 'utf8')).plan;
+  const act = () => fmt.activePlan(read(), { gatesFor: (o) => gates.forPlan(gf, o) });
+  const edit = (fn) => fs.writeFileSync(gf, fn(fs.readFileSync(gf, 'utf8')));
+  const startKey = Object.values(JSON.parse(fs.readFileSync(gates.FILE, 'utf8')).plans).find((x) => x.title === 'Two gates');
+  check('ledger: start records the plan\'s gates, none passed', !!startKey && startKey.expected.join(',') === '0|Ask me before shipping,0|Ask me before telling the testers' && Object.keys(startKey.passed).length === 0);
+  // The agent builds, then ticks its own gate and writes an answer under it.
+  edit((t) => t.replace('- [ ] Do: Build it', '- [x] Do: Build it\n  - Proof: built (10:00)').replace('- [ ] Gate: Ask me before shipping', '- [x] Gate: Ask me before shipping\n  - Answer: Ship it (10:01)'));
+  const g1 = act();
+  check('a gate ticked in the file alone: the plan waits there, marked passed in the file', g1.state === 'gate' && g1.gate.n === 2 && g1.gate.fileOnly === 'ticked' && g1.gate.fileAnswer === 'Ship it' && g1.steps[1].state === 'you' && g1.steps[1].fileOnly === 'ticked');
+  check('without the ledger (a plan read outside the board) the file is taken as it is', fmt.activePlan(read()).state === 'running');
+  check('the row says it waits at the gate', view.rowModel(g1).wash === 'gate');
+  // It goes on and writes State: done over it: still waiting.
+  edit((t) => t.replace('Goal: "Two gates"', 'Goal: "Two gates"\nState: done'));
+  check('a State: done written over it does not finish the plan', act().state === 'gate' && act().gate.fileOnly === 'ticked');
+  edit((t) => t.replace('\nState: done', ''));
+  check('an answer to it is refused while it waits for confirm or reopen', (() => { try { planrun.writeAnswer({ folder: gdir }, gf, 'Two gates', { choice: 'Ship it' }); return false; } catch (e) { return e.status === 409; } })());
+  // Reopen: [?] again, the file's answer gone, the session told to stop.
+  const rmsg = planrun.writeReopen({ folder: gdir }, gf, 'Two gates');
+  const r1 = act();
+  check('reopen: the gate is [?] again with its choices, the file\'s answer gone, logged', r1.state === 'gate' && !r1.gate.fileOnly && r1.gate.n === 2 && r1.gate.choices.join('|') === 'Ship it|Not yet' && !r1.steps[1].answer && /you reopened the gate/.test(r1.log[r1.log.length - 1].text));
+  check('reopen tells the session to stop at the gate', /marked passed in the brief, but not by me/.test(rmsg) && /stop any work past it/.test(rmsg) && /Never tick a gate yourself/.test(rmsg) && !rmsg.includes("'"));
+  // The person answers: passed in the ledger, by the phone.
+  planrun.writeAnswer({ folder: gdir }, gf, 'Two gates', { choice: 'Ship it', by: 'phone' });
+  const a1 = act();
+  check('an answer passes it in the ledger: the plan runs on', a1.state === 'running' && a1.current === 3 && !a1.tampered.length);
+  // The agent takes the second gate out of the file.
+  edit((t) => t.replace('- [ ] Do: Ship it', '- [x] Do: Ship it\n  - Proof: shipped (10:10)').replace(/- \[ \] Gate: Ask me before telling the testers\n/, ''));
+  const t2 = act();
+  check('a gate taken out of the file: the plan waits, taken out of the file, not by you', t2.state === 'gate' && t2.gate.fileOnly === 'removed' && t2.gate.text === 'Ask me before telling the testers');
+  planrun.writeReopen({ folder: gdir }, gf, 'Two gates');
+  const t3 = act();
+  check('reopen puts it back as [?] before the first step not done', t3.state === 'gate' && !t3.gate.fileOnly && t3.gate.n === 4 && t3.steps[3].kind === 'gate' && t3.steps[3].text === 'Ask me before telling the testers' && t3.steps[4].text === 'Tell the testers');
+  // Taken out again, and this time the person confirms it.
+  edit((t) => t.replace(/- \[\?\] Gate: Ask me before telling the testers\n {2}- Choices: Go ahead \| Not yet\n/, ''));
+  check('taken out again, it waits again', act().gate && act().gate.fileOnly === 'removed');
+  const c2 = planrun.writeConfirm({ folder: gdir }, gf, 'Two gates', { by: 'board' });
+  const t4 = act();
+  check('confirm a removal: it is no longer a gate the plan must pass', c2.fileOnly === 'removed' && t4.state === 'running' && t4.current === 4 && /you confirmed taking the gate/i.test(t4.log[t4.log.length - 1].text));
+  check('confirm with nothing to confirm is refused', (() => { try { planrun.writeConfirm({ folder: gdir }, gf, 'Two gates'); return false; } catch (e) { return e.status === 409; } })());
+  // Reordering steps keeps a passed gate passed (known by its words).
+  edit((t) => t.replace('- [x] Do: Build it\n  - Proof: built (10:00)\n', '').replace('- [x] Do: Ship it', '- [x] Do: Build it\n  - Proof: built (10:00)\n- [x] Do: Ship it'));
+  check('a passed gate stays passed when steps move', act().state === 'running' && !act().tampered.length);
+  // Adoption: a hub with no record takes the gates passed in its briefs once.
+  gates._reset();
+  fs.rmSync(gates.FILE);
+  const old = path.join(gdir, 'OLD.md');
+  fs.writeFileSync(old, '# Old\n\n## Plan\n### Done long ago\nRuns on its own. Started: 2026-10-01 09:00. Not in the plan: stop and ask.\n\n- [x] Do: A\n- [x] Gate: Ask me first\n  - Answer: Go ahead (09:05)\n- [x] Do: B\n');
+  const oldPlans = brief.parseBrief(fs.readFileSync(old, 'utf8')).plan;
+  check('before adoption, an old finished plan would wait at its gate', fmt.activePlan(oldPlans, { gatesFor: (o) => gates.forPlan(old, o) }) !== null);
+  check('adoption: once, from the briefs', gates.adopt([{ file: old, plans: oldPlans }]) === true && gates.adopt([{ file: old, plans: oldPlans }]) === false);
+  check('after adoption the old plan is finished, as before the ledger', fmt.activePlan(oldPlans, { gatesFor: (o) => gates.forPlan(old, o) }) === null);
+  check('the ledger file is the user\'s only (0600)', (fs.statSync(gates.FILE).mode & 0o777) === 0o600);
+}
+
 fs.rmSync(MC, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

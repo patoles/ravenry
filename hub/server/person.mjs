@@ -69,6 +69,8 @@ export const ROUTES = [
   // Checkpoints and plans
   { m: 'POST', p: '/api/checkpoints/answer', c: P, what: 'answer a checkpoint', why: 'Answering a checkpoint is the person\'s answer to an agent.', strict: true },
   { m: 'POST', p: '/api/plan/answer', c: P, what: 'answer a plan\'s gate or question', why: 'Passing a gate is the person\'s answer; an agent would pass its own gate.' },
+  { m: 'POST', p: '/api/plan/confirm', c: P, what: 'confirm a plan\'s gate', why: 'It passes a gate the file alone marked passed; an agent would confirm its own.' },
+  { m: 'POST', p: '/api/plan/reopen', c: P, what: 'reopen a plan\'s gate', why: 'It reopens a gate the file alone marked passed and stops the session at it.' },
   { m: 'POST', p: '/api/plan/start', c: P, what: 'start a plan', why: 'Starting a plan writes it into the brief and sends it to the session to run on its own.' },
   { m: 'POST', p: '/api/plan/pause', c: P, what: 'pause a plan', why: 'Pausing a plan is the person\'s call.' },
   { m: 'POST', p: '/api/plan/resume', c: P, what: 'resume a plan', why: 'Resuming lets a paused plan run on its own again.' },

@@ -34,7 +34,7 @@ export function rowModel(plan) {
   let next = { cls: '', text: '' };
   let wash = '';
   if (plan.state === 'gate' && plan.gate) {
-    next = { cls: 'you', text: `${plan.gate.unforeseen ? 'Stopped to ask' : 'At a gate'}: ${plan.gate.short}` };
+    next = { cls: 'you', text: plan.gate.fileOnly ? `${plan.gate.fileOnly === 'ticked' ? 'Marked passed in the file, not by you' : 'Taken out of the file, not by you'}: ${plan.gate.short}` : `${plan.gate.unforeseen ? 'Stopped to ask' : 'At a gate'}: ${plan.gate.short}` };
     wash = 'gate';
   } else if (plan.state === 'paused') {
     next = { cls: '', text: `Paused at step ${plan.current}` };
@@ -63,6 +63,7 @@ export function flowItems(plan) {
 
 // The status line over the full plan view.
 export function statusWords(plan, clock) {
+  if (plan.state === 'gate' && plan.gate && plan.gate.fileOnly) return { cls: 'you', text: plan.gate.fileOnly === 'ticked' ? `Step ${plan.gate.n}: marked passed in the file, not by you` : 'A gate taken out of the file, not by you' };
   if (plan.state === 'gate') return { cls: 'you', text: `${plan.gate && plan.gate.unforeseen ? 'Stopped to ask' : 'Waiting at the gate'}${plan.gate && plan.gate.since ? ' since ' + clock(plan.gate.since) : ''}` };
   if (plan.state === 'paused') return { cls: 'idle', text: 'Paused' };
   const cur = plan.steps.find((s) => s.n === plan.current);

@@ -217,10 +217,31 @@ export function proofKind(text) {
   return { type: 'text', text };
 }
 
+// A plan's gates, as the hub's ledger knows them (server/gates.mjs): each
+// Gate step with its words, which of the plan's gates with those words it
+// is (occ), and its key ("<occ>|<words>").
+export function gatesOf(plan) {
+  const seen = new Map();
+  const out = [];
+  (plan.steps || []).forEach((s, i) => {
+    if (s.kind !== 'gate') return;
+    const text = oneLine(s.text);
+    const occ = seen.has(text) ? seen.get(text) + 1 : 0;
+    seen.set(text, occ);
+    out.push({ i, n: i + 1, text, occ, key: `${occ}|${text}`, mark: s.mark });
+  });
+  return out;
+}
+
 // Everything the board shows about a plan: per step its state and proof,
 // the step being worked, the gate it waits at, the hand-offs, and the plan's
 // own state. `working` is whether the project's session is working now.
-export function derive(plan, { working = false } = {}) {
+// `gates` is the hub's ledger for this plan (server/gates.mjs forPlan):
+// with it, a gate counts as passed only when the person passed it there;
+// one ticked in the file alone, or taken out of the file, keeps the plan
+// waiting at it (`gate.fileOnly`: 'ticked' or 'removed'). Without it (a
+// plan read outside the board), the file is taken as it is.
+export function derive(plan, { working = false, gates = null } = {}) {
   const t = timeline(plan);
   const startedAt = t(plan.started);
   const steps = plan.steps.map((s, i) => {
@@ -237,6 +258,23 @@ export function derive(plan, { working = false } = {}) {
     }
     return out;
   });
+  // Gates the file says are passed but the person did not pass, and gates
+  // the person set that the file no longer has.
+  const tampered = [];
+  if (gates) {
+    const list = gatesOf(plan);
+    for (const g of list) {
+      if ((g.mark === 'x' || g.mark === '-') && !gates.passed(g.key)) {
+        steps[g.i].state = 'you';
+        steps[g.i].fileOnly = 'ticked';
+        tampered.push({ kind: 'ticked', n: g.n, text: g.text, key: g.key });
+      }
+    }
+    if (Array.isArray(gates.expected)) {
+      const have = new Set(list.map((g) => g.key));
+      for (const k of gates.expected) if (!have.has(k)) tampered.push({ kind: 'removed', n: null, text: k.slice(k.indexOf('|') + 1), key: k });
+    }
+  }
   const tl = timeline(plan);
   const log = (plan.log || []).map((e) => ({ at: tl(e.at), text: e.text }));
   const handoffs = [];
@@ -254,7 +292,19 @@ export function derive(plan, { working = false } = {}) {
   if (cur && state === 'running' && working) cur.state = 'now';
   else if (cur && cur.state === 'todo' && state === 'running') cur.state = 'next';
   let gate = null;
-  if (state === 'gate') {
+  // A gate passed in the file alone keeps the plan waiting there, whatever
+  // else the file says (even a State: done), until the person decides.
+  if (tampered.length && state !== 'stopped') {
+    const t = tampered[0];
+    const st = t.n ? steps[t.n - 1] : null;
+    const q = (st && st.question) || t.text;
+    state = 'gate';
+    gate = {
+      n: t.n || (cur ? cur.n : steps.length), kind: 'gate', text: t.text, unforeseen: false, rule: st ? st.rule : null,
+      question: q, choices: [], short: shortQuestion(q), since: log.length ? log[log.length - 1].at : null,
+      fileOnly: t.kind, key: t.key, fileAnswer: st && st.answer ? st.answer.text : null,
+    };
+  } else if (state === 'gate') {
     const q = cur.question || (cur.kind === 'gate' ? cur.text : null);
     gate = {
       n: cur.n, kind: cur.kind, text: cur.text, unforeseen: cur.kind !== 'gate', rule: cur.rule,
@@ -266,7 +316,7 @@ export function derive(plan, { working = false } = {}) {
   }
   const times = [startedAt, ...steps.map((s) => s.at), ...log.map((e) => e.at)].filter(Boolean).sort();
   return {
-    title: plan.title, goal: plan.goal, refs: (plan.refs || []).map((r) => ({ path: r.path, note: r.note, image: /\.(png|jpe?g|webp|gif)$/i.test(r.path) })), started: plan.started, startedAt, state, gate,
+    title: plan.title, goal: plan.goal, refs: (plan.refs || []).map((r) => ({ path: r.path, note: r.note, image: /\.(png|jpe?g|webp|gif)$/i.test(r.path) })), started: plan.started, startedAt, state, gate, tampered,
     total: steps.length, current: cur ? cur.n : steps.length, steps, log, handoffs,
     lastAt: times.length ? times[times.length - 1] : null,
   };
@@ -286,11 +336,12 @@ export function shortQuestion(q) {
 }
 
 // The active plan of a brief: the first plan objective that is not done or
-// stopped. Finished ones stay in the brief as checklists.
-export function activePlan(objectives, opts) {
+// stopped. Finished ones stay in the brief as checklists. `gatesFor(o)` is
+// the hub's ledger for each plan (server/gates.mjs forPlan).
+export function activePlan(objectives, { gatesFor = null, ...opts } = {}) {
   for (const o of objectives || []) {
     if (!o.plan) continue;
-    const d = derive(o, opts);
+    const d = derive(o, { ...opts, gates: gatesFor ? gatesFor(o) : null });
     if (d.state !== 'done' && d.state !== 'stopped') return d;
   }
   return null;

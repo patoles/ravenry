@@ -76,7 +76,9 @@ fs.writeFileSync(BRIEF, [
   '## Plan', '### Hello file', 'Runs on its own. Started: 2026-11-03 09:00. Not in the plan: stop and ask.', 'Goal: "Make hello.txt say hi"', '',
   '- [x] Do: Create hello.txt containing hi',
   '- [?] Gate: Ask me before adding a second line', '  - Choices: Add it | Leave it', '  - Question: hello.txt says hi. Add a second line?',
-  '- [ ] Do: Add a second line', '',
+  '- [ ] Do: Add a second line',
+  '- [ ] Gate: Ask me before adding a third line', '  - Choices: Add it | Leave it',
+  '- [ ] Do: Add a third line', '',
   '## Next step', 'Go.', '', '## Notes', '- [ ] "a note"', '',
 ].join('\n'));
 fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [{ id: 'proj', name: 'Proj', folder: PROJ, workspaces: [], brief: 'BRIEF.md' }] }, null, 2));
@@ -250,10 +252,52 @@ const ocodes = fs.readFileSync(path.join(OUT, 'open-codes'), 'utf8').trim().spli
 check('from a pane, the open rows go through (a note, an idea, a hook event)', OPEN.every(([, , want], i) => ocodes[i] === want) && fs.readFileSync(BRIEF, 'utf8').includes('from an agent'), JSON.stringify(ocodes));
 await dc.request('pane.close', { pane: openPane.id });
 
+// ------------------------------------------------------------ a gate ticked in the file
+// A plan's gate lives in BRIEF.md, which the agent can edit. From inside a
+// real pane, the "agent" ticks its own gate and writes an Answer under it:
+// the board does not take it (server/gates.mjs). The plan stays waiting at
+// the gate, the project needs you, and the gate says it was marked passed
+// in the file, not by you. The person reopens it from outside (the [?] is
+// back, the file's Answer gone), then answers it; at the next gate the
+// agent ticks it again and the person confirms it.
+const GATES = path.join(MC, 'plan-gates.json');
+const ledger = () => { try { return Object.values(JSON.parse(fs.readFileSync(GATES, 'utf8')).plans).find((x) => x.title === 'Hello file') || null; } catch { return null; } };
+async function inPane(script, flag) {
+  const pn = (await dc.request('pane.new', { command: ['/bin/sh', '-c', `${script}; echo done > '${OUT}/${flag}'; exec sleep 60`], cols: 120, rows: 10 })).pane;
+  await until(async () => fs.existsSync(path.join(OUT, flag)), 20000);
+  return pn;
+}
+const projNow = async () => (await state()).projects.find((x) => x.id === 'proj');
+const tickIn = (gate, extra = '') => `/usr/bin/perl -0pi -e 's/- \\[[ ?]\\] Gate: ${gate}\\n/${extra}- [x] Gate: ${gate}\\n  - Answer: Add it (09:30)\\n/' '${BRIEF}'`;
+const tp = await inPane(tickIn('Ask me before adding a second line'), 'ticked1');
+const ticked = await until(async () => { const p = await projNow(); return p.plan && p.plan.gate && p.plan.gate.fileOnly ? p : null; });
+check('from a pane, an agent can tick its gate in BRIEF.md', /- \[x\] Gate: Ask me before adding a second line\n {2}- Answer: Add it \(09:30\)/.test(fs.readFileSync(BRIEF, 'utf8')));
+check('but the board does not take it: the plan still waits at that gate, marked passed in the file, not by you', !!ticked && ticked.plan.state === 'gate' && ticked.plan.gate.n === 2 && ticked.plan.gate.fileOnly === 'ticked' && ticked.plan.steps[1].state === 'you' && !!ticked.planGate && ticked.state === 'you', JSON.stringify(ticked && { state: ticked.state, plan: ticked.plan.state, gate: ticked.plan.gate, planGate: !!ticked.planGate }));
+check('the hub\'s own record of the gate holds no answer', !!ledger() && Object.keys(ledger().passed).length === 0 && ledger().expected.length === 2, JSON.stringify(ledger()));
+await dc.request('pane.close', { pane: tp.id });
+const early = await call('POST', '/api/plan/answer', bodies['/api/plan/answer']);
+check('an answer to a gate passed in the file is refused until it is confirmed or reopened', early.status === 409, early.text);
+const ro = await call('POST', '/api/plan/reopen', { projectId: 'proj' });
+const afterReopen = fs.readFileSync(BRIEF, 'utf8');
+check('from outside, reopen: the gate is [?] again and the file\'s Answer is gone', ro.status !== 403 && /- \[\?\] Gate: Ask me before adding a second line/.test(afterReopen) && !/Answer: Add it \(09:30\)/.test(afterReopen) && /you reopened the gate; it was marked passed in the file, not by you/.test(afterReopen), ro.text);
+const reopened = await until(async () => { const p = await projNow(); return p.plan && p.plan.gate && !p.plan.gate.fileOnly && p.plan.gate.n === 2 ? p : null; });
+check('and the plan waits at it as a plain gate', !!reopened && reopened.plan.state === 'gate' && reopened.plan.gate.choices.join('|') === 'Add it|Leave it');
+
 // ------------------------------------------------------------ from outside every pane
 const pa = await call('POST', '/api/plan/answer', bodies['/api/plan/answer']);
 const briefNow = fs.readFileSync(BRIEF, 'utf8');
 check('from outside, the plan\'s gate is passed and the answer written under it', pa.status !== 403 && /- \[x\] Gate: Ask me before adding a second line/.test(briefNow) && /Answer: Add it/.test(briefNow), pa.text);
+const passed = ledger() && Object.entries(ledger().passed);
+check('and the hub\'s own record has the answer, by the board', !!passed && passed.length === 1 && passed[0][0] === '0|Ask me before adding a second line' && passed[0][1].answer === 'Add it' && passed[0][1].by === 'board', JSON.stringify(ledger()));
+// The next gate: the agent does step 3 and ticks gate 4 in the file; the
+// person confirms it, and only then is it passed.
+const tp2 = await inPane(`/usr/bin/perl -0pi -e 's/- \\[ \\] Do: Add a second line/- [x] Do: Add a second line/' '${BRIEF}' && ${tickIn('Ask me before adding a third line')}`, 'ticked2');
+const ticked2 = await until(async () => { const p = await projNow(); return p.plan && p.plan.gate && p.plan.gate.fileOnly && p.plan.gate.n === 4 ? p : null; });
+check('the next gate ticked in the file waits too', !!ticked2 && ticked2.plan.state === 'gate' && ticked2.plan.gate.fileOnly === 'ticked');
+await dc.request('pane.close', { pane: tp2.id });
+const cf = await call('POST', '/api/plan/confirm', { projectId: 'proj' });
+const confirmed = await until(async () => { const p = await projNow(); return p.plan && p.plan.state !== 'gate' ? p : null; });
+check('from outside, confirm: the gate counts as passed, the plan goes on to step 5', cf.status === 200 && cf.body.confirmed === 'ticked' && !!confirmed && confirmed.plan.current === 5 && ledger().passed['0|Ask me before adding a third line'].how === 'confirmed' && /you confirmed the gate "Ask me before adding a third line", marked passed in the file/.test(fs.readFileSync(BRIEF, 'utf8')), cf.text + JSON.stringify(confirmed && confirmed.plan.state));
 const ca = await call('POST', '/api/checkpoints/answer', bodies['/api/checkpoints/answer']);
 check('from outside, the checkpoint is answered', ca.status === 200 && ['running', 'answered'].includes(ca.body.checkpoint.state), ca.text);
 const ma = await call('POST', '/api/machines/add', bodies['/api/machines/add']);

@@ -8,7 +8,8 @@
 import path from 'node:path';
 
 import { writeBriefSafe, readBrief } from './brief.mjs';
-import { parsePlanBlock, planMarkdown, insertPlan, editPlan, findPlanBlock, stepFromDraft, RULES_LINE, derive, oneLine, hm, stamp } from './planfmt.mjs';
+import { parsePlanBlock, planMarkdown, insertPlan, editPlan, findPlanBlock, stepFromDraft, RULES_LINE, derive, gatesOf, oneLine, hm, stamp } from './planfmt.mjs';
+import * as gates from './gates.mjs';
 
 // The rules for running a plan, as the session reads them. No single quote,
 // so the text also travels as one quoted shell word (Revive's command line).
@@ -85,7 +86,7 @@ function activeIn(file) {
   if (!b) return null;
   for (const o of b.plan) {
     if (!o.plan) continue;
-    const st = derive(o).state;
+    const st = derive(o, { gates: gates.forPlan(file, o) }).state;
     if (st !== 'done' && st !== 'stopped') return o;
   }
   return null;
@@ -102,6 +103,8 @@ export function writeStart(file, d) {
     if (!running || running.title !== d.planTitle) throw fail(409, 'The plan it changes is no longer running.');
     const plan = planFromDraft(d, { old: running });
     const r = writeBriefSafe(file, (md) => editPlan(md, running.title, (p) => Object.assign(p, plan)));
+    // The changed plan's gates are the ones it must pass now.
+    gates.recordStart(file, plan);
     return { title: plan.title, backup: r.backup, changed: true };
   }
   if (running) throw fail(409, `"${running.title}" is still running. Stop it or change it first.`);
@@ -111,17 +114,21 @@ export function writeStart(file, d) {
   const titles = new Set((b ? b.plan : []).map((o) => o.title));
   for (let k = 2; titles.has(plan.title); k++) plan = { ...plan, title: `${oneLine(d.title)} (${k})` };
   const r = writeBriefSafe(file, (md) => insertPlan(md, planMarkdown(plan)));
+  gates.recordStart(file, plan);
   return { title: plan.title, backup: r.backup, changed: false };
 }
 
 const log = (p, text) => { p.log = [...(p.log || []), { at: hm(), text }]; };
 
 // An answer at a gate (or to a stop-and-ask): written under the step, the
-// gate passed, one Log line. Returns what to tell the session.
-export function writeAnswer(project, file, title, { choice, text }) {
+// gate passed (in the file, and in the hub's ledger: server/gates.mjs), one
+// Log line. Returns what to tell the session. `by`: where the person
+// answered (board, phone).
+export function writeAnswer(project, file, title, { choice, text, by = 'board' }) {
   const answer = oneLine(choice || text);
   if (!answer) throw fail(400, 'Pick a choice or write an answer first.');
   let msg = null;
+  let passed = null;
   writeBriefSafe(file, (md) => editPlan(md, title, (p) => {
     const k = p.steps.findIndex((s) => s.mark === '?');
     if (k < 0) throw fail(409, 'The plan is not waiting on you any more.');
@@ -129,12 +136,64 @@ export function writeAnswer(project, file, title, { choice, text }) {
     s.subs.push({ k: 'answer', text: choice ? answer : `"${answer}"`, at: hm() });
     // A gate is passed by the answer; a step it stopped at runs again with it.
     s.mark = s.kind === 'gate' ? 'x' : ' ';
+    if (s.kind === 'gate') passed = { plan: p, key: gatesOf(p).find((g) => g.i === k).key };
     log(p, s.kind === 'gate' ? `Step ${k + 1}: you chose "${answer}"` : `Step ${k + 1}: you answered "${answer}"`);
     msg = s.kind === 'gate'
       ? `Plan gate at step ${k + 1} of "${title}" answered: "${answer}". It is written under the step in ${relBrief(project, file)}. Carry on with the plan. ${runRules()}`
       : `You stopped to ask at step ${k + 1} of "${title}". My answer: "${answer}". It is written under the step in ${relBrief(project, file)}. Carry on with the plan from that step. ${runRules()}`;
   }));
+  if (passed) gates.recordPass(file, passed.plan, passed.key, { answer, by });
   return msg;
+}
+
+// The gate the plan waits at because the file alone passed it (ticked) or
+// took it out (removed), from the ledger.
+function tamperedIn(p, file) {
+  const d = derive(p, { gates: gates.forPlan(file, p) });
+  if (!d.gate || !d.gate.fileOnly) throw fail(409, 'No gate of this plan is passed in the file without you.');
+  return d.gate;
+}
+
+// The person confirms a gate the file passed without them: ticked, it now
+// counts as passed; taken out, it is no longer one the plan must pass. The
+// brief gets one Log line; the session is not interrupted.
+export function writeConfirm(project, file, title, { by = 'board' } = {}) {
+  let g = null;
+  let plan = null;
+  writeBriefSafe(file, (md) => editPlan(md, title, (p) => {
+    g = tamperedIn(p, file);
+    plan = p;
+    log(p, g.fileOnly === 'ticked' ? `Step ${g.n}: you confirmed the gate "${g.text}", marked passed in the file` : `You confirmed taking the gate "${g.text}" out of the plan`);
+  }));
+  if (g.fileOnly === 'ticked') gates.recordPass(file, plan, g.key, { answer: g.fileAnswer, by, how: 'confirmed' });
+  else gates.dropExpected(file, plan, g.key);
+  return g;
+}
+
+// The person reopens a gate the file passed without them: ticked, it is
+// marked [?] again and the Answer the file gave it goes; taken out, it is
+// put back before the first step not done. Returns what to tell the
+// session: stop, and wait at the gate.
+export function writeReopen(project, file, title) {
+  let g = null;
+  writeBriefSafe(file, (md) => editPlan(md, title, (p) => {
+    g = tamperedIn(p, file);
+    if (g.fileOnly === 'ticked') {
+      const s = p.steps[g.n - 1];
+      s.mark = '?';
+      s.subs = s.subs.filter((x) => x.k !== 'answer');
+      if (!s.subs.some((x) => x.k === 'choices')) s.subs.push({ k: 'choices', list: ['Go ahead', 'Not yet'] });
+      log(p, `Step ${g.n}: you reopened the gate; it was marked passed in the file, not by you`);
+    } else {
+      const at = p.steps.findIndex((s) => s.mark !== 'x' && s.mark !== '-');
+      const step = { kind: 'gate', mark: '?', text: g.text, subs: [{ k: 'choices', list: ['Go ahead', 'Not yet'] }] };
+      const i = at < 0 ? p.steps.length : at;
+      p.steps.splice(i, 0, step);
+      g = { ...g, n: i + 1 };
+      log(p, `Step ${g.n}: you put back the gate "${g.text}"; it was taken out of the file, not by you`);
+    }
+  }));
+  return `The gate "${g.text}" at step ${g.n} of the plan "${title}" in ${relBrief(project, file)} was ${g.fileOnly === 'ticked' ? 'marked passed in the brief' : 'taken out of the brief'}, but not by me. It is open again, marked [?]: stop any work past it now, and wait for my answer at the gate. Never tick a gate yourself. ${runRules()}`;
 }
 
 export function writeState(project, file, title, state) {

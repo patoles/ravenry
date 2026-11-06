@@ -570,7 +570,7 @@ ${openButton(p, s)}`);
   // events first, the screen when a session has none (docs/STATE-RULES.md).
   const SOURCE = { events: 'From hook events', screen: 'Read from the screen' };
   const gateHere = !!(p.planGate && p.plan && (!s || s.surfaceId === p.primary));
-  const why = gateHere ? `From the plan: step ${p.planGate.n} is ${p.planGate.unforeseen ? 'not in the plan, so it stopped to ask' : `a gate, "${p.planGate.text.charAt(0).toLowerCase() + p.planGate.text.slice(1)}"`}`
+  const why = gateHere ? p.planGate.fileOnly === 'removed' ? 'From the plan: a gate you set was taken out of the file, not by you' : `From the plan: step ${p.planGate.n} is ${p.planGate.fileOnly ? 'a gate marked passed in the file, not by you' : p.planGate.unforeseen ? 'not in the plan, so it stopped to ask' : `a gate, "${p.planGate.text.charAt(0).toLowerCase() + p.planGate.text.slice(1)}"`}`
     : s ? `${SOURCE[s.source] || SOURCE.screen}: ${s.reasons.join('; ')}` : `No ${projWho(p)} session in this project`;
   const meta = [];
   // On the Mac the folder opens in Finder; a phone keeps it plain text.
@@ -1596,8 +1596,9 @@ async function sendCompose() {
   if (!p) return;
   if (ui.ns) { startSession(); return; }
   const { s } = view(p);
-  // At a plan gate the composer is the gate card's free answer.
-  if (p.planGate && (!s || s.surfaceId === p.primary) && !(ui.files[p.id] || []).length) {
+  // At a plan gate the composer is the gate card's free answer (not at one
+  // the file alone passed: that one is confirmed or reopened first).
+  if (p.planGate && !p.planGate.fileOnly && (!s || s.surfaceId === p.primary) && !(ui.files[p.id] || []).length) {
     const text = ($('#compose').value || '').trim();
     if (!text) { toast('Write your answer first, or pick a choice'); return; }
     if (await planAnswer({ text })) { ui.drafts[p.id] = ''; $('#compose').value = ''; }
@@ -2921,7 +2922,7 @@ function planFlow(plan, { compact = false } = {}) {
     const proofs = s.proofs.filter((x) => x.type !== 'shot');
     const shots = s.proofs.filter((x) => x.type === 'shot');
     if (proofs.length || shots.length) sub.push(`<div class="pl-ev">${proofs.map((x) => proofHtml(x)).join('')}${shots.slice(-1).map((x) => proofHtml(x, { compact })).join('')}</div>`);
-    if (s.answer) sub.push(`<div class="pl-ev"><span class="pl-e">${PG.answer}<span>You answered: <b>${esc(s.answer.text.replace(/^"|"$/g, ''))}</b></span></span></div>`);
+    if (s.answer) sub.push(`<div class="pl-ev"><span class="pl-e">${PG.answer}<span>${s.fileOnly ? 'The file says, not you:' : 'You answered:'} <b>${esc(s.answer.text.replace(/^"|"$/g, ''))}</b></span></span></div>`);
     return `<li class="pl-step ${s.state} k-${s.kind} ${it.first ? 'first' : ''} ${it.last ? 'last' : ''} ${it.ld ? 'ld' : ''}">
 <span class="pl-g">${PG[glyphKey(s)]}</span>
 <span class="pl-tag ${s.kind === 'gate' ? 'gate' : ''}">${KIND[s.kind]}</span>
@@ -2969,6 +2970,19 @@ function gateTopHtml(p) {
     : `<div class="pl-evt ${tiles.length === 1 ? 'wide' : ''}"><span class="pl-evk">Step ${x.step}</span>${x.type === 'test' ? `<span class="pl-okline">${PG.test}${esc(x.text)}</span>` : tileText(x.text)}${x.at ? `<span class="t3">${esc(plClock(x.at))}</span>` : ''}</div>`;
   const sent = ui.sent[p.id];
   const showSent = sent && Date.now() - sent.at < 120000;
+  // A gate the file alone passed (docs/PERSON.md, "A plan's gate"): the
+  // agent ticked it or took it out of BRIEF.md. The plan waits here until
+  // the person confirms it or reopens it.
+  if (g.fileOnly) {
+    const ticked = g.fileOnly === 'ticked';
+    const who = projWho(p);
+    return `<div class="pl-gh"><h2 style="margin: 0; font-size: 12.5px; font-weight: 600; color: var(--you); flex: 1">${ticked ? `Plan gate, step ${g.n} of ${plan.total}` : 'Plan gate'}</h2></div>
+<div class="pl-fileonly" role="note">${PG.lock}<span>${ticked ? 'Marked passed in the file, not by you' : 'Taken out of the file, not by you'}</span></div>
+<div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(g.question)}</div>
+<div class="pl-rule">Your words: "${esc(g.text.charAt(0).toLowerCase() + g.text.slice(1))}"</div>
+<div class="t2" style="font-size: 13px; line-height: 1.5">${ticked ? `BRIEF.md says this gate is passed${g.fileAnswer ? `, with the answer "${esc(g.fileAnswer.replace(/^"|"$/g, ''))}"` : ''}, but you never answered it here or on your phone. ${esc(who)} can edit that file, so the plan waits here until you decide.` : `This gate was in the plan you started, and it is gone from BRIEF.md. ${esc(who)} can edit that file, so the plan waits here until you decide.`}</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px"><button class="btn pri" data-act="plan-reopen" data-pid="${escRaw(p.id)}">${ticked ? 'Reopen the gate' : 'Put the gate back'}</button><button class="btn" data-act="plan-confirm" data-pid="${escRaw(p.id)}">${ticked ? 'Confirm it passed' : 'Confirm taking it out'}</button></div>`;
+  }
   return `<div class="pl-gh"><h2 style="margin: 0; font-size: 12.5px; font-weight: 600; color: var(--you); flex: 1">${g.unforeseen ? 'Not in the plan, so I stopped to ask' : `Plan gate, step ${g.n} of ${plan.total}`}</h2>${g.unforeseen ? `<span class="t3" style="font-size: 12px">Step ${g.n} of ${plan.total}</span>` : ''}</div>
 <div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(g.question)}</div>
 ${!g.unforeseen ? `<div class="pl-rule">${g.rule ? `From your rules: "${esc(g.rule)}"` : `Your words: "${esc(g.text.charAt(0).toLowerCase() + g.text.slice(1))}"`}</div>` : ''}
@@ -2998,7 +3012,7 @@ async function planAct(pid, act) {
     const before = p.sessions.map((x) => x.surfaceId);
     const r = await post('/api/plan/' + act, { projectId: pid });
     if (r.via === 'revive') { followStart(pid, r, before); render(); }
-    toast({ pause: 'Paused. The session finishes the step in hand, then waits.', stop: 'Stopped. The plan stays in the brief.', resume: 'Resumed. The session carries on from the step it was at.' }[act] + (r.via === 'brief' ? ' No session was running, so only the brief changed.' : ''), 4500, true);
+    toast({ pause: 'Paused. The session finishes the step in hand, then waits.', stop: 'Stopped. The plan stays in the brief.', resume: 'Resumed. The session carries on from the step it was at.', confirm: 'Confirmed. The plan carries on.', reopen: 'Reopened. The session is told to stop at the gate and wait for your answer.' }[act] + (r.via === 'brief' ? ' No session was running, so only the brief changed.' : ''), 4500, true);
   } catch (e) { toast(e.message, 5000, true); }
 }
 
@@ -3053,7 +3067,7 @@ function planGraph(p, plan) {
     const proofs = s.proofs.filter((x) => x.type !== 'shot');
     const shots = s.proofs.filter((x) => x.type === 'shot');
     if (proofs.length || shots.length) ev.push(`<div class="pl-ev">${proofs.map((x) => proofHtml(x)).join('')}${shots.slice(-1).map((x) => proofHtml(x, { big: true })).join('')}</div>`);
-    if (s.answer) ev.push(`<div class="pl-ev"><span class="pl-e">${PG.answer}<span>You answered: <b>${esc(s.answer.text.replace(/^"|"$/g, ''))}</b></span></span></div>`);
+    if (s.answer) ev.push(`<div class="pl-ev"><span class="pl-e">${PG.answer}<span>${s.fileOnly ? 'The file says, not you:' : 'You answered:'} <b>${esc(s.answer.text.replace(/^"|"$/g, ''))}</b></span></span></div>`);
     if (s.kind === 'branch') {
       const taken = s.arms.findIndex((a) => a.state === 'done');
       if (taken >= 0) ev.push(`<div class="pl-ev"><span class="pl-e">${PG.taken}<span>Taken: ${esc(s.arms[taken].cond)}${s.arms[taken].note ? ' (' + esc(s.arms[taken].note) + ')' : ''}</span></span></div>`);
@@ -3068,7 +3082,8 @@ function planGraph(p, plan) {
       }).join('')}</div>`);
       out.push(forkSvg(s.arms.length, decided, taken, true));
     } else {
-      if (s.state === 'you' && p.planGate) ev.push(`<div class="pg-gq">Waiting for your answer on the project page${p.planGate.choices.length ? ': ' + esc(p.planGate.choices.join(', or ')) : ''}.</div>`);
+      if (s.fileOnly) ev.push('<div class="pg-gq">Marked passed in the file, not by you. Confirm it or reopen it on the project page.</div>');
+      else if (s.state === 'you' && p.planGate) ev.push(`<div class="pg-gq">Waiting for your answer on the project page${p.planGate.choices.length ? ': ' + esc(p.planGate.choices.join(', or ')) : ''}.</div>`);
       out.push(graphNode(s, ev.join(''), s.state === 'you' ? 'you' : ''));
     }
     const nx = plan.steps[i + 1];
@@ -3778,7 +3793,7 @@ document.addEventListener('click', (e) => {
   if (act === 'plan-new') { openPlanSheet(a.dataset.pid); return; }
   if (act === 'plan-open') { openPlanPage(a.dataset.pid); return; }
   if (act === 'plan-change') { openPlanSheet(a.dataset.pid, { change: true }); return; }
-  if (act === 'plan-pause' || act === 'plan-stop' || act === 'plan-resume') { planAct(a.dataset.pid, act.slice(5)); return; }
+  if (act === 'plan-pause' || act === 'plan-stop' || act === 'plan-resume' || act === 'plan-confirm' || act === 'plan-reopen') { planAct(a.dataset.pid, act.slice(5)); return; }
   if (act === 'plan-choice') { const p = project(ui.sel); const c = p && p.planGate && p.planGate.choices[Number(a.dataset.k)]; if (c) planAnswer({ choice: c }); return; }
   if (act === 'rules-more') { ui.rulesMore = !ui.rulesMore; render(); return; }
   if (act === 'write-brief') { openModal({ mode: 'brief', projectId: a.dataset.pid }); return; }

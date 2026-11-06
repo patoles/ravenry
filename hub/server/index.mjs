@@ -40,6 +40,7 @@ import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp } from './home.mjs
 import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
 import * as checkpoints from './checkpoints.mjs';
+import * as gates from './gates.mjs';
 import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
 
@@ -761,8 +762,11 @@ function buildProject(project, wsById, hooks, settings, now) {
   // The brief's running plan (docs/design/Plans.dc.html). One waiting at a
   // gate, with its session not working, makes the project Needs you, with
   // the gate's question as its line (a dialog on screen still comes first).
-  const plan = brief ? activePlan(brief.plan, { working: ps.state === 'work' }) : null;
-  const planGate = plan && plan.gate && ps.state !== 'work' && !(primary && primary.st.state === 'dialog') ? plan.gate : null;
+  // A gate counts as passed only when the person passed it (server/gates.mjs):
+  // one the file alone passed waits for the person even while its session
+  // works on past it.
+  const plan = brief ? activePlan(brief.plan, { working: ps.state === 'work', gatesFor: (o) => gates.forPlan(brief.path, o) }) : null;
+  const planGate = plan && plan.gate && (plan.gate.fileOnly || (ps.state !== 'work' && !(primary && primary.st.state === 'dialog'))) ? plan.gate : null;
   const pstate = planGate ? 'you' : ps.state;
   const words = describe({ ...project, waitingOn }, primary, pstate, now);
   if (planGate) {
@@ -2117,13 +2121,31 @@ async function planWrite(req, res, p) {
     }
     const snapPlan = snapshot.projects.find((x) => x.id === project.id)?.plan;
     if (!file || !snapPlan) return sendJson(res, 409, { error: 'No plan is running in this project.' });
+    const by = req.mcPhone ? 'phone' : 'board';
     if (act === 'answer') {
-      const msg = planrun.writeAnswer(project, file, snapPlan.title, { choice: body.choice || null, text: body.text || null });
+      if (snapPlan.gate && snapPlan.gate.fileOnly) return sendJson(res, 409, { error: 'This gate was passed in the file, not by you: confirm it or reopen it first.' });
+      const msg = planrun.writeAnswer(project, file, snapPlan.title, { choice: body.choice || null, text: body.text || null, by });
       wantTick = true;
       const r = await deliverPlan(project, msg, 'answer');
       setTimeout(tick, 30);
       if (!r.ok) return sendJson(res, r.status || 500, { error: `Your answer is written in the brief, but it did not reach the session: ${r.error}` });
       return sendJson(res, 200, { ok: true, via: r.via, delivered: r.delivered || null, sent: body.choice || body.text, ...opened(r) });
+    }
+    // A gate the file alone passed (ticked, or taken out): the person
+    // confirms it, or reopens it and the session is told to stop at it.
+    if (act === 'confirm') {
+      const g = planrun.writeConfirm(project, file, snapPlan.title, { by });
+      wantTick = true;
+      setTimeout(tick, 30);
+      return sendJson(res, 200, { ok: true, confirmed: g.fileOnly, step: g.n });
+    }
+    if (act === 'reopen') {
+      const msg = planrun.writeReopen(project, file, snapPlan.title);
+      wantTick = true;
+      const r = await deliverPlan(project, msg, 'answer');
+      setTimeout(tick, 30);
+      if (!r.ok) return sendJson(res, r.status || 500, { error: `The gate is open again in the brief, but the session did not get the message: ${r.error}` });
+      return sendJson(res, 200, { ok: true, via: r.via, delivered: r.delivered || null, ...opened(r) });
     }
     if (act === 'pause' || act === 'stop' || act === 'resume') {
       const msg = planrun.writeState(project, file, snapPlan.title, act === 'pause' ? 'paused' : act === 'stop' ? 'stopped' : 'running');
@@ -2538,6 +2560,12 @@ server.listen(PORT, () => {
   const lan = phone.lanAddresses()[0];
   console.log(`Ravenry on http://localhost:${PORT}${lan ? `, phones on http://${lan.address}:${PORT}` : ''}  (registry ${registry.REGISTRY_PATH})`);
 });
+// The hub's record of plan gates starts from what the briefs say once, the
+// first time there is none (server/gates.mjs adopt).
+try {
+  const briefs = (reg ? reg.projects : []).map((p) => registry.briefPath(p)).filter((f) => f && fs.existsSync(f)).map((file) => ({ file, plans: (readBrief(file) || { plan: [] }).plan }));
+  if (gates.adopt(briefs)) console.log(`plan gates: started the hub's record from ${briefs.length} brief${briefs.length === 1 ? '' : 's'}`);
+} catch (e) { console.error('plan gates:', e.message); }
 tick();
 setInterval(tick, TICK_MS);
 setTimeout(refreshProcs, 1500);

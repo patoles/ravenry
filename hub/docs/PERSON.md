@@ -33,16 +33,57 @@ acts as the person), and `server/person.mjs` applies it to the HTTP API:
 
 When a row is ambiguous it gets the safer class, and its reason says so.
 
+## A plan's gate
+
+A plan's gate lives in the brief (BRIEF.md, docs/BRIEF-FORMAT.md, Plans),
+and the agent running the plan edits that file: it could tick its own
+gate `[x]`, write an `Answer:` under it, or take the gate out. Refusing
+`curl` to `/api/plan/answer` does not stop that, so the board never takes
+a gate as passed from the file alone:
+
+- **The hub keeps its own record** of gates, `<RAVENRY_HOME>/plan-gates.json`
+  (`server/gates.mjs`): per plan, the gates the person started it with and
+  the gates the person passed. Only person rows write it: `/api/plan/start`
+  (the plan's gates), `/api/plan/answer` (a gate passed),
+  `/api/plan/confirm` and `/api/plan/reopen`.
+- **The plan runner** (`server/planfmt.mjs` derive) takes a gate as passed
+  only when that record has the person's answer.
+- **A gate ticked (`[x]` or `[-]`) in the file with no answer in the
+  record** shows on the board as "Marked passed in the file, not by you",
+  and the plan stays waiting there (even if the file also says the plan is
+  done, or the session works on past it). A gate the person started the
+  plan with that is gone from the file shows "Taken out of the file, not by
+  you" the same way. The person **confirms** it (the record takes it as
+  passed, or as taken out; one Log line) or **reopens** it (the gate is
+  `[?]` again, put back if it was taken out, the file's Answer line goes,
+  and the session is told to stop and wait at it). An answer to such a gate
+  is refused until then.
+- A plan is known by its brief, its title and its Started stamp, a gate by
+  its words (and which of the plan's gates with those words it is), so an
+  agent that edits them only makes a gate unknown, which makes it wait.
+- The first time a hub has no record, it starts one from the briefs it
+  knows: the gates passed in them then count as passed, so plans that ran
+  before the record existed do not all stop.
+- **Limit:** the record is a file of the user's. An agent that deletes it
+  and then gets the hub restarted makes the hub start a new record from
+  the gates ticked in the briefs at that moment. Like reading the hub's
+  answer key, that is a deliberate attack, not a mistake
+  (packages/protocol/PROTOCOL.md section 4, Limits).
+
+Existing briefs keep their grammar: nothing new is written into them but
+the Log lines of a confirm or a reopen.
+
 ## The table
 
-53 person rows (16 of them judged ambiguous), 5 open rows. GET routes not
+55 person rows (16 of them judged ambiguous), 5 open rows. GET routes not
 listed are reads and stay open; the two listed hand out a pairing secret.
 
 | Endpoint | Class | Why |
 | --- | --- | --- |
-53 5 16
 | `/api/checkpoints/answer` | person | Answering a checkpoint is the person's answer to an agent. |
 | `/api/plan/answer` | person | Passing a gate is the person's answer; an agent would pass its own gate. |
+| `/api/plan/confirm` | person | It passes a gate the file alone marked passed; an agent would confirm its own. |
+| `/api/plan/reopen` | person | It reopens a gate the file alone marked passed and stops the session at it. |
 | `/api/plan/start` | person | Starting a plan writes it into the brief and sends it to the session to run on its own. |
 | `/api/plan/pause` | person | Pausing a plan is the person's call. |
 | `/api/plan/resume` | person | Resuming lets a paused plan run on its own again. |
@@ -112,6 +153,14 @@ and so does a `curl` that left the pane's tree first (a double fork into
 a session of its own, its environment wiped, a child of launchd or init),
 the open rows go through from a pane, and the same calls from outside
 every pane pass the check: the plan's gate is passed, the checkpoint
-answered, a machine added and removed, the hand-off settings saved.
+answered, a machine added and removed, the hand-off settings saved. In
+between, a script in a real pane ticks the plan's gate in BRIEF.md and
+writes an Answer under it: the plan still waits at the gate, marked passed
+in the file, not by you, the hub's record holds no answer, and an answer
+to it is refused; the person reopens it (the `[?]` is back), answers it
+(the record has the answer), and confirms the next gate the pane ticks.
+`tools/plans-test.mjs` covers the rest without a board: a gate taken out
+of the file, a `State: done` written over a waiting gate, reopening a
+removed gate, a plan change, and the record started from existing briefs.
 Without `RAVENRYD_BIN` it runs the first part only (the hub job on Linux
 CI); the daemon job runs all of it against its build.
