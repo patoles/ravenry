@@ -71,8 +71,11 @@ The protocol is the same on every path: versioned messages over WebSocket,
 JSON for control and binary frames for terminal bytes. Only the way it
 travels changes.
 
-- **On the same machine:** a unix socket with mode 0600, so only the user's
-  own account can connect. No port is opened.
+- **On the same machine:** a unix socket with mode 0600, in a private
+  directory, so only the user's own account can connect. No port is
+  opened. Each daemon version has its own socket, which is how an update
+  starts beside the running daemon ([PROTOCOL.md](../packages/protocol/PROTOCOL.md),
+  section 9).
 - **To a remote machine:** `ssh host ravenryd proxy`. The hub runs that
   command, and `ravenryd proxy` bridges SSH's standard input and output to
   the remote machine's own unix socket. It respects `~/.ssh/config` and

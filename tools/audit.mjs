@@ -53,8 +53,6 @@ const ALLOWED = [
   { file: 'package.json', sha256: NAME, why: 'the package author' },
   { file: 'package.json', sha256: OWNER, why: 'the GitHub owner in repository' },
   { file: 'README.md', sha256: OWNER, why: 'the GitHub owner in the repository URL' },
-  { file: 'daemon/go.mod', sha256: OWNER, why: 'the GitHub owner in the Go module path' },
-  { file: 'daemon/README.md', sha256: OWNER, why: 'the GitHub owner in the Go module path' },
   { file: 'packages/protocol/package.json', sha256: OWNER, why: 'the GitHub owner in repository' },
   { file: 'packages/protocol/package.json', sha256: NAME, why: 'the package author' },
   { file: '.github/workflows/cla.yml', sha256: OWNER, why: 'the GitHub owner in the CLA document URL' },

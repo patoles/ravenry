@@ -11,11 +11,11 @@ Repository: github.com/patoles/ravenry-app
 
 | Folder | What |
 | --- | --- |
-| `daemon/` | `ravenryd`, the Go daemon on every machine: terminals, screen state, the hook command, the protocol server. Today it only prints its version. |
+| `daemon/` | `ravenryd`, the Go daemon on every machine: terminals, screen state through libghostty-vt, waits and input for agents, the protocol server, and its command line. The hook command is still to come. |
 | `hub/` | The hub, in Node: today's Ravenry board (0.4.x), which becomes the always-on hub the apps talk to. |
 | `apps/desktop/` | The Electron desktop app. Placeholder. |
 | `apps/android/` | The Android app, Kotlin and WebView. Placeholder. |
-| `packages/` | The protocol spec, the plugin SDK, specs and adapter contracts. `packages/protocol/` is a stub. |
+| `packages/` | The protocol spec, the plugin SDK, specs and adapter contracts. `packages/protocol/` holds the draft of protocol v1 and its JSON Schema. |
 | `docs/` | [ARCHITECTURE.md](docs/ARCHITECTURE.md): the processes, the transports and what is frozen at launch. |
 | `tools/` | `audit.mjs`, the personal-data audit. |
 
@@ -38,12 +38,16 @@ works and lists every test.
 
 ## Build the daemon
 
+Go, Zig 0.17 or newer (it builds libghostty-vt, once) and git:
+
 ```sh
 cd daemon
-go vet ./...
-go build -o ravenryd ./cmd/ravenryd
+make          # ./ravenryd
+make test
 ./ravenryd version
 ```
+
+[daemon/README.md](daemon/README.md) says more.
 
 ## The audit
 
@@ -59,8 +63,9 @@ The term list is never committed.
 - **audit:** the personal-data audit, on every push and pull request.
 - **cla:** the contributor licence agreement check on pull requests
   ([CLA.md](CLA.md)).
-- **code:** `go vet` and `go build` for the daemon, `node --check` over every
-  hub script, and the hub tests that run on Linux.
+- **code:** for the daemon, libghostty-vt built with Zig (cached), then
+  gofmt, `go vet`, `go build` and every Go test; for the hub, `node --check`
+  over every script and the hub tests that run on Linux.
 
 ## Licence
 

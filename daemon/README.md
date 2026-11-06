@@ -1,47 +1,98 @@
 # ravenryd
 
-The Ravenry daemon: one static Go binary on every machine Ravenry reaches,
-the Mac itself and each remote machine. It is the only process that owns
+The Ravenry daemon: one Go binary on every machine Ravenry reaches, the Mac
+itself and each remote machine. It is the only process that owns
 terminals, so sessions survive the app closing, restarting or updating.
+The same binary is its command line client.
 
-Go module: `github.com/patoles/ravenry-app/daemon` (it follows the
-repository to its public home at launch). Licence: GPL-3.0-only
-([LICENSING.md](../LICENSING.md)).
+Licence: GPL-3.0-only ([LICENSING.md](../LICENSING.md)). It speaks the
+Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
 
-## What it will own
+## What it does
 
-- **Terminals.** It starts and holds every pane's process through a pty
-  library (creack/pty on macOS and Linux; a ConPTY wrapper on Windows
-  later), and kills a pane's whole process tree when the pane closes.
-- **Screen state.** It keeps each pane's screen through libghostty-vt (via
-  go-libghostty), pinned to one version and wrapped behind a small Go
-  interface of our own, so its API can change without reaching the rest of
-  the code. On attach it sends a client the current screen, then the live
-  bytes.
-- **Output.** It stores what each pane prints, so a client can ask for only
-  what is new, or for a pane's log.
-- **The hook command.** `ravenryd hook --assistant claude|codex` is what
-  Claude Code's and Codex's hooks run. It needs no Node, so it works on a
-  remote machine that has only the assistant installed. Hook decisions go
-  through ravenryd to the hub, with a short timeout; if the hub cannot be
-  reached, the session goes on.
-- **The protocol server.** It speaks the Ravenry protocol
-  ([packages/protocol](../packages/protocol)) to the hub and the clients, on
-  a unix socket (mode 0600), and through `ravenryd proxy` over SSH for a
-  remote machine.
-- **Updates that never kill a session.** A new version starts beside the
-  old one; the old one keeps its sessions until they end, and new sessions
-  go to the new one.
+- **Panes.** Each pane is a process on a pty (creack/pty, macOS and Linux;
+  Windows later), with an id, a command, a working directory and an
+  environment that names the pane (`RAVENRY_PANE`) and its daemon
+  (`RAVENRY_SOCKET`). Closing a pane ends its whole process tree, including
+  programs that detached themselves. A hidden pane can have a TTL.
+- **Screens.** Every pane's output goes through libghostty-vt, which keeps
+  its screen: text, cell styles (bold, dim, colours, ...), cursor, modes,
+  title. A capture returns them, and a client that attaches gets VT that
+  rebuilds the screen in xterm.js, then the live bytes. The daemon also
+  answers the program's terminal queries, so a pane works with no client
+  attached.
+- **Output.** A capped log per pane, read by mark (`since`). Streams to
+  clients are bundled by backlog: a keystroke's echo goes out alone and at
+  once, a flood gathers into large frames, and a client that falls behind
+  gets a fresh snapshot instead of slowing the pane.
+- **Agents.** Waits for a condition (text, quiet, exit) that say what
+  changed; input with explicit modes (paste, typed, raw) and named keys
+  encoded for the program's modes; send-and-settle, which sends keys, waits
+  for the screen to settle and returns the diff.
+- **Updates that never kill a session.** Each version listens on its own
+  socket. A new version starts beside the old one, new panes go to it, and
+  the old one keeps its panes and exits once none of them is running.
+  PROTOCOL.md section 9 says how clients find the right daemon.
 
-None of this is written yet. Today `ravenryd` only prints its version.
+Not built yet: `ravenryd hook` (the name is reserved), a TCP listener for
+the phone, Windows.
 
-## Build and run
+## Layout
+
+| Package | |
+| --- | --- |
+| `cmd/ravenryd` | The command line: `serve`, `proxy`, `daemons`, `version`, and the client commands. |
+| `internal/vt` | The terminal state engine. The only package that imports go-libghostty, behind a small `Screen` interface. |
+| `internal/pane` | Panes: pty, process tree, log, streams, waits, input. |
+| `internal/server` | The protocol server. |
+| `internal/client` | A Go client of the protocol (the CLI and the tests use it). |
+| `internal/proto` | The protocol's wire types. |
+| `internal/paths` | Where the socket and the logs live, and finding daemons. |
+| `internal/testprog` | Programs the tests run inside panes. |
+
+The Go module is named `ravenryd`. Nothing outside this folder imports its
+packages (they are all internal), so the name does not need to be a
+download path, and it stays the same when the repository moves at launch.
+
+## Build
+
+ravenryd links libghostty-vt statically through cgo. Building it needs Go
+(the version in `go.mod`), Zig 0.17 or newer and git:
 
 ```sh
 cd daemon
-go vet ./...
-go build -o ravenryd ./cmd/ravenryd
+make            # builds libghostty-vt once (about two minutes), then ./ravenryd
+make test       # every test, as CI runs them
 ./ravenryd version
 ```
 
-The version comes from the build: `go build -ldflags "-X main.version=1.2.3"`.
+`scripts/libghostty.sh` builds libghostty-vt into `.deps/` and prints its
+pkg-config folder. It takes the ghostty commit from the go-libghostty
+version in `go.mod` (that module pins the commit its bindings were written
+for), so there is one pin. Without make:
+
+```sh
+export PKG_CONFIG_PATH=$(scripts/libghostty.sh)
+go test ./...
+go build -ldflags "-X main.version=1.2.3" -o ravenryd ./cmd/ravenryd
+```
+
+Tests start shells with a throwaway HOME, a fixed PATH and `/bin/sh`, never
+the user's own shell setup, and use their own runtime and state folders.
+They print two measurements (`go test -v -run 'Echo|Bulk' ./internal/server`):
+the echo latency of a keystroke through the daemon, and 100 MiB of output
+through the daemon to a client.
+
+## Run
+
+```sh
+ravenryd serve &                          # or let any command start it
+id=$(ravenryd new -- /bin/sh)
+mark=$(ravenryd send "$id" --raw 'ls' --key Enter)
+ravenryd wait "$id" --quiet 300ms --since "$mark"
+ravenryd capture "$id" --styles --json
+ravenryd settle "$id" --paste 'git status' --key Enter   # prints the rows that changed
+ravenryd close "$id"
+```
+
+`ravenryd help` lists every command. Every command takes `--json`.
