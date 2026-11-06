@@ -35,16 +35,31 @@ export class Daemons {
   private clients = new Map<string, Promise<RavenryClient>>();
   private onEvent: (socket: string, e: DaemonEvent) => void;
   private onLost: (socket: string) => void;
+  private onReady: (socket: string, client: RavenryClient) => void;
 
-  constructor(onEvent: (socket: string, e: DaemonEvent) => void, onLost: (socket: string) => void) {
+  /**
+   * onEvent: each event of each daemon. onLost: a daemon's connection
+   * closed. onReady: a daemon was reached and subscribed to (list what it
+   * holds then: events only tell what changes).
+   */
+  constructor(onEvent: (socket: string, e: DaemonEvent) => void, onLost: (socket: string) => void, onReady: (socket: string, client: RavenryClient) => void = () => {}) {
     this.onEvent = onEvent;
     this.onLost = onLost;
+    this.onReady = onReady;
   }
 
   /** The client of the daemon new panes go to, connecting (and starting it) when needed. */
   async forNew(): Promise<{ client: RavenryClient; socket: string }> {
     if (this.newest && !this.newest.client.closed && !this.newest.client.hello.daemon.draining) return this.newest;
     const c = await connectOnce();
+    // Already held (a tab of it was restored): one connection per daemon.
+    const known = this.clients.get(c.socket);
+    if (known) {
+      try {
+        const k = await known;
+        if (!k.closed) { c.client.close(); this.newest = { client: k, socket: c.socket }; return this.newest; }
+      } catch { /* that one failed: use the new one */ }
+    }
     this.adopt(c.socket, c.client);
     this.newest = c;
     return c;
@@ -86,8 +101,14 @@ export class Daemons {
       if (this.newest && this.newest.socket === socket) this.newest = null;
       this.onLost(socket);
     });
-    // A window shows panes to a person, so it asks for pane.focus too
-    // (a daemon from before pane.focus refuses the field).
-    void client.request('events.subscribe', client.supports('pane.focus') ? { display: true } : {}).catch(() => {});
+    // A window shows panes to a person, so it asks for pane.focus, and for
+    // pane.activity (output in the tabs it does not show). A daemon from
+    // before a field refuses it: ask again without.
+    void (async () => {
+      for (const p of [{ display: true, activity: true }, { display: true }, {}]) {
+        try { await client.request('events.subscribe', p); break; } catch { /* an older daemon */ }
+      }
+      if (!client.closed) this.onReady(socket, client);
+    })();
   }
 }

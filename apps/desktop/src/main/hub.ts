@@ -115,6 +115,22 @@ export async function hubGet(url: string, p: string): Promise<unknown> {
   return res.json();
 }
 
+/**
+ * A person's answer to a checkpoint (POST /api/checkpoints/answer). Never
+ * throws: the status tells a refusal (403: this process is not the person)
+ * from other failures, and nothing of the request, which may hold a
+ * secret, is logged or echoed.
+ */
+export async function hubAnswer(url: string, body: unknown): Promise<{ ok: boolean; status: number; error?: string; checkpoint?: unknown }> {
+  try {
+    const res = await fetch(url + '/api/checkpoints/answer', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body) });
+    const j = await res.json().catch(() => ({})) as { error?: string; checkpoint?: unknown };
+    return res.ok ? { ok: true, status: res.status, checkpoint: j.checkpoint } : { ok: false, status: res.status, error: j.error || `the board answered ${res.status}` };
+  } catch {
+    return { ok: false, status: 0, error: 'the board is not reachable' };
+  }
+}
+
 /** POST to a hub API path, as the board's own page does (X-Ravenry: 1). */
 export async function hubPost(url: string, p: string, body: unknown): Promise<unknown> {
   const res = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body) });

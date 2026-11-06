@@ -27,7 +27,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'e
 import type { MenuItemConstructorOptions } from 'electron';
 import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
-import { HubFeed, hubGet, hubPost, hubUrl } from './hub.ts';
+import { HubFeed, hubAnswer, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
 import { dataRoot, ensureService, pruneVersions, readBuildInfo, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
 import type { Staged } from './install.ts';
@@ -53,6 +53,14 @@ const updates = new Updates(process.resourcesPath, () => menu());
 
 function send(channel: string, ...args: unknown[]): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+}
+
+// The ravenryd the first-launch hook setup writes into Claude Code's and
+// Codex's settings: the packaged app's <data>/bin/ravenryd, which always
+// links to the newest version, else (development, tests) RAVENRYD.
+function hookBin(): string | null {
+  const p = app.isPackaged ? path.join(dataRoot(), 'bin', 'ravenryd') : process.env.RAVENRYD || '';
+  return p && path.isAbsolute(p) && fs.existsSync(p) ? p : null;
 }
 
 function newShellCommand(): string[] | null {
@@ -170,16 +178,20 @@ function ipc(): void {
     }
   });
   ipcMain.on('daemon:reset', () => daemon.reset());
+  // The running daemons, newest first: the window lists its plain shells on each.
+  ipcMain.handle('daemon:sockets', () => listSockets(runtimeDir()).map((s) => s.socket));
   ipcMain.handle('app:config', () => ({
     platform: process.platform,
     hubUrl: feed ? feed.url : hubUrl(),
     newShell: newShellCommand(),
     home: os.homedir(),
     offscreen: OFFSCREEN,
+    hookBin: hookBin(),
   }));
   ipcMain.handle('hub:state', () => ({ state: feed?.last ?? null, status: feed?.status ?? null }));
   ipcMain.handle('hub:get', (_e, p: string) => hubGet(feed!.url, p));
   ipcMain.handle('hub:post', (_e, p: string, body: unknown) => hubPost(feed!.url, p, body));
+  ipcMain.handle('hub:answer', (_e, body: unknown) => hubAnswer(feed!.url, body));
   ipcMain.handle('local:folders', (_e, root?: string) => findProjectFolders(os.homedir(), 5, root || undefined));
   ipcMain.handle('local:assistants', () => findAssistants(process.env, os.homedir()));
   ipcMain.handle('local:short', (_e, p: string) => shortPath(p, os.homedir()));

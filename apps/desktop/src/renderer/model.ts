@@ -23,10 +23,9 @@ export interface HubSession {
   handed?: boolean;
   terminal?: boolean;
   screen?: string[];
-  // Seams for what the hub does not send yet (slice 2a and the remote work):
-  /** The machine a remote session runs on; absent for this one. */
+  /** The machine a remote session runs on (the hub's ravenryd over ssh); null on this one. */
   machine?: string | null;
-  /** The ravenryd pane a session runs in, once the hub starts sessions there. */
+  /** The ravenryd pane a session runs in, when the hub sends it on its own. */
   pane?: string | { id: string } | null;
 }
 
@@ -63,6 +62,10 @@ export interface HubState {
   settings?: { handoffThreshold?: number; handoffCeiling?: number; handoffEnabled?: boolean };
   sessions?: { totalKb?: number };
   views?: { ideas?: number; rules?: number; ship?: number };
+  /** The phone alerts: on and set up means an open checkpoint is on the phone too. */
+  alerts?: { enabled?: boolean; configured?: boolean } | null;
+  /** Every daemon's open checkpoints (checkpoints.ts HubCheckpoint). */
+  checkpoints?: unknown[];
 }
 
 const SESSION_GROUP: Record<string, Group> = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
@@ -100,6 +103,9 @@ export function machineOf(p: HubProject, s?: HubSession): string | null {
   return m && m !== 'local' ? m : null;
 }
 
+/** An open checkpoint on a session's row: what kind of answer waits, its words, since when. */
+export interface RowMark { kind: 'ask' | 'approve' | 'secret' | 'other'; text: string; code: boolean; since: string }
+
 export interface Row {
   key: string;
   session: HubSession;
@@ -108,6 +114,8 @@ export interface Row {
   pct: number | null;
   pctWarn: boolean;
   line: string | null;
+  /** An open checkpoint's mark, shown instead of the line. */
+  mark: RowMark | null;
   group: Group;
   machine: string | null;
 }
@@ -162,11 +170,11 @@ function projectTime(p: HubProject, now: number): string {
   return ago(p.since, now);
 }
 
-function row(p: HubProject, s: HubSession, threshold: number): Row {
+function row(p: HubProject, s: HubSession, threshold: number, mark: RowMark | null): Row {
   const pct = s.ctx && Number.isFinite(s.ctx.pct) ? Math.round(s.ctx.pct) : null;
-  const g = sessionGroup(s);
+  const g = mark ? 'you' : sessionGroup(s);
   const w = s.words || {};
-  const line = g === 'you' ? (w.question || w.line || null) : null;
+  const line = g === 'you' && !mark ? (w.question || w.line || null) : null;
   return {
     key: sessionKey(p.id, s),
     session: s,
@@ -175,25 +183,36 @@ function row(p: HubProject, s: HubSession, threshold: number): Row {
     pct,
     pctWarn: pct !== null && pct >= threshold,
     line: line ? String(line).replace(/\s+/g, ' ').trim() : null,
+    mark,
     group: g,
     machine: machineOf(p, s),
   };
 }
 
-/** The sidebar: Needs you first, then Working, Waiting on others and Idle, newest first in each. */
-export function board(state: HubState | null, now: number): BoardGroup[] {
+/**
+ * The sidebar: Needs you first, then Working, Waiting on others and Idle,
+ * newest first in each. A session with an open checkpoint (marks, by
+ * session key) needs you whatever its own state says, and its project's
+ * time is when it started waiting.
+ */
+export function board(state: HubState | null, now: number, marks: Map<string, RowMark> = new Map()): BoardGroup[] {
   const threshold = state?.settings?.handoffThreshold ?? 50;
   const by = new Map<Group, ProjectRow[]>();
+  const since = new Map<HubProject, number>();
   for (const p of state?.projects || []) {
-    const g: Group = ORDER.includes(p.state) ? p.state : 'idle';
     const live = p.sessions.filter((s) => !s.handed);
-    let shown = g === 'idle' ? [] : live.filter((s) => sessionGroup(s) === g);
+    const marked = live.filter((s) => marks.has(sessionKey(p.id, s)));
+    const g: Group = marked.length ? 'you' : ORDER.includes(p.state) ? p.state : 'idle';
+    let shown = g === 'idle' ? [] : live.filter((s) => marks.has(sessionKey(p.id, s)) || sessionGroup(s) === g);
     if (g !== 'idle' && !shown.length) shown = live.filter((s) => s.surfaceId === p.primary).slice(0, 1);
+    const first = marked.map((s) => Date.parse(marks.get(sessionKey(p.id, s))!.since)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+    if (first !== undefined) since.set(p, first);
     const list = by.get(g) || [];
-    list.push({ project: p, time: projectTime(p, now), machine: machineOf(p), rows: shown.map((s) => row(p, s, threshold)) });
+    const time = first !== undefined ? clock(new Date(first).toISOString(), now) : projectTime(p, now);
+    list.push({ project: p, time, machine: machineOf(p), rows: shown.map((s) => row(p, s, threshold, marks.get(sessionKey(p.id, s)) || null)) });
     by.set(g, list);
   }
-  const t = (p: HubProject) => (p.since ? Date.parse(p.since) : now);
+  const t = (p: HubProject) => since.get(p) ?? (p.since ? Date.parse(p.since) : now);
   return ORDER.filter((g) => by.has(g)).map((g) => {
     const projects = by.get(g)!.sort((a, b) => t(b.project) - t(a.project));
     const count = g === 'idle' ? projects.length : projects.reduce((n, p) => n + Math.max(p.rows.length, 1), 0);
