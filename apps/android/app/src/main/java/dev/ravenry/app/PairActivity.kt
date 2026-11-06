@@ -244,6 +244,9 @@ class PairActivity : ComponentActivity() {
         }, color = tx2, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.clickable {
             runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tailscale.com/download"))) }
         })
+        // The typed code's screen has no picture yet: it is drawn as a mock
+        // and stays out of the launch build until it is approved.
+        if (!TYPED_CODE) return
         Spacer(Modifier.height(22.dp))
         Text(buildAnnotatedString {
             append(stringResource(R.string.pair_camera_q)); append(" ")
@@ -356,3 +359,6 @@ class PairActivity : ComponentActivity() {
         const val SIGNED_OUT = "signedOut"
     }
 }
+
+/** "Type the code instead" and its screens: off until their mock is approved. */
+private const val TYPED_CODE = false

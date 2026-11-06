@@ -34,7 +34,9 @@ a valid certificate from any authority is refused if its key is not the
 pinned one. The page is served from the app itself
 (`https://appassets.androidplatform.net/phone/` on Android,
 `ravenry-app://phone/` on iOS); a picture or file of the hub is
-`hub/<path>` relative to the page, which the shell fetches the same way.
+`hub/<path>` relative to the page, which the shell fetches the same way,
+for the page itself only (its own Referer and Origin), never for a frame
+of another origin.
 
 ## 2. Reaching the hub
 
@@ -300,18 +302,18 @@ The shell sends events as `{ "event": "...", ... }`.
 | `socket.send` | `sid`, `text` or `b64` | |
 | `socket.close` | `sid` | |
 | `biometric` | `title`, `subtitle` | `{ ok }`, or an error the page shows |
-| `photo` | `projectId` | the camera; the picture goes to the project's inbox (`POST /api/inbox/<project>`): `{ path, short, name }` |
+| `photo` | `projectId` | the camera; the picture goes to the project's inbox (`POST /api/inbox/<project>`): `{ path, short, name, thumb }`, `thumb` a small JPEG data URL |
 | `voice.start` | | recording starts |
 | `voice.stop` | `projectId` | `{ path, short, name, ms }`, sent to the inbox the same way |
 | `voice.cancel` | | |
-| `secret.open` | `checkpoint`, `rect`, `dark` | the private field over `rect` (CSS px from the page's top left); events `secret.count` `{ n }`, `secret.done` `{ ok, error }` when the keyboard's Send sent it |
-| `secret.move` | `rect` | the field follows the card when the page moves |
+| `secret.open` | `checkpoint`, `rect`, `dark`, `size` | the private field over `rect` (CSS px from the page's top left), transparent: the page draws the field around it, its count and its eye; `size` is the text's CSS px; events `secret.count` `{ n }`, `secret.done` `{ ok, error }` when the keyboard's Send sent it |
+| `secret.move` | `rect`, `reveal` | the field follows the card when the page moves; `reveal` shows or hides what was typed |
 | `secret.send` | | the shell answers the checkpoint with what was typed: `{ ok }` |
 | `secret.close` | | |
 | `speech` | | voice typing for the reply field: `{ text }` |
 | `alerts.clear` | `id` | |
 | `pair.reset` | | sign out on this phone and go back to pairing |
-| `open.settings` | | the app's settings |
+| `open.settings` | | the app's settings (on Android, for now, its notification settings) |
 
 Events also carry `open` `{ alert }` when the person taps an alert, and
 `back` when they press Back (the page answers with `back.done` when it

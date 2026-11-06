@@ -193,14 +193,17 @@ function approveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElemen
 
 // ---------------------------------------------------------------- secret
 
-function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld: HTMLElement) => void): HTMLElement {
+function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld: HTMLElement) => void, reveal: (on: boolean) => void): HTMLElement {
   const sh = current();
   const native = sh.has('secret');
   const t = splitTitle(cp.title);
   const to = cp.secret?.to;
   const goes = to === 'input' ? 'that terminal' : 'that command';
+  // In the app the shell's private field lies over .slot, transparent: the
+  // page draws the field around it, the count and the eye, never the text.
   const fld = h('div.psfld', native
-    ? [h('span.dots', '•'.repeat(Math.min(ui.count, 40)) || h('span.ph', 'Type it here')), ui.count ? h('span.n.num', String(ui.count)) : null]
+    ? [h('span.slot', ui.count ? '' : h('span.ph', 'Type it here')), ui.count ? h('span.n.num', String(ui.count)) : null,
+      h('button.eye', { 'aria-label': ui.reveal ? 'Hide it' : 'Show it', on: { click: () => { ui.reveal = !ui.reveal; reveal(ui.reveal); repaint(); } } }, svg(ui.reveal ? DI.EYE_OFF : DI.EYE))]
     : [h('input.sfin', { type: 'password', autocomplete: 'off', placeholder: 'Type it here', on: { input: (e: Event) => { ui.count = (e.target as HTMLInputElement).value.length; } } })]);
   if (native) mount(fld);
   const send = async () => {
@@ -233,11 +236,11 @@ function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld:
 
 // ---------------------------------------------------------------- the screen
 
-interface UI { busy: boolean; error: string | null; draft: string; editing: boolean; edit: string; refusing: boolean; reason: string; count: number }
+interface UI { busy: boolean; error: string | null; draft: string; editing: boolean; edit: string; refusing: boolean; reason: string; count: number; reveal: boolean }
 
 export function checkpointScreen(id: string): Screen {
   const el = h('div.scr.cpscr');
-  const ui: UI = { busy: false, error: null, draft: '', editing: false, edit: '', refusing: false, reason: '', count: 0 };
+  const ui: UI = { busy: false, error: null, draft: '', editing: false, edit: '', refusing: false, reason: '', count: 0, reveal: false };
   const sh = current();
   let secretOpen = false;
   let secretField: HTMLElement | null = null;
@@ -245,11 +248,12 @@ export function checkpointScreen(id: string): Screen {
   const offs: (() => void)[] = [];
 
   const rectOf = (e: HTMLElement) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  const slotRect = () => { const e = secretField?.querySelector('.slot') as HTMLElement | null; return e ? rectOf(e) : secretField ? rectOf(secretField) : { x: 0, y: 0, w: 0, h: 0 }; };
   const placeSecret = () => {
     if (!secretField || !document.body.contains(secretField)) return;
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-    if (!secretOpen) { secretOpen = true; void sh.call('secret.open', { checkpoint: id, rect: rectOf(secretField), dark }).catch((e) => { ui.error = (e as Error).message; paint(true); }); }
-    else void sh.call('secret.move', { rect: rectOf(secretField) }).catch(() => {});
+    if (!secretOpen) { secretOpen = true; void sh.call('secret.open', { checkpoint: id, rect: slotRect(), dark, size: 16 }).catch((e) => { ui.error = (e as Error).message; paint(true); }); }
+    else void sh.call('secret.move', { rect: slotRect(), reveal: ui.reveal }).catch(() => {});
   };
   offs.push(sh.on('secret.count', (m) => { ui.count = Number(m.n) || 0; paint(true); }));
   offs.push(sh.on('secret.done', (m) => { if (m.ok) { toast('Sent to the terminal.'); back(); } else { ui.error = String(m.error || 'It was not sent.'); paint(true); } }));
@@ -272,7 +276,7 @@ export function checkpointScreen(id: string): Screen {
     const k = kindOf(cp);
     const view = k === 'ask' ? askView(cp, ui, repaint)
       : k === 'approve' ? approveView(cp, ui, repaint)
-      : k === 'secret' ? secretView(cp, ui, repaint, (f) => { secretField = f; })
+      : k === 'secret' ? secretView(cp, ui, repaint, (f) => { secretField = f; }, (on) => { void sh.call('secret.move', { rect: slotRect(), reveal: on }).catch(() => {}); })
       : h('div.pcp', topBar(cp, DI.ASK), ...fromLine(cp), h('h2.sm', splitTitle(cp.title).head),
         h('div.pcp-b', h('button.btn.big', { on: { click: () => void answer(cp, { decline: true }).then(back, (e) => toast((e as Error).message)) } }, 'Decline')));
     const focusDraft = document.activeElement && (document.activeElement as HTMLElement).tagName === 'TEXTAREA';
