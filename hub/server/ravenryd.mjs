@@ -75,6 +75,14 @@ export function findBin(e = env, has = fs.existsSync) {
 
 // ---------------------------------------------------------------- daemons
 
+// The sockets of the daemons that run in the board's runtime folder (none
+// for a test board without its own folder), without connecting.
+export async function localSockets() {
+  if (held()) return [];
+  const { daemonSockets } = await nodeClient();
+  return daemonSockets();
+}
+
 // socket -> { c (client), version, key, id, machine } for every local
 // daemon that answered; remote ones (machine set, id "ssh:<name>") come
 // from server/machines.mjs.

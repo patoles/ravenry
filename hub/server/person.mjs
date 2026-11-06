@@ -1,7 +1,9 @@
 // Who acts as the person (packages/protocol/PROTOCOL.md section 4, Who acts
-// as the person). A checkpoint exists so that a person answers it, so:
+// as the person, and docs/PERSON.md). A checkpoint exists so that a person
+// answers it, and the same goes for every other write that stands for a
+// person's decision (ROUTES below), so:
 //
-// - The HTTP API refuses an answer from a program on this machine that
+// - The HTTP API refuses those writes to a program on this machine that
 //   runs inside a ravenryd pane (an agent, or anything it started) or in
 //   an ssh session. A request from the phone (another address, with its
 //   device token: server/phone.mjs) is the person. A request from this
@@ -51,14 +53,120 @@ export function answerKey() {
 
 export const REFUSED = 'Only a person can answer a checkpoint, in the Ravenry app or on the phone.';
 
-// Whether the request came from the person. `bin` is ravenryd (null when
-// none is installed: nothing can be judged, so it is refused). Resolves
-// to { ok, why }.
-export function fromPerson(req, bin) {
+// ------------------------------------------------------------ the routes
+// Every write of the HTTP API, and the reads that hand out a pairing
+// secret, with its class: `person` (a person's decision: refused to a
+// program inside a pane or in an ssh session) or `open` (fine for agents
+// too: it adds something the person reads later, runs nothing, removes
+// nothing and decides nothing). A POST under /api/ that no row names is a
+// person's: a new endpoint is closed until it is classed here.
+// docs/PERSON.md is this table for people; tools/person-routes-test.mjs
+// checks that every route the server has is in it and proves each person
+// row from inside a real pane.
+// `what` finishes "Only a person can ..." in the refusal.
+const P = 'person', O = 'open';
+export const ROUTES = [
+  // Checkpoints and plans
+  { m: 'POST', p: '/api/checkpoints/answer', c: P, what: 'answer a checkpoint', why: 'Answering a checkpoint is the person\'s answer to an agent.', strict: true },
+  { m: 'POST', p: '/api/plan/answer', c: P, what: 'answer a plan\'s gate or question', why: 'Passing a gate is the person\'s answer; an agent would pass its own gate.' },
+  { m: 'POST', p: '/api/plan/start', c: P, what: 'start a plan', why: 'Starting a plan writes it into the brief and sends it to the session to run on its own.' },
+  { m: 'POST', p: '/api/plan/pause', c: P, what: 'pause a plan', why: 'Pausing a plan is the person\'s call.' },
+  { m: 'POST', p: '/api/plan/resume', c: P, what: 'resume a plan', why: 'Resuming lets a paused plan run on its own again.' },
+  { m: 'POST', p: '/api/plan/stop', c: P, what: 'stop a plan', why: 'Stopping a plan is the person\'s call.' },
+  { m: 'POST', p: '/api/plan/change', c: P, what: 'change a running plan', why: 'It opens the running plan for changes that Start then sends to the session.' },
+  { m: 'POST', p: '/api/plan/draft', c: P, what: 'draft a plan', why: 'Ambiguous, so the safer class: it runs the planning model on the person\'s account for a plan they then start.' },
+  { m: 'POST', p: '/api/plan/own', c: P, what: 'draft a plan', why: 'Ambiguous, so the safer class: as draft, from the person\'s own words.' },
+  { m: 'POST', p: '/api/plan/revise', c: P, what: 'revise a plan draft', why: 'Ambiguous, so the safer class: it runs the planning model again on the person\'s comment.' },
+  { m: 'POST', p: '/api/plan/edit', c: P, what: 'edit a plan draft', why: 'It answers the planner\'s questions and reorders or removes steps of the person\'s draft.' },
+  { m: 'POST', p: '/api/plan/halt', c: P, what: 'halt a plan draft', why: 'It stops the planning run the person started.' },
+  { m: 'POST', p: '/api/plan/discard', c: P, what: 'discard a plan draft', why: 'It throws the person\'s draft away.' },
+  // Sessions
+  { m: 'POST', p: '/api/send', c: P, what: 'type into a session from the board', why: 'The composer types the person\'s words into a session; an agent would answer its own prompts.' },
+  { m: 'POST', p: '/api/sessions/start', c: P, what: 'start a session', why: 'Ambiguous, so the safer class: it starts an assistant on the person\'s account, with a first prompt.' },
+  { m: 'POST', p: '/api/sessions/close', c: P, what: 'close sessions', why: 'Closing a session ends the assistant in it.' },
+  { m: 'POST', p: '/api/sessions/reopen', c: P, what: 'reopen a session', why: 'Reopening starts an assistant again.' },
+  { m: 'POST', p: '/api/project/revive', c: P, what: 'start a session', why: 'Revive and New session start an assistant, with the person\'s first message.' },
+  { m: 'POST', p: '/api/handoff', c: P, what: 'decide a hand-off', why: 'A hand-off decision is the person\'s.' },
+  { m: 'POST', p: '/api/handoff/start', c: P, what: 'start a hand-off', why: 'It ends a session\'s turn and starts the fresh session now.' },
+  { m: 'POST', p: '/api/open', c: P, what: 'bring a tab forward', why: 'Ambiguous, so the safer class: it moves windows on the person\'s screen.' },
+  // Rules
+  { m: 'POST', p: /^\/api\/rules\/[\w.-]+$/, eg: '/api/rules/x', doc: '/api/rules/<id>', c: P, what: 'decide on a suggested rule', why: 'Saving a rule into CLAUDE.md or AGENTS.md changes what every session is told.' },
+  { m: 'POST', p: /^\/api\/repeats\/[\w.-]+$/, eg: '/api/repeats/x', doc: '/api/repeats/<id>', c: P, what: 'decide on a suggested rule', why: 'Saving a repeated instruction as a rule changes CLAUDE.md or AGENTS.md.' },
+  // Projects
+  { m: 'POST', p: '/api/project/new', c: P, what: 'create a project', why: 'It makes a folder and a brief and starts a session.' },
+  { m: 'POST', p: '/api/project/brief', c: P, what: 'write a brief', why: 'It writes the project\'s BRIEF.md from the sheet, the plan included.' },
+  { m: 'POST', p: '/api/project/assistant', c: P, what: 'choose a project\'s assistant', why: 'A setting: which assistant the next sessions start.' },
+  { m: 'POST', p: '/api/project/add-workspace', c: P, what: 'move a session into a project', why: 'Ambiguous, so the safer class: it changes which project a session belongs to.' },
+  { m: 'POST', p: '/api/project/open-folder', c: P, what: 'open a folder in Finder', why: 'It opens a window on the person\'s screen.' },
+  { m: 'POST', p: '/api/project/reveal-picture', c: P, what: 'show a picture in Finder', why: 'It opens a window on the person\'s screen.' },
+  { m: 'POST', p: '/api/project/choose-folder', c: P, what: 'open the folder dialog', why: 'It opens a dialog on the person\'s screen.' },
+  // Machines, setup, settings
+  { m: 'POST', p: '/api/machines/add', c: P, what: 'add a machine', why: 'Adding a machine pairs this hub with it over ssh.' },
+  { m: 'POST', p: '/api/machines/remove', c: P, what: 'remove a machine', why: 'Removing a machine is the person\'s call.' },
+  { m: 'POST', p: '/api/machines/retry', c: P, what: 'reconnect a machine', why: 'Ambiguous, so the safer class: it runs ssh with the person\'s keys.' },
+  { m: 'POST', p: '/api/setup/hooks', c: P, what: 'install the hooks', why: 'It changes Claude Code\'s and Codex\'s settings.' },
+  { m: 'POST', p: '/api/settings/handoff', c: P, what: 'change the hand-off settings', why: 'A setting the person chose; an agent could turn its own hand-off off.' },
+  { m: 'POST', p: '/api/settings/assistant', c: P, what: 'change which assistant starts', why: 'A setting the person chose.' },
+  { m: 'POST', p: '/api/settings/projects-root', c: P, what: 'change where projects go', why: 'A setting the person chose.' },
+  // Phone and alerts
+  { m: 'GET', p: '/api/phone', c: P, what: 'see the phone\'s pairing code', why: 'The code holds the phone\'s sign-in key: whoever has it acts as the phone.' },
+  { m: 'POST', p: '/api/phone/new-key', c: P, what: 'pair the phone again', why: 'A new key signs the phone out.' },
+  { m: 'GET', p: '/api/alerts/setup', c: P, what: 'see the alert setup', why: 'It shows the alert channels\' tokens and topic.' },
+  { m: 'POST', p: '/api/alerts/switch', c: P, what: 'turn phone alerts on or off', why: 'Ambiguous, so the safer class: an agent could silence the alerts that call the person.' },
+  { m: 'POST', p: '/api/alerts/desktop', c: P, what: 'turn Mac notifications on or off', why: 'Ambiguous, so the safer class: as the switch.' },
+  { m: 'POST', p: '/api/alerts/test', c: P, what: 'send a test alert', why: 'Ambiguous, so the safer class: it sends to the person\'s phone.' },
+  { m: 'POST', p: /^\/api\/alerts\/(telegram|telegram\/find-chat|webhook|ntfy|ntfy\/new-topic|ntfy\/copy|done)$/, eg: '/api/alerts/webhook', doc: '/api/alerts/{telegram,telegram/find-chat,webhook,ntfy,ntfy/new-topic,ntfy/copy,done}', c: P, what: 'change where alerts go', why: 'An agent could send the person\'s alerts to itself.' },
+  // Ideas
+  { m: 'POST', p: '/api/ideas/add', c: O, why: 'Adding an idea: the person sees it on the Ideas page and decides.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/ref$/, eg: '/api/ideas/x/ref', doc: '/api/ideas/<id>/ref', c: O, why: 'Adds a reference picture to an idea; nothing is replaced.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/image$/, eg: '/api/ideas/x/image', doc: '/api/ideas/<id>/image', c: P, what: 'change an idea\'s picture', why: 'Ambiguous, so the safer class: it replaces the idea\'s picture.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/update$/, eg: '/api/ideas/x/update', doc: '/api/ideas/<id>/update', c: P, what: 'change an idea', why: 'Ambiguous, so the safer class: it rewrites what the person wrote. Adding one stays open.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/kill$/, eg: '/api/ideas/x/kill', doc: '/api/ideas/<id>/kill', c: P, what: 'drop an idea', why: 'Dropping an idea is the person\'s call.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/say$/, eg: '/api/ideas/x/say', doc: '/api/ideas/<id>/say', c: P, what: 'talk to an idea', why: 'Ambiguous, so the safer class: it runs a model on the person\'s account.' },
+  { m: 'POST', p: '/api/ideas/brainstorm', c: P, what: 'start a brainstorm', why: 'Ambiguous, so the safer class: it runs a model on the person\'s account.' },
+  { m: 'POST', p: '/api/ideas/brainstorm/clear', c: P, what: 'clear a brainstorm error', why: 'Ambiguous, so the safer class: it hides an error shown to the person.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/mockups$/, eg: '/api/ideas/x/mockups', doc: '/api/ideas/<id>/mockups', c: P, what: 'start mockups', why: 'Ambiguous, so the safer class: it runs a model on the person\'s account.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/mockups\/stop$/, eg: '/api/ideas/x/mockups/stop', doc: '/api/ideas/<id>/mockups/stop', c: P, what: 'stop mockups', why: 'It stops a run the person started.' },
+  { m: 'POST', p: /^\/api\/ideas\/[\w-]+\/mockups\/pick$/, eg: '/api/ideas/x/mockups/pick', doc: '/api/ideas/<id>/mockups/pick', c: P, what: 'pick a mockup', why: 'Picking a variant is the person\'s taste.' },
+  // Notes, files, hooks
+  { m: 'POST', p: '/api/note', c: O, why: 'Adds a line under Notes in the brief.' },
+  { m: 'POST', p: /^\/api\/inbox\/.+$/, eg: '/api/inbox/x', doc: '/api/inbox/<project>', c: O, why: 'Puts a file in the project\'s inbox folder; nothing is sent or run.' },
+  { m: 'POST', p: '/api/hook-event', c: O, why: 'The hooks inside every session post it: it only makes the board look at events already on disk.' },
+];
+
+const matches = (r, method, p) => r.m === method && (typeof r.p === 'string' ? r.p === p : r.p.test(p));
+
+// The row for a request, or null.
+export function routeOf(method, p) {
+  return ROUTES.find((r) => matches(r, method, p)) || null;
+}
+
+// The row a request must pass as the person, or null when it is open to
+// every program. Any POST under /api/ that no row names is a person's.
+export function personRoute(method, p) {
+  const r = routeOf(method, p);
+  if (r) return r.c === P ? r : null;
+  if (method === 'POST' && p.startsWith('/api/')) return { m: method, p, c: P, what: 'do this', why: 'Not classed yet, so a person\'s.' };
+  return null;
+}
+
+export const refusal = (r) => (r.p === '/api/checkpoints/answer' ? REFUSED : `Only a person can ${r.what}, in the Ravenry app or on the phone.`);
+
+// Whether the request came from the person. `bin` is ravenryd. Without
+// one nothing can be judged: `strict` (a checkpoint answer) refuses, and
+// otherwise the request is taken when no ravenryd runs here either
+// (`daemons()` lists the sockets of the board's runtime folder), since
+// then no process of this machine is inside a pane: a board that drives
+// cmux, iTerm2 or Rex only. Resolves to { ok, why }.
+export async function fromPerson(req, bin, { strict = false, daemons = null } = {}) {
   const s = req.socket;
-  if (req.mcPhone && !fromThisMachine(s && s.remoteAddress)) return Promise.resolve({ ok: true });
-  if (!bin) return Promise.resolve({ ok: false, why: 'ravenryd is not installed, so the board cannot tell who sent it' });
-  if (!s || !s.remotePort || !s.localPort) return Promise.resolve({ ok: false, why: 'the board cannot tell who sent it' });
+  if (req.mcPhone && !fromThisMachine(s && s.remoteAddress)) return { ok: true };
+  if (!bin) {
+    if (strict || !daemons) return { ok: false, why: 'ravenryd is not installed, so the board cannot tell who sent it' };
+    if ((await daemons()).length === 0) return { ok: true };
+    return { ok: false, why: 'ravenryd runs here but the board cannot find its command, so it cannot tell who sent it' };
+  }
+  if (!s || !s.remotePort || !s.localPort) return { ok: false, why: 'the board cannot tell who sent it' };
   return new Promise((resolve) => {
     execFile(bin, ['peer', '--tcp', String(s.remotePort), '--to', String(s.localPort), '--json'], { timeout: 10000, maxBuffer: 1 << 20 }, (err, stdout) => {
       let r = null;

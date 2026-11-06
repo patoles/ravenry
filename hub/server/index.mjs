@@ -2155,6 +2155,20 @@ function planPicture(project, rel) {
   return null;
 }
 
+// Who acts as the person (server/person.mjs): a request that stands for a
+// person's decision, from a program inside a ravenryd pane or in an ssh
+// session on this machine, gets 403 and changes nothing. Returns true when
+// it answered.
+async function refusedAsPerson(req, res, p) {
+  const r = person.personRoute(req.method, p);
+  if (!r) return false;
+  const who = await person.fromPerson(req, term.ravenryBin(), { strict: !!r.strict, daemons: term.ravenryDaemonsHere });
+  if (who.ok) return false;
+  console.log(`refused ${r.strict ? 'a checkpoint answer' : `${req.method} ${p}`}: ${who.why}`);
+  sendJson(res, 403, { error: `${person.refusal(r)} This request was refused: ${who.why}.`, notPerson: true });
+  return true;
+}
+
 // Phone access gate (server/phone.mjs). Returns true when it answered.
 function gate(req, res, url) {
   if (!phone.hostOk(req.headers.host, PORT)) {
@@ -2191,9 +2205,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/whoami') return sendJson(res, 200, { local: !!req.mcLocal });
     if (p === '/api/phone' || p.startsWith('/api/phone/')) {
       if (!req.mcLocal) return sendJson(res, 403, { error: 'Only the Mac shows the phone code.' });
+      if (req.method === 'POST' && !allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' });
+      if (await refusedAsPerson(req, res, p)) return;
       if (req.method === 'GET' && p === '/api/phone') return sendJson(res, 200, phoneCard());
       if (req.method === 'POST' && p === '/api/phone/new-key') {
-        if (!allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' });
         phone.rotate();
         dropPhoneStreams();
         return sendJson(res, 200, phoneCard());
@@ -2214,6 +2229,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/alerts') return sendJson(res, 200, { ok: true, local: !!req.mcLocal, ...alerts.status() });
     if (req.method === 'GET' && p === '/api/alerts/setup') {
       if (!req.mcLocal) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
+      if (await refusedAsPerson(req, res, p)) return;
       return sendJson(res, 200, { ok: true, local: true, ...alerts.setupView(alertsQr) });
     }
     if (req.method === 'GET' && p === '/api/meta') {
@@ -2288,6 +2304,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p.startsWith('/api/')) {
       if (!allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' });
+      // A person's decision (server/person.mjs ROUTES, docs/PERSON.md):
+      // never from a program inside a pane or in an ssh session.
+      if (await refusedAsPerson(req, res, p)) return;
       if (p.startsWith('/api/alerts/')) return alertsWrite(req, res, p);
       if (p.startsWith('/api/plan/')) return planWrite(req, res, p);
       if (await phaseD(req, res, p) !== false) return;
@@ -2330,14 +2349,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (p === '/api/checkpoints/answer') {
         // A person's answer (the app, the phone), never a program inside a
-        // pane (server/person.mjs). The body may hold a secret: it is
+        // pane: refusedAsPerson above. The body may hold a secret: it is
         // parsed here, never echoed in an error or a log, and goes only to
         // the daemon that holds the checkpoint.
-        const who = await person.fromPerson(req, term.ravenryBin());
-        if (!who.ok) {
-          console.log(`refused a checkpoint answer: ${who.why}`);
-          return sendJson(res, 403, { error: `${person.REFUSED} This request was refused: ${who.why}.`, notPerson: true });
-        }
         let body = null;
         try { body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}'); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         const by = typeof body.by === 'string' && body.by ? body.by : req.mcPhone ? 'phone' : 'desktop';

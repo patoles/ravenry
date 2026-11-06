@@ -359,7 +359,9 @@ answers it through the daemon that holds it. A secret goes only there: it
 is never stored, put in the state, echoed in an error or logged.
 
 **Only a person answers** (server/person.mjs, PROTOCOL.md section 4, Who
-acts as the person). The answer API takes a request from the phone (its
+acts as the person), and only a person makes any other decision through
+the API: docs/PERSON.md lists every write with its class and why. The
+answer API takes a request from the phone (its
 token, from another address); one from this machine only when the
 process that sent it runs outside every ravenryd pane and outside ssh,
 which `ravenryd peer --tcp <its port> --to <ours>` tells with the
@@ -376,8 +378,9 @@ A test board (RAVENRY_HOME or MC_HOME set) reaches a daemon only when
 RAVENRY_RUNTIME_DIR names the test's own folder. `tools/ravenryd-test.mjs`
 proves all of the above against a real daemon (RAVENRYD_BIN), and
 `tools/machines-test.mjs` (a second daemon behind a fake ssh),
-`tools/hub-api-test.mjs` (the API on a real board) and
-`tools/hookinstall-ravenryd-test.mjs` the rest.
+`tools/hub-api-test.mjs` (the API on a real board),
+`tools/person-routes-test.mjs` (every person route from inside a pane)
+and `tools/hookinstall-ravenryd-test.mjs` the rest.
 
 ## iTerm2 setup
 
