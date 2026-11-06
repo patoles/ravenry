@@ -314,9 +314,56 @@ daemon, and with no board, or no answer within 2 s, the session goes on.
 When a pane's hooks run both, the Node scripts carry `--ravenryd` and stand
 down in ravenryd panes, so nothing is recorded or held twice.
 
+**Setting the hooks up.** The app's first launch calls `POST
+/api/setup/hooks` with `{ ravenryd: <its path> }` (`dry: true` to preview,
+`remove: true` to take them out). server/hookinstall.mjs
+`setupWithRavenryd` then puts `ravenryd hook --assistant claude` in Claude
+Code's settings.json and `--assistant codex` in Codex's hooks.json (with
+the trust entries Codex needs in config.toml), beside the two Node
+scripts, which get `--ravenryd`. Each file is backed up first; every
+other hook stays. `GET /api/setup/hooks` reports both.
+
+**Remote machines.** server/machines.mjs keeps one connection per machine
+in the registry's `settings.machines` (`[{ name, host, command }]`), with
+`ssh -T -o BatchMode=yes <host> -- <command> proxy`: ssh does the login and
+reads ~/.ssh/config (aliases, jump hosts), nothing listens on the machine,
+and ssh never asks a question (BatchMode) since nobody would answer. A
+dropped connection is tried again after 1, 2, 5, 10, then every 30
+seconds; the daemon there keeps its panes. Those daemons join the local
+ones here: their panes keep the `ravenry:<id>` tab ids, the status
+channel, hook decisions and checkpoints work the same, and every pane,
+record, session, project and checkpoint says its `machine` (null on this
+one). The hand-off of a session there reads its transcript and brief on
+that machine through the daemon's `file.stat` and `file.read`
+(`remoteIo`: the transcript's last 4 MiB, `.git`, `BRIEF.md` and
+`HANDOFF.md` from its folder up), and its fresh session opens there.
+The API: `GET /api/machines` (each machine's state and error, and on the
+Mac the hosts of ~/.ssh/config), `POST /api/machines/add` `{ host, name,
+command }` and `/remove` `{ name }` (the Mac only), `/retry` `{ name }`.
+
+**Starting a session.** `POST /api/sessions/start` `{ projectId, folder,
+machine, assistant, text, cols, rows }` (server/sessionstart.mjs) opens a
+pane in the folder, here or on the machine, labelled `ravenry.session` and
+`ravenry.project`, and types the assistant's line once the shell drew its
+prompt: the project's brief to read first, or `text` as the first message.
+The app calls it instead of `pane.new`, so the hooks, the brief and the
+hand-off apply.
+
+**Checkpoints.** server/checkpoints.mjs keeps every daemon's open
+checkpoints (and the last 100 closed in checkpoints.json), in the state as
+`checkpoints` and at `GET /api/checkpoints` (`?all` with the closed ones).
+One that opens alerts the phone and the Mac once (server/alerts.mjs
+checkpointAlert: who and what kind, never the agent's text). `POST
+/api/checkpoints/answer` `{ id, choice | text | approve | secret | decline }`
+answers it through the daemon that holds it. A secret goes only there: it
+is never stored, put in the state, echoed in an error or logged.
+
 A test board (RAVENRY_HOME or MC_HOME set) reaches a daemon only when
 RAVENRY_RUNTIME_DIR names the test's own folder. `tools/ravenryd-test.mjs`
-proves all of the above against a real daemon (RAVENRYD_BIN).
+proves all of the above against a real daemon (RAVENRYD_BIN), and
+`tools/machines-test.mjs` (a second daemon behind a fake ssh),
+`tools/hub-api-test.mjs` (the API on a real board) and
+`tools/hookinstall-ravenryd-test.mjs` the rest.
 
 ## iTerm2 setup
 
