@@ -1,0 +1,2044 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ravenry:protocol:v1",
+  "title": "Ravenry protocol, version 1",
+  "description": "Every JSON message of the Ravenry protocol v1. A client message validates against #/$defs/ClientMessage, a daemon message against #/$defs/DaemonMessage. See PROTOCOL.md for the semantics and the binary frames.",
+  "$defs": {
+    "ClientMessage": {
+      "description": "Every JSON message a client sends.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/request.cancel"
+        },
+        {
+          "$ref": "#/$defs/request.events.subscribe"
+        },
+        {
+          "$ref": "#/$defs/request.hello"
+        },
+        {
+          "$ref": "#/$defs/request.pane.capture"
+        },
+        {
+          "$ref": "#/$defs/request.pane.close"
+        },
+        {
+          "$ref": "#/$defs/request.pane.list"
+        },
+        {
+          "$ref": "#/$defs/request.pane.new"
+        },
+        {
+          "$ref": "#/$defs/request.pane.read"
+        },
+        {
+          "$ref": "#/$defs/request.pane.resize"
+        },
+        {
+          "$ref": "#/$defs/request.pane.send"
+        },
+        {
+          "$ref": "#/$defs/request.pane.settle"
+        },
+        {
+          "$ref": "#/$defs/request.pane.subscribe"
+        },
+        {
+          "$ref": "#/$defs/request.pane.unsubscribe"
+        },
+        {
+          "$ref": "#/$defs/request.pane.wait"
+        },
+        {
+          "$ref": "#/$defs/ack"
+        }
+      ]
+    },
+    "DaemonMessage": {
+      "description": "Every JSON message the daemon sends.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/result.cancel"
+        },
+        {
+          "$ref": "#/$defs/result.events.subscribe"
+        },
+        {
+          "$ref": "#/$defs/result.hello"
+        },
+        {
+          "$ref": "#/$defs/result.pane.capture"
+        },
+        {
+          "$ref": "#/$defs/result.pane.close"
+        },
+        {
+          "$ref": "#/$defs/result.pane.list"
+        },
+        {
+          "$ref": "#/$defs/result.pane.new"
+        },
+        {
+          "$ref": "#/$defs/result.pane.read"
+        },
+        {
+          "$ref": "#/$defs/result.pane.resize"
+        },
+        {
+          "$ref": "#/$defs/result.pane.send"
+        },
+        {
+          "$ref": "#/$defs/result.pane.settle"
+        },
+        {
+          "$ref": "#/$defs/result.pane.subscribe"
+        },
+        {
+          "$ref": "#/$defs/result.pane.unsubscribe"
+        },
+        {
+          "$ref": "#/$defs/result.pane.wait"
+        },
+        {
+          "$ref": "#/$defs/error"
+        },
+        {
+          "$ref": "#/$defs/event.daemon.draining"
+        },
+        {
+          "$ref": "#/$defs/event.pane.closed"
+        },
+        {
+          "$ref": "#/$defs/event.pane.created"
+        },
+        {
+          "$ref": "#/$defs/event.pane.exited"
+        },
+        {
+          "$ref": "#/$defs/event.pane.title"
+        },
+        {
+          "$ref": "#/$defs/event.stream.end"
+        }
+      ]
+    },
+    "Channel": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295,
+      "description": "A stream on this connection, given by pane.subscribe."
+    },
+    "Color": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "A palette index."
+        },
+        {
+          "type": "string",
+          "pattern": "^#[0-9a-f]{6}$"
+        }
+      ]
+    },
+    "Cursor": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "visible"
+      ],
+      "additionalProperties": false,
+      "description": "0-based, on the visible screen."
+    },
+    "Empty": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "Exit": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "description": "The exit status, or -1 when a signal ended the process."
+        },
+        "signal": {
+          "type": "string",
+          "pattern": "^SIG[A-Z0-9]+$",
+          "description": "The signal that ended the process."
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "additionalProperties": false,
+      "description": "How a pane's first process ended."
+    },
+    "Input": {
+      "description": "One piece of input. Text always names its mode; a key is a name from the spec's key list or one character, with modifiers.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "raw",
+                "paste",
+                "typed"
+              ]
+            },
+            "delay_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "description": "Typed text only: the pause between characters (default 10)."
+            }
+          },
+          "required": [
+            "text",
+            "mode"
+          ],
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "delay_ms"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "mode": {
+                    "const": "typed"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "examples": [
+                "Enter",
+                "Up",
+                "Ctrl+C",
+                "Shift+Tab",
+                "C-c",
+                "M-x",
+                "F5",
+                "y"
+              ]
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Input"
+      }
+    },
+    "Line": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Trailing blanks removed."
+        },
+        "spans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Span"
+          }
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "Mark": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "A position in a pane's output: the number of bytes the pane had printed before it."
+    },
+    "Pane": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "name": {
+          "type": "string",
+          "description": "A label for people."
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The program and its arguments."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "The working directory the pane started in."
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The first process. It leads the pane's session."
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "ttl_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A hidden pane closes this long after it started."
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "title": {
+          "type": "string",
+          "description": "The window title the program set (OSC 0 or 2), or empty."
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark"
+        },
+        "last_output_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "state": {
+          "enum": [
+            "running",
+            "exited"
+          ]
+        },
+        "exit": {
+          "$ref": "#/$defs/Exit"
+        },
+        "exited_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "cwd",
+        "pid",
+        "cols",
+        "rows",
+        "hidden",
+        "created_at",
+        "title",
+        "mark",
+        "state"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "exited"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "exit",
+              "exited_at"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "exit"
+                  ]
+                },
+                {
+                  "required": [
+                    "exited_at"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "PaneId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Opaque. ravenryd makes ids unique across daemons in practice (\"p\" and 7 random characters)."
+    },
+    "RequestId": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Chosen by the client; unique among its requests that are still running."
+    },
+    "RowChange": {
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "before": {
+          "type": "string"
+        },
+        "after": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "before",
+        "after"
+      ],
+      "additionalProperties": false
+    },
+    "SendResult": {
+      "type": "object",
+      "properties": {
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark",
+          "description": "The pane's output position just before the input: wait with since=mark to see what it caused."
+        }
+      },
+      "required": [
+        "pane",
+        "bytes",
+        "mark"
+      ],
+      "additionalProperties": false
+    },
+    "Span": {
+      "type": "object",
+      "properties": {
+        "col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "In cells; a wide character covers two."
+        },
+        "text": {
+          "type": "string"
+        },
+        "bold": {
+          "const": true
+        },
+        "dim": {
+          "const": true
+        },
+        "italic": {
+          "const": true
+        },
+        "underline": {
+          "const": true
+        },
+        "blink": {
+          "const": true
+        },
+        "inverse": {
+          "const": true
+        },
+        "invisible": {
+          "const": true
+        },
+        "strike": {
+          "const": true
+        },
+        "fg": {
+          "$ref": "#/$defs/Color"
+        },
+        "bg": {
+          "$ref": "#/$defs/Color"
+        }
+      },
+      "required": [
+        "col",
+        "width",
+        "text"
+      ],
+      "additionalProperties": false,
+      "description": "A run of cells whose style is not the default. Absent attributes are off; absent colours are the default."
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339, UTC, milliseconds: 2026-11-06T14:03:07.250Z."
+    },
+    "Version": {
+      "const": 1,
+      "description": "The protocol version. Every JSON message carries it."
+    },
+    "WaitResult": {
+      "type": "object",
+      "properties": {
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "condition": {
+          "enum": [
+            "text",
+            "quiet",
+            "exit",
+            "timeout"
+          ]
+        },
+        "since": {
+          "$ref": "#/$defs/Mark"
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark"
+        },
+        "output": {
+          "type": "string",
+          "description": "New output since `since`, escape sequences removed; the last 64 KiB when truncated."
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "match": {
+          "type": "string"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exit": {
+          "$ref": "#/$defs/Exit"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RowChange"
+          },
+          "description": "Visible rows that differ from the start of the wait."
+        },
+        "screen": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The visible rows now."
+        }
+      },
+      "required": [
+        "pane",
+        "condition",
+        "since",
+        "mark",
+        "output",
+        "truncated",
+        "changes",
+        "screen"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "condition": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "match",
+              "groups"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "match"
+                  ]
+                },
+                {
+                  "required": [
+                    "groups"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "request.cancel": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "cancel"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "request": {
+          "$ref": "#/$defs/RequestId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "request"
+      ],
+      "additionalProperties": false,
+      "description": "Stops a running pane.wait, pane.settle or pane.send, which then fails with code cancelled. A pane.close completes anyway."
+    },
+    "request.events.subscribe": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "events.subscribe"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "Turns on pane.* and daemon.* events for this connection."
+    },
+    "request.hello": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "hello"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "client": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "client"
+      ],
+      "additionalProperties": false,
+      "description": "The first request on a connection."
+    },
+    "request.pane.capture": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.capture"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "styles": {
+          "type": "boolean"
+        },
+        "history": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Scrollback lines to add above the screen."
+        },
+        "vt": {
+          "type": "boolean",
+          "description": "Add the VT sequences that rebuild the screen."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": ""
+    },
+    "request.pane.close": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.close"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "grace_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000,
+          "description": "Time between SIGHUP and SIGKILL (default 1000)."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Ends every process of the pane and removes it."
+    },
+    "request.pane.list": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.list"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Include hidden panes."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": ""
+    },
+    "request.pane.new": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.new"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "prefixItems": [
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ],
+          "description": "Program and arguments, found on the pane's PATH. Absent: the login shell ($SHELL, or /bin/sh)."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Absent: the home directory."
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[^=\u0000]+$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Added to the daemon's environment. RAVENRY_PANE and RAVENRY_SOCKET are set by the daemon and cannot be overridden."
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "name": {
+          "type": "string"
+        },
+        "hidden": {
+          "type": "boolean"
+        },
+        "ttl_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scrollback": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "description": "History lines the screen keeps (default 10000)."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "Starts a pane. Default size 80x24.",
+      "dependentRequired": {
+        "cols": [
+          "rows"
+        ],
+        "rows": [
+          "cols"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "ttl_ms"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hidden": {
+                "const": true
+              }
+            },
+            "required": [
+              "hidden"
+            ]
+          }
+        }
+      ]
+    },
+    "request.pane.read": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.read"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "since": {
+          "$ref": "#/$defs/Mark"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608,
+          "description": "Bytes (default 1048576)."
+        },
+        "format": {
+          "enum": [
+            "text",
+            "raw"
+          ],
+          "description": "text (default): escape sequences removed; raw: base64 bytes."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane",
+        "since"
+      ],
+      "additionalProperties": false,
+      "description": "Reads past output from the pane's log."
+    },
+    "request.pane.resize": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.resize"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane",
+        "cols",
+        "rows"
+      ],
+      "additionalProperties": false,
+      "description": ""
+    },
+    "request.pane.send": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.send"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "input": {
+          "$ref": "#/$defs/Inputs"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane",
+        "input"
+      ],
+      "additionalProperties": false,
+      "description": ""
+    },
+    "request.pane.settle": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.settle"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "input": {
+          "$ref": "#/$defs/Inputs"
+        },
+        "quiet_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000,
+          "description": "Default 300."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000,
+          "description": "Default 10000."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane",
+        "input"
+      ],
+      "additionalProperties": false,
+      "description": "Sends input, waits until the pane is quiet, returns what changed."
+    },
+    "request.pane.subscribe": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.subscribe"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "since": {
+          "$ref": "#/$defs/Mark"
+        },
+        "ack": {
+          "type": "boolean"
+        },
+        "window": {
+          "type": "integer",
+          "minimum": 65536,
+          "maximum": 268435456,
+          "description": "Default 4194304."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Streams the pane's output on a new channel."
+    },
+    "request.pane.unsubscribe": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.unsubscribe"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel"
+      ],
+      "additionalProperties": false,
+      "description": ""
+    },
+    "request.pane.wait": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.wait"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An RE2 regular expression."
+        },
+        "screen": {
+          "type": "boolean",
+          "description": "Match text against the visible screen instead of new output."
+        },
+        "quiet_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000
+        },
+        "exit": {
+          "type": "boolean"
+        },
+        "since": {
+          "$ref": "#/$defs/Mark"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000,
+          "description": "Default 30000."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Returns when the first condition holds.",
+      "anyOf": [
+        {
+          "required": [
+            "text"
+          ]
+        },
+        {
+          "required": [
+            "quiet_ms"
+          ]
+        },
+        {
+          "properties": {
+            "exit": {
+              "const": true
+            }
+          },
+          "required": [
+            "exit"
+          ]
+        }
+      ],
+      "dependentRequired": {
+        "screen": [
+          "text"
+        ]
+      }
+    },
+    "result.cancel": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "cancel"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.events.subscribe": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "events.subscribe"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.hello": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "hello"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "protocol": {
+              "const": 1
+            },
+            "daemon": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "string"
+                },
+                "pid": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "os": {
+                  "type": "string",
+                  "examples": [
+                    "darwin",
+                    "linux"
+                  ]
+                },
+                "arch": {
+                  "type": "string",
+                  "examples": [
+                    "arm64",
+                    "amd64"
+                  ]
+                },
+                "started_at": {
+                  "$ref": "#/$defs/Timestamp"
+                },
+                "draining": {
+                  "type": "string",
+                  "description": "A newer daemon version runs beside this one: new panes belong there."
+                }
+              },
+              "required": [
+                "version",
+                "pid",
+                "os",
+                "arch",
+                "started_at"
+              ],
+              "additionalProperties": false
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "protocol",
+            "daemon",
+            "methods"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.capture": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.capture"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "mark": {
+              "$ref": "#/$defs/Mark"
+            },
+            "cols": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cursor": {
+              "$ref": "#/$defs/Cursor"
+            },
+            "alt_screen": {
+              "type": "boolean"
+            },
+            "title": {
+              "type": "string"
+            },
+            "history": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many of lines are scrollback, at the start."
+            },
+            "lines": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Line"
+              }
+            },
+            "vt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane",
+            "mark",
+            "cols",
+            "rows",
+            "cursor",
+            "alt_screen",
+            "title",
+            "history",
+            "lines"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.close": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.close"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            },
+            "signalled": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "pane",
+            "signalled"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.list": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.list"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "panes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Pane"
+              }
+            }
+          },
+          "required": [
+            "panes"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.new": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.new"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            }
+          },
+          "required": [
+            "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.read": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.read"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "from": {
+              "$ref": "#/$defs/Mark"
+            },
+            "to": {
+              "$ref": "#/$defs/Mark"
+            },
+            "end": {
+              "$ref": "#/$defs/Mark"
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "The log no longer holds output from since: it starts at from."
+            },
+            "text": {
+              "type": "string"
+            },
+            "data": {
+              "type": "string",
+              "contentEncoding": "base64"
+            }
+          },
+          "required": [
+            "pane",
+            "from",
+            "to",
+            "end",
+            "truncated"
+          ],
+          "additionalProperties": false,
+          "oneOf": [
+            {
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.resize": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.resize"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            }
+          },
+          "required": [
+            "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.send": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.send"
+        },
+        "result": {
+          "$ref": "#/$defs/SendResult"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.settle": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.settle"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "sent": {
+              "$ref": "#/$defs/SendResult"
+            },
+            "wait": {
+              "$ref": "#/$defs/WaitResult"
+            }
+          },
+          "required": [
+            "sent",
+            "wait"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.subscribe": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.subscribe"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "channel": {
+              "$ref": "#/$defs/Channel"
+            }
+          },
+          "required": [
+            "pane",
+            "channel"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.unsubscribe": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.unsubscribe"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.wait": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.wait"
+        },
+        "result": {
+          "$ref": "#/$defs/WaitResult"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "ack": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "ack"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Payload bytes of this channel's frames the client has processed since its last ack."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "channel",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "description": "Sent by a client that subscribed with ack: true. It has no reply."
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "error"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId",
+          "description": "Absent when the message could not be tied to a request."
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "enum": [
+                "bad_request",
+                "hello_required",
+                "unknown_method",
+                "not_found",
+                "pane_closed",
+                "failed",
+                "cancelled",
+                "shutting_down",
+                "internal"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "event.daemon.draining": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "daemon.draining"
+        },
+        "newer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "newer"
+      ],
+      "additionalProperties": false,
+      "description": "A newer daemon version runs beside this one. New panes belong there; this daemon exits once none of its panes is running."
+    },
+    "event.pane.closed": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.closed"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane was closed and removed."
+    },
+    "event.pane.created": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.created"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane started."
+    },
+    "event.pane.exited": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.exited"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's first process exited. The pane stays, with its screen, until it is closed (or one hour later)."
+    },
+    "event.pane.title": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.title"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's title changed."
+    },
+    "event.stream.end": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "stream.end"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "channel",
+        "mark"
+      ],
+      "additionalProperties": false,
+      "description": "The pane's output ended (its pty closed, or the pane was closed). It follows the channel's last frame; the channel is gone."
+    }
+  }
+}
