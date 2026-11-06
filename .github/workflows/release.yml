@@ -61,6 +61,7 @@ jobs:
           echo "Ravenry $v" >> "$GITHUB_STEP_SUMMARY"
 
   ravenryd:
+    name: ravenryd ${{ matrix.platform }}-${{ matrix.arch }}
     needs: version
     strategy:
       fail-fast: true
