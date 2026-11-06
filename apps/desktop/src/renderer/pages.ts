@@ -44,7 +44,7 @@ export interface PageView {
 export interface PagesHost {
   hubUrl(): string;
   call(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
-  toast(text: string, undo?: { label: string; run: () => void }): void;
+  toast(text: string, undo?: { label: string; run: () => void }, at?: { page: string; error: boolean }): void;
   pickSession(key: string): void;
   /** Another page in the middle, as its sidebar row opens it. */
   openPage(key: string): void;
@@ -336,6 +336,13 @@ export class Pages {
 
   // ------------------------------------------------------------ calls
 
+  /** A toast about page `page`: the app shows it only while that page is
+   * still the one shown; an error said after the person moved on waits on
+   * that page for them (app.ts toast). */
+  private say(page: string, text: string, error = false, undo?: { label: string; run: () => void }): void {
+    this.host.toast(text, undo, { page, error });
+  }
+
   private async post(p: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
     const r = await this.host.call('POST', p, body);
     return { status: r.status, body: (r.body || {}) as Record<string, unknown> };
@@ -363,15 +370,15 @@ export class Pages {
         case 'set': {
           if (!item) return;
           const r = await this.post('/api/pages/item/set', { key, at: sec, file: item.file, hash: item.$hash, fields: Object.fromEntries(Object.keys(a.set).map((k) => [k, item[k] ?? null])), patch: a.set });
-          if (r.status !== 200) this.host.toast(String(r.body.error || 'It was not written.'));
+          if (r.status !== 200) this.say(v.key, String(r.body.error || 'It was not written.'), true);
           await this.afterWrite(key);
           return;
         }
         case 'archive': {
           if (!item) return;
           const r = await this.post('/api/pages/item/archive', { key, at: sec, file: item.file, hash: item.$hash });
-          if (r.status !== 200) { this.host.toast(String(r.body.error || 'It was not archived.')); return; }
-          this.host.toast(`Archived ${valueText(item.title)}.`, { label: 'Undo', run: () => { void this.post('/api/pages/item/restore', { key, at: sec, file: item.file }).then(() => this.afterWrite(key)); } });
+          if (r.status !== 200) { this.say(v.key, String(r.body.error || 'It was not archived.'), true); return; }
+          this.say(v.key, `Archived ${valueText(item.title)}.`, false, { label: 'Undo', run: () => { void this.post('/api/pages/item/restore', { key, at: sec, file: item.file }).then(() => this.afterWrite(key)); } });
           await this.afterWrite(key);
           return;
         }
@@ -385,14 +392,14 @@ export class Pages {
         }
         case 'copy': {
           this.host.copy(fillText(a.copy, item || {}));
-          this.host.toast('Copied.');
+          this.say(v.key, 'Copied.');
           return;
         }
         case 'open': return this.openTarget(v, a, item, sec);
         case 'ask': return this.ask(v, at, ref);
         case 'run': {
           const r = await this.post('/api/pages/run', { key, at, item: ref });
-          if (r.status !== 200) { this.host.toast(String(r.body.error || 'It did not start.')); return; }
+          if (r.status !== 200) { this.say(v.key, String(r.body.error || 'It did not start.'), true); return; }
           const cp = r.body.checkpoint as { id?: string } | undefined;
           if (cp && cp.id) this.host.showCheckpoint(cp as { id: string });
           return;
@@ -412,16 +419,16 @@ export class Pages {
         kind: 'approve', does: String(r.body.does || ''),
         run: async () => {
           const ap = await this.post('/api/pages/approve', { key: v.key, hash: r.body.hash });
-          if (ap.status !== 200) { this.host.toast(String(ap.body.error || 'Not allowed.')); return; }
+          if (ap.status !== 200) { this.say(v.key, String(ap.body.error || 'Not allowed.'), true); return; }
           await this.ask(v, at, ref);
         },
       };
       this.render();
       return;
     }
-    if (r.status !== 200) { this.host.toast(String(r.body.error || 'Nothing was typed.')); return; }
+    if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Nothing was typed.'), true); return; }
     if (r.body.projectId && r.body.surfaceId) this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`);
-    this.host.toast(r.body.sent ? 'Sent to the session.' : 'Typed in the session\'s box. Press Enter to send it.');
+    this.say(v.key, r.body.sent ? 'Sent to the session.' : 'Typed in the session\'s box. Press Enter to send it.');
   }
 
   private openTarget(v: PageView, a: Action & { kind: 'open' }, item: Item | null, sec: [number, number] | null): void {
@@ -430,9 +437,9 @@ export class Pages {
       case 'item': if (item) this.openItem(v, item, sec); return;
       case 'file': if (item && item.file) this.host.openPath(this.itemPath(v, item, sec)); return;
       case 'folder': this.host.openPath(this.itemPath(v, item, sec).replace(/\/[^/]*$/, '')); return;
-      case 'page': { const r = this.rows.find((x) => x.id === t.page || x.route === t.page); if (r) this.host.openPage(r.key); else this.host.toast(`No page called ${t.page}.`); return; }
+      case 'page': { const r = this.rows.find((x) => x.id === t.page || x.route === t.page); if (r) this.host.openPage(r.key); else this.say(v.key, `No page called ${t.page}.`); return; }
       case 'link': { const url = valueText(item ? getField(item, t.field) : ''); if (/^https?:\/\//.test(url)) { this.modal = { kind: 'link', url }; this.render(); } return; }
-      case 'project': case 'session': { const name = fillText(t.text, item || {}); if (!this.host.pickProject(name)) this.host.toast(`No project called ${name}.`); return; }
+      case 'project': case 'session': { const name = fillText(t.text, item || {}); if (!this.host.pickProject(name)) this.say(v.key, `No project called ${name}.`); return; }
     }
   }
 
@@ -453,14 +460,14 @@ export class Pages {
         if (item) { this.modal = { kind: 'rule', item, action: a }; this.render(); }
         return;
       case 'ravenry:not-now':
-        void this.post(`/api/repeats/${encodeURIComponent(id)}`, { action: 'notnow' }).then((r) => { this.host.toast(r.status === 200 ? 'Hidden until you say it again.' : String(r.body.error || 'Not hidden.')); void this.afterWrite(v.key); });
+        void this.post(`/api/repeats/${encodeURIComponent(id)}`, { action: 'notnow' }).then((r) => { this.say(v.key, r.status === 200 ? 'Hidden until you say it again.' : String(r.body.error || 'Not hidden.'), r.status !== 200); void this.afterWrite(v.key); });
         return;
       case 'ravenry:write-brief':
         // Today's brief form is the board's: its project sheet.
         this.host.openBoard(`#${encodeURIComponent(id)}`);
         return;
       default:
-        this.host.toast(`${a.plugin} is not installed.`);
+        this.say(v.key, `${a.plugin} is not installed.`);
     }
   }
 
@@ -491,7 +498,7 @@ export class Pages {
 
   async toggle(v: PageView, item: Item, sec: [number, number] | null, line: number, text: string, done: boolean): Promise<void> {
     const r = await this.post('/api/pages/item/toggle', { key: v.key, at: sec, file: item.file, line, text, done });
-    if (r.status !== 200) this.host.toast(String(r.body.error || 'Not ticked.'));
+    if (r.status !== 200) this.say(v.key, String(r.body.error || 'Not ticked.'), true);
     await this.afterWrite(v.key);
   }
 
@@ -540,9 +547,9 @@ export class Pages {
 
   private async customize(v: PageView): Promise<void> {
     const r = await this.post('/api/pages/customize', { key: v.key });
-    if (r.status !== 200) { this.host.toast(String(r.body.error || 'Not customized.')); return; }
+    if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Not customized.'), true); return; }
     this.host.openPath(String(r.body.file));
-    this.host.toast(`Your copy is ${r.body.path}. It is the one in the sidebar now.`);
+    this.say(v.key, `Your copy is ${r.body.path}. It is the one in the sidebar now.`);
     this.cache.delete(v.key);
     await this.load(v.key);
   }
@@ -586,8 +593,8 @@ export class Pages {
 
   private async trust(v: PageView): Promise<void> {
     const r = await this.post('/api/pages/trust', { key: v.key, hash: await sha256(v.text) });
-    if (r.status !== 200) { this.host.toast(String(r.body.error || 'Not trusted.')); return; }
-    this.host.toast('Trusted, for this version of the file.');
+    if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Not trusted.'), true); return; }
+    this.say(v.key, 'Trusted, for this version of the file.');
     await this.afterWrite(v.key);
   }
 
@@ -595,11 +602,11 @@ export class Pages {
     const file = v.file;
     const text = `The Ravenry page file ${file} has a problem: line ${err.line}: ${err.message}${err.hint ? ' ' + err.hint : ''} Fix it, then run ravenry page check ${file}.`;
     const session = v.project ? v.project.id : this.host.lastProject();
-    if (!session) { this.host.copy(text); this.host.toast('No session is open to ask. The request is copied: paste it into one.'); return; }
+    if (!session) { this.host.copy(text); this.say(v.key, 'No session is open to ask. The request is copied: paste it into one.'); return; }
     const r = await this.post('/api/pages/ask', { key: v.key, kind: 'fix', text, session });
-    if (r.status !== 200) { this.host.toast(String(r.body.error || 'Nothing was typed.')); return; }
+    if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Nothing was typed.'), true); return; }
     this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`);
-    this.host.toast('Typed in the session\'s box. Press Enter to send it.');
+    this.say(v.key, 'Typed in the session\'s box. Press Enter to send it.');
   }
 
   // ------------------------------------------------------------ the page
@@ -897,7 +904,7 @@ export class Pages {
 
   private async moveTo(v: PageView, it: Item, field: string, value: string, sec: [number, number]): Promise<void> {
     const r = await this.post('/api/pages/item/set', { key: v.key, at: sec, file: it.file, hash: it.$hash, fields: { [field]: it[field] ?? null }, patch: { [field]: value } });
-    if (r.status !== 200) this.host.toast(String(r.body.error || 'It was not moved.'));
+    if (r.status !== 200) this.say(v.key, String(r.body.error || 'It was not moved.'), true);
     await this.afterWrite(v.key);
   }
 
@@ -973,13 +980,13 @@ export class Pages {
     const add = async () => {
       if (!this.seed.trim()) return;
       const r = await this.post('/api/ideas/add', { name: this.seed.trim(), stage: 'spark' });
-      if (r.status !== 200) { this.host.toast(String(r.body.error || 'Not added.')); return; }
+      if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Not added.'), true); return; }
       this.seed = ''; await this.afterWrite(v.key);
     };
     const go = async () => {
       if (!this.seed.trim()) return;
       const r = await this.post('/api/ideas/brainstorm', { seed: this.seed.trim() });
-      this.host.toast(r.status === 200 ? 'Thinking up 3 directions. They land in Spark.' : String(r.body.error || 'Not started.'));
+      this.say(v.key, r.status === 200 ? 'Thinking up 3 directions. They land in Spark.' : String(r.body.error || 'Not started.'), r.status !== 200);
       if (r.status === 200) this.seed = '';
     };
     return h('div.ocard.bs', h('div.bs-r', input, h('button.btn', { disabled: !!off, on: { click: () => void add() } }, 'Add idea'), h('button.btn.pri', { disabled: !!off, on: { click: () => void go() } }, 'Get 3 directions')));
@@ -994,7 +1001,7 @@ export class Pages {
     const rules = this.memory.rules.filter((r) => r.pending);
     const decide = async (id: string, action: string) => {
       const r = await this.post(`/api/rules/${encodeURIComponent(id)}`, { action });
-      this.host.toast(r.status === 200 ? (action === 'dismiss' ? 'Remembered: not a rule.' : 'Saved.') : String(r.body.error || 'Not saved.'));
+      this.say(v.key, r.status === 200 ? (action === 'dismiss' ? 'Remembered: not a rule.' : 'Saved.') : String(r.body.error || 'Not saved.'), r.status !== 200);
       this.memory = null; this.render();
     };
     return h('div.ocard', h('div.ocard-h.sec-t', s.title || 'From project memory', h('span.num.t3', String(rules.length))),
@@ -1007,7 +1014,7 @@ export class Pages {
     const idle = items.filter((x) => x.closable && ['idle', 'handed', 'left'].includes(String(x.group)));
     const close = async () => {
       const r = await this.post('/api/sessions/close', { sessionIds: idle.map((x) => x.id) });
-      this.host.toast(r.status === 200 ? `Closed ${idle.length}.` : String(r.body.error || 'Not closed.'));
+      this.say(v.key, r.status === 200 ? `Closed ${idle.length}.` : String(r.body.error || 'Not closed.'), r.status !== 200);
     };
     return h('div.ocard', h('div.ocard-h.sec-t', 'Sessions', h('span.num.t3', String(items.length)), h('span.sp'), idle.length ? h('button.btn.sm', { on: { click: () => void close() } }, `Close idle (${idle.length})`) : null),
       items.map((it) => h('div.orow.lrow', h('div.lt', h('span.lti', valueText(it.project_name)), h('span.sub.t2', valueText(it.line))), h('span.as-tag', valueText(it.assistant)), h('span.t3.num.small', `${Math.round(Number(it.memory_kb || 0) / 1024)} MB`))));
@@ -1028,7 +1035,7 @@ export class Pages {
         const p = ((m.item.$ravenry as { preview?: Record<string, string> } | undefined)?.preview) || {};
         const save = async () => {
           const r = await this.post(`/api/repeats/${encodeURIComponent(String(m.item.id))}`, { action: String(m.item.kind) });
-          this.host.toast(r.status === 200 ? `Written to ${((r.body.target as string[]) || []).join(' and ')}.` : String(r.body.error || 'Not saved.'));
+          this.say(v.key, r.status === 200 ? `Written to ${((r.body.target as string[]) || []).join(' and ')}.` : String(r.body.error || 'Not saved.'), r.status !== 200);
           this.modal = null; await this.afterWrite(v.key);
         };
         return wrap(h('h3', m.action.label), p.now ? h('div.pv', h('span.t3.small', p.nowLabel || 'Now'), h('p.mq.old', p.now)) : null, h('div.pv', h('span.t3.small', p.nextLabel || 'It will say'), h('p.mq', p.next || valueText(m.item.rule))),
@@ -1055,9 +1062,9 @@ export class Pages {
         const ask = async () => {
           const text = `The default ${name} page Ravenry ships changed (revision ${dc.from} to ${dc.to}). Bring its changes into my copy ${v.file}, keeping my own edits: the new default is ${v.defaultPath}. Then run ravenry page check ${v.file}.`;
           const session = this.host.lastProject();
-          if (!session) { this.host.copy(text); this.host.toast('No session is open to ask. The request is copied: paste it into one.'); return; }
+          if (!session) { this.host.copy(text); this.say(v.key, 'No session is open to ask. The request is copied: paste it into one.'); return; }
           const r = await this.post('/api/pages/ask', { key: v.key, kind: 'merge', text, session });
-          if (r.status !== 200) { this.host.toast(String(r.body.error || 'Nothing was typed.')); return; }
+          if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Nothing was typed.'), true); return; }
           this.modal = null;
           this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`);
         };

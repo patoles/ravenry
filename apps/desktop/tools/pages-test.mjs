@@ -19,6 +19,8 @@
 //     with the row's value as a variable, never in the command;
 //   - Customize, then "Default page, changed since your copy" and See what
 //     changed; Customize's toast stays on Objectives and is gone on Ideas;
+//     a slow request's error said after the person moved is kept for its
+//     page and shown, with OK, when they come back;
 //   - Ship: each brief's Ship section under its repo, every dot with its
 //     words, as the board's Ship card shows it.
 // Nothing opens on the screen: the app writes what it would open to
@@ -302,6 +304,20 @@ const steps = [
   { js: `window.__ravenry.openPage('rules')` },
   { until: `document.querySelector('#page .ptabs') && document.querySelectorAll('#page .pdoc').length >= 1`, timeout: 10000 },
   shot('7-rules.png'),
+  // A slow request that fails after the person moved on: Customize on Ship
+  // answers an error 1.5 s later (the hub's answer stood in for, so nothing
+  // is written), by which time they are on Rules.
+  { js: `(() => { const P = window.__ravenry.pages(); const call = P.host.call; window.__call = call; P.host.call = (m, p, b) => p === '/api/pages/customize' ? new Promise((r) => setTimeout(() => r({ status: 409, body: { error: 'Not customized: the file changed under it.' } }), 1500)) : call(m, p, b); window.__ravenry.openPage('ship'); })()` },
+  { until: `document.querySelector('#page .pg-h .btn') && document.querySelector('#page .pg-h .btn').textContent === 'Customize' && document.querySelector('#page .pg-h').textContent.startsWith('Ship')` },
+  { js: `document.querySelector('#page .pg-h .btn').click(); window.__ravenry.openPage('rules'); window.__t0 = Date.now()` },
+  { until: `Date.now() > window.__t0 + 2500 && document.querySelector('#page .pg-h').textContent.startsWith('Rules')`, timeout: 10000 },
+  save('late1', `({ hidden: document.getElementById('toast').hidden, text: document.getElementById('toast').textContent })`),
+  { js: `window.__ravenry.openPage('ship')` },
+  { until: `!document.getElementById('toast').hidden` },
+  save('late2', `({ text: document.getElementById('toast').textContent, ok: !!document.querySelector('#toast button') })`),
+  shot('8-kept-error.png'),
+  { js: `document.querySelector('#toast button').click(); window.__ravenry.pages().host.call = window.__call; 0` },
+  save('late3', `({ hidden: document.getElementById('toast').hidden })`),
   // Picking a session brings the terminal back.
   { js: `window.__ravenry.pickSession(${S}.hub.projects.find((p) => p.id === 'paper-boat').id + '/' + ${S}.hub.projects.find((p) => p.id === 'paper-boat').sessions[0].surfaceId)` },
   { until: `document.getElementById('page').hidden && !document.getElementById('centre').hidden` },
@@ -379,6 +395,7 @@ if (has('changed')) check('See what changed: the default\'s change, line by line
 if (has('ideas')) check('Ideas: its board from the idea files, by stage', read('ideas') === 'Spark2,Mockup1,Greenlit1,Parked0', read('ideas'));
 if (has('plans')) check('Plans: the running plans from the briefs', /Radar tiles/.test(read('plans')) && /Reminder emails/.test(read('plans')), read('plans'));
 if (has('toast1')) check('a toast stays on the page it was said on: Customize\'s is gone on Ideas', /^Your copy is .*objectives\.page\.yaml/.test(read('toast0').text) && read('toast1').hidden, `${JSON.stringify(read('toast0').text)}, Ideas ${read('toast1').at - read('toast0').at} ms after it, hidden: ${read('toast1').hidden}`);
+if (has('late3')) check('a slow request\'s error said after the person moved: not on Rules, kept on Ship with OK until pressed', read('late1').hidden && read('late2').text === 'Not customized: the file changed under it.OK' && read('late2').ok && read('late3').hidden, JSON.stringify([read('late1'), read('late2'), read('late3')]));
 if (has('ship')) check('Ship: each brief\'s Ship section under its repo, every dot with its words, as the Ship card shows it', read('ship').tasks.includes('recipe-box:Publish 2.3.0 to npmYou') && read('ship').tasks.includes('paper-boat:Upload the beta to the storeYou|Send it to the testersYou') && read('ship').bare === 0 && read('ship').toast, JSON.stringify(read('ship').tasks));
 if (has('ship')) check('Ship: its numbers, and each repo\'s line as the Ship card said it', read('ship').stats.length === 3 && read('ship').lines.length >= 1 && read('ship').lines.every((l) => /^(\d+ commits? to push|Uncommitted changes|No upstream|Pushed and clean)$/.test(l)), JSON.stringify(read('ship')));
 const opened = fs.existsSync(OPEN_LOG) ? fs.readFileSync(OPEN_LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];

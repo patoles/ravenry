@@ -156,7 +156,24 @@ function save(): void {
 }
 
 let toastTimer: number | undefined;
-function toast(text: string, undo?: { label: string; run: () => void }): void {
+
+// A toast belongs to the view it was said on. Moving to another page, tab or
+// session takes it away (renderCentre), so it never follows the person; a
+// toast that explains a move (a pane that is gone) is said after the move.
+// A toast said when an action ends carries `at`, the view the action
+// started on (here()): if the person has moved on since, news is dropped and
+// an error is kept for that view. It shows when they come back, with OK,
+// and stays until they press it, so a failed write is never lost.
+interface ToastAt { at: string; error: boolean }
+const viewKey = (v: View): string => (v.kind === 'page' ? `page|${v.key}` : JSON.stringify(v));
+const here = (): string => viewKey(S.view);
+const kept = new Map<string, string[]>();
+
+function toast(text: string, undo?: { label: string; run: () => void }, at?: ToastAt): void {
+  if (at && at.at !== here()) {
+    if (at.error) { const l = kept.get(at.at) || []; if (!l.includes(text)) l.push(text); kept.set(at.at, l); }
+    return;
+  }
   const el = $('toast');
   replace(el, text, undo ? h('button.lk.undo', { on: { click: () => { el.hidden = true; undo.run(); } } }, undo.label) : null);
   el.hidden = false;
@@ -164,17 +181,22 @@ function toast(text: string, undo?: { label: string; run: () => void }): void {
   toastTimer = window.setTimeout(() => { el.hidden = true; }, undo ? 8000 : 5000);
 }
 
-// A toast belongs to the view it was said on: moving to another page, tab or
-// session takes it away (renderCentre), so it never follows the person. A
-// toast that explains a move (a pane that is gone) is said after the move.
+function showKept(where: string): void {
+  const l = kept.get(where);
+  if (!l || !l.length) return;
+  const el = $('toast');
+  replace(el, l.join(' '), h('button.lk.undo', { on: { click: () => { kept.delete(where); el.hidden = true; } } }, 'OK'));
+  clearTimeout(toastTimer);
+  el.hidden = false;
+}
+
 let toastWhere = '';
 function toastFollows(where: string): void {
   if (where === toastWhere) return;
   const first = !toastWhere;
   toastWhere = where;
-  if (first) return;
-  clearTimeout(toastTimer);
-  $('toast').hidden = true;
+  if (!first) { clearTimeout(toastTimer); $('toast').hidden = true; }
+  showKept(where);
 }
 
 function shellLabel(t: ShellTab): { name: string; sub: string | null } {
@@ -519,6 +541,7 @@ function renderTabs(): void {
 }
 
 async function newShell(): Promise<void> {
+  const at = here();
   try {
     const { client, socket } = await daemons.forNew();
     const cur = tabOfView();
@@ -528,7 +551,7 @@ async function newShell(): Promise<void> {
     const { pane } = await client.request('pane.new', { cols, rows, name: 'Shell', labels: { ...SHELL_LABEL }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
     addShellTab(socket, pane, null, true);
   } catch (e) {
-    toast(`Could not open a shell: ${(e as Error).message}`);
+    toast(`Could not open a shell: ${(e as Error).message}`, undefined, { at, error: true });
   }
 }
 
@@ -632,7 +655,7 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
 
 async function renderCentre(): Promise<void> {
   const v = S.view;
-  toastFollows(JSON.stringify(v));
+  toastFollows(viewKey(v));
   const onPage = v.kind === 'page';
   $('centre').hidden = onPage;
   $('page').hidden = !onPage;
@@ -683,7 +706,8 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null)
 }
 
 async function hubOpen(p: HubProject, s: HubSession): Promise<void> {
-  try { await api().hubPost('/api/open', { projectId: p.id, surfaceId: s.surfaceId }); } catch (e) { toast((e as Error).message); }
+  const at = here();
+  try { await api().hubPost('/api/open', { projectId: p.id, surfaceId: s.surfaceId }); } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
 }
 
 // ---------------------------------------------------------------- first launch
@@ -734,11 +758,12 @@ async function setUpHooks(yes: boolean): Promise<void> {
   const hk = S.hooks;
   if (!yes) { hk.asked = true; hk.offer = null; api().storeSet({ hooksAsked: true }); renderStart(); return; }
   hk.busy = true; hk.error = null; renderStart();
+  const at = here();
   try {
     await api().hubPost('/api/setup/hooks', { ravenryd: S.config!.hookBin });
     const names = hk.offer?.names || ['Claude Code'];
     hk.asked = true; hk.offer = null; api().storeSet({ hooksAsked: true });
-    toast(`${names.join(' and ')} now ${names.length > 1 ? 'tell' : 'tells'} Ravenry when ${names.length > 1 ? 'they need' : 'it needs'} you. The old settings were backed up.`);
+    toast(`${names.join(' and ')} now ${names.length > 1 ? 'tell' : 'tells'} Ravenry when ${names.length > 1 ? 'they need' : 'it needs'} you. The old settings were backed up.`, undefined, { at, error: false });
   } catch (e) {
     hk.error = `Could not set them up: ${(e as Error).message}`;
   } finally {
@@ -1033,14 +1058,16 @@ function loosePanel(k: Known): [HTMLElement, (HTMLElement | null)[]] {
 }
 
 async function answer(p: HubProject, s: HubSession, label: string, choice?: number): Promise<void> {
+  const at = here();
   try {
     await api().hubPost('/api/send', { projectId: p.id, surfaceId: s.surfaceId, ...(choice == null ? { text: label } : { choice }) });
-    toast(`Sent: ${label}`);
-  } catch (e) { toast((e as Error).message); }
+    toast(`Sent: ${label}`, undefined, { at, error: false });
+  } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
 }
 
 async function handOff(p: HubProject, s: HubSession): Promise<void> {
-  try { await api().hubPost('/api/handoff', { projectId: p.id, surfaceId: s.surfaceId }); toast('It hands off after the current task.'); } catch (e) { toast((e as Error).message); }
+  const at = here();
+  try { await api().hubPost('/api/handoff', { projectId: p.id, surfaceId: s.surfaceId }); toast('It hands off after the current task.', undefined, { at, error: false }); } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
 }
 
 // ---------------------------------------------------------------- events
@@ -1239,7 +1266,7 @@ async function boot(): Promise<void> {
   pages = new Pages($('page'), {
     hubUrl: () => S.config?.hubUrl || '',
     call: (method, p, body) => api().hubCall(method, p, body),
-    toast: (text, undo) => toast(text, undo),
+    toast: (text, undo, at) => toast(text, undo, at ? { at: viewKey({ kind: 'page', key: at.page }), error: at.error } : undefined),
     pickSession: (key) => pickSession(key),
     openPage: (key) => openPage(key),
     pickProject: (id) => {

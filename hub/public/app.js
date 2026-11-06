@@ -261,12 +261,48 @@ function setHtml(id, html) {
   el.innerHTML = html;
 }
 
-// A toast belongs to the view it was said on: setView and openPlanPage take
-// it away, so it never follows the person to another tab. A toast that
+// A toast belongs to the view it was said on: setView, openPlanPage and
+// select (another project) take it away, so it never follows the person. A toast that
 // tells what a move did is said after the move.
 function hideToast() {
   clearTimeout(toast._t);
   $('#toast').hidden = true;
+}
+// A toast said when an action ends belongs to the view the action started
+// on: `const say = toaster()` first, then say(...) shows only if the person
+// is still there and drops the news otherwise. say.error(...) keeps an error
+// for that view instead: it shows when they come back, with OK, and stays
+// until they press it, so a failed write is never lost.
+const toastKept = new Map();
+// Each project is its own page on Projects.
+function viewKey() { return ui.view === 'plan' ? 'plan/' + ui.planFor : ui.view === 'projects' ? 'projects/' + (ui.sel || '') : ui.view; }
+function toaster() {
+  const at = viewKey();
+  const say = (msg, ms, wide) => { if (viewKey() === at) toast(msg, ms, wide); };
+  say.error = (msg, ms, wide) => {
+    if (viewKey() === at) { toast(msg, ms, wide); return; }
+    const text = undash(String(msg ?? ''));
+    const kept = toastKept.get(at) || [];
+    if (!kept.includes(text)) kept.push(text);
+    toastKept.set(at, kept);
+  };
+  return say;
+}
+function showKept() {
+  const at = viewKey();
+  const kept = toastKept.get(at);
+  if (!kept || !kept.length) return;
+  const t = $('#toast');
+  clearTimeout(toast._t);
+  t.textContent = kept.join(' ');
+  const ok = document.createElement('button');
+  ok.className = 'btn sm';
+  ok.style.marginLeft = '10px';
+  ok.textContent = 'OK';
+  ok.addEventListener('click', () => { toastKept.delete(at); t.hidden = true; });
+  t.append(ok);
+  t.classList.add('wide');
+  t.hidden = false;
 }
 function toast(msg, ms = 3200, wide = false) {
   const t = $('#toast');
@@ -787,15 +823,16 @@ function unCardHtml(p) {
 }
 
 async function unAdd(fromId, projectId) {
+  const say = toaster();
   const p = project(fromId);
   ui.unPick = null;
   try {
     const r = await post('/api/project/add-workspace', { from: fromId, projectId });
-    toast(`${p ? p.name : 'The session'} joined ${r.project}. Its sessions show there from now on.`);
+    say(`${p ? p.name : 'The session'} joined ${r.project}. Its sessions show there from now on.`);
     ui.sel = r.projectId;
     store.set('sel', r.projectId);
     history.replaceState(null, '', '#' + encodeURIComponent(r.projectId));
-  } catch (e) { toast(e.message, 4500); }
+  } catch (e) { say.error(e.message, 4500); }
   render();
 }
 
@@ -1502,26 +1539,28 @@ ${notes.length ? `<span class="t2" style="flex: 1 1 100%; font-size: 12px; line-
 }
 
 async function handoffNow() {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   const { s } = view(p);
   try {
     const r = await post('/api/handoff', { projectId: p.id, surfaceId: s ? s.surfaceId : null });
-    toast(r.atRest ? `${p.name}: hand-off queued. It asks at the session's next stop.` : `${p.name}: hand-off queued for the next clean point`);
+    say(r.atRest ? `${p.name}: hand-off queued. It asks at the session's next stop.` : `${p.name}: hand-off queued for the next clean point`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
 async function handoffStart() {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   const { s } = view(p);
   try {
     const r = await post('/api/handoff/start', { projectId: p.id, sessionId: s && s.sessionId });
-    toast(`Fresh session started in ${r.surfaceRef || 'a new tab'}. It reads the brief first.`);
+    say(`Fresh session started in ${r.surfaceRef || 'a new tab'}. It reads the brief first.`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
@@ -1547,6 +1586,7 @@ function renderChips(pid) {
 // Saves files into the project's .inbox (the composer's route, its limits
 // and guards), one at a time, each a chip in `list` while it saves.
 async function saveToInbox(pid, files, list, redraw) {
+  const say = toaster();
   for (const f of files) {
     const entry = { name: f.name || 'pasted', pending: true };
     list.push(entry);
@@ -1557,7 +1597,7 @@ async function saveToInbox(pid, files, list, redraw) {
     } catch (e) {
       const k = list.indexOf(entry);
       if (k >= 0) list.splice(k, 1);
-      toast('Could not save ' + entry.name + ': ' + e.message);
+      say.error('Could not save ' + entry.name + ': ' + e.message);
     }
     redraw();
   }
@@ -1599,6 +1639,7 @@ function wireComposer(pid) {
 }
 
 async function sendCompose() {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   if (ui.ns) { startSession(); return; }
@@ -1607,14 +1648,14 @@ async function sendCompose() {
   // the file alone passed: that one is confirmed or reopened first).
   if (p.planGate && !p.planGate.fileOnly && (!s || s.surfaceId === p.primary) && !(ui.files[p.id] || []).length) {
     const text = ($('#compose').value || '').trim();
-    if (!text) { toast('Write your answer first, or pick a choice'); return; }
+    if (!text) { say('Write your answer first, or pick a choice'); return; }
     if (await planAnswer({ text })) { ui.drafts[p.id] = ''; $('#compose').value = ''; }
     return;
   }
   const fs = ui.files[p.id] || [];
-  if (fs.some((f) => f.pending)) { toast('Still saving a file, one moment'); return; }
+  if (fs.some((f) => f.pending)) { say('Still saving a file, one moment'); return; }
   const text = ($('#compose').value || '').trim();
-  if (!text && !fs.length) { toast('Type something or add a file first'); return; }
+  if (!text && !fs.length) { say('Type something or add a file first'); return; }
   if (!s) return;
   const btn = $('#send');
   btn.disabled = true;
@@ -1625,9 +1666,9 @@ async function sendCompose() {
     $('#compose').value = '';
     const n = fs.length;
     ui.sent[p.id] = { label: text ? (text.length > 40 ? text.slice(0, 40) + '...' : text) : `${n} file${n > 1 ? 's' : ''}`, at: Date.now(), delivered: r.delivered };
-    toast(`Typed into ${p.name}'s session${n ? ` with ${n} file path${n > 1 ? 's' : ''}` : ''}${r.delivered === 'now' ? '' : ', delivered after its current step'}`);
+    say(`Typed into ${p.name}'s session${n ? ` with ${n} file path${n > 1 ? 's' : ''}` : ''}${r.delivered === 'now' ? '' : ', delivered after its current step'}`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   } finally {
     btn.disabled = false;
     render();
@@ -1640,12 +1681,13 @@ async function sendCompose() {
 // brief as Revive does. The selection stays on the session being watched
 // until the new one shows, then moves to it (followStart).
 async function startSession() {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   const fs = ui.files[p.id] || [];
-  if (fs.some((f) => f.pending)) { toast('Still saving a file, one moment'); return; }
+  if (fs.some((f) => f.pending)) { say('Still saving a file, one moment'); return; }
   const text = ($('#compose').value || '').trim();
-  if (!text && !fs.length && !p.brief) { toast('Type the first message, or write the brief first so the new session has something to read'); return; }
+  if (!text && !fs.length && !p.brief) { say('Type the first message, or write the brief first so the new session has something to read'); return; }
   const { s } = view(p);
   const before = p.sessions.map((x) => x.surfaceId);
   const btn = $('#send');
@@ -1659,9 +1701,9 @@ async function startSession() {
     ui.ns = false;
     ui.starting[p.id] = { surfaceId: r.surfaceId || null, before, topic: text ? text.split('\n')[0] : 'New session', at: Date.now() };
     followStart(p.id, r, before);
-    toast(text || fs.length ? `Started a new session in ${p.name} with your first message` : `Started a new session in ${p.name} reading the brief`);
+    say(text || fs.length ? `Started a new session in ${p.name} with your first message` : `Started a new session in ${p.name} reading the brief`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   } finally {
     btn.disabled = false;
     render();
@@ -1669,6 +1711,7 @@ async function startSession() {
 }
 
 async function sendQuick(k) {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   const { s, w } = view(p);
@@ -1677,28 +1720,29 @@ async function sendQuick(k) {
   try {
     const r = await post('/api/send', { projectId: p.id, surfaceId: s.surfaceId, text: o.choice == null ? o.label : undefined, choice: o.choice });
     ui.sent[p.id] = { label: o.label, at: Date.now(), delivered: r.delivered };
-    toast(`Sent "${o.label}" to ${p.name}`);
+    say(`Sent "${o.label}" to ${p.name}`);
     render();
     return true;
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
   render();
   return false;
 }
 
 async function addNote() {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   const text = ($('#compose').value || '').trim();
-  if (!text) { toast('Type the note first'); return; }
+  if (!text) { say('Type the note first'); return; }
   try {
     await post('/api/note', { projectId: p.id, text });
     ui.drafts[p.id] = '';
     $('#compose').value = '';
-    toast('Note tracked in the brief until it is fixed');
+    say('Note tracked in the brief until it is fixed');
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
@@ -1736,14 +1780,15 @@ function openButton(p, s) {
 }
 
 async function openInCmux() {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   const { s } = view(p);
   try {
     const r = await post('/api/open', { projectId: p.id, surfaceId: s ? s.surfaceId : null });
-    toast(r && r.where ? `Brought ${p.name}'s ${r.where} tab forward` : `Switched cmux to ${p.name}`);
+    say(r && r.where ? `Brought ${p.name}'s ${r.where} tab forward` : `Switched cmux to ${p.name}`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
@@ -1858,6 +1903,7 @@ function setView(v, { push = true } = {}) {
   if (ui.view === v) return;
   hideToast();
   ui.view = v;
+  showKept();
   ui.built = null;
   ui.idleOpen = false;
   store.set('view', v);
@@ -2035,6 +2081,7 @@ ${v.now ? `<div class="pv-row"><span class="pv-l">${esc(v.nowLabel)}</span><span
 }
 
 async function repeatAction(id, act) {
+  const say = toaster();
   if (act === 'open') { ui.openRepeat = id; ui.repeatError = null; render(); return; }
   if (act === 'cancel') { ui.openRepeat = null; ui.repeatError = null; render(); return; }
   const r = ui.repeats && ui.repeats.rows.find((x) => x.id === id);
@@ -2046,9 +2093,9 @@ async function repeatAction(id, act) {
     const j = await post('/api/repeats/' + encodeURIComponent(id), { action });
     ui.openRepeat = null;
     ui.repeatError = null;
-    toast(action === 'notnow' ? 'Hidden until you say it again' : `${j.already ? 'Already in' : 'Written to'} ${j.target.join(' and ')}${j.backup.length ? '. Backup first in ' + j.backup[0].replace(/\/[^/]+$/, '') : ''}`);
+    say(action === 'notnow' ? 'Hidden until you say it again' : `${j.already ? 'Already in' : 'Written to'} ${j.target.join(' and ')}${j.backup.length ? '. Backup first in ' + j.backup[0].replace(/\/[^/]+$/, '') : ''}`);
   } catch (e) {
-    if (ui.openRepeat === id) ui.repeatError = { id, text: e.message }; else toast(e.message);
+    if (ui.openRepeat === id) ui.repeatError = { id, text: e.message }; else say.error(e.message);
   }
   ui.repeatBusy = null;
   await loadRules(true);
@@ -2069,13 +2116,14 @@ ${r.pending ? `<div style="display: flex; gap: 6px; flex-wrap: wrap"><button cla
 }
 
 async function decideRule(id, action, btn) {
+  const say = toaster();
   const row = btn.closest('.card-r');
   row.querySelectorAll('button').forEach((b) => { b.disabled = true; });
   try {
     const r = await post('/api/rules/' + encodeURIComponent(id), { action });
-    toast(action === 'dismiss' ? 'Remembered: not a rule' : `${r.already ? 'Already in' : 'Written to'} ${r.target.join(' and ')}${r.backup.length ? '. Backup first in ' + r.backup[0].replace(/\/[^/]+$/, '') : ''}`);
+    say(action === 'dismiss' ? 'Remembered: not a rule' : `${r.already ? 'Already in' : 'Written to'} ${r.target.join(' and ')}${r.backup.length ? '. Backup first in ' + r.backup[0].replace(/\/[^/]+$/, '') : ''}`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
   await loadRules(true);
 }
@@ -2285,21 +2333,23 @@ function imageFiles(dt) {
 }
 
 async function attachPicture(id, file) {
+  const say = toaster();
   try {
     await post(`/api/ideas/${encodeURIComponent(id)}/image`, file, { 'X-Filename': encodeURIComponent(file.name || 'image.png') });
-    toast('Picture attached');
+    say('Picture attached');
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
 async function attachRef(id, file) {
+  const say = toaster();
   try {
     const r = await post(`/api/ideas/${encodeURIComponent(id)}/ref`, file, { 'X-Filename': encodeURIComponent(file.name || 'image.png') });
     (ui.ideaRefs[id] = ui.ideaRefs[id] || []).push({ file: r.file, url: r.url });
     renderIdeaPanel();
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
@@ -2369,14 +2419,15 @@ function wireIdeas() {
 }
 
 async function moveIdea(id, to) {
+  const say = toaster();
   const it = ideaById(id);
   if (it) it.stage = to; // at once; the server's answer follows over SSE
   render();
   try {
     await post(`/api/ideas/${encodeURIComponent(id)}/update`, { stage: to });
-    toast(`Moved to ${STAGE_NAME[to]}`);
+    say(`Moved to ${STAGE_NAME[to]}`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
     loadIdeas();
   }
 }
@@ -2394,21 +2445,23 @@ function clearSeedIf(text) {
 }
 
 async function brainstorm() {
+  const say = toaster();
   const seed = $('#seed').value.trim();
-  if (!seed) { toast('Write a seed first, e.g. a cosy co-op game for the TV'); $('#seed').focus(); return; }
+  if (!seed) { say('Write a seed first, e.g. a cosy co-op game for the TV'); $('#seed').focus(); return; }
   seedActs++;
   try {
     await post('/api/ideas/brainstorm', { seed });
     clearSeedIf(seed);
     ui.wantBrainstorm = true;
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
 async function addIdea() {
+  const say = toaster();
   const text = $('#seed').value.trim();
-  if (!text) { toast('Type the idea in the box first'); $('#seed').focus(); return; }
+  if (!text) { say('Type the idea in the box first'); $('#seed').focus(); return; }
   const act = ++seedActs;
   // Where the focus was when Add was pressed: the new idea's pitch takes it
   // only if it is still there (typing a new seed while the answer was on its
@@ -2417,7 +2470,7 @@ async function addIdea() {
   try {
     const r = await post('/api/ideas/add', { name: text });
     clearSeedIf(text);
-    toast('Added to Spark');
+    say('Added to Spark');
     if (act !== seedActs) { await loadIdeas(); return; } // something newer was asked from the box meanwhile
     ui.selIdea = r.id;
     await loadIdeas();
@@ -2425,19 +2478,20 @@ async function addIdea() {
     const now = document.activeElement;
     if (p && act === seedActs && (now === from || !now || now === document.body)) p.focus();
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
 function wireIdeaPanel(id) {
   const save = async (field, el) => {
+    const say = toaster();
     const it = ideaById(id);
     if (!it || el.value.trim() === it[field]) { delete el.dataset.dirty; return; }
     try {
       await post(`/api/ideas/${encodeURIComponent(id)}/update`, { [field]: el.value });
       it[field] = el.value.trim();
       delete el.dataset.dirty;
-    } catch (e) { toast(e.message); }
+    } catch (e) { say.error(e.message); }
   };
   for (const [sel, k] of [['#i-name', 'name'], ['#i-pitch', 'pitch'], ['#i-status', 'status']]) {
     const el = $(sel);
@@ -2468,6 +2522,7 @@ function wireIdeaPanel(id) {
   card.addEventListener('dragleave', () => { card.style.boxShadow = ''; });
   card.addEventListener('drop', (e) => { const imgs = imageFiles(e.dataTransfer); card.style.boxShadow = ''; if (imgs.length) { e.preventDefault(); attachPicture(id, imgs[0]); } });
   $('#i-actions').addEventListener('click', async (e) => {
+    const say = toaster();
     if (e.target.id === 'i-promote') {
       const it = ideaById(id);
       openModal({ mode: 'new', ideaId: id, prefill: { name: it.name, goal: it.pitch, stage: 'Greenlit' } });
@@ -2477,8 +2532,8 @@ function wireIdeaPanel(id) {
       try {
         await post(`/api/ideas/${encodeURIComponent(id)}/kill`, {});
         ui.selIdea = null;
-        toast(`${it.name} killed. Kept in the archive.`);
-      } catch (err) { toast(err.message); }
+        say(`${it.name} killed. Kept in the archive.`);
+      } catch (err) { say.error(err.message); }
     }
   });
 }
@@ -2562,6 +2617,7 @@ function took(ms) {
 }
 
 async function mockupAct(id, e) {
+  const say = toaster();
   const it = ideaById(id);
   if (!it) return;
   const st = mkState(id);
@@ -2598,20 +2654,21 @@ async function mockupAct(id, e) {
       st.draft = ''; st.round = null; st.view = null;
     }
   } catch (err) {
-    toast(err.message);
+    say.error(err.message);
   }
 }
 
 async function sayIdea(id, chip) {
+  const say = toaster();
   const msg = $('#idea-msg');
   const text = chip || (msg ? msg.value.trim() : '');
   const refs = chip ? [] : (ui.ideaRefs[id] || []);
-  if (!text && !refs.length) { toast('Type a message first'); return; }
+  if (!text && !refs.length) { say('Type a message first'); return; }
   try {
     await post(`/api/ideas/${encodeURIComponent(id)}/say`, { text, images: refs.map((r) => r.file) });
     if (!chip) { msg.value = ''; ui.ideaDrafts[id] = ''; ui.ideaRefs[id] = []; }
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
@@ -2869,6 +2926,7 @@ function closeModal() {
 }
 
 async function submitModal() {
+  const say = toaster();
   const m = ui.modal;
   if (!m) return;
   const f = $('#modal-form');
@@ -2899,7 +2957,7 @@ async function submitModal() {
     } else {
       const r = await post('/api/project/brief', { ...v, projectId: m.projectId, kind: m.kind });
       closeModal();
-      toast(`Brief written to ${r.brief}`);
+      say(`Brief written to ${r.brief}`);
     }
   } catch (e) {
     show(e.message);
@@ -2909,6 +2967,7 @@ async function submitModal() {
 }
 
 async function revive(pid) {
+  const say = toaster();
   const p = project(pid);
   if (!p) return;
   const { s } = view(p);
@@ -2918,9 +2977,9 @@ async function revive(pid) {
     if (s) ui.selSession[pid] = s.surfaceId;
     followStart(pid, r, before);
     render();
-    toast(r.message ? r.message : r.where === 'tab' ? `New tab ${r.surfaceRef || ''} in ${r.workspaceRef}. It reads the brief first.` : `New workspace ${r.workspaceRef} for ${p.name}. It reads the brief first.`);
+    say(r.message ? r.message : r.where === 'tab' ? `New tab ${r.surfaceRef || ''} in ${r.workspaceRef}. It reads the brief first.` : `New workspace ${r.workspaceRef} for ${p.name}. It reads the brief first.`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   }
 }
 
@@ -3079,6 +3138,7 @@ ${g.choices.length ? `<div style="display: flex; flex-wrap: wrap; gap: 8px">${g.
 }
 
 async function planAnswer(body) {
+  const say = toaster();
   const p = project(ui.sel);
   if (!p) return;
   try {
@@ -3086,12 +3146,13 @@ async function planAnswer(body) {
     const r = await post('/api/plan/answer', { projectId: p.id, ...body });
     if (r.via === 'revive') followStart(p.id, r, before);
     ui.sent[p.id] = { label: body.choice || body.text, at: Date.now(), delivered: r.delivered };
-    toast(r.via === 'revive' ? `Answer written. A new session in ${p.name} reads the plan and carries on.` : `Sent "${body.choice || body.text}" to ${p.name}. The plan carries on.`);
+    say(r.via === 'revive' ? `Answer written. A new session in ${p.name} reads the plan and carries on.` : `Sent "${body.choice || body.text}" to ${p.name}. The plan carries on.`);
     return true;
-  } catch (e) { toast(e.message, 5000, true); return false; } finally { render(); }
+  } catch (e) { say.error(e.message, 5000, true); return false; } finally { render(); }
 }
 
 async function planAct(pid, act) {
+  const say = toaster();
   const p = project(pid);
   if (!p) return;
   if (act === 'stop' && !confirm(`Stop the plan "${p.plan ? p.plan.title : ''}"? Its session finishes the step in hand and starts no other.`)) return;
@@ -3099,8 +3160,8 @@ async function planAct(pid, act) {
     const before = p.sessions.map((x) => x.surfaceId);
     const r = await post('/api/plan/' + act, { projectId: pid });
     if (r.via === 'revive') { followStart(pid, r, before); render(); }
-    toast({ pause: 'Paused. The session finishes the step in hand, then waits.', stop: 'Stopped. The plan stays in the brief.', resume: 'Resumed. The session carries on from the step it was at.', confirm: 'Confirmed. The plan carries on.', reopen: 'Reopened. The session is told to stop at the gate and wait for your answer.' }[act] + (r.via === 'brief' ? ' No session was running, so only the brief changed.' : ''), 4500, true);
-  } catch (e) { toast(e.message, 5000, true); }
+    say({ pause: 'Paused. The session finishes the step in hand, then waits.', stop: 'Stopped. The plan stays in the brief.', resume: 'Resumed. The session carries on from the step it was at.', confirm: 'Confirmed. The plan carries on.', reopen: 'Reopened. The session is told to stop at the gate and wait for your answer.' }[act] + (r.via === 'brief' ? ' No session was running, so only the brief changed.' : ''), 4500, true);
+  } catch (e) { say.error(e.message, 5000, true); }
 }
 
 // ---- Objectives: the one-line PLAN row (A+)
@@ -3218,6 +3279,7 @@ function openPlanPage(pid) {
   ui.sel = pid;
   store.set('sel', pid);
   ui.view = 'plan';
+  showKept();
   ui.built = null;
   history.replaceState(null, '', '#/plan/' + encodeURIComponent(pid));
   $('#mc').classList.remove('not-projects');
@@ -3233,13 +3295,14 @@ const pl = { pid: null, draft: null, own: false, goal: '', ownText: '', chat: ''
 const plPhone = () => matchMedia('(max-width: 700px)').matches;
 
 async function openPlanSheet(pid, { change = false } = {}) {
+  const say = toaster();
   const p = project(pid);
   if (!p) return;
   Object.assign(pl, { pid, draft: null, own: false, goal: '', ownText: '', chat: '', cFor: null, cText: '', busy: false, files: { goal: [], chat: [], comment: [] } });
   try {
     if (change) pl.draft = (await post('/api/plan/change', { projectId: pid })).draft;
     else pl.draft = (await getJson('/api/plan/draft?projectId=' + encodeURIComponent(pid))).draft;
-  } catch (e) { toast(e.message, 5000, true); return; }
+  } catch (e) { say.error(e.message, 5000, true); return; }
   drawPlanSheet(true);
 }
 
@@ -3406,12 +3469,13 @@ function drawPlanSheet(first = false) {
 }
 
 async function plPost(act, body) {
+  const say = toaster();
   try {
     const r = await post('/api/plan/' + act, { projectId: pl.pid, ...body });
     if (r.draft !== undefined && pl.pid) pl.draft = r.draft;
     return r;
   } catch (e) {
-    toast(e.message, 5000, true);
+    say.error(e.message, 5000, true);
     return null;
   } finally {
     if (pl.pid) drawPlanSheet();
@@ -3419,6 +3483,7 @@ async function plPost(act, body) {
 }
 
 async function plClick(e) {
+  const say = toaster();
   const b = e.target.closest('[data-pl]');
   if (!b || b.disabled) return;
   const a = b.dataset.pl;
@@ -3439,7 +3504,7 @@ async function plClick(e) {
   if (a === 'unfile') { pl.files[b.dataset.box].splice(Number(b.dataset.k), 1); drawPlanSheet(); return; }
   if (a === 'draft' || a === 'own') {
     const text = ($('#pl-goal').value || '').trim();
-    if (!text) { toast(a === 'own' ? 'Write the plan first' : 'Say what you want done first'); return; }
+    if (!text) { say(a === 'own' ? 'Write the plan first' : 'Say what you want done first'); return; }
     const files = plFilesFor('goal');
     if (!files) return;
     const r = await plPost(a, a === 'own' ? { text, files } : { goal: text, files });
@@ -3452,7 +3517,7 @@ async function plClick(e) {
   if (a === 'comment-cancel') { pl.cFor = null; pl.cText = ''; pl.files.comment = []; drawPlanSheet(); return; }
   if (a === 'comment-add') {
     const text = ($('#pl-ctext').value || '').trim();
-    if (!text) { toast(pl.files.comment.length ? 'Say what the file is for, like "I like this style"' : 'Write the comment first'); return; }
+    if (!text) { say(pl.files.comment.length ? 'Say what the file is for, like "I like this style"' : 'Write the comment first'); return; }
     const files = plFilesFor('comment');
     if (!files) return;
     const step = pl.cFor;
@@ -3464,7 +3529,7 @@ async function plClick(e) {
   }
   if (a === 'chat') {
     const text = ($('#pl-chat').value || '').trim();
-    if (!text) { toast(pl.files.chat.length ? 'Say what the file is for, like "I like this style"' : 'Say what to change first'); return; }
+    if (!text) { say(pl.files.chat.length ? 'Say what the file is for, like "I like this style"' : 'Say what to change first'); return; }
     const files = plFilesFor('chat');
     if (!files) return;
     const keep = pl.files.chat;
@@ -3484,7 +3549,7 @@ async function plClick(e) {
       if (p && r.via === 'revive') { const { s } = view(p); if (s) ui.selSession[p.id] = s.surfaceId; followStart(p.id, r, before); }
       closePlanSheet();
       render();
-      toast(d.mode === 'change' ? `Plan changed. ${p.name}'s session re-reads it.` : r.via === 'revive' ? `"${r.title}" is in the brief. A new session in ${p.name} reads it and starts.` : `"${r.title}" is in the brief and ${p.name}'s session has started it${r.delivered === 'now' ? '' : ', after its current step'}.`, 5000, true);
+      say(d.mode === 'change' ? `Plan changed. ${p.name}'s session re-reads it.` : r.via === 'revive' ? `"${r.title}" is in the brief. A new session in ${p.name} reads it and starts.` : `"${r.title}" is in the brief and ${p.name}'s session has started it${r.delivered === 'now' ? '' : ', after its current step'}.`, 5000, true);
     }
   }
 }
@@ -3748,6 +3813,7 @@ function renderSessions() {
 }
 
 async function closeIdle() {
+  const say = toaster();
   const v = ui.snap && ui.snap.sessions;
   if (!v || ui.closingNow) return;
   const ids = v.rows.filter(isTicked).map((r) => r.sessionId);
@@ -3757,9 +3823,9 @@ async function closeIdle() {
   try {
     const r = await post('/api/sessions/close', { ids });
     ui.tick = {};
-    if (!r.closed && r.failed && r.failed.length) toast('Nothing was closed. Each one says why.');
+    if (!r.closed && r.failed && r.failed.length) say.error('Nothing was closed. Each one says why.');
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
   } finally {
     ui.closingNow = false;
     render();
@@ -3767,12 +3833,13 @@ async function closeIdle() {
 }
 
 async function reopenClosed(id, btn) {
+  const say = toaster();
   btn.disabled = true;
   try {
     const r = await post('/api/sessions/reopen', { id });
-    toast(`Reopened ${r.label || 'the session'} in a new tab in ${r.same ? r.workspace || r.workspaceRef : 'the workspace cmux shows now'}.`);
+    say(`Reopened ${r.label || 'the session'} in a new tab in ${r.same ? r.workspace || r.workspaceRef : 'the workspace cmux shows now'}.`);
   } catch (e) {
-    toast(e.message);
+    say.error(e.message);
     btn.disabled = false;
   }
 }
@@ -3834,7 +3901,9 @@ function select(id) {
   if (pl.pid && pl.pid !== id) closePlanSheet();
   if (ui.view !== 'projects') { ui.sel = id; store.set('sel', id); setView('projects'); return; }
   if (ui.sel === id) return;
+  hideToast();
   ui.sel = id;
+  showKept();
   store.set('sel', id);
   history.replaceState(null, '', '#' + encodeURIComponent(id));
   render();
@@ -3905,7 +3974,8 @@ document.addEventListener('click', (e) => {
 
 // The folder path in a project's header: Finder opens it on the Mac.
 async function openFolder(pid) {
-  try { await post('/api/project/open-folder', { projectId: pid }); } catch (e) { toast(e.message, 4500); }
+  const say = toaster();
+  try { await post('/api/project/open-folder', { projectId: pid }); } catch (e) { say.error(e.message, 4500); }
 }
 
 gallery = createGallery({ $, esc, escRaw, post, toast, project, ui, serverNow, phone: LV_PHONE });
@@ -3936,6 +4006,7 @@ $('#list').addEventListener('keydown', (e) => {
 $('#new-project').addEventListener('click', () => openModal({ mode: 'new' }));
 $('#theme').addEventListener('click', () => { const t = ui.theme === 'light' ? 'dark' : 'light'; applyTheme(t); store.set('theme', t); });
 $('#alerts').addEventListener('click', async () => {
+  const say = toaster();
   if (ui.bellBusy != null) return;
   const on = $('#alerts').getAttribute('aria-pressed') !== 'true';
   ui.bellBusy = on;
@@ -3944,8 +4015,8 @@ $('#alerts').addEventListener('click', async () => {
     const r = await post('/api/alerts/desktop', { enabled: on });
     if (ui.snap) ui.snap.alerts = { ...(ui.snap.alerts || {}), ...r };
     if (pa.status) pa.status = { ...pa.status, desktop: r.desktop };
-    toast(on ? 'Mac notifications on. One comes up when a project needs you.' : 'Mac notifications off');
-  } catch (e) { toast(e.message); }
+    say(on ? 'Mac notifications on. One comes up when a project needs you.' : 'Mac notifications off');
+  } catch (e) { say.error(e.message); }
   ui.bellBusy = null;
   paintBell();
   if (hs.open) paPaintCard();
@@ -3984,10 +4055,11 @@ function drawPhoneCard(c) {
 }
 
 async function refreshPhoneCard() {
+  const say = toaster();
   try {
     const c = await getJson('/api/phone');
     if (phoneUi.open) drawPhoneCard(c);
-  } catch (e) { if (phoneUi.open) { closePhoneCard(); toast(e.message); } }
+  } catch (e) { if (phoneUi.open) { closePhoneCard(); say.error(e.message); } }
 }
 
 async function openPhoneCard() {
@@ -4011,6 +4083,7 @@ function closePhoneCard() {
 }
 
 async function newPhoneKey() {
+  const say = toaster();
   phoneUi.busy = true;
   const b = $('#phone-newkey');
   if (b) b.disabled = true;
@@ -4018,7 +4091,7 @@ async function newPhoneKey() {
     const c = await post('/api/phone/new-key', {});
     phoneUi.card = null;
     if (phoneUi.open) drawPhoneCard(c);
-  } catch (e) { toast(e.message); }
+  } catch (e) { say.error(e.message); }
   phoneUi.busy = false;
   const b2 = $('#phone-newkey');
   if (b2) b2.disabled = false;
@@ -4245,6 +4318,7 @@ function placeHs() {
 }
 
 async function openHs() {
+  const say = toaster();
   if (phoneUi.open) closePhoneCard();
   hs.open = true;
   hs.foot = 'idle';
@@ -4254,7 +4328,7 @@ async function openHs() {
   let st = null;
   try { st = (await getJson('/api/settings/handoff')).settings; } catch (e) {
     const s = (ui.snap && ui.snap.settings) || null;
-    if (!s) { closeHs(); toast(e.message); return; }
+    if (!s) { closeHs(); say.error(e.message); return; }
     st = s;
   }
   if (!hs.open) return;
@@ -4526,6 +4600,7 @@ function prFirstClick(e) {
 }
 
 async function prFirstAnswer(how) {
+  const say = toaster();
   const f = pr.first;
   const v = prView();
   if (f.waiting || !v || !v.suggestion) return;
@@ -4538,7 +4613,7 @@ async function prFirstAnswer(how) {
     pr.view = saved;
     f.answered = true;
     prCloseFirst();
-    toast(`New projects go in ${saved.path}. Change it in Settings.`);
+    say(`New projects go in ${saved.path}. Change it in Settings.`);
   } catch (e) {
     f.waiting = false;
     f.err = 'Not saved: ' + e.message;
@@ -4617,13 +4692,14 @@ async function paRefresh() {
 }
 
 async function paCardClick(b) {
+  const say = toaster();
   const s = paStatus() || {};
   if (b.id === 'pa-on') {
     if (!s.configured) return paOpen(true);
     const on = !s.enabled;
     pa.status = { ...s, enabled: on };
     paPaintCard();
-    try { pa.status = await post('/api/alerts/switch', { enabled: on }); } catch (e) { pa.status = { ...s }; toast(e.message); }
+    try { pa.status = await post('/api/alerts/switch', { enabled: on }); } catch (e) { pa.status = { ...s }; say.error(e.message); }
     return paPaintCard();
   }
   if (b.dataset.pa === 'setup') return paOpen(true);
@@ -4786,6 +4862,7 @@ async function paAct(act, url, mk) {
 }
 
 async function paSheetClick(e) {
+  const say = toaster();
   if (e.target.id === 'pa-back') return paClose();
   const t = e.target.closest('[data-pa-tab]');
   if (t) { pa.tab = t.dataset.paTab; pa.test = { state: 'idle', text: '' }; pa.testOk = false; pa.msg = {}; return paDrawSheet(); }
@@ -4818,7 +4895,7 @@ async function paSheetClick(e) {
   }
   if (a === 'done') {
     if (!pa.refused && pa.view) {
-      try { pa.status = await post('/api/alerts/done', { channel: pa.tab, enable: pa.testOk }); } catch (err) { toast(err.message); }
+      try { pa.status = await post('/api/alerts/done', { channel: pa.tab, enable: pa.testOk }); } catch (err) { say.error(err.message); }
     }
     return paClose();
   }
