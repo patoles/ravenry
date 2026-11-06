@@ -8,12 +8,16 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const APP = path.resolve(HERE, '..');
-const ELECTRON = createRequire(import.meta.url)('electron');
+// Electron from node_modules, looked up only when a run needs it (a
+// packaged app's check runs without it installed).
+const electron = () => createRequire(import.meta.url)('electron');
 
 /**
  * opts: name, work (a folder for its files), rt (the daemon runtime folder),
- * bin (ravenryd), home, hubUrl, steps, width, height, shell (the new-shell
- * command), env (more variables).
+ * bin (ravenryd; none: the app finds its own), cli (the ravenryd the steps'
+ * shells run as $SMOKE_RAVENRYD, default bin), exe (a packaged app's
+ * executable instead of Electron on this folder), home, hubUrl, steps,
+ * width, height, shell (the new-shell command), env (more variables).
  */
 export async function runApp(opts) {
   const { name, work, rt, bin, home, hubUrl, steps, width = 1440, height = 900, shell = 'zsh -f', env: more = {} } = opts;
@@ -22,7 +26,7 @@ export async function runApp(opts) {
   const env = {
     // A plain PATH: nothing of this machine's own tools (assistants, shims) is found.
     PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: home, LANG: 'en_US.UTF-8', TERM: 'xterm-256color',
-    RAVENRYD: bin, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: path.join(work, 'state'),
+    ...(bin ? { RAVENRYD: bin } : {}), SMOKE_RAVENRYD: opts.cli || bin, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: path.join(work, 'state'),
     RAVENRY_HUB_URL: hubUrl, RAVENRY_DESKTOP_DATA: path.join(work, `app-${name}`),
     RAVENRY_NEW_SHELL: shell, PS1: 'you@mac %1~ %# ',
     RAVENRY_OFFSCREEN: '1', RAVENRY_THEME: 'dark', RAVENRY_WIDTH: String(width), RAVENRY_HEIGHT: String(height),
@@ -32,8 +36,10 @@ export async function runApp(opts) {
     ...more,
   };
   // Linux CI has no setuid sandbox helper.
-  const args = [APP, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])];
-  const child = spawn(ELECTRON, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const noSandbox = process.platform === 'linux' ? ['--no-sandbox'] : [];
+  const child = opts.exe
+    ? spawn(opts.exe, noSandbox, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+    : spawn(electron(), [APP, ...noSandbox], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += d; if (process.env.RAVENRY_DRIVE_LOG) process.stdout.write(d); });
   child.stderr.on('data', (d) => { log += d; });

@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { APP, runApp, stopDaemons } from './run-app.mjs';
+import { smokeSteps } from './smoke-steps.mjs';
 
 const OUT = path.resolve(process.argv[2] || path.join(APP, '.tmp', 'smoke'));
 const BIN = path.resolve(process.env.RAVENRYD || path.join(APP, '..', '..', 'daemon', 'ravenryd'));
@@ -24,50 +25,9 @@ fs.mkdirSync(HOME, { recursive: true });
 const RT = fs.mkdtempSync(path.join(process.env.RAVENRY_SHORT_TMP || os.tmpdir(), 'rvk-'));
 fs.chmodSync(RT, 0o700);
 
-const R = 'window.__ravenry';
-const has = (s) => `${R}.text().includes(${JSON.stringify(s)})`;
-const attachedTo = (i) => `${R}.term().ready && ${R}.term().attached.pane === ${R}.S.tabs[${i}].pane`;
 // bash without its startup files: the same on a Mac and on Linux.
 const shell = fs.existsSync('/bin/bash') ? '/bin/bash --noprofile --norc' : '/bin/sh';
-const steps = [
-  { ready: true },
-  // No board: the first launch shows, and a plain shell works anyway.
-  { until: `${R}.S.hubStatus && !${R}.S.hubStatus.reachable && !document.getElementById('start').hidden` },
-  { shot: path.join(OUT, 'smoke-first.png') },
-  { js: `${R}.newShell()` },
-  { until: `${attachedTo(0)} && ${has('$ ')}`, timeout: 20000 },
-  { type: 'echo smoke-$((40+2))\r' },
-  { until: has('smoke-42') },
-  // A paste goes to the daemon as one paste.
-  { js: `(() => { const dt = new DataTransfer(); dt.setData('text/plain', 'echo pasted-$((1+1))'); document.querySelector('#term textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); })()` },
-  { sleep: 300 },
-  { key: 'Return', char: '\r' },
-  { until: has('pasted-2') },
-  // The pane has the terminal's size.
-  { type: 'stty size\r' },
-  { until: `${R}.text().includes(${R}.term().term.rows + ' ' + ${R}.term().term.cols)` },
-  // A second shell, then back: the first comes back from a snapshot.
-  // Keys typed at once, while the new shell is still being attached, are kept.
-  { js: `${R}.newShell()` },
-  { until: `${R}.S.tabs.length === 2` },
-  { type: 'echo second-tab\r', after: 0 },
-  { until: `${attachedTo(1)} && ${has('second-tab')} && !${has('smoke-42')}`, timeout: 20000 },
-  { js: `${R}.onCommand('next-tab', 1)` },
-  { until: `${attachedTo(0)} && ${has('smoke-42')} && ${has('pasted-2')}` },
-  { shot: path.join(OUT, 'smoke-shell.png') },
-  // ravenryd focus, run in the first shell, brings the second one up.
-  { typeJs: `'"$RAVENRYD" focus ' + ${R}.S.tabs[1].pane + '\\r'` },
-  { until: attachedTo(1) },
-  // An assistant's hook says it needs you: the tab shows it.
-  { type: `echo '{"hook_event_name":"Notification","session_id":"smoke"}' | "$RAVENRYD" hook --assistant claude --state needs_you --need permission\r` },
-  { until: `${R}.S.tabs[1].status && ${R}.S.tabs[1].status.state === 'needs_you' && document.querySelectorAll('#tabs .tab .sd').length === 1` },
-  { shot: path.join(OUT, 'smoke-status.png') },
-  { save: { expr: `({ tabs: ${R}.S.tabs.map((t) => t.pane), active: ${R}.term().attached.pane, renderer: ${R}.term().renderer, cols: ${R}.term().term.cols, rows: ${R}.term().term.rows })`, out: path.join(WORK, 'before-close.json') } },
-  // Closing the tab ends its pane.
-  { js: `${R}.onCommand('close-tab')` },
-  { until: `${R}.S.tabs.length === 1 && ${attachedTo(0)}` },
-  { sleep: 500 },
-];
+const steps = smokeSteps(OUT);
 
 let failed = false;
 try {
