@@ -436,6 +436,8 @@ One item per git repository a project lives in.
 - `ahead` (number): Commits not pushed to the upstream.
 - `behind` (number): Commits on the upstream not here.
 - `changed` (number): Tracked files changed and not committed.
+- `status` (enum: ahead, changed, no_upstream, clean): Where the repository stands, the first that holds: ahead (commits not pushed), changed (tracked files not committed), no_upstream (nothing to compare with), clean (pushed and nothing changed).
+- `status_text` (string): That status in words, as the Ship card says it: 3 commits to push, Uncommitted changes, No upstream, Pushed and clean. A renderer gives it status's tone.
 - `last_commit` (object): The last commit.
   - `last_commit.hash` (string): Its short hash.
   - `last_commit.at` (date): When it was made.

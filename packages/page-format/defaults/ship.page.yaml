@@ -20,8 +20,8 @@ sections:
     empty: No project lives in a git repo.
     item:
       title: projects
-      subtitle: path
-      badges: [branch, upstream]
+      subtitle: status_text
+      badges: [path, branch, upstream]
       image: picture
       time: last_commit.at
       progress: { list: ship, style: dots }

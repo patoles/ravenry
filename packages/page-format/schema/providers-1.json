@@ -169,6 +169,8 @@
         "ahead": { "type": "number", "description": "Commits not pushed to the upstream." },
         "behind": { "type": "number", "description": "Commits on the upstream not here." },
         "changed": { "type": "number", "description": "Tracked files changed and not committed." },
+        "status": { "type": "enum", "values": ["ahead", "changed", "no_upstream", "clean"], "description": "Where the repository stands, the first that holds: ahead (commits not pushed), changed (tracked files not committed), no_upstream (nothing to compare with), clean (pushed and nothing changed)." },
+        "status_text": { "type": "string", "description": "That status in words, as the Ship card says it: 3 commits to push, Uncommitted changes, No upstream, Pushed and clean. A renderer gives it status's tone." },
         "last_commit": {
           "type": "object",
           "description": "The last commit.",
