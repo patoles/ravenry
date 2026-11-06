@@ -24,7 +24,9 @@ jobs:
         with:
           go-version-file: daemon/go.mod
           cache: false
-      - run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt: the files above need gofmt -w"; exit 1; }
+      - name: gofmt
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then gofmt -l .; echo "gofmt: the files above need gofmt -w"; exit 1; fi
       - run: go vet ./...
       - run: go build ./...
       - run: go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd && "$RUNNER_TEMP/ravenryd" version
