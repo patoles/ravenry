@@ -13,7 +13,7 @@
 // own fixture). Nothing leaves this machine: the commands the checkpoints
 // would run are stand-ins.
 //
-//   node tools/demo.mjs [--port N] [--phone]
+//   node tools/demo.mjs [--port N] [--phone] [--hold]
 //
 // --phone turns phone access on, so the hub listens with TLS on the phone
 // port (docs/PHONE.md section 2) for an emulator (10.0.2.2), and prints the
@@ -155,10 +155,17 @@ const liveS = sessionScript(S['weather-widget'], {
   title: 'Cache forecasts',
 });
 const newPane = (env, s, file, name) => execFileSync(BIN, ['new', '--cwd', s.folder, '--name', name, '--size', '56x40', '--label', 'ravenry.session=claude', '--', '/bin/sh', file], { env, encoding: 'utf8' }).trim();
-newPane(localEnv(WORK), S['notes-app'], askS, 'Sync settings');
-newPane(DEVBOX_ENV, S['recipe-box'], approveS, 'Old recipe import');
-newPane(localEnv(WORK), S['garden-planner'], secretS, 'Reminder emails');
 newPane(localEnv(WORK), S['weather-widget'], liveS, 'Cache forecasts');
+// --hold: the three checkpoints open only once <dir>/go exists, so a phone
+// paired first gets their alerts as they open.
+const openCheckpoints = () => {
+  newPane(localEnv(WORK), S['notes-app'], askS, 'Sync settings');
+  newPane(DEVBOX_ENV, S['recipe-box'], approveS, 'Old recipe import');
+  newPane(localEnv(WORK), S['garden-planner'], secretS, 'Reminder emails');
+};
+if (args.includes('--hold')) {
+  const t = setInterval(() => { if (fs.existsSync(path.join(WORK, 'go'))) { clearInterval(t); openCheckpoints(); console.log('checkpoints opened'); } }, 300);
+} else openCheckpoints();
 
 const info = { url: hub.url, port: PORT, runtime: RT, home: hub.home, phone: null };
 if (PHONE) {
