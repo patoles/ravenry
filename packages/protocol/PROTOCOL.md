@@ -726,7 +726,7 @@ last 64 closed ones, and at most 64 open at a time.
 **The Checkpoint object:** `id` (ravenryd's are "c" and 7 characters),
 `kind`, `state`, `title`, and when set `pane` (the asking pane),
 `assistant` (the agent that ran there), `options`, `free_text`, `command`
-(as the agent proposed it), `cwd`, `why`, `warning`, `secret` (`to`,
+(as the agent proposed it), `cwd`, `why`, `warning`, `env`, `secret` (`to`,
 `pane`, `enter`, `env`), then `created_at`, `expires_at`, `closed_at`,
 `reason` (why it was cancelled, or why an approved command did not run),
 `answer` (`choice` and `option`, `text`, `approved`, `command` (the
@@ -761,6 +761,7 @@ below). An agent opens, lists, waits on and cancels them.
 | `cwd` | string, optional | With `command`: where it runs. Default: the asking pane's `cwd`, else the home directory. |
 | `why` | string, optional | approve: why it should run, at most 1000 bytes. |
 | `warning` | string, optional | approve: what the agent warns the person about (what cannot be undone), at most 1000 bytes. |
+| `env` | object, optional | approve: variables the command runs with, at most 16: names of letters, digits and `_` (not `RAVENRY_*`), values of one line, at most 1000 bytes. The person sees them beside the command. A page's run button passes an item's values this way, so they never go inside the command line. |
 | `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
 | `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
 

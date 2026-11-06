@@ -7,6 +7,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,6 +45,8 @@ const (
 	maxBy                = 64
 	maxWarning           = 1000
 	maxReason            = 1000
+	maxEnv               = 16
+	maxEnvValue          = 1000
 	runOutput            = 64 << 10
 	maxRun               = 7 * 24 * time.Hour
 )
@@ -122,6 +125,9 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 	if r.Warning != "" && r.Kind != kindApprove {
 		return zero, 0, bad("warning is for an approve: what the person should know before the command runs")
 	}
+	if len(r.Env) > 0 && r.Kind != kindApprove {
+		return zero, 0, bad("env is for an approve: the variables its command runs with")
+	}
 	switch r.Kind {
 	case kindAsk:
 		if noRun || r.Secret != nil {
@@ -149,7 +155,13 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 		if len(r.Warning) > maxWarning || !textOK(r.Warning) {
 			return zero, 0, bad("warning is at most %d bytes with no control characters but newlines", maxWarning)
 		}
+		if err := checkEnv(r.Env); err != nil {
+			return zero, 0, err
+		}
 		cp.Command, cp.Why, cp.Warning = r.Command, r.Why, r.Warning
+		if len(r.Env) > 0 {
+			cp.Env = maps.Clone(r.Env)
+		}
 	case kindSecret:
 		if noAsk || r.Why != "" {
 			return zero, 0, bad("a secret takes secret (and command and cwd with to: run or env), not options, free_text or why")
@@ -220,6 +232,23 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 		}
 	}
 	return cp, ttl, nil
+}
+
+// checkEnv: at most 16 variables, each a plain name (not RAVENRY_*) and a
+// value of one line. The person sees every one beside the command.
+func checkEnv(env map[string]string) error {
+	if len(env) > maxEnv {
+		return bad("env has at most %d variables", maxEnv)
+	}
+	for k, v := range env {
+		if !envName.MatchString(k) || strings.HasPrefix(k, "RAVENRY_") {
+			return bad("env names are variable names (letters, digits, _), not RAVENRY_*: %q", k)
+		}
+		if len(v) > maxEnvValue || strings.ContainsAny(v, "\n\r") || !textOK(v) {
+			return bad("env %s is at most %d bytes on one line, with no control characters", k, maxEnvValue)
+		}
+	}
+	return nil
 }
 
 func checkRun(r proto.CheckpointNewRequest) error {
@@ -606,6 +635,7 @@ func (s *Server) startRun(cp proto.Checkpoint, ans *proto.CheckpointAnswer, secr
 	p, err := s.o.Manager.New(pane.Config{
 		Command:   []string{s.o.Manager.LoginShell(), "-c", command},
 		Cwd:       cp.Cwd,
+		Env:       maps.Clone(cp.Env),
 		Name:      name,
 		Labels:    map[string]string{"ravenry.checkpoint": cp.ID},
 		SecretEnv: secretEnv,

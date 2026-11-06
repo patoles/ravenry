@@ -242,6 +242,21 @@
         }
       ]
     },
+    "RunEnv": {
+      "type": "object",
+      "description": "approve: the variables the command runs with, shown to the person beside it. At most 16; names are letters, digits and _ (not RAVENRY_*), values one line of at most 1000 bytes.",
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+        "not": {
+          "pattern": "^RAVENRY_"
+        }
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
     "AbsPath": {
       "type": "string",
       "minLength": 1,
@@ -489,6 +504,9 @@
         "warning": {
           "type": "string",
           "description": "approve: the agent's own warning."
+        },
+        "env": {
+          "$ref": "#/$defs/RunEnv"
         },
         "secret": {
           "$ref": "#/$defs/SecretTarget"
@@ -1680,6 +1698,9 @@
           "type": "string",
           "maxLength": 1000,
           "description": "approve: what the agent warns the person about (what can't be undone). A client shows it as the agent's words."
+        },
+        "env": {
+          "$ref": "#/$defs/RunEnv"
         },
         "secret": {
           "$ref": "#/$defs/SecretTarget"

@@ -660,18 +660,21 @@ type CheckpointRun struct {
 // Checkpoint is a point where an agent waits for a person: a question
 // (ask), a command to approve (approve), or a secret to type (secret).
 type Checkpoint struct {
-	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`
-	State     string            `json:"state"`
-	Title     string            `json:"title"`
-	Pane      string            `json:"pane,omitempty"`
-	Assistant string            `json:"assistant,omitempty"`
-	Options   []string          `json:"options,omitempty"`
-	FreeText  bool              `json:"free_text,omitempty"`
-	Command   string            `json:"command,omitempty"`
-	Cwd       string            `json:"cwd,omitempty"`
-	Why       string            `json:"why,omitempty"`
-	Warning   string            `json:"warning,omitempty"`
+	ID        string   `json:"id"`
+	Kind      string   `json:"kind"`
+	State     string   `json:"state"`
+	Title     string   `json:"title"`
+	Pane      string   `json:"pane,omitempty"`
+	Assistant string   `json:"assistant,omitempty"`
+	Options   []string `json:"options,omitempty"`
+	FreeText  bool     `json:"free_text,omitempty"`
+	Command   string   `json:"command,omitempty"`
+	Cwd       string   `json:"cwd,omitempty"`
+	Why       string   `json:"why,omitempty"`
+	Warning   string   `json:"warning,omitempty"`
+	// Env: approve, variables the command runs with (a page's button
+	// passes an item's values this way, never inside the command line).
+	Env       map[string]string `json:"env,omitempty"`
 	Secret    *SecretTarget     `json:"secret,omitempty"`
 	CreatedAt string            `json:"created_at"`
 	ExpiresAt string            `json:"expires_at"`
@@ -683,17 +686,18 @@ type Checkpoint struct {
 
 type CheckpointNewRequest struct {
 	Envelope
-	Kind      string        `json:"kind"`
-	Title     string        `json:"title"`
-	Pane      string        `json:"pane,omitempty"`
-	Options   []string      `json:"options,omitempty"`
-	FreeText  bool          `json:"free_text,omitempty"`
-	Command   string        `json:"command,omitempty"`
-	Cwd       string        `json:"cwd,omitempty"`
-	Why       string        `json:"why,omitempty"`
-	Warning   string        `json:"warning,omitempty"`
-	Secret    *SecretTarget `json:"secret,omitempty"`
-	TimeoutMs *int64        `json:"timeout_ms,omitempty"`
+	Kind      string            `json:"kind"`
+	Title     string            `json:"title"`
+	Pane      string            `json:"pane,omitempty"`
+	Options   []string          `json:"options,omitempty"`
+	FreeText  bool              `json:"free_text,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Cwd       string            `json:"cwd,omitempty"`
+	Why       string            `json:"why,omitempty"`
+	Warning   string            `json:"warning,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Secret    *SecretTarget     `json:"secret,omitempty"`
+	TimeoutMs *int64            `json:"timeout_ms,omitempty"`
 }
 
 type CheckpointResult struct {

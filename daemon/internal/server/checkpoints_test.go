@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -379,4 +380,50 @@ func TestSecretNeverLeaks(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// TestCheckpointApproveEnv: a page's run button passes an item's values as
+// variables, never inside the command line. The person sees them on the
+// checkpoint, the command reads them from its environment, and a value
+// that looks like shell is only ever a value.
+func TestCheckpointApproveEnv(t *testing.T) {
+	d := startDaemon(t)
+	hub := d.dial(client.Options{Name: "hub"})
+	person := d.dial(client.Options{Name: "app"})
+	dir := t.TempDir()
+	evil := `Lake District $(touch pwned.txt) "; touch pwned2.txt; echo "`
+	cp := newCheckpoint(t, hub, map[string]any{"kind": "approve", "title": "Map tiles: Rebuild tiles", "command": `printf '%s|' "$REGION" > region.txt`, "cwd": dir, "env": map[string]string{"REGION": evil}})
+	if cp.Env["REGION"] != evil {
+		t.Fatalf("env not on the checkpoint: %+v", cp.Env)
+	}
+	got := waitCheckpoint(t, hub, cp.ID)
+	answer(t, person, map[string]any{"checkpoint": cp.ID, "approve": true, "by": "desktop"})
+	w := <-got
+	if w.State != "answered" || w.Run.Exit == nil || w.Run.Exit.Code != 0 {
+		t.Fatalf("result %+v %+v", w, w.Run)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "region.txt"))
+	if err != nil || string(b) != evil+"|" {
+		t.Fatalf("region.txt %q %v", b, err)
+	}
+	for _, f := range []string{"pwned.txt", "pwned2.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			t.Fatalf("%s: a value ran as shell", f)
+		}
+	}
+	sendingInvalid.Store(true)
+	defer sendingInvalid.Store(false)
+	for _, bad := range []map[string]any{
+		{"kind": "approve", "title": "x", "command": "true", "env": map[string]string{"RAVENRY_PANE": "p1"}},
+		{"kind": "approve", "title": "x", "command": "true", "env": map[string]string{"A B": "1"}},
+		{"kind": "approve", "title": "x", "command": "true", "env": map[string]string{"A": "one\ntwo"}},
+		{"kind": "ask", "title": "x", "options": []string{"Yes"}, "env": map[string]string{"A": "1"}},
+	} {
+		var r proto.CheckpointResult
+		err := hub.Call(ctx(t), "checkpoint.new", bad, &r)
+		var ce *client.Error
+		if !errors.As(err, &ce) || ce.Code != proto.CodeBadRequest {
+			t.Fatalf("taken, or refused for another reason: %+v: %v", bad, err)
+		}
+	}
 }

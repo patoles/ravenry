@@ -174,6 +174,8 @@ export interface Checkpoint {
   why?: string;
   /** approve: the agent's own warning (what can't be undone). Show it as the agent's words. */
   warning?: string;
+  /** approve: the variables the command runs with (a page's button passes an item's values this way). Show them beside the command. */
+  env?: Record<string, string>;
   secret?: SecretTarget;
   created_at: string;
   expires_at: string;
@@ -370,6 +372,7 @@ export interface Methods {
       cwd?: string;
       why?: string;
       warning?: string;
+      env?: Record<string, string>;
       secret?: SecretTarget;
       timeout_ms?: number;
     };
