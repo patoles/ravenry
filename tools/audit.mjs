@@ -68,6 +68,12 @@ const ALLOWED = [
   { file: 'hub/README.md', sha256: '884b09ca3c191228347b7445a53794e215563e2aa6a80f0ca98050c38ff04947', why: 'the antics.gg link' },
   { file: 'hub/tools/alerts-test.mjs', sha256: '07f2acdfa4eb9856ce2e436ca3e83f4e8d8975970ad8a9a304ed64b2f9e65fb7', why: 'a made-up bot token (a keyboard row) for the local Telegram stub' },
   { file: 'hub/tools/alerts-test.mjs', sha256: 'd51e3533335f313c09a8360aa228b4ec182ad4493438c191c387430119fc7fb5', why: 'a made-up wrong bot token for the local Telegram stub' },  { file: '.github/workflows/code.yml', sha256: 'bd466793be1df9176166915c2a8252449f71dd6fb6b7c748b66fd0d2c5eb4e60', why: 'the SHA-256 of the Zig 0.17.1 release tarball, from ziglang.org/download/index.json' },
+  { file: '.github/workflows/desktop.yml', sha256: 'bd466793be1df9176166915c2a8252449f71dd6fb6b7c748b66fd0d2c5eb4e60', why: 'the SHA-256 of the Zig 0.17.1 release tarball for x86_64 Linux, from ziglang.org/download/index.json' },
+  { file: '.github/workflows/release.yml', sha256: 'bd466793be1df9176166915c2a8252449f71dd6fb6b7c748b66fd0d2c5eb4e60', why: 'the SHA-256 of the Zig 0.17.1 release tarball for x86_64 Linux, from ziglang.org/download/index.json' },
+  { file: '.github/workflows/release.yml', sha256: '52f2744c17405e14538da64eba088af99dd323085fa1efda963928444df360e5', why: 'the SHA-256 of the Zig 0.17.1 release tarball for aarch64 Linux, from ziglang.org/download/index.json' },
+  { file: '.github/workflows/release.yml', sha256: 'c09cf4327d049fad910131bcf71e10038e6996b1ed48825909f2734084240a98', why: 'the SHA-256 of the Zig 0.17.1 release tarball for x86_64 macOS, from ziglang.org/download/index.json' },
+  { file: '.github/workflows/release.yml', sha256: '415a1245e3d8a53a6ba70584e5fe62cb28eb18f158d905d332763799c5c3f8ef', why: 'the SHA-256 of the Zig 0.17.1 release tarball for aarch64 macOS, from ziglang.org/download/index.json' },
+  { file: 'package-lock.json', sha256: 'b0373516d594ddd199b25c3655332b354837e065c5cc232f5043189897900ca7', why: "the public address in glob 7's npm deprecation notice (glob comes with electron-builder's @electron/asar)" },
 ];
 
 const SHAPES = [
