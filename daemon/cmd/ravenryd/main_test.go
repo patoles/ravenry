@@ -218,8 +218,8 @@ func TestCommands(t *testing.T) {
 	if _, _, code := e.run("0.1.0", "wait", id, "--text", "never", "--timeout", "100ms"); code != 124 {
 		t.Fatalf("timed-out wait exited %d", code)
 	}
-	// hook is reserved.
-	if _, errs, code := e.run("0.1.0", "hook"); code != 2 || !strings.Contains(errs, "reserved") {
+	// A hook command with no assistant says so and lets the session go on.
+	if _, errs, code := e.run("0.1.0", "hook"); code != 0 || !strings.Contains(errs, "--assistant is required") {
 		t.Fatalf("hook: %d %q", code, errs)
 	}
 	// Errors are reported with their code.

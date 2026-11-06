@@ -38,10 +38,18 @@ Panes:
   ravenryd send PANE INPUT... [--json]
   ravenryd settle PANE INPUT... [--quiet 300ms] [--timeout 10s] [--json]
   ravenryd wait PANE [--text REGEX [--screen]] [--quiet 800ms] [--exit]
-               [--since MARK] [--timeout 30s] [--json]
+               [--prompt] [--since MARK] [--timeout 30s] [--json]
   ravenryd read PANE --since MARK [--limit BYTES] [--raw] [--json]
   ravenryd resize PANE COLSxROWS [--json]
   ravenryd close PANE [--grace 1s] [--json]
+  ravenryd process PANE [--json]          what runs in the foreground: pid,
+                                          arguments, executable, directory
+  ravenryd restart PANE [--grace 1s] [--json]
+                                          close the pane and start its command
+                                          again (same directory and env); prints
+                                          the new pane's id
+  ravenryd focus PANE [--json]            ask the windows that show panes to
+                                          show this one
 
   INPUT, in order: --paste TEXT, --typed TEXT, --raw TEXT, --key NAME
   (--delay 10ms sets the pause between typed characters). Key names:
@@ -49,9 +57,20 @@ Panes:
   Left Right Space F1-F12 or one character, with Ctrl+ Alt+ Shift+ Super+
   (or C- M- S-): Ctrl+C, Shift+Tab, M-x.
 
-  wait exits with 0 when its condition held and 124 on timeout.
+  wait exits with 0 when its condition held and 124 on timeout. --prompt
+  holds when the shell starts its next prompt (OSC 133 shell integration).
 
-Reserved: ravenryd hook (the assistant hook command, not built yet).
+Agents:
+  ravenryd agents [--json]                the agent state of every pane
+  ravenryd reports [PANE] [--since SEQ] [--limit N] [--follow] [--json]
+                                          what agents reported, oldest first
+  ravenryd hook --assistant claude|codex|NAME [--state STATE [--need KIND]]
+               [--event NAME] [--decide] [--timeout 2s]
+                                          the command an assistant's hooks run:
+                                          reads the hook's JSON on standard
+                                          input and reports it to the pane's
+                                          daemon. It always lets the session
+                                          go on unless the hub decides
 
 Every command takes --socket PATH to talk to one daemon, and --no-start to
 not start a daemon when none is running.
@@ -91,9 +110,18 @@ func main() {
 		err = cmdResize(args)
 	case "close":
 		err = cmdClose(args)
+	case "process":
+		err = cmdProcess(args)
+	case "restart":
+		err = cmdRestart(args)
+	case "focus":
+		err = cmdFocus(args)
+	case "agents":
+		err = cmdAgents(args)
+	case "reports":
+		err = cmdReports(args)
 	case "hook":
-		fmt.Fprintln(os.Stderr, "ravenryd hook is reserved for the assistant hook command; it is not built yet")
-		os.Exit(2)
+		err = cmdHook(args)
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 		return

@@ -213,3 +213,10 @@ func printJSON(v any) error {
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
 }
+
+// printJSONLine prints one JSON value on one line (for --follow).
+func printJSONLine(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(v)
+}

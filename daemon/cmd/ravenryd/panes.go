@@ -296,7 +296,7 @@ func printChanges(w proto.WaitResult) {
 }
 
 func cmdWait(in []string) error {
-	a, err := parse(in, map[string]flagKind{"text": valueFlag, "screen": boolFlag, "quiet": valueFlag, "exit": boolFlag, "since": valueFlag, "timeout": valueFlag})
+	a, err := parse(in, map[string]flagKind{"text": valueFlag, "screen": boolFlag, "quiet": valueFlag, "exit": boolFlag, "prompt": boolFlag, "since": valueFlag, "timeout": valueFlag})
 	if err != nil {
 		return err
 	}
@@ -313,6 +313,9 @@ func cmdWait(in []string) error {
 	}
 	if a.bools["exit"] {
 		params["exit"] = true
+	}
+	if a.bools["prompt"] {
+		params["prompt"] = true
 	}
 	if v := a.values["quiet"]; v != "" {
 		d, err := duration(v)
@@ -356,6 +359,8 @@ func cmdWait(in []string) error {
 			fmt.Printf("text %q (mark %d)\n", *r.Match, r.Mark)
 		case r.Condition == "exit" && r.Exit != nil:
 			fmt.Printf("exit %d%s (mark %d)\n", r.Exit.Code, prefixed(" ", r.Exit.Signal), r.Mark)
+		case r.Condition == "prompt" && r.Shell != nil && r.Shell.ExitCode != nil:
+			fmt.Printf("prompt, last command exited %d (mark %d)\n", *r.Shell.ExitCode, r.Mark)
 		default:
 			fmt.Printf("%s (mark %d)\n", r.Condition, r.Mark)
 		}
