@@ -6,7 +6,11 @@
 # closes one, then answers a real ask, approve and secret in the window
 # (the secret is then found nowhere), runs an approve it edited (the edit
 # runs, not the proposal) and refuses one with a reason. Every tool there
-# refuses a folder of the real user's (tools/test-env.mjs). Then the app packaged (unpacked, no installer) and checked:
+# refuses a folder of the real user's (tools/test-env.mjs). Then the
+# sidebar's pages in the app (tools/pages-test.mjs): an agent's script in a
+# real pane makes a page, the app edits it, the script breaks it, a
+# project's page is trusted and its run button asks for approval. The hub's
+# bundle of packages/page-format must be current. Then the app packaged (unpacked, no installer) and checked:
 # it finds its own ravenryd, starts it beside an older one, writes its hub
 # service in dry-run mode into a throwaway HOME, and the hub runs as that
 # service says. release.yml builds every installer.
@@ -38,6 +42,8 @@ jobs:
         run: npm --workspace @ravenry/desktop test
       - name: Build
         run: npm --workspace @ravenry/desktop run build
+      - name: The hub's bundle of the page format is current
+        run: node hub/tools/vendor-page-format.mjs --check
 
   smoke:
     runs-on: ubuntu-latest
@@ -101,6 +107,8 @@ jobs:
         run: |
           npm --workspace @ravenry/desktop run build
           xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/smoke.mjs "$RUNNER_TEMP/smoke"
+      - name: The sidebar's pages in the app (headless Electron, xvfb)
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/pages-test.mjs "$RUNNER_TEMP/smoke/pages"
       - name: The packaged app (unpacked), checked end to end
         run: |
           npm --workspace @ravenry/desktop run pack -- --linux --arch x64 --dir --skip-build --ravenryd "$RUNNER_TEMP/rv"

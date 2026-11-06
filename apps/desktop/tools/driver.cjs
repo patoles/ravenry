@@ -11,7 +11,8 @@
 //   type: "text"                type it as key events ("\r" is Enter)
 //   typeJs: "expr"              type the text expr gives in the page
 //   key: "Backspace", modifiers  one key (modifiers: ["control"], ...)
-//   shot: "file.png"            capture the window
+//   shot: "file.png", el        capture the window, or the element el (a
+//                               CSS selector) at the window's scale
 //   signal: "file"              write a file (for the script that started the app)
 //   wait: "file", timeout       wait for a file to exist
 //   echo: { n, out }            measure keystroke echo (see below)
@@ -75,7 +76,13 @@ module.exports = async function drive(win, ctx) {
       // Two frames, so what was just written is drawn.
       await js('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
       await sleep(step.settle || 150);
-      const img = await wc.capturePage();
+      let rect;
+      if (step.el) {
+        const r = await js(`(() => { const e = document.querySelector(${JSON.stringify(step.el)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.floor(b.x), y: Math.floor(b.y), width: Math.ceil(b.width), height: Math.ceil(b.height) }; })()`);
+        if (!r) throw new Error(`no element ${step.el} to capture`);
+        rect = r;
+      }
+      const img = rect ? await wc.capturePage(rect) : await wc.capturePage();
       fs.mkdirSync(path.dirname(step.shot), { recursive: true });
       fs.writeFileSync(step.shot, img.toPNG());
     } else if (step.signal) fs.writeFileSync(step.signal, String(Date.now()));

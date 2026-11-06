@@ -36,6 +36,11 @@ export interface RavenryApi {
   storeGet(): Promise<Record<string, unknown>>;
   storeSet(patch: Record<string, unknown>): void;
   openExternal(url: string): void;
+  /** A page file, an item's file or a folder, in the person's own app (logged instead when offscreen). */
+  openPath(p: string): void;
+  copyText(text: string): void;
+  /** A hub call whose answer is read whatever its status. */
+  hubCall(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   focusWindow(): void;
 }
 

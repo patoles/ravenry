@@ -11,6 +11,10 @@
 // come from the daemons this window holds and from the hub, and show as a
 // mark on the session's row, a dot on its tab and a card at the top of
 // the panel (cards.ts).
+//
+// The rows under the sessions are pages (pages.ts): page files the hub
+// reads. A page opens in the middle and right columns; picking a session
+// brings the terminal back.
 
 import '@xterm/xterm/css/xterm.css';
 import './app.css';
@@ -28,6 +32,8 @@ import {
   ago, arrivals, assistantName, board, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
+import { Pages } from './pages.ts';
+import type { NavRow } from './pages.ts';
 import { TerminalView } from './terminal.ts';
 
 // ---------------------------------------------------------------- state
@@ -53,6 +59,8 @@ type View =
   | { kind: 'session'; key: string; pane?: string }
   /** A pane of no tab: the one an approved command ran in. */
   | { kind: 'pane'; socket: string; pane: string; name: string }
+  /** A page (pages.ts), in the middle and right columns. */
+  | { kind: 'page'; key: string }
   | { kind: 'start' }
   | { kind: 'none' };
 
@@ -94,6 +102,9 @@ const S = {
 const $ = (id: string) => document.getElementById(id)!;
 let term: TerminalView;
 let daemons: Daemons;
+let pages: Pages;
+/** The project of the session last shown, for a page's Ask Claude to fix. */
+let lastSessionProject: string | null = null;
 
 // ---------------------------------------------------------------- helpers
 
@@ -124,7 +135,7 @@ function viewSessionKey(): string | null {
 
 function firstRun(): boolean {
   if (S.tabs.length) return false;
-  if (S.view.kind === 'session' || S.view.kind === 'pane') return false;
+  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'page') return false;
   if (!S.hubStatus) return false; // not known yet
   return !S.hubStatus.reachable || isEmpty(S.hub);
 }
@@ -145,12 +156,12 @@ function save(): void {
 }
 
 let toastTimer: number | undefined;
-function toast(text: string): void {
+function toast(text: string, undo?: { label: string; run: () => void }): void {
   const el = $('toast');
-  el.textContent = text;
+  replace(el, text, undo ? h('button.lk.undo', { on: { click: () => { el.hidden = true; undo.run(); } } }, undo.label) : null);
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => { el.hidden = true; }, 5000);
+  toastTimer = window.setTimeout(() => { el.hidden = true; }, undo ? 8000 : 5000);
 }
 
 function shellLabel(t: ShellTab): { name: string; sub: string | null } {
@@ -384,16 +395,9 @@ function renderSidebar(): void {
       }))));
   }
 
-  const views = S.hub?.views || {};
-  const plans = (S.hub?.projects || []).filter((p) => p.plan).length;
-  const navRow = (label: string, count: string | null, hash: string) =>
-    h('button.vrow', { on: { click: () => openBoard(hash) }, title: `Open ${label} on the board` }, svg(I.NAV[label]), label, count ? h('span.c.num', count) : null);
-  const nav = h(`nav.nav${empty ? '.dim' : ''}`,
-    navRow('Objectives', null, '#/objectives'),
-    navRow('Plans', plans ? `${plans} running` : null, '#/projects'),
-    navRow('Ideas', views.ideas ? String(views.ideas) : null, '#/ideas'),
-    navRow('Rules', views.rules ? `${views.rules} new` : null, '#/rules'),
-    navRow('Ship', views.ship ? String(views.ship) : null, '#/ship'));
+  // The pages, from their files (pages.ts): the shipped ones, then the ones
+  // you or an agent added, then a project's own.
+  const nav = h(`nav.nav${empty ? '.dim' : ''}`, pages.nav(S.view.kind === 'page' ? S.view.key : null, (key) => openPage(key)));
 
   const mem = memoryLine(S.hub);
   const foot = h('div.foot',
@@ -411,6 +415,12 @@ function renderSidebar(): void {
 function openBoard(hash: string): void {
   if (!S.config) return;
   api().openExternal(S.config.hubUrl + '/' + hash);
+}
+
+function openPage(key: string): void {
+  S.overlay = false;
+  S.panelKey = null;
+  setView({ kind: 'page', key });
 }
 
 function pickProject(p: HubProject): void {
@@ -570,7 +580,9 @@ function stepTab(d: number): void {
 // ---------------------------------------------------------------- middle
 
 function setView(v: View): void {
+  if (S.view.kind === 'page' && v.kind !== 'page') pages.close();
   S.view = v;
+  if (v.kind === 'session') { const f = findSession(S.hub, v.key); if (f) lastSessionProject = f.project.id; }
   save();
   render();
 }
@@ -607,6 +619,10 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
 
 async function renderCentre(): Promise<void> {
   const v = S.view;
+  const onPage = v.kind === 'page';
+  $('centre').hidden = onPage;
+  $('page').hidden = !onPage;
+  if (onPage) { term.hide(); shownKey = ''; pages.show(v.key); return; }
   if (firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
   if (v.kind === 'none') { term.hide(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
@@ -831,6 +847,8 @@ async function startSession(): Promise<void> {
 function panelVisible(): boolean {
   if (firstRun() || S.view.kind === 'start') return false;
   if (S.overlay) return true;
+  // A page takes the right column too; a checkpoint it opened comes over it.
+  if (S.view.kind === 'page') return false;
   return wide() && S.panelPref !== 'closed';
 }
 
@@ -857,7 +875,7 @@ function renderPanel(): void {
   const el = $('panel');
   const vis = panelVisible();
   el.hidden = !vis;
-  const docked = vis && !S.overlay && wide();
+  const docked = vis && !S.overlay && wide() && S.view.kind !== 'page';
   el.classList.toggle('overlay', vis && !docked);
   if (!vis) { clearHiddenSecrets(false); return; }
   const key = panelTargetKey();
@@ -1016,6 +1034,7 @@ async function handOff(p: HubProject, s: HubSession): Promise<void> {
 function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
+  pages.update((next as { pages?: NavRow[] }).pages);
   // A session the start screen just started: the view follows it once listed.
   const v = S.view;
   if (v.kind === 'session' && v.pane && !findSession(next, v.key)) {
@@ -1202,6 +1221,27 @@ async function boot(): Promise<void> {
     if (t) { removeTab(t.id); void a.client.request('pane.close', { pane: a.pane }).catch(() => {}); }
   };
   daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
+  (window as unknown as { __ravenryHome?: string }).__ravenryHome = S.config.home;
+  pages = new Pages($('page'), {
+    hubUrl: () => S.config?.hubUrl || '',
+    call: (method, p, body) => api().hubCall(method, p, body),
+    toast: (text, undo) => toast(text, undo),
+    pickSession: (key) => pickSession(key),
+    pickProject: (id) => {
+      const p = (S.hub?.projects || []).find((x) => x.id === id || x.name.toLowerCase() === String(id).toLowerCase());
+      if (!p || !p.sessions.length) return false;
+      pickProject(p);
+      return true;
+    },
+    lastProject: () => lastSessionProject || (viewSessionKey() || '').split('/')[0] || null,
+    openBoard,
+    openPath: (p) => api().openPath(p),
+    openExternal: (url) => api().openExternal(url),
+    copy: (text) => api().copyText(text),
+    showCheckpoint: (cp) => { S.cps.update(cp as HubCheckpoint); S.panelKey = `cp:${cp.id}`; S.overlay = true; render(); },
+    rerender: () => render(),
+    now,
+  });
   onCardChange(() => { renderPanel(); });
   api().onCommand((n, a) => onCommand(String(n), a));
   api().onHubState((s) => onHubState(s as HubState));
@@ -1228,7 +1268,7 @@ async function boot(): Promise<void> {
   const hs = await api().hubState();
   S.hub = (hs.state as HubState) || null;
   S.hubStatus = hs.status;
-  if (S.hub) S.cps.fromHub(S.hub.checkpoints as HubCheckpoint[] | undefined);
+  if (S.hub) { S.cps.fromHub(S.hub.checkpoints as HubCheckpoint[] | undefined); pages.update((S.hub as { pages?: NavRow[] }).pages); }
   await restoreTabs(saved);
   // The daemon new panes go to is followed from the start, for its checkpoints.
   void daemons.forNew().catch(() => {});
@@ -1236,7 +1276,7 @@ async function boot(): Promise<void> {
   if (firstRun() || !S.tabs.length) void loadStart();
   // For tests and screenshots (tools/driver.cjs): the state and a few calls.
   (window as unknown as { __ravenry: unknown }).__ravenry = {
-    S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true,
+    S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };
   document.body.dataset.ready = '1';

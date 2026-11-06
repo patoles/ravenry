@@ -14,7 +14,7 @@ import * as I from './icons.ts';
 import {
   afterOf, changedRange, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
 } from './checkpoints.ts';
-import type { Known } from './checkpoints.ts';
+import type { HubCheckpoint, Known } from './checkpoints.ts';
 
 /** An answer: an approval may carry the command as the person edited it, a refusal its reason. */
 export type Reply = CheckpointReply;
@@ -79,7 +79,8 @@ function changed(id: string): void { stamp++; const v = views.get(id); if (v) v.
 /** The card for a checkpoint, built once per state and kept. */
 export function cardFor(k: Known, ctx: CardCtx): HTMLElement {
   const u = ui(k.cp.id);
-  const key = `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}`;
+  // A page's run (the hub's word on it can come after the daemon's) changes the heading.
+  const key = `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}|${!!(k.cp as HubCheckpoint).page}`;
   const had = views.get(k.cp.id);
   if (had && had.key === key) { had.refresh(); return had.el; }
   had?.secret?.clear();
@@ -265,7 +266,10 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
   const kv = h('div.kv',
     h('span', 'Folder'), h('span.mono', ctx.tilde(cp.cwd)),
     h('span', 'Machine'), h('span', remote ? h('span.mt', svg(I.MACHINE), cp.machine!) : machineLine(cp.machine, ctx.platform)),
-    h('span', 'Pane'), h('span', `A new one, beside ${ctx.paneName(k)}`));
+    h('span', 'Pane'), h('span', cp.pane ? `A new one, beside ${ctx.paneName(k)}` : 'A new one'),
+    // A page's run button passes the item's values as variables: shown as
+    // they are, never inside the command.
+    Object.entries(cp.env || {}).map(([name, value]) => [h('span.mono', name), h('span.mono', value)]));
   let box: HTMLElement;
   let editor: HTMLTextAreaElement | null = null;
   if (u.editing) {

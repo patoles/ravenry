@@ -131,6 +131,18 @@ export async function hubAnswer(url: string, body: unknown): Promise<{ ok: boole
   }
 }
 
+/** A call whose answer the page reads whatever its status (a conflict, a
+ * button that needs approval): { status, body }, status 0 when the hub is
+ * not reachable. */
+export async function hubCall(url: string, method: string, p: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+  try {
+    const res = await fetch(url + p, method === 'GET' ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body ?? {}) });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  } catch {
+    return { status: 0, body: { error: 'The board is not reachable.' } };
+  }
+}
+
 /** POST to a hub API path, as the board's own page does (X-Ravenry: 1). */
 export async function hubPost(url: string, p: string, body: unknown): Promise<unknown> {
   const res = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body) });

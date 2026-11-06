@@ -16,6 +16,8 @@ import { assistantName } from './model.ts';
 
 /** A checkpoint as the hub lists it: the daemon's, plus where it runs and whose session asked. */
 export interface HubCheckpoint extends Checkpoint {
+  /** A page's run button opened it: the person pressed it, no agent asked. */
+  page?: { title: string; label: string } | null;
   machine?: string | null;
   projectId?: string | null;
   project?: string | null;
@@ -52,6 +54,8 @@ export function splitTitle(title: string): { head: string; body: string | null }
 
 /** The card's top line. */
 export function heading(cp: Checkpoint): string {
+  const pg = (cp as HubCheckpoint).page;
+  if (pg && kindOf(cp) === 'approve') return `${pg.title}: ${pg.label}`;
   const w = who(cp);
   switch (kindOf(cp)) {
     case 'ask': return `${w} asks`;

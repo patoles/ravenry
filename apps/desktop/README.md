@@ -48,6 +48,34 @@ setting.
   that the main process pipes to the daemon's unix socket, and the hub
   through the main process.
 
+## Pages
+
+The rows under the sessions are pages: page files the hub reads
+(../../hub/docs/PAGES.md, the format in ../../packages/page-format). The
+shipped five come first, then a line, then pages you or an agent added, and
+a project's own with its name in grey; a new one is lit for a few seconds,
+and one whose file has a mistake carries a red dot. A page opens in the
+middle and right columns (`src/renderer/pages.ts`); picking a session brings
+the terminal back.
+
+- **Every view and slot of the format:** list, cards, board (dragging a card
+  sets its field; below about 240 px a lane it becomes a list grouped by
+  lane, the last one folded), table, stats and document; title, subtitle,
+  badges, progress, picture (only from the page's folder, through the hub),
+  time, checklist, excerpt, and Ravenry's own pieces (hub/docs/PAGES.md).
+- **A mistake** keeps the last good version under a bar with the problem's
+  line, Open file and Ask Claude to fix (typed into a session, never sent).
+- **A project's page** is read-only, with what each button would do, until
+  you trust it.
+- **Customize** copies a shipped page to `~/.ravenry/pages/` and opens it;
+  when the shipped one changes later, one quiet line says so, with See what
+  changed and Ask Claude to bring these in.
+- **Buttons** do only what the format allows; a run is an approval card in
+  the panel, with the item's values shown as variables.
+
+Opening a file, a link or the clipboard goes to your own apps; offscreen
+(tests) nothing opens and each is written to `RAVENRY_OPEN_LOG`.
+
 ## Checkpoints
 
 When an agent runs `ravenry ask`, `ravenry approve` or `ravenry secret`
@@ -200,6 +228,7 @@ npm run typecheck && npm test
 RAVENRYD=../../daemon/ravenryd npm run smoke          # the app end to end, offscreen
 RAVENRYD=../../daemon/ravenryd npm run shots -- out   # screenshots and keystroke echo
 RAVENRYD=../../daemon/ravenryd node tools/checkpoint-shots.mjs out   # the checkpoint cards, from real checkpoints
+RAVENRYD=../../daemon/ravenryd node tools/pages-test.mjs out [light|dark]   # the pages, end to end, and every frame of their picture
 ```
 
 The smoke test and the screenshots never put a window on screen: the

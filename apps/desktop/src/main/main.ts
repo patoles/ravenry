@@ -10,7 +10,9 @@
 //                          default: the login shell
 //   RAVENRY_DESKTOP_DATA   the app's data folder (default: Electron's userData)
 //   RAVENRY_THEME          dark or light (default: the system's)
-//   RAVENRY_OFFSCREEN=1    never show the window (tests and screenshots)
+//   RAVENRY_OFFSCREEN=1    never show the window (tests and screenshots), and
+//                          never open a browser, an editor or the clipboard:
+//                          what would open is written to RAVENRY_OPEN_LOG
 //   RAVENRY_DRIVER         a script that drives the window (tools/)
 //   RAVENRY_SERVICE        install, dry-run or off: the hub service
 //                          (install.ts; default: install when packaged)
@@ -23,11 +25,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
-import { HubFeed, hubAnswer, hubGet, hubPost, hubUrl } from './hub.ts';
+import { HubFeed, hubAnswer, hubCall, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
 import { dataRoot, ensureService, pruneVersions, readBuildInfo, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
 import type { Staged } from './install.ts';
@@ -93,7 +95,7 @@ function createWindow(): BrowserWindow {
   if (!OFFSCREEN) w.once('ready-to-show', () => w.show());
   // Links open in the browser, never in this window.
   w.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) void shell.openExternal(url);
+    if (/^https?:/.test(url)) outside('url', url, () => void shell.openExternal(url));
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -208,7 +210,26 @@ function ipc(): void {
     win.show();
     win.focus();
   });
-  ipcMain.on('open-external', (_e, url: string) => { if (/^https?:\/\//.test(url)) void shell.openExternal(url); });
+  ipcMain.on('open-external', (_e, url: string) => { if (/^https?:\/\//.test(url)) outside('url', url, () => void shell.openExternal(url)); });
+  // A page's file, an item's file or its folder, in the person's editor or
+  // file manager: only page files, markdown items and folders.
+  ipcMain.on('open-path', (_e, p: string) => {
+    if (typeof p !== 'string' || !path.isAbsolute(p) || !(/\.(page\.yaml|md)$/i.test(p) || isDir(p))) return;
+    outside('path', p, () => void shell.openPath(p));
+  });
+  ipcMain.on('copy-text', (_e, text: string) => { if (typeof text === 'string' && text.length <= 64 * 1024) outside('copy', text, () => clipboard.writeText(text)); });
+  ipcMain.handle('hub:call', (_e, method: string, p: string, body: unknown) => hubCall(feed!.url, method, p, body));
+}
+
+const isDir = (p: string) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+
+// What leaves the window for the person's own apps (a browser, an editor,
+// the clipboard). Offscreen (tests, screenshots) nothing does: it is
+// written to RAVENRY_OPEN_LOG instead, so no window opens on the screen.
+function outside(kind: string, what: string, act: () => void): void {
+  if (!OFFSCREEN) { act(); return; }
+  const log = process.env.RAVENRY_OPEN_LOG;
+  if (log) { try { fs.appendFileSync(log, JSON.stringify({ kind, what, at: new Date().toISOString() }) + '\n'); } catch { /* the test went */ } }
 }
 
 // The packaged app's ravenryd and hub, copied out of the app for this

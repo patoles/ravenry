@@ -123,7 +123,7 @@ if (runsHere) {
   if (v.version !== build.version || v.os !== platform || v.arch !== goarch(bundledArch)) fail(`ravenryd ${JSON.stringify(v)} does not match the app ${build.version} ${platform}/${bundledArch}`);
   ok(`ravenryd version ${v.version} ${v.os}/${v.arch}, libghostty-vt ${v.libghostty_vt}`);
 }
-for (const f of ['hub/server/index.mjs', 'hub/hooks/events.mjs', 'hub/public/index.html', 'hub/package.json', 'hub/node_modules/@ravenry/node-client/index.mjs']) {
+for (const f of ['hub/server/index.mjs', 'hub/hooks/events.mjs', 'hub/public/index.html', 'hub/package.json', 'hub/node_modules/@ravenry/node-client/index.mjs', 'hub/server/vendor/page-format.mjs', 'hub/pages/defaults/objectives.page.yaml']) {
   if (!fs.existsSync(path.join(resources, f))) fail(`no ${f} in the app`);
 }
 ok('the hub, with @ravenry/node-client');

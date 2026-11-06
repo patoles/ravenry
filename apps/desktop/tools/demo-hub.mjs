@@ -16,7 +16,10 @@
 // transcript). `runtime` is the ravenryd runtime folder the board follows
 // (a test board follows none without it), `env` adds to the board's
 // environment, `settings` to its registry's (machines), and `alerts` turns
-// phone alerts on, sent to a closed local port.
+// phone alerts on, sent to a closed local port. `extra` adds projects with
+// no session (each { id, name }: a folder under Projects), and
+// `prepare({ HOME, ROOT, MC })` writes more of the demo (pages, briefs)
+// before the board starts.
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -96,7 +99,7 @@ const PROJECTS = [
     turn: ['Round the temperatures', 'Done: whole degrees everywhere, tests pass.', 60 * 73.5], machine: 'gpu-box' },
 ];
 
-export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false }) {
+export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null }) {
   fs.rmSync(dir, { recursive: true, force: true });
   const HOME = path.join(dir, 'home');
   const ROOT = path.join(HOME, 'Projects');
@@ -146,6 +149,11 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     files[p.id] = { evFile, evLine, TR, rec, sf, p };
     ps.push({ pid: 4100 + k * 7, ppid: 4000 + k * 7, rssKb: [612000, 445000, 845000, 690000, 298000][k - 1], startedAt: ago(p.events[0][1] + 1), command: `claude --resume ${p.sid}`, cwd: folder });
   }
+  for (const x of extra) {
+    const folder = path.join(ROOT, x.id);
+    fs.mkdirSync(folder, { recursive: true });
+    projects.push({ id: x.id, name: x.name || x.id, folder, brief: 'BRIEF.md', workspaces: [] });
+  }
   fs.writeFileSync(PS, JSON.stringify(ps));
   fs.writeFileSync(FAKE, JSON.stringify({ workspaces, screens }));
   fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
@@ -156,6 +164,7 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
   fs.writeFileSync(path.join(HOME, '.claude', 'CLAUDE.md'), '# Working rules\n');
   if (alerts) fs.writeFileSync(path.join(MC, 'alerts.json'), JSON.stringify({ enabled: true, channel: 'ntfy', ntfy: { server: 'http://127.0.0.1:9', topic: 'demo-board-alerts' } }), { mode: 0o600 });
 
+  if (prepare) await prepare({ HOME, ROOT, MC });
   const T = path.join(HUB, 'tools');
   const env = {
     PATH: process.env.PATH, HOME, RAVENRY_HOME: MC, PORT: String(port), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',

@@ -38,5 +38,8 @@ contextBridge.exposeInMainWorld('ravenry', {
   storeGet: () => ipcRenderer.invoke('store:get'),
   storeSet: (patch: Record<string, unknown>) => ipcRenderer.send('store:set', patch),
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
+  openPath: (p: string) => ipcRenderer.send('open-path', p),
+  copyText: (text: string) => ipcRenderer.send('copy-text', text),
+  hubCall: (method: string, p: string, body?: unknown) => ipcRenderer.invoke('hub:call', method, p, body),
   focusWindow: () => ipcRenderer.send('focus-window'),
 });
