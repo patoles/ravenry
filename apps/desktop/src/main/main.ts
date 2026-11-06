@@ -12,18 +12,27 @@
 //   RAVENRY_THEME          dark or light (default: the system's)
 //   RAVENRY_OFFSCREEN=1    never show the window (tests and screenshots)
 //   RAVENRY_DRIVER         a script that drives the window (tools/)
+//   RAVENRY_SERVICE        install, dry-run or off: the hub service
+//                          (install.ts; default: install when packaged)
+//   RAVENRY_UPDATES=0      never check for updates (updater.ts)
 //
 // The home folder is HOME (os.homedir), so a test's throwaway HOME is used
 // for everything the app reads there.
 
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
+import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
 import { HubFeed, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
+import { dataRoot, ensureService, pruneVersions, readBuildInfo, serviceFile, serviceMode, serviceSpec, stageVersion } from './install.ts';
+import type { Staged } from './install.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
+import { Updates } from './updater.ts';
 
 const APP_ROOT = path.resolve(__dirname, '..');
 const OFFSCREEN = process.env.RAVENRY_OFFSCREEN === '1';
@@ -40,6 +49,7 @@ const daemon = new DaemonLink(APP_ROOT);
 let store: Store;
 let win: BrowserWindow | null = null;
 let feed: HubFeed | null = null;
+const updates = new Updates(process.resourcesPath, () => menu());
 
 function send(channel: string, ...args: unknown[]): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
@@ -91,8 +101,24 @@ function menu(): void {
   const tabs: MenuItemConstructorOptions[] = Array.from({ length: 9 }, (_, i) => ({
     label: `Tab ${i + 1}`, accelerator: `${isMac ? 'Cmd' : 'Alt'}+${i + 1}`, click: cmd('tab', i), visible: false,
   }));
+  const u = updates.state;
+  const updateItem: MenuItemConstructorOptions = u.kind === 'ready'
+    ? { label: `Restart to Update to ${u.version}`, click: () => updates.installNow() }
+    : { label: 'Check for Updates…', click: () => void updates.checkNow(win) };
   const template: MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const },
+        updateItem,
+        { type: 'separator' as const },
+        { role: 'services' as const },
+        { type: 'separator' as const },
+        { role: 'hide' as const }, { role: 'hideOthers' as const }, { role: 'unhide' as const },
+        { type: 'separator' as const },
+        { role: 'quit' as const },
+      ],
+    }] : []),
     {
       label: 'Shell',
       submenu: [
@@ -130,6 +156,7 @@ function menu(): void {
       ],
     },
     { role: 'windowMenu' },
+    ...(isMac ? [] : [{ label: 'Help', submenu: [updateItem] }]),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -172,14 +199,60 @@ function ipc(): void {
   ipcMain.on('open-external', (_e, url: string) => { if (/^https?:\/\//.test(url)) void shell.openExternal(url); });
 }
 
+// The packaged app's ravenryd and hub, copied out of the app for this
+// version (install.ts). Null in development.
+function stage(): Staged | null {
+  const build = app.isPackaged ? readBuildInfo(process.resourcesPath) : null;
+  if (!build) return null;
+  try {
+    const staged = stageVersion({ resources: process.resourcesPath, root: dataRoot(), build });
+    daemon.useOwn(staged.ravenryd, build.version);
+    return staged;
+  } catch (e) {
+    console.error('install: could not copy ravenryd and the hub out of the app:', e);
+    return null;
+  }
+}
+
+async function boardAnswers(): Promise<boolean> {
+  try { return (await fetch(hubUrl() + '/api/state', { signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
+}
+
+// The hub as a user service, installed or brought up to this version, then
+// version folders nothing runs from any more are removed.
+async function setUpService(staged: Staged): Promise<void> {
+  const mode = serviceMode(process.env, app.isPackaged);
+  const run = (cmd: string, args: string[]) => {
+    const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 15000 });
+    return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+  };
+  try {
+    const r = await ensureService({ mode, spec: serviceSpec({ execPath: process.execPath, staged }), run, boardAnswers });
+    const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
+    console.log(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
+  } catch (e) {
+    console.error('service:', e);
+  }
+  setTimeout(() => {
+    let svc: string | null = null;
+    try { svc = fs.readFileSync(serviceFile(), 'utf8'); } catch { /* none */ }
+    const running = listSockets(runtimeDir()).map((s) => s.version);
+    const gone = pruneVersions(dataRoot(), staged.version, running, svc);
+    if (gone.length) console.log(`install: removed versions nothing runs from: ${gone.join(', ')}`);
+  }, OFFSCREEN ? 0 : 60000).unref();
+}
+
 app.whenReady().then(async () => {
   if (OFFSCREEN && isMac) app.dock?.hide();
   store = new Store(app.getPath('userData'));
+  const staged = stage();
   ipc();
   menu();
   feed = new HubFeed(hubUrl(), (s) => send('hub:state', s), (st: HubStatus) => send('hub:status', st));
   feed.start();
   win = createWindow();
+  if (staged) void setUpService(staged);
+  if (!OFFSCREEN) updates.start();
   if (process.env.RAVENRY_DRIVER) {
     // Tests and screenshots: a script outside the app drives the window.
     const drive = require(process.env.RAVENRY_DRIVER) as (w: BrowserWindow, ctx: object) => Promise<void>;
@@ -192,4 +265,4 @@ app.whenReady().then(async () => {
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.on('activate', () => { if (!win && app.isReady()) win = createWindow(); });
 app.on('window-all-closed', () => { if (!isMac || OFFSCREEN) app.quit(); });
-app.on('before-quit', () => { store?.flush(); feed?.stop(); });
+app.on('before-quit', () => { store?.flush(); feed?.stop(); updates.stop(); });

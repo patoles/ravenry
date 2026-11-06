@@ -17,14 +17,16 @@ export function daemonEnv(env: NodeJS.ProcessEnv = process.env): Record<string, 
 }
 
 /**
- * The ravenryd binary to start when none runs: RAVENRYD, then the one
- * shipped in the app's resources, then the repo's daemon/ravenryd (a dev
- * build), then the PATH.
+ * The ravenryd binary to start when none runs: RAVENRYD, then the packaged
+ * app's copy of its own (install.ts, stageVersion), then the one in the
+ * app's resources, then the repo's daemon/ravenryd (a dev build), then the
+ * PATH.
  */
-export function daemonBinary(appRoot: string, env: NodeJS.ProcessEnv = process.env): string | null {
+export function daemonBinary(appRoot: string, env: NodeJS.ProcessEnv = process.env, staged?: string | null): string | null {
   const exe = process.platform === 'win32' ? 'ravenryd.exe' : 'ravenryd';
   const candidates = [
     env.RAVENRYD,
+    staged || undefined,
     process.resourcesPath ? path.join(process.resourcesPath, exe) : undefined,
     path.resolve(appRoot, '..', '..', 'daemon', exe),
     ...(env.PATH || '').split(path.delimiter).filter(Boolean).map((d) => path.join(d, exe)),

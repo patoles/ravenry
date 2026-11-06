@@ -8,7 +8,7 @@
 
 import { MessageChannelMain } from 'electron';
 import type { WebContents } from 'electron';
-import { findDaemon, openUnixSocket, runtimeDir } from '@ravenry/client/node';
+import { compareVersions, findDaemon, openUnixSocket, runtimeDir, startDaemon } from '@ravenry/client/node';
 import { daemonBinary, daemonEnv } from './spawn.ts';
 
 const CLIENT = { name: 'ravenry-desktop', version: process.env.npm_package_version || '0.1.0' };
@@ -18,18 +18,40 @@ export class DaemonLink {
   version: string | null = null;
   private appRoot: string;
   private finding: Promise<string> | null = null;
+  /** The packaged app's own ravenryd and its version (install.ts). */
+  private own: { bin: string; version: string } | null = null;
 
   constructor(appRoot: string) {
     this.appRoot = appRoot;
+  }
+
+  /**
+   * The ravenryd this app ships. When the newest running daemon is older
+   * (the app was just updated), this one starts beside it: new panes go to
+   * it, and the old daemon keeps its panes until they end.
+   */
+  useOwn(bin: string, version: string): void {
+    this.own = { bin, version };
   }
 
   /** The socket of the daemon new panes go to, starting one when none runs. */
   ensure(): Promise<string> {
     if (this.finding) return this.finding;
     this.finding = (async () => {
-      const bin = daemonBinary(this.appRoot);
+      const bin = daemonBinary(this.appRoot, process.env, this.own?.bin);
       const env = daemonEnv();
-      const { client, socket } = await findDaemon({ ...CLIENT, env, start: bin || undefined, startEnv: env });
+      let { client, socket } = await findDaemon({ ...CLIENT, env, start: bin || undefined, startEnv: env });
+      const own = this.own;
+      if (own && bin === own.bin && compareVersions(own.version, client.hello.daemon.version) > 0) {
+        client.close();
+        await startDaemon(own.bin, env);
+        for (const until = Date.now() + 5000; ;) {
+          ({ client, socket } = await findDaemon({ ...CLIENT, env }));
+          if (client.hello.daemon.version === own.version || Date.now() > until) break;
+          client.close();
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
       this.version = client.hello.daemon.version;
       client.close();
       this.socket = socket;
