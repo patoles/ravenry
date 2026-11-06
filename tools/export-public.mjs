@@ -139,7 +139,7 @@ function loadTerms(file) {
     const t = raw.trim();
     if (!t || t.startsWith('#')) continue;
     const m = t.match(/^\/(.+)\/([a-z]*)$/);
-    out.push([`personal term ${t}`, m ? new RegExp(m[1], m[2].includes('g') ? m[2] : m[2] + 'g') : new RegExp(`(?<![A-Za-z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'gi')]);
+    out.push([`personal term ${t}`, m ? new RegExp(m[1], m[2].includes('g') ? m[2] : m[2] + 'g') : new RegExp(`(?:(?<![A-Za-z0-9])|(?<=\\\\[nrtfv]))${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'gi')]);
   }
   return out;
 }

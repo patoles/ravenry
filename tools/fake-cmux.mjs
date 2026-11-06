@@ -185,7 +185,7 @@ function log(sf, k) { st.keys = st.keys || {}; (st.keys[sf] = st.keys[sf] || [])
 // (a typed "!" on an empty prompt shows bash mode's "!" marker).
 function render(sf) {
   const pr = st.prompts[sf];
-  if (pr.shell) { st.screens[sf] = `Last login: Tue Nov  4 09:00:00 on ttys004\nsimon@mac paper-boat % ${pr.typed || ''}\n`; return; }
+  if (pr.shell) { st.screens[sf] = `Last login: Tue Nov  4 09:00:00 on ttys004\nyou@mac paper-boat % ${pr.typed || ''}\n`; return; }
   const rule = '─'.repeat(99);
   const line = pr.bash ? '! ' + (pr.typed || '') : '❯ ' + (pr.typed || pr.ghost || '');
   st.screens[sf] = `${pr.body || ''}\n${rule}\n${line}\n${rule}\n  ⏵⏵ auto mode on (shift+tab to cycle)\n`;
