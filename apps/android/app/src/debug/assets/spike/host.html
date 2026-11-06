@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MCP Apps sandbox spike</title>
+<!-- The host: the phone board's origin. It embeds an outer frame of another
+     origin, which embeds the app's HTML as a sandboxed srcdoc frame, as MCP
+     Apps' double-iframe sandbox does. Debug builds only. -->
+<body>
+<iframe id="o" src="https://sandbox.ravenry.test/spike/outer.html" style="width:100%;height:200px;border:0"></iframe>
+<script>
+const R = window.spikeResults = { host_shell: typeof window.ravenryShell, host_leaky: typeof window.leaky };
+fetch('/phone/hub/api/state').then((r) => r.text()).then((t) => { R.host_fetch_hub = t.includes('hub data') ? 'allowed' : 'other'; }, () => { R.host_fetch_hub = 'blocked'; });
+const o = document.getElementById('o');
+window.addEventListener('message', (e) => {
+  if (e.source !== o.contentWindow) return;
+  if (e.origin !== 'https://sandbox.ravenry.test') return;
+  const m = e.data || {};
+  if (m.type === 'ready') o.contentWindow.postMessage({ type: 'ping', n: 7 }, 'https://sandbox.ravenry.test');
+  if (m.type === 'report') { Object.assign(R, m.report); R.relay = m.pong === 8 ? 'ok' : 'wrong'; R.done = true; }
+});
+</script>
+</body>

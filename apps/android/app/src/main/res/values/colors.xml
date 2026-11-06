@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The board's tokens (hub/public/app.css), light. -->
+<resources>
+  <color name="win">#FFF1F0ED</color>
+  <color name="card">#FFFFFFFF</color>
+  <color name="tx">#FF1D1D1F</color>
+  <color name="tx2">#FF5F5F66</color>
+  <color name="tx3">#FF8E8E93</color>
+  <color name="work">#FF2F6FEB</color>
+  <color name="chip">#E61D1D1F</color>
+  <color name="icon_bg">#FF121214</color>
+</resources>

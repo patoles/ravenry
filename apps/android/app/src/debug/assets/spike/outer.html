@@ -1,0 +1,41 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- The sandbox proxy: another origin than the host. It only relays
+     messages between the host and the app's frame. -->
+<body>
+<script>
+const out = { outer_origin: location.origin, outer_shell: typeof window.ravenryShell, outer_leaky: typeof window.leaky };
+try { out.outer_reads_parent = String(!!parent.document.body); } catch (e) { out.outer_reads_parent = 'blocked'; }
+fetch('https://appassets.androidplatform.net/phone/hub/api/state', { mode: 'no-cors' }).then(() => { out.outer_fetch_hub = 'request made'; }, () => { out.outer_fetch_hub = 'blocked'; });
+const HOST = 'https://appassets.androidplatform.net';
+const f = document.createElement('iframe');
+f.setAttribute('sandbox', 'allow-scripts');
+f.style.cssText = 'width:100%;height:120px;border:0';
+f.srcdoc = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; img-src 'none'"><body><script>
+addEventListener('message', async (e) => {
+  if (e.source !== parent || !e.data || e.data.type !== 'ping') return;
+  const r = { inner_origin: self.origin, inner_shell: typeof window.ravenryShell, inner_leaky: typeof window.leaky };
+  try { r.inner_reads_parent = String(!!parent.document.body); } catch (x) { r.inner_reads_parent = 'blocked'; }
+  try { r.inner_reads_top = String(!!top.document.body); } catch (x) { r.inner_reads_top = 'blocked'; }
+  try { localStorage.setItem('k', '1'); r.inner_storage = 'allowed'; } catch (x) { r.inner_storage = 'blocked'; }
+  try { document.cookie = 'k=1'; r.inner_cookie = document.cookie ? 'allowed' : 'blocked'; } catch (x) { r.inner_cookie = 'blocked'; }
+  try { const w = window.open('https://example.com/'); r.inner_popup = w ? 'opened' : 'blocked'; } catch (x) { r.inner_popup = 'blocked'; }
+  for (const [k, u] of [['inner_fetch_app', 'https://appassets.androidplatform.net/spike/host.html'], ['inner_fetch_hub', 'https://appassets.androidplatform.net/phone/hub/api/state']]) {
+    try { await fetch(u); r[k] = 'allowed'; } catch (x) { r[k] = 'blocked'; }
+  }
+  try { r.inner_leaky_call = window.leaky ? String(window.leaky.secret()) : 'absent'; } catch (x) { r.inner_leaky_call = 'error'; }
+  try { top.location.href = 'https://example.com/'; r.inner_top_nav = 'attempted'; } catch (x) { r.inner_top_nav = 'blocked'; }
+  parent.postMessage({ type: 'inner', r, pong: e.data.n + 1 }, '*');
+});
+parent.postMessage({ type: 'innerReady' }, '*');
+<\/script></body>`;
+document.body.appendChild(f);
+let pong = null;
+addEventListener('message', (e) => {
+  const m = e.data || {};
+  if (e.source === f.contentWindow && m.type === 'innerReady') parent.postMessage({ type: 'ready' }, HOST);
+  if (e.source === parent && e.origin === HOST && m.type === 'ping') f.contentWindow.postMessage(m, '*');
+  if (e.source === f.contentWindow && m.type === 'inner') parent.postMessage({ type: 'report', report: Object.assign({}, out, m.r), pong: m.pong }, HOST);
+});
+</script>
+</body>

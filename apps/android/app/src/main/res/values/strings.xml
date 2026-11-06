@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Ravenry</string>
+  <string name="channel_needs_you">Needs you</string>
+  <string name="channel_needs_you_about">A session asks, wants to run a command or needs a secret</string>
+  <string name="channel_connection">Connection</string>
+  <string name="channel_connection_about">What the phone is linked to, quietly</string>
+  <string name="connected">connected</string>
+  <string name="linking">Linking to %1$s.</string>
+  <string name="not_linked">Can\'t reach %1$s right now. Trying again.</string>
+  <string name="open">Open</string>
+  <string name="run">Run</string>
+  <string name="cancel">Cancel</string>
+  <string name="sent">Sent: %1$s</string>
+  <string name="not_reached">Not sent: %1$s didn\'t answer.</string>
+  <string name="not_taken">Not sent. Open it in the app.</string>
+  <string name="not_paired">Not sent: this phone isn\'t paired.</string>
+  <string name="no_fingerprint">Run needs a fingerprint, and none is set up on this phone. Set one up in Settings, or run it on the computer.</string>
+  <string name="no_fingerprint_hw">Run needs a fingerprint, and this phone can\'t take one. Run it on the computer.</string>
+  <string name="pair_title">Pair with your Mac</string>
+  <string name="pair_sub">On the Mac, click the phone button in Ravenry and point the camera at the code it shows.</string>
+  <string name="pair_hold">Hold it inside the corners</string>
+  <string name="pair_away">Away from home, the phone reaches your Mac through Tailscale.</string>
+  <string name="pair_tailscale">Set up Tailscale</string>
+  <string name="pair_camera_q">Camera not working?</string>
+  <string name="pair_type">Type the code instead</string>
+  <string name="pair_foot">No account. Your sessions stay on your machines.</string>
+  <string name="pair_no_camera">The camera is off. Allow it, or type the code instead.</string>
+  <string name="pair_type_sub">Type the address and the code the Mac shows under its QR code.</string>
+  <string name="pair_address">The Mac\'s address</string>
+  <string name="pair_code">The code</string>
+  <string name="pair_next">Next</string>
+  <string name="pair_check_title">Does the Mac show this number?</string>
+  <string name="pair_check_sub">It is under the code on the Mac. Pair only when the two match.</string>
+  <string name="pair_match">They match, pair</string>
+  <string name="pair_confirm">Pair with %1$s?</string>
+  <string name="pair_confirm_sub">Only pair with a computer of your own: it will see your answers and can ask you for secrets.</string>
+  <string name="pair_button">Pair</string>
+  <string name="pair_back">Back</string>
+  <string name="pairing">Pairing…</string>
+  <string name="signed_out">This phone was signed out. Scan the code on the Mac again.</string>
+</resources>

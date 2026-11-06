@@ -1,0 +1,63 @@
+# The Android app (apps/android): the debug APK, with the phone board built
+# into it from the monorepo (apps/phone, with Node), and the JVM unit tests:
+# the pinned key refused for any other key even from a real authority, the
+# pairing link and the typed code's check number, the alert messages and
+# what each button calls, and push bodies (RFC 8291) opened with the
+# UnifiedPush connector's own decryption, the RFC's example and one made by
+# Node. The instrumented tests (the bridge round trip, the MCP Apps sandbox
+# spike) need an emulator and run locally (apps/android/README.md).
+# A release is built and signed only when the signing secrets exist; until
+# then the job builds the debug APK alone. No keystore is ever made here.
+name: android
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.RAVENRY_ANDROID_KEYSTORE_B64 != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: The phone board's typecheck and tests
+        run: |
+          npm --workspace @ravenry/phone run typecheck
+          npm --workspace @ravenry/phone test
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/gradle/libs.versions.toml
+            apps/android/**/*.gradle.kts
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+      - name: Debug APK and unit tests
+        working-directory: apps/android
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+      - name: Release APK, signed
+        if: env.HAS_KEY == 'true'
+        working-directory: apps/android
+        env:
+          KEYSTORE_B64: ${{ secrets.RAVENRY_ANDROID_KEYSTORE_B64 }}
+          RAVENRY_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.RAVENRY_ANDROID_KEYSTORE_PASSWORD }}
+          RAVENRY_ANDROID_KEY_ALIAS: ${{ secrets.RAVENRY_ANDROID_KEY_ALIAS }}
+          RAVENRY_ANDROID_KEY_PASSWORD: ${{ secrets.RAVENRY_ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ravenry.keystore"
+          RAVENRY_ANDROID_KEYSTORE="$RUNNER_TEMP/ravenry.keystore" ./gradlew --no-daemon assembleRelease
+          rm -f "$RUNNER_TEMP/ravenry.keystore"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ravenry-android-debug
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7

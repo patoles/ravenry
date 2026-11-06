@@ -1,0 +1,8 @@
+{
+  "about": "RFC 8291 aes128gcm, made with Node crypto",
+  "uaPublic": "BHPeekcPEsP1XzoRAfqwEEG9uUpQxm4KCLHoDa2oBE1BvUqbb3ro_JuT5ANO2bbtE3qngUkFmA_ZJev-_KaHBes",
+  "uaPrivate": "Rk2ODol6KXNprliF0bliEi4Qfiz6Cgyvp0ULlIgFRRM",
+  "auth": "SdM6MYYmPAP40AbFJOpt0A",
+  "body": "U5ne3oU5nU3lzdJXQGqRqwAAEABBBGa6jZxOO6TO7YhnjgRNZkWmlT8aJBzOEBfWiXiW-88UG9JH3Yt2dyNHJvB8HuyNp-ToDCi8qV6Fp_HOtnyLKdGftle7BcqLYHHfEGbG7CJHNxt77W2w656mZODLTePW-5tr18X0-AQHO5FqTo2I9Ru7EzPlUoYgeCTqxPM2jwpsdNTvaMS5X6ya-TIR57b_xATgB5immGG6rJcK_vQOrRvtdpk2dJ6x9b-0IYRYy1mDhB83GRztXT-fOwmWzGBJapL6FcWGgBLWboKCNh0ro-fpGX3eqHs1fMmGEH68XJOwrDGHe7ii8Z9gDHptgXwlPEIId0_78ZOLG3D6xmOJ41tCSVc6iSj1wv7GgdUVvfy0GQq_K5Fj695KrY-0zpLFzQpDaFb9MBOa15PDOT4XCqy8txGzII7Y0HroHOTIQChAHn7Xz8R0MNxhPg",
+  "plaintext": "{\"v\":1,\"type\":\"alert\",\"id\":\"cp:c7k2m9qx\",\"kind\":\"ask\",\"title\":\"Sync settings asks\",\"body\":\"Ship the beta to the testers?\",\"actions\":[{\"id\":\"choice:0\",\"label\":\"Ship it\"},{\"id\":\"choice:1\",\"label\":\"Not yet\"}],\"reply\":{\"action\":\"text\",\"label\":\"Answer\"}}"
+}

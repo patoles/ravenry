@@ -1,0 +1,15 @@
+# Never committed: the SDK path of one machine, and any signing key.
+local.properties
+*.jks
+*.keystore
+keystore.properties
+
+.gradle/
+build/
+captures/
+.cxx/
+*.iml
+.idea/
+.DS_Store
+.kotlin/
+gradle/wrapper/gradle-wrapper.jar
