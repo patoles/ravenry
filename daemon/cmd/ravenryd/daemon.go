@@ -78,7 +78,7 @@ func cmdServe(in []string) error {
 		return err
 	}
 	logger := log.New(os.Stderr, "ravenryd: ", log.LstdFlags)
-	mgr := pane.NewManager(pane.ManagerOptions{LogDir: logDir, Socket: sock, Env: cleanEnv()})
+	mgr := pane.NewManager(pane.ManagerOptions{LogDir: logDir, Socket: sock, Env: cleanEnv(), ShellDir: filepath.Join(state, "shell")})
 	var once sync.Once
 	done := make(chan struct{})
 	stop := func() { once.Do(func() { close(done) }) }

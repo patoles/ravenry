@@ -189,6 +189,23 @@ its `since`, so "send a command, wait for the next prompt" works whatever
 the command prints. A shell without shell integration sends no marks;
 `shell` then stays absent and a `prompt` wait times out.
 
+**Shell integration.** The daemon gives zsh, bash and fish the marks
+itself, when it starts one interactively in a pane (the default login
+shell, or a `command` that is the shell with no script or `-c`): `A`, `B`,
+`C` with the command line (`cmdline_url`) and `D` with the exit status,
+and OSC 7 with the working folder. It injects them at start, as Ghostty
+does, and never changes the user's files: zsh gets a `ZDOTDIR` whose
+`.zshenv` gives `ZDOTDIR` back and runs the user's own; bash 4 and newer
+starts with `--posix` and an `ENV` file that leaves POSIX mode and runs
+the user's startup files as bash would have; bash 3.2 (macOS's
+`/bin/bash`) gets a `PROMPT_COMMAND` that loads the integration at the
+first prompt; fish gets `XDG_DATA_DIRS` with a `vendor_conf.d`. Each
+puts the variables it used back before the user's files run, so the
+shell's own commands do not inherit them. `RAVENRY_SHELL_INTEGRATION=0`
+(or `off`, `no`, `false`) in `pane.new`'s `env`, or in the daemon's own
+environment, starts the shell as it is. Other shells start as they
+are.
+
 **The agent in a pane.** The daemon keeps the state of the agent (a coding
 assistant, or any program that reports on itself) running in each pane,
 from the reports it gets (section 4, Agents):
@@ -277,7 +294,7 @@ daemon events of section 6. Subscribing again updates `display`.
 | --- | --- | --- |
 | `command` | array of strings, optional | Program and arguments. The program is looked up on the pane's `PATH`. Default: the user's login shell (`$SHELL`, else `/bin/sh`), started as a login shell. |
 | `cwd` | string, optional | Default: the home directory. |
-| `env` | object, optional | Variables to add or override. `RAVENRY_PANE` and `RAVENRY_SOCKET` cannot be overridden. |
+| `env` | object, optional | Variables to add or override. `RAVENRY_PANE` and `RAVENRY_SOCKET` cannot be overridden. `RAVENRY_SHELL_INTEGRATION=0` turns shell integration off (section 3). |
 | `cols`, `rows` | integers, optional, together | 1 to 4096. Default 80 x 24. |
 | `name` | string, optional | A label for people. |
 | `hidden` | boolean, optional | |

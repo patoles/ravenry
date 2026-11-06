@@ -41,11 +41,15 @@ type ManagerOptions struct {
 	// LogAge is how old a closed pane's log may get before it is removed;
 	// zero means seven days.
 	LogAge time.Duration
+	// ShellDir is where the shell integration files are written (shell.go);
+	// empty means panes get no shell integration.
+	ShellDir string
 }
 
 // Manager holds a daemon's panes.
 type Manager struct {
 	o        ManagerOptions
+	shell    string // the shell integration folder, or empty
 	mu       sync.Mutex
 	panes    map[string]*Pane
 	watchers map[int]func(Event)
@@ -75,6 +79,10 @@ func NewManager(o ManagerOptions) *Manager {
 	}
 	m := &Manager{o: o, panes: map[string]*Pane{}, watchers: map[int]func(Event){}}
 	m.pruneLogs()
+	if o.ShellDir != "" {
+		// Without the files, shells start as they are.
+		m.shell, _ = installShell(o.ShellDir)
+	}
 	return m
 }
 
@@ -138,7 +146,7 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 		return nil, errors.New("the daemon is shutting down")
 	}
 	m.mu.Unlock()
-	p, err := start(cfg, m.o.Env, m.o.LogDir, m.o.LogCap, m.o.Socket)
+	p, err := start(cfg, m.o.Env, m.o.LogDir, m.o.LogCap, m.o.Socket, m.shell)
 	if err != nil {
 		return nil, err
 	}

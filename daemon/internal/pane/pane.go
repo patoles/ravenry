@@ -171,8 +171,9 @@ func newID() string {
 	return "p" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))[:7]
 }
 
-// start starts a pane. env is the full base environment.
-func start(cfg Config, env []string, logDir string, logCap int64, socket string) (*Pane, error) {
+// start starts a pane. env is the full base environment; shellDir holds
+// the shell integration files, or is empty.
+func start(cfg Config, env []string, logDir string, logCap int64, socket, shellDir string) (*Pane, error) {
 	if cfg.Cols == 0 {
 		cfg.Cols = defaultCols
 	}
@@ -224,7 +225,8 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket string)
 		cmd.Args[0] = cfg.Command[0]
 	}
 	cmd.Dir = cfg.Cwd
-	cmd.Env = paneEnv(env, cfg.Env, p.id, socket)
+	inject := injectShell(shellDir, cmd, cfg.Env, env)
+	cmd.Env = withEnv(paneEnv(env, cfg.Env, p.id, socket), inject)
 	p.cfg = cfg
 
 	screen, err := vt.New(vt.Options{

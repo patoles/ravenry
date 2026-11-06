@@ -1399,7 +1399,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Added to the daemon's environment. RAVENRY_PANE and RAVENRY_SOCKET are set by the daemon and cannot be overridden."
+          "description": "Added to the daemon's environment. RAVENRY_PANE and RAVENRY_SOCKET are set by the daemon and cannot be overridden. RAVENRY_SHELL_INTEGRATION=0 (or off, no, false) starts zsh, bash or fish without the daemon's shell integration (PROTOCOL.md section 3)."
         },
         "cols": {
           "type": "integer",

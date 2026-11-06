@@ -49,10 +49,13 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   socket. A new version starts beside the old one, new panes go to it, and
   the old one keeps its panes and exits once none of them is running.
   PROTOCOL.md section 9 says how clients find the right daemon.
+- **Shell integration.** zsh, bash and fish started in a pane send OSC 133
+  prompt marks (with the command line and its exit status) and OSC 7,
+  injected at start the way Ghostty does it, without touching the user's
+  files (`internal/pane/shell`, PROTOCOL.md section 3).
+  `RAVENRY_SHELL_INTEGRATION=0` turns it off.
 
-Not built yet: a TCP listener for the phone, Windows, shell integration
-injected into the shells ravenryd starts (today a shell sends OSC 133
-marks only when its own setup does).
+Not built yet: a TCP listener for the phone, Windows.
 
 ## Layout
 
