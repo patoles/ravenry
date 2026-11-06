@@ -103,6 +103,20 @@ the ids are the tab's own. On exit from the daemon the shell shows
 "Disconnected from this task." and no SessionEnd comes; the board reads the
 shell on the screen as the session gone.
 
+**Codex in iTerm2 and Rex.** The same holds there: decided on 2026-11-06,
+a Codex session in a Rex tab is watch only, as in iTerm2, for the same
+reason. Measured: `codex` (0.166.0) started in a throwaway Rex tab started
+the shared daemon (`codex app-server --listen unix:// --managed-daemon`,
+its parent that tab's Codex), so its hooks would carry the environment of
+whichever Rex pane started the daemon, and `REX_BLOCK` could name another
+session's pane. Rex can say which program runs in each pane (`rex block
+call -b <block> process`: Codex and its folder), but not which Codex
+session that is, and two Codex tabs in one folder could not be told apart,
+so the board does not guess. Nothing in the board is particular to Claude
+Code for Rex: a Codex hook that runs outside the daemon (none does on
+0.166.0) records `REX_BLOCK` like Claude Code's, and that session is
+driven exactly as Claude Code's is (its screen, its menus, a message).
+
 ## Codex's screen
 
 docs/STATE-RULES.md, "Codex's screen", has the rules; captured screens are in

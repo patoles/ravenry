@@ -55,7 +55,7 @@ docs/HANDOFF.md, Install).
    open tab, before the newest-transcript guess.
 
 A session whose events name no open cmux tab (another terminal, a board in
-iTerm2 mode, or cmux not answering) is still shown, as "hook events, no
+iTerm2 mode or Rex mode, or cmux not answering) is still shown, as "hook events, no
 terminal tab", in "Which project a session seen only through its events is
 in" (below). It has no screen, and the board cannot type into it.
 
@@ -165,8 +165,8 @@ Checked in this order; the first that matches wins.
 
 After a turn ends, Claude Code (setting `promptSuggestionEnabled`, on by
 default) shows a dim grey suggested reply after the `❯`, 2 to 6 s after the
-done line (3.3 s measured on Claude Code 2.1.318). `cmux read-screen` and
-iTerm2's AppleScript `contents` are plain text, so it reads exactly like a
+done line (3.3 s measured on Claude Code 2.1.318). `cmux read-screen`,
+iTerm2's AppleScript `contents` and `rex capture` are plain text, so it reads exactly like a
 half-typed reply; on 2026-11-04 a reply from the board was refused with
 "There is half-typed text in its prompt" because of one.
 `server/suggestion.mjs` is the one place that tells them apart; every rule
@@ -205,7 +205,7 @@ Three signals, strongest first:
 
 Send and Close use the styled read, else the probe; they never act on the
 history. A board started while a session sat at rest has no history for it
-and, in iTerm2, no styled read: the text then shows as **not** a draft,
+and, in iTerm2 and Rex, no styled read: the text then shows as **not** a draft,
 because almost every session at rest holds a suggestion, and calling them all
 half typed would flag most of the board after a restart; Send and Close still
 probe before they act, so typed text is never mixed in or closed.
@@ -354,14 +354,14 @@ hand-off never writes a HANDOFF.md into one.
    around the `cwd` (started in the projects root), the project closest
    around the repo it works in. So a session started in a project's repo
    that works mostly in another repo stays with that project.
-3. **None**: in iTerm2 mode, an iTerm2 session whose folder no project holds
+3. **None**: in iTerm2 mode or Rex mode, an iTerm2 or Rex session whose folder no project holds
    becomes a project of its repo; started in a too-broad folder and working
    in no repo, it gets a card of its own for as long as it runs, named from
    its topic, with no folder, and nothing is written to the registry.
 
 A project with no folder (`"folder": null`, an idea with no repo) keeps an
 absolute brief; Open folder says it has none, and Revive opens a tab in its
-cmux workspace, or in iTerm2 mode says there is nowhere to start one.
+cmux workspace, or in iTerm2 mode or Rex mode says there is nowhere to start one.
 
 Measured 2026-11-02 on one Mac: a workspace's test tab worked in another
 project's repo (142 of 142 hits) and its video tab in a third; a workspace
@@ -391,7 +391,7 @@ record it. The bar has a tick at 50%, the hand-off line.
 - `terminal.replay` is not in cmux's CLI help (its mobile app uses it). A
   cmux without it gives no styled read, and the board falls back to the
   history and the probe.
-- In iTerm2, a reply typed within 30 s of a turn's end in one go, between
+- In iTerm2 and Rex, a reply typed within 30 s of a turn's end in one go, between
   two reads, shows as a suggestion until it changes. Send and Close still
   probe first.
 - parseScreen sees no prompt box while bash mode is on (`!` replaces the

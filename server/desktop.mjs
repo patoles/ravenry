@@ -7,8 +7,8 @@
 // --workspace <the project's workspace> [--surface <its session's tab>]`,
 // so clicking it opens that workspace. When the project has no open
 // workspace, or cmux refuses or is missing, it falls back to
-// `osascript -e 'display notification ...'`. A board in iTerm2 mode
-// (server/terminal.mjs, BOARD) never asks cmux and always uses osascript.
+// `osascript -e 'display notification ...'`. A board in iTerm2 mode or Rex
+// mode (server/terminal.mjs, BOARD) never asks cmux and always uses osascript.
 // The triggers, wording and dedupe are the phone alerts' (server/alerts.mjs
 // runs a second, separate trigger for this channel), and the text is never
 // the session's: only "<Project> needs you" and the kind.

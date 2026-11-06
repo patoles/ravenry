@@ -7,7 +7,7 @@ There is no contributor licence agreement to sign.
 
 - Open an issue with the steps to reproduce it and what you expected.
 - Include your macOS version, Node version (`node -v`), Claude Code version
-  (`claude --version`), your terminal (cmux, iTerm2 or another) and the
+  (`claude --version`), your terminal (cmux, iTerm2, Rex or another) and the
   output of `ravenry doctor`.
 - Leave out anything private: session text, project names and paths you
   would rather not share, alert tokens or phone access keys.

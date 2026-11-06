@@ -5,8 +5,8 @@ checkout. The user's guide, shipped in the npm package, is
 [README.md](../README.md); [PUBLISHING.md](PUBLISHING.md) says what the
 package holds and how to check it before a release.
 
-A local board for following every Claude Code session running in cmux or
-iTerm2 (and, watch only, in any other terminal): which project needs you,
+A local board for following every Claude Code session running in cmux,
+iTerm2 or Rex (and, watch only, in any other terminal): which project needs you,
 which is working, how full each context is, and a composer to answer an
 agent (with files) without hunting for its tab.
 
@@ -57,14 +57,16 @@ install it).
   sessions, print mode and the install.
 - `server/terminal.mjs` is the one terminal interface: every read, text,
   key, focus, new tab and close goes through it to an adapter,
-  `server/cmux.mjs` (the only module that runs the cmux CLI) or
+  `server/cmux.mjs` (the only module that runs the cmux CLI),
   `server/iterm.mjs` (the only one that talks to iTerm2, through AppleScript
-  and, for the arrow keys, its Python API). The events hook records which
+  and, for the arrow keys, its Python API) or `server/rex.mjs` (the only
+  one that runs Rex's `rex` command). The events hook records which
   terminal each session runs in; a session in any other terminal is watch
   only, and its controls say why. [docs/TERMINALS.md](TERMINALS.md)
   has the operations, the detection, the iTerm2 setup (`node
-  tools/install-iterm.mjs` once, the Python API on in iTerm2) and
-  Terminal.app as the next adapter.
+  tools/install-iterm.mjs` once, the Python API on in iTerm2), the Rex
+  setup (nothing to install; Remote Control on in Rex for Open in Rex),
+  Rex mode, and why Terminal.app has no adapter.
 - `~/.ravenry/projects.json` maps projects to cmux workspace UUIDs.
   It is created from cmux on first run and never rewritten after that, except
   to append workspaces it has not seen. Edit it freely: rename projects, merge
@@ -91,7 +93,7 @@ install it).
 - Memory and closing idle sessions: [docs/SESSIONS.md](SESSIONS.md).
   The top bar shows what every claude and codex process holds ("Sessions
   10.2 GB | 14 idle"); it opens the Sessions page, which closes the ticked idle
-  sessions through cmux or iTerm2 and can reopen them for 14 days.
+  sessions through cmux, iTerm2 or Rex and can reopen them for 14 days.
 
 ## Open on your phone
 
@@ -818,6 +820,29 @@ page alone took 1.3 s.
 New project from that page opened a new iTerm2 tab that ran
 `cd <folder> && <launch command> 'Read BRIEF.md and start on the first milestone.'`.
 
+## The board in Rex
+
+A board started in a Rex tab (`npm start`, or `ravenry`) runs in Rex mode,
+as one started in iTerm2 runs in iTerm2 mode: it never runs cmux, New
+project opens a new Rex session named after the project, Revive a new tab
+in the project's Rex session (else a new Rex session), a hand-off's fresh
+session and Reopen a new tab in the old Rex session, and the page names
+Rex where it said cmux. `RAVENRY_TERMINAL=rex` chooses it from anywhere.
+The page opens in the default browser: Rex has no browser pane, so there
+is no `npm run rex` beside `npm run iterm`. docs/TERMINALS.md has the
+details, the Remote Control note for Open in Rex and the measurements.
+
+A live check on a test board, with a real `claude` in a throwaway Rex
+session (as done on 2026-11-06, docs/TERMINALS.md, Rex setup): a scratch
+folder under the projects root (not /private/tmp, which the folder rules
+refuse), a test registry naming it under `.tmp/`, `launchCommand` and
+`handoffCommand` set to `claude --setting-sources project,local --settings
+<file>` where the file holds this checkout's `hooks/events.mjs` with that
+`RAVENRY_HOME` and `MC_BOARD_URL` (so the installed hooks do not run and
+the real `~/.ravenry` gets nothing), then `RAVENRY_TERMINAL=rex
+RAVENRY_HOME=<it> PORT=<port> MC_REX_REAL=1 npm start` and Revive. End by
+`rex kill` on every Rex session it made.
+
 ## Run at login
 
 The board runs inside cmux, because cmux's socket is in "cmux processes
@@ -986,6 +1011,16 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   the Python helper), then a test board on :4680 with an iTerm2 session, a
   VS Code session (watch only) and an iTerm2 session whose tab is gone, and
   the page headless. Touches only `.tmp/`.
+- `node tools/rex-test.mjs [shotsDir]`: the Rex adapter and Rex mode
+  (docs/TERMINALS.md, Tests): detection from the hook's environment (with
+  iTerm2's and Rex's variables inherited both ways), where the `rex`
+  command is found, the adapter against `tools/fake-rex.mjs` (the seven
+  operations, a line break as one bracketed paste, Open in Rex refused
+  then shown, watch only with no command, no server and an unknown API
+  revision), then test boards on :4671 (a Rex session read, typed into,
+  its menu chosen, a hand-off, Close idle and Reopen), :4672 and :4678
+  (watch only, and why) and :4673 (Rex mode with a cmux tripwire: New
+  project, Revive, the page). Touches only `.tmp/`.
 - `node tools/iterm-mode-test.mjs`: iTerm2 mode and `npm run iterm`
   (above, "The board in iTerm2"): which terminal the board drives from
   where it was started, the Ravenry tab against `tools/fake-iterm.mjs`

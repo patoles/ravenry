@@ -8,7 +8,7 @@ Design: [docs/design/CloseIdle.dc.html](design/CloseIdle.dc.html), variant
 C's page reached from variant A's top-bar readout (C was the clearest, a
 section of its own, opened from A's top button rather than a new tab). Code: `server/sessions.mjs` (processes, mapping, rules, records),
 `server/index.mjs` (`buildSessions`, `closeOne`, `reopenSession`),
-`server/terminal.mjs` (`close`, to `server/cmux.mjs` or `server/iterm.mjs`), `public/app.js` (`renderSessions`).
+`server/terminal.mjs` (`close`, to `server/cmux.mjs`, `server/iterm.mjs` or `server/rex.mjs`), `public/app.js` (`renderSessions`).
 
 ## Where it shows
 
@@ -53,7 +53,7 @@ folder, counted in the total, and never closed.
    had the same pid, and is skipped.
 3. **its tab:** the process's cmux tab comes from `CMUX_SURFACE_ID` in its
    environment (`ps -E`, read once per process), or, outside cmux and tmux,
-   its iTerm2 tab from `ITERM_SESSION_ID` (docs/TERMINALS.md), and the board's own mapping
+   its iTerm2 tab from `ITERM_SESSION_ID` or its Rex pane from `REX_BLOCK` (docs/TERMINALS.md), and the board's own mapping
    of that tab (docs/STATE-RULES.md, "Which session is in which tab") names
    the session, unless that mapping was one of its guesses.
 4. **launch argument:** `--session-id <id>` or `--resume <id>` in argv. Last,
@@ -85,7 +85,7 @@ sessions report after the hook change.
   (docs/HANDOFF.md), at any age.
 - **No activity for 24 h or more** (ticked): the rest.
 
-A row that cannot be ticked says why: no cmux or iTerm2 tab ("Outside cmux"), its tab
+A row that cannot be ticked says why: no cmux, iTerm2 or Rex tab ("Outside cmux"), its tab
 is gone, Claude is not on screen in its tab (suspended, say), it is the tab
 this board runs in, or two Claude processes share the tab.
 
@@ -106,6 +106,7 @@ each one the server checks again, fresh:
 
 Then it writes the record and closes the tab through the terminal interface
 (server/terminal.mjs): in iTerm2, AppleScript `close` on that one session;
+in Rex, `rex block close <block>` on that one pane;
 in cmux, `cmux close-surface --workspace <uuid> --surface <uuid>`, which ends Claude
 and keeps the transcript. Both ids are always passed and cmux's own
 `CMUX_*_ID` variables are left out of its environment, because without
@@ -117,13 +118,14 @@ fresh read; anything left open is listed with its reason.
 ## Recently closed and Reopen
 
 `~/.ravenry/closed/<sessionId>.json`: `id`, `cwd`, `workspaceId`,
-`workspaceRef`, `workspace`, `surfaceId`, `term` (`cmux` or `iterm`), `project`, `projectId`, `label`,
+`workspaceRef`, `workspace`, `surfaceId`, `term` (`cmux`, `iterm` or `rex`), `termSession` (Rex: its Rex session), `project`, `projectId`, `label`,
 `lastLine`, `memKb`, `pid`, `closedAt`. Kept 14 days, then deleted when the
 list is next read.
 
 Reopen opens a NEW terminal tab (not focused) in the same workspace, or in the
 workspace cmux shows now when that one is gone (a session closed in iTerm2:
-a new tab in iTerm2's current window), runs
+a new tab in iTerm2's current window; in Rex: a new tab in its Rex session
+while that is there, else a new Rex session), runs
 `cd <cwd> && claude --resume <id>` there (`launchCommand` from the registry
 settings, default `claude`), and drops the record.
 

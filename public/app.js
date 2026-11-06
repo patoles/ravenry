@@ -447,7 +447,7 @@ function emptyHtml() {
   if (!s || !s.generatedAt || (s.projects || []).length) return '<div class="empty">Pick a project on the left.</div>';
   const l = ['<p class="first-h">No sessions yet</p>', '<p>Start <span class="mono">claude</span> or <span class="mono">codex</span> in a project\'s folder, in any terminal, and it shows up here within a few seconds.</p>'];
   if (s.hooks && s.hooks !== 'ok') l.push(`<p>Ravenry's hooks are ${s.hooks === 'stale' ? 'out of date' : 'not installed'}, so it cannot see sessions yet. Run <span class="mono">ravenry setup</span> in a terminal.</p>`);
-  if (s.board && s.board.installed === false) l.push('<p>Watch only: answering from the board needs iTerm2 (free) or cmux. <a href="https://iterm2.com" target="_blank" rel="noopener">Get iTerm2</a></p>');
+  if (s.board && s.board.installed === false) l.push('<p>Watch only: answering from the board needs iTerm2 (free), cmux or Rex. <a href="https://iterm2.com" target="_blank" rel="noopener">Get iTerm2</a></p>');
   return `<div class="empty first">${l.join('')}</div>`;
 }
 
@@ -1694,20 +1694,22 @@ async function addNote() {
   }
 }
 
-// The terminal a session runs in, by name ("cmux", "iTerm2"), for the words
+// The terminal a session runs in, by name ("cmux", "iTerm2", "Rex"), for the words
 // that send the user there.
 function termOf(s) {
   return (s && s.termName) || boardTerm();
 }
 
 // The board's own terminal, by name: where New project, Revive and Reopen
-// open their tabs ("cmux", or "iTerm2" when the board runs in iTerm2 mode).
+// open their tabs ("cmux", or "iTerm2" or "Rex" when the board runs in that mode).
 function boardTerm() {
   return (ui.snap && ui.snap.board && ui.snap.board.name) || 'cmux';
 }
 
-// Where Start puts a new project's first session, in words.
+// Where Start puts a new project's first session, in words (Rex mode
+// opens a Rex session named after the project).
 function newPlace() {
+  if (boardTerm() === 'Rex') return 'a new Rex session';
   return boardTerm() === 'cmux' ? 'a cmux workspace' : `a new ${boardTerm()} tab`;
 }
 

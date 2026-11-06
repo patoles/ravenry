@@ -81,7 +81,7 @@ function record(input, daemon = false) {
   // sessions, so its pid is kept under its own name and never mapped.
   if (process.ppid > 1) r[ASSISTANT === 'claude' ? 'claude_pid' : ASSISTANT + '_pid'] = process.ppid;
   // Which terminal the session runs in, and its id there (iTerm2's and
-  // Terminal's session ids), so the board picks the adapter that can reach
+  // Terminal's session ids, Rex's block and session), so the board picks the adapter that can reach
   // it, or shows it watch only (docs/TERMINALS.md, server/termenv.mjs).
   // Not from Codex's daemon, whose environment is another terminal's.
   if (daemon) {

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0
+
+- Rex is the third terminal the board drives, beside cmux and iTerm2. A
+  Claude Code session in a Rex tab shows with its tab's title as its
+  topic, its screen read by the state rules and on the Live screen, and
+  the board types into it: messages (one with line breaks arrives as one
+  message), a menu's option chosen with the arrows and Enter, "Open in
+  Rex", Hand off now (the fresh session opens in a new tab of the old
+  tab's Rex session), Close idle sessions, and Reopen in a new Rex tab.
+  The board asks Rex only while a session runs there, never starts a Rex
+  server, and finds Rex's `rex` command where Rex Beta keeps it (it is
+  not on the PATH).
+- Without Rex's command, with its server not running or speaking an API
+  revision the board was not built for (it knows 11), Rex sessions are
+  watch only and say why. "Open in Rex" needs Remote Control on in Rex's
+  Settings; with it off the board says so.
+- A board started in a Rex tab runs in Rex mode, as one started in iTerm2
+  runs in iTerm2 mode: no cmux, New project opens a new Rex session named
+  after the project, Revive a new tab in the project's Rex session, and
+  the page says Rex where it said cmux. `ravenry` in a Rex tab does the
+  same, with the page in the default browser.
+- `ravenry doctor` reports Rex when it is installed: where its command
+  is, whether its server answers and its API revision, with the Remote
+  Control note. `This terminal: Rex` when run inside Rex.
+- Codex sessions in Rex are watch only, as in iTerm2: outside cmux Codex
+  runs its hooks in a shared daemon, so they cannot say which Rex tab a
+  session is in (docs/ASSISTANTS.md).
+
 ## 0.3.2
 
 - On a phone the gallery's thumbnails stay small whatever the number of

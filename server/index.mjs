@@ -1,6 +1,6 @@
-// Ravenry server: polls cmux (and iTerm2 while a session runs there) every
-// ~2 s through the terminal interface (server/terminal.mjs), or only iTerm2
-// when the board runs in iTerm2 mode (term.BOARD), builds one
+// Ravenry server: polls cmux (and iTerm2 or Rex while a session runs there)
+// every ~2 s through the terminal interface (server/terminal.mjs), or no
+// cmux at all when the board runs in iTerm2 mode or Rex mode (term.BOARD), builds one
 // snapshot of every project, serves it to the board (SSE), and carries the
 // board's answers back into the right Claude surface.
 
@@ -107,7 +107,7 @@ let markers = new Map();     // sessionId -> hand-off marker
 const gitDirty = new Map();  // folder -> { dirty, at, running }
 // Ravenry's own hook events (hooks/events.mjs), rescanned every tick.
 let ev = { all: new Map(), bySurface: new Map(), claimed: new Set(), live: new Set(), cmuxOk: true, tabs: {} };
-// Tabs of terminals that list their own (iTerm2), asked only while some
+// Tabs of terminals that list their own (iTerm2, Rex), asked only while some
 // session's events or some claude process place a session there:
 // kind -> { ok, tabs: Map(id -> tab), error, asked }.
 const otherTabs = {};
@@ -333,7 +333,7 @@ function transcriptOf(e) {
 }
 
 // The open tab of a session its events place in a terminal other than
-// cmux (iTerm2): { id: 'iterm:<UUID>', title, ... }, or null.
+// cmux (iTerm2, Rex): { id: 'iterm:<UUID>' or 'rex:<uuid>', title, ... }, or null.
 function otherTab(e) {
   if (!e || !e.terminal || e.terminal === 'cmux') return null;
   const id = term.tabIdFor(e.terminal, e.terminalId);
@@ -352,7 +352,7 @@ function cannotFor(kind) {
 }
 
 // The tab a board surface id names now, as the terminal interface takes it,
-// or null: a cmux surface in the last listing, or an open iTerm2 session.
+// or null: a cmux surface in the last listing, or an open iTerm2 session or Rex pane.
 function tabOf(surfaceId, workspaces = lastWorkspaces) {
   const kind = term.kindOf(surfaceId);
   if (kind === 'cmux') {
@@ -370,28 +370,47 @@ async function freshTab(surfaceId) {
   if (kind === 'cmux') return tabOf(surfaceId, await term.cmux.listWorkspaces());
   const list = await term.listTabs(kind);
   const t = list.find((x) => x.id === surfaceId);
-  return t ? { kind, surfaceId, title: t.title } : null;
+  return t ? { kind, surfaceId, title: t.title, sessionId: t.sessionId || null } : null;
 }
 
-// Lists iTerm2's tabs, but only while a session needs it: an iTerm2
-// session in the events that has not ended (seen in the last week), or a
-// claude process whose environment names an iTerm2 session. Then reads the
-// screen of every open tab such a session reports from.
+// Lists iTerm2's and Rex's tabs, each only while a session needs it: a
+// session in the events that has not ended (seen in the last week) placed
+// there, or a claude process whose environment names a tab there
+// (ITERM_SESSION_ID, REX_BLOCK). So a Mac without iTerm2 or Rex never runs
+// osascript or rex for them. Then reads the screen of every open tab such
+// a session reports from.
+const PROC_TAB = { iterm: 'itermId', rex: 'rexId' };
 async function refreshOtherTabs(evAll) {
+  for (const kind of term.OTHER_KINDS) await refreshKind(kind, evAll);
+}
+async function refreshKind(kind, evAll) {
   const week = Date.now() - 7 * 86400000;
-  const kind = 'iterm';
   const wanted = [...evAll.values()].filter((e) => e.terminal === kind && !e.endedAt && Date.parse(e.lastEventAt) > week);
-  const procs = procState.procs.filter((p) => p.itermId);
-  if (!wanted.length && !procs.length) { otherTabs[kind] = { ok: true, tabs: new Map(), asked: false }; return; }
+  const procs = procState.procs.filter((p) => p[PROC_TAB[kind]]);
+  if (!wanted.length && !procs.length) {
+    otherTabs[kind] = { ok: true, tabs: new Map(), asked: false };
+    if (kind === 'rex') term.rexWatch([], rexSoon);
+    return;
+  }
   try {
     const list = await term.listTabs(kind);
     otherTabs[kind] = { ok: true, tabs: new Map(list.map((t) => [t.id, t])), asked: true };
   } catch (e) {
-    otherTabs[kind] = { ok: false, tabs: new Map(), error: String(e.message || e).replace(/^iTerm2: /, ''), asked: true };
+    otherTabs[kind] = { ok: false, tabs: new Map(), error: String(e.message || e).replace(/^(iTerm2|Rex): /, ''), asked: true };
+    if (kind === 'rex') term.rexWatch([], rexSoon);
     return;
   }
-  const ids = [...new Set(wanted.map((e) => term.tabIdFor(kind, e.terminalId)).filter((id) => id && otherTabs[kind].tabs.has(id)))];
+  const tabs = otherTabs[kind].tabs;
+  const ids = [...new Set(wanted.map((e) => term.tabIdFor(kind, e.terminalId)).filter((id) => id && tabs.has(id)))];
+  // Rex's events, per Rex session holding a tab the board reads, only make
+  // the next refresh come sooner (as cmux's do).
+  if (kind === 'rex') term.rexWatch([...new Set(ids.map((id) => tabs.get(id).sessionId).filter(Boolean))], rexSoon);
   await term.pool(ids, 4, (id) => readSurface({ kind, surfaceId: id }));
+}
+let rexTimer = null;
+function rexSoon() {
+  if (rexTimer) return;
+  rexTimer = setTimeout(() => { rexTimer = null; tick(); }, 400);
 }
 
 // A session that reported from this folder but from no tab the board can
@@ -493,12 +512,12 @@ function eventOwner(e, real) {
 const WATCH_ONLY_MS = 7 * 86400e3;
 function watchedLive(e) {
   if (e.endedAt || e.terminal === 'cmux') return false;
-  if (e.terminal === 'iterm') return !!otherTab(e);
+  if (term.OTHER_KINDS.includes(e.terminal)) return !!otherTab(e);
   return Date.now() - Date.parse(e.lastEventAt || 0) < WATCH_ONLY_MS;
 }
 
 // Outside cmux mode, a session whose folder no project holds becomes a
-// project of its repo folder: an iTerm2 session with an open tab, or a
+// project of its repo folder: an iTerm2 or Rex session with an open tab, or a
 // session in a terminal the board can only watch (docs/TERMINALS.md: a new
 // user sees their sessions from the first minute, whatever the terminal).
 function importFolders(evAll) {
@@ -683,7 +702,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       });
     }
   }
-  // Sessions known from their events: in iTerm2 (read and typed into
+  // Sessions known from their events: in iTerm2 or Rex (read and typed into
   // through its adapter when its tab is open), in a terminal the board has
   // no adapter for (watch only), or every cmux session while cmux does not
   // answer.
@@ -854,14 +873,14 @@ async function tick() {
     let cmuxError = null;
     try { workspaces = await term.cmux.listWorkspaces(); } catch (e) { if (!reg) throw e; cmuxError = String(e.message || e); }
     const cmuxOk = !cmuxError;
-    // In iTerm2 mode cmux is never asked (term.cmux answers "nothing"), and
-    // a read is whole unless iTerm2 could not be asked.
+    // In iTerm2 mode and Rex mode cmux is never asked (term.cmux answers
+    // "nothing"), and a read is whole unless the board's terminal could not be asked.
     const driven = term.BOARD === 'cmux';
     const hooks = cmuxOk ? (await term.cmux.listHookSessions()).filter((h) => h.active || h.surfaceId) : [];
     if (cmuxOk) await refreshSidebars(workspaces, !reg);
     const evAll = events.scan();
     await refreshOtherTabs(evAll);
-    const fullRead = driven ? cmuxOk : !(otherTabs.iterm && otherTabs.iterm.ok === false);
+    const fullRead = driven ? cmuxOk : !(otherTabs[term.BOARD] && otherTabs[term.BOARD].ok === false);
     if (cmuxOk && (!reg || reg.settings.autoImport !== false)) {
       try {
         const res = registry.importWorkspaces(reg, workspaces, (w) => workspaceCwd(w, hooks, evAll), (w) => reserved.has(w.title));
@@ -891,7 +910,7 @@ async function tick() {
     const claimed = new Set([...bySurface.values()].map((e) => e.sessionId));
     for (const h of hooks) if (h.surfaceId && live.has(h.surfaceId) && h.sessionId) claimed.add(h.sessionId);
     for (const [sid, b] of bindings) if (live.has(sid) && b.value && b.value.sessionId) claimed.add(b.value.sessionId);
-    // One session per open iTerm2 tab: the newest that reported from it (a
+    // One session per open iTerm2 or Rex tab: the newest that reported from it (a
     // /clear starts a new session id in the same tab).
     const newestInTab = new Map();
     for (const e of evAll.values()) {
@@ -925,7 +944,7 @@ async function tick() {
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
-    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs.iterm.error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects };
+    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -1032,17 +1051,23 @@ function mixOf(st, waitingOn) {
 function buildSessions(workspaces, hooks, settings, now, projects) {
   const where = new Map();
   for (const w of workspaces) for (const s of w.surfaces) where.set(s.id, { w, s, kind: 'cmux' });
-  // A process in an iTerm2 session (ITERM_SESSION_ID in its environment).
-  const it = otherTabs.iterm;
-  if (it && it.ok) for (const t of it.tabs.values()) where.set(t.id, { w: { id: null, ref: 'iTerm2', title: 'iTerm2' }, s: { id: t.id, title: t.title, type: 'terminal' }, kind: 'iterm' });
-  const boardIterm = process.env.ITERM_SESSION_ID ? term.tabIdFor('iterm', process.env.ITERM_SESSION_ID) : null;
+  // A process in an iTerm2 session or a Rex pane (ITERM_SESSION_ID or
+  // REX_BLOCK in its environment).
+  for (const kind of term.OTHER_KINDS) {
+    const it = otherTabs[kind];
+    const name = term.nameOf(kind);
+    if (it && it.ok) for (const t of it.tabs.values()) where.set(t.id, { w: { id: null, ref: name, title: name }, s: { id: t.id, title: t.title, type: 'terminal' }, kind });
+  }
+  // The tab this board itself runs in, outside cmux.
+  const boardOther = [process.env.ITERM_SESSION_ID ? term.tabIdFor('iterm', process.env.ITERM_SESSION_ID) : null, process.env.REX_BLOCK ? term.tabIdFor('rex', process.env.REX_BLOCK) : null].filter(Boolean);
   const boardTab = new Map(boardTabs.filter((b) => b.s.terminal !== false).map((b) => [b.s.surfaceId, { sessionId: b.s.sessionId, method: b.s.method }]));
   const bySid = new Map(boardTabs.filter((b) => b.s.sessionId).map((b) => [b.s.sessionId, b]));
   const rows = [];
   for (let p of procState.procs) {
-    const itermTab = !p.surfaceId && p.itermId ? term.tabIdFor('iterm', p.itermId) : null;
-    const tab = p.surfaceId ? where.get(p.surfaceId) || null : itermTab ? where.get(itermTab) || null : null;
-    if (itermTab) p = { ...p, surfaceId: itermTab };
+    const otherKind = p.surfaceId ? null : p.rexId ? 'rex' : p.itermId ? 'iterm' : null;
+    const otherId = otherKind ? term.tabIdFor(otherKind, p[PROC_TAB[otherKind]]) : null;
+    const tab = p.surfaceId ? where.get(p.surfaceId) || null : otherId ? where.get(otherId) || null : null;
+    if (otherId) p = { ...p, surfaceId: otherId };
     const m = sess.mapProcess(p, { evAll: ev.all, hooks, boardTab });
     const base = {
       pid: p.pid, startedAt: p.startedAt, memKb: p.rssKb, cwd: p.cwd, folder: short(p.cwd), assistant: asst.kindOf(p.assistant),
@@ -1058,8 +1083,8 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     const cls = sess.classify(info, idleMsFor(m.sessionId, settings), now);
     const sc = info.screen && info.screen.readable ? info.screen : null;
     let blocked = null;
-    if (!tab) blocked = itermTab ? 'Its iTerm2 tab is gone' : p.surfaceId ? (term.canDrive('cmux') ? 'Its cmux tab is gone' : 'In cmux') : `Outside ${term.nameOf(term.BOARD)}`;
-    else if (p.surfaceId === process.env.CMUX_SURFACE_ID || (boardIterm && p.surfaceId === boardIterm)) blocked = 'The tab this board runs in';
+    if (!tab) blocked = otherId ? `Its ${term.nameOf(otherKind)} tab is gone` : p.surfaceId ? (term.canDrive('cmux') ? 'Its cmux tab is gone' : 'In cmux') : `Outside ${term.nameOf(term.BOARD)}`;
+    else if (p.surfaceId === process.env.CMUX_SURFACE_ID || boardOther.includes(p.surfaceId)) blocked = 'The tab this board runs in';
     else if (sc && !sc.claudeLive) blocked = 'Claude is not on screen in its tab';
     // Close idle ends Claude Code sessions only (docs/SESSIONS.md).
     if (!blocked && base.assistant !== 'claude') blocked = `Close idle ends Claude Code sessions only; end ${asst.nameOf(base.assistant)} in its tab`;
@@ -1118,15 +1143,15 @@ async function closeOne(id, workspaces, allow, settings) {
     ws = workspaces.find((w) => w.surfaces.some((x) => x.id === row.surfaceId));
     surface = ws && ws.surfaces.find((x) => x.id === row.surfaceId);
   } else {
-    // Another terminal's tab (iTerm2), asked again right now.
+    // Another terminal's tab (iTerm2, Rex), asked again right now.
     const t = await freshTab(row.surfaceId).catch(() => null);
-    surface = t ? { id: t.surfaceId, title: t.title, type: 'terminal' } : null;
+    surface = t ? { id: t.surfaceId, title: t.title, type: 'terminal', sessionId: t.sessionId || null } : null;
     ws = { id: null, ref: name, title: name };
   }
   if (!surface || surface.type !== 'terminal') return fail(`Its ${name} tab is gone.`);
   const still = await sess.stillThere(row.pid, row.startedAt);
   if (!still) return fail('Its Claude process already ended.');
-  const stillTab = still.surfaceId || (still.itermId ? term.tabIdFor('iterm', still.itermId) : null);
+  const stillTab = still.surfaceId || (still.rexId ? term.tabIdFor('rex', still.rexId) : still.itermId ? term.tabIdFor('iterm', still.itermId) : null);
   if (stillTab !== row.surfaceId) return fail('Its process is not in that tab.');
   const tab = kind === 'cmux' ? { kind, workspaceId: ws.id, surfaceId: row.surfaceId } : { kind, surfaceId: row.surfaceId };
   // Close idle sessions closes Claude Code processes only (docs/SESSIONS.md).
@@ -1151,7 +1176,7 @@ async function closeOne(id, workspaces, allow, settings) {
   if (cls.group === 'use') return fail(`It is in use now (${cls.why}).`);
   // The record first, so a tab that closes always has its Reopen.
   sess.writeClosed({
-    id, cwd: row.cwd, workspaceId: ws.id, workspaceRef: ws.ref, workspace: ws.title, surfaceId: row.surfaceId, term: kind,
+    id, cwd: row.cwd, workspaceId: ws.id, workspaceRef: ws.ref, workspace: ws.title, surfaceId: row.surfaceId, term: kind, termSession: (surface && surface.sessionId) || null,
     project: row.isFolder ? null : row.label, projectId: row.projectId, label: row.label, lastLine: row.line,
     memKb: still.rssKb, pid: row.pid, closedAt: new Date().toISOString(),
   });
@@ -1193,8 +1218,9 @@ async function closeSessions(body) {
 }
 
 // Reopen: a NEW tab in the closed session's workspace (or the one cmux shows
-// now, when that workspace is gone), or in iTerm2 when it was closed there,
-// running `cd <cwd> && claude --resume <id>`.
+// now, when that workspace is gone), or in iTerm2 or Rex when it was closed
+// there (Rex: in the closed tab's Rex session while it is open, else a new
+// Rex session), running `cd <cwd> && claude --resume <id>`.
 async function reopenSession(body) {
   const id = String(body.id || '').toLowerCase();
   if (!sess.UUID.test(id)) return { ok: false, status: 400, error: 'No such session.' };
@@ -1207,12 +1233,12 @@ async function reopenSession(body) {
   reopening.add(id);
   try {
     const cwd0 = rec.cwd && fs.existsSync(rec.cwd) ? rec.cwd : HOME;
-    // Closed in iTerm2, or on a board in iTerm2 mode: a new tab there
-    // (iTerm2's current window).
+    // Closed in iTerm2 or Rex, or on a board in iTerm2 mode or Rex mode: a
+    // new tab there (iTerm2's current window; Rex: the old tab's session).
     const k = rec.term && rec.term !== 'cmux' && term.canDrive(rec.term) ? rec.term : term.BOARD;
     if (k !== 'cmux') {
       const name = term.nameOf(k);
-      const made = await term.openTab(k, {});
+      const made = await term.openTab(k, k === 'rex' ? { near: term.kindOf(rec.surfaceId) === 'rex' ? rec.surfaceId : null, session: rec.termSession || null, cwd: cwd0, label: rec.label || null } : {});
       if (!made.ok) return { ok: false, status: 500, error: `${name} did not open a tab: ` + (made.err || 'no answer') };
       await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
       const tab = { kind: k, surfaceId: made.surfaceId };
@@ -1413,7 +1439,8 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
     const fail = (error) => { markers.set(sid, handoff.writeMarker(sid, { resumeError: error })); return { ok: false, error }; };
     const cwd = [m.cwd, m.folder].find((d) => d && fs.existsSync(d)) || null;
     // The fresh session opens in the terminal the old one ran in: a new
-    // cmux tab next to it, or a new iTerm2 tab in its window.
+    // cmux tab next to it, a new iTerm2 tab in its window, or a new Rex tab
+    // in its Rex session.
     const where = sessionTerminal(sid, m);
     let made, tab, whereRef;
     if (where.kind === 'cmux' && term.canDrive('cmux')) {
@@ -1426,7 +1453,7 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
       tab = { kind: 'cmux', workspaceId: ws.id, surfaceId: made.surfaceId };
       whereRef = ws.ref;
     } else if (term.canDrive(where.kind)) {
-      made = await term.openTab(where.kind, { near: where.near });
+      made = await term.openTab(where.kind, { near: where.near, session: where.session || null, cwd, label: cwd ? path.basename(cwd) : null });
       if (!made.ok) return fail(`${term.nameOf(where.kind)} did not open a tab: ` + (made.err || 'no answer'));
       tab = { kind: where.kind, surfaceId: made.surfaceId };
       whereRef = term.nameOf(where.kind);
@@ -1466,11 +1493,11 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
 }
 
 // The terminal a session ran in, for its fresh session: its events say
-// (iTerm2 with its session as `near`), else the tab its marker names, else
-// cmux as before.
+// (iTerm2 or Rex with its tab as `near`, and Rex's session), else the tab
+// its marker names, else cmux as before.
 function sessionTerminal(sid, m) {
   const e = ev.all.get(sid);
-  if (e && e.terminal && e.terminal !== 'cmux') return { kind: e.terminal, near: term.tabIdFor(e.terminal, e.terminalId) };
+  if (e && e.terminal && e.terminal !== 'cmux') return { kind: e.terminal, near: term.tabIdFor(e.terminal, e.terminalId), session: e.terminalSession || null };
   if (!(e && e.terminal) && m && m.surfaceId && term.kindOf(m.surfaceId) !== 'cmux') return { kind: term.kindOf(m.surfaceId), near: m.surfaceId };
   if (e && e.terminal === 'cmux') return { kind: 'cmux', near: null };
   // Nothing says where: the board's own terminal.
@@ -1479,7 +1506,7 @@ function sessionTerminal(sid, m) {
 
 // Each written hand-off gets its fresh session once, when the terminal it
 // goes to answers this tick (a cmux hand-off waits while cmux is down, an
-// iTerm2 one while iTerm2 cannot be asked).
+// iTerm2 or Rex one while that terminal cannot be asked).
 function autoStarts(workspaces, cmuxOk) {
   if (reg.settings.handoffAutoStart === false) return;
   for (const [sid, m] of markers) {
@@ -1512,8 +1539,9 @@ function requestHandoff({ projectId, surfaceId }) {
 
 // ------------------------------------------------------------ actions
 
-// A tab of the project's in the board's own terminal (iTerm2 mode), so a
-// new one opens in the same window: its primary session's, else any.
+// A tab of the project's in the board's own terminal (iTerm2 mode, Rex
+// mode), so a new one opens in the same window (Rex: the same Rex
+// session): its primary session's, else any.
 function nearTab(projectId) {
   if (term.BOARD === 'cmux') return null;
   const p = snapshot.projects.find((x) => x.id === projectId);
@@ -1560,7 +1588,7 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice }) {
     if (!ws) return { ok: false, status: 400, error: "That session is not in this project's workspaces." };
     tab = { kind: 'cmux', workspaceId: ws.id, surfaceId };
   } else {
-    // Another terminal's tab (iTerm2): the board must show it in this
+    // Another terminal's tab (iTerm2, Rex): the board must show it in this
     // project, and the terminal must list it now.
     const snap = snapshot.projects.find((x) => x.id === projectId);
     if (!snap || !snap.sessions.some((x) => x.surfaceId === surfaceId && x.terminal)) return { ok: false, status: 400, error: 'That session is not in this project.' };
@@ -2306,7 +2334,7 @@ const server = http.createServer(async (req, res) => {
         const project = findProject(body.projectId);
         if (!project) return sendJson(res, 404, { error: 'No such project.' });
         if (body.surfaceId && term.kindOf(body.surfaceId) !== 'cmux') {
-          // A session in iTerm2: bring that tab forward.
+          // A session in iTerm2 or Rex: bring that tab forward.
           const snap = snapshot.projects.find((x) => x.id === project.id);
           if (!snap || !snap.sessions.some((x) => x.surfaceId === body.surfaceId)) return sendJson(res, 404, { error: 'No such session in that project.' });
           const t = await freshTab(body.surfaceId).catch(() => null);

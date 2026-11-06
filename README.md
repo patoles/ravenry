@@ -28,7 +28,7 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 - **Rule suggestions**: corrections you keep typing in your sessions, offered as rules for your CLAUDE.md, or AGENTS.md for what you told Codex (off until you turn them on).
 - **Phone access**: the whole board on your phone on your home Wi-Fi, through a QR code.
 - **Phone alerts**: a message when a project starts needing you, through Telegram, Discord, Slack or ntfy, plus Mac notifications.
-- **Terminals**: answer sessions in cmux and iTerm2; sessions in any other terminal are watch only.
+- **Terminals**: answer sessions in cmux, iTerm2 and Rex; sessions in any other terminal are watch only.
 - **Codex too**: OpenAI Codex sessions show up beside Claude Code's, with their state, live screen, context, alerts, replies and menu answers from the board, the hand-off at half context, their memory on the Sessions page, and their AGENTS.md beside CLAUDE.md in the Rules view. Not shown for Codex: pictures, background tasks, Close idle on the Sessions page and recaps.
 
 ## Getting Started
@@ -82,9 +82,10 @@ Where you start `ravenry` decides where its page opens:
 
 - **In a cmux tab**: the board runs in that tab and its page opens in a cmux browser pane above it.
 - **In an iTerm2 tab**: a "Ravenry" tab opens with the page on top and the board's terminal below.
+- **In a Rex tab**: the board runs in that tab and its page opens in your browser.
 - **Anywhere else**: the board runs in your terminal and the page opens in your browser. Keep the window open; Ctrl+C stops the board.
 
-In cmux and [iTerm2](https://iterm2.com) (free) the board reads each session's screen and types into it. iTerm2 needs its Python API on for menu options (iTerm2 > Settings > General > Magic > Enable Python API), and macOS may ask once to let the board control iTerm2.
+In cmux, [iTerm2](https://iterm2.com) (free) and Rex the board reads each session's screen and types into it. iTerm2 needs its Python API on for menu options (iTerm2 > Settings > General > Magic > Enable Python API), and macOS may ask once to let the board control iTerm2. Rex needs nothing more, except for Open in Rex: it needs Remote Control on in Rex's Settings.
 
 Sessions in any other terminal (Terminal, VS Code, Ghostty, Warp, tmux...) are watch only: you see their state, questions and context, and answer them in their own window.
 
@@ -110,7 +111,7 @@ To remove Ravenry completely: `ravenry uninstall --purge`, then `npm rm -g raven
 - [Node.js](https://nodejs.org/) 22 or newer
 - [Claude Code](https://claude.com/claude-code) (`claude` on your PATH)
 - Optional: [Codex](https://developers.openai.com/codex) (`codex` on your PATH; measured on 0.166.0), followed the same way; outside cmux, Codex sessions are found by folder or shown watch only (docs/ASSISTANTS.md)
-- To answer sessions from the board: cmux or [iTerm2](https://iterm2.com)
+- To answer sessions from the board: cmux, [iTerm2](https://iterm2.com) or Rex
 
 Playwright is optional, only for the mockup pictures of an idea: `npm i -g playwright && npx playwright install chromium`.
 
@@ -141,6 +142,7 @@ Ravenry has no telemetry of any kind. Everything stays on your Mac: the board re
 - **"Hooks are stale"**: Node or Ravenry moved (a new Node version, a reinstall). `ravenry setup` points them at the current copy.
 - **The port is taken**: `PORT=4700 ravenry`.
 - **iTerm2 sessions are watch only**: start `ravenry` from an iTerm2 tab, and allow the Automation prompt (System Settings > Privacy & Security > Automation).
+- **Rex sessions are watch only**: `ravenry doctor` says whether it finds Rex's `rex` command and whether Rex's server answers. Open in Rex says to turn on Remote Control in Rex's Settings when that is off.
 - **Mockup pictures fail on an idea**: they need Playwright (see Requirements).
 
 ## Author

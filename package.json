@@ -1,7 +1,7 @@
 {
   "name": "ravenry-app",
-  "version": "0.3.2",
-  "description": "A local board for following every Claude Code session on your Mac, answering agents from one page (cmux or iTerm2), and keeping project briefs.",
+  "version": "0.4.0",
+  "description": "A local board for following every Claude Code session on your Mac, answering agents from one page (cmux, iTerm2 or Rex), and keeping project briefs.",
   "keywords": [
     "claude",
     "claude-code",
@@ -9,6 +9,7 @@
     "dashboard",
     "cmux",
     "iterm2",
+    "rex",
     "macos",
     "terminal",
     "hooks"

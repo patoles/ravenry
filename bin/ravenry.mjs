@@ -14,10 +14,12 @@
 //                     opens in a cmux browser pane above it
 //   in an iTerm2 tab  a "Ravenry" tab opens with the page on top and the
 //                     board below (tools/open-in-iterm.mjs, iTerm2 mode)
+//   in a Rex tab      the board runs in that tab, in Rex mode, and its page
+//                     opens in the default browser
 //   anywhere else     the board runs in this terminal in iTerm2 mode (it never
 //                     asks cmux, whose socket refuses processes started outside
 //                     it), and the page opens in the default browser; sessions
-//                     outside iTerm2 are watch only
+//                     outside iTerm2 and Rex are watch only
 // `--no-open` (or RAVENRY_NO_OPEN=1) opens no page; `--yes` answers yes to
 // setup's questions about the hooks and the iTerm2 helper.
 
@@ -81,11 +83,21 @@ function which(bin) {
 }
 
 // Claude Code's `claude`: on PATH, or where its installer puts it.
+// Rex: its command, whether its server answers and the API revision it
+// speaks (server/rex.mjs check; never starts a server).
+const REX_REMOTE = "Rex: Open in Rex needs Remote Control on in Rex's Settings (off by default); everything else works without it.";
+async function rexState() {
+  const rex = await import('../server/rex.mjs');
+  const s = await rex.check({ fresh: true });
+  if (s.ok) return { ok: true, bin: s.bin, version: s.version, revision: s.revision };
+  return { ok: false, why: String(s.error).replace(/\.?$/, '.') };
+}
+
 function claudePath() {
   return which('claude') || [path.join(os.homedir(), '.local', 'bin', 'claude'), path.join(os.homedir(), '.claude', 'local', 'claude')].find((p) => fs.existsSync(p)) || null;
 }
 
-// The terminal this command runs in: 'cmux', 'iterm' or another name.
+// The terminal this command runs in: 'cmux', 'iterm', 'rex' or another name.
 async function hereTerminal() {
   const { terminalOf } = await import('../server/termenv.mjs');
   return terminalOf(env).terminal || null;
@@ -98,7 +110,7 @@ async function names() {
 
 async function apps() {
   const { appInstalled } = await import('../server/terminal.mjs');
-  return { cmux: appInstalled('cmux'), iterm: appInstalled('iterm') };
+  return { cmux: appInstalled('cmux'), iterm: appInstalled('iterm'), rex: appInstalled('rex') };
 }
 
 async function boardUp(port = PORT) {
@@ -127,7 +139,7 @@ async function readSetup() {
 
 async function setup({ fromStart = false } = {}) {
   console.log(`Ravenry ${PKG.version} setup\n`);
-  if (process.platform !== 'darwin') { console.log('Ravenry runs on macOS only (it reads cmux and iTerm2, which are Mac apps).'); return 1; }
+  if (process.platform !== 'darwin') { console.log('Ravenry runs on macOS only (it reads cmux, iTerm2 and Rex, which are Mac apps).'); return 1; }
   const node = nodeMajorOk();
   if (!node.ok) { console.log(`Ravenry needs Node ${node.want} or newer; this is Node ${process.versions.node}. Install a newer one (https://nodejs.org) and run ravenry setup again.`); return 1; }
   console.log(`  ok    macOS, Node ${process.versions.node}`);
@@ -141,14 +153,21 @@ async function setup({ fromStart = false } = {}) {
   const here = await hereTerminal();
   const nameOf = await names();
   const iterm = await import('../server/itermhelper.mjs');
-  const { cmux: hasCmux, iterm: hasIterm } = await apps();
+  const { cmux: hasCmux, iterm: hasIterm, rex: hasRex } = await apps();
   let terminal;
   if (here === 'cmux') { terminal = 'cmux'; console.log('  ok    Terminal: cmux. The board answers sessions in cmux.'); }
   else if (here === 'iterm') { terminal = 'iterm'; console.log('  ok    Terminal: iTerm2. The board answers sessions in iTerm2.'); }
+  else if (here === 'rex') {
+    terminal = 'rex';
+    const r = await rexState();
+    console.log(r.ok ? '  ok    Terminal: Rex. The board answers sessions in Rex.' : `  !!    Terminal: Rex, but ${r.why} Until then sessions in Rex are watch only.`);
+    console.log(`  note  ${REX_REMOTE}`);
+  }
   else {
     terminal = hasIterm ? 'iterm' : 'none';
     const what = here ? nameOf(here) : 'this terminal';
-    if (hasIterm) console.log(`  ok    Terminal: ${what}. iTerm2 is installed, so the board answers sessions in iTerm2; sessions in ${what} are watch only.`);
+    if (hasIterm) console.log(`  ok    Terminal: ${what}. iTerm2 is installed, so the board answers sessions in iTerm2${hasRex ? ' and Rex' : ''}; sessions in ${what} are watch only.`);
+    else if (hasRex) console.log(`  note  Terminal: ${what}. Sessions here are watch only; the board answers sessions in Rex. Start ravenry from a Rex tab so new sessions open in Rex too.`);
     else if (hasCmux) console.log(`  note  Terminal: ${what}. Sessions here are watch only. Start ravenry from a cmux tab to answer sessions in cmux, or install iTerm2 (free): ${ITERM_URL}`);
     else console.log(`  note  Terminal: ${what}. Ravenry shows your sessions here (watch only) but cannot answer them. To answer from the board, install iTerm2 (free): ${ITERM_URL}`);
   }
@@ -260,9 +279,16 @@ async function doctor() {
   const here = await hereTerminal();
   const nameOf = await names();
   const iterm = await import('../server/itermhelper.mjs');
-  const { cmux: hasCmux, iterm: hasIterm } = await apps();
-  line('ok', `This terminal: ${here ? nameOf(here) : 'unknown'}. Installed: ${[hasCmux && 'cmux', hasIterm && 'iTerm2'].filter(Boolean).join(' and ') || 'neither cmux nor iTerm2'}.`);
-  if (!hasCmux && !hasIterm) line('note', `The board can only watch sessions. To answer them from the board, install iTerm2 (free): ${ITERM_URL}`);
+  const { cmux: hasCmux, iterm: hasIterm, rex: hasRex } = await apps();
+  const installed = [hasCmux && 'cmux', hasIterm && 'iTerm2', hasRex && 'Rex'].filter(Boolean);
+  const listed = installed.length > 1 ? installed.slice(0, -1).join(', ') + ' and ' + installed[installed.length - 1] : installed[0];
+  line('ok', `This terminal: ${here ? nameOf(here) : 'unknown'}. Installed: ${listed || 'none of cmux, iTerm2 or Rex'}.`);
+  if (!hasCmux && !hasIterm && !hasRex) line('note', `The board can only watch sessions. To answer them from the board, install iTerm2 (free): ${ITERM_URL}`);
+  if (hasRex) {
+    const r = await rexState();
+    line(r.ok ? 'ok' : 'note', r.ok ? `Rex: ${tilde(r.bin)}, its server answers (Rex ${r.version}, API revision ${r.revision}).` : `Rex: ${r.why}`);
+    line('note', REX_REMOTE);
+  }
   if (hasIterm) {
     line(iterm.apiOn() ? 'ok' : 'note', iterm.apiOn() ? "iTerm2's Python API is on." : "iTerm2's Python API is off: turn it on in iTerm2 > Settings > General > Magic so the board can pick menu options.");
     const st = iterm.helperState();
@@ -353,6 +379,17 @@ async function uninstall() {
 
 // ------------------------------------------------------------ start
 
+// Is iTerm2 or Rex on this Mac? The same answers as server/terminal.mjs
+// appInstalled, without loading it (MC_APPS stands in for the apps in tests).
+async function itermThere() {
+  if (env.MC_APPS != null) return env.MC_APPS.split(',').map((x) => x.trim()).includes('iterm');
+  return [path.join('/Applications', 'iTerm.app'), path.join(os.homedir(), 'Applications', 'iTerm.app')].some((p) => fs.existsSync(p));
+}
+async function rexThere() {
+  if (env.MC_APPS != null) return env.MC_APPS.split(',').map((x) => x.trim()).includes('rex');
+  return !!(await import('../server/rex.mjs')).findBin(env);
+}
+
 async function serve() {
   await import('../server/index.mjs');
   return null; // the server keeps the process alive
@@ -361,10 +398,14 @@ async function serve() {
 async function start() {
   if (process.platform !== 'darwin') { console.log('Ravenry runs on macOS only.'); return 1; }
   // Decided before anything loads server/terminal.mjs, which reads it once.
-  // Outside cmux, cmux's socket refuses the board, so it runs in iTerm2 mode.
+  // Outside cmux, cmux's socket refuses the board, so it runs in iTerm2 mode,
+  // or in Rex mode when started in a Rex tab.
   const here = await hereTerminal();
   const chosen = !!env.RAVENRY_TERMINAL;
-  if (here !== 'cmux' && !chosen) env.RAVENRY_TERMINAL = 'iterm';
+  // A Mac with Rex and no iTerm2 runs Rex mode from anywhere, as one with
+  // iTerm2 runs iTerm2 mode. (server/terminal.mjs is not loaded for this:
+  // it reads RAVENRY_TERMINAL once, when it loads.)
+  if (here !== 'cmux' && !chosen) env.RAVENRY_TERMINAL = here === 'rex' || (here !== 'iterm' && !(await itermThere()) && (await rexThere())) ? 'rex' : 'iterm';
   if (!(await readSetup())) { const r = await setup({ fromStart: true }); if (r) return r; }
   const b = await boardUp();
   if (b.up && !b.ours) { console.log(`Something that is not Ravenry holds :${PORT}. Stop it, or start with PORT=<another port> ravenry.`); return 1; }
@@ -379,7 +420,7 @@ async function start() {
     return main([], console.log, { run: `${sh(process.execPath)} ${sh(path.join(ROOT, 'bin', 'ravenry.mjs'))} serve` });
   }
   const { appInstalled } = await import('../server/terminal.mjs');
-  if (here !== 'cmux' && here !== 'iterm' && !appInstalled('iterm')) console.log(`Watch only: answering sessions from the board needs iTerm2 (free) or cmux. Install iTerm2: ${ITERM_URL}`);
+  if (here !== 'cmux' && here !== 'iterm' && here !== 'rex' && !appInstalled('iterm') && !appInstalled('rex')) console.log(`Watch only: answering sessions from the board needs iTerm2 (free), cmux or Rex. Install iTerm2: ${ITERM_URL}`);
   console.log(`Starting Ravenry on ${URL_} . Leave this window open; Ctrl+C stops it.`);
   await serve();
   if (!NO_OPEN) {

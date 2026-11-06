@@ -3,7 +3,7 @@
 // The rules are written up in docs/SESSIONS.md; keep the two in step.
 //
 // Reads only: `ps` (every claude process, its RSS and argv), `ps -E` (its
-// CMUX_SURFACE_ID or ITERM_SESSION_ID, read once per process), `lsof` (its
+// CMUX_SURFACE_ID, ITERM_SESSION_ID or REX_BLOCK, read once per process), `lsof` (its
 // working folder). The closing itself goes through the terminal interface
 // (server/terminal.mjs close), called by the server only after it
 // re-checked the session right before.
@@ -113,6 +113,9 @@ export function parsePs(text) {
 // `ps -E -ww -o pid=,command= -p ...`: the environment follows argv, so the
 // last CMUX_SURFACE_ID= on the line is the process's own. ITERM_SESSION_ID
 // ("w0t1p0:<UUID>") names its iTerm2 session, used only outside cmux and tmux.
+// REX_BLOCK ("block:<uuid>") names its Rex pane, outside cmux and tmux, and
+// wins over an ITERM_SESSION_ID inherited from the terminal that started
+// Rex's server unless TERM_PROGRAM says iTerm2 (server/termenv.mjs).
 export function parseEnv(text) {
   const out = new Map();
   for (const line of String(text || '').split('\n')) {
@@ -124,7 +127,13 @@ export function parseEnv(text) {
       workspaceId: last(/\sCMUX_WORKSPACE_ID=([0-9A-Fa-f-]{36})(?=\s|$)/g),
       // Inside tmux the iTerm2 session is tmux's client, not this pane.
       itermId: /\sTMUX=/.test(line) ? null : last(/\sITERM_SESSION_ID=(?:\w+:)?([0-9A-Fa-f-]{36})(?=\s|$)/g),
+      rexId: /\sTMUX=/.test(line) ? null : last(/\sREX_BLOCK=block:([0-9A-Fa-f-]{36})(?=\s|$)/g),
     });
+    const x = out.get(Number(m[1]));
+    if (x.rexId) {
+      if (x.itermId && last(/\sTERM_PROGRAM=(\S+)(?=\s|$)/g) === 'iTerm.app') x.rexId = null;
+      else x.itermId = null;
+    }
   }
   return out;
 }
@@ -151,7 +160,7 @@ export async function readProcesses() {
   const need = procs.filter((p) => { const c = envCache.get(p.pid); return !c || c.startedAt !== p.startedAt; });
   if (need.length) {
     const envs = parseEnv(await run(PS_BIN, ['-E', '-ww', '-o', 'pid=,command=', '-p', need.map((p) => p.pid).join(',')]));
-    for (const p of need) envCache.set(p.pid, { startedAt: p.startedAt, surfaceId: null, workspaceId: null, itermId: null, ...(envs.get(p.pid) || {}) });
+    for (const p of need) envCache.set(p.pid, { startedAt: p.startedAt, surfaceId: null, workspaceId: null, itermId: null, rexId: null, ...(envs.get(p.pid) || {}) });
   }
   const alive = new Set(procs.map((p) => p.pid));
   for (const pid of envCache.keys()) if (!alive.has(pid)) envCache.delete(pid);
@@ -161,19 +170,19 @@ export async function readProcesses() {
     helpers: all.length - procs.length,
     procs: procs.map((p) => {
       const e = envCache.get(p.pid) || {};
-      return { pid: p.pid, rssKb: p.rssKb, startedAt: p.startedAt, assistant: p.assistant, surfaceId: e.surfaceId || null, workspaceId: e.workspaceId || null, itermId: (!e.surfaceId && e.itermId) || null, cwd: cwds.get(p.pid) || null, argvSession: p.assistant === 'codex' ? codexArgvSession(p.command) : argvSession(p.command) };
+      return { pid: p.pid, rssKb: p.rssKb, startedAt: p.startedAt, assistant: p.assistant, surfaceId: e.surfaceId || null, workspaceId: e.workspaceId || null, itermId: (!e.surfaceId && e.itermId) || null, rexId: (!e.surfaceId && e.rexId) || null, cwd: cwds.get(p.pid) || null, argvSession: p.assistant === 'codex' ? codexArgvSession(p.command) : argvSession(p.command) };
     }),
   };
 }
 
 // Right before a close: the process is still the one we saw (same start),
-// still a claude session, and still in the same tab (cmux or iTerm2).
+// still a claude session, and still in the same tab (cmux, iTerm2 or Rex).
 export async function stillThere(pid, startedAt) {
   const ps = await run(PS_BIN, ['-ww', '-o', 'pid=,ppid=,rss=,lstart=,command=', '-p', String(pid)]);
   const p = parsePs(ps).find((x) => x.pid === pid && x.kind === 'session' && x.assistant === 'claude');
   if (!p || p.startedAt !== startedAt) return null;
   const env = parseEnv(await run(PS_BIN, ['-E', '-ww', '-o', 'pid=,command=', '-p', String(pid)])).get(pid) || {};
-  return { rssKb: p.rssKb, surfaceId: env.surfaceId || null, itermId: (!env.surfaceId && env.itermId) || null };
+  return { rssKb: p.rssKb, surfaceId: env.surfaceId || null, itermId: (!env.surfaceId && env.itermId) || null, rexId: (!env.surfaceId && env.rexId) || null };
 }
 
 export async function waitGone(pid, startedAt, ms) {

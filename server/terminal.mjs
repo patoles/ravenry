@@ -1,10 +1,12 @@
 // The one terminal interface (docs/TERMINALS.md). The rest of the board
-// reaches a terminal only through this module: every cmux call and every
-// iTerm2 call goes through here, and nothing else imports an adapter.
+// reaches a terminal only through this module: every cmux call, every
+// iTerm2 call and every Rex call goes through here, and nothing else
+// imports an adapter.
 //
 // A tab is { kind, surfaceId, workspaceId? }:
 //   cmux   { kind: 'cmux', workspaceId, surfaceId } (cmux's UUIDs)
 //   iterm  { kind: 'iterm', surfaceId: 'iterm:<UUID>' } (server/iterm.mjs)
+//   rex    { kind: 'rex', surfaceId: 'rex:<block uuid>' } (server/rex.mjs)
 // The board's ids keep their old shape for cmux (a bare UUID), so a
 // surface id with no prefix is a cmux tab.
 //
@@ -18,26 +20,35 @@ import os from 'node:os';
 import path from 'node:path';
 import * as cmuxAdapter from './cmux.mjs';
 import * as iterm from './iterm.mjs';
+import * as rex from './rex.mjs';
 
 // The board's own terminal (docs/TERMINALS.md, The board's terminal): the
 // one it opens new work in (New project, Revive, Reopen, a hand-off's
-// fresh session) and the only one besides iTerm2 it ever asks.
-//   RAVENRY_TERMINAL=cmux|iterm   wins
+// fresh session) and the only one besides iTerm2 and Rex it ever asks.
+//   RAVENRY_TERMINAL=cmux|iterm|rex   wins
 //   CMUX_SURFACE_ID or CMUX_WORKSPACE_ID   started inside cmux: cmux
+//   REX_SESSION or REX_BLOCK, unless an ITERM_SESSION_ID with a
+//     TERM_PROGRAM other than rex says the iTerm2 tab is the board's own
+//     (a Rex server started from iTerm2 hands its variables on)   rex
 //   ITERM_SESSION_ID or TERM_PROGRAM=iTerm.app   started in iTerm2: iterm
 //   otherwise (launchd, another terminal)   cmux when cmux is installed,
-//                                          else iterm (iTerm2 installed or
-//                                          not: with neither, every session
-//                                          is watch only, and iTerm2 mode is
-//                                          the one that never needs its app)
-// In iTerm2 mode the board never runs the cmux CLI: `cmux` below is a stand
-// in that answers "nothing there" without starting a process.
+//                                          else iterm when iTerm2 is, else
+//                                          rex when Rex's command is found,
+//                                          else iterm (with none, every
+//                                          session is watch only, and iTerm2
+//                                          mode is the one that never needs
+//                                          its app)
+// In iTerm2 mode and Rex mode the board never runs the cmux CLI: `cmux`
+// below is a stand in that answers "nothing there" without starting a process.
 export function boardKind(env = process.env, has = fs.existsSync) {
   const want = String(env.RAVENRY_TERMINAL || '').toLowerCase().replace(/^iterm2$/, 'iterm');
-  if (want === 'cmux' || want === 'iterm') return want;
+  if (want === 'cmux' || want === 'iterm' || want === 'rex') return want;
   if (env.CMUX_SURFACE_ID || env.CMUX_WORKSPACE_ID) return 'cmux';
+  if ((env.REX_SESSION || env.REX_BLOCK) && (env.TERM_PROGRAM === 'rex' || !env.ITERM_SESSION_ID)) return 'rex';
   if (env.ITERM_SESSION_ID || env.TERM_PROGRAM === 'iTerm.app') return 'iterm';
   if (has(env.CMUX_BIN || cmuxAdapter.DEFAULT_CMUX_BIN)) return 'cmux';
+  if (appInstalled('iterm', env, has)) return 'iterm';
+  if (appInstalled('rex', env, has)) return 'rex';
   return 'iterm';
 }
 
@@ -51,9 +62,22 @@ export function appInstalled(kind, env = process.env, has = fs.existsSync) {
   if (env.MC_APPS != null) return env.MC_APPS.split(',').map((x) => x.trim()).includes(kind);
   if (kind === 'cmux') return has(env.CMUX_BIN || cmuxAdapter.DEFAULT_CMUX_BIN);
   if (kind === 'iterm') return [path.join('/Applications', 'iTerm.app'), path.join(os.homedir(), 'Applications', 'iTerm.app')].some((p) => has(p));
+  if (kind === 'rex') return !!rex.findBin(env, has);
   return false;
 }
 export const BOARD_INSTALLED = appInstalled(BOARD);
+
+
+// What the board calls each terminal the hook can name.
+const NAMES = {
+  cmux: 'cmux', iterm: 'iTerm2', rex: 'Rex', 'apple-terminal': 'Terminal', tmux: 'tmux', vscode: 'VS Code',
+  ghostty: 'Ghostty', wezterm: 'WezTerm', kitty: 'kitty', warp: 'Warp', alacritty: 'Alacritty', hyper: 'Hyper', zed: 'Zed',
+};
+
+export function nameOf(kind) {
+  if (!kind) return 'an unknown terminal';
+  return NAMES[kind] || kind;
+}
 
 const NO_CMUX = {
   CMUX_BIN: cmuxAdapter.CMUX_BIN, DEFAULT_CMUX_BIN: cmuxAdapter.DEFAULT_CMUX_BIN,
@@ -63,36 +87,33 @@ const NO_CMUX = {
   resumeBinding: async () => null,
   currentWorkspace: async () => null,
   watchEvents: () => () => {},
-  newWorkspace: async () => ({ ok: false, out: '', err: 'this board runs in iTerm2 mode, so it does not open cmux workspaces' }),
-  notify: async () => ({ ok: false, out: '', err: 'this board runs in iTerm2 mode' }),
+  newWorkspace: async () => ({ ok: false, out: '', err: `this board runs in ${nameOf(BOARD)} mode, so it does not open cmux workspaces` }),
+  notify: async () => ({ ok: false, out: '', err: `this board runs in ${nameOf(BOARD)} mode` }),
   pool: cmuxAdapter.pool,
 };
 
 // cmux's own listing and extras (workspaces, its hook store, sidebar,
 // resume bindings, events, new workspace, notifications), used where the
-// board is built around cmux workspaces. In iTerm2 mode, the stand in.
+// board is built around cmux workspaces. In iTerm2 mode and Rex mode, the stand in.
 export const cmux = BOARD === 'cmux' ? cmuxAdapter : NO_CMUX;
 
-// What the board calls each terminal the hook can name.
-const NAMES = {
-  cmux: 'cmux', iterm: 'iTerm2', 'apple-terminal': 'Terminal', tmux: 'tmux', vscode: 'VS Code',
-  ghostty: 'Ghostty', wezterm: 'WezTerm', kitty: 'kitty', warp: 'Warp', alacritty: 'Alacritty', hyper: 'Hyper', zed: 'Zed',
-};
-
-export function nameOf(kind) {
-  if (!kind) return 'an unknown terminal';
-  return NAMES[kind] || kind;
-}
+// The terminals besides cmux that list their own tabs, which the board asks
+// only while some session runs there (server/index.mjs refreshOtherTabs).
+export const OTHER_KINDS = ['iterm', 'rex'];
 
 // The kind of terminal a board surface id belongs to.
 export function kindOf(surfaceId) {
-  return String(surfaceId || '').startsWith(iterm.PREFIX) ? 'iterm' : 'cmux';
+  const s = String(surfaceId || '');
+  if (s.startsWith(iterm.PREFIX)) return 'iterm';
+  if (s.startsWith(rex.PREFIX)) return 'rex';
+  return 'cmux';
 }
 
 // The board's tab id for a session the events place in a terminal with an
 // adapter other than cmux (cmux sessions carry their surface id already).
 export function tabIdFor(kind, terminalId) {
   if (kind === 'iterm') return iterm.tabIdOf(terminalId);
+  if (kind === 'rex') return rex.tabIdOf(terminalId);
   return null;
 }
 
@@ -120,10 +141,23 @@ const ADAPTERS = {
     close: (t) => iterm.close(t.surfaceId),
     openTab: (o) => iterm.openTab({ near: o.near || null }),
   },
+  rex: {
+    listTabs: () => rex.listTabs(),
+    readScreen: (t, n) => rex.readScreen(t.surfaceId, n),
+    // `rex capture --format=html` has styles, but nothing reads them yet.
+    readStyled: async () => null,
+    pasteText: (t, text) => rex.pasteText(t.surfaceId, text),
+    // `rex send` delivers exact bytes, which arrive as typed input.
+    typeText: (t, text) => rex.pasteText(t.surfaceId, text),
+    pressKey: (t, k) => rex.pressKey(t.surfaceId, k),
+    focus: (t) => rex.focus(t.surfaceId),
+    close: (t) => rex.close(t.surfaceId),
+    openTab: (o) => rex.openTab({ near: o.near || null, session: o.session || null, cwd: o.cwd || null, label: o.label || null }),
+  },
 };
 
 // Terminals the board can type into, read and open tabs in. A board in
-// iTerm2 mode leaves cmux alone, so its sessions there are watch only.
+// iTerm2 mode or Rex mode leaves cmux alone, so its sessions there are watch only.
 export function canDrive(kind) {
   if (kind === 'cmux' && BOARD !== 'cmux') return false;
   return !!ADAPTERS[kind];
@@ -155,7 +189,7 @@ function adapter(tab) {
   return a;
 }
 
-// The tabs of a terminal that lists its own (iTerm2): [{ id, title, ... }].
+// The tabs of a terminal that lists its own (iTerm2, Rex): [{ id, title, ... }].
 export async function listTabs(kind) {
   const a = ADAPTERS[kind];
   if (!a || !a.listTabs) return [];
@@ -182,8 +216,15 @@ export const focus = (tab) => adapter(tab).focus(tab);
 // Closes one tab (ends the Claude in it). { ok, err }.
 export const close = (tab) => adapter(tab).close(tab);
 // A NEW tab: cmux { workspaceId, paneId, cwd }, iTerm2 { near } (a session
-// id whose window gets the tab). { ok, surfaceId, surfaceRef } or { ok: false, err }.
+// id whose window gets the tab), Rex { near, session, cwd, label } (a pane
+// whose Rex session gets the tab, else that Rex session, else a new Rex
+// session named label). { ok, surfaceId, surfaceRef } or { ok: false, err }.
 export const openTab = (kind, opts) => adapter({ kind }).openTab(opts || {});
 
 // A small pool so one tick does not spawn 50 processes at once.
 export const pool = cmuxAdapter.pool;
+
+// Rex's extras: whether it can be driven now (`rex whoami`: its command, its
+// server, its API revision), and its events as a hint to refresh sooner.
+export const rexCheck = (o) => rex.check(o);
+export const rexWatch = (ids, onEvent) => rex.watch(ids, onEvent);

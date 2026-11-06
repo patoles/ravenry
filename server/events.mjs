@@ -54,7 +54,7 @@ export function ingest(e) {
 // One session's events folded into what the state rules read.
 export function summarize(sid, events) {
   const s = {
-    sessionId: sid, assistant: null, cwd: null, transcriptPath: null, workspaceId: null, surfaceId: null, pane: null, terminal: null, terminalId: null,
+    sessionId: sid, assistant: null, cwd: null, transcriptPath: null, workspaceId: null, surfaceId: null, pane: null, terminal: null, terminalId: null, terminalSession: null,
     startedAt: null, source: null, endedAt: null, endReason: null, pid: null, pidAt: null,
     last: null, lastStop: null, lastPromptAt: null, notification: null, lastEventAt: null, count: events.length,
   };
@@ -70,7 +70,7 @@ export function summarize(sid, events) {
     if (e.pane) s.pane = e.pane;
     // The terminal of its latest event that names one (a /resume in another
     // terminal moves it).
-    if (e.terminal) { s.terminal = e.terminal; s.terminalId = e.terminal_id || null; }
+    if (e.terminal) { s.terminal = e.terminal; s.terminalId = e.terminal_id || null; s.terminalSession = e.terminal_session || null; }
     // The Claude process the session ran in at its latest event (a /resume
     // in another tab moves it, so the newest one counts).
     if (e.claude_pid) { s.pid = Number(e.claude_pid); s.pidAt = e.at; }

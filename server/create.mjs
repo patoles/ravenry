@@ -1,8 +1,9 @@
 // New project, Write the brief, and Revive: the three ways the board starts
 // work. Each writes a BRIEF.md in the format of docs/BRIEF-FORMAT.md and, for
 // New project and Revive, opens a NEW cmux workspace or tab running Claude
-// Code or Codex (server/assistant.mjs startChoice, continueChoice), or a NEW
-// iTerm2 tab when the board runs in iTerm2 mode (term.BOARD).
+// Code or Codex (server/assistant.mjs startChoice, continueChoice), a NEW
+// iTerm2 tab when the board runs in iTerm2 mode, or a NEW Rex tab or session
+// when it runs in Rex mode (term.BOARD).
 // Nothing here ever types into, selects or closes an existing tab.
 
 import fs from 'node:fs';
@@ -115,19 +116,21 @@ export function shellWord(s) {
 
 // iTerm2 mode: a NEW tab (in the window of `near`, a session of the
 // project, when it is open, else iTerm2's current window, else a new
-// window) that goes to the folder and runs the command. Returns
-// { ok, surfaceId, surfaceRef, where } or { ok: false, error }.
-async function openBoardTab({ cwd, command, near = null }) {
+// window) that goes to the folder and runs the command. Rex mode: a NEW
+// tab in the Rex session of `near` when it is open, else a NEW Rex session
+// named after the project (`label`), in the folder. Returns
+// { ok, surfaceId, surfaceRef, where, place } or { ok: false, error }.
+async function openBoardTab({ cwd, command, near = null, label = null }) {
   const kind = term.BOARD;
   const name = term.nameOf(kind);
-  const made = await term.openTab(kind, { near });
+  const made = await term.openTab(kind, { near, cwd, label });
   if (!made.ok) return { ok: false, error: `${name} did not open a tab: ` + (made.err || 'no answer') };
   await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
   const tab = { kind, surfaceId: made.surfaceId };
   const a = await term.pasteText(tab, `cd ${shellWord(cwd)} && ${command}`);
   const b = a.ok ? await term.pressKey(tab, 'enter') : a;
   if (!b.ok) return { ok: false, error: 'the new tab opened but the command was not typed: ' + (b.err || '') };
-  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, where: name };
+  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, where: name, place: made.surfaceRef === 'Rex session' ? 'Rex session' : `${name} tab` };
 }
 
 function gitInit(dir) {
@@ -345,9 +348,9 @@ export async function createProject(form, { cfg, settings, reserve, launch = nul
   if (adopt) return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), adopted: true, ...chosen(L), message: `${name} is in ${short(folder)}, with the session already running there. The brief is ${briefRel}.` };
   const prompt = `Read ${briefRel} and start on the first milestone.`;
   if (term.BOARD !== 'cmux') {
-    const t = await openBoardTab({ cwd: folder, command: launchLine(L.command, prompt) });
+    const t = await openBoardTab({ cwd: folder, command: launchLine(L.command, prompt), label: name });
     if (!t.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), ...chosen(L), error: `Folder and brief are ready, but ${t.error}` };
-    return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: t.where, surfaceId: t.surfaceId, gitInit: made, ...chosen(L), message: `${name} is in ${short(folder)}. ${L.short} is reading the brief in a new ${t.where} tab.` };
+    return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: t.where, surfaceId: t.surfaceId, gitInit: made, ...chosen(L), message: `${name} is in ${short(folder)}. ${L.short} is reading the brief in a new ${t.place}.` };
   }
   const release = reserve(name);
   let ws;
@@ -386,7 +389,8 @@ export function writeBrief(project, form) {
 // reach Claude exactly: shellWord when the line is typed into a new tab's
 // shell, and `--` before words that start with a dash. It needs no brief,
 // and the project may have a live session already.
-// `near`: in iTerm2 mode, a tab of the project's whose window gets the new one.
+// `near`: in iTerm2 mode, a tab of the project's whose window gets the new
+// one; in Rex mode, one whose Rex session gets it.
 // `launch`: the assistant the new session starts ({ kind, command, note,
 // short }, server/assistant.mjs continueChoice: the project's own, else
 // startWith, else Claude Code), else cfg.launchCommand.
@@ -396,7 +400,7 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   const bp = registry.briefPath(project);
   if (!custom && !fm && (!bp || !fs.existsSync(bp))) return { ok: false, status: 409, error: `${project.name} has no brief yet. Write the brief first, so the new session has something to read.` };
   // No folder (an idea with no repo): cmux opens the session in the
-  // project's workspace, which keeps it on the card; a new iTerm2 tab would
+  // project's workspace, which keeps it on the card; a new iTerm2 or Rex tab would
   // have nothing tying it to the project, so it is not opened.
   if (!project.folder && term.BOARD !== 'cmux') return { ok: false, status: 409, error: `${project.name} has no folder, so there is nowhere to start its session.` };
   const rel = project.folder && bp ? path.relative(project.folder, bp) : '..';
@@ -407,9 +411,9 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   const line = (typed) => (fm ? `${L.command} ${fm.startsWith('-') ? '-- ' : ''}${typed ? shellWord(fm) : quoteWord(fm)}` : launchLine(L.command, prompt));
   const cmd = line(true);
   if (term.BOARD !== 'cmux') {
-    const t = await openBoardTab({ cwd: project.folder, command: cmd, near });
+    const t = await openBoardTab({ cwd: project.folder, command: cmd, near, label: project.name });
     if (!t.ok) return { ok: false, status: 500, error: t.error.charAt(0).toUpperCase() + t.error.slice(1) };
-    return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, ...chosen(L), message: `New ${t.where} tab for ${project.name}. ${fm ? 'It starts with your first message.' : 'It reads the brief first.'}` };
+    return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, ...chosen(L), message: `New ${t.place} for ${project.name}. ${fm ? 'It starts with your first message.' : 'It reads the brief first.'}` };
   }
   const all = await cmux.listWorkspaces();
   const ws = all.find((w) => (project.workspaces || []).includes(w.id));
