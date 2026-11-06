@@ -62,7 +62,12 @@ fi
 
 echo "libghostty.sh: building libghostty-vt $short for $target with zig $zv" >&2
 rm -rf "$out.tmp"
-(cd "$src" && zig build -Demit-lib-vt -Demit-xcframework=false -Doptimize=ReleaseFast --prefix "$out.tmp" >&2)
+# -Dcpu=baseline: for the architecture, not this machine's CPU. Zig builds
+# for the native CPU by default on Linux, and a library built on one CI
+# runner then died with SIGILL on another (a cached build), as a release
+# binary would on a user's machine. On macOS ghostty picks a generic CPU
+# itself.
+(cd "$src" && zig build -Demit-lib-vt -Demit-xcframework=false -Doptimize=ReleaseFast -Dcpu=baseline --prefix "$out.tmp" >&2)
 # The .pc files carry the prefix as an absolute path: point them at the
 # final folder before moving it there.
 for pc in "$out.tmp"/lib/pkgconfig/*.pc; do
