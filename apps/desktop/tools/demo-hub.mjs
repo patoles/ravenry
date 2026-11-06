@@ -9,6 +9,14 @@
 //
 //   const hub = await startDemoHub({ dir, port, empty });
 //   hub.url; await hub.arrive('paper-boat'); hub.stop();
+//
+// With `panes` (project ids), those projects get no cmux session: their
+// session is started by the caller in a real ravenryd pane, which reports
+// through `ravenryd hook` (hub.sessions[id] has its session id, folder and
+// transcript). `runtime` is the ravenryd runtime folder the board follows
+// (a test board follows none without it), `env` adds to the board's
+// environment, `settings` to its registry's (machines), and `alerts` turns
+// phone alerts on, sent to a closed local port.
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -67,7 +75,7 @@ const PROJECTS = [
     brief: '# Recipe Box\n\nGoal: Every family recipe in one place, searchable by what is in the fridge.\n\n## Next step\nDecide what to do with the old import format.\n',
     screen: banner('recipe-box') + '❯ Import recipes from the old export\n\n⏺ Imported 214 of 220 recipes. Six use the old format with no units.\n\n  Keep the old import format working?\n\n' + prompt(),
     events: [['SessionStart', 50], ['UserPromptSubmit', 33], ['Stop', 9, { ends_on_question: true, question: 'Keep the old import format working?' }]],
-    turn: ['Import recipes from the old export', 'Imported 214 of 220 recipes. Six use the old format with no units.\n\nKeep the old import format working?', 9] },
+    turn: ['Import recipes from the old export', 'Imported 214 of 220 recipes. Six use the old format with no units.\n\nKeep the old import format working?', 9], machine: 'devbox' },
   { id: 'paper-boat', name: 'paper-boat', title: '⠂ Tilting the hull', sid: 'b2b2b2b2-0000-4000-8000-000000000002', ctx: 584000,
     brief: '# Paper Boat\n\nGoal: A calm little game: fold a paper boat and steer it down a rainy street.\n\n## Next step\nMake the boat rock with the waves.\n',
     screen: banner('paper-boat') + '❯ Make the boat rock with the waves\n\n⏺ Update(src/boat.js)\n  ⎿  Updated src/boat.js with 14 additions and 3 removals\n\n✻ Tilting the hull… (1m 42s · esc to interrupt)\n\n' + prompt('  esc to interrupt'),
@@ -82,10 +90,10 @@ const PROJECTS = [
     brief: '# Weather Widget\n\nGoal: The next six hours of weather, readable at a glance.\n',
     screen: banner('weather-widget') + '❯ Round the temperatures\n\n⏺ Done: whole degrees everywhere, tests pass.\n\n' + prompt(),
     events: [['SessionStart', 60 * 75], ['UserPromptSubmit', 60 * 74], ['Stop', 60 * 73.5]],
-    turn: ['Round the temperatures', 'Done: whole degrees everywhere, tests pass.', 60 * 73.5] },
+    turn: ['Round the temperatures', 'Done: whole degrees everywhere, tests pass.', 60 * 73.5], machine: 'gpu-box' },
 ];
 
-export async function startDemoHub({ dir, port, empty = false }) {
+export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false }) {
   fs.rmSync(dir, { recursive: true, force: true });
   const HOME = path.join(dir, 'home');
   const ROOT = path.join(HOME, 'Projects');
@@ -96,6 +104,7 @@ export async function startDemoHub({ dir, port, empty = false }) {
   const PS = path.join(dir, 'stub-ps.json');
   const workspaces = [], screens = {}, projects = [], ps = [];
   const files = {};
+  const sessions = {};
   let k = 0;
   for (const p of empty ? [] : PROJECTS) {
     k++;
@@ -106,9 +115,10 @@ export async function startDemoHub({ dir, port, empty = false }) {
     const git = (...a) => execFileSync('git', ['-C', folder, '-c', 'user.name=Demo', '-c', 'user.email=demo@example.com', ...a], { encoding: 'utf8' });
     git('init', '-q', '-b', 'main'); git('add', '.'); git('commit', '-q', '-m', 'Start');
     const sf = `sf-${k}`;
-    workspaces.push({ id: `ws-${k}`, ref: `workspace:${k}`, title: p.name, cwd: folder, surfaces: [{ id: sf, ref: `surface:${k}`, title: p.title }] });
-    screens[sf] = p.screen;
-    projects.push({ id: p.id, name: p.name, folder, brief: 'BRIEF.md', workspaces: [`ws-${k}`] });
+    const inPane = panes.includes(p.id);
+    if (!inPane) workspaces.push({ id: `ws-${k}`, ref: `workspace:${k}`, title: p.name, cwd: folder, surfaces: [{ id: sf, ref: `surface:${k}`, title: p.title }] });
+    if (!inPane) screens[sf] = p.screen;
+    projects.push({ id: p.id, name: p.name, folder, brief: 'BRIEF.md', workspaces: inPane ? [] : [`ws-${k}`] });
     const TD = path.join(CLAUDE, slug(folder));
     fs.mkdirSync(TD, { recursive: true });
     const TR = path.join(TD, p.sid + '.jsonl');
@@ -124,8 +134,11 @@ export async function startDemoHub({ dir, port, empty = false }) {
     lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: a }], usage: { input_tokens: 8, cache_creation_input_tokens: 3000, cache_read_input_tokens: p.ctx - 3008, output_tokens: 400 } } }, ago(m)));
     if (!p.working) lines.push(rec('system', { subtype: 'turn_duration' }, ago(m)));
     fs.writeFileSync(TR, lines.join('\n') + '\n');
+    if (inPane) { sessions[p.id] = { sid: p.sid, folder, transcript: TR, topic: p.title.replace(/^\S+\s/, '') }; continue; }
     const evFile = path.join(MC, 'events', p.sid + '.jsonl');
-    const evLine = ([event, mm, extra]) => JSON.stringify({ at: ago(mm), event, session_id: p.sid, cwd: folder, transcript_path: TR, workspace_id: `ws-${k}`, surface_id: sf, ...(event === 'Stop' ? { ends_on_question: false, background_tasks: 0 } : {}), ...(event === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : {}), ...(extra || {}) });
+    // A remote session's records say its machine, as the board's ravenryd
+    // adapter tags them.
+    const evLine = ([event, mm, extra]) => JSON.stringify({ at: ago(mm), event, session_id: p.sid, cwd: folder, transcript_path: TR, workspace_id: `ws-${k}`, surface_id: sf, ...(p.machine ? { machine: p.machine } : {}), ...(event === 'Stop' ? { ends_on_question: false, background_tasks: 0 } : {}), ...(event === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : {}), ...(extra || {}) });
     fs.writeFileSync(evFile, p.events.map(evLine).join('\n') + '\n');
     files[p.id] = { evFile, evLine, TR, rec, sf, p };
     ps.push({ pid: 4100 + k * 7, ppid: 4000 + k * 7, rssKb: [612000, 445000, 845000, 690000, 298000][k - 1], startedAt: ago(p.events[0][1] + 1), command: `claude --resume ${p.sid}`, cwd: folder });
@@ -134,10 +147,11 @@ export async function startDemoHub({ dir, port, empty = false }) {
   fs.writeFileSync(FAKE, JSON.stringify({ workspaces, screens }));
   fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
     version: 1,
-    settings: { autoImport: false, ruleSources: [], globalClaudeMd: path.join(HOME, '.claude', 'CLAUDE.md'), backupDir: path.join(dir, 'backups'), projectsRoot: ROOT, contextWindow: 1000000 },
+    settings: { autoImport: false, ruleSources: [], globalClaudeMd: path.join(HOME, '.claude', 'CLAUDE.md'), backupDir: path.join(dir, 'backups'), projectsRoot: ROOT, contextWindow: 1000000, ...moreSettings },
     projects,
   }, null, 2));
   fs.writeFileSync(path.join(HOME, '.claude', 'CLAUDE.md'), '# Working rules\n');
+  if (alerts) fs.writeFileSync(path.join(MC, 'alerts.json'), JSON.stringify({ enabled: true, channel: 'ntfy', ntfy: { server: 'http://127.0.0.1:9', topic: 'demo-board-alerts' } }), { mode: 0o600 });
 
   const T = path.join(HUB, 'tools');
   const env = {
@@ -148,13 +162,15 @@ export async function startDemoHub({ dir, port, empty = false }) {
     MC_PS_BIN: path.join(T, 'stub-ps.mjs'), MC_LSOF_BIN: path.join(T, 'stub-ps.mjs'), STUB_PS_STATE: PS,
     MC_OSASCRIPT_BIN: path.join(T, 'stub-osascript.mjs'), ITERM_OSASCRIPT_BIN: path.join(T, 'stub-osascript.mjs'), STUB_OSASCRIPT_LOG: path.join(dir, 'osascript.jsonl'),
     MC_CODEX: '0', MC_CODEX_HOME: path.join(HOME, '.codex'),
+    ...(runtime ? { RAVENRY_RUNTIME_DIR: runtime } : {}),
+    ...moreEnv,
   };
   const child = spawn(process.execPath, [path.join(HUB, 'server', 'index.mjs')], { cwd: HOME, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += d; });
   child.stderr.on('data', (d) => { log += d; });
   const url = `http://127.0.0.1:${port}`;
-  const want = empty ? 0 : PROJECTS.length;
+  const want = empty ? 0 : PROJECTS.length - panes.length;
   let st = null;
   for (let i = 0; i < 200; i++) {
     try {
@@ -166,7 +182,7 @@ export async function startDemoHub({ dir, port, empty = false }) {
   if (!st || !st.generatedAt) { child.kill(); throw new Error('the demo board did not start:\n' + log.slice(-2000)); }
 
   return {
-    url, home: HOME, root: ROOT, log: () => log,
+    url, home: HOME, root: ROOT, log: () => log, sessions,
     state: async () => (await fetch(url + '/api/state')).json(),
     /** A working session stops on a question: a checkpoint arrives. */
     async arrive(id, question = 'Tilt the hull with the slope too, or keep it level?') {

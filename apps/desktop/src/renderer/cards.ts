@@ -94,6 +94,14 @@ export function focusCard(id: string): void {
   views.get(id)?.focus();
 }
 
+/**
+ * A secret's card that left the panel, or a panel that is hidden: what was
+ * typed there goes, as on a blur (a card taken out of the page gets none).
+ */
+export function clearHiddenSecrets(panelShown: boolean): void {
+  for (const v of views.values()) if (v.secret && (!panelShown || !v.el.isConnected)) v.secret.clear();
+}
+
 /** Forgets cards of checkpoints the window no longer knows. */
 export function pruneCards(ids: Set<string>): void {
   for (const id of [...views.keys()]) if (!ids.has(id)) { views.get(id)?.secret?.clear(); views.delete(id); uis.delete(id); }
@@ -298,7 +306,8 @@ function secretCard(k: Known, ctx: CardCtx, u: UI): View {
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'data-secret': '1', disabled: off,
   }) as HTMLInputElement;
   const count = h('span.t3.num.cnt-c');
-  const go = h('button.btn.sm.pri', { disabled: true, on: { click: () => sendSecret() } }, 'Send to the terminal');
+  // Pressed with nothing typed yet, it puts the cursor in the field.
+  const go = h('button.btn.sm.pri', { disabled: off, on: { click: () => sendSecret() } }, 'Send to the terminal');
   const box = h('div.sfld', input, count,
     h('button.eye', { title: u.reveal ? 'Hide it' : 'Show it', 'aria-label': u.reveal ? 'Hide the secret' : 'Show the secret', on: { mousedown: (e: Event) => e.preventDefault(), click: () => { u.reveal = !u.reveal; input.type = u.reveal ? 'text' : 'password'; eye.replaceChildren(svg(u.reveal ? I.EYE_OFF : I.EYE)); input.focus(); } } }));
   const eye = box.lastElementChild as HTMLElement;
@@ -307,7 +316,7 @@ function secretCard(k: Known, ctx: CardCtx, u: UI): View {
     const n = field.count;
     count.textContent = n ? characters(n) : '';
     box.classList.toggle('typed', n > 0);
-    (go as HTMLButtonElement).disabled = !!field.problem || off;
+
   });
   input.addEventListener('focus', () => box.classList.add('on'));
   input.addEventListener('blur', () => box.classList.remove('on'));

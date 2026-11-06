@@ -36,46 +36,6 @@ function freePort() {
   return new Promise((r) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 }
 
-// A proxy in front of the demo board that marks one project as running on
-// another machine, so the machine tag (a seam until remote sessions land)
-// can be seen. Everything else passes through unchanged.
-function machineProxy(target, port, remote = { 'recipe-box': 'devbox', 'weather-widget': 'gpu-box' }) {
-  const mark = (s) => {
-    for (const p of s.projects || []) if (remote[p.id]) { p.machine = remote[p.id]; for (const x of p.sessions || []) x.machine = remote[p.id]; }
-    return s;
-  };
-  const srv = http.createServer((req, res) => {
-    const up = http.request(target + req.url, { method: req.method, headers: { ...req.headers, host: new URL(target).host } }, (r) => {
-      if (req.url === '/api/events') {
-        res.writeHead(r.statusCode, r.headers);
-        let buf = '';
-        r.setEncoding('utf8');
-        r.on('data', (d) => {
-          buf += d;
-          let i;
-          while ((i = buf.indexOf('\n\n')) >= 0) {
-            const block = buf.slice(0, i); buf = buf.slice(i + 2);
-            const out = block.split('\n').map((l) => (l.startsWith('data: ') ? 'data: ' + JSON.stringify(mark(JSON.parse(l.slice(6)))) : l)).join('\n');
-            res.write(out + '\n\n');
-          }
-        });
-        r.on('end', () => res.end());
-        return;
-      }
-      if (req.url === '/api/state') {
-        let b = ''; r.setEncoding('utf8'); r.on('data', (d) => { b += d; });
-        r.on('end', () => { res.writeHead(r.statusCode, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(mark(JSON.parse(b)))); });
-        return;
-      }
-      res.writeHead(r.statusCode, r.headers);
-      r.pipe(res);
-    });
-    up.on('error', () => { res.writeHead(502); res.end(); });
-    req.pipe(up);
-  });
-  return new Promise((r) => srv.listen(port, '127.0.0.1', () => r(srv)));
-}
-
 const run = (name, o) => runApp({ name, work: WORK, rt: RT, bin: BIN, ...o });
 const stopAll = () => stopDaemons(BIN, RT);
 
@@ -85,15 +45,15 @@ const go = (n) => path.join(WORK, `${n}.go`);
 for (const f of fs.readdirSync(WORK)) if (/\.(signal|go)$/.test(f)) fs.rmSync(path.join(WORK, f));
 
 const ONLY = process.argv[3] || '';
-let hub, proxy;
+let hub;
 try {
   if (!ONLY || ONLY === 'board') {
   // ------------------------------------------------ the board, wide and narrow
   const hubPort = await freePort();
   hub = await startDemoHub({ dir: path.join(WORK, 'demo'), port: hubPort });
-  const proxyPort = await freePort();
-  proxy = await machineProxy(hub.url, proxyPort);
-  const hubUrl = `http://127.0.0.1:${proxyPort}`;
+  // recipe-box and weather-widget run on other machines: their records say
+  // so, and the board sends `machine` as it does for a remote ravenryd.
+  const hubUrl = hub.url;
   const home = hub.home;
   const S = 'window.__ravenry.S';
   const app = run('board', {
@@ -144,7 +104,6 @@ try {
   await Promise.race([app, feed.then(() => app)]);
   stopAll();
   hub.stop(); hub = null;
-  proxy.close(); proxy = null;
   }
 
   // ------------------------------------------------ first launch
@@ -183,6 +142,5 @@ try {
 } finally {
   stopAll();
   hub?.stop();
-  proxy?.close();
   fs.rmSync(RT, { recursive: true, force: true });
 }

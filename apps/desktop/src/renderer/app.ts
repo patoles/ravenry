@@ -17,7 +17,7 @@ import './app.css';
 import type { AgentStatus, Checkpoint, DaemonEvent, Pane, RavenryClient } from '@ravenry/client';
 import { api } from './api.ts';
 import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
-import { cardFor, cardKey, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
+import { cardFor, cardKey, clearHiddenSecrets, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
 import type { CardCtx, Reply } from './cards.ts';
 import { Checkpoints, hubAnswer, isOpen, markOf } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
@@ -88,7 +88,7 @@ const S = {
   focusCp: null as string | null,
   start: { folders: [] as FolderPick[], root: null as string | null, folder: null as string | null, assistants: [] as AssistantInfo[], assistant: null as string | null, busy: false, error: null as string | null },
   /** The first-launch offer to set up the assistants' hooks. */
-  hooks: { asked: false, offer: null as null | { files: string[] }, busy: false, error: null as string | null, checked: false },
+  hooks: { asked: false, offer: null as null | { files: string[]; names: string[] }, busy: false, error: null as string | null, checked: false },
 };
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -696,8 +696,8 @@ async function checkHooks(): Promise<void> {
   hk.checked = true;
   try {
     const r = await api().hubPost('/api/setup/hooks', { ravenryd: S.config.hookBin, dry: true }) as { claude?: { file?: string; changes?: unknown[] } | null; codex?: { file?: string; changes?: unknown[] } | null };
-    const files = [r.claude, r.codex].filter((x) => x && x.changes && x.changes.length && x.file).map((x) => tilde(x!.file));
-    hk.offer = files.length ? { files } : null;
+    const which = ([['Claude Code', r.claude], ['Codex', r.codex]] as const).filter(([, x]) => x && x.changes && x.changes.length && x.file);
+    hk.offer = which.length ? { names: which.map(([n]) => n), files: which.map(([, x]) => tilde(x!.file)) } : null;
   } catch { hk.offer = null; }
   if (firstRun() || S.view.kind === 'start') renderStart();
 }
@@ -708,8 +708,9 @@ async function setUpHooks(yes: boolean): Promise<void> {
   hk.busy = true; hk.error = null; renderStart();
   try {
     await api().hubPost('/api/setup/hooks', { ravenryd: S.config!.hookBin });
+    const names = hk.offer?.names || ['Claude Code'];
     hk.asked = true; hk.offer = null; api().storeSet({ hooksAsked: true });
-    toast('Claude Code and Codex now tell Ravenry when they need you. The old settings were backed up.');
+    toast(`${names.join(' and ')} now ${names.length > 1 ? 'tell' : 'tells'} Ravenry when ${names.length > 1 ? 'they need' : 'it needs'} you. The old settings were backed up.`);
   } catch (e) {
     hk.error = `Could not set them up: ${(e as Error).message}`;
   } finally {
@@ -764,7 +765,7 @@ function renderStart(): void {
   const hk = S.hooks;
   const hooksCard = hk.offer && !hk.asked ? h('div.fl-hooks',
     h('div.fl-c',
-      h('span.h', 'Let Claude Code and Codex tell Ravenry when they need you'),
+      h('span.h', `Let ${hk.offer.names.join(' and ')} tell Ravenry when ${hk.offer.names.length > 1 ? 'they need' : 'it needs'} you`),
       h('p.t2.small', `Ravenry adds its own line to the hooks in ${hk.offer.files.join(' and ')}, so the sessions here say when they wait for you or hand off. Each file is backed up first, and your other hooks stay as they are.`),
       hk.error ? h('p.err', hk.error) : null),
     h('div.fl-hb',
@@ -860,7 +861,7 @@ function renderPanel(): void {
   el.hidden = !vis;
   const docked = vis && !S.overlay && wide();
   el.classList.toggle('overlay', vis && !docked);
-  if (!vis) return;
+  if (!vis) { clearHiddenSecrets(false); return; }
   const key = panelTargetKey();
   let head: HTMLElement;
   let body: (HTMLElement | null)[];
@@ -881,6 +882,7 @@ function renderPanel(): void {
   }
   patch(el, [head, panelBody]);
   patch(panelBody, body);
+  clearHiddenSecrets(true);
 }
 
 function panelHead(name: string, tag: string | null, extra?: HTMLElement | null, machine: string | null = null): HTMLElement {
@@ -909,7 +911,10 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   const body: (HTMLElement | null)[] = [statusLine(p, s, k)];
 
   if (k) body.push(cardFor(k, cardCtx));
-  else if (g === 'you') {
+  // Over the terminal on a narrow window, a card keeps the panel short: it and the context.
+  const lean = !!k && isOpen(k.cp) && S.overlay;
+  // The card replaces the plain question box.
+  if (!k && g === 'you') {
     const q = w.headline || w.question || w.line || '';
     const quick = (w.quick || []).slice(0, 6);
     body.push(h('div.sec.ask',
@@ -925,6 +930,8 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
       h('div.bar', h('div.f', { style: { width: `${pct}%`, background: pct >= threshold ? 'var(--you)' : 'var(--tx2)' } }), h('div.m', { style: { left: `${threshold}%` }, title: `Hand-off line at ${threshold}%` })),
       h('div.row', h('span.t3.small.grow', `Hands off at ${threshold}%`), h('button.btn.sm', { on: { click: () => void handOff(p, s) } }, 'Hand off now'))));
   }
+
+  if (lean) return [head, body];
 
   const ho = (p.timeline || []).find((x) => x.from === 'brief');
   if (ho) {
@@ -1231,7 +1238,7 @@ async function boot(): Promise<void> {
   if (firstRun() || !S.tabs.length) void loadStart();
   // For tests and screenshots (tools/driver.cjs): the state and a few calls.
   (window as unknown as { __ravenry: unknown }).__ravenry = {
-    S, term: () => term, newShell, setView, onCommand, pickSession, ready: true,
+    S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };
   document.body.dataset.ready = '1';

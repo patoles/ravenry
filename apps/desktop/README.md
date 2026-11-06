@@ -48,6 +48,58 @@ setting.
   that the main process pipes to the daemon's unix socket, and the hub
   through the main process.
 
+## Checkpoints
+
+When an agent runs `ravenry ask`, `ravenry approve` or `ravenry secret`
+(packages/protocol/PROTOCOL.md section 4), its session's row in the sidebar
+gets a mark (a speech bubble with the question, a prompt box with the
+command, a key with the secret's name) and moves to Needs you, its tab gets
+the Needs you dot, and a card opens at the top of the session panel (over
+the terminal on a narrow window):
+
+- **A question:** one answer per line, picked with the mouse or the 1 to 9
+  keys, and a field for an answer in your own words (Enter sends it).
+- **A command:** the exact command, then its folder, machine and pane on
+  lines of their own, a warning when it can't be undone, then the agent's
+  words, marked as its own. `Run on <machine>`, Edit (the command becomes a
+  field and what changed is tinted) or Refuse.
+- **A secret:** what it is for and the exact command it goes to, a masked
+  field with a character count, and Send to the terminal or Not now.
+
+Once answered, the card says how it went until the session moves on. The
+window hears of checkpoints from the daemons it holds and from the hub (every
+machine's), and answers through the daemon when it holds it, else the hub.
+Only the person may answer: a window started from inside a pane shows the
+cards with their buttons off and says so.
+
+**The secret stays in its field.** It is never in the window's state, a log
+or an error: the field is emptied when it loses the focus, when its card
+leaves the panel or the panel closes, and as it is sent, in the one answer
+call. The daemon masks it in the pane's output from then on.
+
+**Running an edited command needs the back end.** Protocol v1's
+`checkpoint.answer` approves the command as proposed only. The app sends an
+edited one as `approve` with `command`, which today's daemons refuse (and the
+hub would drop), so Run edited command says it can't yet.
+
+## The back end it uses
+
+- **Plain shells** are panes labelled `ravenry.kind: shell` (and
+  `ravenry.agent` for an assistant started without a board), listed on every
+  running daemon at launch. window.json keeps only pinned sessions, the tabs'
+  order and the panel's state; an older window.json's list of shells is
+  turned into labels once.
+- **Tabs follow `cd`** through `pane.cwd`, and a tab not on screen that
+  printed gets a quiet dot through `pane.activity`.
+- **Start** asks the hub (`POST /api/sessions/start`) so the session gets its
+  hooks, brief and hand-off and shows in the sidebar; with no board it opens
+  the assistant in a pane of the app's own.
+- **Hook setup:** when the hub's dry run (`POST /api/setup/hooks`) says
+  Claude Code's or Codex's settings would change, the start screen asks once,
+  in a sentence that names the files, with Skip. The hooks point at
+  `<data>/bin/ravenryd` (development: `RAVENRYD`).
+- **Machines:** a remote session or checkpoint carries the hub's `machine`.
+
 ## What the packaged app installs
 
 Nothing outside the user's own folders, and nothing as root.
@@ -147,6 +199,7 @@ it cannot update itself. No keychain is ever searched for an identity.
 npm run typecheck && npm test
 RAVENRYD=../../daemon/ravenryd npm run smoke          # the app end to end, offscreen
 RAVENRYD=../../daemon/ravenryd npm run shots -- out   # screenshots and keystroke echo
+RAVENRYD=../../daemon/ravenryd node tools/checkpoint-shots.mjs out   # the checkpoint cards, from real checkpoints
 ```
 
 The smoke test and the screenshots never put a window on screen: the
