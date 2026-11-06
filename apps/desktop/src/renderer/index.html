@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://127.0.0.1:* http://localhost:*; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+<title>Ravenry</title>
+<link rel="stylesheet" href="renderer.css">
+</head>
+<body>
+<div class="mc" id="app">
+  <aside class="side" id="side"></aside>
+  <main class="tsheet" id="centre">
+    <div class="tabs" id="tabs" role="tablist" hidden></div>
+    <div class="stage">
+      <div class="term-host" id="term" hidden></div>
+      <div class="elsewhere" id="elsewhere" hidden></div>
+      <div class="start" id="start" hidden></div>
+      <div class="none" id="none" hidden></div>
+    </div>
+  </main>
+  <aside class="panel" id="panel" hidden></aside>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script src="renderer.js"></script>
+</body>
+</html>

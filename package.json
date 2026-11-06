@@ -16,9 +16,11 @@
   "scripts": {
     "audit": "node tools/audit.mjs",
     "hub": "npm --prefix hub start",
-    "test:client": "npm --workspace @ravenry/client test"
+    "test:client": "npm --workspace @ravenry/client test",
+    "desktop": "npm --workspace @ravenry/desktop start"
   },
   "workspaces": [
-    "packages/client"
+    "packages/client",
+    "apps/desktop"
   ]
 }

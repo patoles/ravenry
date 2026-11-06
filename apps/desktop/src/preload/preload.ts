@@ -1,0 +1,39 @@
+// The window's only door to the main process. The page is sandboxed: it
+// gets these calls and nothing else.
+
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
+
+// The daemon connection's MessagePort cannot cross the context bridge, so it
+// is posted to the page as a window message.
+ipcRenderer.on('daemon:port', (e, info: { socket: string; req: number }) => {
+  window.postMessage({ type: 'ravenry:daemon-port', socket: info.socket, req: info.req }, '*', e.ports);
+});
+ipcRenderer.on('daemon:error', (_e, req: number, message: string, where: string) => {
+  window.postMessage({ type: 'ravenry:daemon-error', req, message, where }, '*');
+});
+
+const on = (channel: string) => (cb: (...args: unknown[]) => void) => {
+  const fn = (_e: unknown, ...args: unknown[]) => cb(...args);
+  ipcRenderer.on(channel, fn);
+  return () => { ipcRenderer.removeListener(channel, fn); };
+};
+
+contextBridge.exposeInMainWorld('ravenry', {
+  config: () => ipcRenderer.invoke('app:config'),
+  connectDaemon: (req: number, socket?: string) => ipcRenderer.send('daemon:connect', req, socket || null),
+  resetDaemon: () => ipcRenderer.send('daemon:reset'),
+  hubState: () => ipcRenderer.invoke('hub:state'),
+  hubGet: (p: string) => ipcRenderer.invoke('hub:get', p),
+  hubPost: (p: string, body: unknown) => ipcRenderer.invoke('hub:post', p, body),
+  onHubState: on('hub:state'),
+  onHubStatus: on('hub:status'),
+  onCommand: on('command'),
+  folders: (root?: string) => ipcRenderer.invoke('local:folders', root),
+  assistants: () => ipcRenderer.invoke('local:assistants'),
+  shortPath: (p: string) => ipcRenderer.invoke('local:short', p),
+  chooseFolder: () => ipcRenderer.invoke('local:choose-folder'),
+  pathForFile: (f: File) => webUtils.getPathForFile(f),
+  storeGet: () => ipcRenderer.invoke('store:get'),
+  storeSet: (patch: Record<string, unknown>) => ipcRenderer.send('store:set', patch),
+  openExternal: (url: string) => ipcRenderer.send('open-external', url),
+});

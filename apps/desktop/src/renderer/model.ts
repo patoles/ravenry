@@ -1,0 +1,227 @@
+// The board as the sidebar draws it, from the hub's state (GET /api/state,
+// or each `state` event). Pure functions, so they are tested without a
+// window.
+
+export type Group = 'you' | 'work' | 'wait' | 'idle';
+
+export interface HubQuick { label: string; choice?: number }
+export interface HubWords { state?: string; line?: string; headline?: string; question?: string | null; quick?: HubQuick[]; dialog?: string[] | null }
+export interface HubCtx { tokens: number; window: number; pct: number; model?: string }
+
+export interface HubSession {
+  surfaceId: string;
+  topic?: string;
+  sessionId?: string | null;
+  state: string;
+  since?: string | null;
+  assistant?: string | null;
+  ctx?: HubCtx | null;
+  words?: HubWords;
+  term?: string | null;
+  termName?: string | null;
+  cannot?: string | null;
+  handed?: boolean;
+  terminal?: boolean;
+  screen?: string[];
+  // Seams for what the hub does not send yet (slice 2a and the remote work):
+  /** The machine a remote session runs on; absent for this one. */
+  machine?: string | null;
+  /** The ravenryd pane a session runs in, once the hub starts sessions there. */
+  pane?: string | { id: string } | null;
+}
+
+export interface HubProject {
+  id: string;
+  name: string;
+  state: Group;
+  since?: string | null;
+  folder?: string | null;
+  folderShort?: string | null;
+  line?: string;
+  headline?: string;
+  question?: string | null;
+  quick?: HubQuick[];
+  brief?: {
+    goal?: string | null;
+    next?: string | null;
+    pictures?: { url?: string; alt?: string; path?: string; auto?: boolean }[];
+  } | null;
+  plan?: { title?: string; name?: string; steps?: { text?: string; title?: string; state?: string }[] } | null;
+  planGate?: { short?: string; question?: string } | null;
+  timeline?: { when?: string; at?: string; text: string; from: string }[];
+  handoffRecent?: { resumedAt?: string } | null;
+  primary?: string | null;
+  sessions: HubSession[];
+  machine?: string | null;
+  waitingOn?: string | null;
+}
+
+export interface HubState {
+  generatedAt?: string | null;
+  error?: string | null;
+  projects?: HubProject[];
+  settings?: { handoffThreshold?: number; handoffCeiling?: number; handoffEnabled?: boolean };
+  sessions?: { totalKb?: number };
+  views?: { ideas?: number; rules?: number; ship?: number };
+}
+
+const SESSION_GROUP: Record<string, Group> = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
+
+/** Which group a session's own state puts it in. */
+export function sessionGroup(s: HubSession): Group {
+  return SESSION_GROUP[s.state] || (s.words?.state as Group | undefined) || 'idle';
+}
+
+export const sessionKey = (projectId: string, s: HubSession): string => `${projectId}/${s.surfaceId}`;
+
+/** The pane id of a session the hub runs in ravenryd (seam for slice 2a), else null. */
+export function paneOf(s: HubSession): string | null {
+  if (s.pane) return typeof s.pane === 'string' ? s.pane : s.pane.id;
+  return null;
+}
+
+/** A quiet machine tag for a remote session or project; null on this machine. */
+export function machineOf(p: HubProject, s?: HubSession): string | null {
+  const m = (s && s.machine) || p.machine || null;
+  return m && m !== 'local' ? m : null;
+}
+
+export interface Row {
+  key: string;
+  session: HubSession;
+  name: string;
+  assistant: string | null;
+  pct: number | null;
+  pctWarn: boolean;
+  line: string | null;
+  group: Group;
+  machine: string | null;
+}
+
+export interface ProjectRow {
+  project: HubProject;
+  time: string;
+  machine: string | null;
+  rows: Row[];
+}
+
+export interface BoardGroup {
+  group: Group;
+  title: string;
+  projects: ProjectRow[];
+  count: number;
+}
+
+export const GROUP_TITLES: Record<Group, string> = { you: 'Needs you', work: 'Working', wait: 'Waiting on others', idle: 'Idle' };
+const ORDER: Group[] = ['you', 'work', 'wait', 'idle'];
+
+export function assistantName(kind: string | null | undefined): string | null {
+  if (!kind) return null;
+  if (kind === 'claude') return 'Claude';
+  if (kind === 'codex') return 'Codex';
+  return kind[0].toUpperCase() + kind.slice(1);
+}
+
+/** "now", "4 min", "2 h", "3 d". */
+export function ago(iso: string | null | undefined, now: number): string {
+  if (!iso) return 'now';
+  const ms = now - Date.parse(iso);
+  if (!(ms >= 60000)) return 'now';
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h`;
+  return `${Math.floor(h / 24)} d`;
+}
+
+/** The clock time today ("10:51"), or how long ago for an older one. */
+export function clock(iso: string | null | undefined, now: number): string {
+  if (!iso) return 'now';
+  const d = new Date(iso);
+  const today = new Date(now);
+  if (d.toDateString() !== today.toDateString()) return ago(iso, now);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function projectTime(p: HubProject, now: number): string {
+  if (p.state === 'you' || p.state === 'wait') return clock(p.since, now);
+  return ago(p.since, now);
+}
+
+function row(p: HubProject, s: HubSession, threshold: number): Row {
+  const pct = s.ctx && Number.isFinite(s.ctx.pct) ? Math.round(s.ctx.pct) : null;
+  const g = sessionGroup(s);
+  const w = s.words || {};
+  const line = g === 'you' ? (w.question || w.line || null) : null;
+  return {
+    key: sessionKey(p.id, s),
+    session: s,
+    name: s.topic || p.name,
+    assistant: assistantName(s.assistant),
+    pct,
+    pctWarn: pct !== null && pct >= threshold,
+    line: line ? String(line).replace(/\s+/g, ' ').trim() : null,
+    group: g,
+    machine: machineOf(p, s),
+  };
+}
+
+/** The sidebar: Needs you first, then Working, Waiting on others and Idle, newest first in each. */
+export function board(state: HubState | null, now: number): BoardGroup[] {
+  const threshold = state?.settings?.handoffThreshold ?? 50;
+  const by = new Map<Group, ProjectRow[]>();
+  for (const p of state?.projects || []) {
+    const g: Group = ORDER.includes(p.state) ? p.state : 'idle';
+    const live = p.sessions.filter((s) => !s.handed);
+    let shown = g === 'idle' ? [] : live.filter((s) => sessionGroup(s) === g);
+    if (g !== 'idle' && !shown.length) shown = live.filter((s) => s.surfaceId === p.primary).slice(0, 1);
+    const list = by.get(g) || [];
+    list.push({ project: p, time: projectTime(p, now), machine: machineOf(p), rows: shown.map((s) => row(p, s, threshold)) });
+    by.set(g, list);
+  }
+  const t = (p: HubProject) => (p.since ? Date.parse(p.since) : now);
+  return ORDER.filter((g) => by.has(g)).map((g) => {
+    const projects = by.get(g)!.sort((a, b) => t(b.project) - t(a.project));
+    const count = g === 'idle' ? projects.length : projects.reduce((n, p) => n + Math.max(p.rows.length, 1), 0);
+    return { group: g, title: GROUP_TITLES[g], projects, count };
+  });
+}
+
+/** Finds a session by its key. */
+export function findSession(state: HubState | null, key: string): { project: HubProject; session: HubSession } | null {
+  for (const p of state?.projects || []) for (const s of p.sessions) if (sessionKey(p.id, s) === key) return { project: p, session: s };
+  return null;
+}
+
+/** Sessions that moved into Needs you between two states: a checkpoint or an approval arrived. */
+export function arrivals(prev: HubState | null, next: HubState | null): string[] {
+  if (!prev || !next) return [];
+  const before = new Set<string>();
+  for (const p of prev.projects || []) for (const s of p.sessions) if (sessionGroup(s) === 'you') before.add(sessionKey(p.id, s));
+  const out: string[] = [];
+  for (const p of next.projects || []) for (const s of p.sessions) {
+    const k = sessionKey(p.id, s);
+    if (sessionGroup(s) === 'you' && !before.has(k)) out.push(k);
+  }
+  return out;
+}
+
+/** True when the hub knows no session at all: the first launch. */
+export function isEmpty(state: HubState | null): boolean {
+  return !(state?.projects || []).some((p) => p.sessions.length);
+}
+
+/** "82k", "1.2M". */
+export function tokens(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, '')}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
+}
+
+/** The sidebar's memory line, "Claude 3.1 GB". */
+export function memoryLine(state: HubState | null): string | null {
+  const kb = state?.sessions?.totalKb;
+  if (!kb) return null;
+  const gb = kb / 1048576;
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(kb / 1024)} MB`;
+}

@@ -1,0 +1,33 @@
+// The window's icons, drawn as in the approved layout.
+
+export const LOGO = '<svg width="19" height="19" viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(4.77 -2.10) scale(0.8954)"><path d="M95 34 C89 28 82 24 75 23 C66 21 58 24 54 30 C50 36 46 40 40 46 C32 54 24 64 18 74 L6 92 L20 94 L28 84 C36 80 48 78 56 76 C68 72 76 62 76 52 C76 46 74 43 78 40 C84 37 90 36 95 34 Z" fill="var(--tx)"/><path d="M50 74 h5 v12 h-5 Z M60 72 h5 v14 h-5 Z M34 85 H86 a3 3 0 0 1 0 6 H34 a3 3 0 0 1 0 -6 Z" fill="var(--tx)"/><circle cx="65" cy="32" r="6.5" fill="var(--work)"/></g></svg>';
+
+export const APP_ICON = '<svg width="64" height="64" viewBox="0 0 1024 1024" style="border-radius:15px" aria-hidden="true"><rect width="1024" height="1024" fill="#121214"/><g transform="translate(206.29 159.89) scale(6.0514)"><path d="M95 34 C89 28 82 24 75 23 C66 21 58 24 54 30 C50 36 46 40 40 46 C32 54 24 64 18 74 L6 92 L20 94 L28 84 C36 80 48 78 56 76 C68 72 76 62 76 52 C76 46 74 43 78 40 C84 37 90 36 95 34 Z" fill="#F2F2F4"/><path d="M50 74 h5 v12 h-5 Z M60 72 h5 v14 h-5 Z M34 85 H86 a3 3 0 0 1 0 6 H34 a3 3 0 0 1 0 -6 Z" fill="#F2F2F4"/><circle cx="65" cy="32" r="6.5" fill="#0A84FF"/></g></svg>';
+
+export const PLUS = (s = 14) => `<svg width="${s}" height="${s}" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M7 2v10M2 7h10"/></svg>`;
+
+export const RING_YOU = '<svg class="ring" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7" cy="7" r="2.5" fill="currentColor"/></svg>';
+export const RING_WORK = '<svg class="ring" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-dasharray="3 2"/><circle cx="7" cy="7" r="2.5" fill="currentColor"/></svg>';
+export const RING_WAIT = '<svg class="ring" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7 4.2V7l1.8 1.2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>';
+export const RING_IDLE = '<svg class="ring" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+
+export const MACHINE = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2" width="11" height="4" rx="1.2"/><rect x="1.5" y="8" width="11" height="4" rx="1.2"/><circle cx="4" cy="4" r=".6" fill="currentColor"/><circle cx="4" cy="10" r=".6" fill="currentColor"/></svg>';
+
+export const PANEL = '<svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="1" y="1" width="14" height="12" rx="2.5"/><path d="M10.5 1v12"/></svg>';
+export const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2l4 4-4 4"/></svg>';
+export const CLOSE = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6"/></svg>';
+export const PIN = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M5 1.5h4l-.6 4 2.6 2.2H3L5.6 5.5Z"/><path d="M7 7.7V12.5" stroke-linecap="round"/></svg>';
+export const SHELL = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l3 3-3 3M7 10.5h4.5"/></svg>';
+
+export const NAV: Record<string, string> = {
+  Objectives: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5"/><circle cx="7" cy="7" r="2"/></svg>',
+  Plans: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 3.5h7M4 7h7M4 10.5h7"/><circle cx="1.8" cy="3.5" r=".6" fill="currentColor"/><circle cx="1.8" cy="7" r=".6" fill="currentColor"/><circle cx="1.8" cy="10.5" r=".6" fill="currentColor"/></svg>',
+  Ideas: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 1.5a4 4 0 0 1 2.3 7.3V10.5H4.7V8.8A4 4 0 0 1 7 1.5Z"/><path d="M5 12.5h4" stroke-linecap="round"/></svg>',
+  Rules: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="1.5" width="9" height="11" rx="1.5"/><path d="M5 5h4M5 7.5h4M5 10h2" stroke-linecap="round"/></svg>',
+  Ship: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2 9.5h10l-1.5 3h-7Z"/><path d="M7 1.5v8M7 2.5l3.5 5H7"/></svg>',
+};
+
+export const SETTINGS = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M12.78 6.55L14.53 7.03L14.53 8.97L12.78 9.45L12.41 10.36L13.30 11.93L11.93 13.30L10.36 12.41L9.45 12.78L8.97 14.53L7.03 14.53L6.55 12.78L5.64 12.41L4.07 13.30L2.70 11.93L3.59 10.36L3.22 9.45L1.47 8.97L1.47 7.03L3.22 6.55L3.59 5.64L2.70 4.07L4.07 2.70L5.64 3.59L6.55 3.22L7.03 1.47L8.97 1.47L9.45 3.22L10.36 3.59L11.93 2.70L13.30 4.07L12.41 5.64Z"/><circle cx="8" cy="8" r="2.1"/></svg>';
+export const PHONE = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2"/><path d="M7 12h2" stroke-linecap="round"/></svg>';
+export const BELL = '<svg width="14" height="15" viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 11V7a4 4 0 0 1 8 0v4l1.2 1.6H1.8z"/><path d="M5.6 14.2a1.5 1.5 0 0 0 2.8 0"/></svg>';
+export const CHECK = '<svg width="7" height="7" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5.2l2 2 4-4.4" stroke="#FFF" stroke-width="2" fill="none"/></svg>';
