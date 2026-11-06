@@ -283,3 +283,8 @@ textarea.pcmd.edit { width: 100%; resize: vertical; background: var(--input); co
 .toast span { flex: 1; }
 .toast .undo { color: #6BB5FF; font-weight: 650; }
 .fatal { padding: 40px 24px; font-size: 15px; }
+
+/* The problem, trust and copy bars on a phone: the words first, the buttons under them */
+.pgphone .nb { flex-wrap: wrap; }
+.pgphone .nb .nbt { flex: 1 1 calc(100% - 40px); min-width: 0; }
+.pgphone .nb .bb { width: 100%; padding-left: 28px; }

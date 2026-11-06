@@ -319,6 +319,7 @@ export function feedbackScreen(arg: string): Screen {
 
   async function photo(): Promise<void> {
     const cp = cpNow();
+    st.error = null;
     try {
       const r = await sh.call<{ path: string; short: string; name: string; thumb?: string }>('photo', { projectId: projectOf(cp) });
       if (r && r.path) st.drops.push({ kind: 'photo', name: r.name, path: r.short || r.path, thumb: r.thumb || null });
@@ -326,6 +327,7 @@ export function feedbackScreen(arg: string): Screen {
     paint();
   }
   async function startVoice(): Promise<void> {
+    st.error = null;
     try { await sh.call('voice.start'); st.recording = Date.now(); tick(); } catch (e) { st.error = (e as Error).message; }
     paint();
   }
@@ -387,7 +389,7 @@ export function feedbackScreen(arg: string): Screen {
     const photos = st.drops.filter((d) => d.kind === 'photo');
     const voices = st.drops.filter((d) => d.kind === 'voice');
     const recMs = st.recording !== null ? Date.now() - st.recording : 0;
-    const bars = Array.from({ length: 30 }, (_, i) => 4 + Math.round(Math.abs(Math.sin(i * 1.7 + recMs / 300)) * 18));
+    const bars = Array.from({ length: 44 }, (_, i) => 4 + Math.round(Math.abs(Math.sin(i * 1.7 + recMs / 300)) * 18));
     const note = h('input.f', { type: 'text', placeholder: 'Add a line (optional)', value: st.note, on: { input: (e: Event) => { st.note = (e.target as HTMLInputElement).value; } } });
     replace(el, h('div.fb',
       h('div.sh.fbh', h('button.icon-btn.fg', { 'aria-label': 'Back', on: { click: back } }, svg(I.BACK)),
@@ -407,12 +409,15 @@ export function feedbackScreen(arg: string): Screen {
       h('div.arr', h('span.lbl', 'It arrives in the session as'),
         h('div.arrive', h('div', h('span.o', '› '), h('span.w', preview.head)), preview.lines.map((l) => h('div.d', `  └ ${l}`)))),
       st.error ? h('p.err', st.error) : null,
-      h('div.fb-b', h('button.btn.pri', { disabled: st.busy || (!st.drops.length && !st.note.trim() && st.choice === null), on: { click: () => void sendAll() } }, `Send to ${asst}`),
+      h('div.fb-b', h('button.btn.pri', { disabled: st.busy || (!st.drops.length && !st.note.trim() && st.choice === null && st.recording === null), on: { click: () => void sendAll() } }, `Send to ${asst}`),
         st.recording !== null ? h('div.say', 'Stop the recording first, or Send stops it for you.') : null)));
     if (document.activeElement === document.body && st.note) { /* keep the keyboard closed */ }
   }
 
   paint();
+  // Asked once: a page drawn again (Android makes a new window for a theme
+  // change) does not open the camera or the microphone a second time.
+  if (want) history.replaceState(null, '', `#/fb/${encodeURIComponent(id)}`);
   if (want === 'photo' && !st.drops.length) void photo();
   if (want === 'voice' && st.recording === null && !st.drops.some((d) => d.kind === 'voice')) void startVoice();
   return {
