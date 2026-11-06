@@ -14,7 +14,7 @@
 //     the file is on the computer.
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
-import { Pages, PAGE_ICONS } from '../../desktop/src/renderer/pages.ts';
+import { Pages } from '../../desktop/src/renderer/pages.ts';
 import type { NavRow, PagesHost, PageView } from '../../desktop/src/renderer/pages.ts';
 import { groupItems, capitaliseField } from '../../desktop/src/renderer/pagefmt.ts';
 import type { Item, Section } from '../../desktop/src/renderer/pagefmt.ts';
@@ -171,52 +171,33 @@ async function moveTo(target: HTMLElement): Promise<void> {
 async function pageMenu(): Promise<void> {
   const btns = [...pageEl!.querySelectorAll('.pg-h > .btn:not(.pri)')] as HTMLButtonElement[];
   const usable = btns.filter((b) => !b.disabled);
-  const i = await sheet(null, [...usable.map((b) => ({ label: (b.textContent || '').trim() })), { label: 'Every page' }]);
-  if (i === null) return;
-  if (i < usable.length) usable[i].click();
-  else go('/pages');
+  const i = await sheet(null, usable.map((b) => ({ label: (b.textContent || '').trim() })));
+  if (i !== null) usable[i].click();
 }
 
 export function pageScreen(key: string): Screen {
   const P = thePages();
   const row = navRows().find((r) => r.key === key);
   if (row && row.projectId) sawProject(row.projectId);
-  const top = h('header.sh.pgtop',
+  // A page in the switch keeps the switch above it, as Plans and Ideas do
+  // in the picture; one opened before the board said which pages it has
+  // (a link) gets the back bar of the page frame until it knows.
+  const backBar = () => h('header.sh.pgtop',
     h('button.icon-btn.fg', { 'aria-label': 'Back', on: { click: back } }, svg(I.ARROW_BACK)),
-    h('span.pgt', row ? row.label : 'Page'), h('span.sp'),
+    h('span.pgt', 'Page'), h('span.sp'),
     h('button.icon-btn', { 'aria-label': 'More', on: { click: () => void pageMenu() } }, svg(I.KEBAB)));
-  const isTab = !!row && (row.id === 'plans' || row.id === 'ideas') && row.origin !== 'project';
-  const el = h('div.scr.page', isTab ? [appBar(), views(key)] : top, pageEl!);
-  if (!el.dataset.wired) { wireLongPress(pageEl!); el.dataset.wired = '1'; }
+  const inSwitch = () => navRows().some((r) => r.key === key);
+  const head = h('div.pghead');
+  const el = h('div.scr.page', head, pageEl!);
+  if (!pageEl!.dataset.wired) { wireLongPress(pageEl!); pageEl!.dataset.wired = '1'; }
   P.show(key);
   const update = () => {
     const r = navRows().find((x) => x.key === key);
-    const t = el.querySelector('.pgt');
-    if (r && t && t.textContent !== r.label) t.textContent = r.label;
     if (r && r.projectId) sawProject(r.projectId);
-    if (!isTab) return;
-    const fresh = [appBar(), views(key)];
-    el.firstElementChild!.replaceWith(fresh[0]);
-    el.children[1].replaceWith(fresh[1]);
-  };
-  return { el, update, dispose: () => { P.close(); } };
-}
-
-export function pagesListScreen(): Screen {
-  const el = h('div.scr.pages');
-  const update = () => {
-    const rows = navRows();
-    const shipped = rows.filter((r) => r.slot !== null && r.origin !== 'project');
-    const added = rows.filter((r) => !(r.slot !== null && r.origin !== 'project'));
-    const rowEl = (r: NavRow) => h('button.prow', { on: { click: () => go(`/p/${encodeURIComponent(r.key)}`) } },
-      svg(PAGE_ICONS[r.icon] || PAGE_ICONS.page), h('span.l', r.label),
-      r.error ? h('span.errdot', { title: 'This page file has a problem' }) : null,
-      r.project ? h('span.pt', r.project) : null,
-      r.number ? h('span.c.num', `${r.number}${r.countLabel ? ` ${r.countLabel}` : ''}`) : null);
-    replace(el, appBar(), views('pages'), h('div.scroll', h('div.plist',
-      rows.length ? [h('div.pgrp', shipped.map(rowEl)), added.length ? h('div.pgrp', added.map(rowEl)) : null] : h('p.t2.empty', 'Reaching the computer...'))));
+    el.classList.toggle('backmode', !inSwitch());
+    if (inSwitch()) replace(head, appBar(), views(key));
+    else if (!head.querySelector('.pgtop')) replace(head, backBar());
   };
   update();
-  return { el, update, dispose: () => {} };
+  return { el, update, dispose: () => { P.close(); } };
 }
-

@@ -41,7 +41,8 @@ input, textarea { font: inherit; color: var(--tx); }
 .sp { flex: 1; }
 [hidden] { display: none !important; }
 
-.app { height: 100%; }
+.app { height: 100%; overflow: hidden; }
+body { overflow: hidden; }
 .scr { height: 100%; display: flex; flex-direction: column; position: relative; }
 .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
@@ -70,12 +71,13 @@ input, textarea { font: inherit; color: var(--tx); }
 
 /* The switch and the strip */
 .views { display: flex; align-items: center; gap: 8px; padding: 2px 14px 10px; flex: none; }
-.segs { display: flex; gap: 2px; background: var(--card); border-radius: 10px; padding: 3px; flex: 1; }
+.segs { display: flex; gap: 2px; background: var(--card); border-radius: 10px; padding: 3px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.segs::-webkit-scrollbar { display: none; }
 @media (prefers-color-scheme: light) { .segs { box-shadow: inset 0 0 0 1px var(--sep); } }
-.seg { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border-radius: 8px; font-size: 13.5px; font-weight: 550; color: var(--tx2); min-height: 34px; white-space: nowrap; }
+.seg { flex: 1 0 auto; min-width: 31%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border-radius: 8px; font-size: 13.5px; font-weight: 550; color: var(--tx2); min-height: 34px; white-space: nowrap; }
 .seg .c { font-size: 12px; font-weight: 500; color: var(--tx2); }
 .seg.on { background: var(--btn); color: var(--tx); box-shadow: 0 1px 2px rgba(0,0,0,.25); }
-.seg.more { flex: 0 0 44px; padding: 7px 0; }
+.seg .errdot { margin-left: -2px; }
 @media (prefers-color-scheme: light) { .seg.on { box-shadow: 0 0 0 1px var(--sep), 0 1px 2px rgba(0,0,0,.06); } }
 .mix { display: flex; height: 6px; gap: 2px; border-radius: 3px; overflow: hidden; margin: 4px 14px 12px; flex: none; }
 
@@ -226,27 +228,20 @@ textarea.pcmd.edit { width: 100%; resize: vertical; background: var(--input); co
 .fb-b .btn { min-height: 56px; font-size: 16px; font-weight: 650; border-radius: 16px; }
 .fb-b .say { text-align: center; font-size: 12.5px; color: var(--tx2); }
 
-/* The pages list */
-.plist { padding: 0 8px 16px; display: flex; flex-direction: column; gap: 10px; }
-.pgrp { display: flex; flex-direction: column; border-radius: 12px; background: var(--card); padding: 4px; }
-@media (prefers-color-scheme: light) { .pgrp { background: var(--sheet); box-shadow: 0 0 0 1px var(--sep); } }
-.prow { display: flex; align-items: center; gap: 12px; padding: 13px 12px; font-size: 15px; border-radius: 9px; width: 100%; }
-.prow:active { background: var(--sel); }
-.prow svg { color: var(--tx2); flex: none; }
-.prow .l { flex: 1; }
-.prow .c { font-size: 13px; color: var(--tx2); }
-.prow .pt { font-size: 12px; color: var(--tx3); }
-.errdot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); }
+.errdot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); display: inline-block; }
 
 /* A page: the desktop's drawing (inside .pgx), made for a finger */
 .page .pgtop { gap: 8px; padding-left: 6px; }
 .pgt { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
-.pgx { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; font-size: 13.5px; }
+.pgx { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; font-size: 13.5px; overflow-x: hidden; }
 .pgx .pg-h { padding: 0 14px 8px; flex-wrap: wrap; gap: 8px; }
 .pgphone .pg-h .tt h2 { display: none; }
 .page.scr:has(.views) .pgphone .pg-h .tt h2 { display: none; }
-.pgx .pg-h .pg-src, .pgphone .pg-h > .btn:not(.pri) { display: none; }
-.pgphone .pg-h:not(:has(.btn.pri)) { padding: 0; }
+.pghead { flex: none; }
+.backmode .pgx .pg-h .pg-src, .backmode .pgphone .pg-h > .btn:not(.pri) { display: none; }
+.pgx .pg-h .pg-src { font-size: 11.5px; min-width: 0; overflow: hidden; }
+.pgx .pg-h .pg-src .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.backmode .pgphone .pg-h:not(:has(.btn.pri)) { padding: 0; }
 .pgx .pg-b { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 96px; }
 /* The page's create button: the round button at the bottom right */
 .pgx .pg-h > .btn.pri { position: fixed; right: 18px; bottom: 22px; z-index: 5; min-height: 56px; padding: 0 22px 0 18px; border-radius: 18px; font-size: 15.5px; font-weight: 600; box-shadow: 0 6px 18px rgba(0,0,0,.3); }

@@ -5,7 +5,6 @@
 //   #/cp/<id>          a checkpoint (pictures 4 and the checkpoints' phone frames)
 //   #/fb/<id>          a photo or a voice note for it (picture 6)
 //   #/p/<page key>     a page of the sidebar (the pages' phone frames)
-//   #/pages            every page of the sidebar
 //
 // The shell gives a tap on an alert as `open`, Back as `back`.
 
@@ -17,7 +16,7 @@ import { parentOf } from './logic.ts';
 import { sessionsScreen } from './sessions.ts';
 import { sessionScreen } from './session.ts';
 import { checkpointScreen, feedbackScreen } from './checkpoint.ts';
-import { pageScreen, pagesListScreen } from './pages.ts';
+import { pageScreen } from './pages.ts';
 
 export interface Screen { el: HTMLElement; update(): void; dispose(): void }
 
@@ -53,7 +52,6 @@ function show(): void {
     : kind === 'cp' ? checkpointScreen(arg)
     : kind === 'fb' ? feedbackScreen(arg)
     : kind === 'p' ? pageScreen(arg)
-    : kind === 'pages' ? pagesListScreen()
     : sessionsScreen();
   replace(root, screen.el, toastEl);
   window.scrollTo(0, 0);

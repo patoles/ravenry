@@ -29,19 +29,25 @@ export function appBar(): HTMLElement {
     h('button.icon-btn', { 'aria-label': 'Settings', on: { click: () => void sh.call('open.settings').catch(() => {}) } }, svg(I.GEAR)));
 }
 
-/** The switch: Sessions, then Plans and Ideas as the picture has them, then every other page. */
-export function views(on: string): HTMLElement {
+/**
+ * The switch: Sessions, then Plans and Ideas as the picture has them, then
+ * every other page of the sidebar in its order (the board's own switch, as
+ * it is today). More than fit scroll sideways.
+ */
+export function switchRows(): NavRow[] {
   const rows = ((hub.live.state as unknown as { pages?: NavRow[] } | null)?.pages || []);
-  const pick = (id: string) => rows.find((r) => r.id === id && r.origin !== 'project');
-  const seg = (key: string, label: string, n: number | null, to: string) =>
-    h(`button.seg${on === key ? '.on' : ''}`, { on: { click: () => go(to, { replace: true }) } }, label, n ? h('span.c.num', String(n)) : null);
-  const plans = pick('plans');
-  const ideas = pick('ideas');
-  return h('div.views', h('div.segs',
-    seg('sessions', 'Sessions', null, '/'),
-    plans ? seg(plans.key, plans.label, plans.number, `/p/${encodeURIComponent(plans.key)}`) : null,
-    ideas ? seg(ideas.key, ideas.label, ideas.number, `/p/${encodeURIComponent(ideas.key)}`) : null,
-    h(`button.seg.more${on === 'pages' ? '.on' : ''}`, { 'aria-label': 'Every page', title: 'Every page', on: { click: () => go('/pages', { replace: true }) } }, svg(I.GRID))));
+  const first = ['plans', 'ideas'].map((id) => rows.find((r) => r.id === id && r.origin !== 'project')).filter((r): r is NavRow => !!r);
+  return [...first, ...rows.filter((r) => !first.includes(r))];
+}
+
+export function views(on: string): HTMLElement {
+  const seg = (key: string, label: string, n: number | null, to: string, err = false) =>
+    h(`button.seg${on === key ? '.on' : ''}`, { 'data-key': key, on: { click: () => go(to, { replace: true }) } }, label, err ? h('span.errdot') : null, n ? h('span.c.num', String(n)) : null);
+  const segs = h('div.segs', seg('sessions', 'Sessions', null, '/'),
+    switchRows().map((r) => seg(r.key, r.label, r.number, `/p/${encodeURIComponent(r.key)}`, r.error)));
+  // The page on screen in view, without scrolling anything else.
+  requestAnimationFrame(() => { const el = segs.querySelector('.seg.on') as HTMLElement | null; if (el && segs.scrollWidth > segs.clientWidth) segs.scrollLeft = Math.max(0, el.offsetLeft + el.offsetWidth - segs.clientWidth + 3); });
+  return h('div.views', segs);
 }
 
 function rowEl(p: ProjectRow, r: Row): HTMLElement {
