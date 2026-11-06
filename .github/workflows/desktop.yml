@@ -1,8 +1,12 @@
 # The desktop app and its protocol client, on Linux. Typecheck and unit
 # tests for packages/client and apps/desktop; then the app end to end in a
-# headless Electron under xvfb, against a ravenryd built here (libghostty-vt
-# with Zig, cached as in code.yml): it starts the daemon, opens real shells,
-# types, pastes, switches tabs and closes one.
+# headless Electron under xvfb, against a ravenryd built here as the app
+# ships it (libghostty-vt with Zig, cached as in code.yml; static): it
+# starts the daemon, opens real shells, types, pastes, switches tabs and
+# closes one. Then the app packaged (unpacked, no installer) and checked:
+# it finds its own ravenryd, starts it beside an older one, writes its hub
+# service in dry-run mode into a throwaway HOME, and the hub runs as that
+# service says. release.yml builds every installer.
 name: desktop
 
 on:
@@ -45,19 +49,35 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: daemon/.deps/libghostty-vt-*
-          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-build-2-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
+      # Zig from its release tarball, pinned by the SHA-256 that
+      # ziglang.org/download/index.json lists for 0.17.1 (as in code.yml).
+      # mlugg/setup-zig still runs on the deprecated Node 20 (v2.2.1, its
+      # latest release, and its main branch as of 2026-11-06), and a pinned
+      # checksum needs no action at all. Community mirrors first, as
+      # ziglang.org asks of CI; the checksum makes any of them safe.
+      - name: Install Zig 0.17.1
         if: steps.libghostty.outputs.cache-hit != 'true'
-        with:
-          version: 0.17.1
+        working-directory: ${{ runner.temp }}
+        run: |
+          f=zig-x86_64-linux-0.17.1.tar.xz
+          sum=3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a
+          for url in https://ziglang.freetls.fastly.net/$f https://pkg.hexops.org/zig/$f https://zigmirror.hryx.net/zig/$f https://ziglang.org/download/0.17.1/$f; do
+            if curl -fsSL --retry 2 --max-time 300 -o "$f" "$url" && echo "$sum  $f" | sha256sum -c --quiet; then
+              tar -xJf "$f" && echo "$RUNNER_TEMP/${f%.tar.xz}" >> "$GITHUB_PATH" && exit 0
+            fi
+            echo "no good copy from $url"
+          done
+          exit 1
+      # As the app ships it (static, the app's version), and an older one
+      # for the update check below.
       - name: Build ravenryd
-        working-directory: daemon
         run: |
           command -v pkg-config >/dev/null || sudo apt-get install -y pkg-config
-          export PKG_CONFIG_PATH=$(scripts/libghostty.sh)
-          go build -o "$RUNNER_TEMP/ravenryd" ./cmd/ravenryd
-          "$RUNNER_TEMP/ravenryd" version
-          echo "RAVENRYD=$RUNNER_TEMP/ravenryd" >> "$GITHUB_ENV"
+          apps/desktop/scripts/build-ravenryd.sh "$RUNNER_TEMP/rv/ravenryd-linux-x64"
+          apps/desktop/scripts/build-ravenryd.sh "$RUNNER_TEMP/old/ravenryd" 0.0.1
+          file "$RUNNER_TEMP/rv/ravenryd-linux-x64"
+          echo "RAVENRYD=$RUNNER_TEMP/rv/ravenryd-linux-x64" >> "$GITHUB_ENV"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -73,6 +93,10 @@ jobs:
         run: |
           npm --workspace @ravenry/desktop run build
           xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/smoke.mjs "$RUNNER_TEMP/smoke"
+      - name: The packaged app (unpacked), checked end to end
+        run: |
+          npm --workspace @ravenry/desktop run pack -- --linux --arch x64 --dir --skip-build --ravenryd "$RUNNER_TEMP/rv"
+          xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/package-check.mjs apps/desktop/release/linux-unpacked "$RUNNER_TEMP/smoke/package" --old-ravenryd "$RUNNER_TEMP/old/ravenryd"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

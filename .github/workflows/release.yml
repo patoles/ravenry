@@ -1,0 +1,296 @@
+# Builds the desktop app for every target and, on a version tag, uploads it
+# to a DRAFT GitHub Release. Nothing here ever publishes a release: a person
+# reads the draft and publishes it. Run by hand (workflow_dispatch) to build
+# and check everything without a release; the files are then this run's
+# artifacts.
+#
+#   ravenryd   built on a machine of each platform and architecture (macOS
+#              arm64 and x64, Linux x64 and arm64): libghostty-vt with Zig
+#              for the baseline CPU, then ravenryd with the app's version,
+#              static on Linux (apps/desktop/scripts/build-ravenryd.sh)
+#   mac        one DMG and one zip per architecture, from the Apple silicon
+#              runner (one latest-mac.yml for both), signed and notarized
+#              when the secrets are set, else UNSIGNED and said loudly
+#   linux      an AppImage and a .deb per architecture (latest-linux.yml,
+#              latest-linux-arm64.yml)
+#   checks     every artifact holds ravenryd and the hub; the arm64 Mac app,
+#              the x64 AppImage and the arm64 AppImage run offscreen on a
+#              machine of their own (tools/package-check.mjs)
+#   release    on a v* tag only: a draft release named after the tag, with
+#              every file; a release that is already published is never
+#              touched
+#
+# Signing and notarization (macOS), from repository secrets; none is needed
+# to build:
+#   MAC_CERTIFICATE_P12          base64 of the Developer ID Application
+#                                certificate and its key, exported as .p12
+#   MAC_CERTIFICATE_PASSWORD     the .p12's password
+#   APPLE_API_KEY_P8             the App Store Connect API key (.p8 text)
+#   APPLE_API_KEY_ID             its key id
+#   APPLE_API_ISSUER             its issuer id
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: v
+        name: The app's version, and the tag's
+        run: |
+          v=$(node -p "require('./apps/desktop/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$v" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} is not v$v, the version in apps/desktop/package.json"
+            exit 1
+          fi
+          echo "Ravenry $v" >> "$GITHUB_STEP_SUMMARY"
+
+  ravenryd:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { runner: macos-15, platform: darwin, arch: arm64, zig: zig-aarch64-macos-0.17.1.tar.xz, sum: 75f1bc7a1e9852f17ec9a0c1895f767c4ec56d46bc8a834920eece1d0359dd8d }
+          - { runner: macos-15-intel, platform: darwin, arch: x64, zig: zig-x86_64-macos-0.17.1.tar.xz, sum: 9af07b20319fbd0c92ee46ad23e81d6a782b1aaea2cfb8dcbff35f1d2c7ddbb7 }
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, zig: zig-x86_64-linux-0.17.1.tar.xz, sum: 3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, zig: zig-aarch64-linux-0.17.1.tar.xz, sum: a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: daemon/go.mod
+          cache: false
+      - name: Cache libghostty-vt
+        id: libghostty
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: daemon/.deps/libghostty-vt-*
+          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-build-2-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
+      # Zig from its release tarball, pinned by the SHA-256 that
+      # ziglang.org/download/index.json lists for 0.17.1 (code.yml's step,
+      # for each platform). Community mirrors first, as ziglang.org asks of
+      # CI; the checksum makes any of them safe.
+      - name: Install Zig 0.17.1
+        if: steps.libghostty.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        env:
+          f: ${{ matrix.zig }}
+          sum: ${{ matrix.sum }}
+        run: |
+          for url in https://ziglang.freetls.fastly.net/$f https://pkg.hexops.org/zig/$f https://zigmirror.hryx.net/zig/$f https://ziglang.org/download/0.17.1/$f; do
+            if curl -fsSL --retry 2 --max-time 300 -o "$f" "$url" && [ "$( (sha256sum "$f" 2>/dev/null || shasum -a 256 "$f") | cut -d' ' -f1)" = "$sum" ]; then
+              tar -xJf "$f" && echo "$RUNNER_TEMP/${f%.tar.xz}" >> "$GITHUB_PATH" && exit 0
+            fi
+            echo "no good copy from $url"
+          done
+          exit 1
+      - name: pkg-config
+        run: |
+          command -v pkg-config >/dev/null && exit 0
+          if [ "$RUNNER_OS" = macOS ]; then brew install pkgconf; else sudo apt-get install -y pkg-config; fi
+      - name: Build ravenryd ${{ needs.version.outputs.version }} for ${{ matrix.platform }}-${{ matrix.arch }}
+        run: |
+          out="$RUNNER_TEMP/out/ravenryd-${{ matrix.platform }}-${{ matrix.arch }}"
+          apps/desktop/scripts/build-ravenryd.sh "$out" "${{ needs.version.outputs.version }}"
+          # An older one, for the update check (never shipped).
+          apps/desktop/scripts/build-ravenryd.sh "$RUNNER_TEMP/out/ravenryd-old-${{ matrix.platform }}-${{ matrix.arch }}" 0.0.1
+          file "$out"
+          if [ "$RUNNER_OS" = Linux ]; then file "$out" | grep -Eq 'statically linked|static-pie linked'; fi
+          if [ "$RUNNER_OS" = macOS ]; then otool -L "$out"; otool -l "$out" | grep -A3 LC_BUILD_VERSION | grep minos; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ravenryd-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+
+  mac:
+    needs: [version, ravenryd]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ravenryd-darwin-*
+          path: ${{ runner.temp }}/rv
+          merge-multiple: true
+      - run: chmod +x "$RUNNER_TEMP"/rv/ravenryd-*
+      - name: Signing credentials, when the secrets are set
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$P8" ]; then
+            umask 077
+            printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          fi
+      - name: Package (DMG and zip, arm64 and x64)
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm --workspace @ravenry/desktop run pack -- --mac --arch arm64,x64 --ravenryd "$RUNNER_TEMP/rv"
+      - name: Every artifact holds ravenryd and the hub
+        working-directory: apps/desktop
+        run: |
+          for f in release/*.dmg release/*.zip; do
+            node tools/package-check.mjs "$f" "$RUNNER_TEMP/check/$(basename "$f")" --contents-only
+          done
+      - name: The arm64 app from its DMG, end to end (offscreen)
+        working-directory: apps/desktop
+        run: node tools/package-check.mjs release/Ravenry-${{ needs.version.outputs.version }}-mac-arm64.dmg "$RUNNER_TEMP/check/run" --old-ravenryd "$RUNNER_TEMP/rv/ravenryd-old-darwin-arm64"
+      - name: Summary
+        working-directory: apps/desktop
+        run: |
+          node -e "const a=require('./release/artifacts.json'); console.log('| file | size |\n| --- | --- |\n' + a.files.map(f => '| ' + f.file.replace('release/','') + ' | ' + (f.bytes/1048576).toFixed(1) + ' MiB |').join('\n') + '\n\nmacOS: ' + (a.signed ? 'signed' : '**UNSIGNED**') + ', ' + (a.notarized ? 'notarized' : '**not notarized**'))" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ravenry-mac
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac.yml
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: check-mac
+          path: ${{ runner.temp }}/check
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  linux:
+    needs: [version, ravenryd]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ravenryd-linux-*
+          path: ${{ runner.temp }}/rv
+          merge-multiple: true
+      - run: chmod +x "$RUNNER_TEMP"/rv/ravenryd-*
+      - name: Package (AppImage and .deb, x64 and arm64)
+        run: npm --workspace @ravenry/desktop run pack -- --linux --arch x64,arm64 --ravenryd "$RUNNER_TEMP/rv"
+      - name: What the app needs on Linux
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxtst6
+      - name: Every artifact holds ravenryd and the hub
+        working-directory: apps/desktop
+        run: |
+          for f in release/*.deb release/*x86_64.AppImage; do
+            node tools/package-check.mjs "$f" "$RUNNER_TEMP/check/$(basename "$f")" --contents-only
+          done
+      - name: The x64 AppImage, end to end (xvfb)
+        working-directory: apps/desktop
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node tools/package-check.mjs release/Ravenry-${{ needs.version.outputs.version }}-linux-x86_64.AppImage "$RUNNER_TEMP/check/run" --old-ravenryd "$RUNNER_TEMP/rv/ravenryd-old-linux-x64"
+      - name: Summary
+        working-directory: apps/desktop
+        run: |
+          node -e "const a=require('./release/artifacts.json'); console.log('| file | size |\n| --- | --- |\n' + a.files.map(f => '| ' + f.file.replace('release/','') + ' | ' + (f.bytes/1048576).toFixed(1) + ' MiB |').join('\n'))" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ravenry-linux
+          path: |
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-linux*.yml
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: check-linux
+          path: ${{ runner.temp }}/check
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  linux-arm64:
+    needs: [version, linux]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ravenry-linux
+          path: apps/desktop/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ravenryd-linux-arm64
+          path: ${{ runner.temp }}/rv
+      - name: What the app needs on Linux
+        run: |
+          chmod +x "$RUNNER_TEMP"/rv/ravenryd-*
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64 libxss1 libxtst6
+      - name: The arm64 AppImage, end to end (xvfb)
+        working-directory: apps/desktop
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node tools/package-check.mjs release/Ravenry-${{ needs.version.outputs.version }}-linux-arm64.AppImage "$RUNNER_TEMP/check/run" --old-ravenryd "$RUNNER_TEMP/rv/ravenryd-old-linux-arm64"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: check-linux-arm64
+          path: ${{ runner.temp }}/check
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  draft:
+    if: github.ref_type == 'tag'
+    needs: [version, mac, linux, linux-arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ravenry-*
+          path: files
+          merge-multiple: true
+      - name: Upload to a draft release (never published here)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ls -la files
+          if gh release view "$TAG" --json isDraft --jq .isDraft > draft.txt 2>/dev/null; then
+            if [ "$(cat draft.txt)" != true ]; then
+              echo "::error::The release $TAG is already published; this workflow never changes a published release."
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --draft --verify-tag --title "Ravenry $VERSION" --notes "Ravenry $VERSION. Draft built by the release workflow from $GITHUB_SHA; check it, write the notes, then publish it by hand."
+          fi
+          gh release upload "$TAG" files/* --clobber
+          echo "Draft release $TAG: $(gh release view "$TAG" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"
