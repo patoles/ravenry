@@ -67,7 +67,7 @@ const ALLOWED = [
   { file: 'hub/README.md', sha256: '36fce319303169bc1c218558c60a4442da8bb593fedbe2c8e18f6dc5d6a71e18', why: 'antics in the antics.gg link' },
   { file: 'hub/README.md', sha256: '884b09ca3c191228347b7445a53794e215563e2aa6a80f0ca98050c38ff04947', why: 'the antics.gg link' },
   { file: 'hub/tools/alerts-test.mjs', sha256: '07f2acdfa4eb9856ce2e436ca3e83f4e8d8975970ad8a9a304ed64b2f9e65fb7', why: 'a made-up bot token (a keyboard row) for the local Telegram stub' },
-  { file: 'hub/tools/alerts-test.mjs', sha256: 'd51e3533335f313c09a8360aa228b4ec182ad4493438c191c387430119fc7fb5', why: 'a made-up wrong bot token for the local Telegram stub' },
+  { file: 'hub/tools/alerts-test.mjs', sha256: 'd51e3533335f313c09a8360aa228b4ec182ad4493438c191c387430119fc7fb5', why: 'a made-up wrong bot token for the local Telegram stub' },  { file: '.github/workflows/code.yml', sha256: 'bd466793be1df9176166915c2a8252449f71dd6fb6b7c748b66fd0d2c5eb4e60', why: 'the SHA-256 of the Zig 0.17.1 release tarball, from ziglang.org/download/index.json' },
 ];
 
 const SHAPES = [
