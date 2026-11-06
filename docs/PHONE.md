@@ -1,0 +1,373 @@
+# The phone apps
+
+The contract between the hub, the phone apps (Android now, iOS next) and
+the phone board they show. Decided once, before the code: what is written
+here changes only with a new version number in the place that carries it
+(the pairing link's `v`, the push message's `v`, the bridge's `v`, the
+hub's `api`), and an old phone keeps working against a new hub.
+
+## 1. What a phone app is
+
+A thin native shell around one WebView. The **phone board** (the sessions,
+the live terminal, the checkpoint screens, the sidebar's pages) is web
+code, `apps/phone/`, shared by both shells and built from the desktop
+app's own modules where they exist (the sidebar's groups from
+`apps/desktop/src/renderer/model.ts`, checkpoints from `checkpoints.ts`,
+pages from `pages.ts`, the terminal through `@ravenry/client` and
+xterm.js). The shell ships that bundle inside the app and adds only what a
+page cannot do:
+
+- notifications with action buttons and a reply line, so Needs you, an
+  `ask --wait` or a checkpoint is answered from the shade;
+- pairing with the computer: the QR code, the pinned key, the device token;
+- a fingerprint (BiometricPrompt, Face ID on iOS) before every Run from the
+  phone;
+- a camera photo and a voice note dropped into a session;
+- the connection to the hub in the background, and push;
+- the private keyboard for a secret.
+
+**Every byte to the hub goes through the shell.** The page never opens a
+network connection of its own: it asks the shell (section 7), and the
+shell makes the request over TLS with the pinned key and the device token.
+So the pin is enforced in one place, the token never enters the page, and
+a valid certificate from any authority is refused if its key is not the
+pinned one. The page is served from the app itself
+(`https://appassets.androidplatform.net/phone/` on Android,
+`ravenry-app://phone/` on iOS); a picture or file of the hub is
+`hub/<path>` relative to the page, which the shell fetches the same way.
+
+## 2. Reaching the hub
+
+**Phone access** is a switch on the computer, off until the person turns
+it on (pairing turns it on). While it is on, the hub listens with TLS on
+the **phone port** (`RAVENRY_PHONE_PORT`, default the board's port plus
+one: 4601) and takes connections that arrive on:
+
+- a private LAN address of this machine (10/8, 172.16/12, 192.168/16): the
+  home Wi-Fi;
+- a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48): away from home;
+- loopback, so an emulator on this machine reaches it (its 10.0.2.2).
+
+A connection to any other local address is closed before TLS. With the
+switch off there is no TLS socket at all. The board's own port (4600) is
+unchanged: the Mac's window on loopback, and phone browsers signed in with
+the QR cookie on the Wi-Fi, as before.
+
+**The key.** The hub makes one ECDSA P-256 key and a self-signed
+certificate for it on first use (`<RAVENRY_HOME>/phone-tls/`, key mode
+0600). The **pin** is the base64url SHA-256 of the certificate's
+SubjectPublicKeyInfo (43 characters). The phone checks the pin on every
+connection and refuses any other key, whoever signed it. New key (below)
+does not change the TLS key: the pin outlives tokens.
+
+**Every request on the phone port is a phone's.** It carries the device
+token as `Authorization: Bearer <token>`, or it is refused with 401
+(`signedOut: true`). Nothing on the phone port is treated as the Mac, even
+on loopback. The exceptions: `POST /api/phone/pair` (the pairing code is
+its proof) and `GET /api/phone/hello` (the hub's name and `api`, no
+secret).
+
+## 3. Pairing and tokens
+
+### The pairing link
+
+The Mac shows a QR code holding
+
+```
+ravenry://pair?v=1&name=<hub name>&hosts=<host>[,<host>...]&port=<phone port>&pin=<pin>&code=<pairing code>
+```
+
+- `name`: what the phone calls the computer (its host name, `.local`
+  dropped), URL-encoded.
+- `hosts`: the addresses to try, in order: the Wi-Fi's first, then
+  Tailscale's, then any in `RAVENRY_PHONE_HOSTS` (comma separated, for an
+  emulator: `10.0.2.2`).
+- `pin`: section 2.
+- `code`: a **pairing code**, 16 characters of Crockford base32 (80 bits),
+  made when the Mac shows the card. It works once, for 10 minutes. Showing
+  the card again makes a new one and the old one stops working.
+
+The app opens the same link when it is tapped or pasted (a deep link), so
+a link sent by another way pairs too.
+
+**Typed instead of scanned.** "Type the code instead" asks for the
+computer's address and the code, shown on the card as `XXXX-XXXX-XXXX-XXXX`.
+There is no pin to type, so the phone connects, takes the certificate's
+key, and shows its **check number**: the first five bytes of the key's
+SHA-256 (the pin's bytes) read as one big-endian number, modulo 10^12, as
+two groups of six digits (`482193 300571`). The Mac's card shows the same
+check number under the code; the person pairs only when they match. After
+that the phone pins that key exactly as if it had scanned it.
+
+### Pairing
+
+`POST /api/phone/pair` on the phone port, body
+`{ "code": "...", "name": "Pixel 8", "platform": "android", "app": "0.1.0" }`.
+
+- **200** `{ ok, device: { id, name }, token, hub: { name, pin, port, api } }`.
+  `token` is 32 random bytes, base64url. The hub keeps only its SHA-256.
+- **401** `{ error }`: the code is wrong, used or out of date. Five wrong
+  codes in a minute lock pairing for a minute.
+- **403**: phone access is off.
+
+The code is compared in constant time and used up by the first success.
+
+### Devices
+
+`<RAVENRY_HOME>/phone.json` (mode 0600) keeps one record per device:
+`{ id, hash, name, platform, app, created, lastSeen, push }`. A phone
+browser signed in with the QR cookie is a device too (`platform: "browser"`,
+its cookie is its token). The same token store serves both; the cookie
+`mc_phone` and the header are two ways to carry a token.
+
+| Route | Where | Class | |
+| --- | --- | --- | --- |
+| `GET /api/phone/me` | the device | read | `{ device, hub, access }` |
+| `POST /api/phone/unpair` | the device | person | signs this device out (its token is forgotten) |
+| `POST /api/phone/push` | the device | person | sets this device's push target (section 4) |
+| `GET /api/phone/devices` | the Mac | read | every device, without hashes |
+| `POST /api/phone/devices/revoke` | the Mac | person | `{ id }`: that device is signed out at once, its open streams end |
+| `POST /api/phone/access` | the Mac | person | `{ on }`: phone access on or off |
+| `POST /api/phone/new-key` | the Mac | person | as before: a new sign-in key, every device signed out |
+| `GET /api/phone` | the Mac | person | the card: the browser QR as before, and while access is on the app's pairing link, its QR, the code and the check number |
+
+A revoked or forgotten token gets 401 with `signedOut: true` on its next
+request, and the app goes back to the pairing screen.
+
+### Who the phone is
+
+A paired device's request is **the person** (`server/person.mjs`,
+`hub/docs/PERSON.md`): from another address with a valid token it passes
+every person row. From an address of this machine (an emulator, or a
+program here that stole a token) it is judged like any other local caller,
+by `ravenryd peer`: inside a pane it is refused. `POST /api/phone/pair`
+is a person row: from another address the code proves it, from this
+machine it is judged.
+
+## 4. Push
+
+Each device has at most one **push target**, set by the device itself with
+`POST /api/phone/push`:
+
+| `kind` | Fields | Built | |
+| --- | --- | --- | --- |
+| `unifiedpush` | `endpoint`, `p256dh`, `auth` | now | Android, through any UnifiedPush distributor (ntfy) |
+| `apns` | `relay`, `token`, `p256dh`, `auth` | later | iOS, through a Ravenry relay to APNs |
+| `fcm` | `token`, `p256dh`, `auth` | later | Android with Google services, through a relay |
+| `none` | | now | no push; alerts arrive only while the app holds its connection |
+
+The hub refuses a kind it does not build yet with 400, so a phone never
+believes push works when it does not.
+
+**End to end.** Every push body is encrypted for the device with Web Push
+message encryption (RFC 8291, `aes128gcm`, RFC 8188): `p256dh` is the
+device's P-256 public key (uncompressed, base64url) and `auth` its 16-byte
+secret (base64url), both made on the phone. A distributor, a relay, Apple
+or Google sees only ciphertext and the endpoint. The plaintext is the
+message of section 5, at most 3000 bytes (longer texts are cut with `...`).
+
+- **unifiedpush**: `POST <endpoint>` with `Content-Encoding: aes128gcm`,
+  `TTL: 3600`, `Urgency: high`, the encrypted body. 404 or 410 drops the
+  target; another failure is tried once more after 30 s. The endpoint must
+  be https (http only to loopback, for tests).
+- **apns** (designed): `POST <relay>/v1/apns` `{ token, ttl, body }` with the
+  same encrypted body in base64url; the relay sends it to APNs with
+  `mutable-content: 1` and a placeholder title, and the app's Notification
+  Service Extension decrypts it and draws the real alert. The relay keeps
+  nothing.
+
+The same messages also reach a device on its live event stream
+(`GET /api/events`, as `event: phone`), so an app that holds its connection
+shows an alert at once and without push. The app keeps each alert id it
+has shown and draws it once.
+
+## 5. Alerts and their actions
+
+### The message
+
+```json
+{
+  "v": 1, "type": "alert", "id": "cp:c7k2m9qx", "at": "2026-11-06T17:36:02.120Z",
+  "kind": "ask",
+  "title": "Sync settings asks",
+  "body": "Ship the beta to the testers?",
+  "detail": "Claude waits until 18:04.",
+  "project": { "id": "notes-app", "name": "notes-app" },
+  "machine": null,
+  "session": { "surfaceId": "ravenry:pk3m9q2x", "topic": "Sync settings", "assistant": "claude" },
+  "checkpoint": { "id": "c7k2m9qx", "kind": "ask", "expires_at": "2026-11-06T18:04:00.000Z" },
+  "actions": [
+    { "id": "choice:0", "label": "Ship it" },
+    { "id": "choice:1", "label": "Not yet" }
+  ],
+  "reply": { "action": "text", "label": "Answer", "hint": "Answer in your own words" }
+}
+```
+
+`{ "v": 1, "type": "close", "id": "cp:c7k2m9qx" }` takes an alert off the
+phone: the checkpoint was answered, cancelled or ran out, or the session
+left Needs you. `{ "v": 1, "type": "test", ... }` is a test alert.
+
+Unlike the third-party channels (Telegram, Discord, ntfy topics), which
+carry only "<Project> needs you", an app alert carries the question, the
+command and the agent's words: it is encrypted for that phone.
+
+### Ids
+
+| Alert | `id` |
+| --- | --- |
+| A checkpoint | `cp:<checkpoint id>` |
+| A session in Needs you | `s:<project id>:<surface id>:<since>` |
+| A plan gate | `gate:<first 16 characters of the base64url SHA-256 of the gate key>` |
+| A test | `test:<time>` |
+
+### Kinds, buttons and the reply line
+
+Android shows at most three buttons. When a menu has more answers than
+fit, it shows the first ones and **Open**.
+
+| `kind` | When | Buttons | Reply line |
+| --- | --- | --- | --- |
+| `ask` | `ravenry ask` (a checkpoint) | its options, `choice:<i>`; with `free_text`, at most two of them | with `free_text`: **Answer** |
+| `approve` | `ravenry approve` | **Run** (`run`, fingerprint first), **Refuse** (`refuse`), **Open** (`open`) | none |
+| `secret` | `ravenry secret` | **Type it** (`open`), **Not now** (`decline`) | **none**, ever: a secret is never typed into a notification |
+| `permission` | the assistant's own permission menu | its answers, `quick:<n>` (Yes, Yes always, No) | none |
+| `question` | the assistant asked in the session | its quick answers, `quick:<n>`, at most two | **Reply** |
+| `handback` | the session handed back | **Open** | **Reply** |
+| `gate` | a plan waits at a gate | **Open** | none |
+
+What each action does, as the device, on the phone port:
+
+| Action | Call |
+| --- | --- |
+| `choice:<i>` | `POST /api/checkpoints/answer { checkpoint, choice: i, by: "phone" }` |
+| the reply of an `ask` | `POST /api/checkpoints/answer { checkpoint, text, by: "phone" }` |
+| `run` | BiometricPrompt, then `POST /api/checkpoints/answer { checkpoint, approve: true, by: "phone" }` |
+| `refuse`, `decline` | `POST /api/checkpoints/answer { checkpoint, decline: true, by: "phone" }` |
+| `quick:<n>` | `POST /api/send { projectId, surfaceId, choice: n }` |
+| the reply of a session | `POST /api/send { projectId, surfaceId, text }` |
+| `open` | opens the app on that checkpoint or session |
+
+**Run always asks for a fingerprint**, from the shade and in the app, and
+cannot be turned off. With no fingerprint (or face) set up on the phone,
+Run says so and does nothing; the command is approved on the computer.
+
+After an action the notification says what was sent ("Sent: Ship it"),
+then goes after four seconds. If the hub refused it (answered elsewhere
+first, signed out), the notification says why and keeps **Open**.
+
+### Channels (Android)
+
+| Channel | Importance | |
+| --- | --- | --- |
+| `needs-you` | high (heads-up, sound) | every alert |
+| `connection` | min, silent | "Linked to <computer> and <machines>. N sessions working, M need you." while the app holds its connection |
+
+## 6. The terminal on the phone
+
+`GET /api/term?pane=<pane id>`, a WebSocket upgrade with the subprotocol
+`ravenry.v1`, on the phone port. The hub finds the daemon that holds the
+pane (this machine's, or a machine's through `ssh host ravenryd proxy`)
+and joins the two byte streams: the phone speaks protocol v1
+(`packages/protocol/PROTOCOL.md`) to the daemon, handshake included.
+
+- It is a person row: it types into panes, and the daemon takes the hub as
+  the person.
+- The hub reads every text frame the phone sends and lets through only
+  `hello`, `cancel`, `pane.list`, `pane.capture`, `pane.read`,
+  `pane.subscribe`, `pane.unsubscribe`, `pane.resize`, `pane.send` and
+  `ack`. Anything else closes the connection (1008). Answers go through the
+  HTTP API, never this stream.
+- Binary frames (input) pass as they are.
+
+## 7. The bridge between the page and the shell
+
+The page talks to the shell with JSON messages over one channel named
+`ravenryShell`: `WebViewCompat.addWebMessageListener` on Android,
+restricted to the page's own origin (never `addJavascriptInterface`, which
+every frame of every origin could call), and
+`webkit.messageHandlers.ravenryShell` on iOS. Requests are
+`{ "v": 1, "id": 7, "op": "...", ... }`; each gets one reply
+`{ "id": 7, "ok": true, "result": ... }` or `{ "id": 7, "ok": false, "error": "..." }`.
+The shell sends events as `{ "event": "...", ... }`.
+
+| `op` | Fields | Result |
+| --- | --- | --- |
+| `hello` | | `{ v, platform, app, hub: { name, port }, device: { id, name }, features }` |
+| `hub.call` | `method`, `path`, `body` | `{ status, body }` |
+| `hub.events` | `on` | events `hub` `{ name, data }` and `link` `{ state: "up" \| "down", error }` |
+| `socket.open` | `path`, `protocol` | `{ sid }`; events `socket.message` `{ sid, text }` or `{ sid, b64 }`, `socket.close` `{ sid, code, reason }` |
+| `socket.send` | `sid`, `text` or `b64` | |
+| `socket.close` | `sid` | |
+| `biometric` | `title`, `subtitle` | `{ ok }`, or an error the page shows |
+| `photo` | `projectId` | the camera; the picture goes to the project's inbox (`POST /api/inbox/<project>`): `{ path, short, name }` |
+| `voice.start` | | recording starts |
+| `voice.stop` | `projectId` | `{ path, short, name, ms }`, sent to the inbox the same way |
+| `voice.cancel` | | |
+| `secret.open` | `checkpoint`, `rect`, `dark` | the private field over `rect` (CSS px from the page's top left); events `secret.count` `{ n }`, `secret.done` `{ ok, error }` when the keyboard's Send sent it |
+| `secret.move` | `rect` | the field follows the card when the page moves |
+| `secret.send` | | the shell answers the checkpoint with what was typed: `{ ok }` |
+| `secret.close` | | |
+| `speech` | | voice typing for the reply field: `{ text }` |
+| `alerts.clear` | `id` | |
+| `pair.reset` | | sign out on this phone and go back to pairing |
+| `open.settings` | | the app's settings |
+
+Events also carry `open` `{ alert }` when the person taps an alert, and
+`back` when they press Back (the page answers with `back.done` when it
+handled it, else the shell leaves).
+
+**The private keyboard.** A secret is typed in a native field the shell
+lays over the card's field: password input, no suggestions, and
+`IME_FLAG_NO_PERSONALIZED_LEARNING`, so the keyboard learns nothing and
+keeps nothing. The page never sees the secret: on Send the shell answers
+the checkpoint itself and forgets the text. Only the number of characters
+goes to the page. On iOS, a secure `UITextField` does the same.
+
+**Features** in `hello` say what this shell can do (`push`, `biometric`,
+`photo`, `voice`, `speech`, `secret`), so the page hides what a shell
+lacks. A browser running the phone board for development has none of
+them.
+
+## 8. Versions
+
+- The pairing link: `v=1`. A link with a higher `v` asks to update the app.
+- The push message: `v: 1`. An unknown `type` is ignored; an unknown
+  `kind` shows its title and body with **Open** only.
+- The bridge: `v: 1`. An unknown `op` is refused.
+- The hub's phone API: `api: 1` in `/api/phone/hello` and
+  `/api/phone/me`. A hub with a higher `api` still answers `api: 1` calls.
+
+## 9. Android and iOS
+
+| | Android (now) | iOS (next) |
+| --- | --- | --- |
+| The phone board | WebView, the bundle from the APK | WKWebView, the bundle from the app |
+| Serving the page | `WebViewAssetLoader` at `appassets.androidplatform.net` | `WKURLSchemeHandler` for `ravenry-app:` |
+| The bridge | `addWebMessageListener`, page origin only | `WKScriptMessageHandlerWithReply` |
+| TLS with the pin | OkHttp, a trust manager that accepts only the pinned key | `URLSession` delegate, server trust checked against the pin |
+| Device token | EncryptedSharedPreferences (Android Keystore) | Keychain, this device only |
+| Pairing: QR | CameraX and ZXing | AVFoundation's QR reader |
+| Pairing: typed code | the check number | the check number |
+| Pairing: deep link | `ravenry://pair` | `ravenry://pair` |
+| Pairing: found on this Wi-Fi | later | later |
+| Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay, decrypted in a Notification Service Extension |
+| Push without a distributor | the connection held by a foreground service | the connection while the app is open |
+| Alert buttons | notification actions | `UNNotificationCategory` actions |
+| Reply line | `RemoteInput` | `UNTextInputNotificationAction` |
+| Run from the shade | a small activity shows BiometricPrompt, then answers | an action with `.authenticationRequired`, then Face ID in the app |
+| Secret | never in the shade; opens the app | never in the shade; opens the app |
+| Fingerprint before Run | BiometricPrompt, `BIOMETRIC_STRONG` | LocalAuthentication, `deviceOwnerAuthenticationWithBiometrics` |
+| Camera photo into a session | the camera app (`TakePicture`) | `UIImagePickerController` |
+| Voice note into a session | `MediaRecorder`, AAC in .m4a | `AVAudioRecorder`, AAC in .m4a |
+| Voice typing in the reply field | `RecognizerIntent` when the phone has one | `SFSpeechRecognizer` |
+| Private keyboard | native field, no suggestions, no learning | secure `UITextField` |
+| Screen kept from screenshots while a secret is typed | `FLAG_SECURE` (release builds) | the secure field |
+| Connection status | the `connection` notification | none (iOS has no such notification) |
+| Sessions from every machine, Needs you first | the phone board | the phone board |
+| Live terminal and key bar | the phone board (xterm.js) | the phone board |
+| Replies and menu answers | the phone board | the phone board |
+| Hand-off | the phone board | the phone board |
+| The checkpoint screens | the phone board | the phone board |
+| The sidebar's pages | the phone board (the desktop's pages code) | the phone board |
+| Store | F-Droid, then Play | App Store |
