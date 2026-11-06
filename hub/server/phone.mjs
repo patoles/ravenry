@@ -237,9 +237,12 @@ export function setPush(id, target) {
 // Every device with a push target.
 export const pushDevices = () => load().tokens.filter((t) => t.push && t.push.kind && t.push.kind !== 'none');
 
-// What the phone calls this computer.
+// What the phone calls this computer: RAVENRY_HUB_NAME, else its host
+// name up to the first dot (".local", ".lan", ".home" dropped).
 export function hubName() {
-  return String(process.env.RAVENRY_HUB_NAME || os.hostname() || 'Ravenry').replace(/\.local\.?$/i, '') || 'Ravenry';
+  const set = String(process.env.RAVENRY_HUB_NAME || '').trim();
+  if (set) return set.slice(0, 60);
+  return String(os.hostname() || '').split('.')[0] || 'Ravenry';
 }
 
 // ------------------------------------------------------------ pairing

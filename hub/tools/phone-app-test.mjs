@@ -126,6 +126,12 @@ const auth = crypto.randomBytes(16);
   check('a code older than 10 minutes is refused', !old.ok && old.status === 401 && /out of date/.test(old.error));
   phone._resetPairing();
   check('the check number is the pin\'s first five bytes, modulo 10^12, as two groups of six', phone.checkNumber(b64u(Buffer.from([0, 0, 0, 1, 0, 9, 9]))) === '000000 000256' && /^\d{6} \d{6}$/.test(phone.checkNumber(b64u(crypto.randomBytes(32)))));
+  const had = process.env.RAVENRY_HUB_NAME;
+  delete process.env.RAVENRY_HUB_NAME;
+  const plain = phone.hubName();
+  process.env.RAVENRY_HUB_NAME = 'MacBook Pro';
+  check('the hub\'s name: the host name up to its first dot, unless RAVENRY_HUB_NAME says', !plain.includes('.') && plain.length > 0 && phone.hubName() === 'MacBook Pro');
+  if (had === undefined) delete process.env.RAVENRY_HUB_NAME; else process.env.RAVENRY_HUB_NAME = had;
   check('a typed code is read the Crockford way', phone.normalizeCode('abcd-efgh ijkl-mnoo') === 'ABCDEFGH1JK1MN00');
 }
 
@@ -318,6 +324,10 @@ if (BIN) {
   ws.send(JSON.stringify({ v: 1, type: 'checkpoint.answer', id: 3, checkpoint: 'cxxxxxxx', approve: true }));
   await until(async () => ws.closeCode !== null, 5000);
   check('a method the phone may not send (checkpoint.answer) closes the stream with 1008', ws.closeCode === 1008, String(ws.closeCode));
+  const lo = await wsOpen(`/api/term?pane=${pane.id}`, null, { plain: true });
+  if (lo.status === 101) lo.send(JSON.stringify({ v: 1, type: 'hello', id: 1, client: { name: 'phone-app-test', version: '0' } }));
+  await until(async () => lo.texts.some((t) => t.type === 'result' && t.id === 1), 5000);
+  check('on the board\'s own port, from this machine outside every pane (a dev server), the terminal stream opens too', lo.status === 101 && lo.texts.some((t) => t.type === 'result' && t.id === 1), lo.head.split('\r\n')[0]);
   const bad = await wsOpen('/api/term?pane=pzzzzzzz', TOKEN);
   check('a pane no daemon has: 404', /^HTTP\/1\.1 404/.test(bad.head));
   const noTokWs = await wsOpen(`/api/term?pane=${pane.id}`, null);
@@ -340,9 +350,9 @@ console.log(fails ? `\n${fails} failed  (scratch: ${T})` : `\nall passed  (scrat
 process.exit(fails ? 1 : 0);
 
 // ------------------------------------------------------------ a small WebSocket client over TLS
-async function wsOpen(p, token) {
+async function wsOpen(p, token, { plain = false } = {}) {
   return new Promise((resolve, reject) => {
-    const s = tls.connect({ host: '127.0.0.1', port: PPORT, rejectUnauthorized: false });
+    const s = plain ? net.connect(PORT, '127.0.0.1') : tls.connect({ host: '127.0.0.1', port: PPORT, rejectUnauthorized: false });
     const key = crypto.randomBytes(16).toString('base64');
     const out = { status: 0, head: '', texts: [], bins: [], closeCode: null, send: null };
     let buf = Buffer.alloc(0);
@@ -360,8 +370,8 @@ async function wsOpen(p, token) {
       for (let i = 0; i < m.length; i++) m[i] ^= mask[i & 3];
       s.write(Buffer.concat([hdr, mask, m]));
     };
-    s.on('secureConnect', () => {
-      s.write(`GET ${p} HTTP/1.1\r\nHost: 10.0.2.2:${PPORT}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Protocol: ravenry.v1\r\n${token ? `Authorization: Bearer ${token}\r\n` : ''}\r\n`);
+    s.on(plain ? 'connect' : 'secureConnect', () => {
+      s.write(`GET ${p} HTTP/1.1\r\nHost: ${plain ? `127.0.0.1:${PORT}` : `10.0.2.2:${PPORT}`}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Protocol: ravenry.v1\r\n${token ? `Authorization: Bearer ${token}\r\n` : ''}\r\n`);
     });
     s.on('data', (d) => {
       if (upgraded) return read(d);
