@@ -29,7 +29,7 @@ import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
 import { HubFeed, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
-import { dataRoot, ensureService, pruneVersions, readBuildInfo, serviceFile, serviceMode, serviceSpec, stageVersion } from './install.ts';
+import { dataRoot, ensureService, pruneVersions, readBuildInfo, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
 import type { Staged } from './install.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
@@ -227,7 +227,11 @@ async function setUpService(staged: Staged): Promise<void> {
     return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
   };
   try {
-    const r = await ensureService({ mode, spec: serviceSpec({ execPath: process.execPath, staged }), run, boardAnswers });
+    let execPath = process.execPath;
+    const from = runtimeSource(process.execPath);
+    const build = readBuildInfo(process.resourcesPath);
+    if (from && build && mode !== 'off') execPath = await stageRuntime({ from, staged, build, exeName: path.basename(process.execPath) });
+    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged }), run, boardAnswers });
     const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
     console.log(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
   } catch (e) {

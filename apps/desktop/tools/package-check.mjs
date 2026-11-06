@@ -224,6 +224,8 @@ try {
     else ok(`systemd unit written to the throwaway HOME${v.status === 0 ? ' and verified (systemd-analyze)' : ''}: ${svcExe} ${svcArgs.join(' ')}`);
   }
   if (svcEnv.ELECTRON_RUN_AS_NODE !== '1') fail('the service does not run the app as Node');
+  // An AppImage's hub runs the runtime copied into the version folder, never the AppImage (whose launcher adds --no-sandbox).
+  if (isAppImage && !svcExe.startsWith(path.join(DATA, 'versions', build.version, 'runtime') + path.sep)) fail(`the AppImage's service runs ${svcExe}, not the runtime copied into its version folder`);
   if (svcEnv.RAVENRY_DAEMON_BIN !== LINK) fail(`the service's RAVENRY_DAEMON_BIN is ${svcEnv.RAVENRY_DAEMON_BIN}, not ${LINK}`);
 
   const port = await new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
@@ -234,7 +236,6 @@ try {
     // machine's own (no assistants, no board data).
     HOME, RAVENRY_HOME: path.join(HOME, '.ravenry'), PORT: String(port), PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
     RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state'), MC_NO_EVENTS: '1', RAVENRY_NO_OPEN: '1',
-    ...(isAppImage ? { APPIMAGE_EXTRACT_AND_RUN: '1' } : {}),
   };
   let hubLog = '';
   hub = spawn(svcExe, svcArgs, { env: hubEnv, cwd: path.dirname(path.dirname(svcArgs[0])), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -250,7 +251,7 @@ try {
     await sleep(250);
   }
   if (!state) fail(`the hub did not answer on :${port} within 30 s\n${hubLog.slice(-3000)}`);
-  ok(`the hub runs as the service says (the app's executable as Node${svcExe === exe ? '' : `, through ${svcExe}`}) and answers /api/state on :${port} in ${Date.now() - t0} ms`);
+  ok(`the hub runs as the service says (${svcExe === exe ? "the app's executable" : `the runtime copied to ${path.relative(WORK, svcExe)}`} as Node) and answers /api/state on :${port} in ${Date.now() - t0} ms`);
   const before = daemons().map((d) => d.pid).sort();
   hub.kill('SIGTERM');
   const code = await Promise.race([new Promise((r) => hub.on('exit', (c, s) => r(c ?? s))), sleep(10000).then(() => 'timeout')]);

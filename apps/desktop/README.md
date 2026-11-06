@@ -64,7 +64,10 @@ Nothing outside the user's own folders, and nothing as root.
   the window closed: a launchd agent (`~/Library/LaunchAgents/gg.ravenry.hub.plist`)
   or a systemd user unit (`~/.config/systemd/user/ravenry-hub.service`). It
   runs the app's own executable as Node (`ELECTRON_RUN_AS_NODE=1`), so no
-  Node is needed, on the copied hub, in Ravenry terminal mode. Written on
+  Node is needed, on the copied hub, in Ravenry terminal mode. An AppImage
+  runs from a folder it mounts only while it runs, and its launcher adds
+  `--no-sandbox`, which Node refuses, so its hub runs a copy of the
+  Electron runtime kept in `versions/<version>/runtime`. Written on
   first launch, rewritten and restarted when the app changes. When a board
   already runs (`ravenry` from npm) and no service of ours exists, nothing
   is installed and the app uses that board. `RAVENRY_SERVICE=off` turns it

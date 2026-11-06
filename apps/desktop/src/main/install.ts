@@ -16,7 +16,9 @@
 // The hub service. The hub runs always on, under launchd on macOS
 // (~/Library/LaunchAgents/gg.ravenry.hub.plist) and systemd on Linux
 // (~/.config/systemd/user/ravenry-hub.service), as the app's own executable
-// with ELECTRON_RUN_AS_NODE=1: users install no Node. It is written on first
+// with ELECTRON_RUN_AS_NODE=1: users install no Node. An AppImage's hub runs
+// a copy of its Electron runtime in the version folder instead (see
+// runtimeSource). It is written on first
 // launch, rewritten when it would change (a new version, a moved app), and
 // then restarted. Restarting the hub never ends a session: sessions live in
 // ravenryd, which runs in its own process session (serve --detach), and the
@@ -166,13 +168,48 @@ export interface ServiceSpec {
 }
 
 /**
- * The executable the service runs. An AppImage runs from a folder it mounts
- * for as long as it runs, so the service runs the AppImage file itself
- * (APPIMAGE); everything else runs its own executable.
+ * Where to copy an Electron runtime from for the hub, or null when the
+ * service can run the app's own executable. An AppImage runs from a folder
+ * it mounts only while it runs, and its AppRun adds --no-sandbox wherever
+ * unprivileged user namespaces are off (Ubuntu 24.04 by default), which the
+ * executable run as Node refuses ("bad option"). So the hub of an AppImage
+ * runs a copy of the runtime in its version folder (stageRuntime), started
+ * directly, with no AppRun.
  */
-export function serviceExe(execPath: string, env: Env = process.env, platform: string = process.platform): string {
-  if (platform === 'linux' && env.APPIMAGE) return env.APPIMAGE;
-  return execPath;
+export function runtimeSource(execPath: string, env: Env = process.env, platform: string = process.platform): string | null {
+  return platform === 'linux' && env.APPIMAGE ? path.dirname(execPath) : null;
+}
+
+// What the hub needs of an Electron runtime on Linux to run as Node: the
+// executable, the libraries it links and the data V8 and ICU read. Not the
+// window's resources (app.asar, the hub is copied apart), locales, GPU
+// libraries or the sandbox helper.
+const RUNTIME_SKIP = new Set(['resources', 'locales', 'usr', 'chrome-sandbox', 'AppRun', '.DirIcon', 'LICENSES.chromium.html']);
+
+/**
+ * Copies the Electron runtime at `from` (an AppImage's mounted folder) into
+ * <version folder>/runtime once per build. Returns the executable to run.
+ */
+export async function stageRuntime(opts: { from: string; staged: Staged; build: BuildInfo; exeName: string }): Promise<string> {
+  const dst = path.join(opts.staged.dir, 'runtime');
+  const exe = path.join(dst, opts.exeName);
+  const marker = path.join(dst, '.build.json');
+  try {
+    if ((JSON.parse(fs.readFileSync(marker, 'utf8')) as BuildInfo).id === opts.build.id && fs.existsSync(exe)) return exe;
+  } catch { /* not copied yet */ }
+  const tmp = `${dst}.${process.pid}.tmp`;
+  await fs.promises.rm(tmp, { recursive: true, force: true });
+  await fs.promises.mkdir(tmp, { recursive: true });
+  for (const name of await fs.promises.readdir(opts.from)) {
+    if (RUNTIME_SKIP.has(name) || name.endsWith('.desktop') || name.endsWith('.png') || name.endsWith('.svg')) continue;
+    await fs.promises.cp(path.join(opts.from, name), path.join(tmp, name), { recursive: true });
+  }
+  await fs.promises.writeFile(path.join(tmp, '.build.json'), JSON.stringify(opts.build) + '\n');
+  const old = `${dst}.${process.pid}.old`;
+  if (fs.existsSync(dst)) await fs.promises.rename(dst, old);
+  await fs.promises.rename(tmp, dst);
+  await fs.promises.rm(old, { recursive: true, force: true });
+  return exe;
 }
 
 /** True when this copy updates itself: macOS, and Linux as an AppImage (a .deb does not). */
@@ -201,7 +238,11 @@ export function servicePath(env: Env = process.env, platform: string = process.p
 /** Variables a test (or a developer) set for the app that the hub should share. */
 const SHARED = ['RAVENRY_HOME', 'RAVENRY_RUNTIME_DIR', 'RAVENRY_STATE_DIR', 'PORT'];
 
-/** The service for this app: its executable, the staged hub, and the hub's environment. */
+/**
+ * The service for this app: the executable to run as Node (the app's own,
+ * or the runtime copied for an AppImage), the staged hub, and the hub's
+ * environment.
+ */
 export function serviceSpec(opts: { execPath: string; staged: Staged; env?: Env; platform?: string; home?: string }): ServiceSpec {
   const env = opts.env || process.env;
   const platform = opts.platform || process.platform;
@@ -216,7 +257,7 @@ export function serviceSpec(opts: { execPath: string; staged: Staged; env?: Env;
   };
   for (const k of SHARED) if (env[k]) hubEnv[k] = env[k]!;
   return {
-    exe: serviceExe(opts.execPath, env, platform),
+    exe: opts.execPath,
     hubEntry: opts.staged.hubEntry,
     env: hubEnv,
     logDir: platform === 'darwin' ? path.join(home, 'Library', 'Logs', 'Ravenry') : path.join(home, '.local', 'state', 'ravenry'),

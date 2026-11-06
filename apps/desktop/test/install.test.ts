@@ -7,8 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  dataRoot, ensureService, plistText, pruneVersions, selfUpdating, serviceExe, serviceFile, serviceMode,
-  serviceSpec, stageVersion, unitText,
+  dataRoot, ensureService, plistText, pruneVersions, runtimeSource, selfUpdating, serviceFile, serviceMode,
+  serviceSpec, stageRuntime, stageVersion, unitText,
 } from '../src/main/install.ts';
 import type { Runner } from '../src/main/install.ts';
 
@@ -69,7 +69,7 @@ test('pruneVersions keeps the current version, running daemons and what the serv
 
 const staged = { version: '0.1.0', dir: '/d/versions/0.1.0', ravenryd: '/d/versions/0.1.0/ravenryd', link: '/d/bin/ravenryd', cli: '/d/bin/ravenry', hubEntry: '/d/versions/0.1.0/hub/server/index.mjs' };
 
-test('the service runs the app as Node on the staged hub, and an AppImage through its file', () => {
+test('the service runs the app as Node on the staged hub; an AppImage copies its runtime', () => {
   const spec = serviceSpec({ execPath: '/Applications/Ravenry.app/Contents/MacOS/Ravenry', staged, env: { PATH: '/usr/bin:/tmp/shim', RAVENRY_HOME: '/r' }, platform: 'darwin', home: '/h' });
   assert.equal(spec.exe, '/Applications/Ravenry.app/Contents/MacOS/Ravenry');
   assert.equal(spec.env.RAVENRY_DAEMON_BIN, '/d/bin/ravenryd');
@@ -83,8 +83,9 @@ test('the service runs the app as Node on the staged hub, and an AppImage throug
   assert.match(p, /<key>AbandonProcessGroup<\/key>\s*<true\/>/);
   assert.match(p, /<string>\/Applications\/Ravenry\.app\/Contents\/MacOS\/Ravenry<\/string>\s*<string>\/d\/versions\/0\.1\.0\/hub\/server\/index\.mjs<\/string>/);
 
-  assert.equal(serviceExe('/tmp/.mount_x/ravenry', { APPIMAGE: '/home/you/Apps/Ravenry.AppImage' }, 'linux'), '/home/you/Apps/Ravenry.AppImage');
-  assert.equal(serviceExe('/opt/Ravenry/ravenry', {}, 'linux'), '/opt/Ravenry/ravenry');
+  assert.equal(runtimeSource('/tmp/.mount_x/ravenry', { APPIMAGE: '/home/you/Apps/Ravenry.AppImage' }, 'linux'), '/tmp/.mount_x');
+  assert.equal(runtimeSource('/opt/Ravenry/ravenry', {}, 'linux'), null);
+  assert.equal(runtimeSource('/Applications/Ravenry.app/Contents/MacOS/Ravenry', { APPIMAGE: '/x' }, 'darwin'), null);
   const u = unitText(serviceSpec({ execPath: '/opt/Ravenry/ravenry', staged: { ...staged, hubEntry: '/d/100% $x/index.mjs' }, env: { PATH: '/usr/bin' }, platform: 'linux', home: '/h' }));
   assert.match(u, /^ExecStart="\/opt\/Ravenry\/ravenry" "\/d\/100%% \$\$x\/index\.mjs"$/m);
   assert.match(u, /^Environment="ELECTRON_RUN_AS_NODE=1"$/m);
@@ -146,4 +147,21 @@ test('ensureService: installs, keeps a current one, updates a changed one, and l
     assert.equal(upd.state, 'updated');
     assert.match(fs.readFileSync(file, 'utf8'), /versions\/0\.2\.0/);
   }
+});
+
+test('stageRuntime copies what the hub needs of an AppImage runtime, once per build', async () => {
+  const dir = tmp();
+  const appdir = path.join(dir, 'mount');
+  fs.mkdirSync(path.join(appdir, 'resources'), { recursive: true });
+  fs.mkdirSync(path.join(appdir, 'locales'), { recursive: true });
+  for (const f of ['ravenry', 'libffmpeg.so', 'icudtl.dat', 'v8_context_snapshot.bin', 'AppRun', 'chrome-sandbox', 'ravenry.desktop']) fs.writeFileSync(path.join(appdir, f), f);
+  const staged = stageVersion({ resources: fakeResources(dir, 'one'), root: path.join(dir, 'data'), build: { version: '0.1.0', id: 'a' } });
+  const exe = await stageRuntime({ from: appdir, staged, build: { version: '0.1.0', id: 'a' }, exeName: 'ravenry' });
+  assert.equal(exe, path.join(staged.dir, 'runtime', 'ravenry'));
+  assert.deepEqual(fs.readdirSync(path.join(staged.dir, 'runtime')).sort(), ['.build.json', 'icudtl.dat', 'libffmpeg.so', 'ravenry', 'v8_context_snapshot.bin']);
+  fs.writeFileSync(path.join(appdir, 'ravenry'), 'changed');
+  await stageRuntime({ from: appdir, staged, build: { version: '0.1.0', id: 'a' }, exeName: 'ravenry' });
+  assert.equal(fs.readFileSync(exe, 'utf8'), 'ravenry');
+  await stageRuntime({ from: appdir, staged, build: { version: '0.1.0', id: 'b' }, exeName: 'ravenry' });
+  assert.equal(fs.readFileSync(exe, 'utf8'), 'changed');
 });
