@@ -380,6 +380,22 @@ happened and what to do: ssh wanting a password (with `ssh-copy-id`), a
 system with no build, a full disk (checked with df first, and while
 copying), a settings file that is not JSON.
 `tools/remote-install-test.mjs` proves it through a fake ssh.
+`tools/remote-install-docker.mjs` runs it against real sshd in Linux
+containers (Docker; desktop.yml runs it on every push, about two minutes;
+by hand: `RAVENRY_LINUX_BUILDS=<folder with ravenryd-linux-arm64 and/or
+-x64> node tools/remote-install-docker.mjs [--assistants]`): users whose
+login shell is bash, zsh or fish and whose startup files print on stdout,
+Alpine's BusyBox, a home on a 12 MB tmpfs and a `~/.ravenry` on a 6 MB one,
+a machine behind a ProxyJump host, and on an arm64 Docker the linux-x64
+build under emulation (under Rosetta its daemon trips Rosetta's own
+assertion, so that case stops at the hooks; desktop.yml proves the x64
+daemon natively). `--assistants` also runs the real Claude Code and Codex
+from npm, with no account, on the hook entries the installer writes, and
+checks they run them. ssh there uses a throwaway key, known_hosts and
+`-F` config; sshd listens on 127.0.0.1 only; the containers and images
+it makes are removed. A login shell that prints before `ravenryd proxy`
+starts is fine: the hub skips what comes before the handshake's status
+line (machines.mjs `skipBanner`), and reads JSON after it.
 
 **Starting a session.** `POST /api/sessions/start` `{ projectId, folder,
 machine, assistant, text, cols, rows }` (server/sessionstart.mjs) opens a

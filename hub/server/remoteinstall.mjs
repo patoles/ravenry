@@ -423,7 +423,12 @@ async function runInstall(j, m, b, { replaceHooks }) {
     s.progress = { done: 0, total: load.bytes.length };
     s.detail = `Into ${t(bin)}`;
     const up = await upload(m, load, s);
-    if (!up.ok) { end(j, 'copy', 'failed', up.why, { progress: null }); return; }
+    if (!up.ok) {
+      // The folders the copy made go too, so nothing is left behind.
+      if (!p.hasbin) await script(m.host, `rmdir "$HOME/${BIN_DIR}" 2>/dev/null${p.hasdir ? '' : '; rmdir "$HOME/.ravenry" 2>/dev/null'}; P ok 1`);
+      end(j, 'copy', 'failed', up.why, { progress: null });
+      return;
+    }
     // Checked there, run once, then moved into place. A ravenryd Ravenry
     // did not put there is kept beside it.
     const keep = p.binsha && !(old && old.sha256 === p.binsha) && !(old && old.files && old.files.includes(`${BIN_DIR}/ravenryd`)) ? `ravenryd.bak-${stamp()}` : null;
@@ -571,7 +576,7 @@ P ok 1
 // Streams the binary into ~/.ravenry/bin/.ravenryd.part, counting bytes.
 function upload(m, load, step) {
   return new Promise((resolve) => {
-    const line = `sh -c 'umask 077; d="$HOME/${BIN_DIR}"; mkdir -p "$d" || exit 3; t="$d/.ravenryd.part"; if e=$(${load.gzip ? 'gzip -dc' : 'cat'} 2>&1 >"$t"); then echo "RVN wrote=1"; else rm -f "$t"; echo "RVN error=write $e"; exit 4; fi'`;
+    const line = `sh -c 'umask 077; d="$HOME/${BIN_DIR}"; mkdir -p "$d" || exit 3; t="$d/.ravenryd.part"; if e=$(${load.gzip ? 'gzip -dc' : 'cat'} 2>&1 >"$t"); then echo "RVN wrote=1"; else rm -f "$t"; echo "RVN error=write $(echo $e)"; exit 4; fi'`;
     let child;
     try { child = spawn(machines.sshBin(), [...machines.SSH_OPTS, m.host, '--', line], { stdio: ['pipe', 'pipe', 'pipe'] }); } catch (e) { resolve({ ok: false, why: `ssh did not start: ${e.message}` }); return; }
     let out = '';
@@ -587,7 +592,7 @@ function upload(m, load, step) {
       if (code === 255 || code === -1) { resolve({ ok: false, why: sshFailure(m.host, err).why }); return; }
       if (kv.wrote === '1') { resolve({ ok: true }); return; }
       const msg = (kv.error || '').replace(/^write ?/, '') || err.trim().split('\n').pop() || `exit ${code}`;
-      if (NO_SPACE.test(msg) || NO_SPACE.test(err)) resolve({ ok: false, full: true, why: `${m.name}'s disk filled up while ravenryd was copied (${msg.trim()}). The part copied was removed. Free some space there, then try again.` });
+      if (NO_SPACE.test(msg) || NO_SPACE.test(err) || NO_SPACE.test(out)) resolve({ ok: false, full: true, why: `${m.name}'s disk filled up while ravenryd was copied (${msg.trim()}). The part copied was removed. Free some space there, then try again.` });
       else if (code === 3) resolve({ ok: false, why: `Ravenry could not make ${BIN_DIR} in ${m.name}'s home folder.` });
       else resolve({ ok: false, why: `The copy to ${m.name} stopped: ${msg.trim()}` });
     });

@@ -4,8 +4,9 @@
 // own daemon folders; the fake ssh runs the command line there through sh,
 // as sshd does through the login shell, with stand-ins on its PATH where a
 // machine must look otherwise (uname for Linux or FreeBSD, df for a full
-// disk, gzip and cat for a disk that fills up). Nothing reads ~/.ssh, and
-// real ssh is never run. It checks:
+// disk, gzip and cat for a disk that fills up), and every login prints a
+// banner on stdout first. Nothing reads ~/.ssh, and real ssh is never run
+// (tools/remote-install-docker.mjs runs real sshd in containers). It checks:
 //   - a fresh machine shows as not installed (its command exits 127);
 //   - install: every step done, the binary in ~/.ravenry/bin with the
 //     app's SHA-256, the `ravenry` link, the daemon's hook in Claude Code's
@@ -74,6 +75,9 @@ h='${HOSTS}'/"$host"
 echo "$host $*" >> '${D}/ssh-log'
 if [ ! -d "$h" ]; then echo "ssh: Could not resolve hostname $host: nodename nor servname provided, or not known" >&2; exit 255; fi
 if [ -f "$h/deny" ]; then echo "$host: Permission denied (publickey,password)." >&2; exit 255; fi
+# A login shell whose startup files print on stdout, as a .bashrc that
+# echoes does: nothing may take it for the daemon's or the script's output.
+echo "Welcome to $host"
 exec env -i HOME="$h/home" PATH="$h/stubs:/usr/bin:/bin:/usr/sbin:/sbin" SHELL=/bin/sh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR="$h/run" RAVENRY_STATE_DIR="$h/state" SSH_CONNECTION='127.0.0.1 50022 127.0.0.1 22' /bin/sh -c "$*"
 `, { mode: 0o755 });
 

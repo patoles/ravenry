@@ -96,6 +96,11 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      # The hub's remote installer against real sshd in Linux containers:
+      # bash, zsh and fish logins that print banners, BusyBox, a full tmpfs,
+      # a jump host, with the static build above (hub/tools/remote-install-docker.mjs).
+      - name: The remote installer against real sshd (Docker)
+        run: RAVENRY_LINUX_BUILDS="$RUNNER_TEMP/rv" node hub/tools/remote-install-docker.mjs
       - name: Electron and what it needs on Linux
         run: |
           node node_modules/electron/install.js

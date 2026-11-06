@@ -45,7 +45,10 @@ exist in v1; there is no TCP listener.
   `~/.ssh/config` and jump hosts, and no port is opened on the remote
   machine. The proxy does not read or change the bytes, so the client
   speaks exactly the same protocol, WebSocket handshake included, as over
-  the socket.
+  the socket. sshd runs the command through the remote login shell, whose
+  startup files may print to standard output before the proxy starts (a
+  `.bashrc` that echoes): a client over ssh skips what comes before the
+  handshake's status line (`HTTP/1.1 `).
 
 Every client of the user may use every method, except the few that act
 as the person (answering a checkpoint, deciding for a hook): the daemon

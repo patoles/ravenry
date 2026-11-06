@@ -40,7 +40,7 @@
 // of failing quietly.
 
 import { spawn } from 'node:child_process';
-import { Duplex } from 'node:stream';
+import { Duplex, Transform } from 'node:stream';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -179,7 +179,7 @@ function dial(l) {
   let code = null;
   child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
   child.on('error', (e) => { err = `ssh did not start: ${e.message}`; });
-  const stream = Duplex.from({ readable: child.stdout, writable: child.stdin });
+  const stream = Duplex.from({ readable: child.stdout.pipe(skipBanner()), writable: child.stdin });
   stream.on('error', () => {});
   let settled = false;
   child.on('exit', (c) => {
@@ -250,12 +250,48 @@ function otherProtocol(l) {
 
 export const PROTOCOL = 1;
 
+// sshd runs the command through the login shell, whose startup files may
+// print to standard output first (a .bashrc that echoes, a .zshenv, fish's
+// config.fish). That text is not the daemon's: everything before the
+// handshake's status line ("HTTP/1.1 ") is dropped, at most 64 KiB of it.
+export function skipBanner(limit = 64 * 1024) {
+  let held = Buffer.alloc(0);
+  let passing = false;
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      if (passing) return cb(null, chunk);
+      held = Buffer.concat([held, chunk]);
+      for (let i = 0; i <= held.length - 9; i++) {
+        if ((i === 0 || held[i - 1] === 0x0a) && held.subarray(i, i + 9).toString('latin1') === 'HTTP/1.1 ') {
+          passing = true;
+          const rest = held.subarray(i);
+          held = null;
+          return cb(null, rest);
+        }
+      }
+      if (held.length > limit) return cb(new Error('the remote login shell printed more than 64 KiB before ravenryd answered'));
+      cb();
+    },
+  });
+}
+
+// The JSON a command printed after whatever the login shell printed first.
+export function jsonOut(out, open = '{') {
+  const s = String(out);
+  for (let i = s.indexOf(open); i >= 0; i = s.indexOf(open, i + 1)) {
+    if (i > 0 && s[i - 1] !== '\n') continue;
+    try { return JSON.parse(s.slice(i)); } catch { /* the next one */ }
+  }
+  return null;
+}
+
 // `<command> version --json` on a machine: { version, protocol, os, arch }
 // or null.
 export function remoteVersion(m, timeoutMs = 15000) {
   return runSsh(m.host, `${m.command} version --json`, { timeoutMs }).then((r) => {
     if (r.code !== 0) return null;
-    try { const v = JSON.parse(r.out); return v && typeof v.version === 'string' ? { version: v.version, protocol: Number.isInteger(v.protocol) ? v.protocol : null, os: v.os || null, arch: v.arch || null } : null; } catch { return null; }
+    const v = jsonOut(r.out, '{');
+    return v && typeof v.version === 'string' ? { version: v.version, protocol: Number.isInteger(v.protocol) ? v.protocol : null, os: v.os || null, arch: v.arch || null } : null;
   });
 }
 
@@ -283,8 +319,8 @@ function findOlder(l) {
   if (!opts || l.removed) return;
   runSsh(l.m.host, `${l.m.command} daemons --json --no-start`, { timeoutMs: 20000 }).then((r) => {
     if (r.code !== 0 || l.removed || l.state !== 'connected') return;
-    let rows = [];
-    try { rows = JSON.parse(r.out); } catch { return; }
+    const rows = jsonOut(r.out, '[');
+    if (!rows) return;
     for (const d of Array.isArray(rows) ? rows : []) {
       if (!d || typeof d.version !== 'string' || d.version === l.version || !(d.panes > 0) || l.subs.has(d.version)) continue;
       if (!/^[0-9A-Za-z.+-]{1,64}$/.test(d.version)) continue;
