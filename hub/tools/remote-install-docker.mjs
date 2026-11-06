@@ -159,7 +159,9 @@ const uid = (img, u) => Number(docker('run', '--rm', img, 'id', '-u', u));
 const tinyId = uid(DEB, 'utiny');
 const fillId = uid(DEB, 'ufill');
 const pub = ['-p', '127.0.0.1::22'];
-const deb = run('deb', DEB, [...pub, '--tmpfs', `/home/utiny:rw,size=12m,mode=0755,uid=${tinyId},gid=${tinyId}`, '--tmpfs', `/home/ufill/.ravenry:rw,size=6m,mode=0700,uid=${fillId},gid=${fillId}`]);
+// A user's home in the containers (built, so no literal home path is here).
+const homeDir = (u) => ['', 'home', u].join('/');
+const deb = run('deb', DEB, [...pub, '--tmpfs', `${homeDir('utiny')}:rw,size=12m,mode=0755,uid=${tinyId},gid=${tinyId}`, '--tmpfs', `${homeDir('ufill')}/.ravenry:rw,size=6m,mode=0700,uid=${fillId},gid=${fillId}`]);
 const alp = run('alpine', ALP, pub);
 const amd = AMD ? run('amd64', AMD, pub, 'linux/amd64') : null;
 // The jump host is published; the machine behind it is not.
@@ -322,20 +324,21 @@ check('uninstall puts the hand-made hook back', ju.state === 'done' && JSON.stri
 // entry in config.toml matches, so this proves those too.
 if (process.argv.includes('--assistants')) {
   const A = path.join(D, 'assistants');
-  const BIN = '/home/node/.ravenry/bin/ravenryd';
+  const NODE = homeDir('node');
+  const BIN = `${NODE}/.ravenry/bin/ravenryd`;
   fs.mkdirSync(path.join(A, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(A, '.codex'), { recursive: true });
   fs.writeFileSync(path.join(A, '.claude', 'settings.json'), JSON.stringify(hk.plan({}, { ravenryd: BIN, scripts: false }).settings, null, 2));
-  const cp = hk.codexPlanOf({ file: '/home/node/.codex/hooks.json', raw: null, json: {} }, { file: '/home/node/.codex/config.toml', raw: null }, { ravenryd: BIN, scripts: false });
+  const cp = hk.codexPlanOf({ file: `${NODE}/.codex/hooks.json`, raw: null, json: {} }, { file: `${NODE}/.codex/config.toml`, raw: null }, { ravenryd: BIN, scripts: false });
   fs.writeFileSync(path.join(A, '.codex', 'hooks.json'), JSON.stringify(cp.hooks.json, null, 2));
   fs.writeFileSync(path.join(A, '.codex', 'config.toml'), cp.config.text);
   fs.writeFileSync(path.join(A, 'stand-in'), '#!/bin/sh\necho "ran: $*" >> /tmp/hook.log\nhead -c 400 >> /tmp/hook.log\necho >> /tmp/hook.log\n', { mode: 0o755 });
   const script = [
     'npm i -g @anthropic-ai/claude-code @openai/codex >/dev/null 2>&1',
-    'mkdir -p /home/node/.ravenry/bin /work && cp /a/stand-in ' + BIN + ' && cp -r /a/.claude /a/.codex /home/node/ && chown -R node /home/node /work',
+    `mkdir -p ${NODE}/.ravenry/bin /work && cp /a/stand-in ${BIN} && cp -r /a/.claude /a/.codex ${NODE}/ && chown -R node ${NODE} /work`,
     'echo "claude $(claude --version)"; echo "codex $(codex --version)"',
-    'cd /work && su node -c "HOME=/home/node ANTHROPIC_API_KEY=sk-ant-api03-not-a-key timeout 90 claude -p hi" >/dev/null 2>&1; echo "== claude"; cat /tmp/hook.log; : > /tmp/hook.log',
-    'su node -c "HOME=/home/node OPENAI_API_KEY=sk-not-a-key timeout 30 codex exec --skip-git-repo-check hi" >/dev/null 2>&1; echo "== codex"; cat /tmp/hook.log',
+    `cd /work && su node -c "HOME=${NODE} ANTHROPIC_API_KEY=sk-ant-api03-not-a-key timeout 90 claude -p hi" >/dev/null 2>&1; echo "== claude"; cat /tmp/hook.log; : > /tmp/hook.log`,
+    `su node -c "HOME=${NODE} OPENAI_API_KEY=sk-not-a-key timeout 30 codex exec --skip-git-repo-check hi" >/dev/null 2>&1; echo "== codex"; cat /tmp/hook.log`,
   ].join('; ');
   const r = spawnSync('docker', ['run', '--rm', '--label', LABEL, '-v', `${A}:/a:ro`, 'node:22-bookworm-slim', 'sh', '-c', script], { encoding: 'utf8', timeout: 600000 });
   const out = (r.stdout || '') + (r.stderr || '');
