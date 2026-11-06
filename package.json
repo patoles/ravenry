@@ -1,0 +1,20 @@
+{
+  "name": "ravenry-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ravenry: the terminal built for coding agents, its daemon, hub and apps.",
+  "license": "GPL-3.0-only",
+  "author": "Simon Patole",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/patoles/ravenry-app.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "audit": "node tools/audit.mjs",
+    "hub": "npm --prefix hub start"
+  }
+}

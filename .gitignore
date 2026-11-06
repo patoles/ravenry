@@ -1,0 +1,7 @@
+node_modules/
+.inbox/
+*.log
+.tmp/
+.DS_Store
+/daemon/ravenryd
+/daemon/dist/
