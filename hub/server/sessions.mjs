@@ -116,6 +116,8 @@ export function parsePs(text) {
 // REX_BLOCK ("block:<uuid>") names its Rex pane, outside cmux and tmux, and
 // wins over an ITERM_SESSION_ID inherited from the terminal that started
 // Rex's server unless TERM_PROGRAM says iTerm2 (server/termenv.mjs).
+// RAVENRY_PANE ("p" and seven characters) names its ravenryd pane while
+// TERM_PROGRAM is still ravenry, and then wins over both.
 export function parseEnv(text) {
   const out = new Map();
   for (const line of String(text || '').split('\n')) {
@@ -128,8 +130,11 @@ export function parseEnv(text) {
       // Inside tmux the iTerm2 session is tmux's client, not this pane.
       itermId: /\sTMUX=/.test(line) ? null : last(/\sITERM_SESSION_ID=(?:\w+:)?([0-9A-Fa-f-]{36})(?=\s|$)/g),
       rexId: /\sTMUX=/.test(line) ? null : last(/\sREX_BLOCK=block:([0-9A-Fa-f-]{36})(?=\s|$)/g),
+      ravenryId: /\sTMUX=/.test(line) ? null : last(/\sRAVENRY_PANE=(p[a-z2-7]{7})(?=\s|$)/g),
     });
     const x = out.get(Number(m[1]));
+    if (x.ravenryId && last(/\sTERM_PROGRAM=(\S+)(?=\s|$)/g) !== 'ravenry') x.ravenryId = null;
+    if (x.ravenryId) { x.itermId = null; x.rexId = null; }
     if (x.rexId) {
       if (x.itermId && last(/\sTERM_PROGRAM=(\S+)(?=\s|$)/g) === 'iTerm.app') x.rexId = null;
       else x.itermId = null;
@@ -160,7 +165,7 @@ export async function readProcesses() {
   const need = procs.filter((p) => { const c = envCache.get(p.pid); return !c || c.startedAt !== p.startedAt; });
   if (need.length) {
     const envs = parseEnv(await run(PS_BIN, ['-E', '-ww', '-o', 'pid=,command=', '-p', need.map((p) => p.pid).join(',')]));
-    for (const p of need) envCache.set(p.pid, { startedAt: p.startedAt, surfaceId: null, workspaceId: null, itermId: null, rexId: null, ...(envs.get(p.pid) || {}) });
+    for (const p of need) envCache.set(p.pid, { startedAt: p.startedAt, surfaceId: null, workspaceId: null, itermId: null, rexId: null, ravenryId: null, ...(envs.get(p.pid) || {}) });
   }
   const alive = new Set(procs.map((p) => p.pid));
   for (const pid of envCache.keys()) if (!alive.has(pid)) envCache.delete(pid);
@@ -170,7 +175,7 @@ export async function readProcesses() {
     helpers: all.length - procs.length,
     procs: procs.map((p) => {
       const e = envCache.get(p.pid) || {};
-      return { pid: p.pid, rssKb: p.rssKb, startedAt: p.startedAt, assistant: p.assistant, surfaceId: e.surfaceId || null, workspaceId: e.workspaceId || null, itermId: (!e.surfaceId && e.itermId) || null, rexId: (!e.surfaceId && e.rexId) || null, cwd: cwds.get(p.pid) || null, argvSession: p.assistant === 'codex' ? codexArgvSession(p.command) : argvSession(p.command) };
+      return { pid: p.pid, rssKb: p.rssKb, startedAt: p.startedAt, assistant: p.assistant, surfaceId: e.surfaceId || null, workspaceId: e.workspaceId || null, itermId: (!e.surfaceId && e.itermId) || null, rexId: (!e.surfaceId && e.rexId) || null, ravenryId: (!e.surfaceId && e.ravenryId) || null, cwd: cwds.get(p.pid) || null, argvSession: p.assistant === 'codex' ? codexArgvSession(p.command) : argvSession(p.command) };
     }),
   };
 }
@@ -182,7 +187,7 @@ export async function stillThere(pid, startedAt) {
   const p = parsePs(ps).find((x) => x.pid === pid && x.kind === 'session' && x.assistant === 'claude');
   if (!p || p.startedAt !== startedAt) return null;
   const env = parseEnv(await run(PS_BIN, ['-E', '-ww', '-o', 'pid=,command=', '-p', String(pid)])).get(pid) || {};
-  return { rssKb: p.rssKb, surfaceId: env.surfaceId || null, itermId: (!env.surfaceId && env.itermId) || null, rexId: (!env.surfaceId && env.rexId) || null };
+  return { rssKb: p.rssKb, surfaceId: env.surfaceId || null, itermId: (!env.surfaceId && env.itermId) || null, rexId: (!env.surfaceId && env.rexId) || null, ravenryId: (!env.surfaceId && env.ravenryId) || null };
 }
 
 export async function waitGone(pid, startedAt, ms) {

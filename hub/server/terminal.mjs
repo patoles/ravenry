@@ -7,6 +7,7 @@
 //   cmux   { kind: 'cmux', workspaceId, surfaceId } (cmux's UUIDs)
 //   iterm  { kind: 'iterm', surfaceId: 'iterm:<UUID>' } (server/iterm.mjs)
 //   rex    { kind: 'rex', surfaceId: 'rex:<block uuid>' } (server/rex.mjs)
+//   ravenry { kind: 'ravenry', surfaceId: 'ravenry:<pane id>' } (server/ravenryd.mjs)
 // The board's ids keep their old shape for cmux (a bare UUID), so a
 // surface id with no prefix is a cmux tab.
 //
@@ -21,12 +22,15 @@ import path from 'node:path';
 import * as cmuxAdapter from './cmux.mjs';
 import * as iterm from './iterm.mjs';
 import * as rex from './rex.mjs';
+import * as ravenry from './ravenryd.mjs';
 
 // The board's own terminal (docs/TERMINALS.md, The board's terminal): the
 // one it opens new work in (New project, Revive, Reopen, a hand-off's
 // fresh session) and the only one besides iTerm2 and Rex it ever asks.
-//   RAVENRY_TERMINAL=cmux|iterm|rex   wins
+//   RAVENRY_TERMINAL=cmux|iterm|rex|ravenry   wins
 //   CMUX_SURFACE_ID or CMUX_WORKSPACE_ID   started inside cmux: cmux
+//   RAVENRY_PANE with TERM_PROGRAM=ravenry   started in a ravenryd pane:
+//     ravenry
 //   REX_SESSION or REX_BLOCK, unless an ITERM_SESSION_ID with a
 //     TERM_PROGRAM other than rex says the iTerm2 tab is the board's own
 //     (a Rex server started from iTerm2 hands its variables on)   rex
@@ -42,8 +46,9 @@ import * as rex from './rex.mjs';
 // below is a stand in that answers "nothing there" without starting a process.
 export function boardKind(env = process.env, has = fs.existsSync) {
   const want = String(env.RAVENRY_TERMINAL || '').toLowerCase().replace(/^iterm2$/, 'iterm');
-  if (want === 'cmux' || want === 'iterm' || want === 'rex') return want;
+  if (want === 'cmux' || want === 'iterm' || want === 'rex' || want === 'ravenry') return want;
   if (env.CMUX_SURFACE_ID || env.CMUX_WORKSPACE_ID) return 'cmux';
+  if (env.RAVENRY_PANE && env.TERM_PROGRAM === 'ravenry') return 'ravenry';
   if ((env.REX_SESSION || env.REX_BLOCK) && (env.TERM_PROGRAM === 'rex' || !env.ITERM_SESSION_ID)) return 'rex';
   if (env.ITERM_SESSION_ID || env.TERM_PROGRAM === 'iTerm.app') return 'iterm';
   if (has(env.CMUX_BIN || cmuxAdapter.DEFAULT_CMUX_BIN)) return 'cmux';
@@ -63,6 +68,7 @@ export function appInstalled(kind, env = process.env, has = fs.existsSync) {
   if (kind === 'cmux') return has(env.CMUX_BIN || cmuxAdapter.DEFAULT_CMUX_BIN);
   if (kind === 'iterm') return [path.join('/Applications', 'iTerm.app'), path.join(os.homedir(), 'Applications', 'iTerm.app')].some((p) => has(p));
   if (kind === 'rex') return !!rex.findBin(env, has);
+  if (kind === 'ravenry') return !!ravenry.findBin(env, has);
   return false;
 }
 export const BOARD_INSTALLED = appInstalled(BOARD);
@@ -70,7 +76,7 @@ export const BOARD_INSTALLED = appInstalled(BOARD);
 
 // What the board calls each terminal the hook can name.
 const NAMES = {
-  cmux: 'cmux', iterm: 'iTerm2', rex: 'Rex', 'apple-terminal': 'Terminal', tmux: 'tmux', vscode: 'VS Code',
+  cmux: 'cmux', iterm: 'iTerm2', rex: 'Rex', ravenry: 'Ravenry', 'apple-terminal': 'Terminal', tmux: 'tmux', vscode: 'VS Code',
   ghostty: 'Ghostty', wezterm: 'WezTerm', kitty: 'kitty', warp: 'Warp', alacritty: 'Alacritty', hyper: 'Hyper', zed: 'Zed',
 };
 
@@ -99,13 +105,14 @@ export const cmux = BOARD === 'cmux' ? cmuxAdapter : NO_CMUX;
 
 // The terminals besides cmux that list their own tabs, which the board asks
 // only while some session runs there (server/index.mjs refreshOtherTabs).
-export const OTHER_KINDS = ['iterm', 'rex'];
+export const OTHER_KINDS = ['iterm', 'rex', 'ravenry'];
 
 // The kind of terminal a board surface id belongs to.
 export function kindOf(surfaceId) {
   const s = String(surfaceId || '');
   if (s.startsWith(iterm.PREFIX)) return 'iterm';
   if (s.startsWith(rex.PREFIX)) return 'rex';
+  if (s.startsWith(ravenry.PREFIX)) return 'ravenry';
   return 'cmux';
 }
 
@@ -114,6 +121,7 @@ export function kindOf(surfaceId) {
 export function tabIdFor(kind, terminalId) {
   if (kind === 'iterm') return iterm.tabIdOf(terminalId);
   if (kind === 'rex') return rex.tabIdOf(terminalId);
+  if (kind === 'ravenry') return ravenry.tabIdOf(terminalId);
   return null;
 }
 
@@ -153,6 +161,20 @@ const ADAPTERS = {
     focus: (t) => rex.focus(t.surfaceId),
     close: (t) => rex.close(t.surfaceId),
     openTab: (o) => rex.openTab({ near: o.near || null, session: o.session || null, cwd: o.cwd || null, label: o.label || null }),
+  },
+  // Ravenry's own panes, in ravenryd over protocol v1.
+  ravenry: {
+    listTabs: () => ravenry.listTabs(),
+    readScreen: (t, n) => ravenry.readScreen(t.surfaceId, n),
+    // pane.capture has styles, but the suggestion reader reads cmux's grid.
+    readStyled: async () => null,
+    pasteText: (t, text) => ravenry.pasteText(t.surfaceId, text),
+    // The daemon's typed mode: one key at a time, never one read.
+    typeText: (t, text) => ravenry.typeText(t.surfaceId, text),
+    pressKey: (t, k) => ravenry.pressKey(t.surfaceId, k),
+    focus: (t) => ravenry.focus(t.surfaceId),
+    close: (t) => ravenry.close(t.surfaceId),
+    openTab: (o) => ravenry.openTab({ near: o.near || null, cwd: o.cwd || null, label: o.label || null }),
   },
 };
 
@@ -228,3 +250,9 @@ export const pool = cmuxAdapter.pool;
 // server, its API revision), and its events as a hint to refresh sooner.
 export const rexCheck = (o) => rex.check(o);
 export const rexWatch = (ids, onEvent) => rex.watch(ids, onEvent);
+
+// Ravenry's extras: the agent status channel of every ravenryd (what its
+// panes' hooks report, as hook records, and the hub's answer to a hook that
+// waits), and the hand-off decider that answers it.
+export const ravenryStatus = (o) => ravenry.startStatus(o);
+export const ravenryDecider = (report) => ravenry.handoffDecider(report);

@@ -379,7 +379,7 @@ async function freshTab(surfaceId) {
 // (ITERM_SESSION_ID, REX_BLOCK). So a Mac without iTerm2 or Rex never runs
 // osascript or rex for them. Then reads the screen of every open tab such
 // a session reports from.
-const PROC_TAB = { iterm: 'itermId', rex: 'rexId' };
+const PROC_TAB = { iterm: 'itermId', rex: 'rexId', ravenry: 'ravenryId' };
 async function refreshOtherTabs(evAll) {
   for (const kind of term.OTHER_KINDS) await refreshKind(kind, evAll);
 }
@@ -1059,12 +1059,12 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     if (it && it.ok) for (const t of it.tabs.values()) where.set(t.id, { w: { id: null, ref: name, title: name }, s: { id: t.id, title: t.title, type: 'terminal' }, kind });
   }
   // The tab this board itself runs in, outside cmux.
-  const boardOther = [process.env.ITERM_SESSION_ID ? term.tabIdFor('iterm', process.env.ITERM_SESSION_ID) : null, process.env.REX_BLOCK ? term.tabIdFor('rex', process.env.REX_BLOCK) : null].filter(Boolean);
+  const boardOther = [process.env.ITERM_SESSION_ID ? term.tabIdFor('iterm', process.env.ITERM_SESSION_ID) : null, process.env.REX_BLOCK ? term.tabIdFor('rex', process.env.REX_BLOCK) : null, process.env.RAVENRY_PANE ? term.tabIdFor('ravenry', process.env.RAVENRY_PANE) : null].filter(Boolean);
   const boardTab = new Map(boardTabs.filter((b) => b.s.terminal !== false).map((b) => [b.s.surfaceId, { sessionId: b.s.sessionId, method: b.s.method }]));
   const bySid = new Map(boardTabs.filter((b) => b.s.sessionId).map((b) => [b.s.sessionId, b]));
   const rows = [];
   for (let p of procState.procs) {
-    const otherKind = p.surfaceId ? null : p.rexId ? 'rex' : p.itermId ? 'iterm' : null;
+    const otherKind = p.surfaceId ? null : p.ravenryId ? 'ravenry' : p.rexId ? 'rex' : p.itermId ? 'iterm' : null;
     const otherId = otherKind ? term.tabIdFor(otherKind, p[PROC_TAB[otherKind]]) : null;
     const tab = p.surfaceId ? where.get(p.surfaceId) || null : otherId ? where.get(otherId) || null : null;
     if (otherId) p = { ...p, surfaceId: otherId };
@@ -1151,7 +1151,7 @@ async function closeOne(id, workspaces, allow, settings) {
   if (!surface || surface.type !== 'terminal') return fail(`Its ${name} tab is gone.`);
   const still = await sess.stillThere(row.pid, row.startedAt);
   if (!still) return fail('Its Claude process already ended.');
-  const stillTab = still.surfaceId || (still.rexId ? term.tabIdFor('rex', still.rexId) : still.itermId ? term.tabIdFor('iterm', still.itermId) : null);
+  const stillTab = still.surfaceId || (still.ravenryId ? term.tabIdFor('ravenry', still.ravenryId) : still.rexId ? term.tabIdFor('rex', still.rexId) : still.itermId ? term.tabIdFor('iterm', still.itermId) : null);
   if (stillTab !== row.surfaceId) return fail('Its process is not in that tab.');
   const tab = kind === 'cmux' ? { kind, workspaceId: ws.id, surfaceId: row.surfaceId } : { kind, surfaceId: row.surfaceId };
   // Close idle sessions closes Claude Code processes only (docs/SESSIONS.md).
@@ -1238,7 +1238,7 @@ async function reopenSession(body) {
     const k = rec.term && rec.term !== 'cmux' && term.canDrive(rec.term) ? rec.term : term.BOARD;
     if (k !== 'cmux') {
       const name = term.nameOf(k);
-      const made = await term.openTab(k, k === 'rex' ? { near: term.kindOf(rec.surfaceId) === 'rex' ? rec.surfaceId : null, session: rec.termSession || null, cwd: cwd0, label: rec.label || null } : {});
+      const made = await term.openTab(k, k === 'rex' || k === 'ravenry' ? { near: term.kindOf(rec.surfaceId) === k ? rec.surfaceId : null, session: rec.termSession || null, cwd: cwd0, label: rec.label || null } : {});
       if (!made.ok) return { ok: false, status: 500, error: `${name} did not open a tab: ` + (made.err || 'no answer') };
       await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
       const tab = { kind: k, surfaceId: made.surfaceId };
@@ -2431,6 +2431,20 @@ if (process.env.MC_NO_EVENTS !== '1') {
   term.cmux.watchEvents(() => {
     if (soon) return;
     soon = setTimeout(() => { soon = null; tick(); }, 400);
+  });
+}
+
+// ravenryd's agent status channel: what its panes' hooks report reaches the
+// sessions as hook records, a pane change makes the next refresh come
+// sooner, and a hook that waits (a Stop) gets the hand-off's answer.
+if (process.env.MC_NO_EVENTS !== '1') {
+  term.ravenryStatus({
+    onRecord: (rec) => { events.ingestDaemon(rec); },
+    onChange: () => {
+      if (soon) return;
+      soon = setTimeout(() => { soon = null; tick(); }, 400);
+    },
+    decide: term.ravenryDecider,
   });
 }
 

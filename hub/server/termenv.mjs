@@ -7,6 +7,9 @@
 //              cmux tab may inherit another terminal's variables)
 //   tmux       TMUX: the outer terminal's ids would name the tmux client,
 //              not this pane, so a session inside tmux is watch only
+//   ravenry    RAVENRY_PANE (a ravenryd pane's id), kept as terminal_id,
+//              when TERM_PROGRAM is still ravenry (another terminal started
+//              from a ravenryd pane inherits RAVENRY_PANE and sets its own)
 //   rex        REX_BLOCK ("block:<uuid>"), kept as terminal_id, with
 //              REX_SESSION as terminal_session. Before iTerm2: a Rex server
 //              started from an iTerm2 tab hands ITERM_SESSION_ID to every
@@ -24,6 +27,7 @@ export function terminalOf(env) {
   const e = env || {};
   if (e.CMUX_SURFACE_ID) return { terminal: 'cmux' };
   if (e.TMUX) return { terminal: 'tmux' };
+  if (e.RAVENRY_PANE && e.TERM_PROGRAM === 'ravenry') return { terminal: 'ravenry', terminal_id: String(e.RAVENRY_PANE).slice(0, 80) };
   if (e.REX_BLOCK && (e.TERM_PROGRAM === 'rex' || !e.ITERM_SESSION_ID)) {
     const r = { terminal: 'rex', terminal_id: String(e.REX_BLOCK).slice(0, 80) };
     if (e.REX_SESSION) r.terminal_session = String(e.REX_SESSION).slice(0, 80);

@@ -279,6 +279,45 @@ and closed both. The folder-trust prompt took Down and Enter through `rex
 send-key`. `session.select` was not run against the real app (it would
 switch what the Rex window shows); it is proven against tools/fake-rex.mjs.
 
+## Ravenry's own panes (ravenryd)
+
+`server/ravenryd.mjs` drives the panes of `ravenryd`, Ravenry's own
+terminal daemon, over protocol v1 (`packages/protocol/PROTOCOL.md`) on its
+unix socket, through `@ravenry/node-client`. It talks to every daemon in the
+runtime folder (one per version, PROTOCOL.md section 9). A pane is
+`ravenry:<pane id>`; `RAVENRY_PANE` in a process's environment names it
+while `TERM_PROGRAM` is `ravenry` (server/termenv.mjs, server/sessions.mjs).
+
+| Operation | ravenryd |
+| --- | --- |
+| List tabs | `pane.list` on each daemon: the title, name, folder, and the pane's agent and shell state |
+| Read screen | `pane.capture` with `history`, trailing blanks and blank rows trimmed |
+| Send text | `pane.send` in `paste` mode (bracketed when the program asked); `typed` mode for the `!` of bash mode |
+| Keys | `pane.send` with named keys (`Enter`, `Up`, `Down`, `Backspace`, `Escape`, `Tab`), encoded for the program's modes by the daemon |
+| Focus | `pane.focus`: the windows that show panes (the Ravenry app) show it; with none open, "The Ravenry app is not open" |
+| Open tab | `pane.new` with the folder and a name, on the daemon of `near` or the newest one; with none running, `ravenryd serve --detach` (`RAVENRY_DAEMON_BIN`, else `ravenryd` on the PATH) |
+| Close | `pane.close`, which ends every process of the pane |
+
+The board runs in Ravenry mode with `RAVENRY_TERMINAL=ravenry`, or when it
+starts in a ravenryd pane.
+
+**The agent status channel.** In a ravenryd pane, an assistant's hooks can
+run `ravenryd hook --assistant claude|codex` instead of the Node scripts
+(a remote machine may have no Node). The daemon keeps what they report, and
+the board follows each daemon (`events.subscribe`, then `agent.events` for
+what it missed): a report becomes the same record `hooks/events.mjs` writes
+(server/hookrecord.mjs), which `server/events.mjs` reads beside the files.
+A pane whose process exits while its agent works gives the session its
+SessionEnd. The board is also the daemon's decider (`agent.decisions`): at a
+Stop, the hand-off's rules (server/handoffstop.mjs) answer through the
+daemon, and with no board, or no answer within 2 s, the session goes on.
+When a pane's hooks run both, the Node scripts carry `--ravenryd` and stand
+down in ravenryd panes, so nothing is recorded or held twice.
+
+A test board (RAVENRY_HOME or MC_HOME set) reaches a daemon only when
+RAVENRY_RUNTIME_DIR names the test's own folder. `tools/ravenryd-test.mjs`
+proves all of the above against a real daemon (RAVENRYD_BIN).
+
 ## iTerm2 setup
 
 - iTerm2 with the Python API on (Settings > General > Magic > Enable Python

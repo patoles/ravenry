@@ -3,6 +3,11 @@
 // /api/hook-event only adds the event in memory until the next scan sees it
 // on disk, and makes the next tick come sooner. Rules: docs/STATE-RULES.md,
 // "Events first, screen second".
+//
+// A session in a ravenryd pane whose hooks run `ravenryd hook` reports to
+// its daemon instead of a file: server/ravenryd.mjs hands each report here
+// as the same record (ingestDaemon), and the daemon is its truth (it keeps
+// its last reports, so a board that restarts reads them again).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,6 +24,8 @@ export const IDLE = 'idle_prompt';
 
 const files = new Map();   // sessionId -> { size, mtimeMs, events }
 const posted = new Map();  // sessionId -> events seen only by POST so far
+const daemonEvents = new Map(); // sessionId -> events a ravenryd reported
+const DAEMON_KEEP = 200;
 
 function key(e) {
   return `${e.at}|${e.event}|${e.notification_type || ''}`;
@@ -48,6 +55,17 @@ export function ingest(e) {
   const list = posted.get(e.session_id) || [];
   if (!list.some((x) => key(x) === key(e))) list.push(e);
   posted.set(e.session_id, list.slice(-50));
+  return true;
+}
+
+// An event a ravenryd reported for a session in one of its panes.
+export function ingestDaemon(e) {
+  if (!e || !SAFE_ID.test(String(e.session_id || '')) || !e.event || !e.at) return false;
+  const list = daemonEvents.get(e.session_id) || [];
+  if (list.some((x) => key(x) === key(e))) return false;
+  list.push(e);
+  list.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  daemonEvents.set(e.session_id, list.slice(-DAEMON_KEEP));
   return true;
 }
 
@@ -102,9 +120,16 @@ export function scan() {
   try { names = fs.readdirSync(EVENTS_DIR); } catch { /* none yet */ }
   const ids = new Set(names.filter((f) => f.endsWith('.jsonl')).map((f) => f.slice(0, -6)).filter((id) => SAFE_ID.test(id)));
   for (const id of posted.keys()) ids.add(id);
+  for (const id of daemonEvents.keys()) ids.add(id);
   const out = new Map();
   for (const sid of ids) {
-    const disk = readFile(sid);
+    let disk = readFile(sid);
+    const fromDaemon = daemonEvents.get(sid);
+    if (fromDaemon) {
+      const have = new Set(disk.map(key));
+      const add = fromDaemon.filter((e) => !have.has(key(e)));
+      if (add.length) disk = [...disk, ...add].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+    }
     let events = disk;
     const extra = posted.get(sid);
     if (extra) {

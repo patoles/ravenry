@@ -15,11 +15,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
-import { endingQuestion } from '../server/state.mjs';
 import { RAVENRY_HOME } from '../server/home.mjs';
-import { runningTasks, logTasks } from '../server/tasks.mjs';
-import { terminalOf } from '../server/termenv.mjs';
-import { assistantOf, shape, codexDaemon } from '../server/assistanthook.mjs';
+import { assistantOf, codexDaemon } from '../server/assistanthook.mjs';
+import { record } from '../server/hookrecord.mjs';
 
 const DIR = path.join(RAVENRY_HOME, 'events');
 // The board's port: MC_BOARD_URL, else the one the running board wrote to
@@ -51,76 +49,6 @@ process.on('uncaughtException', bye);
 process.on('unhandledRejection', bye);
 // A stuck stdin or a hung board can never hold a session: hard stop.
 setTimeout(bye, 1500).unref();
-
-const cap = (s, n) => {
-  if (typeof s !== 'string') return undefined;
-  const t = s.replace(/\s+/g, ' ').trim();
-  return t.length > n ? t.slice(0, n - 3) + '...' : t;
-};
-
-function record(input, daemon = false) {
-  const sh = shape(ASSISTANT, input);
-  if (!sh) return null;
-  const ev = sh.event;
-  const r = {
-    at: new Date().toISOString(),
-    event: ev,
-    session_id: input.session_id,
-    assistant: ASSISTANT,
-    cwd: input.cwd || undefined,
-    transcript_path: input.transcript_path || undefined,
-    workspace_id: process.env.CMUX_WORKSPACE_ID || undefined,
-    surface_id: process.env.CMUX_SURFACE_ID || undefined,
-  };
-  // The Claude process this session runs in, so the board can tie a process
-  // (and its memory) to a session. Claude Code runs a hook through `sh -c`,
-  // which execs a single command, so the hook's parent is Claude itself. It
-  // costs nothing; the board trusts it only when that pid is a live claude
-  // process that started before this event.
-  // Codex's hooks run under Codex or its app-server daemon, which holds many
-  // sessions, so its pid is kept under its own name and never mapped.
-  if (process.ppid > 1) r[ASSISTANT === 'claude' ? 'claude_pid' : ASSISTANT + '_pid'] = process.ppid;
-  // Which terminal the session runs in, and its id there (iTerm2's and
-  // Terminal's session ids, Rex's block and session), so the board picks the adapter that can reach
-  // it, or shows it watch only (docs/TERMINALS.md, server/termenv.mjs).
-  // Not from Codex's daemon, whose environment is another terminal's.
-  if (daemon) {
-    delete r.workspace_id; delete r.surface_id;
-    r.codex_daemon = true;
-  } else {
-    Object.assign(r, terminalOf(process.env));
-    // Pane ids of terminals with no adapter yet, recorded for a later one.
-    const pane = process.env.TMUX_PANE || process.env.WEZTERM_PANE || process.env.KITTY_WINDOW_ID;
-    if (pane) r.pane = pane;
-  }
-  if (input.agent_id) r.agent_id = input.agent_id;
-  if (ev === 'SessionStart') { r.source = input.source || undefined; r.model = input.model || undefined; }
-  else if (ev === 'SessionEnd') r.reason = input.reason || undefined;
-  else if (ev === 'Notification' && sh.extra.notification_type) Object.assign(r, sh.extra);
-  else if (ev === 'Notification') {
-    r.notification_type = input.notification_type || undefined;
-    r.message = cap(input.message, 300);
-    r.title = cap(input.title, 100);
-  } else if (ev === 'Stop') {
-    const last = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : '';
-    // The hand-off hook's bookkeeping line: the board reads the question
-    // from the transcript instead (it skips that line).
-    if (last.startsWith('Hand-off deferred:')) r.deferred = true;
-    else {
-      const q = last ? endingQuestion(last) : null;
-      r.ends_on_question = !!q;
-      if (q) r.question = cap(q, 300);
-    }
-    // Only tasks still running: Claude Code can keep a finished one listed
-    // (server/tasks.mjs checks the transcript). What it sent is logged.
-    const running = runningTasks(input);
-    logTasks(RAVENRY_HOME, input, running);
-    r.background_tasks = running.length;
-    if (Array.isArray(input.session_crons) && input.session_crons.length) r.crons = input.session_crons.length;
-    if (input.stop_hook_active) r.stop_hook_active = true;
-  }
-  return r;
-}
 
 function trim(file) {
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
@@ -168,7 +96,11 @@ async function main() {
   let input;
   try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return; }
   if (!input || !SAFE_ID.test(String(input.session_id || '')) || !input.hook_event_name) return;
-  const r = record(input, ASSISTANT === 'codex' && await codexDaemon());
+  // In a ravenryd pane whose hooks also run `ravenryd hook` (the hook
+  // command says so with --ravenryd), the daemon reports the event: this
+  // copy stands down so the board does not get it twice.
+  if (process.argv.includes('--ravenryd') && process.env.RAVENRY_PANE && process.env.RAVENRY_SOCKET) return;
+  const r = record(ASSISTANT, input, { env: process.env, ppid: process.ppid, daemon: ASSISTANT === 'codex' && await codexDaemon(), home: RAVENRY_HOME });
   if (!r) return;
   const line = JSON.stringify(r);
   try {
