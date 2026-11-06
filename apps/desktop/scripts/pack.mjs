@@ -12,6 +12,13 @@
 //
 // What goes inside the app, staged in .stage/ first:
 //   resources/ravenryd     the daemon, this app's version
+//   resources/remote/      ravenryd for the machines the app installs on
+//                          over ssh (hub/server/remoteinstall.mjs): every
+//                          ravenryd-<platform>-<arch> in --ravenryd DIR (CI
+//                          gives all four: darwin and linux, arm64 and x64),
+//                          else this machine's; each gzipped, with
+//                          builds.json (the version, and each binary's
+//                          SHA-256 and size)
 //   resources/hub/         the hub (hub/package.json "files"), with
 //                          @ravenry/node-client in its node_modules
 //   resources/build.json   version, commit and build id (install.ts)
@@ -27,6 +34,8 @@
 // update itself; this says so loudly. No keychain is ever searched.
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -115,6 +124,32 @@ function stageRavenryd(arch) {
   }
 }
 
+// The builds a remote machine gets. Every app carries all it was given, so
+// a Mac reaches a Linux box and a Linux laptop a Mac: the app installs from
+// what it holds, with no download and the SHA-256 it was built with.
+function stageRemote() {
+  const dst = path.join(STAGE, 'remote');
+  fs.mkdirSync(dst, { recursive: true });
+  const builds = {};
+  const add = (key, src) => {
+    const raw = fs.readFileSync(src);
+    const file = `ravenryd-${key}.gz`;
+    fs.writeFileSync(path.join(dst, file), zlib.gzipSync(raw, { level: 9 }));
+    builds[key] = { file, sha256: crypto.createHash('sha256').update(raw).digest('hex'), size: raw.length };
+  };
+  if (ravenrydDir) {
+    for (const f of fs.readdirSync(ravenrydDir).sort()) {
+      const m = /^ravenryd-(darwin|linux)-(arm64|x64)$/.exec(f);
+      if (m) add(`${m[1]}-${m[2]}`, path.join(ravenrydDir, f));
+    }
+  } else {
+    for (const a of arches) add(`${platform}-${a}`, path.join(STAGE, 'ravenryd', `${platform}-${a}`, 'ravenryd'));
+  }
+  fs.writeFileSync(path.join(dst, 'builds.json'), JSON.stringify({ version: pkg.version, builds }, null, 2) + '\n');
+  const bytes = Object.keys(builds).reduce((n, k) => n + fs.statSync(path.join(dst, builds[k].file)).size, 0);
+  say(`remote builds: ${Object.keys(builds).join(', ') || 'none'} (${(bytes / 1048576).toFixed(1)} MiB gzipped)`);
+}
+
 function commit() {
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
   try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim(); } catch { return 'unknown'; }
@@ -125,6 +160,7 @@ function stage() {
   fs.mkdirSync(STAGE, { recursive: true });
   stageHub();
   for (const a of arches) stageRavenryd(a);
+  stageRemote();
   const c = commit();
   const builtAt = new Date().toISOString();
   const build = { version: pkg.version, commit: c, builtAt, id: `${pkg.version}+${c.slice(0, 12)}.${builtAt.replace(/\D/g, '').slice(0, 14)}` };

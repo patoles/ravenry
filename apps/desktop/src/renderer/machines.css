@@ -1,0 +1,66 @@
+/* The Machines page (machines.ts): one card per machine, the install's
+   steps inside it. The page frame is the pages' own (.pg, .pg-h, .pg-b). */
+
+.m-b { gap: 12px; }
+.m-card { border-radius: 10px; background: var(--card); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; flex: none; }
+.m-card.att { box-shadow: inset 0 0 0 1px var(--you); }
+.m-card.bad { box-shadow: inset 0 0 0 1px var(--bad); }
+.m-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 28px; }
+.m-nm { font-size: 14px; font-weight: 650; }
+.m-ho { font-size: 12px; color: var(--tx3); }
+.m-st { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.m-st i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.m-st.ok { color: var(--ok); } .m-st.ok i { background: var(--ok); }
+.m-st.you { color: var(--you); } .m-st.you i { background: var(--you); }
+.m-st.bad { color: var(--bad); } .m-st.bad i { background: var(--bad); }
+.m-st.off { color: var(--tx3); } .m-st.off i { background: var(--idle); }
+.m-st.work { color: var(--work); } .m-st.work i { background: var(--work); }
+.m-facts { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--tx2); }
+.m-facts b { font-weight: 500; color: var(--tx); }
+.m-msg { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--tx2); }
+.m-msg b { color: var(--tx); font-weight: 600; }
+.m-err { margin: 0; font-size: 12.5px; color: var(--bad); }
+.m-acts { display: flex; align-items: center; gap: 8px; }
+.m-card .mono, .m-add .mono { font-size: 11.5px; }
+.btn.danger { background: var(--bad); color: #FFF; box-shadow: none; }
+
+.m-steps { display: flex; flex-direction: column; border-radius: 8px; background: var(--input); box-shadow: inset 0 0 0 1px var(--sep); padding: 4px 0; }
+.m-step { display: flex; gap: 10px; padding: 8px 12px; align-items: flex-start; }
+.m-step .ic { width: 16px; height: 16px; flex: none; margin-top: 1px; display: flex; align-items: center; justify-content: center; }
+.m-step .bd { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.m-step .h { font-size: 12.5px; font-weight: 600; }
+.m-step .d { font-size: 12px; color: var(--tx2); line-height: 1.45; overflow-wrap: anywhere; user-select: text; }
+.m-step.pending .h, .m-step.skipped .h { color: var(--tx3); font-weight: 500; }
+.m-step.failed .h { color: var(--bad); }
+.m-step.warn .h { color: var(--you); }
+.m-step .tm { font-size: 11.5px; color: var(--tx3); white-space: nowrap; }
+.m-bar { height: 4px; border-radius: 2px; background: var(--card2); overflow: hidden; margin-top: 6px; width: min(260px, 100%); }
+.m-bar i { display: block; height: 100%; background: var(--work); transition: width .3s; }
+.m-fix { margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--tx2); }
+.m-cmd { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px; background: var(--card2); padding: 3px 7px; border-radius: 5px; color: var(--tx); user-select: text; }
+.m-confirm { display: flex; flex-direction: column; gap: 10px; padding-top: 2px; }
+@keyframes m-spin { to { transform: rotate(360deg); } }
+.m-step svg.spin { animation: m-spin 2.4s linear infinite; }
+
+.m-add { border-radius: 10px; box-shadow: inset 0 0 0 1.5px var(--work); padding: 16px; display: flex; flex-direction: column; gap: 12px; background: var(--sheet); flex: none; }
+.m-add-h { font-size: 14px; font-weight: 650; }
+.m-fields { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.m-fl { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.m-fl.grow { flex: 1; min-width: 220px; }
+.m-fl.nm { width: 200px; }
+.m-fl > span { font-size: 12px; color: var(--tx2); font-weight: 500; }
+.m-inp { font: inherit; font-size: 13px; color: var(--tx); height: 34px; border-radius: 7px; background: var(--input); border: 0; box-shadow: inset 0 0 0 1px var(--sep); padding: 0 10px; outline: none; user-select: text; }
+.m-inp:focus { box-shadow: inset 0 0 0 1.5px var(--work); }
+.m-inp::placeholder { color: var(--tx3); }
+.m-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.m-chip { font-size: 12px; padding: 4px 9px; border-radius: 6px; background: var(--card2); color: var(--tx); }
+.m-chip:hover { filter: brightness(1.12); }
+.m-chip.on { background: var(--work); color: #FFF; }
+.m-hint { margin: 0; font-size: 12px; color: var(--tx3); line-height: 1.45; }
+.m-empty { border-radius: 10px; box-shadow: inset 0 0 0 1px var(--sep); padding: 18px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; color: var(--tx2); font-size: 13px; }
+.m-empty p { margin: 0; line-height: 1.5; }
+
+/* The sidebar's mark for the page, with its dot. */
+.icon-btn.m-foot { position: relative; }
+.icon-btn.m-foot.on { background: var(--sel); color: var(--tx); box-shadow: inset 0 0 0 1px var(--selring); }
+.icon-btn.m-foot .bdot { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--you); box-shadow: 0 0 0 2px var(--win); }

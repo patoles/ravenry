@@ -32,6 +32,8 @@ import {
   ago, arrivals, assistantName, board, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
+import { Machines, MACHINES_ICON } from './machines.ts';
+import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
 import { TerminalView } from './terminal.ts';
@@ -61,6 +63,8 @@ type View =
   | { kind: 'pane'; socket: string; pane: string; name: string }
   /** A page (pages.ts), in the middle and right columns. */
   | { kind: 'page'; key: string }
+  /** The Machines page (machines.ts), in the middle and right columns. */
+  | { kind: 'machines' }
   | { kind: 'start' }
   | { kind: 'none' };
 
@@ -103,6 +107,9 @@ const $ = (id: string) => document.getElementById(id)!;
 let term: TerminalView;
 let daemons: Daemons;
 let pages: Pages;
+let machinesView: Machines;
+/** The machines a toast already said were older or would not talk, by name and version. */
+const toldMachines = new Set<string>();
 /** The project of the session last shown, for a page's Ask Claude to fix. */
 let lastSessionProject: string | null = null;
 
@@ -135,7 +142,7 @@ function viewSessionKey(): string | null {
 
 function firstRun(): boolean {
   if (S.tabs.length) return false;
-  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'page') return false;
+  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'page' || S.view.kind === 'machines') return false;
   if (!S.hubStatus) return false; // not known yet
   return !S.hubStatus.reachable || isEmpty(S.hub);
 }
@@ -439,6 +446,7 @@ function renderSidebar(): void {
     h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => openBoard('') } }, svg(I.SETTINGS)),
     empty ? null : h('button.icon-btn', { title: 'Open on your phone', 'aria-label': 'Open on your phone', on: { click: () => openBoard('') } }, svg(I.PHONE)),
     empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', on: { click: () => openBoard('') } }, svg(I.BELL)),
+    h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => setView({ kind: 'machines' }) } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
     h('span.sp'),
     mem && !empty ? h('span.mem.num', `Claude ${mem}`) : null);
 
@@ -617,6 +625,7 @@ function stepTab(d: number): void {
 
 function setView(v: View): void {
   if (S.view.kind === 'page' && v.kind !== 'page') pages.close();
+  if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
   S.view = v;
   if (v.kind === 'session') { const f = findSession(S.hub, v.key); if (f) lastSessionProject = f.project.id; }
   save();
@@ -657,9 +666,12 @@ async function renderCentre(): Promise<void> {
   const v = S.view;
   toastFollows(viewKey(v));
   const onPage = v.kind === 'page';
-  $('centre').hidden = onPage;
+  const onMachines = v.kind === 'machines';
+  $('centre').hidden = onPage || onMachines;
   $('page').hidden = !onPage;
+  $('machines').hidden = !onMachines;
   if (onPage) { term.hide(); shownKey = ''; pages.show(v.key); return; }
+  if (onMachines) { term.hide(); shownKey = ''; machinesView.show(); return; }
   if (firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
   if (v.kind === 'none') { term.hide(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
@@ -887,7 +899,7 @@ function panelVisible(): boolean {
   if (firstRun() || S.view.kind === 'start') return false;
   if (S.overlay) return true;
   // A page takes the right column too; a checkpoint it opened comes over it.
-  if (S.view.kind === 'page') return false;
+  if (S.view.kind === 'page' || S.view.kind === 'machines') return false;
   return wide() && S.panelPref !== 'closed';
 }
 
@@ -914,7 +926,7 @@ function renderPanel(): void {
   const el = $('panel');
   const vis = panelVisible();
   el.hidden = !vis;
-  const docked = vis && !S.overlay && wide() && S.view.kind !== 'page';
+  const docked = vis && !S.overlay && wide() && S.view.kind !== 'page' && S.view.kind !== 'machines';
   el.classList.toggle('overlay', vis && !docked);
   if (!vis) { clearHiddenSecrets(false); return; }
   const key = panelTargetKey();
@@ -1076,6 +1088,7 @@ function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
   pages.update((next as { pages?: NavRow[] }).pages);
+  machinesSaid((next as { machines?: MachineView[] }).machines);
   // A session the start screen just started: the view follows it once listed.
   const v = S.view;
   if (v.kind === 'session' && v.pane && !findSession(next, v.key)) {
@@ -1097,6 +1110,25 @@ function onHubState(next: HubState): void {
     }
   }
   render();
+}
+
+/**
+ * A machine whose ravenryd is older than the app's, or that will not talk,
+ * is said once (per machine and version), with the way to the installer;
+ * the dot on the Machines mark stays until it is updated.
+ */
+function machinesSaid(list: MachineView[] | undefined): void {
+  machinesView.update(list);
+  if (!Array.isArray(list) || firstRun()) return;
+  for (const m of list) {
+    if (m.job && m.job.state === 'running') continue;
+    const what = m.compare === 'older' && m.version ? `${m.name} runs an older ravenryd (${m.version}).`
+      : m.compare === 'protocol' ? `${m.name} runs a ravenryd this app cannot talk to${m.remote ? ` (${m.remote.version})` : ''}.` : null;
+    const key = `${m.name}|${m.compare}|${m.version || (m.remote && m.remote.version) || ''}`;
+    if (!what || toldMachines.has(key)) continue;
+    toldMachines.add(key);
+    if (S.view.kind !== 'machines') toast(what, { label: 'Update it', run: () => setView({ kind: 'machines' }) });
+  }
 }
 
 function shellTabOf(socket: string, pane: string): ShellTab | undefined {
@@ -1263,6 +1295,11 @@ async function boot(): Promise<void> {
   };
   daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
   (window as unknown as { __ravenryHome?: string }).__ravenryHome = S.config.home;
+  machinesView = new Machines($('machines'), {
+    call: (method, p, body) => api().hubCall(method, p, body),
+    toast: (text) => toast(text),
+    copy: (text) => api().copyText(text),
+  });
   pages = new Pages($('page'), {
     hubUrl: () => S.config?.hubUrl || '',
     call: (method, p, body) => api().hubCall(method, p, body),
@@ -1318,7 +1355,7 @@ async function boot(): Promise<void> {
   if (firstRun() || !S.tabs.length) void loadStart();
   // For tests and screenshots (tools/driver.cjs): the state and a few calls.
   (window as unknown as { __ravenry: unknown }).__ravenry = {
-    S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage,
+    S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };
   document.body.dataset.ready = '1';

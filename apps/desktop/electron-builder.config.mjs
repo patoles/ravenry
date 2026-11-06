@@ -4,8 +4,8 @@
 // latest-linux.yml, latest-linux-arm64.yml).
 //
 // Run it through scripts/pack.mjs, which first puts what goes inside the
-// app in .stage/: ravenryd for each architecture, the hub, build.json and
-// the icon. It also decides signing: see scripts/pack.mjs.
+// app in .stage/: ravenryd for each architecture, the builds it installs on
+// other machines (remote/), the hub, build.json and the icon. It also decides signing: see scripts/pack.mjs.
 //
 // Updates come from the GitHub Releases of the repository this is built
 // from: GITHUB_REPOSITORY in CI, else the root package.json's repository.
@@ -44,6 +44,7 @@ export default {
   icon: '.stage/icon.png',
   extraResources: [
     { from: '.stage/ravenryd/${platform}-${arch}/ravenryd', to: 'ravenryd' },
+    { from: '.stage/remote', to: 'remote' },
     { from: '.stage/hub', to: 'hub' },
     { from: '.stage/hub-modules', to: 'hub/node_modules' },
     { from: '.stage/build.json', to: 'build.json' },

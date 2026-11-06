@@ -6,6 +6,7 @@
 // or systemd command runs).
 //
 //   node tools/package-check.mjs APP [OUT] [--old-ravenryd BIN] [--contents-only]
+//                                [--all-builds]
 //
 // APP is Ravenry.app, a .dmg (mounted with hdiutil, never in Finder), a
 // .zip, a linux-unpacked folder, a .deb (unpacked with dpkg-deb) or an
@@ -14,8 +15,10 @@
 // platform or architecture than this machine's.
 //
 // 1. Contents: ravenryd (its version, platform and architecture match the
-//    app's; static on Linux), the hub and its node client, build.json,
-//    app-update.yml; on macOS the code signature.
+//    app's; static on Linux), the builds it installs on other machines
+//    (remote/builds.json, each binary's SHA-256; --all-builds wants all
+//    four), the hub and its node client, build.json, app-update.yml; on
+//    macOS the code signature.
 // 2. The app, offscreen, with the smoke test's steps (smoke-steps.mjs) and
 //    no RAVENRYD: it must copy its own ravenryd out of the app and start it.
 //    With --old-ravenryd, an older ravenryd runs first with a pane in it,
@@ -26,6 +29,8 @@
 //    stop cleanly on SIGTERM, and leave every daemon running.
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,6 +42,7 @@ const argv = process.argv.slice(2);
 const opt = (f) => { const i = argv.indexOf(f); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const OLD = opt('--old-ravenryd');
 const CONTENTS_ONLY = argv.includes('--contents-only');
+const ALL_BUILDS = argv.includes('--all-builds');
 const pos = argv.filter((a) => !a.startsWith('--'));
 if (!pos[0]) { console.error('usage: package-check.mjs APP [OUT] [--old-ravenryd BIN] [--contents-only]'); process.exit(2); }
 const APP_PATH = path.resolve(pos[0]);
@@ -123,6 +129,20 @@ if (runsHere) {
   if (v.version !== build.version || v.os !== platform || v.arch !== goarch(bundledArch)) fail(`ravenryd ${JSON.stringify(v)} does not match the app ${build.version} ${platform}/${bundledArch}`);
   ok(`ravenryd version ${v.version} ${v.os}/${v.arch}, libghostty-vt ${v.libghostty_vt}`);
 }
+{
+  // The builds for other machines: the app's version, each one whole.
+  let rb = null;
+  try { rb = JSON.parse(fs.readFileSync(path.join(resources, 'remote', 'builds.json'), 'utf8')); } catch (e) { fail(`no remote/builds.json in the app: ${e.message}`); }
+  if (rb.version !== build.version) fail(`remote/builds.json is ${rb.version}; the app is ${build.version}`);
+  const keys = Object.keys(rb.builds || {}).sort();
+  for (const k of keys) {
+    const raw = zlib.gunzipSync(fs.readFileSync(path.join(resources, 'remote', rb.builds[k].file)));
+    if (crypto.createHash('sha256').update(raw).digest('hex') !== rb.builds[k].sha256 || raw.length !== rb.builds[k].size) fail(`remote/${rb.builds[k].file} does not match its SHA-256 or size`);
+  }
+  if (bundledArch && !keys.includes(`${platform}-${bundledArch}`)) fail(`remote/builds.json has no ${platform}-${bundledArch}: ${keys.join(', ')}`);
+  if (ALL_BUILDS && keys.join(',') !== 'darwin-arm64,darwin-x64,linux-arm64,linux-x64') fail(`remote/builds.json has ${keys.join(', ')}, not all four`);
+  ok(`builds for other machines: ${keys.join(', ')} (${rb.version}), each matching its SHA-256`);
+}
 for (const f of ['hub/server/index.mjs', 'hub/hooks/events.mjs', 'hub/public/index.html', 'hub/package.json', 'hub/node_modules/@ravenry/node-client/index.mjs', 'hub/server/vendor/page-format.mjs', 'hub/pages/defaults/objectives.page.yaml']) {
   if (!fs.existsSync(path.join(resources, f))) fail(`no ${f} in the app`);
 }
@@ -193,6 +213,8 @@ try {
   const mineExe = exeOf(mine.pid);
   if (fs.realpathSync(mineExe) !== fs.realpathSync(STAGED)) fail(`the daemon runs ${mineExe}, not the app's copy ${STAGED}`);
   ok(`the app started its own ravenryd ${build.version} from its copy ${path.relative(WORK, STAGED)} (pid ${mine.pid})`);
+  if (!fs.existsSync(path.join(path.dirname(STAGED), 'remote', 'builds.json'))) fail(`the app did not copy its builds for other machines beside ${STAGED}`);
+  ok('the builds for other machines were copied beside it, where the hub finds them');
   if (OLD) {
     const old = ds.find((d) => d.version === oldVersion);
     if (!old) fail(`the older ravenryd ${oldVersion} is gone: ${JSON.stringify(ds)}`);

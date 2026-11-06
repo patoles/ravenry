@@ -228,6 +228,7 @@ npm run typecheck && npm test
 RAVENRYD=../../daemon/ravenryd npm run smoke          # the app end to end, offscreen
 RAVENRYD=../../daemon/ravenryd npm run shots -- out   # screenshots and keystroke echo
 RAVENRYD=../../daemon/ravenryd node tools/checkpoint-shots.mjs out   # the checkpoint cards, from real checkpoints
+RAVENRYD=<new build> RAVENRYD_OLD=<older build> node tools/machines-shots.mjs out   # the Machines page, from real installs behind a fake ssh
 RAVENRYD=../../daemon/ravenryd node tools/pages-test.mjs out [light|dark]   # the pages, end to end, and every frame of their picture
 ```
 

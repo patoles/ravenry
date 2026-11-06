@@ -3,7 +3,8 @@
 // Electron here, so tests import it.
 //
 // Versions. The app ships ravenryd and the hub in its resources, and on
-// launch copies them to <data>/versions/<version>/. Daemons and the hub run
+// launch copies them to <data>/versions/<version>/ (with remote/, the
+// builds the hub installs on other machines). Daemons and the hub run
 // from that copy, never from inside the app, so replacing the app (an
 // update, or an AppImage that unmounts when it quits) never pulls a running
 // binary out from under them. <data>/bin/ravenryd always links to the
@@ -103,6 +104,9 @@ export function stageVersion(opts: { resources: string; root: string; build: Bui
     fs.copyFileSync(path.join(resources, name), path.join(tmp, name));
     fs.chmodSync(path.join(tmp, name), 0o755);
     fs.cpSync(path.join(resources, 'hub'), path.join(tmp, 'hub'), { recursive: true });
+    // The builds the hub installs on other machines over ssh
+    // (hub/server/remoteinstall.mjs finds them beside this ravenryd).
+    if (fs.existsSync(path.join(resources, 'remote', 'builds.json'))) fs.cpSync(path.join(resources, 'remote'), path.join(tmp, 'remote'), { recursive: true });
     fs.writeFileSync(path.join(tmp, '.build.json'), JSON.stringify(build) + '\n');
     // Same version, other build (a rebuilt package): move the old copy
     // aside first. A daemon running from it keeps its file open.
