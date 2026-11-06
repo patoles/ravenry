@@ -24,7 +24,12 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   Windows later), with an id, a command, a working directory and an
   environment that names the pane (`RAVENRY_PANE`) and its daemon
   (`RAVENRY_SOCKET`). Closing a pane ends its whole process tree, including
-  programs that detached themselves. A hidden pane can have a TTL.
+  programs that detached themselves: the daemon tracks each pane's
+  processes while it lives (a sweep every second, and on macOS kqueue's
+  fork events, so it sees the middle of a double fork), and on Linux
+  marks the pane with its `RLIMIT_RTTIME` soft limit, which survives a
+  wiped environment (PROTOCOL.md section 3). A hidden pane can have a
+  TTL.
 - **Screens.** Every pane's output goes through libghostty-vt, which keeps
   its screen: text, cell styles (bold, dim, colours, ...), cursor, modes,
   title. A capture returns them, and a client that attaches gets VT that

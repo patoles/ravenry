@@ -867,6 +867,14 @@
         "agent": {
           "$ref": "#/$defs/AgentStatus",
           "description": "Set once an agent reported on this pane."
+        },
+        "pids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "The processes that belong to the pane now (section 3), when pane.list asked for them with processes."
         }
       },
       "required": [
@@ -1954,6 +1962,10 @@
         "labels": {
           "$ref": "#/$defs/Labels",
           "description": "Only the panes that have every one of these labels."
+        },
+        "processes": {
+          "type": "boolean",
+          "description": "Also each running pane's pids: the processes that belong to it now."
         }
       },
       "required": [

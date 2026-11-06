@@ -154,19 +154,33 @@ it.
   `RAVENRY_SOCKET=<the daemon's socket>`, plus the `env` of `pane.new`.
   `RAVENRY_PANE` lets a hook say which pane it runs in; `RAVENRY_SOCKET`
   lets a program in the pane reach the daemon that runs it. Both also mark
-  the pane's processes: closing the pane finds them by it, and the daemon
-  refuses them what only a person may do (section 4, Who acts as the
-  person).
+  the pane's processes (below): closing the pane finds them by it, and the
+  daemon refuses them what only a person may do (section 4, Who acts as
+  the person).
 - **Running and exited.** When the first process exits, the pane stays,
   with its screen, as `exited`, so its last screen can still be read. It is
   removed when a client closes it, or one hour after the exit.
 - **Hidden** panes are left out of `pane.list` unless asked for. A hidden
   pane can have a TTL: it is closed that long after it started.
-- **Closing** a pane ends every process that belongs to it: the first
-  process and its descendants, every process in its session, and every
-  process whose environment still carries its `RAVENRY_PANE`, which
-  catches programs that detached themselves. They get SIGHUP, then SIGTERM
-  halfway through the grace period, then SIGKILL at its end.
+- **Which processes belong to a pane:** its first process; a child of
+  one that belongs; one in a session or process group led by one that
+  belongs or did (a program that moves to a session of its own leads it,
+  and what it starts stays in that session after it has gone, which is
+  what a double fork leaves); one the daemon saw belong while it lived,
+  even after it left its parents for launchd or init; and one that
+  carries the pane's mark: `RAVENRY_PANE` in its environment where the
+  system shows it (Linux; macOS shows none of an Apple binary's, such as
+  `/bin/sh` or `curl`), and on Linux its `RLIMIT_RTTIME` soft limit, set
+  on the first process to 2^61 microseconds plus 48 bits of the pane's
+  id, which every process inherits and a wiped environment keeps (`ulimit
+  -R` in a pane shows it). The daemon walks the process table every
+  second while panes exist, and on macOS also hears each fork of a
+  process it knows as it happens (kqueue), so it sees the middle process
+  of a double fork before it is gone. Never a process of another pane or
+  outside every pane: a process joins only through one that belongs.
+- **Closing** a pane ends every process that belongs to it, which
+  catches programs that detached themselves. They get SIGHUP, then
+  SIGTERM halfway through the grace period, then SIGKILL at its end.
 
 **The daemon answers terminal queries.** When the program in a pane asks
 the terminal something (device attributes, cursor position, and other
@@ -363,6 +377,7 @@ or 2, else empty), `mark` (the end of its output so far), `last_output_at`
 | --- | --- | --- |
 | `hidden` | boolean, optional | Include hidden panes. |
 | `labels` | object, optional | Only the panes that have every one of these labels with these values. |
+| `processes` | boolean, optional | Also `pids` on each running pane: the processes that belong to it now (section 3), by their parents, their sessions and what the daemon saw. |
 
 Result: `panes`, oldest first.
 
@@ -797,9 +812,10 @@ is at the other end of the socket (`LOCAL_PEERPID` on macOS,
 1. **Inside a pane: never the person.** The process, or one of its
    ancestors (by parent; and the leader of its session, with that
    leader's ancestors), is a pane's first process or the child of a
-   ravenryd daemon (`ravenryd serve`), or started with `RAVENRY_SOCKET`
-   (or `RAVENRY_PANE` alone) in its environment: the marks closing a pane
-   looks for (section 3). The panes that count are those of the daemons
+   ravenryd daemon (`ravenryd serve`), belongs to a pane by what the
+   daemon saw while the pane lived or by the pane's mark, or started with
+   `RAVENRY_SOCKET` (or `RAVENRY_PANE` alone) in its environment: what
+   closing a pane looks for (section 3). The panes that count are those of the daemons
    of this daemon's runtime directory (section 9), the ones that share
    this machine's panes; a daemon in another runtime directory is another
    Ravenry (a test's). How the process connects does not matter: the
@@ -834,9 +850,12 @@ person. A request from this machine, on localhost or on one of its own
 addresses, is judged by the process that holds the connection:
 `ravenryd peer --tcp <its port> --to <the hub's port>` finds that process
 (libproc on macOS, `/proc/net/tcp` and `/proc/*/fd` on Linux) and judges
-it with the daemon's own code. So `curl` to the hub from a pane is
-refused like a raw call on the socket, while the board page in a browser
-and the desktop app answer as before.
+it with the daemon's own code, with the processes each daemon counts in
+its panes (`pane.list` with `processes`). So `curl` to the hub from a
+pane is refused like a raw call on the socket, while the board page in a
+browser and the desktop app answer as before. The hub refuses this way
+every write that stands for a person's decision, not only answers
+(hub/docs/PERSON.md lists them).
 
 **Limits.** This closes every direct route an agent has to answering;
 it is not a sandbox around agents.
@@ -846,12 +865,15 @@ it is not a sandbox around agents.
   service. So is a program an agent has another service start outside
   its pane (a terminal multiplexer server started earlier, `launchctl`,
   `systemd-run`, `at`, a ravenryd daemon of its own in another runtime
-  directory), and one that both moves to a new session of its own and
-  leaves its parents (a double fork) with its environment wiped of
-  `RAVENRY_*`. On macOS, which hides the environment of Apple's own
-  programs (`/bin/sh`, `curl`), moving to a new session and leaving its
-  parents is enough for one of those. (`ssh` to this machine does not
-  help: what it runs is in an ssh session.)
+  directory). A program that moves to a new session of its own and
+  leaves its parents (a double fork) with its environment wiped stays in
+  the pane (section 3) as long as the daemon saw its middle process: on
+  macOS the fork watch does unless the middle process is gone before the
+  daemon reads its parent's children (in practice a few microseconds
+  after the fork; it saw it in each of 200 runs of a C double fork that
+  exits at once); on Linux the pane's mark carries over unless the
+  program resets its own `RLIMIT_RTTIME`. (`ssh` to this machine does
+  not help: what it runs is in an ssh session.)
 - **Ravenry's secrets are the user's files.** The hub's answer key and
   the phone's sign-in key can be read by any program of the user, an
   agent included: with the first, it can answer over ssh as the hub;

@@ -10,6 +10,14 @@
 //	sleep     sleeps
 //	stubborn  ignores SIGHUP and SIGTERM, prints "stubborn <pid>", sleeps
 //	daemon    starts "sleep" in a new session, prints "daemon <pid>", exits
+//	detach    detaches a helper as a daemonizing program does: a /bin/sh in
+//	          a new session of its own starts /bin/sleep with its
+//	          environment wiped and its output closed, and exits at once
+//	          (a double fork); prints "detached <sleep pid> <sh pid>" and
+//	          sleeps. The sleep ends up a child of launchd or init, in the
+//	          session of a process that is gone, with no RAVENRY_PANE.
+//	          $RAVENRY_TESTPROG_DETACH replaces the sleep's command line;
+//	          its standard error is the pane's.
 //	rawecho   switches the terminal to raw mode, prints $RAVENRY_TESTPROG_INIT,
 //	          then "ready", then "read <quoted bytes>" for every read
 //	answer    connects to $RAVENRY_TESTPROG_SOCKET (else $RAVENRY_SOCKET)
@@ -62,6 +70,8 @@ func Run() {
 			os.Exit(1)
 		}
 		fmt.Printf("daemon %d\n", c.Process.Pid)
+	case "detach":
+		detach()
 	case "rawecho":
 		rawecho()
 	case "answer":
@@ -112,6 +122,23 @@ func tree() {
 	// Give the stubborn child time to install its signal handlers.
 	time.Sleep(100 * time.Millisecond)
 	fmt.Printf("pids: %d %d %d\n", child.Process.Pid, stub.Process.Pid, dpid)
+	time.Sleep(10 * time.Minute)
+}
+
+func detach() {
+	cmd := os.Getenv("RAVENRY_TESTPROG_DETACH")
+	if cmd == "" {
+		cmd = "/usr/bin/env -i /bin/sleep 600 </dev/null >/dev/null 2>&1"
+	}
+	sh := exec.Command("/bin/sh", "-c", cmd+" & echo $!")
+	sh.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	sh.Stderr = os.Stdout
+	out, err := sh.Output()
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(1)
+	}
+	fmt.Printf("detached %s %d\n", strings.TrimSpace(string(out)), sh.Process.Pid)
 	time.Sleep(10 * time.Minute)
 }
 

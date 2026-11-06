@@ -183,6 +183,8 @@ type ListRequest struct {
 	Hidden bool `json:"hidden,omitempty"`
 	// Labels keeps the panes that have every one of these labels.
 	Labels map[string]string `json:"labels,omitempty"`
+	// Processes adds each running pane's processes (Pane.PIDs).
+	Processes bool `json:"processes,omitempty"`
 }
 
 // UpdateRequest changes a pane's name and labels. A label set to null is
@@ -390,6 +392,9 @@ type Pane struct {
 	Shell *Shell `json:"shell,omitempty"`
 	// Agent is set once an agent reported on this pane.
 	Agent *AgentStatus `json:"agent,omitempty"`
+	// PIDs are the processes that belong to the pane now (section 3),
+	// when pane.list asked for them.
+	PIDs []int `json:"pids,omitempty"`
 }
 
 // Shell is what OSC 133 marks say about the shell in a pane.

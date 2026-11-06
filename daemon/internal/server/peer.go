@@ -89,7 +89,7 @@ func (c *conn) judge(key string) {
 // and those of every daemon beside it in its runtime directory (a test's
 // daemon in another directory is another Ravenry).
 func (s *Server) scope() pane.Scope {
-	sc := pane.Scope{Roots: s.o.Manager.Roots()}
+	sc := pane.Scope{Roots: s.o.Manager.Roots(), Member: s.o.Manager.PaneOf}
 	if s.o.Socket != "" {
 		sc.Dir = filepath.Dir(s.o.Socket)
 	}

@@ -717,7 +717,11 @@ next:
 				continue next
 			}
 		}
-		out = append(out, c.s.paneInfo(i))
+		pi := c.s.paneInfo(i)
+		if r.Processes && i.Running() {
+			pi.PIDs = c.s.o.Manager.Members(i.ID)
+		}
+		out = append(out, pi)
 	}
 	c.reply(id, "pane.list", proto.ListResult{Panes: out})
 }

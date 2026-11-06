@@ -66,7 +66,8 @@ func cmdPeer(in []string) error {
 		r.Why = "no process of this user holds that connection"
 	}
 	var whys []string
-	sc := pane.Scope{Roots: paneRoots()}
+	roots, members := panesHere()
+	sc := pane.Scope{Roots: roots, Member: func(pid int) (string, bool) { id, ok := members[pid]; return id, ok }}
 	sc.Dir, _ = paths.RuntimeDirFor(os.Getenv)
 	for _, pid := range pids {
 		o := pane.OriginOf(pid, sc)
@@ -92,12 +93,14 @@ func cmdPeer(in []string) error {
 	return nil
 }
 
-// paneRoots maps the first process of every running pane of every daemon
-// here to its pane, so a process is placed in its pane even where its
-// environment cannot be read (macOS hides the environment of its own
-// programs, /bin/sh and curl among them).
-func paneRoots() map[int]string {
-	roots := map[int]string{}
+// panesHere maps the first process of every running pane of every daemon
+// here to its pane, and every process that belongs to one now (pane.list
+// with processes: what the daemon saw while the pane lived included), so a
+// process is placed in its pane even where its environment cannot be read
+// (macOS hides the environment of its own programs, /bin/sh and curl
+// among them) and after it left its parents.
+func panesHere() (roots, members map[int]string) {
+	roots, members = map[int]string{}, map[int]string{}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	for _, d := range liveDaemons() {
@@ -106,14 +109,19 @@ func paneRoots() map[int]string {
 			continue
 		}
 		var l proto.ListResult
-		if c.Call(ctx, "pane.list", map[string]any{"hidden": true}, &l) == nil {
-			for _, p := range l.Panes {
-				if p.State == "running" && p.PID > 0 {
-					roots[p.PID] = p.ID
-				}
+		if c.Call(ctx, "pane.list", map[string]any{"hidden": true, "processes": true}, &l) != nil {
+			// A daemon from before pane.list took processes.
+			c.Call(ctx, "pane.list", map[string]any{"hidden": true}, &l)
+		}
+		for _, p := range l.Panes {
+			if p.State == "running" && p.PID > 0 {
+				roots[p.PID] = p.ID
+			}
+			for _, pid := range p.PIDs {
+				members[pid] = p.ID
 			}
 		}
 		c.Close()
 	}
-	return roots
+	return roots, members
 }

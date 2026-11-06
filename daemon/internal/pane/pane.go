@@ -143,6 +143,9 @@ type Pane struct {
 	exitedAt   time.Time
 	closed     bool
 
+	// seen is what tracking saw belong to the pane (proctree.go).
+	seen *seen
+
 	// OSC 133 marks: the shell's state, the marks where a prompt started
 	// (for waits), and the end of the chunk being written, which is the
 	// mark a prompt seen in it gets.
@@ -234,6 +237,7 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		changed: make(chan struct{}),
 		done:    make(chan struct{}),
 		exited:  make(chan struct{}),
+		seen:    newSeen(),
 	}
 	var cmd *exec.Cmd
 	if len(cfg.Command) == 0 {
@@ -287,7 +291,11 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		screen.Close()
 		return nil, err
 	}
-	f, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cfg.Cols), Rows: uint16(cfg.Rows)})
+	var f *os.File
+	err = withMark(p.id, func() (err error) {
+		f, err = pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cfg.Cols), Rows: uint16(cfg.Rows)})
+		return err
+	})
 	if err != nil {
 		screen.Close()
 		p.log.close(true)
@@ -603,6 +611,13 @@ func signalName(s syscall.Signal) string {
 // ID returns the pane's id.
 func (p *Pane) ID() string { return p.id }
 
+// running reports whether its first process has not exited.
+func (p *Pane) running() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.exit == nil && !p.closed
+}
+
 // Info describes the pane now.
 func (p *Pane) Info() Info {
 	p.mu.Lock()
@@ -744,10 +759,11 @@ func (p *Pane) write(b []byte) error {
 	return err
 }
 
-// close ends the pane's processes and frees it. It returns the number of
+// close ends the pane's processes and frees it. others are the first
+// processes of the other panes, never touched. It returns the number of
 // processes it signalled.
-func (p *Pane) close(grace time.Duration) int {
-	n := killTree(p.pid, p.id, grace)
+func (p *Pane) close(grace time.Duration, others map[int]bool) int {
+	n := killTree(p.pid, p.id, p.seen, others, grace)
 	select {
 	case <-p.exited:
 	case <-time.After(grace + time.Second):

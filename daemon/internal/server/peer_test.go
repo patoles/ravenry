@@ -44,6 +44,12 @@ func TestOnlyAPersonAnswers(t *testing.T) {
 		// Detached (its parent exits, so it belongs to init) with a wiped
 		// environment: it is still in the pane's session.
 		{"detached with its environment wiped", "(/usr/bin/env -i " + vars + " '" + exe + "' &); exec sleep 30"},
+		// Double-forked: a shell in a session of its own starts it with
+		// its environment wiped and exits, so it is a child of launchd or
+		// init in the session of a process that is gone. The daemon saw
+		// that shell while it lived (macOS: the fork watch), or the
+		// program carries the pane's mark (Linux).
+		{"double-forked with its environment wiped", "RAVENRY_TESTPROG=detach RAVENRY_TESTPROG_DETACH=\"/usr/bin/env -i " + vars + " '" + exe + "' 1>&2\" '" + exe + "'"},
 		// Claiming to come over ssh with a key does not help either.
 		{"claiming ssh with a key", "SSH_CONNECTION='10.0.0.1 50000 10.0.0.2 22' RAVENRY_TESTPROG_KEY=from-a-pane " + vars + " '" + exe + "'"},
 	} {

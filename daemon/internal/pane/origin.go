@@ -23,8 +23,10 @@ type Origin struct {
 	// runtime directory, as closing a pane finds them: it or one of its
 	// ancestors (by parent; and the leader of its session, with that
 	// leader's ancestors) is a pane's first process, is the child of one
-	// of those daemons, or started with RAVENRY_SOCKET naming one of them
-	// (or RAVENRY_PANE without RAVENRY_SOCKET) in its environment.
+	// of those daemons, belongs to a pane by what the daemon saw while
+	// the pane lived (Scope.Member), carries a pane's mark (Linux), or
+	// started with RAVENRY_SOCKET naming one of them (or RAVENRY_PANE
+	// without RAVENRY_SOCKET) in its environment.
 	Pane bool
 	// PaneID is the pane, when it is known.
 	PaneID string
@@ -45,6 +47,11 @@ type Scope struct {
 	// Roots maps the first process of each running pane known to the
 	// asker to its pane id (Manager.Roots), or is nil.
 	Roots map[int]string
+	// Member, when set, says which pane a process belongs to by what the
+	// daemon saw while the pane lived (Manager.PaneOf, proctree.go): a
+	// process that left its parents and whose environment the system
+	// hides (macOS 26, for Apple's own programs) or that wiped it.
+	Member func(pid int) (string, bool)
 }
 
 // Person reports whether the process may act as the person on its own:
@@ -101,6 +108,20 @@ func OriginOf(pid int, sc Scope) Origin {
 			seen[q] = true
 			if id, ok := sc.Roots[q]; ok {
 				pane(id)
+			}
+			if sc.Member != nil {
+				if id, ok := sc.Member(q); ok {
+					pane(id)
+				}
+			}
+			// The pane's mark (Linux, mark_linux.go), for the panes the
+			// scope knows.
+			if m, ok := markOf(q); ok {
+				for _, id := range sc.Roots {
+					if paneMark(id) == m {
+						pane(id)
+					}
+				}
 			}
 			// Its short name, which the system tells for every process
 			// (an sshd that runs as root included).

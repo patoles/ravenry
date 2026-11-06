@@ -25,15 +25,34 @@ func listProcs() []proc {
 			continue
 		}
 		f, ok := statFields(pid)
-		if !ok || len(f) < 4 {
+		if !ok {
 			continue
 		}
-		ppid, _ := strconv.Atoi(f[1])
-		pgid, _ := strconv.Atoi(f[2])
-		sid, _ := strconv.Atoi(f[3])
-		out = append(out, proc{pid: pid, ppid: ppid, sid: sid, pgid: pgid})
+		if p, ok := parseStat(pid, f); ok {
+			out = append(out, p)
+		}
 	}
 	return out
+}
+
+func parseStat(pid int, f []string) (proc, bool) {
+	if len(f) < 20 {
+		return proc{}, false
+	}
+	ppid, _ := strconv.Atoi(f[1])
+	pgid, _ := strconv.Atoi(f[2])
+	sid, _ := strconv.Atoi(f[3])
+	start, _ := strconv.ParseInt(f[19], 10, 64)
+	return proc{pid: pid, ppid: ppid, sid: sid, pgid: pgid, start: start}, true
+}
+
+// procOf reads one process as listProcs does.
+func procOf(pid int) (proc, bool) {
+	f, ok := statFields(pid)
+	if !ok {
+		return proc{}, false
+	}
+	return parseStat(pid, f)
 }
 
 // statFields returns the fields of /proc/<pid>/stat after the command

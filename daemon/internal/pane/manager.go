@@ -58,6 +58,8 @@ type Manager struct {
 	closing  bool
 	// activityOn says whether anyone follows pane activity.
 	activityOn func() bool
+	// track follows the panes' processes while they live (track.go).
+	track *tracker
 }
 
 // DefaultLogCap is the default size cap of a pane's log.
@@ -86,6 +88,7 @@ func NewManager(o ManagerOptions) *Manager {
 		// Without the files, shells start as they are.
 		m.shell, _ = installShell(o.ShellDir)
 	}
+	m.startTracking()
 	return m
 }
 
@@ -178,6 +181,7 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 	m.mu.Lock()
 	m.panes[p.id] = p
 	m.mu.Unlock()
+	m.track.follow(p)
 	if cfg.TTL > 0 {
 		time.AfterFunc(cfg.TTL, func() { m.Close(p.id, time.Second) })
 	}
@@ -298,7 +302,13 @@ func (m *Manager) Close(id string, grace time.Duration) (Info, int, error) {
 		return Info{}, 0, ErrNotFound
 	}
 	info := p.Info()
-	n := p.close(grace)
+	others := map[int]bool{}
+	for _, o := range m.open() {
+		if o.running() {
+			others[o.pid] = true
+		}
+	}
+	n := p.close(grace, others)
 	select {
 	case <-p.exited:
 	case <-time.After(time.Second):
@@ -374,4 +384,11 @@ func (m *Manager) Shutdown(grace time.Duration) {
 		}()
 	}
 	wg.Wait()
+	m.mu.Lock()
+	t := m.track
+	m.track = nil
+	m.mu.Unlock()
+	if t != nil {
+		t.close()
+	}
 }
