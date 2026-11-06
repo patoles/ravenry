@@ -628,9 +628,9 @@ function shellPanel(t: ShellTab): HTMLElement[] {
   // What the agent in it reported through the daemon's status channel.
   const st = t.status;
   const who = st ? assistantName(st.assistant) || 'The agent' : null;
-  const need = st?.need ? ({ permission: 'a permission', question: 'an answer', auth: 'a sign-in', other: 'you' } as const)[st.need.kind] : 'you';
+  const needs = { permission: 'is asking for permission', question: 'has a question', auth: 'needs you to sign in', other: 'needs you' } as const;
   const stLine = !st ? null
-    : st.state === 'needs_you' ? h('div.st.c-you', svg(RING.you), `${who} needs ${need}${st.since ? ` since ${clock(st.since, now())}` : ''}`)
+    : st.state === 'needs_you' ? h('div.st.c-you', svg(RING.you), `${who} ${needs[st.need?.kind || 'other']}${st.since ? ` since ${clock(st.since, now())}` : ''}`)
       : st.state === 'working' ? h('div.st.c-work', svg(RING.work), `${who} is working`)
         : st.state === 'idle' ? h('div.st.c-idle', svg(RING.idle), `${who} is done with its turn`) : null;
   return [
@@ -705,7 +705,7 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
   if (e.event === 'pane.prompt') { const t = shellTabOf(socket, e.pane.id); if (t) void refreshCwd(socket, t); return; }
   if (e.event === 'agent.report') {
     const t = e.pane ? shellTabOf(socket, e.pane.id) : undefined;
-    if (t && e.pane) { t.status = e.pane.agent || null; renderTabs(); }
+    if (t && e.pane) { t.status = e.pane.agent || null; renderTabs(); if (panelVisible()) renderPanel(); }
     return;
   }
   if (e.event === 'pane.title' || e.event === 'pane.exited' || e.event === 'pane.closed') {
