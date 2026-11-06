@@ -66,6 +66,10 @@ type Options struct {
 	// whether reports are supported. It runs while Write processes the
 	// output.
 	Status func(ProgramStatus)
+	// Pwd is called when the program reports its working directory with
+	// OSC 7, with the URL as sent (file://host/path, percent-encoded). It
+	// runs while Write processes the output.
+	Pwd func(url string)
 }
 
 // PromptKind is the step of a shell command an OSC 133 mark reports.

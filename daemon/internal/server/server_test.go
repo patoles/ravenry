@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -181,6 +182,26 @@ type daemon struct {
 	srv    *Server
 	socket string
 	home   string
+	dir    string
+	log    *lockedBuffer
+}
+
+// lockedBuffer holds what the daemon logs.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 func startDaemon(t *testing.T) *daemon {
@@ -197,7 +218,8 @@ func startDaemon(t *testing.T) *daemon {
 		LogDir: dir, Socket: sock,
 		Env: []string{"PATH=/usr/bin:/bin", "HOME=" + home, "LANG=en_US.UTF-8"},
 	})
-	srv := New(Options{Version: "0.0.0-test", Manager: mgr, Socket: sock})
+	lb := &lockedBuffer{}
+	srv := New(Options{Version: "0.0.0-test", Manager: mgr, Socket: sock, Log: log.New(lb, "", 0)})
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
@@ -207,12 +229,17 @@ func startDaemon(t *testing.T) *daemon {
 		srv.Close()
 		mgr.Shutdown(time.Second)
 	})
-	return &daemon{t: t, mgr: mgr, srv: srv, socket: sock, home: home}
+	return &daemon{t: t, mgr: mgr, srv: srv, socket: sock, home: home, dir: dir, log: lb}
 }
 
 func (d *daemon) dial(o client.Options) *client.Client {
 	d.t.Helper()
-	o.OnMessage = validator(d.t)
+	check := validator(d.t)
+	if tap := o.OnMessage; tap != nil {
+		o.OnMessage = func(dir string, text bool, data []byte) { check(dir, text, data); tap(dir, text, data) }
+	} else {
+		o.OnMessage = check
+	}
 	if o.Name == "" {
 		o.Name = "test"
 	}

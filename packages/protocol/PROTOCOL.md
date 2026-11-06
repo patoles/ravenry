@@ -19,8 +19,8 @@ RFC 2119.
 1. [Connecting](#1-connecting)
 2. [Messages](#2-messages)
 3. [Panes, marks and the log](#3-panes-marks-and-the-log), shell
-   marks, the agent in a pane
-4. [Methods](#4-methods)
+   marks, the agent in a pane, labels, secrets in output
+4. [Methods](#4-methods): panes, agents, files, checkpoints
 5. [Streams and binary frames](#5-streams-and-binary-frames)
 6. [Events](#6-events)
 7. [Input and keys](#7-input-and-keys)
@@ -119,8 +119,8 @@ the daemon sends (section 10).
 **Order.** The daemon starts requests in the order they arrive.
 
 - Most requests answer at once, in order.
-- `pane.wait`, `pane.settle`, `pane.close`, `pane.restart`, `pane.send`
-  and `agent.report` with `decide` can take time (a send waits for
+- `pane.wait`, `pane.settle`, `pane.close`, `pane.restart`, `pane.send`,
+  `checkpoint.wait` and `agent.report` with `decide` can take time (a send waits for
   earlier input of the connection, and typed text takes a pause per
   character). Other requests are handled meanwhile, so their results can
   arrive in another order. Match results to requests by `id`.
@@ -166,6 +166,22 @@ client is attached. A client that draws the pane must not answer such
 queries itself, or the program gets two answers. (For xterm.js: register
 parser handlers that swallow the queries, or drop what `onData` reports
 for them.)
+
+**Name and labels.** A pane's `name` is for people (a tab's title). Its
+`labels` are key-value tags for programs: the app marks its plain shells
+(`ravenry.kind: shell`), the hub the session it started, a plugin its
+own panes. The daemon gives them no meaning; `pane.list` filters by them
+and `pane.update` changes both. A key is 1 to 64 characters of `a-z`,
+`0-9`, `.`, `_`, `/` and `-`, starting with a letter or digit; name it
+after its owner (`ravenry.kind`, `myplugin/role`). A value is at most 256
+bytes with no control characters, and a pane has at most 32 labels.
+
+**Its working directory.** `cwd` is where the pane started, then the last
+directory its program reported with OSC 7 (`file://host/path`, which the
+shell integration sends at each prompt) when `host` is empty,
+`localhost` or this machine's name. A directory reported for another
+host (a shell reached through ssh inside the pane) is not the pane's and
+is ignored. `pane.cwd` tells when it changes.
 
 **A mark** is a position in a pane's output: the number of bytes the pane
 had printed before that point. Marks only grow. Results carry marks so a
@@ -242,6 +258,18 @@ A report that names no state (a notification that changes nothing) only
 moves `event` and `at`. Messages are text from programs: show them as
 text, never as markup.
 
+**Secrets in output.** A secret a person typed for a program in a pane
+(a `secret` checkpoint, section 4) is masked in everything that pane
+prints from then on: each of its bytes becomes `*` before the screen,
+the log, streams, waits and captures see the output. A secret split
+across two reads is still masked: the end of a read that could start a
+secret is held back until the next read, or for 30 ms. The daemon keeps
+the secret in memory for the pane's life (at most 16 per pane) and
+writes it nowhere. Masking is by bytes: a program that echoes a secret
+as it was typed shows asterisks; one that redraws it with other bytes in
+between is not covered, and a secret typed at a shell prompt lands in
+the shell's history, so a secret is for a program that prompts for it.
+
 **The log.** The daemon keeps each pane's raw output in a log file with a
 size cap (16 MiB by default; it keeps between half and all of the cap of
 the latest output). `pane.read` reads from it by mark, and a subscription
@@ -274,7 +302,7 @@ checks `methods` before using a method added after v1.0 (section 10).
 
 | Field | | |
 | --- | --- | --- |
-| `request` | id | A running `pane.wait`, `pane.settle`, `pane.close` or `pane.send` on this connection. |
+| `request` | id | A running `pane.wait`, `pane.settle`, `pane.close`, `pane.send` or `checkpoint.wait` on this connection. |
 
 Result: `{}`. The cancelled request then fails with `cancelled`, except a
 `pane.close`, which completes and answers as usual. Closing the
@@ -285,9 +313,11 @@ connection cancels everything it was waiting for.
 | Field | | |
 | --- | --- | --- |
 | `display` | boolean, optional | This connection shows panes to a person (a terminal window, the phone), so it also gets `pane.focus`. |
+| `activity` | boolean, optional | Also `pane.activity`, about the panes this connection does not stream (a tab strip's "something happened" dot). |
 
-Result: `{}`. From then on the connection receives the pane, agent and
-daemon events of section 6. Subscribing again updates `display`.
+Result: `{}`. From then on the connection receives the pane, agent,
+checkpoint and daemon events of section 6. Subscribing again updates
+`display` and `activity`.
 
 ### pane.new
 
@@ -297,7 +327,8 @@ daemon events of section 6. Subscribing again updates `display`.
 | `cwd` | string, optional | Default: the home directory. |
 | `env` | object, optional | Variables to add or override. `RAVENRY_PANE` and `RAVENRY_SOCKET` cannot be overridden. `RAVENRY_SHELL_INTEGRATION=0` turns shell integration off (section 3). |
 | `cols`, `rows` | integers, optional, together | 1 to 4096. Default 80 x 24. |
-| `name` | string, optional | A label for people. |
+| `name` | string, optional | For people, at most 256 bytes. |
+| `labels` | object, optional | For programs (section 3, Name and labels). |
 | `hidden` | boolean, optional | |
 | `ttl_ms` | integer, optional | Only with `hidden: true`. |
 | `scrollback` | integer, optional | History lines, 0 to 1000000. Default 10000. |
@@ -305,7 +336,8 @@ daemon events of section 6. Subscribing again updates `display`.
 Result: `pane`, a Pane object. Fails with `failed` when the program or the
 directory does not exist.
 
-**The Pane object:** `id`, `name` (when set), `command`, `cwd`, `pid` (the
+**The Pane object:** `id`, `name` (when set), `labels` (when it has
+some), `command`, `cwd` (where it works now, section 3), `pid` (the
 first process, which leads the pane's session), `cols`, `rows`, `hidden`,
 `ttl_ms` (when set), `created_at`, `title` (set by the program with OSC 0
 or 2, else empty), `mark` (the end of its output so far), `last_output_at`
@@ -319,8 +351,20 @@ or 2, else empty), `mark` (the end of its output so far), `last_output_at`
 | Field | | |
 | --- | --- | --- |
 | `hidden` | boolean, optional | Include hidden panes. |
+| `labels` | object, optional | Only the panes that have every one of these labels with these values. |
 
 Result: `panes`, oldest first.
+
+### pane.update
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `name` | string, optional | Its new name; empty clears it. |
+| `labels` | object, optional | Each label set to a string is set, each set to `null` removed; the others stay. |
+
+At least one of `name` and `labels`. Result: `pane`. When something
+changed, event subscribers get `pane.updated`.
 
 ### pane.close
 
@@ -469,9 +513,11 @@ pane's first process has exited.
 | `grace_ms` | integer, optional | As in `pane.close`. |
 
 Closes the pane as `pane.close` does, then starts its command again in a
-new pane: the same `command` (the login shell when none was given), `cwd`,
-`env`, `name`, `hidden`, `ttl_ms` and `scrollback`, at the pane's current
-size, with the daemon's environment as it is now. Result: `pane`, the new
+new pane: the same `command` (the login shell when none was given),
+`env`, `hidden`, `ttl_ms` and `scrollback`, and the `cwd`, `name` and
+`labels` the pane has now, at its current size, with the daemon's
+environment as it is now. The environment a secret was given in
+(checkpoints) is not kept. Result: `pane`, the new
 pane (with a new id), and `replaced`, the old pane as it ended. The events
 are those of a close and a new pane.
 
@@ -577,6 +623,144 @@ Result: `{}`. Fails with `not_found` when that decision is no longer
 waiting for this connection (it timed out, or this connection answered
 already).
 
+### Files
+
+Files on the daemon's machine, read as the user the daemon runs as: the
+hub reads a remote session's transcript and brief through them for the
+hand-off, since they are on the machine the session runs on. They give a
+client nothing a program in a pane could not read itself. Paths are
+absolute (at most 4096 bytes); `~` is not expanded.
+
+#### file.stat
+
+| Field | | |
+| --- | --- | --- |
+| `paths` | array | 1 to 64 absolute paths. |
+
+Result: `files`, one per path in order: `path`, `type` (`file`, `dir`,
+`other`, or `none` when nothing is there or it cannot be reached), and
+for the others `size` (bytes) and `modified_at`.
+
+#### file.read
+
+| Field | | |
+| --- | --- | --- |
+| `path` | string | A regular file. |
+| `offset` | integer, optional | Start here (default 0). |
+| `tail` | integer, optional | Read the last this many bytes instead. Not with `offset`. |
+| `limit` | integer, optional | Bytes, 1 to 8 MiB. Default 1 MiB. With `tail`, a smaller limit keeps the file's last bytes. |
+| `format` | optional | `text` (default): UTF-8, invalid bytes replaced. `raw`: the bytes, base64. |
+
+Result: `path`, `size` and `modified_at` (the file now), `from` and `to`
+(the byte range read), and `text` or `data`. Fails with `not_found` when
+there is no such file, `failed` for a directory or a file it cannot read.
+
+### Checkpoints
+
+A checkpoint is a point where an agent waits for a person. The agent
+opens it (`ravenry ask`, `ravenry approve`, `ravenry secret` run
+`checkpoint.new` on the daemon of the pane they run in, then
+`checkpoint.wait`); whoever shows them to a person (the hub, which also
+alerts the phone, and the app) follows `checkpoint.*` events and answers
+with `checkpoint.answer`. Since each daemon holds its own, an agent on a
+remote machine reaches the person through the connection the hub keeps
+to that daemon.
+
+Three kinds:
+
+- **`ask`**: a question with buttons (`options`) and, with `free_text`,
+  room to type an answer.
+- **`approve`**: a `command` (and `why`) that runs only once a person
+  approves it. The person sees the exact text that runs. It runs as
+  `$SHELL -c <command>` in a new pane, in `cwd`, labelled
+  `ravenry.checkpoint: <id>` so a window can show it; the checkpoint
+  closes once it ended, with its exit and the end of its output.
+- **`secret`**: a person types a secret, which goes where `secret.to`
+  says and never to the agent: `input`, typed into a running pane
+  (`secret.pane`, never the asking pane); `run`, typed into `command`,
+  which starts in a new pane as for `approve`, once it printed its prompt
+  and went quiet; or `env`, the variable `secret.env` of `command`. The
+  pane masks it in its output from then on (section 3, Secrets in
+  output). The checkpoint, events, reports and results never hold it:
+  `answer.delivered` says it went. A client that shows checkpoints must
+  not store or log it either.
+
+States: `open` until a person answers, then `running` while an approved
+command runs, then one of the closed states: `answered`, `declined` (a
+person said no), `cancelled` (the agent withdrew it) or `expired` (no
+answer before `expires_at`). A daemon holds every open checkpoint and the
+last 64 closed ones, and at most 64 open at a time.
+
+**The Checkpoint object:** `id` (ravenryd's are "c" and 7 characters),
+`kind`, `state`, `title`, and when set `pane` (the asking pane),
+`assistant` (the agent that ran there), `options`, `free_text`, `command`,
+`cwd`, `why`, `secret` (`to`, `pane`, `enter`, `env`), then `created_at`,
+`expires_at`, `closed_at`, `reason` (why it was cancelled, or why an
+approved command did not run), `answer` (`choice` and `option`, `text`,
+`approved`, `delivered`, `declined`, `by`, `at`) and `run` (`pane`, and
+once it ended `exit`, `output`: the last 64 KiB as text, `truncated`).
+A client that does not know a checkpoint's kind shows its title and
+offers only to decline it.
+
+There is no permission check between connections yet: any client of the
+daemon may answer. An agent must never answer its own checkpoint; the
+command line has no command for it.
+
+#### checkpoint.new
+
+| Field | | |
+| --- | --- | --- |
+| `kind` | string | `ask`, `approve` or `secret`. |
+| `title` | string | What the person reads first, 1 to 1000 bytes; newlines allowed. |
+| `pane` | id, optional | The pane the asking agent runs in (`RAVENRY_PANE`). |
+| `options` | array, optional | ask: 1 to 8 buttons, each 1 to 100 bytes. |
+| `free_text` | boolean, optional | ask: the person may type an answer. An ask needs `options`, `free_text` or both. |
+| `command` | string, optional | approve, and secret with `to` `run` or `env`: the exact command line, 1 to 8 KiB. |
+| `cwd` | string, optional | With `command`: where it runs. Default: the asking pane's `cwd`, else the home directory. |
+| `why` | string, optional | approve: why it should run, at most 1000 bytes. |
+| `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
+| `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
+
+Result: `checkpoint`. Event subscribers get `checkpoint.opened`.
+
+#### checkpoint.list
+
+`all` (boolean, optional): also the closed ones the daemon holds. Result:
+`checkpoints`, oldest first.
+
+#### checkpoint.wait
+
+| Field | | |
+| --- | --- | --- |
+| `checkpoint` | id | |
+| `timeout_ms` | integer, optional | At most 24 hours. Default: until it closes. |
+
+Result: `checkpoint` once it is closed, or as it is (`open` or `running`)
+when `timeout_ms` ran out first. `cancel` stops it.
+
+#### checkpoint.answer
+
+A person's answer: exactly one of
+
+| Field | | |
+| --- | --- | --- |
+| `choice` | integer | ask: an index into `options`. |
+| `text` | string | ask with `free_text`: at most 4 KiB. |
+| `approve` | `true` | approve: run it. |
+| `secret` | string | secret: 4 to 4096 bytes on one line. Given, it is delivered (and for `run` and `env`, the command runs). |
+| `decline` | `true` | Any kind: the person says no. |
+
+plus `checkpoint` (id) and `by` (optional, at most 64 bytes: where they
+answered, for people: `desktop`, `phone`). Result: `checkpoint`, closed,
+or `running` for a command. Fails with `not_found` when it is not open
+(answered elsewhere first, cancelled or expired).
+
+#### checkpoint.cancel
+
+`checkpoint`, and `reason` (optional). The agent withdraws an open
+checkpoint. Result: `checkpoint`. Fails with `not_found` when it is not
+open.
+
 ## 5. Streams and binary frames
 
 ### Frame layout
@@ -649,6 +833,11 @@ After `events.subscribe`:
 | `pane.exited` | `pane` | A pane's first process exited. |
 | `pane.closed` | `pane` | A pane was closed and removed. |
 | `pane.prompt` | `pane` | A pane's shell state changed (its `shell`: a command started or ended). A prompt redrawn in the same state sends nothing. |
+| `pane.cwd` | `pane` | A pane's working directory changed (OSC 7, section 3). |
+| `pane.updated` | `pane` | A pane's name or labels changed (`pane.update`). |
+| `checkpoint.opened` | `checkpoint` | An agent waits for a person: show it. |
+| `checkpoint.running` | `checkpoint` | A person let its command run; `run.pane` shows it. |
+| `checkpoint.closed` | `checkpoint` | It was answered, declined, cancelled or expired. |
 | `agent.report` | `report`, `pane` | An agent report was recorded. `pane` is the pane as it is after it (with its `agent`), when the report names a pane that is still there. |
 | `daemon.draining` | `newer` | A newer daemon version runs beside this one (section 9). |
 
@@ -657,6 +846,12 @@ On a connection that subscribed with `display: true`:
 | Event | Fields | When |
 | --- | --- | --- |
 | `pane.focus` | `pane` | Someone asked to show this pane (`pane.focus`). |
+
+On a connection that subscribed with `activity: true`:
+
+| Event | Fields | When |
+| --- | --- | --- |
+| `pane.activity` | `pane` | A pane that this connection does not stream printed. At most one a second per pane: the first output after a quiet second at once, and one more at the end of the second when more came. |
 
 On a connection that called `agent.decisions`:
 

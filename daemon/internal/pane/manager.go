@@ -18,8 +18,9 @@ import (
 // reported.
 type Event struct {
 	// Type is "created", "exited", "closed", "title", "prompt" (the
-	// shell's OSC 133 state changed) or "status" (an OSC 7501 report,
-	// in Status).
+	// shell's OSC 133 state changed), "cwd" (OSC 7), "updated" (its name
+	// or labels), "activity" (it printed; at most once a second per
+	// pane) or "status" (an OSC 7501 report, in Status).
 	Type   string
 	Pane   Info
 	Status *vt.ProgramStatus
@@ -55,6 +56,8 @@ type Manager struct {
 	watchers map[int]func(Event)
 	nextW    int
 	closing  bool
+	// activityOn says whether anyone follows pane activity.
+	activityOn func() bool
 }
 
 // DefaultLogCap is the default size cap of a pane's log.
@@ -162,6 +165,12 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 	p.onStatus = func(p *Pane, st vt.ProgramStatus) {
 		m.emitEvent(Event{Type: "status", Pane: p.Info(), Status: &st})
 	}
+	p.onCwd = func(p *Pane) { m.emit("cwd", p.Info()) }
+	p.onActivity = func(p *Pane) {
+		if m.wantActivity() {
+			m.emit("activity", p.Info())
+		}
+	}
 	p.onExit = func(p *Pane) {
 		m.emit("exited", p.Info())
 		time.AfterFunc(m.o.KeepExited, func() { m.Close(p.id, time.Second) })
@@ -174,6 +183,47 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 	}
 	m.emit("created", p.Info())
 	return p, nil
+}
+
+// WantActivity says whether anyone follows pane activity; the server
+// sets it while a connection asked for it.
+func (m *Manager) WantActivity(fn func() bool) {
+	m.mu.Lock()
+	m.activityOn = fn
+	m.mu.Unlock()
+}
+
+func (m *Manager) wantActivity() bool {
+	m.mu.Lock()
+	fn := m.activityOn
+	m.mu.Unlock()
+	return fn != nil && fn()
+}
+
+// Update changes a pane's name and labels (Pane.Update) and tells the
+// watchers when something changed.
+func (m *Manager) Update(id string, name *string, labels map[string]*string) (Info, error) {
+	p, err := m.Get(id)
+	if err != nil {
+		return Info{}, err
+	}
+	changed, err := p.Update(name, labels)
+	if err != nil {
+		return Info{}, err
+	}
+	info := p.Info()
+	if changed {
+		m.emit("updated", info)
+	}
+	return info, nil
+}
+
+// LoginShell is the user's shell as panes see it ($SHELL, else /bin/sh).
+func (m *Manager) LoginShell() string {
+	if sh := envValue("SHELL", nil, m.o.Env); sh != "" {
+		return sh
+	}
+	return "/bin/sh"
 }
 
 // Get returns a pane by id.
@@ -260,8 +310,8 @@ func withExit(i Info, p *Pane) Info {
 }
 
 // Restart closes a pane (as Close does) and starts its command again: the
-// same command, working directory, environment, name, hidden and TTL
-// settings and scrollback, at the pane's current size. The new pane has a
+// same command, environment, hidden and TTL settings and scrollback, its
+// current name, labels and working directory, at the pane's current size. The new pane has a
 // new id. It returns the new pane and the old one as it ended.
 func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
 	m.mu.Lock()
@@ -273,7 +323,15 @@ func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
 	cfg := p.orig
 	cfg.Env = maps.Clone(p.orig.Env)
 	cfg.Command = slices.Clone(p.orig.Command)
-	if info := p.Info(); info.Cols > 0 {
+	// Its name, labels and folder as they are now.
+	info := p.Info()
+	cfg.Name, cfg.Labels = info.Name, info.Labels
+	if info.Cwd != "" {
+		if fi, err := os.Stat(info.Cwd); err == nil && fi.IsDir() {
+			cfg.Cwd = info.Cwd
+		}
+	}
+	if info.Cols > 0 {
 		cfg.Cols, cfg.Rows = info.Cols, info.Rows
 	}
 	old, _, err := m.Close(id, grace)

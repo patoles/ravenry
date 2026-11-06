@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -489,4 +490,85 @@ func (c *conn) paneFocus(id uint64, data []byte) {
 	for _, x := range displays {
 		x.event(proto.Event{V: proto.Version, Type: "event", Event: "pane.focus", Pane: &pi})
 	}
+}
+
+func (c *conn) paneUpdate(id uint64, data []byte) {
+	var r proto.UpdateRequest
+	if err := decode(data, &r); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	if _, err := c.pane(r.Pane); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	if r.Name == nil && r.Labels == nil {
+		c.failErr(id, bad("give name, labels or both"))
+		return
+	}
+	if r.Name != nil {
+		if err := checkName(*r.Name); err != nil {
+			c.failErr(id, err)
+			return
+		}
+	}
+	set := map[string]string{}
+	for k, v := range r.Labels {
+		if v != nil {
+			set[k] = *v
+		} else if err := checkLabelKey(k); err != nil {
+			c.failErr(id, err)
+			return
+		}
+	}
+	if err := checkLabels(set); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	info, err := c.s.o.Manager.Update(r.Pane, r.Name, r.Labels)
+	if err != nil {
+		if errors.Is(err, pane.ErrNotFound) || errors.Is(err, pane.ErrClosed) {
+			c.failErr(id, err)
+		} else {
+			c.failErr(id, bad("%v", err))
+		}
+		return
+	}
+	c.reply(id, "pane.update", proto.PaneResult{Pane: c.s.paneInfo(info)})
+}
+
+var labelKey = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,63}$`)
+
+const (
+	maxNameLen  = 256
+	maxLabelVal = 256
+)
+
+func checkName(n string) error {
+	if len(n) > maxNameLen || !plainText(n) {
+		return bad("name must be at most %d bytes with no control characters", maxNameLen)
+	}
+	return nil
+}
+
+func checkLabelKey(k string) error {
+	if !labelKey.MatchString(k) {
+		return bad("label %q: a key is 1 to 64 characters of a-z, 0-9, '.', '_', '/' or '-', starting with a letter or digit", k)
+	}
+	return nil
+}
+
+func checkLabels(l map[string]string) error {
+	if len(l) > pane.MaxLabels {
+		return bad("at most %d labels", pane.MaxLabels)
+	}
+	for k, v := range l {
+		if err := checkLabelKey(k); err != nil {
+			return err
+		}
+		if len(v) > maxLabelVal || !plainText(v) {
+			return bad("label %q: a value is at most %d bytes with no control characters", k, maxLabelVal)
+		}
+	}
+	return nil
 }

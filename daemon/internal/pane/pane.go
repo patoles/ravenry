@@ -39,6 +39,9 @@ type Config struct {
 	Cols, Rows int
 	// Name is a label for people; it has no meaning to the daemon.
 	Name string
+	// Labels are key-value tags for programs (the app, the hub, plugins);
+	// they have no meaning to the daemon.
+	Labels map[string]string
 	// Hidden panes are left out of the default listing.
 	Hidden bool
 	// TTL closes a hidden pane this long after it started.
@@ -46,6 +49,10 @@ type Config struct {
 	// Scrollback is the number of history lines the screen keeps; zero
 	// means 10000.
 	Scrollback int
+	// SecretEnv is added to the environment like Env, for one run: it is
+	// never kept for a restart, and its values are masked in the pane's
+	// output (a command a person approved with a secret, checkpoints).
+	SecretEnv map[string]string
 }
 
 // Exit says how a pane's first process ended.
@@ -58,9 +65,12 @@ type Exit struct {
 
 // Info describes a pane.
 type Info struct {
-	ID         string
-	Name       string
-	Command    []string
+	ID      string
+	Name    string
+	Labels  map[string]string
+	Command []string
+	// Cwd is the working directory: the one the pane started in, then the
+	// last one its program reported with OSC 7 for this machine.
 	Cwd        string
 	PID        int
 	Cols, Rows int
@@ -123,6 +133,11 @@ type Pane struct {
 	changed    chan struct{}
 	replies    []byte
 	title      string
+	name       string
+	labels     map[string]string
+	cwd        string // where the program works now (OSC 7)
+	redact     *redactor
+	redactT    *time.Timer
 	ended      bool // output reached EOF
 	exit       *Exit
 	exitedAt   time.Time
@@ -141,10 +156,18 @@ type Pane struct {
 	done   chan struct{} // closed when the output loop has ended
 	exited chan struct{} // closed when the first process has exited
 
-	onExit   func(*Pane)
-	onTitle  func(*Pane)
-	onPrompt func(*Pane, Shell)
-	onStatus func(*Pane, vt.ProgramStatus)
+	onExit     func(*Pane)
+	onTitle    func(*Pane)
+	onPrompt   func(*Pane, Shell)
+	onStatus   func(*Pane, vt.ProgramStatus)
+	onCwd      func(*Pane)
+	onActivity func(*Pane)
+
+	// activity: at most one report per activityEvery, the first at once
+	// and a last one at the end of the interval when more output came.
+	actMu    sync.Mutex
+	actLast  time.Time
+	actTimer *time.Timer
 }
 
 // note is one thing the program reported: a new shell state (OSC 133) or
@@ -152,6 +175,7 @@ type Pane struct {
 type note struct {
 	shell  *Shell
 	status *vt.ProgramStatus
+	cwd    bool
 }
 
 // tap receives every chunk of output, under the pane's lock.
@@ -195,10 +219,15 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 	}
 	orig := cfg
 	orig.Env = maps.Clone(cfg.Env)
+	orig.Labels = maps.Clone(cfg.Labels)
 	orig.Command = slices.Clone(cfg.Command)
+	orig.SecretEnv = nil // never kept for a restart
 	p := &Pane{
 		id:      newID(),
 		orig:    orig,
+		name:    cfg.Name,
+		labels:  maps.Clone(cfg.Labels),
+		cwd:     cfg.Cwd,
 		created: time.Now(),
 		subs:    map[*Sub]struct{}{},
 		taps:    map[*tap]struct{}{},
@@ -226,7 +255,21 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 	}
 	cmd.Dir = cfg.Cwd
 	inject := injectShell(shellDir, cmd, cfg.Env, env)
-	cmd.Env = withEnv(paneEnv(env, cfg.Env, p.id, socket), inject)
+	extra := cfg.Env
+	if len(cfg.SecretEnv) > 0 {
+		extra = maps.Clone(cfg.Env)
+		if extra == nil {
+			extra = map[string]string{}
+		}
+		var secrets [][]byte
+		for k, v := range cfg.SecretEnv {
+			extra[k] = v
+			secrets = append(secrets, []byte(v))
+		}
+		p.redact = newRedactor(secrets)
+	}
+	cmd.Env = withEnv(paneEnv(env, extra, p.id, socket), inject)
+	cfg.SecretEnv = nil
 	p.cfg = cfg
 
 	screen, err := vt.New(vt.Options{
@@ -234,6 +277,7 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		Reply:  func(b []byte) { p.replies = append(p.replies, b...) },
 		Prompt: p.promptMark,
 		Status: func(st vt.ProgramStatus) { p.notes = append(p.notes, note{status: &st}) },
+		Pwd:    p.pwd,
 	})
 	if err != nil {
 		return nil, err
@@ -353,6 +397,22 @@ func (p *Pane) output(b []byte) {
 		p.mu.Unlock()
 		return
 	}
+	if p.redact != nil {
+		// A secret given to this pane is masked before anything sees the
+		// output: the screen, the log, streams, waits.
+		b = p.redact.filter(b)
+		p.armRedactFlush()
+		if len(b) == 0 {
+			p.mu.Unlock()
+			return
+		}
+	}
+	p.outputLocked(b)
+}
+
+// outputLocked takes a chunk of output; the pane's lock is held, and is
+// released on return.
+func (p *Pane) outputLocked(b []byte) {
 	mark := p.offset
 	for s := range p.subs {
 		s.push(b, mark)
@@ -390,8 +450,59 @@ func (p *Pane) output(b []byte) {
 			p.onPrompt(p, *n.shell)
 		case n.status != nil && p.onStatus != nil:
 			p.onStatus(p, *n.status)
+		case n.cwd && p.onCwd != nil:
+			p.onCwd(p)
 		}
 	}
+	p.activity()
+}
+
+// activityEvery is the shortest time between two activity reports of a
+// pane.
+const activityEvery = time.Second
+
+// activity reports that the pane printed: at once when it has not for
+// activityEvery, else once at the end of that interval.
+func (p *Pane) activity() {
+	if p.onActivity == nil {
+		return
+	}
+	p.actMu.Lock()
+	if p.actTimer != nil {
+		p.actMu.Unlock()
+		return // a report is due at the end of the interval
+	}
+	if wait := activityEvery - time.Since(p.actLast); wait > 0 {
+		p.actTimer = time.AfterFunc(wait, func() {
+			p.actMu.Lock()
+			p.actTimer = nil
+			p.actLast = time.Now()
+			p.actMu.Unlock()
+			p.mu.Lock()
+			closed := p.closed
+			p.mu.Unlock()
+			if !closed {
+				p.onActivity(p)
+			}
+		})
+		p.actMu.Unlock()
+		return
+	}
+	p.actLast = time.Now()
+	p.actMu.Unlock()
+	p.onActivity(p)
+}
+
+// pwd follows OSC 7. It runs inside screen.Write, with the pane's lock
+// held. A directory on another host (a shell reached through ssh in this
+// pane) is not this pane's.
+func (p *Pane) pwd(url string) {
+	dir, ok := localDir(url)
+	if !ok || dir == p.cwd {
+		return
+	}
+	p.cwd = dir
+	p.notes = append(p.notes, note{cwd: true})
 }
 
 // promptMark follows the shell through its OSC 133 marks. It runs inside
@@ -498,7 +609,7 @@ func (p *Pane) Info() Info {
 	defer p.mu.Unlock()
 	cols, rows := p.screen.Size()
 	i := Info{
-		ID: p.id, Name: p.cfg.Name, Command: p.cfg.Command, Cwd: p.cfg.Cwd, PID: p.pid,
+		ID: p.id, Name: p.name, Labels: maps.Clone(p.labels), Command: p.cfg.Command, Cwd: p.cwd, PID: p.pid,
 		Cols: cols, Rows: rows, Hidden: p.cfg.Hidden, TTL: p.cfg.TTL, Created: p.created,
 		Title: p.title, Mark: p.offset, LastOutput: p.lastOutput, ExitedAt: p.exitedAt,
 	}

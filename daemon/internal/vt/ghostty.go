@@ -107,6 +107,14 @@ func New(o Options) (Screen, error) {
 			fn(r)
 		}))
 	}
+	if o.Pwd != nil {
+		fn := o.Pwd
+		opts = append(opts, gt.WithPwdChanged(func(t *gt.Terminal) {
+			if pwd, err := t.Pwd(); err == nil && pwd != "" {
+				fn(pwd)
+			}
+		}))
+	}
 	t, err := gt.NewTerminal(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("vt: new terminal: %w", err)

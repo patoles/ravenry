@@ -59,6 +59,8 @@ type Server struct {
 	deciders  map[*conn]struct{}
 	decisions map[uint64]*decision
 	nextDec   uint64
+
+	cps *checkpoints
 }
 
 // decision is a hook's report waiting for a decider's reply.
@@ -77,6 +79,10 @@ func New(o Options) *Server {
 		agents: agent.New(), deciders: map[*conn]struct{}{}, decisions: map[uint64]*decision{},
 	}
 	s.agents.Alive = processAlive
+	s.cps = newCheckpoints()
+	o.Manager.WantActivity(func() bool {
+		return len(s.connections(func(c *conn) bool { return c.unwatch != nil && c.activity })) > 0
+	})
 	s.srv = &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second, ErrorLog: o.Log}
 	o.Manager.Watch(s.paneEvent)
 	return s
@@ -218,14 +224,15 @@ type conn struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu      sync.Mutex
-	hello   bool
-	client  proto.ClientInfo
-	streams map[uint32]*stream
-	next    uint32
-	reqs    map[uint64]context.CancelFunc
-	unwatch func()
-	display bool
+	mu       sync.Mutex
+	hello    bool
+	client   proto.ClientInfo
+	streams  map[uint32]*stream
+	next     uint32
+	reqs     map[uint64]context.CancelFunc
+	unwatch  func()
+	display  bool
+	activity bool
 
 	events chan proto.Event
 	input  chan func()
@@ -345,7 +352,7 @@ func (c *conn) failErr(id uint64, err error) {
 	switch {
 	case errors.As(err, &bad):
 		code = proto.CodeBadRequest
-	case errors.Is(err, pane.ErrNotFound), errors.Is(err, errNoChannel):
+	case errors.Is(err, pane.ErrNotFound), errors.Is(err, errNoChannel), errors.As(err, new(notFoundErr)):
 		code = proto.CodeNotFound
 	case errors.Is(err, pane.ErrClosed):
 		code = proto.CodePaneClosed
@@ -354,6 +361,13 @@ func (c *conn) failErr(id uint64, err error) {
 	}
 	c.fail(&id, code, err.Error())
 }
+
+// notFound is an error with the code not_found.
+func notFound(format string, a ...any) error { return notFoundErr{fmt.Sprintf(format, a...)} }
+
+type notFoundErr struct{ msg string }
+
+func (e notFoundErr) Error() string { return e.msg }
 
 type badRequest struct{ msg string }
 
@@ -485,27 +499,35 @@ var handlers map[string]func(c *conn, id uint64, data []byte)
 
 func init() {
 	handlers = map[string]func(c *conn, id uint64, data []byte){
-		"hello":            (*conn).hello_,
-		"cancel":           (*conn).cancel_,
-		"events.subscribe": (*conn).eventsSubscribe,
-		"pane.new":         (*conn).paneNew,
-		"pane.list":        (*conn).paneList,
-		"pane.close":       (*conn).paneClose,
-		"pane.resize":      (*conn).paneResize,
-		"pane.capture":     (*conn).paneCapture,
-		"pane.read":        (*conn).paneRead,
-		"pane.send":        (*conn).paneSend,
-		"pane.wait":        (*conn).paneWait,
-		"pane.settle":      (*conn).paneSettle,
-		"pane.subscribe":   (*conn).paneSubscribe,
-		"pane.unsubscribe": (*conn).paneUnsubscribe,
-		"pane.process":     (*conn).paneProcess,
-		"pane.restart":     (*conn).paneRestart,
-		"pane.focus":       (*conn).paneFocus,
-		"agent.report":     (*conn).agentReport,
-		"agent.events":     (*conn).agentEvents,
-		"agent.decisions":  (*conn).agentDecisions,
-		"agent.decide":     (*conn).agentDecide,
+		"hello":             (*conn).hello_,
+		"cancel":            (*conn).cancel_,
+		"events.subscribe":  (*conn).eventsSubscribe,
+		"pane.new":          (*conn).paneNew,
+		"pane.list":         (*conn).paneList,
+		"pane.close":        (*conn).paneClose,
+		"pane.resize":       (*conn).paneResize,
+		"pane.capture":      (*conn).paneCapture,
+		"pane.read":         (*conn).paneRead,
+		"pane.send":         (*conn).paneSend,
+		"pane.wait":         (*conn).paneWait,
+		"pane.settle":       (*conn).paneSettle,
+		"pane.subscribe":    (*conn).paneSubscribe,
+		"pane.unsubscribe":  (*conn).paneUnsubscribe,
+		"pane.process":      (*conn).paneProcess,
+		"pane.restart":      (*conn).paneRestart,
+		"pane.focus":        (*conn).paneFocus,
+		"pane.update":       (*conn).paneUpdate,
+		"file.stat":         (*conn).fileStat,
+		"file.read":         (*conn).fileRead,
+		"checkpoint.new":    (*conn).checkpointNew,
+		"checkpoint.list":   (*conn).checkpointList,
+		"checkpoint.wait":   (*conn).checkpointWait,
+		"checkpoint.answer": (*conn).checkpointAnswer,
+		"checkpoint.cancel": (*conn).checkpointCancel,
+		"agent.report":      (*conn).agentReport,
+		"agent.events":      (*conn).agentEvents,
+		"agent.decisions":   (*conn).agentDecisions,
+		"agent.decide":      (*conn).agentDecide,
 	}
 }
 
@@ -561,13 +583,29 @@ func (c *conn) eventsSubscribe(id uint64, data []byte) {
 	c.mu.Lock()
 	already := c.unwatch != nil
 	c.display = r.Display
+	c.activity = r.Activity
 	c.mu.Unlock()
 	if !already {
 		// Reply first, so the result comes before any event.
 		c.reply(id, "events.subscribe", proto.Empty{})
 		unwatch := c.s.o.Manager.Watch(func(ev pane.Event) {
-			if ev.Type == "status" {
+			switch ev.Type {
+			case "status":
 				return // reported as agent.report
+			case "activity":
+				// Only to a connection that asked, about a pane it does
+				// not stream (it sees that pane's output already).
+				c.mu.Lock()
+				want := c.activity
+				for _, st := range c.streams {
+					if st.p.ID() == ev.Pane.ID {
+						want = false
+					}
+				}
+				c.mu.Unlock()
+				if !want {
+					return
+				}
 			}
 			p := c.s.paneInfo(ev.Pane)
 			c.event(proto.Event{V: proto.Version, Type: "event", Event: "pane." + ev.Type, Pane: &p})
@@ -586,7 +624,15 @@ func (c *conn) paneNew(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	cfg := pane.Config{Command: r.Command, Cwd: r.Cwd, Env: r.Env, Name: r.Name, Hidden: r.Hidden}
+	if err := checkName(r.Name); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	if err := checkLabels(r.Labels); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	cfg := pane.Config{Command: r.Command, Cwd: r.Cwd, Env: r.Env, Name: r.Name, Labels: r.Labels, Hidden: r.Hidden}
 	if r.Cols != nil || r.Rows != nil {
 		if r.Cols == nil || r.Rows == nil || *r.Cols < 1 || *r.Rows < 1 || *r.Cols > 4096 || *r.Rows > 4096 {
 			c.failErr(id, bad("cols and rows go together, each between 1 and 4096"))
@@ -632,9 +678,19 @@ func (c *conn) paneList(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkLabels(r.Labels); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	infos := c.s.o.Manager.List(r.Hidden)
 	out := make([]proto.Pane, 0, len(infos))
+next:
 	for _, i := range infos {
+		for k, v := range r.Labels {
+			if have, ok := i.Labels[k]; !ok || have != v {
+				continue next
+			}
+		}
 		out = append(out, c.s.paneInfo(i))
 	}
 	c.reply(id, "pane.list", proto.ListResult{Panes: out})
@@ -1140,7 +1196,7 @@ func (c *conn) paneUnsubscribe(id uint64, data []byte) {
 
 func (s *Server) paneInfo(i pane.Info) proto.Pane {
 	p := proto.Pane{
-		ID: i.ID, Name: i.Name, Command: i.Command, Cwd: i.Cwd, PID: i.PID, Cols: i.Cols, Rows: i.Rows,
+		ID: i.ID, Name: i.Name, Labels: i.Labels, Command: i.Command, Cwd: i.Cwd, PID: i.PID, Cols: i.Cols, Rows: i.Rows,
 		Hidden: i.Hidden, TTLMs: i.TTL.Milliseconds(), CreatedAt: stamp(i.Created), Title: i.Title,
 		Mark: i.Mark, LastOutputAt: stamp(i.LastOutput), State: "running", ExitedAt: stamp(i.ExitedAt),
 	}

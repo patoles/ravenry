@@ -39,8 +39,10 @@ var Methods = []string{
 	"pane.capture", "pane.read",
 	"pane.send", "pane.wait", "pane.settle",
 	"pane.subscribe", "pane.unsubscribe",
-	"pane.process", "pane.restart", "pane.focus",
+	"pane.process", "pane.restart", "pane.focus", "pane.update",
 	"agent.report", "agent.events", "agent.decisions", "agent.decide",
+	"file.stat", "file.read",
+	"checkpoint.new", "checkpoint.list", "checkpoint.wait", "checkpoint.answer", "checkpoint.cancel",
 }
 
 // Envelope is what every JSON message starts with.
@@ -74,22 +76,25 @@ type ErrorBody struct {
 }
 
 // Event is something the daemon reports without being asked:
-// pane.created, pane.title, pane.exited, pane.closed, pane.prompt and
-// pane.focus carry Pane; stream.end carries Channel and Mark;
-// daemon.draining carries Newer; agent.report carries Report (and Pane
-// when the report names one); agent.decision carries Request, Report and
-// TimeoutMs.
+// pane.created, pane.title, pane.exited, pane.closed, pane.prompt,
+// pane.cwd, pane.updated, pane.activity and pane.focus carry Pane;
+// stream.end carries Channel and Mark; daemon.draining carries Newer;
+// agent.report carries Report (and Pane when the report names one);
+// agent.decision carries Request, Report and TimeoutMs;
+// checkpoint.opened, checkpoint.running and checkpoint.closed carry
+// Checkpoint.
 type Event struct {
-	V         int          `json:"v"`
-	Type      string       `json:"type"` // "event"
-	Event     string       `json:"event"`
-	Pane      *Pane        `json:"pane,omitempty"`
-	Channel   *uint32      `json:"channel,omitempty"`
-	Mark      *uint64      `json:"mark,omitempty"`
-	Newer     string       `json:"newer,omitempty"`
-	Report    *AgentReport `json:"report,omitempty"`
-	Request   *uint64      `json:"request,omitempty"`
-	TimeoutMs *int64       `json:"timeout_ms,omitempty"`
+	V          int          `json:"v"`
+	Type       string       `json:"type"` // "event"
+	Event      string       `json:"event"`
+	Pane       *Pane        `json:"pane,omitempty"`
+	Checkpoint *Checkpoint  `json:"checkpoint,omitempty"`
+	Channel    *uint32      `json:"channel,omitempty"`
+	Mark       *uint64      `json:"mark,omitempty"`
+	Newer      string       `json:"newer,omitempty"`
+	Report     *AgentReport `json:"report,omitempty"`
+	Request    *uint64      `json:"request,omitempty"`
+	TimeoutMs  *int64       `json:"timeout_ms,omitempty"`
 }
 
 // Ack acknowledges output a client has processed.
@@ -140,6 +145,9 @@ type EventsSubscribeRequest struct {
 	// Display says this connection shows panes to a person, so it gets
 	// pane.focus.
 	Display bool `json:"display,omitempty"`
+	// Activity asks for pane.activity about the panes this connection
+	// does not stream.
+	Activity bool `json:"activity,omitempty"`
 }
 
 type Empty struct{}
@@ -152,6 +160,7 @@ type NewRequest struct {
 	Cols       *int              `json:"cols,omitempty"`
 	Rows       *int              `json:"rows,omitempty"`
 	Name       string            `json:"name,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
 	Hidden     bool              `json:"hidden,omitempty"`
 	TTLMs      *int64            `json:"ttl_ms,omitempty"`
 	Scrollback *int              `json:"scrollback,omitempty"`
@@ -164,6 +173,17 @@ type PaneResult struct {
 type ListRequest struct {
 	Envelope
 	Hidden bool `json:"hidden,omitempty"`
+	// Labels keeps the panes that have every one of these labels.
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// UpdateRequest changes a pane's name and labels. A label set to null is
+// removed.
+type UpdateRequest struct {
+	Envelope
+	Pane   string             `json:"pane"`
+	Name   *string            `json:"name,omitempty"`
+	Labels map[string]*string `json:"labels,omitempty"`
 }
 
 type ListResult struct {
@@ -341,22 +361,23 @@ type UnsubscribeRequest struct {
 
 // Pane describes a pane.
 type Pane struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name,omitempty"`
-	Command      []string `json:"command"`
-	Cwd          string   `json:"cwd"`
-	PID          int      `json:"pid"`
-	Cols         int      `json:"cols"`
-	Rows         int      `json:"rows"`
-	Hidden       bool     `json:"hidden"`
-	TTLMs        int64    `json:"ttl_ms,omitempty"`
-	CreatedAt    string   `json:"created_at"`
-	Title        string   `json:"title"`
-	Mark         uint64   `json:"mark"`
-	LastOutputAt string   `json:"last_output_at,omitempty"`
-	State        string   `json:"state"`
-	Exit         *Exit    `json:"exit,omitempty"`
-	ExitedAt     string   `json:"exited_at,omitempty"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name,omitempty"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Command      []string          `json:"command"`
+	Cwd          string            `json:"cwd"`
+	PID          int               `json:"pid"`
+	Cols         int               `json:"cols"`
+	Rows         int               `json:"rows"`
+	Hidden       bool              `json:"hidden"`
+	TTLMs        int64             `json:"ttl_ms,omitempty"`
+	CreatedAt    string            `json:"created_at"`
+	Title        string            `json:"title"`
+	Mark         uint64            `json:"mark"`
+	LastOutputAt string            `json:"last_output_at,omitempty"`
+	State        string            `json:"state"`
+	Exit         *Exit             `json:"exit,omitempty"`
+	ExitedAt     string            `json:"exited_at,omitempty"`
 	// Shell is set once the program marked a prompt with OSC 133.
 	Shell *Shell `json:"shell,omitempty"`
 	// Agent is set once an agent reported on this pane.
@@ -541,4 +562,153 @@ func ParseFrame(b []byte) (kind byte, channel uint32, mark uint64, payload []byt
 		return 0, 0, 0, nil, errors.New("binary frame of another protocol version")
 	}
 	return b[1], binary.BigEndian.Uint32(b[2:6]), binary.BigEndian.Uint64(b[6:14]), b[FrameHeader:], nil
+}
+
+// ------------------------------------------------------------ files
+
+type FileStatRequest struct {
+	Envelope
+	Paths []string `json:"paths"`
+}
+
+// FileInfo describes one path. Type is "file", "dir", "other", or "none"
+// when nothing is there (or it cannot be reached); then only Path is set
+// besides it.
+type FileInfo struct {
+	Path       string `json:"path"`
+	Type       string `json:"type"`
+	Size       *int64 `json:"size,omitempty"`
+	ModifiedAt string `json:"modified_at,omitempty"`
+}
+
+type FileStatResult struct {
+	Files []FileInfo `json:"files"`
+}
+
+type FileReadRequest struct {
+	Envelope
+	Path   string `json:"path"`
+	Offset *int64 `json:"offset,omitempty"`
+	Tail   *int64 `json:"tail,omitempty"`
+	Limit  *int   `json:"limit,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
+type FileReadResult struct {
+	Path       string  `json:"path"`
+	Size       int64   `json:"size"`
+	ModifiedAt string  `json:"modified_at"`
+	From       int64   `json:"from"`
+	To         int64   `json:"to"`
+	Text       *string `json:"text,omitempty"`
+	Data       *string `json:"data,omitempty"`
+}
+
+// ------------------------------------------------------------ checkpoints
+
+// SecretTarget says where a secret a person types goes: "input", typed
+// into a pane that runs already (Pane); "run", typed into the checkpoint's
+// Command, which starts in a new pane, once it waits for input; or "env",
+// the environment variable Env of the Command. Enter (default true) ends
+// typed input with Enter.
+type SecretTarget struct {
+	To    string `json:"to"`
+	Pane  string `json:"pane,omitempty"`
+	Enter *bool  `json:"enter,omitempty"`
+	Env   string `json:"env,omitempty"`
+}
+
+// CheckpointAnswer is what a person answered. It never holds a secret:
+// a delivered secret is only Delivered.
+type CheckpointAnswer struct {
+	Choice    *int    `json:"choice,omitempty"`
+	Option    string  `json:"option,omitempty"`
+	Text      *string `json:"text,omitempty"`
+	Approved  *bool   `json:"approved,omitempty"`
+	Delivered bool    `json:"delivered,omitempty"`
+	Declined  bool    `json:"declined,omitempty"`
+	By        string  `json:"by,omitempty"`
+	At        string  `json:"at"`
+}
+
+// CheckpointRun is a command a person let run: the pane it ran in, and
+// once it ended, its exit and the end of its output.
+type CheckpointRun struct {
+	Pane      string `json:"pane"`
+	Exit      *Exit  `json:"exit,omitempty"`
+	Output    string `json:"output,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// Checkpoint is a point where an agent waits for a person: a question
+// (ask), a command to approve (approve), or a secret to type (secret).
+type Checkpoint struct {
+	ID        string            `json:"id"`
+	Kind      string            `json:"kind"`
+	State     string            `json:"state"`
+	Title     string            `json:"title"`
+	Pane      string            `json:"pane,omitempty"`
+	Assistant string            `json:"assistant,omitempty"`
+	Options   []string          `json:"options,omitempty"`
+	FreeText  bool              `json:"free_text,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Cwd       string            `json:"cwd,omitempty"`
+	Why       string            `json:"why,omitempty"`
+	Secret    *SecretTarget     `json:"secret,omitempty"`
+	CreatedAt string            `json:"created_at"`
+	ExpiresAt string            `json:"expires_at"`
+	ClosedAt  string            `json:"closed_at,omitempty"`
+	Reason    string            `json:"reason,omitempty"`
+	Answer    *CheckpointAnswer `json:"answer,omitempty"`
+	Run       *CheckpointRun    `json:"run,omitempty"`
+}
+
+type CheckpointNewRequest struct {
+	Envelope
+	Kind      string        `json:"kind"`
+	Title     string        `json:"title"`
+	Pane      string        `json:"pane,omitempty"`
+	Options   []string      `json:"options,omitempty"`
+	FreeText  bool          `json:"free_text,omitempty"`
+	Command   string        `json:"command,omitempty"`
+	Cwd       string        `json:"cwd,omitempty"`
+	Why       string        `json:"why,omitempty"`
+	Secret    *SecretTarget `json:"secret,omitempty"`
+	TimeoutMs *int64        `json:"timeout_ms,omitempty"`
+}
+
+type CheckpointResult struct {
+	Checkpoint Checkpoint `json:"checkpoint"`
+}
+
+type CheckpointListRequest struct {
+	Envelope
+	All bool `json:"all,omitempty"`
+}
+
+type CheckpointListResult struct {
+	Checkpoints []Checkpoint `json:"checkpoints"`
+}
+
+type CheckpointWaitRequest struct {
+	Envelope
+	Checkpoint string `json:"checkpoint"`
+	TimeoutMs  *int64 `json:"timeout_ms,omitempty"`
+}
+
+type CheckpointAnswerRequest struct {
+	Envelope
+	Checkpoint string  `json:"checkpoint"`
+	Choice     *int    `json:"choice,omitempty"`
+	Text       *string `json:"text,omitempty"`
+	Approve    bool    `json:"approve,omitempty"`
+	Secret     *string `json:"secret,omitempty"`
+	Decline    bool    `json:"decline,omitempty"`
+	By         string  `json:"by,omitempty"`
+}
+
+type CheckpointCancelRequest struct {
+	Envelope
+	Checkpoint string `json:"checkpoint"`
+	Reason     string `json:"reason,omitempty"`
 }

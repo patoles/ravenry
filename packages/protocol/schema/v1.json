@@ -23,7 +23,28 @@
           "$ref": "#/$defs/request.cancel"
         },
         {
+          "$ref": "#/$defs/request.checkpoint.answer"
+        },
+        {
+          "$ref": "#/$defs/request.checkpoint.cancel"
+        },
+        {
+          "$ref": "#/$defs/request.checkpoint.list"
+        },
+        {
+          "$ref": "#/$defs/request.checkpoint.new"
+        },
+        {
+          "$ref": "#/$defs/request.checkpoint.wait"
+        },
+        {
           "$ref": "#/$defs/request.events.subscribe"
+        },
+        {
+          "$ref": "#/$defs/request.file.read"
+        },
+        {
+          "$ref": "#/$defs/request.file.stat"
         },
         {
           "$ref": "#/$defs/request.hello"
@@ -68,6 +89,9 @@
           "$ref": "#/$defs/request.pane.unsubscribe"
         },
         {
+          "$ref": "#/$defs/request.pane.update"
+        },
+        {
           "$ref": "#/$defs/request.pane.wait"
         },
         {
@@ -94,7 +118,28 @@
           "$ref": "#/$defs/result.cancel"
         },
         {
+          "$ref": "#/$defs/result.checkpoint.answer"
+        },
+        {
+          "$ref": "#/$defs/result.checkpoint.cancel"
+        },
+        {
+          "$ref": "#/$defs/result.checkpoint.list"
+        },
+        {
+          "$ref": "#/$defs/result.checkpoint.new"
+        },
+        {
+          "$ref": "#/$defs/result.checkpoint.wait"
+        },
+        {
           "$ref": "#/$defs/result.events.subscribe"
+        },
+        {
+          "$ref": "#/$defs/result.file.read"
+        },
+        {
+          "$ref": "#/$defs/result.file.stat"
         },
         {
           "$ref": "#/$defs/result.hello"
@@ -139,6 +184,9 @@
           "$ref": "#/$defs/result.pane.unsubscribe"
         },
         {
+          "$ref": "#/$defs/result.pane.update"
+        },
+        {
           "$ref": "#/$defs/result.pane.wait"
         },
         {
@@ -151,13 +199,28 @@
           "$ref": "#/$defs/event.agent.report"
         },
         {
+          "$ref": "#/$defs/event.checkpoint.closed"
+        },
+        {
+          "$ref": "#/$defs/event.checkpoint.opened"
+        },
+        {
+          "$ref": "#/$defs/event.checkpoint.running"
+        },
+        {
           "$ref": "#/$defs/event.daemon.draining"
+        },
+        {
+          "$ref": "#/$defs/event.pane.activity"
         },
         {
           "$ref": "#/$defs/event.pane.closed"
         },
         {
           "$ref": "#/$defs/event.pane.created"
+        },
+        {
+          "$ref": "#/$defs/event.pane.cwd"
         },
         {
           "$ref": "#/$defs/event.pane.exited"
@@ -172,9 +235,19 @@
           "$ref": "#/$defs/event.pane.title"
         },
         {
+          "$ref": "#/$defs/event.pane.updated"
+        },
+        {
           "$ref": "#/$defs/event.stream.end"
         }
       ]
+    },
+    "AbsPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^/",
+      "description": "An absolute path on the daemon's machine."
     },
     "AgentReport": {
       "type": "object",
@@ -359,6 +432,156 @@
       "maximum": 4294967295,
       "description": "A stream on this connection, given by pane.subscribe."
     },
+    "Checkpoint": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/CheckpointId"
+        },
+        "kind": {
+          "enum": [
+            "ask",
+            "approve",
+            "secret"
+          ],
+          "description": "A client shows a kind it does not know by its title, and offers decline."
+        },
+        "state": {
+          "enum": [
+            "open",
+            "running",
+            "answered",
+            "declined",
+            "cancelled",
+            "expired"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "assistant": {
+          "$ref": "#/$defs/AssistantName"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "free_text": {
+          "type": "boolean"
+        },
+        "command": {
+          "type": "string",
+          "description": "The exact text that runs."
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "why": {
+          "type": "string"
+        },
+        "secret": {
+          "$ref": "#/$defs/SecretTarget"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "closed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "answer": {
+          "$ref": "#/$defs/CheckpointAnswer"
+        },
+        "run": {
+          "$ref": "#/$defs/CheckpointRun"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "title",
+        "created_at",
+        "expires_at"
+      ],
+      "additionalProperties": false,
+      "description": "A point where an agent waits for a person."
+    },
+    "CheckpointAnswer": {
+      "type": "object",
+      "properties": {
+        "choice": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "option": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "delivered": {
+          "type": "boolean",
+          "description": "A secret went where it was asked to. The secret itself is never here."
+        },
+        "declined": {
+          "type": "boolean"
+        },
+        "by": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "CheckpointId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Opaque. ravenryd's are \"c\" and 7 random characters."
+    },
+    "CheckpointRun": {
+      "type": "object",
+      "properties": {
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "exit": {
+          "$ref": "#/$defs/Exit"
+        },
+        "output": {
+          "type": "string",
+          "description": "The end of its output as text (64 KiB), secrets masked."
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pane"
+      ],
+      "additionalProperties": false
+    },
     "Color": {
       "oneOf": [
         {
@@ -498,6 +721,24 @@
         "$ref": "#/$defs/Input"
       }
     },
+    "LabelKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/-]{0,63}$",
+      "description": "A label's key: 1 to 64 characters of a-z, 0-9, '.', '_', '/' or '-'. Namespace it (ravenry.kind, myplugin/role)."
+    },
+    "Labels": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/LabelKey"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 256,
+        "pattern": "^[^\u0000-\u001f\u007f]*$"
+      },
+      "maxProperties": 32,
+      "description": "Key-value tags for programs (the app, the hub, plugins). The daemon gives them no meaning."
+    },
     "Line": {
       "type": "object",
       "properties": {
@@ -554,7 +795,11 @@
         },
         "name": {
           "type": "string",
+          "maxLength": 256,
           "description": "A label for people."
+        },
+        "labels": {
+          "$ref": "#/$defs/Labels"
         },
         "command": {
           "type": "array",
@@ -565,7 +810,7 @@
         },
         "cwd": {
           "type": "string",
-          "description": "The working directory the pane started in."
+          "description": "The working directory: the one the pane started in, then the last one its program reported with OSC 7 for this machine."
         },
         "pid": {
           "type": "integer",
@@ -759,6 +1004,35 @@
         "after"
       ],
       "additionalProperties": false
+    },
+    "SecretTarget": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "enum": [
+            "input",
+            "run",
+            "env"
+          ],
+          "description": "input: typed into a running pane; run: typed into the checkpoint's command once it waits for input; env: the command's environment variable."
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "enter": {
+          "type": "boolean",
+          "description": "input and run: end with Enter (default true)."
+        },
+        "env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+        }
+      },
+      "required": [
+        "to"
+      ],
+      "additionalProperties": false,
+      "description": "Where a secret goes. Never to the agent."
     },
     "SendResult": {
       "type": "object",
@@ -1180,6 +1454,239 @@
       "additionalProperties": false,
       "description": "Stops a running pane.wait, pane.settle or pane.send, which then fails with code cancelled. A pane.close completes anyway."
     },
+    "request.checkpoint.answer": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "checkpoint.answer"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/CheckpointId"
+        },
+        "choice": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "approve": {
+          "const": true
+        },
+        "secret": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4096,
+          "pattern": "^[^\r\n\u0000]*$"
+        },
+        "decline": {
+          "const": true
+        },
+        "by": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Where the person answered, for people: desktop, phone."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "checkpoint"
+      ],
+      "additionalProperties": false,
+      "description": "A person answers a checkpoint. Exactly one of choice, text, approve, secret, decline.",
+      "oneOf": [
+        {
+          "required": [
+            "choice"
+          ]
+        },
+        {
+          "required": [
+            "text"
+          ]
+        },
+        {
+          "required": [
+            "approve"
+          ]
+        },
+        {
+          "required": [
+            "secret"
+          ]
+        },
+        {
+          "required": [
+            "decline"
+          ]
+        }
+      ]
+    },
+    "request.checkpoint.cancel": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "checkpoint.cancel"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/CheckpointId"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "checkpoint"
+      ],
+      "additionalProperties": false,
+      "description": "The agent withdraws an open checkpoint."
+    },
+    "request.checkpoint.list": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "checkpoint.list"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Also the closed ones the daemon still holds."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "Lists checkpoints, oldest first."
+    },
+    "request.checkpoint.new": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "checkpoint.new"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "kind": {
+          "enum": [
+            "ask",
+            "approve",
+            "secret"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId",
+          "description": "The pane the asking agent runs in."
+        },
+        "options": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "free_text": {
+          "type": "boolean"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "cwd": {
+          "$ref": "#/$defs/AbsPath"
+        },
+        "why": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "secret": {
+          "$ref": "#/$defs/SecretTarget"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000,
+          "description": "Default one hour."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "kind",
+        "title"
+      ],
+      "additionalProperties": false,
+      "description": "Opens a checkpoint."
+    },
+    "request.checkpoint.wait": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "checkpoint.wait"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/CheckpointId"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "checkpoint"
+      ],
+      "additionalProperties": false,
+      "description": "Waits until a checkpoint closes."
+    },
     "request.events.subscribe": {
       "type": "object",
       "properties": {
@@ -1195,6 +1702,10 @@
         "display": {
           "type": "boolean",
           "description": "This connection shows panes to a person, so it gets pane.focus."
+        },
+        "activity": {
+          "type": "boolean",
+          "description": "Also pane.activity, about the panes this connection does not stream."
         }
       },
       "required": [
@@ -1204,6 +1715,88 @@
       ],
       "additionalProperties": false,
       "description": "Turns on pane.* and daemon.* events for this connection."
+    },
+    "request.file.read": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "file.read"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "path": {
+          "$ref": "#/$defs/AbsPath"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tail": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Read the last this many bytes."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608,
+          "description": "Bytes, default 1 MiB."
+        },
+        "format": {
+          "enum": [
+            "text",
+            "raw"
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "path"
+      ],
+      "additionalProperties": false,
+      "description": "Reads a regular file on the daemon's machine.",
+      "not": {
+        "required": [
+          "offset",
+          "tail"
+        ]
+      }
+    },
+    "request.file.stat": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "file.stat"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/AbsPath"
+          }
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "paths"
+      ],
+      "additionalProperties": false,
+      "description": "Describes files on the daemon's machine."
     },
     "request.hello": {
       "type": "object",
@@ -1351,6 +1944,10 @@
         "hidden": {
           "type": "boolean",
           "description": "Include hidden panes."
+        },
+        "labels": {
+          "$ref": "#/$defs/Labels",
+          "description": "Only the panes that have every one of these labels."
         }
       },
       "required": [
@@ -1359,7 +1956,7 @@
         "id"
       ],
       "additionalProperties": false,
-      "description": ""
+      "description": "Lists panes, oldest first."
     },
     "request.pane.new": {
       "type": "object",
@@ -1412,7 +2009,11 @@
           "maximum": 4096
         },
         "name": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 256
+        },
+        "labels": {
+          "$ref": "#/$defs/Labels"
         },
         "hidden": {
           "type": "boolean"
@@ -1730,6 +2331,62 @@
       "additionalProperties": false,
       "description": ""
     },
+    "request.pane.update": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.update"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Empty clears it."
+        },
+        "labels": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/LabelKey"
+          },
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "description": "Each label is set, or removed when null; the others stay."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Changes a pane's name and labels.",
+      "anyOf": [
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "labels"
+          ]
+        }
+      ]
+    },
     "request.pane.wait": {
       "type": "object",
       "properties": {
@@ -2003,6 +2660,194 @@
       ],
       "additionalProperties": false
     },
+    "result.checkpoint.answer": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "checkpoint.answer"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "checkpoint": {
+              "$ref": "#/$defs/Checkpoint"
+            }
+          },
+          "required": [
+            "checkpoint"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.checkpoint.cancel": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "checkpoint.cancel"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "checkpoint": {
+              "$ref": "#/$defs/Checkpoint"
+            }
+          },
+          "required": [
+            "checkpoint"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.checkpoint.list": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "checkpoint.list"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "checkpoints": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Checkpoint"
+              }
+            }
+          },
+          "required": [
+            "checkpoints"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.checkpoint.new": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "checkpoint.new"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "checkpoint": {
+              "$ref": "#/$defs/Checkpoint"
+            }
+          },
+          "required": [
+            "checkpoint"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.checkpoint.wait": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "checkpoint.wait"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "checkpoint": {
+              "$ref": "#/$defs/Checkpoint"
+            }
+          },
+          "required": [
+            "checkpoint"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
     "result.events.subscribe": {
       "type": "object",
       "properties": {
@@ -2020,6 +2865,136 @@
         },
         "result": {
           "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.file.read": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "file.read"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modified_at": {
+              "$ref": "#/$defs/Timestamp"
+            },
+            "from": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "to": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "text": {
+              "type": "string",
+              "description": "format text: UTF-8, invalid bytes replaced."
+            },
+            "data": {
+              "type": "string",
+              "contentEncoding": "base64"
+            }
+          },
+          "required": [
+            "path",
+            "size",
+            "modified_at",
+            "from",
+            "to"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.file.stat": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "file.stat"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "enum": [
+                      "file",
+                      "dir",
+                      "other",
+                      "none"
+                    ],
+                    "description": "none: nothing there, or it cannot be reached."
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "modified_at": {
+                    "$ref": "#/$defs/Timestamp"
+                  }
+                },
+                "required": [
+                  "path",
+                  "type"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "files"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -2688,6 +3663,43 @@
       ],
       "additionalProperties": false
     },
+    "result.pane.update": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.update"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            }
+          },
+          "required": [
+            "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
     "result.pane.wait": {
       "type": "object",
       "properties": {
@@ -2857,6 +3869,81 @@
       "additionalProperties": false,
       "description": "An agent report was recorded."
     },
+    "event.checkpoint.closed": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "checkpoint.closed"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/Checkpoint"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "checkpoint"
+      ],
+      "additionalProperties": false,
+      "description": "A checkpoint was answered, declined, cancelled or expired."
+    },
+    "event.checkpoint.opened": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "checkpoint.opened"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/Checkpoint"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "checkpoint"
+      ],
+      "additionalProperties": false,
+      "description": "A checkpoint opened: show it to a person."
+    },
+    "event.checkpoint.running": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "checkpoint.running"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/Checkpoint"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "checkpoint"
+      ],
+      "additionalProperties": false,
+      "description": "A person let its command run; run.pane shows it."
+    },
     "event.daemon.draining": {
       "type": "object",
       "properties": {
@@ -2881,6 +3968,31 @@
       ],
       "additionalProperties": false,
       "description": "A newer daemon version runs beside this one. New panes belong there; this daemon exits once none of its panes is running."
+    },
+    "event.pane.activity": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.activity"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane this connection does not stream printed: at most once a second per pane (events.subscribe with activity)."
     },
     "event.pane.closed": {
       "type": "object",
@@ -2931,6 +4043,31 @@
       ],
       "additionalProperties": false,
       "description": "A pane started."
+    },
+    "event.pane.cwd": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.cwd"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's working directory changed (OSC 7)."
     },
     "event.pane.exited": {
       "type": "object",
@@ -3031,6 +4168,31 @@
       ],
       "additionalProperties": false,
       "description": "A pane's title changed."
+    },
+    "event.pane.updated": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.updated"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's name or labels changed (pane.update)."
     },
     "event.stream.end": {
       "type": "object",
