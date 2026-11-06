@@ -19,10 +19,7 @@ func callCtx(d time.Duration) (context.Context, context.CancelFunc) {
 }
 
 func cmdNew(in []string) error {
-	a, err := parse(in, map[string]flagKind{
-		"cwd": valueFlag, "env": listFlag, "size": valueFlag, "name": valueFlag,
-		"hidden": boolFlag, "ttl": valueFlag, "scrollback": valueFlag,
-	})
+	a, err := parse(in, specOf("new"))
 	if err != nil {
 		return err
 	}
@@ -55,6 +52,11 @@ func cmdNew(in []string) error {
 	}
 	if v := a.values["name"]; v != "" {
 		params["name"] = v
+	}
+	if l, err := labelArgs(a.lists["label"]); err != nil {
+		return err
+	} else if l != nil {
+		params["labels"] = l
 	}
 	if a.bools["hidden"] {
 		params["hidden"] = true
@@ -92,7 +94,11 @@ func cmdNew(in []string) error {
 }
 
 func cmdList(in []string) error {
-	a, err := parse(in, map[string]flagKind{"all": boolFlag})
+	a, err := parse(in, specOf("ls"))
+	if err != nil {
+		return err
+	}
+	labels, err := labelArgs(a.lists["label"])
 	if err != nil {
 		return err
 	}
@@ -117,7 +123,11 @@ func cmdList(in []string) error {
 			continue
 		}
 		var l proto.ListResult
-		if err := c.Call(ctx, "pane.list", map[string]any{"hidden": a.bools["all"]}, &l); err == nil {
+		lp := map[string]any{"hidden": a.bools["all"]}
+		if labels != nil {
+			lp["labels"] = labels
+		}
+		if err := c.Call(ctx, "pane.list", lp, &l); err == nil {
 			for _, p := range l.Panes {
 				rows = append(rows, row{Pane: p, Daemon: c.Hello.Daemon.Version})
 			}
@@ -147,7 +157,7 @@ func cmdList(in []string) error {
 }
 
 func cmdCapture(in []string) error {
-	a, err := parse(in, map[string]flagKind{"styles": boolFlag, "history": valueFlag, "vt": boolFlag})
+	a, err := parse(in, specOf("capture"))
 	if err != nil {
 		return err
 	}
@@ -223,13 +233,11 @@ func inputs(a *args) ([]map[string]any, error) {
 }
 
 func cmdSend(in []string, settle bool) error {
-	spec := map[string]flagKind{"paste": valueFlag, "typed": valueFlag, "raw": valueFlag, "key": valueFlag, "delay": valueFlag}
 	name := "send"
 	if settle {
 		name = "settle"
-		spec["quiet"], spec["timeout"] = valueFlag, valueFlag
 	}
-	a, err := parse(in, spec)
+	a, err := parse(in, specOf(name))
 	if err != nil {
 		return err
 	}
@@ -296,7 +304,7 @@ func printChanges(w proto.WaitResult) {
 }
 
 func cmdWait(in []string) error {
-	a, err := parse(in, map[string]flagKind{"text": valueFlag, "screen": boolFlag, "quiet": valueFlag, "exit": boolFlag, "prompt": boolFlag, "since": valueFlag, "timeout": valueFlag})
+	a, err := parse(in, specOf("wait"))
 	if err != nil {
 		return err
 	}
@@ -383,7 +391,7 @@ func prefixed(p, s string) string {
 }
 
 func cmdRead(in []string) error {
-	a, err := parse(in, map[string]flagKind{"since": valueFlag, "limit": valueFlag, "raw": boolFlag})
+	a, err := parse(in, specOf("read"))
 	if err != nil {
 		return err
 	}
@@ -440,7 +448,7 @@ func cmdRead(in []string) error {
 }
 
 func cmdResize(in []string) error {
-	a, err := parse(in, map[string]flagKind{})
+	a, err := parse(in, specOf("resize"))
 	if err != nil {
 		return err
 	}
@@ -469,7 +477,7 @@ func cmdResize(in []string) error {
 }
 
 func cmdClose(in []string) error {
-	a, err := parse(in, map[string]flagKind{"grace": valueFlag})
+	a, err := parse(in, specOf("close"))
 	if err != nil {
 		return err
 	}
@@ -500,5 +508,68 @@ func cmdClose(in []string) error {
 		return printJSON(r)
 	}
 	fmt.Printf("closed %s (%d processes)\n", r.Pane.ID, r.Signalled)
+	return nil
+}
+
+// labelArgs reads --label KEY=VALUE flags.
+func labelArgs(in []string) (map[string]string, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, kv := range in {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("--label %q is not KEY=VALUE", kv)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+func cmdUpdate(in []string) error {
+	a, err := parse(in, specOf("update"))
+	if err != nil {
+		return err
+	}
+	id, err := onePane(a, "update")
+	if err != nil {
+		return err
+	}
+	params := map[string]any{"pane": id}
+	if v, ok := a.values["name"]; ok {
+		params["name"] = v
+	}
+	labels := map[string]any{}
+	set, err := labelArgs(a.lists["label"])
+	if err != nil {
+		return err
+	}
+	for k, v := range set {
+		labels[k] = v
+	}
+	for _, k := range a.lists["unlabel"] {
+		labels[k] = nil
+	}
+	if len(labels) > 0 {
+		params["labels"] = labels
+	}
+	if len(params) == 1 {
+		return fmt.Errorf("usage: ravenry update PANE [--name NAME] [--label KEY=VALUE]... [--unlabel KEY]...")
+	}
+	ctx, cancel := callCtx(10 * time.Second)
+	defer cancel()
+	c, err := connectFor(ctx, a.g, id)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	var r proto.PaneResult
+	if err := c.Call(ctx, "pane.update", params, &r); err != nil {
+		return err
+	}
+	if a.g.json {
+		return printJSON(r)
+	}
 	return nil
 }

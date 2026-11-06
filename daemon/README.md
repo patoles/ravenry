@@ -5,6 +5,16 @@ itself and each remote machine. It is the only process that owns
 terminals, so sessions survive the app closing, restarting or updating.
 The same binary is its command line client.
 
+**One binary, two names.** `ravenry` is what people and agents type: the
+pane commands, waits, input, checkpoints and `ravenry skill`. `ravenryd`
+is its service side: `serve`, `proxy` (`ssh host ravenryd proxy`), `hook`
+(what Claude Code's and Codex's hooks run) and `daemons`. It is one
+multi-call binary that picks its side from the name it runs under;
+`ravenry` is a link to `ravenryd` (`make` makes it, and the app ships
+both). Each name runs every command, so `ravenryd new` keeps working;
+`help` lists each name's own side. These names and their commands are a
+frozen contract from the public launch.
+
 Licence: GPL-3.0-only ([LICENSING.md](../LICENSING.md)). It speaks the
 Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
 
@@ -49,6 +59,19 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   socket. A new version starts beside the old one, new panes go to it, and
   the old one keeps its panes and exits once none of them is running.
   PROTOCOL.md section 9 says how clients find the right daemon.
+- **Labels, working folder, activity.** Panes carry a name for people
+  and labels for programs (`pane.update` changes both); `cwd` follows
+  OSC 7; a client can ask for `pane.activity` about the panes it does
+  not stream, at most once a second each.
+- **Checkpoints.** An agent waits for a person: `ravenry ask` (buttons
+  or text), `ravenry approve` (a command that runs only once a person
+  approves the exact text, in a new pane, and gives the agent its output
+  and status) and `ravenry secret` (a secret typed by a person that goes
+  into a program's input or a command's environment, never to the agent,
+  and is masked in the pane's output). The hub shows them, alerts the
+  phone and answers with `checkpoint.answer`.
+- **Files.** `file.stat` and `file.read`, so the hub can read a remote
+  session's transcript and brief for the hand-off.
 - **Shell integration.** zsh, bash and fish started in a pane send OSC 133
   prompt marks (with the command line and its exit status) and OSC 7,
   injected at start the way Ghostty does it, without touching the user's
@@ -61,7 +84,7 @@ Not built yet: a TCP listener for the phone, Windows.
 
 | Package | |
 | --- | --- |
-| `cmd/ravenryd` | The command line: `serve`, `proxy`, `daemons`, `version`, and the client commands. |
+| `cmd/ravenryd` | The command line, both names. `commands.go` is the one table of commands and flags that parsing, `help` and `ravenry skill` all read. |
 | `internal/vt` | The terminal state engine. The only package that imports go-libghostty, behind a small `Screen` interface. |
 | `internal/pane` | Panes: pty, process tree, log, streams, waits, input, shell marks, the foreground process. |
 | `internal/agent` | The agent reports and each pane's agent state. |
@@ -108,16 +131,25 @@ through the daemon to a client.
 
 ```sh
 ravenryd serve &                          # or let any command start it
-id=$(ravenryd new -- /bin/sh)
-mark=$(ravenryd send "$id" --raw 'ls' --key Enter)
-ravenryd wait "$id" --quiet 300ms --since "$mark"
-ravenryd capture "$id" --styles --json
-ravenryd settle "$id" --paste 'git status' --key Enter   # prints the rows that changed
-ravenryd wait "$id" --prompt              # the next prompt (with shell integration)
-ravenryd process "$id"                     # what runs there: pid, argv, cwd
-ravenryd agents                            # the agent state of every pane
-ravenryd close "$id"
+id=$(ravenry new -- /bin/sh)
+mark=$(ravenry send "$id" --raw 'ls' --key Enter)
+ravenry wait "$id" --quiet 300ms --since "$mark"
+ravenry capture "$id" --styles --json
+ravenry settle "$id" --paste 'git status' --key Enter   # prints the rows that changed
+ravenry wait "$id" --prompt              # the next prompt (with shell integration)
+ravenry process "$id"                     # what runs there: pid, argv, cwd
+ravenry agents                            # the agent state of every pane
+ravenry close "$id"
+
+ravenry ask --wait "Put on the headset and open the game" --option Done --option "Didn't work"
+ravenry approve 'git push && npm publish' --why "Release 0.4.1"
+ravenry secret "Mail service API key" -- npx wrangler secret put MAIL_API_KEY
+ravenry skill                             # the guide for agents
 ```
+
+Checkpoint commands wait for the answer by default and exit 0 when
+answered (for a command, with its own status), 124 when nobody answered
+in time, 125 when a person declined.
 
 ### The hook
 
@@ -135,4 +167,5 @@ session, folder, transcript path, a need's line, the question a turn ended
 on, PROTOCOL.md section 4): never the prompt, a tool's input or output. Any other assistant names the state each event means:
 `ravenryd hook --assistant gemini --state working`.
 
-`ravenryd help` lists every command. Every command takes `--json`.
+`ravenry help` and `ravenryd help` list each side's commands; every
+command takes `--json`.

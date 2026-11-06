@@ -4,5 +4,6 @@ node_modules/
 .tmp/
 .DS_Store
 /daemon/ravenryd
+/daemon/ravenry
 /daemon/dist/
 /daemon/.deps/

@@ -25,7 +25,7 @@ import (
 )
 
 func cmdServe(in []string) error {
-	a, err := parse(in, map[string]flagKind{"detach": boolFlag})
+	a, err := parse(in, specOf("serve"))
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func cmdServe(in []string) error {
 }
 
 func cmdProxy(in []string) error {
-	a, err := parse(in, map[string]flagKind{"version": valueFlag})
+	a, err := parse(in, specOf("proxy"))
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func cmdProxy(in []string) error {
 }
 
 func cmdVersion(in []string) error {
-	a, err := parse(in, map[string]flagKind{})
+	a, err := parse(in, specOf("version"))
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func cmdVersion(in []string) error {
 }
 
 func cmdDaemons(in []string) error {
-	a, err := parse(in, map[string]flagKind{})
+	a, err := parse(in, specOf("daemons"))
 	if err != nil {
 		return err
 	}

@@ -13,7 +13,7 @@ import (
 )
 
 func cmdProcess(in []string) error {
-	a, err := parse(in, map[string]flagKind{})
+	a, err := parse(in, specOf("process"))
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func cmdProcess(in []string) error {
 }
 
 func cmdRestart(in []string) error {
-	a, err := parse(in, map[string]flagKind{"grace": valueFlag})
+	a, err := parse(in, specOf("restart"))
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func cmdRestart(in []string) error {
 }
 
 func cmdFocus(in []string) error {
-	a, err := parse(in, map[string]flagKind{})
+	a, err := parse(in, specOf("focus"))
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func cmdFocus(in []string) error {
 }
 
 func cmdAgents(in []string) error {
-	a, err := parse(in, map[string]flagKind{})
+	a, err := parse(in, specOf("agents"))
 	if err != nil {
 		return err
 	}
@@ -177,7 +177,7 @@ func daemonSockets(g global) []string {
 }
 
 func cmdReports(in []string) error {
-	a, err := parse(in, map[string]flagKind{"since": valueFlag, "limit": valueFlag, "follow": boolFlag})
+	a, err := parse(in, specOf("reports"))
 	if err != nil {
 		return err
 	}

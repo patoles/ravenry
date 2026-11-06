@@ -57,10 +57,7 @@ type hookSpec struct {
 }
 
 func cmdHook(in []string) error {
-	a, err := parse(in, map[string]flagKind{
-		"assistant": valueFlag, "state": valueFlag, "need": valueFlag, "event": valueFlag,
-		"decide": boolFlag, "timeout": valueFlag,
-	})
+	a, err := parse(in, specOf("hook"))
 	if err != nil {
 		return hookGiveUp(err)
 	}

@@ -7,8 +7,11 @@ export PKG_CONFIG_PATH
 
 .PHONY: build test vet fmt
 
+# One binary, two names: ravenry (what people and agents type) is a link
+# to ravenryd (the service side). It picks its mode from its name.
 build:
 	go build -ldflags "-X main.version=$(VERSION)" -o ravenryd ./cmd/ravenryd
+	ln -sf ravenryd ravenry
 
 test:
 	go test ./...

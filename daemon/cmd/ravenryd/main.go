@@ -21,114 +21,23 @@ import (
 //	go build -ldflags "-X main.version=1.2.3" ./cmd/ravenryd
 var version = "0.0.0-dev"
 
-const usage = `ravenryd: the Ravenry daemon and its command line.
-
-Daemon:
-  ravenryd serve [--socket PATH] [--detach]   run the daemon for this machine
-  ravenryd proxy [--socket PATH | --version V] bridge standard input and output
-                                               to the daemon (ssh host ravenryd proxy)
-  ravenryd daemons [--json]                   list the daemons running here
-  ravenryd version [--json]
-
-Panes:
-  ravenryd new [--cwd DIR] [--env K=V]... [--size COLSxROWS] [--name NAME]
-               [--hidden [--ttl 10m]] [--json] [-- COMMAND ARGS...]
-  ravenryd ls [--all] [--json]
-  ravenryd capture PANE [--styles] [--history N] [--vt] [--json]
-  ravenryd send PANE INPUT... [--json]
-  ravenryd settle PANE INPUT... [--quiet 300ms] [--timeout 10s] [--json]
-  ravenryd wait PANE [--text REGEX [--screen]] [--quiet 800ms] [--exit]
-               [--prompt] [--since MARK] [--timeout 30s] [--json]
-  ravenryd read PANE --since MARK [--limit BYTES] [--raw] [--json]
-  ravenryd resize PANE COLSxROWS [--json]
-  ravenryd close PANE [--grace 1s] [--json]
-  ravenryd process PANE [--json]          what runs in the foreground: pid,
-                                          arguments, executable, directory
-  ravenryd restart PANE [--grace 1s] [--json]
-                                          close the pane and start its command
-                                          again (same directory and env); prints
-                                          the new pane's id
-  ravenryd focus PANE [--json]            ask the windows that show panes to
-                                          show this one
-
-  INPUT, in order: --paste TEXT, --typed TEXT, --raw TEXT, --key NAME
-  (--delay 10ms sets the pause between typed characters). Key names:
-  Enter Tab Escape Backspace Delete Insert Home End PageUp PageDown Up Down
-  Left Right Space F1-F12 or one character, with Ctrl+ Alt+ Shift+ Super+
-  (or C- M- S-): Ctrl+C, Shift+Tab, M-x.
-
-  wait exits with 0 when its condition held and 124 on timeout. --prompt
-  holds when the shell starts its next prompt (OSC 133 shell integration).
-
-Agents:
-  ravenryd agents [--json]                the agent state of every pane
-  ravenryd reports [PANE] [--since SEQ] [--limit N] [--follow] [--json]
-                                          what agents reported, oldest first
-  ravenryd hook --assistant claude|codex|NAME [--state STATE [--need KIND]]
-               [--event NAME] [--decide] [--timeout 2s]
-                                          the command an assistant's hooks run:
-                                          reads the hook's JSON on standard
-                                          input and reports it to the pane's
-                                          daemon. It always lets the session
-                                          go on unless the hub decides
-
-Every command takes --socket PATH to talk to one daemon, and --no-start to
-not start a daemon when none is running.
-`
-
 func main() {
+	name := invokedAs(os.Args[0])
 	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
+		fmt.Fprint(os.Stderr, usageText(name))
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
-	var err error
-	switch cmd {
-	case "serve":
-		err = cmdServe(args)
-	case "proxy":
-		err = cmdProxy(args)
-	case "version", "--version", "-v":
-		err = cmdVersion(args)
-	case "daemons":
-		err = cmdDaemons(args)
-	case "new":
-		err = cmdNew(args)
-	case "ls", "list":
-		err = cmdList(args)
-	case "capture":
-		err = cmdCapture(args)
-	case "send":
-		err = cmdSend(args, false)
-	case "settle":
-		err = cmdSend(args, true)
-	case "wait":
-		err = cmdWait(args)
-	case "read":
-		err = cmdRead(args)
-	case "resize":
-		err = cmdResize(args)
-	case "close":
-		err = cmdClose(args)
-	case "process":
-		err = cmdProcess(args)
-	case "restart":
-		err = cmdRestart(args)
-	case "focus":
-		err = cmdFocus(args)
-	case "agents":
-		err = cmdAgents(args)
-	case "reports":
-		err = cmdReports(args)
-	case "hook":
-		err = cmdHook(args)
-	case "help", "--help", "-h":
-		fmt.Print(usage)
-		return
-	default:
-		fmt.Fprintf(os.Stderr, "ravenryd: unknown command %q\n\n%s", cmd, usage)
+	c := cmdByName(cmd)
+	if c == nil {
+		fmt.Fprintf(os.Stderr, "%s: unknown command %q\n\n%s", name, cmd, usageText(name))
 		os.Exit(2)
 	}
+	if c.name == "help" {
+		fmt.Print(usageText(name))
+		return
+	}
+	err := c.run(args)
 	if err != nil {
 		var ex exitCode
 		if errors.As(err, &ex) {
@@ -136,9 +45,9 @@ func main() {
 		}
 		var ce *client.Error
 		if errors.As(err, &ce) {
-			fmt.Fprintf(os.Stderr, "ravenryd %s: %s (%s)\n", cmd, ce.Message, ce.Code)
+			fmt.Fprintf(os.Stderr, "%s %s: %s (%s)\n", name, c.name, ce.Message, ce.Code)
 		} else {
-			fmt.Fprintf(os.Stderr, "ravenryd %s: %v\n", cmd, err)
+			fmt.Fprintf(os.Stderr, "%s %s: %v\n", name, c.name, err)
 		}
 		os.Exit(1)
 	}
@@ -169,16 +78,19 @@ type args struct {
 	lists   map[string][]string
 	ordered [][2]string
 	g       global
+	// dash is how many positional arguments came before "--", or -1.
+	dash int
 }
 
 func parse(in []string, spec map[string]flagKind) (*args, error) {
-	a := &args{bools: map[string]bool{}, values: map[string]string{}, lists: map[string][]string{}}
+	a := &args{bools: map[string]bool{}, values: map[string]string{}, lists: map[string][]string{}, dash: -1}
 	spec["socket"] = valueFlag
 	spec["no-start"] = boolFlag
 	spec["json"] = boolFlag
 	for i := 0; i < len(in); i++ {
 		s := in[i]
 		if s == "--" {
+			a.dash = len(a.pos)
 			a.pos = append(a.pos, in[i+1:]...)
 			break
 		}

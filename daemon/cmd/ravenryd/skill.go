@@ -1,0 +1,168 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+// `ravenry skill` prints the guide an agent reads before it drives
+// Ravenry's terminals. The prose below is written once; the command
+// reference at its end is generated from the command table
+// (commands.go), so it always describes this binary's own commands and
+// flags.
+
+const skillIntro = `# Ravenry
+
+Drive the terminals of Ravenry (its panes) from the command line: start
+programs, read their screens, type into them, wait for what you expect,
+and stop to ask the person you work for when you need them.
+
+This guide is printed by the installed binary (` + "`ravenry skill`" + `), so it
+describes the version you are running: VERSION.
+
+## Where you are
+
+Ravenry sets these in every pane it runs:
+
+- ` + "`RAVENRY_PANE`" + `: your own pane's id ("p" and 7 characters).
+- ` + "`RAVENRY_SOCKET`" + `: the daemon that runs your pane. Every command uses it,
+  so you reach the right machine and version without looking.
+
+If they are not set, you are not in a Ravenry pane: commands then use the
+newest daemon on this machine (and start one if none runs).
+
+## Words
+
+| The person says | Ravenry |
+| --- | --- |
+| terminal, tab, pane, shell | a pane: ` + "`ravenry new`" + ` |
+| what is on screen | ` + "`ravenry capture PANE`" + ` |
+| type, press, paste | ` + "`ravenry send PANE --paste TEXT --key Enter`" + ` |
+| wait until it is done | ` + "`ravenry wait PANE --prompt`" + `, ` + "`--text`" + `, ` + "`--quiet`" + `, ` + "`--exit`" + ` |
+| ask me, check with me | ` + "`ravenry ask --wait \"...\" --option Done`" + ` |
+| I'll run it myself / needs my OK | ` + "`ravenry approve 'COMMAND'`" + ` |
+| a password, a token, a one-time code | ` + "`ravenry secret \"...\" -- PROGRAM ARGS`" + ` |
+
+## Rules that save you
+
+- **Never type into your own pane.** ` + "`send`" + ` and ` + "`settle`" + ` to ` + "`$RAVENRY_PANE`" + `
+  type into the program running you. Start a pane for the work instead:
+  ` + "`id=$(ravenry new --cwd \"$PWD\")`" + `.
+- **Wait for a condition, never sleep.** ` + "`ravenry send`" + ` prints a mark; pass it
+  to ` + "`wait --since`" + ` and the wait sees exactly what your input caused:
+
+      mark=$(ravenry send "$id" --paste 'npm test' --key Enter)
+      ravenry wait "$id" --prompt --since "$mark" --timeout 10m --json
+
+  ` + "`--prompt`" + ` holds when the shell is back at its prompt and gives the
+  command's exit status; ` + "`--quiet 800ms`" + ` holds once the screen stops
+  changing, for programs that draw their own screen.
+- **One call instead of press, sleep, read.** ` + "`ravenry settle PANE --key Down`" + `
+  sends the key, waits for the screen to settle and prints the rows that
+  changed.
+- **Pick the typing mode.** ` + "`--paste`" + ` is one paste; ` + "`--typed`" + ` is key by key
+  (Claude Code's ` + "`!`" + ` bash mode only works typed); ` + "`--raw`" + ` is bytes.
+- **Read only what is new.** ` + "`ravenry read PANE --since MARK`" + ` reads the pane's
+  log from a mark, instead of capturing the whole screen again.
+- **Dim text is information.** ` + "`capture --styles`" + ` shows it: a greyed
+  suggestion is not typed text.
+- **A timed-out wait is not a failure of the command.** It exits 124; look
+  at the pane (` + "`capture`" + `) before you send anything again.
+- **Clean up.** ` + "`ravenry close PANE`" + ` ends the pane and every process it
+  started, including ones that detached. For a pane only you need, use
+  ` + "`new --hidden --ttl 30m`" + ` so it goes by itself.
+- **Do not stop or restart the daemon** (` + "`ravenryd serve`" + `): it holds every
+  terminal of the person, and other versions may run beside it on purpose.
+
+## Checkpoints: when you need the person
+
+` + "`ask`" + `, ` + "`approve`" + ` and ` + "`secret`" + ` show a card in the Ravenry app and an alert on
+the person's phone, and wait (by default) until they answer there. The
+person never needs to come back to your chat.
+
+- **Ask and wait.** Arm it before they act, with a timeout:
+
+      ravenry ask --wait "Put on the headset and open the game" --option Done --option "Didn't work" --timeout 20m
+
+  It prints the button they pressed (or the text they typed, with
+  ` + "`--text`" + `). Branch on that output.
+- **Approve and run.** For a command you must not run yourself (a push, a
+  publish, anything the person keeps for themselves):
+
+      ravenry approve 'git push && npm publish' --why "Release 0.4.1"
+
+  They see the exact text, and it runs only if they approve, in a new pane
+  in your folder they can watch. You get its output and its exit status,
+  as if you had run it. Never retry a declined command another way.
+- **Secrets.** Never ask the person to paste a password, token or code into
+  your chat. Ask for it here; it goes to the program, never to you, and is
+  masked in the pane's output, logs and captures:
+
+      ravenry secret "Mail service API key" -- npx wrangler secret put MAIL_API_KEY
+      ravenry secret "npm one-time code" --pane "$id"     # a program already waiting in that pane
+      ravenry secret "npm token" --env NPM_TOKEN -- npm publish
+
+  With a command, it starts in a new pane and the secret is typed once it
+  waits for input (or given in ` + "`--env`" + `); you get the command's output and
+  status. ` + "`--pane`" + ` can never be your own pane.
+- **Exit status** of ask, approve, secret and ` + "`checkpoint ID --wait`" + `:
+  0 answered (for a command: the command's own status), 124 nobody answered
+  in time, 125 the person declined (or it was cancelled), 1 anything else.
+- ` + "`--no-wait`" + ` prints the checkpoint id and returns: arm it, do other work,
+  then ` + "`ravenry checkpoint ID --wait`" + `. Withdraw one you no longer need with
+  ` + "`ravenry checkpoint ID --cancel`" + `.
+
+## Two names, one binary
+
+` + "`ravenry`" + ` is what you type. ` + "`ravenryd`" + ` is the same binary's service side:
+` + "`ravenryd serve`" + ` (the daemon), ` + "`ravenryd proxy`" + ` (what ` + "`ssh host ravenryd proxy`" + `
+runs), ` + "`ravenryd hook`" + ` (what Claude Code's and Codex's hooks run) and
+` + "`ravenryd daemons`" + `. Every command also works as ` + "`ravenryd COMMAND`" + `.
+
+## Commands
+
+Every command takes ` + "`--json`" + ` (print JSON, the stable form to parse),
+` + "`--socket PATH`" + ` and ` + "`--no-start`" + `. Key names for ` + "`--key`" + `: Enter Tab Escape
+Backspace Delete Insert Home End PageUp PageDown Up Down Left Right Space
+F1-F12 or one character, with Ctrl+ Alt+ Shift+ Super+ (or C- M- S-).
+`
+
+func skillText() string {
+	var b strings.Builder
+	b.WriteString(strings.Replace(skillIntro, "VERSION", version, 1))
+	for _, g := range groups {
+		var cs []*command
+		for _, c := range commands {
+			if c.group == g && !c.service && c.name != "help" {
+				cs = append(cs, c)
+			}
+		}
+		if len(cs) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n### %s\n\n", g)
+		for _, c := range cs {
+			line := "ravenry " + c.name
+			if c.args != "" {
+				line += " " + c.args
+			}
+			fmt.Fprintf(&b, "- `%s`: %s.\n", line, c.summary)
+			for _, f := range c.flags {
+				fmt.Fprintf(&b, "  - `%s`: %s\n", flagLine(f), f.help)
+			}
+		}
+	}
+	return b.String()
+}
+
+func cmdSkill(in []string) error {
+	a, err := parse(in, specOf("skill"))
+	if err != nil {
+		return err
+	}
+	if a.g.json {
+		return printJSON(map[string]string{"skill": skillText(), "version": version})
+	}
+	fmt.Print(skillText())
+	return nil
+}
