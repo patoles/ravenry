@@ -81,6 +81,8 @@ function sessionScript(s, { screen, wait, after = '', title = s.topic }) {
     hook('SessionStart'), hook('UserPromptSubmit'),
     `printf '\\033]0;✳ ${title}\\007'`,
     `printf '%b' '${screen.replace(/'/g, "'\\''")}'`,
+    // The board knows the session before its agent asks, as in real use.
+    'sleep 6',
     `${wait} >/dev/null 2>"$HOME/.cp-err-${s.sid.slice(0, 4)}"`,
     `printf '%b' '${after.replace(/'/g, "'\\''")}'`,
     'exec sleep 100000',

@@ -20,6 +20,7 @@
 // Needs you (syncProjects).
 
 import crypto from 'node:crypto';
+import os from 'node:os';
 import * as phone from './phone.mjs';
 
 const env = process.env;
@@ -185,6 +186,23 @@ const sessionOf = (project, pane) => {
   return (project.sessions || []).find((s) => s.surfaceId === `ravenry:${pane}`) || null;
 };
 
+// A folder as people read it: the home folder as ~ (this machine's, or a
+// usual one on another machine).
+export function tilde(p) {
+  const s = String(p || '');
+  const home = os.homedir();
+  if (s === home || s.startsWith(home + '/')) return '~' + s.slice(home.length);
+  return s.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~');
+}
+
+// The program a command runs, past npx, sudo and the like: "wrangler".
+export function program(command) {
+  const words = String(command || '').trim().split(/\s+/).filter(Boolean);
+  while (words.length > 1 && /^(?:npx|bunx|sudo|env|exec|command|pnpm|yarn)$/.test(words[0])) words.shift();
+  if (words.length > 1 && words[0] === 'dlx') words.shift();
+  return words[0] || null;
+}
+
 // A checkpoint's alert.
 export function checkpointMessage(cp, { project = null, machine = null } = {}) {
   const s = sessionOf(project, cp.pane);
@@ -212,7 +230,7 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
   } else if (cp.kind === 'approve') {
     msg.title = `${name} wants to run a command`;
     msg.body = String(cp.command || '');
-    msg.detail = `on ${machine || phone.hubName()}${cp.cwd ? `, in ${cp.cwd}` : ''}`;
+    msg.detail = `on ${machine || phone.hubName()}${cp.cwd ? `, in ${tilde(cp.cwd)}` : ''}`;
     msg.checkpoint.command = String(cp.command || '');
     msg.checkpoint.cwd = cp.cwd || null;
     if (cp.warning) msg.checkpoint.warning = clip(cp.warning, 300);
@@ -220,7 +238,7 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
   } else if (cp.kind === 'secret') {
     msg.title = `${who(cp.assistant)} needs a secret${topic ? ` for ${topic}` : ''}`;
     const to = cp.secret && cp.secret.to;
-    const prog = cp.command ? String(cp.command).trim().split(/\s+/)[0] : null;
+    const prog = cp.command ? program(cp.command) : null;
     msg.detail = `${prog && to !== 'input' ? `for ${prog} ` : ''}on ${machine || phone.hubName()}. Type it in the app.`;
     msg.actions = [{ id: 'open', label: 'Type it' }, { id: 'decline', label: 'Not now' }];
     msg.reply = null;

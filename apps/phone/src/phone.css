@@ -92,7 +92,8 @@ body { overflow: hidden; }
 .pj .tm, .idl .tm { font-size: 12px; font-weight: 500; color: var(--tx2); margin-left: auto; }
 .ss { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px 9px; border-radius: 9px; width: 100%; }
 .ss:active, .idl:active { background: var(--sel); }
-.ss-r { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ss-r { display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%; }
+.ss > .ss-q { width: 100%; text-align: left; }
 .ss-r .n { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .ss-r .pc { font-size: 12px; color: var(--tx2); width: 30px; text-align: right; flex: none; }
 .ss-r .pc.warn { color: var(--you); }
