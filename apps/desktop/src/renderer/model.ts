@@ -74,9 +74,23 @@ export function sessionGroup(s: HubSession): Group {
 
 export const sessionKey = (projectId: string, s: HubSession): string => `${projectId}/${s.surfaceId}`;
 
-/** The pane id of a session the hub runs in ravenryd (seam for slice 2a), else null. */
+const PANE_ID = /^p[a-z2-7]{7}$/;
+
+/**
+ * The ravenryd pane a session runs in, else null. The hub names a ravenryd
+ * session's tab "ravenry:<pane id>" (term "ravenry"); `pane` is kept for a
+ * hub that sends the id on its own.
+ */
 export function paneOf(s: HubSession): string | null {
   if (s.pane) return typeof s.pane === 'string' ? s.pane : s.pane.id;
+  const id = s.surfaceId || '';
+  if (id.startsWith('ravenry:') && PANE_ID.test(id.slice(8))) return id.slice(8);
+  return null;
+}
+
+/** The hub session that runs in a given pane, if any. */
+export function sessionOfPane(state: HubState | null, pane: string): { project: HubProject; session: HubSession; key: string } | null {
+  for (const p of state?.projects || []) for (const s of p.sessions) if (paneOf(s) === pane) return { project: p, session: s, key: sessionKey(p.id, s) };
   return null;
 }
 

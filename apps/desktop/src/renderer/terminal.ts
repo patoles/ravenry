@@ -43,6 +43,8 @@ export class TerminalView {
   private resizeQueued = false;
   /** Called when the pane on screen ended (its program exited or it was closed). */
   onEnded: (a: Attached) => void = () => {};
+  /** Called after Enter is typed in the pane on screen. */
+  onEnter: (a: Attached) => void = () => {};
   /** Shortcuts the app handles; xterm.js lets them through. */
   isAppKey: (e: KeyboardEvent) => boolean = () => false;
 
@@ -68,7 +70,10 @@ export class TerminalView {
     this.term.open(el);
     this.useWebgl();
     this.term.attachCustomKeyEventHandler((e) => !this.isAppKey(e));
-    this.term.onData((d) => this.input(d));
+    this.term.onData((d) => {
+      this.input(d);
+      if (d.includes('\r') && this.current) this.onEnter(this.current);
+    });
     this.term.onBinary((d) => {
       const b = new Uint8Array(d.length);
       for (let i = 0; i < d.length; i++) b[i] = d.charCodeAt(i) & 255;

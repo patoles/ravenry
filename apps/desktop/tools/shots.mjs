@@ -148,6 +148,7 @@ try {
   }
 
   // ------------------------------------------------ first launch
+  if (!ONLY || ONLY === 'first') {
   const emptyPort = await freePort();
   hub = await startDemoHub({ dir: path.join(WORK, 'demo-empty'), port: emptyPort, empty: true });
   // Folders to pick from, and both assistants installed and signed in, as
@@ -173,6 +174,7 @@ try {
       shot('first-launch.png'),
     ],
   });
+  }
   if (ONLY) process.exit(0);
   console.log('wrote', fs.readdirSync(OUT).filter((f) => !f.startsWith('.')).join(', '));
   console.log('echo', fs.readFileSync(path.join(OUT, 'echo.json'), 'utf8'));

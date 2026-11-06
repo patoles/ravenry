@@ -163,6 +163,12 @@ function ipc(): void {
   });
   ipcMain.handle('store:get', () => store.get());
   ipcMain.on('store:set', (_e, patch: Record<string, unknown>) => store.set(patch));
+  ipcMain.on('focus-window', () => {
+    if (!win || OFFSCREEN) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
   ipcMain.on('open-external', (_e, url: string) => { if (/^https?:\/\//.test(url)) void shell.openExternal(url); });
 }
 

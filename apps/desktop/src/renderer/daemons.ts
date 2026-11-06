@@ -50,6 +50,17 @@ export class Daemons {
     return c;
   }
 
+  /** The client of the daemon that holds a pane: the newest first, then the others this window knows. */
+  async holding(pane: string): Promise<RavenryClient | null> {
+    const cands: RavenryClient[] = [];
+    try { cands.push((await this.forNew()).client); } catch { /* none running */ }
+    for (const p of this.clients.values()) { try { const c = await p; if (!cands.includes(c)) cands.push(c); } catch { /* gone */ } }
+    for (const c of cands) {
+      try { const { panes } = await c.request('pane.list', { hidden: true }); if (panes.some((x) => x.id === pane)) return c; } catch { /* next */ }
+    }
+    return null;
+  }
+
   /** The client of a given daemon. */
   get(socket: string): Promise<RavenryClient> {
     const known = this.clients.get(socket);
@@ -75,6 +86,8 @@ export class Daemons {
       if (this.newest && this.newest.socket === socket) this.newest = null;
       this.onLost(socket);
     });
-    void client.request('events.subscribe', {}).catch(() => {});
+    // A window shows panes to a person, so it asks for pane.focus too
+    // (a daemon from before pane.focus refuses the field).
+    void client.request('events.subscribe', client.supports('pane.focus') ? { display: true } : {}).catch(() => {});
   }
 }

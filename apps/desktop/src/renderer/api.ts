@@ -30,6 +30,7 @@ export interface RavenryApi {
   storeGet(): Promise<Record<string, unknown>>;
   storeSet(patch: Record<string, unknown>): void;
   openExternal(url: string): void;
+  focusWindow(): void;
 }
 
 declare global {

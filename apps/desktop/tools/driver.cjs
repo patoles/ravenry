@@ -9,6 +9,7 @@
 //   sleep: ms
 //   size: [w, h]                set the window's content size
 //   type: "text"                type it as key events ("\r" is Enter)
+//   typeJs: "expr"              type the text expr gives in the page
 //   key: "Backspace", modifiers  one key (modifiers: ["control"], ...)
 //   shot: "file.png"            capture the window
 //   signal: "file"              write a file (for the script that started the app)
@@ -68,6 +69,7 @@ module.exports = async function drive(win, ctx) {
     else if (step.sleep) await sleep(step.sleep);
     else if (step.size) { win.setContentSize(step.size[0], step.size[1]); await sleep(300); }
     else if (step.type) { type(step.type); await sleep(step.after ?? 100); }
+    else if (step.typeJs) { type(String(await js(step.typeJs))); await sleep(step.after ?? 100); }
     else if (step.key) { key(step.key, step.char, step.modifiers); await sleep(step.after ?? 100); }
     else if (step.shot) {
       // Two frames, so what was just written is drawn.

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, tokens } from '../src/renderer/model.ts';
+import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionOfPane, tokens } from '../src/renderer/model.ts';
 import type { HubProject, HubSession, HubState } from '../src/renderer/model.ts';
 import { hubUrl, parseEvent } from '../src/main/hub.ts';
 import { daemonEnv } from '../src/main/spawn.ts';
@@ -80,6 +80,12 @@ test('helpers: groups, times, tokens, memory, empty, seams', () => {
   assert.equal(paneOf(sess('a', 'working')), null);
   assert.equal(paneOf(sess('a', 'working', { pane: 'pabc1234' })), 'pabc1234');
   assert.equal(paneOf(sess('a', 'working', { pane: { id: 'pabc1234' } })), 'pabc1234');
+  // The hub names a ravenryd session's tab "ravenry:<pane id>".
+  assert.equal(paneOf(sess('ravenry:pk3m7q2x', 'working', { term: 'ravenry' })), 'pk3m7q2x');
+  assert.equal(paneOf(sess('ravenry:nope', 'working')), null);
+  const st: HubState = { projects: [proj('r', 'work', [sess('ravenry:pk3m7q2x', 'working')])] };
+  assert.equal(sessionOfPane(st, 'pk3m7q2x')?.key, 'r/ravenry:pk3m7q2x');
+  assert.equal(sessionOfPane(st, 'pzzzzzzz'), null);
   assert.equal(machineOf(proj('a', 'idle', [], { machine: 'local' })), null);
   assert.equal(machineOf(proj('a', 'idle', []), sess('a', 'idle', { machine: 'gpu-box' })), 'gpu-box');
 });

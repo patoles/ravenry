@@ -3,7 +3,9 @@
 // no daemon and starts one, shows the first launch with no board running,
 // opens a real shell, types, pastes, checks the pane's size, opens a second
 // shell and switches back (a fresh snapshot brings the first one's screen
-// back), and closes a tab, which ends its pane in the daemon.
+// back), follows `ravenryd focus` to the second, shows the status an
+// assistant's hook reports on its tab, and closes a tab, which ends its
+// pane in the daemon.
 //
 //   node build.mjs && RAVENRYD=../../daemon/ravenryd node tools/smoke.mjs [outDir]
 import fs from 'node:fs';
@@ -53,7 +55,14 @@ const steps = [
   { js: `${R}.onCommand('next-tab', 1)` },
   { until: `${attachedTo(0)} && ${has('smoke-42')} && ${has('pasted-2')}` },
   { shot: path.join(OUT, 'smoke-shell.png') },
-  { save: { expr: `({ tabs: ${R}.S.tabs.map((t) => t.pane), renderer: ${R}.term().renderer, cols: ${R}.term().term.cols, rows: ${R}.term().term.rows })`, out: path.join(WORK, 'before-close.json') } },
+  // ravenryd focus, run in the first shell, brings the second one up.
+  { typeJs: `'"$RAVENRYD" focus ' + ${R}.S.tabs[1].pane + '\\r'` },
+  { until: attachedTo(1) },
+  // An assistant's hook says it needs you: the tab shows it.
+  { type: `echo '{"hook_event_name":"Notification","session_id":"smoke"}' | "$RAVENRYD" hook --assistant claude --state needs_you --need permission\r` },
+  { until: `${R}.S.tabs[1].status && ${R}.S.tabs[1].status.state === 'needs_you' && document.querySelectorAll('#tabs .tab .sd').length === 1` },
+  { shot: path.join(OUT, 'smoke-status.png') },
+  { save: { expr: `({ tabs: ${R}.S.tabs.map((t) => t.pane), active: ${R}.term().attached.pane, renderer: ${R}.term().renderer, cols: ${R}.term().term.cols, rows: ${R}.term().term.rows })`, out: path.join(WORK, 'before-close.json') } },
   // Closing the tab ends its pane.
   { js: `${R}.onCommand('close-tab')` },
   { until: `${R}.S.tabs.length === 1 && ${attachedTo(0)}` },
@@ -66,8 +75,9 @@ try {
   const before = JSON.parse(fs.readFileSync(path.join(WORK, 'before-close.json'), 'utf8'));
   const ls = JSON.parse(execFileSync(BIN, ['ls', '--all', '--json', '--no-start'], { env: { ...process.env, RAVENRY_RUNTIME_DIR: RT }, encoding: 'utf8' }));
   const ids = (Array.isArray(ls) ? ls : ls.panes || []).map((p) => p.id);
-  if (ids.includes(before.tabs[0])) throw new Error(`the closed tab's pane ${before.tabs[0]} is still in the daemon: ${ids}`);
-  if (!ids.includes(before.tabs[1])) throw new Error(`the open tab's pane ${before.tabs[1]} is gone: ${ids}`);
+  const kept = before.tabs.find((p) => p !== before.active);
+  if (ids.includes(before.active)) throw new Error(`the closed tab's pane ${before.active} is still in the daemon: ${ids}`);
+  if (!ids.includes(kept)) throw new Error(`the open tab's pane ${kept} is gone: ${ids}`);
   console.log(`smoke: ok (renderer ${before.renderer}, ${before.cols}x${before.rows}, panes left ${ids.length})`);
 } catch (e) {
   failed = true;

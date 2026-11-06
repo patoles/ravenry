@@ -5,21 +5,28 @@
 
 import '@xterm/xterm/css/xterm.css';
 import './app.css';
-import type { DaemonEvent, Pane } from '@ravenry/client';
+import type { AgentStatus, DaemonEvent, Pane } from '@ravenry/client';
 import { api } from './api.ts';
 import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
 import { Daemons } from './daemons.ts';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
-  ago, arrivals, assistantName, board, clock, findSession, isEmpty, memoryLine, paneOf, sessionGroup, tokens,
+  ago, arrivals, assistantName, board, clock, findSession, isEmpty, memoryLine, paneOf, sessionGroup, sessionOfPane, tokens,
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState } from './model.ts';
 import { TerminalView } from './terminal.ts';
 
 // ---------------------------------------------------------------- state
 
-interface ShellTab { id: string; kind: 'shell'; socket: string; pane: string; agent?: string | null; title?: string; cwd?: string; command?: string[]; cols?: number; rows?: number; createdAt?: string }
+interface ShellTab {
+  id: string; kind: 'shell'; socket: string; pane: string;
+  /** The assistant the first-launch screen started in it. */
+  agent?: string | null;
+  title?: string; cwd?: string; command?: string[]; cols?: number; rows?: number; createdAt?: string;
+  /** The agent running in it, from the daemon's status channel. */
+  status?: AgentStatus | null;
+}
 interface SessionTab { id: string; kind: 'session'; key: string }
 type Tab = ShellTab | SessionTab;
 type View = { kind: 'tab'; id: string } | { kind: 'session'; key: string } | { kind: 'start' } | { kind: 'none' };
@@ -71,6 +78,7 @@ function viewSessionKey(): string | null {
   const v = S.view;
   if (v.kind === 'session') return v.key;
   const t = tabOfView();
+  if (t && t.kind === 'shell') return sessionOfPane(S.hub, t.pane)?.key || null;
   return t && t.kind === 'session' ? t.key : null;
 }
 
@@ -97,6 +105,9 @@ function toast(text: string): void {
 
 function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | null; machine: string | null } {
   if (t.kind === 'shell') {
+    // A shell the board follows as a session (an assistant runs in it) reads as that session.
+    const f = sessionOfPane(S.hub, t.pane);
+    if (f) return { name: f.session.topic || f.project.name, sub: f.project.name, group: sessionGroup(f.session), machine: null };
     // The pane's title when its program set one, else the program's name;
     // then the folder it started in (~ for home).
     const agent = t.agent ? assistantName(t.agent) : null;
@@ -104,7 +115,9 @@ function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | nu
     const prog = base((t.command || [])[0] || '') || 'Shell';
     const home = S.config?.home;
     const folder = t.cwd && home && t.cwd === home ? '~' : base(t.cwd);
-    return { name: agent || title || prog, sub: folder || null, group: null, machine: null };
+    const st = t.status?.state;
+    const group: Group | null = st === 'needs_you' ? 'you' : st === 'working' ? 'work' : null;
+    return { name: agent || title || prog, sub: folder || null, group, machine: null };
   }
   const f = findSession(S.hub, t.key);
   if (!f) return { name: 'Session', sub: null, group: 'idle', machine: null };
@@ -196,7 +209,10 @@ function pickProject(p: HubProject): void {
 }
 
 function pickSession(key: string): void {
-  const pinned = S.tabs.find((t) => t.kind === 'session' && t.key === key);
+  // A session that runs in a pane a tab already shows: that tab.
+  const f = findSession(S.hub, key);
+  const pane = f ? paneOf(f.session) : null;
+  const pinned = S.tabs.find((t) => (t.kind === 'session' && t.key === key) || (pane && t.kind === 'shell' && t.pane === pane));
   S.panelKey = null;
   setView(pinned ? { kind: 'tab', id: pinned.id } : { kind: 'session', key });
 }
@@ -228,7 +244,7 @@ function renderTabs(): void {
       const l = tabLabel(t);
       const on = active && active.id === t.id;
       return h(`div.tab${on ? '.on' : ''}`, { role: 'tab', 'aria-selected': on ? 'true' : 'false', title: i < 9 ? `${l.name} (${isMac() ? '⌘' : 'Alt+'}${i + 1})` : l.name, on: { click: () => setView({ kind: 'tab', id: t.id }), auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) closeTab(t.id); } } },
-        t.kind === 'shell' ? h('span.ti', svg(I.SHELL)) : h('span.sd', { style: { background: GROUP_VAR[l.group || 'idle'] } }),
+        t.kind === 'shell' && !l.group ? h('span.ti', svg(I.SHELL)) : h('span.sd', { style: { background: GROUP_VAR[l.group || 'idle'] } }),
         h('span.n', l.name),
         l.sub ? h('span.p', l.sub) : null,
         machineTag(l.machine),
@@ -264,6 +280,7 @@ function addShellTab(socket: string, pane: Pane, agent: string | null): ShellTab
 }
 
 function applyPane(t: ShellTab, p: Pane): void {
+  t.status = p.agent || null;
   t.title = p.title;
   t.cwd = p.cwd;
   t.command = p.command;
@@ -350,7 +367,11 @@ async function renderCentre(): Promise<void> {
     const k = `session|${pane}`;
     if (shownKey === k && term.attached) return;
     shownKey = k;
-    try { const { client } = await daemons.forNew(); if (shownKey === k) await term.show({ client, pane }); } catch (e) { toast(`Could not show that session: ${(e as Error).message}`); }
+    try {
+      const client = await daemons.holding(pane);
+      if (!client) throw new Error('no running daemon holds its pane');
+      if (shownKey === k) await term.show({ client, pane });
+    } catch (e) { toast(`Could not show that session: ${(e as Error).message}`); }
     return;
   }
   term.hide();
@@ -604,9 +625,19 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): HTMLElement[] 
 
 function shellPanel(t: ShellTab): HTMLElement[] {
   const started = t.createdAt ? clock(t.createdAt, now()) : null;
+  // What the agent in it reported through the daemon's status channel.
+  const st = t.status;
+  const who = st ? assistantName(st.assistant) || 'The agent' : null;
+  const need = st?.need ? ({ permission: 'a permission', question: 'an answer', auth: 'a sign-in', other: 'you' } as const)[st.need.kind] : 'you';
+  const stLine = !st ? null
+    : st.state === 'needs_you' ? h('div.st.c-you', svg(RING.you), `${who} needs ${need}${st.since ? ` since ${clock(st.since, now())}` : ''}`)
+      : st.state === 'working' ? h('div.st.c-work', svg(RING.work), `${who} is working`)
+        : st.state === 'idle' ? h('div.st.c-idle', svg(RING.idle), `${who} is done with its turn`) : null;
   return [
     panelHead(t.agent ? assistantName(t.agent) || 'Shell' : 'Shell', null),
     h('div.p-b',
+      stLine,
+      st?.need?.message ? h('div.sec.ask', h('p.q', st.need.message)) : null,
       h('div.sec',
         h('div.kv',
           h('span', 'Folder'), h('span.mono', tilde(t.cwd)),
@@ -645,7 +676,38 @@ function onHubState(next: HubState): void {
   render();
 }
 
+function shellTabOf(socket: string, pane: string): ShellTab | undefined {
+  return S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.socket === socket && x.pane === pane);
+}
+
+/** Someone asked to show a pane (pane.focus): its tab, or the session it runs. */
+function focusPane(socket: string, pane: string): void {
+  const t = shellTabOf(socket, pane) || S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === pane);
+  const f = sessionOfPane(S.hub, pane);
+  if (t) setView({ kind: 'tab', id: t.id });
+  else if (f) pickSession(f.key);
+  else return;
+  api().focusWindow();
+}
+
+async function refreshCwd(socket: string, t: ShellTab): Promise<void> {
+  // The folder a shell is in now, so the tab follows cd.
+  try {
+    const c = await daemons.get(socket);
+    if (!c.supports('pane.process')) return;
+    const { foreground } = await c.request('pane.process', { pane: t.pane });
+    if (foreground.cwd && foreground.cwd !== t.cwd) { t.cwd = foreground.cwd; renderTabs(); if (panelVisible()) renderPanel(); }
+  } catch { /* exited */ }
+}
+
 function onDaemonEvent(socket: string, e: DaemonEvent): void {
+  if (e.event === 'pane.focus') { focusPane(socket, e.pane.id); return; }
+  if (e.event === 'pane.prompt') { const t = shellTabOf(socket, e.pane.id); if (t) void refreshCwd(socket, t); return; }
+  if (e.event === 'agent.report') {
+    const t = e.pane ? shellTabOf(socket, e.pane.id) : undefined;
+    if (t && e.pane) { t.status = e.pane.agent || null; renderTabs(); }
+    return;
+  }
   if (e.event === 'pane.title' || e.event === 'pane.exited' || e.event === 'pane.closed') {
     const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.socket === socket && x.pane === e.pane.id);
     if (!t) return;
@@ -717,6 +779,16 @@ async function boot(): Promise<void> {
   term.onEnded = (a) => {
     const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === a.pane);
     if (t) { removeTab(t.id); void a.client.request('pane.close', { pane: a.pane }).catch(() => {}); }
+  };
+  // A shell without shell integration sends no prompt marks: look at its
+  // folder a moment after each Enter instead, so the tab follows cd.
+  let cwdTimer: number | undefined;
+  term.onEnter = (a) => {
+    clearTimeout(cwdTimer);
+    cwdTimer = window.setTimeout(() => {
+      const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === a.pane);
+      if (t) void refreshCwd(t.socket, t);
+    }, 400);
   };
   daemons = new Daemons(onDaemonEvent, onDaemonLost);
   api().onCommand((n, a) => onCommand(String(n), a));
