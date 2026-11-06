@@ -38,6 +38,9 @@ import * as planner from './planner.mjs';
 import * as planrun from './planrun.mjs';
 import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp } from './home.mjs';
 import * as hookinstall from './hookinstall.mjs';
+import * as machines from './machines.mjs';
+import * as checkpoints from './checkpoints.mjs';
+import * as sessionstart from './sessionstart.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -817,6 +820,9 @@ function buildProject(project, wsById, hooks, settings, now) {
     timeline: timeline.slice(0, 5),
     handoffRecent: recent,
     primary: primary ? primary.surfaceId : null,
+    // The machine it lives on: its own (a project on a remote machine),
+    // else the one all its sessions run on, null for this one.
+    machine: projectMachine(project, sessions),
     workspaces,
     sessions: sessions.map((s) => ({
       surfaceId: s.surfaceId, surfaceRef: s.surfaceRef, workspaceId: s.workspaceId, workspaceRef: s.workspaceRef,
@@ -824,6 +830,8 @@ function buildProject(project, wsById, hooks, settings, now) {
       workFolder: s.real && s.real.folder ? short(s.real.folder) : null,
       state: s.st.state, since: s.st.since || null, reasons: s.st.reasons, source: s.st.source || 'screen', terminal: s.terminal !== false,
       term: s.term || null, termName: s.term ? term.nameOf(s.term) : null,
+      // The machine it runs on (a remote ravenryd), null on this one.
+      machine: sessionMachine(s),
       assistant: asst.kindOf(s.assistant),
       cannot: s.cannot ? s.cannot.why : null, cannotType: s.cannot ? s.cannot.short : null,
       sidebarStatus: s.sidebarStatus, hookLifecycle: s.hook ? s.hook.lifecycle : null,
@@ -840,6 +848,21 @@ function buildProject(project, wsById, hooks, settings, now) {
       doneWhen: s.screen.done ? s.screen.done.when : null,
     })),
   };
+}
+
+function sessionMachine(s) {
+  if (s.surfaceId && term.kindOf(s.surfaceId) === 'ravenry') {
+    const m = term.ravenryMachineOf(s.surfaceId);
+    if (m) return m;
+  }
+  const e = s.sessionId ? ev.all.get(s.sessionId) : null;
+  return (e && e.machine) || null;
+}
+
+function projectMachine(project, sessions) {
+  if (project.machine) return project.machine;
+  const ms = [...new Set(sessions.map(sessionMachine))];
+  return ms.length === 1 ? ms[0] : null;
 }
 
 // The active plan as the page draws it: proof pictures get a URL that only
@@ -944,7 +967,7 @@ async function tick() {
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
-    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects };
+    snapshot = { generatedAt: new Date(now).toISOString(), cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: machines.status(), checkpoints: checkpointsView(projects) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -1437,7 +1460,9 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
     const at = new Date().toISOString();
     handoff.writeMarker(sid, { resumeStartedAt: at });
     const fail = (error) => { markers.set(sid, handoff.writeMarker(sid, { resumeError: error })); return { ok: false, error }; };
-    const cwd = [m.cwd, m.folder].find((d) => d && fs.existsSync(d)) || null;
+    // A session on a remote machine hands off there: its folder is checked
+    // by that machine's daemon, not here.
+    const cwd = m.machine ? m.cwd || m.folder || null : [m.cwd, m.folder].find((d) => d && fs.existsSync(d)) || null;
     // The fresh session opens in the terminal the old one ran in: a new
     // cmux tab next to it, a new iTerm2 tab in its window, or a new Rex tab
     // in its Rex session.
@@ -1551,6 +1576,26 @@ function nearTab(projectId) {
 }
 
 // A registered project, else this tick's card for a loose session.
+// The open checkpoints for the board and the app, each with the project and
+// session whose pane asked, when the board knows it.
+function checkpointsView(projects) {
+  return checkpoints.list().map((cp) => {
+    const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
+    const p = tab ? projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
+    const { daemon: _d, ...rest } = cp;
+    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : null, surfaceId: tab };
+  });
+}
+
+function onCheckpoint(cp, where) {
+  if (!checkpoints.take(cp, where)) return;
+  const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
+  const p = tab && snapshot && snapshot.projects ? snapshot.projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
+  try { alerts.checkpointAlert(cp, { project: p || null, machine: where.machine, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); }
+}
+
+function safe(fn) { try { return fn(); } catch (e) { return { state: 'unreadable', error: e.message }; } }
+
 function findProject(id) {
   return (reg && reg.projects.find((p) => p.id === id && !p.hidden)) || loose.find((p) => p.id === id) || unowned.find((p) => p.id === id) || null;
 }
@@ -2155,6 +2200,9 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 404, { error: 'unknown' });
     }
     if (req.method === 'GET' && p === '/api/state') return sendJson(res, 200, snapshot);
+    if (req.method === 'GET' && p === '/api/machines') return sendJson(res, 200, { ok: true, machines: machines.status(), ...(req.mcLocal ? { hosts: machines.sshHosts() } : {}) });
+    if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => c) : []) });
+    if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => hookinstall.status(hookinstall.readSettings().json)), codex: hookinstall.codexInstalled() ? safe(() => hookinstall.codexStatus()) : null });
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
       return sendJson(res, r.status, r.body);
@@ -2278,6 +2326,62 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/sessions/close') {
         const r = await closeSessions(await jsonBody(req, 1e5));
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
+      }
+      if (p === '/api/checkpoints/answer') {
+        // A person's answer (the app, the phone). The body may hold a
+        // secret: it is parsed here, never echoed in an error or a log, and
+        // goes only to the daemon that holds the checkpoint.
+        let body = null;
+        try { body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}'); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const by = typeof body.by === 'string' && body.by ? body.by : req.mcPhone ? 'phone' : 'desktop';
+        const r = await checkpoints.answer({ ...body, by }, term.ravenryAnswer);
+        body = null;
+        if (r.ok) { wantTick = true; setTimeout(tick, 30); }
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => c)(r.checkpoint) } : { error: r.error });
+      }
+      if (p === '/api/sessions/start') {
+        // A session in a ravenryd pane, here or on a machine
+        // (server/sessionstart.mjs): the app's first-launch "Start" and its
+        // New session call this instead of pane.new.
+        let body;
+        try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const project = body && body.projectId != null ? findProject(body.projectId) : null;
+        const pl = sessionstart.plan(body, {
+          project,
+          launch: (proj, kind) => (kind ? launchFor({ kind, note: null }) : proj ? continueLaunch(proj) : launchFor(asst.startChoice(reg ? reg.settings : {}))),
+          briefPath: (proj) => registry.briefPath(proj),
+          briefExists: (f) => fs.existsSync(f),
+          machines: machines.status().map((m) => m.name),
+        });
+        if (!pl.ok) return sendJson(res, pl.status, { error: pl.error });
+        const r = await term.ravenryStart(pl);
+        if (!r.ok) return sendJson(res, 502, { error: `Could not start it: ${r.err}` });
+        watchOpened(r);
+        if (project && pl.machine && project.machine !== pl.machine) afterRegistry(registry.update((rg) => { const x = rg.projects.find((y) => y.id === project.id); if (x) x.machine = pl.machine; }));
+        wantTick = true; setTimeout(tick, 30);
+        return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind });
+      }
+      if (p === '/api/machines/add' || p === '/api/machines/remove' || p === '/api/machines/retry') {
+        // The machines the hub reaches over ssh (server/machines.mjs).
+        // Added and removed on the Mac only: it runs ssh with the Mac's keys.
+        if (!req.mcLocal && p !== '/api/machines/retry') return sendJson(res, 403, { error: 'Add and remove machines on the Mac.' });
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        if (p === '/api/machines/retry') return sendJson(res, 200, { ok: machines.retry(String(body.name || '')), machines: machines.status() });
+        const r = p === '/api/machines/add' ? machines.add(body || {}) : machines.remove(String((body && body.name) || ''));
+        if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
+        afterRegistry(r.reg);
+        wantTick = true; setTimeout(tick, 30);
+        return sendJson(res, 200, { ok: true, machines: machines.status() });
+      }
+      if (p === '/api/setup/hooks') {
+        // The app's first-launch setup: Ravenry's hooks in Claude Code's and
+        // Codex's settings, with `ravenryd hook` (the app gives its path).
+        if (!req.mcLocal) return sendJson(res, 403, { error: 'Set up the hooks on the Mac.' });
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = hookinstall.setupWithRavenryd({ ravenryd: body.ravenryd, dry: !!body.dry, remove: !!body.remove });
+        return sendJson(res, r.ok ? 200 : 400, r.ok ? { ...r, claude: r.claude && { ...r.claude, backup: r.claude.backup ? short(r.claude.backup) : null } } : { error: r.error });
       }
       if (p === '/api/sessions/reopen') {
         const r = await reopenSession(await jsonBody(req, 1e5));
@@ -2444,6 +2548,8 @@ if (process.env.MC_NO_EVENTS !== '1') {
       if (soon) return;
       soon = setTimeout(() => { soon = null; tick(); }, 400);
     },
+    onCheckpoint,
+    onLost: (daemon) => checkpoints.dropDaemon(daemon),
     decide: term.ravenryDecider,
   });
 }

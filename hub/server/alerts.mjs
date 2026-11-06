@@ -415,3 +415,23 @@ export function observe(projects, opts = {}) {
   out.desktop = desktopTrigger(projects, opts);
   return out;
 }
+
+// ------------------------------------------------------------ checkpoints
+
+// A checkpoint that opened (server/checkpoints.mjs): an agent waits for the
+// person, so it alerts at once, once per checkpoint, through the same
+// channel and the Mac's notifications, with no cooldown (the agent is
+// blocked until someone answers). Like every alert it says who and what
+// kind, never the agent's text: the question, the command and the secret's
+// label stay on the board.
+export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to run a command', secret: 'Needs you to type a secret' };
+
+export function checkpointAlert(cp, { project = null, machine = null, boardUrl = null } = {}) {
+  const who = project ? project.name : machine ? `An agent on ${machine}` : 'An agent';
+  const body = (CHECKPOINT_KINDS[cp.kind] || 'Waits for you') + (machine && project ? ` (on ${machine})` : '');
+  const alert = { test: false, kind: 'checkpoint', projectId: project ? project.id : null, project: project ? project.name : null, title: `${who} needs you`, body, url: boardUrl ? `${boardUrl}#checkpoint=${encodeURIComponent(cp.id)}` : null };
+  const d = load();
+  if (d.enabled && ready(d, d.channel)) deliver(alert).catch((e) => console.error('alerts:', e.message));
+  if (d.desktop.enabled !== false) deliverDesktop({ kind: 'checkpoint', projectId: alert.projectId, title: alert.title, body: alert.body }).catch((e) => console.error('desktop:', e.message));
+  return alert;
+}

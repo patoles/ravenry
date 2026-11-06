@@ -1,0 +1,50 @@
+// Starting an assistant session in a ravenryd pane through the hub (POST
+// /api/sessions/start), on this machine or a remote one: the app's "Start
+// Claude in <folder>" calls this instead of pane.new, so the session gets
+// what every session the board starts gets. Its pane is labelled for the
+// app (ravenry.session, ravenry.project); the assistant starts with the
+// project's brief to read (Hand-off section first), or the person's first
+// message; its hooks report through `ravenryd hook` to the pane's daemon,
+// and the hand-off works on it, also on a remote machine.
+//
+// plan() is the pure part (what runs where); server/ravenryd.mjs
+// startSession() opens the pane and types it.
+
+import path from 'node:path';
+import { shellWord } from './create.mjs';
+
+const ASSISTANTS = new Set(['claude', 'codex']);
+
+// body: { projectId, folder, machine, assistant, text, cols, rows }.
+// project: the registry's (or null); launch(project, assistant): { kind,
+// command }; briefPath(project): its BRIEF.md or null; briefExists(p).
+// Returns { ok, cwd, machine, line, label, labels, cols, rows, kind } or
+// { ok: false, status, error }.
+export function plan(body, { project = null, launch, briefPath = () => null, briefExists = () => false, machines = [] }) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (b.projectId != null && !project) return { ok: false, status: 404, error: 'No such project.' };
+  const machine = b.machine == null || b.machine === '' ? (project && project.machine) || null : String(b.machine);
+  if (machine && !machines.includes(machine)) return { ok: false, status: 404, error: `No machine is called ${machine}. Add it first.` };
+  const folder = typeof b.folder === 'string' && b.folder.trim() ? b.folder.trim() : project ? project.folder : null;
+  if (!folder || !path.isAbsolute(folder)) return { ok: false, status: 400, error: 'Give the folder to start in (an absolute path).' };
+  if (b.assistant != null && !ASSISTANTS.has(b.assistant)) return { ok: false, status: 400, error: 'assistant is claude or codex.' };
+  const L = launch(project, b.assistant || null);
+  const text = typeof b.text === 'string' && b.text.trim() ? b.text.trim() : null;
+  let prompt = text;
+  if (!prompt && project) {
+    const bp = briefPath(project);
+    if (bp && (machine || briefExists(bp))) {
+      const rel = path.relative(folder, bp);
+      prompt = `Read ${rel.startsWith('..') ? bp : rel} (Hand-off section first) and continue.`;
+    }
+  }
+  const line = prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
+  const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);
+  const cols = size(b.cols), rows = size(b.rows);
+  return {
+    ok: true, cwd: folder, machine, line, kind: L.kind,
+    label: String((project && project.name) || path.basename(folder) || 'Session').slice(0, 60),
+    labels: { 'ravenry.session': L.kind, ...(project ? { 'ravenry.project': project.id.slice(0, 256) } : {}) },
+    ...(cols && rows ? { cols, rows } : {}),
+  };
+}
