@@ -49,12 +49,12 @@ class AlertsTest {
         val ask = Alert.parse(msg("ask", a("choice:1", "Not yet"), """{"action":"text","label":"Answer"}"""))!!
         val c = Actions.call(ask, "choice:1") as ActionCall.Post
         assertEquals("/api/checkpoints/answer", c.path)
-        assertEquals("""{"checkpoint":"c1234567","choice":1,"by":"phone"}""", c.json)
-        assertEquals("""{"checkpoint":"c1234567","text":"Later today","by":"phone"}""", (Actions.call(ask, "reply", " Later today ") as ActionCall.Post).json)
+        assertEquals("""{"id":"c1234567","choice":1,"by":"phone"}""", c.json)
+        assertEquals("""{"id":"c1234567","text":"Later today","by":"phone"}""", (Actions.call(ask, "reply", " Later today ") as ActionCall.Post).json)
         val run = Actions.call(Alert.parse(msg("approve", listOf(a("run", "Run"), a("refuse", "Refuse"), a("open", "Open")).joinToString(",")))!!, "run")
         assertTrue(run is ActionCall.Run)
-        assertEquals("""{"checkpoint":"c1234567","approve":true,"by":"phone"}""", (run as ActionCall.Run).post.json)
-        assertEquals("""{"checkpoint":"c1234567","decline":true,"by":"phone"}""", (Actions.call(ask, "refuse") as ActionCall.Post).json)
+        assertEquals("""{"id":"c1234567","approve":true,"by":"phone"}""", (run as ActionCall.Run).post.json)
+        assertEquals("""{"id":"c1234567","decline":true,"by":"phone"}""", (Actions.call(ask, "refuse") as ActionCall.Post).json)
         val perm = Alert.parse(msg("permission", a("quick:2", "Yes, always")))!!
         val q = Actions.call(perm, "quick:2") as ActionCall.Post
         assertEquals("/api/send", q.path)
@@ -69,5 +69,8 @@ class AlertsTest {
     @Test fun theConnectionLineCountsSessions() {
         val s = """{"projects":[{"machine":null,"sessions":[{"state":"working"},{"state":"dialog"}]},{"machine":"devbox","sessions":[{"state":"idle","words":{"state":"work"}},{"state":"asked"},{"state":"idle"}]}]}"""
         assertEquals("Linked to Studio Mac and devbox. 2 sessions working, 2 need you.", ConnectionService.status("Studio Mac", s))
+        // A working session whose agent waits on an open checkpoint needs you.
+        val cp = """{"projects":[{"sessions":[{"surfaceId":"ravenry:pa","state":"working"},{"surfaceId":"ravenry:pb","state":"working"}]}],"checkpoints":[{"state":"open","surfaceId":"ravenry:pa"},{"state":"answered","surfaceId":"ravenry:pb"}]}"""
+        assertEquals("Linked to Studio Mac. 1 session working, 1 need you.", ConnectionService.status("Studio Mac", cp))
     }
 }

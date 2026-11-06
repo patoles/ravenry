@@ -242,10 +242,10 @@ What each action does, as the device, on the phone port:
 
 | Action | Call |
 | --- | --- |
-| `choice:<i>` | `POST /api/checkpoints/answer { checkpoint, choice: i, by: "phone" }` |
-| the reply of an `ask` | `POST /api/checkpoints/answer { checkpoint, text, by: "phone" }` |
-| `run` (marked `biometric: true`) | BiometricPrompt, then `POST /api/checkpoints/answer { checkpoint, approve: true, by: "phone" }` |
-| `refuse`, `decline` | `POST /api/checkpoints/answer { checkpoint, decline: true, by: "phone" }` |
+| `choice:<i>` | `POST /api/checkpoints/answer { id: checkpoint, choice: i, by: "phone" }` |
+| the reply of an `ask` | `POST /api/checkpoints/answer { id: checkpoint, text, by: "phone" }` |
+| `run` (marked `biometric: true`) | BiometricPrompt, then `POST /api/checkpoints/answer { id: checkpoint, approve: true, by: "phone" }` |
+| `refuse`, `decline` | `POST /api/checkpoints/answer { id: checkpoint, decline: true, by: "phone" }` |
 | `quick:<n>` | `POST /api/send { projectId, surfaceId, choice: n }`; an answer the screen gave no number carries its `text` on the action, and sends `{ projectId, surfaceId, text }` instead |
 | the reply of a session | `POST /api/send { projectId, surfaceId, text }` |
 | `open` | opens the app on that checkpoint or session |

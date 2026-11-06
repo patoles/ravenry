@@ -40,7 +40,7 @@ function find(id: string): HubCheckpoint | null {
 const machineOfCp = (cp: HubCheckpoint): string => (isRemote(cp.machine) ? String(cp.machine) : current().hello.hub.name);
 
 async function answer(cp: HubCheckpoint, reply: Record<string, unknown>): Promise<void> {
-  await hub.post('/api/checkpoints/answer', { checkpoint: cp.id, by: 'phone', ...reply });
+  await hub.post('/api/checkpoints/answer', { id: cp.id, by: 'phone', ...reply });
   void current().call('alerts.clear', { id: `cp:${cp.id}` }).catch(() => {});
 }
 

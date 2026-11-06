@@ -444,7 +444,7 @@ class MainActivity : FragmentActivity() {
             id?.let { reply(it, false, error = err) } ?: event(JSONObject().put("event", "secret.done").put("ok", false).put("error", err))
             return
         }
-        val body = JSONObject().put("checkpoint", cp).put("secret", s).put("by", "phone").toString()
+        val body = JSONObject().put("id", cp).put("secret", s).put("by", "phone").toString()
         Hub.io.execute {
             val r = runCatching { hub().call("POST", "/api/checkpoints/answer", body) }
             val ok = r.getOrNull()?.status == 200

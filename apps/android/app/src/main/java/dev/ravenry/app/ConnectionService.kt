@@ -59,6 +59,16 @@ class ConnectionService : Service() {
             val projects = o.optJSONArray("projects") ?: return null
             var work = 0; var you = 0
             val machines = linkedSetOf<String>()
+            // A session whose agent waits on an open checkpoint needs you,
+            // whatever its own state says (the desktop's sidebar does the same).
+            val waiting = hashSetOf<String>()
+            o.optJSONArray("checkpoints")?.let { cps ->
+                for (i in 0 until cps.length()) {
+                    val c = cps.optJSONObject(i) ?: continue
+                    val sid = c.optString("surfaceId")
+                    if (c.optString("state") == "open" && sid.isNotEmpty() && sid != "null") waiting += sid
+                }
+            }
             for (i in 0 until projects.length()) {
                 val p = projects.optJSONObject(i) ?: continue
                 p.optString("machine").takeIf { it.isNotEmpty() && it != "null" }?.let { machines += it }
@@ -66,7 +76,7 @@ class ConnectionService : Service() {
                 for (j in 0 until ss.length()) {
                     val s = ss.optJSONObject(j) ?: continue
                     s.optString("machine").takeIf { it.isNotEmpty() && it != "null" }?.let { machines += it }
-                    val g = GROUP[s.optString("state")] ?: s.optJSONObject("words")?.optString("state")
+                    val g = if (s.optString("surfaceId") in waiting) "you" else GROUP[s.optString("state")] ?: s.optJSONObject("words")?.optString("state")
                     if (g == "work") work++ else if (g == "you") you++
                 }
             }

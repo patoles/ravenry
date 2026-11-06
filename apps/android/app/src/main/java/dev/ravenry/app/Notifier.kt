@@ -64,6 +64,9 @@ object Notifier {
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setContentIntent(openIntent(context, a))
         .setAutoCancel(true)
+        // A group of its own, so Android never folds several alerts into
+        // one line: each keeps its buttons in the shade.
+        .setGroup(a.id)
 
     fun show(context: Context, a: Alert) {
         val text = SpannableStringBuilder()
@@ -95,6 +98,7 @@ object Notifier {
         .setColor(0xFF30D158.toInt())
         .setContentTitle(context.getString(R.string.connected))
         .setContentText(text)
+        .setGroup("connection")
         .setStyle(NotificationCompat.BigTextStyle().bigText(text))
         .setOngoing(true)
         .setSilent(true)

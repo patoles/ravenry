@@ -83,7 +83,7 @@ sealed class ActionCall {
 object Actions {
     private fun q(s: String) = JSONObject.quote(s)
 
-    private fun answer(cp: String, field: String) = ActionCall.Post("/api/checkpoints/answer", "{\"checkpoint\":${q(cp)},$field,\"by\":\"phone\"}")
+    private fun answer(cp: String, field: String) = ActionCall.Post("/api/checkpoints/answer", "{\"id\":${q(cp)},$field,\"by\":\"phone\"}")
 
     /** The call for a button, or for the reply line (`id` "reply" with its text). Null when it cannot be made. */
     fun call(a: Alert, id: String, text: String? = null): ActionCall? {
