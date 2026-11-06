@@ -220,6 +220,8 @@ async function boardAnswers(): Promise<boolean> {
 
 // The hub as a user service, installed or brought up to this version, then
 // version folders nothing runs from any more are removed.
+let settingUp: Promise<void> | null = null;
+
 async function setUpService(staged: Staged): Promise<void> {
   const mode = serviceMode(process.env, app.isPackaged);
   const run = (cmd: string, args: string[]) => {
@@ -255,7 +257,7 @@ app.whenReady().then(async () => {
   feed = new HubFeed(hubUrl(), (s) => send('hub:state', s), (st: HubStatus) => send('hub:status', st));
   feed.start();
   win = createWindow();
-  if (staged) void setUpService(staged);
+  if (staged) settingUp = setUpService(staged).finally(() => { settingUp = null; });
   if (!OFFSCREEN) updates.start();
   if (process.env.RAVENRY_DRIVER) {
     // Tests and screenshots: a script outside the app drives the window.
@@ -270,3 +272,11 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 app.on('activate', () => { if (!win && app.isReady()) win = createWindow(); });
 app.on('window-all-closed', () => { if (!isMac || OFFSCREEN) app.quit(); });
 app.on('before-quit', () => { store?.flush(); feed?.stop(); updates.stop(); });
+// A quit while the service is being set up (an AppImage copying its
+// runtime takes a few seconds) waits for it, up to 30 s, so it is never left
+// half written.
+app.on('will-quit', (e) => {
+  if (!settingUp) return;
+  e.preventDefault();
+  void Promise.race([settingUp, new Promise((r) => setTimeout(r, 30000))]).then(() => { settingUp = null; app.quit(); });
+});
