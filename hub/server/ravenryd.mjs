@@ -249,7 +249,7 @@ export async function focus(id) {
 // daemon, which is started when none runs (RAVENRY_DAEMON_BIN or ravenryd
 // on the PATH). The caller types the command into it, so the pane outlives
 // the command. Returns { ok, surfaceId, surfaceRef }.
-export async function openTab({ near = null, cwd = null, label = null, machine = null, labels = null } = {}) {
+export async function openTab({ near = null, cwd = null, label = null, machine = null, labels = null, env = null } = {}) {
   if (held()) return { ok: false, err: 'a test board does not reach the real ravenryd' };
   let d = near ? await daemonOf(near) : null;
   if (!d && machine) {
@@ -267,7 +267,7 @@ export async function openTab({ near = null, cwd = null, label = null, machine =
   const dir = d.machine ? cwd || undefined : cwd && fs.existsSync(cwd) ? cwd : os.homedir();
   const name = String(label || (cwd ? path.basename(cwd) : '') || 'Claude').slice(0, 60);
   try {
-    const { pane } = await d.c.request('pane.new', { ...(dir ? { cwd: dir } : {}), name, ...(labels && d.c.has('pane.update') ? { labels } : {}) }, { timeoutMs: 10000 });
+    const { pane } = await d.c.request('pane.new', { ...(dir ? { cwd: dir } : {}), name, ...(labels && d.c.has('pane.update') ? { labels } : {}), ...(env ? { env } : {}) }, { timeoutMs: 10000 });
     where.set(pane.id, d.id);
     return { ok: true, surfaceId: PREFIX + pane.id, surfaceRef: d.machine ? `Ravenry tab on ${d.machine}` : 'Ravenry tab', machine: d.machine, pane };
   } catch (e) {
@@ -280,8 +280,8 @@ export async function openTab({ near = null, cwd = null, label = null, machine =
 // the assistant's line typed once the shell drew its prompt, so the pane
 // outlives the assistant. Returns { ok, surfaceId, pane, machine } or
 // { ok: false, err }.
-export async function startSession({ machine = null, cwd, line, label = null, labels = null, cols = null, rows = null }) {
-  const made = await openTab({ machine, cwd, label, labels });
+export async function startSession({ machine = null, cwd, line, label = null, labels = null, cols = null, rows = null, env = null }) {
+  const made = await openTab({ machine, cwd, label, labels, env });
   if (!made.ok) return made;
   const d = await daemonOf(made.surfaceId);
   if (!d) return { ok: false, err: 'its pane closed at once' };

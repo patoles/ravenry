@@ -403,7 +403,11 @@ pane in the folder, here or on the machine, labelled `ravenry.session` and
 `ravenry.project`, and types the assistant's line once the shell drew its
 prompt: the project's brief to read first, or `text` as the first message.
 The app calls it instead of `pane.new`, so the hooks, the brief and the
-hand-off apply.
+hand-off apply. On this machine, the folder the assistant's binary is in
+goes first on the pane's `PATH`: the board finds Claude Code where its
+installer puts it (~/.local/bin) even when the person's shell files do not
+add that folder, and a daemon started by the app has the Finder's short
+`PATH`.
 
 **Checkpoints.** server/checkpoints.mjs keeps every daemon's open
 checkpoints (and the last 100 closed in checkpoints.json), in the state as

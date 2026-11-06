@@ -822,7 +822,7 @@ function renderStart(): void {
       anyFound
         ? h('div.pick', st.assistants.map((x) => h(`button.pk${x.kind === st.assistant ? '.on' : ''}`, { disabled: !x.found, on: { click: () => { st.assistant = x.kind; renderStart(); } } },
           h('span.h', x.name),
-          h('span.s', h(`i.${x.found && x.signedIn ? 'ok' : x.found ? 'warn' : 'no'}`), x.found ? (x.signedIn ? 'Found, signed in' : 'Found, not signed in yet') : 'Not on this Mac'))))
+          h('span.s', h(`i.${x.found && x.signedIn ? 'ok' : x.found ? 'warn' : 'no'}`), x.found ? (x.signedIn ? 'Found, signed in' : 'Found, not signed in yet') : `Not on ${isMac() ? 'this Mac' : 'this computer'}`))))
         : h('p.t2.small', 'Neither Claude Code nor Codex is installed here yet. Install one, then come back. A plain shell works meanwhile.')));
 
   const label = a && folderName ? `Start ${assistantName(a.kind)} in ${folderName}` : folderName ? `Open a shell in ${folderName}` : 'Open a shell';
@@ -877,8 +877,10 @@ async function startSession(): Promise<void> {
     if (a && S.hubStatus?.reachable) {
       // The board starts it in a ravenryd pane, so its hooks, brief and
       // hand-off apply, and it shows in the sidebar.
-      const r = await api().hubPost('/api/sessions/start', { folder: st.folder || S.config?.home, assistant: a.kind, cols, rows }) as { surfaceId?: string; pane?: string; projectId?: string | null };
-      setView({ kind: 'session', key: r.projectId && r.surfaceId ? `${r.projectId}/${r.surfaceId}` : '', ...(r.pane ? { pane: r.pane } : {}) });
+      // The hub answers with the pane itself (hub/docs/TERMINALS.md), not its id.
+      const r = await api().hubPost('/api/sessions/start', { folder: st.folder || S.config?.home, assistant: a.kind, cols, rows }) as { surfaceId?: string; pane?: { id?: string }; projectId?: string | null };
+      const pane = r.pane && typeof r.pane.id === 'string' ? r.pane.id : null;
+      setView({ kind: 'session', key: r.projectId && r.surfaceId ? `${r.projectId}/${r.surfaceId}` : '', ...(pane ? { pane } : {}) });
       return;
     }
     // No board: the assistant (or a shell) in a pane of the app's own.

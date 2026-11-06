@@ -126,6 +126,14 @@ fs.writeFileSync(path.join(RPROJ, 'BRIEF.md'), '# Remote\n\nGoal: Prove it.\n\n#
 const pl = plan({ folder: RPROJ, machine: 'devbox', text: 'hello there' }, { launch: () => ({ kind: 'claude', command: 'echo started-$RAVENRY_PANE' }), machines: ['devbox'] });
 check('session plan: the folder, the machine, the line, the labels', pl.ok && pl.machine === 'devbox' && pl.line === "echo started-$RAVENRY_PANE 'hello there'" && pl.labels['ravenry.session'] === 'claude', JSON.stringify(pl));
 check('session plan: an unknown machine is refused', !plan({ folder: RPROJ, machine: 'nope' }, { launch: () => ({}), machines: ['devbox'] }).ok);
+{
+  // Here, an assistant found where its installer put it goes first on the pane's PATH; never on another machine, nor for a command the person set.
+  const binPath = (n) => `/home/x/.local/bin:/usr/bin`;
+  const here = plan({ folder: '/tmp', assistant: 'claude' }, { launch: () => ({ kind: 'claude', command: 'claude' }), binPath });
+  const there = plan({ folder: RPROJ, machine: 'devbox', assistant: 'claude' }, { launch: () => ({ kind: 'claude', command: 'claude' }), machines: ['devbox'], binPath });
+  const own = plan({ folder: '/tmp', assistant: 'claude' }, { launch: () => ({ kind: 'claude', command: '/opt/my/claude --x' }), binPath });
+  check('session plan: the assistant\'s folder on the PATH here only, for the bare command only', here.env && here.env.PATH === binPath('claude') && !there.env && !own.env, JSON.stringify([here.env, there.env, own.env]));
+}
 const st = await rv.startSession(pl);
 const PANE = st.ok ? rv.paneOf(st.surfaceId) : null;
 check('a session starts in a pane on the machine', st.ok && st.machine === 'devbox' && st.pane && st.pane.labels['ravenry.session'] === 'claude', JSON.stringify(st));

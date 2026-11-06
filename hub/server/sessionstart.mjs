@@ -18,9 +18,15 @@ const ASSISTANTS = new Set(['claude', 'codex']);
 // body: { projectId, folder, machine, assistant, text, cols, rows }.
 // project: the registry's (or null); launch(project, assistant): { kind,
 // command }; briefPath(project): its BRIEF.md or null; briefExists(p).
-// Returns { ok, cwd, machine, line, label, labels, cols, rows, kind } or
+// Returns { ok, cwd, machine, line, label, labels, cols, rows, kind, env } or
 // { ok: false, status, error }.
-export function plan(body, { project = null, launch, briefPath = () => null, briefExists = () => false, machines = [] }) {
+// binPath(name): the PATH a pane on this machine starts the assistant with,
+// its own folder first, or null when it is not found here. The board finds
+// an assistant where its installer puts it (~/.local/bin, ~/.claude/local)
+// even when the person's shell files do not add that folder, so a pane
+// started from the app (whose daemon has the short PATH the Finder gives)
+// would say "command not found: claude".
+export function plan(body, { project = null, launch, briefPath = () => null, briefExists = () => false, machines = [], binPath = () => null }) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.projectId != null && !project) return { ok: false, status: 404, error: 'No such project.' };
   const machine = b.machine == null || b.machine === '' ? (project && project.machine) || null : String(b.machine);
@@ -39,10 +45,12 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
     }
   }
   const line = prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
+  const first = String(L.command).trim().split(/\s+/)[0];
+  const PATH = !machine && ASSISTANTS.has(first) ? binPath(first) : null;
   const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);
   const cols = size(b.cols), rows = size(b.rows);
   return {
-    ok: true, cwd: folder, machine, line, kind: L.kind,
+    ok: true, cwd: folder, machine, line, kind: L.kind, ...(PATH ? { env: { PATH } } : {}),
     label: String((project && project.name) || path.basename(folder) || 'Session').slice(0, 60),
     labels: { 'ravenry.session': L.kind, ...(project ? { 'ravenry.project': project.id.slice(0, 256) } : {}) },
     ...(cols && rows ? { cols, rows } : {}),

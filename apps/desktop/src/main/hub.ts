@@ -35,6 +35,7 @@ export class HubFeed {
   private stopped = false;
   private abort: AbortController | null = null;
   private retryMs = 1000;
+  private startedAt = 0;
 
   constructor(url: string, onState: (s: unknown) => void, onStatus: (s: HubStatus) => void) {
     this.url = url;
@@ -43,6 +44,7 @@ export class HubFeed {
   }
 
   start(): void {
+    this.startedAt = Date.now();
     void this.loop();
   }
 
@@ -70,8 +72,12 @@ export class HubFeed {
       } catch (e) {
         if (this.stopped) return;
         this.setStatus({ reachable: false, url: this.url, error: String((e as Error).message || e) });
-        await new Promise((r) => setTimeout(r, this.retryMs));
-        this.retryMs = Math.min(this.retryMs * 2, 10000);
+        // On a first launch the hub service starts with the window and
+        // answers about a second later: asked every 250 ms for the first
+        // 15 s, so the sidebar and the hook offer come as soon as it does.
+        const early = Date.now() - this.startedAt < 15000;
+        await new Promise((r) => setTimeout(r, early ? 250 : this.retryMs));
+        if (!early) this.retryMs = Math.min(this.retryMs * 2, 10000);
       }
     }
   }

@@ -176,6 +176,15 @@ function launchFor(choice) {
   return { kind: choice.kind, command: asst.startCommand(choice.kind, settings), note: choice.note, short: asst.of(choice.kind).SHORT };
 }
 
+// The PATH a session pane starts an assistant with (server/sessionstart.mjs
+// binPath): the folder its binary is in, first, then the board's own PATH
+// (the service's has the usual install folders), or null when it is not here.
+function assistantPath(name) {
+  const dirs = [...String(process.env.PATH || '').split(':'), path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.claude', 'local')].filter((d) => d && path.isAbsolute(d));
+  const dir = dirs.find((d) => { try { fs.accessSync(path.join(d, name), fs.constants.X_OK); return !/\/cmux-cli-shims(\/|$)/.test(d); } catch { return false; } });
+  return dir ? [...new Set([dir, ...dirs])].join(':') : null;
+}
+
 // A new session for a project (Revive, New session, a plan's start): its
 // own assistant, else startWith, else Claude Code, never its newest
 // session's. A hand-off's fresh session keeps the assistant of the session
@@ -2696,6 +2705,7 @@ async function handleRequest(req, res) {
           briefPath: (proj) => registry.briefPath(proj),
           briefExists: (f) => fs.existsSync(f),
           machines: machines.status().map((m) => m.name),
+          binPath: assistantPath,
         });
         if (!pl.ok) return sendJson(res, pl.status, { error: pl.error });
         const r = await term.ravenryStart(pl);
@@ -2880,6 +2890,12 @@ server.listen(PORT, () => {
   console.log(`Ravenry on http://localhost:${PORT}${lan ? `, phones on http://${lan.address}:${PORT}` : ''}  (registry ${registry.REGISTRY_PATH})`);
   // Phone access on: the phone port opens with the board (docs/PHONE.md).
   syncPhonePort();
+  // The desktop app's hub after an update: its hooks follow it to this
+  // version's folder (server/hookinstall.mjs refreshAppHooks).
+  if (process.env.RAVENRY_HUB_SERVICE === '1') {
+    const r = hookinstall.refreshAppHooks();
+    for (const [who, ch] of Object.entries(r)) if (ch.length) console.log(`hooks: ${who}'s moved to this version: ${ch.join('; ')}`);
+  }
 });
 // The hub's record of plan gates starts from what the briefs say once, the
 // first time there is none (server/gates.mjs adopt).
