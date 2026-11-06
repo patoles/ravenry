@@ -111,7 +111,7 @@ Object.assign(extraEnv, { RAVENRY_HUB_NAME: 'MacBook Pro' });
 if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
 const hub = await startDemoHub({
   dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false,
-  panes: ['notes-app', 'recipe-box', 'garden-planner', 'weather-widget'],
+  panes: ['notes-app', 'recipe-box', 'garden-planner', 'weather-widget', 'paper-boat'],
   env: extraEnv,
   settings: { machines: [{ name: 'devbox', host: 'devbox' }] },
   extra: [{ id: 'notes-cli' }, { id: 'portfolio' }, { id: 'trail-map' }],
@@ -156,13 +156,26 @@ const liveS = sessionScript(S['weather-widget'], {
   wait: 'sleep 100000',
   title: 'Cache forecasts',
 });
-const newPane = (env, s, file, name) => execFileSync(BIN, ['new', '--cwd', s.folder, '--name', name, '--size', '56x40', '--label', 'ravenry.session=claude', '--', '/bin/sh', file], { env, encoding: 'utf8' }).trim();
+// Every symbol Claude Code and Codex can print (tools/agent-glyphs.txt), so
+// a look at this pane shows whether the phone draws each one as text.
+const glyphLines = fs.readFileSync(path.join(HERE, 'agent-glyphs.txt'), 'utf8').split('\n').filter((l) => l && !l.startsWith('#'));
+const glyphS = sessionScript(S['paper-boat'], {
+  screen: glyphLines.map((l) => (/^[A-Z]/.test(l) ? `\n${C.w}${l}${C.r}` : l)).join('\n') + '\n',
+  wait: 'sleep 100000',
+  title: 'Glyph check',
+});
+// recipe-box lives on devbox, in devbox's own home, so its folder is said
+// against devbox's home (hub/public/homepath.mjs), not this computer's.
+const DEVBOX_FOLDER = path.join(DEVBOX_HOME, 'code', 'recipe-box');
+fs.mkdirSync(DEVBOX_FOLDER, { recursive: true });
+const newPane = (env, s, file, name, cwd = s.folder) => execFileSync(BIN, ['new', '--cwd', cwd, '--name', name, '--size', '56x40', '--label', 'ravenry.session=claude', '--', '/bin/sh', file], { env, encoding: 'utf8' }).trim();
 newPane(localEnv(WORK), S['weather-widget'], liveS, 'Cache forecasts');
+newPane(localEnv(WORK), S['paper-boat'], glyphS, 'Glyph check');
 // --hold: the three checkpoints open only once <dir>/go exists, so a phone
 // paired first gets their alerts as they open.
 const openCheckpoints = () => {
   newPane(localEnv(WORK), S['notes-app'], askS, 'Sync settings');
-  newPane(DEVBOX_ENV, S['recipe-box'], approveS, 'Old recipe import');
+  newPane(DEVBOX_ENV, S['recipe-box'], approveS, 'Old recipe import', DEVBOX_FOLDER);
   newPane(localEnv(WORK), S['garden-planner'], secretS, 'Reminder emails');
 };
 if (args.includes('--hold')) {

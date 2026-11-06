@@ -321,7 +321,8 @@ Must be the first request.
 | `answer_key` | string, optional | A hub's answer key, at most 256 bytes: over ssh, the key that lets this connection act as the person (Who acts as the person, below). |
 
 Result: `protocol` (1), `daemon` (`version`, `pid`, `os`, `arch`,
-`started_at`, and `draining` when a newer daemon runs beside this one, see
+`started_at`, `home`, the home folder of the user it runs as, which a
+client shows as `~` in the folders of this machine, and `draining` when a newer daemon runs beside this one, see
 section 9), `methods`, the methods this daemon supports, and `person`,
 whether this connection may act as the person. A client checks `methods`
 before using a method added after v1.0 (section 10).

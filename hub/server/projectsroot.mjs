@@ -27,6 +27,7 @@ import path from 'node:path';
 import { checkExistingFolder } from './create.mjs';
 import { RAVENRY_HOME, SCRATCH_DATA, inRepoTmp } from './home.mjs';
 import * as registry from './registry.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const ENV_ROOT = process.env.MC_PROJECTS_ROOT || '';
 const SUGGEST = ['Developer', 'Projects', 'Code', 'dev', 'src'];
@@ -36,7 +37,7 @@ const realOr = (p) => { try { return fs.realpathSync(p); } catch { return path.r
 const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 
 function shortIn(home) {
-  return (p) => (p && (p === home || p.startsWith(home + path.sep)) ? '~' + p.slice(home.length) : p);
+  return (p) => sayPath(p, home);
 }
 
 // The projects that count: on the board (not hidden) and with a folder.

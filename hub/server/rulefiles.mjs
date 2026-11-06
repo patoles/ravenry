@@ -24,9 +24,10 @@ import { plainRule } from './rules.mjs';
 import { codexHome } from './codexrollout.mjs';
 import { isBroadFolder } from './folders.mjs';
 import { SCRATCH_DATA, inRepoTmp } from './home.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const HOME = os.homedir();
-const short = (p) => (p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p);
+const short = (p) => sayPath(p, HOME);
 const readOr = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
 
 // A file's rules as the Your rules cards show them: the "- " rules under

@@ -48,6 +48,7 @@ import * as gates from './gates.mjs';
 import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
 import * as pages from './pages.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -201,8 +202,21 @@ function reserve(name) {
   };
 }
 
+// The home folder of each machine, "" for this one, from what each remote
+// ravenryd says in hello: clients say a machine's folders against its own
+// home (public/homepath.mjs), and so do the phone's alerts.
+function homesNow() {
+  const out = { '': HOME };
+  for (const m of machines.connected()) {
+    const h = m.c && m.c.hello && m.c.hello.daemon && m.c.hello.daemon.home;
+    if (h && !out[m.name]) out[m.name] = h;
+  }
+  push.setHomes(out);
+  return out;
+}
+
 function short(p) {
-  return p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p;
+  return sayPath(p, HOME);
 }
 
 async function refreshSidebars(workspaces, force) {
@@ -986,7 +1000,7 @@ async function tick() {
     pagesSessions = sessionsView;
     let pageRows = [];
     try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
-    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), checkpoints: checkpointsView(projects) };
+    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New

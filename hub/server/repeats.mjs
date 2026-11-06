@@ -36,6 +36,7 @@ import * as registry from './registry.mjs';
 import { claudeProjectDir } from './config.mjs';
 import * as rules from './rules.mjs';
 import * as asst from './assistant.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const HOME = os.homedir();
 // The seed: clusters a first start begins from. None ships: a new board
@@ -61,7 +62,7 @@ const MAX_CLASSIFY_CALLS = 3;
 const MAX_DRAFTS = 10;
 const MSG_CHARS = 1200;
 
-export const short = (p) => (p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p);
+export const short = (p) => sayPath(p, HOME);
 const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 export const dayWord = (iso) => { const d = new Date(iso); return `${d.getDate()} ${MON[d.getMonth()]}`; };
 

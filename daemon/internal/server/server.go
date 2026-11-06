@@ -183,8 +183,17 @@ func (s *Server) daemonInfo() proto.DaemonInfo {
 	defer s.mu.Unlock()
 	return proto.DaemonInfo{
 		Version: s.o.Version, PID: os.Getpid(), OS: runtime.GOOS, Arch: runtime.GOARCH,
-		StartedAt: stamp(s.started), Draining: s.draining,
+		StartedAt: stamp(s.started), Home: home(), Draining: s.draining,
 	}
+}
+
+// home is the folder clients say as ~ for this machine.
+func home() string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 // ServeHTTP upgrades a request on /v1 to a protocol connection.

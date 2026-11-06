@@ -26,7 +26,8 @@ import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
-import { checksOf, dropLine, mmss, tilde, topLabel, waitOf } from './logic.ts';
+import { checksOf, dropLine, mmss, topLabel, waitOf } from './logic.ts';
+import { sayPathOn } from '../../../hub/public/homepath.mjs';
 import type { Drop } from './logic.ts';
 import { back, go, toast } from './main.ts';
 import type { Screen } from './main.ts';
@@ -174,7 +175,7 @@ function approveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElemen
     topBar(cp, DI.RUN), ...fromLine(cp),
     cmdEl,
     h('div.pkv',
-      h('span', 'Folder'), h('span.mono', cp.cwd ? tilde(cp.cwd) : 'Home folder'),
+      h('span', 'Folder'), h('span.mono', cp.cwd ? sayPathOn(cp.cwd, cp.machine, hub.live.state?.homes) : 'Home folder'),
       h('span', 'Machine'), h('span', machine),
       h('span', 'Pane'), h('span', f ? `This session, ${f.session.topic || f.project.name}` : 'A new pane'),
       env.map(([k, v]) => [h('span.mono', k), h('span.mono', String(v))])),

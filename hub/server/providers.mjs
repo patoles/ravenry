@@ -24,9 +24,10 @@ import path from 'node:path';
 
 import { derive } from './planfmt.mjs';
 import { rowModel } from '../public/plan-view.js';
+import { sayPath } from '../public/homepath.mjs';
 
 const HOME = os.homedir();
-const short = (p) => (p && p.startsWith(HOME + path.sep) ? '~' + p.slice(HOME.length) : p === HOME ? '~' : p);
+const short = (p) => sayPath(p, HOME);
 
 // Drops the keys with no value, so `has:` and `not: { has: }` tell them apart.
 function clean(o) {

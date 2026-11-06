@@ -138,6 +138,10 @@ type DaemonInfo struct {
 	OS        string `json:"os"`
 	Arch      string `json:"arch"`
 	StartedAt string `json:"started_at"`
+	// Home is the home folder of the user the daemon runs as, so a client
+	// says a folder on this machine with ~ (empty when the system does not
+	// say).
+	Home string `json:"home,omitempty"`
 	// Draining names a newer daemon version running beside this one: new
 	// panes belong there, and this daemon exits when its panes have ended.
 	Draining string `json:"draining,omitempty"`

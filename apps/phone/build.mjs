@@ -39,7 +39,9 @@ await esbuild.build({
 const pages = `.pgx {\n${fs.readFileSync(DESKTOP_CSS, 'utf8')}\n}\n`;
 const xterm = fs.readFileSync(path.join(ROOT, '..', '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), 'utf8');
 const own = fs.readFileSync(path.join(ROOT, 'src', 'phone.css'), 'utf8');
-const css = await esbuild.transform(`${xterm}\n${pages}\n${own}`, { loader: 'css', minify: true, target: TARGET, legalComments: 'none' });
+// "Ravenry Glyphs": the agents' symbols as text (tools/glyph-font.py).
+const glyphs = fs.readFileSync(path.join(ROOT, 'src', 'glyphs.css'), 'utf8');
+const css = await esbuild.transform(`${glyphs}\n${xterm}\n${pages}\n${own}`, { loader: 'css', minify: true, target: TARGET, legalComments: 'none' });
 fs.writeFileSync(path.join(OUT, 'app.css'), css.code);
 fs.copyFileSync(path.join(ROOT, 'src', 'index.html'), path.join(OUT, 'index.html'));
 console.log(`built ${path.relative(process.cwd(), OUT) || '.'}`);

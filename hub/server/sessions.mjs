@@ -14,6 +14,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { RAVENRY_HOME } from './registry.mjs';
 import { plain, endingQuestion } from './state.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 export const CLOSED_DIR = path.join(RAVENRY_HOME, 'closed');
 export const KEEP_DAYS = 14;
@@ -284,7 +285,7 @@ export function lastLine({ t, marker, cls, topic }) {
 export function folderLabel(cwd) {
   if (!cwd) return 'Unknown folder';
   if (cwd === HOME) return '~ (home folder)';
-  const s = cwd.startsWith(HOME + '/') ? '~' + cwd.slice(HOME.length) : cwd;
+  const s = sayPath(cwd, HOME);
   const parts = s.split('/');
   return parts.length > 4 ? `${parts[0] || '/'}/.../${parts.slice(-2).join('/')}`.replace('//', '/') : s;
 }

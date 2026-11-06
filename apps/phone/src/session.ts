@@ -20,6 +20,9 @@ import type { Screen } from './main.ts';
 
 const COLOR: Record<string, string> = { you: 'var(--you)', work: 'var(--work)', wait: 'var(--wait)', idle: 'var(--idle)' };
 const enc = new TextEncoder();
+const TERM_FONT = "'Roboto Mono', 'DejaVu Sans Mono', 'Droid Sans Mono', 'Ravenry Glyphs', ui-monospace, monospace";
+// Loaded before a terminal draws, so its first screen is in the right font.
+const glyphsLoaded = Promise.all(['\u23FA\u2733\u26A0\u2800', '\u2500\u2190\u2713\u25CF'].map((t) => document.fonts.load("12px 'Ravenry Glyphs'", t))).catch(() => {});
 
 export function sessionScreen(key: string): Screen {
   const el = h('div.scr.session');
@@ -132,9 +135,13 @@ export function sessionScreen(key: string): Screen {
     // a headless browser), and a phone's few columns need no GPU.
     (view as unknown as { webgl: { dispose(): void } | null }).webgl?.dispose();
     view.term.options.fontSize = 11.5;
-    view.term.options.fontFamily = "'Roboto Mono', 'DejaVu Sans Mono', 'Droid Sans Mono', ui-monospace, monospace";
+    // The agents' symbols (⏺ ✳ ⚠ ⠋ ...) from the board's own glyph font,
+    // ahead of the system fallback, which on Android is the colour emoji
+    // font (src/glyphs.css, tools/glyph-font.py).
+    view.term.options.fontFamily = TERM_FONT;
     view.term.options.lineHeight = 1.25;
     try {
+      await glyphsLoaded;
       const client = await hub.paneClient(pane);
       if (disposed) { client.close(); return; }
       await view.show({ client, pane });

@@ -305,6 +305,10 @@ func TestHelloComesFirst(t *testing.T) {
 	if h.Protocol != 1 || h.Daemon.Version != "0.0.0-test" || h.Daemon.PID != os.Getpid() || len(h.Methods) != len(proto.Methods) {
 		t.Fatalf("hello %+v", h)
 	}
+	// The home folder clients say this machine's folders against with ~.
+	if want, _ := os.UserHomeDir(); h.Daemon.Home == "" || h.Daemon.Home != want {
+		t.Fatalf("hello's home %q, want %q", h.Daemon.Home, want)
+	}
 	if e := callErr(t, c, "hello", map[string]any{"client": map[string]any{"name": "t"}}); e.Code != proto.CodeBadRequest {
 		t.Fatalf("second hello: %s", e.Code)
 	}

@@ -12,7 +12,7 @@
   --sel: rgba(255,255,255,.09); --selring: rgba(255,255,255,.08); --btn: #3A3A40; --btn-tx: #F2F2F4; --input: #1A1A1D;
   --shadow: 0 1px 0 rgba(255,255,255,.03) inset; --link: #409CFF; --term-bg: #0B0B0C; --chg: rgba(10,132,255,.22);
   --tile: #313136; --tile-ring: 0 0 0 0 transparent; --lane-cnt: #313136;
-  --mono: 'Roboto Mono', 'DejaVu Sans Mono', 'Droid Sans Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --mono: 'Roboto Mono', 'DejaVu Sans Mono', 'Droid Sans Mono', 'Ravenry Glyphs', ui-monospace, 'SF Mono', Menlo, monospace;
 }
 @media (prefers-color-scheme: light) {
   :root {

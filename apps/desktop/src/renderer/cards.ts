@@ -23,7 +23,8 @@ export interface CardCtx {
   now(): number;
   platform: string;
   /** The folder as people read it (~ for home). */
-  tilde(p: string | undefined): string;
+  /** A folder said against the home of the machine it is on. */
+  tilde(p: string | undefined, machine?: string | null): string;
   /** True when the phone was alerted too (the hub lists it and its alerts are on). */
   phoneToo(k: Known): boolean;
   /** The pane the asking agent runs in, for people ("Old recipe import", "zsh"). */
@@ -264,7 +265,7 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
   // The agent's own warning and Ravenry's guess, each labelled as whose.
   const warnings = warningsOf(cp, u.editing ? u.edit : command);
   const kv = h('div.kv',
-    h('span', 'Folder'), h('span.mono', ctx.tilde(cp.cwd)),
+    h('span', 'Folder'), h('span.mono', ctx.tilde(cp.cwd, cp.machine)),
     h('span', 'Machine'), h('span', remote ? h('span.mt', svg(I.MACHINE), cp.machine!) : machineLine(cp.machine, ctx.platform)),
     h('span', 'Pane'), h('span', cp.pane ? `A new one, beside ${ctx.paneName(k)}` : 'A new one'),
     // A page's run button passes the item's values as variables: shown as
@@ -374,7 +375,7 @@ function secretCard(k: Known, ctx: CardCtx, u: UI): View {
   }
   const forLine = toPane
     ? h('p.cp-d', 'Typed into ', h('b', ctx.paneName({ ...k, cp: { ...cp, pane: cp.secret?.pane } })), ', the program waiting there')
-    : h('p.cp-d', 'For ', h('span.mono.code', cp.command || ''), cp.cwd ? ` in ${ctx.tilde(cp.cwd)}` : '', cp.secret?.to === 'env' && cp.secret.env ? `, as $${cp.secret.env}` : '');
+    : h('p.cp-d', 'For ', h('span.mono.code', cp.command || ''), cp.cwd ? ` in ${ctx.tilde(cp.cwd, cp.machine)}` : '', cp.secret?.to === 'env' && cp.secret.env ? `, as $${cp.secret.env}` : '');
   const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${head}` },
     hd.el,
     h('div.cp-q', head),

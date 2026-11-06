@@ -34,6 +34,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { sayPath } from '../public/homepath.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
@@ -50,7 +51,7 @@ const ITERM_URL = 'https://iterm2.com';
 const CLAUDE_URL = 'https://claude.com/claude-code';
 // npx keeps its copy in a cache (~/.npm/_npx) that it may clear or replace.
 const FROM_NPX = /[/\\]_npx[/\\]/.test(ROOT);
-const tilde = (p) => (p && p.startsWith(os.homedir() + path.sep) ? '~' + p.slice(os.homedir().length) : p);
+const tilde = (p) => sayPath(p, os.homedir());
 
 const HELP = `Ravenry ${PKG.version}: a local board for every Claude Code session on this Mac.
 

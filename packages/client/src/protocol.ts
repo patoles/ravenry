@@ -205,6 +205,8 @@ export interface HelloResult {
     os: string;
     arch: string;
     started_at: string;
+    /** The home folder of the user the daemon runs as: say this machine's folders with ~. */
+    home?: string;
     draining?: string;
   };
   methods: string[];

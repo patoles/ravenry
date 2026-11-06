@@ -3129,6 +3129,10 @@
                 "started_at": {
                   "$ref": "#/$defs/Timestamp"
                 },
+                "home": {
+                  "type": "string",
+                  "description": "The home folder of the user the daemon runs as: a client says a folder on this machine with ~."
+                },
                 "draining": {
                   "type": "string",
                   "description": "A newer daemon version runs beside this one: new panes belong there."

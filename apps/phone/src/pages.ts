@@ -19,6 +19,7 @@ import type { NavRow, PagesHost, PageView } from '../../desktop/src/renderer/pag
 import { groupItems, capitaliseField } from '../../desktop/src/renderer/pagefmt.ts';
 import type { Item, Section } from '../../desktop/src/renderer/pagefmt.ts';
 import * as I from './icons.ts';
+import { sayPathOn } from '../../../hub/public/homepath.mjs';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
 import { appBar, views } from './sessions.ts';
@@ -78,14 +79,14 @@ function thePages(): Pages {
 function showFile(p: string): void {
   const key = pages?.open;
   const v = key ? pages!.cache.get(key)?.view : null;
-  if (!v || (p !== v.file && p !== v.defaultPath)) { toast(`That file is on ${current().hello.hub.name}: ${p}`); return; }
+  if (!v || (p !== v.file && p !== v.defaultPath)) { toast(`That file is on ${current().hello.hub.name}: ${sayPathOn(p, null, hub.live.state?.homes)}`); return; }
   const text = p === v.file ? v.text : v.defaultText || '';
   const err = p === v.file ? v.problems.find((x) => x.severity === 'error') : null;
   const lines = text.split('\n');
   const el = h('div.sheet-bg', { on: { click: (e: Event) => { if (e.target === e.currentTarget) el.remove(); } } },
     h('div.sheet.file',
       h('div.sheet-t', h('span.mono', p.split('/').pop() || p), h('button.icon-btn', { 'aria-label': 'Close', on: { click: () => el.remove() } }, svg(I.X18))),
-      h('div.fpath.mono', p),
+      h('div.fpath.mono', sayPathOn(p, null, hub.live.state?.homes)),
       h('pre.ftext', lines.map((l, i) => h(`span.r${err && err.line === i + 1 ? '.bad' : ''}`, h('span.n', String(i + 1)), l || ' ')))));
   document.body.appendChild(el);
   const bad = el.querySelector('.r.bad') as HTMLElement | null;

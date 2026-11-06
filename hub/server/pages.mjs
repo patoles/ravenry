@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import * as pf from './vendor/page-format.mjs';
 import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
 import { itemsOf } from './providers.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const HUB = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PKG = JSON.parse(fs.readFileSync(path.join(HUB, 'package.json'), 'utf8'));
@@ -50,7 +51,7 @@ export const STATE_FILE = path.join(RAVENRY_HOME, 'pages.json');
 const HISTORY_DIR = path.join(path.dirname(DEFAULTS_DIR), 'history');
 
 const HOME = os.homedir();
-const short = (p) => (p && (p === HOME || p.startsWith(HOME + path.sep)) ? '~' + p.slice(HOME.length) : p);
+const short = (p) => sayPath(p, HOME);
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' };
 const MAX_ITEMS = 2000;

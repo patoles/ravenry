@@ -48,10 +48,6 @@ export function quickAnswers(s: HubSession | null | undefined): { label: string;
 /** A menu's lines that open a field rather than answer: the reply field is for those. */
 const NOT_ANSWERS = /^(type something|chat about this)/i;
 
-/** A folder as people read it: the home folder as ~. */
-export function tilde(p: string | null | undefined): string {
-  return String(p || '').replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~');
-}
 
 /** The key bar: what each key sends to the pane. */
 const CHEV = (d: string) => `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;

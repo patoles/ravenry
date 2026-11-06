@@ -19,3 +19,11 @@ unchanged in hub/server/vendor/uqr.mjs, under the MIT License:
   Copyright (c) Project Nayuki
   Copyright (c) 2023 Anthony Fu
 The full MIT License text is at the top of that file.
+
+The phone board's terminal glyph font (apps/phone/src/glyphs.css, made by
+apps/phone/tools/glyph-font.py) is a subset of Noto Sans Mono, Noto Sans
+Symbols 2, Noto Sans Math and Noto Sans Symbols, with each glyph made one
+terminal cell wide, under the SIL Open Font License, Version 1.1
+(apps/phone/src/OFL.txt):
+  Copyright 2022 The Noto Project Authors (https://github.com/notofonts)
+The font is distributed beside, not combined with, the GPL and Apache code.

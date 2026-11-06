@@ -64,6 +64,8 @@ export interface HubState {
   views?: { ideas?: number; rules?: number; ship?: number };
   /** The phone alerts: on and set up means an open checkpoint is on the phone too. */
   alerts?: { enabled?: boolean; configured?: boolean } | null;
+  /** The home folder of each machine, "" for the hub's own: folders are said against them (hub/public/homepath.mjs). */
+  homes?: Record<string, string>;
   /** Every daemon's open checkpoints (checkpoints.ts HubCheckpoint). */
   checkpoints?: unknown[];
 }

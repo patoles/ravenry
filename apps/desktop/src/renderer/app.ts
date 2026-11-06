@@ -37,6 +37,7 @@ import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
 import { TerminalView } from './terminal.ts';
+import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 
 // ---------------------------------------------------------------- state
 
@@ -120,10 +121,11 @@ const shortcut = (k: string) => (isMac() ? `⌘${k}` : `Ctrl+Shift+${k}`);
 const wide = () => window.innerWidth >= PANEL_FOLD_WIDTH;
 const base = (p?: string) => (p ? p.replace(/\/+$/, '').split('/').pop() || p : '');
 const now = () => Date.now();
-const tilde = (p?: string) => {
-  const home = S.config?.home;
+// A folder said against the home of the machine it is on (hub/public/
+// homepath.mjs): this computer's from the app, a machine's from the hub.
+const tilde = (p?: string, machine?: string | null) => {
   if (!p) return '~';
-  return home && (p === home || p.startsWith(home + '/')) ? '~' + p.slice(home.length) : p;
+  return sayPathOn(p, machine, { ...(S.hub?.homes || {}), ...(S.config?.home ? { '': S.config.home } : {}) });
 };
 
 function tabOfView(): Tab | null {

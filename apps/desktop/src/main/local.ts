@@ -5,11 +5,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { sayPath } from '../../../../hub/public/homepath.mjs';
 
 export interface FolderPick { name: string; path: string; short: string }
 
 export function shortPath(p: string, home: string = os.homedir()): string {
-  return p === home ? '~' : p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p;
+  return sayPath(p, home);
 }
 
 const ROOTS = ['code', 'Code', 'Projects', 'projects', 'Developer', 'dev', 'src', 'repos', 'git', 'work'];

@@ -18,6 +18,7 @@ import { RAVENRY_HOME } from './registry.mjs';
 import * as mk from './mockups.mjs';
 import * as asst from './assistant.mjs';
 import * as files from './ideasfiles.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const D = files.dirsOf(RAVENRY_HOME);
 // Before 0.6: one JSON file, and its pictures in ~/.ravenry/ideas/.
@@ -446,7 +447,7 @@ export function lastBrainstorm() {
 // it.dropped, so it can be the cover again.
 
 const LETTER = (k) => k.toUpperCase();
-const shortPath = (p) => (p.startsWith(H) ? '~' + p.slice(H.length) : p);
+const shortPath = (p) => sayPath(p, H);
 const pngRel = (id, n, key) => `${id}/mockups/r${n}-${key}.png`;
 const imgUrl = (rel) => `/api/ideas/img/${encodeURIComponent(rel)}`;
 

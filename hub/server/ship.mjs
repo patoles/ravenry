@@ -6,9 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
+import { sayPath } from '../public/homepath.mjs';
 
 const HOME = os.homedir();
-const short = (p) => (p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p);
+const short = (p) => sayPath(p, HOME);
 
 function git(dir, args) {
   return new Promise((resolve) => {

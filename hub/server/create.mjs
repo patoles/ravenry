@@ -16,9 +16,10 @@ import * as term from './terminal.mjs';
 const { cmux } = term;
 import * as registry from './registry.mjs';
 import { RAVENRY_HOME } from './home.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const HOME = os.homedir();
-const short = (p) => (p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p);
+const short = (p) => sayPath(p, HOME);
 const clean = (s) => String(s ?? '').replace(/—/g, ', ').replace(/\r/g, '').trim();
 const oneLine = (s) => clean(s).replace(/\s*\n\s*/g, ' ');
 const lines = (s) => clean(s).split('\n').map((l) => l.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').trim()).filter(Boolean);

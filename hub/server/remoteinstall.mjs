@@ -56,6 +56,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as machines from './machines.mjs';
 import * as hk from './hookinstall.mjs';
+import { sayPath } from '../public/homepath.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const MANIFEST = '.ravenry/remote-install.json';
@@ -254,7 +255,7 @@ function end(j, id, state, detail, extra = {}) {
 }
 function finish(j, state = 'done') { j.state = state; j.endedAt = new Date().toISOString(); }
 
-const tilde = (home, p) => (home && (p === home || p.startsWith(home + '/')) ? '~' + p.slice(home.length) : p);
+const tilde = (home, p) => sayPath(p, home);
 const mb = (n) => `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`;
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 
