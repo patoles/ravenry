@@ -231,6 +231,8 @@ class MainActivity : FragmentActivity() {
             needPermission(Manifest.permission.POST_NOTIFICATIONS, {}, {})
         }
         Push.register(this)
+        // Paired now (the first open after pairing too): hold the connection.
+        ConnectionService.start(this)
     }
 
     private fun leave() {

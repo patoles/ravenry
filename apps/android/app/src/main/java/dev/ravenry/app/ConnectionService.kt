@@ -29,7 +29,7 @@ class ConnectionService : Service() {
         line = getString(R.string.linking, p.hubName)
         val n = Notifier.connection(this, line)
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
-        try { ServiceCompat.startForeground(this, Notifier.CONNECTION_ID, n, type) } catch (_: Exception) { stopSelf(); return START_NOT_STICKY }
+        try { ServiceCompat.startForeground(this, Notifier.CONNECTION_ID, n, type) } catch (e: Exception) { android.util.Log.w("Ravenry", "connection service: ${e.message}"); stopSelf(); return START_NOT_STICKY }
         if (stream == null) {
             val hub = Hub.get(this) ?: run { stopSelf(); return START_NOT_STICKY }
             stream = hub.events("/api/events", { name, data ->
@@ -37,7 +37,8 @@ class ConnectionService : Service() {
                     "state" -> status(p.hubName, data)?.let { if (it != line) { line = it; Notifier.updateConnection(this, it) } }
                     "phone" -> Notifier.handle(this, data, fromPush = false)
                 }
-            }, { up, _ ->
+            }, { up, err ->
+                if (!up) android.util.Log.w("Ravenry", "connection: $err")
                 if (!up) { val t = getString(R.string.not_linked, p.hubName); if (t != line) { line = t; Notifier.updateConnection(this, t) } }
             })
         }
