@@ -1,0 +1,21 @@
+{
+  "name": "@ravenry/node-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A zero-dependency Node client of the Ravenry protocol v1: plain JavaScript, no build, over the daemon's unix socket or any duplex stream.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
