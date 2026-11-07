@@ -12,7 +12,6 @@
 // -light.png:
 //   outside-live       still open in cmux, which lets Ravenry read it: its
 //                      discussion live, Open in cmux, Move here
-//                      off with the line that says why
 //   outside-refused    still open in cmux, which lets only programs it
 //                      started read its tabs: one line says so, and the
 //                      conversation comes from its transcript

@@ -162,7 +162,7 @@ export function readTranscript(file) {
     value.contextTokens = u ? (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) : null;
     // A turn is in flight when activity came after the last turn end.
     value.inTurn = !!(value.lastActivityAt && (!value.lastTurnEndAt || value.lastActivityAt > value.lastTurnEndAt));
-    value.turns = value.turns.filter((t) => t.text).slice(-6).reverse();
+    value.turns = value.turns.filter((t) => t.text).slice(-12).reverse();
     value.path = file;
     value.mtimeMs = st.mtimeMs;
   } catch {

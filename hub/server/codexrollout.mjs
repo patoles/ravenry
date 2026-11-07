@@ -144,7 +144,7 @@ export function readRollout(file) {
     }
     value.contextTokens = tokensOf(value.usage);
     value.inTurn = !!(value.lastActivityAt && (!value.lastTurnEndAt || value.lastActivityAt > value.lastTurnEndAt));
-    value.turns = value.turns.filter((t) => t.text).slice(-6).reverse();
+    value.turns = value.turns.filter((t) => t.text).slice(-12).reverse();
     value.path = file;
     value.mtimeMs = st.mtimeMs;
   } catch {

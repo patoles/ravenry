@@ -981,8 +981,10 @@ function buildProject(project, wsById, hooks, settings, now) {
       // A move waiting for the turn to end, the last one done, and whether
       // this pane's conversation went on in another process (moveOf).
       ...moveOf(s),
-      // No screen to show: the conversation from its transcript instead.
-      ...(s.terminal === false && s.transcript ? { conversation: conversationOf(s.transcript) } : {}),
+      // Its conversation from its transcript, for a session the app shows
+      // outside Ravenry: in place of a screen it cannot read, or one that
+      // has nothing on it.
+      ...(s.transcript && (s.terminal === false || (s.term && s.term !== 'ravenry')) ? { conversation: conversationOf(s.transcript) } : {}),
       ...worktreeOf(s.surfaceId),
     })),
   };
@@ -1024,7 +1026,7 @@ function alsoOpenIn(s) {
 // a turn still running with what it said so far.
 function conversationOf(t) {
   const cut = (x) => { const v = plain(String(x || '')).trim(); return v.length > 1500 ? v.slice(0, 1497).replace(/\s+\S*$/, '') + '...' : v; };
-  const out = (t.turns || []).slice(0, 4).reverse().map((x) => ({ at: x.at || null, ask: x.ask ? cut(x.ask) : null, text: cut(x.text) }));
+  const out = (t.turns || []).slice(0, 12).reverse().map((x) => ({ at: x.at || null, ask: x.ask ? cut(x.ask) : null, text: cut(x.text) }));
   if (t.inTurn && t.lastPrompt && t.lastPromptAt && !(out.length && out[out.length - 1].at && out[out.length - 1].at >= t.lastPromptAt)) {
     out.push({ at: t.lastPromptAt, ask: cut(t.lastPrompt), text: t.lastText && t.lastTextAt > t.lastPromptAt ? cut(t.lastText) : null, working: true });
   }
