@@ -78,8 +78,18 @@ const leaving = relaunchClean() || refuseSwitches();
 if (!leaving && GATE.ignored.length) appLog(`launch: a release build takes no test hooks from its environment: ignored ${GATE.ignored.join(', ')}`);
 if (RAVENRY_TEST_HOOKS && !leaving && app.isPackaged) appLog('launch: a test build, its test hooks on (tools only: never install it)');
 
+// Every way the app ends says why in app.log, first (a run that ended
+// with exit 0 and nothing said, once in 6 package checks, could not be
+// read). quitWhy is the reason the quit that follows is logged with.
+let quitWhy = '';
+function quitting(why: string): void { if (!quitWhy) quitWhy = why; }
+function exitWith(code: number, why: string): void {
+  appLog(`quit: ${why} (exit ${code})`);
+  app.exit(code);
+}
+
 // Two windows on one set of tabs would fight over them.
-if (!leaving && !OFFSCREEN && !app.requestSingleInstanceLock()) app.exit(0);
+if (!leaving && !OFFSCREEN && !app.requestSingleInstanceLock()) exitWith(0, 'another Ravenry with this data folder runs: it comes to the front, and this one quits');
 
 const daemon = new DaemonLink(APP_ROOT);
 let store: Store;
@@ -122,7 +132,7 @@ function relaunchClean(): boolean {
     try { fs.rmSync(file, { force: true }); } catch { /* none */ }
     return false;
   }
-  app.exit(0);
+  exitWith(0, `started with ${paneVars(LAUNCH_ENV).join(', ')}: relaunching clean through LaunchServices, and this process quits`);
   return true;
 }
 
@@ -130,8 +140,7 @@ function relaunchClean(): boolean {
 // opens a window or reaches a daemon.
 function refuseSwitches(): boolean {
   if (!GATE.switches.length) return false;
-  appLog(`launch: started with ${GATE.switches.map((s) => `--${s}`).join(', ')}, which a release build refuses: quitting`);
-  app.exit(1);
+  exitWith(1, `started with ${GATE.switches.map((s) => `--${s}`).join(', ')}, which a release build refuses: quitting`);
   return true;
 }
 
@@ -616,7 +625,7 @@ app.whenReady().then(async () => {
     // Never in a release build: this block is not in it (gate.ts).
     const drive = require(process.env.RAVENRY_DRIVER) as (w: BrowserWindow, ctx: object) => Promise<void>;
     win.webContents.once('did-finish-load', () => {
-      drive(win!, { app, daemon }).then(() => app.quit(), (e) => { console.error('driver:', e); app.exit(1); });
+      drive(win!, { app, daemon }).then(() => { quitting('the driver finished its steps'); app.quit(); }, (e) => { console.error('driver:', e); exitWith(1, `the driver failed: ${(e as Error).message || e}`); });
     });
   }
 });
@@ -629,8 +638,18 @@ app.on('activate', () => {
   const rec = (store?.get().update || null) as { attempts?: number } | null;
   if (rec && (rec.attempts || 0) < 3 && lastStaged && !retrying) { retrying = true; void setUpService(lastStaged).finally(() => { retrying = false; }); }
 });
-app.on('window-all-closed', () => { if (!isMac || OFFSCREEN) app.quit(); });
-app.on('before-quit', () => { store?.flush(); feed?.stop(); updates.stop(); });
+app.on('window-all-closed', () => { if (!isMac || OFFSCREEN) { quitting('its last window closed'); app.quit(); } });
+app.on('before-quit', () => {
+  // Electron takes SIGTERM and SIGINT itself (a quit like any other), so
+  // they cannot be told from Cmd+Q here.
+  appLog(`quit: ${quitWhy || 'asked to (Cmd+Q, the menu, the Dock, macOS logging out, or a SIGTERM)'}`);
+  store?.flush(); feed?.stop(); updates.stop();
+});
+app.on('quit', (_e, code) => appLog(`quit: done (exit ${code})`));
+// What can end the app, or its window, without a quit asked for.
+process.on('uncaughtExceptionMonitor', (e) => appLog(`app: an uncaught error: ${(e && (e.stack || e.message)) || e}`));
+app.on('render-process-gone', (_e, _wc, d) => appLog(`window: its page's process went away (${d.reason}, exit ${d.exitCode})`));
+app.on('child-process-gone', (_e, d) => appLog(`app: its ${d.type}${d.name ? ` (${d.name})` : ''} process went away (${d.reason}, exit ${d.exitCode})`));
 // A quit while the service is being set up (an AppImage copying its
 // runtime takes a few seconds) waits for it, up to 30 s, so it is never left
 // half written.
