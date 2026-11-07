@@ -1401,6 +1401,7 @@ On a connection that subscribed with `activity: true`:
 | Event | Fields | When |
 | --- | --- | --- |
 | `pane.activity` | `pane` | A pane that this connection does not stream printed. At most one a second per pane: the first output after a quiet second at once, and one more at the end of the second when more came. |
+| `pane.bell` | `pane` | A pane that this connection does not stream rang its bell (BEL as a control, not the one that ends an OSC sequence). At most one a second per pane. Sent with `pane.activity`, to a connection that asked for it. |
 
 On a connection that called `agent.decisions`:
 

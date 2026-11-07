@@ -203,3 +203,33 @@ func TestFileStatAndRead(t *testing.T) {
 		t.Fatalf("no paths: %s", e.Code)
 	}
 }
+
+// A bell in a pane a window does not show: pane.bell, for its tab (the
+// terminal-basics picture, F4). A BEL that ends an OSC sequence (a title)
+// is not a bell; a program ringing in a loop gives one a second.
+func TestBellForPanesNotStreamed(t *testing.T) {
+	d := startDaemon(t)
+	c := d.dial(client.Options{})
+	call[proto.Empty](t, c, "events.subscribe", map[string]any{"activity": true})
+	title := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `printf '\033]0;a title\007'; printf '\033]2;another\007done\n'; exec cat`}})
+	ring := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `sleep 0.3; i=0; while [ $i -lt 10 ]; do printf '\007'; i=$((i+1)); sleep 0.05; done; exec cat`}})
+	n := map[string]int{}
+	deadline := time.After(2500 * time.Millisecond)
+loop:
+	for {
+		select {
+		case ev := <-c.Events():
+			if ev.Event == "pane.bell" {
+				n[ev.Pane.ID]++
+			}
+		case <-deadline:
+			break loop
+		}
+	}
+	if n[title.ID] != 0 {
+		t.Fatalf("%d bells for a pane that only set its title", n[title.ID])
+	}
+	if n[ring.ID] < 1 || n[ring.ID] > 2 {
+		t.Fatalf("%d bells for ten rings in half a second; want one a second", n[ring.ID])
+	}
+}

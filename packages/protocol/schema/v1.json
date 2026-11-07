@@ -247,6 +247,9 @@
           "$ref": "#/$defs/event.pane.activity"
         },
         {
+          "$ref": "#/$defs/event.pane.bell"
+        },
+        {
           "$ref": "#/$defs/event.pane.closed"
         },
         {
@@ -4386,6 +4389,31 @@
         },
         "event": {
           "const": "pane.activity"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane this connection does not stream printed: at most once a second per pane (events.subscribe with activity)."
+    },
+    "event.pane.bell": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.bell"
         },
         "pane": {
           "$ref": "#/$defs/Pane"

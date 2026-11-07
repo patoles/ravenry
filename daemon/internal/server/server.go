@@ -694,9 +694,10 @@ func (c *conn) eventsSubscribe(id uint64, data []byte) {
 			switch ev.Type {
 			case "status":
 				return // reported as agent.report
-			case "activity":
+			case "activity", "bell":
 				// Only to a connection that asked, about a pane it does
-				// not stream (it sees that pane's output already).
+				// not stream (it sees that pane's output already, and its
+				// own terminal rings).
 				c.mu.Lock()
 				want := c.activity
 				for _, st := range c.streams {

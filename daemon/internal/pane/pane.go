@@ -192,6 +192,8 @@ type Pane struct {
 	onStatus   func(*Pane, vt.ProgramStatus)
 	onCwd      func(*Pane)
 	onActivity func(*Pane)
+	onBell     func(*Pane)
+	bellLast   time.Time
 
 	// activity: at most one report per activityEvery, the first at once
 	// and a last one at the end of the interval when more output came.
@@ -206,6 +208,7 @@ type note struct {
 	shell  *Shell
 	status *vt.ProgramStatus
 	cwd    bool
+	bell   bool
 }
 
 // tap receives every chunk of output, under the pane's lock.
@@ -313,7 +316,9 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		KittyKeyboard: p.kittyKeyboard,
 		Prompt:        p.promptMark,
 		Status:        func(st vt.ProgramStatus) { p.notes = append(p.notes, note{status: &st}) },
-		Pwd:           p.pwd,
+		// A real bell (not the BEL that ends an OSC sequence): pane.bell.
+		Bell: func() { p.notes = append(p.notes, note{bell: true}) },
+		Pwd:  p.pwd,
 	})
 	if err != nil {
 		return nil, err
@@ -575,6 +580,10 @@ func (p *Pane) outputLocked(b []byte) {
 			p.onStatus(p, *n.status)
 		case n.cwd && p.onCwd != nil:
 			p.onCwd(p)
+		case n.bell && p.onBell != nil && time.Since(p.bellLast) >= activityEvery:
+			// At most one a second: a program that rings in a loop.
+			p.bellLast = time.Now()
+			p.onBell(p)
 		}
 	}
 	p.activity()

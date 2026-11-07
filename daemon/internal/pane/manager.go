@@ -20,7 +20,8 @@ type Event struct {
 	// Type is "created", "exited", "closed", "title", "prompt" (the
 	// shell's OSC 133 state changed), "cwd" (OSC 7), "updated" (its name
 	// or labels), "activity" (it printed; at most once a second per
-	// pane) or "status" (an OSC 7501 report, in Status).
+	// pane), "bell" (it rang; at most once a second per pane) or "status"
+	// (an OSC 7501 report, in Status).
 	Type   string
 	Pane   Info
 	Status *vt.ProgramStatus
@@ -172,6 +173,12 @@ func (m *Manager) New(cfg Config) (*Pane, error) {
 	p.onActivity = func(p *Pane) {
 		if m.wantActivity() {
 			m.emit("activity", p.Info())
+		}
+	}
+	// A bell, for a window's tab strip (a pane it does not show).
+	p.onBell = func(p *Pane) {
+		if m.wantActivity() {
+			m.emit("bell", p.Info())
 		}
 	}
 	p.onExit = func(p *Pane) {

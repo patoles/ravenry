@@ -646,6 +646,7 @@ export type DaemonEvent =
   | { event: 'pane.cwd'; pane: Pane }
   | { event: 'pane.updated'; pane: Pane }
   | { event: 'pane.activity'; pane: Pane }
+  | { event: 'pane.bell'; pane: Pane }
   | { event: 'pane.focus'; pane: Pane }
   | { event: 'pane.input'; pane: Pane; input: InputRecord }
   | { event: 'pane.lease'; pane: Pane }
