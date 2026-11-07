@@ -141,7 +141,7 @@ jobs:
       # none of its dev dependencies (Playwright, jsQR).
       - name: Hub suites that run on Linux
         run: |
-          for t in data-guard-test sessions-test events-hook-test handoff-hook-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test phone-app-test homepath-test keys-test decisions-test worktree-test picks-test npmswitch-test; do
+          for t in data-guard-test access-wait-test sessions-test events-hook-test handoff-hook-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test phone-app-test homepath-test keys-test decisions-test worktree-test picks-test npmswitch-test; do
             echo "::group::$t"
             node "tools/$t.mjs"
             echo "::endgroup::"

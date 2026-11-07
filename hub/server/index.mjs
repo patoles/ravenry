@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile, execFileSync } from 'node:child_process';
 
 import * as term from './terminal.mjs';
+import * as access from './access.mjs';
 import * as asst from './assistant.mjs';
 import { markEntries, spansGen } from './codespans.mjs';
 import * as registry from './registry.mjs';
@@ -1023,12 +1024,54 @@ function age(now, iso) {
   return iso ? now - Date.parse(iso) : Infinity;
 }
 
+// The folders the board reads: each project's on this computer, and the
+// projects root.
+function accessFolders() {
+  if (!reg) return [];
+  return [...reg.projects.filter((p) => !p.hidden && !p.machine).map((p) => p.folder), reg.settings && reg.settings.projectsRoot].filter(Boolean);
+}
+access.onChange(() => { wantTick = true; setTimeout(tick, 10); });
+
+// The hub's record of plan gates starts from what the briefs say once, the
+// first time there is none (server/gates.mjs adopt): at the first tick that
+// may read the briefs.
+let gatesAdopted = false;
+function adoptGates() {
+  try {
+    const briefs = (reg ? reg.projects : []).map((p) => registry.briefPath(p)).filter((f) => f && fs.existsSync(f)).map((file) => ({ file, plans: (readBrief(file) || { plan: [] }).plan }));
+    if (gates.adopt(briefs)) console.log(`plan gates: started the hub's record from ${briefs.length} brief${briefs.length === 1 ? '' : 's'}`);
+  } catch (e) { console.error('plan gates:', e.message); }
+}
+
+// While macOS has not said whether the board may read a protected folder,
+// every request is answered at once with 503 and the folder, never held:
+// a handler would read a project's file and wait with it.
+function accessWait(req, res, url) {
+  const w = access.pending();
+  if (!w) return false;
+  const words = access.waitingWords(w, homes.sayLocal);
+  const body = { starting: true, waitingFor: homes.sayLocal(w), folder: access.label(w), error: words };
+  const page = req.method === 'GET' && !url.pathname.startsWith('/api/') && (url.pathname === '/' || url.pathname.endsWith('.html'));
+  if (page) {
+    res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '2' });
+    res.end(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="3"><title>Ravenry is starting</title><body style="font:15px -apple-system,system-ui,sans-serif;margin:15vh auto;max-width:34em;padding:0 16px;line-height:1.5"><h1 style="font-size:20px">Ravenry is starting</h1><p>${words.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</p></body>\n`);
+    return true;
+  }
+  res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '2' });
+  res.end(JSON.stringify(body));
+  return true;
+}
+
 async function tick() {
   if (ticking) { wantTick = true; return; }
   ticking = true;
   try {
     tickNo++;
     reloadRegistry();
+    // Nothing of the projects' folders is read until macOS lets the board
+    // read the protected folders they are in (server/access.mjs).
+    if (access.waitFor(accessFolders())) return;
+    if (!gatesAdopted) { gatesAdopted = true; adoptGates(); }
     const now = Date.now();
     // Without cmux the board still shows what the hook events say.
     let workspaces = [];
@@ -1115,7 +1158,7 @@ async function tick() {
     pagesSessions = sessionsView;
     let pageRows = [];
     try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
-    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects) };
+    snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -2336,7 +2379,7 @@ function shipProjects() {
 }
 
 async function refreshShip() {
-  if (!reg) return null;
+  if (!reg || access.pending()) return null;
   try {
     const v = await shipView(shipProjects(), briefFor);
     shipWaiting = v.totals.waitingYou || null;
@@ -2859,6 +2902,7 @@ async function refusedAsPerson(req, res, p) {
 // On the phone port (server/phonetls.mjs, docs/PHONE.md section 2) every
 // request is a phone's: it carries a device token, except the pairing and
 // hello, and nothing there is ever the Mac, loopback included.
+const PHONE_OFF = 'Phone access is off on the computer. Turn it on there, then scan the code again.';
 function gate(req, res, url) {
   if (req.mcTls) {
     const open = (req.method === 'POST' && url.pathname === '/api/phone/pair') || (req.method === 'GET' && url.pathname === '/api/phone/hello');
@@ -2874,6 +2918,15 @@ function gate(req, res, url) {
     return true;
   }
   if (phone.isLoopback(req)) { req.mcLocal = true; return false; }
+  // From the Wi-Fi, the browser path (the QR's `/?k=` sign-in, then its
+  // cookie or a Bearer token) opens only while phone access is on, the
+  // switch the phone port follows (docs/PHONE.md section 2).
+  if (!phone.access()) {
+    const page = req.method === 'GET' && (url.pathname === '/' || url.pathname.endsWith('.html'));
+    if (page) phone.signedOutPage(res, 403, PHONE_OFF);
+    else sendJson(res, 403, { error: PHONE_OFF });
+    return true;
+  }
   if (req.method === 'GET' && url.pathname === '/' && url.searchParams.has('k')) {
     phone.signIn(req, res, url.searchParams.get('k') || '');
     return true;
@@ -2977,6 +3030,7 @@ async function handleRequest(req, res) {
   const p = url.pathname;
   try {
     if (gate(req, res, url)) return;
+    if (accessWait(req, res, url)) return;
     if (req.method === 'GET' && p === '/api/whoami') return sendJson(res, 200, { local: !!req.mcLocal });
     if (p === '/api/phone' || p.startsWith('/api/phone/')) {
       if (await phoneDeviceRoute(req, res, p)) return;
@@ -3497,12 +3551,6 @@ server.listen(PORT, () => {
     for (const [who, ch] of Object.entries(r)) if (ch.length) console.log(`hooks: ${who}'s moved to this version: ${ch.join('; ')}`);
   }
 });
-// The hub's record of plan gates starts from what the briefs say once, the
-// first time there is none (server/gates.mjs adopt).
-try {
-  const briefs = (reg ? reg.projects : []).map((p) => registry.briefPath(p)).filter((f) => f && fs.existsSync(f)).map((file) => ({ file, plans: (readBrief(file) || { plan: [] }).plan }));
-  if (gates.adopt(briefs)) console.log(`plan gates: started the hub's record from ${briefs.length} brief${briefs.length === 1 ? '' : 's'}`);
-} catch (e) { console.error('plan gates:', e.message); }
 tick();
 setInterval(tick, TICK_MS);
 setTimeout(refreshProcs, 1500);
@@ -3512,7 +3560,7 @@ setTimeout(refreshShip, 3000);
 setInterval(refreshShip, 30000);
 // The repeats detector (server/repeats.mjs): daily, and at start when the
 // last run is older than a day. The real board seeds itself at start.
-if (cfg().repeatsAuto) setTimeout(() => repeats.ensureSeed(cfg()).then(() => { wantTick = true; }).catch((e) => console.error('repeats seed:', e.message)), 5000);
+if (cfg().repeatsAuto) setTimeout(() => (access.pending() ? Promise.resolve() : repeats.ensureSeed(cfg())).then(() => { wantTick = true; }).catch((e) => console.error('repeats seed:', e.message)), 5000);
 repeats.schedule(cfg);
 
 // cmux events only make the next refresh come sooner.

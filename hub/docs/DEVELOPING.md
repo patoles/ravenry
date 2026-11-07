@@ -1033,6 +1033,11 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   conversation); its process ended and Continue in Ravenry in a real pane
   (docs/TERMINALS.md, Sessions in other terminals). Without RAVENRYD_BIN
   the resume is skipped. Touches only `.tmp/`.
+- `node tools/access-wait-test.mjs`: while macOS asks whether the hub
+  may read a protected folder (server/access.mjs; a FIFO stands for the
+  read that waits), every request gets 503 at once with the folder and
+  the words the window shows; the board starts by itself when the read
+  returns, and a refused folder is listed in the state.
 - `RAVENRYD_BIN=../daemon/ravenryd node tools/reap-test.mjs`: every
   ravenryd and hub a test tool starts stops when the tool ends, by a
   signal, an uncaught error or process.exit (tools/test-env.mjs,

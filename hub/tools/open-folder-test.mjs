@@ -49,7 +49,7 @@ async function board(name, port, extraEnv = {}) {
     { id: 'gone', name: 'Gone', folder: GONE, workspaces: [], brief: null },
   ] }, null, 2));
   const env = {
-    ...process.env, RAVENRY_HOME: mc, PORT: String(port), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0',
+    ...process.env, RAVENRY_HOME: mc, PORT: String(port), RAVENRY_PHONE_PORT: String(port + 1000), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0',
     CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: fake, MC_CLAUDE_PROJECTS: path.join(T, name, 'claude'),
     MC_PROJECTS_ROOT: path.join(T, 'projects'), MC_GLOBAL_CLAUDE_MD: path.join(T, name, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, name, 'backups'),
     STUB_OPEN_LOG: path.join(T, name, 'open.jsonl'),
@@ -99,6 +99,8 @@ try {
   });
   if (!LAN) check('open: a phone gets 403 (needs a private LAN address to arrive as one)', false, 'no LAN address on this Mac');
   else {
+    // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
+    await fetch(b.base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: b.base }, body: JSON.stringify({ on: true }) });
     await fetch(b.base + '/api/phone');
     const KEY = JSON.parse(fs.readFileSync(path.join(b.mc, 'phone.json'), 'utf8')).key;
     const si = await phoneReq({ path: '/?k=' + encodeURIComponent(KEY) });

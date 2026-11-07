@@ -20,7 +20,8 @@ acts as the person), and `server/person.mjs` applies it to the HTTP API:
   code. The board page in a browser and the desktop app run outside
   every pane and pass.
 - **The phone** (another address, with its device token) is the person,
-  on the board's port and on the phone port
+  on the board's port and on the phone port, both only while phone access
+  is on
   ([../../docs/PHONE.md](../../docs/PHONE.md)). A pairing on the phone
   port from another address is the person too: its one-time code proves
   it. A phone's token used from this machine (an emulator, or a program

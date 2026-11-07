@@ -22,6 +22,11 @@
   line and shows its conversation from the transcript.
 - `POST /api/sessions/resume` continues a session from another terminal in
   a Ravenry pane once its process there has ended, never two at once.
+- While macOS asks whether the board may read a protected folder
+  (~/Documents and the like) it answers every request with 503 and the
+  folder, instead of waiting with no answer, and starts once it may.
+- From the Wi-Fi, the board's port opens to phone browsers only while
+  phone access is on; off, they get 403.
 
 ## 0.4.0
 

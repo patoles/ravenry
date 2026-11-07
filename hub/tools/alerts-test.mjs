@@ -359,7 +359,7 @@ for (const id of IDS.slice(1)) await hook(id, { hook_event_name: 'UserPromptSubm
 
 const COPY_LOG = path.join(T, 'copied.txt');
 const env = {
-  ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0',
+  ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), RAVENRY_PHONE_PORT: '4628', MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0',
   CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE,
   MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
   MC_TELEGRAM_API: STUB + '/tg', MC_ALERT_BOARD_URL: 'http://192.168.1.50:4665/', MC_ALERT_PRIME_MS: '1500', MC_ALERT_RETRY_MS: '1500',
@@ -502,6 +502,11 @@ try {
   else {
     const PB = `http://${lan.address}:${PORT}`;
     await fetch(BASE + '/api/phone');
+    // The Wi-Fi's browser path opens only while phone access is on.
+    const offx = await fetch(`${PB}/api/alerts`);
+    check('a phone with phone access off: 403', offx.status === 403);
+    x = await api('/api/phone/access', { on: true });
+    check('phone access turned on from the Mac', x.status === 200 && x.j.access === true, JSON.stringify(x.j).slice(0, 200));
     const key = JSON.parse(fs.readFileSync(path.join(MC, 'phone.json'), 'utf8')).key;
     const si = await fetch(`${PB}/?k=${encodeURIComponent(key)}`, { redirect: 'manual' });
     const cookie = (si.headers.get('set-cookie') || '').split(/,(?=\s*mc_)/).map((c) => c.split(';')[0].trim()).filter((c) => c.startsWith('mc_phone=')).join('; ');

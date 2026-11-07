@@ -51,9 +51,11 @@ one: 4601) and takes connections that arrive on:
 - loopback, so an emulator on this machine reaches it (its 10.0.2.2).
 
 A connection to any other local address is closed before TLS. With the
-switch off there is no TLS socket at all. The board's own port (4600) is
-unchanged: the Mac's window on loopback, and phone browsers signed in with
-the QR cookie on the Wi-Fi, as before.
+switch off there is no TLS socket at all. The board's own port (4600)
+serves the Mac's window on loopback, and phone browsers signed in with the
+QR cookie on the Wi-Fi only while the same switch is on: off, a request
+from the Wi-Fi (the QR's `/?k=` sign-in, a cookie or a token) gets 403,
+"Phone access is off on the computer.
 
 **The key.** The hub makes one ECDSA P-256 key and a self-signed
 certificate for it on first use (`<RAVENRY_HOME>/phone-tls/`, key mode

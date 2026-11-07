@@ -89,7 +89,8 @@ function req(target, { method = 'GET', path: p = '/', host, headers = {}, body =
 
 const MAC = `http://127.0.0.1:${PORT}`;
 const PH = `http://${LAN}:${PORT}`;
-const main = board(MC, PORT);
+// Phone access on opens the phone port too: its own port, clear of :4622.
+const main = board(MC, PORT, { RAVENRY_PHONE_PORT: '4627' });
 const off = board(MC_OFF, PORT_OFF, { MC_PHONE_LAN: 'none' });
 const procs = [main, off];
 let browser = null;
@@ -109,6 +110,25 @@ try {
   check('421 for a loopback request with a foreign Host (DNS rebinding)', r.status === 421, `HTTP ${r.status}`);
   r = await req(PH, { host: `${LAN}:9999` });
   check('421 for the right address on the wrong port', r.status === 421, `HTTP ${r.status}`);
+
+  // ------------------------------------------------------------ phone access off
+  // From the Wi-Fi, the browser path opens only while phone access is on
+  // (docs/PHONE.md section 2): off, every request from the LAN is refused
+  // with 403, the key's sign-in too, and the Mac on loopback is not.
+  {
+    const key = JSON.parse(fs.readFileSync(path.join(MC, 'phone.json'), 'utf8') || '{}').key || 'A'.repeat(43);
+    const offPage = await req(PH, { path: '/' });
+    const offKey = await req(PH, { path: '/?k=' + encodeURIComponent(key) });
+    const offApi = await Promise.all(['/api/state', '/api/whoami', '/api/events', '/app.js'].map((p) => req(PH, { path: p }).then((x) => [p, x.status])));
+    const offWrite = await req(PH, { method: 'POST', path: '/api/ideas/brainstorm/clear', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json' }, body: '{}' });
+    check('phone access off: the board page from the Wi-Fi is 403 and says to turn it on', offPage.status === 403 && /Phone access is off/.test(offPage.body), `HTTP ${offPage.status}`);
+    check('phone access off: the key\'s sign-in is refused, no cookie', offKey.status === 403 && !offKey.headers['set-cookie'], `HTTP ${offKey.status}`);
+    check('phone access off: the API, the stream and static files from the Wi-Fi are 403', offApi.every(([, x]) => x === 403), offApi.map(([p, x]) => `${p} ${x}`).join(', '));
+    check('phone access off: a write from the Wi-Fi is 403', offWrite.status === 403, `HTTP ${offWrite.status}`);
+    check('phone access off: the Mac on loopback is served', (await req(MAC, { path: '/api/whoami' })).status === 200);
+    const on = await req(MAC, { method: 'POST', path: '/api/phone/access', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json', Origin: MAC }, body: JSON.stringify({ on: true }) });
+    check('phone access turned on from the Mac', on.status === 200 && JSON.parse(on.body).access === true, `HTTP ${on.status} ${on.body.slice(0, 200)}`);
+  }
 
   // ------------------------------------------------------------ no cookie
   r = await req(PH, { path: '/' });

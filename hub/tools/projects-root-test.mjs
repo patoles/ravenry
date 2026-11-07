@@ -111,7 +111,7 @@ async function board(name, port, regJson, extraEnv = {}) {
   const choose = path.join(T, name, 'choose.txt');
   fs.writeFileSync(choose, 'cancel\n');
   const env = {
-    ...process.env, RAVENRY_HOME: mc, PORT: String(port), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0',
+    ...process.env, RAVENRY_HOME: mc, PORT: String(port), RAVENRY_PHONE_PORT: String(port + 1000), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0',
     CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: fake,
     MC_CHOOSE_FOLDER_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-choose-folder.mjs')]),
     STUB_CHOOSE_FILE: choose, ...extraEnv,
@@ -214,6 +214,8 @@ try {
       rq.on('error', reject);
       rq.end(q.body || undefined);
     });
+    // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
+    await fetch(b.base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: b.base }, body: JSON.stringify({ on: true }) });
     await fetch(b.base + '/api/phone');
     const KEY = JSON.parse(fs.readFileSync(path.join(b.mc, 'phone.json'), 'utf8')).key;
     const si = await req({ path: '/?k=' + encodeURIComponent(KEY) });

@@ -216,7 +216,7 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
 }, null, 2));
 const OPEN_LOG = path.join(T, 'open.jsonl');
 const child = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], {
-  env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+  env: withTestHome({ ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), RAVENRY_PHONE_PORT: String(PORT + 1000), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
     CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE, MC_SCRATCH_ROOT: SCRATCH,
     MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
     STUB_OPEN_LOG: OPEN_LOG, MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-open.mjs')]) }),
@@ -279,6 +279,8 @@ try {
       rq.on('error', reject);
       rq.end(q.body || undefined);
     });
+    // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
+    await fetch(base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: base }, body: JSON.stringify({ on: true }) });
     let x = await ph({ path: shapes.url });
     check('phone: a picture with no sign-in is 401', x.status === 401, String(x.status));
     await fetch(base + '/api/phone');
