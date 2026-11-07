@@ -10,13 +10,39 @@
 # then the job builds the debug APK alone. No keystore is ever made here.
 name: android
 
+# Only when what the APK is built from changes (the Android app, the phone
+# board it carries, the protocol client and page format that board uses,
+# the workspace's lockfile, this file); not for Markdown alone.
 on:
   push:
+    paths:
+      - 'apps/android/**'
+      - 'apps/phone/**'
+      - 'packages/client/**'
+      - 'packages/page-format/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+      - '!**/*.md'
   pull_request:
+    paths:
+      - 'apps/android/**'
+      - 'apps/phone/**'
+      - 'packages/client/**'
+      - 'packages/page-format/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android.yml'
+      - '!**/*.md'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to the same ref cancels the run still going for the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:

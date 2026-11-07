@@ -26,12 +26,35 @@
 # tool and no browser.
 name: code
 
+# Only when the daemon, the hub, the packages or the test guard change;
+# not for Markdown alone, except the person routes' list the hub suite reads.
 on:
   push:
+    paths:
+      - 'daemon/**'
+      - 'hub/**'
+      - 'packages/**'
+      - 'tools/test-env.mjs'
+      - '.github/workflows/code.yml'
+      - '!**/*.md'
+      - 'hub/docs/PERSON.md'
   pull_request:
+    paths:
+      - 'daemon/**'
+      - 'hub/**'
+      - 'packages/**'
+      - 'tools/test-env.mjs'
+      - '.github/workflows/code.yml'
+      - '!**/*.md'
+      - 'hub/docs/PERSON.md'
 
 permissions:
   contents: read
+
+# A newer push to the same ref cancels the run still going for the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   daemon:
@@ -120,19 +143,8 @@ jobs:
           node hub/tools/pages-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/worktree-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/picks-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
-      - name: Measurements
-        run: grep '^MEASURE' "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY"
-
-  hub:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: hub
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
+      # The hub's checks, in this job (a job of their own took 25 s and
+      # was billed a whole minute).
       - name: node --check over every script
         working-directory: .
         run: |
@@ -140,9 +152,13 @@ jobs:
       # No npm ci: the hub's package says os darwin, and these suites use
       # none of its dev dependencies (Playwright, jsQR).
       - name: Hub suites that run on Linux
+        working-directory: hub
         run: |
           for t in data-guard-test access-wait-test sessions-test events-hook-test handoff-hook-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test phone-app-test homepath-test keys-test decisions-test worktree-test picks-test npmswitch-test; do
             echo "::group::$t"
             node "tools/$t.mjs"
             echo "::endgroup::"
           done
+      - name: Measurements
+        run: grep '^MEASURE' "$RUNNER_TEMP/test.log" | tee -a "$GITHUB_STEP_SUMMARY"
+

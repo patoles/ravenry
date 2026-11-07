@@ -383,9 +383,10 @@ macOS 13 or newer on the Mac, the app's version), the hub and
 `tools/package-check.mjs` checks a DMG, zip, AppImage, .deb or unpacked
 app: what is inside, then the app offscreen beside an older ravenryd, the
 hub service in dry-run mode in a throwaway HOME, and the hub run as that
-service says. CI's release workflow (`.github/workflows/release.yml`)
-builds every target on a machine of its own, checks every artifact and,
-on a `v*` tag, uploads them to a draft release, never published by CI.
+service says. CI's release workflow (`.github/workflows/release.yml`),
+run by hand only, builds every target on a machine of its own, checks
+every artifact and, run on a `v*` tag (`gh workflow run release.yml --ref
+v<version>`), uploads them to a draft release, never published by CI.
 
 **The first run, timed.** `node tools/first-run.mjs APP [OUT] [--runs N]`
 opens a packaged app for the first time in a fresh throwaway HOME (a

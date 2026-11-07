@@ -1,4 +1,6 @@
-# The personal-data audit (tools/audit.mjs) on every push and pull request.
+# The personal-data audit (tools/audit.mjs) on every push and pull request,
+# and in the same job the page files' checks (packages/page-format): each
+# took under 20 s in a job of its own, billed a whole minute each.
 # This repository's whole history goes public at launch, so a commit that
 # carries personal data must fail here. The personal term list comes from
 # the repository secret AUDIT_TERMS (one term per line) and is never
@@ -11,6 +13,11 @@ on:
 
 permissions:
   contents: read
+
+# A newer push to the same ref cancels the run still going for the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   audit:
@@ -32,3 +39,23 @@ jobs:
         env:
           AUDIT_TERMS: ${{ secrets.AUDIT_TERMS }}
         run: node tools/audit.mjs --require-terms
+      # Page files (packages/page-format): typecheck (the library with no
+      # Node types, so it stays usable in a browser and the phone's WebView;
+      # then the tests and tools), every test and conformance case, the
+      # publishable build, and that docs/pages.md is the one the schema
+      # generates. A few seconds, so on every push too.
+      - name: Page files, npm ci
+        working-directory: packages/page-format
+        run: npm ci
+      - name: Page files, typecheck
+        working-directory: packages/page-format
+        run: npm run typecheck
+      - name: Page files, tests and conformance fixtures
+        working-directory: packages/page-format
+        run: npm test
+      - name: Page files, build
+        working-directory: packages/page-format
+        run: npm run build && node -e "import('./dist/index.js').then((m) => { if (!m.checkPage) process.exit(1); })"
+      - name: Page files, the docs are current
+        working-directory: packages/page-format
+        run: npm run docs:check

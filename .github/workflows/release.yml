@@ -1,4 +1,4 @@
-# Builds the desktop app for every target and, on a version tag, uploads it
+# Builds the desktop app for every target and, when run by hand on a version tag, uploads it
 # to a DRAFT GitHub Release. Nothing here ever publishes a release: a person
 # reads the draft and publishes it. Run by hand (workflow_dispatch) to build
 # and check everything without a release; the files are then this run's
@@ -18,7 +18,7 @@
 #   checks     every artifact holds ravenryd and the hub; the arm64 Mac app,
 #              the x64 AppImage and the arm64 AppImage run offscreen on a
 #              machine of their own (tools/package-check.mjs)
-#   release    on a v* tag only: a draft release named after the tag, with
+#   release    when run on a v* tag only: a draft release named after the tag, with
 #              every file; a release that is already published is never
 #              touched
 #
@@ -32,9 +32,9 @@
 #   APPLE_API_ISSUER             its issuer id
 name: release
 
+# By hand only (macOS runners bill ten times Linux). For a draft release,
+# run it on the tag: gh workflow run release.yml --ref v<version>.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:

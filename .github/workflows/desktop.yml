@@ -16,35 +16,42 @@
 # service says. release.yml builds every installer.
 name: desktop
 
+# Only when the app or what it ships changes (its client and page format,
+# the hub, the daemon), the test guard, the lockfile or this file; not for
+# Markdown alone.
 on:
   push:
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/**'
+      - 'hub/**'
+      - 'daemon/**'
+      - 'tools/test-env.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+      - '!**/*.md'
   pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/**'
+      - 'hub/**'
+      - 'daemon/**'
+      - 'tools/test-env.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop.yml'
+      - '!**/*.md'
 
 permissions:
   contents: read
 
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-      - run: npm ci
-      - name: Typecheck
-        run: |
-          npm --workspace @ravenry/client run typecheck
-          npm --workspace @ravenry/desktop run typecheck
-      - name: packages/client tests
-        run: npm --workspace @ravenry/client test
-      - name: apps/desktop unit tests
-        run: npm --workspace @ravenry/desktop test
-      - name: Build
-        run: npm --workspace @ravenry/desktop run build
-      - name: The hub's bundle of the page format is current
-        run: node hub/tools/vendor-page-format.mjs --check
+# A newer push to the same ref cancels the run still going for the older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
@@ -96,6 +103,16 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      # The quick checks, in this job (a job of their own took 22 s and was
+      # billed a whole minute).
+      - name: Typecheck
+        run: |
+          npm --workspace @ravenry/client run typecheck
+          npm --workspace @ravenry/desktop run typecheck
+      - name: apps/desktop unit tests
+        run: npm --workspace @ravenry/desktop test
+      - name: The hub's bundle of the page format is current
+        run: node hub/tools/vendor-page-format.mjs --check
       # The hub's remote installer against real sshd in Linux containers:
       # bash, zsh and fish logins that print banners, BusyBox, a full tmpfs,
       # a jump host, with the static build above (hub/tools/remote-install-docker.mjs).
