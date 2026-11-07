@@ -101,6 +101,8 @@ export function summarize(sid, events) {
       if (e.source !== 'compact') s.last = e;
     } else if (e.event === 'SessionEnd') {
       s.endedAt = e.at; s.endReason = e.reason || null; s.last = e;
+      // Which copy ended: its process, or its pane (the daemon's own end).
+      s.endedBy = { pid: e.claude_pid ? Number(e.claude_pid) : null, terminal: e.terminal || null, terminalId: e.terminal_id || e.pane || null };
     } else if (e.event === 'UserPromptSubmit') {
       s.lastPromptAt = e.at; s.last = e;
     } else if (e.event === 'Stop') {
@@ -165,7 +167,10 @@ export function outlivedEnds(all, procs) {
     const elsewhere = (x) => [...all.values()].some((o) => o !== s && o.pid === x.pid && o.pidAt && Date.parse(o.pidAt) >= (Date.parse(x.startedAt || 0) || 0) - 2000);
     // A copy in a Ravenry pane is the board's own case (the pane stays and
     // says the conversation went on elsewhere): only another terminal's.
-    const p = (procs || []).find((x) => x.pid !== s.pid && x.argvSession === s.sessionId && !x.ravenryId && !elsewhere(x));
+    // Not the copy that ended (its process, or its pane).
+    const ended = s.endedBy || {};
+    const isEnded = (x) => (ended.pid && x.pid === ended.pid) || (ended.terminalId && (x.ravenryId === ended.terminalId || x.surfaceId === ended.terminalId || x.itermId === ended.terminalId || x.rexId === ended.terminalId));
+    const p = (procs || []).find((x) => x.argvSession === s.sessionId && !x.ravenryId && !isEnded(x) && !elsewhere(x));
     if (!p) continue;
     s.endedAt = null;
     s.endReason = null;

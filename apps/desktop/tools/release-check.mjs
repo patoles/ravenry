@@ -646,6 +646,8 @@ try {
     const logOf = (f) => { const p = path.join(m.home, 'Library', 'Logs', 'Ravenry', f); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; };
     const appLog = logOf('app.log');
     const hubLog = logOf('hub.log');
+    // The hub's own words on the sessions (why one left the board, or came back), beside the shots.
+    try { fs.writeFileSync(path.join(OUT, '9-hub-sessions.log'), hubLog.split('\n').filter((l) => /^sessions: /.test(l)).join('\n') + '\n'); } catch { /* none */ }
     const errs = kids.map((k) => (k.out.match(/hook error.*/g) || [])).flat();
     step('9 move: hooks set up through the stable folder, and no stand-in saw a hook error', res.hooks === 200 && !errs.length, { setup: res.hooks, errors: errs.slice(0, 3) });
     const clean = (l) => (l || []).every((p) => !/(^|\s)(CLAUDE|CMUX_)/.test(p.env));

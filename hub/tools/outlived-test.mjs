@@ -18,6 +18,10 @@ const events = [
   { at: at(15), event: 'Stop', session_id: SA, claude_pid: 200, terminal: 'ravenry', terminal_id: 'ppppaaaa', pane: 'ppppaaaa' },
   { at: at(20), event: 'SessionEnd', session_id: SA, claude_pid: 200, terminal: 'ravenry', terminal_id: 'ppppaaaa', reason: 'pane_exited' },
 ];
+// (The cmux copy also reports: its events after the Ravenry copy's start
+// leave pid 100 as the session's last known pid; the end is still the
+// Ravenry copy's own.)
+events.splice(4, 0, { at: at(18), event: 'Stop', session_id: SA, claude_pid: 100, terminal: 'cmux', surface_id: 'BBBB2222-0000-4000-8000-0000000000A1' });
 const cmuxProc = { pid: 100, startedAt: at(-5), argvSession: SA, surfaceId: 'BBBB2222-0000-4000-8000-0000000000A1', workspaceId: 'AAAA1111-0000-4000-8000-0000000000AA' };
 
 let all = new Map([[SA, summarize(SA, events)]]);
@@ -30,7 +34,7 @@ all = new Map([[SA, summarize(SA, events)]]);
 check('with no process left for it, A stays ended', outlivedEnds(all, []).length === 0 && !!all.get(SA).endedAt);
 
 all = new Map([[SA, summarize(SA, events)]]);
-check('the process that ended is not a reason (its own pid)', outlivedEnds(all, [{ ...cmuxProc, pid: 200 }]).length === 0 && !!all.get(SA).endedAt);
+check('the copy that ended is not a reason (its own pid)', outlivedEnds(all, [{ ...cmuxProc, pid: 200, surfaceId: null }]).length === 0 && !!all.get(SA).endedAt);
 
 // A process launched for A that has since become B (a /clear): A stays ended.
 all = new Map([[SA, summarize(SA, events)], [SB, summarize(SB, [{ at: at(30), event: 'SessionStart', session_id: SB, claude_pid: 100, terminal: 'cmux', source: 'clear' }])]]);
