@@ -81,7 +81,11 @@ pairs and opens the board.
   its listening service otherwise).
 - **Alerts.** Buttons and the reply line per docs/PHONE.md section 5,
   answered from the shade (`ActionReceiver`); Run opens only the
-  fingerprint prompt (`RunActivity`). A secret is never typed into a
+  fingerprint prompt (`RunActivity`), and so do Allow once and This
+  session on a drive, which names its action and the pane ("Claude wants
+  to close dev server"). A pick shows its pictures side by side
+  (`Pictures`, fetched with the pin and the token) with Compare and Not
+  now; a saved decision has Undo. A secret is never typed into a
   notification.
 
 ## Tests

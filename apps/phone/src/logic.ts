@@ -18,16 +18,18 @@ export function marksOf(cps: HubCheckpoint[]): Map<string, RowMark> {
   for (const cp of cps) {
     if (!cp.projectId || !cp.surfaceId || cp.state !== 'open') continue;
     const m = markOf(cp);
-    out.set(`${cp.projectId}/${cp.surfaceId}`, { kind: m.kind, text: m.text, code: m.code, since: cp.created_at });
+    out.set(`${cp.projectId}/${cp.surfaceId}`, { kind: m.kind as RowMark['kind'], text: m.text, code: m.code, since: cp.created_at });
   }
   return out;
 }
 
 /** The word before a checkpoint's text on a session's row. */
 export function markLabel(kind: RowMark['kind']): string {
-  switch (kind) {
+  switch (kind as string) {
     case 'approve': return 'Wants to run:';
     case 'secret': return 'Needs a secret:';
+    case 'pick': return 'Pick one:';
+    case 'drive': return 'Asks first:';
     default: return 'Checkpoint:';
   }
 }
@@ -133,6 +135,8 @@ export function dropLine(o: { at: number; topic: string; answer: string | null; 
 
 /** The label at the top of a checkpoint screen. */
 export function topLabel(cp: HubCheckpoint, who: string): string {
+  if (cp.kind === 'pick') return `${who} wants you to pick`;
+  if (cp.kind === 'drive') return `${who} is asking first`;
   if (cp.page && kindOf(cp) === 'approve') return `${cp.page.title} wants to run a command`;
   switch (kindOf(cp)) {
     case 'ask': return `${who} is waiting for you`;
@@ -156,4 +160,59 @@ export function distributorName(pkg: string | null | undefined): string | null {
   if (/nextpush|nextcloud/i.test(pkg)) return 'NextPush';
   if (/sunup/i.test(pkg)) return 'Sunup';
   return pkg.split('.').pop() || pkg;
+}
+
+// ---------------------------------------------------------------- a pick
+
+/** A pick's variant as people read it: its letter (A, B...) and its label split into a name and the agent's words. */
+export function variantOf(label: string, i: number): { letter: string; name: string; more: string | null } {
+  const t = String(label || '').trim();
+  const m = /^(.+?[^.\s])(?:\.|:)\s+(.+)$/.exec(t);
+  return { letter: String.fromCharCode(65 + i), name: m ? m[1] : t, more: m ? m[2] : null };
+}
+
+/** The part a finger drew around, as fractions of the picture (PROTOCOL.md section 4, pick): null when it is too small to mean a part. */
+export function regionOf(points: [number, number][]): { x: number; y: number; w: number; h: number } | null {
+  if (points.length < 2) return null;
+  const c = (v: number) => Math.min(1, Math.max(0, v));
+  const xs = points.map((p) => c(p[0]));
+  const ys = points.map((p) => c(p[1]));
+  const x = Math.min(...xs), y = Math.min(...ys);
+  const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+  if (w < 0.03 && h < 0.03) return null;
+  const r = (v: number) => Math.round(v * 10000) / 10000;
+  return { x: r(x), y: r(y), w: r(Math.min(w, 1 - x)), h: r(Math.min(h, 1 - y)) };
+}
+
+/** What a drive would type, as text and keys: "npm run dev", then <Enter> as a key. */
+export function typedParts(input: string): { key: boolean; text: string }[] {
+  const out: { key: boolean; text: string }[] = [];
+  const re = /<((?:Ctrl|Alt|Shift|Meta)\+[^<>\s]+|Enter|Tab|Esc|Escape|Backspace|Delete|Up|Down|Left|Right|Home|End|PageUp|PageDown|Space|F\d{1,2})>/g;
+  let at = 0;
+  for (let m = re.exec(input); m; m = re.exec(input)) {
+    if (m.index > at) out.push({ key: false, text: input.slice(at, m.index) });
+    out.push({ key: true, text: m[1].replace(/\+/g, ' ') });
+    at = m.index + m[0].length;
+  }
+  if (at < input.length) out.push({ key: false, text: input.slice(at) });
+  return out;
+}
+
+/** What a drive asks, in words: its title, the yes buttons and what each says once sent. `action` absent is input. */
+export function driveWords(action: string | null | undefined, who: string, pane: string): { title: string; what: string | null; yes: { allow: 'once' | 'session'; label: string; sub: string | null; said: string }[] } {
+  switch (action) {
+    case 'close': return { title: `${who} wants to close ${pane}`, what: 'Whatever runs there stops.', yes: [{ allow: 'once', label: 'Let it close', sub: null, said: `${who} closes ${pane} now.` }] };
+    case 'restart': return { title: `${who} wants to restart ${pane}`, what: 'What runs there stops and starts again.', yes: [{ allow: 'once', label: 'Let it restart', sub: null, said: `${who} restarts ${pane} now.` }] };
+    case 'override': return { title: `${who} wants to change how ${pane} runs`, what: null, yes: [{ allow: 'once', label: 'Let it change it', sub: null, said: `${who} changes how ${pane} runs.` }] };
+    default: return { title: `${who} wants to type in ${pane}`, what: null, yes: [
+      { allow: 'once', label: 'Allow once', sub: null, said: `${who} types it now.` },
+      { allow: 'session', label: 'This session', sub: 'Until its session ends', said: `${who} may type in ${pane} until its session ends.` },
+    ] };
+  }
+}
+
+/** The pane a daemon's drive title names ('Let Claude close "dev server" (pane pabc)?'), without its id. */
+export function paneInTitle(title: string): string | null {
+  const m = /"([^"]+)" \(pane [a-z0-9]+\)/.exec(String(title || ''));
+  return m ? m[1] : null;
 }

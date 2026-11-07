@@ -18,7 +18,7 @@
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
 import * as DI from '../../desktop/src/renderer/icons.ts';
-import { assistantName, findSession, secondLine } from '../../desktop/src/renderer/model.ts';
+import { assistantName, findSession, paneOf, secondLine } from '../../desktop/src/renderer/model.ts';
 import {
   afterOf, characters, isRemote, kindOf, secretProblem, splitTitle, warningsOf, who,
 } from '../../desktop/src/renderer/checkpoints.ts';
@@ -26,7 +26,9 @@ import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
-import { checksOf, dropLine, mmss, topLabel, waitOf } from './logic.ts';
+import { checksOf, driveWords, dropLine, mmss, paneInTitle, topLabel, typedParts, waitOf } from './logic.ts';
+import { newPick, pickView } from './pick.ts';
+import type { PickUI } from './pick.ts';
 import { sayPathOn } from '../../../hub/public/homepath.mjs';
 import type { Drop } from './logic.ts';
 import { back, go, toast } from './main.ts';
@@ -235,13 +237,66 @@ function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld:
     h('div.pcp-b', h('button.btn.pri.big', { disabled: ui.busy, on: { click: () => void send() } }, 'Send to the terminal')));
 }
 
+// ---------------------------------------------------------------- drive
+
+/** The pane a drive acts on, by the name the board shows: its session's, else its own name; never its id. */
+function drivePane(cp: HubCheckpoint): string {
+  const pane = cp.drive?.pane;
+  for (const p of hub.live.state?.projects || []) for (const s of p.sessions || []) {
+    if (pane && paneOf(s) === pane) return s.topic || p.name;
+  }
+  return paneInTitle(cp.title) || 'another tab';
+}
+
+function driveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement {
+  const sh = current();
+  const w = who(cp);
+  const target = drivePane(cp);
+  const action = cp.drive?.action || 'input';
+  const words = driveWords(action, w, target);
+  const input = String(cp.drive?.input || '');
+  const allow = async (y: (typeof words.yes)[number]) => {
+    if (ui.busy) return;
+    // Letting an agent act on a pane it did not start is as strong as
+    // running a command there: a fingerprint first, always (docs/PHONE.md
+    // section 5).
+    if (!sh.has('biometric')) { ui.error = 'Allowing it from the phone asks for a fingerprint, and this app cannot ask for one here. Answer it on the computer.'; repaint(); return; }
+    try { await sh.call('biometric', { title: y.label, subtitle: words.title }); } catch (e) { ui.error = (e as Error).message; repaint(); return; }
+    ui.busy = true; ui.error = null; repaint();
+    try { await answer(cp, { approve: true, allow: y.allow }); toast(y.said); back(); } catch (e) { ui.busy = false; ui.error = (e as Error).message; repaint(); }
+  };
+  const refuse = async () => {
+    if (ui.busy) return;
+    ui.busy = true; repaint();
+    try { await answer(cp, { decline: true }); toast('Refused.'); back(); } catch (e) { ui.busy = false; ui.error = (e as Error).message; repaint(); }
+  };
+  return h('div.pcp',
+    topBar(cp, I.KEYS16), ...fromLine(cp),
+    h('h2.sm', words.title),
+    words.what ? h('p.det', words.what) : null,
+    input ? [h('div.plbl', action === 'override' ? 'It would set' : 'It would press, in order'),
+      h('div.ptyped', action === 'override' ? input : typedParts(input).map((x) => (x.key ? h('span.kc', x.text) : h('span', x.text))))] : null,
+    waitBox(cp),
+    ui.error ? h('p.err', ui.error) : null,
+    h('div.pcp-b',
+      words.yes.map((y) => h('button.btn.big.popt', { disabled: ui.busy, on: { click: () => void allow(y) } }, svg(I.FINGER), y.sub ? h('span.two-l', h('span', y.label), h('span.s', y.sub)) : h('span', y.label))),
+      h('button.btn.bad-t', { disabled: ui.busy, on: { click: () => void refuse() } }, 'Refuse')));
+}
+
 // ---------------------------------------------------------------- the screen
 
 interface UI { busy: boolean; error: string | null; draft: string; editing: boolean; edit: string; refusing: boolean; reason: string; count: number; reveal: boolean }
 
+const picks = new Map<string, PickUI>();
+
 export function checkpointScreen(id: string): Screen {
   const el = h('div.scr.cpscr');
   const ui: UI = { busy: false, error: null, draft: '', editing: false, edit: '', refusing: false, reason: '', count: 0, reveal: false };
+  // A pick keeps its picture, circle and note while the page lives, so a
+  // look at another screen and back loses nothing.
+  let pk = picks.get(id);
+  if (!pk) { pk = newPick(); picks.set(id, pk); }
+  const pkNow: PickUI = pk;
   const sh = current();
   let secretOpen = false;
   let secretField: HTMLElement | null = null;
@@ -263,7 +318,9 @@ export function checkpointScreen(id: string): Screen {
 
   function paint(force = false): void {
     const cp = find(id);
-    const key = cp ? `${cp.state}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${Math.floor(Date.now() / 30000)}` : 'gone';
+    // A pick is drawn again only when its state changes: a minute passing
+    // must not take the picture from under a finger or a note being typed.
+    const key = cp ? `${cp.state}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? '' : Math.floor(Date.now() / 30000)}` : 'gone';
     if (!force && key === lastKey) return;
     lastKey = key;
     if (!cp) {
@@ -275,7 +332,9 @@ export function checkpointScreen(id: string): Screen {
     if (cp.state !== 'open') { closeSecret(); replace(el, doneView(cp)); return; }
     const repaint = () => paint(true);
     const k = kindOf(cp);
-    const view = k === 'ask' ? askView(cp, ui, repaint)
+    const view = cp.kind === 'pick' ? pickView(cp, pkNow, { topBar, fromLine, answer, repaint, done: (said) => { picks.delete(id); toast(said); back(); } })
+      : cp.kind === 'drive' ? driveView(cp, ui, repaint)
+      : k === 'ask' ? askView(cp, ui, repaint)
       : k === 'approve' ? approveView(cp, ui, repaint)
       : k === 'secret' ? secretView(cp, ui, repaint, (f) => { secretField = f; }, (on) => { void sh.call('secret.move', { rect: slotRect(), reveal: on }).catch(() => {}); })
       : h('div.pcp', topBar(cp, DI.ASK), ...fromLine(cp), h('h2.sm', splitTitle(cp.title).head),

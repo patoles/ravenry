@@ -34,14 +34,15 @@ object Biometrics {
     }
 }
 
-/** Run from the shade: a see-through screen that only shows the fingerprint prompt, then answers. */
+/** Run (or Allow on a drive) from the shade: a see-through screen that only shows the fingerprint prompt, then answers. */
 class RunActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val a = Alert.parse(intent.getStringExtra(Notifier.EXTRA_ALERT) ?: "") ?: return finish()
-        val call = Actions.call(a, "run") as? ActionCall.Run ?: return finish()
+        val id = intent.getStringExtra(Notifier.EXTRA_ACTION) ?: "run"
+        val call = Actions.call(a, id) as? ActionCall.Run ?: return finish()
         if (savedInstanceState != null) return
-        val label = a.actions.firstOrNull { it.id == "run" }?.label ?: getString(R.string.run)
+        val label = a.actions.firstOrNull { it.id == id }?.label ?: getString(R.string.run)
         Biometrics.ask(this, label, a.body) { ok, error ->
             if (!ok) {
                 if (error != null && Biometrics.unavailable(this) != null) Toast.makeText(this, error, Toast.LENGTH_LONG).show()

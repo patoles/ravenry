@@ -2,7 +2,7 @@
 // (src/shell.ts), without a page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, strip, topLabel, waitOf } from '../src/logic.ts';
+import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, driveWords, paneInTitle, regionOf, strip, topLabel, typedParts, variantOf, waitOf } from '../src/logic.ts';
 import { BRIDGE_VERSION, Wire } from '../src/shell.ts';
 import { board } from '../../desktop/src/renderer/model.ts';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
@@ -114,4 +114,37 @@ test('the wire matches replies to requests and passes events on', async () => {
   assert.deepEqual(got, ['up']);
   w.receive('not json');
   w.receive(JSON.stringify({ id: 999, ok: true }));
+});
+
+test('a pick names each variant by its letter, and a label with the agent\'s words splits at the first sentence', () => {
+  assert.deepEqual(variantOf('Level', 0), { letter: 'A', name: 'Level', more: null });
+  assert.deepEqual(variantOf('Tilt with the slope. The hull follows the wave at the bow.', 1), { letter: 'B', name: 'Tilt with the slope', more: 'The hull follows the wave at the bow.' });
+  assert.deepEqual(variantOf('v1.2 build', 2), { letter: 'C', name: 'v1.2 build', more: null });
+  assert.equal(topLabel(cp({ kind: 'pick' }), 'Claude'), 'Claude wants you to pick');
+  assert.equal(topLabel(cp({ kind: 'drive' }), 'Claude'), 'Claude is asking first');
+});
+
+test('the circled part is the box around the finger\'s path, in fractions of the picture, inside it', () => {
+  assert.deepEqual(regionOf([[0.4, 0.3], [0.6, 0.25], [0.62, 0.5], [0.38, 0.48]]), { x: 0.38, y: 0.25, w: 0.24, h: 0.25 });
+  assert.deepEqual(regionOf([[-0.2, 0.9], [0.1, 1.4]]), { x: 0, y: 0.9, w: 0.1, h: 0.1 });
+  assert.equal(regionOf([[0.5, 0.5], [0.51, 0.505]]), null);
+  assert.equal(regionOf([[0.5, 0.5]]), null);
+});
+
+test('what a drive would type shows its keys as keys', () => {
+  assert.deepEqual(typedParts('<Ctrl+C>npm run dev -- --host<Enter>'), [{ key: true, text: 'Ctrl C' }, { key: false, text: 'npm run dev -- --host' }, { key: true, text: 'Enter' }]);
+  assert.deepEqual(typedParts('a <b> c'), [{ key: false, text: 'a <b> c' }]);
+});
+
+test('a drive says its action and names the pane, never its id', () => {
+  const input = driveWords(undefined, 'Claude', 'dev server');
+  assert.equal(input.title, 'Claude wants to type in dev server');
+  assert.deepEqual(input.yes.map((y) => [y.allow, y.label]), [['once', 'Allow once'], ['session', 'This session']]);
+  const close = driveWords('close', 'Claude', 'dev server');
+  assert.equal(close.title, 'Claude wants to close dev server');
+  assert.deepEqual(close.yes.map((y) => [y.allow, y.label]), [['once', 'Let it close']]);
+  assert.equal(driveWords('restart', 'Codex', 'tests').title, 'Codex wants to restart tests');
+  assert.equal(driveWords('override', 'Codex', 'tui').title, 'Codex wants to change how tui runs');
+  assert.equal(paneInTitle('Let Claude close "dev server" (pane pk3m9q2x)?'), 'dev server');
+  assert.equal(paneInTitle('Let Claude close pane pk3m9q2x?'), null);
 });

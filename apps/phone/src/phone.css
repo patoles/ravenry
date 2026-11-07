@@ -306,3 +306,36 @@ textarea.pcmd.edit { width: 100%; resize: vertical; background: var(--input); co
 .tg.off { background: var(--card2); }
 .tg.off::after { right: auto; left: 3px; }
 .tg:disabled { opacity: .45; }
+
+/* A pick: one picture at a time, swiped; then a part circled and a note */
+.ptrack { margin: 16px -4px 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; border-radius: 16px; flex: none; }
+.ptrack::-webkit-scrollbar { display: none; }
+.ptrack.one { margin-top: 22px; overflow: hidden; }
+.pimg { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; position: relative; border-radius: 16px; overflow: hidden; line-height: 0; box-shadow: inset 0 0 0 1px var(--sep); background: var(--card); min-height: 120px; }
+.pimg img { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.pimg .phtml { width: 100%; aspect-ratio: 16 / 10; border: 0; display: block; background: #FFFFFF; }
+.pimg .pmiss { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; font-size: 14px; line-height: 1.4; color: var(--tx2); text-align: center; }
+.pimg .lt { position: absolute; left: 12px; top: 12px; height: 30px; padding: 0 12px; border-radius: 15px; background: rgba(0,0,0,.55); color: #FFFFFF; font: 600 14px/30px Roboto, system-ui, sans-serif; white-space: nowrap; }
+.pimg .ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.pimg .pdraw { position: absolute; inset: 0; z-index: 2; touch-action: none; cursor: crosshair; box-shadow: inset 0 0 0 2px var(--you); border-radius: 16px; }
+.pcap { margin: 12px 0 0; font-size: 15px; line-height: 1.45; color: var(--tx2); }
+.pcap b { color: var(--tx); font-weight: 650; }
+.dots3 { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--tx2); }
+.dots3 i { width: 8px; height: 8px; border-radius: 50%; background: var(--card2); }
+.dots3 i.on { background: var(--tx); }
+.dots3 span { margin-left: 6px; }
+@media (prefers-color-scheme: light) { .dots3 i { background: var(--sep); } }
+.pfield.pnf { margin-top: 14px; align-items: center; }
+.pfield .f.pnote { height: auto; min-height: 50px; padding: 13px 18px; border-radius: 18px; line-height: 1.4; resize: none; font-size: 15px; display: block; }
+.btn.sm2 { min-height: 44px; font-size: 15px; width: 100%; }
+@media (prefers-color-scheme: light) { .pfield.pnf .mic { background: var(--sheet); box-shadow: 0 0 0 1px var(--sep); } }
+
+/* A drive: what the agent would press, in order */
+.plbl { margin-top: 20px; font-size: 13.5px; font-weight: 650; color: var(--tx2); }
+.ptyped { margin-top: 8px; background: var(--term-bg); color: #F2F2F4; border-radius: 12px; padding: 12px 14px; font: 14px/1.9 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ptyped .kc { display: inline-block; font: 600 12px/1.5 Roboto, system-ui, sans-serif; padding: 1px 7px; margin: 0 5px; border-radius: 5px; background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); white-space: nowrap; }
+.ptyped .kc:first-child { margin-left: 0; }
+.popt { gap: 10px; }
+.popt .two-l { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.popt .two-l .s { font-size: 12.5px; font-weight: 450; color: var(--tx2); }
+.pcp-b > .btn.bad-t { min-height: 48px; font-size: 16px; font-weight: 650; width: 100%; }

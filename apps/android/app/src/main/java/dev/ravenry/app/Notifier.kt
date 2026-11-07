@@ -66,9 +66,10 @@ object Notifier {
 
     private fun actionIntent(context: Context, a: Alert, id: String): PendingIntent {
         if (id == "open") return openIntent(context, a)
-        if (id == "run") {
+        // Run, and Allow on a drive: the fingerprint prompt first.
+        if (id == "run" || a.actions.any { it.id == id && it.biometric }) {
             val i = Intent(context, RunActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra(EXTRA_ALERT, a.raw).setAction("run:" + a.id)
+                .putExtra(EXTRA_ALERT, a.raw).putExtra(EXTRA_ACTION, id).setAction("run:" + a.id + ":" + id)
             return PendingIntent.getActivity(context, (a.id + id).hashCode(), i, flags())
         }
         val i = Intent(context, ActionReceiver::class.java).putExtra(EXTRA_ALERT, a.raw).putExtra(EXTRA_ACTION, id).setAction("act:" + a.id + ":" + id)
@@ -98,8 +99,32 @@ object Notifier {
             val input = RemoteInput.Builder(REPLY_KEY).setLabel(r.hint ?: r.label).build()
             b.addAction(NotificationCompat.Action.Builder(0, r.label, actionIntent(context, a, "reply")).addRemoteInput(input).setAllowGeneratedReplies(false).build())
         }
+        if (a.kind == "pick") {
+            // "Which tilt reads best? 3 pictures.", then the pictures side by
+            // side once they are fetched over the pinned connection.
+            val n = a.variants.size
+            val words = SpannableStringBuilder()
+            val q = a.body.ifEmpty { a.title }
+            words.append(q); words.setSpan(StyleSpan(Typeface.BOLD), 0, q.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (n > 0) words.append(' ').append(context.resources.getQuantityString(R.plurals.pictures, n, n))
+            b.setContentText(words).setStyle(NotificationCompat.BigTextStyle().bigText(words))
+            post(context, a.id, b.build())
+            val images = a.variants.filter { it.type == "image" }
+            if (images.isNotEmpty()) Hub.io.execute {
+                val strip = Pictures.strip(context, images) ?: return@execute
+                if (answered.containsKey(a.id)) return@execute
+                b.setOnlyAlertOnce(true)
+                    .setStyle(NotificationCompat.BigPictureStyle().bigPicture(strip).setSummaryText(words))
+                if (isShowing(context, a.id)) post(context, a.id, b.build())
+            }
+            return
+        }
         post(context, a.id, b.build())
     }
+
+    private fun isShowing(context: Context, id: String): Boolean = runCatching {
+        context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.tag == id && it.id == ALERT_ID }
+    }.getOrDefault(true)
 
     /** After an action: what was sent, then gone after four seconds; or why it failed, with Open. */
     fun after(context: Context, a: Alert, ok: Boolean, said: String) {

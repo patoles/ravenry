@@ -243,7 +243,7 @@ fit, it shows the first ones and **Open**.
 | `approve` | `ravenry approve` | **Run** (`run`, fingerprint first), **Refuse** (`refuse`), **Open** (`open`) | none |
 | `secret` | `ravenry secret` | **Type it** (`open`), **Not now** (`decline`) | **none**, ever: a secret is never typed into a notification |
 | `drive` | an agent typed into, closed, restarted or changed the test conditions of a pane it did not start (`checkpoint.drive.action`: `input`, `close`, `restart`, `override`), and waits | **Allow once** (`allow:once`, fingerprint first), **This session** (`allow:session`, fingerprint first), **Refuse** (`refuse`) | none |
-| `pick` | `ravenry pick` (2 to 4 variants) | one per variant label, `pick:<i>`; with four, the first two and **Open** | none: the region and the note ("this, but...") are in the app |
+| `pick` | `ravenry pick` (2 to 4 variants) | the shade shows **Compare** (`open`, the app's swipe screen) and **Not now** (`later`: the alert goes, nothing is sent, the agent keeps waiting), whatever the message lists; `pick:<i>` per variant label still answers when a message's action asks for it | none: the region and the note ("this, but...") are in the app |
 | `decision` | an agent saved the person's words in the decision ledger | **Undo** (`undo`), for a minute; then the alert closes | none |
 | `permission` | the assistant's own permission menu | its answers, `quick:<n>` (Yes, Yes always, No) | none |
 | `question` | the assistant asked in the session | its quick answers, `quick:<n>`, at most two | **Reply** |
@@ -260,6 +260,7 @@ What each action does, as the device, on the phone port:
 | `refuse`, `decline` | `POST /api/checkpoints/answer { id: checkpoint, decline: true, by: "phone" }` |
 | `allow:once`, `allow:session` (marked `biometric: true`) | BiometricPrompt, then `POST /api/checkpoints/answer { id: checkpoint, approve: true, allow: "once" or "session", by: "phone" }` |
 | `pick:<i>` | `POST /api/checkpoints/answer { id: checkpoint, pick: { label: checkpoint.variants[i].label }, by: "phone" }` |
+| `later` | nothing: the alert leaves the shade |
 | `undo` | `POST /api/decisions/undo { id: decision.id }` (refused after `decision.undo_until`) |
 | `quick:<n>` | `POST /api/send { projectId, surfaceId, choice: n }`; an answer the screen gave no number carries its `text` on the action, and sends `{ projectId, surfaceId, text }` instead |
 | the reply of a session | `POST /api/send { projectId, surfaceId, text }` |
@@ -274,7 +275,12 @@ command there.
 agent wants to act on, and what it wants to do (`input`: type into it;
 `close`; `restart`; `override`: change its size, speed or TERM). The
 title says it ("... wants to close another tab"), and `body` what it
-would type or which conditions it would set. Closing or restarting ends
+would type or which conditions it would set. The phone says it with the
+pane's name, never its id ("Claude wants to close dev server", from the
+daemon's title in `body` when it names the pane), and with one yes for an
+action other than typing (**Let it close**, **Let it restart**, **Let it
+change it**, as `allow:once`) beside **Refuse**; typing keeps **Allow
+once** and **This session**. Closing or restarting ends
 what runs there, so the same fingerprint goes before Allow once and This
 session. Allowing it for the
 session lasts until the agent's session ends; there is no "always".
@@ -283,10 +289,14 @@ session lasts until the agent's session ends; there is no "always".
 url }]`. `url` is `/api/checkpoints/<id>/variants/<n>` on the hub, served
 with the device token from the copy the hub keeps in its data (never the
 agent's own file); HTML and SVG come with `Content-Security-Policy:
-sandbox`. The app fetches the first image variant over the pinned
-connection to draw it in the alert. The app's pick screen shows every
-variant, lets the person draw a rectangle on the chosen one and type a
-note, and answers `{ id, pick: { label, region: { x, y, w, h } (each 0 to
+sandbox`. The app fetches the image variants over the pinned connection
+and draws them side by side in the alert, with the question and "3
+pictures.". The app's pick screen shows one variant at a time, full
+width, swiped, with its letter ("B, 2 of 3"), and its label split at the
+first ". " or ": " into a name and the agent's words; Circle a part lets
+the person draw around a part of the chosen one with a finger (the box
+around the path is the region) and type or speak a note, and it
+answers `{ id, pick: { label, region: { x, y, w, h } (each 0 to
 1 of the picture), note }, by: "phone" }`.
 
 **A saved decision** carries `decision: { id, undo_until }`, the quote in
@@ -401,7 +411,7 @@ them.
 | Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay, decrypted in a Notification Service Extension |
 | Push without a distributor | the connection held by a foreground service | the connection while the app is open |
 | Alert buttons | notification actions | `UNNotificationCategory` actions |
-| A pick's picture in the alert | `BigPictureStyle` with the first image variant, fetched over the pinned connection when the alert arrives | a `UNNotificationAttachment` the Notification Service Extension fetches over the pinned connection |
+| A pick's picture in the alert | `BigPictureStyle` with the image variants side by side in one picture, fetched over the pinned connection when the alert arrives | a `UNNotificationAttachment` the Notification Service Extension fetches over the pinned connection |
 | A pick's region and note | the phone board's pick screen | the phone board's pick screen |
 | Allow an agent to type into a pane | an action that opens BiometricPrompt, then answers | an action with `.authenticationRequired`, then Face ID in the app |
 | Undo a saved decision | a notification action, for a minute | a notification action, for a minute |

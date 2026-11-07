@@ -6,8 +6,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AlertsTest {
-    private fun msg(kind: String, actions: String, reply: String? = null, extra: String = "") =
-        """{"v":1,"type":"alert","id":"cp:c1234567","kind":"$kind","title":"T","body":"B","project":{"id":"notes-app","name":"notes-app"},"session":{"surfaceId":"ravenry:pabcdefg"},"checkpoint":{"id":"c1234567","kind":"$kind"},"actions":[$actions]${if (reply != null) ",\"reply\":$reply" else ""}$extra}"""
+    private fun msg(kind: String, actions: String, reply: String? = null, extra: String = "", cp: String = """{"id":"c1234567","kind":"$kind"}""") =
+        """{"v":1,"type":"alert","id":"cp:c1234567","kind":"$kind","title":"T","body":"B","project":{"id":"notes-app","name":"notes-app"},"session":{"surfaceId":"ravenry:pabcdefg"},"checkpoint":$cp,"actions":[$actions]${if (reply != null) ",\"reply\":$reply" else ""}$extra}"""
 
     private fun a(id: String, label: String) = """{"id":"$id","label":"$label"}"""
 
@@ -64,6 +64,53 @@ class AlertsTest {
         val question = Alert.parse(msg("question", a("open", "Open"), """{"action":"send","label":"Reply"}"""))!!
         assertEquals("""{"projectId":"notes-app","surfaceId":"ravenry:pabcdefg","text":"30"}""", (Actions.call(question, "reply", "30") as ActionCall.Post).json)
         assertTrue(Actions.call(question, "open") is ActionCall.Open)
+    }
+
+
+    @Test fun aDriveAsksForAFingerprintBeforeEitherAllow() {
+        val acts = listOf("""{"id":"allow:once","label":"Allow once","biometric":true}""", """{"id":"allow:session","label":"This session"}""", a("refuse", "Refuse")).joinToString(",")
+        val x = Alert.parse(msg("drive", acts, cp = """{"id":"c1234567","kind":"drive","drive":{"pane":"pdevserv"}}"""))!!
+        assertEquals(listOf("allow:once", "allow:session", "refuse"), x.actions.map { it.id })
+        assertTrue(x.actions.filter { it.id.startsWith("allow:") }.all { it.biometric })
+        assertEquals("""{"id":"c1234567","approve":true,"allow":"once","by":"phone"}""", (Actions.call(x, "allow:once") as ActionCall.Run).post.json)
+        assertEquals("""{"id":"c1234567","approve":true,"allow":"session","by":"phone"}""", (Actions.call(x, "allow:session") as ActionCall.Run).post.json)
+        assertEquals("""{"id":"c1234567","decline":true,"by":"phone"}""", (Actions.call(x, "refuse") as ActionCall.Post).json)
+        assertNull(Actions.call(Alert.parse(msg("ask", a("choice:0", "A")))!!, "allow:once"))
+    }
+
+    @Test fun aDriveSaysItsActionAndThePaneByName() {
+        val acts = listOf("""{"id":"allow:once","label":"Allow once","biometric":true}""", """{"id":"allow:session","label":"This session","biometric":true}""", a("refuse", "Refuse")).joinToString(",")
+        val close = """{"v":1,"type":"alert","id":"cp:c1","kind":"drive","title":"Claude wants to close another tab","body":"Let Claude close \"dev server\" (pane pk3m9q2x)?","detail":"Tilting the hull, on MacBook Pro","checkpoint":{"id":"c1","kind":"drive","drive":{"pane":"pk3m9q2x","action":"close"}},"actions":[$acts]}"""
+        val x = Alert.parse(close)!!
+        assertEquals("Claude wants to close dev server", x.title)
+        assertEquals("", x.body)
+        assertEquals(listOf("allow:once" to "Let it close", "refuse" to "Refuse"), x.actions.map { it.id to it.label })
+        assertTrue(x.actions.first().biometric)
+        val input = Alert.parse(close.replace("\"close\"}", "\"input\"}").replace("Claude wants to close another tab", "Claude wants to type into another tab").replace("Let Claude close", "Let Claude type into"))!!
+        assertEquals("Claude wants to type in dev server", input.title)
+        assertEquals(listOf("Allow once", "This session", "Refuse"), input.actions.map { it.label })
+        assertTrue(!x.title.contains("pk3m9q2x") && !input.title.contains("pk3m9q2x"))
+    }
+
+    @Test fun aPickShowsCompareAndNotNowAndKeepsItsPictures() {
+        val vs = """{"id":"c1234567","kind":"pick","variants":[{"label":"Level","type":"image","url":"/api/checkpoints/c1234567/variants/0"},{"label":"Tilt with the slope","type":"image","url":"/api/checkpoints/c1234567/variants/1"},{"label":"Page","type":"html","url":"/api/checkpoints/c1234567/variants/2"}]}"""
+        val x = Alert.parse(msg("pick", listOf(a("pick:0", "Level"), a("pick:1", "Tilt with the slope"), a("open", "Open")).joinToString(","), cp = vs))!!
+        assertEquals(listOf("open", "later"), x.actions.map { it.id })
+        assertEquals(listOf("Compare", "Not now"), x.actions.map { it.label })
+        assertEquals(3, x.variants.size)
+        assertEquals("/api/checkpoints/c1234567/variants/1", x.variants[1].url)
+        assertTrue(Actions.call(x, "open") is ActionCall.Open)
+        assertTrue(Actions.call(x, "later") is ActionCall.Later)
+        assertEquals("""{"id":"c1234567","pick":{"label":"Tilt with the slope"},"by":"phone"}""", (Actions.call(x, "pick:1") as ActionCall.Post).json)
+        assertNull(Actions.call(x, "pick:7"))
+    }
+
+    @Test fun aSavedDecisionIsUndoneByItsId() {
+        val x = Alert.parse("""{"v":1,"type":"alert","id":"dec:dk4x34fg","kind":"decision","title":"Saved your decision","body":"Tilt half as much.","detail":"Claude recorded it.","decision":{"id":"dk4x34fg","undo_until":"2026-11-07T10:01:00.000Z"},"actions":[{"id":"undo","label":"Undo"}],"reply":null}""")!!
+        assertEquals(listOf("undo"), x.actions.map { it.id })
+        val c = Actions.call(x, "undo") as ActionCall.Post
+        assertEquals("/api/decisions/undo", c.path)
+        assertEquals("""{"id":"dk4x34fg"}""", c.json)
     }
 
     @Test fun theConnectionLineCountsSessions() {

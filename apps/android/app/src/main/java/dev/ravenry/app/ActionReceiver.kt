@@ -12,7 +12,9 @@ class ActionReceiver : BroadcastReceiver() {
         val a = Alert.parse(intent.getStringExtra(Notifier.EXTRA_ALERT) ?: return) ?: return
         val id = intent.getStringExtra(Notifier.EXTRA_ACTION) ?: return
         val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Notifier.REPLY_KEY)?.toString()
-        val call = Actions.call(a, id, text) as? ActionCall.Post ?: return
+        val made = Actions.call(a, id, text)
+        if (made is ActionCall.Later) { Notifier.cancel(context, a.id); return }
+        val call = made as? ActionCall.Post ?: return
         val label = if (id == "reply") text.orEmpty() else a.actions.firstOrNull { it.id == id }?.label ?: id
         val done = goAsync()
         Hub.io.execute {
@@ -29,6 +31,7 @@ class ActionReceiver : BroadcastReceiver() {
             val r = runCatching { hub.call("POST", call.path, call.json) }
             val ok = r.getOrNull()?.status == 200
             val said = when {
+                ok && call.path == "/api/decisions/undo" -> context.getString(R.string.undone)
                 ok -> context.getString(R.string.sent, label)
                 r.isFailure -> context.getString(R.string.not_reached, Store.get(context).paired()?.hubName ?: "")
                 else -> runCatching { JSONObject(r.getOrThrow().text).optString("error") }.getOrNull()?.takeIf { it.isNotEmpty() }

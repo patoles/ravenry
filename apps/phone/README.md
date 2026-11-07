@@ -13,7 +13,7 @@ Licence: GPL-3.0-only (../../LICENSING.md).
 | --- | --- | --- |
 | `#/` | the sessions from every machine, Needs you first | Android 2 |
 | `#/s/<session>` | a session live: terminal, answers, key bar, reply, Hand off | Android 3 |
-| `#/cp/<checkpoint>` | a question, a command or a secret | the checkpoints' phone frames, A A A |
+| `#/cp/<checkpoint>` | a question, a command, a secret, a pick (swipe, circle a part, a note) or a drive (an agent asks to type into, close, restart or change a pane) | the checkpoints' phone frames, A A A; Phase 2, 32c |
 | `#/fb/<checkpoint>` | a photo and a voice note for it | Android 6 |
 | `#/p/<page>`, `#/pages` | the sidebar's pages | the pages' phone frame 6b |
 
@@ -41,4 +41,9 @@ node tools/preview.mjs http://127.0.0.1:4681/phone/ out / /pages
 A browser has no shell: no push, fingerprint, camera, microphone or
 private keyboard, so Run and the secret say they need the app.
 `?features=photo,voice` draws those buttons for a picture.
+
+On a headless emulator, the pick end to end (the alert with its pictures,
+the swipe screen, the circle and note, a drive's screen), dark and light:
+`node tools/pick-shots.mjs <outDir>` after building the debug APK; it
+starts its own read-only emulator and names it on every adb command.
 `tools/demo.mjs --phone` also turns phone access on for an emulator.

@@ -3,8 +3,11 @@ package dev.ravenry.app
 import org.json.JSONObject
 
 /** One button of an alert (docs/PHONE.md section 5). */
-/** `text`: a quick answer with no menu number is typed into the session as these words. */
-data class AlertAction(val id: String, val label: String, val text: String? = null)
+/** `text`: a quick answer with no menu number is typed into the session as these words. `biometric`: a fingerprint first. */
+data class AlertAction(val id: String, val label: String, val text: String? = null, val biometric: Boolean = false)
+
+/** One picture of a pick (docs/PHONE.md section 5): its label and where the hub serves it. */
+data class AlertVariant(val label: String, val type: String, val url: String)
 
 /** The reply line: `action` is "text" (an ask's own words) or "send" (typed into the session). */
 data class AlertReply(val action: String, val label: String, val hint: String?)
@@ -25,10 +28,14 @@ data class Alert(
     val actions: List<AlertAction>,
     val reply: AlertReply?,
     val raw: String,
+    /** A pick's pictures, in order. */
+    val variants: List<AlertVariant> = emptyList(),
+    /** A saved decision's id, for Undo. */
+    val decisionId: String? = null,
 ) {
     companion object {
         const val VERSION = 1
-        private val KNOWN = setOf("ask", "approve", "secret", "permission", "question", "handback", "gate")
+        private val KNOWN = setOf("ask", "approve", "secret", "permission", "question", "handback", "gate", "drive", "pick", "decision")
 
         /** The message, or null when it is not one this app reads (another version, another type). */
         fun parse(text: String): Alert? {
@@ -46,7 +53,33 @@ data class Alert(
             var actions = (0 until (list?.length() ?: 0)).mapNotNull { i ->
                 val a = list!!.optJSONObject(i) ?: return@mapNotNull null
                 val aid = a.optString("id"); val label = a.optString("label")
-                if (aid.isEmpty() || label.isEmpty()) null else AlertAction(aid, label, a.optString("text").takeIf { it.isNotEmpty() })
+                if (aid.isEmpty() || label.isEmpty()) null else AlertAction(aid, label, a.optString("text").takeIf { it.isNotEmpty() }, a.optBoolean("biometric", false))
+            }
+            val vlist = cp?.optJSONArray("variants")
+            val variants = (0 until (vlist?.length() ?: 0)).mapNotNull { i ->
+                val v = vlist!!.optJSONObject(i) ?: return@mapNotNull null
+                val url = v.optString("url")
+                if (!url.startsWith("/api/")) null else AlertVariant(v.optString("label"), v.optString("type", "image"), url)
+            }
+            // A pick in the shade shows its pictures side by side, small:
+            // Compare opens the swipe screen, where a part can be circled and
+            // a note added; Not now leaves it for later (the agent keeps
+            // waiting, the computer keeps showing it).
+            if (kind == "pick") actions = listOf(AlertAction("open", "Compare"), AlertAction("later", "Not now"))
+            // Allowing an agent to type into a pane is as strong as running a
+            // command there: a fingerprint first, whatever the message says.
+            var title = o.optString("title")
+            var body = o.optString("body")
+            if (kind == "drive") {
+                val d = Drive.of(cp?.optJSONObject("drive")?.optString("action"), title, body)
+                title = d.title; body = d.body
+                actions = actions.mapNotNull { act ->
+                    when {
+                        act.id == "allow:once" -> act.copy(label = d.yes, biometric = true)
+                        act.id == "allow:session" -> if (d.session) act.copy(biometric = true) else null
+                        else -> act
+                    }
+                }
             }
             // A kind this app does not know shows its title and body with Open only.
             if (kind !in KNOWN && type != "test") actions = listOf(AlertAction("open", "Open"))
@@ -61,13 +94,41 @@ data class Alert(
                 actions = actions.filter { it.id != "open" }.take(room - 1) + open
             }
             return Alert(
-                type, id, kind, o.optString("title"), o.optString("body"), o.optString("detail").takeIf { it.isNotEmpty() },
+                type, id, kind, title, body, o.optString("detail").takeIf { it.isNotEmpty() },
                 project?.optString("id")?.takeIf { it.isNotEmpty() }, project?.optString("name")?.takeIf { it.isNotEmpty() },
                 o.optString("machine").takeIf { it.isNotEmpty() && it != "null" },
                 session?.optString("surfaceId")?.takeIf { it.isNotEmpty() },
                 cp?.optString("id")?.takeIf { it.isNotEmpty() },
-                actions, reply, text,
+                actions, reply, text, variants,
+                o.optJSONObject("decision")?.optString("id")?.takeIf { it.isNotEmpty() },
             )
+        }
+    }
+}
+
+/**
+ * A drive in the shade says what the agent wants to do (`checkpoint.drive.action`:
+ * input, close, restart, override) to the pane by its name, never its id:
+ * "Claude wants to close dev server", with Let it close and Refuse. Typing
+ * keeps Allow once and This session. The pane's name comes from the
+ * daemon's own title when the message carries it; otherwise "another tab".
+ */
+data class Drive(val title: String, val body: String, val yes: String, val session: Boolean) {
+    companion object {
+        private val NAMED = Regex("\"([^\"]+)\" \\(pane [a-z0-9]+\\)")
+
+        fun of(action: String?, title: String, body: String): Drive {
+            val who = title.substringBefore(" wants ", "").ifEmpty { "The agent" }
+            val name = NAMED.find(body)?.groupValues?.get(1)
+            // The daemon's title names the pane with its id: it is said again here without it.
+            val rest = if (NAMED.containsMatchIn(body) || body.matches(Regex("^Let .+\\?$"))) "" else body
+            val pane = name ?: "another tab"
+            return when (action) {
+                "close" -> Drive("$who wants to close $pane", rest, "Let it close", false)
+                "restart" -> Drive("$who wants to restart $pane", rest, "Let it restart", false)
+                "override" -> Drive("$who wants to change how $pane runs", rest, "Let it change it", false)
+                else -> Drive(if (name != null) "$who wants to type in $name" else title, rest, "Allow once", true)
+            }
         }
     }
 }
@@ -78,6 +139,8 @@ sealed class ActionCall {
     /** Fingerprint first, then this post. */
     data class Run(val post: Post) : ActionCall()
     object Open : ActionCall()
+    /** Not now: the alert goes from the shade, nothing is sent. */
+    object Later : ActionCall()
 }
 
 object Actions {
@@ -99,6 +162,14 @@ object Actions {
             }
             id.startsWith("choice:") -> { val i = id.substring(7).toIntOrNull(); if (cp == null || i == null) null else answer(cp, "\"choice\":$i") }
             id == "run" -> if (cp == null) null else ActionCall.Run(answer(cp, "\"approve\":true"))
+            id == "allow:once" || id == "allow:session" -> if (cp == null || a.kind != "drive") null else ActionCall.Run(answer(cp, "\"approve\":true,\"allow\":${q(id.substring(6))}"))
+            id.startsWith("pick:") -> {
+                val i = id.substring(5).toIntOrNull()
+                val v = if (i == null) null else a.variants.getOrNull(i)
+                if (cp == null || v == null || v.label.isEmpty()) null else answer(cp, "\"pick\":{\"label\":${q(v.label)}}")
+            }
+            id == "undo" -> if (a.decisionId == null) null else ActionCall.Post("/api/decisions/undo", "{\"id\":${q(a.decisionId)}}")
+            id == "later" -> ActionCall.Later
             id == "refuse" || id == "decline" -> if (cp == null) null else answer(cp, "\"decline\":true")
             id.startsWith("quick:") -> {
                 val n = id.substring(6).toIntOrNull()

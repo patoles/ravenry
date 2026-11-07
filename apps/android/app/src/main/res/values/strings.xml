@@ -12,6 +12,7 @@
   <string name="run">Run</string>
   <string name="cancel">Cancel</string>
   <string name="sent">Sent: %1$s</string>
+  <string name="undone">Taken back. It is off your decisions.</string>
   <string name="not_reached">Not sent: %1$s didn\'t answer.</string>
   <string name="not_taken">Not sent. Open it in the app.</string>
   <string name="not_paired">Not sent: this phone isn\'t paired.</string>
@@ -38,5 +39,9 @@
   <string name="pair_button">Pair</string>
   <string name="pair_back">Back</string>
   <string name="pairing">Pairing…</string>
+  <plurals name="pictures">
+    <item quantity="one">%1$d picture.</item>
+    <item quantity="other">%1$d pictures.</item>
+  </plurals>
   <string name="signed_out">This phone was signed out. Scan the code on the Mac again.</string>
 </resources>
