@@ -83,7 +83,7 @@ try {
     state = { ...state, projects: [state.projects[0], { ...n, state: 'you', sessions: [{ ...n.sessions[0], state: 'asked', words: { line: 'Ship it?' } }] }] };
     fs.writeFileSync(go('arrive'), '1');
   })();
-  await Promise.all([runApp({ name: 'first', work, rt, bin: BIN, home, hubUrl, env, steps: [
+  const [firstLog] = await Promise.all([runApp({ name: 'first', work, rt, bin: BIN, home, hubUrl, env, steps: [
     { ready: true },
     { until: `${R}.S.tabs.length === 1 && ${R}.term().attached && ${R}.S.hub && ${R}.S.hub.projects`, timeout: 15000 },
     { until: AGREE, timeout: 5000 },
@@ -109,8 +109,9 @@ try {
   check('a real click on the row (the sidebar redrawn meanwhile) brings its pane to the front; row, panel and tab agree', j('clicked.json').front === KEY && j('clicked.json').row === KEY && j('clicked.json').panel === KEY, JSON.stringify(j('clicked.json')));
   check('another session moving into Needs you leaves the front alone (a toast says so)', j('arrived.json').front === KEY && j('arrived.json').row === KEY, JSON.stringify(j('arrived.json')));
   check('its Show brings it to the front; row, panel and tab agree', j('shown.json').front === NOTES && j('shown.json').row === NOTES, JSON.stringify(j('shown.json')));
-  const log = fs.existsSync(path.join(home, 'Library', 'Logs', 'Ravenry', 'app.log')) ? fs.readFileSync(path.join(home, 'Library', 'Logs', 'Ravenry', 'app.log'), 'utf8') : '';
-  void log;
+  // What app.log gets (the packaged app writes it to the file; this build says it on its output).
+  const log = firstLog;
+  check('the click is a line in app.log with what it did', log.includes(`window: session click ${KEY}: its pane ${pane.id}`), log.split('\n').filter((l) => l.includes('window: session')).join(' | ') || '(no session lines)');
 
   await runApp({ name: 'second', work, rt, bin: BIN, home, hubUrl, env, steps: [
     { ready: true },
