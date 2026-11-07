@@ -1664,10 +1664,10 @@ async function boot(): Promise<void> {
         palette: [THEME.black, THEME.red, THEME.green, THEME.yellow, THEME.blue, THEME.magenta, THEME.cyan, THEME.white, THEME.brightBlack, THEME.brightRed, THEME.brightGreen, THEME.brightYellow, THEME.brightBlue, THEME.brightMagenta, THEME.brightCyan, THEME.brightWhite],
       },
     }),
-    // The live text's width, for a frame shown at the same size.
-    textWidth: () => {
+    // The live text's cell width, for a frame shown at the same size.
+    cellWidth: () => {
       const el = document.querySelector('#term .xterm-screen') as HTMLElement | null;
-      return el ? el.getBoundingClientRect().width : null;
+      return el && term.term.cols ? el.getBoundingClientRect().width / term.term.cols : null;
     },
     client: (pane) => daemons.holding(pane),
     sendTo: (pane) => {

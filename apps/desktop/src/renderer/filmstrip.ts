@@ -15,8 +15,8 @@ export interface FilmHost {
   now(): number;
   /** The terminal's colours and font size: frames look as the pane does live. */
   theme(): { theme: Theme; fontSize: number; scale: number };
-  /** The live terminal's text width: its columns times its cell width, in CSS pixels. */
-  textWidth(): number | null;
+  /** The live terminal's cell width, in CSS pixels. */
+  cellWidth(): number | null;
   /** The client of the daemon that holds the pane. */
   client(pane: string): Promise<RavenryClient | null>;
   /** The agent to send it to ("Codex") and how, or null. */
@@ -73,6 +73,8 @@ export class Filmstrip {
   private error: string | null = null;
   private playing: number | null = null;
   private scale = 1;
+  /** The font size the frames were drawn at, in their pixels. */
+  private drawnAt = 13;
 
   private sheet: HTMLElement;
   private strip: HTMLElement;
@@ -114,7 +116,8 @@ export class Filmstrip {
       // Drawn at the screen's pixel ratio and shown at half (on a 2x
       // screen), so a frame is as large and as sharp as the pane's text.
       this.scale = Math.max(1, Math.min(3, look0.scale));
-      const r = await c.request('pane.frames', { pane, last_ms: LAST_MS, format: 'png', max_frames: 120, font_size: Math.min(48, look0.fontSize * this.scale), theme: look0.theme });
+      this.drawnAt = Math.min(48, look0.fontSize * this.scale);
+      const r = await c.request('pane.frames', { pane, last_ms: LAST_MS, format: 'png', max_frames: 120, font_size: this.drawnAt, theme: look0.theme });
       if (this.pane !== pane) return;
       const end = this.host.now();
       const raw = (r.frames || []).filter((f): f is FilmFrame & { png: string } => !!f.png);
@@ -181,12 +184,14 @@ export class Filmstrip {
     if (shown) {
       if (!over) { over = h('div.frame-view'); this.stage.append(over); }
       over.style.background = shown.bg;
-      // At the live text's size: the frame's text (its width less the
-      // picture's 8 px margins) as wide as the terminal's columns.
-      const live = this.host.textWidth();
+      // At the live text's size: each of the frame's cells (Go Mono's,
+      // 0.6 em rounded, at the size the frames were drawn) as wide as the
+      // terminal's, its 8 px margin taken off.
+      const live = this.host.cellWidth();
+      const cellPx = Math.round(0.6 * this.drawnAt);
+      const k = live && cellPx ? live / (cellPx / this.scale) : 1;
       const natural = shown.w / this.scale;
-      const k = live && natural > 16 ? live / (natural - 16) : 1;
-      replace(over, h('img', { src: `data:image/png;base64,${shown.png}`, alt: `The pane at ${hhmmss(shown.at)}`, style: shown.w ? { width: `${natural * k}px`, maxWidth: 'none', margin: `${-8 * k}px 0 0 ${-8 * k}px` } : undefined }));
+      replace(over, h('img', { src: `data:image/png;base64,${shown.png}`, alt: `The pane at ${hhmmss(shown.at)}`, style: shown.w ? { width: `${natural * k}px`, maxWidth: 'none', margin: `${(-8 / this.scale) * k}px 0 0 ${(-8 / this.scale) * k}px` } : undefined }));
       replace(this.strip, h('div.showing', svg(I.FILM), h('span', 'Showing ', h('b.num', hhmmss(shown.at)), `, ${Math.max(0, Math.round((this.host.now() - shown.at) / 1000))} s ago. The pane is still running underneath.`),
         h('button.btn.sm', { on: { click: () => this.live() } }, 'Back to live')));
     } else {

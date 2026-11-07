@@ -118,7 +118,8 @@
 .showing b { color: #F2F2F4; }
 .showing .btn { background: #3A3A40; color: #F2F2F4; box-shadow: none; margin-left: auto; }
 .frame-view { position: absolute; inset: 0; background: var(--term-bg); display: flex; align-items: flex-start; justify-content: flex-start; padding: 10px 6px 6px 14px; z-index: 2; }
-.frame-view img { max-width: 100%; max-height: 100%; image-rendering: auto; object-fit: contain; object-position: left top; }
+.frame-view { overflow: hidden; }
+.frame-view img { max-width: none; max-height: none; flex: none; image-rendering: auto; }
 .fsheet { flex: none; border-top: 1px solid var(--sep); background: var(--sheet); display: flex; flex-direction: column; gap: 8px; padding: 10px 14px 10px; color: var(--tx); }
 .fs-h { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
 .fs-h > svg { color: var(--tx2); flex: none; }
