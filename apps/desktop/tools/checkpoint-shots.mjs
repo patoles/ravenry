@@ -129,7 +129,7 @@ try {
   const cardIs = (kind) => ({ until: `(() => { const e = document.querySelector('#panel .cp[data-cp]:not(.after)'); return e && ${R}.S.cps.get(e.dataset.cp).cp.kind === '${kind}' && !document.getElementById('panel').hidden; })()`, timeout: 15000 });
   const afterIs = (head) => ({ until: `[...document.querySelectorAll('#panel .cp.after .cp-h')].some((e) => e.textContent.includes(${JSON.stringify(head)}))`, timeout: 30000 });
   const button = (label) => ({ js: `[...document.querySelectorAll('#panel .cp button')].find((b) => b.textContent.startsWith(${JSON.stringify(label)})).click()` });
-  const narrowAfter = (kind) => ({ js: `(() => { const k = ${keyOf(kind)}; ${R}.pickSession(k); ${R}.S.panelKey = k; ${R}.S.overlay = true; ${R}.render(); })()` });
+  const narrowAfter = (kind) => ({ js: `(() => { const k = ${keyOf(kind)}; ${R}.pickSession(k); ${R}.S.overlay = true; ${R}.render(); })()` });
   // A made-up key, new on each run: 32 characters, as the picture's.
   const SECRET = crypto.randomBytes(24).toString('base64url');
   const steps = [
@@ -209,6 +209,9 @@ try {
     home: emptyHub.home, hubUrl: emptyHub.url, env: { RAVENRY_SERVICE: 'off' },
     steps: [
       { ready: true },
+      // A shell opens at launch; the hook offer is on New session's screen.
+      { until: `window.__ravenry.S.tabs.length === 1`, timeout: 20000 },
+      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` },
       { until: `document.querySelector('.fl-hooks')`, timeout: 20000 },
       shot('hooks-offer.png'),
       { js: `[...document.querySelectorAll('.fl-hooks button')].find((b) => b.textContent === 'Set them up').click()` },

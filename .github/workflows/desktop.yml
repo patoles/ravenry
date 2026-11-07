@@ -112,6 +112,8 @@ jobs:
         run: |
           npm --workspace @ravenry/desktop run build
           xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/smoke.mjs "$RUNNER_TEMP/smoke"
+      - name: The selection and the front agree, on a click and at launch (headless Electron, xvfb)
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/selection-test.mjs "$RUNNER_TEMP/smoke/selection"
       - name: The sidebar's pages in the app (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/pages-test.mjs "$RUNNER_TEMP/smoke/pages"
       - name: The packaged app (unpacked), checked end to end

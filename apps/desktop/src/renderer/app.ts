@@ -319,7 +319,14 @@ const pinId = (key: string) => `k:${key}`;
 
 function save(): void {
   const t = tabOfView();
+  const v = S.view;
+  // The session in front with no tab of its own (picked in the sidebar):
+  // in front again at the next launch, when its pane is still there.
+  const selKey = v.kind === 'session' ? viewSessionKey() : null;
+  const selF = selKey ? findSession(S.hub, selKey) : null;
+  const selPane = selF ? paneOf(selF.session) : v.kind === 'session' ? v.pane || null : null;
   api().storeSet({
+    selected: selKey && selPane ? { key: selKey, pane: selPane } : null,
     // The folder a shell opens in at the next launch when none comes back.
     ...(t && t.kind === 'shell' && t.cwd ? { lastCwd: t.cwd } : {}),
     pinned: S.tabs.filter((x): x is SessionTab => x.kind === 'session').map((x) => x.key),
@@ -583,13 +590,40 @@ const cardCtx: CardCtx = {
 };
 
 /** A checkpoint opened: the panel opens on it, over the terminal on a narrow window. */
+// Something needs the person (a checkpoint opened, a session moved into
+// Needs you). The selection is what is in front and nothing else (on
+// 2026-11-07 the panel showed a session while the launch shell was in
+// front: "why I need to click it again to select?"), so an arrival never
+// moves the panel off it:
+// in front already, the panel shows it; else a toast says so, with Show,
+// which selects it. Only a checkpoint no session or tab holds opens over.
 function arrive(k: Known): void {
   if (firstRun()) return;
   const t = targetOf(k);
-  const shown = panelTargetKey();
-  if (shown === t && panelVisible()) return;
-  S.panelKey = t;
-  if (!panelVisible()) S.overlay = true;
+  if (t.startsWith('cp:')) { S.panelKey = t; if (!panelVisible()) S.overlay = true; return; }
+  arrivedAt(t);
+}
+function arrivedAt(t: string): void {
+  if (frontKey() === t) { if (!panelVisible()) S.overlay = true; return; }
+  const f = t.startsWith('tab:') ? null : findSession(S.hub, t);
+  const tab = t.startsWith('tab:') ? S.tabs.find((x) => x.id === t.slice(4)) : null;
+  const name = f ? f.session.topic || f.project.name : tab ? tabLabel(tab).name : 'A session';
+  toastLinks(`${name} needs you.`, [{ label: 'Show', run: () => { if (tab) setView({ kind: 'tab', id: tab.id }); else pickSession(t, 'notification'); } }]);
+}
+
+/**
+ * What is in front, as one key: a session's ("<project>/<surface>"), also
+ * when it runs in a shell tab or a pinned tab, else a plain shell tab's
+ * ("tab:<id>"), else null. The sidebar's highlight and the panel follow it,
+ * and nothing else (one place: frontKey, panelTargetKey, the rows' sel).
+ */
+let rowPressedAt = 0; // a sidebar row's last press (its click then does nothing more)
+
+function frontKey(): string | null {
+  const key = viewSessionKey();
+  if (key) return key;
+  const t = tabOfView();
+  return t ? `tab:${t.id}` : null;
 }
 
 async function closedOnHub(ids: string[]): Promise<void> {
@@ -626,18 +660,22 @@ function renderSidebar(): void {
       h('div.grp-h', svg(RING[g.group]), h('span.t', g.title), h(`span.cnt.c-${g.group}`, String(g.count))),
       g.projects.map((pr) => {
         if (g.group === 'idle') {
-          return h('button.idl', { on: { click: () => pickProject(pr.project) } },
+          return h('button.idl', { on: { pointerdown: (e: Event) => { if ((e as PointerEvent).button === 0) { rowPressedAt = Date.now(); pickProject(pr.project); } }, click: () => { if (Date.now() - rowPressedAt > 1500) pickProject(pr.project); } } },
             h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
         }
         return [
           h('div.pj', h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time)),
           pr.rows.map((r) => {
-            const sel = viewSessionKey() === r.key || panelTargetKey() === r.key && panelVisible() && S.overlay;
+            const sel = frontKey() === r.key;
             const pinned = S.tabs.some((t) => t.kind === 'session' && t.key === r.key);
             const second = r.mark
               ? h('div.ss-q.k', h('span.kd', svg(MARK_ICON[r.mark.kind])), h(`span.qt${r.mark.code ? '.code' : ''}`, r.mark.text))
               : r.line ? h('div.ss-q', r.line) : useLine(r.session);
-            return h(`div.ss${sel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': r.key, on: { click: () => pickSession(r.key), keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') pickSession(r.key); } } },
+            // On pointerdown, not click: the sidebar is drawn again at each
+            // state from the hub (about once a second), and a click whose
+            // press and release land on two drawings never fires.
+            // (A click with no press before it, as from assistive tools, still selects.)
+            return h(`div.ss${sel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': r.key, on: { pointerdown: (e: Event) => { if ((e as PointerEvent).button === 0 && !(e.target as HTMLElement).closest('button.pin')) { rowPressedAt = Date.now(); pickSession(r.key); } }, click: (e: Event) => { if (Date.now() - rowPressedAt > 1500 && !(e.target as HTMLElement).closest('button.pin')) pickSession(r.key); }, keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') pickSession(r.key); } } },
               h('div.ss-r',
                 h('span.sd', { style: { background: GROUP_VAR[r.group] } }),
                 h('span.n', r.name),
@@ -710,11 +748,16 @@ function pickProject(p: HubProject): void {
   if (s) pickSession(`${p.id}/${s.surfaceId}`);
 }
 
-function pickSession(key: string): void {
+// Selecting a session (a click on its row, a notification's Show, a pane
+// asked to show) brings it to the front: the tab that shows its pane, else
+// its own tab (its pane, or the outside-terminal view). Each one is said in
+// app.log with what it did.
+function pickSession(key: string, why = 'click'): void {
   // A session that runs in a pane a tab already shows: that tab.
   const f = findSession(S.hub, key);
   const pane = f ? paneOf(f.session) : null;
   const pinned = S.tabs.find((t) => (t.kind === 'session' && t.key === key) || (pane && t.kind === 'shell' && t.pane === pane));
+  api().log(`window: session ${why} ${key}: ${!f ? 'not on the board' : pinned ? `its tab ${pinned.id}` : pane ? `its pane ${pane}` : 'its view outside Ravenry'}`);
   S.panelKey = null;
   // A session waiting at a checkpoint: its card gets the keyboard, never the
   // terminal (a pasted secret must not land in the open), and on a narrow
@@ -722,7 +765,7 @@ function pickSession(key: string): void {
   const k = f ? cpOfSession(f.project, f.session) : null;
   if (k && isOpen(k.cp)) {
     S.focusCp = k.cp.id;
-    if (!wide()) { S.overlay = true; S.panelKey = key; }
+    if (!wide()) S.overlay = true;
   }
   setView(pinned ? { kind: 'tab', id: pinned.id } : { kind: 'session', key });
 }
@@ -767,7 +810,7 @@ function openTab(): HTMLElement | null {
     group = 'idle';
   } else return null;
   const close = () => { const t = S.tabs[0]; setView(t ? { kind: 'tab', id: t.id } : { kind: 'none' }); };
-  return h('div.tab.on', { role: 'tab', 'aria-selected': 'true', title: name, on: { auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) close(); } } },
+  return h('div.tab.on', { role: 'tab', 'aria-selected': 'true', title: name, 'data-key': v.kind === 'session' ? viewSessionKey() || '' : `pane:${v.pane}`, on: { auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) close(); } } },
     v.kind === 'pane' ? h('span.ti', svg(I.SHELL)) : h('span.sd', { style: { background: GROUP_VAR[group] } }),
     h('span.n', name), sub ? h('span.p', sub) : null, machineTag(machine),
     h('button.x', { title: 'Close', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); close(); } } }, svg(I.CLOSE)));
@@ -794,7 +837,8 @@ function renderTabs(): void {
       const l = tabLabel(t);
       const on = active && active.id === t.id;
       if (on && t.kind === 'shell') t.activity = false;
-      return h(`div.tab${on ? '.on' : ''}`, { role: 'tab', 'aria-selected': on ? 'true' : 'false', title: i < 9 ? `${l.name} (${isMac() ? '⌘' : 'Alt+'}${i + 1})` : l.name, on: { click: () => setView({ kind: 'tab', id: t.id }), auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) closeTab(t.id); } } },
+      const tk = t.kind === 'session' ? t.key : sessionOfPane(S.hub, t.pane)?.key || `tab:${t.id}`;
+      return h(`div.tab${on ? '.on' : ''}`, { role: 'tab', 'aria-selected': on ? 'true' : 'false', 'data-key': tk, title: i < 9 ? `${l.name} (${isMac() ? '⌘' : 'Alt+'}${i + 1})` : l.name, on: { click: () => setView({ kind: 'tab', id: t.id }), auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) closeTab(t.id); } } },
         t.kind === 'shell' && !l.group ? h('span.ti', svg(I.SHELL)) : h('span.sd', { style: { background: GROUP_VAR[l.group || 'idle'] } }),
         h('span.n', l.name),
         l.sub ? h('span.p', l.sub) : null,
@@ -1022,7 +1066,8 @@ async function renderCentre(): Promise<void> {
   const pane = f ? paneOf(f.session) : v.kind === 'session' ? v.pane || null : null;
   if (pane && (!f || !machineOf(f.project, f.session))) {
     // A session the hub runs in a ravenryd pane here shows its pane.
-    await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => toast(`Could not show that session: ${e.message}`));
+    // Gone (it ended while the app was closed): said, and a shell in front if none is open.
+    await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => { toast(`Could not show that session: ${e.message}`); if (!S.tabs.some((t) => t.kind === 'shell')) void newShell(); });
     return;
   }
   term.hide();
@@ -1429,7 +1474,7 @@ function togglePanel(): void {
 
 /** What the panel shows, as panelKey names it. */
 function panelTargetKey(): string | null {
-  if (S.panelKey) return S.panelKey;
+  if (S.panelKey && S.panelKey.startsWith('cp:')) return S.panelKey;
   const key = viewSessionKey();
   if (key && findSession(S.hub, key)) return key;
   const t = tabOfView();
@@ -1446,6 +1491,8 @@ function renderPanel(): void {
   el.classList.toggle('overlay', vis && !docked);
   if (!vis) { clearHiddenSecrets(false); return; }
   const key = panelTargetKey();
+  // What the panel shows, for the release check: always what is in front.
+  el.dataset.key = key || '';
   let head: HTMLElement;
   let body: (HTMLElement | null)[];
   if (key && key.startsWith('tab:')) {
@@ -1670,11 +1717,7 @@ function onHubState(next: HubState): void {
   if (!firstRun()) {
     if (opened.length) { const k = S.cps.get(opened[opened.length - 1]); if (k) arrive(k); }
     else if (arrived.length) {
-      const k = arrived[arrived.length - 1];
-      if (viewSessionKey() !== k || !panelVisible()) {
-        S.panelKey = k;
-        if (!panelVisible()) S.overlay = true;
-      }
+      arrivedAt(arrived[arrived.length - 1]);
     }
   }
   render();
@@ -1997,7 +2040,13 @@ async function boot(): Promise<void> {
   // Like any terminal, a launch ends with a working shell in front: the
   // shells that were open come back, else one opens in the last folder used
   // (else the home folder). A failure says why in a toast.
-  if (!S.tabs.some((t) => t.kind === 'shell')) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
+  // A session that was in front last time, with a pane, is in front again;
+  // the launch shell opens only when nothing else comes back.
+  const was = saved.selected as { key?: string; pane?: string } | null | undefined;
+  if (was && typeof was.key === 'string' && typeof was.pane === 'string') {
+    api().log(`window: launch: the session that was in front, ${was.key} (pane ${was.pane})`);
+    S.view = { kind: 'session', key: was.key, pane: was.pane };
+  } else if (!S.tabs.some((t) => t.kind === 'shell')) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
   // The daemon new panes go to is followed from the start, for its checkpoints.
   void daemons.forNew().catch(() => {});
   render();

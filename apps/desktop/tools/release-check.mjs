@@ -142,6 +142,10 @@ const shot = (f) => ({ shot: path.join(OUT, f), settle: 300 });
 // A shell's prompt in the window, attached to the tab in front, and no
 // toast saying it failed.
 const PROMPT = `${R}.term().ready && ${R}.term().attached && ${R}.S.tabs.some((t) => t.kind === 'shell') && /[%$#] *$/m.test(${R}.text())`;
+// The highlighted row, the panel and the tab in front name the same thing
+// (a plain shell in front: no row highlighted). Checked after every step.
+const AGREE = `(() => { const on = document.querySelector('#tabs .tab.on'); const sel = document.querySelector('#side .ss.sel'); const p = document.getElementById('panel'); const front = on ? on.dataset.key : null; const row = sel ? sel.dataset.key : null; const panel = p.hidden ? null : p.dataset.key; const session = !!front && !front.startsWith('tab:') && !front.startsWith('pane:'); return (session ? row === front || (row === null && ![...document.querySelectorAll('#side .ss')].some((e) => e.dataset.key === front)) : row === null) && (panel === null || panel === front); })()`;
+const agree = (k) => [{ until: AGREE, timeout: 8000 }, mark(`agree_${k}`)];
 const NO_FAIL_TOAST = `(document.getElementById('toast').hidden || !/Could not|no running daemon|no daemon answered/.test(document.getElementById('toast').textContent))`;
 
 function step(name, ok, detail = {}) {
@@ -193,7 +197,7 @@ try {
     })();
     const run = launch(a, 'cold', [
       { ready: true, timeout: 30000 }, mark('ready'),
-      { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('1-cold-prompt.png'),
+      { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('1-cold-prompt.png'), ...agree('launch'),
       { type: 'echo ok-$((40+2))\r' },
       { until: `${R}.text().includes('ok-42') && ${NO_FAIL_TOAST}`, timeout: 10000 }, mark('echo'),
       // The hub (the service) answers in the window.
@@ -203,15 +207,15 @@ try {
       { until: `!document.getElementById('start').hidden && document.querySelector('#start .fl-go .btn.pri') && /^Start Claude in /.test(document.querySelector('#start .fl-go .btn.pri').textContent)`, timeout: 20000 },
       { js: `new Promise((r) => { const t0 = Date.now(); const f = () => { const b = document.querySelector('#start .fl-hooks .btn.pri'); if (b) { b.click(); r(true); } else if (Date.now() - t0 > 8000) r(false); else setTimeout(f, 50); }; f(); })` },
       { js: `document.querySelector('#start .fl-go .btn.pri').click()` }, mark('sessionClick'),
-      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('session'), shot('2-new-session.png'),
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('session'), shot('2-new-session.png'), ...agree('session'),
       // 3: the session in cmux, shown live.
       { until: `[...document.querySelectorAll('#side .ss')].some((e) => e.textContent.includes('Kite tail'))`, timeout: 20000 },
-      { js: `[...document.querySelectorAll('#side .ss')].find((e) => e.textContent.includes('Kite tail')).click()` },
-      { until: `!document.getElementById('elsewhere').hidden && document.getElementById('elsewhere').textContent.includes('make it lively') && document.getElementById('elsewhere').textContent.includes('Still open in cmux')`, timeout: 20000 }, mark('outside'), shot('3-outside-open.png'),
+      { click: `[...document.querySelectorAll('#side .ss')].find((e) => e.textContent.includes('Kite tail'))`, clickJs: true },
+      { until: `!document.getElementById('elsewhere').hidden && document.getElementById('elsewhere').textContent.includes('make it lively') && document.getElementById('elsewhere').textContent.includes('Still open in cmux')`, timeout: 20000 }, mark('outside'), shot('3-outside-open.png'), ...agree('outside'),
       ...pause(a, 'closed'),
       { until: `document.querySelector('#elsewhere .else-acts .btn.pri') && /Continue in Ravenry/.test(document.querySelector('#elsewhere .else-acts .btn.pri').textContent) && !document.querySelector('#elsewhere .else-acts .btn.pri').disabled`, timeout: 20000 }, shot('3-outside-closed.png'),
       { js: `document.querySelector('#elsewhere .else-acts .btn.pri').click()` }, mark('continueClick'),
-      { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('continued'), shot('3-continued.png'),
+      { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('continued'), shot('3-continued.png'), ...agree('continued'),
       save('tabs', `${R}.S.tabs.length`), save('shells', `${R}.S.tabs.filter((t) => t.kind === 'shell').length`),
       // Back to the first shell, so the reopen shows it.
       { js: `${R}.setView({ kind: 'tab', id: ${R}.S.tabs.find((t) => t.kind === 'shell').id })` }, { sleep: 400 },
@@ -226,6 +230,7 @@ try {
     // not a gate until the app is signed (the launches after it gate at 2 s).
     step('1 cold launch (first launch of a fresh copy): a shell prompt in the window, budget 3.5 s, reported only', true, { promptMs: m.prompt, windowReadyMs: m.ready, withinBudget: m.prompt <= 3500 });
     step('1 cold launch: `echo ok` typed in it reads back', m.echo > 0, { echoMs: m.echo });
+    step('1-3: after launch and each step, the highlighted row, the panel and the tab in front agree', ['launch', 'session', 'outside', 'continued'].every((k) => m[`agree_${k}`] > 0));
     const hubLog = fs.existsSync(path.join(a.home, 'Library', 'Logs', 'Ravenry', 'hub.log')) ? fs.readFileSync(path.join(a.home, 'Library', 'Logs', 'Ravenry', 'hub.log'), 'utf8') : '';
     const started = (hubLog.match(/^sessions: started .*$/m) || [''])[0];
     step('2 New session: the stand-in Claude runs in a pane, shown in the window, within 2 s of the click', m.session > 0 && m.session - m.sessionClick <= 2000, { msFromClick: m.session - m.sessionClick, hub: started });
@@ -238,10 +243,11 @@ try {
     const m = await launch(a, 'reopen', [
       { ready: true, timeout: 30000 }, mark('ready'),
       { until: PROMPT, timeout: 20000 }, mark('prompt'),
-      { until: `${R}.S.tabs.filter((t) => t.kind === 'shell').length === ${before.shells} && ${R}.text().includes('ok-42')`, timeout: 10000 }, mark('restored'), shot('4-reopen.png'),
+      { until: `${R}.S.tabs.filter((t) => t.kind === 'shell').length === ${before.shells} && ${R}.text().includes('ok-42')`, timeout: 10000 }, mark('restored'), shot('4-reopen.png'), ...agree('reopen'),
       save('shells', `${R}.S.tabs.filter((t) => t.kind === 'shell').length`),
     ]);
     step('4 reopen: the shells come back with what they showed', m.restored > 0 && m.shells === before.shells, { shells: m.shells, before: before.shells });
+    step('4 reopen: the highlighted row, the panel and the tab in front agree', m.agree_reopen > 0);
     step('4 reopen: a shell prompt in the window within 2 s', m.prompt <= 2000, { promptMs: m.prompt, windowReadyMs: m.ready });
   });
 
@@ -303,16 +309,17 @@ try {
     const rowsOf = `[...document.querySelectorAll('#side .ss')].filter((e) => /ravenry:${oldPane.id}|${SID}|${SF}/.test(e.dataset.key || ''))`;
     const m = await launch(b, 'update', [
       { ready: true, timeout: 30000 }, mark('ready'),
-      { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('5-update-prompt.png'),
+      { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('5-update-prompt.png'), ...agree('update'),
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && Array.isArray(${R}.S.hub.projects)`, timeout: 60000 }, mark('hub'),
       { until: `${rowsOf}.length === 1 && ${rowsOf}[0].dataset.key.endsWith('/ravenry:${oldPane.id}')`, timeout: 30000 }, mark('oneRow'),
-      { js: `${rowsOf}[0].click()` }, mark('click'),
+      { click: `${rowsOf}[0]`, clickJs: true, hold: 300 }, mark('click'),
       { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane === '${oldPane.id}' && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && document.querySelector('#tabs .tab.on') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('opened'), shot('7-old-pane-open.png'),
-      { until: `document.querySelector('#panel .sec.twin') && /Also open in cmux/.test(document.querySelector('#panel .sec.twin').textContent)`, timeout: 20000 }, mark('twin'), shot('7-old-pane-also-cmux.png'),
+      { until: `document.querySelector('#panel .sec.twin') && /Also open in cmux/.test(document.querySelector('#panel .sec.twin').textContent)`, timeout: 20000 }, mark('twin'), shot('7-old-pane-also-cmux.png'), ...agree('oldPane'),
     ]);
     step(`7 update: a session in a pane of the build before's daemon (${prevBuild.version}) is listed after the update, as one row`, m.oneRow > 0, { msFromStart: m.oneRow });
     step('7 update: clicking that row opens its pane in the middle', m.opened > 0, { msFromClick: m.opened - m.click });
     step('7 update: with its process in cmux too, the session says "Also open in cmux"', m.twin > 0);
+    step('5/7 update: after the relaunch and the click, the highlighted row, the panel and the tab in front agree', m.agree_update > 0 && m.agree_oldPane > 0);
     const newUp = await hubAnswers(b.port, 30000);
     const prog = argsOf(b.label);
     const hubs = listeners(b.port);

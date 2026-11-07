@@ -11,6 +11,8 @@
 //   type: "text"                type it as key events ("\r" is Enter)
 //   typeJs: "expr"              type the text expr gives in the page
 //   key: "Backspace", modifiers  one key (modifiers: ["control"], ...)
+//   click: "css selector"       a real mouse click on it (press, hold, release);
+//                               clickJs: true when click is an expression
 //   shot: "file.png", el        capture the window, or the element el (a
 //                               CSS selector) at the window's scale
 //   signal: "file"              write a file (for the script that started the app)
@@ -74,6 +76,17 @@ module.exports = async function drive(win, ctx) {
     else if (step.type) { type(step.type); await sleep(step.after ?? 100); }
     else if (step.typeJs) { type(String(await js(step.typeJs))); await sleep(step.after ?? 100); }
     else if (step.key) { key(step.key, step.char, step.modifiers); await sleep(step.after ?? 100); }
+    else if (step.click) {
+      // A real mouse click in the middle of the element: press, a person's
+      // pause, release (the page may draw itself again in between).
+      const r = await js(`(() => { const e = typeof ${JSON.stringify(step.click)} === 'string' ? (${step.clickJs ? step.click : `document.querySelector(${JSON.stringify(step.click)})`}) : null; if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; })()`);
+      if (!r) throw new Error(`no element ${step.click} to click`);
+      wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y });
+      wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+      await sleep(step.hold ?? 120);
+      wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+      await sleep(step.after ?? 100);
+    }
     else if (step.shot) {
       // Two frames, so what was just written is drawn.
       await js('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');

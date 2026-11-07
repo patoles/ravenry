@@ -1,0 +1,50 @@
+{
+  "_about": "The shape of the hub's state on 2026-11-07 when a click on a session row left the launch shell in front: a session resumed in a Ravenry pane of an older daemon, also open in cmux (alsoOpen), the project in Needs you. Names and paths are made up; PANE is replaced by the pane id a test makes.",
+  "generatedAt": "2026-11-07T13:22:56.810Z",
+  "cmuxOk": true,
+  "board": { "kind": "ravenry", "name": "Ravenry", "installed": true },
+  "settings": { "handoffThreshold": 50, "handoffCeiling": 70, "handoffEnabled": true },
+  "views": { "ideas": 0, "rules": 0, "ship": 0 },
+  "homes": { "": "/Users/you" },
+  "checkpoints": [],
+  "machines": [],
+  "pages": [],
+  "sessions": { "totalKb": 552976, "rows": [] },
+  "projects": [
+    {
+      "id": "kite", "name": "kite", "state": "you", "since": "2026-11-07T13:22:56.810Z",
+      "folder": "/Users/you/Projects/kite", "folderShort": "~/Projects/kite",
+      "line": "Keep it subtle, or make it lively?", "headline": "Keep it subtle, or make it lively?", "question": "Keep it subtle, or make it lively?", "quick": [],
+      "brief": { "goal": "A kite that flies itself.", "next": "Make the tail flutter." },
+      "primary": "ravenry:PANE", "machine": null, "waitingOn": null, "timeline": [],
+      "sessions": [
+        {
+          "surfaceId": "ravenry:PANE", "surfaceRef": "Ravenry tab", "workspaceId": "AAAA1111-0000-4000-8000-0000000000AA", "workspaceRef": null,
+          "topic": "Kite tail hand-off", "live": true, "sessionId": "5e55107e-0000-4000-8000-0000000000aa", "method": "hook events (Ravenry session id)",
+          "workFolder": "~/Projects/kite", "state": "asked", "since": "2026-11-07T13:22:56.810Z", "source": "events",
+          "terminal": true, "term": "ravenry", "termName": "Ravenry", "machine": null, "assistant": "claude",
+          "cannot": null, "cannotType": null, "draft": false, "dialog": false, "working": false,
+          "ctx": { "tokens": 270000, "window": 1000000, "pct": 27, "model": "claude-opus-5-5" },
+          "words": { "line": "Keep it subtle, or make it lively?", "headline": "Keep it subtle, or make it lively?", "question": "Keep it subtle, or make it lively?", "quick": [] },
+          "screen": [], "screenAt": 1794057793911, "startedAt": "2026-11-07T11:39:15.109Z", "handed": false,
+          "outside": null, "alsoOpen": { "name": "cmux", "term": "cmux", "surfaceId": null, "pid": 81334 }, "memKb": 552976
+        }
+      ]
+    },
+    {
+      "id": "notes", "name": "notes", "state": "work", "since": null,
+      "folder": "/Users/you/Projects/notes", "folderShort": "~/Projects/notes",
+      "line": "Syncing the settings", "headline": "Syncing the settings", "question": null, "quick": [],
+      "brief": null, "primary": "ev:c3c3c3c3-0000-4000-8000-000000000003", "machine": null, "waitingOn": null, "timeline": [],
+      "sessions": [
+        {
+          "surfaceId": "ev:c3c3c3c3-0000-4000-8000-000000000003", "topic": "Sync settings", "sessionId": "c3c3c3c3-0000-4000-8000-000000000003",
+          "state": "working", "terminal": false, "term": "cmux", "termName": "cmux", "machine": null, "assistant": "claude",
+          "cannot": "cmux shows its tabs only to programs it started, so Ravenry cannot read this screen (cmux Settings > Automation can allow it).",
+          "words": { "line": "Syncing the settings" }, "screen": [], "outside": { "name": "cmux", "open": true, "resumable": false }, "alsoOpen": null,
+          "conversation": [{ "ask": "Sync the settings too", "text": "Settings now sync with the notes." }]
+        }
+      ]
+    }
+  ]
+}

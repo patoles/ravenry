@@ -8,10 +8,10 @@
 // Needs a ravenryd binary: RAVENRYD, else ../../daemon/ravenryd.
 // Writes to <outDir>:
 //   wide-shell.png       1440x900: the board, a real shell (zsh -f), and the
-//                        panel opened by a question that arrived
+//                        toast of a question that arrived
 //   wide-session.png     1440x900: a session picked in the sidebar
 //   narrow-folded.png    900x700: the panel folded away
-//   narrow-arrival.png   900x700: a question arrived, the panel over the terminal
+//   narrow-arrival.png   900x700: a question arrived, and its Show pressed
 //   first-launch.png     1440x900: no session anywhere yet
 //   echo.json            keystroke echo, median and p95
 import { guardSpawns } from '../../../tools/test-env.mjs';
@@ -70,9 +70,10 @@ try {
       { type: 'ls\r', after: 300 },
       { type: 'git log --oneline --decorate\r', after: 300 },
       { type: 'echo "a terminal that answers $((6*7)) times faster"\r', after: 500 },
-      // A question arrives on the board: the panel opens on it.
+      // A question arrives on the board: a toast says so, with Show; the
+      // shell stays in front (the selection is what is in front).
       { signal: sig('arrive1') }, { wait: go('arrive1') },
-      { until: `${S}.panelKey === 'paper-boat/sf-3'`, timeout: 20000 },
+      { until: `!document.getElementById('toast').hidden && [...document.querySelectorAll('#toast button')].some((b) => b.textContent === 'Show')`, timeout: 20000 },
       shot('wide-shell.png'),
       // Keystroke echo, with the shell running cat.
       { type: 'clear; cat\r', after: 600 },
@@ -91,7 +92,9 @@ try {
       { type: 'clear; ls ~/Projects\r', after: 500 },
       shot('narrow-folded.png'),
       { signal: sig('arrive2') }, { wait: go('arrive2') },
-      { until: `${S}.panelKey === 'notes-app/sf-4' && !document.getElementById('panel').hidden`, timeout: 20000 },
+      { until: `!document.getElementById('toast').hidden && [...document.querySelectorAll('#toast button')].some((b) => b.textContent === 'Show')`, timeout: 20000 },
+      { js: `[...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click()` },
+      { until: `window.__ravenry.S.view.kind === 'session' && window.__ravenry.S.view.key === 'notes-app/sf-4'`, timeout: 20000 },
       shot('narrow-arrival.png'),
       { save: { expr: `({ tabs: ${S}.tabs.length, renderer: window.__ravenry.term().renderer, cols: window.__ravenry.term().term.cols, rows: window.__ravenry.term().term.rows })`, out: path.join(WORK, 'board-state.json') } },
     ],

@@ -178,6 +178,21 @@ in the middle as its discussion, read only (`renderElsewhere` in
   two processes on one session. When it ends there, the button turns on
   by itself, also when its last hook event takes it off the board.
 
+**The selection is what is in front.** The tab in front decides what the
+sidebar highlights and what the panel shows, in one place (`frontKey` in
+`src/renderer/app.ts`); they never disagree. Selecting a session (its row,
+a toast's Show, a pane asked to show) brings its tab to the front, opening
+it if needed; with the launch shell in front, the panel shows that shell
+and no row is lit. Something that needs you elsewhere says so in a toast
+with Show and never moves the panel off the front. A row acts on the press
+(pointerdown), as the sidebar is drawn again at each state from the hub.
+Each selection is a line in app.log. At launch, the session that was in
+front, when its pane is still there, is in front again; the launch shell
+opens only when nothing else comes back. `node tools/selection-test.mjs`
+proves it on the shape of 2026-11-07's state
+(`test/fixtures/live-session-in-pane.json`), with real mouse clicks while
+the hub sends a state every 300 ms.
+
 A session's pane is found in whichever daemon holds it, of any version
 running in the runtime folder, so a pane made before an update opens like
 any other until it ends. A session that runs in a Ravenry pane and in
