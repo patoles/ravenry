@@ -1589,7 +1589,10 @@ function procHolding(sid) {
   return null;
 }
 
-async function resumeSession(body) {
+// `fresh` (Move here, never over HTTP): a new pane even when the board's row
+// still names an old one, which the move is about to close; the check that
+// no process holds the session still applies.
+async function resumeSession(body, { fresh = false } = {}) {
   const b = body && typeof body === 'object' ? body : {};
   const sid = String(b.sessionId || '').toLowerCase();
   if (!sess.UUID.test(sid)) return { ok: false, status: 400, error: 'sessionId is a session id.' };
@@ -1602,8 +1605,8 @@ async function resumeSession(body) {
   if ((e && e.machine) || (s && s.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; continue it there.' };
   const paneOfTab = (id) => (term.kindOf(id) === 'ravenry' ? id.slice('ravenry:'.length) : null);
   // Already in a Ravenry pane: that pane.
-  if (s && term.kindOf(s.surfaceId) === 'ravenry') return { ok: true, already: true, surfaceId: s.surfaceId, pane: { id: paneOfTab(s.surfaceId) }, projectId: project.id };
-  const done = resumed.get(sid);
+  if (!fresh && s && term.kindOf(s.surfaceId) === 'ravenry') return { ok: true, already: true, surfaceId: s.surfaceId, pane: { id: paneOfTab(s.surfaceId) }, projectId: project.id };
+  const done = fresh ? null : resumed.get(sid);
   if (done && (await freshTab(done.surfaceId).catch(() => null))) return { ok: true, already: true, surfaceId: done.surfaceId, pane: done.pane, projectId: project.id };
   if (resumeBusy.has(sid)) return { ok: false, status: 409, error: 'Already starting it.' };
   resumeBusy.add(sid);
@@ -1750,9 +1753,11 @@ async function moveSession(body) {
     const left = await holdersOf(sid);
     if (left.length) return { ok: false, status: 409, error: `It is still running (pid ${left.map((h) => h.pid).join(', ')}), so it was not started again.`, ended };
     resumeBusy.delete(sid);
-    const r = await resumeSession({ projectId: project.id, sessionId: sid, cols: b.cols, rows: b.rows });
+    const r = await resumeSession({ projectId: project.id, sessionId: sid, cols: b.cols, rows: b.rows }, { fresh: true });
     // Once the app has put the new pane in its place (it answers within a
     // moment); kept when the resume failed, so nothing is lost from view.
+    const newPane = r.ok && r.pane ? r.pane.id : null;
+    if (newPane) oldPanes.delete(newPane);
     if (r.ok) setTimeout(() => { for (const id of oldPanes) void closeOldPane(sid, id); }, 2000);
     if (r.ok) console.log(`sessions: move ${sid}: resumed in a new pane, ${r.surfaceId}${oldPanes.size ? ` (was ${[...oldPanes].join(', ')})` : ''}`);
     movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: r.ok ? r.surfaceId : null, replaced: [...oldPanes] });

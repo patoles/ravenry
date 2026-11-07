@@ -201,6 +201,12 @@ if (BIN) {
   await post('/api/sessions/resume', { projectId: 'kite', sessionId: SID }); // reads the processes again
   const stale = await until(async () => { const s = sessionOf(await state()); return s && !s.alsoOpen && s.movedOn ? s : null; }, 15000);
   check('the copy in cmux exits: the session stays in its Ravenry pane, and says it went on in cmux', !!stale && stale.surfaceId === `ravenry:${PANE}` && stale.movedOn.name === 'cmux', JSON.stringify(stale && { surfaceId: stale.surfaceId, movedOn: stale.movedOn, alsoOpen: stale.alsoOpen }) || 'gone from the board');
+  // Move here on it: a new pane, never the old one (its shell may carry what
+  // an older daemon inherited), and the old pane closes.
+  const mv = await post('/api/sessions/move', { projectId: 'kite', sessionId: SID, keep: 'ravenry', cols: 100, rows: 30 });
+  check('Move here from a stale pane: it resumes in a new pane and names the old one as replaced', mv.status === 200 && mv.body.ok && mv.body.surfaceId !== `ravenry:${PANE}` && /^ravenry:p/.test(mv.body.surfaceId) && (mv.body.replaced || []).includes(PANE), mv.text);
+  const oldGone = await until(async () => { const r = await fetch(`${base}/api/state`); const st = await r.json(); const pr = st.projects.find((x) => x.id === 'kite'); return pr && !pr.sessions.some((x) => x.surfaceId === `ravenry:${PANE}`) ? true : null; }, 10000);
+  check('Move here from a stale pane: the old pane is closed', !!oldGone);
 } else {
   console.log('SKIP  Continue in Ravenry in a real pane: set RAVENRYD_BIN to a ravenryd binary');
 }
