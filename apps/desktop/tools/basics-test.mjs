@@ -105,6 +105,7 @@ try {
     { until: `${T}.attached && ${T}.attached.pane === ${JSON.stringify(pane.id)} && ${SCREEN}.includes('ftp://example.com/x')`, timeout: 10000 },
     { sleep: 500 },
     save('scroll-after', VIEW),
+    save('scroll-trace', `${T}.scrollTrace.slice()`),
     // At the bottom, it stays at the bottom.
     { js: `${T}.term.scrollToBottom()` },
     { click: `#tabs .tab[data-key]:not([data-key="${KEY}"])` },
@@ -153,7 +154,7 @@ try {
     { sleep: 800 },
   ] });
   const sb = read('scroll-before'), sa = read('scroll-after');
-  check('a pane scrolled up comes back where it was after a tab switch', !!sb && !!sa && sb.y === 100 && sa.y === 100 && sa.base > 100, { before: sb, after: sa });
+  check('a pane scrolled up comes back where it was after a tab switch', !!sb && !!sa && sb.y === 100 && sa.y === 100 && sa.base > 100, { before: sb, after: sa, ...(sa?.y === 100 ? {} : { trace: read('scroll-trace') }) });
   const ba = read('bottom-after');
   check('a pane at the bottom comes back at the bottom', !!ba && ba.y === ba.base, ba);
   if (MAC) {

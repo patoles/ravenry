@@ -118,6 +118,13 @@ export class TerminalView {
   /** A scroll to put back once the pane's snapshot is written (and, for a line, once the buffer reaches it). */
   private restoreTo: number | 'bottom' | null = null;
   private restoreUntil = 0;
+  /** What moved the view lately (for tests: a restore that did not hold). */
+  readonly scrollTrace: { t: number; what: string; y: number; base: number }[] = [];
+  private trace(what: string): void {
+    const b = this.term.buffer.active;
+    this.scrollTrace.push({ t: Date.now(), what, y: b.viewportY, base: b.baseY });
+    if (this.scrollTrace.length > 60) this.scrollTrace.shift();
+  }
 
   constructor(el: HTMLElement) {
     this.el = el;
@@ -146,6 +153,7 @@ export class TerminalView {
     this.term.loadAddon(this.search);
     this.search.onDidChangeResults((r) => this.onFindResults(r.resultCount ? r.resultIndex + 1 : 0, r.resultCount));
     this.term.onBell(() => this.onBell());
+    this.term.onScroll(() => this.trace('scroll'));
     // Copy on select (a setting): the selection as soon as it is made.
     this.term.onSelectionChange(() => { if (this.ts?.copyOnSelect && this.term.hasSelection()) this.onCopy(this.term.getSelection()); });
     this.term.loadAddon(this.fit);
@@ -270,13 +278,23 @@ export class TerminalView {
     return size;
   }
 
-  /** Where the view stands now, for the pane on screen. */
+  /**
+   * Where the view stands now, for the pane on screen. Only once its
+   * snapshot is written: a view left (or hidden) before that holds an empty
+   * buffer, which would read as "at the bottom" and lose the line kept
+   * (the release check's step 14, one time in five). A restore still
+   * waiting keeps its line.
+   */
   private keepScroll(): void {
     const a = this.current;
     if (!a) return;
+    if (this.restoreTo !== null) { this.scrolls.set(a.pane, this.restoreTo); return; }
+    if (!this.snapshotIn) return;
     const b = this.term.buffer.active;
     this.scrolls.set(a.pane, b.viewportY >= b.baseY ? 'bottom' : b.viewportY);
   }
+  /** The pane on screen has had its snapshot written. */
+  private snapshotIn = false;
 
   private input(d: string | Uint8Array): void {
     if (this.stream) this.stream.input(d);
@@ -303,6 +321,7 @@ export class TerminalView {
     this.current = a;
     this.restoreTo = this.scrolls.get(a.pane) ?? null;
     this.restoreUntil = 0;
+    this.snapshotIn = false;
     this.term.reset();
     this.onShown(a);
     this.fitNow();
@@ -325,6 +344,7 @@ export class TerminalView {
           // snapshot can come in more than one write: a line past what is
           // written so far waits for the rest (at most 1.5 s), so the view
           // is not left at the bottom, following it.
+          if (info.snapshot) { this.trace(`snapshot ${d.byteLength}`); this.snapshotIn = true; }
           if (info.snapshot && this.restoreTo !== null) this.restoreUntil = Date.now() + 1500;
           if (this.restoreTo !== null && this.restoreUntil) {
             const to = this.restoreTo;
@@ -332,7 +352,7 @@ export class TerminalView {
             if (to === 'bottom') { this.term.scrollToBottom(); this.restoreTo = null; }
             else if (base >= to || Date.now() > this.restoreUntil) { this.term.scrollToLine(Math.min(to, base)); this.restoreTo = null; }
             else this.term.scrollToLine(base);
-            if (this.restoreTo === null) this.restoreUntil = 0;
+            if (this.restoreTo === null) { this.restoreUntil = 0; this.trace('restored'); }
           }
           this.onWritten(a, end, info.snapshot);
         });
@@ -353,6 +373,8 @@ export class TerminalView {
     this.detachStream();
     this.early = [];
     this.current = null;
+    this.snapshotIn = false;
+    this.restoreTo = null;
     this.term.reset();
     this.onShown(null);
   }
