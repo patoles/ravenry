@@ -1159,7 +1159,11 @@ async function tick() {
     for (const e of evAll.values()) { const t = otherTab(e); if (t && newestInTab.get(t.id) !== e) claimed.add(e.sessionId); }
     ev = { all: evAll, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
     await refreshOutsideAlive(evAll);
-    paneHolders = holdersInPanes(evAll);
+    const held = holdersInPanes(evAll);
+    // Said once per change: when sessions get tied to their Ravenry panes
+    // (how long after the hub started shows how soon a pane shows).
+    if ([...held.keys()].some((k) => !paneHolders.has(k))) console.log(`sessions: ${[...held.keys()].filter((k) => !paneHolders.has(k)).map((k) => `${k.slice(0, 8)} in pane ${held.get(k).pane}`).join(', ')}, ${Math.round(process.uptime() * 1000)} ms after start`);
+    paneHolders = held;
     const wsById = new Map(workspaces.map((w) => [w.id, w]));
     const settings = reg.settings;
     markers = handoff.listMarkers();
@@ -1171,6 +1175,7 @@ async function tick() {
     let projects = build();
     if (noticeWritten(projects)) { boardTabs = []; projects = build(); }
     if (cmuxOk) lastWorkspaces = workspaces;
+    if (tickNo <= 3) console.log(`tick ${tickNo}: ${Date.now() - now} ms, ${Math.round(process.uptime() * 1000)} ms after start`);
     let sessionsView;
     try { sessionsView = buildSessions(cmuxOk ? workspaces : [], hooks, settings, now, projects); } catch (e) {
       console.error('sessions view:', e.message);
@@ -1243,6 +1248,7 @@ function refreshProcs() {
         extraScreens.set(p.surfaceId, { text, at: now, assistant: k, prompt: text != null ? await asst.judgeRead(k, tab, asst.parseScreen(text, k), now) : null });
       });
       for (const id of [...extraScreens.keys()]) if (!r.procs.some((p) => p.surfaceId === id)) { extraScreens.delete(id); if (!screens.has(id)) asst.forget(id); }
+      if (!procState.at) console.log(`sessions: first process list, ${r.procs.length} session process(es), ${Math.round(process.uptime() * 1000)} ms after start`);
       procState = { ...r, error: null };
     } catch (e) {
       procState = { ...procState, error: String(e.message || e) };

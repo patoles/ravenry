@@ -299,7 +299,13 @@ export function serviceSpec(opts: { execPath: string; staged: Staged; env?: Env;
 
 const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** The launchd agent. */
+/**
+ * The launchd agent. ProcessType is Standard, not Background: macOS slows
+ * a Background job (CPU, disk, timers) on a busy Mac, and the hub ran 20 to
+ * 40 times slower than in a terminal (its first tick 4.7 s, its first
+ * process list 9 s after start; 2026-11-07), and a daemon it starts hands
+ * that on to every pane, the assistants' sessions included.
+ */
 export function plistText(spec: ServiceSpec): string {
   const env = { ELECTRON_RUN_AS_NODE: '1', ...spec.env };
   const envXml = Object.entries(env).map(([k, v]) => `    <key>${xml(k)}</key>\n    <string>${xml(v)}</string>`).join('\n');
@@ -331,7 +337,7 @@ ${envXml}
   <key>ThrottleInterval</key>
   <integer>30</integer>
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>Standard</string>
   <key>AbandonProcessGroup</key>
   <true/>
   <key>StandardOutPath</key>

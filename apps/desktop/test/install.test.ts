@@ -81,6 +81,8 @@ test('the service runs the app as Node on the staged hub; an AppImage copies its
   assert.match(p, /<string>dev\.ravenry\.hub<\/string>/);
   assert.match(p, /<key>ELECTRON_RUN_AS_NODE<\/key>\s*<string>1<\/string>/);
   assert.match(p, /<key>AbandonProcessGroup<\/key>\s*<true\/>/);
+  // Never Background: macOS throttles it, and the panes of a daemon it starts.
+  assert.match(p, /<key>ProcessType<\/key>\s*<string>Standard<\/string>/);
   assert.match(p, /<string>\/Applications\/Ravenry\.app\/Contents\/MacOS\/Ravenry<\/string>\s*<string>\/d\/versions\/0\.1\.0\/hub\/server\/index\.mjs<\/string>/);
 
   assert.equal(runtimeSource('/tmp/.mount_x/ravenry', { APPIMAGE: '/home/you/Apps/Ravenry.AppImage' }, 'linux'), '/tmp/.mount_x');

@@ -251,6 +251,8 @@ Nothing outside the user's own folders, and nothing as root.
   privacy answer says 503): no answer within 30 s, and the service that
   ran before is put back and loaded. An older version's folder goes only
   after that, and never while a process runs from it or a hook names it.
+  The agent's ProcessType is Standard: as Background, macOS slowed the
+  hub 20 to 40 times on a busy Mac, and every pane of a daemon it started.
   What it did is in `~/Library/Logs/Ravenry/app.log`
   (`~/.local/state/ravenry/app.log` on Linux). While the
   npm board is here (below), nothing is installed and the app shows that
