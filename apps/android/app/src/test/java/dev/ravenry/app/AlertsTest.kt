@@ -106,6 +106,11 @@ class AlertsTest {
         val old = Drive.of("input", "Claude wants to type into another tab", "<Enter>", null, "Tilting the hull", "Because.")
         assertEquals("Tilting the hull wants to type in another tab", old.title)
         assertEquals("Claude says: Because.", old.says)
+        // A hub that knows no name for the pane: its title is the daemon's, its body the agent's words.
+        val plain = Drive.of("input", "Let the agent in pane pabc1234 type into \"dev server\" (pane pdef5678)?", "Claude says: Because.", null, "Phone preview", "Because.", "claude")
+        assertEquals("Phone preview wants to type in dev server", plain.title)
+        assertEquals("Claude says: Because.", plain.body)
+        assertEquals(null, plain.says)
     }
 
     @Test fun aPickShowsCompareAndNotNowAndKeepsItsPictures() {

@@ -74,7 +74,7 @@ data class Alert(
             if (kind == "drive") {
                 val dj = cp?.optJSONObject("drive")
                 fun f(k: String) = dj?.optString(k)?.takeIf { it.isNotEmpty() && it != "null" }
-                val d = Drive.of(f("action"), title, body, f("name"), f("session"), f("reason"))
+                val d = Drive.of(f("action"), title, body, f("name"), f("session"), f("reason"), session?.optString("assistant")?.takeIf { it.isNotEmpty() && it != "null" })
                 title = d.title; body = d.body
                 if (d.says != null) detail = d.says
                 actions = actions.mapNotNull { act ->
@@ -124,18 +124,20 @@ data class Drive(val title: String, val body: String, val yes: String, val sessi
     companion object {
         private val NAMED = Regex("\"([^\"]+)\" \\(pane [a-z0-9]+\\)")
 
-        fun of(action: String?, title: String, body: String, name: String? = null, asking: String? = null, reason: String? = null): Drive {
+        fun of(action: String?, title: String, body: String, name: String? = null, asking: String? = null, reason: String? = null, assistant: String? = null): Drive {
             val yes = when (action) { "close" -> "Let it close"; "restart" -> "Let it restart"; "override" -> "Let it change it"; else -> "Allow once" }
             // A hub that names the pane already says it all: "Claude, in
             // Tilting the hull, wants to type in dev server", the agent's
             // words in the body and what it would type in the detail.
             if (name != null) return Drive(title, body, yes, action == null || action == "input")
-            val who = title.substringBefore(" wants ", "").substringBefore(",").ifEmpty { "The agent" }
-            val pane = NAMED.find(body)?.groupValues?.get(1)
-            // The daemon's title names the pane with its id: it is said again here without it.
+            val who = assistant?.let { when (it) { "claude" -> "Claude"; "codex" -> "Codex"; else -> null } }
+                ?: title.substringBefore(" wants ", "").substringBefore(",").takeIf { it.isNotEmpty() && !it.startsWith("Let ") } ?: "The agent"
+            // The pane's name from the daemon's title, in the body or the title, without its id.
+            val pane = (NAMED.find(body) ?: NAMED.find(title))?.groupValues?.get(1)
             val rest = if (NAMED.containsMatchIn(body) || body.matches(Regex("^Let .+\\?$"))) "" else body
             val subject = asking ?: who
-            val says = reason?.trim()?.takeIf { it.isNotEmpty() }?.let { "$who says: $it" }
+            // A hub that put the agent's words in the body already said them.
+            val says = reason?.trim()?.takeIf { it.isNotEmpty() && !rest.contains(" says: ") }?.let { "$who says: $it" }
             val p = pane ?: "another tab"
             return when (action) {
                 "close" -> Drive("$subject wants to close $p", rest, "Let it close", false, says)

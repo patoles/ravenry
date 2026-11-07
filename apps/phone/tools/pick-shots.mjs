@@ -430,6 +430,14 @@ try {
   check(notNow && !alertShown(`cp:${HTML}`) && htmlCp && htmlCp.state === 'open', 'Not now in the shade takes the pick\'s alert away and leaves the pick open');
   adb('shell', 'cmd', 'statusbar', 'collapse');
 
+  // The drives' alerts in the shade, as the hub words them.
+  snoozeOthers([`cp:${CLOSE}`, `cp:${TYPE}`, `cp:${PICK}`, `cp:${ASK}`]);
+  await openShade();
+  await expand([...screen()].map((n) => n.text).find((t) => / wants to type in /.test(t)) || 'x');
+  await sleep(800);
+  shot('phone-6-drive-shade-dark.png');
+  console.log('drive alerts:', screen().map((n) => n.text).filter((t) => / wants to | says: |It would type/.test(t)).join(' | '));
+  adb('shell', 'cmd', 'statusbar', 'collapse');
   await shade('dark');
   console.log('dark:', await screens('dark'));
   // Light: the shade again, then the screens (a theme change draws the board anew).
