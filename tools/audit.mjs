@@ -46,7 +46,12 @@ const PRIVATE_TERMS = path.resolve(ROOT, '..', 'ravenry', 'tools', 'private', 'a
 // audit: begin rule table
 const NAME = '7c6e1bf16286b2bcb2790eee9d42a406f0de86615436d85baf86efa3b7d9eb20';
 const OWNER = '5d246c0b6cd8060850866060c70bd0eb123768ca056fd500276dcac7b81a256e';
+// The npm board 0.4.0's login label, detected so the app
+// can switch from it: one constant in each file, never an id of the app's.
+const NPM_LABEL = 'bb402da3886b17563fe4bfff8d4f5a26c37cc4b0121f08af37550a2414f451bf';
 const ALLOWED = [
+  { file: 'hub/server/npmswitch.mjs', sha256: NPM_LABEL, why: "the npm 0.4.0 board's login label, detected so the app can switch from it (LOGIN_LABELS)" },
+  { file: 'apps/desktop/tools/npm-board-fixture.mjs', sha256: NPM_LABEL, why: "the npm 0.4.0 board's login label, which the switch test's npm board starts with (NPM_LOGIN_LABEL)" },
   { file: 'NOTICE', sha256: NAME, why: 'the copyright holder and trademark owner' },
   { file: 'TRADEMARK.md', sha256: NAME, why: 'the trademark owner' },
   { file: 'CLA.md', sha256: NAME, why: 'the project owner the agreement names' },

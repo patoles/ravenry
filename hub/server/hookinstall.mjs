@@ -18,7 +18,9 @@
 //
 // Only entries that run these two scripts are ever touched (matched by
 // `ravenry/hooks/<script>` or the pre-rename `mission-control/hooks/<script>`
-// in the command); every other hook and setting stays as it is.
+// in the command, or by a script of any other copy of Ravenry, such as
+// npm's .../node_modules/ravenry-app/hooks/<script>); every other hook and
+// setting stays as it is.
 //
 // Ravenry's own terminal adds a third command, `ravenryd hook --assistant
 // claude|codex` (the daemon's hook, PROTOCOL.md section 4, agent.report):
@@ -77,6 +79,21 @@ export function hookCommand(o, { root = ROOT, node = stableNode(), electron = on
   return `${electron ? `${AS_NODE} ` : ''}${q(node)} ${q(path.join(root, 'hooks', o.script))}`;
 }
 
+// Whether `script` is one of the hooks of a copy of Ravenry: its folder's
+// package.json is ravenry-app's (npm's copy, a git checkout, the app's hub)
+// or mission-control's (the name before the rename). Read once per folder.
+const copies = new Map();
+export function ravenryCopyScript(script, name) {
+  if (!script || path.basename(script) !== name || path.basename(path.dirname(script)) !== 'hooks') return false;
+  const dir = path.dirname(path.dirname(script));
+  if (!copies.has(dir)) {
+    let pkg = null;
+    try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { /* not a package */ }
+    copies.set(dir, !!pkg && (pkg.name === 'ravenry-app' || pkg.name === 'mission-control'));
+  }
+  return copies.get(dir);
+}
+
 // A hook command's words after its leading NAME=value assignments: the
 // program, then its arguments.
 export function commandWords(cmd) {
@@ -106,7 +123,12 @@ export function isOurs(h, o, { root = ROOT } = {}) {
   // The desktop app's hub, in any version folder of the app (an update
   // moves it to a new one).
   if (new RegExp(`/versions/[^/\\s"']+/hub/hooks/${o.script.replace('.', '\\.')}(["'\\s]|$)`).test(h.command)) return true;
-  return splitCommand(h.command).includes(path.join(root, 'hooks', o.script));
+  const words = splitCommand(h.command);
+  if (words.includes(path.join(root, 'hooks', o.script))) return true;
+  // Any other copy of Ravenry (npm's installs in ravenry-app/, a checkout
+  // may be named anything): left out, setup would add a second set beside
+  // it and every event would be recorded twice.
+  return commandWords(h.command).slice(1, 2).some((w) => path.isAbsolute(w) && ravenryCopyScript(w, o.script));
 }
 
 // The two paths a command names: [node, script], unquoted.
@@ -163,10 +185,13 @@ export function ravenrydIn(json, assistant = 'claude') {
 // Our entries for one assistant: the two scripts (with --ravenryd when the
 // daemon's hook goes beside them, and --assistant=codex for Codex), and the
 // daemon's hook. Each { script, events, timeout, command, match(h) }.
-export function oursFor(assistant, { root = ROOT, node, ravenryd = null } = {}) {
+// `electron`: the commands run Node on the app's own executable (they set
+// ELECTRON_RUN_AS_NODE=1); by default when this process is the app's.
+export function oursFor(assistant, { root = ROOT, node, ravenryd = null, electron } = {}) {
   const scripts = assistant === 'codex' ? CODEX_OURS : OURS;
   const extra = (assistant === 'codex' ? ' --assistant=codex' : '') + (ravenryd ? ' --ravenryd' : '');
-  const list = scripts.map((o) => ({ ...o, command: hookCommand(o, { root, node }) + extra, match: (h) => isOurs(h, o, { root }) }));
+  const as = electron === undefined ? {} : { electron };
+  const list = scripts.map((o) => ({ ...o, command: hookCommand(o, { root, node, ...as }) + extra, match: (h) => isOurs(h, o, { root }) }));
   if (ravenryd) list.push({ script: 'ravenryd hook', events: RAVENRYD_EVENTS[assistant], timeout: 10, what: 'sessions in Ravenry terminals, on any machine', command: ravenrydCommand(ravenryd, assistant), match: (h) => isRavenrydHook(h, assistant) });
   return list;
 }
@@ -179,14 +204,14 @@ export function oursFor(assistant, { root = ROOT, node, ravenryd = null } = {}) 
 // it gets the daemon's hook only: `scripts: false` leaves the two scripts
 // out (and alone, when someone put them there), and `daemonMatch(h)` says
 // which `ravenryd hook` entries are this install's (by default every one).
-export function plan(json, { remove = false, root = ROOT, node, ravenryd, scripts = true, daemonMatch = null } = {}) {
+export function plan(json, { remove = false, root = ROOT, node, ravenryd, scripts = true, daemonMatch = null, electron } = {}) {
   const settings = JSON.parse(JSON.stringify(json || {}));
   const hadHooks = !!settings.hooks;
   settings.hooks = settings.hooks || {};
   const changes = [];
   const rv = ravenryd === undefined ? ravenrydIn(json, 'claude') : ravenryd || null;
   const isDaemon = (h) => isRavenrydHook(h, 'claude') && (!daemonMatch || daemonMatch(h));
-  const ours = oursFor('claude', { root, node, ravenryd: remove ? null : rv })
+  const ours = oursFor('claude', { root, node, ravenryd: remove ? null : rv, electron })
     .filter((o) => scripts || o.script === 'ravenryd hook')
     .map((o) => (o.script === 'ravenryd hook' ? { ...o, match: isDaemon } : o));
   // Removing (or dropping the daemon's hook): it goes too.
@@ -308,8 +333,8 @@ export const codexInstalled = (env = process.env) => {
 export const CODEX_HOOKS_FILE = cx.HOOKS_FILE;
 export const CODEX_CONFIG_FILE = cx.CONFIG_FILE;
 
-function codexOurs({ root = ROOT, node, ravenryd = null } = {}) {
-  return oursFor('codex', { root, node, ravenryd });
+function codexOurs({ root = ROOT, node, ravenryd = null, electron } = {}) {
+  return oursFor('codex', { root, node, ravenryd, electron });
 }
 
 // What setup or uninstall would write: { hooks: { file, raw, json }, config:
@@ -323,11 +348,11 @@ export function codexPlan(opts = {}) {
 // for a machine reached over ssh. `scripts` and `daemonMatch` as in plan():
 // with `scripts: false` only the daemon's hook is added or removed, and the
 // trust block keeps the entries of every other Ravenry hook still there.
-export function codexPlanOf(h0, c, { remove = false, root = ROOT, node, ravenryd, scripts = true, daemonMatch = null } = {}) {
+export function codexPlanOf(h0, c, { remove = false, root = ROOT, node, ravenryd, scripts = true, daemonMatch = null, electron } = {}) {
   const h = { ...h0 };
   const rv = ravenryd === undefined ? ravenrydIn(h.json, 'codex') : ravenryd || null;
   const isDaemon = (x) => isRavenrydHook(x, 'codex') && (!daemonMatch || daemonMatch(x));
-  const all = codexOurs({ root, node, ravenryd: remove ? null : rv }).map((o) => (o.script === 'ravenryd hook' ? { ...o, match: isDaemon } : o));
+  const all = codexOurs({ root, node, ravenryd: remove ? null : rv, electron }).map((o) => (o.script === 'ravenryd hook' ? { ...o, match: isDaemon } : o));
   const ours = all.filter((o) => scripts || o.script === 'ravenryd hook');
   const gone = { script: 'ravenryd hook', events: RAVENRYD_EVENTS.codex, timeout: 10, command: '', match: isDaemon };
   if (remove || ravenryd === false) {
@@ -346,7 +371,7 @@ export function codexPlanOf(h0, c, { remove = false, root = ROOT, node, ravenryd
   // The trust block names every Ravenry hook in the file: with `scripts:
   // false` the scripts (and any other ravenryd hook) someone else put there
   // keep theirs.
-  const trusted = scripts ? ours : [...codexOurs({ root, node, ravenryd: null }), { ...gone, match: (x) => isRavenrydHook(x, 'codex') }];
+  const trusted = scripts ? ours : [...codexOurs({ root, node, ravenryd: null, electron }), { ...gone, match: (x) => isRavenrydHook(x, 'codex') }];
   const drop = [...(h.dropped || []), ...cx.ourKeys(h.json, trusted, isO, h.file).map((x) => x.key)];
   const text = cx.planConfig(c.raw, p.json, trusted, isO, { file: h.file, moves: [...(h.moves || []), ...p.moves], remove: removeAll, drop });
   const changes = [...(h.changes0 || []), ...p.changes];

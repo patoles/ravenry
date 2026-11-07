@@ -158,6 +158,12 @@ r = child(TERM());
 check('guard: cmux, osascript, a shell running cmux, and a hub whose cmux is the real one are refused; anything else runs', r.out === 'refused,refused,refused,refused,ran', r.out + r.err);
 r = child(`const t = await import(${S('../tools/test-env.mjs')}); console.log([t.boardRealTerminal({ CMUX_BIN: ${S('tools/fake-cmux.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'ravenry' }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'iterm', ITERM_OSASCRIPT_BIN: ${S('tools/stub-osascript.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'rex', RAVENRY_REX_BIN: ${S('tools/fake-rex.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'iterm' }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'rex' })].join(','));`);
 check('guard: a hub with a stand-in for its terminal starts; with the real iTerm2 or Rex it is refused', r.out === ',,,,iTerm2,Rex', r.out || r.err);
+// launchd: a test never runs the real launchctl (it loads jobs into the
+// person's own session whatever HOME says), nor an app that would install
+// its hub service with it; the stand-in apps/desktop/tools/fake-launchctl.mjs is fine.
+r = child(`const t = await import(${S('../tools/test-env.mjs')}); const a = '/x/Ravenry.app/Contents/MacOS/Ravenry';
+console.log([t.launchdProblem('/bin/launchctl', ['print', 'gui/1/x']), t.launchdProblem('/bin/sh', ['-c', 'launchctl bootout gui/1/x']), t.launchdProblem(a, [], { RAVENRY_SERVICE: 'install' }, 'darwin'), t.launchdProblem(a, [], { RAVENRY_SERVICE: 'install', RAVENRY_LAUNCHCTL: '/x/fake-launchctl.mjs' }, 'darwin'), t.launchdProblem(a, [], { RAVENRY_SERVICE: 'dry-run' }, 'darwin'), t.launchdProblem('/usr/bin/true', [])].map((x) => (x ? 'refused' : 'ran')).join(','));`);
+check('guard: the real launchctl, and an app that would install its service with it, are refused; the stand-in runs', r.out === 'refused,refused,refused,ran,ran,ran', r.out || r.err);
 const forbidden = tests.filter((f) => /RAVENRY_TEST_REAL_TERMINAL\s*(:|\]?\s*=(?!=))\s*['"`]1/.test((read(path.join(ROOT, 'tools', f)) || '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')));
 check('guard: no test sets RAVENRY_TEST_REAL_TERMINAL itself', forbidden.length === 0, forbidden.join(', '));
 const marked = tests.filter((f) => /requireRealTerminal\(/.test(read(path.join(ROOT, 'tools', f)) || ''));

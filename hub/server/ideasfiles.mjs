@@ -20,7 +20,14 @@
 // whole, so a comment or a field someone added stays. The migration copies
 // everything and deletes nothing: ideas.json and ~/.ravenry/ideas/ stay
 // where they are, a copy of both goes to backups/ideas-<when>/ first, and a
-// marker (.ravenry/migrated.json) makes a second run do nothing.
+// marker (.ravenry/migrated.json) makes a second run do nothing. It waits
+// while another board runs on the same data (its board.json names a live
+// process): that board, such as the npm board 0.4.0, keeps writing
+// ideas.json, which nothing reads once the move is done.
+//
+// moveBack() is the way back to the npm board (server/npmswitch.mjs):
+// ideas.json written again from the folder, the pictures back where 0.4.0
+// reads them, and the folder set aside, so a later switch moves again.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -203,6 +210,14 @@ export function saveBoard(b, home = RAVENRY_HOME) {
 
 const stamp = (d = new Date()) => d.toISOString().replace(/[:.]/g, '-');
 
+// The board.json of another live board on this data ({ pid, port }), or null.
+export function otherBoard(home = RAVENRY_HOME, pid = process.pid) {
+  const b = readJson(path.join(home, 'board.json'));
+  if (!b || !Number.isInteger(b.pid) || b.pid === pid) return null;
+  try { process.kill(b.pid, 0); } catch (e) { if (e.code !== 'EPERM') return null; }
+  return { pid: b.pid, port: b.port };
+}
+
 function copyFile(from, to) {
   if (!fs.existsSync(from) || fs.existsSync(to)) return false;
   assertDataWrite(to);
@@ -228,10 +243,15 @@ function copyTree(from, to) {
  * why } when there is nothing to do (no ideas.json, or it ran already),
  * else { done: true, ideas, archived, pictures, backup }.
  */
-export function migrate(home = RAVENRY_HOME, { now = new Date(), log = (s) => console.log(s) } = {}) {
+export function migrate(home = RAVENRY_HOME, { now = new Date(), log = (s) => console.log(s), pid = process.pid } = {}) {
   const d = dirsOf(home);
   if (fs.existsSync(d.marker)) return { done: false, why: 'ran already' };
   if (!fs.existsSync(d.oldJson)) return { done: false, why: 'no ideas.json' };
+  const other = otherBoard(home, pid);
+  if (other) {
+    log(`ideas: not moved off ideas.json while another board (pid ${other.pid}, port ${other.port}) runs on this data; the move waits until it is stopped`);
+    return { done: false, why: 'another board runs on this data' };
+  }
   let db;
   try { db = JSON.parse(fs.readFileSync(d.oldJson, 'utf8')); } catch (e) {
     return { done: false, why: `ideas.json cannot be read (${e.message}), so it was left as it is` };
@@ -289,4 +309,45 @@ export function migrate(home = RAVENRY_HOME, { now = new Date(), log = (s) => co
   }
   log(`ideas: moved ${ideas} idea${ideas === 1 ? '' : 's'} (and ${archived} archived) from ideas.json to ${path.relative(homeWas, d.dir)}/, one file each; ${copied} picture${copied === 1 ? '' : 's'} copied; ideas.json and ideas/ are as they were, and a copy is in ${path.relative(homeWas, backup)} (${pics} file${pics === 1 ? '' : 's'})`);
   return { done: true, ideas, archived, pictures: copied, backup };
+}
+
+/**
+ * The way back to a board that reads ideas.json (the npm board 0.4.0): the
+ * folder's ideas, in the board's order, written to ideas.json as 0.4.0
+ * keeps them (the one there is copied to backups/ideas-back-<when>/
+ * first); every picture and mockup copied back to ideas/ where 0.4.0
+ * reads them (none overwritten); then the folder moved into that backup,
+ * so a later switch to the app moves ideas.json again, with whatever the
+ * npm board changed meanwhile. Returns { done: false, why } when the ideas
+ * were never moved, else { done: true, ideas, archived, pictures, backup }.
+ */
+export function moveBack(home = RAVENRY_HOME, { now = new Date(), log = (s) => console.log(s) } = {}) {
+  const d = dirsOf(home);
+  if (!fs.existsSync(d.marker)) return { done: false, why: 'the ideas were never moved off ideas.json' };
+  const board = readBoard(home);
+  const rank = new Map((board.order || []).map((id, i) => [id, i]));
+  const all = readAll(home);
+  all.sort((a, b) => {
+    if (!!a.archived !== !!b.archived) return a.archived ? 1 : -1;
+    const ra = rank.has(a.id) ? rank.get(a.id) : -1, rb = rank.has(b.id) ? rank.get(b.id) : -1;
+    if (ra !== rb) return ra - rb;
+    return String(b.created || '').localeCompare(String(a.created || ''));
+  });
+  let old = null;
+  try { old = JSON.parse(fs.readFileSync(d.oldJson, 'utf8')); } catch { /* none, or unreadable: copied as it is below */ }
+  const db = { version: old && Number.isInteger(old.version) ? old.version : 1 };
+  for (const k of ['seededAt', 'brainstorm', 'brainstormError', 'lastBrainstorm']) if (board[k] != null) db[k] = board[k];
+  db.ideas = all.map(({ file: _f, hash: _h, fields: _x, archived, ...it }) => (archived ? { ...it, archived: true } : it));
+  const backup = path.join(home, 'backups', `ideas-back-${stamp(now)}`);
+  copyFile(d.oldJson, path.join(backup, 'ideas.json'));
+  let pictures = 0;
+  for (const n of fs.existsSync(d.pictures) ? fs.readdirSync(d.pictures) : []) if (copyFile(path.join(d.pictures, n), path.join(d.oldDir, n))) pictures++;
+  for (const id of fs.existsSync(d.mockups) ? fs.readdirSync(d.mockups) : []) pictures += copyTree(path.join(d.mockups, id), path.join(d.oldDir, id, 'mockups'));
+  write(d.oldJson, JSON.stringify(db, null, 2) + '\n');
+  assertDataWrite(path.join(backup, 'pages-ideas'));
+  fs.mkdirSync(backup, { recursive: true });
+  fs.renameSync(d.dir, path.join(backup, 'pages-ideas'));
+  const archived = db.ideas.filter((x) => x.archived).length;
+  log(`ideas: wrote ${db.ideas.length - archived} idea${db.ideas.length - archived === 1 ? '' : 's'} (and ${archived} archived) back to ideas.json; ${pictures} picture${pictures === 1 ? '' : 's'} copied back to ideas/; the folder and the old ideas.json are in ${path.relative(home, backup)}`);
+  return { done: true, ideas: db.ideas.length - archived, archived, pictures, backup };
 }

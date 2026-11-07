@@ -28,6 +28,12 @@
 // through node:child_process that is ravenryd, the hub or the app is
 // checked with the environment it is given, so no tool can forget.
 //
+// launchd: a test never runs the real launchctl, which would load a job
+// (a hub, a board) into the person's own session whatever HOME says.
+// guardSpawns() refuses /bin/launchctl, and an app that would install its
+// hub service (RAVENRY_SERVICE=install) without the stand-in
+// apps/desktop/tools/fake-launchctl.mjs as RAVENRY_LAUNCHCTL.
+//
 // Real terminal apps: a test never drives the person's own cmux, iTerm2 or
 // Rex (on 2026-11-06 a run of tools/handoff-e2e.mjs put a cmux workspace on
 // the person's screen). guardSpawns() refuses, unless the person ran the
@@ -223,8 +229,19 @@ function checkTerminal(file, args, env, kind) {
   if (t) throw new Error(`Refused to start ${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''}: it would drive the real ${t}. A test uses a stand-in (tools/fake-cmux.mjs, stub-osascript.mjs, fake-rex.mjs), or runs with ${REAL_TERMINAL_VAR}=1 when the person asks for it.`);
 }
 
+/** Why starting this child would touch the person's launchd, or null. */
+export function launchdProblem(file, args = [], env = process.env, platform = process.platform) {
+  const base = path.basename(String(file || ''));
+  if (base === 'launchctl') return 'it is the real launchctl, which loads jobs into the person\'s own session';
+  if (/^(ba|z|da)?sh$/.test(base) && args[0] === '-c' && /(^|[\s;&|('"/])launchctl['"]?(\s|$)/.test(String(args[1] || ''))) return 'it runs the real launchctl';
+  if (platform === 'darwin' && childKind(file, args, env) === 'app' && env.RAVENRY_SERVICE === 'install' && (!env.RAVENRY_LAUNCHCTL || path.basename(env.RAVENRY_LAUNCHCTL) === 'launchctl')) return 'it would install its hub service with the real launchctl (set RAVENRY_LAUNCHCTL to tools/fake-launchctl.mjs)';
+  return null;
+}
+
 function check(file, args, opts) {
   const env = (opts && opts.env) || process.env;
+  const ld = launchdProblem(file, args, env);
+  if (ld) throw new Error(`Refused to start ${path.basename(String(file))}: ${ld}.`);
   const kind = childKind(file, args, env);
   if (kind) assertTestEnv(env, `${NAMES[kind]} (${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''})`, { app: kind === 'app' });
   checkTerminal(file, args, env, kind);
