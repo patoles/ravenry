@@ -39,7 +39,32 @@ export function svg(markup: string): Element {
   return t.content.firstElementChild!;
 }
 
+// A press held inside an element puts off drawing that element again until
+// the release has given its click. The window is drawn again at each state
+// from the hub (about once a second), and a click whose press and release
+// land on two drawings never fires: on 2026-11-07 a session's row and Move
+// here did nothing, now and then. Drawn as soon as the press ends (or
+// after 3 s, or when the window loses focus).
+let pressed: Element | null = null;
+let pressTimer: ReturnType<typeof setTimeout> | undefined;
+const putOff = new Map<Element, Child[]>();
+function released(): void {
+  if (!pressed) return;
+  pressed = null;
+  clearTimeout(pressTimer);
+  // After the click the release gives, which comes in the same task.
+  setTimeout(() => { for (const [el, ch] of [...putOff]) { putOff.delete(el); el.textContent = ''; append(el, ch); } }, 0);
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', (e) => { pressed = e.target instanceof Element ? e.target : null; clearTimeout(pressTimer); pressTimer = setTimeout(released, 3000); }, true);
+  document.addEventListener('pointerup', released, true);
+  document.addEventListener('pointercancel', released, true);
+  window.addEventListener('blur', released);
+}
+
 export function replace(el: Element, ...children: Child[]): void {
+  if (pressed && el.contains(pressed)) { putOff.set(el, children); return; }
+  putOff.delete(el);
   el.textContent = '';
   append(el, children);
 }
