@@ -960,6 +960,7 @@ func (s *Server) paneGone(id string) {
 	var freed []string
 	d.mu.Lock()
 	if m := d.meta[id]; m != nil {
+		s.refuseWaitersLocked(m)
 		s.dropLeaseLocked(m)
 	}
 	for pid, m := range d.meta {

@@ -316,3 +316,79 @@ func openDriveAction(t *testing.T, c *client.Client, target, agent, action strin
 	t.Fatalf("no %s checkpoint for %s", action, target)
 	return proto.Checkpoint{}
 }
+
+// A lease is a queue: who waits shows on the lease, the person's release
+// hands it to the first in line, and a person's release with
+// refuse_waiting takes the pane back, failing the ones still waiting.
+func TestLeaseQueue(t *testing.T) {
+	d := startDaemon(t)
+	person := d.dial(client.Options{Name: "app"})
+	call[proto.Empty](t, person, "events.subscribe", map[string]any{})
+	target := newPane(t, person, map[string]any{"command": []string{"/bin/cat"}, "name": "dev server"})
+	lease := func(extra string) string { return fmt.Sprintf(`pane.lease {"pane":%q%s}`, target.ID, extra) }
+	// Each agent asks to type first, and waits a while before the lease
+	// (a pane.wait on the target for text that never comes), so all three
+	// hold a grant
+	// before anyone holds the lease.
+	steps := func(name string, delay int, extra string) []string {
+		return []string{
+			fmt.Sprintf(`pane.send {"pane":%q,"input":[{"text":"%s\r","mode":"raw"}]}`, target.ID, name),
+			fmt.Sprintf(`pane.wait {"pane":%q,"text":"never comes","timeout_ms":%d}`, target.ID, delay),
+			lease(extra),
+		}
+	}
+	allow := func(agent string) {
+		cp := openDrive(t, person, target.ID, agent)
+		answer(t, person, map[string]any{"checkpoint": cp.ID, "approve": true, "allow": "session", "by": "desktop"})
+	}
+	leaseOf := func() *proto.Lease {
+		for _, p := range call[proto.ListResult](t, person, "pane.list", map[string]any{}).Panes {
+			if p.ID == target.ID {
+				return p.Lease
+			}
+		}
+		return nil
+	}
+	waitLease := func(ok func(l *proto.Lease) bool, what string) *proto.Lease {
+		deadline := time.Now().Add(15 * time.Second)
+		for time.Now().Before(deadline) {
+			if l := leaseOf(); ok(l) {
+				return l
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("the lease never showed %s: %+v", what, leaseOf())
+		return nil
+	}
+	a := agentPane(t, person, steps("a", 1500, `,"ttl_ms":60000`)...)
+	b := agentPane(t, person, steps("b", 3000, `,"ttl_ms":60000,"wait_ms":30000`)...)
+	c := agentPane(t, person, steps("c", 8000, `,"wait_ms":30000`)...)
+	allow(a.ID)
+	allow(b.ID)
+	allow(c.ID)
+	if l := stepLine(t, person, a.ID, 2); !strings.HasPrefix(l, "step 2 ok") {
+		t.Fatalf("the first lease: %s", l)
+	}
+	l := waitLease(func(l *proto.Lease) bool { return l != nil && len(l.Waiting) == 1 }, "the waiting driver")
+	if l.Holder.Pane != a.ID || l.Waiting[0].Kind != "agent" || l.Waiting[0].Pane != b.ID {
+		t.Fatalf("who holds and who waits: %+v", l)
+	}
+	// Hand it on: the person's release gives it to the first in line.
+	call[proto.LeaseResult](t, person, "pane.lease", map[string]any{"pane": target.ID, "release": true})
+	if s := stepLine(t, person, b.ID, 2); !strings.HasPrefix(s, "step 2 ok") || !strings.Contains(s, b.ID) {
+		t.Fatalf("the waiting driver was not handed the lease: %s", s)
+	}
+	waitLease(func(l *proto.Lease) bool { return l != nil && l.Holder.Pane == b.ID && len(l.Waiting) == 0 }, "the second holder")
+	// Take it back: the one waiting now is refused.
+	waitLease(func(l *proto.Lease) bool { return l != nil && len(l.Waiting) == 1 && l.Waiting[0].Pane == c.ID }, "the third driver waiting")
+	call[proto.LeaseResult](t, person, "pane.lease", map[string]any{"pane": target.ID, "release": true, "refuse_waiting": true})
+	if s := stepLine(t, person, c.ID, 2); s != "step 2 leased" {
+		t.Fatalf("a driver waiting when the person took the pane back: %s", s)
+	}
+	waitLease(func(l *proto.Lease) bool { return l == nil }, "no holder")
+	// Only a person refuses the waiting ones.
+	e := agentPane(t, person, lease(`,"release":true,"refuse_waiting":true`))
+	if s := stepLine(t, person, e.ID, 0); s != "step 0 forbidden" {
+		t.Fatalf("an agent refusing the waiting drivers: %s", s)
+	}
+}

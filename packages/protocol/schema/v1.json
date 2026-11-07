@@ -4630,6 +4630,13 @@
         },
         "expires_at": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "waiting": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "description": "Who waits for it, in turn: the first is handed the lease when it ends."
         }
       },
       "required": [
@@ -5328,6 +5335,10 @@
         },
         "release": {
           "type": "boolean"
+        },
+        "refuse_waiting": {
+          "type": "boolean",
+          "description": "With a person's release: the drivers waiting for the lease fail with leased instead of being handed it."
         },
         "no_wait": {
           "type": "boolean"

@@ -145,6 +145,8 @@ export interface Lease {
   holder: Source;
   acquired_at: string;
   expires_at: string;
+  /** Who waits for it, in turn: the first is handed it when it ends. */
+  waiting?: Source[];
 }
 
 export interface Overrides {
@@ -567,7 +569,7 @@ export interface Methods {
   'pane.grants': { params: { pane?: PaneId }; result: { grants: Grant[] } };
   'pane.revoke': { params: { grant: string }; result: { grant: Grant } };
   'pane.lease': {
-    params: { pane: PaneId; ttl_ms?: number; wait_ms?: number; release?: boolean; no_wait?: boolean };
+    params: { pane: PaneId; ttl_ms?: number; wait_ms?: number; release?: boolean; refuse_waiting?: boolean; no_wait?: boolean };
     result: { pane: PaneId; lease?: Lease };
   };
   'pane.files': { params: { pane: PaneId; no_git?: boolean }; result: { pane: PaneId; files: FileTouch[]; git_root?: string; partial?: boolean } };

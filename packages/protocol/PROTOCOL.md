@@ -1081,8 +1081,13 @@ and until when). The person's input goes through and is marked with
 `lease_holder`. Only a connection that may drive the pane may take its
 lease (otherwise `pane.lease` asks the person first, as input does). A
 lease ends when its time runs out, when its holder releases it, when its
-holder's pane or connection goes, or when a person releases it.
-Subscribers get `pane.lease` with the pane (and its `lease`, or none).
+holder's pane or connection goes, or when a person releases it. Drivers
+that wait for it (`wait_ms`) queue: the lease lists them in `waiting`, in
+turn, and when it ends the first is handed it, for the time it asked
+for. A person's release with `refuse_waiting` takes the pane back
+instead: the waiting drivers fail with `leased`.
+Subscribers get `pane.lease` with the pane (and its `lease`, or none),
+also when a driver starts or stops waiting.
 
 #### pane.inputs
 
@@ -1117,10 +1122,12 @@ may not act as the person.
 | `ttl_ms` | integer, optional | How long it lasts, 1 to 3600000. Default 60000. Leasing again renews it. |
 | `wait_ms` | integer, optional | While another driver holds it, wait this long, in turn with other waiters, before failing with `leased`. |
 | `release` | boolean, optional | Let it go (no `ttl_ms` or `wait_ms`). |
+| `refuse_waiting` | boolean, optional | With `release`, from a person: the drivers waiting for it fail with `leased` instead of being handed it. Refused with `forbidden` to a connection that may not act as the person. |
 | `no_wait` | boolean, optional | As in `pane.send`, for the drive checkpoint. |
 
 Result: `pane` and `lease` (a Lease: `holder`, `acquired_at`,
-`expires_at`; absent after a release). A release fails with `not_found`
+`expires_at`, and `waiting`, the Sources waiting for it in turn; absent
+after a release). A release fails with `not_found`
 when no lease is held, and with `leased` when another driver holds it.
 
 ### Files touched
