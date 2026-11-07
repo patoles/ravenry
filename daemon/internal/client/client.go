@@ -21,6 +21,10 @@ import (
 type Error struct {
 	Code    string
 	Message string
+	// Checkpoint: the drive checkpoint a refused input opened.
+	Checkpoint string
+	// Lease: the lease that holds the pane (leased).
+	Lease *proto.Lease
 }
 
 func (e *Error) Error() string { return e.Code + ": " + e.Message }
@@ -232,7 +236,7 @@ func (c *Client) text(data []byte) {
 			return
 		}
 		if m.Type == "error" && m.Error != nil {
-			ch <- reply{err: &Error{Code: m.Error.Code, Message: m.Error.Message}}
+			ch <- reply{err: &Error{Code: m.Error.Code, Message: m.Error.Message, Checkpoint: m.Error.Checkpoint, Lease: m.Error.Lease}}
 		} else {
 			ch <- reply{result: m.Result, stream: st}
 		}

@@ -25,6 +25,8 @@ type paneLog struct {
 	size      int64
 	prevStart uint64 // mark of the first byte in <id>.log.1
 	hasPrev   bool
+	// onRotate is told where <id>.log starts after a rotation.
+	onRotate func(start uint64)
 }
 
 func openLog(path string, capBytes int64) (*paneLog, error) {
@@ -77,6 +79,9 @@ func (l *paneLog) rotate() error {
 	l.start += uint64(l.size)
 	l.f, l.size = f, 0
 	l.w.Reset(f)
+	if l.onRotate != nil {
+		l.onRotate(l.start)
+	}
 	return nil
 }
 

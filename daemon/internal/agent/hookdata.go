@@ -25,6 +25,9 @@ import (
 //     asks a question (at most 2000 bytes, its end), else empty;
 //     background_tasks as id, type, status and agent_type; session_crons
 //     as their ids
+//   - PostToolUse: tool_files, the paths of the files the tool wrote
+//     (Claude Code's file_path and notebook_path, the files a Codex
+//     apply_patch names), at most 64, never their contents
 //
 // It is idempotent: HookData of its own output gives the same fields.
 func HookData(raw []byte) []byte {
@@ -66,6 +69,10 @@ func HookData(raw []byte) []byte {
 	}
 	event, _ := in["hook_event_name"].(string)
 	switch event {
+	case "PostToolUse":
+		if fs := toolFiles(in); len(fs) > 0 {
+			out["tool_files"] = fs
+		}
 	case "Notification":
 		for k, max := range map[string]int{"message": 1000, "title": 200} {
 			if s, ok := in[k].(string); ok && s != "" {
@@ -119,6 +126,78 @@ func HookData(raw []byte) []byte {
 	b, err := json.Marshal(out)
 	if err != nil {
 		return nil
+	}
+	return b
+}
+
+// maxToolFiles caps the paths kept of one tool use.
+const maxToolFiles = 64
+
+// patchFile finds the file lines of an apply_patch patch (Codex).
+var patchFile = regexp.MustCompile(`(?m)^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$`)
+
+// toolFiles is the paths a tool use wrote: from tool_input's file_path,
+// notebook_path or path, and the file lines of a patch in any of its
+// strings. Only paths: the input's contents are dropped. Of HookData's
+// own output, tool_files as it is.
+func toolFiles(in map[string]any) []any {
+	var out []any
+	seen := map[string]bool{}
+	add := func(p string) {
+		p = strings.TrimSpace(p)
+		if p == "" || len(p) > 4096 || seen[p] || len(out) == maxToolFiles || strings.ContainsAny(p, "\x00\n\r") {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if fs, ok := in["tool_files"].([]any); ok {
+		for _, f := range fs {
+			if s, ok := f.(string); ok {
+				add(s)
+			}
+		}
+		return out
+	}
+	ti, ok := in["tool_input"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, k := range []string{"file_path", "notebook_path", "path"} {
+		if s, ok := ti[k].(string); ok {
+			add(s)
+		}
+	}
+	var scan func(v any, depth int)
+	scan = func(v any, depth int) {
+		switch x := v.(type) {
+		case string:
+			if strings.Contains(x, "*** ") {
+				for _, m := range patchFile.FindAllStringSubmatch(x, -1) {
+					add(firstOf(m[1], m[2]))
+				}
+			}
+		case []any:
+			if depth < 2 {
+				for _, e := range x {
+					scan(e, depth+1)
+				}
+			}
+		case map[string]any:
+			if depth < 2 {
+				for _, e := range x {
+					scan(e, depth+1)
+				}
+			}
+		}
+	}
+	scan(ti, 0)
+	return out
+}
+
+func firstOf(a, b string) string {
+	if a != "" {
+		return a
 	}
 	return b
 }

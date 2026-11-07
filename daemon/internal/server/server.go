@@ -45,6 +45,9 @@ type Options struct {
 	// AnswerKeyFile keeps the answer key this machine trusts over ssh
 	// (peer.go). Empty: kept in memory.
 	AnswerKeyFile string
+	// StateDir holds the files a pick's shots and replays need. Empty:
+	// beside the pane logs.
+	StateDir string
 }
 
 // Server serves the protocol.
@@ -66,6 +69,8 @@ type Server struct {
 	cps *checkpoints
 
 	keys *answerKeys
+
+	drive *driveState
 }
 
 // decision is a hook's report waiting for a decider's reply.
@@ -85,6 +90,7 @@ func New(o Options) *Server {
 	}
 	s.agents.Alive = processAlive
 	s.cps = newCheckpoints()
+	s.drive = newDriveState()
 	s.keys = &answerKeys{path: o.AnswerKeyFile}
 	o.Manager.WantActivity(func() bool {
 		return len(s.connections(func(c *conn) bool { return c.unwatch != nil && c.activity })) > 0
@@ -215,6 +221,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ws.SetReadLimit(16 << 20)
 	c := newConn(s, ws)
+	s.drive.mu.Lock()
+	s.drive.connSeq++
+	c.serial = s.drive.connSeq
+	s.drive.mu.Unlock()
 	if nc, ok := r.Context().Value(connKey{}).(net.Conn); ok {
 		c.peer = peerPID(nc)
 	}
@@ -260,6 +270,10 @@ type conn struct {
 	peer      int
 	person    bool
 	notPerson string
+	// agentPane is the pane this connection's program runs in, when it
+	// runs in one; serial tells connections apart (drive.go).
+	agentPane string
+	serial    uint64
 }
 
 type stream struct {
@@ -309,6 +323,7 @@ func (c *conn) close() {
 		unwatch()
 	}
 	c.s.dropDecider(c)
+	c.s.connGone(c)
 	c.ws.CloseNow()
 }
 
@@ -382,6 +397,17 @@ func (c *conn) failErr(id uint64, err error) {
 		code = proto.CodePaneClosed
 	case errors.Is(err, context.Canceled):
 		code = proto.CodeCancelled
+	}
+	var de driveErr
+	var le leasedErr
+	switch {
+	case errors.As(err, &de):
+		c.writeJSON(proto.Error{V: proto.Version, Type: "error", ID: &id, Error: proto.ErrorBody{Code: proto.CodeForbidden, Message: de.msg, Checkpoint: de.cp}})
+		return
+	case errors.As(err, &le):
+		l := le.lease
+		c.writeJSON(proto.Error{V: proto.Version, Type: "error", ID: &id, Error: proto.ErrorBody{Code: proto.CodeLeased, Message: le.msg, Lease: &l}})
+		return
 	}
 	c.fail(&id, code, err.Error())
 }
@@ -471,7 +497,37 @@ func (c *conn) binary(data []byte) {
 		return
 	}
 	b := append([]byte(nil), payload...)
-	c.queueInput(func() { st.p.Input(b) })
+	w := c.whoKeys()
+	if ok, lease := c.s.mayDrive(w, st.p.ID()); !ok {
+		// Keystrokes cannot wait: refused, and the person is asked.
+		var err error
+		if lease != nil {
+			err = leaseError(st.p.ID(), *lease)
+		} else {
+			err = c.allowInput(c.ctx, st.p, w, visible(b), true)
+		}
+		var de driveErr
+		var le leasedErr
+		switch {
+		case errors.As(err, &de):
+			c.writeJSON(proto.Error{V: proto.Version, Type: "error", Error: proto.ErrorBody{Code: proto.CodeForbidden, Message: de.msg, Checkpoint: de.cp}})
+		case errors.As(err, &le):
+			l := le.lease
+			c.writeJSON(proto.Error{V: proto.Version, Type: "error", Error: proto.ErrorBody{Code: proto.CodeLeased, Message: le.msg, Lease: &l}})
+		case err != nil:
+			c.fail(nil, proto.CodeForbidden, err.Error())
+		}
+		if err != nil {
+			return
+		}
+	}
+	c.queueInput(func() {
+		text, masked := inputText(st.p, visible(b))
+		mark := st.p.Mark()
+		if st.p.Input(b) == nil {
+			c.s.logInput(st.p, w, "keys", mark, len(b), text, masked)
+		}
+	})
 }
 
 func (c *conn) queueInput(f func()) {
@@ -555,6 +611,16 @@ func init() {
 		"agent.events":      (*conn).agentEvents,
 		"agent.decisions":   (*conn).agentDecisions,
 		"agent.decide":      (*conn).agentDecide,
+		"pane.inputs":       (*conn).paneInputs,
+		"pane.grants":       (*conn).paneGrants,
+		"pane.revoke":       (*conn).paneRevoke,
+		"pane.lease":        (*conn).paneLease,
+		"pane.files":        (*conn).paneFiles,
+		"pane.shot":         (*conn).paneShot,
+		"pane.frames":       (*conn).paneFrames,
+		"pane.recording":    (*conn).paneRecording,
+		"pane.replay":       (*conn).paneReplay,
+		"pane.override":     (*conn).paneOverride,
 	}
 }
 
@@ -699,11 +765,13 @@ func (c *conn) paneNew(id uint64, data []byte) {
 			return
 		}
 	}
+	w := c.who("")
 	p, err := c.s.o.Manager.New(cfg)
 	if err != nil {
 		c.failErr(id, err)
 		return
 	}
+	c.s.setCreator(p.ID(), w.creator(), w.key)
 	c.reply(id, "pane.new", proto.PaneResult{Pane: c.s.paneInfo(p.Info())})
 }
 
@@ -968,6 +1036,11 @@ func (c *conn) paneSend(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkBy(r.By); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	w := c.who(r.By)
 	ctx, cancel := context.WithCancel(c.ctx)
 	c.mu.Lock()
 	c.reqs[id] = cancel
@@ -979,7 +1052,7 @@ func (c *conn) paneSend(id uint64, data []byte) {
 			c.mu.Unlock()
 			cancel()
 		}()
-		res, err := p.Send(ctx, items)
+		res, err := c.sendLogged(ctx, p, w, items, r.NoWait, false)
 		if err != nil {
 			c.failErr(id, err)
 			return
@@ -1089,6 +1162,11 @@ func (c *conn) paneSettle(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkBy(r.By); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	w := c.who(r.By)
 	quiet, timeout := 300*time.Millisecond, 10*time.Second
 	for _, v := range []*int64{r.QuietMs, r.TimeoutMs} {
 		if v != nil && (*v < 1 || *v > maxWaitTimeout.Milliseconds()) {
@@ -1115,13 +1193,18 @@ func (c *conn) paneSettle(id uint64, data []byte) {
 	// The input goes through the connection's input queue, in order with
 	// its other input; the wait runs on its own.
 	c.queueInput(func() {
+		if err := c.allowInput(ctx, p, w, itemsText(items), r.NoWait); err != nil {
+			done()
+			c.failErr(id, err)
+			return
+		}
 		before, err := p.Text()
 		if err != nil {
 			done()
 			c.failErr(id, err)
 			return
 		}
-		sent, err := p.Send(ctx, items)
+		sent, err := c.sendLogged(ctx, p, w, items, true, true)
 		if err != nil {
 			done()
 			c.failErr(id, err)
@@ -1248,7 +1331,37 @@ func (s *Server) paneInfo(i pane.Info) proto.Pane {
 	}
 	p.Shell = shellInfo(i.Shell)
 	p.Agent = statusInfo(s.agents.Status(i.ID))
+	s.driveInfo(&p)
+	if o := i.Overrides; o != nil {
+		p.Overrides = &proto.Overrides{Cols: o.Cols, Rows: o.Rows, SlowBps: o.SlowBps, Term: o.Term}
+	}
 	return p
+}
+
+// checkBy: who typed it, at most 64 bytes of plain text.
+func checkBy(by string) error {
+	if len(by) > maxBy || !plainText(by) {
+		return bad("by is at most %d bytes with no control characters", maxBy)
+	}
+	return nil
+}
+
+// sendLogged sends input once this connection may drive the pane, and
+// logs it with its source.
+// checked: the caller made sure already (allowInput).
+func (c *conn) sendLogged(ctx context.Context, p *pane.Pane, w who, items []pane.InputItem, noWait, checked bool) (pane.SendResult, error) {
+	text := itemsText(items)
+	if !checked {
+		if err := c.allowInput(ctx, p, w, text, noWait); err != nil {
+			return pane.SendResult{}, err
+		}
+	}
+	logged, masked := inputText(p, text)
+	res, err := p.Send(ctx, items)
+	if res.Bytes > 0 {
+		c.s.logInput(p, w, "send", res.Mark, res.Bytes, logged, masked)
+	}
+	return res, err
 }
 
 func shellInfo(sh *pane.Shell) *proto.Shell {

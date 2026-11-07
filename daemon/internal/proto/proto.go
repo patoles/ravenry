@@ -31,6 +31,8 @@ const (
 	CodeShuttingDown  = "shutting_down"
 	CodeInternal      = "internal"
 	CodeForbidden     = "forbidden"
+	// CodeLeased: another driver holds the pane's lease.
+	CodeLeased = "leased"
 )
 
 // Methods, in the order the spec lists them.
@@ -44,6 +46,10 @@ var Methods = []string{
 	"agent.report", "agent.events", "agent.decisions", "agent.decide",
 	"file.stat", "file.read",
 	"checkpoint.new", "checkpoint.list", "checkpoint.wait", "checkpoint.answer", "checkpoint.cancel",
+	// Added after the first draft of v1 (section 10): who drives a pane,
+	// what it touched, its pictures, its recording and test conditions.
+	"pane.inputs", "pane.grants", "pane.revoke", "pane.lease", "pane.files",
+	"pane.shot", "pane.frames", "pane.recording", "pane.replay", "pane.override",
 }
 
 // Envelope is what every JSON message starts with.
@@ -74,6 +80,10 @@ type Error struct {
 type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Checkpoint is the drive checkpoint a refused input opened (forbidden).
+	Checkpoint string `json:"checkpoint,omitempty"`
+	// Lease is the lease that holds the pane (leased).
+	Lease *Lease `json:"lease,omitempty"`
 }
 
 // Event is something the daemon reports without being asked:
@@ -96,6 +106,8 @@ type Event struct {
 	Report     *AgentReport `json:"report,omitempty"`
 	Request    *uint64      `json:"request,omitempty"`
 	TimeoutMs  *int64       `json:"timeout_ms,omitempty"`
+	// Input: pane.input carries the input record (and Pane).
+	Input *InputRecord `json:"input,omitempty"`
 }
 
 // Ack acknowledges output a client has processed.
@@ -231,7 +243,8 @@ type CaptureRequest struct {
 }
 
 type CaptureResult struct {
-	Pane      string `json:"pane"`
+	// Pane: absent in a headless replay's capture.
+	Pane      string `json:"pane,omitempty"`
 	Mark      uint64 `json:"mark"`
 	Cols      int    `json:"cols"`
 	Rows      int    `json:"rows"`
@@ -301,6 +314,14 @@ type SendRequest struct {
 	Envelope
 	Pane  string  `json:"pane"`
 	Input []Input `json:"input"`
+	// By says who typed it, for a client that passes on a person's own
+	// typing (the composer, the phone): on a person's connection it makes
+	// the input the person's.
+	By string `json:"by,omitempty"`
+	// NoWait: when this connection may not drive the pane yet, fail at
+	// once (forbidden, with the checkpoint) instead of waiting for the
+	// person.
+	NoWait bool `json:"no_wait,omitempty"`
 }
 
 type SendResult struct {
@@ -348,6 +369,8 @@ type SettleRequest struct {
 	Input     []Input `json:"input"`
 	QuietMs   *int64  `json:"quiet_ms,omitempty"`
 	TimeoutMs *int64  `json:"timeout_ms,omitempty"`
+	By        string  `json:"by,omitempty"`
+	NoWait    bool    `json:"no_wait,omitempty"`
 }
 
 type SettleResult struct {
@@ -399,6 +422,13 @@ type Pane struct {
 	// PIDs are the processes that belong to the pane now (section 3),
 	// when pane.list asked for them.
 	PIDs []int `json:"pids,omitempty"`
+	// Creator is who started the pane: an agent drives the panes it
+	// created and asks for any other.
+	Creator *Source `json:"creator,omitempty"`
+	// Lease is the driver that holds the pane now, when one does.
+	Lease *Lease `json:"lease,omitempty"`
+	// Overrides are the test conditions set on the pane (pane.override).
+	Overrides *Overrides `json:"overrides,omitempty"`
 }
 
 // Shell is what OSC 133 marks say about the shell in a pane.
@@ -667,10 +697,14 @@ type CheckpointAnswer struct {
 	Approved  *bool   `json:"approved,omitempty"`
 	Command   string  `json:"command,omitempty"`
 	Delivered bool    `json:"delivered,omitempty"`
-	Declined  bool    `json:"declined,omitempty"`
-	Reason    string  `json:"reason,omitempty"`
-	By        string  `json:"by,omitempty"`
-	At        string  `json:"at"`
+	// Allow: how long an approved drive lasts (once, session).
+	Allow string `json:"allow,omitempty"`
+	// Pick: the variant a person chose, and where and what they said.
+	Pick     *Pick  `json:"pick,omitempty"`
+	Declined bool   `json:"declined,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	By       string `json:"by,omitempty"`
+	At       string `json:"at"`
 }
 
 // CheckpointRun is a command a person let run: the pane it ran in, and
@@ -699,8 +733,12 @@ type Checkpoint struct {
 	Warning   string   `json:"warning,omitempty"`
 	// Env: approve, variables the command runs with (a page's button
 	// passes an item's values this way, never inside the command line).
-	Env       map[string]string `json:"env,omitempty"`
-	Secret    *SecretTarget     `json:"secret,omitempty"`
+	Env    map[string]string `json:"env,omitempty"`
+	Secret *SecretTarget     `json:"secret,omitempty"`
+	// Drive: an agent asks to type into a pane it did not create.
+	Drive *Drive `json:"drive,omitempty"`
+	// Variants: a pick's pictures or pages.
+	Variants  []Variant         `json:"variants,omitempty"`
 	CreatedAt string            `json:"created_at"`
 	ExpiresAt string            `json:"expires_at"`
 	ClosedAt  string            `json:"closed_at,omitempty"`
@@ -722,6 +760,8 @@ type CheckpointNewRequest struct {
 	Warning   string            `json:"warning,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Secret    *SecretTarget     `json:"secret,omitempty"`
+	Drive     *DriveRequest     `json:"drive,omitempty"`
+	Variants  []VariantRequest  `json:"variants,omitempty"`
 	TimeoutMs *int64            `json:"timeout_ms,omitempty"`
 }
 
@@ -758,6 +798,10 @@ type CheckpointAnswerRequest struct {
 	// Reason, with Decline: why, for the agent.
 	Reason *string `json:"reason,omitempty"`
 	By     string  `json:"by,omitempty"`
+	// Allow, with Approve on a drive: once (default) or session.
+	Allow string `json:"allow,omitempty"`
+	// Pick answers a pick.
+	Pick *Pick `json:"pick,omitempty"`
 }
 
 type CheckpointCancelRequest struct {

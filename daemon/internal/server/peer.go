@@ -24,7 +24,8 @@ import (
 //
 //   - checkpoint.answer: answering a checkpoint;
 //   - agent.decisions and agent.decide: deciding what an assistant's hook
-//     answers, which the hub does for the person (a hand-off).
+//     answers, which the hub does for the person (a hand-off);
+//   - pane.revoke: ending a grant that lets an agent drive a pane.
 //
 // The daemon judges a connection once, at hello, from the process at the
 // other end of the socket (its pid from the kernel: LOCAL_PEERPID on
@@ -35,6 +36,8 @@ var personOnly = map[string]bool{
 	"checkpoint.answer": true,
 	"agent.decisions":   true,
 	"agent.decide":      true,
+	// Ending a grant takes back what a person gave.
+	"pane.revoke": true,
 }
 
 type connKey struct{}
@@ -82,6 +85,9 @@ func (c *conn) judge(key string) {
 	}
 	c.mu.Lock()
 	c.person, c.notPerson = person, why
+	if o.Pane && !person {
+		c.agentPane = o.PaneID
+	}
 	c.mu.Unlock()
 }
 

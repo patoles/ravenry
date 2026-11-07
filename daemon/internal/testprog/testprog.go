@@ -26,10 +26,16 @@
 //	          $RAVENRY_TESTPROG_CP, then asks to decide for hooks
 //	          (agent.decisions); prints "person=<bool> answer=<ok or the
 //	          error code> decide=<ok or the error code>"
+//	agent     an agent in a pane: connects to $RAVENRY_SOCKET and runs the
+//	          lines of $RAVENRY_TESTPROG_STEPS, one call each
+//	          ("METHOD JSON"), printing "step <n> ok <result JSON>" or
+//	          "step <n> <error code> <checkpoint>"; $PANE in a line is the
+//	          pane the previous pane.new made; then sleeps
 package testprog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -76,6 +82,8 @@ func Run() {
 		rawecho()
 	case "answer":
 		answer()
+	case "agent":
+		agentSteps()
 	default:
 		fmt.Fprintf(os.Stderr, "testprog: unknown program %q\n", prog)
 		os.Exit(2)
@@ -189,4 +197,41 @@ func answer() {
 	ans := code(c.Call(ctx, "checkpoint.answer", map[string]any{"checkpoint": os.Getenv("RAVENRY_TESTPROG_CP"), "decline": true}, nil))
 	dec := code(c.Call(ctx, "agent.decisions", map[string]any{}, nil))
 	fmt.Printf("person=%v answer=%s decide=%s\n", c.Hello.Person, ans, dec)
+}
+
+func agentSteps() {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	c, err := client.Dial(ctx, os.Getenv("RAVENRY_SOCKET"), client.Options{Name: "agent"})
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(1)
+	}
+	defer c.Close()
+	made := ""
+	for i, line := range strings.Split(os.Getenv("RAVENRY_TESTPROG_STEPS"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		method, params, _ := strings.Cut(line, " ")
+		params = strings.ReplaceAll(params, "$PANE", made)
+		var out map[string]any
+		err := c.Call(ctx, method, json.RawMessage(params), &out)
+		var ce *client.Error
+		switch {
+		case err == nil:
+			if p, ok := out["pane"].(map[string]any); ok && method == "pane.new" {
+				made, _ = p["id"].(string)
+			}
+			b, _ := json.Marshal(out)
+			fmt.Printf("step %d ok %s\n", i, b)
+		case errors.As(err, &ce):
+			fmt.Printf("step %d %s %s\n", i, ce.Code, ce.Checkpoint)
+		default:
+			fmt.Printf("step %d error %v\n", i, err)
+		}
+	}
+	fmt.Println("steps done")
+	time.Sleep(10 * time.Minute)
 }

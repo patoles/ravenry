@@ -89,6 +89,11 @@ func parse(in []string, spec map[string]flagKind) (*args, error) {
 	spec["json"] = boolFlag
 	for i := 0; i < len(in); i++ {
 		s := in[i]
+		if s == "-o" {
+			if _, ok := spec["out"]; ok {
+				s = "--out" // -o FILE, as cc and curl take it
+			}
+		}
 		if s == "--" {
 			a.dash = len(a.pos)
 			a.pos = append(a.pos, in[i+1:]...)

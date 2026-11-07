@@ -127,6 +127,49 @@ person never needs to come back to your chat.
   the person at a terminal, and the daemon and the hub refuse an answer
   from any program inside a pane, however it connects. Wait for them.
 
+## Before you ask the person anything
+
+- **Check their decisions first.** ` + "`ravenry decisions --search WORD`" + ` lists the
+  directions the person already gave for this project, in their own
+  words, newest first. If one answers your question, follow it and do not
+  ask again.
+- **Record a direction they give you,** verbatim, so later sessions follow
+  it: ` + "`ravenry decide \"THEIR EXACT WORDS\"`" + ` (` + "`--replaces ID`" + ` when it overrides
+  an earlier one). Never paraphrase, never record your own idea as theirs.
+  The person sees it at once and can undo or edit it.
+- **Pictures, not words, for a look.** ` + "`ravenry pick \"Which header?\" --variant A=a.png --variant B=b.html --variant C=pane:$id`" + `
+  shows 2 to 4 variants and waits; it prints the label they picked, then
+  ` + "`region x y w h`" + ` (the part they circled, fractions of the picture) and
+  ` + "`note ...`" + ` ("this, but..."). Exit codes as ` + "`ask`" + `.
+
+## Panes you did not start
+
+- **You drive the panes you started** (and the panes those started).
+  Typing into any other pane, another agent's session included, asks the
+  person first: ` + "`send`" + ` waits until they let you (once, or for your
+  session), and exits 125 if they say no. ` + "`--no-wait`" + ` fails at once and
+  prints the checkpoint instead.
+- **Every input is logged with who sent it** (` + "`ravenry inputs PANE`" + `): the
+  person always sees what you typed.
+- **One driver at a time.** ` + "`ravenry lease PANE --ttl 10m`" + ` keeps other agents
+  out (they exit 75); renew it the same way, ` + "`--release`" + ` when done. The
+  person's own typing is never held back.
+- ` + "`ravenry files PANE`" + `: the files an agent changed there (from its hooks,
+  and git status).
+
+## Seeing what a program draws
+
+- ` + "`ravenry shot PANE -o shot.png`" + ` is a picture of the screen with its
+  colours: look at it before you say a TUI looks right.
+- ` + "`ravenry frames PANE --last 5s -o strip.gif`" + ` is a filmstrip of its last
+  seconds: flicker, half-drawn menus and stalled spinners show there.
+- ` + "`ravenry override PANE --size 80x24`" + ` (or ` + "`--phone`" + `, ` + "`--slow 2000`" + `,
+  ` + "`--term dumb --restart`" + `) tests the program under those conditions;
+  ` + "`--clear`" + ` takes them off.
+- ` + "`ravenry fixture PANE --last 30s -o bug.fixture.json`" + ` turns a real
+  session into a test fixture; ` + "`ravenry replay bug.fixture.json --headless -o end.png`" + `
+  plays it into a fresh screen, at any ` + "`--speed`" + `.
+
 ## Two names, one binary
 
 ` + "`ravenry`" + ` is what you type. ` + "`ravenryd`" + ` is the same binary's service side:

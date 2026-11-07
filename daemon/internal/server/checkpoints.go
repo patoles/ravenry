@@ -56,6 +56,11 @@ const (
 	kindAsk     = "ask"
 	kindApprove = "approve"
 	kindSecret  = "secret"
+	// Added after v1's first draft: an agent asks to type into a pane it
+	// did not create (drive.go), or shows variants for the person to pick
+	// from (pick).
+	kindDrive = "drive"
+	kindPick  = "pick"
 
 	stOpen      = "open"
 	stRunning   = "running"
@@ -122,6 +127,12 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 	}
 	noAsk := len(r.Options) > 0 || r.FreeText
 	noRun := r.Command != "" || r.Cwd != "" || r.Why != ""
+	if (r.Drive != nil) != (r.Kind == kindDrive) || (len(r.Variants) > 0) != (r.Kind == kindPick) {
+		return zero, 0, bad("drive goes with kind drive, variants with kind pick")
+	}
+	if r.Kind == kindPick && (noAsk || noRun || r.Secret != nil || r.Warning != "" || len(r.Env) > 0) {
+		return zero, 0, bad("a pick takes a title and variants only")
+	}
 	if r.Warning != "" && r.Kind != kindApprove {
 		return zero, 0, bad("warning is for an approve: what the person should know before the command runs")
 	}
@@ -212,8 +223,17 @@ func (c *conn) checkNew(r proto.CheckpointNewRequest) (proto.Checkpoint, time.Du
 		}
 		st := *t
 		cp.Secret = &st
+	case kindPick:
+		vs, err := c.s.checkVariants(r.Variants)
+		if err != nil {
+			return zero, 0, err
+		}
+		cp.Variants = vs
+	case kindDrive:
+		// checkpointNew handles a drive itself (askToDrive).
+		return zero, 0, bad("a drive checkpoint is opened by the daemon")
 	default:
-		return zero, 0, bad("kind is ask, approve or secret")
+		return zero, 0, bad("kind is ask, approve, secret, pick or drive")
 	}
 	if cp.Command != "" {
 		cp.Cwd = r.Cwd
@@ -275,12 +295,62 @@ func (c *conn) checkpointNew(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if r.Kind == kindDrive {
+		c.driveNew(id, r)
+		return
+	}
 	cp, ttl, err := c.checkNew(r)
 	if err != nil {
 		c.failErr(id, err)
 		return
 	}
-	s := c.s
+	x, err := c.s.openCheckpoint(cp, ttl)
+	if err != nil {
+		removeShots(cp.Variants)
+		c.failErr(id, err)
+		return
+	}
+	c.s.cps.mu.Lock()
+	out := x.c
+	c.s.cps.mu.Unlock()
+	c.reply(id, "checkpoint.new", proto.CheckpointResult{Checkpoint: out})
+}
+
+// driveNew is an agent asking ahead to type into a pane (checkpoint.new
+// with kind drive): the daemon opens the drive checkpoint, or gives the
+// one open already.
+func (c *conn) driveNew(id uint64, r proto.CheckpointNewRequest) {
+	if r.Drive == nil || len(r.Options) > 0 || r.FreeText || r.Command != "" || r.Cwd != "" || r.Why != "" || r.Warning != "" || len(r.Env) > 0 || r.Secret != nil || len(r.Variants) > 0 || r.TimeoutMs != nil {
+		c.failErr(id, bad("a drive takes drive.pane (and a title, which the daemon writes itself)"))
+		return
+	}
+	p, err := c.pane(r.Drive.Pane)
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	w := c.who("")
+	if w.person {
+		c.failErr(id, bad("a person drives every pane"))
+		return
+	}
+	if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID()); ok {
+		c.failErr(id, fmt.Errorf("you may type into pane %s already", p.ID()))
+		return
+	}
+	x, err := c.s.askToDrive(w, p, "")
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	c.s.cps.mu.Lock()
+	out := x.c
+	c.s.cps.mu.Unlock()
+	c.reply(id, "checkpoint.new", proto.CheckpointResult{Checkpoint: out})
+}
+
+// openCheckpoint opens a checkpoint and tells the subscribers.
+func (s *Server) openCheckpoint(cp proto.Checkpoint, ttl time.Duration) (*cpoint, error) {
 	now := time.Now()
 	cp.State = stOpen
 	cp.CreatedAt, cp.ExpiresAt = stamp(now), stamp(now.Add(ttl))
@@ -293,8 +363,7 @@ func (c *conn) checkpointNew(id uint64, data []byte) {
 	}
 	if open >= maxOpenCheckpoints {
 		s.cps.mu.Unlock()
-		c.failErr(id, fmt.Errorf("%d checkpoints are open already", open))
-		return
+		return nil, fmt.Errorf("%d checkpoints are open already", open)
 	}
 	cp.ID = newCheckpointID()
 	x := &cpoint{c: cp, done: make(chan struct{})}
@@ -302,8 +371,8 @@ func (c *conn) checkpointNew(id uint64, data []byte) {
 	x.timer = time.AfterFunc(ttl, func() { s.closeCheckpoint(cp.ID, stOpen, stExpired, nil, "") })
 	out := x.c
 	s.cps.mu.Unlock()
-	c.reply(id, "checkpoint.new", proto.CheckpointResult{Checkpoint: out})
 	s.checkpointEvent("checkpoint.opened", out)
+	return x, nil
 }
 
 // checkpointEvent tells every connection that subscribed to events.
@@ -338,6 +407,9 @@ func (s *Server) closeCheckpoint(id, from, to string, answer *proto.CheckpointAn
 	close(x.done)
 	s.cps.closed = append(s.cps.closed, id)
 	if len(s.cps.closed) > keepClosed {
+		if old := s.cps.all[s.cps.closed[0]]; old != nil {
+			removeShots(old.c.Variants)
+		}
 		delete(s.cps.all, s.cps.closed[0])
 		s.cps.closed = s.cps.closed[1:]
 	}
@@ -446,13 +518,17 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 		return
 	}
 	n := 0
-	for _, set := range []bool{r.Choice != nil, r.Text != nil, r.Approve, r.Secret != nil, r.Decline} {
+	for _, set := range []bool{r.Choice != nil, r.Text != nil, r.Approve, r.Secret != nil, r.Decline, r.Pick != nil} {
 		if set {
 			n++
 		}
 	}
 	if n != 1 {
-		c.failErr(id, bad("an answer is exactly one of choice, text, approve, secret or decline"))
+		c.failErr(id, bad("an answer is exactly one of choice, text, approve, secret, pick or decline"))
+		return
+	}
+	if r.Allow != "" && (!r.Approve || (r.Allow != allowOnce && r.Allow != allowSession)) {
+		c.failErr(id, bad("allow goes with approve on a drive: once or session"))
 		return
 	}
 	if len(r.By) > maxBy || !plainText(r.By) {
@@ -504,7 +580,41 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 		reply(s.closeCheckpoint(cp.ID, stOpen, stDeclined, ans, ""))
 		return
 	}
+	if r.Allow != "" && cp.Kind != kindDrive {
+		c.failErr(id, bad("allow is for a drive"))
+		return
+	}
+	if r.Pick != nil && cp.Kind != kindPick {
+		c.failErr(id, bad("pick answers a pick"))
+		return
+	}
 	switch cp.Kind {
+	case kindDrive:
+		if !r.Approve || r.Command != nil {
+			c.failErr(id, bad("a drive is answered with approve (and allow) or decline"))
+			return
+		}
+		yes := true
+		ans.Approved = &yes
+		ans.Allow = r.Allow
+		if ans.Allow == "" {
+			ans.Allow = allowOnce
+		}
+		// The grant first, so a waiting input finds it.
+		s.grantDrive(cp, ans.Allow)
+		reply(s.closeCheckpoint(cp.ID, stOpen, stAnswered, ans, ""))
+	case kindPick:
+		if r.Pick == nil {
+			c.failErr(id, bad("a pick is answered with pick or decline"))
+			return
+		}
+		pk, err := checkPick(*r.Pick, cp.Variants)
+		if err != nil {
+			c.failErr(id, err)
+			return
+		}
+		ans.Pick = &pk
+		reply(s.closeCheckpoint(cp.ID, stOpen, stAnswered, ans, ""))
 	case kindAsk:
 		switch {
 		case r.Choice != nil:
@@ -588,8 +698,13 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 			reply(proto.Checkpoint{}, false)
 			return
 		}
+		mark := p.Mark()
 		err = p.Input(in)
+		n := len(in)
 		clear(in)
+		if err == nil {
+			s.logInput(p, who{person: true, src: proto.Source{Kind: srcPerson, By: r.By}}, "secret", mark, n, "", true)
+		}
 		if err != nil {
 			s.closeCheckpoint(cp.ID, stAnswered, stAnswered, nil, "the pane closed before the secret was typed")
 			c.failErr(id, fmt.Errorf("its pane %s closed", cp.Secret.Pane))
@@ -641,6 +756,9 @@ func (s *Server) startRun(cp proto.Checkpoint, ans *proto.CheckpointAnswer, secr
 		SecretEnv: secretEnv,
 	})
 	clear(secretEnv)
+	if err == nil {
+		s.setCreator(p.ID(), proto.Source{Kind: srcPerson, By: "checkpoint"}, keyPerson)
+	}
 	if err != nil {
 		clear(typed)
 		return s.closeCheckpoint(cp.ID, stRunning, stAnswered, ans, "the command did not start: "+err.Error())
@@ -649,7 +767,11 @@ func (s *Server) startRun(cp proto.Checkpoint, ans *proto.CheckpointAnswer, secr
 		// Masked before the program can echo it, then typed once the
 		// program has printed its prompt and gone quiet.
 		p.AddSecret(bytes.TrimRight(typed, "\r"))
-		go typeWhenWaiting(p, typed)
+		go func() {
+			if mark, n := typeWhenWaiting(p, typed); n > 0 {
+				s.logInput(p, who{person: true, src: proto.Source{Kind: srcPerson, By: ans.By}}, "secret", mark, n, "", true)
+			}
+		}()
 	}
 	s.cps.mu.Lock()
 	x := s.cps.all[cp.ID]
@@ -666,17 +788,21 @@ func (s *Server) startRun(cp proto.Checkpoint, ans *proto.CheckpointAnswer, secr
 // printed something and then went quiet for a moment (its prompt), or
 // after 15 s whatever it does. A program that reads before it prints gets
 // it after the first quiet moment.
-func typeWhenWaiting(p *pane.Pane, in []byte) {
+func typeWhenWaiting(p *pane.Pane, in []byte) (mark uint64, n int) {
 	defer clear(in)
 	var zero uint64
 	ctx := context.Background()
 	if w, err := p.Wait(ctx, pane.WaitSpec{Text: anyText, Since: &zero, Exit: true, Timeout: 15 * time.Second}, nil); err != nil || w.Condition == "exit" {
-		return
+		return 0, 0
 	}
 	if w, err := p.Wait(ctx, pane.WaitSpec{Quiet: 300 * time.Millisecond, Exit: true, Timeout: 15 * time.Second}, nil); err != nil || w.Condition == "exit" {
-		return
+		return 0, 0
 	}
-	p.Input(in)
+	mark = p.Mark()
+	if p.Input(in) != nil {
+		return 0, 0
+	}
+	return mark, len(in)
 }
 
 var anyText = regexp.MustCompile(`[^\s]`)

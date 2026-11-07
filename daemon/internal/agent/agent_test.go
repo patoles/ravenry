@@ -101,3 +101,20 @@ func TestRingCaps(t *testing.T) {
 		t.Fatalf("byte cap: %d", n)
 	}
 }
+
+// PostToolUse keeps the paths a tool wrote, never what it wrote.
+func TestHookDataToolFiles(t *testing.T) {
+	in := `{"hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"/w/a.go","old_string":"SECRET","new_string":"x"},"tool_response":{"filePath":"/w/a.go","content":"SECRET"}}`
+	out := string(HookData([]byte(in)))
+	if strings.Contains(out, "SECRET") || !strings.Contains(out, `"tool_files":["/w/a.go"]`) {
+		t.Fatalf("Claude Code: %s", out)
+	}
+	codex := `{"hook_event_name":"PostToolUse","tool_name":"apply_patch","tool_input":{"command":["apply_patch","*** Begin Patch\n*** Add File: n.txt\n+SECRET\n*** Update File: m.go\n*** Move to: m2.go\n*** Delete File: old.go\n*** End Patch"]}}`
+	out = string(HookData([]byte(codex)))
+	if strings.Contains(out, "SECRET") || !strings.Contains(out, `"tool_files":["n.txt","m.go","m2.go","old.go"]`) {
+		t.Fatalf("Codex: %s", out)
+	}
+	if again := string(HookData([]byte(out))); again != out {
+		t.Fatalf("not idempotent: %s then %s", out, again)
+	}
+}

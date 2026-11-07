@@ -68,7 +68,7 @@ func specOf(name string) map[string]flagKind {
 }
 
 // The groups, in the order help lists them.
-var groups = []string{"Panes", "Waiting and input", "Checkpoints", "Agents", "Pages", "Guide", "Daemon"}
+var groups = []string{"Panes", "Waiting and input", "Who drives", "Pictures and recordings", "Checkpoints", "Decisions", "Agents", "Pages", "Guide", "Daemon"}
 
 func init() {
 	durationArg := "DURATION"
@@ -78,6 +78,7 @@ func init() {
 		{"raw", valueFlag, "TEXT", "the bytes as they are, in one write"},
 		{"key", valueFlag, "NAME", "a named key: Enter, Ctrl+C, Up, Shift+Tab, M-x, ..."},
 		{"delay", valueFlag, durationArg, "pause between typed characters (default 10ms)"},
+		{"no-wait", boolFlag, "", "into a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person to let you"},
 	}
 	wait := []flagDoc{
 		{"wait", boolFlag, "", "wait for the answer (the default)"},
@@ -140,6 +141,60 @@ func init() {
 			{"since", valueFlag, "MARK", "new output starts here (default now; send prints one)"},
 			{"timeout", valueFlag, durationArg, "give up after (default 30s)"},
 		}, run: cmdWait},
+		// Who drives
+		{name: "inputs", group: "Who drives", args: "PANE", summary: "who typed what into a pane: the person, an agent (its pane) or a program, oldest first; secrets and password prompts never shown", flags: []flagDoc{
+			{"since", valueFlag, "SEQ", "after this record"},
+			{"limit", valueFlag, "N", "at most this many (default 200)"},
+		}, run: cmdInputs},
+		{name: "lease", group: "Who drives", args: "PANE", summary: "be the one agent driving a pane: another agent's input is refused (exit 75) until it ends; the person is never held back; asks the person first for a pane you did not start; prints when it ends", flags: []flagDoc{
+			{"ttl", valueFlag, durationArg, "how long it lasts (default 60s, at most 1h); lease again to renew"},
+			{"wait", valueFlag, durationArg, "while another agent holds it, wait in turn this long"},
+			{"release", boolFlag, "", "let it go"},
+			{"no-wait", boolFlag, "", "do not wait for the person to let you drive the pane"},
+		}, run: cmdLease},
+		{name: "grants", group: "Who drives", args: "[PANE]", summary: "the agents a person let type into panes they did not start, for their session", run: cmdGrants},
+		{name: "revoke", group: "Who drives", args: "GRANT", summary: "end a grant (a person only: refused inside a pane)", run: cmdRevoke},
+		{name: "files", group: "Who drives", args: "PANE", summary: "the files the agent in a pane changed: from its hooks (paths only) and git status in its folder", flags: []flagDoc{
+			{"no-git", boolFlag, "", "only what the hooks said"},
+		}, run: cmdFiles},
+		// Pictures and recordings
+		{name: "shot", group: "Pictures and recordings", args: "PANE", summary: "a PNG of a pane, with its colours and styles, to check how a TUI looks", flags: []flagDoc{
+			{"out", valueFlag, "FILE", "where (-o FILE; default PANE.png; - for standard output)"},
+			{"size", valueFlag, "COLSxROWS", "as it would look at this size, reflowed (the program is not told; for that, override --size)"},
+			{"font-size", valueFlag, "PX", "text size (default 14)"},
+			{"no-cursor", boolFlag, "", "leave the cursor out"},
+		}, run: cmdShot},
+		{name: "frames", group: "Pictures and recordings", args: "PANE", summary: "a filmstrip of a pane's last seconds (about 20 are kept), to see flicker, half-drawn menus and spinners that stall", flags: []flagDoc{
+			{"out", valueFlag, "FILE", "a .gif, an .apng or .png (animated), or a folder for one PNG a frame (-o FILE; default PANE.gif)"},
+			{"last", valueFlag, durationArg, "how far back (default 10s)"},
+			{"max", valueFlag, "N", "at most this many frames, spread over the stretch (default 100)"},
+			{"font-size", valueFlag, "PX", "text size (default 14)"},
+		}, run: cmdFrames},
+		{name: "fixture", group: "Pictures and recordings", args: "PANE", summary: "save a span of a pane's output with its timing as a test fixture (JSON); secrets stay masked; works for a closed pane whose log is kept", flags: []flagDoc{
+			{"out", valueFlag, "FILE", "where (-o FILE; default PANE.fixture.json; - for standard output)"},
+			{"from", valueFlag, "MARK", "start here"},
+			{"to", valueFlag, "MARK", "end here"},
+			{"last", valueFlag, durationArg, "the latest stretch instead"},
+		}, run: cmdFixture},
+		{name: "replay", group: "Pictures and recordings", args: "PANE|FIXTURE", summary: "play a pane's recording or a fixture into a fresh pane (prints its id), or headless (prints the screen it ends on)", flags: []flagDoc{
+			{"speed", valueFlag, "N", "1 as recorded, 2 twice as fast, max as fast as it goes"},
+			{"headless", boolFlag, "", "into a fresh screen of the daemon's, not a pane"},
+			{"out", valueFlag, "FILE", "headless: a PNG of the screen it ends on (-o FILE)"},
+			{"frames", valueFlag, "FILE", "headless: its filmstrip, as frames --out takes"},
+			{"size", valueFlag, "COLSxROWS", "at this size"},
+			{"phone", boolFlag, "", "at phone width (40x30)"},
+			{"slow", valueFlag, "BPS", "as over a slow link: this many bytes a second"},
+			{"term", valueFlag, "NAME", "the TERM the replay pane gets"},
+			{"font-size", valueFlag, "PX", "headless pictures' text size"},
+		}, run: cmdReplay},
+		{name: "override", group: "Pictures and recordings", args: "PANE", summary: "test conditions on a pane: a size its program sees and redraws for (its window's size comes back with --clear), slowed output, another TERM at its next restart", flags: []flagDoc{
+			{"size", valueFlag, "COLSxROWS", "the size the program sees (80x24 for 80 columns); 0x0 gives the window's size back"},
+			{"phone", boolFlag, "", "phone width: 40x30"},
+			{"slow", valueFlag, "BPS", "its output at this many bytes a second (0: not slowed)"},
+			{"term", valueFlag, "NAME", "TERM for its next restart (dumb, vt100, xterm; empty: as it was)"},
+			{"restart", boolFlag, "", "restart it now, with them (prints the new pane's id)"},
+			{"clear", boolFlag, "", "take every condition off"},
+		}, run: cmdOverride},
 		// Checkpoints
 		{name: "ask", group: "Checkpoints", args: "TITLE", summary: "ask a person, with buttons, and wait for the answer; prints it", flags: append([]flagDoc{
 			{"option", listFlag, "TEXT", "a button (repeatable; default: one Done button)"},
@@ -156,6 +211,9 @@ func init() {
 			{"cwd", valueFlag, "DIR", "with a command: where it runs (default: this pane's folder)"},
 			{"no-enter", boolFlag, "", "do not press Enter after typing it"},
 		}, wait...), run: cmdSecret},
+		{name: "pick", group: "Checkpoints", args: "TITLE", summary: "show the person 2 to 4 variants (pictures, HTML pages, or a shot of a pane) and wait for their pick; prints its label, then the region they circled (x y w h, fractions) and their note (\"this, but...\")", flags: append([]flagDoc{
+			{"variant", listFlag, "LABEL=FILE", "a variant: an image or an .html file, or LABEL=pane:PANE for a shot of that pane now (repeat 2 to 4 times)"},
+		}, wait...), run: cmdPick},
 		{name: "checkpoints", group: "Checkpoints", summary: "list open checkpoints", flags: []flagDoc{
 			{"all", boolFlag, "", "with the closed ones the daemon still holds"},
 		}, run: cmdCheckpoints},
@@ -166,9 +224,22 @@ func init() {
 			{"reason", valueFlag, "TEXT", "with --cancel: why, for people; with --decline: why, for the agent"},
 			{"answer", valueFlag, "TEXT", "a person answers an ask: an option's number or text, or typed text (refused inside a pane)"},
 			{"approve", boolFlag, "", "a person approves it, and its command runs (refused inside a pane)"},
+			{"allow", valueFlag, "once|session", "with --approve on a drive: let the agent type this once (default) or for its session"},
 			{"command", valueFlag, "TEXT", "with --approve: run this instead, the command as the person edited it"},
 			{"decline", boolFlag, "", "a person declines it (refused inside a pane)"},
 		}, run: cmdCheckpoint},
+		// Decisions
+		{name: "decisions", group: "Decisions", summary: "the person's decisions on record, verbatim, newest first: check here before you ask them anything", flags: []flagDoc{
+			{"project", valueFlag, "NAME", "this project's (default: the project of this folder)"},
+			{"search", valueFlag, "WORDS", "only the ones that say these words"},
+			{"all", boolFlag, "", "with the ones a later decision replaced"},
+			{"all-projects", boolFlag, "", "every project's"},
+		}, run: cmdDecisions},
+		{name: "decide", group: "Decisions", args: "QUOTE", summary: "record a direction the person gave, in their exact words, so later sessions follow it; prints its id (the person sees it and can undo it)", flags: []flagDoc{
+			{"project", valueFlag, "NAME", "the project it is for (default: the project of this folder)"},
+			{"replaces", valueFlag, "ID", "the decision it overrides"},
+			{"scope", valueFlag, "TEXT", "what it covers, in a few words (the menus, the release)"},
+		}, run: cmdDecide},
 		// Agents
 		{name: "agents", group: "Agents", summary: "the agent state of every pane", run: cmdAgents},
 		{name: "reports", group: "Agents", args: "[PANE]", summary: "what agents reported, oldest first", flags: []flagDoc{

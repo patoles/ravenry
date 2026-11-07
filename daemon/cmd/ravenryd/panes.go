@@ -268,7 +268,8 @@ func cmdSend(in []string, settle bool) error {
 			timeout = d
 		}
 	}
-	ctx, cancel := callCtx(timeout + 30*time.Second)
+	// Long: into a pane it did not start, an agent waits for the person.
+	ctx, cancel := callCtx(timeout + 24*time.Hour)
 	defer cancel()
 	c, err := connectFor(ctx, a.g, id)
 	if err != nil {
@@ -277,7 +278,7 @@ func cmdSend(in []string, settle bool) error {
 	defer c.Close()
 	if !settle {
 		var r proto.SendResult
-		if err := c.Call(ctx, "pane.send", params, &r); err != nil {
+		if err := callAsking(ctx, c, "pane.send", params, &r, a.bools["no-wait"]); err != nil {
 			return err
 		}
 		if a.g.json {
@@ -287,7 +288,7 @@ func cmdSend(in []string, settle bool) error {
 		return nil
 	}
 	var r proto.SettleResult
-	if err := c.Call(ctx, "pane.settle", params, &r); err != nil {
+	if err := callAsking(ctx, c, "pane.settle", params, &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {

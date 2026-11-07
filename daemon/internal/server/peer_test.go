@@ -145,7 +145,7 @@ func TestOverSSHOnlyTheTrustedKeyAnswers(t *testing.T) {
 
 func TestPersonOnlyMethods(t *testing.T) {
 	// The list the spec gives.
-	want := []string{"agent.decide", "agent.decisions", "checkpoint.answer"}
+	want := []string{"agent.decide", "agent.decisions", "checkpoint.answer", "pane.revoke"}
 	if len(personOnly) != len(want) {
 		t.Fatalf("person-only methods: %v", personOnly)
 	}

@@ -73,6 +73,7 @@ func (s *Server) paneEvent(ev pane.Event) {
 		}
 	case "closed":
 		s.agents.Forget(ev.Pane.ID)
+		s.paneGone(ev.Pane.ID)
 	}
 }
 
@@ -86,6 +87,9 @@ func processAlive(pid int) bool {
 // report records a report and tells the subscribers.
 func (s *Server) report(r agent.Report) agent.Report {
 	r, _ = s.agents.Add(r)
+	if r.Source == agent.SourceHook {
+		s.noteFiles(r)
+	}
 	s.publish(r)
 	return r
 }
@@ -489,23 +493,41 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 		return
 	}
 	if r.ShellCommand {
+		w := c.who("")
 		c.track(id, func(ctx context.Context) {
+			// It types: Ctrl-C, then the command line again.
+			cmd := ""
+			if sh := p.Info().Shell; sh != nil {
+				cmd = sh.Command
+			}
+			if err := c.allowInput(ctx, p, w, "<Ctrl+C> "+cmd+"<Enter>", false); err != nil {
+				c.failErr(id, err)
+				return
+			}
+			mark := p.Mark()
 			rr, err := p.RerunCommand(ctx, grace)
 			if err != nil {
 				c.failErr(id, err)
 				return
 			}
+			text, masked := inputText(p, "<Ctrl+C> "+visible([]byte(rr.Command))+"<Enter>")
+			c.s.logInput(p, w, "restart", mark, len(rr.Command)+2, text, masked)
 			pi := c.s.paneInfo(p.Info())
 			c.reply(id, "pane.restart", proto.RestartResult{Pane: pi, Replaced: pi, Command: rr.Command, Mark: &rr.Mark, StoppedBy: rr.StoppedBy})
 		})
 		return
 	}
 	c.track(id, func(context.Context) {
+		c.s.drive.mu.Lock()
+		m := c.s.drive.metaLocked(r.Pane)
+		cr, key := m.creator, m.creatorKey
+		c.s.drive.mu.Unlock()
 		np, old, err := c.s.o.Manager.Restart(r.Pane, grace)
 		if err != nil {
 			c.failErr(id, err)
 			return
 		}
+		c.s.setCreator(np.ID(), cr, key)
 		c.reply(id, "pane.restart", proto.RestartResult{Pane: c.s.paneInfo(np.Info()), Replaced: c.s.paneInfo(old)})
 	})
 }

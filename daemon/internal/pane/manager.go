@@ -355,6 +355,14 @@ func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
 	if info.Cols > 0 {
 		cfg.Cols, cfg.Rows = info.Cols, info.Rows
 	}
+	// Its test conditions carry over; TERM is already in cfg.Env.
+	p.mu.Lock()
+	ovr, termBefore, hadTerm := p.ovr, p.termBefore, p.hadTerm
+	realCols, realRows := p.realCols, p.realRows
+	p.mu.Unlock()
+	if ovr.Cols > 0 {
+		cfg.Cols, cfg.Rows = ovr.Cols, ovr.Rows
+	}
 	old, _, err := m.Close(id, grace)
 	if err != nil {
 		return nil, Info{}, err
@@ -363,7 +371,25 @@ func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
 	if err != nil {
 		return nil, old, err
 	}
+	if ovr != (Overrides{}) {
+		np.mu.Lock()
+		np.ovr, np.termBefore, np.hadTerm = ovr, termBefore, hadTerm
+		if ovr.Cols > 0 {
+			np.realCols, np.realRows = realCols, realRows
+		}
+		np.slow.Store(int64(ovr.SlowBps))
+		np.mu.Unlock()
+	}
 	return np, old, nil
+}
+
+// LogDir is where the pane logs and their timelines are.
+func (m *Manager) LogDir() string { return m.o.LogDir }
+
+// ClosedRecording reads the recording of a pane that is gone, from its
+// kept log (record.go).
+func (m *Manager) ClosedRecording(id string, sp RecordingSpan) (*Recording, error) {
+	return ClosedRecording(m.o.LogDir, id, sp)
 }
 
 // Shutdown closes every pane.

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -84,6 +85,17 @@ type Info struct {
 	ExitedAt   time.Time
 	// Shell is set once the program marked a prompt with OSC 133.
 	Shell *Shell
+	// Overrides are the test conditions set on the pane, or nil.
+	Overrides *Overrides
+}
+
+// Overrides are test conditions on a pane (pane.override): a size the
+// program sees in place of the one its window asks for, output slowed to
+// SlowBps bytes a second, and the TERM its next restart gets.
+type Overrides struct {
+	Cols, Rows int
+	SlowBps    int
+	Term       string
 }
 
 // Shell is what OSC 133 marks say about the shell in a pane.
@@ -145,6 +157,20 @@ type Pane struct {
 
 	// seen is what tracking saw belong to the pane (proctree.go).
 	seen *seen
+
+	// times is when its output came (record.go); frames are its recent
+	// screens (frames.go).
+	times  *timeline
+	frames *frameRing
+
+	// Test conditions (pane.override). realCols and realRows are the
+	// size its window asked for while a size override holds; slow is
+	// the output's bytes a second (0: not slowed).
+	ovr                Overrides
+	realCols, realRows int
+	slow               atomic.Int64
+	termBefore         string
+	hadTerm            bool
 
 	// OSC 133 marks: the shell's state, the marks where a prompt started
 	// (for waits), and the end of the chunk being written, which is the
@@ -291,6 +317,9 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		screen.Close()
 		return nil, err
 	}
+	p.times = openTimeline(filepath.Join(logDir, p.id+".log.time"), cfg.Cols, cfg.Rows, p.created)
+	p.log.onRotate = func(start uint64) { p.times.rotated(start, time.Now()) }
+	p.frames = newFrameRing()
 	var f *os.File
 	err = withMark(p.id, func() (err error) {
 		f, err = pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(cfg.Cols), Rows: uint16(cfg.Rows)})
@@ -299,6 +328,7 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 	if err != nil {
 		screen.Close()
 		p.log.close(true)
+		p.times.close(0, true)
 		return nil, fmt.Errorf("start %q: %w", cfg.Command[0], err)
 	}
 	p.cmd, p.pty, p.pid = cmd, f, cmd.Process.Pid
@@ -381,9 +411,20 @@ func (p *Pane) readLoop() {
 	defer close(p.done)
 	buf := make([]byte, 64<<10)
 	for {
-		n, err := p.pty.Read(buf)
+		rb := buf
+		slow := int(p.slow.Load())
+		if slow > 0 {
+			// A slowed pane reads little at a time, so its program feels
+			// the slow link through the pty too.
+			rb = buf[:min(len(buf), max(1, slow/20))]
+		}
+		n, err := p.pty.Read(rb)
 		if n > 0 {
-			p.output(buf[:n])
+			if slow > 0 {
+				p.slowOutput(rb[:n], slow)
+			} else {
+				p.output(rb[:n])
+			}
 		}
 		if err != nil {
 			break
@@ -397,6 +438,25 @@ func (p *Pane) readLoop() {
 	}
 	p.broadcast()
 	p.mu.Unlock()
+}
+
+// slowOutput takes output at bps bytes a second (pane.override).
+func (p *Pane) slowOutput(b []byte, bps int) {
+	step := max(1, bps/20)
+	for len(b) > 0 {
+		n := min(step, len(b))
+		p.output(b[:n])
+		b = b[n:]
+		time.Sleep(time.Duration(n) * time.Second / time.Duration(bps))
+	}
+}
+
+// Inject takes bytes as if the pane's program printed them: a replay
+// (pane.replay) plays a recording into a fresh pane this way.
+func (p *Pane) Inject(b []byte) {
+	if len(b) > 0 {
+		p.output(append([]byte(nil), b...))
+	}
 }
 
 func (p *Pane) output(b []byte) {
@@ -430,10 +490,13 @@ func (p *Pane) outputLocked(b []byte) {
 	for t := range p.taps {
 		t.fn(b)
 	}
+	now := time.Now()
+	p.times.output(mark, now)
 	p.log.write(b)
 	p.offset += uint64(len(b))
 	p.reads++
-	p.lastOutput = time.Now()
+	p.lastOutput = now
+	p.frames.changed(p, now)
 	replies := p.replies
 	p.replies = nil
 	titleChanged := false
@@ -628,6 +691,10 @@ func (p *Pane) Info() Info {
 		Cols: cols, Rows: rows, Hidden: p.cfg.Hidden, TTL: p.cfg.TTL, Created: p.created,
 		Title: p.title, Mark: p.offset, LastOutput: p.lastOutput, ExitedAt: p.exitedAt,
 	}
+	if p.ovr != (Overrides{}) {
+		o := p.ovr
+		i.Overrides = &o
+	}
 	if p.exit != nil {
 		e := *p.exit
 		i.Exit = &e
@@ -663,7 +730,8 @@ func (p *Pane) Reads() int64 {
 	return p.reads
 }
 
-// Resize changes the pane's size.
+// Resize changes the pane's size. While a size override holds
+// (pane.override), the size is kept for when it is cleared.
 func (p *Pane) Resize(cols, rows int) error {
 	if cols < 1 || rows < 1 || cols > 4096 || rows > 4096 {
 		return fmt.Errorf("bad size %dx%d", cols, rows)
@@ -673,10 +741,71 @@ func (p *Pane) Resize(cols, rows int) error {
 	if p.closed {
 		return ErrClosed
 	}
+	if p.ovr.Cols > 0 {
+		p.realCols, p.realRows = cols, rows
+		return nil
+	}
+	return p.resizeLocked(cols, rows)
+}
+
+func (p *Pane) resizeLocked(cols, rows int) error {
+	if c, r := p.screen.Size(); c == cols && r == rows {
+		return nil
+	}
 	if err := p.screen.Resize(cols, rows); err != nil {
 		return err
 	}
+	p.times.resize(p.offset, cols, rows, time.Now())
 	return pty.Setsize(p.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+}
+
+// Override sets the pane's test conditions: a size the program sees
+// (its window's own size is kept for later), output slowed to slowBps
+// bytes a second, and the TERM a restart gives it. Zero values clear
+// each; clearing the size gives back the window's size.
+func (p *Pane) Override(o Overrides) error {
+	if (o.Cols > 0) != (o.Rows > 0) || o.Cols < 0 || o.Rows < 0 || o.Cols > 4096 || o.Rows > 4096 {
+		return fmt.Errorf("bad size %dx%d", o.Cols, o.Rows)
+	}
+	if o.SlowBps < 0 {
+		return errors.New("slow_bps must not be negative")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return ErrClosed
+	}
+	switch {
+	case o.Cols > 0:
+		if p.ovr.Cols == 0 {
+			p.realCols, p.realRows = p.screen.Size()
+		}
+		if err := p.resizeLocked(o.Cols, o.Rows); err != nil {
+			return err
+		}
+	case p.ovr.Cols > 0:
+		if err := p.resizeLocked(p.realCols, p.realRows); err != nil {
+			return err
+		}
+	}
+	if o.Term != p.ovr.Term {
+		if p.orig.Env == nil {
+			p.orig.Env = map[string]string{}
+		}
+		if o.Term != "" {
+			if p.ovr.Term == "" {
+				p.termBefore, p.hadTerm = p.orig.Env["TERM"]
+			}
+			p.orig.Env["TERM"] = o.Term
+		} else if p.hadTerm {
+			p.orig.Env["TERM"] = p.termBefore
+		} else {
+			delete(p.orig.Env, "TERM")
+		}
+	}
+	p.ovr = o
+	p.slow.Store(int64(o.SlowBps))
+	return nil
 }
 
 // Capture reads the pane's screen, and the mark it shows.
@@ -786,6 +915,8 @@ func (p *Pane) close(grace time.Duration, others map[int]bool) int {
 	}
 	p.mu.Lock()
 	p.log.close(!p.keep)
+	p.times.close(p.offset, !p.keep)
+	p.frames.drop()
 	p.screen.Close()
 	p.mu.Unlock()
 	return n

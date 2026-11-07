@@ -172,6 +172,14 @@ func waitCheckpoint(ctx context.Context, c *client.Client, a *args, id string, t
 	}
 	if !a.g.json && ans != nil {
 		switch {
+		case ans.Pick != nil:
+			fmt.Println(ans.Pick.Label)
+			if r := ans.Pick.Region; r != nil {
+				fmt.Printf("region %.4f %.4f %.4f %.4f\n", r.X, r.Y, r.W, r.H)
+			}
+			if ans.Pick.Note != "" {
+				fmt.Println("note " + ans.Pick.Note)
+			}
 		case ans.Text != nil:
 			fmt.Println(*ans.Text)
 		case ans.Option != "":
@@ -467,13 +475,21 @@ func answerCheckpoint(ctx context.Context, c *client.Client, a *args, id string)
 			params["reason"] = r
 		}
 	case a.bools["approve"]:
-		if cp.Kind != "approve" {
+		if cp.Kind != "approve" && cp.Kind != "drive" {
 			return fmt.Errorf("%s is a %s, not an approve: answer it with --answer or --decline", id, cp.Kind)
 		}
 		params["approve"] = true
+		if v := a.values["allow"]; v != "" {
+			if cp.Kind != "drive" {
+				return errors.New("--allow is for a drive: let an agent type once or for its session")
+			}
+			params["allow"] = v
+		}
 		if c := a.values["command"]; c != "" {
 			params["command"] = c
 		}
+	case cp.Kind == "pick":
+		return fmt.Errorf("%s is a pick: the person picks in the Ravenry app or on the phone, where they see the variants; --decline declines it", id)
 	case cp.Kind == "secret":
 		return fmt.Errorf("a secret is typed in the Ravenry app or on the phone, never on a command line (its history would keep it); --decline declines %s", id)
 	case cp.Kind != "ask":

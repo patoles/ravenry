@@ -93,6 +93,27 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   files (`internal/pane/shell`, PROTOCOL.md section 3).
   `RAVENRY_SHELL_INTEGRATION=0` turns it off.
 
+- **Who drives a pane.** Every pane records who started it. An agent
+  drives the panes it started and asks for any other, another agent's
+  session included: its input opens a `drive` checkpoint that only a
+  person answers, once or for the agent's session (a grant a person can
+  revoke). Every input goes into the pane's input log with its source
+  (the person, the agent's pane, a program), secrets and password
+  prompts masked. A lease keeps a pane to one agent at a time and never
+  holds the person back.
+- **Files touched.** From the assistant's PostToolUse hooks (paths only)
+  and git status in the pane's folder.
+- **Pictures, filmstrips, recordings.** A PNG of a pane drawn from its
+  screen state (internal/render, the Go Mono fonts); its last 20 seconds
+  or so of screens as PNGs, an animated GIF or APNG; its output log with
+  timing, cut into fixtures and replayed at any speed into a fresh pane or
+  headless.
+- **Test conditions.** Per pane: the size its program sees, slowed
+  output, the TERM of its next restart.
+- **Picks.** A checkpoint with 2 to 4 variants (pictures, HTML pages, a
+  shot of a pane); the person picks one, perhaps with a region and a
+  note.
+
 Not built yet: a TCP listener for the phone, Windows.
 
 ## Layout
@@ -160,6 +181,14 @@ ravenry close "$id"
 ravenry ask --wait "Put on the headset and open the game" --option Done --option "Didn't work"
 ravenry approve 'git push && npm publish' --why "Release 0.4.1"
 ravenry secret "Mail service API key" -- npx wrangler secret put MAIL_API_KEY
+ravenry shot "$id" -o screen.png          # a picture of it
+ravenry frames "$id" --last 5s -o strip.gif
+ravenry fixture "$id" --last 30s -o bug.fixture.json
+ravenry replay bug.fixture.json --headless --speed max -o end.png
+ravenry override "$id" --phone --slow 2000
+ravenry inputs "$id"                      # who typed what
+ravenry pick "Which header?" --variant A=a.png --variant B=pane:"$id"
+ravenry decisions --search menus          # the person's directions on record (the hub's ledger)
 ravenry skill                             # the guide for agents
 ```
 
