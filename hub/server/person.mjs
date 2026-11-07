@@ -94,6 +94,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/send', c: P, what: 'type into a session from the board', why: 'The composer types the person\'s words into a session; an agent would answer its own prompts.' },
   { m: 'POST', p: '/api/sessions/start', c: P, what: 'start a session', why: 'Ambiguous, so the safer class: it starts an assistant on the person\'s account, with a first prompt.' },
   { m: 'POST', p: '/api/sessions/resume', c: P, what: 'continue a session in Ravenry', why: 'It starts the assistant again on one of the person\'s sessions, in a Ravenry pane.' },
+  { m: 'POST', p: '/api/sessions/move', c: P, what: 'move a session to one place', why: 'It ends the assistant\'s other processes on one of the person\'s sessions and starts it again in a Ravenry pane, or ends the Ravenry copy.' },
   { m: 'POST', p: '/api/sessions/close', c: P, what: 'close sessions', why: 'Closing a session ends the assistant in it.' },
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/comment$/, eg: '/api/sessions/x/comment', doc: '/api/sessions/<id>/comment', c: P, what: 'comment on a session\'s work', why: 'It types the person\'s review comment into the session, as the composer does; an agent would steer another agent in the person\'s name.' },
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/merge$/, eg: '/api/sessions/x/merge', doc: '/api/sessions/<id>/merge', c: P, what: 'merge a session\'s work', why: 'Merging a session\'s branch into the project\'s is the person\'s call; an agent would merge its own work unreviewed.' },

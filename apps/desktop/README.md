@@ -171,12 +171,19 @@ in the middle as its discussion, read only (`renderElsewhere` in
   turns.
 - **Open in cmux** (iTerm2, Rex) brings its tab forward, or the cmux app
   when cmux refuses the hub.
-- **Continue in Ravenry** resumes it in a pane here (`POST
-  /api/sessions/resume`: `claude --resume <id>`, `codex resume <id>`) once
-  its process there has ended; while it runs, the button is off and one
-  line says to close it there first. The hub never ends it and never runs
-  two processes on one session. When it ends there, the button turns on
-  by itself, also when its last hook event takes it off the board.
+- **Move here** puts it in a pane here, in one click (`POST
+  /api/sessions/move`, hub/docs/TERMINALS.md): still running there and
+  idle, the hub ends it there (SIGTERM, SIGKILL after 5 s only if needed)
+  and resumes it here (`claude --resume <id>`, `codex resume <id>`);
+  mid-turn, the button says "Waiting for Claude to finish in cmux" and the
+  move happens when the turn ends. Never two processes on one session.
+
+A session in a Ravenry pane whose conversation is also open elsewhere, or
+went on elsewhere since, says so in one line across the top of its tab
+(and in the panel): "Also open in cmux." with Move here and Keep it in
+cmux, or "This conversation went on in cmux." with Move here, which ends
+both copies and resumes the latest in the same pane. Each move is a line
+in app.log with each process it ended.
 
 **The selection is what is in front.** The tab in front decides what the
 sidebar highlights and what the panel shows, in one place (`frontKey` in

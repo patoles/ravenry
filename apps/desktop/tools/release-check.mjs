@@ -24,8 +24,8 @@
 //   2 new session   New session starts the stand-in Claude in a pane, and
 //                   the window shows it
 //   3 outside       a session in cmux (the stand-in) shows live; its process
-//                   ends there; Continue in Ravenry resumes it in a pane and
-//                   the window shows `claude --resume <id>` running
+//                   ends there; Move here resumes it in a pane and the
+//                   window shows `claude --resume <id>` running
 //   4 reopen        quit and reopen: the shells come back with what they
 //                   showed, and a prompt is in the window within 2 s
 //   5 update        the build before runs as the service; the new app
@@ -37,6 +37,16 @@
 //                   click, and it says Also open in cmux
 //   6 npm switch    tools/npm-switch-test.mjs: from the npm board 0.4.0 and
 //                   the way back
+//   8 hooks         (in 5) the hooks of a session started on the build
+//                   before still run after the update removed its folder
+//   9 move here     stand-in Claudes with real pids and real hooks: still
+//                   open in cmux and idle, Move here ends it and resumes it
+//                   here; mid-turn, it waits for the turn to end; a pane
+//                   whose conversation went on in cmux, Move here resumes
+//                   the latest in the same pane; open in both, Keep it in
+//                   cmux ends the Ravenry copy. Each time exactly one
+//                   process remains and the pane shows the latest turn.
+//                   Each state shot dark and light.
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
 import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
@@ -45,7 +55,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runApp } from './run-app.mjs';
 
@@ -57,6 +67,8 @@ const argv = process.argv.slice(2);
 const flag = (k) => { const i = argv.indexOf(k); if (i < 0) return null; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const PREV = flag('--prev');
 const NO_NPM = argv.includes('--no-npm') ? (argv.splice(argv.indexOf('--no-npm'), 1), true) : false;
+// --only 9,5: just those steps (a quick run while working on them; never the release gate).
+const ONLY = argv.includes('--only') ? argv.splice(argv.indexOf('--only'), 2)[1].split(',') : null;
 const APP_PATH = argv[0] && path.resolve(argv[0]);
 if (!APP_PATH || !fs.existsSync(path.join(APP_PATH, 'Contents', 'MacOS', 'Ravenry'))) { console.error('usage: node tools/release-check.mjs APP [--prev OLD_APP_OR_ZIP] [--no-npm] [OUT]'); process.exit(2); }
 if (process.platform !== 'darwin') { console.error('release-check: macOS only (launchd)'); process.exit(2); }
@@ -87,8 +99,10 @@ async function account(name) {
   const label = `dev.ravenry.hub.test-${crypto.randomBytes(5).toString('hex')}`;
   labels.push(label);
   const port = await freePort();
-  // The stand-in Claude: says how it was started, then echoes.
-  fs.writeFileSync(path.join(home, '.local', 'bin', 'claude'), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.319 (Claude Code)"; exit 0; fi\necho "fake claude ready (args: $*)"\nexec cat\n', { mode: 0o755 });
+  // The stand-in Claude (tools/stand-in-claude.mjs): a real process that
+  // says how it was started, lists itself in the stub process list, runs
+  // the account's hooks and writes its transcript.
+  fs.writeFileSync(path.join(home, '.local', 'bin', 'claude'), `#!${process.execPath}\n` + fs.readFileSync(path.join(HERE, 'stand-in-claude.mjs'), 'utf8'), { mode: 0o755 });
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'you@example.com' } }));
   // The stand-ins copied out of the repository: a service launchd starts
   // that ran a script inside ~/Documents would wait for macOS's privacy
@@ -153,7 +167,11 @@ function step(name, ok, detail = {}) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${Object.keys(detail).length ? '  ' + JSON.stringify(detail) : ''}`);
 }
 async function guarded(name, fn) {
-  try { await fn(); } catch (e) { step(name, false, { error: String(e.message || e).split('\n').slice(0, 6).join(' | ') }); }
+  if (ONLY && !ONLY.some((n) => name.startsWith(n + ' '))) return;
+  try { await fn(); } catch (e) {
+    const lines = String(e.message || e).split('\n');
+    step(name, false, { error: [lines[0], ...lines.filter((l) => /driver: |Error/.test(l)).slice(0, 4), ...lines.filter((l) => l.startsWith('window:')).slice(-8)].join(' | ') });
+  }
 }
 
 // The made-up session in cmux the outside step shows.
@@ -211,9 +229,9 @@ try {
       // 3: the session in cmux, shown live.
       { until: `[...document.querySelectorAll('#side .ss')].some((e) => e.textContent.includes('Kite tail'))`, timeout: 20000 },
       { click: `[...document.querySelectorAll('#side .ss')].find((e) => e.textContent.includes('Kite tail'))`, clickJs: true },
-      { until: `!document.getElementById('elsewhere').hidden && document.getElementById('elsewhere').textContent.includes('make it lively') && document.getElementById('elsewhere').textContent.includes('Still open in cmux')`, timeout: 20000 }, mark('outside'), shot('3-outside-open.png'), ...agree('outside'),
+      { until: `!document.getElementById('elsewhere').hidden && document.getElementById('elsewhere').textContent.includes('make it lively') && document.getElementById('elsewhere').textContent.includes('Move here ends it in cmux')`, timeout: 20000 }, mark('outside'), shot('3-outside-open.png'), ...agree('outside'),
       ...pause(a, 'closed'),
-      { until: `document.querySelector('#elsewhere .else-acts .btn.pri') && /Continue in Ravenry/.test(document.querySelector('#elsewhere .else-acts .btn.pri').textContent) && !document.querySelector('#elsewhere .else-acts .btn.pri').disabled`, timeout: 20000 }, shot('3-outside-closed.png'),
+      { until: `document.querySelector('#elsewhere .else-acts .btn.pri') && /^Move here$/.test(document.querySelector('#elsewhere .else-acts .btn.pri').textContent) && /picks up this conversation/.test(document.getElementById('elsewhere').textContent) && !document.querySelector('#elsewhere .else-acts .btn.pri').disabled`, timeout: 20000 }, shot('3-outside-closed.png'),
       { js: `document.querySelector('#elsewhere .else-acts .btn.pri').click()` }, mark('continueClick'),
       { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('continued'), shot('3-continued.png'), ...agree('continued'),
       save('tabs', `${R}.S.tabs.length`), save('shells', `${R}.S.tabs.filter((t) => t.kind === 'shell').length`),
@@ -372,6 +390,130 @@ try {
     const r = spawnSync(process.execPath, [path.join(HERE, 'npm-switch-test.mjs'), APP_PATH, path.join(OUT, 'npm-switch')], { encoding: 'utf8', timeout: 900000 });
     const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
     step('6 npm switch: from the npm board 0.4.0 and the way back (tools/npm-switch-test.mjs)', r.status === 0 && !fails.length, { exit: r.status, fails: fails.slice(0, 5), tail: (r.stderr || r.stdout || '').trim().split('\n').slice(-3) });
+  });
+  // ------------------------------------------------------------ 9, Move here
+  await guarded('9 move here', async () => {
+    const m = await account('move');
+    const proj = path.join(m.home, 'Projects', 'kite');
+    fs.mkdirSync(proj, { recursive: true });
+    fs.writeFileSync(path.join(proj, 'BRIEF.md'), '# Kite\n\nGoal: A kite that flies itself.\n');
+    execFileSync('/usr/bin/git', ['-C', proj, 'init', '-q', '-b', 'main']);
+    fs.writeFileSync(path.join(m.home, '.ravenry', 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [{ id: 'kite', name: 'kite', folder: proj, workspaces: [WS], brief: 'BRIEF.md' }] }, null, 2));
+    const SA = '5e55107e-0000-4000-8000-0000000000a1';
+    const SB = '5e55107e-0000-4000-8000-0000000000b2';
+    const SFA = 'BBBB2222-0000-4000-8000-0000000000A1';
+    const SFB = 'BBBB2222-0000-4000-8000-0000000000B2';
+    fs.writeFileSync(m.fake, JSON.stringify({ workspaces: [{ id: WS, ref: 'workspace:1', title: 'kite', cwd: proj, surfaces: [{ id: SFA, ref: 'surface:1', title: 'Tail' }, { id: SFB, ref: 'surface:2', title: 'Plan' }] }], screens: {} }));
+    // A stand-in Claude in a cmux tab: a real process, with its own hooks.
+    const kids = [];
+    function outside(sf, args) {
+      const c = spawn(path.join(m.home, '.local', 'bin', 'claude'), args, { cwd: proj, env: { HOME: m.home, PATH: m.env.PATH, LANG: 'en_US.UTF-8', TERM_PROGRAM: 'ghostty', CMUX_WORKSPACE_ID: WS, CMUX_SURFACE_ID: sf }, stdio: ['pipe', 'pipe', 'pipe'] });
+      const o = { c, out: '', exited: null };
+      c.stdout.on('data', (d) => { o.out += d; });
+      c.stderr.on('data', (d) => { o.out += d; });
+      c.on('exit', (code, sig) => { o.exited = { code, sig, at: Date.now() }; });
+      o.until = async (re, ms = 20000) => { for (let i = 0; i < ms / 50 && !re.test(o.out); i++) await sleep(50); if (!re.test(o.out)) throw new Error(`stand-in never said ${re}: ${o.out.slice(-300)}`); };
+      kids.push(o);
+      return o;
+    }
+    // The processes on a session id that are alive, from the stub list.
+    const onSession = (sid) => { let l = []; try { l = JSON.parse(fs.readFileSync(m.ps, 'utf8')); } catch { /* none */ } return l.filter((p) => p.command.includes(sid)).filter((p) => { try { process.kill(p.pid, 0); return true; } catch { return false; } }); };
+    const res = {};
+    const feed = (async () => {
+      await at(m, 'hooks');
+      const r = await fetch(`http://127.0.0.1:${m.port}/api/setup/hooks`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ ravenryd: path.join(m.data, 'bin', 'ravenryd') }) });
+      res.hooks = r.status;
+      if (r.status !== 200) throw new Error(`hook setup: ${r.status} ${await r.text()}`);
+      // A: open in cmux, idle after one turn.
+      const o1 = outside(SFA, ['--session-id', SA]);
+      await o1.until(/fake claude ready/);
+      o1.c.stdin.write('make the tail flutter\n');
+      await o1.until(/answered: make the tail flutter/);
+      fs.writeFileSync(goFile(m, 'hooks'), '1');
+      await at(m, 'checkA');
+      res.a = { o1Exit: o1.exited, left: onSession(SA).map((p) => ({ pid: p.pid, env: p.env })) };
+      // B: open in cmux, mid-turn when Move here is pressed.
+      const o2 = outside(SFB, ['--session-id', SB]);
+      await o2.until(/fake claude ready/);
+      o2.c.stdin.write('a slow plan\n');
+      await o2.until(/thinking: a slow plan/);
+      fs.writeFileSync(goFile(m, 'checkA'), '1');
+      await at(m, 'checkB');
+      res.b = { o2Exit: o2.exited, answeredBeforeEnd: /answered: a slow plan/.test(o2.out), left: onSession(SB).map((p) => ({ pid: p.pid, env: p.env })) };
+      // C: A runs in a Ravenry pane; it goes on in cmux, then that one exits.
+      const o3 = outside(SFA, ['--resume', SA]);
+      await o3.until(/fake claude ready/);
+      o3.c.stdin.write('it went on elsewhere\n');
+      await o3.until(/answered: it went on elsewhere/);
+      o3.c.stdin.end();
+      for (let i = 0; i < 100 && !o3.exited; i++) await sleep(100);
+      fs.writeFileSync(goFile(m, 'checkB'), '1');
+      await at(m, 'checkC');
+      res.c = { left: onSession(SA).map((p) => ({ pid: p.pid, env: p.env })) };
+      // D: open in both: A in the pane, and again in cmux.
+      const o4 = outside(SFA, ['--resume', SA]);
+      await o4.until(/fake claude ready/);
+      fs.writeFileSync(goFile(m, 'checkC'), '1');
+      await at(m, 'checkD');
+      res.d = { o4Alive: !o4.exited, left: onSession(SA).map((p) => ({ pid: p.pid, env: p.env })) };
+      fs.writeFileSync(goFile(m, 'checkD'), '1');
+    })();
+    const rowOf = (sf, sid) => `[...document.querySelectorAll('#side .ss')].find((e) => (e.dataset.key || '').includes('${sf}') || (e.dataset.key || '').includes('${sid}'))`;
+    const both = (name) => [shot(`9-${name}-dark.png`), { theme: 'light' }, shot(`9-${name}-light.png`), { theme: 'dark' }];
+    const paneText = (t) => `${R}.term().ready && ${R}.term().attached && ${R}.text().includes(${JSON.stringify(t)})`;
+    const run = launch(m, 'move', [
+      { ready: true, timeout: 30000 },
+      { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && Array.isArray(${R}.S.hub.projects)`, timeout: 60000 },
+      ...pause(m, 'hooks'),
+      // A
+      { until: `${rowOf(SFA, SA)}`, timeout: 30000 },
+      { click: rowOf(SFA, SA), clickJs: true },
+      { until: `!document.getElementById('elsewhere').hidden && /Move here ends it in cmux/.test(document.getElementById('elsewhere').textContent) && document.querySelector('#elsewhere .else-acts .btn.pri') && !document.querySelector('#elsewhere .else-acts .btn.pri').disabled`, timeout: 30000 },
+      ...both('A-open-in-cmux-idle'),
+      { click: '#elsewhere .else-acts .btn.pri' }, mark('clickA'),
+      { until: `${paneText('last turn: answer to: make the tail flutter')} && ${AGREE}`, timeout: 30000 }, mark('movedA'),
+      save('paneA', `${R}.term().attached.pane`),
+      { js: `window.__paneA = ${R}.term().attached.pane` },
+      ...pause(m, 'checkA'),
+      // B
+      { until: `${rowOf(SFB, SB)}`, timeout: 30000 },
+      { click: rowOf(SFB, SB), clickJs: true },
+      { until: `!document.getElementById('elsewhere').hidden && document.querySelector('#elsewhere .else-acts .btn.pri') && /^Move here$/.test(document.querySelector('#elsewhere .else-acts .btn.pri').textContent)`, timeout: 30000 },
+      { click: '#elsewhere .else-acts .btn.pri' }, mark('clickB'),
+      { until: `[...document.querySelectorAll('#elsewhere button')].some((b) => /^Waiting for Claude to finish in cmux$/.test(b.textContent))`, timeout: 10000 }, mark('waitingB'),
+      ...both('B-mid-turn-waiting'),
+      { until: `${paneText('last turn: answer to: a slow plan')}`, timeout: 40000 }, mark('movedB'),
+      ...pause(m, 'checkB'),
+      // C: A's row is its pane's now.
+      { until: `[...document.querySelectorAll('#side .ss')].some((e) => (e.dataset.key || '').endsWith('ravenry:' + window.__paneA))`, timeout: 30000 },
+      { click: `[...document.querySelectorAll('#side .ss')].find((e) => (e.dataset.key || '').endsWith('ravenry:' + window.__paneA))`, clickJs: true },
+      { until: `${R}.term().attached && ${R}.term().attached.pane === window.__paneA && !document.getElementById('movebar').hidden && /This conversation went on in cmux\./.test(document.getElementById('movebar').textContent)`, timeout: 30000 }, mark('staleC'),
+      ...both('C-went-on-in-cmux'),
+      { click: '#movebar .btn.pri' }, mark('clickC'),
+      { until: `${paneText('last turn: answer to: it went on elsewhere')} && document.getElementById('movebar').hidden`, timeout: 30000 }, mark('movedC'),
+      save('paneC', `${R}.term().attached.pane`),
+      ...pause(m, 'checkC'),
+      // D
+      { until: `!document.getElementById('movebar').hidden && /Also open in cmux\./.test(document.getElementById('movebar').textContent) && document.querySelector('#panel .sec.twin')`, timeout: 30000 }, mark('doubleD'),
+      ...both('D-open-in-both'),
+      { click: `[...document.querySelectorAll('#movebar button')].find((b) => b.textContent === 'Keep it in cmux')`, clickJs: true }, mark('clickD'),
+      { until: `document.getElementById('movebar').hidden && !document.getElementById('elsewhere').hidden`, timeout: 30000 }, mark('keptD'),
+      ...pause(m, 'checkD'),
+    ]);
+    feed.catch((e) => { fs.writeFileSync(path.join(m.work, 'feed-error.txt'), String(e.stack || e)); for (const n of ['hooks', 'checkA', 'checkB', 'checkC', 'checkD']) try { fs.writeFileSync(goFile(m, n), '1'); } catch { /* */ } });
+    const mk = await Promise.all([run, feed]).then(([x]) => x);
+    const logOf = (f) => { const p = path.join(m.home, 'Library', 'Logs', 'Ravenry', f); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; };
+    const appLog = logOf('app.log');
+    const hubLog = logOf('hub.log');
+    const errs = kids.map((k) => (k.out.match(/hook error.*/g) || [])).flat();
+    step('9 move: hooks set up through the stable folder, and no stand-in saw a hook error', res.hooks === 200 && !errs.length, { setup: res.hooks, errors: errs.slice(0, 3) });
+    step('9 move A: open in cmux and idle, Move here ends it there and resumes it here with its last turn; one process left, in the pane', mk.movedA > 0 && !!res.a?.o1Exit && res.a.left.length === 1 && /RAVENRY_PANE=/.test(res.a.left[0].env), { msFromClick: mk.movedA - mk.clickA, o1: res.a?.o1Exit, left: res.a?.left });
+    step('9 move B: mid-turn, the button waits for the turn to end, then moves it; the turn finished first; one process left, in a pane', mk.waitingB > 0 && mk.movedB > 0 && !!res.b?.answeredBeforeEnd && !!res.b.o2Exit && res.b.left.length === 1 && /RAVENRY_PANE=/.test(res.b.left[0].env), { waitedMs: mk.movedB - mk.clickB, left: res.b?.left });
+    step('9 move C: a pane whose conversation went on in cmux says so; Move here resumes the latest in the same pane; one process left', mk.staleC > 0 && mk.movedC > 0 && !!mk.paneA && mk.paneC === mk.paneA && res.c?.left.length === 1 && res.c.left[0].env.includes(`RAVENRY_PANE=${mk.paneA}`), { paneA: mk.paneA, paneC: mk.paneC, left: res.c?.left });
+    step('9 move D: open in both, Keep it in cmux ends the Ravenry copy; only the cmux one is left', mk.doubleD > 0 && mk.keptD > 0 && !!res.d?.o4Alive && res.d.left.length === 1 && !/RAVENRY_PANE=/.test(res.d.left[0].env), { left: res.d?.left });
+    step('9 move: every move is in app.log with each process it ended, and in the hub\'s log', /window: move .*: ended \d+ in cmux \(SIGTERM/.test(appLog) && /after its turn: ended/.test(appLog) && /kept in the other terminal/.test(appLog) && /sessions: move .*: ended \d+ in cmux with SIGTERM/.test(hubLog), { app: appLog.split('\n').filter((l) => / move /.test(l)).slice(-8) });
+    for (const k of kids) if (!k.exited) k.c.kill('SIGTERM');
+    launchctl('bootout', `gui/${UID}/${m.label}`);
   });
 } finally {
   // Every test label out of launchd, whatever happened.

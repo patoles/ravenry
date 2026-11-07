@@ -197,6 +197,41 @@ if (BIN) {
 } else {
   console.log('SKIP  Continue in Ravenry in a real pane: set RAVENRYD_BIN to a ravenryd binary');
 }
+// ------------------------------------------------------------ 4. Move here
+// Real processes stand in for two Claudes in cmux: one on SID2, mid-turn,
+// and one on another session, which a move must never touch. Move here
+// waits for the turn to end (its hook state), then ends SID2's process
+// with SIGTERM; the other runs on.
+{
+  const SID2 = '5e55107e-0000-4000-8000-00000000c4c4';
+  const SID3 = '5e55107e-0000-4000-8000-00000000c5c5';
+  const kid = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const a = kid();
+  const b = kid();
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const at = () => new Date().toISOString();
+  const ev2 = (event, extra = {}) => JSON.stringify({ at: at(), event, session_id: SID2, assistant: 'claude', cwd: PROJ, workspace_id: WS, surface_id: 'CCCC3333-0000-4000-8000-0000000000C4', claude_pid: a.pid, terminal: 'cmux', ...extra });
+  const EV2 = path.join(MC, 'events', SID2 + '.jsonl');
+  fs.writeFileSync(EV2, [ev2('SessionStart'), ev2('UserPromptSubmit')].join('\n') + '\n');
+  procs([
+    { pid: a.pid, ppid: process.pid, rssKb: 300000, startedAt: iso(0), command: `claude --session-id ${SID2}`, cwd: PROJ, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=CCCC3333-0000-4000-8000-0000000000C4` },
+    { pid: b.pid, ppid: process.pid, rssKb: 300000, startedAt: iso(0), command: `claude --session-id ${SID3}`, cwd: PROJ, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS}` },
+  ]);
+  // Once a tick has read its events (the board knows the session).
+  const m1 = await until(async () => { const r = await post('/api/sessions/move', { projectId: 'kite', sessionId: SID2, keep: 'ravenry' }); return r.status === 404 ? null : r; }, 30000) || { status: 0, body: {}, text: 'never known' };
+  check('Move here mid-turn: it waits for the turn to end, and nothing is ended yet', m1.status === 200 && m1.body.waiting === true && alive(a.pid) && alive(b.pid), m1.text);
+  const s4 = await until(async () => { const st = await state(); const pr = st.projects.find((x) => x.id === 'kite'); const x = pr && pr.sessions.find((y) => y.sessionId === SID2); return x && x.moving ? x : null; }, 5000);
+  check('Move here mid-turn: the session says it is waiting', !!s4 && s4.moving.waiting === true && s4.moving.keep === 'ravenry', JSON.stringify(s4 && s4.moving));
+  fs.appendFileSync(EV2, ev2('Stop') + '\n');
+  const gone = await until(async () => !alive(a.pid), 15000);
+  check('the turn ended: its process is ended (SIGTERM), the other session\'s process runs on', !!gone && alive(b.pid));
+  const moved = await until(async () => { const st = await state(); const pr = st.projects.find((x) => x.id === 'kite'); const x = pr && pr.sessions.find((y) => y.sessionId === SID2); return x && x.moved ? x.moved : null; }, 8000);
+  check('the move says which process it ended, and how', !!moved && moved.ended.length === 1 && moved.ended[0].pid === a.pid && moved.ended[0].signal === 'SIGTERM', JSON.stringify(moved));
+  const m2 = await post('/api/sessions/move', { projectId: 'kite', sessionId: SID3, keep: 'outside' });
+  check('a move for a session the board does not know is refused, and its process is untouched', m2.status === 404 && alive(b.pid), m2.text);
+  b.kill();
+}
+
 check('nothing was ever written to cmux, all along', !calls().some((c) => WRITES.has(c[0])), JSON.stringify(calls().filter((c) => WRITES.has(c[0]))));
 
 // ------------------------------------------------------------ 5. a hand-off's fresh session

@@ -336,7 +336,11 @@ process on the same session wrote its last events or ended; that other
 process is the session's `alsoOpen`. A ravenryd pane is the innermost
 terminal while TERM_PROGRAM says ravenry, whatever cmux, iTerm2 or Rex
 variables it inherited, and ravenryd no longer hands those variables to
-its panes.
+its panes: a pane takes only the account's variables from the daemon's
+environment (HOME, USER, SHELL, PATH, LANG, LC_*, TZ, TMPDIR, the ssh
+agent, the desktop session on Linux), so nothing of the session that
+started the daemon (Claude Code's CLAUDE_CODE_*, cmux's, iTerm2's, tmux's)
+reaches it. RAVENRY_PANE_PASS names more by name, for a test's prompt.
 
 **Continue in Ravenry.** A session on this machine in a terminal outside
 Ravenry carries `outside: { name, open, resumable }`: `open` is whether its
@@ -349,7 +353,31 @@ processes again first and never starts a second process on a session id:
 while one still runs outside, it answers 409 with "It is still open in
 cmux. Close it there first, then continue it here." and `open: true`; one
 in a Ravenry pane is answered with that pane, as is a second ask for one it
-resumed. It never ends the outside process. A hand-off's fresh session of a
+resumed. This endpoint never ends the outside process; Move here does.
+
+**Move here.** One click puts a conversation in one place. `POST
+/api/sessions/move { projectId, sessionId, keep, cols, rows }`, keep
+`ravenry` (Move here) or `outside` (Keep it in cmux):
+- `ravenry`: every process on that session id ends, in the other terminal
+  and a stale copy in Ravenry, then it resumes in a Ravenry pane, the same
+  pane when its shell is still there (the line typed at its prompt), else a
+  new one (`/api/sessions/resume`). The other terminal's tab keeps its shell.
+- `outside`: the Ravenry copy ends; the other terminal's goes on.
+- A process ends only when the session is not mid-turn by its hook state
+  (the last event a UserPromptSubmit with no Stop after it). Mid-turn the
+  answer is `{ waiting: true, name }`, the session carries `moving`, and
+  the tick does the move once the turn ends.
+- Each process is checked again just before it is signalled (alive, the
+  same start time, still on this session id; else it is left alone), gets
+  SIGTERM, and SIGKILL after 5 s only if it is still there. The hub logs
+  each one (`sessions: move <id>: ended <pid> in cmux with SIGTERM in N
+  ms`); the app logs each move in app.log. The last move shows on the
+  session as `moved` for a minute.
+- A session in a Ravenry pane carries `movedOn: { name }` when the latest
+  hook event came from another process after the pane's started and it is
+  not mid-turn: the conversation went on elsewhere, and the pane is stale.
+
+A hand-off's fresh session of a
 session in a terminal the board cannot open tabs in goes to a Ravenry pane
 in this mode (`term.freshTerminal`); the other modes keep it where it ran.
 

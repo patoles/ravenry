@@ -264,6 +264,122 @@ function renderStrip(): void {
   const strip = pane && !$('term').hidden ? leaseStrip(pane, paneCtx) : null;
   el.hidden = !strip;
   replace(el, strip);
+  renderMoveBar();
+}
+
+// ------------------------------------------------------------- Move here
+//
+// One click puts a conversation in one place (2026-11-07: "So the user
+// needs to understand all this by himself?"). Move here: the hub ends the
+// assistant's other processes on that session (in the other terminal, and
+// a stale copy in Ravenry), then resumes it in a Ravenry pane, the same one
+// when its shell is still there. Keep it in <terminal>: the Ravenry copy
+// ends. Mid-turn, the hub waits for the turn to end and does it then; the
+// button says so meanwhile. Every move is a line in app.log, with each
+// process ended and how.
+const moveBusy = new Set<string>();
+const moveAsked = new Map<string, { at: number; keep: 'ravenry' | 'outside' }>(); // waiting moves, by session id
+let moveFollow: string | null = null; // a Keep it in <terminal>: the middle follows that session's row
+
+function frontSid(): string | null {
+  const k = frontKey();
+  const f = k && !k.startsWith('tab:') ? findSession(S.hub, k) : null;
+  return f ? f.session.sessionId || null : null;
+}
+
+type MoveResult = { ok?: boolean; error?: string; waiting?: boolean; name?: string; keep?: 'ravenry' | 'outside'; ended?: NonNullable<HubSession['moved']>['ended']; surfaceId?: string | null; pane?: { id?: string }; projectId?: string };
+function movedLine(sid: string, b: MoveResult, after = ''): string {
+  const ended = (b.ended || []).map((e) => `${e.pid} in ${e.where} (${e.skipped ? 'left alone: no longer on this session' : `${e.signal}${e.ms != null ? `, ${e.ms} ms` : ''}`})`).join(', ') || 'none';
+  return `window: move ${sid}${after}: ended ${ended}; ${b.keep === 'outside' ? 'kept in the other terminal' : b.surfaceId ? `resumed in ${b.surfaceId}` : 'not resumed'}`;
+}
+function followMove(sid: string, projectId: string, b: MoveResult): void {
+  if (b.keep === 'outside') { moveFollow = sid; return; }
+  if (!b.surfaceId) return;
+  const pane = b.pane && typeof b.pane.id === 'string' ? b.pane.id : null;
+  elseLast = null;
+  liveStop();
+  setView({ kind: 'session', key: `${b.projectId || projectId}/${b.surfaceId}`, ...(pane ? { pane } : {}) });
+}
+
+async function moveTo(p: HubProject, s: HubSession, keep: 'ravenry' | 'outside', why: string): Promise<void> {
+  const sid = s.sessionId;
+  if (!sid || moveBusy.has(sid)) return;
+  moveBusy.add(sid);
+  api().log(`window: move ${sid} (${why}): ${keep === 'ravenry' ? 'Move here' : `Keep it in ${s.alsoOpen?.name || 'the other terminal'}`}`);
+  render();
+  try {
+    const { cols, rows } = term.term;
+    const r = await api().hubCall('POST', '/api/sessions/move', { projectId: p.id, sessionId: sid, keep, cols, rows });
+    const b = (r.body || {}) as MoveResult;
+    if (r.status !== 200 || !b.ok) {
+      api().log(`window: move ${sid}: not done: ${b.error || r.status}`);
+      toast(`Could not move it: ${b.error || `the board answered ${r.status}`}`);
+      return;
+    }
+    if (b.waiting) {
+      moveAsked.set(sid, { at: Date.now(), keep });
+      api().log(`window: move ${sid}: waiting for ${assistantName(s.assistant) || 'the assistant'} to finish in ${b.name}`);
+      return;
+    }
+    api().log(movedLine(sid, b));
+    followMove(sid, p.id, b);
+  } catch (e) {
+    api().log(`window: move ${sid}: failed: ${(e as Error).message}`);
+    toast(`Could not move it: ${(e as Error).message}`);
+  } finally {
+    moveBusy.delete(sid);
+    render();
+  }
+}
+
+// At each state from the hub: a waiting move it has done since (logged, and
+// the middle follows it when that session is in front), and a Keep it in
+// <terminal> whose row is back.
+function moveStates(): void {
+  for (const pr of S.hub?.projects || []) for (const s of pr.sessions) {
+    const sid = s.sessionId;
+    if (!sid) continue;
+    const w = moveAsked.get(sid);
+    if (w && s.moved && s.moved.at >= w.at && !s.moving) {
+      moveAsked.delete(sid);
+      const b: MoveResult = { keep: s.moved.keep, ended: s.moved.ended, surfaceId: s.moved.surfaceId };
+      api().log(movedLine(sid, b, ' after its turn'));
+      if (frontSid() === sid || S.view.kind === 'session' && elseLast?.session.sessionId === sid) followMove(sid, pr.id, b);
+    }
+    if (moveFollow === sid && term_kindOf(s.surfaceId) !== 'ravenry') { moveFollow = null; pickSession(sessionKey(pr.id, s), 'move'); }
+  }
+}
+const term_kindOf = (surfaceId: string): string => (surfaceId.startsWith('ravenry:') ? 'ravenry' : 'other');
+
+/** The words and buttons of a move for one session (bar, card, view). */
+function moveActs(p: HubProject, s: HubSession, other: string, why: string, withKeep: boolean): HTMLElement[] {
+  const sid = s.sessionId || '';
+  const waiting = !!s.moving?.waiting || moveAsked.has(sid);
+  const busy = moveBusy.has(sid);
+  const who = assistantName(s.assistant) || 'the assistant';
+  if (waiting) return [h('button.btn.sm', { disabled: true }, `Waiting for ${who} to finish in ${s.moving?.name || other}`)];
+  return [
+    h('button.btn.sm.pri', { disabled: busy, title: `End it in ${other} and continue it here`, on: { click: () => void moveTo(p, s, 'ravenry', why) } }, busy ? 'Moving...' : 'Move here'),
+    withKeep ? h('button.btn.sm', { disabled: busy, title: `End the copy in Ravenry; it goes on in ${other}`, on: { click: () => void moveTo(p, s, 'outside', why) } }, `Keep it in ${other}`) : null,
+  ].filter(Boolean) as HTMLElement[];
+}
+
+/** One line across the top of a session's tab, when its conversation is also, or went on, elsewhere. */
+function renderMoveBar(): void {
+  const el = $('movebar');
+  const k = frontKey();
+  const f = k && !k.startsWith('tab:') && !$('term').hidden ? findSession(S.hub, k) : null;
+  const s = f ? f.session : null;
+  let line: string | null = null;
+  let other = '';
+  if (s && s.surfaceId.startsWith('ravenry:') && s.sessionId) {
+    if (s.alsoOpen) { other = s.alsoOpen.name; line = `Also open in ${other}.`; }
+    else if (s.movedOn) { other = s.movedOn.name; line = `This conversation went on in ${other}.`; }
+    else if (s.moving?.waiting) { other = s.moving.name; line = `Moving it here from ${other}.`; }
+  }
+  el.hidden = !line;
+  if (!line || !f || !s) { replace(el); return; }
+  replace(el, h('span.mt', line), ...moveActs(f.project, s, other, s.alsoOpen ? 'double open, tab' : 'went on elsewhere, tab', !!s.alsoOpen));
 }
 
 function tabOfView(): Tab | null {
@@ -1138,14 +1254,13 @@ function renderNone(): void {
 // A session in a terminal outside Ravenry (cmux, iTerm2, Rex, another):
 // its discussion in the middle, read only, live from its screen when the
 // hub reads that terminal, else from its transcript with one line saying
-// why; "Open in <terminal>" focuses its tab; Continue in Ravenry resumes it
-// in a pane here once its process there has ended (never two processes on
-// one session). The last one shown is kept, so a session that ends there
-// (its SessionEnd takes it off the board) still offers the resume.
+// why; "Open in <terminal>" focuses its tab; Move here ends it there (when
+// it still runs, and once its turn is over) and resumes it in a pane here
+// (moveTo): never two processes on one session. The last one shown is kept,
+// so a session that ends there (its SessionEnd takes it off the board)
+// still offers it.
 const ELSE_OPEN = new Set(['cmux', 'iterm', 'rex']);
 let elseLast: { key: string; project: HubProject; session: HubSession } | null = null;
-let elseBusy: string | null = null;
-let elseError: { key: string; text: string } | null = null;
 const live = { surface: null as string | null, ver: 0, entries: null as LiveEntry[] | null, timer: 0 as unknown as ReturnType<typeof setTimeout> | 0 };
 
 function renderElsewhere(f: { project: HubProject; session: HubSession } | null, key: string | null): void {
@@ -1170,18 +1285,19 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null,
   const out = session.outside || null;
   const open = !ended && !!out && out.open !== false;
   const canOpen = !m && !ended && !!session.term && ELSE_OPEN.has(session.term);
-  const canResume = !!out && !open && (out.resumable || ended) && !!session.sessionId;
-  const busy = elseBusy === key;
+  const kindOk = /^(claude|codex)/.test(String(session.assistant || 'claude'));
+  const canResume = !!out && !!session.sessionId && kindOk && (open || out.resumable || ended);
+  const busy = moveBusy.has(session.sessionId || '');
+  const waiting = !!session.moving?.waiting || moveAsked.has(session.sessionId || '');
   const folder = project.folderShort ? `, in ${project.folderShort}` : '';
   const sub = ended || (out && !open) ? `Ran in ${where}${folder}. It ended there.` : `Runs in ${where}${folder}.`;
   const readable = !ended && session.terminal !== false && !session.surfaceId.startsWith('ev:');
   if (readable) liveFollow(session.surfaceId); else liveStop();
-  const note = out
-    ? open
-      ? h('div.else-note', svg(I.CLOCK), h('span', `Still open in ${where}. Close it there first, then continue it here.`))
-      : h('div.else-note.ok', svg(I.DONE), h('span', 'Continue in Ravenry picks up this conversation in a pane here.'))
+  const note = out && canResume
+    ? waiting
+      ? h('div.else-note', svg(I.CLOCK), h('span', `Moves here when ${assistantName(session.assistant) || 'the assistant'} finishes its turn in ${where}.`))
+      : h('div.else-note.ok', svg(I.DONE), h('span', open ? `Move here ends it in ${where} and picks up this conversation in a pane here.` : 'Move here picks up this conversation in a pane here.'))
     : null;
-  const err = elseError && elseError.key === key ? h('div.else-note.bad', h('span', elseError.text)) : null;
   // Why its screen is not shown, while it still runs there.
   const why = !readable && session.cannot && open ? h('p.else-why', session.cannot) : null;
   const old = $('elsewhere').querySelector('.else-disc');
@@ -1191,9 +1307,10 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null,
     h('div.else-head',
       h('div', h('div.else-t', session.topic || project.name), h('div.t2', sub)),
       h('div.else-acts',
-        canOpen ? h(`button.btn${canResume ? '' : '.pri'}`, { on: { click: () => void hubOpen(project, session) } }, `Open in ${where}`) : null,
-        out ? h(`button.btn${canResume ? '.pri' : ''}`, { disabled: !canResume || busy, title: canResume ? 'Resume this conversation in a Ravenry pane' : `Close it in ${where} first`, on: { click: () => void continueHere(key, project, session) } }, busy ? 'Continuing...' : 'Continue in Ravenry') : null)),
-    note, err, why,
+        canOpen ? h('button.btn', { on: { click: () => void hubOpen(project, session) } }, `Open in ${where}`) : null,
+        out && waiting ? h('button.btn', { disabled: true }, `Waiting for ${assistantName(session.assistant) || 'the assistant'} to finish in ${where}`) : null,
+        out && !waiting ? h(`button.btn${canResume ? '.pri' : ''}`, { disabled: !canResume || busy, title: canResume ? 'Continue this conversation in a Ravenry pane' : 'It cannot be resumed here', on: { click: () => void moveTo(project, session, 'ravenry', 'outside view') } }, busy ? 'Moving...' : 'Move here') : null)),
+    note, why,
     h('div.else-disc', readable ? discussionLive(session) : discussionFromTranscript(session)));
   const sc = $('elsewhere').querySelector('.else-disc');
   if (sc) sc.scrollTop = atBottom ? sc.scrollHeight : keep;
@@ -1270,29 +1387,6 @@ function liveStop(): void {
 async function hubOpen(p: HubProject, s: HubSession): Promise<void> {
   const at = here();
   try { await api().hubPost('/api/open', { projectId: p.id, surfaceId: s.surfaceId }); } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
-}
-
-/** Continue in Ravenry: the hub resumes the session in a Ravenry pane, and the middle follows it there. */
-async function continueHere(key: string, p: HubProject, s: HubSession): Promise<void> {
-  if (elseBusy || !s.sessionId) return;
-  elseBusy = key;
-  elseError = null;
-  void renderCentre();
-  try {
-    const { cols, rows } = term.term;
-    const r = await api().hubCall('POST', '/api/sessions/resume', { projectId: p.id, sessionId: s.sessionId, cols, rows });
-    const b = (r.body || {}) as { ok?: boolean; error?: string; surfaceId?: string; pane?: { id?: string }; projectId?: string };
-    if (r.status !== 200 || !b.ok || !b.surfaceId) { elseError = { key, text: b.error || `Ravenry could not continue it (${r.status}).` }; return; }
-    const pane = b.pane && typeof b.pane.id === 'string' ? b.pane.id : null;
-    elseLast = null;
-    liveStop();
-    setView({ kind: 'session', key: `${b.projectId || p.id}/${b.surfaceId}`, ...(pane ? { pane } : {}) });
-  } catch (e) {
-    elseError = { key, text: (e as Error).message };
-  } finally {
-    elseBusy = null;
-    if (S.view.kind === 'session' && S.view.key === key) void renderCentre();
-  }
 }
 
 // ---------------------------------------------------------------- first launch
@@ -1592,11 +1686,11 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   const k = cpOfSession(p, s);
   const body: (HTMLElement | null)[] = [statusLine(p, s, k)];
   // The same session runs in another terminal too (cmux's restore started
-  // it again there): both write one conversation. Said, never ended.
-  if (s.alsoOpen) {
-    const tw = s.alsoOpen;
-    body.push(h('div.sec.twin', h('p', `Also open in ${tw.name}: two ${assistantName(s.assistant) || 'assistant'} processes write this conversation. Close it in ${tw.name} to keep one.`),
-      h('button.btn.sm.self', { on: { click: () => void api().hubPost('/api/open', tw.surfaceId ? { projectId: p.id, surfaceId: tw.surfaceId } : { projectId: p.id, app: tw.term }).catch((e) => toast((e as Error).message, undefined, { at: here(), error: true })) } }, `Open in ${tw.name}`)));
+  // it again there), or went on there: one click puts it in one place.
+  if (s.alsoOpen || s.movedOn) {
+    const other = s.alsoOpen ? s.alsoOpen.name : s.movedOn!.name;
+    body.push(h('div.sec.twin', h('p', s.alsoOpen ? `Also open in ${other}.` : `This conversation went on in ${other}.`),
+      h('div.acts', ...moveActs(p, s, other, s.alsoOpen ? 'double open, panel' : 'went on elsewhere, panel', !!s.alsoOpen))));
   }
 
   if (k) body.push(cardFor(k, cardCtx));
@@ -1743,6 +1837,7 @@ async function handOff(p: HubProject, s: HubSession): Promise<void> {
 function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
+  moveStates();
   // A session that kept its id but changed its key keeps its place: the
   // middle, its pinned tab and the panel follow it.
   const moved = rekeyed(prev, next);

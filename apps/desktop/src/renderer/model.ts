@@ -25,10 +25,16 @@ export interface HubSession {
   screen?: string[];
   /** Why it cannot be typed into from here (a cmux tab Ravenry only reads). */
   cannotType?: string | null;
-  /** In a terminal outside Ravenry: whether its process still runs there, and so whether Continue in Ravenry can resume it. */
+  /** In a terminal outside Ravenry: whether its process still runs there (Move here ends it first). */
   outside?: { name: string; open: boolean; resumable: boolean } | null;
   /** In a Ravenry pane, and another process (in cmux, iTerm2, Rex) holds the same session too. */
   alsoOpen?: { name: string; term: string; surfaceId: string | null; pid?: number } | null;
+  /** A Move here waiting for the turn to end. */
+  moving?: { waiting: boolean; keep: 'ravenry' | 'outside'; name: string } | null;
+  /** The last move done (for a minute). */
+  moved?: { at: number; keep: 'ravenry' | 'outside'; ended: { pid: number; where: string; signal?: string; ms?: number; skipped?: boolean }[]; surfaceId: string | null } | null;
+  /** In a Ravenry pane: the conversation went on in another process since. */
+  movedOn?: { name: string; pid: number } | null;
   /** Its last turns from its transcript, oldest first, when no screen of it is read. */
   conversation?: { at?: string | null; ask?: string | null; text?: string | null; working?: boolean }[];
   /** The machine a remote session runs on (the hub's ravenryd over ssh); null on this one. */

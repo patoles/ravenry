@@ -148,6 +148,12 @@ const reopening = new Set();
 // and the pane each was resumed in (sessionId -> { at, surfaceId, pane }).
 const resumeBusy = new Set();
 const resumed = new Map();
+// Move here / Keep it in <terminal> (POST /api/sessions/move): a move asked
+// while the assistant was mid-turn, done by the tick once the turn ends
+// (sessionId -> { body, since, name }), and the last move done for each
+// session, shown for a minute (sessionId -> { at, keep, ended, surfaceId }).
+const moves = new Map();
+const movedLast = new Map();
 // The hook pids of sessions in a terminal outside Ravenry that still run,
 // asked each tick (server/sessions.mjs alivePids); null before the first.
 let outsideAlive = null;
@@ -966,12 +972,15 @@ function buildProject(project, wsById, hooks, settings, now) {
       freshSurface: (s.marker && s.marker.resumeSurfaceId) || null,
       doneWhen: s.screen.done ? s.screen.done.when : null,
       // In a terminal outside Ravenry: whether its process still runs
-      // there, and so whether Continue in Ravenry can resume it.
+      // there (Move here ends it first).
       outside: outsideOf(s),
       // In a Ravenry pane, and a process in another terminal holds the same
       // session (cmux's restore relaunched it there): both write one
-      // transcript. Said, never ended.
+      // transcript. Move here or Keep it there puts it in one place.
       alsoOpen: alsoOpenIn(s),
+      // A move waiting for the turn to end, the last one done, and whether
+      // this pane's conversation went on in another process (moveOf).
+      ...moveOf(s),
       // No screen to show: the conversation from its transcript instead.
       ...(s.terminal === false && s.transcript ? { conversation: conversationOf(s.transcript) } : {}),
       ...worktreeOf(s.surfaceId),
@@ -1158,6 +1167,8 @@ async function tick() {
     }
     for (const e of evAll.values()) { const t = otherTab(e); if (t && newestInTab.get(t.id) !== e) claimed.add(e.sessionId); }
     ev = { all: evAll, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
+    // A Move here that waited for a turn to end (moveSession).
+    if (moves.size) runMoves();
     await refreshOutsideAlive(evAll);
     const held = holdersInPanes(evAll);
     // Said once per change: when sessions get tied to their Ravenry panes
@@ -1267,7 +1278,7 @@ function refreshProcs() {
 function holdersInPanes(evAll) {
   const out = new Map();
   for (const p of procState.procs) {
-    if (!p.ravenryId) continue;
+    if (!p.ravenryId || endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
     const m = sess.mapProcess(p, { evAll, hooks: [], boardTab: null });
     if (m && m.sessionId && !out.has(m.sessionId)) out.set(m.sessionId, { pane: p.ravenryId, pid: p.pid });
   }
@@ -1565,13 +1576,13 @@ async function reopenSession(body) {
 // Ravenry pane, in its folder, with `claude --resume <id>` (`codex resume
 // <id>`), through ravenryd as any session the app starts. Never while a
 // process still holds that session id, wherever it runs: two processes on
-// one session would both write its transcript. The board never ends the
-// outside one; while it runs, the answer says to close it there first.
+// one session would both write its transcript. While another process
+// holds it, the answer says so; Move here (moveSession) ends it first.
 // Asked again for a session it resumed, the answer is the same pane.
 function procHolding(sid) {
   for (const p of procState.procs) {
     const m = sess.mapProcess(p, { evAll: ev.all, hooks: [], boardTab: null });
-    if ((m && m.sessionId === sid) || p.argvSession === sid) return p;
+    if (((m && m.sessionId === sid) || p.argvSession === sid) && !endedProcs.has(`${p.pid}@${p.startedAt}`)) return p;
   }
   return null;
 }
@@ -1625,6 +1636,163 @@ async function resumeSession(body) {
   } finally {
     resumeBusy.delete(sid);
   }
+}
+
+// ------------------------------------------------------------ Move here
+//
+// One click puts a conversation in one place (2026-11-07: "So the user
+// needs to understand all this by himself?"). POST /api/sessions/move
+// { projectId, sessionId, keep: 'ravenry' | 'outside', cols, rows }:
+//   keep 'ravenry' (Move here): every process on that session id ends, in
+//     the other terminal and in Ravenry, then it resumes in a Ravenry pane:
+//     the one it was in when its shell is still there, else a new one. The
+//     other terminal's tab is left with its shell.
+//   keep 'outside' (Keep it in cmux): the Ravenry copy ends; the other
+//     terminal's goes on.
+// A process ends only when the session is not mid-turn (its hook state:
+// the last event a prompt with no Stop after it); mid-turn, the move waits
+// and the tick does it once the turn ends. Each process is checked again
+// just before it is signalled: still alive, same start time, and still on
+// this session id. SIGTERM, then SIGKILL after 5 s only if it is still
+// there. Two processes never run on one session id after it.
+
+const MOVE_KILL_MS = 5000;
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+// The processes a move ended ("<pid>@<startedAt>"): left out of any process
+// list read before it caught up.
+const endedProcs = new Set();
+
+// Mid-turn, by the hook state.
+function busyOn(sid) {
+  const e = ev.all.get(sid);
+  return !!(e && !e.endedAt && e.last && e.last.event === 'UserPromptSubmit');
+}
+
+// The processes on this session id now (a fresh list first): { pid, startedAt, ravenryId, where }.
+async function holdersOf(sid) {
+  await refreshProcs();
+  const out = [];
+  for (const p of procState.procs) {
+    const m = sess.mapProcess(p, { evAll: ev.all, hooks: [], boardTab: null });
+    if (!((m && m.sessionId === sid) || p.argvSession === sid) || endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
+    const kind = p.ravenryId ? 'ravenry' : p.surfaceId ? 'cmux' : p.itermId ? 'iterm' : p.rexId ? 'rex' : termOf(ev.all.get(sid)) || null;
+    out.push({ pid: p.pid, startedAt: p.startedAt, ravenryId: p.ravenryId || null, where: kind === 'ravenry' ? 'Ravenry' : term.nameOf(kind) || 'another terminal' });
+  }
+  return out;
+}
+
+// Ends one process of this session: { pid, where, signal, ms } or { pid, skipped }.
+async function endHolder(h, sid) {
+  const now = (await holdersOf(sid)).find((x) => x.pid === h.pid && x.startedAt === h.startedAt);
+  if (!now) { console.log(`sessions: move ${sid}: left ${h.pid} alone (no longer on this session)`); return { pid: h.pid, where: h.where, skipped: true }; }
+  const t0 = Date.now();
+  try { process.kill(h.pid, 'SIGTERM'); } catch { endedProcs.add(`${h.pid}@${h.startedAt}`); return { pid: h.pid, where: h.where, signal: 'gone', ms: 0 }; }
+  while (alive(h.pid) && Date.now() - t0 < MOVE_KILL_MS) await new Promise((r) => setTimeout(r, 100));
+  let signal = 'SIGTERM';
+  if (alive(h.pid)) { try { process.kill(h.pid, 'SIGKILL'); } catch { /* gone */ } signal = 'SIGKILL'; for (let i = 0; i < 20 && alive(h.pid); i++) await new Promise((r) => setTimeout(r, 100)); }
+  const ms = Date.now() - t0;
+  if (!alive(h.pid)) endedProcs.add(`${h.pid}@${h.startedAt}`);
+  console.log(`sessions: move ${sid}: ended ${h.pid} in ${h.where} with ${signal} in ${ms} ms`);
+  return { pid: h.pid, where: h.where, signal, ms };
+}
+
+async function moveSession(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const sid = String(b.sessionId || '').toLowerCase();
+  const keep = b.keep === 'outside' ? 'outside' : 'ravenry';
+  if (!sess.UUID.test(sid)) return { ok: false, status: 400, error: 'sessionId is a session id.' };
+  const project = findProject(b.projectId);
+  if (!project) return { ok: false, status: 404, error: 'No such project.' };
+  const e = ev.all.get(sid) || null;
+  if ((e && e.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; move it there.' };
+  const snap = snapshot.projects.find((x) => x.id === project.id);
+  const s = snap ? snap.sessions.find((x) => x.sessionId === sid) || null : null;
+  if (!e && !s) return { ok: false, status: 404, error: 'No such session in that project.' };
+  if (resumeBusy.has(sid)) return { ok: false, status: 409, error: 'Already moving it.' };
+  const holders0 = await holdersOf(sid);
+  const outside = holders0.find((h) => !h.ravenryId);
+  const name = outside ? outside.where : termOf(e) ? term.nameOf(termOf(e)) : 'the other terminal';
+  if (busyOn(sid)) {
+    moves.set(sid, { body: { ...b, keep }, since: Date.now(), name: (holders0.find((h) => (keep === 'ravenry' ? !h.ravenryId : h.ravenryId)) || holders0[0] || { where: name }).where });
+    console.log(`sessions: move ${sid} (keep ${keep}): waiting for the turn to end`);
+    wantTick = true;
+    return { ok: true, waiting: true, name: moves.get(sid).name };
+  }
+  moves.delete(sid);
+  resumeBusy.add(sid);
+  try {
+    const ended = [];
+    const inRavenry = holders0.filter((h) => h.ravenryId);
+    if (keep === 'outside') {
+      for (const h of inRavenry) ended.push(await endHolder(h, sid));
+      resumed.delete(sid);
+      movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: null });
+      // The rows follow: the process list without the copy that ended.
+      await refreshProcs();
+      wantTick = true; setTimeout(tick, 30);
+      return { ok: true, keep, ended };
+    }
+    // The Ravenry pane it was in (its process, else the board's row).
+    const paneId = (inRavenry[0] && inRavenry[0].ravenryId) || (s && term.kindOf(s.surfaceId) === 'ravenry' ? s.surfaceId.slice('ravenry:'.length) : null);
+    for (const h of holders0) ended.push(await endHolder(h, sid));
+    resumed.delete(sid);
+    const left = await holdersOf(sid);
+    if (left.length) return { ok: false, status: 409, error: `It is still running (pid ${left.map((h) => h.pid).join(', ')}), so it was not started again.`, ended };
+    let r = null;
+    if (paneId) {
+      const kind = asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
+      const pl = sessionstart.plan({ projectId: project.id, folder: [e && e.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || project.folder, assistant: kind, resume: sid }, {
+        project, launch: (_p, k) => launchFor({ kind: k, note: null }), machines: machines.status().map((m) => m.name), binPath: assistantPath,
+      });
+      if (pl.ok) {
+        const typed = await term.ravenryType(paneId, pl.line);
+        if (typed.ok) { r = { ok: true, surfaceId: typed.surfaceId, pane: typed.pane, projectId: project.id, command: pl.line, same: true }; resumed.set(sid, { at: Date.now(), surfaceId: typed.surfaceId, pane: typed.pane }); }
+      }
+    }
+    if (!r) {
+      resumeBusy.delete(sid);
+      r = await resumeSession({ projectId: project.id, sessionId: sid, cols: b.cols, rows: b.rows });
+    }
+    if (r.ok) console.log(`sessions: move ${sid}: resumed in ${r.surfaceId}${r.same ? ' (the same pane)' : ''}`);
+    movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: r.ok ? r.surfaceId : null });
+    wantTick = true; setTimeout(tick, 30);
+    setTimeout(refreshProcs, 2000);
+    return { ...r, keep, ended };
+  } finally {
+    resumeBusy.delete(sid);
+  }
+}
+
+// The tick's part: a waiting move goes once its turn has ended.
+function runMoves() {
+  for (const [sid, m] of moves) {
+    if (busyOn(sid)) continue;
+    moves.delete(sid);
+    moveSession(m.body).then((r) => console.log(`sessions: move ${sid} after its turn: ${r.ok ? 'done' : r.error}`), (err) => console.log(`sessions: move ${sid} after its turn failed: ${err.message}`));
+  }
+}
+
+// What the session's card and tab show about a move: { waiting, name } while
+// one waits for the turn to end; the last move's result for a minute; and,
+// for a session in a Ravenry pane whose conversation went on in another
+// process, { movedOn: name }.
+function moveOf(s) {
+  if (!s.sessionId) return {};
+  const out = {};
+  const w = moves.get(s.sessionId);
+  if (w) out.moving = { waiting: true, keep: w.body.keep, name: w.name };
+  const last = movedLast.get(s.sessionId);
+  if (last && Date.now() - last.at < 60000) out.moved = last;
+  if (term.kindOf(s.surfaceId) === 'ravenry') {
+    const e = ev.all.get(s.sessionId);
+    const mine = paneHolders.get(s.sessionId);
+    const p = mine ? procState.procs.find((x) => x.pid === mine.pid) : null;
+    // The latest hook came from another process, after this pane's started.
+    if (e && e.pid && mine && e.pid !== mine.pid && p && p.startedAt && e.pidAt && e.pidAt > p.startedAt && !busyOn(s.sessionId)) {
+      out.movedOn = { name: term.nameOf(termOf(e)) || 'another terminal', pid: e.pid };
+    }
+  }
+  return out;
 }
 
 // ------------------------------------------------------------ hand-off
@@ -3355,6 +3523,12 @@ async function handleRequest(req, res) {
         body = null;
         if (r.ok) { wantTick = true; setTimeout(tick, 30); }
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => c)(r.checkpoint) } : { error: r.error });
+      }
+      if (p === '/api/sessions/move') {
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = await moveSession(body);
+        return sendJson(res, r.ok ? 200 : r.status || 500, r);
       }
       if (p === '/api/sessions/resume') {
         let body;

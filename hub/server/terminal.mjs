@@ -303,6 +303,7 @@ export const ravenryDecider = (report, where) => ravenry.handoffDecider(report, 
 // Remote machines, sessions started through the hub, checkpoint answers.
 export const ravenryMachineOf = (surfaceId) => ravenry.machineOfTab(surfaceId);
 export const ravenryStart = (o) => ravenry.startSession(o);
+export const ravenryType = (id, line) => ravenry.typeInPane(id, line);
 export const ravenryAnswer = (daemon, params) => ravenry.answerCheckpoint(daemon, params);
 export const ravenryApprove = (o) => ravenry.newApprove(o);
 export const ravenryBin = () => ravenry.findBin();

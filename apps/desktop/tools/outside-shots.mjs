@@ -11,12 +11,12 @@
 // Each frame in dark and light, 1440x900, as <outDir>/<frame>-dark.png and
 // -light.png:
 //   outside-live       still open in cmux, which lets Ravenry read it: its
-//                      discussion live, Open in cmux, Continue in Ravenry
+//                      discussion live, Open in cmux, Move here
 //                      off with the line that says why
 //   outside-refused    still open in cmux, which lets only programs it
 //                      started read its tabs: one line says so, and the
 //                      conversation comes from its transcript
-//   outside-closed     its process ended in cmux: Continue in Ravenry
+//   outside-closed     its process ended in cmux: Move here
 //   brief-open         the brief's Next unfolded (Show less)
 //
 // Needs ravenryd: RAVENRYD, else ../../daemon/ravenryd.
