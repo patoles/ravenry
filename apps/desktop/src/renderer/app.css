@@ -126,7 +126,9 @@ body.first .sl { flex: none; }
 .stage > * { flex: 1; min-width: 0; }
 .stage > [hidden] { display: none; }
 .term-host { padding: 10px 6px 6px 14px; background: var(--term-bg); }
-.term-host .xterm { height: 100%; }
+/* padding-right: the gutter beside the last column, where an agent's input
+   is marked (marks.ts); FitAddon leaves it out of the columns. */
+.term-host .xterm { height: 100%; padding-right: 10px; }
 .term-host .xterm-viewport { background: var(--term-bg) !important; }
 .term-host .xterm-viewport::-webkit-scrollbar { width: 8px; }
 .term-host .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }

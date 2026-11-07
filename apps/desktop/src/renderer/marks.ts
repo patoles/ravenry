@@ -1,16 +1,23 @@
-// What an agent typed into the pane on screen, marked where it shows (6,
-// variant B): the exact keys it pressed are tinted in its colour, and its
-// name and the time sit at the end of that line, with "you let it once"
-// when a drive let that input through. The person's own typing stays
-// plain. Nothing moves: the marks are xterm.js decorations over the cells,
-// so the terminal keeps its width and its columns.
+// What an agent, or the hub, typed into the pane on screen, marked beside
+// the line it shows on: a thin bar in the terminal's right gutter, in the
+// agent's colour, and its name and the time on hover. Nothing is ever
+// painted over the cells (2026-11-07: a box over an unrelated line, and the
+// label drawn on the text at the right). The person's own input (the
+// window's typing and pastes, the phone's) is never marked: the host says
+// so (who() is null). Every input, the person's included, stays in the
+// panel's "Typed here" list.
 //
 // Where an input shows: the daemon logs each input with `mark`, the output
 // position just before it. The terminal notes, after each frame it writes,
 // which output position its cursor stands at; the echo of an input starts
 // at or after the last such point before its mark, so its text is looked
-// for from there. An input from before the screen was attached (its mark
-// is older than the snapshot) is looked for backwards from the snapshot.
+// for from there. A program that redraws its region (Claude Code's input
+// box) may never show the echo where it was typed: after a few frames the
+// mark goes on the line the cursor stood on when the input came. An input
+// from before the screen was attached (its mark is older than the
+// snapshot) is looked for backwards from the snapshot. The marks are
+// xterm.js decorations on a marker, so they follow scrolling and reflow;
+// on the alternate screen (a full-screen program) none are placed.
 
 import type { IDecoration, IMarker, Terminal } from '@xterm/xterm';
 import type { InputRecord } from '@ravenry/client';
@@ -29,23 +36,35 @@ export interface MarkHost {
 
 const MAX_POINTS = 4000;
 const LOOK_AHEAD = 40;
+/** Frames after an input before its mark goes on the cursor's line instead of its echo's. */
+const ECHO_FRAMES = 3;
 
 export class TerminalMarks {
   private points: Point[] = [];
   private snapshotAt: Point | null = null;
-  private placed = new Map<number, IDecoration[]>();
+  private placed = new Map<number, { marker: IMarker; deco: IDecoration | null; r: InputRecord; text: string }>();
+  /** Marks whose text a redraw took off the screen: not placed again. */
+  private gone = new Set<number>();
+  private tries = new Map<number, number>();
   private pending: InputRecord[] = [];
   private queued = false;
   private records: InputRecord[] = [];
 
   private term: Terminal;
   private host: MarkHost;
-  constructor(term: Terminal, host: MarkHost) { this.term = term; this.host = host; }
+  constructor(term: Terminal, host: MarkHost) {
+    this.term = term;
+    this.host = host;
+    // The gutter is right of the last column: a resize puts each mark there again.
+    term.onResize(() => { for (const [seq, p] of this.placed) { p.deco?.dispose(); this.placed.set(seq, { ...p, deco: this.gutter(p.marker, p.r) }); } });
+  }
 
   /** A new pane on screen: everything starts over. */
   reset(): void {
-    for (const ds of this.placed.values()) for (const d of ds) d.dispose();
+    for (const p of this.placed.values()) { p.deco?.dispose(); p.marker.dispose(); }
     this.placed.clear();
+    this.tries.clear();
+    this.gone.clear();
     for (const p of this.points) p.marker.dispose();
     this.points = [];
     this.snapshotAt = null;
@@ -68,13 +87,13 @@ export class TerminalMarks {
     }
     this.points.push(p);
     if (this.points.length > MAX_POINTS) this.points.splice(0, this.points.length - MAX_POINTS).forEach((x) => x.marker.dispose());
-    if (this.pending.length || snapshot) this.queue();
+    if (this.pending.length || this.placed.size || snapshot) this.queue();
   }
 
   /** The pane's input log, oldest first: the agents' inputs get marked. */
   show(records: InputRecord[]): void {
     this.records = records;
-    this.pending = records.filter((r) => !this.placed.has(r.seq) && this.host.who(r));
+    this.pending = records.filter((r) => !this.placed.has(r.seq) && !this.gone.has(r.seq) && this.host.who(r));
     this.queue();
   }
 
@@ -110,6 +129,9 @@ export class TerminalMarks {
 
   private place(): void {
     if (!this.snapshotAt) return;
+    // A full-screen program owns the screen: nothing is marked on it.
+    if (this.term.buffer.active.type === 'alternate') return;
+    this.follow();
     const snap = this.snapshotAt;
     const left: InputRecord[] = [];
     // Before the snapshot: backwards, each before the one after it.
@@ -143,53 +165,99 @@ export class TerminalMarks {
         found.push({ ...f, n: part.length });
         at = { y: f.y, x: f.x + part.length };
       }
-      if (found.length === parts.length) this.decorate(r, found);
-      else left.push(r); // its echo has not come yet
+      if (found.length === parts.length) { this.decorate(r, found); continue; }
+      // A program that redraws may have put it above where it came (Claude
+      // Code moves a sent line from its input box up into the transcript).
+      const lastPart = parts[parts.length - 1];
+      const b = this.term.buffer.active;
+      const up = lastPart.length > 1 ? this.findBefore(lastPart, b.baseY + b.cursorY, b.cursorX + 1) : null;
+      if (up && up.y >= from.marker.line - LOOK_AHEAD) { this.decorate(r, [{ ...up, n: lastPart.length }]); continue; }
+      // Its echo has not come yet, or the program redrew it away: after a
+      // few frames, the line the cursor stood on when it came.
+      const n = (this.tries.get(r.seq) || 0) + 1;
+      this.tries.set(r.seq, n);
+      if (n >= ECHO_FRAMES && this.points.some((p) => p.mark > r.mark)) this.decorate(r, [{ y: from.marker.line, x: from.x, n: 1 }]);
+      else left.push(r);
     }
     this.pending = left;
   }
 
   private decorate(r: InputRecord, found: { y: number; x: number; n: number }[]): void {
-    const w = this.host.who(r);
-    if (!w) return;
+    if (!this.host.who(r)) return;
     const b = this.term.buffer.active;
     const here = b.baseY + b.cursorY;
-    const ds: IDecoration[] = [];
-    for (const f of found) {
-      const m = this.term.registerMarker(f.y - here);
-      if (!m) continue;
-      const d = this.term.registerDecoration({ marker: m, x: f.x, width: Math.max(1, f.n), layer: 'top' });
-      if (d) { d.onRender((el) => { el.classList.add('am', 'am-tint', w.cls); }); ds.push(d); }
-    }
-    // The name and the time at the end of the last line it shows on.
+    // Anchored to the last line it shows on.
     const last = found[found.length - 1];
-    const note = this.host.note(r);
-    const label = `${w.name} ${this.host.time(r.at)}${note ? `, ${note}` : ''}`;
-    const used = this.lineText(last.y).replace(/\s+$/, '').length;
-    const cols = this.term.cols;
-    const width = Math.min(cols - used - 1, Math.ceil(label.length * 0.86) + 1);
-    if (width > 6) {
-      const m = this.term.registerMarker(last.y - here);
-      const d = m ? this.term.registerDecoration({ marker: m, x: cols - width, width, layer: 'top' }) : undefined;
-      if (d) {
-        d.onRender((el) => {
-          el.classList.add('am', 'am-say');
-          if (!el.firstChild) {
-            const name = document.createElement('b');
-            name.className = w.cls;
-            name.textContent = w.name;
-            el.append(name, `${this.host.time(r.at)}${note ? `, ${note}` : ''}`);
-          }
-        });
-        ds.push(d);
+    const marker = this.term.registerMarker(last.y - here);
+    if (!marker) return;
+    this.tries.delete(r.seq);
+    const parts = echoParts(r.text);
+    // What must stay on that line: its echo (none when placed by the cursor).
+    const text = found.length === parts.length && last.n > 1 ? parts[parts.length - 1] : '';
+    this.placed.set(r.seq, { marker, deco: this.gutter(marker, r), r, text });
+  }
+
+  /**
+   * A program that redraws (Claude Code's input box) moves or wipes what
+   * was typed: a mark follows its text to the nearest line that shows it,
+   * and goes when no line does (the panel's "Typed here" keeps it).
+   */
+  private follow(): void {
+    const b = this.term.buffer.active;
+    const bottom = b.length;
+    for (const [seq, p] of this.placed) {
+      if (!p.text || p.marker.isDisposed) continue;
+      const y = p.marker.line;
+      if (y < bottom - 400) continue; // long scrolled away: nothing redraws there
+      if (this.lineText(y).includes(p.text)) continue;
+      let best = -1;
+      for (let yy = Math.max(0, y - LOOK_AHEAD); yy < Math.min(bottom, y + LOOK_AHEAD); yy++) {
+        if (this.lineText(yy).includes(p.text) && (best < 0 || Math.abs(yy - y) < Math.abs(best - y))) best = yy;
       }
+      p.deco?.dispose();
+      p.marker.dispose();
+      this.placed.delete(seq);
+      if (best < 0) { this.gone.add(seq); continue; }
+      const marker = this.term.registerMarker(best - (b.baseY + b.cursorY));
+      if (!marker) { this.gone.add(seq); continue; }
+      this.placed.set(seq, { ...p, marker, deco: this.gutter(marker, p.r) });
     }
-    this.placed.set(r.seq, ds);
+  }
+
+  /** The bar in the right gutter beside the marker's line, and its label on hover. */
+  private gutter(marker: IMarker, r: InputRecord): IDecoration | null {
+    const w = this.host.who(r);
+    if (!w || marker.isDisposed) return null;
+    // A cell-wide decoration on the last column that paints nothing itself:
+    // its children sit outside it, in the gutter (app.css .am-gut).
+    const d = this.term.registerDecoration({ marker, x: this.term.cols - 1, width: 1, layer: 'top' });
+    if (!d) return null;
+    const note = this.host.note(r);
+    d.onRender((el) => {
+      el.classList.add('am');
+      if (el.firstChild) return;
+      const bar = document.createElement('i');
+      bar.className = `am-gut ${w.cls}`;
+      const label = document.createElement('span');
+      label.className = 'am-lbl';
+      const name = document.createElement('b');
+      name.className = w.cls;
+      name.textContent = w.name;
+      label.append(name, ` ${this.host.time(r.at)}${note ? `, ${note}` : ''}`);
+      bar.append(label);
+      el.append(bar);
+    });
+    return d;
   }
 
   /** What it holds, for tests. */
   debug(): unknown {
     return { points: this.points.length, snapshot: this.snapshotAt ? { mark: this.snapshotAt.mark, line: this.snapshotAt.marker.line, x: this.snapshotAt.x } : null, pending: this.pending.map((r) => [r.seq, r.mark, r.text]), records: this.records.map((r) => [r.seq, r.mark, r.source.kind, r.text]), placed: this.marked };
+  }
+
+  /** Each mark's line as the screen shows it now, for tests. */
+  lines(): { seq: number; line: number; text: string }[] {
+    return [...this.placed].filter(([, p]) => !p.marker.isDisposed).map(([seq, p]) => ({ seq, line: p.marker.line, text: this.lineText(p.marker.line) }));
   }
 
   /** The records shown now, for tests. */

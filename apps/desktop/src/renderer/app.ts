@@ -164,8 +164,17 @@ const store = new PaneStore();
 let marks: TerminalMarks;
 
 /** Who a Source is, as people know it: "Claude" in "Tilting the hull", "You". */
+// The person's own input: what they typed or pasted in this window
+// (`ravenry-desktop`, whatever the daemon judged it: a window started from
+// a pane was once taken for that pane's agent) or on the phone's terminal
+// (`ravenry-hub-term`). Never marked on the screen (marks.ts).
+const PERSON_CLIENTS = new Set(['ravenry-desktop', 'ravenry-hub-term']);
+function byPerson(src: Source | null | undefined): boolean {
+  return !src || src.kind === 'person' || PERSON_CLIENTS.has(src.client || '');
+}
+
 function sourceOf(src: Source | null | undefined): Who {
-  if (!src || src.kind === 'person') return { who: 'You', where: null, cls: 'you' };
+  if (!src || byPerson(src)) return { who: 'You', where: null, cls: 'you' };
   if (src.kind === 'agent' && src.pane) {
     const f = sessionOfPane(S.hub, src.pane);
     const k = store.get(src.pane);
@@ -175,6 +184,8 @@ function sourceOf(src: Source | null | undefined): Who {
     const where = f ? f.session.topic || f.project.name : t ? tabLabel(t).name : k?.pane.name || null;
     return { who, where: where && where !== who ? where : null, cls: kind === 'claude' || kind === 'codex' ? kind : 'other' };
   }
+  // The hub: Move here's resume command, a hand-off's prompt.
+  if (src.client === 'ravenry-hub') return { who: 'Ravenry', where: null, cls: 'other' };
   return { who: src.client || 'A program', where: null, cls: 'other' };
 }
 
@@ -2112,7 +2123,18 @@ function onDaemonReady(socket: string, client: RavenryClient): void {
   // What it holds now: events only say what changes from here.
   if (!client.supports('checkpoint.list')) return;
   void client.request('checkpoint.list', {}).then(({ checkpoints }) => {
-    for (const cp of checkpoints) onCheckpoint(socket, cp);
+    for (const cp of checkpoints) {
+      // The person's own typing, taken for an agent's while this window was
+      // judged inside a pane (2026-11-07: opened with `open -a` from a pane):
+      // a drive "asked" by a connection named as this app is no question.
+      // Withdrawn once the window is the person again (a daemon from 0.1.15
+      // does it itself; an older one keeps it until asked).
+      if (client.hello.person !== false && cp.state === 'open' && cp.kind === 'drive' && cp.drive?.agent?.client === 'ravenry-desktop') {
+        void client.request('checkpoint.cancel', { checkpoint: cp.id, reason: 'typed by the person in the Ravenry window, which was taken for a program in a pane' }).catch(() => {});
+        continue;
+      }
+      onCheckpoint(socket, cp);
+    }
   }).catch(() => {});
 }
 
@@ -2238,7 +2260,7 @@ async function boot(): Promise<void> {
   daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
   store.useClients((s) => daemons.get(s));
   marks = new TerminalMarks(term.term, {
-    who: (r) => (r.source.kind === 'person' ? null : (() => { const w = sourceOf(r.source); return { name: w.who, cls: w.cls }; })()),
+    who: (r) => (byPerson(r.source) ? null : (() => { const w = sourceOf(r.source); return { name: w.who, cls: w.cls }; })()),
     note: (r) => { const a = term.attached; const l = a ? letBy(a.pane, r) : null; return l ? (l.once ? 'you let it once' : 'you let it for its session') : null; },
     time: (iso) => timeOf(iso, now()),
   });

@@ -34,14 +34,17 @@
 .popen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 
 /* ------------------------------------------------ 6 B: the keys an agent pressed, tinted */
-.am { pointer-events: none; }
-.am-tint { box-sizing: border-box; border-radius: 2px; }
-.am-tint.claude { background: var(--claude-t); box-shadow: inset 0 0 0 1px rgba(191,90,242,.65); }
-.am-tint.codex { background: var(--codex-t); box-shadow: inset 0 0 0 1px rgba(64,156,255,.65); }
-.am-tint.other { background: rgba(255,255,255,.12); box-shadow: inset 0 0 0 1px rgba(255,255,255,.4); }
-.am-say { display: flex; align-items: center; justify-content: flex-end; font: 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; color: #A1A1A8; white-space: nowrap; padding-right: 2px; }
-.am-say b { font-weight: 600; margin-right: 4px; }
-.am-say b.claude { color: #DA8FFF; } .am-say b.codex { color: #6BB5FF; } .am-say b.other { color: #D1D1D6; }
+/* An agent's input (marks.ts): a bar in the right gutter beside its line,
+   never over the cells; its name and time on hover. The decoration itself
+   (.am, on the last column) paints nothing. */
+.am { pointer-events: none; overflow: visible !important; }
+.am-gut { position: absolute; top: 2px; bottom: 2px; left: calc(100% + 4px); width: 3px; border-radius: 2px; pointer-events: auto; background: rgba(209,209,214,.55); }
+.am-gut.claude { background: #BF5AF2; } .am-gut.codex { background: #409CFF; }
+.am-gut::before { content: ''; position: absolute; inset: -2px -4px; }
+.am-lbl { display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); padding: 3px 7px; border-radius: 5px; background: var(--term-bg, #161618); box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 4px 12px rgba(0,0,0,.35); font: 11px/1.2 -apple-system, BlinkMacSystemFont, sans-serif; color: #A1A1A8; white-space: nowrap; }
+.am-gut:hover .am-lbl { display: block; }
+.am-lbl b { font-weight: 600; }
+.am-lbl b.claude { color: #DA8FFF; } .am-lbl b.codex { color: #6BB5FF; } .am-lbl b.other { color: #D1D1D6; }
 
 /* ------------------------------------------------ 6 C: the pane's panel */
 .p-org { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--tx2); }
@@ -241,7 +244,6 @@
 .rv[hidden] { display: none; }
 .toast .lk { color: var(--link); }
 .fl-card { flex: none; }
-.am-say { background: transparent; }
 .tab:not(.on):not(:hover) .x { display: none; }
 .tab { gap: 6px; }
 /* The tabs: never shrunk, so a name is never cut to fit. When they crowd,
