@@ -200,6 +200,9 @@ export function childKind(file, args = [], env = null) {
   const f = String(file || '');
   if (!f) return null;
   if (isApp(f) && !(env && env.ELECTRON_RUN_AS_NODE === '1')) return 'app';
+  // macOS's open starting an app bundle (open -a X, open X.app): the app
+  // gets the caller's environment (2026-11-07, an app opened from a pane).
+  if (/^\/usr\/bin\/open$|^open$/.test(f) && (args || []).some((a, i) => /\.app\/?$/.test(String(a)) || (args[i - 1] === '-a' || /^-[a-zA-Z]*a$/.test(String(args[i - 1] || ''))))) return 'app';
   if (isNode(f, env)) {
     const script = (args || []).find((a) => typeof a === 'string' && !a.startsWith('-'));
     return script && HUB_SCRIPT.test(script) ? 'hub' : null;
@@ -306,9 +309,16 @@ export function paneVarsIn(env) {
   return Object.keys(env || {}).filter((k) => PANE_VARS.includes(k) || /^(CMUX_|ITERM_SESSION_ID$|TMUX$|REX_)/.test(k));
 }
 
+// A tool that proves the app's own answer to a start from a pane
+// (apps/desktop/tools/relaunch-check.mjs) says so first; even then only an
+// app in the relaunch test mode, which keeps the test's folders, may start
+// with them.
+let paneLaunchAllowed = false;
+export function allowPaneLaunch() { paneLaunchAllowed = true; }
+
 function check(file, args, opts) {
   const env = (opts && opts.env) || process.env;
-  if (childKind(file, args, env) === 'app') {
+  if (childKind(file, args, env) === 'app' && !(paneLaunchAllowed && /^(1|foreground)$/.test(String(env.RAVENRY_RELAUNCH_TEST || '')))) {
     const leak = paneVarsIn(env);
     if (leak.length) throw new Error(`Refused to start the app (${path.basename(String(file))}): its environment has a terminal pane's variables (${leak.join(', ')}); start it with a clean one.`);
   }

@@ -30,7 +30,9 @@ export const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
  * RAVENRY_RELAUNCH_TEST=1, for tools/relaunch-check.mjs only: the self-heal
  * runs in a test run too, the new app keeps these, so it stays in the
  * test's folders and off the person's hub, offscreen and without a
- * service, and it opens in the background. Honoured only when the data, runtime and state folders are
+ * service, and it opens in the background (`foreground` instead of 1: it
+ * opens as the person's would, without -g, for the release check, which
+ * proves the path a real start takes). Honoured only when the data, runtime and state folders are
  * all set, so it never runs on the person's own. It adds nothing an agent
  * could not do with `env -i RAVENRY_DESKTOP_DATA=... open -a Ravenry`, and
  * never keeps a variable that drives the app.
@@ -51,7 +53,7 @@ export function paneVars(env: Env): string[] {
 }
 
 export function testRelaunch(env: Env): boolean {
-  return env[TEST_FLAG] === '1' && !!env.RAVENRY_DESKTOP_DATA && !!env.RAVENRY_RUNTIME_DIR && !!env.RAVENRY_STATE_DIR;
+  return (env[TEST_FLAG] === '1' || env[TEST_FLAG] === 'foreground') && !!env.RAVENRY_DESKTOP_DATA && !!env.RAVENRY_RUNTIME_DIR && !!env.RAVENRY_STATE_DIR;
 }
 
 /** The relaunched app's environment, and the names of the variables it drops (sorted). */
@@ -112,7 +114,7 @@ export function relaunchPlan(o: { env: Env; packaged: boolean; platform: string;
   const bundle = bundleOf(o.execPath);
   if (!bundle) return { relaunch: false, why: 'no-bundle' };
   // A test's relaunch stays in the background: it never takes the focus from the person.
-  return { relaunch: true, bundle, ...cleanEnv(env), background: testRelaunch(env) };
+  return { relaunch: true, bundle, ...cleanEnv(env), background: testRelaunch(env) && env[TEST_FLAG] !== 'foreground' };
 }
 
 /**

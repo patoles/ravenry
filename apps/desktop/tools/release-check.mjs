@@ -56,7 +56,16 @@
 //   12 startup      hub/tools/startup-load-test.mjs on the packaged hub: on
 //                   a big made-up set of projects and sessions, its first
 //                   answer within 1 s of its listen line, no answer over 1 s
-//                   in its first 30 s, its state within 10 s
+//                   in its first 30 s; with a 70 MB transcript of 200 task
+//                   launches and 761 hook reports for it in the daemon's
+//                   ring, its first state within 3 s, its main thread never
+//                   held over 200 ms, that session's running tasks right
+//   13 pane start   tools/relaunch-check.mjs on a copy: started with a
+//                   pane's variables it relaunches clean; opened with
+//                   open -n -a in the foreground, exactly one instance is
+//                   left, with none of RAVENRY_PANE, RAVENRY_SOCKET,
+//                   TERM_PROGRAM
+//   env             every app the check launched ran with a clean environment
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
 import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
@@ -612,7 +621,27 @@ try {
     const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub'), '--ravenryd', path.join(app, 'Contents', 'Resources', 'ravenryd')], { encoding: 'utf8', timeout: 600000 });
     const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
     const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
-    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, and has its state within 10 s', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
+    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms, and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
+    fs.rmSync(k, { recursive: true, force: true });
+  });
+  // ------------------------------------------------------------ 13, opened from a pane
+  // On 2026-11-07 the app, opened with `open -a` by an agent in a Ravenry
+  // pane, inherited RAVENRY_PANE and RAVENRY_SOCKET, and the daemon took
+  // its whole window for that pane. The packaged app now relaunches itself
+  // clean (src/main/relaunch.ts); tools/relaunch-check.mjs proves it on a
+  // copy, last in the foreground (open -n -a, no -g) as the person's start.
+  await guarded('13 opened from a pane', async () => {
+    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcr-'));
+    const app = path.join(k, 'Ravenry.app');
+    execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+    const r = spawnSync(process.execPath, [path.join(HERE, 'relaunch-check.mjs'), app, path.join(OUT, 'relaunch')], { encoding: 'utf8', timeout: 180000 });
+    let j = null;
+    try { j = JSON.parse(fs.readFileSync(path.join(OUT, 'relaunch', 'relaunch-check.json'), 'utf8')); } catch { /* below */ }
+    const rows = j ? j.steps : [];
+    const fg = rows.filter((x) => x.name.startsWith('3 '));
+    step(`13 opened from a pane: started with RAVENRY_PANE and RAVENRY_SOCKET, it relaunches clean (${rows.filter((x) => x.ok).length} of ${rows.length} rows, tools/relaunch-check.mjs)`, r.status === 0 && rows.length > 0 && rows.every((x) => x.ok), { failed: rows.filter((x) => !x.ok), out: (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-500) });
+    step('13 opened from a pane in the foreground (open -n -a, no -g): once it settles, exactly one instance runs, with none of RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM', fg.length >= 3 && fg.every((x) => x.ok), { rows: fg });
+    spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ the app's environment

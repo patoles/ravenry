@@ -70,6 +70,9 @@ test('the test opt-in needs the three test folders, keeps only them and the swit
   assert.equal(p.relaunch, true);
   if (!p.relaunch) return;
   assert.equal(p.background, true);
+  // `foreground`: the same, opened as the person's start would be (no -g).
+  const fg = plan({ ...t, RAVENRY_RELAUNCH_TEST: 'foreground' });
+  assert.ok(fg.relaunch && fg.background === false && !('RAVENRY_RELAUNCH_TEST' in fg.env));
   assert.deepEqual(Object.keys(p.env).filter((k) => k.startsWith('RAVENRY_')).sort(), ['RAVENRY_DESKTOP_DATA', 'RAVENRY_HUB_URL', 'RAVENRY_OFFSCREEN', 'RAVENRY_RUNTIME_DIR', 'RAVENRY_SERVICE', 'RAVENRY_SERVICE_LABEL', 'RAVENRY_STATE_DIR', 'RAVENRY_UPDATES']);
   for (const k of ['RAVENRY_RELAUNCH_TEST', 'RAVENRY_PANE', 'RAVENRY_SOCKET', 'RAVENRY_DRIVER', 'NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE']) assert.ok(p.dropped.includes(k), k);
   // Without all three folders it is no opt-in: an offscreen test run, which stays.

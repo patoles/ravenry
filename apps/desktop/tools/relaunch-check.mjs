@@ -13,7 +13,12 @@
 //      LaunchServices, runs with no pane variable, no driver, no argument,
 //      and app.log says it relaunched clean and what it dropped;
 //   2. the loop guard: with the marker a relaunch leaves, a start that
-//      still has pane variables stays up and says so.
+//      still has pane variables stays up and says so;
+//   3. as the person's start would be: `open -n -a` (in the foreground, no
+//      -g) with RAVENRY_PANE and RAVENRY_SOCKET set, the relaunch also
+//      without -g (RAVENRY_RELAUNCH_TEST=foreground): once it settles,
+//      exactly one instance of the copy runs, with none of the pane's
+//      variables. Its window is offscreen; the app comes to the front.
 //
 // Everything runs in a throwaway HOME, data, runtime and state folder,
 // offscreen, with no hub service, no updates and a hub URL nobody answers
@@ -21,13 +26,15 @@
 // in the background (open -g), so the person's focus stays where it is.
 // Whatever it started is stopped at the end, and the copy is taken out of
 // LaunchServices' list. macOS only. Writes OUT/relaunch-check.json.
-import { guardSpawns } from '../../../tools/test-env.mjs';
+import { guardSpawns, allowPaneLaunch } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 
 guardSpawns();
+// This tool starts the app with a pane's variables on purpose.
+allowPaneLaunch();
 
 if (process.platform !== 'darwin') { console.log('relaunch-check: macOS only'); process.exit(0); }
 const APP = process.argv[2] && path.resolve(process.argv[2]);
@@ -121,6 +128,29 @@ try {
   step('2 loop guard: app.log says it stays', !!loopLine, { line: loopLine });
   loop.kill('SIGTERM');
   await until(() => !alive(loop.pid), 10000);
+
+  // 3. In the foreground, as an agent's `open -a` started it on 2026-11-07.
+  try { fs.rmSync(marker, { force: true }); } catch { /* none */ }
+  await until(() => mains().length === 0, 10000);
+  const fgEnv = { ...env, RAVENRY_DRIVER: undefined, RAVENRY_RELAUNCH_TEST: 'foreground' };
+  delete fgEnv.RAVENRY_DRIVER;
+  const t3 = Date.now();
+  const opened = spawnSync('/usr/bin/open', ['-n', '-a', app], { env: fgEnv, encoding: 'utf8', timeout: 20000 });
+  step('3 open -n -a (foreground) with RAVENRY_PANE and RAVENRY_SOCKET set: open starts it', opened.status === 0, { status: opened.status, err: (opened.stderr || '').slice(-400) });
+  // Settled: the relaunch line in the log, and then nothing new for 4 s.
+  const relaunchLines = () => logText().split('\n').filter((l) => l.includes('launch: relaunched clean')).length;
+  const before = relaunchLines();
+  await until(() => relaunchLines() > before - 0 && relaunchLines() >= 2, 20000);
+  let settled = mains();
+  for (let i = 0; i < 40; i++) { await sleep(250); const now = mains(); if (now.join() === settled.join() && Date.now() - t3 > 6000) break; settled = now; }
+  await sleep(4000);
+  const final = mains();
+  for (const p of final) others.add(p);
+  const envs = final.map((p) => ({ pid: p, ppid: ppidOf(p), vars: (commandEnv(p).match(/(^|\s)(RAVENRY_PANE|RAVENRY_SOCKET|TERM_PROGRAM|TERM_PROGRAM_VERSION)=/g) || []).map((s) => s.trim()) }));
+  fs.writeFileSync(path.join(OUT, 'foreground-ps-eww.txt'), final.map((p) => commandEnv(p)).join('\n') + '\n');
+  step('3 once it settles, exactly one instance of the copy runs', final.length === 1, { pids: final, msFromOpen: Date.now() - t3 });
+  step('3 that instance has none of RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM', final.length >= 1 && envs.every((e) => e.vars.length === 0), { envs });
+  step('3 it relaunched clean (app.log), the relaunch opened without -g', relaunchLines() >= 2, { relaunchLines: relaunchLines() });
 } finally {
   for (const p of [...others, ...mains()]) { try { process.kill(p, 'SIGTERM'); } catch { /* gone */ } }
   await sleep(500);
