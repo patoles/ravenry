@@ -551,7 +551,7 @@ export interface Methods {
     result: { sent: SendResult; wait: WaitResult };
   };
   'pane.subscribe': {
-    params: { pane: PaneId; since?: Mark; ack?: boolean; window?: number };
+    params: { pane: PaneId; since?: Mark; ack?: boolean; window?: number; kitty_keyboard?: boolean };
     result: { pane: PaneId; channel: Channel };
   };
   'pane.unsubscribe': { params: { channel: Channel }; result: Record<string, never> };

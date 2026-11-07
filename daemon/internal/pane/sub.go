@@ -57,6 +57,10 @@ type SubOptions struct {
 	// Window is how many bytes may be queued and unacknowledged before
 	// the subscriber is resynchronised. Zero means DefaultWindow.
 	Window int
+	// KittyKeyboard says the client sends keys in the Kitty keyboard
+	// protocol's encodings when the program turns them on. The program
+	// hears the protocol is there only while every client says so.
+	KittyKeyboard bool
 }
 
 // Sub is one client's stream of a pane's output.
@@ -71,6 +75,7 @@ type Sub struct {
 	window  int
 	ended   bool
 	closed  bool
+	kitty   bool
 	wake    chan struct{}
 	stats   SubStats
 }
@@ -88,7 +93,7 @@ func (p *Pane) Subscribe(o SubOptions) (*Sub, error) {
 		w = DefaultWindow
 	}
 	w = max(w, MinWindow)
-	s := &Sub{p: p, ack: o.Ack, window: w, wake: make(chan struct{}, 1), resync: true}
+	s := &Sub{p: p, ack: o.Ack, window: w, kitty: o.KittyKeyboard, wake: make(chan struct{}, 1), resync: true}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {

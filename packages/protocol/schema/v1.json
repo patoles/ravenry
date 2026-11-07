@@ -2662,6 +2662,10 @@
           "minimum": 65536,
           "maximum": 268435456,
           "description": "Default 4194304."
+        },
+        "kitty_keyboard": {
+          "type": "boolean",
+          "description": "This client sends keys in the Kitty keyboard protocol's encodings when the program turns them on. A program that asks (CSI ? u) hears the protocol is there only while every client streaming the pane says so."
         }
       },
       "required": [

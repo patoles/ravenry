@@ -407,6 +407,9 @@ type SubscribeRequest struct {
 	Since  *uint64 `json:"since,omitempty"`
 	Ack    bool    `json:"ack,omitempty"`
 	Window *int    `json:"window,omitempty"`
+	// KittyKeyboard: the client sends keys in the Kitty keyboard
+	// protocol's encodings when the program turns them on.
+	KittyKeyboard bool `json:"kitty_keyboard,omitempty"`
 }
 
 type SubscribeResult struct {

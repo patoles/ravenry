@@ -564,6 +564,7 @@ at the input and `changes` against the screen just before the input).
 | `since` | mark, optional | Start with the raw output from this mark instead of a snapshot, when the log still holds it and it fits in the window. Otherwise the stream starts with a snapshot. |
 | `ack` | boolean, optional | The client will acknowledge what it processes (section 5). |
 | `window` | integer, optional | Bytes, 64 KiB to 256 MiB. Default 4 MiB. |
+| `kitty_keyboard` | boolean, optional | This client sends keys in the Kitty keyboard protocol's encodings when the program turns them on. A program in the pane that asks whether the terminal has the protocol (`CSI ? u`) gets an answer only while at least one client streams the pane and every one of them says so; otherwise it hears nothing, as from a terminal without the protocol, and keeps to the legacy encodings. Keys sent with `pane.send` follow whatever the program turned on. |
 
 Result: `pane` and `channel`. The stream's frames follow the result
 (section 5). The result is always sent before the channel's first frame.

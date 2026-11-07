@@ -48,6 +48,8 @@ export interface SubscribeOptions {
   ack?: boolean;
   /** How far behind (bytes) before the daemon sends a fresh snapshot instead. */
   window?: number;
+  /** This client sends keys in the Kitty keyboard protocol's encodings when the program turns them on. Leave it out for xterm.js, which cannot. */
+  kittyKeyboard?: boolean;
 }
 
 /** One pane's output stream on this connection. */
@@ -189,6 +191,7 @@ export class RavenryClient {
     const params: Methods['pane.subscribe']['params'] = { pane, ack: acking };
     if (opts.since !== undefined) params.since = opts.since;
     if (opts.window !== undefined) params.window = opts.window;
+    if (opts.kittyKeyboard) params.kitty_keyboard = true;
     const { channel } = await this.request('pane.subscribe', params);
     // The result comes before the channel's first frame, so frames that
     // arrive meanwhile can only be in this same message batch; route them.

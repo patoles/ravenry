@@ -360,6 +360,9 @@ type SubscribeOptions struct {
 	Since  *uint64
 	Ack    bool
 	Window int
+	// KittyKeyboard: this client sends keys in the Kitty keyboard
+	// protocol's encodings when the program turns them on.
+	KittyKeyboard bool
 }
 
 // Subscribe streams a pane's output: a snapshot first (or the output from
@@ -374,6 +377,9 @@ func (c *Client) Subscribe(ctx context.Context, pane string, o SubscribeOptions)
 	}
 	if o.Window != 0 {
 		params["window"] = o.Window
+	}
+	if o.KittyKeyboard {
+		params["kitty_keyboard"] = true
 	}
 	r, err := c.call(ctx, "pane.subscribe", params)
 	if err != nil {

@@ -64,6 +64,12 @@ type Options struct {
 	// cursor position reports and other query replies). The caller writes
 	// them to the pane's pty. The slice is only valid during the call.
 	Reply func(p []byte)
+	// KittyKeyboard says whether the keys reaching the program can come
+	// in the Kitty keyboard protocol's encodings. When it is set and
+	// returns false, the screen does not answer the protocol's query
+	// (CSI ? u), as a terminal without the protocol, so the program keeps
+	// to the legacy encodings. It runs while Write processes the output.
+	KittyKeyboard func() bool
 	// Bell is called on BEL.
 	Bell func()
 	// Prompt is called when the shell marks a step of a command with OSC

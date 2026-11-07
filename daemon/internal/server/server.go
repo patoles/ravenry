@@ -1287,7 +1287,7 @@ func (c *conn) paneSubscribe(id uint64, data []byte) {
 			return
 		}
 	}
-	sub, err := p.Subscribe(pane.SubOptions{Since: r.Since, Ack: r.Ack, Window: window})
+	sub, err := p.Subscribe(pane.SubOptions{Since: r.Since, Ack: r.Ack, Window: window, KittyKeyboard: r.KittyKeyboard})
 	if err != nil {
 		if errors.Is(err, pane.ErrClosed) {
 			c.failErr(id, err)

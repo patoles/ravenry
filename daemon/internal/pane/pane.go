@@ -309,10 +309,11 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 
 	screen, err := vt.New(vt.Options{
 		Cols: cfg.Cols, Rows: cfg.Rows, Scrollback: cfg.Scrollback,
-		Reply:  func(b []byte) { p.replies = append(p.replies, b...) },
-		Prompt: p.promptMark,
-		Status: func(st vt.ProgramStatus) { p.notes = append(p.notes, note{status: &st}) },
-		Pwd:    p.pwd,
+		Reply:         func(b []byte) { p.replies = append(p.replies, b...) },
+		KittyKeyboard: p.kittyKeyboard,
+		Prompt:        p.promptMark,
+		Status:        func(st vt.ProgramStatus) { p.notes = append(p.notes, note{status: &st}) },
+		Pwd:           p.pwd,
 	})
 	if err != nil {
 		return nil, err
@@ -894,6 +895,25 @@ func (p *Pane) Text() ([]string, error) {
 		return nil, ErrClosed
 	}
 	return p.screen.Text()
+}
+
+// kittyKeyboard says whether the program may hear that the terminal has
+// the Kitty keyboard protocol: only while at least one client streams the
+// pane and every one of them says it sends keys that way (SubOptions).
+// xterm.js does not, and a program that believes it does waits for key
+// encodings that never come. Keys the daemon encodes itself follow
+// whatever the program turns on. It runs inside screen.Write, with the
+// pane's lock held.
+func (p *Pane) kittyKeyboard() bool {
+	if len(p.subs) == 0 {
+		return false
+	}
+	for s := range p.subs {
+		if !s.kitty {
+			return false
+		}
+	}
+	return true
 }
 
 // Clear clears the pane's screen and history as Cmd+K does in Terminal.app

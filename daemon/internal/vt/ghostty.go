@@ -63,8 +63,13 @@ func New(o Options) (Screen, error) {
 		}),
 	}
 	if o.Reply != nil {
-		reply := o.Reply
-		opts = append(opts, gt.WithWritePty(func(_ *gt.Terminal, p []byte) { reply(p) }))
+		reply, kitty := o.Reply, o.KittyKeyboard
+		opts = append(opts, gt.WithWritePty(func(_ *gt.Terminal, p []byte) {
+			if kitty != nil && isKittyKeyboardReply(p) && !kitty() {
+				return
+			}
+			reply(p)
+		}))
 	}
 	if o.Bell != nil {
 		bell := o.Bell
@@ -193,6 +198,21 @@ func lineLimit(n, cols int) uint {
 		return 0
 	}
 	return uint(n + pageRows(cols))
+}
+
+// isKittyKeyboardReply reports whether p is libghostty's answer to the
+// Kitty keyboard protocol query: ESC [ ? flags u, written whole in one
+// call (stream_terminal.zig queryKittyKeyboard).
+func isKittyKeyboardReply(p []byte) bool {
+	if len(p) < 5 || p[0] != 0x1b || p[1] != '[' || p[2] != '?' || p[len(p)-1] != 'u' {
+		return false
+	}
+	for _, c := range p[3 : len(p)-1] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func newVTFormatter(t *gt.Terminal) (*gt.Formatter, error) {
