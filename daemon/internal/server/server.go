@@ -621,6 +621,7 @@ func init() {
 		"pane.recording":    (*conn).paneRecording,
 		"pane.replay":       (*conn).paneReplay,
 		"pane.override":     (*conn).paneOverride,
+		"pane.clear":        (*conn).paneClear,
 	}
 }
 
@@ -864,6 +865,25 @@ func (c *conn) paneResize(id uint64, data []byte) {
 		return
 	}
 	c.reply(id, "pane.resize", proto.PaneResult{Pane: c.s.paneInfo(p.Info())})
+}
+
+func (c *conn) paneClear(id uint64, data []byte) {
+	var r proto.ClearRequest
+	if err := decode(data, &r); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	p, err := c.pane(r.Pane)
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	cleared, err := p.Clear()
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	c.reply(id, "pane.clear", proto.ClearResult{Pane: c.s.paneInfo(p.Info()), Cleared: cleared})
 }
 
 func (c *conn) paneCapture(id uint64, data []byte) {

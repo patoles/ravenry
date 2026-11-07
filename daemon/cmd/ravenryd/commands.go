@@ -119,6 +119,7 @@ func init() {
 			{"unlabel", listFlag, "KEY", "remove a label (repeatable)"},
 		}, run: cmdUpdate},
 		{name: "resize", group: "Panes", args: "PANE COLSxROWS", summary: "change its size", run: cmdResize},
+		{name: "clear", group: "Panes", args: "PANE", summary: "clear its screen and scrollback as Cmd+K does: the prompt stays at the top, everything above it goes (not on a full-screen program's screen)", run: cmdClear},
 		{name: "restart", group: "Panes", args: "PANE", summary: "close it and start its command again (same env, its current folder, name and labels); prints the new id. A pane you did not start waits for the person's yes", flags: []flagDoc{
 			{"no-wait", boolFlag, "", "a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person"},
 			{"reason", valueFlag, "TEXT", "for a pane you did not start: why, in your words; the person reads it on the question"},

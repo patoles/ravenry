@@ -483,6 +483,60 @@ func (s *ghostty) primaryVT() ([]byte, error) {
 	return b, nil
 }
 
+func (s *ghostty) Clear() (bool, error) {
+	if s.AltScreen() {
+		return false, nil
+	}
+	y, err := s.t.CursorY()
+	if err != nil {
+		return false, fmt.Errorf("vt: cursor: %w", err)
+	}
+	top := int(y)
+	if at, err := s.t.CursorAtPrompt(); err == nil && at {
+		top = s.promptTop(top)
+	}
+	// Scroll the rows above the prompt off the top and follow with the
+	// cursor (it keeps its column), then erase the history, which also
+	// takes what the scroll pushed into it.
+	var b []byte
+	if top > 0 {
+		b = fmt.Appendf(b, "\x1b[%dS\x1b[%dA", top, top)
+	}
+	s.t.VTWrite(append(b, "\x1b[3J"...))
+	return true, nil
+}
+
+// promptTop is the first row of the prompt the cursor's row y belongs
+// to: up through the prompt's continuation rows to the row its OSC 133 A
+// started on. Without such a row it is y.
+func (s *ghostty) promptTop(y int) int {
+	sem := func(r int) gt.RowSemanticPrompt {
+		ref, err := s.t.GridRef(gt.Point{Tag: gt.PointTagActive, Y: uint32(r)})
+		if err != nil {
+			return gt.RowSemanticNone
+		}
+		row, err := ref.Row()
+		if err != nil {
+			return gt.RowSemanticNone
+		}
+		v, err := row.Semantic()
+		if err != nil {
+			return gt.RowSemanticNone
+		}
+		return v
+	}
+	for r := y; r >= 0; r-- {
+		switch sem(r) {
+		case gt.RowSemanticPromptPrimary:
+			return r
+		case gt.RowSemanticPromptContinuation:
+			continue
+		}
+		return y
+	}
+	return y
+}
+
 func (s *ghostty) EncodeKey(k Key) ([]byte, error) {
 	if err := s.keys.SetFromTerminal(s.t); err != nil {
 		return nil, fmt.Errorf("vt: key encoder: %w", err)

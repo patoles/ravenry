@@ -217,6 +217,14 @@ func TestCommands(t *testing.T) {
 
 	e.ok("0.1.0", "resize", id, "60x10")
 
+	// clear: the prompt's row stays at the top, the rest and the history go.
+	if c := jsonOut[proto.ClearResult](t, e.ok("0.1.0", "clear", id, "--json")); !c.Cleared || c.Pane.ID != id {
+		t.Fatalf("clear %+v", c)
+	}
+	if cp := jsonOut[proto.CaptureResult](t, e.ok("0.1.0", "capture", id, "--history", "100", "--json")); cp.History != 0 || strings.Contains(cp.Lines[0].Text, "hi from") || cp.Cursor.Y != 0 {
+		t.Fatalf("capture after clear %+v", cp)
+	}
+
 	// A wait that times out exits 124.
 	if _, _, code := e.run("0.1.0", "wait", id, "--text", "never", "--timeout", "100ms"); code != 124 {
 		t.Fatalf("timed-out wait exited %d", code)

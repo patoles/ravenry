@@ -524,6 +524,8 @@ export interface Methods {
     result: { pane: Pane; replaced: Pane; command?: string; mark?: Mark; stopped_by?: 'interrupt' | 'SIGTERM' | 'SIGKILL' };
   };
   'pane.focus': { params: { pane: PaneId }; result: { displays: number } };
+  /** Cmd+K: clears the screen and scrollback; the prompt stays at the top. `cleared` is false on the alternate screen (nothing changed). Check supports('pane.clear') first. */
+  'pane.clear': { params: { pane: PaneId }; result: { pane: Pane; cleared: boolean } };
   'agent.report': {
     params: {
       pane?: PaneId;

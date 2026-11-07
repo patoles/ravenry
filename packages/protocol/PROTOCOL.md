@@ -437,6 +437,23 @@ signalled.
 
 `pane`, `cols`, `rows`. Result: `pane`.
 
+### pane.clear
+
+`pane`. Clears the screen and the scrollback the way Cmd+K does in
+Terminal.app and iTerm2: the prompt stays and moves to the top, and
+everything above it goes. The prompt is the cursor's row, or, when the
+shell marks its prompts (OSC 133, section 3) and the cursor is at one,
+the whole prompt from its first row, so a prompt of two rows stays
+whole. The cursor keeps its column. The program is not told, as in those
+terminals. Every stream of the pane gets a fresh snapshot (section 5),
+and a `pane.subscribe` with a `since` from before the clear starts with
+a snapshot. The output log (`pane.read`) keeps what was printed.
+
+On the alternate screen, which belongs to a full-screen program (an
+editor, a pager), nothing changes. Result: `pane` and `cleared`, false
+when nothing changed. Added after the first draft of v1 (section 10): a
+client checks `methods` in `hello` before using it.
+
 ### pane.capture
 
 | Field | | |

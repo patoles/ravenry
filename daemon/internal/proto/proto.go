@@ -50,6 +50,8 @@ var Methods = []string{
 	// what it touched, its pictures, its recording and test conditions.
 	"pane.inputs", "pane.grants", "pane.revoke", "pane.lease", "pane.files",
 	"pane.shot", "pane.frames", "pane.recording", "pane.replay", "pane.override",
+	// Cmd+K in a terminal window: clear a pane's screen and history.
+	"pane.clear",
 }
 
 // Envelope is what every JSON message starts with.
@@ -237,6 +239,16 @@ type ResizeRequest struct {
 	Pane string `json:"pane"`
 	Cols int    `json:"cols"`
 	Rows int    `json:"rows"`
+}
+
+type ClearRequest struct {
+	Envelope
+	Pane string `json:"pane"`
+}
+
+type ClearResult struct {
+	Pane    Pane `json:"pane"`
+	Cleared bool `json:"cleared"`
 }
 
 type CaptureRequest struct {

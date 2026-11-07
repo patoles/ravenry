@@ -477,6 +477,35 @@ func cmdResize(in []string) error {
 	return nil
 }
 
+func cmdClear(in []string) error {
+	a, err := parse(in, specOf("clear"))
+	if err != nil {
+		return err
+	}
+	id, err := onePane(a, "clear")
+	if err != nil {
+		return err
+	}
+	ctx, cancel := callCtx(10 * time.Second)
+	defer cancel()
+	c, err := connectFor(ctx, a.g, id)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	var r proto.ClearResult
+	if err := c.Call(ctx, "pane.clear", map[string]any{"pane": id}, &r); err != nil {
+		return err
+	}
+	if a.g.json {
+		return printJSON(r)
+	}
+	if !r.Cleared {
+		return fmt.Errorf("nothing cleared: a full-screen program has the screen")
+	}
+	return nil
+}
+
 func cmdClose(in []string) error {
 	a, err := parse(in, specOf("close"))
 	if err != nil {

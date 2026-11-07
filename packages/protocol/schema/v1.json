@@ -113,6 +113,9 @@
           "$ref": "#/$defs/request.pane.override"
         },
         {
+          "$ref": "#/$defs/request.pane.clear"
+        },
+        {
           "$ref": "#/$defs/request.pane.recording"
         },
         {
@@ -293,6 +296,9 @@
         },
         {
           "$ref": "#/$defs/result.pane.override"
+        },
+        {
+          "$ref": "#/$defs/result.pane.clear"
         },
         {
           "$ref": "#/$defs/result.pane.recording"
@@ -6052,6 +6058,31 @@
       "additionalProperties": false,
       "description": "Set a pane's test conditions: its size, slowed output, the TERM of its next restart."
     },
+    "request.pane.clear": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.clear"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Clears the pane's screen and scrollback as Cmd+K does in Terminal.app: the prompt stays at the top, everything above it goes."
+    },
     "result.pane.override": {
       "type": "object",
       "properties": {
@@ -6076,6 +6107,48 @@
           },
           "required": [
             "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "result.pane.clear": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.clear"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            },
+            "cleared": {
+              "type": "boolean",
+              "description": "False on the alternate screen, which belongs to a full-screen program: nothing changed."
+            }
+          },
+          "required": [
+            "pane",
+            "cleared"
           ],
           "additionalProperties": false
         }

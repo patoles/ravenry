@@ -43,6 +43,14 @@ type Screen interface {
 	// Grid reads the visible screen cell by cell, with resolved colours,
 	// for a picture of it (package render).
 	Grid() (*Grid, error)
+	// Clear clears the screen and its history the way Terminal.app's
+	// and iTerm2's Cmd+K do: the prompt stays and moves to the top, and
+	// everything above it goes. The prompt is the cursor's row, or, when
+	// the shell marks its prompts (OSC 133) and the cursor is at one, the
+	// whole prompt from its first row. The program is not told. On the
+	// alternate screen, which belongs to a full-screen program, it changes
+	// nothing and returns false.
+	Clear() (bool, error)
 	// Close frees the screen.
 	Close()
 }

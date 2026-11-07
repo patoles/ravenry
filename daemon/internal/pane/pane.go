@@ -141,6 +141,7 @@ type Pane struct {
 	lastOutput time.Time
 	reads      int64
 	subs       map[*Sub]struct{}
+	clearedAt  uint64 // the mark of the last Clear: raw output before it shows what the clear removed
 	taps       map[*tap]struct{}
 	changed    chan struct{}
 	replies    []byte
@@ -893,6 +894,28 @@ func (p *Pane) Text() ([]string, error) {
 		return nil, ErrClosed
 	}
 	return p.screen.Text()
+}
+
+// Clear clears the pane's screen and history as Cmd+K does in Terminal.app
+// (vt.Screen.Clear): the prompt stays at the top. Every client streaming
+// the pane gets a fresh snapshot, and a later subscribe from a mark before
+// the clear starts with a snapshot too. It returns false, and changes
+// nothing, on the alternate screen.
+func (p *Pane) Clear() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return false, ErrClosed
+	}
+	ok, err := p.screen.Clear()
+	if err != nil || !ok {
+		return ok, err
+	}
+	p.clearedAt = p.offset
+	for s := range p.subs {
+		s.redraw()
+	}
+	return true, nil
 }
 
 // Snapshot returns VT that rebuilds the screen, and the mark it shows.

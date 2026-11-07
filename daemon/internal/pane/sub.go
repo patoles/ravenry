@@ -98,7 +98,7 @@ func (p *Pane) Subscribe(o SubOptions) (*Sub, error) {
 		if *o.Since > p.offset {
 			return nil, errors.New("since is ahead of the pane's output")
 		}
-		if p.offset-*o.Since <= uint64(w) {
+		if *o.Since >= p.clearedAt && p.offset-*o.Since <= uint64(w) {
 			data, from, err := p.log.read(*o.Since, int(p.offset-*o.Since))
 			if err == nil && from == *o.Since {
 				s.resync = false
@@ -138,6 +138,18 @@ func (s *Sub) push(b []byte, mark uint64) {
 		} else {
 			s.pending = append(s.pending, b...)
 		}
+	}
+	s.mu.Unlock()
+	s.signal()
+}
+
+// redraw replaces what is queued with a fresh snapshot, after the screen
+// changed without output (Pane.Clear). The pane's lock is held.
+func (s *Sub) redraw() {
+	s.mu.Lock()
+	if !s.closed {
+		s.resync = true
+		s.pending = nil
 	}
 	s.mu.Unlock()
 	s.signal()
