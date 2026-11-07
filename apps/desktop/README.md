@@ -335,8 +335,16 @@ cold launch (service, hub, daemon, a shell prompt within 2 s, `echo ok`
 read back), New session, a session in cmux shown and then continued in
 Ravenry, quit and reopen, an update from the build before (one hub on the
 new version, the old folder kept until it answers, a prompt within 2 s)
-and the npm switch and the way back (tools/npm-switch-test.mjs). It writes
-OUT/release-check.json with each step's result and times.
+and the npm switch and the way back (tools/npm-switch-test.mjs). The
+first launch of a freshly installed copy pays macOS's first check of an
+ad hoc signed app (about 2 s, once): it is measured against 3.5 s and
+reported, not a gate, until the app is signed; every launch after it gates
+at 2 s. New session gates at 2 s from the click to the stand-in's prompt
+in the window. After an update, a pane of the build before's daemon,
+started from a cmux tab (its panes inherit that tab's variables), with a
+newer daemon already running and the old one draining, is one row within
+3 s of the new hub answering, and opens in the middle on a click. It
+writes OUT/release-check.json with each step's result and times.
 
 A launch always ends with a working shell in front: the shells that were
 open come back, else one opens in the last folder used, else the home
