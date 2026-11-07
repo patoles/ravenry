@@ -69,7 +69,7 @@ const SNAP = `(() => { const S = ${R}.S; const v = S.view; const t = v.kind === 
   const r0 = document.getElementById('pbox0').getBoundingClientRect(), r1 = document.getElementById('pbox1').getBoundingClientRect();
   return { front: t ? t.id : null, split: t && t.split ? { ...t.split } : null, a: a && a.attached ? a.attached.pane : null, b: b && b.attached ? b.attached.pane : null, focused: ${R}.term().attached ? ${R}.term().attached.pane : null,
     strip: [...document.querySelectorAll('#tabs .tabrow .tab[data-tab]')].map((e) => ({ id: e.dataset.tab, two: !!e.querySelector('.pc2') })), b1: !document.getElementById('pbox1').hidden, b0: !document.getElementById('pbox0').hidden, w0: Math.round(r0.width), w1: Math.round(r1.width),
-    heads: [...document.querySelectorAll('.phead:not([hidden]) b')].map((e) => e.textContent), badge: [...document.querySelectorAll('.phead .ag')].map((e) => e.textContent), dz: document.getElementById('dropzone').hidden ? null : document.getElementById('dropzone').textContent,
+    heads: [...document.querySelectorAll('.phead:not([hidden]) b')].map((e) => e.textContent), headText: [...document.querySelectorAll('.phead:not([hidden])')].map((e) => e.textContent), badge: [...document.querySelectorAll('.phead .ag')].map((e) => e.textContent), dz: document.getElementById('dropzone').hidden ? null : document.getElementById('dropzone').textContent,
     guestPane: t && t.split ? (S.tabs.find((x) => x.id === t.split.guest) || {}).pane : null, tabs: S.tabs.map((x) => ({ id: x.id, host: x.host || null, pane: x.pane || null, name: x.name || null })) }; })()`;
 const save = (name) => ({ save: { expr: SNAP, out: path.join(work, `${name}.json`) } });
 const read = (name) => { try { return JSON.parse(fs.readFileSync(path.join(work, `${name}.json`), 'utf8')); } catch { return null; } };
@@ -179,6 +179,7 @@ try {
   check('a tab dragged onto a tab already split: it says so, and nothing moves', /Already split/.test(ro?.dz || '') && rf?.split?.guest === ids.dragged && rf.strip.some((x) => x.id === ids.third), { label: ro?.dz, split: rf?.split });
   const ag = read('agent');
   check('an agent\'s own pane opens as a split beside its tab, without the keyboard', !!ag?.split && ag.front === ids.third && ag.split.focus === 0 && ag.focused === ag.a && ag.b && ag.badge.length === 1, { split: ag?.split, a: ag?.a, b: ag?.b, focused: ag?.focused, badge: ag?.badge });
+  check('its header: the name and the Agent badge, said once (no "An agent\'s")', !!ag && ag.headText.some((t) => /dev server/.test(t) && /Agent/.test(t)) && !ag.headText.some((t) => /An agent's/.test(t)), ag?.headText);
 
   // Relaunched: both splits come back.
   await runApp({ name: 'second', work, rt, bin: EXE ? undefined : BIN, cli: BIN, exe: EXE || undefined, home, hubUrl, env, width: 1440, height: 900, steps: [

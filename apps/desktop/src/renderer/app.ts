@@ -1179,7 +1179,7 @@ async function newShell(folder?: string | null): Promise<void> {
     const cwd = folder || (cur && cur.kind === 'shell' && cur.cwd ? cur.cwd : undefined);
     const { cols, rows } = term.term;
     const cmd = S.config?.newShell;
-    const { pane } = await client.request('pane.new', { cols, rows, name: 'Shell', labels: { ...SHELL_LABEL, ...(thisWindow ? { 'ravenry.window': thisWindow } : {}) }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
+    const { pane } = await client.request('pane.new', { cols, rows, name: 'Shell', labels: { ...SHELL_LABEL, ...(thisWindow ? { 'ravenry.window': thisWindow } : {}) }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}), ...(termSettings ? { scrollback: termSettings.xterm.scrollback } : {}) });
     addShellTab(socket, pane, null, true);
   } catch (e) {
     toast(`Could not open a shell: ${(e as Error).message}`, undefined, { at, error: true });
@@ -1195,7 +1195,7 @@ async function splitNew(side: 'right' | 'down'): Promise<void> {
     const { client, socket } = await daemons.forNew();
     const cwd = host.kind === 'shell' && host.cwd ? host.cwd : undefined;
     const cmd = S.config?.newShell;
-    const { pane } = await client.request('pane.new', { cols: Math.max(20, Math.floor(termA.term.cols / 2)), rows: termA.term.rows, name: 'Shell', labels: { ...SHELL_LABEL, ...(thisWindow ? { 'ravenry.window': thisWindow } : {}) }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
+    const { pane } = await client.request('pane.new', { cols: Math.max(20, Math.floor(termA.term.cols / 2)), rows: termA.term.rows, name: 'Shell', labels: { ...SHELL_LABEL, ...(thisWindow ? { 'ravenry.window': thisWindow } : {}) }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}), ...(termSettings ? { scrollback: termSettings.xterm.scrollback } : {}) });
     const g = addShellTab(socket, pane, null, false);
     linkSplit(host, g, side, 1);
     save();
@@ -1482,7 +1482,8 @@ function renderPaneHead(i: 0 | 1, t: Tab): void {
   const badge = t.kind === 'shell' && t.owner ? (assistantName(owner?.session.assistant || null) || 'Agent') : null;
   replace($(`phead${i}`),
     t.kind === 'shell' && !l.group ? h('span.ti', svg(I.SHELL)) : null,
-    h('b', l.name), l.sub ? h('span.t3', l.sub) : null,
+    // An agent's pane: its name and the badge (the line "An agent's" would say it twice).
+    h('b', l.name), l.sub && !badge ? h('span.t3', l.sub) : null,
     badge ? h('span.ag', badge) : null,
     h('span.sp'),
     h('button.x', { title: `Close pane (${shortcut('W')})`, 'aria-label': 'Close pane', on: { click: (e: Event) => { e.stopPropagation(); void closePane(t); } } }, svg(I.CLOSE)));
@@ -1555,6 +1556,7 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
     if (!client) throw new Error('no running daemon holds its pane');
     if (shownOf(view) !== key) return;
     await within(view.show({ client, pane }, view === term), 8000, `attaching to pane ${pane}`);
+    void paneScrollback(client, pane);
   } catch (e) {
     if (shownOf(view) !== key) return;
     setShown(view, '');
@@ -2668,8 +2670,20 @@ function applyTerminalSettings(snap: SettingsSnapshot): void {
   if (th.background) root.setProperty('--tbg', th.background);
   if (th.foreground) root.setProperty('--tfg', th.foreground);
   document.body.classList.toggle('term-light', snap.terminal.appearance === 'light');
+  for (const v of [termA, termB]) if (v?.attached) void paneScrollback(v.attached.client, v.attached.pane);
   // Find's tints follow the terminal's theme: drawn again in the new one.
   if (find.open && find.query) { termA.clearFind(); termB?.clearFind(); runFind(1, true); }
+}
+
+/**
+ * The daemon keeps as many lines of a pane as the Scrollback setting says,
+ * so a snapshot (a tab shown again, a relaunch) brings them all back. Set
+ * on each pane on screen; a daemon too old for it keeps its own.
+ */
+async function paneScrollback(client: RavenryClient, pane: string): Promise<void> {
+  const want = termSettings?.xterm.scrollback;
+  if (!want || store.get(pane)?.pane.scrollback === want) return;
+  try { await client.request('pane.update', { pane, scrollback: want }); } catch { /* an older daemon */ }
 }
 
 /** The visual bell: the pane flashes amber for about 150 ms. */

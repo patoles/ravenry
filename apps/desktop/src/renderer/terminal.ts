@@ -48,9 +48,6 @@ const MAC_OPT_SEND: Record<string, string> = { ArrowLeft: '\x1bb', ArrowRight: '
 const SHIFT_SEND: Record<string, string> = { Enter: '\n' };
 const MAC_CMD_ACT: Record<string, KeyAct> = { k: 'clear', c: 'copy', v: 'paste', a: 'select-all' };
 
-/** The daemon keeps 10,000 lines of a pane: a snapshot never brings more back. */
-const DAEMON_SCROLLBACK = 10000;
-
 /** Find's tints, for a dark terminal and a light one: every match, the current one amber, both on the scroll bar. */
 const FIND_DECOR = {
   dark: { matchBackground: '#5A4A1C', matchOverviewRuler: '#C9A227', activeMatchBackground: '#FF9F0A', activeMatchColorOverviewRuler: '#FF9F0A' },
@@ -218,10 +215,10 @@ export class TerminalView {
     new ResizeObserver(() => this.queueResize()).observe(el);
   }
 
-  /** The settings' terminal (docs/SETTINGS.md): font, size, cursor, theme, Option as Meta, scrollback. */
+  /** The settings' terminal (docs/SETTINGS.md): font, size, cursor, theme, Option as Meta, scrollback (the daemon keeps as many for the pane: app.ts paneScrollback). */
   applySettings(ts: TerminalSettings): void {
     this.ts = ts;
-    Object.assign(this.term.options, { ...ts.xterm, scrollback: Math.min(ts.xterm.scrollback, DAEMON_SCROLLBACK) });
+    Object.assign(this.term.options, ts.xterm);
     this.queueResize();
   }
 

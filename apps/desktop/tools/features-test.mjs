@@ -135,6 +135,7 @@ try {
     { js: `${R}.setView({ kind: 'tab', id: window.__first })` },
     { until: `${T}.ready && ${R}.S.view.id === window.__first`, timeout: 10000 }, { sleep: 400 },
     { type: 'sleep 600\r' }, { sleep: 800 },
+    save('typed-here', `(() => { const p = ${T}.attached.pane; const ins = ${R}.store.inputsOf(p); return { last: ins.length ? ins[ins.length - 1].text : null, panel: (document.getElementById('panel').textContent || '').includes('sleep 600') }; })()`),
     { js: `${R}.onCommand('close-tab')` },
     { until: `!document.getElementById('closesheet').hidden`, timeout: 5000 }, { sleep: 200 },
     save('sheet', `({ text: document.getElementById('closesheet').textContent, focus: document.activeElement ? document.activeElement.textContent : null })`),
@@ -151,7 +152,8 @@ try {
     { js: `${R}.newShell()` },
     { until: `${T}.attached && ${T}.ready`, timeout: 10000 }, { sleep: 500 },
     { js: `window.ravenry.settings.set({ fontSize: 15, cursorStyle: 'bar', copyOnSelect: true, optionAsMeta: 'left', scrollback: 50000 })` }, { sleep: 600 },
-    save('settings-applied', `({ size: ${T}.term.options.fontSize, cursor: ${T}.term.options.cursorStyle, scrollback: ${T}.term.options.scrollback })`),
+    { sleep: 600 },
+    save('settings-applied', `${T}.attached.client.request('pane.list', {}).then((r) => ({ size: ${T}.term.options.fontSize, cursor: ${T}.term.options.cursorStyle, scrollback: ${T}.term.options.scrollback, daemon: (r.panes.find((p) => p.id === ${T}.attached.pane) || {}).scrollback }))`),
     { js: `const ta = document.querySelector('#pbox0 .xterm-helper-textarea'); ta.dispatchEvent(new KeyboardEvent('keydown', { code: 'AltLeft', key: 'Alt', altKey: true, bubbles: true })); window.__metaLeft = ${T}.term.options.macOptionIsMeta; ta.dispatchEvent(new KeyboardEvent('keydown', { code: 'AltRight', key: 'Alt', altKey: true, bubbles: true })); window.__metaRight = ${T}.term.options.macOptionIsMeta; true` },
     save('option-meta', `({ left: window.__metaLeft, right: window.__metaRight })`),
     { type: "echo copy-me-please\r" }, { sleep: 500 },
@@ -188,13 +190,15 @@ try {
   check('F4 a bell in the pane on screen: it flashes', (read('bell-front') || 0) >= 1, read('bell-front'));
   check('F4 a bell in a tab not on screen: a small bell on that tab, gone once it is opened', read('bell-tab')?.bell === true && read('bell-opened')?.bell === false, { rang: read('bell-tab'), opened: read('bell-opened') });
   check('F3 an idle shell closes at once, with no question', read('close-idle')?.sheet === false && read('close-idle')?.gone === true, read('close-idle'));
+  const th = read('typed-here');
+  check('Typed here: a command typed shows as one entry, the whole line (not its first key)', th?.last === 'sleep 600<Enter>' && th.panel === true, th);
   const sh = read('sheet');
   check('F3 a busy shell asks: "Close this tab?", what runs, Cancel the default', /Close this tab\?/.test(sh?.text || '') && /sleep 600/.test(sh?.text || '') && sh?.focus === 'Cancel', sh);
   check('F3 Enter cancels: the tab stays', read('sheet-cancel')?.sheet === false && read('sheet-cancel')?.open === true, read('sheet-cancel'));
   const sf = settingsFile();
   check("F3 Don't ask again, then Close: the tab closes and the setting is off", read('sheet-closed')?.open === false && sf?.confirmCloseBusy === false, { closed: read('sheet-closed'), setting: sf?.confirmCloseBusy });
   const sa = read('settings-applied');
-  check('settings: the snapshot\'s options on the terminal (size, cursor), scrollback capped at the daemon\'s 10,000', sa?.size === 15 && sa.cursor === 'bar' && sa.scrollback === 10000, sa);
+  check('settings: the snapshot\'s options on the terminal (size, cursor); the scrollback, 50,000 lines, in the terminal and kept by the daemon for the pane', sa?.size === 15 && sa.cursor === 'bar' && sa.scrollback === 50000 && sa.daemon === 50000, sa);
   if (MAC) check('settings: Option as Meta on the left only: on for left Option, off for right', read('option-meta')?.left === true && read('option-meta')?.right === false, read('option-meta'));
   check('settings: copy on select copies the selection as it is made', copies.includes('copy-me-please'), copies);
   check('settings: Cmd+= writes the size to the settings, and the terminal follows', read('zoom')?.size === 16 && settingsFile()?.fontSize === 16, { term: read('zoom'), file: settingsFile()?.fontSize });
