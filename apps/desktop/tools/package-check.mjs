@@ -27,7 +27,7 @@
 // 3. The hub service file the app wrote, then the hub run exactly as it
 //    says (the app's executable as Node), on a spare port: it must answer,
 //    stop cleanly on SIGTERM, and leave every daemon running.
-import { guardSpawns, isTestPath } from '../../../tools/test-env.mjs';
+import { guardSpawns, isTestPath, withStubMachine } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
@@ -285,13 +285,14 @@ try {
 
   const port = await new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
   if (port === 4600) fail('refusing to use :4600');
-  const hubEnv = {
+  // The stand-in ps too: never this machine's own processes (tools/test-env.mjs).
+  const hubEnv = withStubMachine({
     ...svcEnv,
     // A throwaway home and data folder, and a plain PATH: nothing of this
     // machine's own (no assistants, no board data).
     HOME, RAVENRY_HOME: path.join(HOME, '.ravenry'), PORT: String(port), PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
     RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state'), MC_NO_EVENTS: '1', RAVENRY_NO_OPEN: '1',
-  };
+  });
   let hubLog = '';
   hub = spawn(svcExe, svcArgs, { env: hubEnv, cwd: path.dirname(path.dirname(svcArgs[0])), stdio: ['ignore', 'pipe', 'pipe'] });
   hub.stdout.on('data', (d) => { hubLog += d; });

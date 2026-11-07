@@ -13,7 +13,7 @@ import { h, svg } from './dom.ts';
 import * as I from './icons.ts';
 import { inputParts } from './panes.ts';
 import {
-  afterOf, changedRange, driveVerb, variantLabel, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
+  afterOf, changedRange, driveVerb, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
 } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 
@@ -493,6 +493,7 @@ function driveCard(k: Known, ctx: CardCtx, u: UI): View {
       d.opened ? [h('span', 'Opened'), h('span', d.opened)] : null,
       d.folder ? [h('span', 'Folder'), h('span.mono', d.folder)] : null),
     press,
+    cp.drive?.reason ? h('p.says', h('span', `${d.who} says:`), ' ', cp.drive.reason) : null,
     h('div.opts', opts),
     fld,
     errorLine(u, k, ctx),
@@ -516,7 +517,7 @@ function pickCard(k: Known, ctx: CardCtx): View {
   const tiles = vs.map((v, n) => {
     const src = ctx.variantSrc(k, n);
     const letter = 'ABCD'[n] || String(n + 1);
-    const name = variantLabel(v.label).name;
+    const name = v.label;
     return h('button.ptile', { title: `Open ${name} side by side`, on: { click: () => ctx.openPicker(k) } },
       h('div.pimg', src ? h('img', { src, alt: name, draggable: 'false' }) : h('span.t3', 'No picture'), h('span.plab', letter)),
       h('span.pcap', `${letter}. ${name}`));

@@ -38,7 +38,7 @@ import { initNpmSwitch } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
-import { TerminalView } from './terminal.ts';
+import { TerminalView, THEME } from './terminal.ts';
 import { PaneStore } from './panes.ts';
 import { TerminalMarks } from './marks.ts';
 import { leaseStrip, leaseWords, openedLine, panesItUses, typedHere, whoCanType } from './panepanel.ts';
@@ -750,7 +750,7 @@ function renderTabs(): void {
     : null;
   const sessTab = (t: Tab) => (t.kind === 'session' && t.key === rk) || (t.kind === 'shell' && !!rk && sessionOfPane(S.hub, t.pane)?.key === rk);
   const filmable = !!paneOnScreen() && !$('term').hidden;
-  replace(el,
+  const row = h('div.tabrow', { role: 'presentation' },
     openTab(),
     rv && !S.tabs.some(sessTab) ? rv : null,
     S.tabs.map((t, i) => {
@@ -765,17 +765,35 @@ function renderTabs(): void {
         t.kind === 'shell' ? leaseBadge(t.pane) : null,
         t.kind === 'shell' && t.activity && !on ? h('span.act', { title: 'New output' }) : null,
         h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Unpin', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
-    }).flatMap((tab, i) => (rv && sessTab(S.tabs[i]) ? [tab, rv] : [tab])),
+    }).flatMap((tab, i) => (rv && sessTab(S.tabs[i]) ? [tab, rv] : [tab])));
+  replace(el,
+    row,
     h('button.tab.add', { title: `New shell (${shortcut('T')})`, 'aria-label': 'New shell', on: { click: () => void newShell() } }, svg(I.PLUS(12))),
     h('span.sp'),
     filmable ? h(`button.icon-btn${film.open ? '.on' : ''}`, { title: 'The last 20 seconds of this pane', 'aria-label': 'Filmstrip', on: { click: () => { const pn = paneOnScreen(); if (pn) void film.toggle(pn); } } }, svg(I.FILM)) : null,
     h(`button.icon-btn${panelVisible() ? '.on' : ''}`, { title: panelVisible() ? 'Hide the session panel' : 'Show the session panel', 'aria-label': 'Session panel', on: { click: () => togglePanel() } }, svg(I.PANEL)));
+  fitTabs(el);
 }
 
 /** 19 A: who holds a lent pane, on its tab. */
 function leaseBadge(pane: string): HTMLElement | null {
   const w = leaseWords(pane, paneCtx);
   return w ? h(`span.lbadge.${w.holder.cls}`, { title: `${w.holder.who} has this pane` }, svg(I.HOLDS), w.holder.who) : null;
+}
+
+/**
+ * When the tabs crowd: the grey second lines go first, then the strip
+ * scrolls (to the tab on screen). A tab never shrinks, so a name is never
+ * cut short to fit.
+ */
+function fitTabs(el: HTMLElement): void {
+  const row = el.querySelector('.tabrow') as HTMLElement | null;
+  if (!row) return;
+  el.classList.remove('no-sub');
+  if (row.scrollWidth <= row.clientWidth + 1) return;
+  el.classList.add('no-sub');
+  if (row.scrollWidth <= row.clientWidth + 1) return;
+  (row.querySelector('.tab.on') as HTMLElement | null)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 async function newShell(): Promise<void> {
@@ -1478,8 +1496,9 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
     }
     case 'agent.report': {
       const t = e.pane ? shellTabOf(socket, e.pane.id) : undefined;
-      // Its turn ended: the card of a checkpoint answered before it is done.
-      if (e.pane?.agent && (e.pane.agent.state === 'idle' || e.pane.agent.state === 'ended')) S.cps.settle(e.pane.id, Date.parse(e.pane.agent.since || e.pane.agent.at || '') || now());
+      // The session moved on (a new tool use, a prompt, its turn ended):
+      // the card of a checkpoint answered before that leaves the panel.
+      if (e.pane?.agent) S.cps.settle(e.pane.id, Date.parse(e.pane.agent.at || e.pane.agent.since || '') || now());
       if (t && e.pane) { t.status = e.pane.agent || null; renderTabs(); if (panelVisible()) renderPanel(); }
       return;
     }
@@ -1636,6 +1655,15 @@ async function boot(): Promise<void> {
   });
   film = new Filmstrip($('fsheet'), $('showing'), $('stage'), {
     now,
+    // The terminal's own colours and size: a frame looks as the pane does live.
+    theme: () => ({
+      fontSize: term.term.options.fontSize || 13,
+      scale: window.devicePixelRatio || 1,
+      theme: {
+        foreground: THEME.foreground, background: THEME.background, cursor: THEME.cursor,
+        palette: [THEME.black, THEME.red, THEME.green, THEME.yellow, THEME.blue, THEME.magenta, THEME.cyan, THEME.white, THEME.brightBlack, THEME.brightRed, THEME.brightGreen, THEME.brightYellow, THEME.brightBlue, THEME.brightMagenta, THEME.brightCyan, THEME.brightWhite],
+      },
+    }),
     client: (pane) => daemons.holding(pane),
     sendTo: (pane) => {
       const c = store.get(pane)?.pane.creator;
@@ -1687,6 +1715,8 @@ async function boot(): Promise<void> {
   api().onHubState((s) => onHubState(s as HubState));
   api().onHubStatus((st) => { S.hubStatus = st as HubStatus; if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
   window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); });
+  // The strip's room changes when the panel shows or hides.
+  new ResizeObserver(() => fitTabs($('tabs'))).observe($('tabs'));
   window.addEventListener('keydown', (e) => {
     if (S.view.kind === 'picker' && picker.key(e)) { e.preventDefault(); return; }
     if (e.key === 'Escape' && S.overlay) { S.overlay = false; S.panelKey = null; render(); term.focus(); return; }

@@ -7,12 +7,14 @@
 // agent that owns the pane, and Save as GIF. A clicked frame fills the pane
 // with a "Showing hh:mm:ss" strip above it; the pane runs on underneath.
 
-import type { FilmFrame, RavenryClient } from '@ravenry/client';
+import type { FilmFrame, RavenryClient, Theme } from '@ravenry/client';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 
 export interface FilmHost {
   now(): number;
+  /** The terminal's colours and font size: frames look as the pane does live. */
+  theme(): { theme: Theme; fontSize: number; scale: number };
   /** The client of the daemon that holds the pane. */
   client(pane: string): Promise<RavenryClient | null>;
   /** The agent to send it to ("Codex") and how, or null. */
@@ -25,7 +27,7 @@ export interface FilmHost {
   changed(): void;
 }
 
-export interface Frame { at: number; png: string; mark: number; tag: 'blank' | 'half' | null; still: number; box: Box | null; bg: string }
+export interface Frame { at: number; png: string; mark: number; tag: 'blank' | 'half' | null; still: number; box: Box | null; bg: string; change: Box | null; w: number; h: number }
 /** Where a picture has something drawn, in fractions of it. */
 export interface Box { x: number; y: number; w: number; h: number }
 
@@ -68,7 +70,7 @@ export class Filmstrip {
   private loading = false;
   private error: string | null = null;
   private playing: number | null = null;
-  private area: Box | null = null;
+  private scale = 1;
 
   private sheet: HTMLElement;
   private strip: HTMLElement;
@@ -106,15 +108,17 @@ export class Filmstrip {
     try {
       const c = await this.host.client(pane);
       if (!c) throw new Error('No daemon here holds that pane.');
-      const r = await c.request('pane.frames', { pane, last_ms: LAST_MS, format: 'png', max_frames: 120, font_size: 13 });
+      const look0 = this.host.theme();
+      // Drawn at the screen's pixel ratio and shown at half (on a 2x
+      // screen), so a frame is as large and as sharp as the pane's text.
+      this.scale = Math.max(1, Math.min(3, look0.scale));
+      const r = await c.request('pane.frames', { pane, last_ms: LAST_MS, format: 'png', max_frames: 120, font_size: Math.min(48, look0.fontSize * this.scale), theme: look0.theme });
       if (this.pane !== pane) return;
       const end = this.host.now();
       const raw = (r.frames || []).filter((f): f is FilmFrame & { png: string } => !!f.png);
-      const looks = await Promise.all(raw.map((f) => look(f.png)));
+      const looks = await lookAll(raw.map((f) => f.png));
       const marks = analyse(raw.map((f, i) => ({ at: Date.parse(f.at), blank: !looks[i].box })), end);
-      this.frames = raw.map((f, i) => ({ at: Date.parse(f.at), png: f.png, mark: f.mark, ...marks[i], box: looks[i].box, bg: looks[i].bg }));
-      // Thumbnails show the part of the pane where anything was drawn.
-      this.area = union(this.frames.map((f) => f.box));
+      this.frames = raw.map((f, i) => ({ at: Date.parse(f.at), png: f.png, mark: f.mark, ...marks[i], ...looks[i] }));
       this.from = end - LAST_MS;
       this.to = end;
       this.sel = Math.max(0, this.frames.findIndex((f) => f.tag) >= 0 ? this.frames.findIndex((f) => f.tag) : this.frames.length - 1);
@@ -175,7 +179,7 @@ export class Filmstrip {
     if (shown) {
       if (!over) { over = h('div.frame-view'); this.stage.append(over); }
       over.style.background = shown.bg;
-      replace(over, h('img', { src: `data:image/png;base64,${shown.png}`, alt: `The pane at ${hhmmss(shown.at)}` }));
+      replace(over, h('img', { src: `data:image/png;base64,${shown.png}`, alt: `The pane at ${hhmmss(shown.at)}`, style: shown.w ? { width: `${shown.w / this.scale}px` } : undefined }));
       replace(this.strip, h('div.showing', svg(I.FILM), h('span', 'Showing ', h('b.num', hhmmss(shown.at)), `, ${Math.max(0, Math.round((this.host.now() - shown.at) / 1000))} s ago. The pane is still running underneath.`),
         h('button.btn.sm', { on: { click: () => this.live() } }, 'Back to live')));
     } else {
@@ -206,7 +210,7 @@ export class Filmstrip {
       const f = this.frames[i];
       const tag = f.tag === 'blank' ? 'Blank' : f.tag === 'half' ? 'Half drawn' : f.still ? `Same ${Math.round(f.still / 1000)} s` : null;
       return h(`button.fthumb${(this.shown ?? this.sel) === i && this.shown !== null ? '.on' : ''}`, { title: `Show the pane at ${hhmmss(f.at)}`, on: { click: () => { this.stop(); this.showFrame(i); } } },
-        h('div.fi2', { style: { background: f.bg } }, thumbImg(f.png, this.area)),
+        h('div.fi2', { style: { background: f.bg } }, thumbImg(f, this.scale)),
         h('div.fl2', h('span.num', mmss(f.at)), tag ? h('b', tag) : null));
     }));
     replace(this.sheet, h('div.fsheet', head, track, h('div.track-l', h('span', '20 s ago'), h('span', 'now')), thumbs));
@@ -226,53 +230,74 @@ export function pickThumbs(frames: { tag: string | null; still: number }[], n: n
   return [...want].sort((a, b) => a - b).slice(0, n);
 }
 
-const TW = 124, TH = 78;
+const TW = 196, TH = 104;
+/** A thumbnail shows its frame at this scale, so its text reads as the pane's does. */
+const TSCALE = 0.8;
 
-/** A thumbnail's picture, cropped to the area drawn in and scaled to fit. */
-function thumbImg(png: string, area: Box | null): HTMLElement {
-  const img = h('img', { src: `data:image/png;base64,${png}`, alt: '' }) as HTMLImageElement;
-  if (!area) return img;
-  img.addEventListener('load', () => {
-    const W = img.naturalWidth, H = img.naturalHeight;
-    const bw = Math.max(1, area.w * W), bh = Math.max(1, area.h * H);
-    const k = Math.min(TW / bw, TH / bh);
-    Object.assign(img.style, { width: `${W * k}px`, height: `${H * k}px`, maxWidth: 'none', objectFit: 'fill', marginLeft: `${-area.x * W * k}px`, marginTop: `${-area.y * H * k}px` });
-  });
+/**
+ * A thumbnail: its frame at a readable scale, cropped to where it changed
+ * from the frame before (the first: where anything is drawn), so each one
+ * shows what happened then.
+ */
+function thumbImg(f: Frame, scale: number): HTMLElement {
+  const img = h('img', { src: `data:image/png;base64,${f.png}`, alt: '' }) as HTMLImageElement;
+  const at = f.change || f.box;
+  if (!at || !f.w) return img;
+  // In CSS pixels: the picture was drawn at the screen's pixel ratio.
+  const W = f.w / scale, H = f.h / scale;
+  const cw = TW / TSCALE, ch = TH / TSCALE;
+  // The window around the change, kept inside the picture.
+  const cx = (at.x + at.w / 2) * W, cy = (at.y + at.h / 2) * H;
+  const left = Math.max(0, Math.min(W - cw, Math.min(at.x * W - 8, cx - cw / 2)));
+  const top = Math.max(0, Math.min(H - ch, cy - ch / 2));
+  Object.assign(img.style, { width: `${W * TSCALE}px`, height: `${H * TSCALE}px`, maxWidth: 'none', objectFit: 'fill', marginLeft: `${-left * TSCALE}px`, marginTop: `${-top * TSCALE}px` });
   return img;
 }
 
-function union(boxes: (Box | null)[]): Box | null {
-  const bs = boxes.filter((b): b is Box => !!b);
-  if (!bs.length) return null;
-  const x0 = Math.min(...bs.map((b) => b.x)), y0 = Math.min(...bs.map((b) => b.y));
-  const x1 = Math.max(...bs.map((b) => b.x + b.w)), y1 = Math.max(...bs.map((b) => b.y + b.h));
-  const pad = 0.01;
-  return { x: Math.max(0, x0 - pad), y: Math.max(0, y0 - pad), w: Math.min(1, x1 - x0 + 2 * pad), h: Math.min(1, y1 - y0 + 2 * pad) };
+interface Look { box: Box | null; bg: string; change: Box | null; w: number; h: number }
+
+/**
+ * What each frame holds, in order: the box where anything is drawn (null:
+ * a blank screen), its background, and the box where it differs from the
+ * frame before. One frame's pixels at a time beside the one before.
+ */
+async function lookAll(pngs: string[]): Promise<Look[]> {
+  const out: Look[] = [];
+  let prev: Uint8ClampedArray | null = null;
+  let pw = 0, ph = 0;
+  for (const png of pngs) {
+    const img = await loadImage(png);
+    if (!img) { out.push({ box: { x: 0, y: 0, w: 1, h: 1 }, bg: '#0B0B0C', change: null, w: 0, h: 0 }); prev = null; continue; }
+    const w = img.width, hh = img.height;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = hh;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (!g) { out.push({ box: { x: 0, y: 0, w: 1, h: 1 }, bg: '#0B0B0C', change: null, w, h: hh }); continue; }
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, w, hh).data;
+    const [r, gg, b] = [d[0], d[1], d[2]];
+    let x0 = w, y0 = hh, x1 = -1, y1 = -1, lit = 0;
+    let cx0 = w, cy0 = hh, cx1 = -1, cy1 = -1;
+    const same = prev && pw === w && ph === hh;
+    for (let y = 0; y < hh; y += 2) for (let x = 0; x < w; x += 2) {
+      const i = (y * w + x) * 4;
+      if (Math.abs(d[i] - r) + Math.abs(d[i + 1] - gg) + Math.abs(d[i + 2] - b) > 40) { lit++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (same && (Math.abs(d[i] - prev![i]) + Math.abs(d[i + 1] - prev![i + 1]) + Math.abs(d[i + 2] - prev![i + 2]) > 40)) { if (x < cx0) cx0 = x; if (x > cx1) cx1 = x; if (y < cy0) cy0 = y; if (y > cy1) cy1 = y; }
+    }
+    // A lone cursor is not a drawing.
+    const box = lit > 6 ? { x: x0 / w, y: y0 / hh, w: (x1 - x0 + 2) / w, h: (y1 - y0 + 2) / hh } : null;
+    const change = cx1 >= 0 ? { x: cx0 / w, y: cy0 / hh, w: (cx1 - cx0 + 2) / w, h: (cy1 - cy0 + 2) / hh } : null;
+    out.push({ box, bg: `rgb(${r}, ${gg}, ${b})`, change, w, h: hh });
+    prev = d; pw = w; ph = hh;
+  }
+  return out;
 }
 
-/** What a frame's picture holds: the box where anything is drawn (null: nothing, a blank screen) and its background colour. */
-function look(png: string): Promise<{ box: Box | null; bg: string }> {
+function loadImage(png: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => {
-      const w = Math.min(320, img.width), hh = Math.max(8, Math.round((img.height / img.width) * w));
-      const c = document.createElement('canvas');
-      c.width = w; c.height = hh;
-      const g = c.getContext('2d');
-      if (!g) { resolve({ box: { x: 0, y: 0, w: 1, h: 1 }, bg: '#0B0B0C' }); return; }
-      g.drawImage(img, 0, 0, w, hh);
-      const d = g.getImageData(0, 0, w, hh).data;
-      const [r, gg, b] = [d[0], d[1], d[2]];
-      let x0 = w, y0 = hh, x1 = -1, y1 = -1, lit = 0;
-      for (let y = 0; y < hh; y++) for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        if (Math.abs(d[i] - r) + Math.abs(d[i + 1] - gg) + Math.abs(d[i + 2] - b) > 40) { lit++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      }
-      // A lone cursor is not a drawing.
-      const box = lit > 12 ? { x: x0 / w, y: y0 / hh, w: (x1 - x0 + 1) / w, h: (y1 - y0 + 1) / hh } : null;
-      resolve({ box, bg: `rgb(${r}, ${gg}, ${b})` });
-    };
-    img.onerror = () => resolve({ box: { x: 0, y: 0, w: 1, h: 1 }, bg: '#0B0B0C' });
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
     img.src = `data:image/png;base64,${png}`;
   });
 }

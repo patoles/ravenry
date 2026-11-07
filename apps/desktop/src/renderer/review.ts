@@ -27,7 +27,8 @@ export interface ReviewHost {
   tilde(p: string): string;
 }
 
-interface Comment { file: string; line: number; side: 'new' | 'old'; text: string; at: string; sent: boolean }
+/** A review comment as the hub keeps it (hub/docs/SESSIONS.md, Review comments). */
+export interface Comment { id: string; file: string; line: number; side: 'new' | 'old'; text: string; at: string; state: 'pending' | 'sent'; sent_at?: string; replies?: { id: string; text: string; at: string; by: 'agent'; pane?: string }[] }
 interface Line { kind: 'hunk' | 'add' | 'del' | 'ctx'; text: string; oldNo: number | null; newNo: number | null }
 
 const enc = (s: string) => encodeURIComponent(s);
@@ -63,7 +64,9 @@ export class Review {
   private diff: Diff | null = null;
   private files = new Map<string, Line[]>();
   private sel: string | null = null;
+  /** The session's comments, as the hub keeps them, by file. */
   private comments = new Map<string, Comment[]>();
+  private commentsAt = 0;
   private composing: { file: string; line: number; side: 'new' | 'old'; text: string } | null = null;
   private busy = false;
   private loadedAt = 0;
@@ -76,9 +79,23 @@ export class Review {
 
   /** Shows a session's review. */
   show(key: string, p: HubProject, s: HubSession): void {
-    if (this.key !== key) { this.key = key; this.surfaceId = s.surfaceId; this.diff = null; this.sel = null; this.composing = null; }
+    if (this.key !== key) { this.key = key; this.surfaceId = s.surfaceId; this.diff = null; this.sel = null; this.composing = null; this.comments.clear(); this.commentsAt = 0; }
     if (!this.diff || this.host.now() - this.loadedAt > 15000) void this.load();
+    // The comments and the agent's replies: read again every few seconds while it shows.
+    if (this.host.now() - this.commentsAt > 3000) void this.loadComments();
     this.render(p, s);
+  }
+
+  async loadComments(): Promise<void> {
+    this.commentsAt = this.host.now();
+    const r = await this.host.call('GET', `/api/sessions/${enc(this.surfaceId)}/review`);
+    if (r.status !== 200) return;
+    const list = ((r.body as { comments?: Comment[] }).comments || []);
+    const by = new Map<string, Comment[]>();
+    for (const c of list) { const l = by.get(c.file) || []; l.push(c); by.set(c.file, l); }
+    const was = JSON.stringify([...this.comments]);
+    this.comments = by;
+    if (JSON.stringify([...by]) !== was) this.host.rerender();
   }
 
   async load(): Promise<void> {
@@ -91,23 +108,19 @@ export class Review {
     this.host.rerender();
   }
 
-  private pending(): Comment[] { return [...this.comments.values()].flat().filter((c) => !c.sent); }
+  private pending(): Comment[] { return [...this.comments.values()].flat().filter((c) => c.state === 'pending'); }
 
   private async sendComments(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
-    let sent = 0;
     try {
-      for (const c of this.pending()) {
-        const r = await this.host.call('POST', `/api/sessions/${enc(this.surfaceId)}/comment`, { file: c.file, line: c.line, side: c.side, text: c.text });
-        if (r.status !== 200) throw new Error((r.body as { error?: string }).error || `the board answered ${r.status}`);
-        c.sent = true;
-        sent++;
-      }
-      this.host.toast(`Sent ${sent} comment${sent === 1 ? '' : 's'}.`);
+      const r = await this.host.call('POST', `/api/sessions/${enc(this.surfaceId)}/review/send`, {});
+      if (r.status !== 200) throw new Error((r.body as { error?: string }).error || `the board answered ${r.status}`);
+      const n = ((r.body as { sent?: string[] }).sent || []).length;
+      this.host.toast(`Sent ${n} comment${n === 1 ? '' : 's'}.`);
     } catch (e) {
-      this.host.toast(`Could not send ${sent ? 'them all' : 'it'}: ${(e as Error).message}`);
-    } finally { this.busy = false; this.host.rerender(); }
+      this.host.toast(`Could not send them: ${(e as Error).message}`);
+    } finally { this.busy = false; await this.loadComments(); this.host.rerender(); }
   }
 
   async merge(): Promise<void> {
@@ -173,7 +186,10 @@ export class Review {
     const out: (HTMLElement | null)[] = [row];
     if (cs.length || comp) {
       out.push(h('div.cth',
-        cs.map((c) => h('div.c', h('div.ch', h('b', 'You'), h('span.t3.num', hm(c.at)), c.sent ? h('span.st2.sent', svg(I.CHECK_C), `Sent to ${who}`) : h('span.st2.wait', 'Not sent yet')), h('div', c.text))),
+        cs.map((c) => [
+          h('div.c', h('div.ch', h('b', 'You'), h('span.t3.num', hm(c.at)), c.state === 'sent' ? h('span.st2.sent', svg(I.CHECK_C), `Sent to ${who}`) : [h('span.st2.wait', 'Not sent yet'), h('button.lk', { style: { marginLeft: '8px' }, on: { click: () => void this.remove(c) } }, 'Take back')]), h('div', c.text)),
+          (c.replies || []).map((r) => h('div.c', h('div.ch', h('b', who), h('span.t3.num', hm(r.at))), h('div', r.text))),
+        ]),
         comp ? this.composer(comp) : null));
     }
     return out;
@@ -188,29 +204,28 @@ export class Review {
   private composer(c: { file: string; line: number; side: 'new' | 'old'; text: string }): HTMLElement {
     const ta = h('textarea', { placeholder: 'Say what to change here' }) as HTMLTextAreaElement;
     ta.value = c.text;
-    const add = () => {
+    const add = async () => {
       const t = ta.value.trim();
       if (!t) { ta.focus(); return; }
-      const list = this.comments.get(c.file) || [];
-      list.push({ file: c.file, line: c.line, side: c.side, text: t, at: new Date(this.host.now()).toISOString(), sent: false });
-      this.comments.set(c.file, list);
+      const r = await this.host.call('POST', `/api/sessions/${enc(this.surfaceId)}/review/comment`, { file: c.file, line: c.line, side: c.side, text: t });
+      if (r.status !== 200) { this.host.toast((r.body as { error?: string }).error || 'The board did not keep the comment.'); return; }
       this.composing = null;
+      await this.loadComments();
       this.host.rerender();
     };
     ta.addEventListener('input', () => { c.text = ta.value; });
     ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); add(); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void add(); }
       if (e.key === 'Escape') { e.preventDefault(); this.composing = null; this.host.rerender(); }
       e.stopPropagation();
     });
-    return h('div', h('div.c', ta), h('div.qa', h('button.btn.sm.pri', { on: { click: add } }, 'Add comment'), h('button.btn.sm.ghost', { on: { click: () => { this.composing = null; this.host.rerender(); } } }, 'Cancel')));
+    return h('div', h('div.c', ta), h('div.qa', h('button.btn.sm.pri', { on: { click: () => void add() } }, 'Add comment'), h('button.btn.sm.ghost', { on: { click: () => { this.composing = null; this.host.rerender(); } } }, 'Cancel')));
   }
 
-  /** For tests and screenshots: a comment on a line, sent or not. */
-  addComment(file: string, line: number, text: string, sent: boolean, at?: string): void {
-    const list = this.comments.get(file) || [];
-    list.push({ file, line, side: 'new', text, at: at || new Date(this.host.now()).toISOString(), sent });
-    this.comments.set(file, list);
+  private async remove(c: Comment): Promise<void> {
+    const r = await this.host.call('POST', `/api/sessions/${enc(this.surfaceId)}/review/remove`, { id: c.id });
+    if (r.status !== 200) this.host.toast((r.body as { error?: string }).error || 'Could not take it back.');
+    await this.loadComments();
   }
 
   // ------------------------------------------------ the panel's cards

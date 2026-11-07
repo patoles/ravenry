@@ -78,16 +78,6 @@ export function driveVerb(cp: Checkpoint): { action: string; wants: string; once
   }
 }
 
-/**
- * A pick's variant label as a name and the agent's words about it: the
- * label up to its first ": " or ". " (as the phone board splits it), so
- * "Level: The hull stays flat" reads as Level, then Claude's words.
- */
-export function variantLabel(label: string): { name: string; words: string | null } {
-  const m = /^(.+?)(?::|\.)\s+(.+)$/.exec(String(label || '').trim());
-  return m ? { name: m[1].trim(), words: m[2].trim() } : { name: String(label || '').trim(), words: null };
-}
-
 /** "waiting 2 min", "waiting 1 h", "just now". */
 export function waiting(cp: Checkpoint, now: number): string {
   const ms = now - Date.parse(cp.created_at);
@@ -417,6 +407,10 @@ export class Checkpoints {
     };
     const wasOpen = had ? isOpen(had.cp) : false;
     if (!isOpen(merged) && k.closedSeen === null) k.closedSeen = now;
+    // A drive or a pick has nothing more to say once answered: what the
+    // agent then typed shows in the pane and its log, and a pick's answer is
+    // the person's own. Its card leaves the panel at once.
+    if (!isOpen(merged) && (merged.kind === 'drive' || merged.kind === 'pick')) k.closedSeen = -Infinity;
     this.items.set(cp.id, k);
     return { opened: !had && isOpen(merged), closed: !!had && wasOpen && !isOpen(merged) };
   }

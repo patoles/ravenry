@@ -209,6 +209,11 @@ try {
       execFileSync('git', ['-C', pb, '-c', 'user.name=Demo', '-c', 'user.email=demo@example.com', 'add', '.'], { stdio: 'ignore' });
       execFileSync('git', ['-C', pb, '-c', 'user.name=Demo', '-c', 'user.email=demo@example.com', 'commit', '-q', '-m', 'The boat and the harbour'], { stdio: 'ignore' });
       fs.writeFileSync(path.join(MC, 'decisions.json'), JSON.stringify(decisionsFile(), null, 2), { mode: 0o600 });
+      // The stand-in Codex draws no screen the board knows as a live Codex: let
+      // review comments be typed into it all the same (a test registry's switch).
+      const reg = JSON.parse(fs.readFileSync(path.join(MC, 'projects.json'), 'utf8'));
+      reg.projects.find((p) => p.id === 'paper-boat').sendToAnySurface = true;
+      fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify(reg, null, 2));
       fs.writeFileSync(path.join(HOME, '.claude.json'), '{"oauthAccount":{}}');
       fs.mkdirSync(path.join(HOME, '.codex'), { recursive: true });
       fs.writeFileSync(path.join(HOME, '.codex', 'auth.json'), '{}');
@@ -299,10 +304,20 @@ try {
   steps.push(...showTab('dev server'), until(`!document.getElementById('lstrip').hidden`), click('#lstrip button', 'Hand it to'), ...pause('handed'),
     { js: `${R}.pickSession(${KEY_CODEX})` }, until(`[...document.querySelectorAll('#panel .cp-h')].some((e) => e.textContent.includes('asks for a review'))`, 40000), { sleep: 500 }, ...shot('33-review-card'),
     click('#panel .cp button', 'Review'), until(`!document.getElementById('review').hidden && document.querySelector('.rv-f')`, 20000),
-    { js: `(() => { const r = ${R}.review(); r.addComment('src/levels/harbour.ts', 3, 'The buoys bob too fast next to the boat. Slow them down, keep the size.', true, new Date(Date.now() - 300000).toISOString()); r.addComment('src/levels/harbour.ts', 8, 'Make the harbour wall one tile shorter so the boat fits through on the phone.', false); ${R}.render(); })()` },
-    click('.rv-f', 'harbour'), { sleep: 500 }, ...shot('33b-review'),
+    ...pause('comments'),
+    click('.rv-f', 'harbour'), until(`document.querySelectorAll('.cth .c').length >= 3`, 20000), { sleep: 500 }, ...shot('33b-review'),
     click('#centre .rv-h button', 'Merge into'), until(`[...document.querySelectorAll('#panel .cp-h')].some((e) => e.textContent.includes('Merged into'))`, 30000), { sleep: 400 }, ...shot('33d-after-merge'),
     { save: { expr: `({ cps: [...${R}.S.cps.items.values()].map((k) => k.cp), page: document.body.innerText.slice(0, 2000) })`, out: path.join(WORK, 'after.json') } });
+
+  // The tab strip with 3, 6 and 10 tabs: second lines go first, then it scrolls; no name is cut.
+  const tabsShot = (n) => [
+    until(`${R}.S.tabs.length >= ${n}`, 20000), { sleep: 600 },
+    { save: { expr: `[...document.querySelectorAll('#tabs .tab .n')].map((e) => [e.textContent, e.scrollWidth > e.clientWidth + 1])`, out: path.join(WORK, `tabs-${n}.json`) } },
+    ...shot(`tabs-${n}`),
+  ];
+  steps.push(...showTab('dev server'), ...tabsShot(3),
+    { js: `(async () => { for (let i = 0; i < 3; i++) await ${R}.newShell(); })()` }, ...tabsShot(6),
+    { js: `(async () => { for (let i = 0; i < 4; i++) await ${R}.newShell(); })()` }, ...tabsShot(10));
 
   const app = runApp({ name: 'phase2', work: WORK, rt: RT, bin: BIN, home: hub.home, hubUrl: hub.url, steps, timeoutMs: 600000, env: { RAVENRY_SERVICE: 'off', PATH: `${STAND}:/usr/bin:/bin:/usr/sbin:/sbin` } });
 
@@ -311,14 +326,14 @@ try {
     // 6: Claude asks to close the preview, is refused, then asks to type.
     const nClose = await step('claude-puppet', [
       say(`${C.g}⏺${C.r} ${C.w}Update${C.r}(src/boat/hull.ts)\\n${C.dim}  ⎿  Updated src/boat/hull.ts with 12 additions and 3 removals${C.r}\\n\\n${C.g}⏺${C.r} ${C.w}Bash${C.r}(npm test -- boat)\\n${C.dim}  ⎿  ${C.r}${C.g}PASS${C.r}${C.dim}  22 tests, 1.8 s${C.r}\\n\\n`),
-      `ravenryd close ${preview} >/dev/null 2>&1 || ${say(`${C.y}⏺${C.r} You kept the preview open. Leaving it.\\n\\n`)}`,
+      `ravenryd close ${preview} --reason 'The preview is an old build; the dev server replaces it.' >/dev/null 2>&1 || ${say(`${C.y}⏺${C.r} You kept the preview open. Leaving it.\\n\\n`)}`,
     ].join('\n'), { wait: false });
     resume('typed');
     await at('closed');
     await done('claude-puppet', nClose);
     const nType = await step('claude-puppet', [
       say(`⏺ The tilt works. Your phone can't open the game yet: the dev server only\\n  listens on this Mac. It runs in your "dev server" pane, which I didn't open,\\n  so I'm asking before I type there.\\n\\n${C.y}⏺${C.r} ${C.w}Bash${C.r}(ravenry send "dev server" --key Ctrl+C --typed "npm run dev -- --host" --key Enter)\\n${C.dim}  ⎿  Waiting for your answer in Ravenry.${C.r}\\n\\n`),
-      `ravenryd send ${dev} --key Ctrl+C --delay 40ms --typed 'npm run dev -- --host' --key Enter >/dev/null 2>&1`,
+      `ravenryd send ${dev} --key Ctrl+C --delay 40ms --typed 'npm run dev -- --host' --key Enter --reason 'The game only listens on this Mac. --host lets your phone open it on the home Wi-Fi.' >/dev/null 2>&1`,
     ].join('\n'), { wait: false });
     resume('closed');
     await at('typed-in');
@@ -370,7 +385,7 @@ try {
     await at('pick');
     const nPick = await step('claude-puppet', [
       say(`${C.y}⏺${C.r} ${C.w}Bash${C.r}(ravenry pick "Which tilt reads best on the steep wave?" ...)\\n${C.dim}  ⎿  Waiting for your pick in Ravenry.${C.r}\\n\\n`),
-      `ravenryd pick "$(printf 'Which tilt reads best on the steep wave?\\nRendered from the game at the same moment, frame 412 of the storm level.')" --variant "Level: The hull stays flat; the wave moves under it.=${hub.home}/tilt-a.svg" --variant "Tilt with the slope: The hull follows the wave at the bow.=${hub.home}/tilt-b.svg" --variant "Half the slope: Follows the wave, half as much. Less spray.=${hub.home}/tilt-c.svg" > ${WORK}/pick.txt 2>/dev/null`,
+      `ravenryd pick "$(printf 'Which tilt reads best on the steep wave?\\nRendered from the game at the same moment, frame 412 of the storm level.')" --variant "Level=${hub.home}/tilt-a.svg" --variant "Tilt with the slope=${hub.home}/tilt-b.svg" --variant "Half the slope=${hub.home}/tilt-c.svg" --describe "Level=The hull stays flat; the wave moves under it." --describe "Tilt with the slope=The hull follows the wave's angle at the bow." --describe "Half the slope=Follows the wave, half as much. Less spray." > ${WORK}/pick.txt 2>/dev/null`,
     ].join('\n'), { wait: false });
     resume('pick');
     await at('picked');
@@ -389,6 +404,15 @@ try {
       hook('codex', CX, 'Stop'),
     ].join('\n'));
     resume('handed');
+    // 33: two review comments kept by the board, one sent; Codex answers the sent one with ravenry review reply.
+    await at('comments');
+    const sid = encodeURIComponent(st.surfaceId);
+    const post = async (p, body) => { const r = await fetch(hub.url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body) }); const j = await r.json(); if (!r.ok) throw new Error(`${p}: ${JSON.stringify(j)}`); return j; };
+    const c1 = await post(`/api/sessions/${sid}/review/comment`, { file: 'src/levels/harbour.ts', line: 3, text: 'The buoys bob too fast next to the boat. Slow them down, keep the size.' });
+    await post(`/api/sessions/${sid}/review/send`, {});
+    await step('codex', `RAVENRY_HUB_URL=${hub.url} ravenryd review reply ${c1.comment.id} 'Done: 0.8 Hz down to 0.4 Hz, size unchanged. Line 3 below.' > ${WORK}/reply.txt 2>&1`);
+    await post(`/api/sessions/${sid}/review/comment`, { file: 'src/levels/harbour.ts', line: 8, text: 'Make the harbour wall one tile shorter so the boat fits through on the phone.' });
+    resume('comments');
   })();
   await Promise.all([app, script2]);
   console.log('wrote', fs.readdirSync(OUT).filter((f) => f.endsWith('.png')).sort().join(', '));

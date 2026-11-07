@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Checkpoint } from '@ravenry/client';
 import { echoParts, inputParts, keyLabel, sameSource } from '../src/renderer/panes.ts';
-import { afterOf, Checkpoints, driveVerb, heading, markOf, variantLabel } from '../src/renderer/checkpoints.ts';
+import { afterOf, Checkpoints, driveVerb, heading, markOf } from '../src/renderer/checkpoints.ts';
 import { analyse, pickThumbs, summary } from '../src/renderer/filmstrip.ts';
 import { parseDiff } from '../src/renderer/review.ts';
 
@@ -39,12 +39,24 @@ test('a drive says its action in its heading, its buttons and its row', () => {
   assert.match(afterOf(answered, Date.parse('2026-11-07T10:02:00.000Z'), 'darwin').text, /until its session ends/);
 });
 
-test('a pick names each variant and its agent\'s words, and its row says how many', () => {
-  assert.deepEqual(variantLabel('Tilt with the slope: The hull follows the wave at the bow.'), { name: 'Tilt with the slope', words: 'The hull follows the wave at the bow.' });
-  assert.deepEqual(variantLabel('Level'), { name: 'Level', words: null });
-  const pick = base({ kind: 'pick', title: 'Which tilt reads best?\nRendered at frame 412.', variants: [{ label: 'A', path: '/a.png', type: 'image', size: 1 }, { label: 'B', path: '/b.png', type: 'image', size: 1 }, { label: 'C', path: '/c.png', type: 'image', size: 1 }] });
+test('a pick says how many in its row, and an answered drive or pick leaves the panel at once', () => {
+  const pick = base({ kind: 'pick', title: 'Which tilt reads best?\nRendered at frame 412.', variants: [{ label: 'A', description: 'Flat', path: '/a.png', type: 'image', size: 1 }, { label: 'B', path: '/b.png', type: 'image', size: 1 }, { label: 'C', path: '/c.png', type: 'image', size: 1 }] });
   assert.equal(heading(pick), 'Claude asks you to pick');
   assert.equal(markOf(pick).text, 'Pick one of 3: Which tilt reads best?');
+  const s = new Checkpoints();
+  s.fromDaemon('sock', pick, 1);
+  assert.equal(s.forPane(pick.pane || '', null, 2)?.cp.id, undefined);
+  const drive = base({ pane: 'pa', drive: { pane: 'pb', agent: { kind: 'agent', pane: 'pa' } } });
+  s.fromDaemon('sock', drive, 1);
+  assert.equal(s.forPane('pa', null, 2)?.cp.id, 'cdrive01', 'open: its card shows');
+  s.fromDaemon('sock', { ...drive, state: 'answered', closed_at: '2026-11-07T10:01:00.000Z' } as Checkpoint, 3);
+  assert.equal(s.forPane('pa', null, 4), null, 'answered: its card leaves the panel');
+  const ask = base({ id: 'cask0001', kind: 'ask', pane: 'pq', drive: undefined });
+  s.fromDaemon('sock', ask, 1);
+  s.fromDaemon('sock', { ...ask, state: 'answered', closed_at: '2026-11-07T10:01:00.000Z' } as Checkpoint, 3);
+  assert.equal(s.forPane('pq', null, 4)?.cp.id, 'cask0001', 'an answered question says how it went');
+  s.settle('pq', 5);
+  assert.equal(s.forPane('pq', null, 6), null, 'until its session moves on');
 });
 
 test('the filmstrip marks blank and half drawn frames and stalls between changes', () => {

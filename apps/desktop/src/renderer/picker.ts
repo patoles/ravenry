@@ -9,7 +9,7 @@
 import type { CheckpointReply, Region } from '@ravenry/client';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
-import { isOpen, splitTitle, variantLabel, waiting, who } from './checkpoints.ts';
+import { isOpen, splitTitle, waiting, who } from './checkpoints.ts';
 import type { Known } from './checkpoints.ts';
 
 export interface PickerHost {
@@ -68,7 +68,7 @@ export class Picker {
     try {
       if (decline) await this.host.answer(k, { decline: true, ...(st.extra.trim() ? { reason: st.extra.trim().slice(0, 1000) } : {}) });
       else {
-        const label = (k.cp.variants || [])[st.picked!].label;  // the whole label: the agent knows its variants by it
+        const label = (k.cp.variants || [])[st.picked!].label;
         const note = [st.region && st.pin.trim() ? st.pin.trim() : '', st.extra.trim()].filter(Boolean).join('\n\n').slice(0, 4000);
         await this.host.answer(k, { pick: { label, ...(st.region ? { region: st.region } : {}), ...(note ? { note } : {}) } });
       }
@@ -94,7 +94,7 @@ export class Picker {
       const on = st.picked === n;
       const src = this.host.src(k, n);
       const img = h(`div.pv-img${st.circling ? '.drawing' : ''}`,
-        src ? (v.type === 'html' ? h('div.t3', { style: { padding: '20px' } }, 'A page: open it from the board to see it.') : h('img', { src, alt: variantLabel(v.label).name, draggable: 'false' })) : h('div.t3', { style: { padding: '20px' } }, 'This picture is on another machine.'),
+        src ? (v.type === 'html' ? h('div.t3', { style: { padding: '20px' } }, 'A page: open it from the board to see it.') : h('img', { src, alt: v.label, draggable: 'false' })) : h('div.t3', { style: { padding: '20px' } }, 'This picture is on another machine.'),
         h('span.plab', LETTERS[n] || String(n + 1)));
       if (on && st.region) {
         const r = st.region;
@@ -115,8 +115,8 @@ export class Picker {
       this.drawable(img, n);
       return h(`div.pv${on ? '.on' : ''}`,
         img,
-        h('div.pv-t', variantLabel(v.label).name, on ? h('span.yp', 'Your pick') : null),
-        variantLabel(v.label).words ? h('div.pv-w', `${who(cp)}: ${variantLabel(v.label).words}`) : null,
+        h('div.pv-t', v.label, on ? h('span.yp', 'Your pick') : null),
+        v.description ? h('div.pv-w', `${who(cp)}: ${v.description}`) : null,
         h('div.pv-a',
           on ? h('button.btn.sm.pri', { disabled: !open }, svg(I.CHECK_C), 'Picked') : h('button.btn.sm', { disabled: !open, on: { click: () => this.pickN(n) } }, `Pick ${LETTERS[n] || n + 1}`),
           h('span.kb', String(n + 1))));
