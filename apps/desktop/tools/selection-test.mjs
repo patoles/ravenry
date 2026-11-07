@@ -150,6 +150,22 @@ try {
   ] });
   const rl = j('relaunch.json');
   check('relaunched: the session that was in front is in front again, its pane shown; no launch shell opened for it', rl.sel.front === KEY && rl.sel.row === KEY && rl.shells === j('shells1.json'), JSON.stringify(rl));
+
+  // Its pane is gone (its daemon ended it): at the next launch nothing of it
+  // comes back, the launch shell is in front, and nothing is said.
+  const dc2 = await connectSocket(sock, { name: 'selection-test' });
+  await dc2.request('pane.close', { pane: pane.id });
+  dc2.close();
+  const third = await runApp({ name: 'third', work, rt, bin: BIN, home, hubUrl, env, steps: [
+    { ready: true },
+    { until: `${R}.term().ready && ${R}.term().attached && ${AGREE}`, timeout: 15000 },
+    { sleep: 1500 },
+    { save: { expr: `({ sel: ${SEL}, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent })`, out: path.join(work, 'gone.json') } },
+  ] });
+  const gn = j('gone.json');
+  const asks = (third.match(/could not show pane/g) || []).length;
+  if (asks) console.log(third.split('\n').filter((l) => /window:/.test(l)).join('\n'));
+  check('its pane gone: the launch shell is in front, no toast, no repeated tries', gn.sel.front.startsWith('tab:') && gn.sel.row === null && !/Could not/.test(gn.toast) && asks === 0 && /is gone; the launch shell instead/.test(third), JSON.stringify({ ...gn, asks }));
 } finally {
   clearInterval(tickTimer);
   for (const s of streams) s.end();

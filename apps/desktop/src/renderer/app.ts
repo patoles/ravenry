@@ -1234,8 +1234,15 @@ async function renderCentre(): Promise<void> {
   const pane = f ? paneOf(f.session) : v.kind === 'session' ? v.pane || null : null;
   if (pane && (!f || !machineOf(f.project, f.session))) {
     // A session the hub runs in a ravenryd pane here shows its pane.
-    // Gone (it ended while the app was closed): said, and a shell in front if none is open.
-    await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => { toast(`Could not show that session: ${e.message}`); if (!S.tabs.some((t) => t.kind === 'shell')) void newShell(); });
+    // Gone: said once, and a shell in front (one opened if none is), so the
+    // middle never keeps asking for a pane that is not there.
+    await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => {
+      toast(`Could not show that session: ${e.message}`);
+      const v2 = S.view;
+      if (v2.kind !== 'session' || (v2.pane || null) !== (v.kind === 'session' ? v.pane || null : null) || viewSessionKey() !== key) return;
+      const sh = S.tabs.find((t) => t.kind === 'shell');
+      if (sh) setView({ kind: 'tab', id: sh.id }); else void newShell();
+    });
     return;
   }
   term.hide();
@@ -2190,10 +2197,16 @@ async function boot(): Promise<void> {
   // A session that was in front last time, with a pane, is in front again;
   // the launch shell opens only when nothing else comes back.
   const was = saved.selected as { key?: string; pane?: string } | null | undefined;
-  if (was && typeof was.key === 'string' && typeof was.pane === 'string') {
+  // Its pane must still be there (a daemon that ended took it): else it did
+  // not come back, and the launch shell is in front, with nothing to say.
+  const back = was && typeof was.key === 'string' && typeof was.pane === 'string' ? await daemons.holding(was.pane).then((c) => !!c, () => false) : false;
+  if (was && back) {
     api().log(`window: launch: the session that was in front, ${was.key} (pane ${was.pane})`);
-    S.view = { kind: 'session', key: was.key, pane: was.pane };
-  } else if (!S.tabs.some((t) => t.kind === 'shell')) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
+    S.view = { kind: 'session', key: was.key!, pane: was.pane! };
+  } else {
+    if (was && was.pane) api().log(`window: launch: the session that was in front (pane ${was.pane}) is gone; the launch shell instead`);
+    if (!S.tabs.some((t) => t.kind === 'shell')) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
+  }
   // The daemon new panes go to is followed from the start, for its checkpoints.
   void daemons.forNew().catch(() => {});
   render();
