@@ -352,7 +352,7 @@ try {
     const current = (() => { try { return fs.realpathSync(path.join(b.data, 'current')); } catch { return null; } })();
     step('8 hooks: the settings name the stable folder (current), never a version folder', settings.includes('/current/hub/hooks/events.mjs') && !/\/versions\//.test(settings) && current === fs.realpathSync(path.join(b.data, 'versions', BUILD.version)), { current, versionsNamed: (settings.match(/versions\/[^/]+/g) || []).slice(0, 3) });
     step(`8 hooks: the build before's folder is removed, its hook scripts left as stubs`, !fs.existsSync(path.join(oldDir, 'hub', 'server')) && fs.existsSync(path.join(oldDir, 'REMOVED')) && fs.existsSync(path.join(oldDir, 'hub', 'hooks', 'events.mjs')), { left: fs.existsSync(oldDir) ? fs.readdirSync(oldDir) : null });
-    const hookSid = 'abcdef01-2345-4678-9abc-def012345678';
+    const hookSid = '5e55107e-0000-4000-8000-0000000000bb';
     const runHook = (cmd, ev) => spawnSync('/bin/sh', ['-c', cmd], { input: JSON.stringify({ session_id: hookSid, hook_event_name: ev, cwd: path.join(b.home, 'Projects', 'kite'), prompt: 'and now?', transcript_path: path.join(b.home, '.claude', 'projects', 'x', `${hookSid}.jsonl`) }), env: { HOME: b.home, PATH: b.env.PATH, LANG: 'en_US.UTF-8' }, encoding: 'utf8', timeout: 20000 });
     const evFile = path.join(b.home, '.ravenry', 'events', `${hookSid}.jsonl`);
     const r1 = runHook(snapshot.events, 'UserPromptSubmit');
