@@ -164,9 +164,14 @@ jobs:
           for i in $(seq 1 50); do pgrep -f ravenryd >/dev/null || exit 0; sleep 0.2; done
           pkill -KILL -f ravenryd || true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
+        # Only when it fails, only its logs and pictures, kept 1 day: GitHub bills stored files by the hour.
+        if: failure()
         with:
           name: desktop-smoke
-          path: ${{ runner.temp }}/smoke
+          path: |
+            ${{ runner.temp }}/smoke/**/*.log
+            ${{ runner.temp }}/smoke/**/*.json
+            ${{ runner.temp }}/smoke/**/*.png
           include-hidden-files: true
           if-no-files-found: ignore
+          retention-days: 1

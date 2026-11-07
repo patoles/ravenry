@@ -122,6 +122,8 @@ jobs:
           name: ravenryd-${{ matrix.platform }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/out/
           if-no-files-found: error
+          # Only handed to the next jobs; the release itself holds the files.
+          retention-days: 1
 
   mac:
     needs: [version, ravenryd]
@@ -176,13 +178,18 @@ jobs:
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest-mac.yml
           if-no-files-found: error
+          retention-days: 1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
+        if: failure()
         with:
           name: check-mac
-          path: ${{ runner.temp }}/check
+          path: |
+            ${{ runner.temp }}/check/**/*.log
+            ${{ runner.temp }}/check/**/*.json
+            ${{ runner.temp }}/check/**/*.png
           include-hidden-files: true
           if-no-files-found: ignore
+          retention-days: 1
 
   linux:
     needs: [version, ravenryd]
@@ -227,13 +234,18 @@ jobs:
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest-linux*.yml
           if-no-files-found: error
+          retention-days: 1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
+        if: failure()
         with:
           name: check-linux
-          path: ${{ runner.temp }}/check
+          path: |
+            ${{ runner.temp }}/check/**/*.log
+            ${{ runner.temp }}/check/**/*.json
+            ${{ runner.temp }}/check/**/*.png
           include-hidden-files: true
           if-no-files-found: ignore
+          retention-days: 1
 
   linux-arm64:
     needs: [version, linux]
@@ -260,12 +272,16 @@ jobs:
         working-directory: apps/desktop
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node tools/package-check.mjs release/Ravenry-${{ needs.version.outputs.version }}-linux-arm64.AppImage "$RUNNER_TEMP/check/run" --old-ravenryd "$RUNNER_TEMP/rv/ravenryd-old-linux-arm64"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
+        if: failure()
         with:
           name: check-linux-arm64
-          path: ${{ runner.temp }}/check
+          path: |
+            ${{ runner.temp }}/check/**/*.log
+            ${{ runner.temp }}/check/**/*.json
+            ${{ runner.temp }}/check/**/*.png
           include-hidden-files: true
           if-no-files-found: ignore
+          retention-days: 1
 
   draft:
     if: github.ref_type == 'tag'

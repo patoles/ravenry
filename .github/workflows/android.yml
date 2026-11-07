@@ -94,14 +94,3 @@ jobs:
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/signer.txt"
           grep -Eq "certificate SHA-256 digest: 7ba7b99dbcad235749531977a4761c1a008360368b269c69b93ab0aaa2a26c7a$" "$RUNNER_TEMP/signer.txt"
           test "$(grep -c "certificate SHA-256 digest:" "$RUNNER_TEMP/signer.txt")" = 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: env.HAS_KEY == 'true'
-        with:
-          name: ravenry-android-release
-          path: apps/android/app/build/outputs/apk/release/app-release.apk
-          retention-days: 7
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ravenry-android-debug
-          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
