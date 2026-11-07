@@ -64,9 +64,11 @@ type InputsResult struct {
 // client outside every pane, its connection), until a person revokes it
 // or either pane closes. Allow is "session".
 type Grant struct {
-	ID         string `json:"id"`
-	Pane       string `json:"pane"`
-	Agent      Source `json:"agent"`
+	ID    string `json:"id"`
+	Pane  string `json:"pane"`
+	Agent Source `json:"agent"`
+	// Action is what it allows (as Drive.Action); a grant allows one.
+	Action     string `json:"action,omitempty"`
 	Allow      string `json:"allow"`
 	Session    string `json:"session,omitempty"`
 	Checkpoint string `json:"checkpoint,omitempty"`
@@ -96,6 +98,9 @@ type Lease struct {
 	Holder     Source `json:"holder"`
 	AcquiredAt string `json:"acquired_at"`
 	ExpiresAt  string `json:"expires_at"`
+	// Waiting is who waits for it, in turn: the first is handed the lease
+	// when it ends.
+	Waiting []Source `json:"waiting,omitempty"`
 }
 
 type LeaseRequest struct {
@@ -104,7 +109,10 @@ type LeaseRequest struct {
 	TTLMs   *int64 `json:"ttl_ms,omitempty"`
 	WaitMs  *int64 `json:"wait_ms,omitempty"`
 	Release bool   `json:"release,omitempty"`
-	NoWait  bool   `json:"no_wait,omitempty"`
+	// RefuseWaiting, with a person's release: the drivers waiting for the
+	// lease fail with leased instead of being handed it.
+	RefuseWaiting bool `json:"refuse_waiting,omitempty"`
+	NoWait        bool `json:"no_wait,omitempty"`
 }
 
 type LeaseResult struct {
@@ -276,12 +284,17 @@ type Drive struct {
 	Pane  string `json:"pane"`
 	Agent Source `json:"agent"`
 	Input string `json:"input,omitempty"`
+	// Action is what the agent asks to do to the pane: "input" (type into
+	// it), "close", "restart" or "override" (set its test conditions).
+	// Absent means input.
+	Action string `json:"action,omitempty"`
 }
 
 // DriveRequest is checkpoint.new's drive: the pane to drive. Who asks is
 // the daemon's judgement of the connection, never the request's.
 type DriveRequest struct {
-	Pane string `json:"pane"`
+	Pane   string `json:"pane"`
+	Action string `json:"action,omitempty"`
 }
 
 // Variant is one choice of a pick.

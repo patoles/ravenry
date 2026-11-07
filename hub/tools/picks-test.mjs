@@ -96,6 +96,10 @@ const pm = checkpointMessage({ ...cp, variants: cp.variants.slice(0, 4) });
 check('a pick\'s alert: the variants with their URLs, buttons by label (the fourth behind Open)', pm.kind === 'pick' && pm.checkpoint.variants.length === 4 && pm.checkpoint.variants[2].url === '/api/checkpoints/cpick001/variants/2' && pm.checkpoint.variants[2].type === 'html' && pm.actions.map((x) => x.id).join() === 'pick:0,pick:1,open', JSON.stringify(pm));
 const dm = checkpointMessage(open);
 check('a drive\'s alert: what it would type, Allow once and This session behind a fingerprint, Refuse', dm.kind === 'drive' && dm.body === 'npm run dev' && dm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse', JSON.stringify(dm));
+const closeOpen = { ...open, id: 'cdrive02', drive: { ...open.drive, action: 'close', input: undefined } };
+checkpoints.take(closeOpen, { daemon: 'd1' });
+const cm = checkpointMessage(closeOpen);
+check('a drive to close a tab says so, keeps its action, and takes a fingerprint the same way', /wants to close another tab$/.test(cm.title) && cm.checkpoint.drive.action === 'close' && checkpoints.get('cdrive02').drive.action === 'close' && cm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse', JSON.stringify(cm));
 
 // ------------------------------------------------------------ end to end
 const BIN = process.env.RAVENRYD_BIN && path.resolve(process.env.RAVENRYD_BIN);

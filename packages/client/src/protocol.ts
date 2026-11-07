@@ -177,6 +177,7 @@ export interface Grant {
   id: string;
   pane: PaneId;
   agent: Source;
+  action?: DriveAction;
   allow: 'session';
   session?: string;
   checkpoint?: CheckpointId;
@@ -241,7 +242,11 @@ export interface Drive {
   pane: PaneId;
   agent: Source;
   input?: string;
+  /** What it asks to do to the pane; absent means input. */
+  action?: DriveAction;
 }
+
+export type DriveAction = 'input' | 'close' | 'restart' | 'override';
 
 /** One choice of a pick: a file on the daemon's machine (a shot of `pane` when set). */
 export interface Variant {
@@ -474,7 +479,7 @@ export interface Methods {
   };
   'pane.list': { params: { hidden?: boolean; labels?: Labels; processes?: boolean }; result: { panes: Pane[] } };
   'pane.update': { params: { pane: PaneId; name?: string; labels?: Record<string, string | null> }; result: { pane: Pane } };
-  'pane.close': { params: { pane: PaneId; grace_ms?: number }; result: { pane: Pane; signalled: number } };
+  'pane.close': { params: { pane: PaneId; grace_ms?: number; no_wait?: boolean }; result: { pane: Pane; signalled: number } };
   'pane.resize': { params: { pane: PaneId; cols: number; rows: number }; result: { pane: Pane } };
   'pane.capture': {
     params: { pane: PaneId; styles?: boolean; history?: number; vt?: boolean };
@@ -500,7 +505,7 @@ export interface Methods {
   };
   'pane.process': { params: { pane: PaneId }; result: { pane: PaneId; foreground: Process } };
   'pane.restart': {
-    params: { pane: PaneId; grace_ms?: number; shell_command?: boolean };
+    params: { pane: PaneId; grace_ms?: number; shell_command?: boolean; no_wait?: boolean };
     result: { pane: Pane; replaced: Pane; command?: string; mark?: Mark; stopped_by?: 'interrupt' | 'SIGTERM' | 'SIGKILL' };
   };
   'pane.focus': { params: { pane: PaneId }; result: { displays: number } };
@@ -548,7 +553,7 @@ export interface Methods {
       warning?: string;
       env?: Record<string, string>;
       secret?: SecretTarget;
-      drive?: { pane: PaneId };
+      drive?: { pane: PaneId; action?: DriveAction };
       variants?: { label: string; path?: string; pane?: PaneId }[];
       timeout_ms?: number;
     };

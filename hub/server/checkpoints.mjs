@@ -66,7 +66,7 @@ function clean(cp) {
     out.answer = { at: a.at, ...(a.choice != null ? { choice: a.choice, option: a.option } : {}), ...(a.text != null ? { text: a.text } : {}), ...(a.approved ? { approved: true } : {}), ...(typeof a.command === 'string' && a.command ? { command: a.command } : {}), ...(a.delivered ? { delivered: true } : {}), ...(a.declined ? { declined: true } : {}), ...(typeof a.allow === 'string' && a.allow ? { allow: a.allow } : {}), ...(a.pick && typeof a.pick === 'object' ? { pick: cleanPick(a.pick) } : {}), ...(typeof a.reason === 'string' && a.reason ? { reason: a.reason } : {}), ...(a.by ? { by: a.by } : {}) };
   }
   if (out.variants) out.variants = (Array.isArray(out.variants) ? out.variants : []).slice(0, 4).map((v) => ({ label: String(v && v.label || ''), path: String(v && v.path || ''), type: v && v.type === 'html' ? 'html' : 'image', ...(Number.isFinite(v && v.size) ? { size: v.size } : {}), ...(v && typeof v.pane === 'string' ? { pane: v.pane } : {}) }));
-  if (out.drive) { const d = out.drive; out.drive = { pane: String(d.pane || ''), ...(d.agent && typeof d.agent === 'object' ? { agent: cleanSource(d.agent) } : {}), ...(typeof d.input === 'string' ? { input: d.input } : {}) }; }
+  if (out.drive) { const d = out.drive; out.drive = { pane: String(d.pane || ''), ...(d.agent && typeof d.agent === 'object' ? { agent: cleanSource(d.agent) } : {}), ...(typeof d.input === 'string' ? { input: d.input } : {}), ...(['input', 'close', 'restart', 'override'].includes(d.action) ? { action: d.action } : {}) }; }
   return out;
 }
 

@@ -242,7 +242,7 @@ fit, it shows the first ones and **Open**.
 | `ask` | `ravenry ask` (a checkpoint) | its options, `choice:<i>`; with `free_text`, at most two of them | with `free_text`: **Answer** |
 | `approve` | `ravenry approve` | **Run** (`run`, fingerprint first), **Refuse** (`refuse`), **Open** (`open`) | none |
 | `secret` | `ravenry secret` | **Type it** (`open`), **Not now** (`decline`) | **none**, ever: a secret is never typed into a notification |
-| `drive` | an agent typed into a pane it did not start, and waits | **Allow once** (`allow:once`, fingerprint first), **This session** (`allow:session`, fingerprint first), **Refuse** (`refuse`) | none |
+| `drive` | an agent typed into, closed, restarted or changed the test conditions of a pane it did not start (`checkpoint.drive.action`: `input`, `close`, `restart`, `override`), and waits | **Allow once** (`allow:once`, fingerprint first), **This session** (`allow:session`, fingerprint first), **Refuse** (`refuse`) | none |
 | `pick` | `ravenry pick` (2 to 4 variants) | one per variant label, `pick:<i>`; with four, the first two and **Open** | none: the region and the note ("this, but...") are in the app |
 | `decision` | an agent saved the person's words in the decision ledger | **Undo** (`undo`), for a minute; then the alert closes | none |
 | `permission` | the assistant's own permission menu | its answers, `quick:<n>` (Yes, Yes always, No) | none |
@@ -270,8 +270,13 @@ cannot be turned off. So do **Allow once** and **This session** on a
 `drive`: letting an agent type into a pane is as strong as running a
 command there.
 
-**A drive** carries `checkpoint.drive: { pane }` (the pane the agent wants
-to type into) and, in `body`, what it would type. Allowing it for the
+**A drive** carries `checkpoint.drive: { pane, action }`: the pane the
+agent wants to act on, and what it wants to do (`input`: type into it;
+`close`; `restart`; `override`: change its size, speed or TERM). The
+title says it ("... wants to close another tab"), and `body` what it
+would type or which conditions it would set. Closing or restarting ends
+what runs there, so the same fingerprint goes before Allow once and This
+session. Allowing it for the
 session lasts until the agent's session ends; there is no "always".
 
 **A pick** carries `checkpoint.variants: [{ label, type: "image" | "html",

@@ -145,8 +145,8 @@ person never needs to come back to your chat.
 ## Panes you did not start
 
 - **You drive the panes you started** (and the panes those started).
-  Typing into any other pane, another agent's session included, asks the
-  person first: ` + "`send`" + ` waits until they let you (once, or for your
+  Typing into any other pane, another agent's session included, and
+  closing, restarting or overriding it, asks the person first: ` + "`send`" + ` waits until they let you (once, or for your
   session), and exits 125 if they say no. ` + "`--no-wait`" + ` fails at once and
   prints the checkpoint instead.
 - **Every input is logged with who sent it** (` + "`ravenry inputs PANE`" + `): the

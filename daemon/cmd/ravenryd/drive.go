@@ -170,7 +170,11 @@ func callAsking(ctx context.Context, c *client.Client, method string, params map
 		_ = holder
 		return exitCode(exitLeased)
 	case ce.Code == proto.CodeForbidden && ce.Checkpoint != "" && !noWait:
-		fmt.Fprintf(os.Stderr, "you did not start pane %v, so the person must let you type into it: waiting for them to answer %s (in the Ravenry app or on the phone)...\n", params["pane"], ce.Checkpoint)
+		verb := map[string]string{"pane.close": "close", "pane.restart": "restart", "pane.override": "set test conditions on"}[method]
+		if verb == "" {
+			verb = "type into"
+		}
+		fmt.Fprintf(os.Stderr, "you did not start pane %v, so the person must let you %s it: waiting for them to answer %s (in the Ravenry app or on the phone)...\n", params["pane"], verb, ce.Checkpoint)
 		delete(params, "no_wait")
 		err = c.Call(ctx, method, params, out)
 		if errors.As(err, &ce) && ce.Code == proto.CodeForbidden {

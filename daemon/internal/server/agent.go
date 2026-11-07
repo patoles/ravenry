@@ -500,7 +500,7 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 			if sh := p.Info().Shell; sh != nil {
 				cmd = sh.Command
 			}
-			if err := c.allowInput(ctx, p, w, "<Ctrl+C> "+cmd+"<Enter>", false); err != nil {
+			if err := c.allowAction(ctx, p, w, "<Ctrl+C> "+cmd+"<Enter>", r.NoWait, actRestart); err != nil {
 				c.failErr(id, err)
 				return
 			}
@@ -517,7 +517,14 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 		})
 		return
 	}
-	c.track(id, func(context.Context) {
+	w := c.who("")
+	c.track(id, func(ctx context.Context) {
+		// Restarting a pane outside its own ends what runs there: the
+		// person says yes first, as for input.
+		if err := c.allowAction(ctx, p, w, "", r.NoWait, actRestart); err != nil {
+			c.failErr(id, err)
+			return
+		}
 		c.s.drive.mu.Lock()
 		m := c.s.drive.metaLocked(r.Pane)
 		cr, key := m.creator, m.creatorKey

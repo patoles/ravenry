@@ -354,7 +354,8 @@ before using a method added after v1.0 (section 10).
 | `request` | id | A running `pane.wait`, `pane.settle`, `pane.close`, `pane.send` or `checkpoint.wait` on this connection. |
 
 Result: `{}`. The cancelled request then fails with `cancelled`, except a
-`pane.close`, which completes and answers as usual. Closing the
+`pane.close` that has started closing, which completes and answers as
+usual (one still waiting for a person's yes fails with `cancelled`). Closing the
 connection cancels everything it was waiting for.
 
 ### events.subscribe
@@ -424,8 +425,11 @@ changed, event subscribers get `pane.updated`.
 | --- | --- | --- |
 | `pane` | id | |
 | `grace_ms` | integer, optional | 0 to 60000. Default 1000. |
+| `no_wait` | boolean, optional | As in `pane.send`, for a pane this connection did not start. |
 
-Ends the pane's processes (section 3) and removes the pane. Result: `pane`
+Ends the pane's processes (section 3) and removes the pane. A pane this
+connection did not start waits for a person's yes first (Panes and who
+drives them, below). Result: `pane`
 (as it was, with its exit) and `signalled`, how many processes were
 signalled.
 
@@ -595,6 +599,7 @@ Process gets:
 | `pane` | id | |
 | `grace_ms` | integer, optional | As in `pane.close`. |
 | `shell_command` | boolean, optional | Keep the pane and start only the command its shell runs again (below). |
+| `no_wait` | boolean, optional | As in `pane.send`. A pane this connection did not start waits for a person's yes first (Panes and who drives them). |
 
 Closes the pane as `pane.close` does, then starts its command again in a
 new pane: the same `command` (the login shell when none was given),
@@ -790,12 +795,14 @@ Five kinds (`drive` and `pick` added after the first draft, section 10):
   output). The checkpoint, events, reports and results never hold it:
   `answer.delivered` says it went. A client that shows checkpoints must
   not store or log it either.
-- **`drive`**: an agent asks to type into a pane it did not start
-  (Panes and who drives them, below). The daemon opens it itself when
-  such input arrives (or an agent asks ahead with `checkpoint.new` and
-  `drive.pane`); its `drive` is `pane` (the pane to type into), `agent`
-  (a Source: who asks) and `input` (a preview of what it would type,
-  masked as the input log masks). A person approves with `allow`: `once`
+- **`drive`**: an agent asks to type into, close, restart or set the
+  test conditions of a pane it did not start (Panes and who drives them,
+  below). The daemon opens it itself when such a request arrives (or an
+  agent asks ahead with `checkpoint.new` and `drive`); its `drive` is
+  `pane` (the pane to act on), `agent` (a Source: who asks), `action`
+  (`input`, `close`, `restart` or `override`; absent means `input`) and
+  `input` (a preview: what it would type, masked as the input log masks,
+  or the conditions it would set). A person approves with `allow`: `once`
   (default: the input waiting now) or `session` (a grant for the agent's
   session), or declines.
 - **`pick`**: an agent shows 2 to 4 `variants` and waits for the
@@ -857,7 +864,7 @@ below). An agent opens, lists, waits on and cancels them.
 | `env` | object, optional | approve: variables the command runs with, at most 16: names of letters, digits and `_` (not `RAVENRY_*`), values of one line, at most 1000 bytes. The person sees them beside the command. A page's run button passes an item's values this way, so they never go inside the command line. |
 | `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
 | `variants` | array, optional | pick: 2 to 4 of `label` (1 to 64 bytes, unique) and `path` (an absolute path: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.html` or `.htm`, at most 32 MiB) or `pane` (a shot of it now). |
-| `drive` | object, optional | drive: `pane`, the pane the agent asks to type into. It takes no other field, not even `timeout_ms`: the daemon writes the title, and the checkpoint lasts one hour. From a person's connection it is refused (a person drives every pane). |
+| `drive` | object, optional | drive: `pane`, the pane the agent asks to act on, and `action` (`input`, the default, `close`, `restart` or `override`). The request takes no other field, not even `timeout_ms`: the daemon writes the title, and the checkpoint lasts one hour. From a person's connection it is refused (a person drives every pane). |
 | `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
 
 Result: `checkpoint`. Event subscribers get `checkpoint.opened`.
@@ -1008,10 +1015,9 @@ it is not a sandbox around agents.
 - **UI automation is out of scope.** A program that clicks the app's
   buttons (`osascript`, accessibility APIs) acts with the person's hands.
   Input sent to a pane is not: into a pane an agent did not start,
-  another assistant's included, it waits for a person's yes (Panes and
-  who drives them, below). Closing, restarting (other than its shell's
-  command) and resizing a pane are not input, and stay open to every
-  client.
+  another assistant's included, it waits for a person's yes, and so do
+  closing, restarting and setting test conditions on it (Panes and who
+  drives them, below). Resizing stays open to every client.
 - **A hub or an app started from inside a pane** (while developing them)
   is inside it, and cannot answer.
 
@@ -1035,13 +1041,16 @@ person). A **Source** is `kind` and, for each kind:
 `by` is what the client said (at most 64 bytes).
 
 **An agent drives the panes it created,** and the panes those created,
-and asks for any other, another agent's session included. Input from a
-connection that may not act as the person (`pane.send`, `pane.settle`,
-`pane.restart` with `shell_command`, `pane.override`, binary input
-frames) to a pane outside its own opens a `drive` checkpoint, or joins
-the one open for the same agent and pane, and waits for a person's
-answer: `once` lets that input through; `session` adds a **grant** that
-lasts while the agent's assistant session lasts (the `session` its hooks
+and asks for any other, another agent's session included. A request
+from a connection that may not act as the person, to a pane outside its
+own, opens a `drive` checkpoint (or joins the one open for the same
+agent, pane and action) and waits for a person's answer. Its `action`
+says what the request does: `input` (`pane.send`, `pane.settle`, binary
+input frames), `close` (`pane.close`), `restart` (`pane.restart`, with
+or without `shell_command`) or `override` (`pane.override`). Resizing
+stays open to every client: it ends nothing, and a display resizes the
+panes it shows. The answer: `once` lets that request through; `session` adds a **grant**
+for that action that lasts while the agent's assistant session lasts (the `session` its hooks
 report; for a client outside every pane, its connection), until a person
 revokes it or either pane closes; a decline or no answer fails the input
 with `forbidden` (the error's `checkpoint` names it). With `no_wait` the
@@ -1090,7 +1099,7 @@ newest record's number, of any pane) and `truncated`.
 
 `pane` (optional): only the grants on this pane. Result: `grants`, Grant
 objects: `id` ("g" and 7 characters), `pane`, `agent` (a Source),
-`allow` (`session`), `session` (the assistant session it lasts for, when
+`action` (what it allows: one of the drive actions), `allow` (`session`), `session` (the assistant session it lasts for, when
 the agent reported one), `checkpoint` (the drive that gave it) and
 `created_at`. A grant whose session ended is not listed.
 
@@ -1250,8 +1259,8 @@ Overrides carry over a `pane.restart`.
 | `restart` | boolean, optional | Then restart the pane as `pane.restart` does. |
 | `no_wait` | boolean, optional | As in `pane.send`. |
 
-Fields left out keep their value. Setting conditions on a pane counts as
-driving it (Panes and who drives them). Result: `pane` (with `restart`,
+Fields left out keep their value. On a pane this connection did not
+start, it waits for a person's yes first (the drive action `override`). Result: `pane` (with `restart`,
 the new pane). Subscribers get `pane.updated`.
 
 ## 5. Streams and binary frames

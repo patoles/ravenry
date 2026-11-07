@@ -248,3 +248,71 @@ func TestFilesTouched(t *testing.T) {
 		t.Fatalf("without git: %+v", fs)
 	}
 }
+
+// Closing, restarting or setting test conditions on a pane outside the
+// agent's own asks the person the same way; its own panes it closes freely.
+func TestAgentAsksToCloseRestartOrOverride(t *testing.T) {
+	d := startDaemon(t)
+	person := d.dial(client.Options{Name: "app"})
+	target := newPane(t, person, map[string]any{"command": []string{"/bin/cat"}, "name": "dev server"})
+	other := newPane(t, person, map[string]any{"command": []string{"/bin/cat"}})
+	agent := agentPane(t, person,
+		`pane.new {"command":["/bin/cat"]}`,
+		`pane.close {"pane":"$PANE"}`,
+		fmt.Sprintf(`pane.close {"pane":%q,"no_wait":true}`, target.ID),
+		fmt.Sprintf(`pane.restart {"pane":%q,"no_wait":true}`, target.ID),
+		fmt.Sprintf(`pane.restart {"pane":%q,"shell_command":true,"no_wait":true}`, target.ID),
+		fmt.Sprintf(`pane.override {"pane":%q,"slow_bps":10,"no_wait":true}`, target.ID),
+		fmt.Sprintf(`pane.close {"pane":%q}`, other.ID),
+	)
+	if l := stepLine(t, person, agent.ID, 1); !strings.HasPrefix(l, "step 1 ok") {
+		t.Fatalf("closing its own pane: %s", l)
+	}
+	for n := 2; n <= 5; n++ {
+		if l := stepLine(t, person, agent.ID, n); !regexp.MustCompile(fmt.Sprintf(`^step %d forbidden c\w{7}$`, n)).MatchString(l) {
+			t.Fatalf("step %d on the person's pane: %s", n, l)
+		}
+	}
+	actions := map[string]bool{}
+	for _, cp := range call[proto.CheckpointListResult](t, person, "checkpoint.list", map[string]any{}).Checkpoints {
+		if cp.Kind == "drive" && cp.Drive.Pane == target.ID {
+			actions[cp.Drive.Action] = true
+			if cp.Drive.Action == "close" && !strings.Contains(cp.Title, `close "dev server"`) {
+				t.Fatalf("the close card's title: %q", cp.Title)
+			}
+		}
+	}
+	if !actions["close"] || !actions["restart"] || !actions["override"] || len(actions) != 3 {
+		t.Fatalf("drive actions asked: %v", actions)
+	}
+	// Nothing happened to the person's pane.
+	if got := call[proto.ListResult](t, person, "pane.list", map[string]any{}).Panes; len(got) < 3 {
+		t.Fatalf("a pane went: %+v", got)
+	}
+	// The waiting close goes through once the person lets it, once.
+	cp := openDriveAction(t, person, other.ID, agent.ID, "close")
+	answer(t, person, map[string]any{"checkpoint": cp.ID, "approve": true})
+	if l := stepLine(t, person, agent.ID, 6); !strings.HasPrefix(l, "step 6 ok") {
+		t.Fatalf("the close after the person's yes: %s", l)
+	}
+	if e := callErr(t, person, "pane.wait", map[string]any{"pane": other.ID, "exit": true}); e.Code != "not_found" {
+		t.Fatalf("the pane is still there: %+v", e)
+	}
+	// The person closes any pane without a question.
+	call[proto.CloseResult](t, person, "pane.close", map[string]any{"pane": target.ID})
+}
+
+func openDriveAction(t *testing.T, c *client.Client, target, agent, action string) proto.Checkpoint {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, cp := range call[proto.CheckpointListResult](t, c, "checkpoint.list", map[string]any{}).Checkpoints {
+			if cp.Kind == "drive" && cp.State == "open" && cp.Drive.Pane == target && cp.Drive.Agent.Pane == agent && cp.Drive.Action == action {
+				return cp
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("no %s checkpoint for %s", action, target)
+	return proto.Checkpoint{}
+}

@@ -220,6 +220,8 @@ type CloseRequest struct {
 	Envelope
 	Pane    string `json:"pane"`
 	GraceMs *int64 `json:"grace_ms,omitempty"`
+	// NoWait: as in pane.send, for a pane this connection did not start.
+	NoWait bool `json:"no_wait,omitempty"`
 }
 
 type CloseResult struct {
@@ -523,6 +525,7 @@ type RestartRequest struct {
 	Pane         string `json:"pane"`
 	GraceMs      *int64 `json:"grace_ms,omitempty"`
 	ShellCommand bool   `json:"shell_command,omitempty"`
+	NoWait       bool   `json:"no_wait,omitempty"`
 }
 
 type RestartResult struct {

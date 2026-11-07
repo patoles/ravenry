@@ -1894,6 +1894,15 @@
           "properties": {
             "pane": {
               "$ref": "#/$defs/PaneId"
+            },
+            "action": {
+              "enum": [
+                "input",
+                "close",
+                "restart",
+                "override"
+              ],
+              "description": "Default input."
             }
           },
           "required": [
@@ -2181,6 +2190,10 @@
           "minimum": 0,
           "maximum": 60000,
           "description": "Time between SIGHUP and SIGKILL (default 1000)."
+        },
+        "no_wait": {
+          "type": "boolean",
+          "description": "For a pane this connection did not start: fail at once (forbidden, with the drive checkpoint) instead of waiting for the person."
         }
       },
       "required": [
@@ -2484,6 +2497,10 @@
         "shell_command": {
           "type": "boolean",
           "description": "Restart only the command the pane's shell runs, in the same pane: interrupt it as Ctrl-C does (then SIGTERM to the foreground process group at half of grace_ms, SIGKILL at its end), wait for the prompt, and type the same command line (OSC 133 C) and Enter. Fails with failed when the shell sent no command line or is at its prompt."
+        },
+        "no_wait": {
+          "type": "boolean",
+          "description": "For a pane this connection did not start: fail at once (forbidden, with the drive checkpoint) instead of waiting for the person."
         }
       },
       "required": [
@@ -4735,6 +4752,15 @@
         },
         "created_at": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "action": {
+          "enum": [
+            "input",
+            "close",
+            "restart",
+            "override"
+          ],
+          "description": "What the grant allows; one action a grant."
         }
       },
       "required": [
@@ -4952,6 +4978,15 @@
         "input": {
           "type": "string",
           "maxLength": 1000
+        },
+        "action": {
+          "enum": [
+            "input",
+            "close",
+            "restart",
+            "override"
+          ],
+          "description": "What the agent asks to do to the pane: type into it (input, the default when absent), close it, restart it, or set its test conditions (override)."
         }
       },
       "required": [

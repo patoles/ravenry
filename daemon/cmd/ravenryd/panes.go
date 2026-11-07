@@ -494,7 +494,8 @@ func cmdClose(in []string) error {
 		}
 		params["grace_ms"] = d.Milliseconds()
 	}
-	ctx, cancel := callCtx(90 * time.Second)
+	// Long: a pane it did not start waits for the person's yes.
+	ctx, cancel := callCtx(90*time.Second + 24*time.Hour)
 	defer cancel()
 	c, err := connectFor(ctx, a.g, id)
 	if err != nil {
@@ -502,7 +503,7 @@ func cmdClose(in []string) error {
 	}
 	defer c.Close()
 	var r proto.CloseResult
-	if err := c.Call(ctx, "pane.close", params, &r); err != nil {
+	if err := callAsking(ctx, c, "pane.close", params, &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {

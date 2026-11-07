@@ -108,7 +108,7 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 	// the person, and the person lets it once.
 	link := filepath.Join(e.dir, "bin-0.2.0", "ravenry")
 	runCmd(t, e.ravenry("0.2.0", "version"))
-	agent := strings.TrimSpace(e.ok("0.2.0", "new", "--", "/bin/sh", "-c", "'"+link+"' send "+target+" --raw hi; echo exit=$?; '"+link+"' send "+target+" --raw no --no-wait; echo exit=$?; exec sleep 60"))
+	agent := strings.TrimSpace(e.ok("0.2.0", "new", "--", "/bin/sh", "-c", "'"+link+"' send "+target+" --raw hi; echo exit=$?; '"+link+"' send "+target+" --raw no --no-wait; echo exit=$?; '"+link+"' close "+target+" --no-wait; echo close=$?; exec sleep 60"))
 	var cp proto.Checkpoint
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -134,6 +134,13 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 	w := e.ok("0.2.0", "wait", agent, "--text", `exit=125`, "--since", "0", "--timeout", "15s", "--json")
 	if !strings.Contains(w, "exit=0") || !strings.Contains(w, "exit=125") || !strings.Contains(w, "the person must let you") {
 		t.Fatalf("the agent's sends: %s", w)
+	}
+	// Closing it asks too; with --no-wait it fails at once and the pane stays.
+	if w := e.ok("0.2.0", "wait", agent, "--text", `close=\d+`, "--since", "0", "--timeout", "15s", "--json"); !strings.Contains(w, "close=125") || !strings.Contains(w, "the person must let you close it") {
+		t.Fatalf("the agent's close: %s", w)
+	}
+	if out := e.ok("0.2.0", "ls"); !strings.Contains(out, target) {
+		t.Fatalf("the pane was closed: %s", out)
 	}
 	// A pick: a file and a shot of a pane; the person picks with a region
 	// and a note.

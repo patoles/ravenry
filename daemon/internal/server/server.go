@@ -817,11 +817,19 @@ func (c *conn) paneClose(id uint64, data []byte) {
 		}
 		grace = time.Duration(*r.GraceMs) * time.Millisecond
 	}
-	if _, err := c.pane(r.Pane); err != nil {
+	p, err := c.pane(r.Pane)
+	if err != nil {
 		c.failErr(id, err)
 		return
 	}
-	c.track(id, func(context.Context) {
+	w := c.who("")
+	c.track(id, func(ctx context.Context) {
+		// Closing a pane outside its own ends another's work: the person
+		// says yes first, as for input.
+		if err := c.allowAction(ctx, p, w, "", r.NoWait, actClose); err != nil {
+			c.failErr(id, err)
+			return
+		}
 		info, n, err := c.s.o.Manager.Close(r.Pane, grace)
 		if err != nil {
 			c.failErr(id, err)

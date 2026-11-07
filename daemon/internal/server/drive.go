@@ -56,9 +56,36 @@ const (
 	srcPerson = "person"
 	srcAgent  = "agent"
 	srcClient = "client"
+
+	// What a drive asks to do to a pane.
+	actInput    = "input"
+	actClose    = "close"
+	actRestart  = "restart"
+	actOverride = "override"
 )
 
+// actionVerb says an action for people: "Let it <verb> <pane>?".
+func actionVerb(action string) string {
+	switch action {
+	case actClose:
+		return "close"
+	case actRestart:
+		return "restart"
+	case actOverride:
+		return "set test conditions on"
+	}
+	return "type into"
+}
+
+func actionOf(a string) string {
+	if a == "" {
+		return actInput
+	}
+	return a
+}
+
 type paneMeta struct {
+	id         string
 	creator    proto.Source
 	creatorKey string
 
@@ -87,8 +114,12 @@ type leaseState struct {
 }
 
 type leaseWaiter struct {
-	w  who
-	ch chan struct{}
+	w   who
+	ttl time.Duration
+	ch  chan struct{}
+	// refused: the person took the pane back; it fails instead of
+	// taking the lease.
+	refused bool
 }
 
 type driveState struct {
@@ -108,7 +139,7 @@ func newDriveState() *driveState {
 func (d *driveState) metaLocked(id string) *paneMeta {
 	m := d.meta[id]
 	if m == nil {
-		m = &paneMeta{creator: proto.Source{Kind: srcPerson}, creatorKey: keyPerson}
+		m = &paneMeta{id: id, creator: proto.Source{Kind: srcPerson}, creatorKey: keyPerson}
 		d.meta[id] = m
 	}
 	return m
@@ -184,6 +215,11 @@ func (s *Server) setCreator(id string, src proto.Source, key string) {
 // mayDrive reports whether w may send input to pane id now, and the lease
 // that stops it when another driver holds one.
 func (s *Server) mayDrive(w who, id string) (bool, *proto.Lease) {
+	return s.mayDo(w, id, actInput)
+}
+
+// mayDo is mayDrive for any action: input, close, restart, override.
+func (s *Server) mayDo(w who, id, action string) (bool, *proto.Lease) {
 	if w.person {
 		return true, nil
 	}
@@ -207,7 +243,7 @@ func (s *Server) mayDrive(w who, id string) (bool, *proto.Lease) {
 		cur = d.meta[cur.creator.Pane]
 	}
 	for _, g := range d.grants {
-		if g.g.Pane == id && g.key == w.key && s.grantValid(g) {
+		if g.g.Pane == id && g.key == w.key && actionOf(g.g.Action) == action && s.grantValid(g) {
 			return true, nil
 		}
 	}
@@ -268,21 +304,29 @@ func describe(src proto.Source) string {
 // checkpoint when it may not, or fails at once with noWait. A person
 // always may.
 func (c *conn) allowInput(ctx context.Context, p *pane.Pane, w who, preview string, noWait bool) error {
+	return c.allowAction(ctx, p, w, preview, noWait, actInput)
+}
+
+// allowAction is allowInput for any action on the pane: closing,
+// restarting or setting test conditions on a pane outside the caller's
+// own asks the person as typing into it does.
+func (c *conn) allowAction(ctx context.Context, p *pane.Pane, w who, preview string, noWait bool, action string) error {
 	s := c.s
+	verb := actionVerb(action)
 	for {
-		ok, lease := s.mayDrive(w, p.ID())
+		ok, lease := s.mayDo(w, p.ID(), action)
 		if lease != nil {
 			return leaseError(p.ID(), *lease)
 		}
 		if ok {
 			return nil
 		}
-		x, err := s.askToDrive(w, p, preview)
+		x, err := s.askToDrive(w, p, preview, action)
 		if err != nil {
 			return err
 		}
 		if noWait {
-			return driveErr{fmt.Sprintf("you did not start pane %s, so the person must let you type into it: checkpoint %s waits for them (ravenry checkpoint %s --wait)", p.ID(), x.c.ID, x.c.ID), x.c.ID}
+			return driveErr{fmt.Sprintf("you did not start pane %s, so the person must let you %s it: checkpoint %s waits for them (ravenry checkpoint %s --wait)", p.ID(), verb, x.c.ID, x.c.ID), x.c.ID}
 		}
 		select {
 		case <-x.done:
@@ -303,18 +347,18 @@ func (c *conn) allowInput(ctx context.Context, p *pane.Pane, w who, preview stri
 			if cp.Answer != nil && cp.Answer.Reason != "" {
 				why += ": " + cp.Answer.Reason
 			}
-			return driveErr{fmt.Sprintf("you may not type into pane %s: %s (checkpoint %s)", p.ID(), why, cp.ID), cp.ID}
+			return driveErr{fmt.Sprintf("you may not %s pane %s: %s (checkpoint %s)", verb, p.ID(), why, cp.ID), cp.ID}
 		default:
-			return driveErr{fmt.Sprintf("you may not type into pane %s: checkpoint %s %s without an answer", p.ID(), cp.ID, cp.State), cp.ID}
+			return driveErr{fmt.Sprintf("you may not %s pane %s: checkpoint %s %s without an answer", verb, p.ID(), cp.ID, cp.State), cp.ID}
 		}
 	}
 }
 
 // askToDrive opens the drive checkpoint for w and pane p, or returns the
 // one already open.
-func (s *Server) askToDrive(w who, p *pane.Pane, preview string) (*cpoint, error) {
+func (s *Server) askToDrive(w who, p *pane.Pane, preview, action string) (*cpoint, error) {
 	d := s.drive
-	k := w.key + "|" + p.ID()
+	k := w.key + "|" + p.ID() + "|" + action
 	d.mu.Lock()
 	if id := d.asking[k]; id != "" {
 		s.cps.mu.Lock()
@@ -333,8 +377,8 @@ func (s *Server) askToDrive(w who, p *pane.Pane, preview string) (*cpoint, error
 	asker := describe(w.src)
 	cp := proto.Checkpoint{
 		Kind:  kindDrive,
-		Title: clip(fmt.Sprintf("Let %s type into %s?", asker, target), maxTitle),
-		Drive: &proto.Drive{Pane: p.ID(), Agent: w.src, Input: clip(preview, maxPreview)},
+		Title: clip(fmt.Sprintf("Let %s %s %s?", asker, actionVerb(action), target), maxTitle),
+		Drive: &proto.Drive{Pane: p.ID(), Agent: w.src, Input: clip(preview, maxPreview), Action: action},
 	}
 	if w.pane != "" {
 		cp.Pane = w.pane
@@ -372,7 +416,7 @@ func (s *Server) grantDrive(cp proto.Checkpoint, allow string) {
 		return
 	}
 	src := cp.Drive.Agent
-	g := &grant{g: proto.Grant{ID: newGrantID(), Pane: cp.Drive.Pane, Agent: src, Allow: allow, Checkpoint: cp.ID, CreatedAt: stamp(time.Now())}}
+	g := &grant{g: proto.Grant{ID: newGrantID(), Pane: cp.Drive.Pane, Agent: src, Action: actionOf(cp.Drive.Action), Allow: allow, Checkpoint: cp.ID, CreatedAt: stamp(time.Now())}}
 	switch {
 	case src.Kind == srcAgent && src.Pane != "":
 		g.key = "pane:" + src.Pane
@@ -657,9 +701,16 @@ func (c *conn) paneLease(id uint64, data []byte) {
 		c.failErr(id, bad("release takes no ttl_ms or wait_ms"))
 		return
 	}
+	if r.RefuseWaiting && !r.Release {
+		c.failErr(id, bad("refuse_waiting goes with release"))
+		return
+	}
 	w := c.who("")
+	if r.RefuseWaiting && !c.asPerson(id, "pane.lease with refuse_waiting") {
+		return
+	}
 	if r.Release {
-		if err := c.s.release(p, w); err != nil {
+		if err := c.s.release(p, w, r.RefuseWaiting); err != nil {
 			c.failErr(id, err)
 			return
 		}
@@ -688,13 +739,13 @@ func (c *conn) allowLease(ctx context.Context, p *pane.Pane, w who, noWait bool)
 	if w.person {
 		return nil
 	}
-	if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID()); ok {
+	if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID(), actInput); ok {
 		return nil
 	}
 	return c.allowInputIgnoringLease(ctx, p, w, noWait)
 }
 
-func (s *Server) mayDriveIgnoringLease(w who, id string) (bool, *proto.Lease) {
+func (s *Server) mayDriveIgnoringLease(w who, id, action string) (bool, *proto.Lease) {
 	s.drive.mu.Lock()
 	m := s.drive.meta[id]
 	var held *leaseState
@@ -702,7 +753,7 @@ func (s *Server) mayDriveIgnoringLease(w who, id string) (bool, *proto.Lease) {
 		held, m.lease = m.lease, nil
 	}
 	s.drive.mu.Unlock()
-	ok, _ := s.mayDrive(w, id)
+	ok, _ := s.mayDo(w, id, action)
 	s.drive.mu.Lock()
 	if m != nil && m.lease == nil {
 		m.lease = held
@@ -713,7 +764,7 @@ func (s *Server) mayDriveIgnoringLease(w who, id string) (bool, *proto.Lease) {
 
 func (c *conn) allowInputIgnoringLease(ctx context.Context, p *pane.Pane, w who, noWait bool) error {
 	for {
-		if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID()); ok {
+		if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID(), actInput); ok {
 			return nil
 		}
 		err := c.allowInput(ctx, p, w, "(a lease: to be the one driver of this pane)", noWait)
@@ -721,7 +772,7 @@ func (c *conn) allowInputIgnoringLease(ctx context.Context, p *pane.Pane, w who,
 		if errors.As(err, &le) {
 			// The lease is what it waits for next; the drive is allowed
 			// when mayDriveIgnoringLease says so.
-			if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID()); ok {
+			if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID(), actInput); ok {
 				return nil
 			}
 			return err
@@ -758,7 +809,7 @@ func (s *Server) acquire(ctx context.Context, p *pane.Pane, w who, ttl, wait tim
 			id := p.ID()
 			ls := cur
 			cur.timer = time.AfterFunc(ttl, func() { s.expireLease(id, ls) })
-			out := cur.l
+			out := cur.view()
 			d.mu.Unlock()
 			s.leaseEvent(p)
 			return out, nil
@@ -768,18 +819,48 @@ func (s *Server) acquire(ctx context.Context, p *pane.Pane, w who, ttl, wait tim
 			d.mu.Unlock()
 			return proto.Lease{}, leaseError(p.ID(), held)
 		}
-		lw := &leaseWaiter{w: w, ch: make(chan struct{})}
+		lw := &leaseWaiter{w: w, ttl: ttl, ch: make(chan struct{})}
 		cur.waiters = append(cur.waiters, lw)
 		d.mu.Unlock()
+		s.leaseEvent(p)
 		t := time.NewTimer(time.Until(deadline))
 		select {
 		case <-lw.ch:
 			t.Stop()
+			d.mu.Lock()
+			refused := lw.refused
+			d.mu.Unlock()
+			if refused {
+				return proto.Lease{}, leaseError(p.ID(), held)
+			}
 		case <-t.C:
+			s.unwait(p, lw)
 		case <-ctx.Done():
 			t.Stop()
+			s.unwait(p, lw)
 			return proto.Lease{}, ctx.Err()
 		}
+	}
+}
+
+// unwait takes a waiter that gave up out of the queue.
+func (s *Server) unwait(p *pane.Pane, lw *leaseWaiter) {
+	d := s.drive
+	d.mu.Lock()
+	m := d.meta[p.ID()]
+	gone := false
+	if m != nil && m.lease != nil {
+		for i, x := range m.lease.waiters {
+			if x == lw {
+				m.lease.waiters = append(m.lease.waiters[:i:i], m.lease.waiters[i+1:]...)
+				gone = true
+				break
+			}
+		}
+	}
+	d.mu.Unlock()
+	if gone {
+		s.leaseEvent(p)
 	}
 }
 
@@ -794,14 +875,35 @@ func (s *Server) dropLeaseLocked(m *paneMeta) {
 		l.timer.Stop()
 	}
 	m.lease = nil
-	if len(l.waiters) > 0 {
-		next := l.waiters[0]
-		close(next.ch)
-		// The others wait on: they find the lease taken and queue again.
-		for _, w := range l.waiters[1:] {
-			close(w.ch)
-		}
+	if len(l.waiters) == 0 {
+		return
 	}
+	// The first in line is handed the lease, with the time it asked for;
+	// the others wait on, in turn, for it.
+	next := l.waiters[0]
+	now := time.Now()
+	nl := &leaseState{l: proto.Lease{Holder: next.w.src, AcquiredAt: stamp(now)}, key: next.w.key, waiters: l.waiters[1:]}
+	nl.l.Holder.By = ""
+	nl.expires = now.Add(next.ttl)
+	nl.l.ExpiresAt = stamp(nl.expires)
+	m.lease = nl
+	if id := m.id; id != "" {
+		nl.timer = time.AfterFunc(next.ttl, func() { s.expireLease(id, nl) })
+	}
+	close(next.ch)
+}
+
+// refuseWaitersLocked fails every driver waiting for a pane's lease: the
+// person took the pane back. d.mu is held.
+func (s *Server) refuseWaitersLocked(m *paneMeta) {
+	if m.lease == nil {
+		return
+	}
+	for _, w := range m.lease.waiters {
+		w.refused = true
+		close(w.ch)
+	}
+	m.lease.waiters = nil
 }
 
 func (s *Server) expireLease(id string, ls *leaseState) {
@@ -820,7 +922,7 @@ func (s *Server) expireLease(id string, ls *leaseState) {
 
 // release lets go of the lease: its holder may, and the person may end
 // anyone's.
-func (s *Server) release(p *pane.Pane, w who) error {
+func (s *Server) release(p *pane.Pane, w who, refuseWaiting bool) error {
 	s.drive.mu.Lock()
 	m := s.drive.meta[p.ID()]
 	if m == nil || m.lease == nil {
@@ -831,6 +933,9 @@ func (s *Server) release(p *pane.Pane, w who) error {
 		h := m.lease.l
 		s.drive.mu.Unlock()
 		return leaseError(p.ID(), h)
+	}
+	if refuseWaiting && w.person {
+		s.refuseWaitersLocked(m)
 	}
 	s.dropLeaseLocked(m)
 	s.drive.mu.Unlock()
@@ -866,7 +971,7 @@ func (s *Server) paneGone(id string) {
 	// The creator chain stays readable for panes the closed one started:
 	// keep its creator, drop the rest.
 	if m := d.meta[id]; m != nil {
-		d.meta[id] = &paneMeta{creator: m.creator, creatorKey: m.creatorKey}
+		d.meta[id] = &paneMeta{id: id, creator: m.creator, creatorKey: m.creatorKey}
 	}
 	for gid, g := range d.grants {
 		if g.g.Pane == id || g.key == "pane:"+id {
@@ -874,7 +979,7 @@ func (s *Server) paneGone(id string) {
 		}
 	}
 	for k := range d.asking {
-		if strings.HasSuffix(k, "|"+id) || strings.HasPrefix(k, "pane:"+id+"|") {
+		if strings.Contains(k, "|"+id+"|") || strings.HasPrefix(k, "pane:"+id+"|") {
 			delete(d.asking, k)
 		}
 	}
@@ -925,7 +1030,17 @@ func (s *Server) driveInfo(p *proto.Pane) {
 	cr := m.creator
 	p.Creator = &cr
 	if m.lease != nil && time.Now().Before(m.lease.expires) {
-		l := m.lease.l
+		l := m.lease.view()
 		p.Lease = &l
 	}
+}
+
+// view is the lease as clients see it, with who waits for it in turn.
+func (l *leaseState) view() proto.Lease {
+	out := l.l
+	out.Waiting = nil
+	for _, w := range l.waiters {
+		out.Waiting = append(out.Waiting, w.w.src)
+	}
+	return out
 }

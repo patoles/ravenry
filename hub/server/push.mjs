@@ -249,10 +249,11 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
     // An agent asks to type into a pane it did not start. Allowing it is as
     // strong as running a command there, so it takes a fingerprint, like
     const d = cp.drive || {};
-    msg.title = `${who(cp.assistant)} wants to type into another tab`;
+    const verb = { close: 'close', restart: 'restart' }[d.action] || 'type into';
+    msg.title = d.action === 'override' ? `${who(cp.assistant)} wants to change how another tab runs` : `${who(cp.assistant)} wants to ${verb} another tab`;
     msg.body = d.input ? clip(String(d.input), 300) : (head || '');
     msg.detail = `${topic ? `${topic}, ` : ''}on ${machine || phone.hubName()}`;
-    msg.checkpoint.drive = { pane: d.pane || null };
+    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input' };
     msg.actions = [{ id: 'allow:once', label: 'Allow once', biometric: true }, { id: 'allow:session', label: 'This session', biometric: true }, { id: 'refuse', label: 'Refuse' }];
   } else if (cp.kind === 'pick') {
     // Pictures to choose from. The shade picks a variant by its label; the

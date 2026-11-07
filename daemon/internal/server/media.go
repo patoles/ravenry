@@ -795,7 +795,11 @@ func (c *conn) paneOverride(id uint64, data []byte) {
 	c.track(id, func(ctx context.Context) {
 		// Test conditions change what a program sees: whoever may drive
 		// the pane may set them.
-		if err := c.allowInput(ctx, p, w, "(test conditions: "+describeOverrides(o)+")", r.NoWait); err != nil {
+		preview := describeOverrides(o)
+		if r.Restart {
+			preview += ", then restart it"
+		}
+		if err := c.allowAction(ctx, p, w, preview, r.NoWait, actOverride); err != nil {
 			c.failErr(id, err)
 			return
 		}

@@ -124,7 +124,7 @@ func cmdRestart(in []string) error {
 	if a.bools["command"] {
 		params["shell_command"] = true
 	}
-	ctx, cancel := callCtx(90 * time.Second)
+	ctx, cancel := callCtx(90*time.Second + 24*time.Hour)
 	defer cancel()
 	c, err := connectFor(ctx, a.g, id)
 	if err != nil {
@@ -132,7 +132,7 @@ func cmdRestart(in []string) error {
 	}
 	defer c.Close()
 	var r proto.RestartResult
-	if err := c.Call(ctx, "pane.restart", params, &r); err != nil {
+	if err := callAsking(ctx, c, "pane.restart", params, &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {

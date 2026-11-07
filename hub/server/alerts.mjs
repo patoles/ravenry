@@ -443,9 +443,13 @@ export function observe(projects, opts = {}) {
 // label stay on the board.
 export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to run a command', secret: 'Needs you to type a secret', drive: 'Wants to type into another tab', pick: 'Wants you to pick a variant' };
 
+// What a drive asks to do to a tab (its drive.action; absent: type).
+export const DRIVE_ACTIONS = { input: 'Wants to type into another tab', close: 'Wants to close another tab', restart: 'Wants to restart another tab', override: 'Wants to change how another tab runs' };
+
 export function checkpointAlert(cp, { project = null, machine = null, boardUrl = null } = {}) {
   const who = project ? project.name : machine ? `An agent on ${machine}` : 'An agent';
-  const body = (CHECKPOINT_KINDS[cp.kind] || 'Waits for you') + (machine && project ? ` (on ${machine})` : '');
+  const kind = cp.kind === 'drive' ? DRIVE_ACTIONS[(cp.drive && cp.drive.action) || 'input'] || CHECKPOINT_KINDS.drive : CHECKPOINT_KINDS[cp.kind];
+  const body = (kind || 'Waits for you') + (machine && project ? ` (on ${machine})` : '');
   const alert = { test: false, kind: 'checkpoint', projectId: project ? project.id : null, project: project ? project.name : null, title: `${who} needs you`, body, url: boardUrl ? `${boardUrl}#checkpoint=${encodeURIComponent(cp.id)}` : null };
   const d = load();
   if (d.enabled && ready(d, d.channel)) deliver(alert).catch((e) => console.error('alerts:', e.message));

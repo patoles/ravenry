@@ -118,11 +118,13 @@ func init() {
 			{"unlabel", listFlag, "KEY", "remove a label (repeatable)"},
 		}, run: cmdUpdate},
 		{name: "resize", group: "Panes", args: "PANE COLSxROWS", summary: "change its size", run: cmdResize},
-		{name: "restart", group: "Panes", args: "PANE", summary: "close it and start its command again (same env, its current folder, name and labels); prints the new id", flags: []flagDoc{
+		{name: "restart", group: "Panes", args: "PANE", summary: "close it and start its command again (same env, its current folder, name and labels); prints the new id. A pane you did not start waits for the person's yes", flags: []flagDoc{
+			{"no-wait", boolFlag, "", "a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person"},
 			{"grace", valueFlag, durationArg, "how long its processes get to end (default 1s)"},
 			{"command", boolFlag, "", "only the command its shell runs, in the same pane: Ctrl-C (then SIGTERM, SIGKILL within --grace), wait for the prompt, type the same command line; prints the mark just before it"},
 		}, run: cmdRestart},
-		{name: "close", group: "Panes", args: "PANE", summary: "end the pane and every process it started", flags: []flagDoc{
+		{name: "close", group: "Panes", args: "PANE", summary: "end the pane and every process it started. A pane you did not start waits for the person's yes", flags: []flagDoc{
+			{"no-wait", boolFlag, "", "a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person"},
 			{"grace", valueFlag, durationArg, "how long its processes get to end (default 1s)"},
 		}, run: cmdClose},
 		{name: "focus", group: "Panes", args: "PANE", summary: "ask the windows that show panes to show this one", run: cmdFocus},

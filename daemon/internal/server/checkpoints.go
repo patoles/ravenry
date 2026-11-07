@@ -334,11 +334,18 @@ func (c *conn) driveNew(id uint64, r proto.CheckpointNewRequest) {
 		c.failErr(id, bad("a person drives every pane"))
 		return
 	}
-	if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID()); ok {
-		c.failErr(id, fmt.Errorf("you may type into pane %s already", p.ID()))
+	action := actionOf(r.Drive.Action)
+	switch action {
+	case actInput, actClose, actRestart, actOverride:
+	default:
+		c.failErr(id, bad("drive.action is input, close, restart or override"))
 		return
 	}
-	x, err := c.s.askToDrive(w, p, "")
+	if ok, _ := c.s.mayDriveIgnoringLease(w, p.ID(), action); ok {
+		c.failErr(id, fmt.Errorf("you may %s pane %s already", actionVerb(action), p.ID()))
+		return
+	}
+	x, err := c.s.askToDrive(w, p, "", action)
 	if err != nil {
 		c.failErr(id, err)
 		return
