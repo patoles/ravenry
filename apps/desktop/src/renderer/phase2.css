@@ -265,3 +265,54 @@
 .mvbar .mvt { flex: 1; min-width: 0; }
 .mvbar .btn { flex: none; }
 .sec.twin .acts { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* The brief, short, in the panel (H1) and as a page in the middle (H2):
+   briefdoc.ts; the picture ravenry-brief.html. */
+.brief-card { min-width: 0; }
+.brief-card .bf { display: flex; flex-direction: column; gap: 9px; min-width: 0; width: 100%; }
+.bf .gl { display: block; min-width: 0; max-width: 100%; font-size: 13px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bf .lbl { font-size: 11.5px; color: var(--tx3); margin-bottom: -4px; }
+.bf ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.bf li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; line-height: 1.4; min-width: 0; }
+.bf li::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--tx3); flex: none; transform: translateY(-2px); }
+.bf li span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bf .ft2 { display: flex; align-items: center; padding-top: 2px; font-size: 12px; color: var(--tx3); }
+.bf .ft2 .lk { font-size: 12px; }
+.bdoc { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--sheet); color: var(--tx); user-select: text; }
+.bdoc[hidden] { display: none; }
+.bdoc .doc-h { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--sep); font-size: 12.5px; color: var(--tx3); }
+.bdoc .doc-h > svg { color: var(--tx3); }
+.bdoc .doc-h b { color: var(--tx); font-weight: 650; font-size: 13px; }
+.bdoc .doc-h .sp { flex: 1; }
+.bdoc .doc-b { flex: 1; min-height: 0; overflow: auto; padding: 26px 20px 40px; }
+.bdoc .md { max-width: 620px; margin: 0 auto; font-size: 14.5px; line-height: 1.6; color: var(--tx); }
+.md h2 { font-size: 15px; font-weight: 700; margin: 20px 0 6px; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+.md h2:first-child { margin-top: 0; }
+.md h2 .c { font-size: 12px; font-weight: 500; color: var(--tx3); }
+.md h3 { font-size: 13.5px; font-weight: 650; margin: 14px 0 4px; }
+.md p { margin: 0 0 8px; }
+.md ul { margin: 0 0 8px; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md li > ul { margin: 2px 0 0; }
+.md a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; cursor: pointer; }
+.md code { font: 12.5px ui-monospace, Menlo, monospace; background: var(--card); padding: 1px 5px; border-radius: 4px; }
+.md pre { background: var(--card); border-radius: 8px; padding: 10px 12px; overflow: auto; margin: 0 0 10px; }
+.md pre code { background: none; padding: 0; }
+.md .chkl { list-style: none; padding-left: 0; }
+.md .chkl li { display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+.md .chkl li > ul { flex-basis: 100%; padding-left: 22px; }
+.md .chkl i.cb { width: 13px; height: 13px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--tx3); flex: none; transform: translateY(2px); display: inline-flex; align-items: center; justify-content: center; }
+.md .chkl i.cb.on { background: var(--ok); box-shadow: none; }
+.md .chkl i.cb.now { box-shadow: inset 0 0 0 1.5px var(--work); background: radial-gradient(circle, var(--work) 2.5px, transparent 3px); }
+.md .chkl i.cb.you { box-shadow: inset 0 0 0 1.5px var(--you); }
+.md .chkl .dn { color: var(--tx3); text-decoration: line-through; }
+.md .olds { border-radius: 10px; box-shadow: inset 0 0 0 1px var(--sep); overflow: hidden; margin: 6px 0 8px; }
+.md .oe { font-size: 13.5px; }
+.md .oe + .oe { border-top: 1px solid var(--sep); }
+.md .oe-r { display: flex; align-items: center; gap: 10px; padding: 8px 14px; min-width: 0; cursor: pointer; }
+.md .oe-r .oe-c { color: var(--tx3); flex: none; display: inline-flex; }
+.md .oe-r .dt { font: 12px ui-monospace, Menlo, monospace; color: var(--tx3); flex: none; width: 84px; }
+.md .oe-r .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md .oe.open .oe-r .t { font-weight: 600; white-space: normal; }
+.md .oe-b { padding: 0 14px 12px 129px; font-size: 13.5px; line-height: 1.6; color: var(--tx2); }
+.md .oe-b ul { margin: 0; padding-left: 18px; }

@@ -88,6 +88,10 @@
 //                   links (OSC 8 and plain URLs, http, https and file only),
 //                   terminal-only zoom kept across a relaunch, a dropped
 //                   file's quoted path, the window's size kept, Cmd+Home/End
+//   15 brief        tools/brief-test.mjs on the test twin, a row each: the
+//                   panel's Brief card (goal on one line, Next as 3 items,
+//                   the older entries counted) and the Brief page (the
+//                   dated entries newest first, the plan, Edit, links)
 //   env             every app the check launched ran with a clean environment
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
@@ -686,22 +690,24 @@ try {
     spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
     fs.rmSync(k, { recursive: true, force: true });
   });
-  // ------------------------------------------------------------ 14, the terminal's basics
-  await guarded('14 basics', async () => {
-    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
-    const app = path.join(k, 'Ravenry.app');
-    execFileSync('/usr/bin/ditto', [DRIVEN, app]);
-    const r = spawnSync(process.execPath, [path.join(HERE, 'basics-test.mjs'), path.join(OUT, 'basics'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
-    const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
-    if (!lines.length) step('14 basics: tools/basics-test.mjs ran', false, { status: r.status, tail: ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-8) });
-    for (const l of lines) {
-      const ok = l.startsWith('PASS');
-      const [name, ...rest] = l.slice(6).split('  ');
-      step(`14 basics: ${name.trim()}`, ok, ok ? {} : { detail: rest.join('  ').slice(0, 1500) });
-    }
-    spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
-    fs.rmSync(k, { recursive: true, force: true });
-  });
+  // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs']]) {
+    await guarded(`${n} ${label}`, async () => {
+      const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
+      const app = path.join(k, 'Ravenry.app');
+      execFileSync('/usr/bin/ditto', [DRIVEN, app]);
+      const r = spawnSync(process.execPath, [path.join(HERE, tool), path.join(OUT, label), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
+      const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+      if (!lines.length) step(`${n} ${label}: tools/${tool} ran`, false, { status: r.status, tail: ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-8) });
+      for (const l of lines) {
+        const ok = l.startsWith('PASS');
+        const [name, ...rest] = l.slice(6).split('  ');
+        step(`${n} ${label}: ${name.trim()}`, ok, ok ? {} : { detail: rest.join('  ').slice(0, 1500) });
+      }
+      spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
+      fs.rmSync(k, { recursive: true, force: true });
+    });
+  }
   // ------------------------------------------------------------ the app's environment
   // On 2026-11-07 an app opened from inside a Ravenry pane inherited the
   // pane's variables, and the daemon took the whole window for that pane.

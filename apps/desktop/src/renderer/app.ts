@@ -41,6 +41,7 @@ import type { NavRow } from './pages.ts';
 import { TerminalView, THEME } from './terminal.ts';
 import { PaneStore } from './panes.ts';
 import { TerminalMarks } from './marks.ts';
+import { briefPage, nextItems, plain } from './briefdoc.ts';
 import { leaseStrip, leaseWords, openedLine, panesItUses, typedHere, whoCanType } from './panepanel.ts';
 import type { PaneCtx, Who } from './panepanel.ts';
 import { Filmstrip } from './filmstrip.ts';
@@ -89,6 +90,8 @@ type View =
   | { kind: 'grid'; project: string; back: View }
   /** A worktree session's review, beside its terminal (review.ts). */
   | { kind: 'review'; key: string }
+  /** A project's brief as a page, beside the session it was opened from (briefdoc.ts). */
+  | { kind: 'brief'; key: string; project: string }
   | { kind: 'start' }
   | { kind: 'none' };
 
@@ -435,7 +438,7 @@ function tabOfView(): Tab | null {
 /** The session the middle shows: a pinned session's tab, a session picked in the sidebar, or the one a shell runs. */
 function viewSessionKey(): string | null {
   const v = S.view;
-  if (v.kind === 'review') return v.key;
+  if (v.kind === 'review' || v.kind === 'brief') return v.key;
   if (v.kind === 'session') return v.key || (v.pane ? sessionOfPane(S.hub, v.pane)?.key || null : null);
   const t = tabOfView();
   if (t && t.kind === 'shell') return sessionOfPane(S.hub, t.pane)?.key || null;
@@ -470,7 +473,7 @@ function npmPoint(what: string): boolean {
 
 function firstRun(): boolean {
   if (S.tabs.length) return false;
-  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'review' || WIDE_VIEWS.has(S.view.kind)) return false;
+  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'review' || S.view.kind === 'brief' || WIDE_VIEWS.has(S.view.kind)) return false;
   if (!S.hubStatus) return false; // not known yet
   return !S.hubStatus.reachable || isEmpty(S.hub);
 }
@@ -1024,8 +1027,8 @@ function togglePin(key: string): void {
 /** A session's Review tab, beside its session (every session and pane is a tab of the strip: setView). */
 function openTab(): HTMLElement | null {
   const v = S.view;
-  if (v.kind === 'review') {
-    // The session's own tab, beside its Review tab (when it has no tab).
+  if (v.kind === 'review' || v.kind === 'brief') {
+    // The session's own tab, beside its Review or Brief tab (when it has no tab).
     if (S.tabs.some((t) => (t.kind === 'session' && t.key === v.key) || (t.kind === 'shell' && sessionOfPane(S.hub, t.pane)?.key === v.key))) return null;
     const f = findSession(S.hub, v.key);
     if (!f) return null;
@@ -1049,11 +1052,18 @@ function renderTabs(): void {
       h('span.ti', svg(I.REVIEW)), h('span.n', 'Review'), h('span.p', rf.session.worktree.branch.replace(/^ravenry\//, '')),
       S.view.kind === 'review' ? h('button.x', { title: 'Close the review', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); setView({ kind: 'session', key: rk! }); } } }, svg(I.CLOSE)) : null)
     : null;
+  // The brief, as a page, while it is open: beside its session, closed back to it.
+  const bv = S.view.kind === 'brief' ? S.view : null;
+  const bp = bv ? (S.hub?.projects || []).find((x) => x.id === bv.project) : null;
+  const bt = bv ? h('div.tab.on', { role: 'tab', 'aria-selected': 'true', 'data-key': `brief:${bv.project}`, title: 'The brief' },
+    h('span.ti', svg(I.DOC)), h('span.n', 'Brief'), h('span.p', bp ? bp.name : bv.project),
+    h('button.x', { title: 'Close the brief', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); setView({ kind: 'session', key: bv.key }); } } }, svg(I.CLOSE))) : null;
+  const extra = [rv, bt].filter((x): x is HTMLElement => !!x);
   const sessTab = (t: Tab) => (t.kind === 'session' && t.key === rk) || (t.kind === 'shell' && !!rk && sessionOfPane(S.hub, t.pane)?.key === rk);
   const filmable = !!paneOnScreen() && !$('term').hidden;
   const row = h('div.tabrow', { role: 'presentation' },
     openTab(),
-    rv && !S.tabs.some(sessTab) ? rv : null,
+    extra.length && !S.tabs.some(sessTab) ? extra : null,
     S.tabs.map((t, i) => {
       const l = tabLabel(t);
       const on = active && active.id === t.id;
@@ -1067,7 +1077,7 @@ function renderTabs(): void {
         t.kind === 'shell' ? leaseBadge(t.pane) : null,
         t.kind === 'shell' && t.activity && !on ? h('span.act', { title: 'New output' }) : null,
         h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Close the tab (the session goes on)', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
-    }).flatMap((tab, i) => (rv && sessTab(S.tabs[i]) ? [tab, rv] : [tab])));
+    }).flatMap((tab, i) => (extra.length && sessTab(S.tabs[i]) ? [tab, ...extra] : [tab])));
   replace(el,
     row,
     h('button.tab.add', { title: `New shell (${shortcut('T')})`, 'aria-label': 'New shell', on: { click: () => void newShell() } }, svg(I.PLUS(12))),
@@ -1232,8 +1242,8 @@ function tabForPane(socket: string, pane: string, name: string): string {
   return t.id;
 }
 
-function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review'): void {
-  for (const k of ['term', 'elsewhere', 'start', 'none', 'review']) ($(k) as HTMLElement).hidden = k !== id;
+function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review' | 'brief'): void {
+  for (const k of ['term', 'elsewhere', 'start', 'none', 'review', 'brief']) ($(k) as HTMLElement).hidden = k !== id;
   if (id !== 'term') film.close();
   $('centre').classList.toggle('sheet', id === 'start' || id === 'none');
 }
@@ -1314,6 +1324,13 @@ async function renderCentre(): Promise<void> {
     term.hide(); shownKey = '';
     show('review');
     review.show(v.key, f.project, f.session);
+    renderStrip();
+    return;
+  }
+  if (v.kind === 'brief') {
+    term.hide(); shownKey = '';
+    show('brief');
+    void renderBrief(v.project);
     renderStrip();
     return;
   }
@@ -1887,9 +1904,15 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   }
 
   if (p.brief && (p.brief.goal || p.brief.next)) {
-    body.push(h('div.sec',
-      h('div.sec-h', 'Brief', h('span.sp'), h('button.lk', { on: { click: () => openBoard(`#${p.id}`) } }, 'Edit')),
-      h('div.kv', p.brief.goal ? [h('span', 'Goal'), briefValue(p.id, 'goal', p.brief.goal)] : null, p.brief.next ? [h('span', 'Next'), briefValue(p.id, 'next', p.brief.next)] : null)));
+    // The brief, short (H1): the goal on one line, Next as at most three
+    // one-line items, and the whole of it a click away (briefdoc.ts).
+    const n = nextItems(p.brief.next);
+    body.push(h('div.sec.brief-card',
+      h('div.sec-h', 'Brief'),
+      h('div.bf',
+        p.brief.goal ? [h('div.lbl', 'Goal'), h('div.gl', { title: p.brief.goal }, plain(p.brief.goal))] : null,
+        n.items.length ? [h('div.lbl', 'Next'), h('ul', n.items.map((x) => h('li', { title: x }, h('span', x))))] : null,
+        h('div.ft2', h('button.lk', { on: { click: () => setView({ kind: 'brief', key, project: p.id }) } }, 'Open brief'), n.older ? h('span.t3', `, ${n.older} older ${n.older === 1 ? 'entry' : 'entries'}`) : null))));
   }
 
   const plan = p.plan;
@@ -1901,18 +1924,33 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   return [head, body];
 }
 
-// A brief field in the panel: about four lines, with Show all when there is
-// more (and Show less once open). Which fields are open is kept per project
-// while the window lives, so a new state from the hub does not fold them.
-const briefOpen = new Set<string>();
-function briefValue(projectId: string, field: string, text: string): HTMLElement {
-  const k = `${projectId}\u0000${field}`;
-  const open = briefOpen.has(k);
-  const body = h(`span.bv${open ? '' : '.clamp'}`, text);
-  const toggle = h('button.lk.bv-more', { hidden: !open, on: { click: () => { if (briefOpen.has(k)) briefOpen.delete(k); else briefOpen.add(k); renderPanel(); } } }, open ? 'Show less' : 'Show all');
-  // Folded: Show all only when the text runs past its four lines.
-  if (!open) requestAnimationFrame(() => { if (body.scrollHeight > body.clientHeight + 1) toggle.hidden = false; });
-  return h('span.bv-cell', body, toggle);
+// The brief as a page in the middle (H2): read from the hub as written,
+// drawn again only when its text changed (so the entries opened stay open),
+// asked again at most every 4 s while it shows.
+let briefShown: { project: string; text: string; at: number } | null = null;
+async function renderBrief(project: string): Promise<void> {
+  const el = $('brief');
+  if (briefShown && briefShown.project === project && Date.now() - briefShown.at < 4000) return;
+  let r: { status: number; body: unknown } | null = null;
+  try { r = await api().hubCall('GET', `/api/brief?project=${encodeURIComponent(project)}`); } catch { r = null; }
+  if (S.view.kind !== 'brief' || S.view.project !== project) return;
+  const b = r && r.status === 200 ? r.body as { file: string; path: string; text: string; updatedAt: string; by: string | null } : null;
+  const p = (S.hub?.projects || []).find((x) => x.id === project);
+  if (!b) {
+    briefShown = null;
+    const why = (r && r.body && (r.body as { error?: string }).error) || 'The brief could not be read.';
+    replace(el, h('div.doc-b', h('p.t3', String(why))));
+    return;
+  }
+  const same = briefShown && briefShown.project === project && briefShown.text === b.text;
+  briefShown = { project, text: b.text, at: Date.now() };
+  if (same && el.firstChild) return;
+  const dir = b.file.replace(/\/[^/]*$/, '');
+  replace(el,
+    h('div.doc-h', svg(I.DOC), h('b', 'Brief'), h('span.t3', p ? p.name : project), h('span.sp'),
+      h('span.t3', { title: b.path }, `Updated ${clock(b.updatedAt, now())}${b.by ? ` by ${b.by}` : ''}`),
+      p && p.machine ? null : h('button.btn.sm', { title: `Open ${b.path} in your Markdown editor`, on: { click: () => api().openPath(b.file) } }, 'Edit')),
+    h('div.doc-b', briefPage(b.text, { dir, onLink: (u) => api().openExternal(u) })));
 }
 
 /** What a session's panel shows of Phase 2 between its card and its context. */
