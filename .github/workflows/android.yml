@@ -13,6 +13,7 @@ name: android
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -56,6 +57,21 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/ravenry.keystore"
           RAVENRY_ANDROID_KEYSTORE="$RUNNER_TEMP/ravenry.keystore" ./gradlew --no-daemon assembleRelease
           rm -f "$RUNNER_TEMP/ravenry.keystore"
+      - name: The release APK is signed with Ravenry's key
+        if: env.HAS_KEY == 'true'
+        working-directory: apps/android
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          "$signer" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/signer.txt"
+          grep -q "Signer #1 certificate DN: CN=Ravenry" "$RUNNER_TEMP/signer.txt"
+          grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/signer.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: env.HAS_KEY == 'true'
+        with:
+          name: ravenry-android-release
+          path: apps/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 7
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ravenry-android-debug
