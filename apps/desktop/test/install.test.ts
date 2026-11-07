@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   dataRoot, ensureService, launchctlBin, plistText, pruneVersions, removeService, runtimeSource, selfUpdating, serviceFile, serviceMode,
   serviceSpec, stageRuntime, stageVersion, unitText,
@@ -65,6 +66,38 @@ test('pruneVersions keeps the current version, running daemons and what the serv
   const gone = pruneVersions(root, '0.4.0', ['0.1.0'], svc);
   assert.deepEqual(gone, ['0.3.0']);
   assert.deepEqual(fs.readdirSync(path.join(root, 'versions')).sort(), ['0.1.0', '0.2.0', '0.4.0']);
+});
+
+// A session started before an update calls the hooks of the version folder
+// it saw, until it exits (2026-11-07: "hook error" at every turn once the
+// folder was removed). A removed folder leaves stubs that run current's.
+test('pruneVersions keeps the folder current points at, and leaves hook stubs that run current\'s', () => {
+  const root = path.join(tmp(), 'data');
+  const vdir = (v: string) => path.join(root, 'versions', v);
+  for (const v of ['0.5.0', '0.6.0', '0.7.0']) {
+    fs.mkdirSync(path.join(vdir(v), 'hub', 'hooks'), { recursive: true });
+    fs.mkdirSync(path.join(vdir(v), 'hub', 'server'), { recursive: true });
+    fs.writeFileSync(path.join(vdir(v), 'hub', 'hooks', 'events.mjs'), `import fs from 'node:fs'; fs.writeFileSync(process.env.HOOK_OUT, '${v} ' + process.argv.slice(2).join(' '));\n`);
+  }
+  fs.symlinkSync(vdir('0.6.0'), path.join(root, 'current'));
+  const gone = pruneVersions(root, '0.7.0', [], null);
+  assert.deepEqual(gone, ['0.5.0']);
+  assert.ok(fs.existsSync(vdir('0.6.0') + '/hub/server'), 'the folder current points at is kept');
+  assert.ok(!fs.existsSync(path.join(vdir('0.5.0'), 'hub', 'server')) && fs.existsSync(path.join(vdir('0.5.0'), 'REMOVED')));
+  // The old hook command still runs, and runs current's script.
+  const out = path.join(root, 'hook-out');
+  const r = spawnSync(process.execPath, [path.join(vdir('0.5.0'), 'hub', 'hooks', 'events.mjs'), '--ravenryd'], { env: { HOOK_OUT: out, PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stderr, '');
+  assert.equal(fs.readFileSync(out, 'utf8'), '0.6.0 --ravenryd');
+  // Stubs are never removed; current's folder goes once current moves.
+  fs.rmSync(path.join(root, 'current'));
+  fs.symlinkSync(vdir('0.7.0'), path.join(root, 'current'));
+  assert.deepEqual(pruneVersions(root, '0.7.0', [], null), ['0.6.0']);
+  assert.ok(fs.existsSync(path.join(vdir('0.5.0'), 'hub', 'hooks', 'events.mjs')));
+  const r2 = spawnSync(process.execPath, [path.join(vdir('0.6.0'), 'hub', 'hooks', 'events.mjs')], { env: { HOOK_OUT: out, PATH: '/usr/bin:/bin' }, encoding: 'utf8' });
+  assert.equal(r2.status, 0, r2.stderr);
+  assert.equal(fs.readFileSync(out, 'utf8'), '0.7.0 ');
 });
 
 const staged = { version: '0.1.0', dir: '/d/versions/0.1.0', ravenryd: '/d/versions/0.1.0/ravenryd', link: '/d/bin/ravenryd', cli: '/d/bin/ravenry', hubEntry: '/d/versions/0.1.0/hub/server/index.mjs' };

@@ -271,6 +271,13 @@ try {
     fs.chmodSync(path.join(oldDir, 'ravenryd'), 0o755);
     fs.cpSync(path.join(prevApp, 'Contents', 'Resources', 'hub'), path.join(oldDir, 'hub'), { recursive: true });
     fs.writeFileSync(path.join(oldDir, '.build.json'), JSON.stringify(prevBuild) + '\n');
+    // The hooks the build before wrote: they name its version folder. A
+    // Claude Code started then keeps these commands until it exits (it
+    // reads its hooks once), whatever the settings say later.
+    const oldHook = (script) => `ELECTRON_RUN_AS_NODE=1 '${b.exe}' '${path.join(oldDir, 'hub', 'hooks', script)}' --ravenryd`;
+    const snapshot = { events: oldHook('events.mjs'), stop: oldHook('handoff-stop.mjs') };
+    fs.mkdirSync(path.join(b.home, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(b.home, '.claude', 'settings.json'), JSON.stringify({ hooks: Object.fromEntries(['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Notification', 'Stop'].map((ev) => [ev, [{ hooks: [{ type: 'command', command: snapshot.events, timeout: 5 }, ...(ev === 'Stop' ? [{ type: 'command', command: snapshot.stop, timeout: 10 }] : [])] }]])) }, null, 2) + '\n');
     const envXml = Object.entries({ ELECTRON_RUN_AS_NODE: '1', RAVENRY_TERMINAL: 'ravenry', RAVENRY_HUB_SERVICE: '1', RAVENRY_APP_VERSION: prevBuild.version, RAVENRY_DAEMON_BIN: path.join(oldDir, 'ravenryd'), ...Object.fromEntries(Object.entries(b.env).filter(([k]) => /^(HOME|PATH|PORT|RAVENRY_RUNTIME_DIR|RAVENRY_STATE_DIR|RAVENRY_PHONE_PORT|MC_|STUB_|FAKE_|CMUX_BIN)/.test(k))) })
       .map(([k, v]) => `    <key>${k}</key>\n    <string>${String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</string>`).join('\n');
     fs.mkdirSync(path.dirname(plistOf(b)), { recursive: true });
@@ -332,6 +339,30 @@ try {
     const answeredAt = Date.parse((log.match(/^(\S+) service: updated/m) || [])[1] || '');
     const rowAfter = answeredAt ? m.t0 + m.oneRow - answeredAt : null;
     step('7 update: the old pane\'s session row within 3 s of the new hub answering', rowAfter != null && rowAfter <= 3000, { msAfterHubAnswered: rowAfter });
+
+    // 8: the hooks of a session started on the build before, after the
+    // update and the old folder's removal (2026-11-07: "UserPromptSubmit
+    // hook error" at every turn). The old daemon ends, the app opens again
+    // and removes what nothing runs from; then the old hook commands run as
+    // that session's Claude Code would run them.
+    try { for (const d of JSON.parse(execFileSync(path.join(oldDir, 'ravenryd'), ['daemons', '--json', '--no-start'], { env: oldEnv, encoding: 'utf8' }))) if (d.version === prevBuild.version) process.kill(d.pid, 'SIGTERM'); } catch { /* gone */ }
+    for (let i = 0; i < 100 && fs.existsSync(oldSock); i++) await sleep(100);
+    await launch(b, 'prune', [{ ready: true, timeout: 30000 }, { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable`, timeout: 60000 }, { sleep: 4000 }]);
+    const settings = fs.readFileSync(path.join(b.home, '.claude', 'settings.json'), 'utf8');
+    const current = (() => { try { return fs.realpathSync(path.join(b.data, 'current')); } catch { return null; } })();
+    step('8 hooks: the settings name the stable folder (current), never a version folder', settings.includes('/current/hub/hooks/events.mjs') && !/\/versions\//.test(settings) && current === fs.realpathSync(path.join(b.data, 'versions', BUILD.version)), { current, versionsNamed: (settings.match(/versions\/[^/]+/g) || []).slice(0, 3) });
+    step(`8 hooks: the build before's folder is removed, its hook scripts left as stubs`, !fs.existsSync(path.join(oldDir, 'hub', 'server')) && fs.existsSync(path.join(oldDir, 'REMOVED')) && fs.existsSync(path.join(oldDir, 'hub', 'hooks', 'events.mjs')), { left: fs.existsSync(oldDir) ? fs.readdirSync(oldDir) : null });
+    const hookSid = 'abcdef01-2345-4678-9abc-def012345678';
+    const runHook = (cmd, ev) => spawnSync('/bin/sh', ['-c', cmd], { input: JSON.stringify({ session_id: hookSid, hook_event_name: ev, cwd: path.join(b.home, 'Projects', 'kite'), prompt: 'and now?', transcript_path: path.join(b.home, '.claude', 'projects', 'x', `${hookSid}.jsonl`) }), env: { HOME: b.home, PATH: b.env.PATH, LANG: 'en_US.UTF-8' }, encoding: 'utf8', timeout: 20000 });
+    const evFile = path.join(b.home, '.ravenry', 'events', `${hookSid}.jsonl`);
+    const r1 = runHook(snapshot.events, 'UserPromptSubmit');
+    const lines1 = fs.existsSync(evFile) ? fs.readFileSync(evFile, 'utf8').trim().split('\n').length : 0;
+    const r2 = runHook(snapshot.stop, 'Stop');
+    step('8 hooks: a session started on the build before runs its old hook commands after the update with no error, and its event reaches the board', r1.status === 0 && !r1.stderr.trim() && r2.status === 0 && !r2.stderr.trim() && lines1 >= 1, { exit: [r1.status, r2.status], stderr: (r1.stderr + r2.stderr).trim().slice(0, 300), events: lines1 });
+    const nowCmd = (JSON.parse(settings).hooks.UserPromptSubmit || []).flatMap((e) => e.hooks).map((h) => h.command).find((c) => c.includes('events.mjs'));
+    const r3 = nowCmd ? runHook(nowCmd, 'UserPromptSubmit') : { status: -1, stderr: 'no command' };
+    const lines3 = fs.existsSync(evFile) ? fs.readFileSync(evFile, 'utf8').trim().split('\n').length : 0;
+    step('8 hooks: the hook commands written now run with no error', r3.status === 0 && !String(r3.stderr).trim() && lines3 > lines1, { exit: r3.status, stderr: String(r3.stderr).trim().slice(0, 300) });
     launchctl('bootout', `gui/${UID}/${b.label}`);
   });
 

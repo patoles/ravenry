@@ -161,6 +161,8 @@ export function pruneVersions(root: string, keep: string, runningVersions: strin
   let names: string[];
   try { names = fs.readdirSync(versions); } catch { return []; }
   const removed: string[] = [];
+  // The folder the hooks run (hub/server/hookinstall.mjs pointCurrent).
+  const current = real(path.join(root, 'current'));
   for (const v of names) {
     if (v.startsWith('.')) {
       // A copy left half done by a launch that died: older than a minute.
@@ -171,9 +173,46 @@ export function pruneVersions(root: string, keep: string, runningVersions: strin
     if (serviceText && serviceText.includes(path.join(versions, v) + path.sep)) continue;
     const dir = path.join(versions, v) + path.sep;
     if (inUse.some((t) => t && t.includes(dir))) continue;
-    try { fs.rmSync(path.join(versions, v), { recursive: true, force: true }); removed.push(v); } catch { /* in use: next time */ }
+    if (current && current === real(path.join(versions, v))) continue;
+    if (isHookStubs(path.join(versions, v))) continue;
+    try {
+      const hooks = hookScripts(path.join(versions, v));
+      fs.rmSync(path.join(versions, v), { recursive: true, force: true });
+      writeHookStubs(path.join(versions, v), hooks);
+      removed.push(v);
+    } catch { /* in use: next time */ }
   }
   return removed;
+}
+
+// A Claude Code or Codex session reads its hooks once, when it starts, so
+// one started before an update goes on calling the hook scripts of the
+// version folder it saw (2026-11-07: "hook error" at every turn once that
+// folder was gone). Hooks now name <data>/current (hub/server/hookinstall.mjs),
+// and a removed version folder keeps, at the same paths, one small script
+// per hook that runs current's: no hook any running session can call ever
+// breaks. A folder of stubs is marked and never removed (a few hundred bytes).
+const STUB_MARK = 'REMOVED';
+const real = (p: string): string | null => { try { return fs.realpathSync(p); } catch { return null; } };
+function isHookStubs(dir: string): boolean { return fs.existsSync(path.join(dir, STUB_MARK)); }
+function hookScripts(dir: string): string[] {
+  try { return fs.readdirSync(path.join(dir, 'hub', 'hooks')).filter((f) => /\.m?js$/.test(f)); } catch { return []; }
+}
+export function writeHookStubs(dir: string, scripts: string[]): void {
+  if (!scripts.length) return;
+  const hooks = path.join(dir, 'hub', 'hooks');
+  fs.mkdirSync(hooks, { recursive: true });
+  fs.writeFileSync(path.join(dir, STUB_MARK), 'This version of Ravenry was removed by an update. Its hook scripts stay, each running the current version\'s, for sessions started before the update.\n');
+  for (const f of scripts) {
+    fs.writeFileSync(path.join(hooks, f), `// This version of Ravenry was removed by an update; a session started
+// before it still calls this hook. It runs the current version's.
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+const here = fileURLToPath(import.meta.url);
+const data = path.resolve(path.dirname(here), '..', '..', '..', '..');
+try { await import(pathToFileURL(path.join(data, 'current', 'hub', 'hooks', path.basename(here))).href); } catch { process.exit(0); }
+`);
+  }
 }
 
 // ------------------------------------------------------------- the service

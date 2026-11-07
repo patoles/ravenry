@@ -107,8 +107,22 @@ check('status: the old version\'s hooks are stale', hk.status(read(SETTINGS), { 
 const moved = hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE });
 const after = read(SETTINGS);
 const scripts = cmds(after, 'Stop').filter((c) => /hooks\/(events|handoff-stop)\.mjs/.test(c));
-check('refresh: they now run the new version, once each, theirs kept', moved.claude.length > 0 && scripts.length === 2 && scripts.every((c) => c.includes(APPHUB('0.2.0'))) && cmds(after, 'Stop').includes(theirs.command) && cmds(after, 'Stop').includes(`${BIN} hook --assistant claude`), JSON.stringify(cmds(after, 'Stop')));
+const CURRENT = path.join(T, 'data', 'current', 'hub');
+check('refresh: they now run the new version through the stable folder (current), once each, theirs kept', moved.claude.length > 0 && scripts.length === 2 && scripts.every((c) => c.includes(CURRENT + '/hooks/')) && cmds(after, 'Stop').includes(theirs.command) && cmds(after, 'Stop').includes(`${BIN} hook --assistant claude`), JSON.stringify(cmds(after, 'Stop')));
+check('refresh: current points at the hub\'s own version folder', fs.realpathSync(path.join(T, 'data', 'current')) === fs.realpathSync(path.dirname(APPHUB('0.2.0'))));
 check('refresh: a second run changes nothing', hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE }).claude.length === 0);
+// The next update: current moves, and the settings stay as they are (a
+// session started now keeps working after it).
+fs.mkdirSync(path.join(APPHUB('0.3.0'), 'hooks'), { recursive: true });
+for (const f of ['events.mjs', 'handoff-stop.mjs']) fs.writeFileSync(path.join(APPHUB('0.3.0'), 'hooks', f), '');
+const before3 = fs.readFileSync(SETTINGS, 'utf8');
+const moved3 = hk.refreshAppHooks({ root: APPHUB('0.3.0'), node: APPEXE });
+check('next update: current moves to it, and the settings are not touched', moved3.claude.length === 0 && fs.readFileSync(SETTINGS, 'utf8') === before3 && fs.realpathSync(path.join(T, 'data', 'current')) === fs.realpathSync(path.dirname(APPHUB('0.3.0'))));
+check('status: hooks naming current are up to date for the version current points at', hk.status(read(SETTINGS), { root: APPHUB('0.3.0') }).state !== 'stale');
+// A hook naming this very version's folder (not current) is stale: an update removes that folder.
+const pinned = hk.plan({}, { root: APPHUB('0.3.0'), node: APPEXE }).settings;
+const pinnedCmd = JSON.stringify(pinned).replaceAll(CURRENT, APPHUB('0.3.0'));
+check('status: a hook naming a version folder is stale even when it is this version', hk.status(JSON.parse(pinnedCmd), { root: APPHUB('0.3.0') }).state === 'stale');
 // Another copy of Ravenry's hooks (a checkout) are never taken over.
 const other = path.join(T, 'checkout', 'ravenry');
 fs.mkdirSync(path.join(other, 'hooks'), { recursive: true });

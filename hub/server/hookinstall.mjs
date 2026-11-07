@@ -76,7 +76,61 @@ export const AS_NODE = 'ELECTRON_RUN_AS_NODE=1';
 const onElectron = () => !!process.versions.electron;
 
 export function hookCommand(o, { root = ROOT, node = stableNode(), electron = onElectron() } = {}) {
-  return `${electron ? `${AS_NODE} ` : ''}${q(node)} ${q(path.join(root, 'hooks', o.script))}`;
+  const r = hookRoot(root);
+  return `${electron ? `${AS_NODE} ` : ''}${q(throughCurrent(node, root, r))} ${q(path.join(r, 'hooks', o.script))}`;
+}
+
+// ------------------------------------------------- the app's stable folder
+//
+// The desktop app's hub runs from <data>/versions/<version>/hub, and an
+// update removes old version folders. Claude Code and Codex read their
+// hooks once, when a session starts, so a session started before an
+// update kept calling the old folder's scripts and showed "hook error" at
+// every turn once it was gone (2026-11-07). So hooks name <data>/current,
+// a link the service hub points at its own version folder when it starts
+// (pointCurrent, an atomic rename), never a version folder; and a version
+// folder an update removes leaves its hook scripts behind as stubs that
+// run current's (apps/desktop/src/main/install.ts pruneVersions).
+
+/** <data>/current/hub for a hub in <data>/versions/<v>/hub, else null. */
+export function appStableRoot(root = ROOT) {
+  const versions = path.dirname(path.dirname(root));
+  if (path.basename(root) !== 'hub' || path.basename(versions) !== 'versions') return null;
+  return path.join(path.dirname(versions), 'current', 'hub');
+}
+
+/** The folder hooks name for this copy: current/hub when it is this copy. */
+export function hookRoot(root = ROOT) {
+  const st = appStableRoot(root);
+  return st && realOr(st) && realOr(st) === realOr(root) ? st : root;
+}
+
+// A file inside this version folder (the runtime an AppImage's hub runs),
+// named through current instead.
+function throughCurrent(file, root, r) {
+  if (r === root) return file;
+  const vdir = path.dirname(root) + path.sep;
+  return String(file).startsWith(vdir) ? path.join(path.dirname(r), String(file).slice(vdir.length)) : file;
+}
+
+/**
+ * Points <data>/current at this hub's version folder, atomically (a new
+ * link renamed over the old one), so a hook never finds it missing. Only
+ * for the app's hub. Returns true when current now points here.
+ */
+export function pointCurrent(root = ROOT) {
+  const st = appStableRoot(root);
+  if (!st) return false;
+  const link = path.dirname(st);
+  const target = path.dirname(root);
+  try {
+    if (realOr(link) === realOr(target)) return true;
+    const tmp = `${link}.${process.pid}.tmp`;
+    try { fs.unlinkSync(tmp); } catch { /* none */ }
+    fs.symlinkSync(target, tmp);
+    fs.renameSync(tmp, link);
+    return realOr(link) === realOr(target);
+  } catch { return false; }
 }
 
 // Whether `script` is one of the hooks of a copy of Ravenry: its folder's
@@ -109,6 +163,8 @@ function staleWhy(command, script0, root) {
   if (!node || !isExe(node)) return `its Node (${node}) is not there any more`;
   if (!script || !fs.existsSync(script)) return `its script (${script}) is not there any more`;
   if (realOr(script) !== realOr(path.join(root, 'hooks', script0))) return `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
+  const r = hookRoot(root);
+  if (r !== root && !script.startsWith(r + path.sep)) return `it names a version folder (${path.dirname(path.dirname(script))}) that an update removes`;
   if (onElectron() && realOr(node) === realOr(process.execPath) && !splitCommand(command).includes(AS_NODE)) return `it starts the Ravenry app without ${AS_NODE}, which opens the app instead of running the hook`;
   return null;
 }
@@ -123,6 +179,7 @@ export function isOurs(h, o, { root = ROOT } = {}) {
   // The desktop app's hub, in any version folder of the app (an update
   // moves it to a new one).
   if (new RegExp(`/versions/[^/\\s"']+/hub/hooks/${o.script.replace('.', '\\.')}(["'\\s]|$)`).test(h.command)) return true;
+  if (new RegExp(`/current/hub/hooks/${o.script.replace('.', '\\.')}(["'\\s]|$)`).test(h.command)) return true;
   const words = splitCommand(h.command);
   if (words.includes(path.join(root, 'hooks', o.script))) return true;
   // Any other copy of Ravenry (npm's installs in ravenry-app/, a checkout
@@ -457,9 +514,11 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
 // up first. Returns the changes per file.
 export function refreshAppHooks({ root = ROOT, node } = {}) {
   const versions = path.dirname(path.dirname(root));
+  pointCurrent(root);
+  const stable = appStableRoot(root);
   const ownOrGone = (st) => st.stale.length > 0 && st.stale.every((x) => {
     const script = commandWords(x.command)[1] || '';
-    return !fs.existsSync(script) || path.dirname(path.dirname(path.dirname(path.dirname(script)))) === versions || realOr(script) === realOr(path.join(root, 'hooks', x.script));
+    return !fs.existsSync(script) || path.dirname(path.dirname(path.dirname(path.dirname(script)))) === versions || (stable && script.startsWith(stable + path.sep)) || realOr(script) === realOr(path.join(root, 'hooks', x.script));
   });
   const out = { claude: [], codex: [] };
   try {
