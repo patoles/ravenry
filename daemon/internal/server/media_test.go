@@ -162,8 +162,12 @@ func TestOverrides(t *testing.T) {
 	if got := call[proto.ListResult](t, c, "pane.list", map[string]any{}).Panes[0]; got.Cols != 40 {
 		t.Fatalf("a resize under an override: %+v", got)
 	}
-	// Slowed output: 200 bytes take about a second at 200 bytes a second.
-	q := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `read x; i=0; while [ $i -lt 20 ]; do printf '0123456789'; i=$((i+1)); done; printf ' END\n'; exec sleep 30`}})
+	// Slowed output: 200 bytes take about a second at 200 bytes a second,
+	// even when the daemon was already waiting to read them before the
+	// override (no echo wakes it first) and they come in one write.
+	q := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `stty -echo; echo ready; read x; s=; i=0; while [ $i -lt 20 ]; do s="${s}0123456789"; i=$((i+1)); done; printf '%s END\n' "$s"; exec sleep 30`}})
+	// The daemon printed "ready" and waits to read again, unslowed.
+	waitFor(t, c, q.ID, `ready`, 0)
 	call[proto.PaneResult](t, c, "pane.override", map[string]any{"pane": q.ID, "slow_bps": 200})
 	start := time.Now()
 	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": q.ID, "input": []map[string]any{{"key": "Enter"}}})

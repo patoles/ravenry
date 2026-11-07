@@ -412,19 +412,18 @@ func (p *Pane) readLoop() {
 	buf := make([]byte, 64<<10)
 	for {
 		rb := buf
-		slow := int(p.slow.Load())
-		if slow > 0 {
+		if slow := int(p.slow.Load()); slow > 0 {
 			// A slowed pane reads little at a time, so its program feels
 			// the slow link through the pty too.
 			rb = buf[:min(len(buf), max(1, slow/20))]
 		}
 		n, err := p.pty.Read(rb)
 		if n > 0 {
-			if slow > 0 {
-				p.slowOutput(rb[:n], slow)
-			} else {
-				p.output(rb[:n])
-			}
+			// Whether to slow it is decided once the bytes are here, not
+			// before the read: a read that started before an override
+			// (the loop waits in Read most of the time) would otherwise
+			// let its bytes through at full speed.
+			p.slowOutput(rb[:n])
 		}
 		if err != nil {
 			break
@@ -440,11 +439,18 @@ func (p *Pane) readLoop() {
 	p.mu.Unlock()
 }
 
-// slowOutput takes output at bps bytes a second (pane.override).
-func (p *Pane) slowOutput(b []byte, bps int) {
-	step := max(1, bps/20)
+// slowOutput takes output at the pane's slow_bps bytes a second
+// (pane.override), read again at each step so an override set or cleared
+// while a chunk plays out applies to the rest of it; not slowed, all at
+// once.
+func (p *Pane) slowOutput(b []byte) {
 	for len(b) > 0 {
-		n := min(step, len(b))
+		bps := int(p.slow.Load())
+		if bps <= 0 {
+			p.output(b)
+			return
+		}
+		n := min(max(1, bps/20), len(b))
 		p.output(b[:n])
 		b = b[n:]
 		time.Sleep(time.Duration(n) * time.Second / time.Duration(bps))

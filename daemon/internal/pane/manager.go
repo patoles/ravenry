@@ -341,9 +341,12 @@ func (m *Manager) Restart(id string, grace time.Duration) (*Pane, Info, error) {
 	if !ok {
 		return nil, Info{}, ErrNotFound
 	}
+	// Under the pane's lock: pane.override writes TERM into p.orig.Env.
+	p.mu.Lock()
 	cfg := p.orig
 	cfg.Env = maps.Clone(p.orig.Env)
 	cfg.Command = slices.Clone(p.orig.Command)
+	p.mu.Unlock()
 	// Its name, labels and folder as they are now.
 	info := p.Info()
 	cfg.Name, cfg.Labels = info.Name, info.Labels
