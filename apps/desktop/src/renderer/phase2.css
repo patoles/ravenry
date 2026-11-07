@@ -316,3 +316,47 @@
 .md .oe.open .oe-r .t { font-weight: 600; white-space: normal; }
 .md .oe-b { padding: 0 14px 12px 129px; font-size: 13.5px; line-height: 1.6; color: var(--tx2); }
 .md .oe-b ul { margin: 0; padding-left: 18px; }
+
+/* Splits (the picture ravenry-split.html, B1): a tab with one pane looks as
+   before; split, each pane has a header, the focused one a thin blue ring,
+   the other a little dimmed. Split.js sets the panes' flex-basis. */
+.split { display: flex; flex-direction: row; position: relative; min-width: 0; min-height: 0; }
+.split.down { flex-direction: column; }
+.split.flip #pbox1 { order: -1; }
+.split.flip .gutter { order: 0; }
+.split.flip #pbox0 { order: 1; }
+.pbox { flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+.pbox[hidden] { display: none; }
+.split.two .pbox { flex-grow: 0; flex-shrink: 0; }
+.pbox > .term-host { flex: 1; min-height: 0; }
+.split.two .pbox.focus::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--work); pointer-events: none; z-index: 3; }
+.split.two .pbox:not(.focus) .term-host { opacity: .82; }
+/* The terminal is dark in both themes: its headers are too. */
+.phead { flex: none; display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px 0 12px; font-size: 12px; color: #8E8E93; background: var(--term-bg); border-bottom: 1px solid rgba(255,255,255,.08); }
+.phead[hidden] { display: none; }
+.phead b { color: #AEAEB2; font-weight: 600; }
+.pbox.focus .phead b { color: #F2F2F4; }
+.phead .t3 { color: #8E8E93; }
+.phead .ti { display: inline-flex; color: #8E8E93; }
+.phead .ag { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(191,90,242,.22); color: #DA8FFF; }
+.phead .sp { flex: 1; }
+.phead .x { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 0; border-radius: 4px; background: none; color: #8E8E93; cursor: pointer; }
+.phead .x:hover { background: rgba(255,255,255,.1); color: #F2F2F4; }
+.split .gutter { flex: none; background: var(--sep); position: relative; z-index: 2; }
+.split:not(.down) .gutter { cursor: col-resize; }
+.split.down .gutter { cursor: row-resize; }
+.split .gutter:hover, .split .gutter:active { background: var(--work); }
+.split .gutter::after { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 36px; margin: -18px 0 0 -2px; border-radius: 2px; background: var(--work); opacity: 0; }
+.split.down .gutter::after { width: 36px; height: 4px; margin: -2px 0 0 -18px; }
+.split .gutter:hover::after { opacity: 1; background: #fff; }
+.dropzone { position: absolute; z-index: 5; pointer-events: none; border-radius: 8px; box-shadow: inset 0 0 0 2px var(--work); background: rgba(10,132,255,.16); display: flex; align-items: center; justify-content: center; margin: 4px; }
+.dropzone[hidden] { display: none; }
+.dropzone.right { top: 0; bottom: 0; right: 0; width: calc(50% - 8px); }
+.dropzone.left { top: 0; bottom: 0; left: 0; width: calc(50% - 8px); }
+.dropzone.up { left: 0; right: 0; top: 0; height: calc(50% - 8px); }
+.dropzone.down { left: 0; right: 0; bottom: 0; height: calc(50% - 8px); }
+.dropzone.no { box-shadow: inset 0 0 0 2px var(--tx3); background: rgba(128,128,128,.12); }
+.dz-l { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; background: var(--work); color: #fff; font-size: 12.5px; font-weight: 600; }
+.dropzone.no .dz-l { background: var(--card2); color: var(--tx2); }
+.tab .pc2 { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--tx3); }
+.tab[draggable="true"] { -webkit-user-drag: element; }

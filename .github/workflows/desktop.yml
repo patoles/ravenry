@@ -139,6 +139,8 @@ jobs:
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/basics-test.mjs "$RUNNER_TEMP/smoke/basics"
       - name: The brief, in the panel and as a page (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/brief-test.mjs "$RUNNER_TEMP/smoke/brief"
+      - name: Splits (headless Electron, xvfb)
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/split-test.mjs "$RUNNER_TEMP/smoke/splits"
       - name: The sidebar's pages in the app (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/pages-test.mjs "$RUNNER_TEMP/smoke/pages"
       # The release build (no test hooks, src/main/gate.ts) and its test

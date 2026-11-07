@@ -227,10 +227,10 @@ export class TerminalView {
 
   focus(): void { this.term.focus(); }
 
-  /** Shows a pane: drops the one on screen, then subscribes to this one at the terminal's size. */
-  async show(a: Attached): Promise<void> {
+  /** Shows a pane: drops the one on screen, then subscribes to this one at the terminal's size. `focus`: it takes the keyboard (a split's other pane does not). */
+  async show(a: Attached, focus = true): Promise<void> {
     if (this.current && this.current.pane === a.pane && this.current.client === a.client && this.stream && !this.stream.ended) {
-      this.focus();
+      if (focus) this.focus();
       return;
     }
     const gen = ++this.gen;
@@ -272,7 +272,7 @@ export class TerminalView {
     this.stream = s;
     for (const d of this.early.splice(0)) s.input(d);
     this.queueResize();
-    this.focus();
+    if (focus) this.focus();
   }
 
   /** Shows nothing: unsubscribes, so no xterm.js work runs for any pane. */

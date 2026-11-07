@@ -41,6 +41,8 @@ import type { NavRow } from './pages.ts';
 import { TerminalView, THEME } from './terminal.ts';
 import { PaneStore } from './panes.ts';
 import { TerminalMarks } from './marks.ts';
+import Split from 'split.js';
+type SplitInstance = ReturnType<typeof Split>;
 import { briefPage, nextItems, plain } from './briefdoc.ts';
 import { leaseStrip, leaseWords, openedLine, panesItUses, typedHere, whoCanType } from './panepanel.ts';
 import type { PaneCtx, Who } from './panepanel.ts';
@@ -68,9 +70,19 @@ interface ShellTab {
   status?: AgentStatus | null;
   /** It printed while it was not on screen. */
   activity?: boolean;
+  split?: SplitInfo; host?: string;
 }
 /** A session's tab; `pane` for one just started, until the hub lists it. */
-interface SessionTab { id: string; kind: 'session'; key: string; pane?: string; /** Its name when last on the board. */ name?: string }
+interface SessionTab { id: string; kind: 'session'; key: string; pane?: string; /** Its name when last on the board. */ name?: string; split?: SplitInfo; host?: string }
+/**
+ * A tab split in two (the picture ravenry-split.html, B1): the tab hosts a
+ * second pane, a shell tab of its own that the strip does not show
+ * (`guest`, whose `host` names this tab). At most one split per tab; more
+ * panes are tabs. `side`: where the guest is; `size`: the host's share, in
+ * percent; `focus`: 1 when the guest has the keyboard; `zoom`: the focused
+ * pane alone, for now.
+ */
+interface SplitInfo { guest: string; side: 'right' | 'left' | 'down' | 'up'; size: number; focus: 0 | 1; zoom?: boolean }
 type Tab = ShellTab | SessionTab;
 type View =
   | { kind: 'tab'; id: string }
@@ -131,7 +143,10 @@ const S = {
 };
 
 const $ = (id: string) => document.getElementById(id)!;
+/** The terminal of the pane with the keyboard: termA (the tab's own pane) or termB (its split's). */
 let term: TerminalView;
+let termA: TerminalView;
+let termB: TerminalView | null = null;
 let daemons: Daemons;
 let pages: Pages;
 let machinesView: Machines;
@@ -165,6 +180,8 @@ const tilde = (p?: string, machine?: string | null) => {
 
 const store = new PaneStore();
 let marks: TerminalMarks;
+let marksA: TerminalMarks;
+let marksB: TerminalMarks | null = null;
 
 /** Who a Source is, as people know it: "Claude" in "Tilting the hull", "You". */
 // The person's own input: what they typed or pasted in this window
@@ -239,7 +256,7 @@ const paneCtx: PaneCtx = {
 
 let storeQueued = false;
 store.onChange = (what) => {
-  if (what.kind === 'input' && marks && term?.attached?.pane === what.pane) marks.show(store.inputsOf(what.pane));
+  if (what.kind === 'input') for (const [v, m] of [[termA, marksA], [termB, marksB]] as const) if (v && m && v.attached?.pane === what.pane) m.show(store.inputsOf(what.pane));
   if (storeQueued) return;
   storeQueued = true;
   requestAnimationFrame(() => { storeQueued = false; renderSidebar(); renderTabs(); renderStrip(); if (panelVisible()) renderPanel(); });
@@ -435,14 +452,43 @@ function tabOfView(): Tab | null {
   return v.kind === 'tab' ? S.tabs.find((t) => t.id === v.id) || null : null;
 }
 
-/** The session the middle shows: a pinned session's tab, a session picked in the sidebar, or the one a shell runs. */
+// ---- splits (SplitInfo)
+/** The tabs of the strip: a split's second pane is not one. */
+const stripTabs = () => S.tabs.filter((t) => !t.host);
+function guestOf(t: Tab | null): ShellTab | null {
+  const g = t && t.split ? S.tabs.find((x) => x.id === t.split!.guest) : null;
+  return g && g.kind === 'shell' ? g : null;
+}
+function hostOf(t: Tab): Tab | null { return t.host ? S.tabs.find((x) => x.id === t.host) || null : null; }
+/** The pane with the keyboard: the tab in front, or its split's pane. */
+function focusedTab(): Tab | null {
+  const t = tabOfView();
+  const g = guestOf(t);
+  return g && t!.split!.focus === 1 ? g : t;
+}
+function linkSplit(host: Tab, guest: ShellTab, side: SplitInfo['side'], focus: 0 | 1): void {
+  if (host.split || host.host || guest.split || guest.host || host.id === guest.id) return;
+  host.split = { guest: guest.id, side, size: 50, focus };
+  guest.host = host.id;
+}
+function unlinkSplit(host: Tab): void {
+  const g = guestOf(host);
+  if (g) delete g.host;
+  delete host.split;
+}
+
+/** A tab's session: its own, or the one its pane runs. */
+function tabSessionKey(t: Tab | null): string | null {
+  if (t && t.kind === 'shell') return sessionOfPane(S.hub, t.pane)?.key || null;
+  return t && t.kind === 'session' ? t.key : null;
+}
+
+/** The session the middle shows: a pinned session's tab, a session picked in the sidebar, or the one the focused pane runs. */
 function viewSessionKey(): string | null {
   const v = S.view;
   if (v.kind === 'review' || v.kind === 'brief') return v.key;
   if (v.kind === 'session') return v.key || (v.pane ? sessionOfPane(S.hub, v.pane)?.key || null : null);
-  const t = tabOfView();
-  if (t && t.kind === 'shell') return sessionOfPane(S.hub, t.pane)?.key || null;
-  return t && t.kind === 'session' ? t.key : null;
+  return tabSessionKey(focusedTab());
 }
 
 /** The views that take the middle and right columns. */
@@ -495,6 +541,8 @@ function save(): void {
     ...(t && t.kind === 'shell' && t.cwd ? { lastCwd: t.cwd } : {}),
     pinned: S.tabs.filter((x): x is SessionTab => x.kind === 'session').map((x) => x.key),
     order: S.tabs.map((x) => x.id),
+    // Each split, by its tab: back after a relaunch or an update when both panes are.
+    splits: S.tabs.filter((x) => x.split && guestOf(x)).map((x) => ({ host: x.id, ...x.split! })),
     active: t ? t.id : null,
     panelPref: S.panelPref,
     shellsLabelled: true,
@@ -861,7 +909,7 @@ let rowPressedAt = 0; // a sidebar row's last press (its click then does nothing
 function frontKey(): string | null {
   const key = viewSessionKey();
   if (key) return key;
-  const t = tabOfView();
+  const t = focusedTab();
   return t ? `tab:${t.id}` : null;
 }
 
@@ -1063,21 +1111,23 @@ function renderTabs(): void {
   const filmable = !!paneOnScreen() && !$('term').hidden;
   const row = h('div.tabrow', { role: 'presentation' },
     openTab(),
-    extra.length && !S.tabs.some(sessTab) ? extra : null,
-    S.tabs.map((t, i) => {
+    extra.length && !stripTabs().some(sessTab) ? extra : null,
+    stripTabs().map((t, i) => {
       const l = tabLabel(t);
       const on = active && active.id === t.id;
       if (on && t.kind === 'shell') t.activity = false;
       const tk = t.kind === 'session' ? t.key : sessionOfPane(S.hub, t.pane)?.key || `tab:${t.id}`;
-      return h(`div.tab${on ? '.on' : ''}`, { role: 'tab', 'aria-selected': on ? 'true' : 'false', 'data-key': tk, title: i < 9 ? `${l.name} (${isMac() ? '⌘' : 'Alt+'}${i + 1})` : l.name, on: { click: () => setView({ kind: 'tab', id: t.id }), auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) closeTab(t.id); } } },
+      return h(`div.tab${on ? '.on' : ''}`, { role: 'tab', 'aria-selected': on ? 'true' : 'false', 'data-key': tk, 'data-tab': t.id, draggable: 'true', title: i < 9 ? `${l.name} (${isMac() ? '⌘' : 'Alt+'}${i + 1})` : l.name, on: { click: () => setView({ kind: 'tab', id: t.id }), auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) closeTab(t.id); }, dragstart: (e: Event) => tabDragStart(e as DragEvent, t), dragend: () => tabDragEnd(), dragover: (e: Event) => tabDragOver(e as DragEvent, t), drop: (e: Event) => tabDrop(e as DragEvent, t) } },
         t.kind === 'shell' && !l.group ? h('span.ti', svg(I.SHELL)) : h('span.sd', { style: { background: GROUP_VAR[l.group || 'idle'] } }),
         h('span.n', l.name),
         l.sub ? h('span.p', l.sub) : null,
         machineTag(l.machine),
         t.kind === 'shell' ? leaseBadge(t.pane) : null,
         t.kind === 'shell' && t.activity && !on ? h('span.act', { title: 'New output' }) : null,
+        // A split tab: its pane count.
+        t.split && guestOf(t) ? h('span.pc2', { title: 'Two panes, split' }, svg(I.SPLIT), '2') : null,
         h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Close the tab (the session goes on)', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
-    }).flatMap((tab, i) => (extra.length && sessTab(S.tabs[i]) ? [tab, ...extra] : [tab])));
+    }).flatMap((tab, i) => (extra.length && sessTab(stripTabs()[i]) ? [tab, ...extra] : [tab])));
   replace(el,
     row,
     h('button.tab.add', { title: `New shell (${shortcut('T')})`, 'aria-label': 'New shell', on: { click: () => void newShell() } }, svg(I.PLUS(12))),
@@ -1121,6 +1171,100 @@ async function newShell(folder?: string | null): Promise<void> {
   } catch (e) {
     toast(`Could not open a shell: ${(e as Error).message}`, undefined, { at, error: true });
   }
+}
+
+/** Cmd+D, Cmd+Shift+D: a new shell split beside (or under) the pane in front, with the keyboard; a tab when the tab is split already. */
+async function splitNew(side: 'right' | 'down'): Promise<void> {
+  const host = tabOfView();
+  if (!host || host.split || $('split').hidden) { void newShell(); return; }
+  const at = here();
+  try {
+    const { client, socket } = await daemons.forNew();
+    const cwd = host.kind === 'shell' && host.cwd ? host.cwd : undefined;
+    const cmd = S.config?.newShell;
+    const { pane } = await client.request('pane.new', { cols: Math.max(20, Math.floor(termA.term.cols / 2)), rows: termA.term.rows, name: 'Shell', labels: { ...SHELL_LABEL }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
+    const g = addShellTab(socket, pane, null, false);
+    linkSplit(host, g, side, 1);
+    save();
+    render();
+  } catch (e) {
+    toast(`Could not open a shell: ${(e as Error).message}`, undefined, { at, error: true });
+  }
+}
+
+/** An agent's own pane beside its session's (or shell's) tab, without the keyboard, when that tab has no split yet (B1). */
+function splitAgentPane(t: ShellTab): void {
+  const owner = t.owner;
+  if (!owner) return;
+  const host = stripTabs().find((x) => x.id !== t.id && ((x.kind === 'shell' && x.pane === owner) || (x.kind === 'session' && (x.pane === owner || x.key.endsWith(`/ravenry:${owner}`) || (() => { const f = findSession(S.hub, x.key); return !!f && paneOf(f.session) === owner; })()))));
+  if (host && !host.split) linkSplit(host, t, 'right', 0);
+}
+
+// ---- tabs dragged: onto another tab (the strip's order), or onto an edge
+// of the pane in front (a split, the four edges lit as the pointer nears).
+let dragging: string | null = null;
+function tabDragStart(e: DragEvent, t: Tab): void {
+  dragging = t.id;
+  e.dataTransfer?.setData('application/x-ravenry-tab', t.id);
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+}
+function tabDragEnd(): void { dragging = null; dropZone(null); }
+function tabDragOver(e: DragEvent, over: Tab): void {
+  if (!dragging || dragging === over.id) return;
+  e.preventDefault();
+}
+function tabDrop(e: DragEvent, over: Tab): void {
+  const id = dragging;
+  if (!id || id === over.id) return;
+  e.preventDefault();
+  const t = S.tabs.find((x) => x.id === id);
+  if (!t) return;
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const after = e.clientX > r.left + r.width / 2;
+  S.tabs.splice(S.tabs.indexOf(t), 1);
+  S.tabs.splice(S.tabs.indexOf(over) + (after ? 1 : 0), 0, t);
+  dragging = null;
+  save();
+  renderTabs();
+}
+/** The edge of the pane in front the pointer is near, or null in the middle. */
+function edgeAt(x: number, y: number): SplitInfo['side'] | null {
+  const r = $('split').getBoundingClientRect();
+  const fx = (x - r.left) / r.width, fy = (y - r.top) / r.height;
+  const d = [['left', fx], ['right', 1 - fx], ['up', fy], ['down', 1 - fy]] as const;
+  const [side, dist] = [...d].sort((a, b) => a[1] - b[1])[0];
+  return dist < 0.3 ? side : null;
+}
+const EDGE_WORDS: Record<SplitInfo['side'], string> = { left: 'Split left', right: 'Split right', up: 'Split top', down: 'Split bottom' };
+function dropZone(side: SplitInfo['side'] | null, why?: string): void {
+  const z = $('dropzone');
+  z.hidden = !side;
+  if (!side) return;
+  z.className = `dropzone ${side}${why ? ' no' : ''}`;
+  replace(z, h('span.dz-l', why ? null : svg(I.SPLIT), why || EDGE_WORDS[side]));
+}
+function splitDragOver(e: DragEvent): void {
+  if (!dragging) return;
+  const host = tabOfView();
+  const t = S.tabs.find((x) => x.id === dragging);
+  const side = edgeAt(e.clientX, e.clientY);
+  if (!host || !t || t.id === host.id) { dropZone(null); return; }
+  e.preventDefault();
+  if (!side) { dropZone(null); return; }
+  dropZone(side, host.split ? 'Already split: one split per tab' : t.kind !== 'shell' ? 'Only a shell or a pane splits' : undefined);
+}
+function splitDrop(e: DragEvent): void {
+  const id = dragging;
+  dragging = null;
+  dropZone(null);
+  const host = tabOfView();
+  const t = id ? S.tabs.find((x) => x.id === id) : null;
+  const side = edgeAt(e.clientX, e.clientY);
+  if (!host || !t || !side || t.id === host.id || host.split || t.kind !== 'shell' || t.split) return;
+  e.preventDefault();
+  linkSplit(host, t, side, 1);
+  save();
+  render();
 }
 
 function addShellTab(socket: string, pane: Pane, agent: string | null, show: boolean): ShellTab {
@@ -1180,7 +1324,18 @@ function removeTab(id: string): void {
   const i = S.tabs.findIndex((t) => t.id === id);
   if (i < 0) return;
   const t = S.tabs[i];
-  S.tabs.splice(i, 1);
+  // A split's pane goes: its tab is whole again. A split tab goes: its
+  // split's pane is a tab of its own, where the tab was, and in front if it was.
+  const h0 = hostOf(t);
+  if (h0) { unlinkSplit(h0); if (S.view.kind === 'tab' && S.view.id === h0.id) focusSplit(0); }
+  const g0 = guestOf(t);
+  if (g0) {
+    unlinkSplit(t);
+    S.tabs.splice(S.tabs.indexOf(g0), 1);
+    S.tabs.splice(S.tabs.indexOf(t) + 1, 0, g0);
+    if (S.view.kind === 'tab' && S.view.id === id) S.view = { kind: 'tab', id: g0.id };
+  }
+  S.tabs.splice(S.tabs.indexOf(t), 1);
   if (S.view.kind === 'tab' && S.view.id === id) {
     const next = S.tabs[Math.min(i, S.tabs.length - 1)];
     void t;
@@ -1192,10 +1347,11 @@ function removeTab(id: string): void {
 }
 
 function stepTab(d: number): void {
-  if (!S.tabs.length) return;
+  const tabs = stripTabs();
+  if (!tabs.length) return;
   const cur = tabOfView();
-  const i = cur ? S.tabs.indexOf(cur) : -1;
-  const n = S.tabs[(i + d + S.tabs.length) % S.tabs.length];
+  const i = cur ? tabs.indexOf(cur) : -1;
+  const n = tabs[(i + d + tabs.length) % tabs.length];
   setView({ kind: 'tab', id: n.id });
 }
 
@@ -1208,6 +1364,13 @@ function stepTab(d: number): void {
 function setView(v: View): void {
   if (v.kind === 'session') v = { kind: 'tab', id: tabForSession(v.key, v.pane) };
   else if (v.kind === 'pane') v = { kind: 'tab', id: tabForPane(v.socket, v.pane, v.name) };
+  // A split's pane: its tab, with that pane focused.
+  if (v.kind === 'tab') {
+    const vid = v.id;
+    const t = S.tabs.find((x) => x.id === vid);
+    const h0 = t ? hostOf(t) : null;
+    if (h0 && h0.split) { h0.split.focus = 1; v = { kind: 'tab', id: h0.id }; }
+  }
   if (v.kind !== 'start') npmAsked = null;
   if (S.view.kind === 'page' && v.kind !== 'page') pages.close();
   if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
@@ -1242,7 +1405,104 @@ function tabForPane(socket: string, pane: string, name: string): string {
   return t.id;
 }
 
+/** No pane in the middle: both terminals let go of theirs (no xterm.js work runs). */
+function hideTerms(): void {
+  termA.hide();
+  termB?.hide();
+  shownKeyB = '';
+  layoutSplit(null);
+}
+
+// ---- the split's layout (Split.js), its headers and its focus
+let splitLib: SplitInstance | null = null;
+let splitShape = '';
+function layoutSplit(host: Tab | null): void {
+  const g = guestOf(host);
+  const sp = host && host.split && g ? host.split : null;
+  const box = $('split');
+  const b0 = $('pbox0'), b1 = $('pbox1');
+  // The keyboard's terminal follows the focused pane.
+  term = sp && sp.focus === 1 && termB ? termB : termA;
+  marks = term === termB && marksB ? marksB : marksA;
+  const shape = sp ? `${host!.id}|${sp.side}|${sp.zoom ? sp.focus : '-'}` : '';
+  box.classList.toggle('two', !!sp && !sp.zoom);
+  box.classList.toggle('down', !!sp && (sp.side === 'down' || sp.side === 'up'));
+  box.classList.toggle('flip', !!sp && (sp.side === 'left' || sp.side === 'up'));
+  b0.classList.toggle('focus', !!sp && sp.focus === 0);
+  b1.classList.toggle('focus', !!sp && sp.focus === 1);
+  b0.hidden = !!sp && !!sp.zoom && sp.focus === 1;
+  b1.hidden = !sp || (!!sp.zoom && sp.focus === 0);
+  $('phead0').hidden = !sp;
+  if (sp) { renderPaneHead(0, host!); renderPaneHead(1, g!); }
+  if (shape === splitShape) return;
+  splitShape = shape;
+  if (splitLib) { splitLib.destroy(); splitLib = null; }
+  b0.style.flexBasis = ''; b1.style.flexBasis = '';
+  if (!sp || sp.zoom) return;
+  const els = sp.side === 'left' || sp.side === 'up' ? [b1, b0] : [b0, b1];
+  const first = sp.side === 'left' || sp.side === 'up' ? 100 - sp.size : sp.size;
+  splitLib = Split(els, {
+    direction: sp.side === 'down' || sp.side === 'up' ? 'vertical' : 'horizontal',
+    sizes: [first, 100 - first],
+    minSize: 160,
+    gutterSize: 6,
+    snapOffset: 0,
+    elementStyle: (_d, size, gutter) => ({ 'flex-basis': `calc(${size}% - ${gutter}px)` }),
+    gutterStyle: (_d, gutter) => ({ 'flex-basis': `${gutter}px` }),
+    onDragEnd: (sizes) => {
+      const h = S.tabs.find((x) => x.id === host!.id);
+      if (h && h.split) { h.split.size = Math.round(h.split.side === 'left' || h.split.side === 'up' ? sizes[1] : sizes[0]); save(); }
+    },
+  });
+  const gut = box.querySelector('.gutter') as HTMLElement | null;
+  if (gut) {
+    gut.title = 'Drag to resize, double-click to even';
+    gut.addEventListener('dblclick', () => { splitLib?.setSizes([50, 50]); const h = S.tabs.find((x) => x.id === host!.id); if (h && h.split) { h.split.size = 50; save(); } });
+  }
+}
+
+/** A pane's header in a split tab: its name, the agent's badge, a close x. */
+function renderPaneHead(i: 0 | 1, t: Tab): void {
+  const l = tabLabel(t);
+  const owner = t.kind === 'shell' && t.owner ? sessionOfPane(S.hub, t.owner) : null;
+  const badge = t.kind === 'shell' && t.owner ? (assistantName(owner?.session.assistant || null) || 'Agent') : null;
+  replace($(`phead${i}`),
+    t.kind === 'shell' && !l.group ? h('span.ti', svg(I.SHELL)) : null,
+    h('b', l.name), l.sub ? h('span.t3', l.sub) : null,
+    badge ? h('span.ag', badge) : null,
+    h('span.sp'),
+    h('button.x', { title: `Close pane (${shortcut('W')})`, 'aria-label': 'Close pane', on: { click: (e: Event) => { e.stopPropagation(); void closePane(t); } } }, svg(I.CLOSE)));
+}
+
+/** The split's second pane in termB (made when first needed). */
+async function showGuest(host: Tab | null): Promise<void> {
+  const g = guestOf(host);
+  if (!g) { termB?.hide(); shownKeyB = ''; return; }
+  const v = viewB();
+  if (host!.split!.focus === 1) { term = v; marks = marksB!; }
+  await showPane(`${g.socket}|${g.pane}`, () => daemons.get(g.socket), g.pane, (e) => { if (/^no answer after/.test(e.message)) return; removeTab(g.id); }, v);
+}
+
+/** The pane with the keyboard, in a split tab (0: the tab's own, 1: its split's). */
+function focusSplit(i: 0 | 1): void {
+  const host = tabOfView();
+  if (!host || !host.split || !guestOf(host)) { term = termA; marks = marksA; term.focus(); return; }
+  if (host.split.focus !== i) { host.split.focus = i; save(); }
+  term = i === 1 && termB ? termB : termA;
+  marks = term === termB && marksB ? marksB : marksA;
+  layoutSplit(host);
+  if (host.split.zoom) void renderCentre();
+  term.focus();
+  renderSidebar(); renderTabs(); renderStrip(); if (panelVisible()) renderPanel();
+}
+
+/** Closes a pane of the tab in front: its split's, or the tab's own (its split's pane then a tab of its own). */
+async function closePane(t: Tab): Promise<void> {
+  await closeTab(t.id);
+}
+
 function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review' | 'brief'): void {
+  $('split').hidden = id !== 'term';
   for (const k of ['term', 'elsewhere', 'start', 'none', 'review', 'brief']) ($(k) as HTMLElement).hidden = k !== id;
   if (id !== 'term') film.close();
   $('centre').classList.toggle('sheet', id === 'start' || id === 'none');
@@ -1266,21 +1526,25 @@ function within<T>(p: Promise<T>, ms: number, doing: string): Promise<T> {
   });
 }
 
-async function showPane(key: string, get: () => Promise<RavenryClient | null>, pane: string, gone: (e: Error) => void): Promise<void> {
+let shownKeyB = '';
+const shownOf = (v: TerminalView) => (v === termB ? shownKeyB : shownKey);
+const setShown = (v: TerminalView, k: string) => { if (v === termB) shownKeyB = k; else shownKey = k; };
+
+async function showPane(key: string, get: () => Promise<RavenryClient | null>, pane: string, gone: (e: Error) => void, view: TerminalView = termA): Promise<void> {
   show('term');
   // Only when that very pane is on screen: an attempt that failed or hung
   // must not leave the pane before it there and make later clicks no-ops.
-  if (shownKey === key && term.attached && term.attached.pane === pane && term.ready) { focusPending(); return; }
-  shownKey = key;
+  if (shownOf(view) === key && view.attached && view.attached.pane === pane && view.ready) { focusPending(); return; }
+  setShown(view, key);
   try {
     const client = await within(get(), 8000, 'looking for the daemon that holds it');
     if (!client) throw new Error('no running daemon holds its pane');
-    if (shownKey !== key) return;
-    await within(term.show({ client, pane }), 8000, `attaching to pane ${pane}`);
+    if (shownOf(view) !== key) return;
+    await within(view.show({ client, pane }, view === term), 8000, `attaching to pane ${pane}`);
   } catch (e) {
-    if (shownKey !== key) return;
-    shownKey = '';
-    term.hide();
+    if (shownOf(view) !== key) return;
+    setShown(view, '');
+    view.hide();
     const why = (e as Error).message || String(e);
     api().log(`window: could not show pane ${pane}: ${why}`);
     gone(e as Error);
@@ -1301,19 +1565,19 @@ async function renderCentre(): Promise<void> {
   $('picker').hidden = v.kind !== 'picker' || !!need;
   $('grid').hidden = v.kind !== 'grid' || !!need;
   if (WIDE_VIEWS.has(v.kind)) { film.close(); }
-  if (need) { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
-  if (onPage) { term.hide(); shownKey = ''; pages.show(v.key); return; }
-  if (onMachines) { term.hide(); shownKey = ''; machinesView.show(); return; }
-  if (v.kind === 'decisions') { term.hide(); shownKey = ''; decisions.render(); return; }
+  if (need) { hideTerms(); shownKey = ''; show('start'); renderStart(); return; }
+  if (onPage) { hideTerms(); shownKey = ''; pages.show(v.key); return; }
+  if (onMachines) { hideTerms(); shownKey = ''; machinesView.show(); return; }
+  if (v.kind === 'decisions') { hideTerms(); shownKey = ''; decisions.render(); return; }
   if (v.kind === 'picker') {
-    term.hide(); shownKey = '';
+    hideTerms(); shownKey = '';
     const k = S.cps.get(v.cp);
     if (!k) { setView(v.back); return; }
     picker.show(k);
     return;
   }
   if (v.kind === 'grid') {
-    term.hide(); shownKey = '';
+    hideTerms(); shownKey = '';
     const p = (S.hub?.projects || []).find((x) => x.id === v.project);
     files.grid($('grid'), v.project, p ? p.name : v.project, () => setView(v.back));
     return;
@@ -1321,21 +1585,21 @@ async function renderCentre(): Promise<void> {
   if (v.kind === 'review') {
     const f = findSession(S.hub, v.key);
     if (!f || !f.session.worktree) { setView({ kind: 'session', key: v.key }); return; }
-    term.hide(); shownKey = '';
+    hideTerms(); shownKey = '';
     show('review');
     review.show(v.key, f.project, f.session);
     renderStrip();
     return;
   }
   if (v.kind === 'brief') {
-    term.hide(); shownKey = '';
+    hideTerms(); shownKey = '';
     show('brief');
     void renderBrief(v.project);
     renderStrip();
     return;
   }
-  if (npmTakesCentre() || firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
-  if (v.kind === 'none') { term.hide(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
+  if (npmTakesCentre() || firstRun() || v.kind === 'start') { hideTerms(); shownKey = ''; show('start'); renderStart(); return; }
+  if (v.kind === 'none') { hideTerms(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
     await showPane(`pane|${v.socket}|${v.pane}`, () => daemons.get(v.socket), v.pane, (e) => { setView(S.tabs[0] ? { kind: 'tab', id: S.tabs[0].id } : { kind: 'none' }); toast(`That pane is gone: ${e.message}`); });
     return;
@@ -1343,20 +1607,25 @@ async function renderCentre(): Promise<void> {
   const t = tabOfView();
   if (t && t.kind === 'shell') {
     // A shell whose daemon did not answer in time stays a tab: only one that is gone closes.
+    layoutSplit(t);
+    void showGuest(t);
     await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { if (/^no answer after/.test(e.message)) { toast(`Could not show that shell: ${e.message}`); return; } removeTab(t.id); if (!replacedPanes.has(t.pane)) toast(`That shell is gone: ${e.message}`); });
     return;
   }
-  const key = viewSessionKey();
+  // The tab's own session (its split's pane may run another).
+  const key = v.kind === 'tab' ? tabSessionKey(t) : viewSessionKey();
   const f = key ? findSession(S.hub, key) : null;
   const pane = f ? paneOf(f.session) : v.kind === 'session' ? v.pane || null : t && t.kind === 'session' ? t.pane || null : null;
   if (pane && (!f || !machineOf(f.project, f.session))) {
+    layoutSplit(t);
+    void showGuest(t);
     // A session the hub runs in a ravenryd pane here shows its pane.
     // Gone: said once, and a shell in front (one opened if none is), so the
     // middle never keeps asking for a pane that is not there.
     await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => {
       if (!replacedPanes.has(pane)) toast(`Could not show that session: ${e.message}`);
       const front = tabOfView();
-      if (!front || front.kind !== 'session' || viewSessionKey() !== key) return;
+      if (!front || front.kind !== 'session' || tabSessionKey(front) !== key) return;
       // Its tab goes (its pane is gone); a shell comes to the front.
       removeTab(front.id);
       const sh = S.tabs.find((x) => x.kind === 'shell');
@@ -1364,7 +1633,7 @@ async function renderCentre(): Promise<void> {
     });
     return;
   }
-  term.hide();
+  hideTerms();
   shownKey = '';
   show('elsewhere');
   renderElsewhere(f, key);
@@ -1753,7 +2022,7 @@ function panelTargetKey(): string | null {
   if (S.panelKey && S.panelKey.startsWith('cp:')) return S.panelKey;
   const key = viewSessionKey();
   if (key && findSession(S.hub, key)) return key;
-  const t = tabOfView();
+  const t = focusedTab();
   return t && t.kind === 'shell' ? `tab:${t.id}` : key;
 }
 
@@ -2124,14 +2393,14 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
       // A plain shell another window or the command line made.
       if (e.pane.labels?.['ravenry.kind'] === 'shell' && e.pane.state === 'running' && !shellTabOf(socket, e.pane.id)) addShellTab(socket, e.pane, null, false);
       // An agent's own pane: a tab right after its session's, the front left alone.
-      else if (agentPane(e.pane) && !shellTabOf(socket, e.pane.id)) { addAgentPaneTab(socket, e.pane); save(); render(); }
+      else if (agentPane(e.pane) && !shellTabOf(socket, e.pane.id)) { splitAgentPane(addAgentPaneTab(socket, e.pane)); save(); render(); }
       // pane.created can come before the daemon has recorded who made the
       // pane: asked once more, from the pane list.
       else if (e.event === 'pane.created' && !e.pane.creator && e.pane.labels?.['ravenry.kind'] !== 'shell') {
         const id = e.pane.id;
         void daemons.get(socket).then((c) => c.request('pane.list', {})).then(({ panes }) => {
           const p = panes.find((x) => x.id === id);
-          if (p && agentPane(p) && !shellTabOf(socket, id)) { addAgentPaneTab(socket, p); save(); render(); }
+          if (p && agentPane(p) && !shellTabOf(socket, id)) { splitAgentPane(addAgentPaneTab(socket, p)); save(); render(); }
         }).catch(() => {});
       }
       return;
@@ -2191,14 +2460,22 @@ function onCommand(name: string, arg?: unknown): void {
   switch (name) {
     case 'new-shell': void newShell(); break;
     case 'new-session': openStart(); break;
-    case 'close-tab': { const t = tabOfView(); if (t) void closeTab(t.id); break; }
+    // Cmd+W: the pane with the keyboard (its tab, or its split's pane).
+    case 'close-tab': { const t = focusedTab(); if (t) void closeTab(t.id); break; }
+    // Cmd+D / Cmd+Shift+D: a new shell beside or under the pane in front.
+    case 'split': void splitNew(arg === 'down' ? 'down' : 'right'); break;
+    // Cmd+Option+arrows: the other pane of the split.
+    case 'focus-pane': { const host = tabOfView(); if (host && host.split) { const sd = host.split.side; const toGuest = (arg === 'right' && sd === 'right') || (arg === 'left' && sd === 'left') || (arg === 'down' && sd === 'down') || (arg === 'up' && sd === 'up'); const toHost = (arg === 'left' && sd === 'right') || (arg === 'right' && sd === 'left') || (arg === 'up' && sd === 'down') || (arg === 'down' && sd === 'up'); if (toGuest) focusSplit(1); else if (toHost) focusSplit(0); } break; }
+    // Cmd+Shift+Enter: the focused pane alone, and back.
+    case 'zoom-pane': { const host = tabOfView(); if (host && host.split) { host.split.zoom = !host.split.zoom; save(); layoutSplit(host); void renderCentre(); } break; }
     case 'next-tab': stepTab(Number(arg) || 1); break;
     // The app's own words for the person (an update that stopped trying): kept until OK.
     case 'update-stopped': showToast(String(arg || ''), [{ label: 'Try again', run: () => api().retryUpdate() }], { key: 'update-stopped', ms: Infinity }); break;
-    case 'tab': { const t = S.tabs[Number(arg)]; if (t) setView({ kind: 'tab', id: t.id }); break; }
+    case 'tab': { const t = stripTabs()[Number(arg)]; if (t) setView({ kind: 'tab', id: t.id }); break; }
     case 'toggle-panel': togglePanel(); break;
     case 'zoom': {
-      const size = term.zoom((Number(arg) || 0) as 1 | -1 | 0);
+      const size = termA.zoom((Number(arg) || 0) as 1 | -1 | 0);
+      termB?.setFontSize(size);
       try { localStorage.setItem('ravenry.fontSize', String(size)); } catch { /* not kept */ }
       break;
     }
@@ -2266,6 +2543,12 @@ async function restoreTabs(saved: Record<string, unknown>): Promise<void> {
   const order = Array.isArray(saved.order) ? saved.order as string[] : old ? old.map((t) => (t.kind === 'shell' ? shellId(t.pane || '') : pinId(t.key || ''))) : [];
   const rank = (t: Tab) => { const i = order.indexOf(t.id); return i < 0 ? order.length + tabs.indexOf(t) : i; };
   S.tabs = tabs.sort((a, b) => rank(a) - rank(b));
+  // The splits, where both panes are still there.
+  for (const sp of Array.isArray(saved.splits) ? saved.splits as (SplitInfo & { host: string })[] : []) {
+    const host = S.tabs.find((x) => x.id === sp.host);
+    const g = S.tabs.find((x) => x.id === sp.guest);
+    if (host && g && g.kind === 'shell') { linkSplit(host, g, sp.side, sp.focus === 1 ? 1 : 0); if (host.split) { host.split.size = Number(sp.size) || 50; host.split.zoom = !!sp.zoom; } }
+  }
   const activeId = typeof saved.active === 'string' ? saved.active : null;
   const active = activeId ? S.tabs.find((t) => t.id === activeId) : null;
   S.view = active ? { kind: 'tab', id: active.id } : S.tabs[0] ? { kind: 'tab', id: S.tabs[0].id } : { kind: 'none' };
@@ -2273,10 +2556,15 @@ async function restoreTabs(saved: Record<string, unknown>): Promise<void> {
   if (old) save();
 }
 
-async function boot(): Promise<void> {
-  S.config = await api().config();
-  document.body.classList.toggle('mac', isMac());
-  term = new TerminalView($('term'));
+/**
+ * A terminal view and its marks, wired as every view is: the window's keys,
+ * links, dropped files, the text size, and what it shows. termA shows a
+ * tab's own pane, termB its split's (a second xterm.js only while a split
+ * shows).
+ */
+function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
+  const term = new TerminalView(el);
+  let marks: TerminalMarks;
   term.isAppKey = (e) => {
     // The app's shortcuts reach the menu instead of the shell.
     if (isMac()) return e.metaKey;
@@ -2309,8 +2597,6 @@ async function boot(): Promise<void> {
     const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === a.pane);
     if (t) { removeTab(t.id); void a.client.request('pane.close', { pane: a.pane }).catch(() => {}); }
   };
-  daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
-  store.useClients((s) => daemons.get(s));
   marks = new TerminalMarks(term.term, {
     who: (r) => (byPerson(r.source) ? null : (() => { const w = sourceOf(r.source); return { name: w.who, cls: w.cls }; })()),
     note: (r) => { const a = term.attached; const l = a ? letBy(a.pane, r) : null; return l ? (l.once ? 'you let it once' : 'you let it for its session') : null; },
@@ -2318,6 +2604,30 @@ async function boot(): Promise<void> {
   });
   term.onShown = (a) => { marks.reset(); if (a) marks.show(store.inputsOf(a.pane)); renderStrip(); };
   term.onWritten = (_a, mark, snapshot) => marks.written(mark, snapshot);
+
+  // A click in a split's pane gives it the keyboard.
+  el.addEventListener('pointerdown', () => { const host = tabOfView(); if (host && host.split) focusSplit(term === termB ? 1 : 0); }, true);
+  return [term, marks];
+}
+
+function viewB(): TerminalView {
+  if (!termB) { [termB, marksB] = makeView($('term2')); termB.setFontSize(termA.term.options.fontSize || 13); }
+  return termB;
+}
+
+async function boot(): Promise<void> {
+  S.config = await api().config();
+  document.body.classList.toggle('mac', isMac());
+  daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
+  store.useClients((s) => daemons.get(s));
+  [termA, marksA] = makeView($('term'));
+  // A tab dragged onto an edge of the pane in front: a split.
+  const sp = $('split');
+  sp.addEventListener('dragover', (e) => splitDragOver(e));
+  sp.addEventListener('dragleave', (e) => { if (!sp.contains(e.relatedTarget as Node | null)) dropZone(null); });
+  sp.addEventListener('drop', (e) => splitDrop(e));
+  term = termA;
+  marks = marksA;
   (window as unknown as { __ravenryHome?: string }).__ravenryHome = S.config.home;
   machinesView = new Machines($('machines'), {
     call: (method, p, body) => api().hubCall(method, p, body),
@@ -2474,7 +2784,7 @@ async function boot(): Promise<void> {
   if (firstRun() || !S.tabs.length) void loadStart();
   // For tests and screenshots (tools/driver.cjs): the state and a few calls.
   (window as unknown as { __ravenry: unknown }).__ravenry = {
-    S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
+    S, term: () => term, views: () => [termA, termB], newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
     store, marks: () => marks, film: () => film, decisions: () => decisions, picker: () => picker, files: () => files, review: () => review, openPicker,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };

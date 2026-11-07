@@ -17,6 +17,7 @@ export const PANEL = '<svg width="16" height="14" viewBox="0 0 16 14" fill="none
 export const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2l4 4-4 4"/></svg>';
 export const CLOSE = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6"/></svg>';
 export const PIN = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M5 1.5h4l-.6 4 2.6 2.2H3L5.6 5.5Z"/><path d="M7 7.7V12.5" stroke-linecap="round"/></svg>';
+export const SPLIT = '<svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="2"/><path d="M7 2v10"/></svg>';
 export const SHELL = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l3 3-3 3M7 10.5h4.5"/></svg>';
 
 export const NAV: Record<string, string> = {

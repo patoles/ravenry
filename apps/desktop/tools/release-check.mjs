@@ -65,7 +65,8 @@
 //                   cmux ends the Ravenry copy. Each time exactly one
 //                   process remains and the pane shows the latest turn.
 //                   Each state shot dark and light.
-//   10 strip        (in 9) two sessions, two shells and an agent's pane are
+//   10 strip        (in 9) two sessions and two shells are tabs, an agent's
+//                   pane a split beside its shell (0.1.18); before, it was
 //                   tabs, the agent's right after the shell it came from;
 //                   clicking through each keeps every tab, in order, and
 //                   the row, the panel and the tab agree; shot dark, light
@@ -88,6 +89,10 @@
 //                   links (OSC 8 and plain URLs, http, https and file only),
 //                   terminal-only zoom kept across a relaunch, a dropped
 //                   file's quoted path, the window's size kept, Cmd+Home/End
+//   16 splits       tools/split-test.mjs on the test twin, a row each: split,
+//                   focus, resize, zoom, close, drag to split, an agent's
+//                   pane split without the keyboard, back after a relaunch
+//                   (an update relaunches with the same window.json)
 //   15 brief        tools/brief-test.mjs on the test twin, a row each: the
 //                   panel's Brief card (goal on one line, Next as 3 items,
 //                   the older entries counted) and the Brief page (the
@@ -604,8 +609,9 @@ try {
       { js: `${R}.term().focus()` },
       { type: `'${path.join(m.data, 'bin', 'ravenryd')}' new --name 'dev server' -- /bin/sh -c 'echo serving on :5173; exec sleep 600'\r`, after: 300 },
       { until: `${R}.S.tabs.some((t) => t.owner)`, timeout: 15000 }, mark('agentTab'),
-      save('agentAfterOwner', `(() => { const i = ${R}.S.tabs.findIndex((t) => t.owner); return i > 0 && ${R}.S.tabs[i - 1].kind === 'shell' && ${R}.S.tabs[i - 1].pane === ${R}.S.tabs[i].owner; })()`),
-      save('agentNotFront', `${R}.S.view.kind === 'tab' && !${R}.S.tabs.find((t) => t.id === ${R}.S.view.id).owner`),
+      // 0.1.18: an agent's pane opens as a split beside the tab it came from (B1).
+      save('agentAfterOwner', `(() => { const g = ${R}.S.tabs.find((t) => t.owner); const h = g && ${R}.S.tabs.find((t) => t.id === g.host); return !!h && h.kind === 'shell' && h.pane === g.owner && !!h.split && h.split.guest === g.id; })()`),
+      save('agentNotFront', `(() => { const t = ${R}.S.view.kind === 'tab' && ${R}.S.tabs.find((x) => x.id === ${R}.S.view.id); return !!t && !t.owner && !!t.split && t.split.focus === 0; })()`),
       { until: `[...document.querySelectorAll('#side .ss')].some((e) => /went on elsewhere/.test(e.textContent))`, timeout: 20000 },
       { click: `[...document.querySelectorAll('#side .ss')].find((e) => /went on elsewhere/.test(e.textContent))`, clickJs: true },
       { until: AGREE, timeout: 8000 },
@@ -643,7 +649,7 @@ try {
     const frontToast = (list, line) => (list || []).some((t) => t.includes(line));
     const dupes = (list) => new Set(list || []).size !== (list || []).length;
     step('9 move: no toast about the session in front, and no two toasts alike; an empty cmux screen shows the transcript instead', mk.transcriptA > 0 && !frontToast(mk.toastsA, 'make the tail flutter') && !frontToast(mk.toastsD, 'it went on elsewhere') && !dupes(mk.toastsA) && !dupes(mk.toastsD), { toastsA: mk.toastsA, toastsD: mk.toastsD });
-    step('10 strip: two sessions, two shells and an agent\'s pane are tabs (the agent\'s right after the shell it came from, not brought to the front); clicking through each, every tab stays, in order, and row, panel and tab agree', mk.agentTab > 0 && mk.agentAfterOwner === true && mk.agentNotFront === true && mk.stripN >= 5 && mk.stripOk === true, { tabs: mk.strip0, n: mk.stripN });
+    step('10 strip: two sessions and two shells are tabs, and an agent\'s pane opens as a split beside the shell it came from, without the keyboard; clicking through each tab, every tab stays, in order, and row, panel and tab agree', mk.agentTab > 0 && mk.agentAfterOwner === true && mk.agentNotFront === true && mk.stripN >= 4 && mk.stripOk === true, { tabs: mk.strip0, n: mk.stripN });
     step('9 move: every move is in app.log with each process it ended, and in the hub\'s log', /window: move .*: ended \d+ in cmux \(SIGTERM/.test(appLog) && /after its turn: ended/.test(appLog) && /kept in the other terminal/.test(appLog) && /sessions: move .*: ended \d+ in cmux with SIGTERM/.test(hubLog), { app: appLog.split('\n').filter((l) => / move /.test(l)).slice(-8) });
     for (const k of kids) if (!k.exited) k.c.kill('SIGTERM');
     launchctl('bootout', `gui/${UID}/${m.label}`);
@@ -691,7 +697,7 @@ try {
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
-  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs']]) {
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
       const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
       const app = path.join(k, 'Ravenry.app');

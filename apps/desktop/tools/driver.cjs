@@ -14,6 +14,8 @@
 //   click: "css selector"       a real mouse click on it (press, hold, release);
 //                               clickJs: true when click is an expression;
 //                               modifiers: ["meta"] held through it
+//   drag: "css selector", by: [dx, dy]   press on its middle, move by dx, dy, release
+//   dblclick: "css selector"    a real double click on its middle
 //   clickAt: "expr"             the same at the point { x, y } expr gives
 //                               (a cell in the terminal), after a hover there
 //   hover: "css selector" | [x, y]  the pointer moved there
@@ -89,6 +91,21 @@ module.exports = async function drive(win, ctx) {
       if (!r) throw new Error(`no element ${step.hover} to hover`);
       wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y });
       await sleep(step.after ?? 100);
+    }
+    else if (step.drag || step.dblclick) {
+      const sel = step.drag || step.dblclick;
+      const r = await js(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; })()`);
+      if (!r) throw new Error(`no element ${sel}`);
+      wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y });
+      if (step.dblclick) {
+        for (const n of [1, 2]) { wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: n }); wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: n }); await sleep(40); }
+      } else {
+        const [dx, dy] = step.by || [0, 0];
+        wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+        for (let i = 1; i <= 10; i++) { wc.sendInputEvent({ type: 'mouseMove', x: Math.round(r.x + dx * i / 10), y: Math.round(r.y + dy * i / 10), button: 'left' }); await sleep(20); }
+        wc.sendInputEvent({ type: 'mouseUp', x: r.x + dx, y: r.y + dy, button: 'left', clickCount: 1 });
+      }
+      await sleep(step.after ?? 200);
     }
     else if (step.clickAt) {
       const r = await js(step.clickAt);

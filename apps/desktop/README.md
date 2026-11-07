@@ -503,11 +503,25 @@ it cannot update itself. No keychain is ever searched for an identity.
 | --- | --- | --- |
 | ⌘T | Ctrl+Shift+T | New shell |
 | ⌘N | Ctrl+Shift+N | New session |
-| ⌘W | Ctrl+Shift+W | Close the tab (ends the shell and everything it started) |
+| ⌘W | Ctrl+Shift+W | Close the pane with the keyboard: a split's pane, else the tab (a shell ends, with everything it started) |
+| ⌘D, ⌘⇧D | Ctrl+Shift+D, Ctrl+Shift+Alt+D | Split: a new shell beside, or under, the pane in front (one split per tab; more panes are tabs) |
+| ⌘⌥← → ↑ ↓ | Ctrl+Alt+arrows | The other pane of the split |
+| ⌘⇧Enter | Ctrl+Shift+Enter | The focused pane alone, and back |
 | ⌘1 to ⌘9 | Alt+1 to Alt+9 | Go to a tab |
 | Ctrl+Tab, ⌘⇧] | Ctrl+Tab | Next tab |
 | ⌘⌥B | Ctrl+Shift+B | Show or hide the session panel |
 | ⌘C, ⌘V | Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
+
+A tab can be split once (the picture ravenry-split.html, B1): an agent's
+own pane (a dev server it started) opens beside the tab it came from,
+without the keyboard; a tab dragged onto an edge of the pane in front
+splits it there (the edge lights as the pointer nears); dragged onto
+another tab, it moves there. Drag the divider to resize, double-click it
+to even. Each pane of a split tab has a header; the one with the keyboard
+a thin blue ring. The panel and the sidebar follow the pane with the
+keyboard. Splits come back after a relaunch or an update.
+`tools/split-test.mjs` checks each; the release check runs it on the test
+twin (step 16).
 
 ## Keys in the terminal
 
