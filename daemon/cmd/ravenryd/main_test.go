@@ -377,3 +377,40 @@ func TestUpdateKeepsSessions(t *testing.T) {
 		t.Fatalf("after the update: %v", ls)
 	}
 }
+
+// A daemon started from inside another program's session (a Claude Code
+// shell, a cmux tab, iTerm2, tmux) hands none of that session to its panes:
+// on 2026-11-07 a Claude resumed in a pane saw CLAUDE_CODE_CHILD_SESSION
+// and saved no transcript. A pane has the account's variables, the
+// terminal's own and what its client asked for, nothing else.
+func TestPaneEnvironmentIsCleanWhoeverStartedTheDaemon(t *testing.T) {
+	e := newEnv(t)
+	e.vars = append(e.vars,
+		"CLAUDECODE=1", "CLAUDE_CODE_CHILD_SESSION=1", "CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_CODE_SSE_PORT=5555",
+		"CMUX_SURFACE_ID=E0F8", "CMUX_SOCKET_PATH=/tmp/cmux.sock", "ITERM_SESSION_ID=w0t0p0:x", "TERM_SESSION_ID=abc",
+		"TERM_PROGRAM=iTerm.app", "TERM_PROGRAM_VERSION=3.5", "TMUX=/tmp/t,1,0", "OTEL_EXPORTER_OTLP_ENDPOINT=http://x",
+		"CODEX_SANDBOX=seatbelt", "REX_BLOCK=block:y", "NODE_OPTIONS=--inspect", "STARTER_ONLY=1")
+	id := strings.TrimSpace(e.ok("0.2.0", "new", "--env", "ASKED=yes", "--", "/bin/sh", "-c", `env | sort; echo END-OF-ENV; exec cat`))
+	e.ok("0.2.0", "wait", id, "--text", "END-OF-ENV", "--since", "0", "--timeout", "5s")
+	got := map[string]string{}
+	for _, l := range strings.Split(e.ok("0.2.0", "read", id, "--since", "0"), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimRight(l, "\r"), "="); ok {
+			got[k] = v
+		}
+	}
+	for k := range got {
+		if strings.HasPrefix(k, "CLAUDE") || strings.HasPrefix(k, "CMUX_") || strings.HasPrefix(k, "ITERM_") || strings.HasPrefix(k, "TMUX") ||
+			strings.HasSuffix(k, "_SESSION_ID") || strings.HasPrefix(k, "CODEX_") || strings.HasPrefix(k, "REX_") || strings.HasPrefix(k, "OTEL_") ||
+			k == "NODE_OPTIONS" || k == "STARTER_ONLY" || k == "TERM_PROGRAM_VERSION" {
+			t.Errorf("%s=%s reached the pane", k, got[k])
+		}
+	}
+	for _, k := range []string{"PATH", "HOME", "LANG", "SHELL"} {
+		if got[k] == "" {
+			t.Errorf("%s is missing from the pane", k)
+		}
+	}
+	if got["TERM_PROGRAM"] != "ravenry" || got["RAVENRY_PANE"] != id || got["ASKED"] != "yes" || got["RAVENRY_SOCKET"] == "" {
+		t.Errorf("pane env %v", got)
+	}
+}

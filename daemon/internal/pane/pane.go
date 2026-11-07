@@ -373,23 +373,33 @@ func lookPath(name string, extra map[string]string, env []string) (string, error
 	return "", fmt.Errorf("%q not found in PATH", name)
 }
 
-// outerTerminalVar is true for the variables by which another terminal
-// names its own tab (cmux, iTerm2, Rex, tmux, Terminal, WezTerm, kitty):
-// a pane is a terminal of its own, and a daemon started from a cmux tab
-// handed that tab's CMUX_SURFACE_ID to every pane, so a session resumed in
-// a pane was taken for one in that cmux tab (2026-11-07).
-func outerTerminalVar(k string) bool {
-	if strings.HasPrefix(k, "CMUX_") || strings.HasPrefix(k, "REX_") || strings.HasPrefix(k, "ITERM_") {
+// accountVar is true for the variables a pane takes from the daemon's
+// environment: the account's own (who, where, which shell, its language and
+// time zone, its ssh agent, its desktop session on Linux), as a terminal
+// started by the login window has them. Everything else is left out,
+// whoever started the daemon: a daemon started from a cmux tab handed that
+// tab's CMUX_SURFACE_ID to every pane (2026-11-07), and one started from
+// inside a Claude Code session handed its CLAUDE_CODE_CHILD_SESSION, so a
+// Claude resumed in a pane saved no transcript (2026-11-07). The login
+// shell then sets the rest from the account's profile, and a client adds
+// what a pane needs in its own config (Config.Env).
+func accountVar(k string) bool {
+	if strings.HasPrefix(k, "LC_") {
 		return true
 	}
 	switch k {
-	case "TMUX", "TMUX_PANE", "TERM_SESSION_ID", "TERM_PROGRAM_VERSION", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_PID", "KITTY_LISTEN_ON", "ALACRITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR":
+	case "HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "LANGUAGE", "TZ", "TMPDIR", "MAIL",
+		"SSH_AUTH_SOCK", "__CF_USER_TEXT_ENCODING", "BASH_SILENCE_DEPRECATION_WARNING",
+		"DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
+		"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+		"XDG_CONFIG_DIRS", "XDG_DATA_DIRS":
 		return true
 	}
 	return false
 }
 
-// paneEnv builds a pane's environment: the base, the terminal's own
+// paneEnv builds a pane's environment: the account's variables from the
+// base (accountVar), the terminal's own
 // variables, the pane's identity, then what the client asked for.
 func paneEnv(base []string, extra map[string]string, id, socket string) []string {
 	set := map[string]string{}
@@ -402,7 +412,7 @@ func paneEnv(base []string, extra map[string]string, id, socket string) []string
 	}
 	for _, kv := range base {
 		k, v, ok := strings.Cut(kv, "=")
-		if !ok || strings.HasPrefix(k, "RAVENRY_") || outerTerminalVar(k) {
+		if !ok || !accountVar(k) {
 			continue
 		}
 		put(k, v)
