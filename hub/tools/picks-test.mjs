@@ -18,7 +18,7 @@
 //     person's pick through the hub lands in the record and reaches the
 //     agent.
 // Usage: node tools/picks-test.mjs [RAVENRYD_BIN=../daemon/ravenryd]
-import './test-guard.mjs';
+import { withStubMachine } from './test-guard.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -70,6 +70,9 @@ const sent = [];
 const send = async (_d, params) => { sent.push(params); return { checkpoint: { ...open, state: 'answered', answer: { at: 'x', ...(params.pick ? { pick: params.pick } : {}), ...(params.approve ? { approved: true, allow: params.allow } : {}) } } }; };
 let open = { ...cp, id: 'cpick002', variants: cp.variants.slice(0, 3) };
 checkpoints.take(open, { daemon: 'd1' });
+check('the hub\'s view of a pick keeps each variant\'s description', checkpoints.get('cpick002').variants[0].description === 'The hull stays flat.' && !('description' in checkpoints.get('cpick002').variants[1]));
+checkpoints.take({ id: 'cdrivewy', kind: 'drive', state: 'open', title: 't', created_at: '2026-11-07T10:00:00.000Z', drive: { pane: 'pb', agent: { kind: 'agent', pane: 'pa' }, action: 'input', reason: 'The game only listens on this Mac.' } }, { daemon: 'd1' });
+check('the hub\'s view of a drive keeps its reason', checkpoints.get('cdrivewy').drive.reason === 'The game only listens on this Mac.');
 const bad = [
   [{ id: 'cpick002', pick: { label: 'Z' } }, 'Pick one of the variants'],
   [{ id: 'cpick002', pick: { label: 'A', region: { x: 0.8, y: 0, w: 0.5, h: 0.5 } } }, 'inside'],
@@ -124,7 +127,7 @@ const DENV = { HOME, PATH: '/usr/bin:/bin', SHELL: '/bin/sh', LANG: 'en_US.UTF-8
 const daemon = spawn(BIN, ['serve'], { env: DENV, stdio: 'ignore' });
 const PORT = 4798;
 let boardLog = '';
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: { ...DENV, PATH: process.env.PATH, RAVENRY_HOME: MC2, PORT: String(PORT), RAVENRY_TERMINAL: 'ravenry', RAVENRY_DAEMON_BIN: BIN, MC_CLAUDE_SETTINGS: path.join(T, 's.json'), MC_CODEX: '0', TEST_RAVENRY: '1', MC_TEST: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withStubMachine({ ...DENV, PATH: process.env.PATH, RAVENRY_HOME: MC2, PORT: String(PORT), RAVENRY_TERMINAL: 'ravenry', RAVENRY_DAEMON_BIN: BIN, MC_CLAUDE_SETTINGS: path.join(T, 's.json'), MC_CODEX: '0', TEST_RAVENRY: '1', MC_TEST: '1' }), stdio: ['ignore', 'pipe', 'pipe'] });
 board.stdout.on('data', (x) => { boardLog += x; });
 board.stderr.on('data', (x) => { boardLog += x; });
 process.on('exit', () => { board.kill('SIGTERM'); daemon.kill('SIGTERM'); try { fs.rmSync(DD, { recursive: true, force: true }); } catch { /* gone */ } });
