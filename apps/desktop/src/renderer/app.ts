@@ -2170,7 +2170,14 @@ async function boot(): Promise<void> {
   term.mac = isMac();
   term.onKeyAct = (act) => {
     const t = term.term;
-    if (act === 'clear') { t.clear(); return; }
+    if (act === 'clear') {
+      // In the daemon (pane.clear), so the history does not come back with
+      // the next snapshot; a daemon too old for it: the window's own clear.
+      const a0 = term.attached;
+      if (a0 && a0.client.supports('pane.clear')) void a0.client.request('pane.clear', { pane: a0.pane }).catch(() => t.clear());
+      else t.clear();
+      return;
+    }
     if (act === 'select-all') { t.selectAll(); return; }
     if (act === 'copy') { if (t.hasSelection()) api().copyText(t.getSelection()); return; }
     const a = term.attached;

@@ -542,6 +542,7 @@ try {
       { until: AGREE, timeout: 8000 },
       { js: `${R}.onCommand('new-shell')` },
       { until: `${R}.S.tabs.filter((t) => t.kind === 'shell' && !t.owner).length >= 2 && ${R}.term().ready`, timeout: 15000 }, { sleep: 800 },
+      { js: `${R}.term().focus()` },
       { type: `'${path.join(m.data, 'bin', 'ravenryd')}' new --name 'dev server' -- /bin/sh -c 'echo serving on :5173; exec sleep 600'\r`, after: 300 },
       { until: `${R}.S.tabs.some((t) => t.owner)`, timeout: 15000 }, mark('agentTab'),
       save('agentAfterOwner', `(() => { const i = ${R}.S.tabs.findIndex((t) => t.owner); return i > 0 && ${R}.S.tabs[i - 1].kind === 'shell' && ${R}.S.tabs[i - 1].pane === ${R}.S.tabs[i].owner; })()`),

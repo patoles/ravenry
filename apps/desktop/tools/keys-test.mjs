@@ -91,7 +91,11 @@ const copy = mac ? { key: 'C', modifiers: ['meta'] } : { key: 'C', modifiers: ['
 steps.push({ save: { expr: TOKENS, out: path.join(work, 'acts0.json') } });
 steps.push({ ...selAll, after: 300 }, { save: { expr: `${R}.term().term.hasSelection()`, out: path.join(work, 'selected.json') } });
 steps.push({ ...copy, after: 300 }, { save: { expr: TOKENS, out: path.join(work, 'acts1.json') } });
-if (mac) steps.push({ key: 'K', modifiers: ['meta'], after: 400 }, { save: { expr: `({ tokens: ${TOKENS}, lines: ${R}.term().term.buffer.active.length, rows: ${R}.term().term.rows, ready: ${R}.text().includes('READY') })`, out: path.join(work, 'cleared.json') } });
+if (mac) steps.push({ key: 'K', modifiers: ['meta'], after: 400 }, { save: { expr: `({ tokens: ${TOKENS}, lines: ${R}.term().term.buffer.active.length, rows: ${R}.term().term.rows, ready: ${R}.text().includes('READY') })`, out: path.join(work, 'cleared.json') } },
+  // Cleared in the daemon: another tab and back, and the history stays gone.
+  { js: `${R}.onCommand('new-shell')` }, { until: `${R}.S.tabs.length === 2 && ${R}.term().ready`, timeout: 10000 },
+  { js: `${R}.setView({ kind: 'tab', id: ${R}.S.tabs[0].id })` }, { until: `${R}.term().ready && ${R}.term().attached.pane === ${R}.S.tabs[0].pane`, timeout: 10000 }, { sleep: 500 },
+  { save: { expr: `({ tokens: ${TOKENS}.length, ready: ${R}.text().includes('READY') })`, out: path.join(work, 'back.json') } });
 steps.push({ shot: path.join(OUT, 'keys.png') });
 
 const log = path.join(root, 'open.jsonl');
@@ -108,7 +112,12 @@ try {
     check(`${r[0]}: ${hex(r[3])}`, got === hex(r[3]), `got ${got || 'nothing'}`);
   });
   check(`${mac ? 'Cmd' : 'Ctrl+Shift'}+A selects all, ${mac ? 'Cmd' : 'Ctrl+Shift'}+C copies it, and neither types anything`, j('selected.json') === true && j('acts1.json').length === j('acts0.json').length && fs.existsSync(log) && fs.readFileSync(log, 'utf8').includes('"kind":"copy"'));
-  if (mac) { const c = j('cleared.json'); check('Cmd+K clears the scrollback and types nothing', c.tokens.length === 0 && !c.ready && c.lines <= c.rows, JSON.stringify({ lines: c.lines, rows: c.rows, tokens: c.tokens.length })); }
+  if (mac) {
+    const c = j('cleared.json');
+    check('Cmd+K clears the scrollback and types nothing', c.tokens.length === 0 && !c.ready && c.lines <= c.rows, JSON.stringify({ lines: c.lines, rows: c.rows, tokens: c.tokens.length }));
+    const b = j('back.json');
+    check('Cmd+K clears it in the daemon: back from another tab, the history stays gone', b.tokens === 0 && !b.ready, JSON.stringify(b));
+  }
 } finally {
   stopDaemons(BIN, rt);
   fs.rmSync(root, { recursive: true, force: true });
