@@ -1354,6 +1354,8 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
   const bySid = new Map(boardTabs.filter((b) => b.s.sessionId).map((b) => [b.s.sessionId, b]));
   const rows = [];
   for (let p of procState.procs) {
+    // A process a move ended is gone, even before the process list says so.
+    if (endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
     const otherKind = p.surfaceId ? null : p.ravenryId ? 'ravenry' : p.rexId ? 'rex' : p.itermId ? 'iterm' : null;
     const otherId = otherKind ? term.tabIdFor(otherKind, p[PROC_TAB[otherKind]]) : null;
     const tab = p.surfaceId ? where.get(p.surfaceId) || null : otherId ? where.get(otherId) || null : null;
