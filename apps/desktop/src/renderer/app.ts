@@ -771,12 +771,33 @@ function arrive(k: Known): void {
   if (t.startsWith('cp:')) { S.panelKey = t; if (!panelVisible()) S.overlay = true; return; }
   arrivedAt(t);
 }
+// Never about the session in front (its tab already shows it). Named as its
+// sidebar row names it (its title, and its project when that differs),
+// with what it asks, so two sessions of one project are told apart. One
+// toast per session, by its session id: a newer one replaces it, and it
+// goes when that session comes to the front (dropFrontToast).
 function arrivedAt(t: string): void {
   if (frontKey() === t) { if (!panelVisible()) S.overlay = true; return; }
   const f = t.startsWith('tab:') ? null : findSession(S.hub, t);
+  if (f && f.session.sessionId && frontSid() === f.session.sessionId) return;
   const tab = t.startsWith('tab:') ? S.tabs.find((x) => x.id === t.slice(4)) : null;
-  const name = f ? f.session.topic || f.project.name : tab ? tabLabel(tab).name : 'A session';
-  toastLinks(`${name} needs you.`, [{ label: 'Show', run: () => { if (tab) setView({ kind: 'tab', id: tab.id }); else pickSession(t, 'notification'); } }], `needs:${t}`);
+  const title = f ? f.session.topic || f.project.name : tab ? tabLabel(tab).name : 'A session';
+  const proj = f ? secondLine(title, f.project.name) : null;
+  const w = f ? f.session.words || {} : {};
+  const what = String(w.question || w.headline || w.line || '').replace(/\s+/g, ' ').trim();
+  const said = what ? `: ${what.length > 70 ? what.slice(0, 69).replace(/\s+\S*$/, '') + '...' : what}` : '.';
+  toastLinks(`${title}${proj ? ` in ${proj}` : ''} needs you${said}`, [{ label: 'Show', run: () => { if (tab) setView({ kind: 'tab', id: tab.id }); else pickSession(t, 'notification'); } }], toastKeyOf(t));
+}
+function toastKeyOf(t: string): string {
+  const f = t.startsWith('tab:') ? null : findSession(S.hub, t);
+  return `needs:${f && f.session.sessionId ? f.session.sessionId : t}`;
+}
+/** The toast about whatever is in front goes: the person is looking at it. */
+function dropFrontToast(): void {
+  const k = frontKey();
+  if (!k) return;
+  const sid = frontSid();
+  for (const t of toasts.filter((x) => x.key === `needs:${k}` || (sid && x.key === `needs:${sid}`))) dropToast(t);
 }
 
 /**
@@ -1300,6 +1321,10 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null,
   const sub = ended || (out && !open) ? `Ran in ${where}${folder}. It ended there.` : `Runs in ${where}${folder}.`;
   const readable = !ended && session.terminal !== false && !session.surfaceId.startsWith('ev:');
   if (readable) liveFollow(session.surfaceId); else liveStop();
+  // Its screen when it has something on it; else its transcript fills the
+  // middle (a screen it cannot read, or an empty one), never a big empty area.
+  const liveNow = readable && live.surface === session.surfaceId && live.entries ? live.entries.length : null;
+  const showLive = readable && (!!liveNow || !(session.conversation || []).length);
   const note = out && canResume
     ? waiting
       ? h('div.else-note', svg(I.CLOCK), h('span', `Moves here when ${assistantName(session.assistant) || 'the assistant'} finishes its turn in ${where}.`))
@@ -1318,7 +1343,7 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null,
         out && waiting ? h('button.btn', { disabled: true }, `Waiting for ${assistantName(session.assistant) || 'the assistant'} to finish in ${where}`) : null,
         out && !waiting ? h(`button.btn${canResume ? '.pri' : ''}`, { disabled: !canResume || busy, title: canResume ? 'Continue this conversation in a Ravenry pane' : 'It cannot be resumed here', on: { click: () => void moveTo(project, session, 'ravenry', 'outside view') } }, busy ? 'Moving...' : 'Move here') : null)),
     note, why,
-    h('div.else-disc', readable ? discussionLive(session) : discussionFromTranscript(session)));
+    h('div.else-disc', showLive ? discussionLive(session) : discussionFromTranscript(session, readable && liveNow === 0 ? `Its screen in ${where} is empty` : null)));
   const sc = $('elsewhere').querySelector('.else-disc');
   if (sc) sc.scrollTop = atBottom ? sc.scrollHeight : keep;
 }
@@ -1350,16 +1375,16 @@ function discussionLive(session: HubSession): (HTMLElement | null)[] {
   return [cap, ...(rows.length ? rows : [h('p.t3', 'Its screen is empty.')])];
 }
 
-function discussionFromTranscript(session: HubSession): (HTMLElement | null)[] {
+function discussionFromTranscript(session: HubSession, why: string | null = null): (HTMLElement | null)[] {
   const conv = session.conversation || [];
-  if (!conv.length) return [h('p.t3', 'Its transcript has no finished turn yet.')];
+  if (!conv.length) return [h('p.t3', why ? `${why}, and its transcript has no finished turn yet.` : 'Its transcript has no finished turn yet.')];
   const rows: HTMLElement[] = [];
   for (const t of conv) {
     if (t.ask) rows.push(discRow('u', '❯', t.ask));
     if (t.text) rows.push(discRow('c', '⏺', t.text));
     if (t.working) rows.push(discRow('s', '✻', 'Working...'));
   }
-  return [h('div.else-cap', 'From its transcript'), ...rows];
+  return [h('div.else-cap', why ? `From its transcript (${why.charAt(0).toLowerCase()}${why.slice(1)})` : 'From its transcript'), ...rows];
 }
 
 /** Reads the session's screen through the hub's Live screen while it is in the middle. */
@@ -2001,6 +2026,7 @@ function shownCard(): Known | null {
 // ---------------------------------------------------------------- render
 
 function render(): void {
+  dropFrontToast();
   document.body.classList.toggle('mac', isMac());
   document.body.classList.toggle('first', firstRun());
   renderSidebar();

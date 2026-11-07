@@ -469,6 +469,9 @@ try {
       { until: `${rowOf(SFA, SA)}`, timeout: 30000 },
       { click: rowOf(SFA, SA), clickJs: true },
       { until: `!document.getElementById('elsewhere').hidden && /Move here ends it in cmux/.test(document.getElementById('elsewhere').textContent) && document.querySelector('#elsewhere .else-acts .btn.pri') && !document.querySelector('#elsewhere .else-acts .btn.pri').disabled`, timeout: 30000 },
+      // Its screen in cmux is empty here: the transcript fills the middle.
+      { until: `/From its transcript/.test(document.querySelector('#elsewhere .else-disc').textContent) && /answer to: make the tail flutter/.test(document.querySelector('#elsewhere .else-disc').textContent)`, timeout: 15000 }, mark('transcriptA'),
+      save('toastsA', `[...document.querySelectorAll('#toast .ti')].map((e) => e.textContent)`),
       ...both('A-open-in-cmux-idle'),
       { click: '#elsewhere .else-acts .btn.pri' }, mark('clickA'),
       { until: `${paneText('last turn: answer to: make the tail flutter')} && ${AGREE}`, timeout: 30000 }, mark('movedA'),
@@ -495,6 +498,7 @@ try {
       ...pause(m, 'checkC'),
       // D
       { until: `!document.getElementById('movebar').hidden && /Also open in cmux\./.test(document.getElementById('movebar').textContent) && document.querySelector('#panel .sec.twin')`, timeout: 30000 }, mark('doubleD'),
+      save('toastsD', `[...document.querySelectorAll('#toast .ti')].map((e) => e.textContent)`),
       ...both('D-open-in-both'),
       { click: `[...document.querySelectorAll('#movebar button')].find((b) => b.textContent === 'Keep it in cmux')`, clickJs: true }, mark('clickD'),
       { until: `document.getElementById('movebar').hidden && !document.getElementById('elsewhere').hidden`, timeout: 30000 }, mark('keptD'),
@@ -511,6 +515,9 @@ try {
     step('9 move B: mid-turn, the button waits for the turn to end, then moves it; the turn finished first; one process left, in a pane', mk.waitingB > 0 && mk.movedB > 0 && !!res.b?.answeredBeforeEnd && !!res.b.o2Exit && res.b.left.length === 1 && /RAVENRY_PANE=/.test(res.b.left[0].env), { waitedMs: mk.movedB - mk.clickB, left: res.b?.left });
     step('9 move C: a pane whose conversation went on in cmux says so; Move here resumes the latest in the same pane; one process left', mk.staleC > 0 && mk.movedC > 0 && !!mk.paneA && mk.paneC === mk.paneA && res.c?.left.length === 1 && res.c.left[0].env.includes(`RAVENRY_PANE=${mk.paneA}`), { paneA: mk.paneA, paneC: mk.paneC, left: res.c?.left });
     step('9 move D: open in both, Keep it in cmux ends the Ravenry copy; only the cmux one is left', mk.doubleD > 0 && mk.keptD > 0 && !!res.d?.o4Alive && res.d.left.length === 1 && !/RAVENRY_PANE=/.test(res.d.left[0].env), { left: res.d?.left });
+    const frontToast = (list, line) => (list || []).some((t) => t.includes(line));
+    const dupes = (list) => new Set(list || []).size !== (list || []).length;
+    step('9 move: no toast about the session in front, and no two toasts alike; an empty cmux screen shows the transcript instead', mk.transcriptA > 0 && !frontToast(mk.toastsA, 'make the tail flutter') && !frontToast(mk.toastsD, 'it went on elsewhere') && !dupes(mk.toastsA) && !dupes(mk.toastsD), { toastsA: mk.toastsA, toastsD: mk.toastsD });
     step('9 move: every move is in app.log with each process it ended, and in the hub\'s log', /window: move .*: ended \d+ in cmux \(SIGTERM/.test(appLog) && /after its turn: ended/.test(appLog) && /kept in the other terminal/.test(appLog) && /sessions: move .*: ended \d+ in cmux with SIGTERM/.test(hubLog), { app: appLog.split('\n').filter((l) => / move /.test(l)).slice(-8) });
     for (const k of kids) if (!k.exited) k.c.kill('SIGTERM');
     launchctl('bootout', `gui/${UID}/${m.label}`);
