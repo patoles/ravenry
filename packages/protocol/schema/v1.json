@@ -95,6 +95,36 @@
           "$ref": "#/$defs/request.pane.wait"
         },
         {
+          "$ref": "#/$defs/request.pane.files"
+        },
+        {
+          "$ref": "#/$defs/request.pane.frames"
+        },
+        {
+          "$ref": "#/$defs/request.pane.grants"
+        },
+        {
+          "$ref": "#/$defs/request.pane.inputs"
+        },
+        {
+          "$ref": "#/$defs/request.pane.lease"
+        },
+        {
+          "$ref": "#/$defs/request.pane.override"
+        },
+        {
+          "$ref": "#/$defs/request.pane.recording"
+        },
+        {
+          "$ref": "#/$defs/request.pane.replay"
+        },
+        {
+          "$ref": "#/$defs/request.pane.revoke"
+        },
+        {
+          "$ref": "#/$defs/request.pane.shot"
+        },
+        {
           "$ref": "#/$defs/ack"
         }
       ]
@@ -239,6 +269,42 @@
         },
         {
           "$ref": "#/$defs/event.stream.end"
+        },
+        {
+          "$ref": "#/$defs/event.pane.input"
+        },
+        {
+          "$ref": "#/$defs/event.pane.lease"
+        },
+        {
+          "$ref": "#/$defs/result.pane.files"
+        },
+        {
+          "$ref": "#/$defs/result.pane.frames"
+        },
+        {
+          "$ref": "#/$defs/result.pane.grants"
+        },
+        {
+          "$ref": "#/$defs/result.pane.inputs"
+        },
+        {
+          "$ref": "#/$defs/result.pane.lease"
+        },
+        {
+          "$ref": "#/$defs/result.pane.override"
+        },
+        {
+          "$ref": "#/$defs/result.pane.recording"
+        },
+        {
+          "$ref": "#/$defs/result.pane.replay"
+        },
+        {
+          "$ref": "#/$defs/result.pane.revoke"
+        },
+        {
+          "$ref": "#/$defs/result.pane.shot"
         }
       ]
     },
@@ -457,7 +523,9 @@
           "enum": [
             "ask",
             "approve",
-            "secret"
+            "secret",
+            "drive",
+            "pick"
           ],
           "description": "A client shows a kind it does not know by its title, and offers decline."
         },
@@ -528,6 +596,15 @@
         },
         "run": {
           "$ref": "#/$defs/CheckpointRun"
+        },
+        "drive": {
+          "$ref": "#/$defs/Drive"
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Variant"
+          }
         }
       },
       "required": [
@@ -577,6 +654,16 @@
         },
         "at": {
           "$ref": "#/$defs/Timestamp"
+        },
+        "allow": {
+          "enum": [
+            "once",
+            "session"
+          ],
+          "description": "An approved drive: for that input once, or for the agent's session."
+        },
+        "pick": {
+          "$ref": "#/$defs/Pick"
         }
       },
       "required": [
@@ -943,6 +1030,16 @@
             "minimum": 1
           },
           "description": "The processes that belong to the pane now (section 3), when pane.list asked for them with processes."
+        },
+        "creator": {
+          "$ref": "#/$defs/Source",
+          "description": "Who started the pane: an agent drives the panes it created and asks for any other."
+        },
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        },
+        "overrides": {
+          "$ref": "#/$defs/Overrides"
         }
       },
       "required": [
@@ -1603,6 +1700,16 @@
           "type": "string",
           "maxLength": 64,
           "description": "Where the person answered, for people: desktop, phone."
+        },
+        "allow": {
+          "enum": [
+            "once",
+            "session"
+          ],
+          "description": "With approve on a drive: for this input once (default), or for the agent's session."
+        },
+        "pick": {
+          "$ref": "#/$defs/Pick"
         }
       },
       "required": [
@@ -1618,9 +1725,12 @@
         ],
         "reason": [
           "decline"
+        ],
+        "allow": [
+          "approve"
         ]
       },
-      "description": "A person answers a checkpoint. Exactly one of choice, text, approve, secret, decline.",
+      "description": "A person answers a checkpoint. Exactly one of choice, text, approve, secret, pick, decline.",
       "oneOf": [
         {
           "required": [
@@ -1645,6 +1755,11 @@
         {
           "required": [
             "decline"
+          ]
+        },
+        {
+          "required": [
+            "pick"
           ]
         }
       ]
@@ -1719,7 +1834,9 @@
           "enum": [
             "ask",
             "approve",
-            "secret"
+            "secret",
+            "drive",
+            "pick"
           ]
         },
         "title": {
@@ -1771,6 +1888,45 @@
           "minimum": 1,
           "maximum": 86400000,
           "description": "Default one hour."
+        },
+        "drive": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            }
+          },
+          "required": [
+            "pane"
+          ],
+          "additionalProperties": false,
+          "description": "drive: the pane the agent asks to type into."
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "path": {
+                "$ref": "#/$defs/AbsPath"
+              },
+              "pane": {
+                "$ref": "#/$defs/PaneId"
+              }
+            },
+            "required": [
+              "label"
+            ],
+            "additionalProperties": false,
+            "description": "A file, or a pane to take a shot of now."
+          }
         }
       },
       "required": [
@@ -2356,6 +2512,15 @@
         },
         "input": {
           "$ref": "#/$defs/Inputs"
+        },
+        "by": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Who typed it, for a client that passes on a person's own typing (composer, phone): on a person's connection, the input is the person's."
+        },
+        "no_wait": {
+          "type": "boolean",
+          "description": "When this connection may not drive the pane yet: fail at once (forbidden, with the drive checkpoint) instead of waiting for the person."
         }
       },
       "required": [
@@ -2397,6 +2562,15 @@
           "minimum": 1,
           "maximum": 86400000,
           "description": "Default 10000."
+        },
+        "by": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Who typed it, for a client that passes on a person's own typing (composer, phone): on a person's connection, the input is the person's."
+        },
+        "no_wait": {
+          "type": "boolean",
+          "description": "When this connection may not drive the pane yet: fail at once (forbidden, with the drive checkpoint) instead of waiting for the person."
         }
       },
       "required": [
@@ -3947,11 +4121,20 @@
                 "cancelled",
                 "shutting_down",
                 "internal",
-                "forbidden"
+                "forbidden",
+                "leased"
               ]
             },
             "message": {
               "type": "string"
+            },
+            "checkpoint": {
+              "$ref": "#/$defs/CheckpointId",
+              "description": "forbidden: the drive checkpoint the refused input opened."
+            },
+            "lease": {
+              "$ref": "#/$defs/Lease",
+              "description": "leased: the lease that holds the pane."
             }
           },
           "required": [
@@ -4388,6 +4571,1441 @@
       ],
       "additionalProperties": false,
       "description": "The pane's output ended (its pty closed, or the pane was closed). It follows the channel's last frame; the channel is gone."
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "person",
+            "agent",
+            "client"
+          ],
+          "description": "person: a person typed it (a display's keystrokes, or a person's client that says so with by). agent: a program inside a pane (pane is that pane). client: any other program (client is its client.name)."
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "client": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "by": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Who typed it, as the client said: composer, phone."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "description": "Where input, a pane or a lease comes from."
+    },
+    "Lease": {
+      "type": "object",
+      "properties": {
+        "holder": {
+          "$ref": "#/$defs/Source"
+        },
+        "acquired_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "holder",
+        "acquired_at",
+        "expires_at"
+      ],
+      "additionalProperties": false,
+      "description": "One driver's hold on a pane (pane.lease)."
+    },
+    "Overrides": {
+      "type": "object",
+      "properties": {
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "slow_bps": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Output slowed to this many bytes a second."
+        },
+        "term": {
+          "type": "string",
+          "description": "The TERM the pane's next restart gets."
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "description": "Test conditions on a pane (pane.override)."
+    },
+    "InputRecord": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "$ref": "#/$defs/Seq"
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "kind": {
+          "enum": [
+            "send",
+            "keys",
+            "secret",
+            "restart"
+          ],
+          "description": "send: pane.send or pane.settle. keys: a display's keystrokes, gathered. secret: a secret a person gave through a checkpoint (never its text). restart: pane.restart typed the shell's command again."
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 8192,
+          "description": "What was typed, for people: text as it was, keys as <Name>. Absent for a secret, and when masked."
+        },
+        "masked": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "until": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "lease_holder": {
+          "$ref": "#/$defs/Source",
+          "description": "The person typed while this other driver held the pane's lease: marked, never held back."
+        }
+      },
+      "required": [
+        "seq",
+        "at",
+        "source",
+        "kind",
+        "mark",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "description": "One entry of a pane's input log."
+    },
+    "Grant": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "agent": {
+          "$ref": "#/$defs/Source"
+        },
+        "allow": {
+          "enum": [
+            "session"
+          ]
+        },
+        "session": {
+          "type": "string"
+        },
+        "checkpoint": {
+          "$ref": "#/$defs/CheckpointId"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "pane",
+        "agent",
+        "allow",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "description": "A person let an agent drive a pane it did not create, for its session."
+    },
+    "FileTouch": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "hook",
+              "git"
+            ]
+          }
+        },
+        "tool": {
+          "type": "string"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "status": {
+          "type": "string",
+          "description": "git status's two letters, with source git."
+        }
+      },
+      "required": [
+        "path",
+        "sources"
+      ],
+      "additionalProperties": false,
+      "description": "A file the agent in a pane changed, and how that is known."
+    },
+    "FilmFrame": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "mark": {
+          "$ref": "#/$defs/Mark"
+        },
+        "png": {
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      },
+      "required": [
+        "at",
+        "mark"
+      ],
+      "additionalProperties": false
+    },
+    "FramesResult": {
+      "type": "object",
+      "properties": {
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "format": {
+          "enum": [
+            "png",
+            "gif",
+            "apng"
+          ]
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FilmFrame"
+          }
+        },
+        "from": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "to": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "format",
+        "frames"
+      ],
+      "additionalProperties": false
+    },
+    "FixtureEvent": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Milliseconds after the start."
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        }
+      },
+      "required": [
+        "t"
+      ],
+      "additionalProperties": false,
+      "description": "Output (data), or the pane's size changed (cols and rows)."
+    },
+    "Fixture": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "ravenry.fixture"
+        },
+        "version": {
+          "const": 1
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "term": {
+          "type": "string"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "started_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "from": {
+          "$ref": "#/$defs/Mark"
+        },
+        "to": {
+          "$ref": "#/$defs/Mark"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FixtureEvent"
+          }
+        }
+      },
+      "required": [
+        "format",
+        "version",
+        "cols",
+        "rows",
+        "from",
+        "to",
+        "events"
+      ],
+      "additionalProperties": false,
+      "description": "A recording of a pane's output with its timing: a test fixture."
+    },
+    "Drive": {
+      "type": "object",
+      "properties": {
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "agent": {
+          "$ref": "#/$defs/Source"
+        },
+        "input": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "required": [
+        "pane",
+        "agent"
+      ],
+      "additionalProperties": false,
+      "description": "drive: who asks to type into which pane, and a preview of what."
+    },
+    "Variant": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "path": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "image",
+            "html"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "label",
+        "path",
+        "type",
+        "size"
+      ],
+      "additionalProperties": false,
+      "description": "One choice of a pick: a file on the daemon's machine (a shot of pane, when pane is set)."
+    },
+    "Region": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "w": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "h": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "additionalProperties": false,
+      "description": "A part of a variant, in fractions of its width and height."
+    },
+    "Pick": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "region": {
+          "$ref": "#/$defs/Region"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "additionalProperties": false,
+      "description": "A person's pick: a variant, perhaps a region of it and a note."
+    },
+    "request.pane.inputs": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.inputs"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "since": {
+          "$ref": "#/$defs/Seq",
+          "description": "Records after this seq."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's input log: who typed what."
+    },
+    "result.pane.inputs": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.inputs"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/InputRecord"
+              }
+            },
+            "seq": {
+              "$ref": "#/$defs/Seq"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "pane",
+            "inputs",
+            "seq",
+            "truncated"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.grants": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.grants"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "description": "The grants that let agents drive panes they did not create."
+    },
+    "result.pane.grants": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.grants"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "grants": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Grant"
+              }
+            }
+          },
+          "required": [
+            "grants"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.revoke": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.revoke"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "grant": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "grant"
+      ],
+      "additionalProperties": false,
+      "description": "A person ends a grant."
+    },
+    "result.pane.revoke": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.revoke"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "grant": {
+              "$ref": "#/$defs/Grant"
+            }
+          },
+          "required": [
+            "grant"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.lease": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.lease"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "ttl_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000,
+          "description": "Default 60000."
+        },
+        "wait_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000,
+          "description": "Wait this long, in turn, while another driver holds it."
+        },
+        "release": {
+          "type": "boolean"
+        },
+        "no_wait": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Take, renew or release a pane's lease: one driver at a time."
+    },
+    "result.pane.lease": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.lease"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "lease": {
+              "$ref": "#/$defs/Lease"
+            }
+          },
+          "required": [
+            "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.files": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.files"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "no_git": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "The files the agent in a pane touched."
+    },
+    "result.pane.files": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.files"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FileTouch"
+              }
+            },
+            "git_root": {
+              "type": "string"
+            },
+            "partial": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "pane",
+            "files"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.shot": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.shot"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "font_size": {
+          "type": "number",
+          "minimum": 6,
+          "maximum": 48,
+          "description": "Pixels a cell's text is tall, roughly; default 14."
+        },
+        "cursor": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A PNG of the pane's screen."
+    },
+    "result.pane.shot": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.shot"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "mark": {
+              "$ref": "#/$defs/Mark"
+            },
+            "cols": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "png": {
+              "type": "string",
+              "contentEncoding": "base64"
+            }
+          },
+          "required": [
+            "pane",
+            "mark",
+            "cols",
+            "rows",
+            "width",
+            "height",
+            "png"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.frames": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.frames"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "last_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000,
+          "description": "Default 10000."
+        },
+        "format": {
+          "enum": [
+            "png",
+            "gif",
+            "apng"
+          ]
+        },
+        "max_frames": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        },
+        "font_size": {
+          "type": "number",
+          "minimum": 6,
+          "maximum": 48,
+          "description": "Pixels a cell's text is tall, roughly; default 14."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "The pane's recent screens: PNGs, or an animated GIF or APNG."
+    },
+    "result.pane.frames": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.frames"
+        },
+        "result": {
+          "$ref": "#/$defs/FramesResult"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.recording": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.recording"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "from": {
+          "$ref": "#/$defs/Mark"
+        },
+        "to": {
+          "$ref": "#/$defs/Mark"
+        },
+        "last_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A span of a pane's output with its timing, as a fixture. Also for a closed pane whose log is kept."
+    },
+    "result.pane.recording": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.recording"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "fixture": {
+              "$ref": "#/$defs/Fixture"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "fixture",
+            "truncated"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.replay": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.replay"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "fixture": {
+          "$ref": "#/$defs/Fixture"
+        },
+        "speed": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "1 as recorded, 2 twice as fast, 0 as fast as it goes."
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "slow_bps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "term": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "headless": {
+          "type": "boolean"
+        },
+        "shot": {
+          "type": "boolean"
+        },
+        "frames": {
+          "enum": [
+            "png",
+            "gif",
+            "apng"
+          ]
+        },
+        "font_size": {
+          "type": "number",
+          "minimum": 6,
+          "maximum": 48,
+          "description": "Pixels a cell's text is tall, roughly; default 14."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "fixture"
+      ],
+      "additionalProperties": false,
+      "description": "Play a fixture into a fresh pane, or headless into a fresh screen."
+    },
+    "result.pane.replay": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.replay"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            },
+            "capture": {
+              "type": "object",
+              "properties": {
+                "pane": {
+                  "$ref": "#/$defs/PaneId"
+                },
+                "mark": {
+                  "$ref": "#/$defs/Mark"
+                },
+                "cols": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "cursor": {
+                  "$ref": "#/$defs/Cursor"
+                },
+                "alt_screen": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "history": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "How many of lines are scrollback, at the start."
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Line"
+                  }
+                },
+                "vt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mark",
+                "cols",
+                "rows",
+                "cursor",
+                "alt_screen",
+                "title",
+                "history",
+                "lines"
+              ],
+              "additionalProperties": false
+            },
+            "png": {
+              "type": "string",
+              "contentEncoding": "base64"
+            },
+            "frames": {
+              "$ref": "#/$defs/FramesResult"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.pane.override": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.override"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "slow_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1073741824
+        },
+        "term": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "clear": {
+          "type": "boolean"
+        },
+        "restart": {
+          "type": "boolean"
+        },
+        "no_wait": {
+          "type": "boolean",
+          "description": "When this connection may not drive the pane: fail at once (forbidden, with the drive checkpoint) instead of waiting for the person."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Set a pane's test conditions: its size, slowed output, the TERM of its next restart."
+    },
+    "result.pane.override": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.override"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/Pane"
+            }
+          },
+          "required": [
+            "pane"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "event.pane.input": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.input"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        },
+        "input": {
+          "$ref": "#/$defs/InputRecord"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane",
+        "input"
+      ],
+      "additionalProperties": false,
+      "description": "Someone typed into a pane: the new record of its input log."
+    },
+    "event.pane.lease": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "event"
+        },
+        "event": {
+          "const": "pane.lease"
+        },
+        "pane": {
+          "$ref": "#/$defs/Pane"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "A pane's lease was taken, released or ran out: its lease, or none."
     }
   }
 }

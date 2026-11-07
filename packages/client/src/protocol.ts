@@ -123,6 +123,148 @@ export interface Pane {
   agent?: AgentStatus;
   /** With pane.list's `processes`, on a running pane: the processes that belong to it now (PROTOCOL.md section 3). */
   pids?: number[];
+  /** Who started it: an agent drives the panes it created and asks for any other. */
+  creator?: Source;
+  /** The driver that holds it now (pane.lease). */
+  lease?: Lease;
+  /** Its test conditions (pane.override). */
+  overrides?: Overrides;
+}
+
+/** Where input, a pane or a lease comes from (PROTOCOL.md section 4, Panes and who drives them). */
+export interface Source {
+  kind: 'person' | 'agent' | 'client';
+  /** agent: the pane it runs in. */
+  pane?: PaneId;
+  client?: string;
+  /** Who typed it, as a person's client said: composer, phone. */
+  by?: string;
+}
+
+export interface Lease {
+  holder: Source;
+  acquired_at: string;
+  expires_at: string;
+}
+
+export interface Overrides {
+  cols?: number;
+  rows?: number;
+  slow_bps?: number;
+  /** The TERM of its next restart. */
+  term?: string;
+}
+
+/** One entry of a pane's input log: who typed what. */
+export interface InputRecord {
+  seq: number;
+  at: string;
+  source: Source;
+  kind: 'send' | 'keys' | 'secret' | 'restart';
+  mark: Mark;
+  bytes: number;
+  /** Absent for a secret and when masked (a password prompt). */
+  text?: string;
+  masked?: boolean;
+  truncated?: boolean;
+  until?: string;
+  /** The person typed while this other driver held the lease: marked, never held back. */
+  lease_holder?: Source;
+}
+
+/** A person let an agent drive a pane it did not create, for its session. */
+export interface Grant {
+  id: string;
+  pane: PaneId;
+  agent: Source;
+  allow: 'session';
+  session?: string;
+  checkpoint?: CheckpointId;
+  created_at: string;
+}
+
+export interface FileTouch {
+  path: string;
+  sources: ('hook' | 'git')[];
+  tool?: string;
+  count?: number;
+  at?: string;
+  status?: string;
+}
+
+export interface FilmFrame {
+  at: string;
+  mark: Mark;
+  /** format png: the frame, base64. */
+  png?: string;
+}
+
+export interface FramesResult {
+  pane?: PaneId;
+  format: 'png' | 'gif' | 'apng';
+  frames: FilmFrame[];
+  from?: string;
+  to?: string;
+  skipped?: number;
+  /** gif or apng: the animation, base64. */
+  data?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface FixtureEvent {
+  /** Milliseconds after the start. */
+  t: number;
+  /** Output, base64. */
+  data?: string;
+  cols?: number;
+  rows?: number;
+}
+
+/** A recording of a pane's output with its timing: a test fixture. */
+export interface Fixture {
+  format: 'ravenry.fixture';
+  version: 1;
+  pane?: PaneId;
+  command?: string[];
+  term?: string;
+  cols: number;
+  rows: number;
+  started_at?: string;
+  from: Mark;
+  to: Mark;
+  events: FixtureEvent[];
+}
+
+/** drive: who asks to type into which pane, and a preview of what. */
+export interface Drive {
+  pane: PaneId;
+  agent: Source;
+  input?: string;
+}
+
+/** One choice of a pick: a file on the daemon's machine (a shot of `pane` when set). */
+export interface Variant {
+  label: string;
+  path: string;
+  type: 'image' | 'html';
+  size: number;
+  pane?: PaneId;
+}
+
+/** A part of a variant, in fractions of its width and height. */
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A person's pick: a variant, perhaps a region of it and a note ("this, but..."). */
+export interface Pick {
+  label: string;
+  region?: Region;
+  note?: string;
 }
 
 export interface FileInfo {
@@ -143,7 +285,7 @@ export interface FileReadResult {
 }
 
 export type CheckpointId = string;
-export type CheckpointKind = 'ask' | 'approve' | 'secret';
+export type CheckpointKind = 'ask' | 'approve' | 'secret' | 'drive' | 'pick';
 export type CheckpointState = 'open' | 'running' | 'answered' | 'declined' | 'cancelled' | 'expired';
 
 /** Where a secret goes; never to the agent. */
@@ -166,6 +308,9 @@ export interface CheckpointAnswer {
   declined?: boolean;
   /** Why the person declined, when they said. */
   reason?: string;
+  /** An approved drive: for that input once, or for the agent's session. */
+  allow?: 'once' | 'session';
+  pick?: Pick;
   by?: string;
   at: string;
 }
@@ -198,6 +343,8 @@ export interface Checkpoint {
   /** approve: the variables the command runs with (a page's button passes an item's values this way). Show them beside the command. */
   env?: Record<string, string>;
   secret?: SecretTarget;
+  drive?: Drive;
+  variants?: Variant[];
   created_at: string;
   expires_at: string;
   closed_at?: string;
@@ -214,8 +361,9 @@ export interface Checkpoint {
 export type CheckpointReply =
   | { choice: number }
   | { text: string }
-  | { approve: true; command?: string }
+  | { approve: true; command?: string; allow?: 'once' | 'session' }
   | { secret: string }
+  | { pick: Pick }
   | { decline: true; reason?: string };
 
 export interface HelloResult {
@@ -336,7 +484,7 @@ export interface Methods {
     params: { pane: PaneId; since: Mark; limit?: number; format?: 'text' | 'raw' };
     result: ReadResult;
   };
-  'pane.send': { params: { pane: PaneId; input: Input[] }; result: SendResult };
+  'pane.send': { params: { pane: PaneId; input: Input[]; by?: string; no_wait?: boolean }; result: SendResult };
   'pane.wait': {
     params: {
       pane: PaneId;
@@ -377,7 +525,7 @@ export interface Methods {
   'agent.decisions': { params: Record<string, never>; result: Record<string, never> };
   'agent.decide': { params: { request: number; reply?: Reply }; result: Record<string, never> };
   'pane.settle': {
-    params: { pane: PaneId; input: Input[]; quiet_ms?: number; timeout_ms?: number };
+    params: { pane: PaneId; input: Input[]; quiet_ms?: number; timeout_ms?: number; by?: string; no_wait?: boolean };
     result: { sent: SendResult; wait: WaitResult };
   };
   'pane.subscribe': {
@@ -400,6 +548,8 @@ export interface Methods {
       warning?: string;
       env?: Record<string, string>;
       secret?: SecretTarget;
+      drive?: { pane: PaneId };
+      variants?: { label: string; path?: string; pane?: PaneId }[];
       timeout_ms?: number;
     };
     result: { checkpoint: Checkpoint };
@@ -408,6 +558,46 @@ export interface Methods {
   'checkpoint.wait': { params: { checkpoint: CheckpointId; timeout_ms?: number }; result: { checkpoint: Checkpoint } };
   'checkpoint.answer': { params: { checkpoint: CheckpointId; by?: string } & CheckpointReply; result: { checkpoint: Checkpoint } };
   'checkpoint.cancel': { params: { checkpoint: CheckpointId; reason?: string }; result: { checkpoint: Checkpoint } };
+  'pane.inputs': { params: { pane: PaneId; since?: number; limit?: number }; result: { pane: PaneId; inputs: InputRecord[]; seq: number; truncated: boolean } };
+  'pane.grants': { params: { pane?: PaneId }; result: { grants: Grant[] } };
+  'pane.revoke': { params: { grant: string }; result: { grant: Grant } };
+  'pane.lease': {
+    params: { pane: PaneId; ttl_ms?: number; wait_ms?: number; release?: boolean; no_wait?: boolean };
+    result: { pane: PaneId; lease?: Lease };
+  };
+  'pane.files': { params: { pane: PaneId; no_git?: boolean }; result: { pane: PaneId; files: FileTouch[]; git_root?: string; partial?: boolean } };
+  'pane.shot': {
+    params: { pane: PaneId; cols?: number; rows?: number; font_size?: number; cursor?: boolean };
+    result: { pane: PaneId; mark: Mark; cols: number; rows: number; width: number; height: number; png: string };
+  };
+  'pane.frames': {
+    params: { pane: PaneId; last_ms?: number; format?: 'png' | 'gif' | 'apng'; max_frames?: number; font_size?: number };
+    result: FramesResult;
+  };
+  'pane.recording': {
+    params: { pane: PaneId; from?: Mark; to?: Mark; last_ms?: number; limit?: number };
+    result: { fixture: Fixture; truncated: boolean };
+  };
+  'pane.replay': {
+    params: {
+      fixture: Fixture;
+      speed?: number;
+      cols?: number;
+      rows?: number;
+      slow_bps?: number;
+      term?: string;
+      headless?: boolean;
+      shot?: boolean;
+      frames?: 'png' | 'gif' | 'apng';
+      font_size?: number;
+      name?: string;
+    };
+    result: { pane?: Pane; capture?: Omit<CaptureResult, 'pane'> & { pane?: PaneId }; png?: string; frames?: FramesResult };
+  };
+  'pane.override': {
+    params: { pane: PaneId; cols?: number; rows?: number; slow_bps?: number; term?: string; clear?: boolean; restart?: boolean; no_wait?: boolean };
+    result: { pane: Pane };
+  };
 }
 
 export type Method = keyof Methods;
@@ -422,7 +612,8 @@ export type ErrorCode =
   | 'cancelled'
   | 'shutting_down'
   | 'internal'
-  | 'forbidden';
+  | 'forbidden'
+  | 'leased';
 
 export type DaemonEvent =
   | { event: 'pane.created'; pane: Pane }
@@ -434,6 +625,8 @@ export type DaemonEvent =
   | { event: 'pane.updated'; pane: Pane }
   | { event: 'pane.activity'; pane: Pane }
   | { event: 'pane.focus'; pane: Pane }
+  | { event: 'pane.input'; pane: Pane; input: InputRecord }
+  | { event: 'pane.lease'; pane: Pane }
   | { event: 'checkpoint.opened'; checkpoint: Checkpoint }
   | { event: 'checkpoint.running'; checkpoint: Checkpoint }
   | { event: 'checkpoint.closed'; checkpoint: Checkpoint }
@@ -445,5 +638,5 @@ export type DaemonEvent =
 /** What the daemon sends as JSON. Fields a client does not know are kept. */
 export type DaemonMessage =
   | { v: number; type: 'result'; id: number; method: string; result: unknown }
-  | { v: number; type: 'error'; id?: number; error: { code: ErrorCode | string; message: string } }
+  | { v: number; type: 'error'; id?: number; error: { code: ErrorCode | string; message: string; checkpoint?: CheckpointId; lease?: Lease } }
   | ({ v: number; type: 'event' } & DaemonEvent);

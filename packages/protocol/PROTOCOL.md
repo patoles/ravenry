@@ -21,7 +21,8 @@ RFC 2119.
 3. [Panes, marks and the log](#3-panes-marks-and-the-log), shell
    marks, the agent in a pane, labels, secrets in output
 4. [Methods](#4-methods): panes, agents, files, checkpoints, who acts
-   as the person
+   as the person, who drives a pane, files touched, pictures,
+   recordings and replay, test conditions
 5. [Streams and binary frames](#5-streams-and-binary-frames)
 6. [Events](#6-events)
 7. [Input and keys](#7-input-and-keys)
@@ -51,9 +52,11 @@ exist in v1; there is no TCP listener.
   handshake's status line (`HTTP/1.1 `).
 
 Every client of the user may use every method, except the few that act
-as the person (answering a checkpoint, deciding for a hook): the daemon
-refuses those to a program inside a pane, and over ssh to a connection
-without the answer key (section 4, Who acts as the person).
+as the person (answering a checkpoint, deciding for a hook, ending a
+grant): the daemon refuses those to a program inside a pane, and over ssh
+to a connection without the answer key (section 4, Who acts as the
+person). Input to a pane that a program did not start waits for a
+person's yes (section 4, Panes and who drives them).
 
 ### The handshake
 
@@ -129,9 +132,11 @@ the daemon sends (section 10).
 
 - Most requests answer at once, in order.
 - `pane.wait`, `pane.settle`, `pane.close`, `pane.restart`, `pane.send`,
-  `pane.process`, `checkpoint.wait` and `agent.report` with `decide` can take time (a send waits for
-  earlier input of the connection, and typed text takes a pause per
-  character). Other requests are handled meanwhile, so their results can
+  `pane.process`, `checkpoint.wait`, `agent.report` with `decide`,
+  `pane.lease`, `pane.files`, `pane.frames`, `pane.override` and a
+  headless `pane.replay` can take time (a send waits for earlier input of
+  the connection, and for a person's yes into a pane it did not start,
+  and typed text takes a pause per character). Other requests are handled meanwhile, so their results can
   arrive in another order. Match results to requests by `id`.
 - Input keeps its order: the input of `pane.send`, `pane.settle` and
   binary input frames on one connection reaches the panes in the order it
@@ -304,6 +309,21 @@ hidden is kept after the pane closes, to search history, and removed when
 the daemon starts and finds it more than seven days old. A hidden pane's
 log is removed with the pane.
 
+**The recording.** Beside the log the daemon keeps when each part of the
+output came and when the pane changed size (output within 10 ms of the
+last noted output joins it), so the log replays at its own pace: the log
+and its timing are the pane's recording (section 4, Recordings and
+replay). The log holds output after masking, so a secret stays masked in
+the recording, a fixture and a replay. The timing of a kept log is kept
+with it.
+
+**The filmstrip.** The daemon also keeps each pane's recent screens:
+one when the pane prints, at most every 100 ms (at once when the last is
+older, else at the end of the interval), and none equal to the one
+before. It keeps about the last 20 seconds and at most about 4 MiB a
+pane (rows that did not change are shared between screens), dropping the
+oldest first. `pane.frames` returns them.
+
 ## 4. Methods
 
 Every request has `v`, `type` and `id`; the fields below come in addition.
@@ -373,7 +393,9 @@ or 2, else empty), `mark` (the end of its output so far), `last_output_at`
 (once it printed), `state` (`running` or `exited`), and for an exited pane
 `exit` (`code`, -1 when a signal ended it, and `signal`, such as
 `SIGKILL`) and `exited_at`. Once known, `shell` (OSC 133 shell marks) and
-`agent` (the agent's state), section 3.
+`agent` (the agent's state), section 3. Since the additions of section
+10: `creator` (a Source: who started the pane), `lease` (the driver that
+holds it now) and `overrides` (its test conditions), section 4.
 
 ### pane.list
 
@@ -456,9 +478,13 @@ and the data starts later, at `from`), and `text` or `data`. Read on from
 | --- | --- | --- |
 | `pane` | id | |
 | `input` | array | Input items, in order (section 7). |
+| `by` | string, optional | At most 64 bytes: who typed it, for a client that passes on a person's own typing (`composer`, `phone`). On a connection that may act as the person, it makes the input the person's in the input log. |
+| `no_wait` | boolean, optional | When this connection may not drive the pane yet: fail at once with `forbidden` and the drive checkpoint, instead of waiting for the person. |
 
-Every item is checked before anything is written. Result: `bytes` (written
-to the pty) and `mark` (the output position just before the input).
+Every item is checked before anything is written. Into a pane this
+connection did not start, the input first waits for a person's yes
+(Panes and who drives them, below). Result: `bytes` (written to the pty)
+and `mark` (the output position just before the input).
 
 ### pane.wait
 
@@ -503,6 +529,7 @@ It replaces press, sleep, read, compare.
 | `input` | array | As in `pane.send`. |
 | `quiet_ms` | integer, optional | Default 300. |
 | `timeout_ms` | integer, optional | Default 10000. |
+| `by`, `no_wait` | optional | As in `pane.send`. |
 
 Result: `sent` (as `pane.send`) and `wait` (as `pane.wait`, with `since`
 at the input and `changes` against the screen just before the input).
@@ -742,7 +769,7 @@ with `checkpoint.answer`. Since each daemon holds its own, an agent on a
 remote machine reaches the person through the connection the hub keeps
 to that daemon.
 
-Three kinds:
+Five kinds (`drive` and `pick` added after the first draft, section 10):
 
 - **`ask`**: a question with buttons (`options`) and, with `free_text`,
   room to type an answer.
@@ -763,6 +790,24 @@ Three kinds:
   output). The checkpoint, events, reports and results never hold it:
   `answer.delivered` says it went. A client that shows checkpoints must
   not store or log it either.
+- **`drive`**: an agent asks to type into a pane it did not start
+  (Panes and who drives them, below). The daemon opens it itself when
+  such input arrives (or an agent asks ahead with `checkpoint.new` and
+  `drive.pane`); its `drive` is `pane` (the pane to type into), `agent`
+  (a Source: who asks) and `input` (a preview of what it would type,
+  masked as the input log masks). A person approves with `allow`: `once`
+  (default: the input waiting now) or `session` (a grant for the agent's
+  session), or declines.
+- **`pick`**: an agent shows 2 to 4 `variants` and waits for the
+  person's pick. Each is a `label` and a file on the daemon's machine
+  (`path`, `type` `image` or `html`, `size`), or a shot of a pane taken
+  when the checkpoint opens (`pane` set; the daemon writes the PNG into
+  its state folder, `picks/`, and removes it once the checkpoint leaves
+  the last 64 closed ones). A person answers with `pick`: the `label`,
+  optionally a `region` of it (`x`, `y`, `w`, `h`, fractions of its width
+  and height) and a `note` ("this, but..."), or declines. A client reads
+  the files with `file.read`; one that serves an HTML variant to a
+  browser serves it sandboxed (no scripts on its own origin).
 
 States: `open` until a person answers, then `running` while an approved
 command runs, then one of the closed states: `answered`, `declined` (a
@@ -780,7 +825,8 @@ last 64 closed ones, and at most 64 open at a time.
 command as the person edited it, only when it differs from the proposed
 one: what ran), `delivered`, `declined`, `reason` (why they declined,
 when they said), `by`, `at`) and `run` (`pane`, and once it ended `exit`,
-`output`: the last 64 KiB as text, `truncated`).
+`output`: the last 64 KiB as text, `truncated`); and for the kinds added
+later, `drive` and `variants`, with the answer's `allow` and `pick`.
 A client that does not know a checkpoint's kind shows its title and
 offers only to decline it.
 
@@ -799,7 +845,7 @@ below). An agent opens, lists, waits on and cancels them.
 
 | Field | | |
 | --- | --- | --- |
-| `kind` | string | `ask`, `approve` or `secret`. |
+| `kind` | string | `ask`, `approve`, `secret`, `pick` or `drive`. |
 | `title` | string | What the person reads first, 1 to 1000 bytes; newlines allowed. |
 | `pane` | id, optional | The pane the asking agent runs in (`RAVENRY_PANE`). |
 | `options` | array, optional | ask: 1 to 8 buttons, each 1 to 100 bytes. |
@@ -810,6 +856,8 @@ below). An agent opens, lists, waits on and cancels them.
 | `warning` | string, optional | approve: what the agent warns the person about (what cannot be undone), at most 1000 bytes. |
 | `env` | object, optional | approve: variables the command runs with, at most 16: names of letters, digits and `_` (not `RAVENRY_*`), values of one line, at most 1000 bytes. The person sees them beside the command. A page's run button passes an item's values this way, so they never go inside the command line. |
 | `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
+| `variants` | array, optional | pick: 2 to 4 of `label` (1 to 64 bytes, unique) and `path` (an absolute path: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.html` or `.htm`, at most 32 MiB) or `pane` (a shot of it now). |
+| `drive` | object, optional | drive: `pane`, the pane the agent asks to type into. It takes no other field, not even `timeout_ms`: the daemon writes the title, and the checkpoint lasts one hour. From a person's connection it is refused (a person drives every pane). |
 | `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
 
 Result: `checkpoint`. Event subscribers get `checkpoint.opened`.
@@ -839,6 +887,7 @@ A person's answer: exactly one of
 | `text` | string | ask with `free_text`: at most 4 KiB. |
 | `approve` | `true` | approve: run it. |
 | `secret` | string | secret: 4 to 4096 bytes on one line. Given, it is delivered (and for `run` and `env`, the command runs). |
+| `pick` | object | pick: `label` (one of the variants'), and optionally `region` (`x`, `y`, `w`, `h`, each 0 to 1, inside the variant) and `note` (at most 4000 bytes). |
 | `decline` | `true` | Any kind: the person says no. |
 
 plus `checkpoint` (id), `by` (optional, at most 64 bytes: where they
@@ -848,6 +897,9 @@ answered, for people: `desktop`, `phone`), and with some answers:
 | --- | --- | --- |
 | `command` | string, optional | With `approve`: the command as the person edited it, 1 to 8 KiB. It runs instead of the proposed one, and `answer.command` holds it when it differs. |
 | `reason` | string, optional | With `decline`: why, for the agent, at most 1000 bytes. |
+| `allow` | string, optional | With `approve` on a drive: `once` (default) or `session`. |
+
+A drive is answered with `approve` (and `allow`) or `decline`.
 
 Result: `checkpoint`, closed, or `running` for a command. Fails with
 `not_found` when it is not open (answered elsewhere first, cancelled or
@@ -870,6 +922,7 @@ the person's hub speaking. These methods act as the person:
 
 - `checkpoint.answer`
 - `agent.decisions` and `agent.decide`
+- `pane.revoke` (ending a grant a person gave)
 
 The daemon refuses them with `forbidden` to a connection that does not
 come from the person. Every other method stays open to every client,
@@ -952,14 +1005,254 @@ it is not a sandbox around agents.
   ssh, so the next connection pairs. Each is a deliberate attack, not a
   mistake; the agent's own permissions must keep it out of Ravenry's
   files.
-- **UI automation is out of scope until per-pane permissions (phase
-  2).** A program that clicks the app's buttons (`osascript`,
-  accessibility APIs) acts with the person's hands, and so does input
-  sent to a pane (`pane.send`, which agents use to drive other panes),
-  for example into a pane where another assistant asks its own
-  permission question.
+- **UI automation is out of scope.** A program that clicks the app's
+  buttons (`osascript`, accessibility APIs) acts with the person's hands.
+  Input sent to a pane is not: into a pane an agent did not start,
+  another assistant's included, it waits for a person's yes (Panes and
+  who drives them, below). Closing, restarting (other than its shell's
+  command) and resizing a pane are not input, and stay open to every
+  client.
 - **A hub or an app started from inside a pane** (while developing them)
   is inside it, and cannot answer.
+
+### Panes and who drives them
+
+Every pane has a **creator**, a Source in its Pane object: who started
+it, by the judgement of the connection that asked (Who acts as the
+person). A **Source** is `kind` and, for each kind:
+
+- `person`: a person typed it: keystrokes from a display (binary input
+  frames on a connection that may act as the person), or input a
+  person's client passes on with `by`. A pane started from such a
+  connection (the app, the hub, a script outside every pane) has a
+  creator of this kind.
+- `agent`: a program inside pane `pane`.
+- `client`: any other program, named by its `client` (its hello's
+  `client.name`): a person's connection that sends input without `by`
+  (the hub's own automation, a script), or a connection outside every
+  pane that may not act as the person (over ssh without the answer key).
+
+`by` is what the client said (at most 64 bytes).
+
+**An agent drives the panes it created,** and the panes those created,
+and asks for any other, another agent's session included. Input from a
+connection that may not act as the person (`pane.send`, `pane.settle`,
+`pane.restart` with `shell_command`, `pane.override`, binary input
+frames) to a pane outside its own opens a `drive` checkpoint, or joins
+the one open for the same agent and pane, and waits for a person's
+answer: `once` lets that input through; `session` adds a **grant** that
+lasts while the agent's assistant session lasts (the `session` its hooks
+report; for a client outside every pane, its connection), until a person
+revokes it or either pane closes; a decline or no answer fails the input
+with `forbidden` (the error's `checkpoint` names it). With `no_wait` the
+input fails at once with `forbidden` and the checkpoint, which stays
+open. Binary input frames cannot wait: they are refused with an error
+without `id` that names the checkpoint. **The person is never
+restricted.**
+
+**The input log.** Every input is logged with its source: up to 1000
+records a pane, in memory only, gone with the pane. An InputRecord is
+`seq` (each daemon numbers them 1, 2, 3, ...), `at`, `source`, `kind`
+(`send`; `keys` for a display's keystrokes, gathered while they come
+less than 2 s apart; `secret` for a secret a person gave through a
+checkpoint; `restart` for `pane.restart` with `shell_command`), `mark`
+(the output position just before it), `bytes`, `text` (what it typed,
+for people: text as it was, control keys as `<Enter>`, `<Ctrl+C>`,
+`<Up>`), `masked` (true when text was left out or masked: always for a
+secret, everything typed while the program reads a line without echo,
+which is a password prompt, and the pane's secrets wherever they
+appear), `truncated` (text cut at 4 KiB), `until` (a gathered `keys`
+record's last keystroke) and `lease_holder` (below). Event subscribers
+get `pane.input` for every new record.
+
+**Leases.** A lease keeps a pane to one driver at a time. While one
+driver holds it, input from any other connection that may not act as
+the person fails with `leased` (the error's `lease` says who holds it
+and until when). The person's input goes through and is marked with
+`lease_holder`. Only a connection that may drive the pane may take its
+lease (otherwise `pane.lease` asks the person first, as input does). A
+lease ends when its time runs out, when its holder releases it, when its
+holder's pane or connection goes, or when a person releases it.
+Subscribers get `pane.lease` with the pane (and its `lease`, or none).
+
+#### pane.inputs
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `since` | integer, optional | Records after this `seq`. |
+| `limit` | integer, optional | 1 to 1000. Default 200: the latest. |
+
+Result: `pane`, `inputs` (InputRecord objects, oldest first), `seq` (the
+newest record's number, of any pane) and `truncated`.
+
+#### pane.grants
+
+`pane` (optional): only the grants on this pane. Result: `grants`, Grant
+objects: `id` ("g" and 7 characters), `pane`, `agent` (a Source),
+`allow` (`session`), `session` (the assistant session it lasts for, when
+the agent reported one), `checkpoint` (the drive that gave it) and
+`created_at`. A grant whose session ended is not listed.
+
+#### pane.revoke
+
+`grant`. A person ends a grant. Result: `grant`. Fails with `not_found`
+when there is no such grant, and with `forbidden` on a connection that
+may not act as the person.
+
+#### pane.lease
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `ttl_ms` | integer, optional | How long it lasts, 1 to 3600000. Default 60000. Leasing again renews it. |
+| `wait_ms` | integer, optional | While another driver holds it, wait this long, in turn with other waiters, before failing with `leased`. |
+| `release` | boolean, optional | Let it go (no `ttl_ms` or `wait_ms`). |
+| `no_wait` | boolean, optional | As in `pane.send`, for the drive checkpoint. |
+
+Result: `pane` and `lease` (a Lease: `holder`, `acquired_at`,
+`expires_at`; absent after a release). A release fails with `not_found`
+when no lease is held, and with `leased` when another driver holds it.
+
+### Files touched
+
+The files the agent in a pane changed, as far as the daemon can know:
+
+- **From its hooks.** An assistant's PostToolUse hook names the files
+  its tool wrote: `ravenryd hook` (and the daemon, from any reporter)
+  keeps `tool_files` in a report's `data`, the paths only (Claude Code's
+  `file_path` and `notebook_path`, the files a Codex `apply_patch`
+  names: its `*** Add File:`, `*** Update File:`, `*** Delete File:` and
+  `*** Move to:` lines), at most 64. Never the tool's input or output:
+  the rule of agent.report holds.
+- **From git.** `git status` in the pane's working directory, worked out
+  when asked, bounded by a timeout: every change in the work tree, which
+  may be another agent's too.
+
+#### pane.files
+
+`pane`, and `no_git` (optional): only what the hooks said. Result:
+`pane`, `files` and, when the pane works in a git work tree, `git_root`
+and `partial` (git did not answer in time, or there were more than
+2000). A FileTouch is `path` (absolute; a hook's relative path is taken
+against the hook's `cwd`), `sources` (`hook`, `git` or both), and for the
+hook's `tool`, `count` (how many tool uses named it) and `at` (the last),
+for git's `status` (git's two letters). The hook's come first, newest
+first, then git's by path. The daemon keeps up to 2000 a pane, until it
+closes.
+
+### Pictures
+
+A pane's screen drawn as a picture from the daemon's own screen state:
+its text with every cell's style and colour (the program's palette and
+default colours, else a dark theme), wide characters, the cursor, box
+drawing, block elements and braille drawn to fill their cells, and a
+hollow box for a character the fonts lack. The fonts are Go Mono's.
+
+#### pane.shot
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `cols`, `rows` | integers, optional, together | Draw it at this size: the screen rebuilt in a fresh terminal and resized there, so its text reflows. The program is not told and does not redraw (for that, `pane.override`). At most 400000 cells. |
+| `font_size` | number, optional | 6 to 48. Default 14 (pixels). |
+| `cursor` | boolean, optional | Draw the cursor. Default true. |
+
+Result: `pane`, `mark` (the output the picture shows), `cols`, `rows`,
+`width`, `height` (pixels) and `png` (base64).
+
+#### pane.frames
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `last_ms` | integer, optional | The stretch before now, 1 to 3600000. Default 10000. The daemon holds about 20 s (section 3, The filmstrip). |
+| `format` | string, optional | `png` (each frame a PNG), `gif` (default) or `apng`: one animated picture that loops. |
+| `max_frames` | integer, optional | 1 to 600. Default 100. More frames are thinned evenly, keeping the first and the last. |
+| `font_size` | number, optional | As in `pane.shot`. |
+
+The strip ends with the screen now. Result: `pane`, `format`, `frames`
+(each `at`, `mark`, and with `png` its `png`), `from` and `to` (the
+first and last frame's time), `skipped` (frames left out for
+`max_frames`), `width` and `height`, and for `gif` and `apng` the
+animation in `data` (base64), each frame shown until the next came. A
+result over about 12 MiB fails with `failed`: ask for fewer frames.
+
+### Recordings and replay
+
+A **fixture** is a span of a pane's output with its timing, as JSON:
+`format` (`ravenry.fixture`), `version` (1), `pane`, `command`, `term`,
+`cols` and `rows` (the size at its start), `started_at` (when the pane
+started), `from` and `to` (the marks it covers) and `events`, each `t`
+(milliseconds after the start) and either `data` (output, base64) or
+`cols` and `rows` (the pane's size changed there). Tests load fixtures;
+`pane.replay` plays them.
+
+#### pane.recording
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | A running or exited pane, or a closed one whose log is kept (section 3). |
+| `from`, `to` | marks, optional | The span. Default: all the log holds. |
+| `last_ms` | integer, optional | Instead: the latest stretch of time (before now, or before a closed pane closed). |
+| `limit` | integer, optional | Bytes, 1 to 8 MiB (the default). A longer span keeps its end. |
+
+Result: `fixture` and `truncated` (the log no longer held the start, or
+the limit cut it). Fails with `not_found` when there is no such pane and
+no kept log.
+
+#### pane.replay
+
+| Field | | |
+| --- | --- | --- |
+| `fixture` | object | A fixture (at most 8 MiB of output). |
+| `speed` | number, optional | 1 as recorded (default), 2 twice as fast, 0 as fast as it goes; at most 1000. |
+| `cols`, `rows` | integers, optional, together | Play it at this size; the fixture's size changes are then ignored. |
+| `slow_bps` | integer, optional | As over a slow link: at most this many bytes a second. |
+| `term` | string, optional | The TERM the replay pane gets. |
+| `headless` | boolean, optional | Into a fresh screen of the daemon's, not a pane. |
+| `shot`, `frames`, `font_size` | optional | Headless only: a PNG of the screen it ends on (`shot`), its filmstrip (`frames`: `png`, `gif` or `apng`; a frame at most every 50 ms of the replay's time, at most 300). |
+| `name` | string, optional | The replay pane's name. |
+
+Into a pane (the default): a new pane, labelled `ravenry.replay` (the
+recorded pane's id, or `fixture`), whose program holds the terminal and
+prints nothing; the daemon plays the fixture into it as its output at
+the speed asked, so every client sees it as it would any pane. Result:
+`pane`. Headless: the result is `capture` (as `pane.capture` with
+styles, without `pane`), and `png` and `frames` when asked.
+
+### Test conditions
+
+Per-pane conditions that a test sets and clears, shown in the Pane
+object's `overrides`:
+
+- **Size** (`cols`, `rows`): the pane's terminal takes this size, so the
+  program sees it and redraws (80 columns, a phone's width). While it
+  holds, `pane.resize` from a window is kept, not applied, and clearing
+  the size gives it back.
+- **Slow output** (`slow_bps`): the pane reads its program's output at
+  this many bytes a second, so the program meets a slow link through
+  the terminal too.
+- **TERM** (`term`): what the pane's next restart gets as `TERM` (a
+  running program's environment cannot change).
+
+Overrides carry over a `pane.restart`.
+
+#### pane.override
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `cols`, `rows` | integers, optional, together | 1 to 4096; both 0 clear the size. |
+| `slow_bps` | integer, optional | 0 (not slowed) to 2^30. |
+| `term` | string, optional | A terminal name (letters, digits, `.`, `_`, `+`, `-`, at most 64); empty: as it was. |
+| `clear` | boolean, optional | Clear them all (nothing else but `restart`). |
+| `restart` | boolean, optional | Then restart the pane as `pane.restart` does. |
+| `no_wait` | boolean, optional | As in `pane.send`. |
+
+Fields left out keep their value. Setting conditions on a pane counts as
+driving it (Panes and who drives them). Result: `pane` (with `restart`,
+the new pane). Subscribers get `pane.updated`.
 
 ## 5. Streams and binary frames
 
@@ -1034,7 +1327,9 @@ After `events.subscribe`:
 | `pane.closed` | `pane` | A pane was closed and removed. |
 | `pane.prompt` | `pane` | A pane's shell state changed (its `shell`: a command started or ended). A prompt redrawn in the same state sends nothing. |
 | `pane.cwd` | `pane` | A pane's working directory changed (OSC 7, section 3). |
-| `pane.updated` | `pane` | A pane's name or labels changed (`pane.update`). |
+| `pane.updated` | `pane` | A pane's name or labels changed (`pane.update`), or its test conditions (`pane.override`). |
+| `pane.input` | `pane`, `input` | Someone typed into a pane: the new record of its input log. |
+| `pane.lease` | `pane` | A pane's lease was taken, released or ran out. |
 | `checkpoint.opened` | `checkpoint` | An agent waits for a person: show it. |
 | `checkpoint.running` | `checkpoint` | A person let its command run; `run.pane` shows it. |
 | `checkpoint.closed` | `checkpoint` | It was answered, declined, cancelled or expired. |
@@ -1114,7 +1409,8 @@ case sensitive.
 | `cancelled` | `cancel` stopped the request. |
 | `shutting_down` | The daemon is stopping. |
 | `internal` | A fault in the daemon. |
-| `forbidden` | Only a person may do this, and this connection does not come from one (section 4, Who acts as the person). |
+| `forbidden` | Only a person may do this, and this connection does not come from one (section 4, Who acts as the person); or the person did not let this input into a pane it did not start (the error's `checkpoint` names the drive checkpoint). |
+| `leased` | Another driver holds the pane's lease (the error's `lease` says who, and until when). |
 
 `message` is for people; clients branch on `code`.
 
