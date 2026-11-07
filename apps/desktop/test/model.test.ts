@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionOfPane, tokens } from '../src/renderer/model.ts';
+import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, secondLine, sessionGroup, sessionOfPane, tokens } from '../src/renderer/model.ts';
 import type { HubProject, HubSession, HubState } from '../src/renderer/model.ts';
 import { hubUrl, parseEvent } from '../src/main/hub.ts';
 import { daemonEnv } from '../src/main/spawn.ts';
@@ -130,4 +130,12 @@ test('first launch: project folders and assistants from HOME', () => {
     const a = findAssistants({ PATH: '' }, home);
     assert.deepEqual([a[0].found, a[0].signedIn, a[1].found], [true, true, false]);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('a grey second line never says its title again', () => {
+  assert.equal(secondLine('weather-api', 'weather-api'), null);
+  assert.equal(secondLine('Weather-API', ' weather-api '), null);
+  assert.equal(secondLine('Fix the login', 'weather-api'), 'weather-api');
+  assert.equal(secondLine('zsh', ''), null);
+  assert.equal(secondLine('zsh', null), null);
 });

@@ -119,6 +119,8 @@ async function oneRun(kind, n) {
       { js: `${startBtn}.click()` }, mark('click'),
       { until: `${R}.term().ready && ${has('Welcome to Claude Code')} && /^> *$/m.test(${R}.text())`, timeout: 30000 }, mark('claude'),
       { until: `document.querySelector('#side .grp .ss, #side .grp .idl')`, timeout: 15000 }, mark('sidebar'),
+      // No tab says its name twice (a session named after its folder: "weather-api weather-api").
+      { until: `document.querySelector('#tabs .tab .n') && [...document.querySelectorAll('#tabs .tab')].every((t) => { const p = t.querySelector('.p'); return !p || p.textContent.trim().toLowerCase() !== t.querySelector('.n').textContent.trim().toLowerCase(); })`, timeout: 5000 },
       { shot: path.join(OUT, `${name}-session.png`) },
     );
   }

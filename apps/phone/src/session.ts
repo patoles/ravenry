@@ -7,7 +7,7 @@
 // shows the screen the hub last read, and no key bar.
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
-import { findSession, paneOf, sessionGroup, machineOf, assistantName } from '../../desktop/src/renderer/model.ts';
+import { findSession, paneOf, sessionGroup, machineOf, assistantName, secondLine } from '../../desktop/src/renderer/model.ts';
 import type { HubProject, HubSession } from '../../desktop/src/renderer/model.ts';
 import { TerminalView } from '../../desktop/src/renderer/terminal.ts';
 import * as DI from '../../desktop/src/renderer/icons.ts';
@@ -94,7 +94,7 @@ export function sessionScreen(key: string): Screen {
       h('button.icon-btn.fg', { 'aria-label': 'Back', on: { click: back } }, svg(I.BACK)),
       h('div.ti',
         h('div.n', h('span.sd', { style: { background: COLOR[g] || COLOR.idle } }), h('span.nm', s.topic || p.name), who ? h('span.as-tag', who) : null),
-        h('div.s', h('span', p.name), m ? h('span.mt', svg(DI.MACHINE), m) : null, pct !== null ? h('span.num', `${pct}%`) : null)),
+        h('div.s', secondLine(s.topic || p.name, p.name) ? h('span', p.name) : null, m ? h('span.mt', svg(DI.MACHINE), m) : null, pct !== null ? h('span.num', `${pct}%`) : null)),
       h('button.hand', { on: { click: () => void handOff(p, s) } }, svg(I.HAND), 'Hand off'),
       h('button.icon-btn', { 'aria-label': 'More', on: { click: () => void more(p, s) } }, svg(I.KEBAB)));
   }

@@ -29,7 +29,7 @@ import { Daemons } from './daemons.ts';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
-  ago, arrivals, assistantName, board, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionKey, sessionOfPane, tokens,
+  ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
@@ -219,14 +219,15 @@ function shellLabel(t: ShellTab): { name: string; sub: string | null } {
   const prog = base((t.command || [])[0] || '') || 'Shell';
   const home = S.config?.home;
   const folder = t.cwd && home && t.cwd === home ? '~' : base(t.cwd);
-  return { name: agent || title || prog, sub: folder || null };
+  const name = agent || title || prog;
+  return { name, sub: secondLine(name, folder) };
 }
 
 function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | null; machine: string | null } {
   if (t.kind === 'shell') {
     // A shell the board follows as a session (an assistant runs in it) reads as that session.
     const f = sessionOfPane(S.hub, t.pane);
-    if (f) return { name: f.session.topic || f.project.name, sub: f.project.name, group: openCpOn(t.pane) ? 'you' : sessionGroup(f.session), machine: null };
+    if (f) { const name = f.session.topic || f.project.name; return { name, sub: secondLine(name, f.project.name), group: openCpOn(t.pane) ? 'you' : sessionGroup(f.session), machine: null }; }
     const l = shellLabel(t);
     const st = t.status?.state;
     const group: Group | null = openCpOn(t.pane) || st === 'needs_you' ? 'you' : st === 'working' ? 'work' : null;
@@ -234,7 +235,8 @@ function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | nu
   }
   const f = findSession(S.hub, t.key);
   if (!f) return { name: 'Session', sub: null, group: 'idle', machine: null };
-  return { name: f.session.topic || f.project.name, sub: f.project.name, group: hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session), machine: machineOf(f.project, f.session) };
+  const name = f.session.topic || f.project.name;
+  return { name, sub: secondLine(name, f.project.name), group: hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session), machine: machineOf(f.project, f.session) };
 }
 
 const GROUP_VAR: Record<Group, string> = { you: 'var(--you)', work: 'var(--work)', wait: 'var(--wait)', idle: 'var(--idle)' };
@@ -517,7 +519,7 @@ function openTab(): HTMLElement | null {
   if (v.kind === 'session') {
     const key = viewSessionKey();
     const f = key ? findSession(S.hub, key) : null;
-    if (f) { name = f.session.topic || f.project.name; sub = f.project.name; group = hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session); machine = machineOf(f.project, f.session); } else name = 'Starting…';
+    if (f) { name = f.session.topic || f.project.name; sub = secondLine(name, f.project.name); group = hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session); machine = machineOf(f.project, f.session); } else name = 'Starting…';
   } else if (v.kind === 'pane') {
     name = v.name;
     group = 'idle';

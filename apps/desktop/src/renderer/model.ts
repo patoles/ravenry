@@ -100,6 +100,19 @@ export function sessionOfPane(state: HubState | null, pane: string): { project: 
 }
 
 /** A quiet machine tag for a remote session or project; null on this machine. */
+/**
+ * A title's grey second line, or null when it would only say the title
+ * again (a session named after its project's folder: "weather-api
+ * weather-api"). Every tab, row and header that shows a name beside a
+ * second line takes its second line through here, in the app and on the
+ * phone.
+ */
+export function secondLine(name: string | null | undefined, second: string | null | undefined): string | null {
+  const a = String(name || '').trim().toLowerCase();
+  const b = String(second || '').trim();
+  return b && b.toLowerCase() !== a ? b : null;
+}
+
 export function machineOf(p: HubProject, s?: HubSession): string | null {
   const m = (s && s.machine) || p.machine || null;
   return m && m !== 'local' ? m : null;

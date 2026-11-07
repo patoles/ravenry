@@ -18,7 +18,7 @@
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
 import * as DI from '../../desktop/src/renderer/icons.ts';
-import { assistantName, findSession } from '../../desktop/src/renderer/model.ts';
+import { assistantName, findSession, secondLine } from '../../desktop/src/renderer/model.ts';
 import {
   afterOf, characters, isRemote, kindOf, secretProblem, splitTitle, warningsOf, who,
 } from '../../desktop/src/renderer/checkpoints.ts';
@@ -395,7 +395,7 @@ export function feedbackScreen(arg: string): Screen {
     replace(el, h('div.fb',
       h('div.sh.fbh', h('button.icon-btn.fg', { 'aria-label': 'Back', on: { click: back } }, svg(I.BACK)),
         h('div.ti', h('div.n', h('span.sd', { style: { background: 'var(--you)' } }), h('span.nm', topic), cp && assistantName(cp.assistant) ? h('span.as-tag', assistantName(cp.assistant)!) : null),
-          h('div.s', `${f ? f.project.name : ''} on ${cp ? machineOfCp(cp) : current().hello.hub.name}`))),
+          h('div.s', `${f && secondLine(topic, f.project.name) ? `${f.project.name} on` : 'On'} ${cp ? machineOfCp(cp) : current().hello.hub.name}`))),
       ans ? h('span.ans', svg(I.NO), `Your answer: ${ans}`) : opts.length ? h('div.anspick', opts.map((o, i) => h(`button.chip${st.choice === i ? '.on' : ''}`, { on: { click: () => { st.choice = st.choice === i ? null : i; paint(); } } }, o))) : null,
       h('h2', 'What did you see?'),
       h('div.att',
