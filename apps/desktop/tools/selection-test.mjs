@@ -73,7 +73,7 @@ const R = 'window.__ravenry';
 const TOASTS_EXPR = `[...document.querySelectorAll('#toast .ti')].map((e) => e.textContent)`;
 // What the window shows in front, highlights and has in its panel, as keys.
 const SEL = `(() => { const on = document.querySelector('#tabs .tab.on'); const sel = document.querySelector('#side .ss.sel'); const p = document.getElementById('panel'); return { front: on ? on.dataset.key : null, row: sel ? sel.dataset.key : null, panel: p.hidden ? null : p.dataset.key }; })()`;
-const AGREE = `(() => { const s = ${SEL}; const session = !!s.front && !s.front.startsWith('tab:') && !s.front.startsWith('pane:'); return (session ? s.row === s.front || (s.row === null && ![...document.querySelectorAll('#side .ss')].some((e) => e.dataset.key === s.front)) : s.row === null) && (s.panel === null || s.panel === s.front); })()`;
+const AGREE = `(() => { const s = ${SEL}; const session = !!s.front && !s.front.startsWith('tab:') && !s.front.startsWith('pane:'); return (session ? s.row === s.front || (s.row === null && ![...document.querySelectorAll('#side .ss')].some((e) => e.dataset.key === s.front)) : s.row === null) && (s.panel === null || (s.panel === s.front && (!session || ['session', 'off-board'].includes(document.getElementById('panel').dataset.shows)))); })()`;
 const sig = (n) => path.join(work, `${n}.signal`);
 const go = (n) => path.join(work, `${n}.go`);
 const env = { RAVENRY_SERVICE: 'off', RAVENRY_DESKTOP_DATA: data, RAVENRY_UPDATES: '0' };

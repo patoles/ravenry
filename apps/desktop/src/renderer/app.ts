@@ -1739,28 +1739,62 @@ function renderPanel(): void {
   el.classList.toggle('overlay', vis && !docked);
   if (!vis) { clearHiddenSecrets(false); return; }
   const key = panelTargetKey();
-  // What the panel shows, for the release check: always what is in front.
+  // What the panel shows, for the release check: always what is in front,
+  // and what it shows of it (session, off-board, shell, cp, none).
   el.dataset.key = key || '';
+  let shows = 'none';
   let head: HTMLElement;
   let body: (HTMLElement | null)[];
   if (key && key.startsWith('tab:')) {
     const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.id === key.slice(4));
     [head, body] = t ? shellPanel(t) : [panelHead('Shell', null), []];
+    if (t) shows = 'shell';
   } else if (key && key.startsWith('cp:')) {
     const k = S.cps.get(key.slice(3));
     [head, body] = k ? loosePanel(k) : [panelHead('Session', null), []];
+    if (k) shows = 'cp';
   } else {
     const f = key ? findSession(S.hub, key) : null;
-    if (f) [head, body] = sessionPanel(f.project, f.session, key!);
+    const last = key && !f ? lastKnown.get(key) : null;
+    if (f) { [head, body] = sessionPanel(f.project, f.session, key!); shows = 'session'; }
+    // Its session is off the board (it ended there, or between two states):
+    // what was last known of it, never a blank "Pick a session".
+    else if (last) { [head, body] = offBoardPanel(last.project, last.session); shows = 'off-board'; }
     else {
       const t = tabOfView();
-      if (t && t.kind === 'shell') [head, body] = shellPanel(t);
+      if (t && t.kind === 'shell') { [head, body] = shellPanel(t); shows = 'shell'; }
       else [head, body] = [panelHead('Session', null), [h('p.t3.small', 'Pick a session on the left to see its context, hand-off and brief here.')]];
     }
   }
+  el.dataset.shows = shows;
   patch(el, [head, panelBody]);
   patch(panelBody, body);
   clearHiddenSecrets(true);
+}
+
+// The sessions of the tabs as the hub last listed them: a tab whose session
+// leaves the board still shows what was known of it.
+const lastKnown = new Map<string, { project: HubProject; session: HubSession }>();
+function rememberTabSessions(): void {
+  for (const t of S.tabs) {
+    const key = t.kind === 'session' ? t.key : sessionOfPane(S.hub, t.pane)?.key;
+    const f = key ? findSession(S.hub, key) : null;
+    if (key && f) lastKnown.set(key, f);
+  }
+}
+
+/** A session tab whose session is off the board: its name, folder, assistant, last turn, and Move here. */
+function offBoardPanel(p: HubProject, s: HubSession): [HTMLElement, (HTMLElement | null)[]] {
+  const where = s.termName || (s.term === 'ravenry' ? 'Ravenry' : 'its terminal');
+  const conv = s.conversation || [];
+  const lastTurn = conv.length ? conv[conv.length - 1] : null;
+  const canMove = !!s.sessionId && /^(claude|codex)/.test(String(s.assistant || 'claude')) && !s.surfaceId.startsWith('ravenry:');
+  return [panelHead(p.name, assistantName(s.assistant), null, machineOf(p, s)), [
+    h('div.st.c-idle', svg(RING.idle), `Not running now${s.term && s.term !== 'ravenry' ? `: it ran in ${where}` : ''}`),
+    h('div.sec', h('p', s.topic || p.name), p.folderShort ? h('p.t3.small', p.folderShort) : null),
+    lastTurn ? h('div.sec', lastTurn.ask ? h('p.t3.small', `You: ${lastTurn.ask.length > 140 ? lastTurn.ask.slice(0, 139) + '...' : lastTurn.ask}`) : null, lastTurn.text ? h('p', lastTurn.text.length > 240 ? lastTurn.text.slice(0, 239) + '...' : lastTurn.text) : null) : null,
+    canMove ? h('div.sec', h('p.t3.small', 'Move here picks up this conversation in a pane here.'), h('div.acts', h('button.btn.sm.pri', { on: { click: () => void moveTo(p, s, 'ravenry', 'panel, off the board') } }, 'Move here'))) : null,
+  ]];
 }
 
 function panelHead(name: string, tag: string | null, extra?: HTMLElement | null, machine: string | null = null): HTMLElement {
@@ -1955,6 +1989,7 @@ function onHubState(next: HubState): void {
   }
   // A move done since (after the tabs took their sessions' new keys).
   moveStates();
+  rememberTabSessions();
   pages.update((next as { pages?: NavRow[] }).pages);
   machinesSaid((next as { machines?: MachineView[] }).machines);
   // A session the start screen just started: the view follows it once listed.
@@ -2095,6 +2130,8 @@ function onCommand(name: string, arg?: unknown): void {
     case 'new-session': openStart(); break;
     case 'close-tab': { const t = tabOfView(); if (t) void closeTab(t.id); break; }
     case 'next-tab': stepTab(Number(arg) || 1); break;
+    // The app's own words for the person (an update that stopped trying): kept until OK.
+    case 'update-stopped': showToast(String(arg || ''), [{ label: 'Try again', run: () => api().retryUpdate() }], { key: 'update-stopped', ms: Infinity }); break;
     case 'tab': { const t = S.tabs[Number(arg)]; if (t) setView({ kind: 'tab', id: t.id }); break; }
     case 'toggle-panel': togglePanel(); break;
   }

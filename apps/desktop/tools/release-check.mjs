@@ -53,6 +53,10 @@
 //                   the row, the panel and the tab agree; shot dark, light
 //   11 keys         tools/keys-test.mjs on the packaged app: every row of
 //                   the keys table arrives as its exact bytes
+//   12 startup      hub/tools/startup-load-test.mjs on the packaged hub: on
+//                   a big made-up set of projects and sessions, its first
+//                   answer within 1 s of its listen line, no answer over 1 s
+//                   in its first 30 s, its state within 10 s
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
 import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
@@ -167,7 +171,7 @@ const shot = (f) => ({ shot: path.join(OUT, f), settle: 300 });
 const PROMPT = `${R}.term().ready && ${R}.term().attached && ${R}.S.tabs.some((t) => t.kind === 'shell') && /[%$#] *$/m.test(${R}.text())`;
 // The highlighted row, the panel and the tab in front name the same thing
 // (a plain shell in front: no row highlighted). Checked after every step.
-const AGREE = `(() => { const on = document.querySelector('#tabs .tab.on'); const sel = document.querySelector('#side .ss.sel'); const p = document.getElementById('panel'); const front = on ? on.dataset.key : null; const row = sel ? sel.dataset.key : null; const panel = p.hidden ? null : p.dataset.key; const session = !!front && !front.startsWith('tab:') && !front.startsWith('pane:'); return (session ? row === front || (row === null && ![...document.querySelectorAll('#side .ss')].some((e) => e.dataset.key === front)) : row === null) && (panel === null || panel === front); })()`;
+const AGREE = `(() => { const on = document.querySelector('#tabs .tab.on'); const sel = document.querySelector('#side .ss.sel'); const p = document.getElementById('panel'); const front = on ? on.dataset.key : null; const row = sel ? sel.dataset.key : null; const panel = p.hidden ? null : p.dataset.key; const session = !!front && !front.startsWith('tab:') && !front.startsWith('pane:'); return (session ? row === front || (row === null && ![...document.querySelectorAll('#side .ss')].some((e) => e.dataset.key === front)) : row === null) && (panel === null || (panel === front && (!session || ['session', 'off-board'].includes(p.dataset.shows)))); })()`;
 const agree = (k) => [{ until: AGREE, timeout: 8000 }, mark(`agree_${k}`)];
 const NO_FAIL_TOAST = `(document.getElementById('toast').hidden || !/Could not|no running daemon|no daemon answered/.test(document.getElementById('toast').textContent))`;
 
@@ -564,6 +568,13 @@ try {
     ]);
     feed.catch((e) => { fs.writeFileSync(path.join(m.work, 'feed-error.txt'), String(e.stack || e)); for (const n of ['hooks', 'checkA', 'checkB', 'checkC', 'checkD']) try { fs.writeFileSync(goFile(m, n), '1'); } catch { /* */ } });
     const mk = await Promise.all([run, feed]).then(([x]) => x);
+    // What the hub says of A at the end, and why (kept beside the shots).
+    try {
+      const st = await (await fetch(`http://127.0.0.1:${m.port}/api/state`)).json();
+      const a = (st.projects || []).flatMap((pr) => pr.sessions.map((x) => ({ project: pr.id, ...x }))).filter((x) => x.sessionId === SA);
+      const sp = await (await fetch(`http://127.0.0.1:${m.port}/api/sessions`).catch(() => null))?.json?.().catch(() => null);
+      fs.writeFileSync(path.join(OUT, '9-session-a.json'), JSON.stringify({ onBoard: a.map((x) => ({ surfaceId: x.surfaceId, state: x.state, term: x.term })), ps: JSON.parse(fs.readFileSync(m.ps, 'utf8')), rows: sp && sp.rows ? sp.rows.filter((r) => r.sessionId === SA) : null }, null, 2));
+    } catch (e) { fs.writeFileSync(path.join(OUT, '9-session-a.json'), String(e)); }
     const logOf = (f) => { const p = path.join(m.home, 'Library', 'Logs', 'Ravenry', f); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; };
     const appLog = logOf('app.log');
     const hubLog = logOf('hub.log');
@@ -591,6 +602,17 @@ try {
     const r = spawnSync(process.execPath, [path.join(HERE, 'keys-test.mjs'), path.join(OUT, 'keys'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
     const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
     step(`11 keys: every row of the keys table arrives as its exact bytes in a pane (${lines.filter((l) => l.startsWith('PASS')).length} of ${lines.length}), tools/keys-test.mjs`, r.status === 0 && lines.length > 20 && !lines.some((l) => l.startsWith('FAIL')), { fails: lines.filter((l) => l.startsWith('FAIL')).slice(0, 5), tail: (r.stderr || '').trim().split('\n').slice(-2) });
+    fs.rmSync(k, { recursive: true, force: true });
+  });
+  // ------------------------------------------------------------ 12, a big set of projects
+  await guarded('12 startup', async () => {
+    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcs-'));
+    const app = path.join(k, 'Ravenry.app');
+    execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+    const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub')], { encoding: 'utf8', timeout: 600000 });
+    const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
+    const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
+    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, and has its state within 10 s', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
     fs.rmSync(k, { recursive: true, force: true });
   });
 } finally {
