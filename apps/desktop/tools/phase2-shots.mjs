@@ -249,7 +249,7 @@ try {
     { js: `${R}.pickSession(${KEY_CLAUDE})` }, cardKind('drive'), { sleep: 400 }, ...shot('6-drive-close'),
     click('#panel .cp button', 'Refuse'), until(`!${R}.S.cps.open().some((k) => k.cp.kind === 'drive')`),
     ...pause('closed'),
-    until(`${R}.S.cps.open().some((k) => k.cp.kind === 'drive')`), { js: `${R}.pickSession(${KEY_CLAUDE})` }, cardKind('drive'), { sleep: 400 }, { save: { expr: `({ bar: document.getElementById('tabs').getBoundingClientRect().width, kids: [...document.getElementById('tabs').children].map((e) => [e.className, Math.round(e.getBoundingClientRect().width), e.scrollWidth, getComputedStyle(e).flex]) })`, out: path.join(OUT, 'tabs-debug.json') } }, ...shot('6a-drive-type'),
+    until(`${R}.S.cps.open().some((k) => k.cp.kind === 'drive')`), { js: `${R}.pickSession(${KEY_CLAUDE})` }, cardKind('drive'), { sleep: 400 }, ...shot('6a-drive-type'),
     click('#panel .cp button', 'Let it type this'), until(`!${R}.S.cps.open().some((k) => k.cp.kind === 'drive')`),
     // The person is done with the preview: its tab closes, and the pane with it.
     { js: `${R}.S.tabs.filter((t) => t.kind === 'shell' && ${R}.store.get(t.pane)?.pane.name === 'preview').forEach((t) => document.querySelector('#tabs .tab[title^="preview"] .x')?.click())` },
@@ -258,8 +258,7 @@ try {
     until(`${R}.S.cps.open().some((k) => k.cp.kind === 'drive')`), { js: `${R}.pickSession(${KEY_CODEX})` }, cardKind('drive'),
     click('#panel .cp button', 'Let it use this pane'), until(`!${R}.S.cps.open().some((k) => k.cp.kind === 'drive')`),
     ...showTab('dev server'), { type: 'h\r', after: 1500 },
-    { sleep: 2500 }, { save: { expr: `${R}.marks().debug()`, out: path.join(OUT, 'marks-debug.json') } },
-    until(`${R}.marks().marked.length >= 1`, 15000), { sleep: 500 }, ...shot('6bc-dev-server'),
+    { sleep: 2500 }, until(`${R}.marks().marked.length >= 1`, 15000), { sleep: 500 }, ...shot('6bc-dev-server'),
     ...pause('marked'));
 
   // 19: the lease, the queue, the files.
@@ -298,8 +297,7 @@ try {
 
   // 33: Codex gets the dev server, finishes, asks for a review; the merge.
   steps.push(...showTab('dev server'), until(`!document.getElementById('lstrip').hidden`), click('#lstrip button', 'Hand it to'), ...pause('handed'),
-    { js: `${R}.pickSession(${KEY_CODEX})` }, until(`[...document.querySelectorAll('#panel .cp-h')].some((e) => e.textContent.includes('asks for a review'))`, 40000), { sleep: 500 },
-    { save: { expr: `[...${R}.S.cps.items.values()].map((k) => [k.cp.kind, k.cp.state, k.cp.pane, k.cp.title.slice(0, 60), !!k.hub, k.socket])`, out: path.join(OUT, 'cps-debug.json') } }, ...shot('33-review-card'),
+    { js: `${R}.pickSession(${KEY_CODEX})` }, until(`[...document.querySelectorAll('#panel .cp-h')].some((e) => e.textContent.includes('asks for a review'))`, 40000), { sleep: 500 }, ...shot('33-review-card'),
     click('#panel .cp button', 'Review'), until(`!document.getElementById('review').hidden && document.querySelector('.rv-f')`, 20000),
     { js: `(() => { const r = ${R}.review(); r.addComment('src/levels/harbour.ts', 3, 'The buoys bob too fast next to the boat. Slow them down, keep the size.', true, new Date(Date.now() - 300000).toISOString()); r.addComment('src/levels/harbour.ts', 8, 'Make the harbour wall one tile shorter so the boat fits through on the phone.', false); ${R}.render(); })()` },
     click('.rv-f', 'harbour'), { sleep: 500 }, ...shot('33b-review'),
