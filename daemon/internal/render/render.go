@@ -26,6 +26,59 @@ type Options struct {
 	// Padding is the margin around the grid in pixels; 0 means 8, and a
 	// negative value means none.
 	Padding int
+	// Theme draws it in a window's colours, as that window shows the pane
+	// live: its default colours and cursor where the program set none, and
+	// its 16 palette colours for entries the program did not change. Nil:
+	// the screen's own.
+	Theme *Theme
+}
+
+// Theme is a window's terminal colours.
+type Theme struct {
+	Fg, Bg vt.RGB
+	// Cursor: nil means Fg.
+	Cursor *vt.RGB
+	// Palette: 0 or 16 colours.
+	Palette []vt.RGB
+}
+
+// colours gives a cell's colours: the grid's, or the theme's where the
+// program set none.
+func (o Options) colours(g *vt.Grid, c vt.Cell, defFg, defBg color.RGBA) (fg, bg color.RGBA) {
+	fg, bg = defFg, defBg
+	if c.HasFg {
+		fg = rgba(c.Fg)
+		if t := o.Theme; t != nil && len(t.Palette) == 16 && c.FgIndex >= 0 && c.FgIndex < 16 && !g.PaletteSet[c.FgIndex] {
+			fg = rgba(t.Palette[c.FgIndex])
+		}
+	}
+	if c.HasBg {
+		bg = rgba(c.Bg)
+		if t := o.Theme; t != nil && len(t.Palette) == 16 && c.BgIndex >= 0 && c.BgIndex < 16 && !g.PaletteSet[c.BgIndex] {
+			bg = rgba(t.Palette[c.BgIndex])
+		}
+	}
+	return fg, bg
+}
+
+// defaults gives a grid's default colours and cursor colour in o's theme.
+func (o Options) defaults(g *vt.Grid) (fg, bg, cursor color.RGBA) {
+	fg, bg = rgba(g.Fg), rgba(g.Bg)
+	if t := o.Theme; t != nil {
+		if !g.FgSet {
+			fg = rgba(t.Fg)
+		}
+		if !g.BgSet {
+			bg = rgba(t.Bg)
+		}
+	}
+	cursor = fg
+	if g.CursorColor != nil {
+		cursor = rgba(*g.CursorColor)
+	} else if t := o.Theme; t != nil && t.Cursor != nil {
+		cursor = rgba(*t.Cursor)
+	}
+	return fg, bg, cursor
 }
 
 // Frame is one picture of a filmstrip and how long it shows.
@@ -56,7 +109,7 @@ func Image(g *vt.Grid, o Options) *image.RGBA {
 	pad := padding(o)
 	cw, ch := fs.cellW, fs.cellH
 	img := image.NewRGBA(image.Rect(0, 0, g.Cols*cw+2*pad, g.Rows*ch+2*pad))
-	defBg, defFg := rgba(g.Bg), rgba(g.Fg)
+	defFg, defBg, curC := o.defaults(g)
 	draw.Draw(img, img.Bounds(), image.NewUniform(defBg), image.Point{}, draw.Src)
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -72,23 +125,13 @@ func Image(g *vt.Grid, o Options) *image.RGBA {
 				span = 2
 			}
 			r := image.Rect(pad+x*cw, pad+y*ch, pad+(x+span)*cw, pad+(y+1)*ch).Intersect(img.Bounds())
-			fg, bg := defFg, defBg
-			if c.HasFg {
-				fg = rgba(c.Fg)
-			}
-			if c.HasBg {
-				bg = rgba(c.Bg)
-			}
+			fg, bg := o.colours(g, c, defFg, defBg)
 			if c.Inverse {
 				fg, bg = bg, fg
 			}
 			cursorHere := o.Cursor && g.Cursor.Visible && g.Cursor.X == x && g.Cursor.Y == y
 			if cursorHere && (g.CursorStyle == "block" || g.CursorStyle == "") {
-				cc := defFg
-				if g.CursorColor != nil {
-					cc = rgba(*g.CursorColor)
-				}
-				fg, bg = bg, cc
+				fg, bg = bg, curC
 			}
 			if c.Faint {
 				fg = blend(fg, bg, 0.5)
@@ -112,14 +155,14 @@ func Image(g *vt.Grid, o Options) *image.RGBA {
 		}
 	}
 	if o.Cursor && g.Cursor.Visible && g.Cursor.Y >= 0 && g.Cursor.Y < g.Rows && g.Cursor.X >= 0 && g.Cursor.X < g.Cols {
-		drawCursor(img, g, fs, pad)
+		drawCursor(img, g, fs, pad, curC)
 	}
 	return img
 }
 
 // drawCursor draws the bar, underline and hollow cursors (a block is drawn
 // with its cell).
-func drawCursor(img *image.RGBA, g *vt.Grid, fs *faceSet, pad int) {
+func drawCursor(img *image.RGBA, g *vt.Grid, fs *faceSet, pad int, cc color.RGBA) {
 	cw, ch := fs.cellW, fs.cellH
 	x, y := g.Cursor.X, g.Cursor.Y
 	span := 1
@@ -127,10 +170,6 @@ func drawCursor(img *image.RGBA, g *vt.Grid, fs *faceSet, pad int) {
 		span = 2
 	}
 	r := image.Rect(pad+x*cw, pad+y*ch, pad+(x+span)*cw, pad+(y+1)*ch)
-	cc := rgba(g.Fg)
-	if g.CursorColor != nil {
-		cc = rgba(*g.CursorColor)
-	}
 	p := cellPainter{img: img, r: r, fg: cc}
 	th := max(1, cw/6)
 	switch g.CursorStyle {

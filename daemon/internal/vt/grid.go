@@ -33,10 +33,10 @@ func (s *ghostty) Grid() (*Grid, error) {
 	}
 	g := &Grid{Cols: s.cols, Rows: s.rows, Fg: defaultFg, Bg: defaultBg, CursorStyle: "block"}
 	if c, err := s.t.ColorForeground(); err == nil && c != nil {
-		g.Fg = rgb(*c)
+		g.Fg, g.FgSet = rgb(*c), true
 	}
 	if c, err := s.t.ColorBackground(); err == nil && c != nil {
-		g.Bg = rgb(*c)
+		g.Bg, g.BgSet = rgb(*c), true
 	}
 	if c, err := s.t.ColorCursor(); err == nil && c != nil {
 		cc := rgb(*c)
@@ -47,6 +47,9 @@ func (s *ghostty) Grid() (*Grid, error) {
 		return nil, fmt.Errorf("vt: colours: %w", err)
 	}
 	pal := &colors.Palette
+	for i := range g.PaletteSet {
+		g.PaletteSet[i] = rgb(pal[i]) != s.defPal[i]
+	}
 	if cur, err := s.rs.Cursor(); err == nil {
 		g.Cursor = Cursor{X: int(cur.ViewportX), Y: int(cur.ViewportY), Visible: cur.Visible && cur.ViewportHasValue}
 		switch cur.VisualStyle {
@@ -76,7 +79,7 @@ func (s *ghostty) Grid() (*Grid, error) {
 			return nil, fmt.Errorf("vt: row cells: %w", err)
 		}
 		clear(styles)
-		row := make([]Cell, s.cols)
+		row := newRow(s.cols)
 		n := min(s.cols, view.Len())
 		for x := 0; x < n; x++ {
 			c := &row[x]
@@ -107,6 +110,7 @@ func (s *ghostty) Grid() (*Grid, error) {
 					styles[id] = st
 				}
 				c.Fg, c.HasFg, c.Bg, c.HasBg = st.Fg, st.HasFg, st.Bg, st.HasBg
+				c.FgIndex, c.BgIndex = st.FgIndex, st.BgIndex
 				c.Bold, c.Faint, c.Italic, c.Underline = st.Bold, st.Faint, st.Italic, st.Underline
 				c.Strike, c.Inverse, c.Invisible = st.Strike, st.Inverse, st.Invisible
 			}
@@ -134,7 +138,7 @@ func (s *ghostty) Grid() (*Grid, error) {
 				s.buf = b
 				c.Text = string(b)
 			case gt.CellContentBgColorPalette:
-				c.Bg, c.HasBg = rgb(pal[uint8(content)]), true
+				c.Bg, c.HasBg, c.BgIndex = rgb(pal[uint8(content)]), true, int16(uint8(content))
 			case gt.CellContentBgColorRGB:
 				c.Bg, c.HasBg = RGB{uint8(content), uint8(content >> 8), uint8(content >> 16)}, true
 			}
@@ -147,10 +151,19 @@ func (s *ghostty) Grid() (*Grid, error) {
 		rows = rows[len(rows)-s.rows:]
 	}
 	for len(rows) < s.rows {
-		rows = append(rows, make([]Cell, s.cols))
+		rows = append(rows, newRow(s.cols))
 	}
 	g.Cells = rows
 	return g, nil
+}
+
+// newRow is a row of empty cells, in the default colours.
+func newRow(n int) []Cell {
+	row := make([]Cell, n)
+	for i := range row {
+		row[i].FgIndex, row[i].BgIndex = -1, -1
+	}
+	return row
 }
 
 // slowCell reads one cell with a call per field, for a libghostty whose
@@ -186,6 +199,19 @@ func (s *ghostty) slowCell(c *Cell, x int) error {
 	if st.HasBackground {
 		c.Bg, c.HasBg = rgb(st.Background), true
 	}
+	if sty, err := s.rc.Style(); err == nil && sty != nil {
+		if fc := sty.FgColor(); fc.Tag == gt.StyleColorPalette {
+			c.FgIndex = int16(fc.Palette)
+		}
+		if bc := sty.BgColor(); bc.Tag == gt.StyleColorPalette {
+			c.BgIndex = int16(bc.Palette)
+		}
+	}
+	if tag, err := raw.ContentTag(); err == nil && tag == gt.CellContentBgColorPalette {
+		if i, err := raw.ColorPalette(); err == nil {
+			c.BgIndex = int16(i)
+		}
+	}
 	if c.Spacer {
 		return nil
 	}
@@ -201,21 +227,21 @@ func (s *ghostty) slowCell(c *Cell, x int) error {
 // styleCell resolves a style into a cell's look, palette colours through
 // the screen's palette (which a program may have changed with OSC 4).
 func styleCell(st *gt.Style, pal *gt.Palette) Cell {
-	var c Cell
+	c := Cell{FgIndex: -1, BgIndex: -1}
 	if st == nil {
 		return c
 	}
-	resolve := func(sc gt.StyleColor) (RGB, bool) {
+	resolve := func(sc gt.StyleColor) (RGB, bool, int16) {
 		switch sc.Tag {
 		case gt.StyleColorPalette:
-			return rgb(pal[sc.Palette]), true
+			return rgb(pal[sc.Palette]), true, int16(sc.Palette)
 		case gt.StyleColorRGB:
-			return rgb(sc.RGB), true
+			return rgb(sc.RGB), true, -1
 		}
-		return RGB{}, false
+		return RGB{}, false, -1
 	}
-	c.Fg, c.HasFg = resolve(st.FgColor())
-	c.Bg, c.HasBg = resolve(st.BgColor())
+	c.Fg, c.HasFg, c.FgIndex = resolve(st.FgColor())
+	c.Bg, c.HasBg, c.BgIndex = resolve(st.BgColor())
 	c.Bold, c.Faint, c.Italic = st.Bold(), st.Faint(), st.Italic()
 	c.Underline = st.Underline() != gt.UnderlineNone
 	c.Strike, c.Inverse, c.Invisible = st.Strikethrough(), st.Inverse(), st.Invisible()

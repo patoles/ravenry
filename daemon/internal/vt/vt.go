@@ -196,6 +196,10 @@ type Grid struct {
 	// CursorColor is the cursor's colour when the program set one (OSC
 	// 12); nil means Fg.
 	CursorColor *RGB
+	// FgSet and BgSet: the program set the default colours (OSC 10, 11).
+	FgSet, BgSet bool
+	// PaletteSet[i]: the program changed palette entry i (OSC 4).
+	PaletteSet [16]bool
 }
 
 // Cell is one cell of a Grid.
@@ -208,6 +212,10 @@ type Cell struct {
 	Spacer bool
 	Fg, Bg RGB
 	// HasFg and HasBg are false when the cell uses the default colour.
-	HasFg, HasBg                                               bool
+	HasFg, HasBg bool
+	// FgIndex and BgIndex are the palette entry a colour came from (Fg and
+	// Bg hold it resolved), or -1 for a direct colour or the default: a
+	// picture drawn in a window's theme maps entries 0 to 15 to its own.
+	FgIndex, BgIndex                                           int16
 	Bold, Faint, Italic, Underline, Strike, Inverse, Invisible bool
 }

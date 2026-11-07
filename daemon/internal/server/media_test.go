@@ -187,3 +187,31 @@ func TestOverrides(t *testing.T) {
 	}
 	waitFor(t, c, np.ID, `term=vt100`, 0)
 }
+
+// A picture in the window's theme: its background where the program set
+// none, its palette for the colours the program used by number.
+func TestShotInATheme(t *testing.T) {
+	d := startDaemon(t)
+	c := d.dial(client.Options{Name: "app"})
+	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `printf '\033[41m    \033[0m'; exec sleep 60`}, "cols": 20, "rows": 3})
+	waitFor(t, c, p.ID, `^`, 0)
+	time.Sleep(300 * time.Millisecond)
+	pal := make([]string, 16)
+	for i := range pal {
+		pal[i] = "#000000"
+	}
+	pal[1] = "#ff6961"
+	shot := call[proto.ShotResult](t, c, "pane.shot", map[string]any{"pane": p.ID, "cursor": false, "theme": map[string]any{"foreground": "#d1d1d6", "background": "#0b0b0c", "palette": pal}})
+	b, _ := base64.StdEncoding.DecodeString(shot.PNG)
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, g, bl, _ := img.At(1, 1).RGBA(); r>>8 != 0x0b || g>>8 != 0x0b || bl>>8 != 0x0c {
+		t.Fatalf("the background is not the theme's: %x %x %x", r>>8, g>>8, bl>>8)
+	}
+	cw := shot.Width / 20
+	if r, g, bl, _ := img.At(8+cw, 8+cw/2).RGBA(); r>>8 != 0xff || g>>8 != 0x69 || bl>>8 != 0x61 {
+		t.Fatalf("palette red is not the theme's: %x %x %x", r>>8, g>>8, bl>>8)
+	}
+}

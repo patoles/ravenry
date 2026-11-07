@@ -4649,6 +4649,38 @@
       "additionalProperties": false,
       "description": "Where input, a pane or a lease comes from."
     },
+    "Theme": {
+      "type": "object",
+      "properties": {
+        "foreground": {
+          "$ref": "#/$defs/HexColour"
+        },
+        "background": {
+          "$ref": "#/$defs/HexColour"
+        },
+        "cursor": {
+          "$ref": "#/$defs/HexColour"
+        },
+        "palette": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/HexColour"
+          }
+        }
+      },
+      "required": [
+        "foreground",
+        "background"
+      ],
+      "additionalProperties": false,
+      "description": "A window's terminal colours: its defaults and cursor where the program set none, its 16 palette colours for the entries the program did not change."
+    },
+    "HexColour": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
     "Lease": {
       "type": "object",
       "properties": {
@@ -5519,6 +5551,10 @@
     "request.pane.shot": {
       "type": "object",
       "properties": {
+        "theme": {
+          "$ref": "#/$defs/Theme",
+          "description": "Draw it in the window's colours, as it shows the pane live."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },
@@ -5631,6 +5667,10 @@
     "request.pane.frames": {
       "type": "object",
       "properties": {
+        "theme": {
+          "$ref": "#/$defs/Theme",
+          "description": "Draw it in the window's colours, as it shows the pane live."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },

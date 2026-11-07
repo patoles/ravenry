@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,7 +140,7 @@ func (c *conn) paneFiles(id uint64, data []byte) {
 
 // ------------------------------------------------------------ pictures
 
-func renderOptions(fontSize *float64) (render.Options, error) {
+func renderOptions(fontSize *float64, theme ...*proto.Theme) (render.Options, error) {
 	o := render.Options{Cursor: true}
 	if fontSize != nil {
 		if *fontSize < 6 || *fontSize > 48 {
@@ -147,7 +148,55 @@ func renderOptions(fontSize *float64) (render.Options, error) {
 		}
 		o.FontSize = *fontSize
 	}
+	if len(theme) > 0 && theme[0] != nil {
+		t, err := renderTheme(theme[0])
+		if err != nil {
+			return o, err
+		}
+		o.Theme = t
+	}
 	return o, nil
+}
+
+// renderTheme reads a window's colours, each "#rrggbb".
+func renderTheme(t *proto.Theme) (*render.Theme, error) {
+	hex := func(name, s string) (vt.RGB, error) {
+		var c vt.RGB
+		if len(s) != 7 || s[0] != '#' {
+			return c, bad("theme.%s is a colour as #rrggbb", name)
+		}
+		v, err := strconv.ParseUint(s[1:], 16, 32)
+		if err != nil {
+			return c, bad("theme.%s is a colour as #rrggbb", name)
+		}
+		return vt.RGB{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v)}, nil
+	}
+	out := &render.Theme{}
+	var err error
+	if out.Fg, err = hex("foreground", t.Foreground); err != nil {
+		return nil, err
+	}
+	if out.Bg, err = hex("background", t.Background); err != nil {
+		return nil, err
+	}
+	if t.Cursor != "" {
+		c, err := hex("cursor", t.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		out.Cursor = &c
+	}
+	if len(t.Palette) != 0 && len(t.Palette) != 16 {
+		return nil, bad("theme.palette is 16 colours, or none")
+	}
+	for i, s := range t.Palette {
+		c, err := hex(fmt.Sprintf("palette[%d]", i), s)
+		if err != nil {
+			return nil, err
+		}
+		out.Palette = append(out.Palette, c)
+	}
+	return out, nil
 }
 
 func (c *conn) paneShot(id uint64, data []byte) {
@@ -161,7 +210,7 @@ func (c *conn) paneShot(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	o, err := renderOptions(r.FontSize)
+	o, err := renderOptions(r.FontSize, r.Theme)
 	if err != nil {
 		c.failErr(id, err)
 		return
@@ -288,7 +337,7 @@ func (c *conn) paneFrames(id uint64, data []byte) {
 		}
 		limit = *r.MaxFrames
 	}
-	o, err := renderOptions(r.FontSize)
+	o, err := renderOptions(r.FontSize, r.Theme)
 	if err != nil {
 		c.failErr(id, err)
 		return

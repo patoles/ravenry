@@ -22,6 +22,9 @@ type ghostty struct {
 	cols  int
 	rows  int
 	title string
+	// defPal is the palette the screen starts with, to tell the entries a
+	// program changed (OSC 4).
+	defPal [16]RGB
 }
 
 // snapshotExtras restores everything except the palette: a client keeps
@@ -151,6 +154,13 @@ func New(o Options) (Screen, error) {
 	if s.rc, err = gt.NewRenderStateRowCells(); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("vt: row cells: %w", err)
+	}
+	if err := s.rs.Update(s.t); err == nil {
+		if colors, err := s.rs.Colors(); err == nil {
+			for i := range s.defPal {
+				s.defPal[i] = rgb(colors.Palette[i])
+			}
+		}
 	}
 	return s, nil
 }

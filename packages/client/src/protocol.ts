@@ -195,6 +195,15 @@ export interface FileTouch {
   status?: string;
 }
 
+/** A window's terminal colours, "#rrggbb" each: pictures of a pane drawn as the window shows it live. */
+export interface Theme {
+  foreground: string;
+  background: string;
+  cursor?: string;
+  /** 16 colours, or none. */
+  palette?: string[];
+}
+
 export interface FilmFrame {
   at: string;
   mark: Mark;
@@ -578,11 +587,11 @@ export interface Methods {
   };
   'pane.files': { params: { pane: PaneId; no_git?: boolean }; result: { pane: PaneId; files: FileTouch[]; git_root?: string; partial?: boolean } };
   'pane.shot': {
-    params: { pane: PaneId; cols?: number; rows?: number; font_size?: number; cursor?: boolean };
+    params: { pane: PaneId; cols?: number; rows?: number; font_size?: number; cursor?: boolean; theme?: Theme };
     result: { pane: PaneId; mark: Mark; cols: number; rows: number; width: number; height: number; png: string };
   };
   'pane.frames': {
-    params: { pane: PaneId; last_ms?: number; format?: 'png' | 'gif' | 'apng'; max_frames?: number; font_size?: number };
+    params: { pane: PaneId; last_ms?: number; format?: 'png' | 'gif' | 'apng'; max_frames?: number; font_size?: number; theme?: Theme };
     result: FramesResult;
   };
   'pane.recording': {

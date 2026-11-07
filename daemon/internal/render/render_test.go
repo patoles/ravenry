@@ -485,3 +485,41 @@ func TestCost(t *testing.T) {
 		fmt.Printf("MEASURE render.APNG %dx%d, 30 frames of a spinner: %v, %d KiB\n", sz[0], sz[1], time.Since(start), len(b)>>10)
 	}
 }
+
+// A window's theme: its default colours where the program set none, its
+// palette for the entries the program did not change, never a direct
+// colour or one the program set.
+func TestTheme(t *testing.T) {
+	tbg, tfg, tred := rgbOf(0x0b, 0x0b, 0x0c), rgbOf(0xd1, 0xd1, 0xd6), rgbOf(0xff, 0x69, 0x61)
+	pal := make([]vt.RGB, 16)
+	pal[1] = tred
+	o := Options{Theme: &Theme{Fg: tfg, Bg: tbg, Palette: pal}}
+	g := grid("     ")
+	for i := range g.Cells[0] {
+		g.Cells[0][i].FgIndex, g.Cells[0][i].BgIndex = -1, -1
+	}
+	g.Cells[0][0] = vt.Cell{Text: "█", Fg: red, HasFg: true, FgIndex: 1, BgIndex: -1}  // palette red
+	g.Cells[0][1] = vt.Cell{Text: "█", Fg: red, HasFg: true, FgIndex: -1, BgIndex: -1} // a direct colour
+	g.Cells[0][2] = vt.Cell{Text: "█", FgIndex: -1, BgIndex: -1}                       // the default
+	img := Image(g, o)
+	for x, want := range []vt.RGB{tred, red, tfg} {
+		px, py, _, _ := cellPx(o, x, 0)
+		if got := at(img, px, py); got != want {
+			t.Errorf("cell %d = %v, want %v", x, got, want)
+		}
+	}
+	if got := at(img, 1, 1); got != tbg {
+		t.Errorf("background = %v, want the theme's", got)
+	}
+	// What the program set stays: its own background and palette entry.
+	g.BgSet = true
+	g.PaletteSet[1] = true
+	img = Image(g, o)
+	if got := at(img, 1, 1); got != bg {
+		t.Errorf("a background the program set = %v", got)
+	}
+	px, py, _, _ := cellPx(o, 0, 0)
+	if got := at(img, px, py); got != red {
+		t.Errorf("a palette entry the program changed = %v", got)
+	}
+}

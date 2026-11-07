@@ -155,6 +155,17 @@ type ShotRequest struct {
 	Rows     *int     `json:"rows,omitempty"`
 	FontSize *float64 `json:"font_size,omitempty"`
 	Cursor   *bool    `json:"cursor,omitempty"`
+	Theme    *Theme   `json:"theme,omitempty"`
+}
+
+// Theme is a window's terminal colours, "#rrggbb" each: a picture drawn
+// in it looks as the window shows the pane live (where the program set
+// no colours of its own).
+type Theme struct {
+	Foreground string   `json:"foreground"`
+	Background string   `json:"background"`
+	Cursor     string   `json:"cursor,omitempty"`
+	Palette    []string `json:"palette,omitempty"`
 }
 
 type ShotResult struct {
@@ -174,6 +185,7 @@ type FramesRequest struct {
 	Format    string   `json:"format,omitempty"`
 	MaxFrames *int     `json:"max_frames,omitempty"`
 	FontSize  *float64 `json:"font_size,omitempty"`
+	Theme     *Theme   `json:"theme,omitempty"`
 }
 
 // FilmFrame is one frame of a filmstrip.

@@ -1177,6 +1177,7 @@ hollow box for a character the fonts lack. The fonts are Go Mono's.
 | `cols`, `rows` | integers, optional, together | Draw it at this size: the screen rebuilt in a fresh terminal and resized there, so its text reflows. The program is not told and does not redraw (for that, `pane.override`). At most 400000 cells. |
 | `font_size` | number, optional | 6 to 48. Default 14 (pixels). |
 | `cursor` | boolean, optional | Draw the cursor. Default true. |
+| `theme` | object, optional | The window's colours, each `#rrggbb`: `foreground` and `background`, optionally `cursor` and `palette` (16 colours). The picture then looks as that window shows the pane live: its defaults and cursor where the program set none (OSC 10, 11, 12), its palette for the entries the program did not change (OSC 4); direct colours stay. Without it: the program's colours, else a fixed dark theme. |
 
 Result: `pane`, `mark` (the output the picture shows), `cols`, `rows`,
 `width`, `height` (pixels) and `png` (base64).
@@ -1190,6 +1191,7 @@ Result: `pane`, `mark` (the output the picture shows), `cols`, `rows`,
 | `format` | string, optional | `png` (each frame a PNG), `gif` (default) or `apng`: one animated picture that loops. |
 | `max_frames` | integer, optional | 1 to 600. Default 100. More frames are thinned evenly, keeping the first and the last. |
 | `font_size` | number, optional | As in `pane.shot`. |
+| `theme` | object, optional | As in `pane.shot`. |
 
 The strip ends with the screen now. Result: `pane`, `format`, `frames`
 (each `at`, `mark`, and with `png` its `png`), `from` and `to` (the
