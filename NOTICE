@@ -27,3 +27,9 @@ terminal cell wide, under the SIL Open Font License, Version 1.1
 (apps/phone/src/OFL.txt):
   Copyright 2022 The Noto Project Authors (https://github.com/notofonts)
 The font is distributed beside, not combined with, the GPL and Apache code.
+
+ravenryd draws pictures of panes (daemon/internal/render) with the Go Mono
+fonts, built into the binary from golang.org/x/image/font/gofont, under a
+BSD 3-Clause licence:
+  Copyright (c) 2016 Bigelow & Holmes Inc.. All rights reserved.
+The full licence text is in that module's font/gofont/ttfs/README.
