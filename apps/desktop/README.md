@@ -182,7 +182,8 @@ A session in a Ravenry pane whose conversation is also open elsewhere, or
 went on elsewhere since, says so in one line across the top of its tab
 (and in the panel): "Also open in cmux." with Move here and Keep it in
 cmux, or "This conversation went on in cmux." with Move here, which ends
-both copies and resumes the latest in the same pane. Each move is a line
+both copies and resumes the latest in a new pane in the old one's place
+(the old pane closes: its shell may carry what an older daemon inherited). Each move is a line
 in app.log with each process it ended.
 
 **The selection is what is in front.** The tab in front decides what the

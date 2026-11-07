@@ -1727,42 +1727,49 @@ async function moveSession(body) {
     const inRavenry = holders0.filter((h) => h.ravenryId);
     if (keep === 'outside') {
       for (const h of inRavenry) ended.push(await endHolder(h, sid));
+      const olds = new Set(inRavenry.map((h) => h.ravenryId));
+      setTimeout(() => { for (const id of olds) void closeOldPane(sid, id); }, 2000);
       resumed.delete(sid);
-      movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: null });
+      movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: null, replaced: [...olds] });
       // The rows follow: the process list without the copy that ended.
       await refreshProcs();
       wantTick = true; setTimeout(tick, 30);
-      return { ok: true, keep, ended };
+      return { ok: true, keep, ended, replaced: [...olds] };
     }
-    // The Ravenry pane it was in (its process, else the board's row).
-    const paneId = (inRavenry[0] && inRavenry[0].ravenryId) || (s && term.kindOf(s.surfaceId) === 'ravenry' ? s.surfaceId.slice('ravenry:'.length) : null);
+    // The Ravenry pane it was in (its process, else the board's row): never
+    // used again. Its shell may carry what the daemon that made it inherited
+    // (an older daemon started from a Claude Code shell handed its panes
+    // CLAUDECODE and CMUX_*, and a Claude resumed there saved no
+    // transcript), so the session resumes in a new pane of the current
+    // daemon, clean by construction, and the old pane closes once its
+    // assistant has ended. The app puts the new one where the old one was.
+    const oldPanes = new Set(inRavenry.map((h) => h.ravenryId));
+    if (s && term.kindOf(s.surfaceId) === 'ravenry') oldPanes.add(s.surfaceId.slice('ravenry:'.length));
     for (const h of holders0) ended.push(await endHolder(h, sid));
     resumed.delete(sid);
     const left = await holdersOf(sid);
     if (left.length) return { ok: false, status: 409, error: `It is still running (pid ${left.map((h) => h.pid).join(', ')}), so it was not started again.`, ended };
-    let r = null;
-    if (paneId) {
-      const kind = asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
-      const pl = sessionstart.plan({ projectId: project.id, folder: [e && e.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || project.folder, assistant: kind, resume: sid }, {
-        project, launch: (_p, k) => launchFor({ kind: k, note: null }), machines: machines.status().map((m) => m.name), binPath: assistantPath,
-      });
-      if (pl.ok) {
-        const typed = await term.ravenryType(paneId, pl.line);
-        if (typed.ok) { r = { ok: true, surfaceId: typed.surfaceId, pane: typed.pane, projectId: project.id, command: pl.line, same: true }; resumed.set(sid, { at: Date.now(), surfaceId: typed.surfaceId, pane: typed.pane }); }
-      }
-    }
-    if (!r) {
-      resumeBusy.delete(sid);
-      r = await resumeSession({ projectId: project.id, sessionId: sid, cols: b.cols, rows: b.rows });
-    }
-    if (r.ok) console.log(`sessions: move ${sid}: resumed in ${r.surfaceId}${r.same ? ' (the same pane)' : ''}`);
-    movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: r.ok ? r.surfaceId : null });
+    resumeBusy.delete(sid);
+    const r = await resumeSession({ projectId: project.id, sessionId: sid, cols: b.cols, rows: b.rows });
+    // Once the app has put the new pane in its place (it answers within a
+    // moment); kept when the resume failed, so nothing is lost from view.
+    if (r.ok) setTimeout(() => { for (const id of oldPanes) void closeOldPane(sid, id); }, 2000);
+    if (r.ok) console.log(`sessions: move ${sid}: resumed in a new pane, ${r.surfaceId}${oldPanes.size ? ` (was ${[...oldPanes].join(', ')})` : ''}`);
+    movedLast.set(sid, { at: Date.now(), keep, ended, surfaceId: r.ok ? r.surfaceId : null, replaced: [...oldPanes] });
     wantTick = true; setTimeout(tick, 30);
     setTimeout(refreshProcs, 2000);
-    return { ...r, keep, ended };
+    return { ...r, keep, ended, replaced: [...oldPanes] };
   } finally {
     resumeBusy.delete(sid);
   }
+}
+
+// An old pane of a move, closed now that its assistant has ended (its
+// shell, and whatever else runs in it, with it). Said in the hub's log.
+async function closeOldPane(sid, id) {
+  if (!id) return;
+  const r = await term.ravenryClose(`ravenry:${id}`).catch((e) => ({ ok: false, err: e.message }));
+  console.log(`sessions: move ${sid}: closed its old pane ${id}${r.ok ? '' : ` (${r.err || 'not closed'})`}`);
 }
 
 // The tick's part: a waiting move goes once its turn has ended.

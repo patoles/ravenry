@@ -318,7 +318,9 @@ try {
     // started it again). That daemon was started from a cmux tab, so its
     // panes inherited the tab's variables, as on 2026-11-07.
     outsideSession(b);
-    const oldEnv = { HOME: b.home, PATH: b.env.PATH, LANG: 'en_US.UTF-8', SHELL: '/bin/zsh', RAVENRY_RUNTIME_DIR: b.rt, RAVENRY_STATE_DIR: b.data, CMUX_SURFACE_ID: SF, CMUX_WORKSPACE_ID: WS, TERM_PROGRAM: 'ghostty' };
+    // ... and from inside a Claude Code session: its panes carry CLAUDECODE
+    // and CLAUDE_CODE_CHILD_SESSION, as a live 0.1.3 pane did on 2026-11-07.
+    const oldEnv = { HOME: b.home, PATH: b.env.PATH, LANG: 'en_US.UTF-8', SHELL: '/bin/zsh', RAVENRY_RUNTIME_DIR: b.rt, RAVENRY_STATE_DIR: b.data, CMUX_SURFACE_ID: SF, CMUX_WORKSPACE_ID: WS, TERM_PROGRAM: 'ghostty', CLAUDECODE: '1', CLAUDE_CODE_CHILD_SESSION: '1' };
     execFileSync(path.join(oldDir, 'ravenryd'), ['serve', '--detach'], { env: oldEnv });
     const { connectSocket } = await import(path.join(HUB, '..', 'packages', 'node-client', 'index.mjs'));
     const oldSock = path.join(b.rt, `ravenryd-${prevBuild.version}.sock`);
@@ -346,11 +348,24 @@ try {
       { click: `${rowsOf}[0]`, clickJs: true, hold: 300 }, mark('click'),
       { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane === '${oldPane.id}' && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && document.querySelector('#tabs .tab.on') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('opened'), shot('7-old-pane-open.png'),
       { until: `document.querySelector('#panel .sec.twin') && /Also open in cmux/.test(document.querySelector('#panel .sec.twin').textContent)`, timeout: 20000 }, mark('twin'), shot('7-old-pane-also-cmux.png'), ...agree('oldPane'),
+      // Move here on that old pane: it resumes in a new pane of the new
+      // daemon, never in the old pane's shell with what it inherited.
+      { until: `!document.getElementById('movebar').hidden`, timeout: 20000 },
+      { click: '#movebar .btn.pri' }, mark('moveOld'),
+      { until: `${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane !== '${oldPane.id}' && ${R}.text().includes('fake claude ready (args: --resume ${SID})')`, timeout: 30000 }, mark('movedOld'),
+      save('newPane', `${R}.term().attached.pane`), shot('7-old-pane-moved.png'),
+      { sleep: 3000 },
     ]);
     step(`7 update: a session in a pane of the build before's daemon (${prevBuild.version}) is listed after the update, as one row`, m.oneRow > 0, { msFromStart: m.oneRow });
     step('7 update: clicking that row opens its pane in the middle', m.opened > 0, { msFromClick: m.opened - m.click });
     step('7 update: with its process in cmux too, the session says "Also open in cmux"', m.twin > 0);
     step('5/7 update: after the relaunch and the click, the highlighted row, the panel and the tab in front agree', m.agree_update > 0 && m.agree_oldPane > 0);
+    {
+      let l = []; try { l = JSON.parse(fs.readFileSync(b.ps, 'utf8')); } catch { /* none */ }
+      const on = l.filter((p) => p.command.includes(SID)).filter((p) => { try { process.kill(p.pid, 0); return true; } catch { return false; } });
+      const oldLeft = (() => { try { return JSON.parse(execFileSync(path.join(oldDir, 'ravenryd'), ['ls', '--json', '--no-start'], { env: oldEnv, encoding: 'utf8' })).some((p) => p.id === oldPane.id); } catch { return null; } })();
+      step('7 update: Move here on the leaky old pane resumes in a new pane, its Claude clean (no CLAUDECODE, CLAUDE_CODE_*, CMUX_*), and the old pane closes', m.movedOld > 0 && on.length === 1 && on[0].env.includes(`RAVENRY_PANE=${m.newPane}`) && !/(^|\s)(CLAUDE|CMUX_)/.test(on[0].env) && oldLeft === false, { msFromClick: m.movedOld - m.moveOld, left: on.map((p) => ({ pid: p.pid, env: p.env })), oldPaneLeft: oldLeft });
+    }
     const newUp = await hubAnswers(b.port, 30000);
     const prog = argsOf(b.label);
     const hubs = listeners(b.port);
@@ -455,7 +470,9 @@ try {
       for (let i = 0; i < 100 && !o3.exited; i++) await sleep(100);
       fs.writeFileSync(goFile(m, 'checkB'), '1');
       await at(m, 'checkC');
-      res.c = { left: onSession(SA).map((p) => ({ pid: p.pid, env: p.env })) };
+      await sleep(2500); // the old pane closes 2 s after the move
+      const panes = (() => { try { return JSON.parse(execFileSync(path.join(m.data, 'bin', 'ravenryd'), ['ls', '--json', '--no-start'], { env: { HOME: m.home, PATH: '/usr/bin:/bin', RAVENRY_RUNTIME_DIR: m.rt, RAVENRY_STATE_DIR: m.data }, encoding: 'utf8' })).map((p) => p.id); } catch { return null; } })();
+      res.c = { left: onSession(SA).map((p) => ({ pid: p.pid, env: p.env })), panes };
       // D: open in both: A in the pane, and again in cmux.
       const o4 = outside(SFA, ['--resume', SA]);
       await o4.until(/fake claude ready/);
@@ -499,7 +516,7 @@ try {
       { until: `${R}.term().attached && ${R}.term().attached.pane === window.__paneA && !document.getElementById('movebar').hidden && /This conversation went on in cmux\./.test(document.getElementById('movebar').textContent)`, timeout: 30000 }, mark('staleC'),
       ...both('C-went-on-in-cmux'),
       { click: '#movebar .btn.pri' }, mark('clickC'),
-      { until: `${paneText('last turn: answer to: it went on elsewhere')} && document.getElementById('movebar').hidden`, timeout: 30000 }, mark('movedC'),
+      { until: `${paneText('last turn: answer to: it went on elsewhere')} && document.getElementById('movebar').hidden && ${R}.term().attached.pane !== window.__paneA`, timeout: 30000 }, mark('movedC'),
       save('paneC', `${R}.term().attached.pane`),
       ...pause(m, 'checkC'),
       // D
@@ -517,9 +534,10 @@ try {
     const hubLog = logOf('hub.log');
     const errs = kids.map((k) => (k.out.match(/hook error.*/g) || [])).flat();
     step('9 move: hooks set up through the stable folder, and no stand-in saw a hook error', res.hooks === 200 && !errs.length, { setup: res.hooks, errors: errs.slice(0, 3) });
-    step('9 move A: open in cmux and idle, Move here ends it there and resumes it here with its last turn; one process left, in the pane', mk.movedA > 0 && !!res.a?.o1Exit && res.a.left.length === 1 && /RAVENRY_PANE=/.test(res.a.left[0].env), { msFromClick: mk.movedA - mk.clickA, o1: res.a?.o1Exit, left: res.a?.left });
-    step('9 move B: mid-turn, the button waits for the turn to end, then moves it; the turn finished first; one process left, in a pane', mk.waitingB > 0 && mk.movedB > 0 && !!res.b?.answeredBeforeEnd && !!res.b.o2Exit && res.b.left.length === 1 && /RAVENRY_PANE=/.test(res.b.left[0].env), { waitedMs: mk.movedB - mk.clickB, left: res.b?.left });
-    step('9 move C: a pane whose conversation went on in cmux says so; Move here resumes the latest in the same pane; one process left', mk.staleC > 0 && mk.movedC > 0 && !!mk.paneA && mk.paneC === mk.paneA && res.c?.left.length === 1 && res.c.left[0].env.includes(`RAVENRY_PANE=${mk.paneA}`), { paneA: mk.paneA, paneC: mk.paneC, left: res.c?.left });
+    const clean = (l) => (l || []).every((p) => !/(^|\s)(CLAUDE|CMUX_)/.test(p.env));
+    step('9 move A: open in cmux and idle, Move here ends it there and resumes it here with its last turn; one process left, in the pane, its environment clean', mk.movedA > 0 && !!res.a?.o1Exit && res.a.left.length === 1 && /RAVENRY_PANE=/.test(res.a.left[0].env) && clean(res.a.left), { msFromClick: mk.movedA - mk.clickA, o1: res.a?.o1Exit, left: res.a?.left });
+    step('9 move B: mid-turn, the button waits for the turn to end, then moves it; the turn finished first; one process left, in a pane', mk.waitingB > 0 && mk.movedB > 0 && !!res.b?.answeredBeforeEnd && !!res.b.o2Exit && res.b.left.length === 1 && /RAVENRY_PANE=/.test(res.b.left[0].env) && clean(res.b.left), { waitedMs: mk.movedB - mk.clickB, left: res.b?.left });
+    step('9 move C: a pane whose conversation went on in cmux says so; Move here resumes the latest in a new pane, its environment clean, and the old pane closes; one process left', mk.staleC > 0 && mk.movedC > 0 && !!mk.paneA && !!mk.paneC && mk.paneC !== mk.paneA && res.c?.left.length === 1 && res.c.left[0].env.includes(`RAVENRY_PANE=${mk.paneC}`) && clean(res.c.left) && res.c.panes && !res.c.panes.includes(mk.paneA), { paneA: mk.paneA, paneC: mk.paneC, left: res.c?.left, panes: res.c?.panes });
     step('9 move D: open in both, Keep it in cmux ends the Ravenry copy; only the cmux one is left', mk.doubleD > 0 && mk.keptD > 0 && !!res.d?.o4Alive && res.d.left.length === 1 && !/RAVENRY_PANE=/.test(res.d.left[0].env), { left: res.d?.left });
     const frontToast = (list, line) => (list || []).some((t) => t.includes(line));
     const dupes = (list) => new Set(list || []).size !== (list || []).length;

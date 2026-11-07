@@ -32,7 +32,7 @@ export interface HubSession {
   /** A Move here waiting for the turn to end. */
   moving?: { waiting: boolean; keep: 'ravenry' | 'outside'; name: string } | null;
   /** The last move done (for a minute). */
-  moved?: { at: number; keep: 'ravenry' | 'outside'; ended: { pid: number; where: string; signal?: string; ms?: number; skipped?: boolean }[]; surfaceId: string | null } | null;
+  moved?: { at: number; keep: 'ravenry' | 'outside'; ended: { pid: number; where: string; signal?: string; ms?: number; skipped?: boolean }[]; surfaceId: string | null; replaced?: string[] } | null;
   /** In a Ravenry pane: the conversation went on in another process since. */
   movedOn?: { name: string; pid: number } | null;
   /** Its last turns from its transcript, oldest first, when no screen of it is read. */

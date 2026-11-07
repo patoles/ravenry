@@ -57,8 +57,11 @@ function editPs(fn) {
     try { fs.writeFileSync(tmp, JSON.stringify(fn(list))); fs.renameSync(tmp, PS); } catch { /* no list: a plain run */ }
   } finally { try { fs.rmdirSync(lock); } catch { /* gone */ } }
 }
-const envWords = ['TERM_PROGRAM', 'RAVENRY_PANE', 'CMUX_WORKSPACE_ID', 'CMUX_SURFACE_ID', 'ITERM_SESSION_ID']
-  .filter((k) => process.env[k]).map((k) => `${k}=${process.env[k]}`).join(' ');
+// Its terminal's variables, and anything of another session it inherited
+// (CLAUDECODE, CLAUDE_CODE_*, CMUX_*), as `ps -E` would show them.
+const envWords = Object.keys(process.env)
+  .filter((k) => ['TERM_PROGRAM', 'RAVENRY_PANE', 'ITERM_SESSION_ID'].includes(k) || /^(CLAUDE|CMUX_)/.test(k)).sort()
+  .map((k) => `${k}=${process.env[k]}`).join(' ');
 editPs((l) => [...l.filter((p) => p.pid !== process.pid), { pid: process.pid, ppid: process.ppid, rssKb: 120000, startedAt: new Date().toISOString(), command: `claude ${args.join(' ')}`.trim(), cwd, env: envWords }]);
 let gone = false;
 const leave = (code = 0) => { if (!gone) { gone = true; editPs((l) => l.filter((p) => p.pid !== process.pid)); } process.exit(code); };

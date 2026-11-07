@@ -359,10 +359,15 @@ resumed. This endpoint never ends the outside process; Move here does.
 /api/sessions/move { projectId, sessionId, keep, cols, rows }`, keep
 `ravenry` (Move here) or `outside` (Keep it in cmux):
 - `ravenry`: every process on that session id ends, in the other terminal
-  and a stale copy in Ravenry, then it resumes in a Ravenry pane, the same
-  pane when its shell is still there (the line typed at its prompt), else a
-  new one (`/api/sessions/resume`). The other terminal's tab keeps its shell.
-- `outside`: the Ravenry copy ends; the other terminal's goes on.
+  and a stale copy in Ravenry, then it resumes in a new pane of the current
+  daemon (`/api/sessions/resume`), never an old one: an old pane's shell
+  may carry what its daemon inherited (CLAUDECODE, CMUX_*), and a Claude
+  resumed there saves no transcript. The answer names the old panes
+  (`replaced`); the app puts the new pane in their tab's place, and the
+  hub closes them 2 s later, only when the resume worked. The other
+  terminal's tab keeps its shell.
+- `outside`: the Ravenry copy ends and its pane closes; the other
+  terminal's goes on.
 - A process ends only when the session is not mid-turn by its hook state
   (the last event a UserPromptSubmit with no Stop after it). Mid-turn the
   answer is `{ waiting: true, name }`, the session carries `moving`, and

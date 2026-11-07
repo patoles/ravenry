@@ -334,20 +334,6 @@ export async function startSession({ machine = null, cwd, line, label = null, la
   return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine, timing: at };
 }
 
-// A line typed at the shell of a pane that is still there (Move here, after
-// the assistant in it ended): { ok, surfaceId, pane } or { ok: false, err }.
-export async function typeInPane(id, line) {
-  const info = await paneInfo(id);
-  if (!info || info.state !== 'running') return { ok: false, err: 'its pane closed' };
-  const d = await daemonOf(PREFIX + info.id);
-  if (!d) return { ok: false, err: 'no daemon holds its pane' };
-  try {
-    await d.c.request('pane.wait', { pane: info.id, quiet_ms: 300, timeout_ms: 3000 }, { timeoutMs: 5000 });
-    await d.c.request('pane.send', { pane: info.id, input: [{ text: line, mode: 'paste' }, { key: 'Enter' }] }, { timeoutMs: 6000 });
-  } catch (e) { return { ok: false, err: e.message }; }
-  return { ok: true, surfaceId: tabIdOf(info.id), pane: { id: info.id }, machine: d.machine || null };
-}
-
 // A page's run button (server/pages.mjs): an approve checkpoint on this
 // machine's daemon, which the person sees and approves (or edits, or
 // refuses) like an agent's; the item's values go in `env`, never in the

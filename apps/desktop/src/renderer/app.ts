@@ -287,18 +287,47 @@ function frontSid(): string | null {
   return f ? f.session.sessionId || null : null;
 }
 
-type MoveResult = { ok?: boolean; error?: string; waiting?: boolean; name?: string; keep?: 'ravenry' | 'outside'; ended?: NonNullable<HubSession['moved']>['ended']; surfaceId?: string | null; pane?: { id?: string }; projectId?: string };
+type MoveResult = { ok?: boolean; error?: string; waiting?: boolean; name?: string; keep?: 'ravenry' | 'outside'; ended?: NonNullable<HubSession['moved']>['ended']; surfaceId?: string | null; pane?: { id?: string }; projectId?: string; replaced?: string[] };
+// The old panes a move replaced: the hub closes them a moment after, and
+// their going is not news (no toast, no tab left behind).
+const replacedPanes = new Set<string>();
+
+// A move resumed the session in a new pane: it takes the old pane's place,
+// in the tab that showed it (a shell tab becomes the session's tab at the
+// same position; a pinned session tab follows by its session id).
+function swapMoved(b: MoveResult, projectId: string): string | null {
+  for (const old of b.replaced || []) replacedPanes.add(old);
+  if (!b.surfaceId) return null;
+  const key = `${b.projectId || projectId}/${b.surfaceId}`;
+  let tabId: string | null = null;
+  for (const old of b.replaced || []) {
+    const i = S.tabs.findIndex((t) => t.kind === 'shell' && t.pane === old);
+    if (i >= 0) {
+      const was = S.tabs[i];
+      const nt: SessionTab = { id: pinId(key), kind: 'session', key };
+      S.tabs.splice(i, 1, nt);
+      if (S.view.kind === 'tab' && S.view.id === was.id) S.view = { kind: 'tab', id: nt.id };
+      tabId = nt.id;
+    }
+    for (const t of S.tabs) if (t.kind === 'session' && t.key.endsWith(`/ravenry:${old}`)) { t.key = key; tabId = t.id; }
+  }
+  save();
+  return tabId;
+}
 function movedLine(sid: string, b: MoveResult, after = ''): string {
   const ended = (b.ended || []).map((e) => `${e.pid} in ${e.where} (${e.skipped ? 'left alone: no longer on this session' : `${e.signal}${e.ms != null ? `, ${e.ms} ms` : ''}`})`).join(', ') || 'none';
-  return `window: move ${sid}${after}: ended ${ended}; ${b.keep === 'outside' ? 'kept in the other terminal' : b.surfaceId ? `resumed in ${b.surfaceId}` : 'not resumed'}`;
+  const old = (b.replaced || []).length ? ` (its old pane ${(b.replaced || []).join(', ')} closes)` : '';
+  return `window: move ${sid}${after}: ended ${ended}; ${b.keep === 'outside' ? 'kept in the other terminal' : b.surfaceId ? `resumed in a new pane, ${b.surfaceId}` : 'not resumed'}${old}`;
 }
 function followMove(sid: string, projectId: string, b: MoveResult): void {
+  for (const old of b.replaced || []) replacedPanes.add(old);
   if (b.keep === 'outside') { moveFollow = sid; return; }
   if (!b.surfaceId) return;
   const pane = b.pane && typeof b.pane.id === 'string' ? b.pane.id : null;
+  const tabId = swapMoved(b, projectId);
   elseLast = null;
   liveStop();
-  setView({ kind: 'session', key: `${b.projectId || projectId}/${b.surfaceId}`, ...(pane ? { pane } : {}) });
+  setView(tabId ? { kind: 'tab', id: tabId } : { kind: 'session', key: `${b.projectId || projectId}/${b.surfaceId}`, ...(pane ? { pane } : {}) });
 }
 
 async function moveTo(p: HubProject, s: HubSession, keep: 'ravenry' | 'outside', why: string): Promise<void> {
@@ -342,7 +371,7 @@ function moveStates(): void {
     const w = moveAsked.get(sid);
     if (w && s.moved && s.moved.at >= w.at && !s.moving) {
       moveAsked.delete(sid);
-      const b: MoveResult = { keep: s.moved.keep, ended: s.moved.ended, surfaceId: s.moved.surfaceId };
+      const b: MoveResult = { keep: s.moved.keep, ended: s.moved.ended, surfaceId: s.moved.surfaceId, replaced: s.moved.replaced || [] };
       api().log(movedLine(sid, b, ' after its turn'));
       if (frontSid() === sid || S.view.kind === 'session' && elseLast?.session.sessionId === sid) followMove(sid, pr.id, b);
     }
@@ -1247,7 +1276,7 @@ async function renderCentre(): Promise<void> {
   const t = tabOfView();
   if (t && t.kind === 'shell') {
     // A shell whose daemon did not answer in time stays a tab: only one that is gone closes.
-    await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { if (/^no answer after/.test(e.message)) { toast(`Could not show that shell: ${e.message}`); return; } removeTab(t.id); toast(`That shell is gone: ${e.message}`); });
+    await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { if (/^no answer after/.test(e.message)) { toast(`Could not show that shell: ${e.message}`); return; } removeTab(t.id); if (!replacedPanes.has(t.pane)) toast(`That shell is gone: ${e.message}`); });
     return;
   }
   const key = viewSessionKey();
@@ -1258,7 +1287,7 @@ async function renderCentre(): Promise<void> {
     // Gone: said once, and a shell in front (one opened if none is), so the
     // middle never keeps asking for a pane that is not there.
     await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => {
-      toast(`Could not show that session: ${e.message}`);
+      if (!replacedPanes.has(pane)) toast(`Could not show that session: ${e.message}`);
       const v2 = S.view;
       if (v2.kind !== 'session' || (v2.pane || null) !== (v.kind === 'session' ? v.pane || null : null) || viewSessionKey() !== key) return;
       const sh = S.tabs.find((t) => t.kind === 'shell');
