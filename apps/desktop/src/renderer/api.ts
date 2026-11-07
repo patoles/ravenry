@@ -1,5 +1,7 @@
 // window.ravenry, as the preload script exposes it.
 
+import type { SettingsApi } from '../shared/settings.ts';
+
 export interface AppConfig {
   platform: string;
   hubUrl: string;
@@ -8,6 +10,8 @@ export interface AppConfig {
   offscreen: boolean;
   /** The ravenryd the hook setup points the assistants' hooks at, or null (no setup offered). */
   hookBin: string | null;
+  /** The first window (it keeps the tabs); a window opened with Cmd+N is not. */
+  primary?: boolean;
 }
 
 /** `starting`: the hub answers but waits for macOS to say whether it may read a folder (hub/server/access.mjs). */
@@ -49,6 +53,10 @@ export interface RavenryApi {
   focusWindow(): void;
   /** A line in the app's log (~/Library/Logs/Ravenry/app.log): what failed in the window. */
   log(line: string): void;
+  /** The terminal's right-click menu, the system's own: the item picked, or null. */
+  termMenu(info: { selection: boolean; link: string | null; cwd: string | null; split: boolean }): Promise<string | null>;
+  /** The terminal settings (docs/SETTINGS.md). */
+  settings: SettingsApi;
 }
 
 declare global {

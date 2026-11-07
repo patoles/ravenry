@@ -16,7 +16,11 @@
 //                               modifiers: ["meta"] held through it
 //   drag: "css selector", by: [dx, dy]   press on its middle, move by dx, dy, release
 //   dblclick: "css selector"    a real double click on its middle
+//   main: "code", out           run code in the main process (an async
+//                               function body; electron is in scope), its
+//                               value saved to out when given
 //   clickAt: "expr"             the same at the point { x, y } expr gives
+//                               (button: "right" for a right click)
 //                               (a cell in the terminal), after a hover there
 //   hover: "css selector" | [x, y]  the pointer moved there
 //   shot: "file.png", el        capture the window, or the element el (a
@@ -107,15 +111,21 @@ module.exports = async function drive(win, ctx) {
       }
       await sleep(step.after ?? 200);
     }
+    else if (step.main) {
+      const fn = new Function('electron', 'win', 'require', `return (async () => { ${step.main} })();`);
+      const v = await fn(require('electron'), win, require);
+      if (step.out) fs.writeFileSync(step.out, JSON.stringify(v ?? null, null, 2) + '\n');
+    }
     else if (step.clickAt) {
       const r = await js(step.clickAt);
       if (!r) throw new Error(`no point from ${step.clickAt} to click`);
       const modifiers = step.modifiers || [];
+      const button = step.button || 'left';
       wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y, modifiers });
       await sleep(250); // xterm.js finds the link under the pointer on hover
-      wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1, modifiers });
+      wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button, clickCount: 1, modifiers });
       await sleep(step.hold ?? 80);
-      wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1, modifiers });
+      wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button, clickCount: 1, modifiers });
       await sleep(step.after ?? 150);
     }
     else if (step.click) {

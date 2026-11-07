@@ -8,6 +8,10 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
+import type { ISearchOptions } from '@xterm/addon-search';
+import { macOptionIsMetaFor } from '../shared/settings.ts';
+import type { TerminalSettings } from '../shared/settings.ts';
 import { suppressTerminalQueries } from '@ravenry/client';
 import type { PaneStream, RavenryClient } from '@ravenry/client';
 
@@ -44,6 +48,15 @@ const MAC_OPT_SEND: Record<string, string> = { ArrowLeft: '\x1bb', ArrowRight: '
 const SHIFT_SEND: Record<string, string> = { Enter: '\n' };
 const MAC_CMD_ACT: Record<string, KeyAct> = { k: 'clear', c: 'copy', v: 'paste', a: 'select-all' };
 
+/** The daemon keeps 10,000 lines of a pane: a snapshot never brings more back. */
+const DAEMON_SCROLLBACK = 10000;
+
+/** Find's tints, for a dark terminal and a light one: every match, the current one amber, both on the scroll bar. */
+const FIND_DECOR = {
+  dark: { matchBackground: '#5A4A1C', matchOverviewRuler: '#C9A227', activeMatchBackground: '#FF9F0A', activeMatchColorOverviewRuler: '#FF9F0A' },
+  light: { matchBackground: '#FFE9A8', matchOverviewRuler: '#C9A227', activeMatchBackground: '#FFB340', activeMatchColorOverviewRuler: '#FF9F0A' },
+};
+
 /** The terminal's text size (Cmd+= / Cmd+- / Cmd+0 change it, the window's stays). */
 export const FONT_SIZE = { base: 13, min: 8, max: 32 };
 
@@ -61,6 +74,11 @@ export class TerminalView {
   readonly term: Terminal;
   readonly el: HTMLElement;
   private fit = new FitAddon();
+  private search = new SearchAddon();
+  /** The settings applied (docs/SETTINGS.md), null before the first. */
+  private ts: TerminalSettings | null = null;
+  /** The link under the pointer (for the right-click menu). */
+  private hoverLink: string | null = null;
   private webgl: WebglAddon | null = null;
   private stream: PaneStream | null = null;
   private current: Attached | null = null;
@@ -86,6 +104,14 @@ export class TerminalView {
   onWritten: (a: Attached, mark: number, snapshot: boolean) => void = () => {};
   /** The pane on screen changed (or none). */
   onShown: (a: Attached | null) => void = () => {};
+  /** A bell rang in the pane on screen. */
+  onBell: () => void = () => {};
+  /** The selection to copy (copy on select). */
+  onCopy: (text: string) => void = () => {};
+  /** A right click: the link under the pointer, if any. */
+  onContextMenu: (link: string | null) => void = () => {};
+  /** Find's count: the current match (0 with none) of how many. */
+  onFindResults: (index: number, count: number) => void = () => {};
   /** A link was Cmd+clicked (an OSC 8 link or a URL in the text). */
   onOpenLink: (uri: string) => void = () => {};
   /** The path of a file dropped on the terminal (Electron's webUtils), or ''. */
@@ -106,15 +132,24 @@ export class TerminalView {
       allowProposedApi: true,
       theme: THEME,
       macOptionClickForcesSelection: true,
+      // A right click opens the menu and selects nothing (Copy is off with no selection, as in Terminal.app).
+      rightClickSelectsWord: false,
       drawBoldTextInBrightColors: false,
       // OSC 8 links (a program names the link): opened on Cmd+click.
       linkHandler: {
         activate: (e, uri) => this.link(e, uri),
+        hover: (_e, uri) => { this.hoverLink = uri; },
+        leave: () => { this.hoverLink = null; },
         allowNonHttpProtocols: true,
       },
     });
     // Plain URLs in the text: the same.
-    this.term.loadAddon(new WebLinksAddon((e, uri) => this.link(e, uri)));
+    this.term.loadAddon(new WebLinksAddon((e, uri) => this.link(e, uri), { hover: (_e, uri) => { this.hoverLink = uri; }, leave: () => { this.hoverLink = null; } }));
+    this.term.loadAddon(this.search);
+    this.search.onDidChangeResults((r) => this.onFindResults(r.resultCount ? r.resultIndex + 1 : 0, r.resultCount));
+    this.term.onBell(() => this.onBell());
+    // Copy on select (a setting): the selection as soon as it is made.
+    this.term.onSelectionChange(() => { if (this.ts?.copyOnSelect && this.term.hasSelection()) this.onCopy(this.term.getSelection()); });
     this.term.loadAddon(this.fit);
     const u = new Unicode11Addon();
     this.term.loadAddon(u);
@@ -128,6 +163,11 @@ export class TerminalView {
     // (isAppKey), except the few Cmd keys of macOS's terminals xterm.js
     // does not do (docs in apps/desktop/README.md, Keys).
     this.term.attachCustomKeyEventHandler((e) => {
+      // Option as Meta, one side only (a setting): xterm.js reads one switch
+      // on each key, so it is set from the side of each Option keydown.
+      if (this.mac && e.type === 'keydown' && (e.code === 'AltLeft' || e.code === 'AltRight') && this.ts && (this.ts.optionAsMeta === 'left' || this.ts.optionAsMeta === 'right')) {
+        this.term.options.macOptionIsMeta = macOptionIsMetaFor(this.ts.optionAsMeta, e.code);
+      }
       const only = this.mac && !e.ctrlKey && !e.shiftKey;
       const cmd = only && e.metaKey && !e.altKey;
       const shift = e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey;
@@ -173,8 +213,33 @@ export class TerminalView {
       if (paths.length && a) void a.client.paste(a.pane, paths.map(shellQuote).join(' ') + ' ').catch(() => {});
       this.focus();
     });
+    // A right click: the system's own menu (app.ts asks the main process).
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); this.onContextMenu(this.hoverLink); });
     new ResizeObserver(() => this.queueResize()).observe(el);
   }
+
+  /** The settings' terminal (docs/SETTINGS.md): font, size, cursor, theme, Option as Meta, scrollback. */
+  applySettings(ts: TerminalSettings): void {
+    this.ts = ts;
+    Object.assign(this.term.options, { ...ts.xterm, scrollback: Math.min(ts.xterm.scrollback, DAEMON_SCROLLBACK) });
+    this.queueResize();
+  }
+
+  /** Finds `query` from the current match on (dir 1) or back (dir -1); '' clears. */
+  find(query: string, opts: { caseSensitive: boolean; regex: boolean }, dir: 1 | -1 = 1, incremental = false): boolean {
+    if (!query) { this.clearFind(); return false; }
+    const o: ISearchOptions = { caseSensitive: opts.caseSensitive, regex: opts.regex, incremental, decorations: FIND_DECOR[this.ts?.appearance === 'light' ? 'light' : 'dark'] };
+    try { return dir === 1 ? this.search.findNext(query, o) : this.search.findPrevious(query, o); } catch { return false; }
+  }
+
+  clearFind(): void {
+    this.search.clearDecorations();
+    this.term.clearSelection();
+    this.onFindResults(0, 0);
+  }
+
+  /** What the pane has selected now, '' for nothing. */
+  get selection(): string { return this.term.hasSelection() ? this.term.getSelection() : ''; }
 
   private useWebgl(): void {
     try {

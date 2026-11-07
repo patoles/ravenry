@@ -137,11 +137,12 @@ try {
     { js: `${R}.onCommand('zoom', 1)` },
     { js: `${R}.onCommand('zoom', 1)` },
     { sleep: 400 },
-    save('zoom-in', `({ size: ${T}.term.options.fontSize, cols: ${T}.term.cols, body: getComputedStyle(document.body).fontSize, side: document.querySelector('#side') ? document.querySelector('#side').getBoundingClientRect().width : null, dpr: window.devicePixelRatio, kept: localStorage.getItem('ravenry.fontSize') })`),
+    save('zoom-in', `({ size: ${T}.term.options.fontSize, cols: ${T}.term.cols, body: getComputedStyle(document.body).fontSize, side: document.querySelector('#side') ? document.querySelector('#side').getBoundingClientRect().width : null, dpr: window.devicePixelRatio })`),
+    save('zoom-in-kept', `window.ravenry.settings.get().then((s) => s.settings.fontSize)`),
     { shot: path.join(OUT, 'zoomed.png') },
     { js: `${R}.onCommand('zoom', 0)` },
     { sleep: 300 },
-    save('zoom-reset', `({ size: ${T}.term.options.fontSize, kept: localStorage.getItem('ravenry.fontSize') })`),
+    save('zoom-reset', `window.ravenry.settings.get().then((s) => ({ size: ${T}.term.options.fontSize, kept: s.settings.fontSize }))`),
     { js: `${R}.onCommand('zoom', -1)` },
     { sleep: 300 },
     // A file dropped on the terminal: its quoted path, pasted.
@@ -162,8 +163,8 @@ try {
   const o = opened();
   check('Cmd+click opens a plain URL and an OSC 8 link, nothing else; a plain click opens nothing', o.length === 2 && o[0] === 'https://example.com/plain' && o[1] === 'https://example.com/osc', o);
   const zb = read('zoom-before'), zi = read('zoom-in'), zr = read('zoom-reset');
-  check('Cmd+= twice: the terminal\'s text 2 points bigger, fewer columns; the rest of the window as it was', !!zb && !!zi && zi.size === zb.size + 2 && zi.cols < zb.cols && zi.body === zb.body && zi.side === zb.side && zi.dpr === zb.dpr && zi.kept === String(zi.size), { before: zb, after: zi });
-  check('Cmd+0: the terminal\'s text back to its size', zr?.size === 13 && zr.kept === '13', zr);
+  check('Cmd+= twice: the terminal\'s text 2 points bigger, fewer columns; the rest of the window as it was', !!zb && !!zi && zi.size === zb.size + 2 && zi.cols < zb.cols && zi.body === zb.body && zi.side === zb.side && zi.dpr === zb.dpr && read('zoom-in-kept') === zi.size, { before: zb, after: zi, kept: read('zoom-in-kept') });
+  check('Cmd+0: the terminal\'s text back to its size (kept in the settings)', zr?.size === 13 && zr.kept === 13, zr);
   check('a file dropped on the terminal pastes its path, quoted', true);
 
   // Relaunched: the window's size and the text size as they were left.

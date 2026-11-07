@@ -102,7 +102,7 @@ body.mac .side-top { height: 22px; margin: -14px -10px 0; padding-top: 14px; box
 body.first .sl { flex: none; }
 
 /* ---------------------------------------------------------------- middle */
-.tsheet { flex: 1; min-width: 0; margin: 8px 8px 8px 0; border-radius: 11px; background: var(--term-bg); box-shadow: 0 0 0 1px var(--sheet-ring); display: flex; flex-direction: column; overflow: hidden; }
+.tsheet { flex: 1; min-width: 0; margin: 8px 8px 8px 0; border-radius: 11px; background: var(--tbg, var(--term-bg)); box-shadow: 0 0 0 1px var(--sheet-ring); display: flex; flex-direction: column; overflow: hidden; }
 .tsheet.sheet { background: var(--sheet); }
 .tsheet[hidden] { display: none; }
 .tabs { height: 40px; flex: none; display: flex; align-items: flex-end; gap: 2px; padding: 0 6px 0 8px; background: var(--sheet); border-bottom: 1px solid var(--sep); -webkit-app-region: drag; }
@@ -115,8 +115,9 @@ body.first .sl { flex: none; }
 .tab .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tab .p { color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .tab .ti { display: inline-flex; color: var(--tx3); flex: none; }
-.tab.on { background: var(--term-bg); color: #F2F2F4; }
-.tab.on .p, .tab.on .ti, .tab.on .mt, .tab.on .mt svg { color: #8E8E93; }
+/* The tab in front joins its terminal: the terminal theme's colours (--tbg, --tfg: app.ts applyTerminalSettings). */
+.tab.on { background: var(--tbg, var(--term-bg)); color: var(--tfg, #F2F2F4); }
+.tab.on .p, .tab.on .ti, .tab.on .mt, .tab.on .mt svg { color: color-mix(in srgb, var(--tfg, #F2F2F4) 55%, transparent); }
 .tab .x { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; color: var(--tx3); visibility: hidden; flex: none; }
 .tab:hover .x, .tab.on .x { visibility: visible; }
 .tab .x:hover { background: rgba(255,255,255,.12); color: #F2F2F4; }
@@ -125,11 +126,11 @@ body.first .sl { flex: none; }
 .stage { flex: 1; min-height: 0; position: relative; display: flex; }
 .stage > * { flex: 1; min-width: 0; }
 .stage > [hidden] { display: none; }
-.term-host { padding: 10px 6px 6px 14px; background: var(--term-bg); }
+.term-host { padding: 10px 6px 6px 14px; background: var(--tbg, var(--term-bg)); }
 /* padding-right: the gutter beside the last column, where an agent's input
    is marked (marks.ts); FitAddon leaves it out of the columns. */
 .term-host .xterm { height: 100%; padding-right: 10px; }
-.term-host .xterm-viewport { background: var(--term-bg) !important; }
+.term-host .xterm-viewport { background: var(--tbg, var(--term-bg)) !important; }
 .term-host .xterm-viewport::-webkit-scrollbar { width: 8px; }
 .term-host .xterm-viewport::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
 

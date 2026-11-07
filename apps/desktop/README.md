@@ -502,7 +502,11 @@ it cannot update itself. No keychain is ever searched for an identity.
 | macOS | Linux | |
 | --- | --- | --- |
 | ⌘T | Ctrl+Shift+T | New shell |
-| ⌘N | Ctrl+Shift+N | New session |
+| ⌘N | Ctrl+Shift+N | New window (the same daemon; it starts with a shell of its own) |
+| ⌘⇧N | Ctrl+Shift+Alt+N | New session |
+| ⌘⇧W | Ctrl+Shift+Alt+W | Close the window |
+| ⌘F, ⌘G, ⌘⇧G | Ctrl+Shift+F, Ctrl+Shift+G, Ctrl+Shift+Alt+G | Find in the pane, next, previous (Aa for case, .* for a regular expression, Esc closes) |
+| ⌘, | Ctrl+, | Settings (the terminal's font, theme, keys, bell) |
 | ⌘W | Ctrl+Shift+W | Close the pane with the keyboard: a split's pane, else the tab (a shell ends, with everything it started) |
 | ⌘D, ⌘⇧D | Ctrl+Shift+D, Ctrl+Shift+Alt+D | Split: a new shell beside, or under, the pane in front (one split per tab; more panes are tabs) |
 | ⌘⌥← → ↑ ↓ | Ctrl+Alt+arrows | The other pane of the split |
@@ -553,6 +557,19 @@ gets, and checks the bytes; the release check runs it on the packaged app.
 | ⌘= / ⌘- / ⌘0 | the terminal's text bigger / smaller / back to 13 pt (the rest of the window stays; kept across launches) | Ravenry |
 | ⌘click on a link | opens it: an OSC 8 link or a URL in the text, `http`, `https` or `file` only, nothing typed | Ravenry |
 | a file dropped on the terminal | its path, quoted for a shell, as one paste | Ravenry |
+
+A right click opens the system's own menu: Open Link and Copy Link over a
+link, Copy (off with no selection), Paste, Select All, Copy Path (the
+pane's folder), Find, Clear, Split Right and Split Down. Closing a shell
+that runs something asks first (Cancel is the default; "Don't ask again"
+turns the setting off); an idle one closes at once. A bell flashes the
+pane (the setting: visual, sound or off), leaves a small bell on a tab not
+on screen until it is opened, and bounces the Dock when Ravenry is not in
+front. The terminals follow the Settings window (docs/SETTINGS.md): font,
+size (⌘= and ⌘- write it), theme, cursor, Option as Meta (one side or
+both), copy on select, scrollback (at most the daemon's 10,000 lines).
+`tools/features-test.mjs` checks these; the release check runs it on the
+test twin (step 17).
 
 A pane keeps where its view stood when another tab comes to the front,
 and the window comes back at the size and place it was left (on a screen

@@ -97,8 +97,26 @@ let win: BrowserWindow | null = null;
 let feed: HubFeed | null = null;
 const updates = new Updates(process.resourcesPath, () => menu());
 
+// Windows (Cmd+N): all on the same daemon and hub. `win` is the first one,
+// which keeps the tabs, their splits and the window's place in window.json;
+// a window opened after it starts with a shell of its own and keeps nothing.
+const wins = new Set<BrowserWindow>();
+
+/** To every window: the hub's state, the npm switch, the update's words. */
 function send(channel: string, ...args: unknown[]): void {
-  if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
+  for (const w of wins) if (!w.isDestroyed()) w.webContents.send(channel, ...args);
+}
+
+/** A menu command, to the window in front (the first one when none is focused: offscreen). */
+function sendCommand(name: string, arg?: unknown): void {
+  const f = BrowserWindow.getFocusedWindow();
+  const w = f && wins.has(f) ? f : win;
+  if (w && !w.isDestroyed()) w.webContents.send('command', name, arg);
+}
+
+function newWindow(): void {
+  const w = createWindow(false);
+  if (win && !win.isDestroyed()) { const b = win.getBounds(); w.setPosition(b.x + 28, b.y + 28); }
 }
 
 // The ravenryd the first-launch hook setup writes into Claude Code's and
@@ -178,8 +196,8 @@ function keepBounds(w: BrowserWindow): void {
   w.on('close', () => { if (!w.isFullScreen()) store?.set({ bounds: { ...w.getNormalBounds(), maximized: w.isMaximized() } }); });
 }
 
-function createWindow(): BrowserWindow {
-  const saved = savedBounds();
+function createWindow(primary = true): BrowserWindow {
+  const saved = primary ? savedBounds() : null;
   const w = new BrowserWindow({
     width: saved?.width || Number(process.env.RAVENRY_WIDTH) || 1440,
     height: saved?.height || Number(process.env.RAVENRY_HEIGHT) || 900,
@@ -202,7 +220,8 @@ function createWindow(): BrowserWindow {
   });
   if (OFFSCREEN) w.webContents.setFrameRate(60);
   if (saved?.maximized && !OFFSCREEN) w.maximize();
-  keepBounds(w);
+  wins.add(w);
+  if (primary) keepBounds(w);
   w.loadFile(path.join(__dirname, 'index.html'));
   if (!OFFSCREEN) w.once('ready-to-show', () => w.show());
   // Links open in the browser, never in this window.
@@ -211,12 +230,16 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
-  w.on('closed', () => { if (win === w) win = null; });
+  w.on('closed', () => {
+    wins.delete(w);
+    // The first window gone: the next one keeps the tabs from now on.
+    if (win === w) win = [...wins][0] || null;
+  });
   return w;
 }
 
 function menu(): void {
-  const cmd = (name: string, arg?: unknown) => () => send('command', name, arg);
+  const cmd = (name: string, arg?: unknown) => () => sendCommand(name, arg);
   // On Linux, Ctrl+T, Ctrl+W and Ctrl+digit belong to the shell; the app's
   // shortcuts there take Shift as well, as terminals on Linux do.
   const mod = isMac ? 'Cmd' : 'Ctrl+Shift';
@@ -250,8 +273,10 @@ function menu(): void {
     {
       label: 'Shell',
       submenu: [
+        // As in every Mac terminal: Cmd+N a new window; New Session moves to Cmd+Shift+N.
+        { label: 'New Window', accelerator: `${mod}+N`, click: () => newWindow() },
         { label: 'New Shell', accelerator: `${mod}+T`, click: cmd('new-shell') },
-        { label: 'New Session', accelerator: `${mod}+N`, click: cmd('new-session') },
+        { label: 'New Session…', accelerator: isMac ? 'Cmd+Shift+N' : 'Ctrl+Shift+Alt+N', click: cmd('new-session') },
         { type: 'separator' },
         // Splits (renderer: app.ts, SplitInfo): at most one per tab.
         { label: 'Split Right', accelerator: isMac ? 'Cmd+D' : 'Ctrl+Shift+D', click: cmd('split', 'right') },
@@ -263,6 +288,7 @@ function menu(): void {
         { label: 'Zoom Pane', accelerator: isMac ? 'Cmd+Shift+Enter' : 'Ctrl+Shift+Enter', click: cmd('zoom-pane') },
         { type: 'separator' },
         { label: 'Close', accelerator: `${mod}+W`, click: cmd('close-tab') },
+        { label: 'Close Window', accelerator: isMac ? 'Cmd+Shift+W' : 'Ctrl+Shift+Alt+W', click: () => { const f = BrowserWindow.getFocusedWindow() || win; f?.close(); } },
         ...(isMac ? [] : [{ type: 'separator' as const }, { role: 'quit' as const }]),
       ],
     },
@@ -272,6 +298,11 @@ function menu(): void {
         { role: 'copy', accelerator: isMac ? 'Cmd+C' : 'Ctrl+Shift+C' },
         { role: 'paste', accelerator: isMac ? 'Cmd+V' : 'Ctrl+Shift+V' },
         { role: 'selectAll', accelerator: isMac ? 'Cmd+A' : 'Ctrl+Shift+A' },
+        { type: 'separator' },
+        // Find in the pane with the keyboard (renderer: findbar, @xterm/addon-search).
+        { label: 'Find…', accelerator: isMac ? 'Cmd+F' : 'Ctrl+Shift+F', click: cmd('find') },
+        { label: 'Find Next', accelerator: isMac ? 'Cmd+G' : 'Ctrl+Shift+G', click: cmd('find-next') },
+        { label: 'Find Previous', accelerator: isMac ? 'Cmd+Shift+G' : 'Ctrl+Shift+Alt+G', click: cmd('find-prev') },
         ...(isMac ? [] : [{ type: 'separator' as const }, { label: 'Settings…', accelerator: 'Ctrl+,', click: () => openSettings() }]),
       ],
     },
@@ -315,7 +346,9 @@ function ipc(): void {
   ipcMain.on('app:log', (_e, line: string) => appLog(String(line).slice(0, 2000)));
   // The running daemons, newest first: the window lists its plain shells on each.
   ipcMain.handle('daemon:sockets', () => listSockets(runtimeDir()).map((s) => s.socket));
-  ipcMain.handle('app:config', () => ({
+  ipcMain.handle('app:config', (e) => ({
+    // The first window keeps the tabs; another starts with a shell of its own.
+    primary: BrowserWindow.fromWebContents(e.sender) === win,
     platform: process.platform,
     hubUrl: feed ? feed.url : hubUrl(),
     newShell: newShellCommand(),
@@ -338,7 +371,41 @@ function ipc(): void {
   ipcMain.handle('store:get', () => store.get());
   // "Try again" on an update that stopped after 3 tries: the count starts over.
   ipcMain.on('update:retry', () => { store.set({ update: null }); if (lastStaged && !retrying) { retrying = true; appLog('launch: update tried again from the window'); void setUpService(lastStaged).finally(() => { retrying = false; }); } });
-  ipcMain.on('store:set', (_e, patch: Record<string, unknown>) => store.set(patch));
+  // The terminal's right-click menu: the system's own (Menu.popup), its
+  // choice sent back. Copy is off with no selection; Open Link and Copy
+  // Link only over a link; Copy Path when the pane's folder is known.
+  // Offscreen (tests) nothing pops up: the items are kept and the driver's
+  // pick (__ravenryMenuPick) is the answer.
+  ipcMain.handle('term:menu', (e, info: { selection?: boolean; link?: string | null; cwd?: string | null; split?: boolean }) => new Promise<string | null>((resolve) => {
+    let done = false;
+    const pick = (id: string | null) => { if (!done) { done = true; resolve(id); } };
+    const items: MenuItemConstructorOptions[] = [
+      ...(info.link ? [{ id: 'open-link', label: 'Open Link', click: () => pick('open-link') }, { id: 'copy-link', label: 'Copy Link', click: () => pick('copy-link') }, { type: 'separator' as const }] : []),
+      { id: 'copy', label: 'Copy', enabled: !!info.selection, click: () => pick('copy') },
+      { id: 'paste', label: 'Paste', click: () => pick('paste') },
+      { id: 'select-all', label: 'Select All', click: () => pick('select-all') },
+      { type: 'separator' },
+      { id: 'copy-path', label: 'Copy Path', enabled: !!info.cwd, click: () => pick('copy-path') },
+      { id: 'find', label: 'Find…', click: () => pick('find') },
+      { id: 'clear', label: 'Clear', click: () => pick('clear') },
+      { type: 'separator' },
+      { id: 'split-right', label: 'Split Right', enabled: !info.split, click: () => pick('split-right') },
+      { id: 'split-down', label: 'Split Down', enabled: !info.split, click: () => pick('split-down') },
+    ];
+    if (OFFSCREEN) {
+      const g = globalThis as { __ravenryMenuItems?: unknown; __ravenryMenuPick?: string | null };
+      g.__ravenryMenuItems = items.filter((x) => x.type !== 'separator').map((x) => ({ id: x.id, label: x.label, enabled: x.enabled !== false }));
+      pick(g.__ravenryMenuPick ?? null);
+      return;
+    }
+    const w = BrowserWindow.fromWebContents(e.sender) || undefined;
+    Menu.buildFromTemplate(items).popup({ window: w, callback: () => setTimeout(() => pick(null), 0) });
+  }));
+  // Only the first window keeps the tabs and their places.
+  ipcMain.on('store:set', (e, patch: Record<string, unknown>) => {
+    if (BrowserWindow.fromWebContents(e.sender) !== win) for (const k of ['selected', 'pinned', 'order', 'active', 'splits', 'lastCwd']) delete patch[k];
+    store.set(patch);
+  });
   ipcMain.on('focus-window', () => {
     if (!win || OFFSCREEN) return;
     if (win.isMinimized()) win.restore();
@@ -679,7 +746,7 @@ app.whenReady().then(async () => {
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.on('activate', () => {
-  if (!win && app.isReady()) win = createWindow();
+  if (!win && app.isReady()) win = createWindow(true);
   // The app still ran (its window closed): coming back to it is a launch
   // too for an update that failed, so it is tried again (counted, logged).
   const rec = (store?.get().update || null) as { attempts?: number } | null;

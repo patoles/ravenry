@@ -141,6 +141,8 @@ jobs:
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/brief-test.mjs "$RUNNER_TEMP/smoke/brief"
       - name: Splits (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/split-test.mjs "$RUNNER_TEMP/smoke/splits"
+      - name: Find, the right-click menu, the close question, bells, windows, settings (headless Electron, xvfb)
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/features-test.mjs "$RUNNER_TEMP/smoke/features"
       - name: The sidebar's pages in the app (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/pages-test.mjs "$RUNNER_TEMP/smoke/pages"
       # The release build (no test hooks, src/main/gate.ts) and its test

@@ -93,6 +93,9 @@
 //                   focus, resize, zoom, close, drag to split, an agent's
 //                   pane split without the keyboard, back after a relaunch
 //                   (an update relaunches with the same window.json)
+//   17 features     tools/features-test.mjs on the test twin, a row each:
+//                   Find, the right-click menu, closing a busy shell, the
+//                   bells, new windows, the settings applied
 //   15 brief        tools/brief-test.mjs on the test twin, a row each: the
 //                   panel's Brief card (goal on one line, Next as 3 items,
 //                   the older entries counted) and the Brief page (the
@@ -697,7 +700,7 @@ try {
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
-  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs']]) {
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
       const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
       const app = path.join(k, 'Ravenry.app');

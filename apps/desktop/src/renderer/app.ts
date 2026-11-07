@@ -38,9 +38,10 @@ import { initNpmSwitch, npmChosen, npmTakesCentre, renderNpmCentre, renderNpmPoi
 import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
-import { TerminalView, THEME } from './terminal.ts';
+import { FONT_SIZE, TerminalView, THEME } from './terminal.ts';
 import { PaneStore } from './panes.ts';
 import { TerminalMarks } from './marks.ts';
+import type { SettingsSnapshot, TerminalSettings } from '../shared/settings.ts';
 import Split from 'split.js';
 type SplitInstance = ReturnType<typeof Split>;
 import { briefPage, nextItems, plain } from './briefdoc.ts';
@@ -164,6 +165,8 @@ let lastSessionProject: string | null = null;
 
 const isMac = () => S.config?.platform === 'darwin';
 const shortcut = (k: string) => (isMac() ? `⌘${k}` : `Ctrl+Shift+${k}`);
+/** New Session: Cmd+Shift+N (Cmd+N is a new window, as in every Mac terminal). */
+const newSessionKey = () => (isMac() ? '⌘⇧N' : 'Ctrl+Shift+Alt+N');
 const wide = () => window.innerWidth >= PANEL_FOLD_WIDTH;
 const base = (p?: string) => (p ? p.replace(/\/+$/, '').split('/').pop() || p : '');
 const now = () => Date.now();
@@ -451,6 +454,14 @@ function tabOfView(): Tab | null {
   const v = S.view;
   return v.kind === 'tab' ? S.tabs.find((t) => t.id === v.id) || null : null;
 }
+
+/** A window opened with Cmd+N: its own shells carry its id (ravenry.window); the first window has none. */
+const windowId: string | null = null as string | null;
+let thisWindow: string | null = windowId;
+
+/** The tabs where a bell rang while they were not on screen. */
+const bells = new Set<string>();
+const tabBell = (t: Tab) => bells.has(t.id) || (!!t.split && bells.has(t.split.guest));
 
 // ---- splits (SplitInfo)
 /** The tabs of the strip: a split's second pane is not one. */
@@ -933,7 +944,7 @@ function renderSidebar(): void {
   const total = counts.you + counts.work + counts.wait + counts.idle;
 
   const brand = h('div.brand', svg(I.LOGO), 'Ravenry', h('span.sp'),
-    h('button.icon-btn.sm', { title: `New session (${shortcut('N')})`, 'aria-label': 'New session', on: { click: () => openStart() } }, svg(I.PLUS())));
+    h('button.icon-btn.sm', { title: `New session (${newSessionKey()})`, 'aria-label': 'New session', on: { click: () => openStart() } }, svg(I.PLUS())));
 
   let list: HTMLElement;
   if (empty || !groups.length) {
@@ -1124,9 +1135,11 @@ function renderTabs(): void {
         machineTag(l.machine),
         t.kind === 'shell' ? leaseBadge(t.pane) : null,
         t.kind === 'shell' && t.activity && !on ? h('span.act', { title: 'New output' }) : null,
+        // A bell in a tab not on screen: until it is opened (F4).
+        tabBell(t) && !on ? h('span.tbell', { title: 'A bell rang here' }, svg(I.BELL_S)) : null,
         // A split tab: its pane count.
         t.split && guestOf(t) ? h('span.pc2', { title: 'Two panes, split' }, svg(I.SPLIT), '2') : null,
-        h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Close the tab (the session goes on)', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
+        h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Close the tab (the session goes on)', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); void askClose(t); } } }, svg(I.CLOSE)));
     }).flatMap((tab, i) => (extra.length && sessTab(stripTabs()[i]) ? [tab, ...extra] : [tab])));
   replace(el,
     row,
@@ -1166,7 +1179,7 @@ async function newShell(folder?: string | null): Promise<void> {
     const cwd = folder || (cur && cur.kind === 'shell' && cur.cwd ? cur.cwd : undefined);
     const { cols, rows } = term.term;
     const cmd = S.config?.newShell;
-    const { pane } = await client.request('pane.new', { cols, rows, name: 'Shell', labels: { ...SHELL_LABEL }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
+    const { pane } = await client.request('pane.new', { cols, rows, name: 'Shell', labels: { ...SHELL_LABEL, ...(thisWindow ? { 'ravenry.window': thisWindow } : {}) }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
     addShellTab(socket, pane, null, true);
   } catch (e) {
     toast(`Could not open a shell: ${(e as Error).message}`, undefined, { at, error: true });
@@ -1182,7 +1195,7 @@ async function splitNew(side: 'right' | 'down'): Promise<void> {
     const { client, socket } = await daemons.forNew();
     const cwd = host.kind === 'shell' && host.cwd ? host.cwd : undefined;
     const cmd = S.config?.newShell;
-    const { pane } = await client.request('pane.new', { cols: Math.max(20, Math.floor(termA.term.cols / 2)), rows: termA.term.rows, name: 'Shell', labels: { ...SHELL_LABEL }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
+    const { pane } = await client.request('pane.new', { cols: Math.max(20, Math.floor(termA.term.cols / 2)), rows: termA.term.rows, name: 'Shell', labels: { ...SHELL_LABEL, ...(thisWindow ? { 'ravenry.window': thisWindow } : {}) }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
     const g = addShellTab(socket, pane, null, false);
     linkSplit(host, g, side, 1);
     save();
@@ -1376,6 +1389,7 @@ function setView(v: View): void {
   if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
   if (v.kind !== 'review' && S.view.kind === 'review') review.key = null;
   S.view = v;
+  if (v.kind === 'tab') { const t = S.tabs.find((x) => x.id === (v as { id: string }).id); bells.delete(v.id); if (t?.split) bells.delete(t.split.guest); }
   const sk = viewSessionKey();
   const sf = sk ? findSession(S.hub, sk) : null;
   if (sf) lastSessionProject = sf.project.id;
@@ -1498,7 +1512,7 @@ function focusSplit(i: 0 | 1): void {
 
 /** Closes a pane of the tab in front: its split's, or the tab's own (its split's pane then a tab of its own). */
 async function closePane(t: Tab): Promise<void> {
-  await closeTab(t.id);
+  await askClose(t);
 }
 
 function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review' | 'brief'): void {
@@ -1903,7 +1917,7 @@ function renderStart(): void {
       : [h('b', 'It gets its own copy of the code'), `, on a new branch, because ${busy.topic} is already working in ${busy.project.name}. You review and merge it when it's done. `, h('button.link', { on: { click: () => { st.inFolder = true; renderStart(); } } }, 'Work in the folder instead')])) : null;
   const go = h('div.fl-go',
     h('button.btn.pri', { disabled: st.busy, on: { click: () => void startSession() } }, label),
-    h('span.t3.small', `${shortcut('N')} starts another one any time`),
+    h('span.t3.small', `${newSessionKey()} starts another one any time`),
     !first ? h('span.sp') : null,
     !first ? h('button.btn.ghost', { on: { click: () => { const t = S.tabs[0]; setView(t ? { kind: 'tab', id: t.id } : { kind: 'none' }); } } }, 'Cancel') : null);
 
@@ -2383,6 +2397,16 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
       if (t && e.pane.cwd !== t.cwd) { t.cwd = e.pane.cwd; renderTabs(); if (panelVisible()) renderPanel(); }
       return;
     }
+    case 'pane.bell': {
+      // A bell in a pane not on screen: a small bell on its tab, the sound
+      // and the Dock as the settings say.
+      const id = e.pane.id;
+      const t = S.tabs.find((x) => (x.kind === 'shell' && x.pane === id) || (x.kind === 'session' && (x.pane === id || x.key.endsWith(`/ravenry:${id}`))));
+      const shown = termA.attached?.pane === id || termB?.attached?.pane === id;
+      if (t && !shown) { bells.add(t.host || t.id); renderTabs(); }
+      if (!shown && termSettings?.bell !== 'off') api().settings.bell();
+      return;
+    }
     case 'pane.activity': {
       // A tab not on screen printed: a quiet dot on it.
       const t = shellTabOf(socket, e.pane.id);
@@ -2391,7 +2415,8 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
     }
     case 'pane.created': case 'pane.updated': {
       // A plain shell another window or the command line made.
-      if (e.pane.labels?.['ravenry.kind'] === 'shell' && e.pane.state === 'running' && !shellTabOf(socket, e.pane.id)) addShellTab(socket, e.pane, null, false);
+      // (Each window its own: one opened with Cmd+N labels its shells with its id.)
+      if (e.pane.labels?.['ravenry.kind'] === 'shell' && e.pane.state === 'running' && !shellTabOf(socket, e.pane.id) && (e.pane.labels?.['ravenry.window'] || null) === thisWindow) addShellTab(socket, e.pane, null, false);
       // An agent's own pane: a tab right after its session's, the front left alone.
       else if (agentPane(e.pane) && !shellTabOf(socket, e.pane.id)) { splitAgentPane(addAgentPaneTab(socket, e.pane)); save(); render(); }
       // pane.created can come before the daemon has recorded who made the
@@ -2461,7 +2486,7 @@ function onCommand(name: string, arg?: unknown): void {
     case 'new-shell': void newShell(); break;
     case 'new-session': openStart(); break;
     // Cmd+W: the pane with the keyboard (its tab, or its split's pane).
-    case 'close-tab': { const t = focusedTab(); if (t) void closeTab(t.id); break; }
+    case 'close-tab': { const t = focusedTab(); if (t) void askClose(t); break; }
     // Cmd+D / Cmd+Shift+D: a new shell beside or under the pane in front.
     case 'split': void splitNew(arg === 'down' ? 'down' : 'right'); break;
     // Cmd+Option+arrows: the other pane of the split.
@@ -2473,12 +2498,18 @@ function onCommand(name: string, arg?: unknown): void {
     case 'update-stopped': showToast(String(arg || ''), [{ label: 'Try again', run: () => api().retryUpdate() }], { key: 'update-stopped', ms: Infinity }); break;
     case 'tab': { const t = stripTabs()[Number(arg)]; if (t) setView({ kind: 'tab', id: t.id }); break; }
     case 'toggle-panel': togglePanel(); break;
+    // Cmd+= / Cmd+- / Cmd+0: the terminals' text size, written to the
+    // settings (every window follows through onChange).
     case 'zoom': {
-      const size = termA.zoom((Number(arg) || 0) as 1 | -1 | 0);
-      termB?.setFontSize(size);
-      try { localStorage.setItem('ravenry.fontSize', String(size)); } catch { /* not kept */ }
+      const step = Number(arg) || 0;
+      const cur = termSettings?.xterm.fontSize || FONT_SIZE.base;
+      const size = Math.max(FONT_SIZE.min, Math.min(FONT_SIZE.max, step === 0 ? FONT_SIZE.base : cur + step));
+      if (size !== cur) void api().settings.set({ fontSize: size });
       break;
     }
+    case 'find': openFind(); break;
+    case 'find-next': if (find.open && find.query) runFind(1, false); else openFind(); break;
+    case 'find-prev': if (find.open && find.query) runFind(-1, false); else openFind(); break;
   }
 }
 
@@ -2568,7 +2599,8 @@ function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
   term.isAppKey = (e) => {
     // The app's shortcuts reach the menu instead of the shell.
     if (isMac()) return e.metaKey;
-    return e.ctrlKey && e.shiftKey && /^[tTwWnNbBcCvVaA]$/.test(e.key);
+    // Ctrl+, (Settings) too, past xterm.js.
+    return (e.ctrlKey && e.shiftKey && /^[tTwWnNbBcCvVaAfFgGdD]$/.test(e.key)) || (e.ctrlKey && e.key === ',');
   };
   // The Cmd keys of macOS's terminals xterm.js does not do (terminal.ts).
   term.mac = isMac();
@@ -2576,8 +2608,16 @@ function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
   term.onOpenLink = (uri) => api().openExternal(uri);
   // A file dropped on the terminal pastes its path.
   term.pathOf = (f) => { try { return api().pathForFile(f) || ''; } catch { return ''; } };
-  // The terminal's text size as it was left (Cmd+= / Cmd+- / Cmd+0).
-  try { const n = Number(localStorage.getItem('ravenry.fontSize')); if (n) term.setFontSize(n); } catch { /* the base size */ }
+  // The settings (docs/SETTINGS.md), as they are now.
+  if (termSettings) term.applySettings(termSettings);
+  // A bell: the pane flashes (visual), and the main process plays the sound
+  // and bounces the Dock as the settings say.
+  term.onBell = () => { if (termSettings?.bell === 'visual') flashBell(el); api().settings.bell(); };
+  // Copy on select (a setting).
+  term.onCopy = (text) => api().copyText(text);
+  // A right click: the system's own menu.
+  term.onContextMenu = (link) => { if (term === termB) focusSplit(1); else if (tabOfView()?.split) focusSplit(0); void contextMenu(term, link); };
+  term.onFindResults = (i, n) => { find.index = i; find.count = n; renderFind(); };
   term.onKeyAct = (act) => {
     const t = term.term;
     if (act === 'clear') {
@@ -2611,8 +2651,169 @@ function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
 }
 
 function viewB(): TerminalView {
-  if (!termB) { [termB, marksB] = makeView($('term2')); termB.setFontSize(termA.term.options.fontSize || 13); }
+  if (!termB) [termB, marksB] = makeView($('term2'));
   return termB;
+}
+
+// ---- the terminal settings (docs/SETTINGS.md; the Settings window writes them)
+let termSettings: TerminalSettings | null = null;
+function applyTerminalSettings(snap: SettingsSnapshot): void {
+  termSettings = snap.terminal;
+  termA?.applySettings(termSettings);
+  termB?.applySettings(termSettings);
+  // What draws beside the terminals (a split's headers, Find, the marks)
+  // takes the terminal theme's colours.
+  const th = termSettings.xterm.theme;
+  const root = document.documentElement.style;
+  if (th.background) root.setProperty('--tbg', th.background);
+  if (th.foreground) root.setProperty('--tfg', th.foreground);
+  document.body.classList.toggle('term-light', snap.terminal.appearance === 'light');
+  // Find's tints follow the terminal's theme: drawn again in the new one.
+  if (find.open && find.query) { termA.clearFind(); termB?.clearFind(); runFind(1, true); }
+}
+
+/** The visual bell: the pane flashes amber for about 150 ms. */
+function flashBell(el: HTMLElement): void {
+  const box = el.closest('.pbox') as HTMLElement | null;
+  if (!box) return;
+  box.classList.remove('bell');
+  void box.offsetWidth;
+  box.classList.add('bell');
+  setTimeout(() => box.classList.remove('bell'), 180);
+}
+
+/** The pane's folder: its shell tab's, else what the daemon says of the pane. */
+function paneCwd(pane: string | null | undefined): string | null {
+  if (!pane) return null;
+  const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === pane);
+  return (t && t.cwd) || store.get(pane)?.pane.cwd || null;
+}
+
+/** The terminal's right-click menu (main: term:menu), and what its pick does. */
+async function contextMenu(v: TerminalView, link: string | null): Promise<void> {
+  const a = v.attached;
+  const cwd = paneCwd(a?.pane);
+  const sel = v.selection;
+  const pick = await api().termMenu({ selection: !!sel, link, cwd, split: !!tabOfView()?.split });
+  switch (pick) {
+    case 'open-link': if (link) api().openExternal(link); break;
+    case 'copy-link': if (link) api().copyText(link); break;
+    case 'copy': if (sel) api().copyText(sel); break;
+    case 'paste': v.onKeyAct('paste'); break;
+    case 'select-all': v.onKeyAct('select-all'); break;
+    case 'copy-path': if (cwd) api().copyText(cwd); break;
+    case 'find': openFind(); break;
+    case 'clear': v.onKeyAct('clear'); break;
+    case 'split-right': void splitNew('right'); break;
+    case 'split-down': void splitNew('down'); break;
+  }
+}
+
+// ---- Find (Cmd+F): floats over the pane's top right (the picture, F1)
+const find = { open: false, query: '', caseSensitive: false, regex: false, index: 0, count: 0 };
+let findInput: HTMLInputElement | null = null;
+function openFind(): void {
+  const sel = term.selection;
+  if (sel && !sel.includes('\n')) find.query = sel;
+  find.open = true;
+  renderFind();
+  findInput?.focus();
+  findInput?.select();
+  if (find.query) runFind(1, false);
+}
+function closeFind(): void {
+  find.open = false;
+  termA.clearFind();
+  termB?.clearFind();
+  renderFind();
+  term.focus();
+}
+function runFind(dir: 1 | -1, incremental: boolean): void {
+  if (!find.query) { term.clearFind(); return; }
+  term.find(find.query, { caseSensitive: find.caseSensitive, regex: find.regex }, dir, incremental);
+}
+let findN: HTMLElement | null = null;
+let findCase: HTMLElement | null = null;
+let findRe: HTMLElement | null = null;
+/** Drawn once, then only its count and toggles change (the input keeps the keyboard). */
+function renderFind(): void {
+  const bar = $('findbar');
+  bar.hidden = !find.open;
+  if (!find.open) return;
+  if (!findInput) {
+    findInput = h('input', { type: 'text', placeholder: 'Find', spellcheck: 'false', 'aria-label': 'Find in the pane',
+      on: {
+        input: () => { find.query = findInput!.value; runFind(1, true); },
+        keydown: (e: Event) => {
+          const k = e as KeyboardEvent;
+          if (k.key === 'Escape') { k.preventDefault(); closeFind(); }
+          else if (k.key === 'Enter') { k.preventDefault(); runFind(k.shiftKey ? -1 : 1, false); }
+        },
+      } }) as HTMLInputElement;
+    // An option changed: the matches counted again from scratch.
+    const toggle = (label: string, title: string, flip: () => void) => h('button.fb-t', { title, 'aria-pressed': 'false', on: { click: () => { flip(); term.clearFind(); runFind(1, false); renderFind(); findInput?.focus(); } } }, label);
+    findN = h('span.fb-n');
+    findCase = toggle('Aa', 'Match case', () => { find.caseSensitive = !find.caseSensitive; });
+    findRe = toggle('.*', 'Regular expression', () => { find.regex = !find.regex; });
+    replace(bar,
+      h('span.fb-i', svg(I.SEARCH)), findInput, findN,
+      h('button.fb-b', { title: `Previous (${isMac() ? '⌘⇧G' : 'Shift+Enter'})`, 'aria-label': 'Previous', on: { click: () => runFind(-1, false) } }, svg(I.UP)),
+      h('button.fb-b', { title: `Next (${isMac() ? '⌘G' : 'Enter'})`, 'aria-label': 'Next', on: { click: () => runFind(1, false) } }, svg(I.DOWN)),
+      h('span.fb-sep'), findCase, findRe, h('span.fb-sep'),
+      h('button.fb-b', { title: 'Close (Esc)', 'aria-label': 'Close Find', on: { click: () => closeFind() } }, svg(I.CLOSE)));
+  }
+  if (findInput.value !== find.query) findInput.value = find.query;
+  findN!.textContent = find.query ? (find.count ? `${find.index} of ${find.count}` : 'No results') : '';
+  for (const [el, on] of [[findCase!, find.caseSensitive], [findRe!, find.regex]] as const) { el.classList.toggle('on', on); el.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+}
+
+// ---- closing a busy shell (the picture, F3): asked first, as the settings say
+async function askClose(t: Tab): Promise<void> {
+  if (t.kind !== 'shell' || termSettings?.confirmCloseBusy === false) { void closeTab(t.id); return; }
+  let busy: { cmd: string; shell: string } | null = null;
+  try {
+    const c = await daemons.get(t.socket);
+    // Busy: the terminal's foreground is not the pane's first process (the shell).
+    const [r, list] = await Promise.all([
+      c.request('pane.process', { pane: t.pane }) as Promise<{ foreground?: { pid: number; argv?: string[] } }>,
+      c.request('pane.list', {}) as Promise<{ panes: { id: string; pid?: number }[] }>,
+    ]);
+    const fg = r.foreground;
+    const first = list.panes.find((x) => x.id === t.pane)?.pid;
+    if (fg && first && fg.pid !== first) {
+      const argv = (fg.argv || []).slice();
+      if (argv[0]) argv[0] = argv[0].split('/').pop() || argv[0];
+      busy = { cmd: argv.join(' ') || 'a program', shell: ((t.command || [])[0] || 'The shell').split('/').pop()!.replace(/^-/, '') };
+    }
+  } catch { busy = null; }
+  if (!busy) { void closeTab(t.id); return; }
+  const what = t.host ? 'pane' : 'tab';
+  const box = $('closesheet');
+  let dont = false;
+  const done = (close: boolean) => {
+    box.hidden = true;
+    replace(box);
+    document.removeEventListener('keydown', onKey, true);
+    if (close) { if (dont) void api().settings.set({ confirmCloseBusy: false }); void closeTab(t.id); } else term.focus();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); done(false); }
+    else if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement && e.target.classList.contains('danger'))) { e.preventDefault(); done(false); }
+  };
+  document.addEventListener('keydown', onKey, true);
+  const cancel = h('button.btn', { on: { click: () => done(false) } }, 'Cancel');
+  replace(box, h('div.cs', { role: 'alertdialog', 'aria-modal': 'true', 'aria-label': `Close this ${what}?` },
+    h('div.cs-b', h('span.cs-i', svg(I.WARN)), h('div',
+      h('div.cs-t', `Close this ${what}?`),
+      h('p', `${busy.shell} is running `, h('code', busy.cmd), '. Close it anyway?'),
+      h('p.t3', 'Closing ends it and everything it started.'))),
+    h('div.cs-f',
+      h('label.cs-d', h('input', { type: 'checkbox', on: { change: (e: Event) => { dont = (e.target as HTMLInputElement).checked; } } }), "Don't ask again"),
+      h('span.sp'),
+      cancel,
+      h('button.btn.danger', { on: { click: () => done(true) } }, 'Close'))));
+  box.hidden = false;
+  cancel.focus();
 }
 
 async function boot(): Promise<void> {
@@ -2620,6 +2821,9 @@ async function boot(): Promise<void> {
   document.body.classList.toggle('mac', isMac());
   daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
   store.useClients((s) => daemons.get(s));
+  // The terminal settings first, so the terminals start with them.
+  try { applyTerminalSettings(await api().settings.get()); } catch { /* the defaults */ }
+  api().settings.onChange((snap) => applyTerminalSettings(snap));
   [termA, marksA] = makeView($('term'));
   // A tab dragged onto an edge of the pane in front: a split.
   const sp = $('split');
@@ -2747,7 +2951,9 @@ async function boot(): Promise<void> {
   S.hub = (hs.state as HubState) || null;
   S.hubStatus = hs.status;
   if (S.hub) { S.cps.fromHub(S.hub.checkpoints as HubCheckpoint[] | undefined); pages.update((S.hub as { pages?: NavRow[] }).pages); }
-  await restoreTabs(saved);
+  // A window opened with Cmd+N starts with a shell of its own; the first keeps the tabs.
+  if (S.config?.primary !== false) await restoreTabs(saved);
+  else { thisWindow = `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; S.restored = true; }
   // Like any terminal, a launch ends with a working shell in front: the
   // shells that were open come back, else one opens in the last folder used
   // (else the home folder). A failure says why in a toast.

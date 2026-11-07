@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld('ravenry', {
   npmConfirmBack: (on: boolean) => ipcRenderer.invoke('npm:confirm-back', on),
   onNpm: on('npm:state'),
   // The terminal settings (docs/SETTINGS.md; SettingsApi in src/shared/settings.ts).
+  // The terminal's right-click menu (main: term:menu): the item picked, or null.
+  termMenu: (info: { selection: boolean; link: string | null; cwd: string | null; split: boolean }) => ipcRenderer.invoke('term:menu', info) as Promise<string | null>,
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),
