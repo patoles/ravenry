@@ -67,7 +67,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { runApp } from './run-app.mjs';
+import { runApp, appEnvs } from './run-app.mjs';
 
 guardSpawns();
 
@@ -615,6 +615,14 @@ try {
     step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, and has its state within 10 s', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
     fs.rmSync(k, { recursive: true, force: true });
   });
+  // ------------------------------------------------------------ the app's environment
+  // On 2026-11-07 an app opened from inside a Ravenry pane inherited the
+  // pane's variables, and the daemon took the whole window for that pane.
+  // Every app this check launched (tools/run-app.mjs reads what the app
+  // really ran with) had none of a terminal pane's variables
+  // (RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM, CMUX_*...) and no Ravenry
+  // variable but the test settings the check named itself.
+  if (!ONLY || appEnvs.length) step('env: every app the check launched ran with a clean environment: no RAVENRY_* but the test\'s own settings, no TERM_PROGRAM or other terminal pane variable', appEnvs.length > 0 && appEnvs.every((e) => !e.bad.length), { launched: appEnvs.length, bad: appEnvs.filter((e) => e.bad.length) });
 } finally {
   // Every test label out of launchd, whatever happened.
   for (const l of labels) if (loaded(l)) launchctl('bootout', `gui/${UID}/${l}`);

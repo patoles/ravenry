@@ -295,8 +295,23 @@ export function launchdProblem(file, args = [], env = process.env, platform = pr
   return null;
 }
 
+// The variables a Ravenry pane (or another terminal) puts in its
+// processes. An app started with them takes its whole window for that
+// pane: on 2026-11-07 an app opened from inside a Ravenry pane inherited
+// RAVENRY_PANE and RAVENRY_SOCKET, and the daemon read every key typed in
+// it as the pane's own program typing (PROTOCOL.md section 4, rule 1). No
+// tool starts the app with any of them.
+export const PANE_VARS = ['RAVENRY_PANE', 'RAVENRY_SOCKET', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'];
+export function paneVarsIn(env) {
+  return Object.keys(env || {}).filter((k) => PANE_VARS.includes(k) || /^(CMUX_|ITERM_SESSION_ID$|TMUX$|REX_)/.test(k));
+}
+
 function check(file, args, opts) {
   const env = (opts && opts.env) || process.env;
+  if (childKind(file, args, env) === 'app') {
+    const leak = paneVarsIn(env);
+    if (leak.length) throw new Error(`Refused to start the app (${path.basename(String(file))}): its environment has a terminal pane's variables (${leak.join(', ')}); start it with a clean one.`);
+  }
   const ld = launchdProblem(file, args, env);
   if (ld) throw new Error(`Refused to start ${path.basename(String(file))}: ${ld}.`);
   const mp = machineProblem(file, args, env);

@@ -29,6 +29,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 module.exports = async function drive(win, ctx) {
   const plan = JSON.parse(fs.readFileSync(process.env.RAVENRY_DRIVE, 'utf8'));
+  // The environment the app really got, for tools/run-app.mjs to check:
+  // the names of its Ravenry and terminal variables (no values).
+  try { fs.writeFileSync(process.env.RAVENRY_DRIVE + '.env.json', JSON.stringify(Object.keys(process.env).filter((k) => /^(RAVENRY_|TERM_PROGRAM|CMUX_|ITERM_SESSION_ID$|TMUX$|REX_)/.test(k)).sort())); } catch { /* checked by the tool */ }
   const wc = win.webContents;
   const js = (code) => wc.executeJavaScript(code, true);
   const until = async (expr, timeout = 15000) => {

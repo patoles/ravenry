@@ -169,6 +169,13 @@ check('guard: a board that would read this machine\'s own ps or lsof is refused;
 r = child(`const t = await import(${S('../tools/test-env.mjs')}); const a = '/x/Ravenry.app/Contents/MacOS/Ravenry';
 console.log([t.launchdProblem('/bin/launchctl', ['print', 'gui/1/x']), t.launchdProblem('/bin/sh', ['-c', 'launchctl bootout gui/1/x']), t.launchdProblem(a, [], { RAVENRY_SERVICE: 'install' }, 'darwin'), t.launchdProblem(a, [], { RAVENRY_SERVICE: 'install', RAVENRY_LAUNCHCTL: '/x/fake-launchctl.mjs' }, 'darwin'), t.launchdProblem(a, [], { RAVENRY_SERVICE: 'dry-run' }, 'darwin'), t.launchdProblem('/usr/bin/true', [])].map((x) => (x ? 'refused' : 'ran')).join(','));`);
 check('guard: the real launchctl, and an app that would install its service with it, are refused; the stand-in runs', r.out === 'refused,refused,refused,ran,ran,ran', r.out || r.err);
+// A pane's variables: an app started from inside a Ravenry pane (or cmux,
+// iTerm2, tmux, Rex) would take its whole window for that pane, so no tool
+// starts the app with them; a clean environment starts.
+r = child(`const t = await import(${S('../tools/test-env.mjs')}); t.guardSpawns(); const cp = await import('node:child_process'); const a = '/x/Ravenry.app/Contents/MacOS/Ravenry';
+const tryApp = (env) => { try { cp.spawnSync(a, [], { env: { PATH: '/usr/bin:/bin', ...env } }); return 'ran'; } catch (e) { return /pane's variables/.test(e.message) ? 'refused' : 'other:' + e.message.slice(0, 80); } };
+console.log([tryApp({ RAVENRY_PANE: 'pabc' }), tryApp({ RAVENRY_SOCKET: '/x/s.sock' }), tryApp({ TERM_PROGRAM: 'ravenry' }), tryApp({ CMUX_SURFACE_ID: 'x' }), t.paneVarsIn({ RAVENRY_HUB_URL: 'x', RAVENRY_PANE_PASS: 'PS1', HOME: '/h' }).length].join(','));`);
+check('guard: the app started with a terminal pane\'s variables (RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM, CMUX_*) is refused; test settings are not pane variables', r.out === 'refused,refused,refused,refused,0', r.out || r.err);
 const forbidden = tests.filter((f) => /RAVENRY_TEST_REAL_TERMINAL\s*(:|\]?\s*=(?!=))\s*['"`]1/.test((read(path.join(ROOT, 'tools', f)) || '').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')));
 check('guard: no test sets RAVENRY_TEST_REAL_TERMINAL itself', forbidden.length === 0, forbidden.join(', '));
 const marked = tests.filter((f) => /requireRealTerminal\(/.test(read(path.join(ROOT, 'tools', f)) || ''));

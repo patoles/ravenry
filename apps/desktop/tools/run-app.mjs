@@ -2,7 +2,7 @@
 // (driver.cjs), in a throwaway HOME, data folder and daemon runtime folder.
 // Every ravenryd, hub and app a tool here starts is checked first
 // (tools/test-env.mjs): none starts with a folder of the real user's.
-import { guardSpawns, STUB_PS } from '../../../tools/test-env.mjs';
+import { guardSpawns, STUB_PS, paneVarsIn } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -58,8 +58,19 @@ export async function runApp(opts) {
   const code = await new Promise((r) => child.on('exit', r));
   clearTimeout(timer);
   if (code !== 0) throw new Error(`${name}: the app exited with ${code}\n${log.slice(-4000)}`);
+  // What the app really ran with: no terminal pane's variables, and no
+  // Ravenry variable the tool did not name (one inherited from somewhere).
+  let got = null;
+  try { got = JSON.parse(fs.readFileSync(plan + '.env.json', 'utf8')); } catch { /* below */ }
+  if (!Array.isArray(got)) throw new Error(`${name}: the app did not record its environment (${plan}.env.json)`);
+  const bad = got.filter((k) => paneVarsIn({ [k]: 1 }).length || (k.startsWith('RAVENRY_') && !(k in env)));
+  appEnvs.push({ name, vars: got, bad });
+  if (bad.length) throw new Error(`${name}: the app ran with variables it must not have: ${bad.join(', ')}`);
   return log;
 }
+
+/** Each app runApp started: the Ravenry and terminal variables it ran with, and any it must not have had. */
+export const appEnvs = [];
 
 /** The environment for a ravenryd command a tool runs on a test's daemons: no folder of the real user's. */
 export function cliEnv(rt, home, state = path.join(home, 'state')) {
