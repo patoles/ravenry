@@ -300,8 +300,13 @@ body.first .sl { flex: none; }
 
 .shot { width: 100%; border-radius: 7px; aspect-ratio: 16/10; object-fit: cover; background: var(--card2); }
 
-.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--card2); color: var(--tx); padding: 9px 14px; border-radius: 9px; font-size: 12.5px; box-shadow: 0 10px 30px rgba(0,0,0,.35); z-index: 10; max-width: 70vw; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 10; max-width: 70vw; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .toast[hidden] { display: none; }
+.toast > .ti { display: flex; align-items: center; background: var(--card2); color: var(--tx); padding: 9px 14px; border-radius: 9px; font-size: 12.5px; box-shadow: 0 10px 30px rgba(0,0,0,.35); max-width: 100%; }
+.toast > .ti .tt { min-width: 0; }
+.toast .tx { margin-left: 10px; margin-right: -4px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--tx2); cursor: pointer; flex: none; }
+.toast .tx:hover { background: var(--card); color: var(--tx); }
+.toast .tx svg { width: 10px; height: 10px; }
 
 /* ---------------------------------------------------------------- pages (pages.ts)
    docs/design/RavenryPages.dc.html: a page takes the middle and right

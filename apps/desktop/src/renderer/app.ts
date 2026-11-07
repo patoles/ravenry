@@ -338,48 +338,98 @@ function save(): void {
   });
 }
 
-let toastTimer: number | undefined;
-
-// A toast belongs to the view it was said on. Moving to another page, tab or
-// session takes it away (renderCentre), so it never follows the person; a
-// toast that explains a move (a pane that is gone) is said after the move.
-// A toast said when an action ends carries `at`, the view the action
-// started on (here()): if the person has moved on since, news is dropped and
-// an error is kept for that view. It shows when they come back, with OK,
-// and stays until they press it, so a failed write is never lost.
+// Toasts. A toast with an action (Show, Undo, Update it) stays until it is
+// used or dismissed (its x), and at least 12 s; the pointer over it pauses
+// its time (2026-11-07, "Didnt have time to click it"). A newer one for
+// the same thing (a session's key, a decision's id) replaces the older
+// rather than stacking beside it. A plain toast keeps its 5 s, and a newer
+// plain one replaces it. A plain toast belongs to the view it was said on:
+// moving to another page, tab or session takes it away (renderCentre), so
+// it never follows the person; one that explains a move is said after the
+// move. A toast said when an action ends carries `at`, the view the action
+// started on (here()): if the person has moved on since, news is dropped
+// and an error is kept for that view. It shows when they come back, with
+// OK, and stays until they press it, so a failed write is never lost.
 interface ToastAt { at: string; error: boolean }
+interface ToastAction { label: string; run: () => void }
+interface ToastItem { key: string; el: HTMLElement; ms: number; left: number; since: number; timer?: number; plain: boolean }
 const viewKey = (v: View): string => (v.kind === 'page' ? `page|${v.key}` : JSON.stringify(v));
 const here = (): string => viewKey(S.view);
 const kept = new Map<string, string[]>();
+const toasts: ToastItem[] = [];
+const ACTION_MS = 12000;
+const PLAIN_MS = 5000;
+let toastHover = false;
 
-function toast(text: string, undo?: { label: string; run: () => void }, at?: ToastAt): void {
+function toastBox(): HTMLElement {
+  const el = $('toast');
+  if (!el.dataset.wired) {
+    el.dataset.wired = '1';
+    el.addEventListener('mouseenter', () => { toastHover = true; for (const t of toasts) pauseToast(t); });
+    el.addEventListener('mouseleave', () => { toastHover = false; for (const t of toasts) runToast(t); });
+  }
+  return el;
+}
+function pauseToast(t: ToastItem): void {
+  if (t.timer === undefined) return;
+  clearTimeout(t.timer);
+  t.timer = undefined;
+  t.left = Math.max(0, t.left - (Date.now() - t.since));
+}
+function runToast(t: ToastItem): void {
+  if (!Number.isFinite(t.ms) || toastHover || t.timer !== undefined) return;
+  t.since = Date.now();
+  // Back from under the pointer: a moment more to read it.
+  t.timer = window.setTimeout(() => dropToast(t), Math.max(t.left, 2000));
+}
+function dropToast(t: ToastItem): void {
+  clearTimeout(t.timer);
+  const i = toasts.indexOf(t);
+  if (i >= 0) toasts.splice(i, 1);
+  t.el.remove();
+  $('toast').hidden = toasts.length === 0;
+}
+
+/**
+ * One toast. `actions` makes it stay until used or dismissed, at least
+ * `ms` (12 s at least; Infinity: until pressed). `key` names what it is
+ * about: a newer toast with the same key replaces it.
+ */
+function showToast(text: string, actions: ToastAction[] = [], opts: { key?: string; ms?: number } = {}): void {
+  const el = toastBox();
+  const plain = actions.length === 0;
+  const key = opts.key || (plain ? 'plain' : `say:${text}`);
+  for (const t of toasts.filter((x) => x.key === key)) dropToast(t);
+  const ms = plain ? opts.ms ?? PLAIN_MS : Math.max(opts.ms ?? ACTION_MS, ACTION_MS);
+  const item: ToastItem = { key, el: h('div.ti'), ms, left: ms, since: Date.now(), plain };
+  replace(item.el, h('span.tt', text),
+    ...actions.map((a) => h('button.lk', { on: { click: () => { dropToast(item); a.run(); } } }, a.label)),
+    plain ? null : h('button.tx', { title: 'Dismiss', 'aria-label': 'Dismiss', on: { click: () => dropToast(item) } }, svg(I.CLOSE)));
+  toasts.push(item);
+  // At most three at once: the oldest goes.
+  while (toasts.length > 3) dropToast(toasts[0]);
+  el.append(item.el);
+  el.hidden = false;
+  runToast(item);
+}
+
+function toast(text: string, undo?: ToastAction, at?: ToastAt): void {
   if (at && at.at !== here()) {
     if (at.error) { const l = kept.get(at.at) || []; if (!l.includes(text)) l.push(text); kept.set(at.at, l); }
     return;
   }
-  const el = $('toast');
-  replace(el, text, undo ? h('button.lk.undo', { on: { click: () => { el.hidden = true; undo.run(); } } }, undo.label) : null);
-  el.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => { el.hidden = true; }, undo ? 8000 : 5000);
+  showToast(text, undo ? [undo] : []);
 }
 
-/** A toast with links (the decision ledger's Undo and Show). */
-function toastLinks(text: string, links: { label: string; run: () => void }[]): void {
-  const el = $('toast');
-  replace(el, text, links.map((l) => h('button.lk', { on: { click: () => { el.hidden = true; l.run(); } } }, l.label)));
-  el.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => { el.hidden = true; }, links.some((l) => l.label === 'Undo') ? 60000 : 8000);
+/** A toast with links (the decision ledger's Undo and Show; a session that needs you). */
+function toastLinks(text: string, links: ToastAction[], key?: string): void {
+  showToast(text, links, { key, ms: links.some((l) => l.label === 'Undo') ? 60000 : ACTION_MS });
 }
 
 function showKept(where: string): void {
   const l = kept.get(where);
   if (!l || !l.length) return;
-  const el = $('toast');
-  replace(el, l.join(' '), h('button.lk.undo', { on: { click: () => { kept.delete(where); el.hidden = true; } } }, 'OK'));
-  clearTimeout(toastTimer);
-  el.hidden = false;
+  showToast(l.join(' '), [{ label: 'OK', run: () => { kept.delete(where); } }], { key: `kept:${where}`, ms: Infinity });
 }
 
 let toastWhere = '';
@@ -387,7 +437,9 @@ function toastFollows(where: string): void {
   if (where === toastWhere) return;
   const first = !toastWhere;
   toastWhere = where;
-  if (!first) { clearTimeout(toastTimer); $('toast').hidden = true; }
+  // Plain news and another view's kept errors go; a toast with an action
+  // stays until it is used or dismissed.
+  if (!first) for (const t of toasts.filter((x) => x.plain || x.key.startsWith('kept:'))) dropToast(t);
   showKept(where);
 }
 
@@ -608,7 +660,7 @@ function arrivedAt(t: string): void {
   const f = t.startsWith('tab:') ? null : findSession(S.hub, t);
   const tab = t.startsWith('tab:') ? S.tabs.find((x) => x.id === t.slice(4)) : null;
   const name = f ? f.session.topic || f.project.name : tab ? tabLabel(tab).name : 'A session';
-  toastLinks(`${name} needs you.`, [{ label: 'Show', run: () => { if (tab) setView({ kind: 'tab', id: tab.id }); else pickSession(t, 'notification'); } }]);
+  toastLinks(`${name} needs you.`, [{ label: 'Show', run: () => { if (tab) setView({ kind: 'tab', id: tab.id }); else pickSession(t, 'notification'); } }], `needs:${t}`);
 }
 
 /**

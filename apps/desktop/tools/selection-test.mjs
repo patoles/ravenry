@@ -13,7 +13,9 @@
 //     sidebar drawn again meanwhile) brings its pane to the front, and the
 //     three agree; the click is in app.log with what it did;
 //   - another session moving into Needs you leaves the front alone, says
-//     so in a toast, and its Show brings it to the front;
+//     so in a toast, and its Show brings it to the front; that toast is
+//     still there after 9 s, the same session needing you again replaces
+//     it (one toast, the new one), and the pointer over it keeps it;
 //   - relaunched, the session that was in front is in front again, its pane
 //     shown, with no launch shell opened for it.
 //
@@ -68,6 +70,7 @@ const tickTimer = setInterval(() => { state = { ...state, generatedAt: new Date(
 const hubUrl = `http://127.0.0.1:${srv.address().port}`;
 
 const R = 'window.__ravenry';
+const TOASTS_EXPR = `[...document.querySelectorAll('#toast .ti')].map((e) => e.textContent)`;
 // What the window shows in front, highlights and has in its panel, as keys.
 const SEL = `(() => { const on = document.querySelector('#tabs .tab.on'); const sel = document.querySelector('#side .ss.sel'); const p = document.getElementById('panel'); return { front: on ? on.dataset.key : null, row: sel ? sel.dataset.key : null, panel: p.hidden ? null : p.dataset.key }; })()`;
 const AGREE = `(() => { const s = ${SEL}; const session = !!s.front && !s.front.startsWith('tab:') && !s.front.startsWith('pane:'); return (session ? s.row === s.front || (s.row === null && ![...document.querySelectorAll('#side .ss')].some((e) => e.dataset.key === s.front)) : s.row === null) && (s.panel === null || s.panel === s.front); })()`;
@@ -82,6 +85,13 @@ try {
     const n = state.projects[1];
     state = { ...state, projects: [state.projects[0], { ...n, state: 'you', sessions: [{ ...n.sessions[0], state: 'asked', words: { line: 'Ship it?' } }] }] };
     fs.writeFileSync(go('arrive'), '1');
+    // It goes back to work, then asks again: a second arrival for the same session.
+    while (!fs.existsSync(sig('again'))) await new Promise((r) => setTimeout(r, 50));
+    const n2 = state.projects[1];
+    state = { ...state, projects: [state.projects[0], { ...n2, state: 'work', sessions: [{ ...n2.sessions[0], state: 'working', words: { line: 'Shipping' } }] }] };
+    await new Promise((r) => setTimeout(r, 1200));
+    state = { ...state, projects: [state.projects[0], { ...n2, state: 'you', sessions: [{ ...n2.sessions[0], state: 'asked', words: { line: 'Ship it now?' } }] }] };
+    fs.writeFileSync(go('again'), '1');
   })();
   const [firstLog] = await Promise.all([runApp({ name: 'first', work, rt, bin: BIN, home, hubUrl, env, steps: [
     { ready: true },
@@ -96,6 +106,21 @@ try {
     { until: `!document.getElementById('toast').hidden && /needs you/.test(document.getElementById('toast').textContent)`, timeout: 10000 },
     { until: AGREE, timeout: 3000 },
     { save: { expr: SEL, out: path.join(work, 'arrived.json') } },
+    // A toast with an action stays at least 12 s: still there at 9 s (it went at 8 s before).
+    { sleep: 9000 },
+    { save: { expr: `${TOASTS_EXPR}`, out: path.join(work, 'after9.json') } },
+    // The same session needs you again: its toast is replaced, not stacked.
+    { js: `document.querySelectorAll('#toast .ti').forEach((e) => { e.dataset.first = '1'; })` },
+    { signal: sig('again') }, { wait: go('again') },
+    { until: `${TOASTS_EXPR}.some((t) => t.includes('needs you')) && ${R}.S.hub.projects[1].sessions[0].words.line === 'Ship it now?'`, timeout: 10000 },
+    { sleep: 1500 },
+    { save: { expr: `${TOASTS_EXPR}`, out: path.join(work, 'again.json') } },
+    { save: { expr: `[...document.querySelectorAll('#toast .ti')].filter((e) => e.dataset.first).length`, out: path.join(work, 'againOld.json') } },
+    // The pointer over it pauses its time: still there 14 s later.
+    { hover: '#toast .ti' }, { sleep: 14000 },
+    { save: { expr: `${TOASTS_EXPR}`, out: path.join(work, 'hovered.json') } },
+    { shot: path.join(OUT, 'selection-toast.png') },
+    { hover: [700, 400] },
     { click: `[...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show')`, clickJs: true },
     { until: `${R}.S.view.kind === 'session' && ${R}.S.view.key === '${NOTES}' && ${AGREE}`, timeout: 10000 },
     { save: { expr: SEL, out: path.join(work, 'shown.json') } },
@@ -108,6 +133,10 @@ try {
   check('launch: the launch shell is in front; no row is highlighted, and the panel shows that shell', j('launch.json').front.startsWith('tab:') && j('launch.json').row === null && (j('launch.json').panel === null || j('launch.json').panel === j('launch.json').front), JSON.stringify(j('launch.json')));
   check('a real click on the row (the sidebar redrawn meanwhile) brings its pane to the front; row, panel and tab agree', j('clicked.json').front === KEY && j('clicked.json').row === KEY && j('clicked.json').panel === KEY, JSON.stringify(j('clicked.json')));
   check('another session moving into Needs you leaves the front alone (a toast says so)', j('arrived.json').front === KEY && j('arrived.json').row === KEY, JSON.stringify(j('arrived.json')));
+  const needs = (f) => j(f).filter((t) => /Sync settings needs you/.test(t)).length;
+  check('a toast with an action is still there 9 s after it came', needs('after9.json') === 1, JSON.stringify(j('after9.json')));
+  check('the same session needing you again replaces its toast, never stacks a second', needs('again.json') === 1 && j('againOld.json') === 0, JSON.stringify([j('again.json'), j('againOld.json')]));
+  check('the pointer over a toast keeps it (14 s later, over 12 s)', needs('hovered.json') === 1, JSON.stringify(j('hovered.json')));
   check('its Show brings it to the front; row, panel and tab agree', j('shown.json').front === NOTES && j('shown.json').row === NOTES, JSON.stringify(j('shown.json')));
   // What app.log gets (the packaged app writes it to the file; this build says it on its output).
   const log = firstLog;
