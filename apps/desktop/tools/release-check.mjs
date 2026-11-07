@@ -197,6 +197,14 @@ function outsideSession(a) {
   fs.writeFileSync(a.ps, JSON.stringify([{ pid: 7101, ppid: 7100, rssKb: 300000, startedAt: at(10), command: `claude --session-id ${SID}`, cwd: proj, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF}` }]));
 }
 
+// The stub process list, edited under the lock the stand-in Claudes take
+// (tools/stand-in-claude.mjs), so no edit drops another's entry.
+async function editPs(file, fn) {
+  const lock = `${file}.lock`;
+  for (let i = 0; i < 500; i++) { try { fs.mkdirSync(lock); break; } catch { await sleep(20); } }
+  try { let l = []; try { l = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none */ } fs.writeFileSync(`${file}.rc.tmp`, JSON.stringify(fn(l))); fs.renameSync(`${file}.rc.tmp`, file); } finally { try { fs.rmdirSync(lock); } catch { /* gone */ } }
+}
+
 const sigFile = (a, n) => path.join(a.work, `${n}.signal`);
 const goFile = (a, n) => path.join(a.work, `${n}.go`);
 const pause = (a, n) => [{ signal: sigFile(a, n) }, { wait: goFile(a, n), timeout: 60000 }];
@@ -210,7 +218,7 @@ try {
     let m = null;
     const feed = (async () => {
       await at(a, 'closed');
-      fs.writeFileSync(a.ps, '[]'); // its process ended in cmux
+      await editPs(a.ps, (l) => l.filter((p) => p.pid !== 7101)); // its process ended in cmux
       fs.writeFileSync(goFile(a, 'closed'), '1');
     })();
     const run = launch(a, 'cold', [
@@ -328,9 +336,7 @@ try {
     let drained = false;
     for (let i = 0; i < 100 && !drained; i++) { drained = fs.existsSync(oldLog) && /runs beside this one: draining/.test(fs.readFileSync(oldLog, 'utf8')); if (!drained) await sleep(100); }
     step(`7 update: the build before's daemon logs that it is draining before the app opens`, drained);
-    const procs = JSON.parse(fs.readFileSync(b.ps, 'utf8'));
-    procs.push({ pid: 7201, ppid: 7200, rssKb: 300000, startedAt: new Date(Date.now() - 60000).toISOString(), command: `claude --resume ${SID}`, cwd: path.join(b.home, 'Projects', 'kite'), env: `CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF} TERM_PROGRAM=ravenry RAVENRY_PANE=${oldPane.id}` });
-    fs.writeFileSync(b.ps, JSON.stringify(procs));
+    await editPs(b.ps, (procs) => [...procs, { pid: 7201, ppid: 7200, rssKb: 300000, startedAt: new Date(Date.now() - 60000).toISOString(), command: `claude --resume ${SID}`, cwd: path.join(b.home, 'Projects', 'kite'), env: `CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF} TERM_PROGRAM=ravenry RAVENRY_PANE=${oldPane.id}` }]);
     const rowsOf = `[...document.querySelectorAll('#side .ss')].filter((e) => /ravenry:${oldPane.id}|${SID}|${SF}/.test(e.dataset.key || ''))`;
     const m = await launch(b, 'update', [
       { ready: true, timeout: 30000 }, mark('ready'),

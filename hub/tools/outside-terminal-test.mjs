@@ -194,6 +194,13 @@ if (BIN) {
   check('also open in cmux: the session in its Ravenry pane says another process holds it there', !!twin && twin.surfaceId === `ravenry:${PANE}` && twin.alsoOpen.name === 'cmux' && twin.alsoOpen.surfaceId === SF, JSON.stringify(twin && { surfaceId: twin.surfaceId, alsoOpen: twin.alsoOpen }));
   const twinOpen = await post('/api/open', { projectId: 'kite', surfaceId: SF });
   check('also open in cmux: Open in cmux focuses that tab', twinOpen.status === 200, twinOpen.text);
+  // The copy in cmux exits (its SessionEnd): the session stays on the board
+  // in its Ravenry pane, which says the conversation went on in cmux.
+  fs.appendFileSync(EVF, ev('SessionEnd', 0, { claude_pid: 6202, reason: 'exit' }) + '\n');
+  procs([{ pid: 6101, ppid: 6100, rssKb: 300000, startedAt: iso(0.5), command: `claude --resume ${SID}`, cwd: PROJ, env: `TERM_PROGRAM=ravenry RAVENRY_PANE=${PANE}` }]);
+  await post('/api/sessions/resume', { projectId: 'kite', sessionId: SID }); // reads the processes again
+  const stale = await until(async () => { const s = sessionOf(await state()); return s && !s.alsoOpen && s.movedOn ? s : null; }, 15000);
+  check('the copy in cmux exits: the session stays in its Ravenry pane, and says it went on in cmux', !!stale && stale.surfaceId === `ravenry:${PANE}` && stale.movedOn.name === 'cmux', JSON.stringify(stale && { surfaceId: stale.surfaceId, movedOn: stale.movedOn, alsoOpen: stale.alsoOpen }) || 'gone from the board');
 } else {
   console.log('SKIP  Continue in Ravenry in a real pane: set RAVENRYD_BIN to a ravenryd binary');
 }

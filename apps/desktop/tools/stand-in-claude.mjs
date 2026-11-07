@@ -36,12 +36,26 @@ const TR = (() => {
   return path.join(root, cwd.replace(/[^A-Za-z0-9-]/g, '-'), `${sid}.jsonl`);
 })();
 
-// The stub process list, written whole (a new file renamed over it).
+// The stub process list, written whole (a new file renamed over it), under a
+// lock: several stand-ins start and end at once, and an edit read before
+// another's write would drop that one's entry.
 function editPs(fn) {
-  let list = [];
-  try { list = JSON.parse(fs.readFileSync(PS, 'utf8')); } catch { /* none */ }
-  const tmp = `${PS}.${process.pid}.tmp`;
-  try { fs.writeFileSync(tmp, JSON.stringify(fn(list))); fs.renameSync(tmp, PS); } catch { /* no list: a plain run */ }
+  const lock = `${PS}.lock`;
+  const t0 = Date.now();
+  for (;;) {
+    try { fs.mkdirSync(lock); break; } catch {
+      // A lock older than 5 s belongs to a stand-in that died holding it.
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 5000) fs.rmdirSync(lock); } catch { /* gone */ }
+      if (Date.now() - t0 > 10000) return;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try {
+    let list = [];
+    try { list = JSON.parse(fs.readFileSync(PS, 'utf8')); } catch { /* none */ }
+    const tmp = `${PS}.${process.pid}.tmp`;
+    try { fs.writeFileSync(tmp, JSON.stringify(fn(list))); fs.renameSync(tmp, PS); } catch { /* no list: a plain run */ }
+  } finally { try { fs.rmdirSync(lock); } catch { /* gone */ } }
 }
 const envWords = ['TERM_PROGRAM', 'RAVENRY_PANE', 'CMUX_WORKSPACE_ID', 'CMUX_SURFACE_ID', 'ITERM_SESSION_ID']
   .filter((k) => process.env[k]).map((k) => `${k}=${process.env[k]}`).join(' ');
@@ -91,6 +105,8 @@ rl.on('line', (line) => {
     if (/slow/.test(prompt)) await new Promise((r) => setTimeout(r, Number(process.env.STAND_IN_SLOW_MS) || 8000));
     const answer = `answer to: ${prompt}`;
     record('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: answer }], usage: { input_tokens: 5, cache_read_input_tokens: 40000, output_tokens: 20 } } });
+    // As Claude Code marks a finished turn in its transcript.
+    record('system', { subtype: 'turn_duration', durationMs: 1000 });
     console.log(`answered: ${prompt}`);
     hooks('Stop', { stop_hook_active: false });
   });
