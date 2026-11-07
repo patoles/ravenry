@@ -448,3 +448,23 @@ func TestStripper(t *testing.T) {
 		t.Fatalf("stripped %q", out)
 	}
 }
+
+// A pane never carries another terminal's names for its own tab: a daemon
+// started from a cmux tab handed CMUX_SURFACE_ID to its panes (2026-11-07).
+func TestPaneEnvLeavesOuterTerminalsOut(t *testing.T) {
+	base := []string{"HOME=/h", "PATH=/usr/bin", "CMUX_SURFACE_ID=E0F8", "CMUX_WORKSPACE_ID=187D", "ITERM_SESSION_ID=w0t0p0:x", "REX_BLOCK=block:y", "TMUX=/tmp/t,1,0", "TERM_PROGRAM=ghostty", "TERM_PROGRAM_VERSION=1.3", "RAVENRY_PANE=pold", "LANG=en_US.UTF-8"}
+	env := paneEnv(base, map[string]string{"FOO": "bar"}, "pnew0001", "/run/x.sock")
+	got := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+	for _, k := range []string{"CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "ITERM_SESSION_ID", "REX_BLOCK", "TMUX", "TERM_PROGRAM_VERSION"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s reached the pane", k)
+		}
+	}
+	if got["TERM_PROGRAM"] != "ravenry" || got["RAVENRY_PANE"] != "pnew0001" || got["HOME"] != "/h" || got["LANG"] != "en_US.UTF-8" || got["FOO"] != "bar" {
+		t.Errorf("env %v", got)
+	}
+}

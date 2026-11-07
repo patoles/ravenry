@@ -54,6 +54,8 @@ const { parseScreen } = await import('../server/screen.mjs');
 const A = 'C1C1C1C1-0000-4000-8000-00000000C1C1';
 const cases = [
   ['cmux first, even with iTerm2 variables inherited', { CMUX_SURFACE_ID: 'x', ITERM_SESSION_ID: 'w0t0p0:' + A, TERM_PROGRAM: 'iTerm.app' }, { terminal: 'cmux' }],
+  ['a Ravenry pane before cmux, when it inherited a cmux tab\'s variables (TERM_PROGRAM ravenry)', { CMUX_SURFACE_ID: 'x', CMUX_WORKSPACE_ID: 'y', RAVENRY_PANE: 'pxamvwkk', TERM_PROGRAM: 'ravenry' }, { terminal: 'ravenry', terminal_id: 'pxamvwkk' }],
+  ['cmux started from a Ravenry pane is cmux (its TERM_PROGRAM is not ravenry)', { CMUX_SURFACE_ID: 'x', RAVENRY_PANE: 'pxamvwkk', TERM_PROGRAM: 'ghostty' }, { terminal: 'cmux' }],
   ['tmux inside iTerm2 is tmux (watch only)', { TMUX: '/tmp/tmux-501/default,1,0', ITERM_SESSION_ID: 'w0t0p0:' + A }, { terminal: 'tmux' }],
   ['iTerm2 with its session id', { ITERM_SESSION_ID: 'w0t1p0:' + A, TERM_PROGRAM: 'iTerm.app' }, { terminal: 'iterm', terminal_id: 'w0t1p0:' + A }],
   ['Terminal.app with its session id', { TERM_PROGRAM: 'Apple_Terminal', TERM_SESSION_ID: 'B2F0-1' }, { terminal: 'apple-terminal', terminal_id: 'B2F0-1' }],

@@ -3,8 +3,10 @@
 // board knows per session which adapter (server/terminal.mjs) can reach it.
 // No imports: the hook loads this on every event and must start fast.
 //
-//   cmux       CMUX_SURFACE_ID (the board's own ids; checked first, since a
-//              cmux tab may inherit another terminal's variables)
+//   ravenry    first while TERM_PROGRAM is ravenry (below): a ravenryd pane
+//              started from a cmux tab inherits that tab's variables
+//   cmux       CMUX_SURFACE_ID (the board's own ids; checked before the
+//              others, since a cmux tab may inherit another terminal's)
 //   tmux       TMUX: the outer terminal's ids would name the tmux client,
 //              not this pane, so a session inside tmux is watch only
 //   ravenry    RAVENRY_PANE (a ravenryd pane's id), kept as terminal_id,
@@ -25,9 +27,12 @@ const PROGRAMS = {
 
 export function terminalOf(env) {
   const e = env || {};
+  // A ravenryd pane first: while TERM_PROGRAM says ravenry it is the
+  // innermost terminal, whatever cmux variables it inherited (a daemon
+  // started from a cmux tab hands them on).
+  if (e.RAVENRY_PANE && e.TERM_PROGRAM === 'ravenry') return { terminal: 'ravenry', terminal_id: String(e.RAVENRY_PANE).slice(0, 80) };
   if (e.CMUX_SURFACE_ID) return { terminal: 'cmux' };
   if (e.TMUX) return { terminal: 'tmux' };
-  if (e.RAVENRY_PANE && e.TERM_PROGRAM === 'ravenry') return { terminal: 'ravenry', terminal_id: String(e.RAVENRY_PANE).slice(0, 80) };
   if (e.REX_BLOCK && (e.TERM_PROGRAM === 'rex' || !e.ITERM_SESSION_ID)) {
     const r = { terminal: 'rex', terminal_id: String(e.REX_BLOCK).slice(0, 80) };
     if (e.REX_SESSION) r.terminal_session = String(e.REX_SESSION).slice(0, 80);

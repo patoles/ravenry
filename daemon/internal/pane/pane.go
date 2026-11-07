@@ -369,6 +369,22 @@ func lookPath(name string, extra map[string]string, env []string) (string, error
 	return "", fmt.Errorf("%q not found in PATH", name)
 }
 
+// outerTerminalVar is true for the variables by which another terminal
+// names its own tab (cmux, iTerm2, Rex, tmux, Terminal, WezTerm, kitty):
+// a pane is a terminal of its own, and a daemon started from a cmux tab
+// handed that tab's CMUX_SURFACE_ID to every pane, so a session resumed in
+// a pane was taken for one in that cmux tab (2026-11-07).
+func outerTerminalVar(k string) bool {
+	if strings.HasPrefix(k, "CMUX_") || strings.HasPrefix(k, "REX_") || strings.HasPrefix(k, "ITERM_") {
+		return true
+	}
+	switch k {
+	case "TMUX", "TMUX_PANE", "TERM_SESSION_ID", "TERM_PROGRAM_VERSION", "WEZTERM_PANE", "WEZTERM_UNIX_SOCKET", "KITTY_WINDOW_ID", "KITTY_PID", "KITTY_LISTEN_ON", "ALACRITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR":
+		return true
+	}
+	return false
+}
+
 // paneEnv builds a pane's environment: the base, the terminal's own
 // variables, the pane's identity, then what the client asked for.
 func paneEnv(base []string, extra map[string]string, id, socket string) []string {
@@ -382,7 +398,7 @@ func paneEnv(base []string, extra map[string]string, id, socket string) []string
 	}
 	for _, kv := range base {
 		k, v, ok := strings.Cut(kv, "=")
-		if !ok || strings.HasPrefix(k, "RAVENRY_") {
+		if !ok || strings.HasPrefix(k, "RAVENRY_") || outerTerminalVar(k) {
 			continue
 		}
 		put(k, v)

@@ -133,7 +133,11 @@ export function parseEnv(text) {
     });
     const x = out.get(Number(m[1]));
     if (x.ravenryId && last(/\sTERM_PROGRAM=(\S+)(?=\s|$)/g) !== 'ravenry') x.ravenryId = null;
-    if (x.ravenryId) { x.itermId = null; x.rexId = null; }
+    // A ravenryd pane is the innermost terminal while TERM_PROGRAM says
+    // ravenry, whatever it inherited: on 2026-11-07 a daemon started from a
+    // cmux tab handed that tab's CMUX_SURFACE_ID to its panes, and a session
+    // resumed in a Ravenry pane was taken for one in cmux.
+    if (x.ravenryId) { x.itermId = null; x.rexId = null; x.surfaceId = null; x.workspaceId = null; }
     if (x.rexId) {
       if (x.itermId && last(/\sTERM_PROGRAM=(\S+)(?=\s|$)/g) === 'iTerm.app') x.rexId = null;
       else x.itermId = null;

@@ -38,6 +38,9 @@ check('a fork names its parent, so its argv id is not used', s.argvSession(procs
 const env = s.parseEnv(`101 /x/claude --settings {"a":"CMUX_SURFACE_ID=not-a-uuid"} TERM=xterm CMUX_WORKSPACE_ID=95959595-0000-4000-8000-000000009595 CMUX_SURFACE_ID=1C1C1C1C-0000-4000-8000-000000001C1C HOME=/x\n102 /x/claude PATH=/bin`);
 check('CMUX_SURFACE_ID comes from the environment', env.get(101).surfaceId === '1C1C1C1C-0000-4000-8000-000000001C1C' && env.get(101).workspaceId === '95959595-0000-4000-8000-000000009595');
 check('a process outside cmux has no surface', env.get(102).surfaceId === null);
+// 2026-11-07: a daemon started from a cmux tab handed that tab's variables to its panes.
+const inPane = s.parseEnv('103 /x/claude --resume x CMUX_WORKSPACE_ID=95959595-0000-4000-8000-000000009595 CMUX_SURFACE_ID=1C1C1C1C-0000-4000-8000-000000001C1C TERM_PROGRAM=ravenry RAVENRY_PANE=pxamvwkk');
+check('a Ravenry pane that inherited a cmux tab\'s variables is the pane, not that tab', inPane.get(103).ravenryId === 'pxamvwkk' && inPane.get(103).surfaceId === null && inPane.get(103).workspaceId === null, JSON.stringify(inPane.get(103)));
 const cwd = s.parseLsof('p101\nfcwd\nn/Users/x/projects/paper\np102\nfcwd\nn/Users/x\n');
 check('lsof cwd per pid', cwd.get(101) === '/Users/x/projects/paper' && cwd.get(102) === '/Users/x');
 
