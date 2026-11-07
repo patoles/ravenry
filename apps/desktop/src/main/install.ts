@@ -36,8 +36,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const SERVICE_LABEL = 'dev.ravenry.hub';
-export const UNIT_NAME = 'dev.ravenry.hub.service';
+// The release check (tools/release-check.mjs) runs the packaged app with a
+// launchd label of its own, `dev.ravenry.hub.test-<random>`, so the real
+// launchd is used and dev.ravenry.hub is never touched. No other label is
+// taken from the environment.
+export const TEST_LABEL = /^dev\.ravenry\.hub\.test-[a-z0-9]{4,32}$/;
+const testLabel = (v: string | undefined) => (v && TEST_LABEL.test(v) ? v : null);
+export const SERVICE_LABEL = testLabel(process.env.RAVENRY_SERVICE_LABEL) || 'dev.ravenry.hub';
+export const UNIT_NAME = `${SERVICE_LABEL}.service`;
 
 type Env = Record<string, string | undefined>;
 
@@ -277,6 +283,12 @@ export function serviceSpec(opts: { execPath: string; staged: Staged; env?: Env;
   // while versions/<version> holds the new one.
   if (opts.staged.build) hubEnv.RAVENRY_APP_BUILD = opts.staged.build;
   for (const k of SHARED) if (env[k]) hubEnv[k] = env[k]!;
+  // Under a test label (the release check), the hub gets the check's
+  // throwaway HOME and its stand-ins (ps, lsof, cmux, the open command),
+  // which launchd would not pass on.
+  if (SERVICE_LABEL !== 'dev.ravenry.hub') {
+    for (const [k, v] of Object.entries(env)) if (v && (k === 'HOME' || /^(MC_|FAKE_|STUB_|CMUX_BIN$|RAVENRY_PHONE_PORT$|TEST_RAVENRY$)/.test(k))) hubEnv[k] = v;
+  }
   return {
     exe: opts.execPath,
     hubEntry: opts.staged.hubEntry,

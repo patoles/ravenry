@@ -267,12 +267,31 @@ function checkTerminal(file, args, env, kind) {
   if (t) throw new Error(`Refused to start ${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''}: it would drive the real ${t}. A test uses a stand-in (tools/fake-cmux.mjs, stub-osascript.mjs, fake-rex.mjs), or runs with ${REAL_TERMINAL_VAR}=1 when the person asks for it.`);
 }
 
+// The release check (apps/desktop/tools/release-check.mjs) runs the
+// packaged app under the real launchd, with a label of its own that no
+// person's service has: `dev.ravenry.hub.test-<random>`. launchctl may act
+// on such a label (print, bootout, kickstart), or bootstrap such a plist
+// from a test's folder; nothing else.
+export const TEST_LAUNCHD_LABEL = /^dev\.ravenry\.hub\.test-[a-z0-9]{4,32}$/;
+function testLaunchctl(args, env) {
+  const [verb, ...rest] = (args || []).map(String);
+  if (['print', 'bootout', 'kickstart'].includes(verb)) {
+    const target = rest.filter((a) => !a.startsWith('-'));
+    return target.length === 1 && /^gui\/\d+\/[^/]+$/.test(target[0]) && TEST_LAUNCHD_LABEL.test(target[0].split('/')[2]);
+  }
+  if (verb === 'bootstrap') {
+    const [domain, plist] = rest;
+    return /^gui\/\d+$/.test(domain || '') && !!plist && isTestPath(plist, env) && TEST_LAUNCHD_LABEL.test(path.basename(plist, '.plist'));
+  }
+  return false;
+}
+
 /** Why starting this child would touch the person's launchd, or null. */
 export function launchdProblem(file, args = [], env = process.env, platform = process.platform) {
   const base = path.basename(String(file || ''));
-  if (base === 'launchctl') return 'it is the real launchctl, which loads jobs into the person\'s own session';
+  if (base === 'launchctl') return testLaunchctl(args, env) ? null : 'it is the real launchctl, which loads jobs into the person\'s own session';
   if (/^(ba|z|da)?sh$/.test(base) && args[0] === '-c' && /(^|[\s;&|('"/])launchctl['"]?(\s|$)/.test(String(args[1] || ''))) return 'it runs the real launchctl';
-  if (platform === 'darwin' && childKind(file, args, env) === 'app' && env.RAVENRY_SERVICE === 'install' && (!env.RAVENRY_LAUNCHCTL || path.basename(env.RAVENRY_LAUNCHCTL) === 'launchctl')) return 'it would install its hub service with the real launchctl (set RAVENRY_LAUNCHCTL to tools/fake-launchctl.mjs)';
+  if (platform === 'darwin' && childKind(file, args, env) === 'app' && env.RAVENRY_SERVICE === 'install' && (!env.RAVENRY_LAUNCHCTL || path.basename(env.RAVENRY_LAUNCHCTL) === 'launchctl') && !TEST_LAUNCHD_LABEL.test(env.RAVENRY_SERVICE_LABEL || '')) return 'it would install its hub service with the real launchctl (set RAVENRY_LAUNCHCTL to tools/fake-launchctl.mjs)';
   return null;
 }
 

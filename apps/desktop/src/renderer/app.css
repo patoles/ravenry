@@ -560,3 +560,7 @@ select.field { padding: 0 6px; }
 .access-card .ac-t { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.4; color: var(--tx); }
 .access-card .ac-s { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tx2); }
 .access-note { margin: 6px 10px 2px; padding: 8px 10px; border-radius: 8px; background: var(--you-t); color: var(--you); font-size: 12px; line-height: 1.4; }
+.access-note b { font-weight: 650; }
+.access-note .ac-open { display: block; margin-top: 6px; color: var(--you); text-decoration: underline; }
+.sec.twin { box-shadow: inset 0 0 0 1px var(--you), var(--shadow); }
+.sec.twin p { color: var(--you); font-weight: 550; }

@@ -315,6 +315,28 @@ they end (../../packages/protocol/PROTOCOL.md section 9). The hub service is
 restarted onto the new version; ravenryd runs in its own process session
 and the service leaves it alone (`AbandonProcessGroup`, `KillMode=process`).
 
+## The release check
+
+No build is called ready before `node tools/release-check.mjs APP --prev
+OLD_APP_OR_ZIP [OUT]` passes on it (2026-11-07: three builds passed CI
+and failed at once on the person's Mac). It runs the packaged app as
+a Mac runs it: a copy outside ~/Documents, throwaway HOMEs, a daemons'
+folder with a space in its path (as `~/Library/Application
+Support/Ravenry/run` has), the hub service loaded into the real launchd
+under a label of its own (`dev.ravenry.hub.test-<random>`, booted out at
+the end; dev.ravenry.hub is never touched), and stand-ins for ps, lsof,
+cmux, `open` and `claude`. Each step asserts on what the window shows:
+cold launch (service, hub, daemon, a shell prompt within 2 s, `echo ok`
+read back), New session, a session in cmux shown and then continued in
+Ravenry, quit and reopen, an update from the build before (one hub on the
+new version, the old folder kept until it answers, a prompt within 2 s)
+and the npm switch and the way back (tools/npm-switch-test.mjs). It writes
+OUT/release-check.json with each step's result and times.
+
+A launch always ends with a working shell in front: the shells that were
+open come back, else one opens in the last folder used, else the home
+folder. The first-session screen is New session.
+
 ## Packaging
 
 ```sh

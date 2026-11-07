@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+// The release check: the packaged app run as a Mac runs it, before any build
+// is called ready. On 2026-11-07 three builds passed CI and failed at once
+// on the person's Mac: "You should have tested those before telling me its
+// ready".
+//
+//   node tools/release-check.mjs APP [--prev OLD_APP_OR_ZIP] [OUT]
+//
+// APP is the new Ravenry.app (release/mac-arm64/Ravenry.app); OLD is the
+// build before it (an .app, or its release zip), for the update step.
+// Everything runs in throwaway HOMEs under the system's temporary folder
+// (outside ~/Documents, which macOS guards), on spare ports, offscreen; the
+// daemons' folder has a space in its path, as ~/Library/Application
+// Support/Ravenry/run has. The app's hub service is loaded into the REAL
+// launchd under a label of the check's own, dev.ravenry.hub.test-<random>
+// (never dev.ravenry.hub), and booted out at the end, whatever happens.
+// ps, lsof, cmux and `open` are stand-ins, and `claude` is a stand-in in
+// the throwaway HOME's ~/.local/bin.
+//
+// Each step asserts on what the window shows:
+//   1 cold launch   the service is installed and loaded, its hub answers,
+//                   the daemon runs; a shell prompt is in the window within
+//                   2 s; `echo ok` typed in it reads back
+//   2 new session   New session starts the stand-in Claude in a pane, and
+//                   the window shows it
+//   3 outside       a session in cmux (the stand-in) shows live; its process
+//                   ends there; Continue in Ravenry resumes it in a pane and
+//                   the window shows `claude --resume <id>` running
+//   4 reopen        quit and reopen: the shells come back with what they
+//                   showed, and a prompt is in the window within 2 s
+//   5 update        the build before runs as the service; the new app
+//                   launched leaves exactly one hub, answering, on the new
+//                   version; the old folder is kept until it answers; a
+//                   prompt is in the window within 2 s
+//   6 npm switch    tools/npm-switch-test.mjs: from the npm board 0.4.0 and
+//                   the way back
+// Writes OUT/release-check.json (each step, pass or fail, its times) and
+// pictures of each step.
+import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { runApp } from './run-app.mjs';
+
+guardSpawns();
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const HUB = path.resolve(HERE, '..', '..', '..', 'hub');
+const argv = process.argv.slice(2);
+const flag = (k) => { const i = argv.indexOf(k); if (i < 0) return null; const v = argv[i + 1]; argv.splice(i, 2); return v; };
+const PREV = flag('--prev');
+const NO_NPM = argv.includes('--no-npm') ? (argv.splice(argv.indexOf('--no-npm'), 1), true) : false;
+const APP_PATH = argv[0] && path.resolve(argv[0]);
+if (!APP_PATH || !fs.existsSync(path.join(APP_PATH, 'Contents', 'MacOS', 'Ravenry'))) { console.error('usage: node tools/release-check.mjs APP [--prev OLD_APP_OR_ZIP] [--no-npm] [OUT]'); process.exit(2); }
+if (process.platform !== 'darwin') { console.error('release-check: macOS only (launchd)'); process.exit(2); }
+const OUT = path.resolve(argv[1] || path.join(HERE, '..', '.tmp', 'release-check'));
+fs.mkdirSync(OUT, { recursive: true });
+const BUILD = JSON.parse(fs.readFileSync(path.join(APP_PATH, 'Contents', 'Resources', 'build.json'), 'utf8'));
+const UID = process.getuid();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const freePort = () => new Promise((r) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+const R = 'window.__ravenry';
+const results = { app: APP_PATH, build: BUILD, at: new Date().toISOString(), steps: [] };
+const labels = [];
+
+// A throwaway Mac account: its own HOME, data folder, runtime folder (with
+// a space), port, launchd label, and the stand-ins.
+async function account(name) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `rvrc-${name}-`));
+  const home = path.join(root, 'h');
+  const data = path.join(home, 'Library', 'Application Support', 'Ravenry');
+  const rt = path.join(root, 'App Support', 'run');
+  for (const d of [data, rt, path.join(home, '.ravenry', 'events'), path.join(home, '.local', 'bin'), path.join(home, 'Projects')]) fs.mkdirSync(d, { recursive: true });
+  fs.chmodSync(rt, 0o700);
+  // The app copied out of the build folder, as it sits in /Applications:
+  // run from inside ~/Documents, the service would wait for macOS's
+  // privacy answer to read its own files.
+  const app = path.join(root, 'Applications', 'Ravenry.app');
+  execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+  const label = `dev.ravenry.hub.test-${crypto.randomBytes(5).toString('hex')}`;
+  labels.push(label);
+  const port = await freePort();
+  // The stand-in Claude: says how it was started, then echoes.
+  fs.writeFileSync(path.join(home, '.local', 'bin', 'claude'), '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2.1.319 (Claude Code)"; exit 0; fi\necho "fake claude ready (args: $*)"\nexec cat\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'you@example.com' } }));
+  // The stand-ins copied out of the repository: a service launchd starts
+  // that ran a script inside ~/Documents would wait for macOS's privacy
+  // answer (and ask on the person's screen).
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin);
+  for (const f of ['stub-ps.mjs', 'fake-cmux.mjs', 'stub-open.mjs']) { fs.copyFileSync(path.join(HUB, 'tools', f), path.join(bin, f)); fs.chmodSync(path.join(bin, f), 0o755); }
+  const ps = path.join(root, 'stub-ps.json');
+  fs.writeFileSync(ps, '[]');
+  const fake = path.join(root, 'fake-cmux.json');
+  fs.writeFileSync(fake, JSON.stringify({ workspaces: [], screens: {} }));
+  const env = withStubMachine({
+    HOME: home, PATH: `${path.dirname(process.execPath)}:${path.join(home, '.local', 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin`,
+    RAVENRY_DESKTOP_DATA: data, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: data, RAVENRY_HUB_URL: `http://127.0.0.1:${port}`, PORT: String(port), RAVENRY_PHONE_PORT: String(await freePort()),
+    RAVENRY_SERVICE: 'install', RAVENRY_SERVICE_LABEL: label, RAVENRY_UPDATES: '0',
+    MC_PS_BIN: path.join(bin, 'stub-ps.mjs'), MC_LSOF_BIN: path.join(bin, 'stub-ps.mjs'), STUB_PS_STATE: ps,
+    CMUX_BIN: path.join(bin, 'fake-cmux.mjs'), FAKE_CMUX_STATE: fake, MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(bin, 'stub-open.mjs')]), STUB_OPEN_LOG: path.join(root, 'open.jsonl'),
+    MC_CODEX: '0', MC_PHONE_LAN: 'none', MC_REPEATS_AUTO: '0',
+  });
+  return { name, root, home, data, rt, label, port, ps, fake, env, exe: path.join(app, 'Contents', 'MacOS', 'Ravenry'), work: path.join(root, 'work') };
+}
+
+const launchctl = (...args) => spawnSync('/bin/launchctl', args, { encoding: 'utf8' });
+const loaded = (label) => launchctl('print', `gui/${UID}/${label}`).status === 0;
+const plistOf = (a) => path.join(a.home, 'Library', 'LaunchAgents', `${a.label}.plist`);
+async function hubAnswers(port, ms = 20000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { try { const r = await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(2000) }); if (r.status === 200) return await r.json(); } catch { /* not yet */ } await sleep(200); }
+  return null;
+}
+const listeners = (port) => { try { return execFileSync('/usr/sbin/lsof', ['-nP', `-tiTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).split('\n').map(Number).filter(Boolean); } catch { return []; } };
+const programOf = (label) => (launchctl('print', `gui/${UID}/${label}`).stdout.match(/^\s*program = (.*)$/m) || [])[1] || '';
+const argsOf = (label) => launchctl('print', `gui/${UID}/${label}`).stdout;
+
+// One run of the app: the steps given, then quit. Returns the window's marks.
+async function launch(a, name, steps, more = {}) {
+  fs.mkdirSync(a.work, { recursive: true });
+  const marks = path.join(a.work, `${name}-marks.json`);
+  const t0 = Date.now();
+  await runApp({ name, work: a.work, rt: a.rt, exe: a.exe, home: a.home, hubUrl: a.env.RAVENRY_HUB_URL, timeoutMs: 240000, env: { ...a.env, ...more }, steps: [
+    { js: '(window.__marks = window.__marks || {}, true)' },
+    ...steps,
+    { save: { expr: 'window.__marks', out: marks } },
+  ] });
+  const m = JSON.parse(fs.readFileSync(marks, 'utf8'));
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, typeof v === 'number' && v > 1e12 ? v - t0 : v]));
+}
+const mark = (k) => ({ js: `window.__marks[${JSON.stringify(k)}] = Date.now()` });
+const save = (k, expr) => ({ js: `window.__marks[${JSON.stringify(k)}] = (${expr})` });
+const shot = (f) => ({ shot: path.join(OUT, f), settle: 300 });
+// A shell's prompt in the window, attached to the tab in front, and no
+// toast saying it failed.
+const PROMPT = `${R}.term().ready && ${R}.term().attached && ${R}.S.tabs.some((t) => t.kind === 'shell') && /[%$#] *$/m.test(${R}.text())`;
+const NO_FAIL_TOAST = `(document.getElementById('toast').hidden || !/Could not|no running daemon|no daemon answered/.test(document.getElementById('toast').textContent))`;
+
+function step(name, ok, detail = {}) {
+  results.steps.push({ name, ok, ...detail });
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${Object.keys(detail).length ? '  ' + JSON.stringify(detail) : ''}`);
+}
+async function guarded(name, fn) {
+  try { await fn(); } catch (e) { step(name, false, { error: String(e.message || e).split('\n').slice(0, 6).join(' | ') }); }
+}
+
+// The made-up session in cmux the outside step shows.
+const SID = '5e55107e-0000-4000-8000-0000000000aa';
+const WS = 'AAAA1111-0000-4000-8000-0000000000AA';
+const SF = 'BBBB2222-0000-4000-8000-0000000000BB';
+function outsideSession(a) {
+  const proj = path.join(a.home, 'Projects', 'kite');
+  fs.mkdirSync(proj, { recursive: true });
+  fs.writeFileSync(path.join(proj, 'BRIEF.md'), '# Kite\n\nGoal: A kite that flies itself.\n\n## Next step\nMake the tail flutter.\n');
+  // A project is a git repository (a second session there gets a worktree).
+  const git = (...g) => execFileSync('/usr/bin/git', ['-C', proj, '-c', 'user.name=Check', '-c', 'user.email=check@example.com', ...g], { stdio: 'ignore' });
+  git('init', '-q', '-b', 'main'); git('add', '.'); git('commit', '-q', '-m', 'Start');
+  fs.writeFileSync(path.join(a.home, '.ravenry', 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [{ id: 'kite', name: 'kite', folder: proj, workspaces: [WS], brief: 'BRIEF.md' }] }, null, 2));
+  const at = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const TR = path.join(a.home, '.claude', 'projects', proj.replace(/[^A-Za-z0-9-]/g, '-'), SID + '.jsonl');
+  fs.mkdirSync(path.dirname(TR), { recursive: true });
+  const rec = (type, extra, t) => JSON.stringify({ type, cwd: proj, sessionId: SID, timestamp: t, ...extra });
+  fs.writeFileSync(TR, [rec('user', { message: { role: 'user', content: 'Should the tail flutter too?' } }, at(3)), rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'It can. Keep it subtle, or make it lively?' }], usage: { input_tokens: 5, cache_read_input_tokens: 40000, output_tokens: 100 } } }, at(2)), rec('system', { subtype: 'turn_duration' }, at(2))].join('\n') + '\n');
+  const ev = (event, m, extra = {}) => JSON.stringify({ at: at(m), event, session_id: SID, assistant: 'claude', cwd: proj, transcript_path: TR, workspace_id: WS, surface_id: SF, claude_pid: 7101, terminal: 'cmux', ...extra });
+  fs.writeFileSync(path.join(a.home, '.ravenry', 'events', SID + '.jsonl'), [ev('SessionStart', 10), ev('UserPromptSubmit', 3), ev('Stop', 2, { ends_on_question: true, question: 'Keep it subtle, or make it lively?' })].join('\n') + '\n');
+  fs.writeFileSync(a.fake, JSON.stringify({ workspaces: [{ id: WS, ref: 'workspace:1', title: 'kite', cwd: proj, surfaces: [{ id: SF, ref: 'surface:1', title: '✳ Kite tail' }] }], screens: { [SF]: `❯ Should the tail flutter too?\n\n⏺ It can. Keep it subtle, or make it lively?\n\n${'─'.repeat(60)}\n❯ \n${'─'.repeat(60)}\n  ? for shortcuts\n` } }));
+  fs.writeFileSync(a.ps, JSON.stringify([{ pid: 7101, ppid: 7100, rssKb: 300000, startedAt: at(10), command: `claude --session-id ${SID}`, cwd: proj, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF}` }]));
+}
+
+const sigFile = (a, n) => path.join(a.work, `${n}.signal`);
+const goFile = (a, n) => path.join(a.work, `${n}.go`);
+const pause = (a, n) => [{ signal: sigFile(a, n) }, { wait: goFile(a, n), timeout: 60000 }];
+async function at(a, n) { for (let i = 0; i < 2400 && !fs.existsSync(sigFile(a, n)); i++) await sleep(50); }
+
+try {
+  // ------------------------------------------------------------ 1-4, one account
+  const a = await account('main');
+  outsideSession(a);
+  await guarded('1 cold launch', async () => {
+    let m = null;
+    const feed = (async () => {
+      await at(a, 'closed');
+      fs.writeFileSync(a.ps, '[]'); // its process ended in cmux
+      fs.writeFileSync(goFile(a, 'closed'), '1');
+    })();
+    const run = launch(a, 'cold', [
+      { ready: true, timeout: 30000 }, mark('ready'),
+      { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('1-cold-prompt.png'),
+      { type: 'echo ok-$((40+2))\r' },
+      { until: `${R}.text().includes('ok-42') && ${NO_FAIL_TOAST}`, timeout: 10000 }, mark('echo'),
+      // The hub (the service) answers in the window.
+      { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length === 1`, timeout: 30000 }, mark('hub'),
+      // 2: New session with the stand-in Claude.
+      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` }, // New session, as a person opens it
+      { until: `!document.getElementById('start').hidden && document.querySelector('#start .fl-go .btn.pri') && /^Start Claude in /.test(document.querySelector('#start .fl-go .btn.pri').textContent)`, timeout: 20000 },
+      { js: `new Promise((r) => { const t0 = Date.now(); const f = () => { const b = document.querySelector('#start .fl-hooks .btn.pri'); if (b) { b.click(); r(true); } else if (Date.now() - t0 > 8000) r(false); else setTimeout(f, 50); }; f(); })` },
+      { js: `document.querySelector('#start .fl-go .btn.pri').click()` }, mark('sessionClick'),
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('session'), shot('2-new-session.png'),
+      // 3: the session in cmux, shown live.
+      { until: `[...document.querySelectorAll('#side .ss')].some((e) => e.textContent.includes('Kite tail'))`, timeout: 20000 },
+      { js: `[...document.querySelectorAll('#side .ss')].find((e) => e.textContent.includes('Kite tail')).click()` },
+      { until: `!document.getElementById('elsewhere').hidden && document.getElementById('elsewhere').textContent.includes('make it lively') && document.getElementById('elsewhere').textContent.includes('Still open in cmux')`, timeout: 20000 }, mark('outside'), shot('3-outside-open.png'),
+      ...pause(a, 'closed'),
+      { until: `document.querySelector('#elsewhere .else-acts .btn.pri') && /Continue in Ravenry/.test(document.querySelector('#elsewhere .else-acts .btn.pri').textContent) && !document.querySelector('#elsewhere .else-acts .btn.pri').disabled`, timeout: 20000 }, shot('3-outside-closed.png'),
+      { js: `document.querySelector('#elsewhere .else-acts .btn.pri').click()` }, mark('continueClick'),
+      { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('continued'), shot('3-continued.png'),
+      save('tabs', `${R}.S.tabs.length`), save('shells', `${R}.S.tabs.filter((t) => t.kind === 'shell').length`),
+      // Back to the first shell, so the reopen shows it.
+      { js: `${R}.setView({ kind: 'tab', id: ${R}.S.tabs.find((t) => t.kind === 'shell').id })` }, { sleep: 400 },
+    ]);
+    m = await Promise.all([run, feed]).then(([x]) => x);
+    const plist = fs.existsSync(plistOf(a)) ? fs.readFileSync(plistOf(a), 'utf8') : '';
+    const st = await hubAnswers(a.port, 5000);
+    const sock = fs.readdirSync(a.rt).filter((n) => n === `ravenryd-${BUILD.version}.sock`);
+    step('1 cold launch: the service is installed under the test label and loaded, its hub answers, the daemon runs', !!plist && plist.includes(`versions/${BUILD.version}/hub`) && loaded(a.label) && !!st && sock.length === 1, { loaded: loaded(a.label), hub: !!st, daemonSocket: sock[0] || null });
+    step('1 cold launch: a shell prompt in the window within 2 s', m.prompt <= 2000, { promptMs: m.prompt, windowReadyMs: m.ready });
+    step('1 cold launch: `echo ok` typed in it reads back', m.echo > 0, { echoMs: m.echo });
+    step('2 New session: the stand-in Claude runs in a pane, shown in the window', m.session > 0, { msFromClick: m.session - m.sessionClick });
+    step('3 outside: the session in cmux is shown live, then continued in Ravenry and shown running `claude --resume <id>`', m.outside > 0 && m.continued > 0, { msFromClick: m.continued - m.continueClick });
+    results.tabsBefore = { tabs: m.tabs, shells: m.shells };
+  });
+
+  await guarded('4 reopen', async () => {
+    const before = results.tabsBefore || { shells: 0 };
+    const m = await launch(a, 'reopen', [
+      { ready: true, timeout: 30000 }, mark('ready'),
+      { until: PROMPT, timeout: 20000 }, mark('prompt'),
+      { until: `${R}.S.tabs.filter((t) => t.kind === 'shell').length === ${before.shells} && ${R}.text().includes('ok-42')`, timeout: 10000 }, mark('restored'), shot('4-reopen.png'),
+      save('shells', `${R}.S.tabs.filter((t) => t.kind === 'shell').length`),
+    ]);
+    step('4 reopen: the shells come back with what they showed', m.restored > 0 && m.shells === before.shells, { shells: m.shells, before: before.shells });
+    step('4 reopen: a shell prompt in the window within 2 s', m.prompt <= 2000, { promptMs: m.prompt, windowReadyMs: m.ready });
+  });
+
+  // ------------------------------------------------------------ 5, the update
+  await guarded('5 update', async () => {
+    if (!PREV) { step('5 update: skipped (no --prev build given)', false); return; }
+    const b = await account('update');
+    // The build before, as its service runs it: staged and loaded under the
+    // check's label (its own app could only write dev.ravenry.hub).
+    let prevApp = path.resolve(PREV);
+    if (prevApp.endsWith('.zip')) {
+      const into = path.join(b.root, 'prev');
+      fs.mkdirSync(into);
+      execFileSync('/usr/bin/ditto', ['-x', '-k', prevApp, into]);
+      prevApp = path.join(into, fs.readdirSync(into).find((n) => n.endsWith('.app')));
+    }
+    const prevBuild = JSON.parse(fs.readFileSync(path.join(prevApp, 'Contents', 'Resources', 'build.json'), 'utf8'));
+    const oldDir = path.join(b.data, 'versions', prevBuild.version);
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.copyFileSync(path.join(prevApp, 'Contents', 'Resources', 'ravenryd'), path.join(oldDir, 'ravenryd'));
+    fs.chmodSync(path.join(oldDir, 'ravenryd'), 0o755);
+    fs.cpSync(path.join(prevApp, 'Contents', 'Resources', 'hub'), path.join(oldDir, 'hub'), { recursive: true });
+    fs.writeFileSync(path.join(oldDir, '.build.json'), JSON.stringify(prevBuild) + '\n');
+    const envXml = Object.entries({ ELECTRON_RUN_AS_NODE: '1', RAVENRY_TERMINAL: 'ravenry', RAVENRY_HUB_SERVICE: '1', RAVENRY_APP_VERSION: prevBuild.version, RAVENRY_DAEMON_BIN: path.join(oldDir, 'ravenryd'), ...Object.fromEntries(Object.entries(b.env).filter(([k]) => /^(HOME|PATH|PORT|RAVENRY_RUNTIME_DIR|RAVENRY_STATE_DIR|RAVENRY_PHONE_PORT|MC_|STUB_|FAKE_|CMUX_BIN)/.test(k))) })
+      .map(([k, v]) => `    <key>${k}</key>\n    <string>${String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</string>`).join('\n');
+    fs.mkdirSync(path.dirname(plistOf(b)), { recursive: true });
+    fs.mkdirSync(path.join(b.home, 'Library', 'Logs', 'Ravenry'), { recursive: true });
+    fs.writeFileSync(plistOf(b), `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>Label</key>\n  <string>${b.label}</string>\n  <key>ProgramArguments</key>\n  <array>\n    <string>${path.join(prevApp, 'Contents', 'MacOS', 'Ravenry')}</string>\n    <string>${path.join(oldDir, 'hub', 'server', 'index.mjs')}</string>\n  </array>\n  <key>WorkingDirectory</key>\n  <string>${path.join(oldDir, 'hub')}</string>\n  <key>EnvironmentVariables</key>\n  <dict>\n${envXml}\n  </dict>\n  <key>RunAtLoad</key>\n  <true/>\n  <key>StandardOutPath</key>\n  <string>${path.join(b.home, 'Library', 'Logs', 'Ravenry', 'hub.log')}</string>\n  <key>StandardErrorPath</key>\n  <string>${path.join(b.home, 'Library', 'Logs', 'Ravenry', 'hub.log')}</string>\n</dict>\n</plist>\n`);
+    const boot = launchctl('bootstrap', `gui/${UID}`, plistOf(b));
+    const oldUp = await hubAnswers(b.port, 30000);
+    step(`5 update: the build before (${prevBuild.version}) runs as the service and answers`, boot.status === 0 && !!oldUp, { bootstrap: boot.status, out: boot.stderr.trim().slice(0, 200) });
+    if (!oldUp) return;
+    const m = await launch(b, 'update', [
+      { ready: true, timeout: 30000 }, mark('ready'),
+      { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('5-update-prompt.png'),
+      { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && Array.isArray(${R}.S.hub.projects)`, timeout: 60000 }, mark('hub'),
+    ]);
+    const newUp = await hubAnswers(b.port, 30000);
+    const prog = argsOf(b.label);
+    const hubs = listeners(b.port);
+    const log = fs.existsSync(path.join(b.home, 'Library', 'Logs', 'Ravenry', 'app.log')) ? fs.readFileSync(path.join(b.home, 'Library', 'Logs', 'Ravenry', 'app.log'), 'utf8') : '';
+    const updated = log.indexOf('service: updated');
+    const removed = log.indexOf('install: removed versions');
+    step(`5 update: exactly one hub, answering, on ${BUILD.version}`, !!newUp && loaded(b.label) && prog.includes(`versions/${BUILD.version}/hub`) && hubs.length === 1, { hubs: hubs.length, program: (prog.match(/versions\/[^/]+\/hub/) || [])[0] || null });
+    step('5 update: the old version\'s folder is kept until the new hub answered', updated >= 0 && (removed < 0 || removed > updated), { log: log.trim().split('\n').slice(-4) });
+    step('5 update: a shell prompt in the window within 2 s of the relaunch', m.prompt <= 2000, { promptMs: m.prompt, windowReadyMs: m.ready });
+    launchctl('bootout', `gui/${UID}/${b.label}`);
+  });
+
+  // ------------------------------------------------------------ 6, the npm switch
+  await guarded('6 npm switch', async () => {
+    if (NO_NPM) { step('6 npm switch: skipped (--no-npm)', false); return; }
+    const r = spawnSync(process.execPath, [path.join(HERE, 'npm-switch-test.mjs'), APP_PATH, path.join(OUT, 'npm-switch')], { encoding: 'utf8', timeout: 900000 });
+    const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
+    step('6 npm switch: from the npm board 0.4.0 and the way back (tools/npm-switch-test.mjs)', r.status === 0 && !fails.length, { exit: r.status, fails: fails.slice(0, 5), tail: (r.stderr || r.stdout || '').trim().split('\n').slice(-3) });
+  });
+} finally {
+  // Every test label out of launchd, whatever happened.
+  for (const l of labels) if (loaded(l)) launchctl('bootout', `gui/${UID}/${l}`);
+  results.labelsLeft = labels.filter(loaded);
+  reapStarted();
+  fs.writeFileSync(path.join(OUT, 'release-check.json'), JSON.stringify(results, null, 2) + '\n');
+}
+const failed = results.steps.filter((s) => !s.ok);
+console.log(failed.length ? `\nrelease-check: ${failed.length} step(s) FAILED (${OUT}/release-check.json)` : `\nrelease-check: every step passed for ${BUILD.id} (${OUT}/release-check.json)`);
+process.exit(failed.length || results.labelsLeft.length ? 1 : 0);

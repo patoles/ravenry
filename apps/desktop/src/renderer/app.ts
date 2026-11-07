@@ -320,6 +320,8 @@ const pinId = (key: string) => `k:${key}`;
 function save(): void {
   const t = tabOfView();
   api().storeSet({
+    // The folder a shell opens in at the next launch when none comes back.
+    ...(t && t.kind === 'shell' && t.cwd ? { lastCwd: t.cwd } : {}),
     pinned: S.tabs.filter((x): x is SessionTab => x.kind === 'session').map((x) => x.key),
     order: S.tabs.map((x) => x.id),
     active: t ? t.id : null,
@@ -671,7 +673,10 @@ function renderSidebar(): void {
   // A folder macOS did not let the board read: its projects show without
   // their files, and one line says where to turn it on.
   const denied = S.hub?.access?.denied || [];
-  const deniedNote = denied.length ? h('div.access-note', `macOS did not let Ravenry read ${denied.map((d) => d.folder).join(', ')}. Turn it on in System Settings > Privacy & Security > Files & Folders.`) : null;
+  const asking = S.hubStatus?.starting?.waitingFor ? S.hubStatus.starting : null;
+  const deniedNote = asking
+    ? h('div.access-note', h('b', `macOS is asking whether Ravenry may read ${asking.waitingFor}. Click Allow in the dialog.`), ' ', `Closed it? System Settings > Privacy & Security > Files & Folders > Ravenry, turn on ${asking.folder || asking.waitingFor}.`, h('button.lk.ac-open', { on: { click: () => api().openExternal(PRIVACY_PANE) } }, 'Open Files & Folders'))
+    : denied.length ? h('div.access-note', `macOS did not let Ravenry read ${denied.map((d) => d.folder).join(', ')}. Turn it on in System Settings > Privacy & Security > Files & Folders.`) : null;
   replace($('side'), h('div.side-top'), brand, mix, deniedNote, list, empty ? h('span.fill') : null, nav, foot);
 }
 
@@ -828,12 +833,12 @@ function fitTabs(el: HTMLElement): void {
   (row.querySelector('.tab.on') as HTMLElement | null)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
-async function newShell(): Promise<void> {
+async function newShell(folder?: string | null): Promise<void> {
   const at = here();
   try {
     const { client, socket } = await daemons.forNew();
     const cur = tabOfView();
-    const cwd = cur && cur.kind === 'shell' && cur.cwd ? cur.cwd : undefined;
+    const cwd = folder || (cur && cur.kind === 'shell' && cur.cwd ? cur.cwd : undefined);
     const { cols, rows } = term.term;
     const cmd = S.config?.newShell;
     const { pane } = await client.request('pane.new', { cols, rows, name: 'Shell', labels: { ...SHELL_LABEL }, ...(cmd ? { command: cmd } : {}), ...(cwd ? { cwd } : {}) });
@@ -1471,6 +1476,13 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
     h(`button.icon-btn.sm${pinned ? '.on' : ''}`, { title: pinned ? 'Unpin from the tabs' : 'Pin to the tabs', 'aria-label': 'Pin', on: { click: () => togglePin(key) } }, svg(I.PIN)), machineOf(p, s));
   const k = cpOfSession(p, s);
   const body: (HTMLElement | null)[] = [statusLine(p, s, k)];
+  // The same session runs in another terminal too (cmux's restore started
+  // it again there): both write one conversation. Said, never ended.
+  if (s.alsoOpen) {
+    const tw = s.alsoOpen;
+    body.push(h('div.sec.twin', h('p', `Also open in ${tw.name}: two ${assistantName(s.assistant) || 'assistant'} processes write this conversation. Close it in ${tw.name} to keep one.`),
+      h('button.btn.sm.self', { on: { click: () => void api().hubPost('/api/open', tw.surfaceId ? { projectId: p.id, surfaceId: tw.surfaceId } : { projectId: p.id, app: tw.term }).catch((e) => toast((e as Error).message, undefined, { at: here(), error: true })) } }, `Open in ${tw.name}`)));
+  }
 
   if (k) body.push(cardFor(k, cardCtx));
   // Over the terminal on a narrow window, a card keeps the panel short: it and the context.
@@ -1966,6 +1978,10 @@ async function boot(): Promise<void> {
   S.hubStatus = hs.status;
   if (S.hub) { S.cps.fromHub(S.hub.checkpoints as HubCheckpoint[] | undefined); pages.update((S.hub as { pages?: NavRow[] }).pages); }
   await restoreTabs(saved);
+  // Like any terminal, a launch ends with a working shell in front: the
+  // shells that were open come back, else one opens in the last folder used
+  // (else the home folder). A failure says why in a toast.
+  if (!S.tabs.some((t) => t.kind === 'shell')) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
   // The daemon new panes go to is followed from the start, for its checkpoints.
   void daemons.forNew().catch(() => {});
   render();

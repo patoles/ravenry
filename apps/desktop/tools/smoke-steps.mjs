@@ -15,11 +15,9 @@ export function smokeSteps(OUT, WORK = path.join(OUT, '.work')) {
   const attachedTo = (i) => `${R}.term().ready && ${R}.term().attached.pane === ${R}.S.tabs[${i}].pane`;
   return [
     { ready: true },
-    // No board: the first launch shows, and a plain shell works anyway.
-    { until: `${R}.S.hubStatus && !${R}.S.hubStatus.reachable && !document.getElementById('start').hidden` },
+    // No board: the launch still ends with a working shell in front.
+    { until: `${R}.S.hubStatus && !${R}.S.hubStatus.reachable && ${R}.S.tabs.length === 1 && ${attachedTo(0)} && ${has('$ ')}`, timeout: 20000 },
     { shot: path.join(OUT, 'smoke-first.png') },
-    { js: `${R}.newShell()` },
-    { until: `${attachedTo(0)} && ${has('$ ')}`, timeout: 20000 },
     { type: 'echo smoke-$((40+2))\r' },
     { until: has('smoke-42') },
     // A paste goes to the daemon as one paste.

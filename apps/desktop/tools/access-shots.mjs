@@ -56,10 +56,10 @@ try {
     env: { RAVENRY_SERVICE: 'off' },
     steps: [
       { ready: true },
-      { until: `document.querySelector('#start .access-card') && document.querySelector('#start .access-card').textContent.includes('Click Allow')`, timeout: 20000 },
+      { until: `document.querySelector('#side .access-note') && document.querySelector('#side .access-note').textContent.includes('Click Allow')`, timeout: 20000 },
       ...shot('access-waiting'),
       { signal: sig }, { wait: go, timeout: 60000 },
-      { until: `!document.querySelector('#start .access-card') && window.__ravenry.S.hub && window.__ravenry.S.hub.projects && window.__ravenry.S.hub.projects.length === 1`, timeout: 20000 },
+      { until: `!document.querySelector('#side .access-note') && window.__ravenry.S.hub && window.__ravenry.S.hub.projects && window.__ravenry.S.hub.projects.length === 1`, timeout: 20000 },
     ],
   });
   const feed = (async () => {

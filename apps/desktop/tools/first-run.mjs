@@ -15,7 +15,7 @@
 // Two cold runs, each in a fresh HOME, app data folder and daemon runtime
 // folder (no daemon and no hub running before):
 //
-//   shell:   launch, then New Shell, until its first prompt is on screen
+//   shell:   launch, until the shell it opens shows its first prompt
 //   session: launch, then the first-launch screen's Start Claude in <folder>
 //            (with its hook offer accepted first, as a person would), until
 //            the stand-in's prompt is on screen and the session is in the
@@ -97,19 +97,18 @@ async function oneRun(kind, n) {
   const has = (s) => `${R}.text().includes(${JSON.stringify(s)})`;
   const mark = (k) => ({ js: `(window.__marks = window.__marks || {})[${JSON.stringify(k)}] = Date.now()` });
   const startBtn = `document.querySelector('#start .fl-go .btn.pri')`;
+  // A launch ends with a working shell in front; the first-session screen
+  // is New session.
   const steps = [
     { ready: true, timeout: 30000 }, mark('window'),
-    { until: `!document.getElementById('start').hidden && ${startBtn} && /^Start Claude in /.test(${startBtn}.textContent)`, timeout: 30000 }, mark('screen'),
-    { shot: path.join(OUT, `${name}-first-launch.png`) },
+    { until: `${R}.term().ready && ${R}.S.tabs.length === 1 && ${R}.term().attached && ${R}.term().attached.pane === ${R}.S.tabs[0].pane && /[%$#] *$/m.test(${R}.text())`, timeout: 30000 }, mark('prompt'),
+    { shot: path.join(OUT, `${name}-prompt.png`) },
   ];
-  if (kind === 'shell') {
+  if (kind !== 'shell') {
     steps.push(
-      { js: `${R}.newShell()` },
-      { until: `${R}.term().ready && ${R}.S.tabs.length === 1 && ${R}.term().attached.pane === ${R}.S.tabs[0].pane && /[%$#] *$/m.test(${R}.text())`, timeout: 30000 }, mark('prompt'),
-      { shot: path.join(OUT, `${name}-prompt.png`) },
-    );
-  } else {
-    steps.push(
+      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` }, // New session, as a person opens it
+      { until: `!document.getElementById('start').hidden && ${startBtn} && /^Start Claude in /.test(${startBtn}.textContent)`, timeout: 30000 }, mark('screen'),
+      { shot: path.join(OUT, `${name}-first-launch.png`) },
       // The hub answers, so the session starts through it (in the sidebar, with its hooks).
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable`, timeout: 30000 }, mark('hub'),
       // The hook offer, accepted as a person would, when it shows.

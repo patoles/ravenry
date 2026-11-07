@@ -221,7 +221,7 @@ async function byHandCase() {
   const pid = readJson(path.join(u.home, '.ravenry', 'board.json')).pid;
   // What the app must not touch: the data, the hook settings, LaunchAgents.
   const volatile = (rel) => /^\.ravenry\/logs\//.test(rel);
-  const snap = () => ({ data: hashes(path.join(u.home, '.ravenry'), volatile), claude: hashes(path.join(u.home, '.claude')), codex: hashes(path.join(u.home, '.codex')), agents: hashes(path.join(u.home, 'Library')) });
+  const snap = () => ({ data: hashes(path.join(u.home, '.ravenry'), volatile), claude: hashes(path.join(u.home, '.claude')), codex: hashes(path.join(u.home, '.codex')), agents: hashes(path.join(u.home, 'Library'), (rel) => rel === path.join('Logs', 'Ravenry', 'app.log')) }); // the app's log of what it did is not a service
   const s0 = snap();
   const log = await runSteps(u, 'not-now', [
     { ready: true, timeout: 30000 },

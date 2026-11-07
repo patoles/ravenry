@@ -132,6 +132,9 @@ try {
     home: hub.home, hubUrl: hub.url,
     steps: [
       { ready: true },
+      // A shell opens at launch; the first-session screen is New session.
+      { until: `window.__ravenry.S.tabs.length === 1` },
+      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` }, // New session, as a person opens it
       { until: `!document.getElementById('start').hidden && document.querySelectorAll('.fo').length > 0` },
       shot('first-launch.png'),
     ],
