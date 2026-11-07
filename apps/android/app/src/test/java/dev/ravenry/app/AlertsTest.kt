@@ -92,6 +92,22 @@ class AlertsTest {
         assertTrue(!x.title.contains("pk3m9q2x") && !input.title.contains("pk3m9q2x"))
     }
 
+    @Test fun aTypingDriveNamesTheSessionAndPaneFromTheHubAndSaysTheAgentsWords() {
+        val acts = listOf("""{"id":"allow:once","label":"Allow once","biometric":true}""", """{"id":"allow:session","label":"This session","biometric":true}""", a("refuse", "Refuse")).joinToString(",")
+        val m = """{"v":1,"type":"alert","id":"cp:c2","kind":"drive","title":"Claude, in Tilting the hull, wants to type in dev server","body":"Claude says: The game only listens on this Mac.","detail":"It would type: <Ctrl+C>npm run dev -- --host<Enter>","checkpoint":{"id":"c2","kind":"drive","drive":{"pane":"pk3m9q2x","action":"input","name":"dev server","session":"Tilting the hull","reason":"The game only listens on this Mac."}},"actions":[$acts]}"""
+        val x = Alert.parse(m)!!
+        assertEquals("Claude, in Tilting the hull, wants to type in dev server", x.title)
+        assertEquals("Claude says: The game only listens on this Mac.", x.body)
+        assertEquals("It would type: <Ctrl+C>npm run dev -- --host<Enter>", x.detail)
+        assertEquals(listOf("Allow once", "This session", "Refuse"), x.actions.map { it.label })
+        val close = Alert.parse(m.replace("\"input\",\"name\"", "\"close\",\"name\"").replace("type in dev server", "close dev server"))!!
+        assertEquals(listOf("allow:once" to "Let it close", "refuse" to "Refuse"), close.actions.map { it.id to it.label })
+        // An older hub, without the names: the session and the agent's words from the fields.
+        val old = Drive.of("input", "Claude wants to type into another tab", "<Enter>", null, "Tilting the hull", "Because.")
+        assertEquals("Tilting the hull wants to type in another tab", old.title)
+        assertEquals("Claude says: Because.", old.says)
+    }
+
     @Test fun aPickShowsCompareAndNotNowAndKeepsItsPictures() {
         val vs = """{"id":"c1234567","kind":"pick","variants":[{"label":"Level","type":"image","url":"/api/checkpoints/c1234567/variants/0"},{"label":"Tilt with the slope","type":"image","url":"/api/checkpoints/c1234567/variants/1"},{"label":"Page","type":"html","url":"/api/checkpoints/c1234567/variants/2"}]}"""
         val x = Alert.parse(msg("pick", listOf(a("pick:0", "Level"), a("pick:1", "Tilt with the slope"), a("open", "Open")).joinToString(","), cp = vs))!!

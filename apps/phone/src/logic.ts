@@ -164,11 +164,11 @@ export function distributorName(pkg: string | null | undefined): string | null {
 
 // ---------------------------------------------------------------- a pick
 
-/** A pick's variant as people read it: its letter (A, B...) and its label split into a name and the agent's words. */
-export function variantOf(label: string, i: number): { letter: string; name: string; more: string | null } {
-  const t = String(label || '').trim();
-  const m = /^(.+?[^.\s])(?:\.|:)\s+(.+)$/.exec(t);
-  return { letter: String.fromCharCode(65 + i), name: m ? m[1] : t, more: m ? m[2] : null };
+/** A pick's variant as people read it: its letter (A, B...), its label whole as its name, and the agent's words about it (`description`), said as the agent's. */
+export function variantOf(v: { label?: string; description?: string } | null | undefined, i: number, who: string): { letter: string; name: string; says: string | null } {
+  const name = String((v && v.label) || '').trim();
+  const d = String((v && v.description) || '').trim();
+  return { letter: String.fromCharCode(65 + i), name, says: d ? `${who}: ${d}` : null };
 }
 
 /** The part a finger drew around, as fractions of the picture (PROTOCOL.md section 4, pick): null when it is too small to mean a part. */

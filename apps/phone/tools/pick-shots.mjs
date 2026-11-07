@@ -5,9 +5,15 @@
 // phone, checked on the hub. A made-up board on a throwaway HOME
 // (apps/desktop/tools/demo-hub.mjs) with real ravenryd panes: paper-boat's
 // "Tilting the hull" waits on `ravenry pick` with three pictures drawn
-// here, notes-app's "Sync settings" on `ravenry ask`, and weather-widget's
-// "Cache forecasts" asks to close the "dev server" pane the person started
-// (a drive with action close): its screen on the phone, then refused there.
+// here (each with the agent's words), notes-app's "Sync settings" on
+// `ravenry ask`, recipe-box's "Recipe card layout" on a pick of two HTML
+// pages (shown in their sandboxed frames), and two agents ask, with their
+// reasons, to act on the "dev server" pane the person started:
+// weather-widget's "Cache forecasts" to close it, garden-planner's "Phone
+// preview" to type in it. Then, as the person on the phone: the pick sent
+// with a circle and a note, the typing allowed with a fingerprint (enrolled
+// on the emulator first), the close refused, Not now on the HTML pick's
+// alert and Undo on a decision an agent saved, both tapped in the shade.
 //
 //   node build.mjs && (cd ../android && ./gradlew assembleDebug)
 //   node tools/pick-shots.mjs <outDir> [--port 5560] [--avd ravenry-pixel]
@@ -95,12 +101,22 @@ fs.mkdirSync(PICS, { recursive: true });
   }
   await b.close();
 }
+// Two layouts of a recipe card, as an agent would render them as pages.
+const card = (side) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>
+body{margin:0;font:15px/1.4 system-ui,sans-serif;background:#FBF7F0;color:#2B2622;height:100vh;display:flex;${side ? '' : 'flex-direction:column;'}}
+nav{background:#2F5D50;color:#F3EFE6;padding:14px;display:flex;${side ? 'flex-direction:column;width:28%;' : ''}gap:10px;font-weight:600}
+main{padding:16px 18px;flex:1}h1{margin:0 0 6px;font-size:22px}.t{color:#7A6E62;font-size:13px}
+.i{margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}.i span{border-bottom:1px solid #E8DFD2;padding:3px 0}</style>
+<nav><span>Recipes</span><span>Plan</span><span>Shop</span></nav><main><h1>Lemon risotto</h1><div class="t">35 min, serves 4</div>
+<div class="i"><span>Arborio rice</span><span>300 g</span><span>Lemons</span><span>2</span><span>Parmesan</span><span>60 g</span><span>Stock</span><span>1 l</span></div></main>`;
+fs.writeFileSync(path.join(PICS, 'menu-left.html'), card(true));
+fs.writeFileSync(path.join(PICS, 'menu-top.html'), card(false));
 
 // ------------------------------------------------------------ the board
 
 const localEnv = { HOME: WORK, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh', LANG: 'en_US.UTF-8', TERM: 'xterm-256color', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state') };
 const C = { dim: '\x1b[38;5;245m', w: '\x1b[97m', g: '\x1b[32m', y: '\x1b[33m', box: '\x1b[48;5;235m', r: '\x1b[0m' };
-function sessionScript(s, { screen, wait, title }) {
+function sessionScript(s, { screen, wait, title, after = null, delay = 0 }) {
   const hook = (ev) => `printf '%s' '${JSON.stringify({ hook_event_name: ev, session_id: s.sid, cwd: s.folder, transcript_path: s.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) })}' | '${BIN}' hook --assistant claude >/dev/null 2>&1`;
   const f = path.join(WORK, `session-${s.sid.slice(0, 4)}.sh`);
   fs.writeFileSync(f, [
@@ -108,13 +124,18 @@ function sessionScript(s, { screen, wait, title }) {
     `printf '\\033]0;✳ ${title}\\007'`,
     `printf '%b' '${screen.replace(/'/g, "'\\''")}'`,
     `while [ ! -f '${path.join(WORK, 'go')}' ]; do sleep 0.3; done`,
+    delay ? `sleep ${delay}` : ':',
     `${wait} >"$HOME/.cp-out-${s.sid.slice(0, 4)}" 2>&1`,
+    `echo "exit $?" >>"$HOME/.cp-out-${s.sid.slice(0, 4)}"`,
+    after || ':',
     'exec sleep 100000',
   ].join('\n') + '\n', { mode: 0o755 });
   return f;
 }
 
-const LABELS = ['Level. The hull stays flat; the wave moves under it.', 'Tilt with the slope. The hull follows the wave at the bow.', 'Half the slope. Follows the wave, half as much. Less spray.'];
+const LABELS = ['Level', 'Tilt with the slope', 'Half the slope'];
+const DESCS = ['The hull stays flat; the wave moves under it.', 'The hull follows the wave\'s angle at the bow.', 'Follows the wave, half as much. Less spray.'];
+const q = (x) => `'${String(x).replace(/'/g, "'\\''")}'`;
 let hub = null;
 let emu = null;
 const adbRaw = (...a) => execFileSync(ADB, ['-s', SERIAL, ...a], { encoding: 'utf8', timeout: 120000, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -124,15 +145,23 @@ try {
   execFileSync(BIN, ['serve', '--detach'], { env: localEnv });
   hub = await startDemoHub({
     dir: path.join(WORK, 'hub'), port: await freePort(), runtime: RT, alerts: false,
-    panes: ['paper-boat', 'notes-app', 'weather-widget'],
+    panes: ['paper-boat', 'notes-app', 'weather-widget', 'garden-planner', 'recipe-box'],
     env: { MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'), RAVENRY_HUB_NAME: 'MacBook Pro', RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(await freePort()) },
   });
   const S = hub.sessions;
-  const variants = [['level', 0], ['slope', 1], ['half', 2]].map(([f, i]) => `--variant '${LABELS[i]}=${path.join(PICS, `${f}.png`)}'`).join(' ');
+  const variants = [['level', 0], ['slope', 1], ['half', 2]].map(([f, i]) => `--variant ${q(`${LABELS[i]}=${path.join(PICS, `${f}.png`)}`)} --describe ${q(`${LABELS[i]}=${DESCS[i]}`)}`).join(' ');
   const pickS = sessionScript(S['paper-boat'], {
     title: 'Tilting the hull',
+    delay: 4,
     screen: `${C.box} > Make the hull tilt with the slope on steep waves, then let me pick on my phone ${C.r}\\n\\n${C.g}⏺${C.r} ${C.w}Bash${C.r}(npm run render -- --frame 412 --variants tilt)\\n${C.dim}  ⎿  3 renders in shots/tilt/${C.r}\\n\\n${C.y}⏺${C.r} ${C.w}Bash${C.r}(ravenry pick "Which tilt reads best on the steep wave?" ...)\\n${C.dim}  ⎿  Waiting for your pick in Ravenry.${C.r}\\n`,
     wait: `'${BIN}' pick "$(printf 'Which tilt reads best on the steep wave?\\nRendered from the game at the same moment, frame 412 of the storm level.')" ${variants} --timeout 30m`,
+    // Once its pick is answered, it saves what the person said, as an agent records a decision.
+    after: `while [ ! -f '${path.join(WORK, 'decide')}' ]; do sleep 0.3; done; RAVENRY_HUB_URL='${hub.url}' '${BIN}' decide ${q('Tilt the hull with the slope, but only half as much as the wave.')} --project paper-boat >"$HOME/.decide-out" 2>&1`,
+  });
+  const htmlS = sessionScript(S['recipe-box'], {
+    title: 'Recipe card layout',
+    screen: `${C.box} > Try the recipe card with the menu on the left and on top ${C.r}\\n`,
+    wait: `'${BIN}' pick ${q('Which recipe card reads better?')} --variant ${q(`Menu on the left=${path.join(PICS, 'menu-left.html')}`)} --describe ${q('Menu on the left=More room for the steps, less for the title.')} --variant ${q(`Menu on top=${path.join(PICS, 'menu-top.html')}`)} --describe ${q('Menu on top=The title and the list get the whole width.')} --timeout 30m`,
   });
   const askS = sessionScript(S['notes-app'], {
     title: 'Sync settings',
@@ -142,13 +171,20 @@ try {
   const newPane = (s, file, name) => execFileSync(BIN, ['new', '--cwd', s.folder, '--name', name, '--size', '90x30', '--label', 'ravenry.session=claude', '--', '/bin/sh', file], { env: localEnv, encoding: 'utf8' }).trim();
   // The person's own dev server, started from outside every pane, and an
   // agent in another session that asks to close it.
-  const devPane = execFileSync(BIN, ['new', '--cwd', S['weather-widget'].folder, '--name', 'dev server', '--size', '90x30', '--', '/bin/sh', '-c', 'echo "  VITE v6.0.3  ready in 412 ms"; exec sleep 100000'], { env: localEnv, encoding: 'utf8' }).trim().split(/\s+/)[0];
+  const devPane = execFileSync(BIN, ['new', '--cwd', S['weather-widget'].folder, '--name', 'dev server', '--size', '90x30', '--', '/bin/sh', '-c', 'trap "" INT; echo "  VITE v6.0.3  ready in 412 ms"; while :; do sleep 100000; done'], { env: localEnv, encoding: 'utf8' }).trim().split(/\s+/)[0];
   const closeS = sessionScript(S['weather-widget'], {
     title: 'Cache forecasts',
     screen: `${C.box} > Restart the dev server with the cache on ${C.r}\n`,
-    wait: `'${BIN}' close ${devPane}`,
+    wait: `'${BIN}' close ${devPane} --reason ${q('It restarts with the cache on; the old one keeps the stale forecasts in memory.')}`,
+  });
+  const typeS = sessionScript(S['garden-planner'], {
+    title: 'Phone preview',
+    screen: `${C.box} > Let me check the calendar on my phone ${C.r}\\n`,
+    wait: `'${BIN}' send ${devPane} --key Ctrl+C --paste 'npm run dev -- --host' --key Enter --reason ${q('The game only listens on this Mac. --host lets your phone open it on the home Wi-Fi.')}`,
   });
   newPane(S['weather-widget'], closeS, 'Cache forecasts');
+  newPane(S['garden-planner'], typeS, 'Phone preview');
+  newPane(S['recipe-box'], htmlS, 'Recipe card layout');
   newPane(S['notes-app'], askS, 'Sync settings');
   newPane(S['paper-boat'], pickS, 'Tilting the hull');
   const r = await fetch(`${hub.url}/api/phone/access`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ on: true }) });
@@ -161,17 +197,9 @@ try {
   await until(() => { try { return adb('shell', 'getprop', 'sys.boot_completed').trim() === '1'; } catch { return false; } }, 240000, 2000);
   if (adb('shell', 'getprop', 'ro.kernel.qemu').trim() !== '1') throw new Error(`${SERIAL} does not say ro.kernel.qemu=1: not an emulator`);
   console.log(`${SERIAL} booted`);
-  adb('install', '-r', APK);
-  adb('shell', 'pm', 'clear', APP);
-  adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
-  adb('shell', 'cmd', 'uimode', 'night', 'yes');
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
   adb('shell', 'wm', 'dismiss-keyguard');
   adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', '1800000');
-  // A quiet status bar: a fixed clock, no other icons (demo mode).
-  adb('shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1');
-  const demo = (cmd, extra = []) => adb('shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', '-e', 'command', cmd, ...extra);
-  demo('enter'); demo('clock', ['-e', 'hhmm', '1755']); demo('notifications', ['-e', 'visible', 'false']); demo('battery', ['-e', 'level', '80', '-e', 'plugged', 'false']); demo('network', ['-e', 'wifi', 'show', '-e', 'level', '4']);
 
   // uiautomator's view of the screen, and taps on it.
   function screen() {
@@ -197,6 +225,31 @@ try {
     return n;
   }
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
+  const results = [];
+  const check = (ok, what, detail = '') => { results.push(!!ok); console.log(ok ? 'PASS' : 'FAIL', what, detail); };
+
+  // A fingerprint, enrolled as a person does in Settings, after a PIN (the
+  // emulator's sensor is touched with `adb emu finger touch`).
+  adb('shell', 'locksettings', 'set-pin', '1234');
+  adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
+  await until(() => find('Re-enter your PIN') || find('Enter your PIN'), 15000, 800);
+  adb('shell', 'input', 'text', '1234'); adb('shell', 'input', 'keyevent', 'KEYCODE_ENTER');
+  for (let i = 0; i < 6 && !find('I AGREE'); i++) { const more = find('MORE'); if (more) tap(more); await sleep(800); }
+  await tapWhen('I AGREE', 10000);
+  await until(() => find('Touch the sensor'), 15000, 800);
+  for (let i = 0; i < 12 && !find('Fingerprint added'); i++) { adb('emu', 'finger', 'touch', '1'); await sleep(900); }
+  check(!!find('Fingerprint added'), 'a fingerprint is enrolled on the emulator');
+  await tapWhen('DONE', 10000);
+  adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+
+  adb('install', '-r', APK);
+  adb('shell', 'pm', 'clear', APP);
+  adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
+  adb('shell', 'cmd', 'uimode', 'night', 'yes');
+  // A quiet status bar: a fixed clock (demo mode).
+  adb('shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1');
+  const demo = (cmd, extra = []) => adb('shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', '-e', 'command', cmd, ...extra);
+  demo('enter'); demo('clock', ['-e', 'hhmm', '1755']); demo('notifications', ['-e', 'visible', 'false']); demo('battery', ['-e', 'level', '80', '-e', 'plugged', 'false']); demo('network', ['-e', 'wifi', 'show', '-e', 'level', '4']);
 
   // The board in the WebView, through DevTools (a debug build allows it).
   async function board(expression) {
@@ -227,12 +280,18 @@ try {
     return { x: web.b[0] + r.x * r.dpr, y: web.b[1] + r.y * r.dpr, w: r.w * r.dpr, h: r.h * r.dpr };
   }
   async function tapBoard(selector) { const r = await onScreen(selector); adb('shell', 'input', 'tap', String(Math.round(r.x + r.w / 2)), String(Math.round(r.y + r.h / 2))); }
+  // A button by its words, found and measured in one look, so a board drawn
+  // anew in between never leaves the tap on a stale element.
   async function tapText(text) {
-    const sel = `[data-pick-tap="${text.replace(/\W/g, '')}"]`;
-    const ok = await until(() => board(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && !x.disabled); if (!b) return false; b.setAttribute('data-pick-tap', ${JSON.stringify(text.replace(/\W/g, ''))}); return true; })()`), 15000, 500);
-    if (!ok) throw new Error(`no button "${text}" on the board`);
-    await tapBoard(sel);
+    const web = webView();
+    const r = await until(() => board(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(text)} && !x.disabled); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, dpr: devicePixelRatio }; })()`), 15000, 500);
+    if (!web || !r) throw new Error(`no button "${text}" on the board`);
+    adb('shell', 'input', 'tap', String(Math.round(web.b[0] + r.x * r.dpr)), String(Math.round(web.b[1] + r.y * r.dpr)));
   }
+
+  const go = (route) => board(`location.replace('#${route}')`);
+  const hubCps = async (all = false) => ((await (await fetch(`${hub.url}/api/checkpoints${all ? '?all' : ''}`)).json()).checkpoints || []);
+  const alertShown = (id) => adb('shell', 'dumpsys', 'notification', '--noredact').includes(`|${APP}|2|${id}|`);
 
   // Pair through the link, as from the Mac's QR code.
   adb('shell', `am start -a android.intent.action.VIEW -d '${link}' ${APP}`);
@@ -244,55 +303,70 @@ try {
   // The checkpoints open now, so their alerts reach the phone as they open.
   fs.writeFileSync(path.join(WORK, 'go'), '1');
   const cps = await until(async () => {
-    const st = await (await fetch(`${hub.url}/api/checkpoints`)).json();
-    const list = st.checkpoints || [];
-    const pick = list.find((c) => c.kind === 'pick' && c.state === 'open');
-    const ask = list.find((c) => c.kind === 'ask' && c.state === 'open');
-    const drive = list.find((c) => c.kind === 'drive' && c.state === 'open');
-    return pick && ask && drive ? { pick, ask, drive } : null;
+    const list = (await hubCps()).filter((c) => c.state === 'open');
+    const pick = list.find((c) => c.kind === 'pick' && (c.variants || []).length === 3);
+    const html = list.find((c) => c.kind === 'pick' && (c.variants || []).length === 2);
+    const ask = list.find((c) => c.kind === 'ask');
+    const close = list.find((c) => c.kind === 'drive' && c.drive && c.drive.action === 'close');
+    const type = list.find((c) => c.kind === 'drive' && c.drive && (c.drive.action || 'input') === 'input');
+    return pick && html && ask && close && type ? { pick, html, ask, close, type } : null;
   }, 40000, 500);
-  if (!cps) throw new Error('the pick, the ask and the drive did not open');
-  const DRIVE = cps.drive.id;
-  console.log('drive', DRIVE, JSON.stringify(cps.drive.drive));
-  const PICK = cps.pick.id;
-  console.log('pick', PICK);
+  if (!cps) throw new Error(`the checkpoints did not all open: ${JSON.stringify((await hubCps()).map((c) => [c.kind, c.state]))}`);
+  const PICK = cps.pick.id, HTML = cps.html.id, ASK = cps.ask.id, CLOSE = cps.close.id, TYPE = cps.type.id;
+  console.log('checkpoints', JSON.stringify({ PICK, HTML, ASK, CLOSE, TYPE }), JSON.stringify(cps.type.drive), JSON.stringify(cps.pick.variants.map((v) => v.description)));
   // The hub keeps the pictures; wait for them.
-  await until(async () => (await fetch(`${hub.url}/api/checkpoints/${PICK}/variants/2`)).ok, 20000, 500);
+  await until(async () => (await fetch(`${hub.url}/api/checkpoints/${PICK}/variants/2`)).ok && (await fetch(`${hub.url}/api/checkpoints/${HTML}/variants/1`)).ok, 20000, 500);
   adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
   await sleep(1500);
 
-  // Only Ravenry's alerts in the shade: the emulator's own notices (a serial
-  // console, apps from other runs) and Ravenry's quiet connection line are
-  // snoozed for the picture, and the drive's alert, which has a frame of
-  // its own on the board.
-  function snoozeOthers() {
+  // For the shade's picture, only the pick's and the question's alerts: the
+  // emulator's own notices, Ravenry's quiet connection line and the other
+  // alerts (each has a frame of its own) are snoozed for a few seconds.
+  // Snoozed for the rest of the run (a shorter snooze comes back as a
+  // heads-up over the board's screens); one is let back for a test.
+  const snoozed = new Map();
+  function snoozeOthers(keep) {
     const out = adb('shell', 'dumpsys', 'notification', '--noredact');
     for (const k of new Set([...out.matchAll(/key=(-?\d+\|[^|\s]+\|-?\d+\|[^|]*\|\d+)/g)].map((m) => m[1]))) {
       const [, pkg, , tag] = k.split('|');
-      if (pkg === APP && tag.startsWith('cp:') && tag !== `cp:${DRIVE}`) continue;
-      try { adb('shell', 'cmd', 'notification', 'snooze', '--for', '600000', `'${k}'`); } catch { /* not snoozable */ }
+      if (pkg === APP && keep.includes(tag)) continue;
+      try { adb('shell', 'cmd', 'notification', 'snooze', '--for', '1800000', `'${k}'`); snoozed.set(tag, k); } catch { /* not snoozable */ }
     }
   }
-  async function shade(scheme) {
-    // ntfy, left on this emulator by the push test, holds a listening line.
+  async function openShade() {
     try { adb('shell', 'am', 'force-stop', 'io.heckel.ntfy'); } catch { /* not here */ }
-    snoozeOthers();
     adb('shell', 'cmd', 'statusbar', 'expand-notifications');
     await sleep(1500);
-    // The pick's alert, expanded to show its pictures.
-    const n = await until(() => find((x) => x.text === 'Tilting the hull wants you to pick'), 30000, 1000);
-    if (!n) throw new Error(`the pick's alert is not in the shade: ${screen().map((x) => x.text).filter(Boolean).join(' | ')}`);
-    const nodes = screen();
-    const exp = nodes.find((x) => /^expand/i.test(x.desc) && Math.abs(x.y - n.y) < 140);
+  }
+  async function expand(title) {
+    const n = await until(() => find((x) => x.text === title), 30000, 1000);
+    if (!n) throw new Error(`not in the shade: ${title}: ${screen().map((x) => x.text).filter(Boolean).join(' | ')}`);
+    const exp = screen().find((x) => /^expand/i.test(x.desc) && Math.abs(x.y - n.y) < 140);
     if (exp) { tap(exp); await sleep(1200); }
+    return n;
+  }
+  async function shade(scheme) {
+    snoozeOthers([`cp:${PICK}`, `cp:${ASK}`]);
+    await openShade();
+    await expand('Tilting the hull wants you to pick');
     await until(() => find('Compare'), 10000, 500);
     await sleep(1500); // the pictures, fetched over the pinned connection
     shot(`phone-32-shade-${scheme}.png`);
   }
 
   async function screens(scheme) {
-    // Compare opens the swipe screen on the pick.
-    await tapWhen('Compare', 10000, 'Compare');
+    // Compare, on the boat pick's alert, opens its swipe screen.
+    const title = await until(() => find('Tilting the hull wants you to pick'), 10000, 500);
+    const cmp = await until(() => screen().filter((n) => n.text === 'Compare' && title && n.y > title.y).sort((x, y2) => x.y - y2.y)[0] || null, 10000, 500);
+    if (cmp) tap(cmp);
+    else {
+      // The shade moved under the tap (alerts coming back): open the pick from the app instead.
+      console.log('no Compare to tap on the boat pick\'s alert:', screen().map((x) => x.text).filter(Boolean).join(' | '));
+      adb('shell', 'cmd', 'statusbar', 'collapse');
+      adb('shell', 'am', 'start', '-n', `${APP}/.MainActivity`);
+      await sleep(1500);
+      await go(`/cp/${PICK}`);
+    }
     await until(() => board('document.querySelector(".ppick .ptrack img") && document.querySelector(".ppick .ptrack img").complete ? true : null'), 20000, 500);
     await sleep(800);
     // A swipe to B, as a finger does.
@@ -302,6 +376,7 @@ try {
     await until(() => board('document.querySelector(".ppick .btn.pri").textContent === "Pick B" ? true : null'), 8000, 400);
     await sleep(800);
     shot(`phone-32-swipe-${scheme}.png`);
+    console.log('swipe caption:', await board('document.querySelector(".ppick .pcap").innerText'));
     // Circle a part: a finger draws around the spray over the bow.
     await tapText('Circle a part');
     const p = await onScreen('.ppick .pdraw');
@@ -321,16 +396,39 @@ try {
     await sleep(1200);
     shot(`phone-32-circle-${scheme}.png`);
     const r = await board('JSON.stringify({ note: document.querySelector(".ppick .pnote").value, send: document.querySelector(".ppick .btn.pri").textContent })');
-    // The drive: Cache forecasts asks to close the person's dev server.
-    await board(`location.replace('#/cp/${DRIVE}')`);
-    await until(() => board('document.querySelector(".pcp h2") && document.querySelector(".pcp h2").textContent.includes("close") ? true : null'), 10000, 400);
-    await sleep(800);
-    shot(`phone-6-drive-close-${scheme}.png`);
-    console.log('drive screen:', await board('document.querySelector(".pcp").innerText.replace(/\\n+/g, " | ")'));
-    await board(`location.replace('#/cp/${PICK}')`);
+    // The drives: Cache forecasts asks to close the person's dev server,
+    // Phone preview to type in it; each with its reason.
+    for (const [id, name, word] of [[CLOSE, 'close', 'close'], [TYPE, 'type', 'type in']]) {
+      await go(`/cp/${id}`);
+      await until(() => board(`document.querySelector(".pcp h2") && document.querySelector(".pcp h2").textContent.includes(${JSON.stringify(word)}) ? true : null`), 10000, 400);
+      await sleep(800);
+      shot(`phone-6-drive-${name}-${scheme}.png`);
+      console.log(`drive ${name} screen:`, await board('document.querySelector(".pcp").innerText.replace(/\\n+/g, " | ")'));
+    }
+    // The HTML pick: its first page in its sandboxed frame.
+    await go(`/cp/${HTML}`);
+    await until(() => board('document.querySelector(".ppick iframe.phtml") ? true : null'), 10000, 400);
+    await sleep(2500);
+    shot(`phone-32-html-${scheme}.png`);
+    console.log('html frame:', await board('JSON.stringify([...document.querySelectorAll(".ppick iframe.phtml")].map((f) => ({ sandbox: f.getAttribute("sandbox"), src: f.getAttribute("src"), h: f.getBoundingClientRect().height })))'));
+    await go(`/cp/${PICK}`);
     await sleep(800);
     return r;
   }
+
+  // Not now on the HTML pick's alert, tapped in the shade: the alert goes,
+  // nothing is sent, the pick stays open.
+  await until(() => alertShown(`cp:${HTML}`), 15000, 500);
+  check(alertShown(`cp:${HTML}`), 'the HTML pick has its alert in the shade');
+  await openShade();
+  const ht = await expand('Recipe card layout wants you to pick');
+  const notNow = await until(() => screen().filter((n) => n.text === 'Not now' && n.y > ht.y).sort((x, y2) => x.y - y2.y)[0] || null, 10000, 500);
+  shot('phone-32-html-shade-dark.png');
+  if (notNow) tap(notNow);
+  await sleep(2000);
+  const htmlCp = (await hubCps(true)).find((x) => x.id === HTML);
+  check(notNow && !alertShown(`cp:${HTML}`) && htmlCp && htmlCp.state === 'open', 'Not now in the shade takes the pick\'s alert away and leaves the pick open');
+  adb('shell', 'cmd', 'statusbar', 'collapse');
 
   await shade('dark');
   console.log('dark:', await screens('dark'));
@@ -342,34 +440,59 @@ try {
   await shade('light');
   const last = await screens('light');
   console.log('light:', last);
-  // Send it from the phone; the hub holds the answer, region and note.
-  // Back on the pick, which kept its circle and note, and sent from the phone.
-  await board(`location.replace('#/cp/${PICK}')`);
+
+  // ------------------------------------------------ as the person, on the phone
+  // The pick, which kept its circle and note, sent from the phone.
+  await go(`/cp/${PICK}`);
   await until(() => board('document.querySelector(".ppick .pnote") ? true : null'), 10000, 400);
   await tapText(JSON.parse(last).send);
-  const done = await until(async () => {
-    const st = await (await fetch(`${hub.url}/api/checkpoints?all`)).json();
-    const c = (st.checkpoints || []).find((x) => x.id === PICK && x.state !== 'open');
-    return c || null;
-  }, 20000, 500);
+  const done = await until(async () => (await hubCps(true)).find((x) => x.id === PICK && x.state !== 'open') || null, 20000, 500);
   const a = done && done.answer && done.answer.pick;
-  const ok = a && a.label === LABELS[1] && a.region && a.region.w > 0.05 && a.region.h > 0.05 && /less spray/.test(a.note || '') && done.answer.by === 'phone';
-  console.log(ok ? 'PASS' : 'FAIL', 'the pick answered from the phone:', JSON.stringify(done && done.answer));
+  check(a && a.label === LABELS[1] && a.region && a.region.w > 0.05 && a.region.h > 0.05 && /less spray/.test(a.note || '') && done.answer.by === 'phone', 'the pick sent from the phone, with its region and note:', JSON.stringify(done && done.answer));
   const out = fs.readFileSync(path.join(WORK, `.cp-out-${S['paper-boat'].sid.slice(0, 4)}`), 'utf8');
   console.log('ravenry pick printed:', out.trim().split('\n').slice(-6).join(' | '));
   await sleep(1500);
   shot('phone-32-after-light.png');
-  // The drive refused from the phone: the dev server stays, and close says no.
-  await board(`location.replace('#/cp/${DRIVE}')`);
+
+  // The typing, allowed once with a fingerprint: the prompt, then the sensor.
+  await go(`/cp/${TYPE}`);
+  await tapText('Allow once');
+  const prompt = await until(() => find((n) => n.pkg === 'com.android.systemui' && /fingerprint|Allow once/i.test(n.text || n.desc)), 15000, 700);
+  check(!!prompt, 'the fingerprint prompt opens before the yes', prompt ? (prompt.text || prompt.desc) : screen().map((x) => x.text).filter(Boolean).join(' | '));
+  // (The prompt is a secure window: a screen capture of it comes out empty.)
+  adb('emu', 'finger', 'touch', '1');
+  const allowed = await until(async () => (await hubCps(true)).find((x) => x.id === TYPE && x.state !== 'open') || null, 20000, 500);
+  const typedOut = await until(() => { const f = path.join(WORK, `.cp-out-${S['garden-planner'].sid.slice(0, 4)}`); const t = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; return /exit \d+/.test(t) ? t : null; }, 15000, 500);
+  const screenNow = execFileSync(BIN, ['capture', devPane], { env: localEnv, encoding: 'utf8' });
+  check(allowed && allowed.state === 'answered' && allowed.answer && allowed.answer.approved && allowed.answer.allow === 'once' && /exit 0/.test(typedOut || '') && /npm run dev -- --host/.test(screenNow), 'the typing allowed once with a fingerprint: ravenry send went through and the dev server pane shows it', JSON.stringify(allowed && allowed.answer));
+
+  // The close refused from the phone: the dev server stays.
+  await go(`/cp/${CLOSE}`);
+  await sleep(4000); // the last answer's toast sits over the bottom buttons for a few seconds
   await tapText('Refuse');
-  const refused = await until(async () => {
-    const st = await (await fetch(`${hub.url}/api/checkpoints?all`)).json();
-    return (st.checkpoints || []).find((x) => x.id === DRIVE && x.state === 'declined') || null;
-  }, 15000, 500);
+  const refused = await until(async () => (await hubCps(true)).find((x) => x.id === CLOSE && x.state === 'declined') || null, 15000, 500);
+  if (!refused) console.log('the close now:', JSON.stringify((await hubCps(true)).find((x) => x.id === CLOSE)), await board('document.body.innerText.slice(0, 400)'));
   const listed = JSON.parse(execFileSync(BIN, ['ls', '--json'], { env: localEnv, encoding: 'utf8' }));
   const alive = (Array.isArray(listed) ? listed : listed.panes || []).some((x) => x.id === devPane && x.state === 'running');
-  console.log(refused && alive ? 'PASS' : 'FAIL', 'the drive refused from the phone, and the dev server still runs:', JSON.stringify(refused && refused.answer), alive);
-  if (!ok || !refused || !alive) process.exitCode = 1;
+  check(refused && alive, 'the close refused from the phone, and the dev server still runs', JSON.stringify(refused && refused.answer));
+
+  // A decision the agent saves: its alert, Undo tapped in the shade, and
+  // the decision is gone from the hub.
+  fs.writeFileSync(path.join(WORK, 'decide'), '1');
+  const dec = await until(async () => { const r2 = await (await fetch(`${hub.url}/api/decisions?project=paper-boat`)).json(); return (r2.decisions || [])[0] || null; }, 20000, 500);
+  check(!!dec, 'the agent saved a decision', JSON.stringify(dec && dec.quote) + ' ' + fs.readFileSync(path.join(WORK, '.decide-out'), 'utf8').trim());
+  await until(() => alertShown(`dec:${dec && dec.id}`), 15000, 500);
+  await openShade();
+  const dt = await until(() => find('Saved your decision'), 15000, 800);
+  const undo = await until(() => screen().filter((n) => n.text === 'Undo' && dt && n.y > dt.y).sort((x, y2) => x.y - y2.y)[0] || null, 10000, 500);
+  shot('phone-31-decision-shade-light.png');
+  if (undo) tap(undo);
+  const gone = await until(async () => { const r2 = await (await fetch(`${hub.url}/api/decisions?project=paper-boat&all=1`)).json(); return !(r2.decisions || []).some((d) => d.id === dec.id); }, 15000, 500);
+  await sleep(1500);
+  shot('phone-31-decision-undone-light.png');
+  check(undo && gone, 'Undo in the shade takes the saved decision back', screen().filter((n) => n.text).map((n) => n.text).filter((t) => /Taken back|Saved your/.test(t)).join(' | '));
+  adb('shell', 'cmd', 'statusbar', 'collapse');
+  if (results.some((x) => !x)) process.exitCode = 1;
 } catch (e) {
   console.error(e);
   if (hub) fs.writeFileSync(path.join(WORK, 'board.log'), hub.log());

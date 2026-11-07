@@ -15,7 +15,7 @@
 // decline for None of these.
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
-import { splitTitle } from '../../desktop/src/renderer/checkpoints.ts';
+import { splitTitle, who } from '../../desktop/src/renderer/checkpoints.ts';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 import * as I from './icons.ts';
 import { current, hubUrl } from './shell.ts';
@@ -53,7 +53,7 @@ function circleSvg(path: [number, number][]): SVGElement {
 /** One variant's picture, with its letter; an HTML variant runs sandboxed, with no scripts. */
 function slide(cp: HubCheckpoint, n: number, total: number, extra: (Node | null)[] = []): HTMLElement {
   const v = (cp.variants || [])[n];
-  const { letter } = variantOf(v ? v.label : '', n);
+  const { letter } = variantOf(v, n, '');
   const missing = h('div.pmiss', 'The picture is not on the computer yet.');
   missing.hidden = true;
   const media = v && v.type === 'html'
@@ -68,7 +68,7 @@ export function pickView(cp: HubCheckpoint, ui: PickUI, x: PickCtx): HTMLElement
   const n = vs.length;
   if (ui.i >= n) ui.i = 0;
   const t = splitTitle(cp.title);
-  const nameOf = (i: number) => variantOf(vs[i] ? vs[i].label : '', i);
+  const nameOf = (i: number) => variantOf(vs[i], i, who(cp));
 
   const send = async (reply: Record<string, unknown>, said: string) => {
     if (ui.busy) return;
@@ -90,8 +90,8 @@ export function pickView(cp: HubCheckpoint, ui: PickUI, x: PickCtx): HTMLElement
     const dots = h('div.dots3');
     const pickLabel = h('span');
     const paintCap = () => {
-      const { name, more, letter } = nameOf(ui.i);
-      replace(cap, h('b', `${name}.`), more ? ` ${more}` : null);
+      const { name, says, letter } = nameOf(ui.i);
+      replace(cap, h('b', /[.!?]$/.test(name) ? name : `${name}.`), says ? ` ${says}` : null);
       replace(dots, vs.map((_, i) => h(`i${i === ui.i ? '.on' : ''}`)), n > 1 ? h('span', 'Swipe for the others') : null);
       pickLabel.textContent = `Pick ${letter}`;
     };

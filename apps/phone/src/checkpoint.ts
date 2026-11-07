@@ -241,6 +241,8 @@ function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld:
 
 /** The pane a drive acts on, by the name the board shows: its session's, else its own name; never its id. */
 function drivePane(cp: HubCheckpoint): string {
+  const named = (cp.drive as { name?: string } | undefined)?.name;
+  if (named) return named;
   const pane = cp.drive?.pane;
   for (const p of hub.live.state?.projects || []) for (const s of p.sessions || []) {
     if (pane && paneOf(s) === pane) return s.topic || p.name;
@@ -255,6 +257,7 @@ function driveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement 
   const action = cp.drive?.action || 'input';
   const words = driveWords(action, w, target);
   const input = String(cp.drive?.input || '');
+  const reason = String((cp.drive as { reason?: string } | undefined)?.reason || '').trim();
   const allow = async (y: (typeof words.yes)[number]) => {
     if (ui.busy) return;
     // Letting an agent act on a pane it did not start is as strong as
@@ -276,6 +279,7 @@ function driveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement 
     words.what ? h('p.det', words.what) : null,
     input ? [h('div.plbl', action === 'override' ? 'It would set' : 'It would press, in order'),
       h('div.ptyped', action === 'override' ? input : typedParts(input).map((x) => (x.key ? h('span.kc', x.text) : h('span', x.text))))] : null,
+    reason ? h('p.psays', h('span', `${w} says:`), ' ', reason) : null,
     waitBox(cp),
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b',

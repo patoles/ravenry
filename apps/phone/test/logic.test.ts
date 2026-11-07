@@ -116,10 +116,10 @@ test('the wire matches replies to requests and passes events on', async () => {
   w.receive(JSON.stringify({ id: 999, ok: true }));
 });
 
-test('a pick names each variant by its letter, and a label with the agent\'s words splits at the first sentence', () => {
-  assert.deepEqual(variantOf('Level', 0), { letter: 'A', name: 'Level', more: null });
-  assert.deepEqual(variantOf('Tilt with the slope. The hull follows the wave at the bow.', 1), { letter: 'B', name: 'Tilt with the slope', more: 'The hull follows the wave at the bow.' });
-  assert.deepEqual(variantOf('v1.2 build', 2), { letter: 'C', name: 'v1.2 build', more: null });
+test('a pick names each variant by its letter and its whole label, and the agent\'s words come from its description', () => {
+  assert.deepEqual(variantOf({ label: 'Level' }, 0, 'Claude'), { letter: 'A', name: 'Level', says: null });
+  assert.deepEqual(variantOf({ label: 'Tilt with the slope', description: 'The hull follows the wave\'s angle at the bow.' }, 1, 'Claude'), { letter: 'B', name: 'Tilt with the slope', says: 'Claude: The hull follows the wave\'s angle at the bow.' });
+  assert.deepEqual(variantOf({ label: 'Half. The slope' }, 2, 'Codex'), { letter: 'C', name: 'Half. The slope', says: null });
   assert.equal(topLabel(cp({ kind: 'pick' }), 'Claude'), 'Claude wants you to pick');
   assert.equal(topLabel(cp({ kind: 'drive' }), 'Claude'), 'Claude is asking first');
 });

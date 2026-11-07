@@ -300,8 +300,11 @@ agent's own file); HTML and SVG come with `Content-Security-Policy:
 sandbox`. The app fetches the image variants over the pinned connection
 and draws them side by side in the alert, with the question and "3
 pictures.". The app's pick screen shows one variant at a time, full
-width, swiped, with its letter ("B, 2 of 3"), and its label split at the
-first ". " or ": " into a name and the agent's words; Circle a part lets
+width, swiped, with its letter ("B, 2 of 3"), its label whole as its
+name and its `description` as the agent's words ("Claude: ..."); an HTML
+variant shows in a frame with no scripts (the page allows frames of its
+own origin only, the hub's pages through the shell, which keeps the
+hub's `Content-Security-Policy: sandbox` on them); Circle a part lets
 the person draw around a part of the chosen one with a finger (the box
 around the path is the region) and type or speak a note, and it
 answers `{ id, pick: { label, region: { x, y, w, h } (each 0 to

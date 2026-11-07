@@ -551,7 +551,12 @@ class MainActivity : FragmentActivity() {
             val type = r.header("Content-Type")?.substringBefore(';')?.trim() ?: "application/octet-stream"
             val bytes = r.body?.bytes() ?: ByteArray(0)
             r.close()
-            WebResourceResponse(type, null, r.code, r.message.ifEmpty { "OK" }, mapOf("Cache-Control" to "no-cache"), ByteArrayInputStream(bytes))
+            // The hub's own policy goes with it: a pick's HTML or SVG variant
+            // comes with `Content-Security-Policy: sandbox`, so it never runs
+            // as the page, whatever frame shows it.
+            val headers = mutableMapOf("Cache-Control" to "no-cache", "X-Content-Type-Options" to "nosniff")
+            r.header("Content-Security-Policy")?.let { headers["Content-Security-Policy"] = it }
+            WebResourceResponse(type, null, r.code, r.message.ifEmpty { "OK" }, headers, ByteArrayInputStream(bytes))
         } catch (e: Exception) {
             WebResourceResponse("text/plain", "utf-8", 502, "Bad Gateway", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         }

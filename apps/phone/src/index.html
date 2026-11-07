@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <!-- The page talks to nothing but its shell: every byte to the hub goes
-     through the shell (docs/PHONE.md section 1), so it needs no network. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'">
+     through the shell (docs/PHONE.md section 1), so it needs no network.
+     Frames: only the hub's pages through the shell (a pick's HTML variant),
+     each in a sandbox with no scripts. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'">
 <title>Ravenry</title>
 <link rel="stylesheet" href="app.css">
 </head>
