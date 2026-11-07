@@ -34,7 +34,7 @@ import {
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
-import { initNpmSwitch, npmTakesCentre, renderNpmCentre } from './npmswitch.ts';
+import { initNpmSwitch, npmChosen, npmTakesCentre, renderNpmCentre, renderNpmPointer, setBoardLive } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
@@ -283,6 +283,29 @@ function viewSessionKey(): string | null {
 
 /** The views that take the middle and right columns. */
 const WIDE_VIEWS = new Set(['page', 'machines', 'decisions', 'picker', 'grid']);
+
+// While the person keeps the npm board (npmswitch.ts npmChosen), the app runs
+// no hub of its own: each view that needs one says so and points at the npm
+// board instead (the first-launch place), and so do the controls that open
+// one. What was asked for, by view; npmAsked names a control's.
+const NEEDS_HUB: Record<string, string> = {
+  start: 'Starting a session', page: 'That page', machines: 'Machines', decisions: 'Decisions',
+  picker: 'Picking between variants', grid: 'That view', review: 'Reviewing a worktree',
+};
+let npmAsked: string | null = null;
+function npmNeed(): string | null {
+  if (!npmChosen()) return null;
+  if (npmAsked) return npmAsked;
+  if (NEEDS_HUB[S.view.kind]) return NEEDS_HUB[S.view.kind];
+  return firstRun() ? NEEDS_HUB.start : null;
+}
+/** A control that needs the app's hub, while the npm board keeps the data: points there instead. */
+function npmPoint(what: string): boolean {
+  if (!npmChosen()) return false;
+  npmAsked = what;
+  setView({ kind: 'start' });
+  return true;
+}
 
 function firstRun(): boolean {
   if (S.tabs.length) return false;
@@ -626,7 +649,7 @@ function renderSidebar(): void {
   // The pages, from their files (pages.ts): the shipped ones, then the ones
   // you or an agent added, then a project's own.
   const rowsNav = pages.nav(S.view.kind === 'page' ? S.view.key : null, (key) => openPage(key));
-  const decRow = h(`button.vrow${S.view.kind === 'decisions' ? '.sel' : ''}`, { 'data-page': 'decisions', title: 'Decisions', on: { click: () => { S.overlay = false; S.panelKey = null; setView({ kind: 'decisions' }); } } },
+  const decRow = h(`button.vrow${S.view.kind === 'decisions' ? '.sel' : ''}`, { 'data-page': 'decisions', title: 'Decisions', on: { click: () => { if (npmPoint('Decisions')) return; S.overlay = false; S.panelKey = null; setView({ kind: 'decisions' }); } } },
     svg(I.BOOK), h('span.vl', 'Decisions'), decisions.active.length ? h('span.c.num', decisions.list.some((d) => d.undo_until && Date.parse(d.undo_until) > now()) ? h('i.ndot') : null, String(decisions.active.length)) : null);
   const gapAt = rowsNav.findIndex((e) => e.classList.contains('gap'));
   rowsNav.splice(gapAt < 0 ? rowsNav.length : gapAt, 0, decRow);
@@ -635,9 +658,9 @@ function renderSidebar(): void {
   const mem = memoryLine(S.hub);
   const foot = h('div.foot',
     h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => openBoard('') } }, svg(I.SETTINGS)),
-    empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
+    empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { if (npmPoint('Pairing a phone')) return; phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
     empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', on: { click: () => openBoard('') } }, svg(I.BELL)),
-    h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => setView({ kind: 'machines' }) } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
+    h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => { if (!npmPoint('Machines')) setView({ kind: 'machines' }); } } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
     h('span.sp'),
     mem && !empty ? h('span.mem.num', `Claude ${mem}`) : null);
 
@@ -659,10 +682,13 @@ function useLine(s: HubSession): HTMLElement | null {
 
 function openBoard(hash: string): void {
   if (!S.config) return;
+  // The npm board's own page, when it answers; else where it is said why.
+  if (npmChosen() && !S.hubStatus?.reachable) { npmPoint('Settings and alerts'); return; }
   api().openExternal(S.config.hubUrl + '/' + hash);
 }
 
 function openPage(key: string): void {
+  if (npmPoint('That page')) return;
   S.overlay = false;
   S.panelKey = null;
   setView({ kind: 'page', key });
@@ -873,6 +899,7 @@ function stepTab(d: number): void {
 // ---------------------------------------------------------------- middle
 
 function setView(v: View): void {
+  if (v.kind !== 'start') npmAsked = null;
   if (S.view.kind === 'page' && v.kind !== 'page') pages.close();
   if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
   if (v.kind !== 'review' && S.view.kind === 'review') review.key = null;
@@ -916,15 +943,17 @@ async function showPane(key: string, get: () => Promise<RavenryClient | null>, p
 async function renderCentre(): Promise<void> {
   const v = S.view;
   toastFollows(viewKey(v));
-  const onPage = v.kind === 'page';
-  const onMachines = v.kind === 'machines';
-  $('centre').hidden = WIDE_VIEWS.has(v.kind);
+  const need = npmNeed();
+  const onPage = v.kind === 'page' && !need;
+  const onMachines = v.kind === 'machines' && !need;
+  $('centre').hidden = WIDE_VIEWS.has(v.kind) && !need;
   $('page').hidden = !onPage;
   $('machines').hidden = !onMachines;
-  $('decisions').hidden = v.kind !== 'decisions';
-  $('picker').hidden = v.kind !== 'picker';
-  $('grid').hidden = v.kind !== 'grid';
+  $('decisions').hidden = v.kind !== 'decisions' || !!need;
+  $('picker').hidden = v.kind !== 'picker' || !!need;
+  $('grid').hidden = v.kind !== 'grid' || !!need;
   if (WIDE_VIEWS.has(v.kind)) { film.close(); }
+  if (need) { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
   if (onPage) { term.hide(); shownKey = ''; pages.show(v.key); return; }
   if (onMachines) { term.hide(); shownKey = ''; machinesView.show(); return; }
   if (v.kind === 'decisions') { term.hide(); shownKey = ''; decisions.render(); return; }
@@ -1063,6 +1092,7 @@ async function setUpHooks(yes: boolean): Promise<void> {
 }
 
 function openStart(): void {
+  if (npmPoint('Starting a session')) return;
   S.start.error = null;
   setView({ kind: 'start' });
   void loadStart();
@@ -1071,6 +1101,8 @@ function openStart(): void {
 function renderStart(): void {
   // The switch from the npm board takes the first-launch place (npmswitch.ts).
   if (npmTakesCentre()) { renderNpmCentre($('start')); return; }
+  const need = npmNeed();
+  if (need) { renderNpmPointer($('start'), need, { url: S.config?.hubUrl || 'http://localhost:4600', reachable: !!S.hubStatus?.reachable, newShell: () => void newShell(), openUrl: (u) => api().openExternal(u) }); return; }
   const st = S.start;
   const first = firstRun();
   const folderName = st.folder ? base(st.folder) : null;
@@ -1720,7 +1752,7 @@ async function boot(): Promise<void> {
   onCardChange(() => { renderPanel(); });
   api().onCommand((n, a) => onCommand(String(n), a));
   api().onHubState((s) => onHubState(s as HubState));
-  api().onHubStatus((st) => { S.hubStatus = st as HubStatus; if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
+  api().onHubStatus((st) => { S.hubStatus = st as HubStatus; setBoardLive(!!(st as HubStatus).reachable); if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
   window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); });
   // The strip's room changes when the panel shows or hides.
   new ResizeObserver(() => fitTabs($('tabs'))).observe($('tabs'));

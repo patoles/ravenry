@@ -49,6 +49,9 @@ let dismissed = false;
 let changed: () => void = () => {};
 let bar: HTMLElement | null = null;
 let sheet: HTMLElement | null = null;
+// Whether the board the window reads answers now (the app's feed), so the
+// bar and the pointer follow the npm board starting or stopping.
+let live: boolean | null = null;
 
 const ICON = {
   board: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6" cy="6" r="4.5"/><circle cx="6" cy="6" r="1.5" fill="currentColor"/></svg>',
@@ -182,7 +185,7 @@ function renderBar(): void {
   const d = v!.detect!;
   const back = v!.phase === 'back' || (!!d.record && d.record.state === 'back');
   const result = v!.phase === 'back' ? v!.result : null;
-  const down = !running(d);
+  const down = live === null ? !running(d) : !live;
   const again = (result && result.again) || (d.record && d.record.from && d.record.from.board && d.record.from.board.again) || null;
   bar.className = back ? 'qbar back' : 'qbar';
   const sw = h(back ? 'button.btn.sm' : 'button.btn.sm.pri', { 'data-act': 'switch', on: { click: () => void api().npmSwitch() } }, 'Switch to the app');
@@ -214,6 +217,57 @@ function renderSheet(): void {
       h('button.btn', { 'data-act': 'cancel', disabled: busy, on: { click: () => void api().npmConfirmBack(false) } }, 'Cancel'),
       h('button.btn.pri', { 'data-act': 'back', disabled: busy, on: { click: () => void api().npmBack() } }, busy ? 'Going back...' : 'Go back'))));
   sheet.hidden = false;
+}
+
+/** The person chose the npm board (Not now, or the way back): the app runs
+ * no hub of its own, so what needs one points at the npm board instead.
+ * Null otherwise. `again`: the command to start that board as before. */
+export function npmChosen(): { again: string | null } | null {
+  const v = view;
+  if (!v || v.offer !== 'bar' || !v.detect || v.phase === 'switching' || v.phase === 'switched' || v.phase === 'going-back') return null;
+  const d = v.detect;
+  const again = (v.phase === 'back' && v.result && v.result.again) || (d.record && d.record.from && d.record.from.board && d.record.from.board.again) || (d.board && !d.board.own ? d.board.again || null : null);
+  return { again: again || null };
+}
+
+/** The board the window reads answers, or not (app.ts, from its feed). */
+export function setBoardLive(on: boolean): void {
+  if (live === on) return;
+  live = on;
+  renderBar();
+}
+
+/**
+ * In the first-launch place while the npm board keeps the data: where to go
+ * instead of what needs the app's hub. `what` says what was asked for
+ * ("Starting a session", "Machines"...), `url` is the npm board's page.
+ */
+export function renderNpmPointer(el: HTMLElement, what: string, o: { url: string; reachable: boolean; newShell: () => void; openUrl: (u: string) => void }): void {
+  const c = npmChosen();
+  const again = (c && c.again) || 'ravenry';
+  const why = `${what} needs the app's own hub, which does not run while the npm board keeps your data.`;
+  const sw = h('button.btn', { 'data-act': 'switch', on: { click: () => void api().npmSwitch() } }, 'Switch to the app');
+  const card = o.reachable
+    ? h('div.fl-card.sw-card',
+      row(ICON.board, '', 'Do it on the npm board', ['It runs at ', h('code', o.url), ' and starts sessions in your terminal, as before.']),
+      row(ICON.hooks, '', 'New shells work here', ['A plain shell in this window needs no hub.']),
+      h('div.sw-go',
+        h('button.btn.pri.lg', { 'data-act': 'open-board', on: { click: () => o.openUrl(o.url) } }, 'Open the npm board'),
+        h('button.btn', { 'data-act': 'new-shell', on: { click: () => o.newShell() } }, 'New shell'),
+        h('span.sp'), sw))
+    : h('div.fl-card.sw-card',
+      row(ICON.board, '', 'Start it as before', [h('code', again), ' in the terminal where you ran it. Its sessions show up here once it answers.']),
+      row(ICON.hooks, '', 'New shells work here', ['A plain shell in this window needs no hub.']),
+      h('div.sw-go',
+        h('button.btn.pri.lg', { 'data-act': 'copy', on: { click: () => api().copyText(again) } }, 'Copy the command'),
+        h('button.btn', { 'data-act': 'new-shell', on: { click: () => o.newShell() } }, 'New shell'),
+        h('span.sp'), sw));
+  replace(el, h('div.fl.sw.npm-ptr',
+    svg(I.APP_ICON),
+    h('h2', o.reachable ? 'Your board is the npm board' : 'Your npm board is not running'),
+    h('p.lead', why),
+    card,
+    h('div.fl-foot', 'Switching to the app keeps every session, idea, plan, rule and setting, and can be undone.')));
 }
 
 function set(v: unknown): void {

@@ -232,6 +232,12 @@ async function byHandCase() {
     { until: view(`${R}.view().offer === 'bar'`), timeout: 10000 },
     { sleep: 3000 },
     { shot: path.join(OUT, 'by-hand-2-not-now-bar.png') },
+    // What needs the app's hub points at the npm board, which runs.
+    { js: `document.querySelector('#side .brand .icon-btn').click()` },
+    { until: `document.querySelector('#start:not([hidden]) .npm-ptr [data-act=open-board]') && /Starting a session needs the app's own hub/.test(document.querySelector('#start .npm-ptr').textContent)`, timeout: 10000 },
+    { js: `document.querySelector('#side .m-foot').click()` },
+    { until: `document.querySelector('#start:not([hidden]) .npm-ptr') && /Machines needs the app's own hub/.test(document.querySelector('#start .npm-ptr').textContent) && document.getElementById('machines').hidden`, timeout: 10000 },
+    { save: { expr: `document.querySelector('#start .npm-ptr').textContent`, out: path.join(root, 'pointer-running.txt') } },
   ]);
   fs.writeFileSync(path.join(OUT, 'by-hand-not-now-app.log'), log);
   const s1 = snap();
@@ -239,6 +245,7 @@ async function byHandCase() {
   check("Not now: Claude Code's and Codex's settings are as they were", diff(s0.claude, s1.claude).length === 0 && diff(s0.codex, s1.codex).length === 0, [...diff(s0.claude, s1.claude), ...diff(s0.codex, s1.codex)].join(', '));
   check('Not now: no service and no login item written', diff(s0.agents, s1.agents).length === 0, diff(s0.agents, s1.agents).join(', '));
   check('Not now: launchd was asked nothing', calls(u).every((a) => a[0] === 'print'), JSON.stringify(calls(u)));
+  check('Not now: what needs the app\'s hub (New session, Machines) points at the running npm board', /Do it on the npm board/.test(fs.readFileSync(path.join(root, 'pointer-running.txt'), 'utf8')));
   check('Not now: the npm board still runs and serves', alive(pid) && JSON.stringify(await seen(u.url)) === JSON.stringify(before));
   check('the app said why it starts no hub of its own', /npm board: running \(pid \d+/.test(log), log.slice(-1500));
 
@@ -262,6 +269,8 @@ async function byHandCase() {
     { js: `${R}.back()` },
     { until: view(`['back', 'error'].includes(${R}.view().phase)`), timeout: 120000 },
     { until: `document.querySelector('#npm-bar:not([hidden]) .code1') && document.querySelector('#npm-bar .code1').textContent === 'ravenry --no-open'`, timeout: 10000 },
+    // No first-session form with nothing to run it: the main area says how to start the npm board.
+    { until: `document.querySelector('#start:not([hidden]) .npm-ptr [data-act=copy]') && /ravenry --no-open/.test(document.querySelector('#start .npm-ptr').textContent) && !document.querySelector('#start .fl-go .btn.pri:not([data-act])')`, timeout: 10000 },
     { shot: path.join(OUT, 'by-hand-3-back-bar.png') },
     { save: { expr: `${R}.view()`, out: path.join(root, 'back-view.json') } },
   ]);

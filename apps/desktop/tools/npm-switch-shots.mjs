@@ -3,7 +3,8 @@
 // them, dark and light, at 1440 x 900, to hold against the mock: the offer
 // in the first-launch place, the steps under way, the end with what the
 // app's hub shows, the quiet bar after Not now, the way back's question and
-// the bar after it. macOS only (the npm board is). Each theme gets its own
+// the bar after it, and where a control that needs the app's hub points
+// while the person keeps the npm board (running, and stopped). macOS only (the npm board is). Each theme gets its own
 // throwaway HOME with data the npm board 0.4.0 wrote (npm-board-fixture.mjs),
 // its board started by hand as most people start it; offscreen, on spare
 // ports, with tools/fake-launchctl.mjs in place of launchd.
@@ -63,6 +64,10 @@ for (const theme of ['dark', 'light']) {
       { until: `document.querySelector('#npm-bar:not([hidden])')`, timeout: 10000 },
       { js: `window.__ravenry.setView({ kind: 'none' })` }, { sleep: 400 },
       shot(theme, 4, 'not-now-bar'),
+      // New session needs the app's hub: it points at the npm board.
+      { js: `document.querySelector('#side .brand .icon-btn').click()` },
+      { until: `document.querySelector('#start:not([hidden]) .npm-ptr [data-act=open-board]')`, timeout: 10000 }, { sleep: 300 },
+      shot(theme, 7, 'not-now-new-session'),
     ]);
     await run(u, theme, 'switch', [
       { ready: true, timeout: 30000 }, sidebar,
