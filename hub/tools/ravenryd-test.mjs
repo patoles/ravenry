@@ -205,7 +205,9 @@ check('a closed pane: the operations say the tab is closed', (await term.pasteTe
 // The Node hooks, when their command carries --ravenryd, stand down in a
 // ravenryd pane (ravenryd hook reports there) and nowhere else.
 const { spawnSync } = await import('node:child_process');
-const nodeHook = (script, input, paneEnv) => spawnSync(process.execPath, [path.join(ROOT, 'hooks', script), '--ravenryd'], { input: JSON.stringify(input), env: { ...process.env, RAVENRY_HOME: MC, MC_BOARD_URL: 'http://127.0.0.1:4619', ...paneEnv }, encoding: 'utf8' });
+// Not the caller's own pane (a test run from inside a Ravenry pane has one).
+const outer = Object.fromEntries(Object.entries(process.env).filter(([k]) => !['RAVENRY_PANE', 'RAVENRY_SOCKET', 'TERM_PROGRAM'].includes(k)));
+const nodeHook = (script, input, paneEnv) => spawnSync(process.execPath, [path.join(ROOT, 'hooks', script), '--ravenryd'], { input: JSON.stringify(input), env: { ...outer, RAVENRY_HOME: MC, MC_BOARD_URL: 'http://127.0.0.1:4619', ...paneEnv }, encoding: 'utf8' });
 const inPane = { RAVENRY_PANE: PANE, RAVENRY_SOCKET: SOCK, TERM_PROGRAM: 'ravenry' };
 const evFile = (sid) => path.join(MC, 'events', sid + '.jsonl');
 nodeHook('events.mjs', { session_id: 'sess-node-pane-1', hook_event_name: 'UserPromptSubmit', cwd: PROJ }, inPane);
