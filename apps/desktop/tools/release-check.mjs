@@ -85,7 +85,10 @@ const labels = [];
 // A throwaway Mac account: its own HOME, data folder, runtime folder (with
 // a space), port, launchd label, and the stand-ins.
 async function account(name) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `rvrc-${name}-`));
+  // A short folder name: a daemon's socket path has 103 bytes at most on
+  // macOS, and "<tmp>/rvrc-update-XXXXXX/App Support/run/ravenryd-0.1.10.sock"
+  // was 105.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `rvc${name[0]}-`));
   const home = path.join(root, 'h');
   const data = path.join(home, 'Library', 'Application Support', 'Ravenry');
   const rt = path.join(root, 'App Support', 'run');
