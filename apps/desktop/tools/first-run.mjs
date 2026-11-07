@@ -128,8 +128,8 @@ async function oneRun(kind, n) {
 
   // The hub, started as the written service says the moment it appears (launchd would).
   let hub = null, hubLog = '', hubAt = null, stop = false;
-  const plist = path.join(home, 'Library', 'LaunchAgents', 'gg.ravenry.hub.plist');
-  const unit = path.join(home, '.config', 'systemd', 'user', 'ravenry-hub.service');
+  const plist = path.join(home, 'Library', 'LaunchAgents', 'dev.ravenry.hub.plist');
+  const unit = path.join(home, '.config', 'systemd', 'user', 'dev.ravenry.hub.service');
   const watcher = (async () => {
     while (!stop) {
       if (fs.existsSync(plist) || fs.existsSync(unit)) break;

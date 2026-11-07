@@ -78,7 +78,7 @@ test('the service runs the app as Node on the staged hub; an AppImage copies its
   assert.ok(!spec.env.PATH.includes('/tmp/shim'));
   assert.ok(spec.env.PATH.split(':').includes('/h/.local/bin'));
   const p = plistText(spec);
-  assert.match(p, /<string>gg\.ravenry\.hub<\/string>/);
+  assert.match(p, /<string>dev\.ravenry\.hub<\/string>/);
   assert.match(p, /<key>ELECTRON_RUN_AS_NODE<\/key>\s*<string>1<\/string>/);
   assert.match(p, /<key>AbandonProcessGroup<\/key>\s*<true\/>/);
   assert.match(p, /<string>\/Applications\/Ravenry\.app\/Contents\/MacOS\/Ravenry<\/string>\s*<string>\/d\/versions\/0\.1\.0\/hub\/server\/index\.mjs<\/string>/);
@@ -136,7 +136,7 @@ test('ensureService: installs, keeps a current one, updates a changed one, and l
 
     const first = await ensureService({ ...base, mode: 'install', spec });
     assert.equal(first.state, 'installed');
-    assert.ok(calls.some((c: string) => c.includes(platform === 'darwin' ? 'bootstrap gui/501' : 'restart ravenry-hub.service')));
+    assert.ok(calls.some((c: string) => c.includes(platform === 'darwin' ? 'bootstrap gui/501' : 'restart dev.ravenry.hub.service')));
     calls.length = 0;
     assert.equal((await ensureService({ ...base, mode: 'install', spec })).state, 'kept');
     assert.ok(calls.every((c: string) => / print | is-active /.test(` ${c} `)));

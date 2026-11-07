@@ -15,8 +15,8 @@
 // and the service does not name it).
 //
 // The hub service. The hub runs always on, under launchd on macOS
-// (~/Library/LaunchAgents/gg.ravenry.hub.plist) and systemd on Linux
-// (~/.config/systemd/user/ravenry-hub.service), as the app's own executable
+// (~/Library/LaunchAgents/dev.ravenry.hub.plist) and systemd on Linux
+// (~/.config/systemd/user/dev.ravenry.hub.service), as the app's own executable
 // with ELECTRON_RUN_AS_NODE=1: users install no Node. An AppImage's hub runs
 // a copy of its Electron runtime in the version folder instead (see
 // runtimeSource). It is written on first
@@ -34,8 +34,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const SERVICE_LABEL = 'gg.ravenry.hub';
-export const UNIT_NAME = 'ravenry-hub.service';
+export const SERVICE_LABEL = 'dev.ravenry.hub';
+export const UNIT_NAME = 'dev.ravenry.hub.service';
 
 type Env = Record<string, string | undefined>;
 

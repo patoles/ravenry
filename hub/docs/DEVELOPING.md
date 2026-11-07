@@ -886,7 +886,7 @@ MC_LAUNCHD_DRYRUN=1 node tools/install-login.mjs   # print only, change nothing
 ```
 
 This exists but cmux refuses it unless cmux's socket access is set to
-Password (cmux Settings > Automation). It writes `~/Library/LaunchAgents/gg.ravenry.board.plist`, which runs
+Password (cmux Settings > Automation). It writes `~/Library/LaunchAgents/dev.ravenry.board.plist`, which runs
 this Node (`process.execPath` at install time) on `server/index.mjs` with
 RunAtLoad and KeepAlive (restarts after a crash, at most every 10 s), logs to
 `~/.ravenry/logs/board.{out,err}.log`, and a PATH that holds node,

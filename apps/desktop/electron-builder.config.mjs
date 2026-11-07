@@ -31,12 +31,15 @@ const { owner, repo } = githubRepo();
 
 /** @type {import('electron-builder').Configuration} */
 export default {
-  appId: 'gg.ravenry.desktop',
+  // One id on every platform: the Mac bundle id, the Linux desktop id
+  // (desktopName, which Electron also takes as the window's app id and
+  // WM_CLASS) and Android's applicationId.
+  appId: 'dev.ravenry.app',
   productName: 'Ravenry',
   copyright: `Copyright © ${new Date().getUTCFullYear()} ${rootPkg.author}`,
   directories: { output: 'release', buildResources: 'build' },
   files: ['dist/**/*', '!dist/**/*.map', 'package.json'],
-  extraMetadata: { author: rootPkg.author, homepage: `https://github.com/${owner}/${repo}` },
+  extraMetadata: { desktopName: 'dev.ravenry.app.desktop', author: rootPkg.author, homepage: `https://github.com/${owner}/${repo}` },
   // Everything the app runs is bundled into dist/ by esbuild: no node_modules.
   npmRebuild: false,
   nodeGypRebuild: false,
@@ -80,7 +83,9 @@ export default {
     description: 'Ravenry: real terminals beside a board of every coding agent session, with what needs you first.',
     maintainer: rootPkg.author,
     vendor: rootPkg.author,
-    desktop: { entry: { StartupWMClass: 'Ravenry', Keywords: 'terminal;agents;claude;codex;' } },
+    // dev.ravenry.app.desktop, with StartupWMClass dev.ravenry.app to match.
+    syncDesktopName: true,
+    desktop: { entry: { Keywords: 'terminal;agents;claude;codex;' } },
   },
   deb: {
     // A .deb never updates itself (the app says so); updates are the next .deb.

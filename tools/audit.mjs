@@ -106,6 +106,8 @@ const SHAPES = [
   ['home path', /\b[A-Z]:\\Users\\[A-Za-z0-9._-]+/g],
   ['home path slug', /-Users-(?!(?:x|old|you|me|example|someone)-)[A-Za-z0-9._]+-/g],
   ['long hex (a key or id)', /\b[0-9a-f]{32,}\b/gi, (m) => !/^(.)\1+$/.test(m) && !/^(?:0123456789abcdef)+/i.test(m) && !/^89504e470d0a1a0a/i.test(m)], // a PNG written as hex is a picture, not a key
+  // Ravenry owns no domain: every reverse-domain id is dev.ravenry (the app dev.ravenry.app, the services dev.ravenry.hub and dev.ravenry.board).
+  ['a domain Ravenry does not own (ids are dev.ravenry.*)', /\bgg\\?\.ravenry\b|\bravenry\\?\.gg\b/gi],
   ['UUID', /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, (m) => !fakeUuid(m)],
 ];
 // audit: end rule table

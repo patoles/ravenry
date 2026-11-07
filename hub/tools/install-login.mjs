@@ -17,7 +17,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const LABEL = 'gg.ravenry.board';
+const LABEL = 'dev.ravenry.board';
 // The job's label from before the rename (the board was Mission Control):
 // install and --remove take it away too, so two jobs never fight over :4600.
 const OLD_LABEL = 'gg.missioncontrol.board';

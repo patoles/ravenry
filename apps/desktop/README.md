@@ -141,8 +141,8 @@ Nothing outside the user's own folders, and nothing as root.
   (an update, an AppImage unmounting) never pulls a running binary away. A
   version folder goes once nothing runs from it.
 - **The hub as a user service**, always on, so alerts reach the phone with
-  the window closed: a launchd agent (`~/Library/LaunchAgents/gg.ravenry.hub.plist`)
-  or a systemd user unit (`~/.config/systemd/user/ravenry-hub.service`). It
+  the window closed: a launchd agent (`~/Library/LaunchAgents/dev.ravenry.hub.plist`)
+  or a systemd user unit (`~/.config/systemd/user/dev.ravenry.hub.service`). It
   runs the app's own executable as Node (`ELECTRON_RUN_AS_NODE=1`), so no
   Node is needed, on the copied hub, in Ravenry terminal mode. An AppImage
   runs from a folder it mounts only while it runs, and its launcher adds

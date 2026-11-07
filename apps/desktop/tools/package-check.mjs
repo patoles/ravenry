@@ -120,6 +120,23 @@ if (!fs.existsSync(exe)) fail(`no executable at ${exe}`);
 
 const build = JSON.parse(fs.readFileSync(path.join(resources, 'build.json'), 'utf8'));
 ok(`build.json: ${build.id}`);
+// The app's id, the same on every platform (Android's applicationId too).
+const APP_ID = 'dev.ravenry.app';
+if (platform === 'darwin') {
+  const id = execFileSync('plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', path.join(target, 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim();
+  if (id !== APP_ID) fail(`the bundle id is ${id}, not ${APP_ID}`);
+  ok(`bundle id ${id}`);
+} else {
+  const desktop = APP_PATH.endsWith('.deb')
+    ? path.join(X, 'usr', 'share', 'applications', `${APP_ID}.desktop`)
+    : isAppImage ? path.join(X, 'squashfs-root', `${APP_ID}.desktop`) : null;
+  if (desktop) {
+    if (!fs.existsSync(desktop)) fail(`no ${APP_ID}.desktop in the package`);
+    const t = fs.readFileSync(desktop, 'utf8');
+    if (!new RegExp(`^StartupWMClass=${APP_ID.replace(/\./g, '\\.')}$`, 'm').test(t)) fail(`${APP_ID}.desktop does not say StartupWMClass=${APP_ID}`);
+    ok(`desktop id ${APP_ID} (${path.basename(desktop)}, StartupWMClass=${APP_ID})`);
+  }
+}
 const bundled = path.join(resources, 'ravenryd');
 if (!fs.existsSync(bundled)) fail(`no ravenryd in ${resources}`);
 fs.accessSync(bundled, fs.constants.X_OK);
@@ -240,18 +257,18 @@ try {
   ok(line.replace(/^service: /, 'service (dry run): '));
   let svcExe, svcArgs, svcEnv;
   if (platform === 'darwin') {
-    const plist = path.join(HOME, 'Library', 'LaunchAgents', 'gg.ravenry.hub.plist');
+    const plist = path.join(HOME, 'Library', 'LaunchAgents', 'dev.ravenry.hub.plist');
     const lint = spawnSync('plutil', ['-lint', plist], { encoding: 'utf8' });
     if (lint.status !== 0) fail(`plutil: ${lint.stdout}${lint.stderr}`);
     const j = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' }));
     [svcExe, ...svcArgs] = j.ProgramArguments;
     svcEnv = j.EnvironmentVariables;
-    fs.copyFileSync(plist, path.join(OUT, 'gg.ravenry.hub.plist'));
+    fs.copyFileSync(plist, path.join(OUT, 'dev.ravenry.hub.plist'));
     ok(`launchd agent written to the throwaway HOME and valid (plutil -lint): ${svcExe} ${svcArgs.join(' ')}`);
   } else {
-    const unit = path.join(HOME, '.config', 'systemd', 'user', 'ravenry-hub.service');
+    const unit = path.join(HOME, '.config', 'systemd', 'user', 'dev.ravenry.hub.service');
     const t = fs.readFileSync(unit, 'utf8');
-    fs.copyFileSync(unit, path.join(OUT, 'ravenry-hub.service'));
+    fs.copyFileSync(unit, path.join(OUT, 'dev.ravenry.hub.service'));
     const unq = (s) => s.replace(/^"|"$/g, '').replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/\$\$/g, '$').replace(/%%/g, '%');
     const exec = /^ExecStart=(.*)$/m.exec(t)[1].match(/"(?:\\.|[^"\\])*"/g).map(unq);
     [svcExe, ...svcArgs] = exec;
