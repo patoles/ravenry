@@ -306,7 +306,9 @@ export function launchdProblem(file, args = [], env = process.env, platform = pr
 // tool starts the app with any of them.
 export const PANE_VARS = ['RAVENRY_PANE', 'RAVENRY_SOCKET', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'];
 export function paneVarsIn(env) {
-  return Object.keys(env || {}).filter((k) => PANE_VARS.includes(k) || /^(CMUX_|ITERM_SESSION_ID$|TMUX$|REX_)/.test(k));
+  // A terminal's own pane variables only: a test's settings (CMUX_BIN, the
+  // stand-in cmux) are not one.
+  return Object.keys(env || {}).filter((k) => PANE_VARS.includes(k) || /^(CMUX_(SURFACE|WORKSPACE|PANEL|TAB)_ID|CMUX_SOCKET_PATH|ITERM_SESSION_ID|TMUX|TMUX_PANE|REX_BLOCK)$/.test(k));
 }
 
 // A tool that proves the app's own answer to a start from a pane

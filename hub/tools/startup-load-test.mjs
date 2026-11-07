@@ -140,6 +140,9 @@ try {
   console.log(`the big session: ${Math.round(fs.statSync(bigTr).size / 1048576)} MB, 200 launches, ${listed.length} tasks listed at each Stop, ${bigRunning} really running`);
   fs.writeFileSync(path.join(root, 'ps.json'), JSON.stringify(procs));
   fs.writeFileSync(path.join(root, 'cmux.json'), JSON.stringify({ workspaces: [], screens: {} }));
+  // The 20 sessions say they run in iTerm2: the stand-in answers for it,
+  // never the person's own (it once waited 6 s on osascript at each tick).
+  fs.writeFileSync(path.join(root, 'iterm.json'), JSON.stringify({ running: true, sessions: [], screens: {} }));
   console.log(`made the data in ${Math.round((Date.now() - t0) / 1000)} s: 23 projects, 240,000 files, 1,840 plan files, 20 sessions of 20 MB`);
 
   // The daemon, its report ring full.
@@ -158,9 +161,10 @@ try {
   const big = { cwd: '/' + 'c'.repeat(4000), transcript_path: '/' + 't'.repeat(4000) };
   for (let i = 0; i < 2100; i++) await dc.request('agent.report', { pane: pane.id, assistant: 'claude', event: 'PostToolUse', session: procs[0].command.split(' ').pop(), data: { hook_event_name: 'PostToolUse', session_id: procs[0].command.split(' ').pop(), tool_name: 'Read', ...big } });
   // 761 reports for the big session after them, as its daemon kept them.
+  // The last one a Stop, as a session at rest leaves it.
   const kinds = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUse', 'Stop'];
   for (let i = 0; i < 761; i++) {
-    const event = kinds[i % 5];
+    const event = kinds[(i + 4) % 5];
     const data = { hook_event_name: event, session_id: bigSid, cwd: bigCwd, transcript_path: bigTr, ...(event.endsWith('ToolUse') ? { tool_name: 'Bash' } : {}), ...(event === 'Stop' ? { background_tasks: listed, last_assistant_message: '' } : {}) };
     await dc.request('agent.report', { pane: pane.id, assistant: 'claude', event, session: bigSid, pid: 90100, cwd: bigCwd, data });
   }
@@ -175,6 +179,7 @@ try {
     HOME: home, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`, LANG: 'en_US.UTF-8', PORT: String(port), RAVENRY_PHONE_PORT: String(await free()),
     RAVENRY_TERMINAL: 'ravenry', RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'state'),
     MC_PS_BIN: T('stub-ps.mjs'), MC_LSOF_BIN: T('stub-ps.mjs'), STUB_PS_STATE: path.join(root, 'ps.json'), CMUX_BIN: T('fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(root, 'cmux.json'),
+    ITERM_OSASCRIPT_BIN: T('fake-iterm.mjs'), RAVENRY_ITERM_PYTHON: T('fake-iterm.mjs'), FAKE_ITERM_STATE: path.join(root, 'iterm.json'), MC_OSASCRIPT_BIN: T('stub-osascript.mjs'), STUB_OSASCRIPT_LOG: path.join(root, 'osascript.jsonl'),
     MC_OPEN_COMMAND: JSON.stringify([process.execPath, T('stub-open.mjs')]), STUB_OPEN_LOG: path.join(root, 'open.jsonl'), MC_PHONE_LAN: 'none', MC_CODEX: '0',
     // As the app's service runs it: its start-up record and the CPU profile.
     RAVENRY_HUB_SERVICE: '1', RAVENRY_APP_VERSION: 'load-test', RAVENRY_STALL_MS: '200',
@@ -202,6 +207,7 @@ try {
       let worst = { ms: 0, at: 0 };
       let tasksRight = null;
       let tasksSeen = null;
+      let lastBody = null;
       const end = listenAt + 30000;
       while (Date.now() < end) {
         const a = Date.now();
@@ -211,6 +217,7 @@ try {
         if (c === 200 && ready == null) ready = Date.now() - listenAt;
         if (c === 200 && tasksRight == null) {
           const body = await getText('/api/state');
+          lastBody = body;
           const m = body && body.match(new RegExp(`"sessionId":"${bigSid}"[^]*?waiting on (\\d+) background task`));
           tasksSeen = m ? Number(m[1]) : tasksSeen;
           if (m && Number(m[1]) === bigRunning) tasksRight = Date.now() - listenAt;
@@ -223,6 +230,16 @@ try {
       const stalls = out.split('\n').filter((l) => /^stall:/.test(l) && Number((l.match(/(\d+) ms after start/) || [])[1]) <= (listenAt - started) + 30000);
       check('its main thread is never held over 200 ms in its first 30 s', !stalls.length, stalls.slice(0, 5).join(' | ') || 'none');
       check(`the big session's running tasks are counted right (${bigRunning} of the ${listed.length} listed) within 30 s`, tasksRight != null, tasksRight != null ? `${tasksRight} ms after listen` : `saw ${tasksSeen}`);
+      if (tasksRight == null && lastBody) {
+        // What the state says of that session, to read why.
+        try {
+          const j = JSON.parse(lastBody);
+          const hits = [];
+          const walk = (v) => { if (v && typeof v === 'object') { if (v.sessionId === bigSid) hits.push(v); for (const x of Object.values(v)) walk(x); } };
+          walk(j);
+          console.log('the big session in the state: ' + JSON.stringify(hits.slice(0, 2)).slice(0, 3000));
+        } catch (e) { console.log('state unreadable: ' + e.message); }
+      }
       const replay = (out.match(/start: daemon [^\n]*: (\d+) reports taken in (\d+) ms/g) || []).join('; ');
       console.log(`MEASURE startup-load firstAnswerMs=${first} slowestMs=${worst.ms} stateReadyMs=${ready} stalls=${stalls.length} tasksRightMs=${tasksRight}`);
       console.log(`replay: ${replay}`);
