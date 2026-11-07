@@ -260,6 +260,6 @@
 /* Over the terminal, which is dark in both themes: its own colors, as .lstrip. */
 .mvbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: rgba(255,159,10,.12); border-bottom: 1px solid rgba(255,159,10,.45); color: #F2F2F4; font-size: 12.5px; line-height: 1.4; flex: none; }
 .mvbar .btn:not(.pri) { background: #3A3A40; color: #F2F2F4; box-shadow: none; }
-.mvbar .mt { flex: 1; min-width: 0; }
+.mvbar .mvt { flex: 1; min-width: 0; }
 .mvbar .btn { flex: none; }
 .sec.twin .acts { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }

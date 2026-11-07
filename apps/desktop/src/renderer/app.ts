@@ -379,7 +379,7 @@ function renderMoveBar(): void {
   }
   el.hidden = !line;
   if (!line || !f || !s) { replace(el); return; }
-  replace(el, h('span.mt', line), ...moveActs(f.project, s, other, s.alsoOpen ? 'double open, tab' : 'went on elsewhere, tab', !!s.alsoOpen));
+  replace(el, h('span.mvt', line), ...moveActs(f.project, s, other, s.alsoOpen ? 'double open, tab' : 'went on elsewhere, tab', !!s.alsoOpen));
 }
 
 function tabOfView(): Tab | null {
