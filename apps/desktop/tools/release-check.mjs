@@ -638,7 +638,11 @@ try {
       const a = (st.projects || []).flatMap((pr) => pr.sessions.map((x) => ({ project: pr.id, ...x }))).filter((x) => x.sessionId === SA);
       const sp = await (await fetch(`http://127.0.0.1:${m.port}/api/sessions`).catch(() => null))?.json?.().catch(() => null);
       fs.writeFileSync(path.join(OUT, '9-session-a.json'), JSON.stringify({ onBoard: a.map((x) => ({ surfaceId: x.surfaceId, state: x.state, term: x.term })), ps: JSON.parse(fs.readFileSync(m.ps, 'utf8')), rows: sp && sp.rows ? sp.rows.filter((r) => r.sessionId === SA) : null }, null, 2));
-    } catch (e) { fs.writeFileSync(path.join(OUT, '9-session-a.json'), String(e)); }
+      // Keep it in cmux ended the Ravenry copy of A; its cmux copy runs on,
+      // so A stays on the board, in cmux (hub/server/events.mjs outlivedEnds).
+      const aLive = JSON.parse(fs.readFileSync(m.ps, 'utf8')).some((p) => new RegExp(`--resume ${SA}`).test(p.command) && /CMUX_SURFACE_ID=/.test(p.env || ''));
+      step('9 move: a session whose Ravenry copy ended while its cmux copy runs on stays on the board, in cmux', aLive && a.length >= 1 && a.some((x) => x.term === 'cmux' || (x.surfaceId && !/^ravenry:/.test(x.surfaceId))), { aLive, onBoard: a.map((x) => ({ surfaceId: x.surfaceId, state: x.state, term: x.term })) });
+    } catch (e) { fs.writeFileSync(path.join(OUT, '9-session-a.json'), String(e)); step('9 move: session A read from the hub at the end', false, { error: String(e) }); }
     const logOf = (f) => { const p = path.join(m.home, 'Library', 'Logs', 'Ravenry', f); return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : ''; };
     const appLog = logOf('app.log');
     const hubLog = logOf('hub.log');

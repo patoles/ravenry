@@ -140,6 +140,7 @@ let shipWaiting = null;      // Ship badge: items waiting on the user in the bri
 let lastShip = null;         // the last Ship view (server/ship.mjs), for the pages' git provider
 // Sessions page (docs/SESSIONS.md): every claude process, read once a minute.
 let procState = { at: null, procs: [], helpers: 0, error: 'starting' };
+const outlivedSaid = new Set();
 let procBusy = null;
 const extraScreens = new Map(); // surfaceId -> { text, at }: Claude tabs outside the board's projects
 let lastWorkspaces = [];
@@ -1136,6 +1137,8 @@ async function tick() {
     if (cmuxOk) await refreshSidebars(workspaces, !reg);
     tp.mark('events');
     const evAll = events.scan();
+    // A session that ended in one place but runs on in another is not ended (events.outlivedEnds).
+    for (const m of events.outlivedEnds(evAll, procState.procs)) if (!outlivedSaid.has(m.sessionId)) { outlivedSaid.add(m.sessionId); console.log(`sessions: ${m.sessionId.slice(0, 8)} ended in one place but runs on in ${m.terminal} (process ${m.pid})`); }
     tp.mark('other terminals');
     await refreshOtherTabs(evAll);
     tp.mark('surfaces');
