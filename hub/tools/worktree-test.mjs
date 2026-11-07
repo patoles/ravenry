@@ -28,7 +28,7 @@
 // A pane's caller gets 403 on comment, merge and discard:
 // tools/person-routes-test.mjs proves every person row that way.
 // Usage: node tools/worktree-test.mjs [RAVENRYD_BIN=../daemon/ravenryd]
-import './test-guard.mjs';
+import { withStubMachine } from './test-guard.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -214,7 +214,7 @@ const env = {
 };
 let board;
 function startBoard() {
-  board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withStubMachine(env), stdio: ['ignore', 'pipe', 'pipe'] });
   board.stdout.on('data', (x) => { boardLog += x; });
   board.stderr.on('data', (x) => { boardLog += x; });
 }

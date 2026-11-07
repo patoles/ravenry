@@ -17,7 +17,7 @@
 // HOME, the board's data, Claude's settings and the daemon's folders are
 // all scratch; the board listens on its own port.
 // Usage: RAVENRYD_BIN=../daemon/ravenryd node tools/hub-api-test.mjs
-import './test-guard.mjs';
+import { withStubMachine } from './test-guard.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,7 +61,7 @@ const env = {
   ...DENV, PATH: process.env.PATH, RAVENRY_HOME: MC, PORT: String(PORT), RAVENRY_TERMINAL: 'ravenry', RAVENRY_DAEMON_BIN: BIN,
   MC_CLAUDE_SETTINGS: SETTINGS, MC_CLAUDE_PROJECTS: path.join(HOME, '.claude', 'projects'), MC_CODEX: '0', TEST_RAVENRY: '1', MC_TEST: '1',
 };
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withStubMachine(env), stdio: ['ignore', 'pipe', 'pipe'] });
 board.stdout.on('data', (d) => { boardLog += d; });
 board.stderr.on('data', (d) => { boardLog += d; });
 process.on('exit', () => { board.kill('SIGTERM'); daemon.kill('SIGTERM'); try { fs.rmSync(D, { recursive: true, force: true }); } catch { /* gone */ } });

@@ -110,7 +110,9 @@ export function testVars(e = env) {
 // that matter and a PATH in a fresh tab may hold another Node.
 export function startCommand(e = env, repo = REPO, run = 'npm start') {
   // The tool's own switches stay here; RAVENRY_ITERM_PYTHON is the board's too.
-  const skip = new Set(['RAVENRY_ITERM_PROFILES', 'RAVENRY_ITERM_BROWSER', 'RAVENRY_ITERM_API', 'RAVENRY_OPEN_BIN', 'RAVENRY_ITERM_WAIT_MS', 'MC_TEST']);
+  // MC_PS_BIN and MC_LSOF_BIN: the stand-in ps every test tool gives its
+  // children (tools/test-env.mjs), never a board's own setting.
+  const skip = new Set(['RAVENRY_ITERM_PROFILES', 'RAVENRY_ITERM_BROWSER', 'RAVENRY_ITERM_API', 'RAVENRY_OPEN_BIN', 'RAVENRY_ITERM_WAIT_MS', 'MC_TEST', 'MC_PS_BIN', 'MC_LSOF_BIN']);
   // Only a fake iTerm2 (a test) ever gets a test's scratch values.
   const fake = !!e.ITERM_OSASCRIPT_BIN;
   const pass = Object.keys(e).filter((k) => (k === 'PORT' || /^(RAVENRY|MC)_/.test(k)) && !skip.has(k) && (fake || !inRepoTmp(e[k]))).sort();

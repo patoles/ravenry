@@ -26,7 +26,7 @@
 // service says the moment the file appears, as launchd would on bootstrap,
 // on a spare port (never :4600). Each milestone is the time since the app
 // was started, in ms. Results go to OUT/first-run.json.
-import { guardSpawns, isTestPath } from '../../../tools/test-env.mjs';
+import { guardSpawns, isTestPath, withStubMachine } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -153,7 +153,8 @@ async function oneRun(kind, n) {
     hub = spawn(svcExe, svcArgs, {
       // Its agent status channel on (sessions reach the sidebar through it);
       // never this machine's own cmux, iTerm2 or Rex.
-      env: { ...svcEnv, HOME: home, RAVENRY_HOME: path.join(home, '.ravenry'), PORT: String(port), RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: state, RAVENRY_NO_OPEN: '1', CMUX_BIN: '/usr/bin/false', ITERM_OSASCRIPT_BIN: '/usr/bin/false', RAVENRY_REX_BIN: 'none', MC_APPS: 'none' },
+      // never this machine's own processes either (the stand-in ps).
+      env: withStubMachine({ ...svcEnv, HOME: home, RAVENRY_HOME: path.join(home, '.ravenry'), PORT: String(port), RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: state, RAVENRY_NO_OPEN: '1', CMUX_BIN: '/usr/bin/false', ITERM_OSASCRIPT_BIN: '/usr/bin/false', RAVENRY_REX_BIN: 'none', MC_APPS: 'none' }),
       cwd: path.dirname(path.dirname(svcArgs[0])), stdio: ['ignore', 'pipe', 'pipe'],
     });
     hub.stdout.on('data', (d) => { hubLog += d; });

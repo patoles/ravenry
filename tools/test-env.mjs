@@ -43,6 +43,16 @@
 // command not a test's stand-in, such as tools/fake-cmux.mjs). A test made
 // to drive one on purpose says so in its header and calls
 // requireRealTerminal() first. Tools never set the variable themselves.
+//
+// The machine's own processes: a board lists the Claude and Codex
+// processes it finds with ps and lsof (server/sessions.mjs), which on the
+// person's Mac are their real sessions, folders included. A test's board
+// reads a stand-in instead (hub/tools/stub-ps.mjs, as MC_PS_BIN and
+// MC_LSOF_BIN, with the made-up processes in STUB_PS_STATE, none without
+// it). guardSpawns() makes the stand-in the default for every child of the
+// tool, and refuses a board (the hub's server, or `ravenry` start or serve)
+// whose environment names the real ps or lsof, or none. withStubMachine(env)
+// adds them to an environment built from scratch.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -147,6 +157,29 @@ export function assertTestEnv(env, what, opts = {}) {
   }
 }
 
+// ------------------------------------------------------------ the machine's processes
+
+export const STUB_PS = path.join(REPO, 'hub', 'tools', 'stub-ps.mjs');
+const REAL_PS = /^(ps|lsof)$/;
+const stubbed = (bin) => !!bin && !REAL_PS.test(path.basename(String(bin)));
+
+/** `env` with the stand-in ps and lsof (hub/tools/stub-ps.mjs), unless it names stand-ins already. */
+export function withStubMachine(env = {}) {
+  return { ...env, MC_PS_BIN: stubbed(env.MC_PS_BIN) ? env.MC_PS_BIN : STUB_PS, MC_LSOF_BIN: stubbed(env.MC_LSOF_BIN) ? env.MC_LSOF_BIN : STUB_PS };
+}
+
+/** Why a board started with this environment would read the machine's own processes, or null. */
+export function machineProblem(file, args = [], env = process.env) {
+  if (childKind(file, args, env) !== 'hub') return null;
+  const words = (args || []).filter((a) => typeof a === 'string' && !a.startsWith('-'));
+  const script = words[0] || '';
+  const sub = words[1] || '';
+  const board = /server[/\\]index\.mjs$/.test(script) || (/bin[/\\]ravenry\.mjs$/.test(script) && ['', 'start', 'serve'].includes(sub));
+  if (!board) return null;
+  const bad = ['MC_PS_BIN', 'MC_LSOF_BIN'].filter((k) => !stubbed(env[k]));
+  return bad.length ? `it would list this machine's own processes with the real ${bad.map((k) => (k === 'MC_PS_BIN' ? 'ps' : 'lsof')).join(' and ')} (set ${bad.join(' and ')} to hub/tools/stub-ps.mjs: withStubMachine(env))` : null;
+}
+
 // ------------------------------------------------------------ which children
 
 const NODE_NAMES = new Set(['node', 'nodejs']);
@@ -242,6 +275,8 @@ function check(file, args, opts) {
   const env = (opts && opts.env) || process.env;
   const ld = launchdProblem(file, args, env);
   if (ld) throw new Error(`Refused to start ${path.basename(String(file))}: ${ld}.`);
+  const mp = machineProblem(file, args, env);
+  if (mp) throw new Error(`Refused to start ${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''}: ${mp}.`);
   const kind = childKind(file, args, env);
   if (kind) assertTestEnv(env, `${NAMES[kind]} (${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''})`, { app: kind === 'app' });
   checkTerminal(file, args, env, kind);
@@ -258,6 +293,8 @@ let guarded = false;
 export function guardSpawns() {
   if (guarded) return;
   guarded = true;
+  // Children that inherit this process's environment read the stand-in.
+  for (const k of ['MC_PS_BIN', 'MC_LSOF_BIN']) if (!stubbed(process.env[k])) process.env[k] = STUB_PS;
   const cp = createRequire(import.meta.url)('node:child_process');
   const split = (args, opts) => (Array.isArray(args) ? [args, opts] : [[], args]);
   for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {

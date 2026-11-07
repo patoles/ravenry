@@ -26,11 +26,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guardSpawns, isTestPath, requireRealTerminal } from '../../tools/test-env.mjs';
+import { guardSpawns, isTestPath, requireRealTerminal, withStubMachine } from '../../tools/test-env.mjs';
 
 // A test that drives the person's real cmux, iTerm2 or Rex on purpose
 // calls this first: it ends the test unless RAVENRY_TEST_REAL_TERMINAL=1.
-export { requireRealTerminal };
+export { requireRealTerminal, withStubMachine };
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const TMP = path.join(REPO, '.tmp');
@@ -65,9 +65,9 @@ export const TEST_HOME = path.join(TMP, path.basename(process.argv[1] || 'test',
 // Playwright's browsers stay where they are installed (a cache of programs,
 // not Ravenry's data), so a board that renders pictures still finds them.
 export function withTestHome(env = process.env, home = null) {
-  if (!home && env.HOME && isTestPath(env.HOME, env)) return env;
+  if (!home && env.HOME && isTestPath(env.HOME, env)) return withStubMachine(env);
   if (home && !isTestPath(home, env)) throw new Error(`withTestHome: ${home} is not a test's folder`);
   fs.mkdirSync(home || TEST_HOME, { recursive: true });
   const browsers = env.PLAYWRIGHT_BROWSERS_PATH || (env.HOME ? path.join(env.HOME, process.platform === 'darwin' ? 'Library/Caches' : '.cache', 'ms-playwright') : null);
-  return { ...env, HOME: home || TEST_HOME, ...(browsers ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {}) };
+  return withStubMachine({ ...env, HOME: home || TEST_HOME, ...(browsers ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {}) });
 }

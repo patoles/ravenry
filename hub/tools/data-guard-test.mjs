@@ -25,7 +25,7 @@
 // 6. A board on a test's data never listens on :4600.
 //
 // Usage: node tools/data-guard-test.mjs
-import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
+import { withStubMachine } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -151,13 +151,18 @@ const tryIt = (f) => { try { f(); out.push('ran'); } catch (e) { out.push(/would
 tryIt(() => spawnSync('/Applications/cmux.app/Contents/Resources/bin/cmux', ['--version'], { env: { PATH: '/usr/bin:/bin' } }));
 tryIt(() => spawnSync('/usr/bin/osascript', ['-e', 'return 1'], { env: { PATH: '/usr/bin:/bin' } }));
 tryIt(() => execFileSync('/bin/sh', ['-c', 'cmux new-workspace || true'], { env: { PATH: '/nonexistent' } }));
-tryIt(() => spawnSync(process.execPath, [${S('server/index.mjs')}, '--check-only'], { env: { HOME: ${J(path.join(T, 'home'))}, RAVENRY_HOME: ${J(path.join(T, 'board3'))}, RAVENRY_RUNTIME_DIR: ${J(path.join(T, 'rt3'))}, RAVENRY_STATE_DIR: ${J(path.join(T, 'st3'))}, PORT: '1', MC_NO_EVENTS: '1' }, timeout: 1 }));
+tryIt(() => spawnSync(process.execPath, [${S('server/index.mjs')}, '--check-only'], { env: { HOME: ${J(path.join(T, 'home'))}, RAVENRY_HOME: ${J(path.join(T, 'board3'))}, RAVENRY_RUNTIME_DIR: ${J(path.join(T, 'rt3'))}, RAVENRY_STATE_DIR: ${J(path.join(T, 'st3'))}, PORT: '1', MC_NO_EVENTS: '1', MC_PS_BIN: ${S('tools/stub-ps.mjs')}, MC_LSOF_BIN: ${S('tools/stub-ps.mjs')} }, timeout: 1 }));
 tryIt(() => spawnSync('/bin/echo', ['fake'], { env: { PATH: '/usr/bin:/bin' } }));
 console.log(out.join(','));`;
 r = child(TERM());
 check('guard: cmux, osascript, a shell running cmux, and a hub whose cmux is the real one are refused; anything else runs', r.out === 'refused,refused,refused,refused,ran', r.out + r.err);
 r = child(`const t = await import(${S('../tools/test-env.mjs')}); console.log([t.boardRealTerminal({ CMUX_BIN: ${S('tools/fake-cmux.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'ravenry' }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'iterm', ITERM_OSASCRIPT_BIN: ${S('tools/stub-osascript.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'rex', RAVENRY_REX_BIN: ${S('tools/fake-rex.mjs')} }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'iterm' }), t.boardRealTerminal({ RAVENRY_TERMINAL: 'rex' })].join(','));`);
 check('guard: a hub with a stand-in for its terminal starts; with the real iTerm2 or Rex it is refused', r.out === ',,,,iTerm2,Rex', r.out || r.err);
+// The machine's own processes: a test's board lists the stand-in ps's
+// made-up processes, never the person's real sessions and their folders.
+r = child(`const t = await import(${S('../tools/test-env.mjs')}); const hub = ${S('server/index.mjs')}; const bin = ${S('bin/ravenry.mjs')}; const stub = t.withStubMachine({});
+console.log([t.machineProblem(process.execPath, [hub], {}), t.machineProblem(process.execPath, [hub], { MC_PS_BIN: '/bin/ps', MC_LSOF_BIN: '/usr/sbin/lsof' }), t.machineProblem(process.execPath, [bin, 'start'], {}), t.machineProblem(process.execPath, [hub], stub), t.machineProblem(process.execPath, [bin, 'page', 'check', 'x'], {}), stub.MC_PS_BIN === ${S('tools/stub-ps.mjs')} ? null : 'x'].map((x) => (x ? 'refused' : 'ran')).join(','), (t.guardSpawns(), process.env.MC_PS_BIN === ${S('tools/stub-ps.mjs')} && process.env.MC_LSOF_BIN === ${S('tools/stub-ps.mjs')}));`);
+check('guard: a board that would read this machine\'s own ps or lsof is refused; with the stand-in it starts; a tool\'s children get the stand-in', r.out === 'refused,refused,refused,ran,ran,ran true', r.out || r.err);
 // launchd: a test never runs the real launchctl (it loads jobs into the
 // person's own session whatever HOME says), nor an app that would install
 // its hub service with it; the stand-in apps/desktop/tools/fake-launchctl.mjs is fine.
@@ -254,7 +259,7 @@ check('iterm: npm run iterm from a shell with a test\'s RAVENRY_HOME is refused 
 
 // ------------------------------------------------------------ 6. the real port
 
-r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { cwd: ROOT, env: { ...bare, HOME: path.join(T, 'home'), RAVENRY_RUNTIME_DIR: path.join(T, 'run'), RAVENRY_STATE_DIR: path.join(T, 'state'), RAVENRY_HOME: path.join(T, 'board'), PORT: '4600', MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(T, 'fake-cmux.json') }, encoding: 'utf8', timeout: 20000 });
+r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { cwd: ROOT, env: withStubMachine({ ...bare, HOME: path.join(T, 'home'), RAVENRY_RUNTIME_DIR: path.join(T, 'run'), RAVENRY_STATE_DIR: path.join(T, 'state'), RAVENRY_HOME: path.join(T, 'board'), PORT: '4600', MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0', CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(T, 'fake-cmux.json') }), encoding: 'utf8', timeout: 20000 });
 check('board: a board on a test\'s data refuses :4600, the real board\'s port', r.status === 1 && /is a test's, and :4600 is the real board's port/.test(r.stderr), (r.stderr || '').trim().split('\n').pop());
 
 fs.rmSync(FAKE, { recursive: true, force: true });

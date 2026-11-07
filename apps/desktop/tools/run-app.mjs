@@ -2,7 +2,7 @@
 // (driver.cjs), in a throwaway HOME, data folder and daemon runtime folder.
 // Every ravenryd, hub and app a tool here starts is checked first
 // (tools/test-env.mjs): none starts with a folder of the real user's.
-import { guardSpawns } from '../../../tools/test-env.mjs';
+import { guardSpawns, STUB_PS } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -36,6 +36,9 @@ export async function runApp(opts) {
     RAVENRY_NEW_SHELL: shell, PS1: 'you@mac %1~ %# ',
     RAVENRY_OFFSCREEN: '1', RAVENRY_THEME: 'dark', RAVENRY_WIDTH: String(width), RAVENRY_HEIGHT: String(height),
     RAVENRY_DRIVER: path.join(HERE, 'driver.cjs'), RAVENRY_DRIVE: plan, RAVENRY_DRIVE_LOG: process.env.RAVENRY_DRIVE_LOG || '',
+    // A hub the app starts lists the stand-in ps's processes, never this
+    // machine's own (tools/test-env.mjs).
+    MC_PS_BIN: STUB_PS, MC_LSOF_BIN: STUB_PS,
     // The X server (xvfb-run sets DISPLAY and XAUTHORITY) and the user's runtime folder.
     ...Object.fromEntries(['DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR'].filter((k) => process.env[k]).map((k) => [k, process.env[k]])),
     ...more,

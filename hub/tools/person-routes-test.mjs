@@ -16,7 +16,7 @@
 // all scratch; ssh, Finder, the clipboard and every model run are stubs.
 // Without RAVENRYD_BIN only the first part runs (the hub job on Linux CI).
 // Usage: RAVENRYD_BIN=../daemon/ravenryd node tools/person-routes-test.mjs
-import './test-guard.mjs';
+import { withStubMachine } from './test-guard.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -113,7 +113,7 @@ const env = {
   RAVENRY_SSH: '/usr/bin/false', MC_OPEN_COMMAND: JSON.stringify(['/usr/bin/true']), MC_COPY_COMMAND: JSON.stringify(['/bin/sh', '-c', 'cat >/dev/null']),
   MC_CHOOSE_FOLDER_COMMAND: JSON.stringify(['/bin/echo', PROJ]), MC_ALERT_BOARD_URL: `http://localhost:${PORT}/`,
 };
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withStubMachine(env), stdio: ['ignore', 'pipe', 'pipe'] });
 board.stdout.on('data', (d) => { boardLog += d; });
 board.stderr.on('data', (d) => { boardLog += d; });
 process.on('exit', () => { board.kill('SIGTERM'); daemon.kill('SIGTERM'); try { fs.rmSync(D, { recursive: true, force: true }); } catch { /* gone */ } });
