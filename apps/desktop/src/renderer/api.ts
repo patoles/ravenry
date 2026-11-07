@@ -43,6 +43,8 @@ export interface RavenryApi {
   /** A hub call whose answer is read whatever its status. */
   hubCall(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   focusWindow(): void;
+  /** A line in the app's log (~/Library/Logs/Ravenry/app.log): what failed in the window. */
+  log(line: string): void;
 }
 
 declare global {

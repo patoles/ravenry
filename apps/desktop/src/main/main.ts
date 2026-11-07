@@ -188,6 +188,7 @@ function ipc(): void {
     }
   });
   ipcMain.on('daemon:reset', () => daemon.reset());
+  ipcMain.on('app:log', (_e, line: string) => appLog(String(line).slice(0, 2000)));
   // The running daemons, newest first: the window lists its plain shells on each.
   ipcMain.handle('daemon:sockets', () => listSockets(runtimeDir()).map((s) => s.socket));
   ipcMain.handle('app:config', () => ({

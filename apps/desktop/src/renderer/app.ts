@@ -935,17 +935,32 @@ function focusPending(): void {
 }
 
 let shownKey = '';
+// A step of showing a pane that does not answer fails with what it was
+// doing, never waits for ever with the last pane left on screen.
+function within<T>(p: Promise<T>, ms: number, doing: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`no answer after ${ms / 1000} s while ${doing}`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
 async function showPane(key: string, get: () => Promise<RavenryClient | null>, pane: string, gone: (e: Error) => void): Promise<void> {
   show('term');
-  if (shownKey === key && term.attached) { focusPending(); return; }
+  // Only when that very pane is on screen: an attempt that failed or hung
+  // must not leave the pane before it there and make later clicks no-ops.
+  if (shownKey === key && term.attached && term.attached.pane === pane && term.ready) { focusPending(); return; }
   shownKey = key;
   try {
-    const client = await get();
+    const client = await within(get(), 8000, 'looking for the daemon that holds it');
     if (!client) throw new Error('no running daemon holds its pane');
     if (shownKey !== key) return;
-    await term.show({ client, pane });
+    await within(term.show({ client, pane }), 8000, `attaching to pane ${pane}`);
   } catch (e) {
     if (shownKey !== key) return;
+    shownKey = '';
+    term.hide();
+    const why = (e as Error).message || String(e);
+    api().log(`window: could not show pane ${pane}: ${why}`);
     gone(e as Error);
   }
   focusPending();
@@ -998,7 +1013,8 @@ async function renderCentre(): Promise<void> {
   }
   const t = tabOfView();
   if (t && t.kind === 'shell') {
-    await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { removeTab(t.id); toast(`That shell is gone: ${e.message}`); });
+    // A shell whose daemon did not answer in time stays a tab: only one that is gone closes.
+    await showPane(`${t.socket}|${t.pane}`, () => daemons.get(t.socket), t.pane, (e) => { if (/^no answer after/.test(e.message)) { toast(`Could not show that shell: ${e.message}`); return; } removeTab(t.id); toast(`That shell is gone: ${e.message}`); });
     return;
   }
   const key = viewSessionKey();

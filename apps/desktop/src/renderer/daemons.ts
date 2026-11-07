@@ -73,16 +73,19 @@ export class Daemons {
    * daemon could not be shown by 0.1.4).
    */
   async holding(pane: string): Promise<RavenryClient | null> {
-    const cands: RavenryClient[] = [];
-    try { cands.push((await this.forNew()).client); } catch { /* none running */ }
-    for (const p of this.clients.values()) { try { const c = await p; if (!cands.includes(c)) cands.push(c); } catch { /* gone */ } }
+    // Every daemon asked at once, each with its own time limit, so one that
+    // does not answer never holds up the one that has the pane.
+    const limit = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error('no answer')), ms))]);
+    const ask = async (cp: Promise<RavenryClient>): Promise<RavenryClient> => {
+      const c = await limit(cp, 4000);
+      const { panes } = await limit(c.request('pane.list', { hidden: true }), 4000);
+      if (!panes.some((x) => x.id === pane)) throw new Error('not here');
+      return c;
+    };
     let sockets: string[] = [];
-    try { sockets = await api().daemonSockets(); } catch { /* none */ }
-    for (const s of sockets) { try { const c = await this.get(s); if (!cands.includes(c)) cands.push(c); } catch { /* a stale socket */ } }
-    for (const c of cands) {
-      try { const { panes } = await c.request('pane.list', { hidden: true }); if (panes.some((x) => x.id === pane)) return c; } catch { /* next */ }
-    }
-    return null;
+    try { sockets = await limit(api().daemonSockets(), 2000); } catch { /* none */ }
+    const cands: Promise<RavenryClient>[] = [this.forNew().then((x) => x.client), ...this.clients.values(), ...sockets.filter((s) => !this.clients.has(s)).map((s) => this.get(s))];
+    try { return await Promise.any(cands.map(ask)); } catch { return null; }
   }
 
   /** The client of a given daemon. */
