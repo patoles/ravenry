@@ -36,5 +36,11 @@ check('the process that ended is not a reason (its own pid)', outlivedEnds(all, 
 all = new Map([[SA, summarize(SA, events)], [SB, summarize(SB, [{ at: at(30), event: 'SessionStart', session_id: SB, claude_pid: 100, terminal: 'cmux', source: 'clear' }])]]);
 check('a process launched for A that reported as another session since does not revive A', outlivedEnds(all, [cmuxProc]).length === 0 && !!all.get(SA).endedAt);
 
+// The other way round, the board's own case: the cmux copy ended and the
+// Ravenry pane's copy runs on. Not revived here (the pane says the
+// conversation went on in cmux: tools/outside-terminal-test.mjs).
+all = new Map([[SA, summarize(SA, events)]]);
+check('a copy in a Ravenry pane is left to the board (not revived here)', outlivedEnds(all, [{ pid: 300, startedAt: at(-5), argvSession: SA, ravenryId: 'pqqqrrrr' }]).length === 0 && !!all.get(SA).endedAt);
+
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

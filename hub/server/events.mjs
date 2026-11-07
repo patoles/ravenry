@@ -163,7 +163,9 @@ export function outlivedEnds(all, procs) {
     // A process launched for it that has not reported as another session
     // since it started (a /clear moves a process on; its argument stays).
     const elsewhere = (x) => [...all.values()].some((o) => o !== s && o.pid === x.pid && o.pidAt && Date.parse(o.pidAt) >= (Date.parse(x.startedAt || 0) || 0) - 2000);
-    const p = (procs || []).find((x) => x.pid !== s.pid && x.argvSession === s.sessionId && !elsewhere(x));
+    // A copy in a Ravenry pane is the board's own case (the pane stays and
+    // says the conversation went on elsewhere): only another terminal's.
+    const p = (procs || []).find((x) => x.pid !== s.pid && x.argvSession === s.sessionId && !x.ravenryId && !elsewhere(x));
     if (!p) continue;
     s.endedAt = null;
     s.endReason = null;
@@ -174,7 +176,6 @@ export function outlivedEnds(all, procs) {
     if (p.surfaceId) { s.terminal = 'cmux'; s.terminalId = p.surfaceId; s.surfaceId = p.surfaceId; s.workspaceId = p.workspaceId || s.workspaceId; s.pane = null; }
     else if (p.itermId) { s.terminal = 'iterm'; s.terminalId = p.itermId; s.surfaceId = null; s.pane = null; }
     else if (p.rexId) { s.terminal = 'rex'; s.terminalId = p.rexId; s.surfaceId = null; s.pane = null; }
-    else if (p.ravenryId) { s.terminal = 'ravenry'; s.terminalId = p.ravenryId; s.pane = p.ravenryId; s.surfaceId = null; }
     moved.push({ sessionId: s.sessionId, pid: p.pid, terminal: s.terminal });
   }
   return moved;
