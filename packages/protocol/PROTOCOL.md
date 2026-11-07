@@ -388,7 +388,8 @@ directory does not exist.
 
 **The Pane object:** `id`, `name` (when set), `labels` (when it has
 some), `command`, `cwd` (where it works now, section 3), `pid` (the
-first process, which leads the pane's session), `cols`, `rows`, `hidden`,
+first process, which leads the pane's session), `cols`, `rows`,
+`scrollback` (the history lines it keeps), `hidden`,
 `ttl_ms` (when set), `created_at`, `title` (set by the program with OSC 0
 or 2, else empty), `mark` (the end of its output so far), `last_output_at`
 (once it printed), `state` (`running` or `exited`), and for an exited pane
@@ -415,9 +416,10 @@ Result: `panes`, oldest first.
 | `pane` | id | |
 | `name` | string, optional | Its new name; empty clears it. |
 | `labels` | object, optional | Each label set to a string is set, each set to `null` removed; the others stay. |
+| `scrollback` | integer, optional | The history lines it keeps from now on, 1 to 1000000: a larger limit keeps more of what comes next, a smaller one drops the oldest lines past it. A window's snapshot of the pane replays this many at most. |
 
-At least one of `name` and `labels`. Result: `pane`. When something
-changed, event subscribers get `pane.updated`.
+At least one of `name`, `labels` and `scrollback`. Result: `pane`. When
+something changed, event subscribers get `pane.updated`.
 
 ### pane.close
 
@@ -1108,7 +1110,9 @@ secret, everything typed while the program reads a line without echo,
 which is a password prompt, and the pane's secrets wherever they
 appear), `truncated` (text cut at 4 KiB), `until` (a gathered `keys`
 record's last keystroke) and `lease_holder` (below). Event subscribers
-get `pane.input` for every new record.
+get `pane.input` for every new record, and again, with the same `seq`, when
+a gathered `keys` record grew: 300 ms after its last keystroke, so a
+window shows the whole line typed, never only its first key.
 
 **Leases.** A lease keeps a pane to one driver at a time. While one
 driver holds it, input from any other connection that may not act as

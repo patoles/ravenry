@@ -213,14 +213,23 @@ func (m *Manager) wantActivity() bool {
 
 // Update changes a pane's name and labels (Pane.Update) and tells the
 // watchers when something changed.
-func (m *Manager) Update(id string, name *string, labels map[string]*string) (Info, error) {
+func (m *Manager) Update(id string, name *string, labels map[string]*string, scrollback *int) (Info, error) {
 	p, err := m.Get(id)
 	if err != nil {
 		return Info{}, err
 	}
-	changed, err := p.Update(name, labels)
-	if err != nil {
-		return Info{}, err
+	changed := false
+	if name != nil || labels != nil {
+		if changed, err = p.Update(name, labels); err != nil {
+			return Info{}, err
+		}
+	}
+	if scrollback != nil {
+		sc, err := p.SetScrollback(*scrollback)
+		if err != nil {
+			return Info{}, err
+		}
+		changed = changed || sc
 	}
 	info := p.Info()
 	if changed {

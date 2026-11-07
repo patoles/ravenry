@@ -135,3 +135,43 @@ func TestScrollbackKeptAfterResize(t *testing.T) {
 		t.Fatalf("after a resize to 30 columns, the first kept line is %d, want at most 2000", first)
 	}
 }
+
+// A pane's scrollback can change while it runs (pane.update): a larger
+// limit keeps more of what comes next, a smaller one drops the oldest.
+func TestScrollbackChangesWhileRunning(t *testing.T) {
+	s, err := New(Options{Cols: 80, Rows: 24, Scrollback: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	write := func(from, to int) {
+		var b bytes.Buffer
+		for i := from; i <= to; i++ {
+			fmt.Fprintf(&b, "%d\r\n", i)
+		}
+		s.Write(b.Bytes())
+	}
+	write(1, 3000)
+	if err := s.SetScrollback(20000); err != nil {
+		t.Fatal(err)
+	}
+	write(3001, 18000)
+	c, err := s.Capture(CaptureOptions{History: 40000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.History < 15000 {
+		t.Fatalf("after raising the limit to 20,000: %d history rows, want the 15,000 written since", c.History)
+	}
+	if err := s.SetScrollback(500); err != nil {
+		t.Fatal(err)
+	}
+	write(18001, 18100)
+	c, err = s.Capture(CaptureOptions{History: 40000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.History > 2000 {
+		t.Fatalf("after lowering the limit to 500: %d history rows kept", c.History)
+	}
+}

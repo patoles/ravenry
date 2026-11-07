@@ -233,3 +233,28 @@ loop:
 		t.Fatalf("%d bells for ten rings in half a second; want one a second", n[ring.ID])
 	}
 }
+
+// A pane's scrollback: set at pane.new, changed with pane.update, said in
+// the pane's info (the app's Scrollback setting, past the default 10,000).
+func TestScrollbackSetAndChanged(t *testing.T) {
+	d := startDaemon(t)
+	c := d.dial(client.Options{})
+	p := newPane(t, c, map[string]any{"command": []string{"/bin/cat"}, "scrollback": 20000})
+	if p.Scrollback != 20000 {
+		t.Fatalf("pane.new scrollback: %d", p.Scrollback)
+	}
+	r := call[proto.PaneResult](t, c, "pane.update", map[string]any{"pane": p.ID, "scrollback": 50000})
+	if r.Pane.Scrollback != 50000 {
+		t.Fatalf("pane.update scrollback: %d", r.Pane.Scrollback)
+	}
+	for _, lp := range call[proto.ListResult](t, c, "pane.list", map[string]any{}).Panes {
+		if lp.ID == p.ID && lp.Scrollback != 50000 {
+			t.Fatalf("pane.list scrollback: %d", lp.Scrollback)
+		}
+	}
+	// Out of range (0, or over 1,000,000): the schema and the server refuse it.
+	q := newPane(t, c, map[string]any{"command": []string{"/bin/cat"}})
+	if q.Scrollback != 10000 {
+		t.Fatalf("the default: %d", q.Scrollback)
+	}
+}

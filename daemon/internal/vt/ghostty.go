@@ -675,3 +675,13 @@ func (s *ghostty) Close() {
 
 // EngineVersion is the version of libghostty-vt linked into the binary.
 func EngineVersion() string { return gt.Version() }
+
+// SetScrollback changes how many history lines are kept (pane.update).
+func (s *ghostty) SetScrollback(lines int) error {
+	s.scrollback = max(lines, 0)
+	limit := lineLimit(s.scrollback, s.cols)
+	if err := s.t.SetScrollbackMaxLines(&limit); err != nil {
+		return fmt.Errorf("vt: scrollback limit: %w", err)
+	}
+	return nil
+}

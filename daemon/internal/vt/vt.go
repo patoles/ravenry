@@ -38,6 +38,9 @@ type Screen interface {
 	EncodePaste(text []byte) ([]byte, error)
 	// Title is the window title the program set (OSC 0 or 2).
 	Title() string
+	// SetScrollback changes how many history lines are kept; lines past a
+	// smaller limit go.
+	SetScrollback(lines int) error
 	// AltScreen reports whether the alternate screen is active.
 	AltScreen() bool
 	// Grid reads the visible screen cell by cell, with resolved colours,

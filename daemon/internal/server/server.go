@@ -1362,7 +1362,7 @@ func (c *conn) paneUnsubscribe(id uint64, data []byte) {
 
 func (s *Server) paneInfo(i pane.Info) proto.Pane {
 	p := proto.Pane{
-		ID: i.ID, Name: i.Name, Labels: i.Labels, Command: i.Command, Cwd: i.Cwd, PID: i.PID, Cols: i.Cols, Rows: i.Rows,
+		ID: i.ID, Name: i.Name, Labels: i.Labels, Command: i.Command, Cwd: i.Cwd, PID: i.PID, Cols: i.Cols, Rows: i.Rows, Scrollback: i.Scrollback,
 		Hidden: i.Hidden, TTLMs: i.TTL.Milliseconds(), CreatedAt: stamp(i.Created), Title: i.Title,
 		Mark: i.Mark, LastOutputAt: stamp(i.LastOutput), State: "running", ExitedAt: stamp(i.ExitedAt),
 	}

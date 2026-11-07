@@ -991,6 +991,12 @@
           "minimum": 1,
           "maximum": 4096
         },
+        "scrollback": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "description": "History lines the pane keeps (pane.new, pane.update)."
+        },
         "hidden": {
           "type": "boolean"
         },
@@ -2738,6 +2744,12 @@
             "maxLength": 256
           },
           "description": "Each label is set, or removed when null; the others stay."
+        },
+        "scrollback": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "description": "History lines the pane keeps from now on; a smaller limit drops the oldest."
         }
       },
       "required": [
@@ -2747,7 +2759,7 @@
         "pane"
       ],
       "additionalProperties": false,
-      "description": "Changes a pane's name and labels.",
+      "description": "Changes a pane's name, labels and scrollback.",
       "anyOf": [
         {
           "required": [
@@ -2757,6 +2769,11 @@
         {
           "required": [
             "labels"
+          ]
+        },
+        {
+          "required": [
+            "scrollback"
           ]
         }
       ]

@@ -576,8 +576,12 @@ func (c *conn) paneUpdate(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	if r.Name == nil && r.Labels == nil {
-		c.failErr(id, bad("give name, labels or both"))
+	if r.Name == nil && r.Labels == nil && r.Scrollback == nil {
+		c.failErr(id, bad("give name, labels, scrollback or more"))
+		return
+	}
+	if r.Scrollback != nil && (*r.Scrollback < 1 || *r.Scrollback > maxScrollback) {
+		c.failErr(id, bad("scrollback must be between 1 and %d", maxScrollback))
 		return
 	}
 	if r.Name != nil {
@@ -599,7 +603,7 @@ func (c *conn) paneUpdate(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	info, err := c.s.o.Manager.Update(r.Pane, r.Name, r.Labels)
+	info, err := c.s.o.Manager.Update(r.Pane, r.Name, r.Labels, r.Scrollback)
 	if err != nil {
 		if errors.Is(err, pane.ErrNotFound) || errors.Is(err, pane.ErrClosed) {
 			c.failErr(id, err)

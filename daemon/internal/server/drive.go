@@ -93,6 +93,8 @@ type paneMeta struct {
 	inputBytes int
 	keysConn   *conn
 	keysAt     time.Time
+	// keysTell sends a gathered keys record again once it stops growing.
+	keysTell *time.Timer
 
 	lease *leaseState
 
@@ -566,6 +568,13 @@ func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, 
 			last.Until = stamp(now)
 			m.keysAt = now
 			m.inputBytes += len(text)
+			// The record grew: sent again (same seq) once the keys pause,
+			// so a window shows the whole line, not its first key.
+			seq := last.Seq
+			if m.keysTell != nil {
+				m.keysTell.Stop()
+			}
+			m.keysTell = time.AfterFunc(keysTell, func() { s.tellInput(p, seq) })
 			d.mu.Unlock()
 			return
 		}
@@ -594,6 +603,37 @@ func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, 
 	d.mu.Unlock()
 	pi := s.paneInfo(p.Info())
 	ev := proto.Event{V: proto.Version, Type: "event", Event: "pane.input", Pane: &pi, Input: &rec}
+	for _, c := range s.connections(func(c *conn) bool { return c.unwatch != nil }) {
+		c.event(ev)
+	}
+}
+
+// keysTell is how long after a gathered record's last keystroke it is sent
+// again, grown.
+const keysTell = 300 * time.Millisecond
+
+// tellInput sends a pane's input record as it is now (a gathered keys
+// record that grew since its pane.input).
+func (s *Server) tellInput(p *pane.Pane, seq uint64) {
+	d := s.drive
+	d.mu.Lock()
+	m := d.meta[p.ID()]
+	var rec *proto.InputRecord
+	if m != nil {
+		for i := len(m.inputs) - 1; i >= 0; i-- {
+			if m.inputs[i].Seq == seq {
+				r := m.inputs[i]
+				rec = &r
+				break
+			}
+		}
+	}
+	d.mu.Unlock()
+	if rec == nil {
+		return
+	}
+	pi := s.paneInfo(p.Info())
+	ev := proto.Event{V: proto.Version, Type: "event", Event: "pane.input", Pane: &pi, Input: rec}
 	for _, c := range s.connections(func(c *conn) bool { return c.unwatch != nil }) {
 		c.event(ev)
 	}

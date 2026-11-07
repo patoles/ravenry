@@ -75,6 +75,8 @@ type Info struct {
 	Cwd        string
 	PID        int
 	Cols, Rows int
+	// Scrollback is the history lines the pane keeps (pane.new, pane.update).
+	Scrollback int
 	Hidden     bool
 	TTL        time.Duration
 	Created    time.Time
@@ -749,7 +751,7 @@ func (p *Pane) Info() Info {
 	cols, rows := p.screen.Size()
 	i := Info{
 		ID: p.id, Name: p.name, Labels: maps.Clone(p.labels), Command: p.cfg.Command, Cwd: p.cwd, PID: p.pid,
-		Cols: cols, Rows: rows, Hidden: p.cfg.Hidden, TTL: p.cfg.TTL, Created: p.created,
+		Cols: cols, Rows: rows, Scrollback: p.cfg.Scrollback, Hidden: p.cfg.Hidden, TTL: p.cfg.TTL, Created: p.created,
 		Title: p.title, Mark: p.offset, LastOutput: p.lastOutput, ExitedAt: p.exitedAt,
 	}
 	if p.ovr != (Overrides{}) {
@@ -1022,4 +1024,22 @@ func (p *Pane) close(grace time.Duration, others map[int]bool) int {
 	p.screen.Close()
 	p.mu.Unlock()
 	return n
+}
+
+// SetScrollback changes how many history lines the pane keeps (pane.update):
+// a smaller limit drops the oldest lines past it.
+func (p *Pane) SetScrollback(lines int) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return false, ErrClosed
+	}
+	if lines == p.cfg.Scrollback {
+		return false, nil
+	}
+	if err := p.screen.SetScrollback(lines); err != nil {
+		return false, err
+	}
+	p.cfg.Scrollback = lines
+	return true, nil
 }

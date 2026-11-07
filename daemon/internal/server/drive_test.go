@@ -392,3 +392,33 @@ func TestLeaseQueue(t *testing.T) {
 		t.Fatalf("an agent refusing the waiting drivers: %s", s)
 	}
 }
+
+// A display's keystrokes gather into one record, and subscribers get that
+// record again, grown, once the keys pause: a window shows the whole line
+// typed, never its first key alone (2026-11-07: "Typed here" showed "s"
+// for "sleep 600<Enter>").
+func TestGatheredKeysAreSentAgainGrown(t *testing.T) {
+	d := startDaemon(t)
+	person := d.dial(client.Options{Name: "app"})
+	call[proto.Empty](t, person, "events.subscribe", map[string]any{})
+	p := newPane(t, person, map[string]any{"command": []string{"/bin/cat"}})
+	sub := call[proto.SubscribeResult](t, person, "pane.subscribe", map[string]any{"pane": p.ID})
+	for _, k := range []string{"s", "l", "e", "e", "p", " ", "6", "0", "0", "\r"} {
+		frame := proto.AppendFrame(nil, proto.FrameInput, sub.Channel, 0)
+		if err := person.WriteBinary(ctx(t), append(frame, k...)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	first := nextEvent(t, person, "pane.input", func(ev proto.Event) bool { return ev.Input != nil && ev.Pane.ID == p.ID })
+	grown := nextEvent(t, person, "pane.input", func(ev proto.Event) bool {
+		return ev.Input != nil && ev.Pane.ID == p.ID && ev.Input.Seq == first.Input.Seq
+	})
+	if grown.Input.Text != "sleep 600<Enter>" || grown.Input.Bytes != 10 {
+		t.Fatalf("the record sent again: %+v (first %+v)", grown.Input, first.Input)
+	}
+	ins := inputs(t, person, p.ID)
+	if len(ins) != 1 || ins[0].Text != "sleep 600<Enter>" {
+		t.Fatalf("the input log: %+v", ins)
+	}
+}

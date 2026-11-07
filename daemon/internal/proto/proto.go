@@ -209,9 +209,10 @@ type ListRequest struct {
 // removed.
 type UpdateRequest struct {
 	Envelope
-	Pane   string             `json:"pane"`
-	Name   *string            `json:"name,omitempty"`
-	Labels map[string]*string `json:"labels,omitempty"`
+	Pane       string             `json:"pane"`
+	Name       *string            `json:"name,omitempty"`
+	Labels     map[string]*string `json:"labels,omitempty"`
+	Scrollback *int               `json:"scrollback,omitempty"`
 }
 
 type ListResult struct {
@@ -432,6 +433,7 @@ type Pane struct {
 	PID          int               `json:"pid"`
 	Cols         int               `json:"cols"`
 	Rows         int               `json:"rows"`
+	Scrollback   int               `json:"scrollback,omitempty"`
 	Hidden       bool              `json:"hidden"`
 	TTLMs        int64             `json:"ttl_ms,omitempty"`
 	CreatedAt    string            `json:"created_at"`

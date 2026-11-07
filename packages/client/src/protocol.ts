@@ -108,6 +108,8 @@ export interface Pane {
   pid: number;
   cols: number;
   rows: number;
+  /** The history lines it keeps (pane.new, pane.update). */
+  scrollback?: number;
   hidden: boolean;
   ttl_ms?: number;
   created_at: string;
@@ -493,7 +495,7 @@ export interface Methods {
     result: { pane: Pane };
   };
   'pane.list': { params: { hidden?: boolean; labels?: Labels; processes?: boolean }; result: { panes: Pane[] } };
-  'pane.update': { params: { pane: PaneId; name?: string; labels?: Record<string, string | null> }; result: { pane: Pane } };
+  'pane.update': { params: { pane: PaneId; name?: string; labels?: Record<string, string | null>; scrollback?: number }; result: { pane: Pane } };
   'pane.close': { params: { pane: PaneId; grace_ms?: number; no_wait?: boolean; reason?: string }; result: { pane: Pane; signalled: number } };
   'pane.resize': { params: { pane: PaneId; cols: number; rows: number }; result: { pane: Pane } };
   'pane.capture': {
