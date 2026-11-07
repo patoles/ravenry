@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  dataRoot, ensureService, plistText, pruneVersions, runtimeSource, selfUpdating, serviceFile, serviceMode,
+  dataRoot, ensureService, launchctlBin, plistText, pruneVersions, removeService, runtimeSource, selfUpdating, serviceFile, serviceMode,
   serviceSpec, stageRuntime, stageVersion, unitText,
 } from '../src/main/install.ts';
 import type { Runner } from '../src/main/install.ts';
@@ -146,6 +146,41 @@ test('ensureService: installs, keeps a current one, updates a changed one, and l
     const upd = await ensureService({ ...base, mode: 'install', spec: next, boardAnswers: async () => true });
     assert.equal(upd.state, 'updated');
     assert.match(fs.readFileSync(file, 'utf8'), /versions\/0\.2\.0/);
+  }
+});
+
+test('after the switch from the npm board: a current service restarts when asked; the way back stops it and deletes its file; a stand-in launchctl is used when named', async () => {
+  assert.equal(launchctlBin({}), '/bin/launchctl');
+  for (const platform of ['darwin', 'linux']) {
+    const home = tmp();
+    const calls: string[] = [];
+    let active = false;
+    const run: Runner = (cmd, args) => {
+      calls.push([cmd, ...args].join(' '));
+      if (args[0] === 'print' || args.includes('is-active')) return { status: active ? 0 : 3, out: '' };
+      if (args[0] === 'bootstrap' || args.includes('restart')) active = true;
+      if (args[0] === 'bootout' || args.includes('disable')) active = false;
+      return { status: 0, out: '' };
+    };
+    const env = { RAVENRY_LAUNCHCTL: '/t/fake-launchctl.mjs' };
+    const base = { platform, home, uid: 501, run, env, boardAnswers: async () => false };
+    const spec = serviceSpec({ execPath: '/app/ravenry', staged, env: { PATH: '/usr/bin' }, platform, home });
+    const file = serviceFile(platform, home, {});
+    await ensureService({ ...base, mode: 'install', spec });
+    if (platform === 'darwin') assert.ok(calls.length > 0 && calls.every((c: string) => c.startsWith('/t/fake-launchctl.mjs ')), calls.join('; '));
+    calls.length = 0;
+    const r = await ensureService({ ...base, mode: 'install', spec, restart: true });
+    assert.equal(r.state, 'kept');
+    assert.equal(r.why, 'restarted');
+    assert.ok(calls.includes(platform === 'darwin' ? '/t/fake-launchctl.mjs kickstart -k gui/501/dev.ravenry.hub' : 'systemctl --user restart dev.ravenry.hub.service'), calls.join('; '));
+    // A dry run deletes nothing.
+    const dry = removeService({ mode: 'dry-run', run, platform, home, uid: 501, env });
+    assert.ok(fs.existsSync(file) && dry.commands.length > 0);
+    calls.length = 0;
+    removeService({ mode: 'install', run, platform, home, uid: 501, env });
+    assert.ok(!fs.existsSync(file));
+    assert.ok(calls.includes(platform === 'darwin' ? '/t/fake-launchctl.mjs bootout gui/501/dev.ravenry.hub' : 'systemctl --user disable --now dev.ravenry.hub.service'), calls.join('; '));
+    assert.equal(removeService({ mode: 'off', run, platform, home, uid: 501, env }).state, 'off');
   }
 });
 

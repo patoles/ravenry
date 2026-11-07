@@ -42,4 +42,11 @@ contextBridge.exposeInMainWorld('ravenry', {
   copyText: (text: string) => ipcRenderer.send('copy-text', text),
   hubCall: (method: string, p: string, body?: unknown) => ipcRenderer.invoke('hub:call', method, p, body),
   focusWindow: () => ipcRenderer.send('focus-window'),
+  // The switch from the npm board (main/npmswitch.ts).
+  npmState: () => ipcRenderer.invoke('npm:state'),
+  npmSwitch: () => ipcRenderer.invoke('npm:switch'),
+  npmNotNow: () => ipcRenderer.invoke('npm:not-now'),
+  npmBack: () => ipcRenderer.invoke('npm:back'),
+  npmConfirmBack: (on: boolean) => ipcRenderer.invoke('npm:confirm-back', on),
+  onNpm: on('npm:state'),
 });

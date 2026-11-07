@@ -497,3 +497,15 @@ select.field { padding: 0 6px; }
 @media (max-width: 1100px) { .pg-src .pg-n { display: none; } }
 .code .n { display: inline-block; width: 34px; text-align: right; padding-right: 14px; color: #4E4E55; user-select: none; }
 .toast .undo { margin-left: 10px; font-size: 12.5px; }
+
+/* The switch from the npm board: a plain placeholder (renderer/npmswitch.ts). */
+.npmsw.screen { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
+.npmsw-card { width: min(520px, calc(100vw - 32px)); background: var(--sheet); border: 1px solid var(--sheet-ring); border-radius: 12px; padding: 22px 24px; color: var(--tx); }
+.npmsw-card h2 { font-size: 17px; font-weight: 600; margin: 0 0 12px; }
+.npmsw-card p { font-size: 13px; line-height: 1.5; color: var(--tx2); margin: 10px 0; }
+.npmsw-card ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+.npmsw-log { color: var(--tx2); font-family: ui-monospace, Menlo, monospace; font-size: 12px !important; }
+.npmsw-err { color: var(--bad) !important; }
+.npmsw-btns { display: flex; gap: 8px; margin-top: 16px; }
+.npmsw.bar { position: fixed; top: 0; left: 0; right: 0; z-index: 40; }
+.npmsw-bar { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 6px 12px; background: var(--card); border-bottom: 1px solid var(--sep); font-size: 12px; color: var(--tx2); }

@@ -33,6 +33,7 @@ import {
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
+import { initNpmSwitch } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
@@ -1367,6 +1368,7 @@ async function boot(): Promise<void> {
     S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };
+  initNpmSwitch();
   document.body.dataset.ready = '1';
 }
 

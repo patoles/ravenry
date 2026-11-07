@@ -148,10 +148,41 @@ Nothing outside the user's own folders, and nothing as root.
   runs from a folder it mounts only while it runs, and its launcher adds
   `--no-sandbox`, which Node refuses, so its hub runs a copy of the
   Electron runtime kept in `versions/<version>/runtime`. Written on
-  first launch, rewritten and restarted when the app changes. When a board
-  already runs (`ravenry` from npm) and no service of ours exists, nothing
-  is installed and the app uses that board. `RAVENRY_SERVICE=off` turns it
-  off; `dry-run` writes the file and runs no launchctl or systemctl.
+  first launch, rewritten and restarted when the app changes. While the
+  npm board is here (below), nothing is installed and the app shows that
+  board. `RAVENRY_SERVICE=off` turns it off; `dry-run` writes the file and
+  runs no launchctl or systemctl.
+
+## Switching from the npm board
+
+A person who runs the board from npm (`ravenry`, ravenry-app 0.4.x) keeps
+everything in the same `~/.ravenry`. The app's hub never runs beside it on
+that data: both rewrite the same JSON files with no lock, and the hub's
+one-time move of ideas.json leaves the npm board writing a file nothing
+reads (`hub/server/npmswitch.mjs` says why in full). So at launch the app
+asks the hub script what of the npm board is here: a board serving the
+data (its board.json, else :4600, checked by its projects.json), a login
+start (a LaunchAgent that runs it), and its hooks in Claude Code's and
+Codex's settings. While there is any, it installs no hub and offers the
+switch, full size the first time, then as a quiet bar after Not now.
+
+The person agrees once. The switch turns each login start off (booted
+out, its file kept in the backup), stops the board, keeps a copy of the
+data and the hook settings in `~/.ravenry/backups/switch-<when>/`, moves
+the hooks to the app's copy with `ravenryd hook` beside them, records all
+of it in `~/.ravenry/switch.json`, and starts the app's hub on the same
+port. That hub then runs its one-time moves (each backed up, each safe to
+run twice). Ravenry > Go Back to the npm Board undoes it: the app's hub
+stops and its service goes, ideas.json is written again from
+`pages/ideas/`, the hooks are the npm board's exact commands again, and a
+login start is put back and loaded, which starts the board. A board that
+was started by hand is left to start as before; the bar says the command.
+
+The screen is a plain placeholder for now (`src/renderer/npmswitch.ts`).
+`node tools/npm-switch-test.mjs release/mac-arm64/Ravenry.app OUT` proves
+the switch and the way back on macOS with the real npm board 0.4.0
+installed from npm, run in throwaway HOMEs on spare ports, with
+`tools/fake-launchctl.mjs` in place of launchd.
 
 ## Updates
 

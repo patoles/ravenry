@@ -17,6 +17,8 @@
 //   RAVENRY_SERVICE        install, dry-run or off: the hub service
 //                          (install.ts; default: install when packaged)
 //   RAVENRY_UPDATES=0      never check for updates (updater.ts)
+//   RAVENRY_LAUNCHCTL      a stand-in for /bin/launchctl (tests: the hub
+//                          service and the npm board's login start)
 //
 // The home folder is HOME (os.homedir), so a test's throwaway HOME is used
 // for everything the app reads there.
@@ -31,8 +33,10 @@ import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
 import { HubFeed, hubAnswer, hubCall, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
-import { dataRoot, ensureService, pruneVersions, readBuildInfo, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
+import { dataRoot, ensureService, launchctlBin, pruneVersions, readBuildInfo, removeService, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
 import type { Staged } from './install.ts';
+import { mayRunHub, offerFor, runScript, scriptPath } from './npmswitch.ts';
+import type { NpmDetect, Offer } from './npmswitch.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
 
@@ -115,12 +119,16 @@ function menu(): void {
   const updateItem: MenuItemConstructorOptions = u.kind === 'ready'
     ? { label: `Restart to Update to ${u.version}`, click: () => updates.installNow() }
     : { label: 'Check for Updates…', click: () => void updates.checkNow(win) };
+  // After the switch from the npm board, the way back (asked in the window first).
+  const backItems: MenuItemConstructorOptions[] = npm.detect && npm.detect.record && npm.detect.record.state === 'switched'
+    ? [{ label: 'Go Back to the npm Board…', click: () => { npm.confirmBack = true; pushNpm(); } }] : [];
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{
       label: app.name,
       submenu: [
         { role: 'about' as const },
         updateItem,
+        ...backItems,
         { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },
@@ -166,7 +174,7 @@ function menu(): void {
       ],
     },
     { role: 'windowMenu' },
-    ...(isMac ? [] : [{ label: 'Help', submenu: [updateItem] }]),
+    ...(isMac ? [] : [{ label: 'Help', submenu: [updateItem, ...backItems] }]),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -219,6 +227,12 @@ function ipc(): void {
   });
   ipcMain.on('copy-text', (_e, text: string) => { if (typeof text === 'string' && text.length <= 64 * 1024) outside('copy', text, () => clipboard.writeText(text)); });
   ipcMain.handle('hub:call', (_e, method: string, p: string, body: unknown) => hubCall(feed!.url, method, p, body));
+  // The switch from the npm board (npmswitch.ts): the window's answers.
+  ipcMain.handle('npm:state', () => npmView());
+  ipcMain.handle('npm:switch', () => switchFromNpm());
+  ipcMain.handle('npm:not-now', () => { store.set({ npmChoice: 'not-now' }); npm.offer = offerFor(npm.detect, 'not-now'); pushNpm(); return npmView(); });
+  ipcMain.handle('npm:back', () => backToNpm());
+  ipcMain.handle('npm:confirm-back', (_e, on: boolean) => { npm.confirmBack = !!on; pushNpm(); return npmView(); });
 }
 
 const isDir = (p: string) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
@@ -255,18 +269,22 @@ async function boardAnswers(): Promise<boolean> {
 // version folders nothing runs from any more are removed.
 let settingUp: Promise<void> | null = null;
 
-async function setUpService(staged: Staged): Promise<void> {
+function serviceRun(cmd: string, args: string[]): { status: number | null; out: string } {
+  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 15000 });
+  return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
+}
+
+async function setUpService(staged: Staged, opts: { port?: number; restart?: boolean } = {}): Promise<void> {
   const mode = serviceMode(process.env, app.isPackaged);
-  const run = (cmd: string, args: string[]) => {
-    const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 15000 });
-    return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
-  };
+  const run = serviceRun;
   try {
     let execPath = process.execPath;
     const from = runtimeSource(process.execPath);
     const build = readBuildInfo(process.resourcesPath);
     if (from && build && mode !== 'off') execPath = await stageRuntime({ from, staged, build, exeName: path.basename(process.execPath) });
-    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged }), run, boardAnswers });
+    // The npm board's port when it ran on another (PORT=4700 ravenry).
+    const env = opts.port && opts.port !== 4600 ? { ...process.env, PORT: String(opts.port) } : process.env;
+    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged, env }), run, boardAnswers, restart: opts.restart });
     const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
     console.log(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
   } catch (e) {
@@ -281,16 +299,118 @@ async function setUpService(staged: Staged): Promise<void> {
   }, OFFSCREEN ? 0 : 60000).unref();
 }
 
+// ------------------------------------------------------------ the npm board
+
+// What the window shows of the switch (npmswitch.ts), and where it is.
+const npm: { detect: NpmDetect | null; offer: Offer; phase: 'idle' | 'switching' | 'switched' | 'going-back' | 'back' | 'error'; message: string | null; log: string[]; result: unknown; confirmBack: boolean } = {
+  detect: null, offer: 'none', phase: 'idle', message: null, log: [], result: null, confirmBack: false,
+};
+let staged: Staged | null = null;
+
+function npmView(): object {
+  return { offer: npm.offer, phase: npm.phase, message: npm.message, log: npm.log, result: npm.result, confirmBack: npm.confirmBack, detect: npm.detect };
+}
+function pushNpm(): void { send('npm:state', npmView()); menu(); }
+
+// The hub script of this version (the staged hub), run as Node on the
+// app's own executable. Only a packaged app switches: a development run
+// starts no hub of its own.
+function npmScript(args: string[], onLog?: (l: string) => void): Promise<Record<string, unknown> & { ok: boolean; error?: string }> {
+  if (!staged) return Promise.resolve({ ok: false, error: 'A development run starts no hub of its own, so it cannot switch.' });
+  return runScript({ exe: process.execPath, script: scriptPath(staged.hubEntry), args: [...args, '--app-data', dataRoot()], env: { ...process.env, RAVENRY_LAUNCHCTL: launchctlBin() }, onLog });
+}
+
+async function detectNpm(): Promise<void> {
+  if (!staged) return;
+  const d = await npmScript(['detect']) as unknown as NpmDetect;
+  npm.detect = d.ok ? d : null;
+  if (!d.ok) console.error('npm board: could not look for it:', d.error);
+  npm.offer = offerFor(npm.detect, (store.get().npmChoice as string) || null);
+  if (npm.detect && npm.detect.npm) {
+    const b = npm.detect.board;
+    console.log(`npm board: ${b && !b.own ? `running (pid ${b.pid}, :${b.port}, ${b.version || 'unknown version'})` : 'not running'}, ${npm.detect.login.length} login start(s), ${npm.detect.hooks.claude.length + npm.detect.hooks.codex.length} hook(s); the app starts no hub of its own until the switch`);
+  }
+}
+
+// The hub at launch: none of the app's own beside the npm board.
+async function startHub(st: Staged): Promise<void> {
+  await detectNpm();
+  pushNpm();
+  if (!mayRunHub(npm.detect)) return;
+  await setUpService(st);
+}
+
+async function waitForHub(port: number, ms = 30000): Promise<boolean> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    try { if ((await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(1500) })).ok) return true; } catch { /* not yet */ }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+// The person agreed: the npm board stops, its login start and hooks move,
+// and the app's hub starts on the same data and port.
+async function switchFromNpm(): Promise<object> {
+  if (npm.phase === 'switching' || npm.phase === 'going-back') return npmView();
+  npm.phase = 'switching'; npm.message = null; npm.log = []; npm.result = null;
+  pushNpm();
+  const r = await npmScript(['switch', '--ravenryd', hookBin() || ''], (l) => { npm.log.push(l); pushNpm(); });
+  if (!r.ok) { npm.phase = 'error'; npm.message = r.error || 'The switch stopped.'; pushNpm(); return npmView(); }
+  const rec = (r as { record?: { port?: number } }).record || {};
+  const port = Number(rec.port) || 4600;
+  npm.log.push(`hub: starting the app's hub on :${port}`);
+  pushNpm();
+  if (staged) await setUpService(staged, { port, restart: true });
+  const up = await waitForHub(port);
+  await detectNpm();
+  store.set({ npmChoice: 'switched' });
+  npm.result = r;
+  npm.phase = up ? 'switched' : 'error';
+  npm.message = up ? null : `The npm board is stopped and the hooks moved, but the app's hub did not answer on :${port}. Its log: ~/Library/Logs/Ravenry/hub.log`;
+  npm.offer = 'none';
+  pushNpm();
+  return npmView();
+}
+
+// The way back: the app's hub stops and leaves, then the hub script puts
+// the ideas, hooks and login start back.
+async function backToNpm(): Promise<object> {
+  if (npm.phase === 'switching' || npm.phase === 'going-back') return npmView();
+  npm.phase = 'going-back'; npm.message = null; npm.log = []; npm.result = null; npm.confirmBack = false;
+  pushNpm();
+  const rm = removeService({ mode: serviceMode(process.env, app.isPackaged), run: serviceRun });
+  npm.log.push(`hub: the app's hub service ${rm.state === 'off' ? 'was not installed' : 'is stopped and removed'}`);
+  pushNpm();
+  // Its board.json goes when it exits.
+  const bj = path.join(process.env.RAVENRY_HOME || path.join(os.homedir(), '.ravenry'), 'board.json');
+  for (let i = 0; i < 100; i++) {
+    let pid = 0;
+    try { pid = Number(JSON.parse(fs.readFileSync(bj, 'utf8')).pid) || 0; } catch { break; }
+    try { process.kill(pid, 0); } catch { break; }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const r = await npmScript(['back'], (l) => { npm.log.push(l); pushNpm(); });
+  npm.result = r;
+  if (!r.ok) { npm.phase = 'error'; npm.message = r.error || 'Going back stopped.'; pushNpm(); return npmView(); }
+  store.set({ npmChoice: 'back' });
+  await detectNpm();
+  npm.phase = 'back';
+  npm.offer = offerFor(npm.detect, 'back');
+  pushNpm();
+  return npmView();
+}
+
 app.whenReady().then(async () => {
   if (OFFSCREEN && isMac) app.dock?.hide();
   store = new Store(app.getPath('userData'));
-  const staged = stage();
+  staged = stage();
   ipc();
   menu();
   feed = new HubFeed(hubUrl(), (s) => send('hub:state', s), (st: HubStatus) => send('hub:status', st));
   feed.start();
   win = createWindow();
-  if (staged) settingUp = setUpService(staged).finally(() => { settingUp = null; });
+  if (staged) settingUp = startHub(staged).finally(() => { settingUp = null; });
   if (!OFFSCREEN) updates.start();
   if (process.env.RAVENRY_DRIVER) {
     // Tests and screenshots: a script outside the app drives the window.

@@ -25,7 +25,9 @@
 // ravenryd, which runs in its own process session (serve --detach), and the
 // service is told to leave it alone (AbandonProcessGroup, KillMode=process).
 // When a board already answers and no service of ours exists (the user runs
-// `ravenry` from npm, or a board of their own), nothing is installed.
+// `ravenry` from npm, or a board of their own), nothing is installed; the
+// npm board is offered the switch first (npmswitch.ts), and its way back
+// takes the service out again (removeService).
 //
 // The home folder is HOME (os.homedir), so a test's throwaway HOME gets the
 // service file, never the user's own.
@@ -363,6 +365,11 @@ export function serviceMode(env: Env = process.env, packaged: boolean): ServiceM
 
 export type Runner = (cmd: string, args: string[]) => { status: number | null; out: string };
 
+/** launchctl, or the stand-in a test names (RAVENRY_LAUNCHCTL), so a test never loads a job into the real launchd. */
+export function launchctlBin(env: Env = process.env): string {
+  return env.RAVENRY_LAUNCHCTL || '/bin/launchctl';
+}
+
 export interface ServiceResult {
   state: 'off' | 'kept' | 'installed' | 'updated' | 'skipped' | 'failed';
   file?: string;
@@ -386,6 +393,8 @@ export async function ensureService(opts: {
   home?: string;
   uid?: number;
   env?: Env;
+  /** Restart a running service even when its file is current (after the switch from the npm board, whose board held the port). */
+  restart?: boolean;
 }): Promise<ServiceResult> {
   const platform = opts.platform || process.platform;
   const home = opts.home || os.homedir();
@@ -403,16 +412,21 @@ export async function ensureService(opts: {
     return dry ? { status: 0, out: '' } : opts.run(cmd, args);
   };
   const domain = `gui/${uid}`;
+  const lctl = launchctlBin(opts.env || process.env);
   const loaded = () => {
     if (dry) return false;
-    if (platform === 'darwin') return opts.run('/bin/launchctl', ['print', `${domain}/${SERVICE_LABEL}`]).status === 0;
+    if (platform === 'darwin') return opts.run(lctl, ['print', `${domain}/${SERVICE_LABEL}`]).status === 0;
     return opts.run('systemctl', ['--user', 'is-active', '--quiet', UNIT_NAME]).status === 0;
   };
 
   if (existing === null && (await opts.boardAnswers())) {
     return { state: 'skipped', file, why: 'a board is already running, so the app uses it and installs no service', commands };
   }
-  if (existing === text && loaded()) return { state: 'kept', file, commands };
+  if (existing === text && loaded()) {
+    if (!opts.restart) return { state: 'kept', file, commands };
+    const r = platform === 'darwin' ? run(lctl, ['kickstart', '-k', `${domain}/${SERVICE_LABEL}`]) : run('systemctl', ['--user', 'restart', UNIT_NAME]);
+    return r.status === 0 ? { state: 'kept', file, why: 'restarted', commands } : { state: 'failed', file, why: r.out || 'the service manager refused the restart', commands };
+  }
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (platform === 'darwin') fs.mkdirSync(opts.spec.logDir, { recursive: true });
@@ -425,8 +439,8 @@ export async function ensureService(opts: {
   if (platform === 'darwin') {
     // bootout stops the old hub (SIGTERM, it exits cleanly); its daemons
     // are in their own process session and keep running.
-    run('/bin/launchctl', ['bootout', `${domain}/${SERVICE_LABEL}`]);
-    const r = run('/bin/launchctl', ['bootstrap', domain, file]);
+    run(lctl, ['bootout', `${domain}/${SERVICE_LABEL}`]);
+    const r = run(lctl, ['bootstrap', domain, file]);
     ok = r.status === 0;
     detail = r.out;
   } else {
@@ -438,4 +452,27 @@ export async function ensureService(opts: {
   }
   if (!ok) return { state: 'failed', file, why: detail || 'the service manager refused it', commands };
   return { state: existing === null ? 'installed' : 'updated', file, commands };
+}
+
+/**
+ * Takes the hub service out: stopped (the hub exits; its daemons, in their
+ * own process session, keep their sessions) and its file deleted, so it no
+ * longer starts at login. The way back to the npm board does this first.
+ */
+export function removeService(opts: { mode: ServiceMode; run: Runner; platform?: string; home?: string; uid?: number; env?: Env }): ServiceResult {
+  const platform = opts.platform || process.platform;
+  const home = opts.home || os.homedir();
+  const uid = opts.uid ?? (process.getuid ? process.getuid() : 0);
+  const env = opts.env || process.env;
+  const commands: string[][] = [];
+  if (opts.mode === 'off') return { state: 'off', commands };
+  if (platform !== 'darwin' && platform !== 'linux') return { state: 'off', commands };
+  const file = serviceFile(platform, home, env);
+  const dry = opts.mode === 'dry-run';
+  const run = (cmd: string, args: string[]) => { commands.push([cmd, ...args]); return dry ? { status: 0, out: '' } : opts.run(cmd, args); };
+  if (platform === 'darwin') run(launchctlBin(env), ['bootout', `gui/${uid}/${SERVICE_LABEL}`]);
+  else run('systemctl', ['--user', 'disable', '--now', UNIT_NAME]);
+  if (!dry) fs.rmSync(file, { force: true });
+  if (platform === 'linux' && !dry) run('systemctl', ['--user', 'daemon-reload']);
+  return { state: 'skipped', file, why: 'removed', commands };
 }
