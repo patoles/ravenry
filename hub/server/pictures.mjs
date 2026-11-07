@@ -294,6 +294,83 @@ function remember(entry, m, at) {
   }
 }
 
+// The lines of a transcript's text that can name an image, folded into its entry.
+function foldText(e, text) {
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    const named = IMAGE_IN.test(line);
+    // A call that names no image is still remembered by id when it
+    // could print one (its result is matched to it by that id).
+    if (!named && !line.includes('"tool_use"')) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    const at = Date.parse(rec.timestamp) || 0;
+    for (const m of mentionsInRecord(rec, e.calls)) remember(e, m, at);
+  }
+}
+
+// The board's main thread never reads a transcript's 8 MB tail at once
+// (2026-11-07: a project's first build held it 282 ms on a transcript of
+// tool calls): with background reads on (the hub, scanInBackground), more
+// than SYNC_MAX to read is read in 1 MB chunks off the tick, the event loop
+// given back between them, one transcript at a time, and the tick runs
+// again when one is done; until then the mentions known so far stand.
+const SYNC_MAX = 512 * 1024;
+let background = null; // { onDone } when on
+const scanQueue = [];
+const scanning = new Set();
+export function scanInBackground(onDone) { background = { onDone: typeof onDone === 'function' ? onDone : () => {} }; }
+
+function queueScan(file) {
+  if (scanning.has(file)) return;
+  scanning.add(file);
+  scanQueue.push(file);
+  if (scanQueue.length === 1) void runScans();
+}
+
+async function runScans() {
+  while (scanQueue.length) {
+    const file = scanQueue[0];
+    try { await scanTail(file); } catch { /* read again at the next ask */ }
+    scanQueue.shift();
+    scanning.delete(file);
+    if (background) background.onDone(file);
+  }
+}
+
+async function scanTail(file) {
+  const size = (await fs.promises.stat(file)).size;
+  let e = tcache.get(file);
+  if (!e || size < e.offset) { e = { offset: Math.max(0, size - LIMITS.tailBytes), fresh: true, cands: new Map(), calls: new Map() }; tcache.set(file, e); }
+  let start = e.offset;
+  if (size - start > LIMITS.tailBytes) { start = size - LIMITS.tailBytes; e.fresh = true; }
+  const fh = await fs.promises.open(file, 'r');
+  try {
+    let pos = start;
+    let carry = Buffer.alloc(0);
+    let skip = e.fresh && start > 0; // a read that starts mid-file drops its first, partial line
+    let done = start;
+    let slice = Date.now();
+    while (pos < size) {
+      const n = Math.min(1024 * 1024, size - pos);
+      const buf = Buffer.alloc(n);
+      await fh.read(buf, 0, n, pos);
+      let all = carry.length ? Buffer.concat([carry, buf]) : buf;
+      let base = pos - carry.length;
+      pos += n;
+      if (skip) { const nl = all.indexOf(0x0a); if (nl < 0) { carry = all; continue; } all = all.subarray(nl + 1); base += nl + 1; skip = false; }
+      const last = all.lastIndexOf(0x0a);
+      if (last < 0) { carry = all; continue; }
+      foldText(e, all.toString('utf8', 0, last));
+      done = base + last + 1;
+      carry = all.subarray(last + 1);
+      if (Date.now() - slice > 30) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+    }
+    e.offset = done;
+    e.fresh = false;
+  } finally { await fh.close().catch(() => {}); }
+}
+
 // Image paths a transcript names (a Map in mention order, newest mention
 // last, each with { at, by, made, shown }). Reads the tail once, then only
 // the bytes added since.
@@ -301,10 +378,12 @@ export function transcriptMentions(file) {
   let st;
   try { st = fs.statSync(file); } catch { return new Map(); }
   let e = tcache.get(file);
+  if (scanning.has(file)) return e ? e.cands : new Map();
   if (!e || st.size < e.offset) { e = { offset: Math.max(0, st.size - LIMITS.tailBytes), fresh: true, cands: new Map(), calls: new Map() }; tcache.set(file, e); }
   if (st.size > e.offset) {
     let start = e.offset;
     if (st.size - start > LIMITS.tailBytes) { start = st.size - LIMITS.tailBytes; e.fresh = true; }
+    if (background && st.size - start > SYNC_MAX) { queueScan(file); return e.cands; }
     let fd;
     try {
       fd = fs.openSync(file, 'r');
@@ -315,18 +394,7 @@ export function transcriptMentions(file) {
         let from = 0;
         // A read that starts mid-file drops its first, partial line.
         if (e.fresh && start > 0) from = buf.indexOf(0x0a) + 1;
-        const text = buf.toString('utf8', from, last);
-        for (const line of text.split('\n')) {
-          if (!line) continue;
-          const named = IMAGE_IN.test(line);
-          // A call that names no image is still remembered by id when it
-          // could print one (its result is matched to it by that id).
-          if (!named && !line.includes('"tool_use"')) continue;
-          let rec;
-          try { rec = JSON.parse(line); } catch { continue; }
-          const at = Date.parse(rec.timestamp) || 0;
-          for (const m of mentionsInRecord(rec, e.calls)) remember(e, m, at);
-        }
+        foldText(e, buf.toString('utf8', from, last));
         e.offset = start + last + 1;
         e.fresh = false;
       }

@@ -165,6 +165,9 @@ try {
   const kinds = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUse', 'Stop'];
   for (let i = 0; i < 761; i++) {
     const event = kinds[(i + 4) % 5];
+    // The session's last Stop comes after its turn, not in the same instant
+    // as its prompt (the board orders a session's events by their times).
+    if (i === 760) await new Promise((r) => setTimeout(r, 1100));
     const data = { hook_event_name: event, session_id: bigSid, cwd: bigCwd, transcript_path: bigTr, ...(event.endsWith('ToolUse') ? { tool_name: 'Bash' } : {}), ...(event === 'Stop' ? { background_tasks: listed, last_assistant_message: '' } : {}) };
     await dc.request('agent.report', { pane: pane.id, assistant: 'claude', event, session: bigSid, pid: 90100, cwd: bigCwd, data });
   }

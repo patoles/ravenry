@@ -3887,6 +3887,8 @@ let gitSoon = null;
 onGitAnswer(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
 // A session's work folder came in (server/folders.mjs scans transcripts in the background).
 onFolderScan(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
+// A transcript's pictures read in the background (server/pictures.mjs): the tick again.
+pictures.scanInBackground(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
 // The processes at once, so a session in a pane (one made before an update
 // too) is tied to it in the first seconds, not at the minute's refresh.
 void startlog.step('first process list', () => refreshProcs());
