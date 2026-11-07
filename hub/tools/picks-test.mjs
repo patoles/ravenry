@@ -108,6 +108,8 @@ const cm = checkpointMessage(closeOpen, { project: boat, paneName: 'dev server' 
 check('a drive to close a tab names the asker and the pane as the sidebar does, keeps its action, and takes a fingerprint the same way', cm.title === 'Claude, in Tilting the hull, wants to close dev server' && cm.checkpoint.drive.action === 'close' && cm.checkpoint.drive.name === 'dev server' && cm.checkpoint.drive.session === 'Tilting the hull' && checkpoints.get('cdrive02').drive.action === 'close' && cm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse' && !/p[a-z2-7]{7}/.test(cm.title + cm.body + cm.detail), JSON.stringify(cm));
 const why = checkpointMessage({ ...open, id: 'cdrive03', drive: { ...open.drive, reason: 'The game only listens on this Mac.' } }, { project: boat, paneName: 'dev server' });
 check('a drive with the agent\'s words: "Claude says: ..." as its body, what it would type below, the words for the phone', why.title === 'Claude, in Tilting the hull, wants to type in dev server' && why.body === 'Claude says: The game only listens on this Mac.' && why.detail === 'It would type: npm run dev' && why.checkpoint.drive.reason === 'The game only listens on this Mac.', JSON.stringify(why));
+const plain = checkpointMessage({ ...open, id: 'cdrive05' }, { paneName: 'dev server', askerName: 'scratch shell' });
+check('a drive between plain panes (no session on the board) names both by their panes', plain.title === 'Claude, in scratch shell, wants to type in dev server' && plain.checkpoint.drive.name === 'dev server' && plain.checkpoint.drive.session === 'scratch shell', JSON.stringify(plain));
 const bare = checkpointMessage({ ...open, id: 'cdrive04' });
 check('a drive whose pane is not known falls back to the daemon\'s title', bare.title === 'Type into the server pane?', bare.title);
 
@@ -163,6 +165,22 @@ if (made) {
   check('the person\'s pick through the hub reaches the agent', ans.status === 200 && w.checkpoint.state === 'answered' && w.checkpoint.answer.pick.label === 'C' && w.checkpoint.answer.pick.note === 'this, but darker', ans.text + JSON.stringify(w.checkpoint.answer));
   const rj = await until(async () => { const r = picks.record(made.id, MC2); return r && r.answer ? r : null; });
   check('and lands in the pick\'s record', !!rj && rj.answer.label === 'C' && rj.answer.region.h === 0.2, JSON.stringify(rj));
+}
+// drive.name for a plain pane: the person's "dev server", started with
+// ravenryd new --name, is no session, and an agent in another plain pane
+// asks to type there. The board names both from the daemon, never by id.
+{
+  const CLI = fs.existsSync(path.join(path.dirname(BIN), 'ravenry')) ? path.join(path.dirname(BIN), 'ravenry') : BIN;
+  const dev = (await dc.request('pane.new', { command: ['/bin/cat'], name: 'dev server', cwd: HOME })).pane;
+  const agent = (await dc.request('pane.new', { command: ['/bin/sh', '-c', `'${CLI}' send ${dev.id} --paste 'npm run dev -- --host' --key Enter --reason 'Your phone needs --host'; exec sleep 60`], name: 'scratch shell', cwd: HOME })).pane;
+  const dv = await until(async () => { const c = (await getj('/api/checkpoints')).body.checkpoints.find((x) => x.kind === 'drive' && x.drive && x.drive.pane === dev.id); return c && c.drive.name ? c : null; }, 15000);
+  check('drive.name for a plain pane: the board names the pane and the asker from the daemon', !!dv && dv.drive.name === 'dev server' && dv.drive.session === 'scratch shell' && dv.pane === agent.id, JSON.stringify(dv && dv.drive));
+  if (dv) {
+    const pm2 = checkpointMessage(dv, { paneName: dv.drive.name, askerName: dv.drive.session });
+    check('and its phone alert says them, never an id', /wants to type in dev server$/.test(pm2.title) && /in scratch shell/.test(pm2.title) && !/p[a-z2-7]{7}/.test(pm2.title) && (!dv.drive.reason || pm2.body === `${pm2.title.split(',')[0]} says: Your phone needs --host`), JSON.stringify(pm2));
+    await dc.request('checkpoint.answer', { checkpoint: dv.id, decline: true }).catch(() => {});
+  }
+  for (const x of [agent, dev]) await dc.request('pane.close', { pane: x.id }).catch(() => {});
 }
 dc.close();
 console.log(fails ? `\n${fails} failed\n${boardLog.slice(-2000)}` : `\nall passed  (scratch: ${T})`);

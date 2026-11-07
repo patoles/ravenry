@@ -446,7 +446,7 @@ export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to 
 // What a drive asks to do to a tab (its drive.action; absent: type).
 export const DRIVE_ACTIONS = { input: 'Wants to type into another tab', close: 'Wants to close another tab', restart: 'Wants to restart another tab', override: 'Wants to change how another tab runs' };
 
-export function checkpointAlert(cp, { project = null, machine = null, boardUrl = null, paneName = null } = {}) {
+export function checkpointAlert(cp, { project = null, machine = null, boardUrl = null, paneName = null, askerName = null } = {}) {
   const who = project ? project.name : machine ? `An agent on ${machine}` : 'An agent';
   const kind = cp.kind === 'drive' ? DRIVE_ACTIONS[(cp.drive && cp.drive.action) || 'input'] || CHECKPOINT_KINDS.drive : CHECKPOINT_KINDS[cp.kind];
   const body = (kind || 'Waits for you') + (machine && project ? ` (on ${machine})` : '');
@@ -454,6 +454,6 @@ export function checkpointAlert(cp, { project = null, machine = null, boardUrl =
   const d = load();
   if (d.enabled && ready(d, d.channel)) deliver(alert).catch((e) => console.error('alerts:', e.message));
   if (d.desktop.enabled !== false) deliverDesktop({ kind: 'checkpoint', projectId: alert.projectId, title: alert.title, body: alert.body }).catch((e) => console.error('desktop:', e.message));
-  try { push.fromCheckpoint(cp, { project, machine, paneName }); } catch (e) { console.error('push:', e.message); }
+  try { push.fromCheckpoint(cp, { project, machine, paneName, askerName }); } catch (e) { console.error('push:', e.message); }
   return alert;
 }

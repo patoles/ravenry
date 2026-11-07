@@ -172,6 +172,18 @@ async function call(id, method, params, timeoutMs = 6000) {
   }
 }
 
+// A pane as the daemon that holds it lists it (pane.list, hidden ones
+// included): its Pane object, or null.
+export async function paneInfo(id) {
+  const p = paneOf(id);
+  const d = p ? await daemonOf(PREFIX + p) : null;
+  if (!d) return null;
+  try {
+    const { panes } = await d.c.request('pane.list', { hidden: true }, { timeoutMs: 3000 });
+    return (panes || []).find((x) => x.id === p) || null;
+  } catch { return null; }
+}
+
 // A request to the daemon that holds a pane (its id, or "ravenry:<id>"):
 // { ok, result } or { ok: false, err }.
 export async function paneRequest(id, method, params = {}, timeoutMs = 6000) {

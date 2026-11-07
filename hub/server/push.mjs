@@ -207,9 +207,10 @@ export function program(command) {
 }
 
 // A checkpoint's alert.
-export function checkpointMessage(cp, { project = null, machine = null, paneName = null } = {}) {
+export function checkpointMessage(cp, { project = null, machine = null, paneName = null, askerName = null } = {}) {
   const s = sessionOf(project, cp.pane);
-  const topic = (s && s.topic) || null;
+  // A drive's asker that is no session the board lists: its pane's name.
+  const topic = (s && s.topic) || (cp.kind === 'drive' && askerName ? clip(String(askerName), 80) : null);
   const name = topic || (project ? project.name : null) || who(cp.assistant);
   const [head, ...rest] = String(cp.title || '').replace(/\r/g, '').trim().split('\n');
   const more = rest.join('\n').trim();

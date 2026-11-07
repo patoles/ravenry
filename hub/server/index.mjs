@@ -51,7 +51,7 @@ import * as decisions from './decisions.mjs';
 import * as worktrees from './worktrees.mjs';
 import { projectFiles } from './filesview.mjs';
 import * as reviews from './reviews.mjs';
-import { paneRequest } from './ravenryd.mjs';
+import { paneRequest, paneInfo } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
@@ -1671,6 +1671,8 @@ function checkpointsView(projects) {
     const { daemon: _d, ...rest } = cp;
     const run = pageRuns.get(cp.id);
     const kept = cp.kind === 'pick' ? picks.record(cp.id) : null;
+    const dn = cp.kind === 'drive' && rest.drive ? driveNames.get(cp.id) : null;
+    if (dn) rest.drive = { ...rest.drive, name: dn.name || null, session: dn.session || null };
     return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) };
   });
 }
@@ -1682,23 +1684,34 @@ function onCheckpoint(cp, where) {
   if (!checkpoints.take(cp, where)) return;
   const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
   const p = tab && snapshot && snapshot.projects ? snapshot.projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
-  const alert = (paneName = null) => { try { alerts.checkpointAlert(cp, { project: p || null, machine: where.machine, boardUrl: boardUrl(), paneName }); } catch (e) { console.error('alerts:', e.message); } };
-  // A drive names the pane it would act on as the sidebar does.
-  if (cp.kind === 'drive' && cp.drive && cp.drive.pane) drivePaneName(cp.drive.pane).then(alert, () => alert());
-  else alert();
+  const alert = (names = {}) => { try { alerts.checkpointAlert(cp, { project: p || null, machine: where.machine, boardUrl: boardUrl(), paneName: names.name || null, askerName: names.session || null }); } catch (e) { console.error('alerts:', e.message); } };
+  // A drive names the pane it would act on, and the pane that asks, as the
+  // sidebar and the tabs do, whether or not a session runs in them.
+  if (cp.kind === 'drive' && cp.drive && cp.drive.pane) {
+    const asker = cp.pane && !(p && p.sessions.some((y) => y.surfaceId === tab)) ? paneName(cp.pane) : Promise.resolve(null);
+    Promise.all([paneName(cp.drive.pane), asker]).then(([name, session]) => {
+      const names = { name, session: session || (p && p.sessions.find((y) => y.surfaceId === tab) || {}).topic || null };
+      driveNames.set(cp.id, names);
+      if (driveNames.size > 200) driveNames.delete(driveNames.keys().next().value);
+      alert(names);
+    }, () => alert());
+  } else alert();
 }
+
+// A drive's pane and asker as people know them, by checkpoint id, for the
+// board's checkpoints and the phone's alert: { name, session }.
+const driveNames = new Map();
 
 // A pane as the sidebar and the tabs name it: the topic of the session that
 // runs in it, else its name, its title or its command's program; null when
 // no daemon here knows it.
-async function drivePaneName(pane) {
+async function paneName(pane) {
   const tab = term.tabIdFor('ravenry', pane);
   for (const p of (snapshot && snapshot.projects) || []) {
     const s = p.sessions.find((x) => x.surfaceId === tab);
     if (s) return s.topic || p.name;
   }
-  const r = await paneRequest(pane, 'pane.list', { hidden: true }, 3000);
-  const x = r.ok ? (r.result.panes || []).find((y) => y.id === pane) : null;
+  const x = await paneInfo(pane);
   if (!x) return null;
   return x.name || x.title || (x.command && x.command[0] ? path.basename(x.command[0]) : null);
 }
@@ -1931,9 +1944,7 @@ async function sendFilmstrip(req, res, surfaceId) {
   const fr = await paneRequest(b.pane, 'pane.frames', { last_ms: last, format: 'gif', max_frames: 120 }, 30000);
   if (!fr.ok) return sendJson(res, 502, { error: fr.err });
   if (!fr.result || !fr.result.data) return sendJson(res, 409, { error: 'The pane drew nothing in that time.' });
-  const info = await paneRequest(b.pane, 'pane.list', { hidden: true }, 5000);
-  const pi = info.ok ? (info.result.panes || []).find((x) => x.id === b.pane) : null;
-  const name = (pi && (pi.name || pi.title)) || b.pane;
+  const name = (await paneName(b.pane)) || b.pane;
   const d = new Date();
   const hms = [d.getHours(), d.getMinutes(), d.getSeconds()].map((x) => String(x).padStart(2, '0')).join('');
   let file;
