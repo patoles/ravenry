@@ -139,10 +139,100 @@ function scan(file, size, prev) {
   } finally { fs.closeSync(fd); }
 }
 
+// The same scan, without holding the board's main thread: read in chunks,
+// the lines parsed in batches, the event loop given back every 30 ms. A
+// first read of a big transcript parses megabytes of tool calls; done
+// synchronously for the ~20 live sessions at the hub's start it held the
+// main thread for tens of seconds on a real board (2026-11-07, two updates
+// that rolled back).
+const yieldNow = () => new Promise((r) => setImmediate(r));
+async function linesHits(text, slice) {
+  const lines = text.split('\n');
+  const hits = [];
+  for (let i = 0; i < lines.length; i += 500) {
+    hits.push(...hitsIn(lines.slice(i, i + 500)));
+    if (Date.now() - slice.at > 30) { await yieldNow(); slice.at = Date.now(); }
+  }
+  return hits;
+}
+async function scanAsync(file, size, prev) {
+  let fh;
+  try { fh = await fs.promises.open(file, 'r'); } catch { return null; }
+  const slice = { at: Date.now() };
+  const range = async (start, end) => { const buf = Buffer.alloc(end - start); await fh.read(buf, 0, buf.length, start); return buf.toString('utf8'); };
+  try {
+    if (prev && size >= prev.size) {
+      const text = await range(prev.size, size);
+      const cut = text.lastIndexOf('\n');
+      if (cut < 0) return prev;
+      const hits = await linesHits(text.slice(0, cut), slice);
+      return { size: prev.size + Buffer.byteLength(text.slice(0, cut + 1)), hits: prev.hits.concat(hits).slice(-RECENT) };
+    }
+    let hits = [];
+    let upTo = size;
+    for (const want of [TAIL, 4 * TAIL, 20 * TAIL]) {
+      const start = Math.max(0, size - want);
+      let text = await range(start, size);
+      if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+      const last = text.lastIndexOf('\n');
+      upTo = size - Buffer.byteLength(text.slice(last + 1));
+      hits = await linesHits(text.slice(0, Math.max(0, last)), slice);
+      if (hits.length >= RECENT / 4 || start === 0) break;
+    }
+    return { size: upTo, hits: hits.slice(-RECENT) };
+  } finally { await fh.close().catch(() => {}); }
+}
+
+// The board hears when a scan it queued is done (it builds its state again).
+let onScan = () => {};
+export function onFolderScan(fn) { onScan = fn; }
+const queued = new Map(); // transcript path -> size asked
+let scanRunning = false;
+async function runScans() {
+  if (scanRunning) return;
+  scanRunning = true;
+  try {
+    while (queued.size) {
+      const file = queued.keys().next().value;
+      queued.delete(file);
+      let size;
+      try { size = (await fs.promises.stat(file)).size; } catch { continue; }
+      const c = sessions.get(file);
+      if (c && c.size === size) continue;
+      const sc = await scanAsync(file, size, c && size - c.size < 64 * 1024 * 1024 ? c : null);
+      if (sc) sessions.set(file, { size: sc.size, hits: sc.hits, value: folderOf(sc.hits) });
+      onScan();
+      await yieldNow();
+    }
+  } finally { scanRunning = false; }
+}
+
+function folderOf(recent) {
+  const counts = new Map();
+  for (const r of recent) counts.set(r, (counts.get(r) || 0) + 1);
+  const repos = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const top = repos[0];
+  const share = top ? top[1] / recent.length : 0;
+  return { folder: top && recent.length >= MIN_HITS && share > SHARE ? top[0] : null, share, hits: recent.length, repos: repos.slice(0, 5) };
+}
+
 // { folder, share, hits, repos: [[root, n], ...] } for a transcript. folder is
 // null when no repo has more than half of the recent hits (or there are too
 // few), and then the caller keeps the folder cmux reported.
+// On the board: what is known now (the last scan's, or null), and a scan
+// queued in the background when the transcript grew.
 export function sessionFolder(transcriptPath) {
+  if (!transcriptPath) return null;
+  let size;
+  try { size = fs.statSync(transcriptPath).size; } catch { return null; }
+  const c = sessions.get(transcriptPath);
+  if (c && c.size === size) return c.value;
+  if (!queued.has(transcriptPath)) { queued.set(transcriptPath, size); void runScans(); }
+  return c ? c.value : null;
+}
+
+// The same, read now (a hook's own process, which waits for its answer).
+export function sessionFolderNow(transcriptPath) {
   if (!transcriptPath) return null;
   let size;
   try { size = fs.statSync(transcriptPath).size; } catch { return null; }

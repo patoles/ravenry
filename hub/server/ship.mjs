@@ -12,9 +12,22 @@ import { sayFolder } from './homes.mjs';
 const HOME = os.homedir();
 const short = (p) => sayPath(p, HOME);
 
+// A few at a time: starting a process costs the main thread a few ms (more
+// on a busy Mac), and every repository's runs started at once held it for
+// seconds (2026-11-07).
+const queue = [];
+let running = 0;
+function pump() {
+  while (running < 3 && queue.length) {
+    const run = queue.shift();
+    running++;
+    run().then(() => { running--; pump(); });
+  }
+}
 function git(dir, args) {
   return new Promise((resolve) => {
-    execFile('git', ['-C', dir, ...args], { timeout: 6000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (err, out) => resolve(err ? null : out.trim()));
+    queue.push(() => new Promise((done) => execFile('git', ['-C', dir, ...args], { timeout: 6000, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (err, out) => { resolve(err ? null : out.trim()); done(); })));
+    pump();
   });
 }
 

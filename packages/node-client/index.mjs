@@ -136,7 +136,12 @@ export class Client extends EventEmitter {
     this.closed = false;
     this._next = 0;
     this._pending = new Map();
-    this._buf = Buffer.alloc(0);
+    // What has arrived and not been read yet, as the chunks it came in: a
+    // frame is copied once, when it is whole. Concatenating at each chunk
+    // was quadratic: a 16 MB reply in a pipe's 4 KB chunks took 4 s of the
+    // hub's main thread (2026-11-07, an update that rolled back).
+    this._chunks = [];
+    this._have = 0;
     this._parts = null; // a fragmented message being gathered
     this._open = false;
   }
@@ -270,23 +275,50 @@ export class Client extends EventEmitter {
     });
   }
 
+  // The first `k` bytes of what has arrived, copied (a frame's header: at most 10).
+  _peek(k) {
+    if (this._chunks[0].length >= k) return this._chunks[0].subarray(0, k);
+    const out = Buffer.alloc(k);
+    let at = 0;
+    for (const c of this._chunks) { const n = Math.min(c.length, k - at); c.copy(out, at, 0, n); at += n; if (at === k) break; }
+    return out;
+  }
+
+  // Takes the first `k` bytes off what has arrived: one copy (none when one chunk holds them).
+  _take(k) {
+    let out;
+    if (this._chunks[0].length >= k) out = this._chunks[0].subarray(0, k);
+    else {
+      out = Buffer.allocUnsafe(k);
+      let at = 0;
+      while (at < k) { const c = this._chunks[0]; const n = Math.min(c.length, k - at); c.copy(out, at, 0, n); at += n; if (n < c.length) { this._chunks[0] = c.subarray(n); break; } this._chunks.shift(); }
+      this._have -= k;
+      return out;
+    }
+    this._chunks[0] = this._chunks[0].subarray(k);
+    if (!this._chunks[0].length) this._chunks.shift();
+    this._have -= k;
+    return out;
+  }
+
   // Reads server frames (unmasked) from the byte stream.
   _read(chunk) {
-    this._buf = this._buf.length ? Buffer.concat([this._buf, chunk]) : chunk;
+    if (!chunk.length) return;
+    this._chunks.push(chunk);
+    this._have += chunk.length;
     for (;;) {
-      const b = this._buf;
-      if (b.length < 2) return;
-      const fin = (b[0] & 0x80) !== 0;
-      const op = b[0] & 0x0f;
-      let n = b[1] & 0x7f;
+      if (this._have < 2) return;
+      const h = this._peek(Math.min(this._have, 10));
+      const fin = (h[0] & 0x80) !== 0;
+      const op = h[0] & 0x0f;
+      let n = h[1] & 0x7f;
       let at = 2;
-      if (n === 126) { if (b.length < 4) return; n = b.readUInt16BE(2); at = 4; }
-      else if (n === 127) { if (b.length < 10) return; n = Number(b.readBigUInt64BE(2)); at = 10; }
-      if (b[1] & 0x80) { this._fail('the daemon masked a frame'); return; }
+      if (n === 126) { if (h.length < 4) return; n = h.readUInt16BE(2); at = 4; }
+      else if (n === 127) { if (h.length < 10) return; n = Number(h.readBigUInt64BE(2)); at = 10; }
+      if (h[1] & 0x80) { this._fail('the daemon masked a frame'); return; }
       if (n > MAX_MESSAGE) { this._fail('a message larger than 64 MiB'); return; }
-      if (b.length < at + n) return;
-      const payload = b.subarray(at, at + n);
-      this._buf = b.subarray(at + n);
+      if (this._have < at + n) return;
+      const payload = this._take(at + n).subarray(at);
       if (op === 8) { this.close(); return; }
       if (op === 9) { this._write(10, payload); continue; }
       if (op === 10) continue;

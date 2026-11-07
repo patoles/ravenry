@@ -1241,11 +1241,27 @@ nothing for 30 s). Now:
   Sessions view.
 - `/api/state` answers 503 "starting" until the first state is built
   (whoami and the rest answer as always).
+- A session's work folder comes from its transcript's tool calls
+  (server/folders.mjs). The first read of a big transcript (up to 160 MB
+  back from its end) parses megabytes; done synchronously for the ~20 live
+  sessions it held 0.1.12's hub for 30 to 70 s on a real board. Now the
+  board uses what is known (the last scan's folder, or the hook's cwd) and
+  a scan runs in the background, one transcript at a time, read in chunks
+  and parsed in batches, giving the event loop back every 30 ms; the board
+  builds its state again when one is done. A hook's own process reads it
+  synchronously (sessionFolderNow), as it waits for its answer.
+- The node client (packages/node-client) copies a frame once, when it is
+  whole: it concatenated its whole buffer at each chunk, so a 16 MB reply
+  in a pipe's 4 KB chunks (a remote machine over ssh) took 4 s; now 20 ms.
+- ship.mjs runs git a few at a time (each start costs the main thread).
 
 `hub/tools/startup-load-test.mjs` builds a made-up set of the same size and
 fails if the first answer comes over 1 s after the listen line, if any
 answer in the first 30 s takes over 1 s, or if the state is not ready
-within 10 s; the release check runs it on the packaged hub (step 12).
+within 10 s, beside 4 panes that print without a pause and a daemon whose
+report ring is full; the release check runs it on the packaged hub (step
+12). 0.1.12's hub fails it (an answer took 1,177 ms); this one passes
+(147 ms with 6 busy panes).
 Measured on a copy of a real board's data (its ~/.ravenry and 7.1 GB of
 transcripts, with stand-in project folders): the first answer 6 ms after
 listen, the slowest 674 ms, the state at 252 ms; before, 49.6 s.

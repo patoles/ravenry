@@ -11,9 +11,16 @@
 //   - its first HTTP answer comes within 1 s of its listen line;
 //   - no answer in its first 30 s takes over 1 s (a request every 100 ms);
 //   - its state is ready (200) within 10 s.
+// The hub runs beside a busy Mac: 4 panes print without a pause (STARTUP_BUSY).
+// And a ravenryd beside it whose report ring is full (2,100 reports of about
+// 8 KB, 16 MB, which the hub reads back at start in pages of 1,000): a big
+// reply read over the socket in a unix socket's small chunks once took the
+// hub's main thread for seconds (the node client concatenated its whole
+// buffer at each chunk; 2026-11-07, 0.1.12's update that rolled back).
 //
 // Usage: node hub/tools/startup-load-test.mjs [--exe APP_EXECUTABLE --hub HUB_DIR]
 //   (the packaged app's hub: its executable as Node, ELECTRON_RUN_AS_NODE=1)
+//   --ravenryd BIN: the daemon (else RAVENRYD_BIN, else daemon/ravenryd)
 import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import { guardSpawns } from '../../tools/test-env.mjs';
 import fs from 'node:fs';
@@ -74,10 +81,28 @@ try {
   fs.writeFileSync(path.join(root, 'cmux.json'), JSON.stringify({ workspaces: [], screens: {} }));
   console.log(`made the data in ${Math.round((Date.now() - t0) / 1000)} s: 23 projects, 240,000 files, 1,840 plan files, 20 sessions of 20 MB`);
 
+  // The daemon, its report ring full.
+  const BIN = path.resolve(opt('--ravenryd') || process.env.RAVENRYD_BIN || path.join(HERE, '..', '..', 'daemon', 'ravenryd'));
+  const rt = path.join(root, 'run');
+  fs.mkdirSync(rt, { mode: 0o700 });
+  const denv = { HOME: home, PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: path.join(root, 'dstate') };
+  execFileSync(BIN, ['serve', '--detach'], { env: denv, stdio: 'ignore' });
+  const { connectSocket } = await import(path.join(HERE, '..', '..', 'packages', 'node-client', 'index.mjs'));
+  let sock = null;
+  for (let i = 0; i < 100 && !sock; i++) { const n = fs.readdirSync(rt).find((x) => x.endsWith('.sock')); if (n) sock = path.join(rt, n); else await new Promise((r) => setTimeout(r, 50)); }
+  const dc = await connectSocket(sock, { name: 'startup-load-test' });
+  const { pane } = await dc.request('pane.new', { command: ['/bin/sh', '-c', 'exec sleep 900'], cols: 80, rows: 24 });
+  // Panes that print all the time, as busy sessions do.
+  for (let i = 0; i < (process.env.STARTUP_BUSY ? Number(process.env.STARTUP_BUSY) : 4); i++) await dc.request('pane.new', { command: ['/bin/sh', '-c', `while :; do head -c 600 /dev/urandom | base64; done`], cols: 120, rows: 40 });
+  const big = { cwd: '/' + 'c'.repeat(4000), transcript_path: '/' + 't'.repeat(4000) };
+  for (let i = 0; i < 2100; i++) await dc.request('agent.report', { pane: pane.id, assistant: 'claude', event: 'PostToolUse', session: procs[0].command.split(' ').pop(), data: { hook_event_name: 'PostToolUse', session_id: procs[0].command.split(' ').pop(), tool_name: 'Read', ...big } });
+  const backlog = await dc.request('agent.events', { since: 0, limit: 1000 });
+  dc.close();
+  console.log(`a ravenryd with ${backlog.reports.length}+ reports in its ring, ${Math.round(JSON.stringify(backlog).length / 1048576)} MB in its first page`);
+
   const free = () => new Promise((r) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
   const port = await free();
   const T = (p) => path.join(HERE, p);
-  fs.mkdirSync(path.join(root, 'run'), { mode: 0o700 });
   const env = {
     HOME: home, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`, LANG: 'en_US.UTF-8', PORT: String(port), RAVENRY_PHONE_PORT: String(await free()),
     RAVENRY_TERMINAL: 'ravenry', RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'state'),
@@ -124,6 +149,8 @@ try {
     if (fails) console.log(out.split('\n').slice(-15).join('\n'));
   }
 } finally {
+  try { const ds = JSON.parse(execFileSync(path.resolve(opt('--ravenryd') || process.env.RAVENRYD_BIN || path.join(HERE, '..', '..', 'daemon', 'ravenryd')), ['daemons', '--json', '--no-start'], { env: { HOME: home, PATH: '/usr/bin:/bin', RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'dstate') }, encoding: 'utf8' })); for (const d of ds) process.kill(d.pid, 'SIGTERM'); } catch { /* none */ }
+  await new Promise((r) => setTimeout(r, 300));
   fs.rmSync(root, { recursive: true, force: true });
 }
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');

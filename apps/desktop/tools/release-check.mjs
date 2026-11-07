@@ -609,10 +609,10 @@ try {
     const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcs-'));
     const app = path.join(k, 'Ravenry.app');
     execFileSync('/usr/bin/ditto', [APP_PATH, app]);
-    const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub')], { encoding: 'utf8', timeout: 600000 });
+    const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub'), '--ravenryd', path.join(app, 'Contents', 'Resources', 'ravenryd')], { encoding: 'utf8', timeout: 600000 });
     const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
     const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
-    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, and has its state within 10 s', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
+    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, and has its state within 10 s', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
     fs.rmSync(k, { recursive: true, force: true });
   });
 } finally {

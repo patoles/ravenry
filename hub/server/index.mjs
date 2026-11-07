@@ -27,7 +27,7 @@ import * as repeats from './repeats.mjs';
 import * as rulefiles from './rulefiles.mjs';
 import { shipView } from './ship.mjs';
 import { plansFor, onGitAnswer } from './plans.mjs';
-import { ownerOf, repoRoot, isBroadFolder } from './folders.mjs';
+import { ownerOf, repoRoot, isBroadFolder, onFolderScan } from './folders.mjs';
 import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
@@ -3840,6 +3840,8 @@ setInterval(tick, TICK_MS);
 // A plan file's git facts came in (server/plans.mjs reads them in the background).
 let gitSoon = null;
 onGitAnswer(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
+// A session's work folder came in (server/folders.mjs scans transcripts in the background).
+onFolderScan(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
 // The processes at once, so a session in a pane (one made before an update
 // too) is tied to it in the first seconds, not at the minute's refresh.
 refreshProcs();

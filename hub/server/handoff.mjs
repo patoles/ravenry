@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { RAVENRY_HOME, REGISTRY_PATH, DEFAULT_SETTINGS } from './registry.mjs';
-import { sessionFolder, ownerOf, isBroadFolder } from './folders.mjs';
+import { sessionFolderNow as sessionFolder, ownerOf, isBroadFolder } from './folders.mjs';
 
 export const HANDOFF_DIR = path.join(RAVENRY_HOME, 'handoffs');
 // Starts every reason the hook gives Claude, so the board can tell the
