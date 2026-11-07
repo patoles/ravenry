@@ -1250,7 +1250,10 @@ function refreshProcs() {
     } finally {
       procBusy = null;
     }
+    // The next tick now, not at the next interval: a fresh process list
+    // ties sessions to their panes (2 s sooner after an update).
     wantTick = true;
+    if (!ticking) setTimeout(tick, 20);
   })();
   return procBusy;
 }
