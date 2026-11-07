@@ -81,6 +81,26 @@ export default {
     entitlements: signed ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist',
     entitlementsInherit: signed ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist',
     notarize,
+    // The words macOS shows when the app, or a program in one of its panes
+    // (macOS asks on the app's behalf), wants one of these. Without them a
+    // hardened app's request is refused without a prompt. Each goes with an
+    // entitlement in build/entitlements.*.plist; tools/package-check.mjs
+    // checks both on the built bundle.
+    extendInfo: {
+      NSAppleEventsUsageDescription: 'Ravenry asks iTerm2 and cmux about their tabs to show your sessions, and programs in its terminals may control other apps.',
+      NSMicrophoneUsageDescription: 'A program in a Ravenry terminal wants to use the microphone.',
+      NSCameraUsageDescription: 'A program in a Ravenry terminal wants to use the camera.',
+      NSLocationUsageDescription: 'A program in a Ravenry terminal wants to know your location.',
+      NSLocationWhenInUseUsageDescription: 'A program in a Ravenry terminal wants to know your location.',
+      NSContactsUsageDescription: 'A program in a Ravenry terminal wants to read your contacts.',
+      NSCalendarsUsageDescription: 'A program in a Ravenry terminal wants to use your calendars.',
+      NSCalendarsFullAccessUsageDescription: 'A program in a Ravenry terminal wants to use your calendars.',
+      NSPhotoLibraryUsageDescription: 'A program in a Ravenry terminal wants to use your photos.',
+      // Electron's own defaults ("This app needs access to ..."), in the same words.
+      NSAudioCaptureUsageDescription: 'A program in a Ravenry terminal wants to record the sound other apps play.',
+      NSBluetoothAlwaysUsageDescription: 'A program in a Ravenry terminal wants to use Bluetooth.',
+      NSBluetoothPeripheralUsageDescription: 'A program in a Ravenry terminal wants to use Bluetooth.',
+    },
   },
   dmg: {
     title: 'Ravenry ${version}',

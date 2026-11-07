@@ -200,6 +200,30 @@ if (platform === 'darwin') {
   if (!(flags & 0x10000)) fail(`not signed with the hardened runtime (flags 0x${flags.toString(16)}): DYLD_ variables would load code into the app`);
   if (ents.includes('allow-dyld-environment-variables')) fail('its entitlements allow DYLD_ variables');
   ok(`hardened runtime (flags 0x${flags.toString(16)}), no DYLD_ variables allowed`);
+  // What the hardened runtime would refuse without asking: a program in a
+  // pane wanting the microphone or the camera (macOS asks on the app's
+  // behalf), and the hub's osascript (iTerm2, cmux, notifications). Each
+  // needs its entitlement and, to be asked at all, its words in Info.plist.
+  const info = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', path.join(target, 'Contents', 'Info.plist')], { encoding: 'utf8' }));
+  const needs = [
+    ['com.apple.security.automation.apple-events', 'NSAppleEventsUsageDescription'],
+    ['com.apple.security.device.audio-input', 'NSMicrophoneUsageDescription'],
+    ['com.apple.security.device.camera', 'NSCameraUsageDescription'],
+    ['com.apple.security.personal-information.location', 'NSLocationUsageDescription'],
+    ['com.apple.security.personal-information.addressbook', 'NSContactsUsageDescription'],
+    ['com.apple.security.personal-information.calendars', 'NSCalendarsUsageDescription'],
+    ['com.apple.security.personal-information.photos-library', 'NSPhotoLibraryUsageDescription'],
+  ];
+  const entTrue = (k) => new RegExp(`<key>${k.replace(/\./g, '\\.')}</key>\\s*<true/>`).test(ents);
+  const missing = needs.filter(([e, k]) => !entTrue(e) || !(typeof info[k] === 'string' && info[k].length > 10)).map(([e, k]) => `${e} / ${k}`);
+  if (missing.length) fail(`a hardened app refuses these without asking (entitlement / Info.plist words): ${missing.join(', ')}`);
+  ok(`the microphone, the camera, Apple events (osascript) and the rest can be asked for: ${needs.length} entitlements, each with its words in Info.plist`);
+  // The hub (the app's executable run as Node, hardened) still runs
+  // osascript, which its iTerm2 adapter and its notifications use. A script
+  // that sends no Apple event, so nothing on the machine is asked.
+  const osa = spawnSync(exe, ['-e', "const r = require('child_process').spawnSync('/usr/bin/osascript', ['-e', 'return 2 + 2'], { encoding: 'utf8' }); process.stdout.write(String(r.status) + ' ' + r.stdout.trim())"], { env: { HOME: os.tmpdir(), PATH: '/usr/bin:/bin', ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20000 });
+  if ((osa.stdout || '').trim() !== '0 4') fail(`the hardened hub could not run osascript: ${osa.stdout} ${osa.stderr}`);
+  ok('the hardened hub runs osascript (iTerm2, notifications)');
 }
 
 {
@@ -328,7 +352,9 @@ try {
   const appCode = await Promise.race([appExit, sleep(15000).then(() => 'still running')]);
   if (appCode !== 0) fail(`the app did not quit cleanly on SIGTERM: ${appCode}\n${log.slice(-2000)}`);
   fs.writeFileSync(path.join(OUT, 'app.log'), log);
-  ok('it quit on SIGTERM');
+  // Every way the app ends says why (src/main/main.ts exitWith, quitting).
+  if (!/quit: asked to \([^)]*SIGTERM\)/.test(log) || !/quit: done \(exit 0\)/.test(log)) fail(`the app quit on SIGTERM without saying why in its log\n${log.slice(-1500)}`);
+  ok('it quit on SIGTERM, and its log says why');
 
   // Started with a debugging switch: it quits at once, with no port open.
   for (const sw of ['--remote-debugging-port', '--inspect']) {
