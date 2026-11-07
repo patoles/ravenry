@@ -64,8 +64,10 @@ jobs:
           apk=app/build/outputs/apk/release/app-release.apk
           signer="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
           "$signer" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/signer.txt"
-          grep -q "Signer #1 certificate DN: CN=Ravenry" "$RUNNER_TEMP/signer.txt"
+          # The upload key's certificate (public). A different key fails here.
           grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" "$RUNNER_TEMP/signer.txt"
+          grep -Eq "certificate SHA-256 digest: 7ba7b99dbcad235749531977a4761c1a008360368b269c69b93ab0aaa2a26c7a$" "$RUNNER_TEMP/signer.txt"
+          test "$(grep -c "certificate SHA-256 digest:" "$RUNNER_TEMP/signer.txt")" = 1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: env.HAS_KEY == 'true'
         with:
