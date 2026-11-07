@@ -34,9 +34,32 @@ const GIT_MS = 15000;
 export const MAX_DIFF = 2 * 1024 * 1024;
 const MAX_FILES = 500;
 
-export function git(cwd, args, { timeout = GIT_MS, maxBuffer = 16 * 1024 * 1024, okCodes = [0] } = {}) {
+// On macOS /usr/bin/git is a stand-in that asks xcrun for the real git at
+// every call, and in the hub service the first ask took 1.8 s (2026-11-07,
+// on a session's start). The real binary is found once, when the hub
+// starts, off any click's path, and run directly. RAVENRY_GIT overrides.
+let gitBin = process.env.RAVENRY_GIT || 'git';
+export const gitFound = (process.platform === 'darwin' && !process.env.RAVENRY_GIT
+  ? new Promise((resolve) => {
+    execFile('/usr/bin/xcrun', ['--find', 'git'], { timeout: 20000 }, (err, out) => {
+      const p = String(out || '').trim();
+      if (!err && p.startsWith('/') && fs.existsSync(p)) gitBin = p;
+      resolve(gitBin);
+    });
+  })
+  : Promise.resolve(gitBin));
+
+export async function git(cwd, args, opts = {}) {
+  await gitFound;
+  return gitRun(cwd, args, opts);
+}
+
+function gitRun(cwd, args, { timeout = GIT_MS, maxBuffer = 16 * 1024 * 1024, okCodes = [0] } = {}) {
+  const t0 = Date.now();
   return new Promise((resolve) => {
-    execFile('git', ['-C', cwd, ...args], { timeout, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } }, (err, stdout, stderr) => {
+    execFile(gitBin, ['-C', cwd, ...args], { timeout, maxBuffer, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' } }, (err, stdout, stderr) => {
+      // A slow git shows in the log (a session's start waits on it).
+      if (Date.now() - t0 > 400) console.log(`worktrees: git ${args.slice(0, 2).join(' ')} took ${Date.now() - t0} ms`);
       const code = err ? (typeof err.code === 'number' ? err.code : -1) : 0;
       resolve({ ok: okCodes.includes(code), code, out: String(stdout || ''), err: String(stderr || (err && err.killed ? 'git took too long' : '') || (err && typeof err.code !== 'number' ? err.message : '')).trim() });
     });

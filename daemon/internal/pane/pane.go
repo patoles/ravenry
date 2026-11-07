@@ -267,9 +267,13 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 	}
 	var cmd *exec.Cmd
 	if len(cfg.Command) == 0 {
-		sh := envValue("SHELL", cfg.Env, env)
-		if sh == "" {
-			sh = "/bin/sh"
+		sh := loginShell(cfg.Env, env)
+		if envValue("SHELL", cfg.Env, env) == "" {
+			// The shell knows itself as $SHELL, as a terminal starts it.
+			if cfg.Env == nil {
+				cfg.Env = map[string]string{}
+			}
+			cfg.Env["SHELL"] = sh
 		}
 		cmd = exec.Command(sh)
 		// A login shell, as a terminal starts one: argv[0] starts with "-".

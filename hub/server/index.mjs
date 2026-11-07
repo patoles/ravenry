@@ -154,6 +154,8 @@ let outsideAlive = null;
 // sessionId -> { pane, pid }: the claude or codex processes that run in a
 // ravenryd pane here, by the session each holds (the last process list).
 let paneHolders = new Map();
+const seenPanes = new Set(); // ravenryd panes listed so far
+let procsSoon = null;
 let lastResult = null;       // the last close, shown on the page for a while
 let picBudget = 0;           // project pictures worked out this tick (server/pictures.mjs)
 let loose = [];              // this tick's cards for sessions no project holds, in a too-broad folder
@@ -479,6 +481,13 @@ async function refreshKind(kind, evAll) {
     return;
   }
   const tabs = otherTabs[kind].tabs;
+  // A pane not seen before (a session started or resumed, a daemon that
+  // appeared): the processes are read again soon, to tie it to its session.
+  if (kind === 'ravenry') {
+    const fresh = [...tabs.keys()].some((id) => !seenPanes.has(id));
+    for (const id of tabs.keys()) seenPanes.add(id);
+    if (fresh && !procsSoon) procsSoon = setTimeout(() => { procsSoon = null; refreshProcs(); }, 300);
+  }
   // The tabs sessions report from, and the tabs claude processes run in
   // (a session resumed in a Ravenry pane, whose events another terminal's
   // process keeps writing).
@@ -3345,6 +3354,7 @@ async function handleRequest(req, res) {
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error, ...(r.open ? { open: true } : {}) });
       }
       if (p === '/api/sessions/start') {
+        const t0 = Date.now();
         // A session in a ravenryd pane, here or on a machine
         // (server/sessionstart.mjs): the app's first-launch "Start" and its
         // New session call this instead of pane.new.
@@ -3358,7 +3368,9 @@ async function handleRequest(req, res) {
           if (!project) return sendJson(res, 400, { error: 'A worktree session belongs to a project: give projectId.' });
           if ((body.machine != null && body.machine !== '') || project.machine) return sendJson(res, 409, { error: 'Worktree sessions run on this computer only for now; this project is on another machine.' });
           if (body.name != null && (typeof body.name !== 'string' || body.name.length > 100)) return sendJson(res, 400, { error: 'name is the session\'s name, at most 100 characters.' });
+          const tw = Date.now();
           made = await worktrees.create(typeof body.folder === 'string' && body.folder.trim() ? body.folder.trim() : project.folder, { name: body.name || null });
+          if (made) made.ms = Date.now() - tw;
           if (!made.ok) return sendJson(res, made.status, { error: made.error });
         } else if (body && body.worktree != null && body.worktree !== false) return sendJson(res, 400, { error: 'worktree is true or false.' });
         const pl = sessionstart.plan(made ? { ...body, folder: made.cwd } : body, {
@@ -3383,6 +3395,8 @@ async function handleRequest(req, res) {
         }
         if (made) worktrees.remember(made, { surfaceId: r.surfaceId, pane: r.pane && r.pane.id, projectId: project.id });
         watchOpened(r);
+        // How long each part took (a slow start shows where in the log).
+        console.log(`sessions: started ${r.surfaceId} in ${Date.now() - t0} ms${made ? ` (worktree in ${made.ms} ms)` : ''}: ${Object.entries(r.timing || {}).map(([k, v]) => `${k} ${v}`).join(', ')}`);
         if (project && pl.machine && project.machine !== pl.machine) afterRegistry(registry.update((rg) => { const x = rg.projects.find((y) => y.id === project.id); if (x) x.machine = pl.machine; }));
         wantTick = true; setTimeout(tick, 30);
         return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind, ...(made ? { worktree: { branch: made.branch, folder: made.folder, base: made.base, baseBranch: made.baseBranch } } : {}) });
@@ -3593,7 +3607,9 @@ server.listen(PORT, () => {
 });
 tick();
 setInterval(tick, TICK_MS);
-setTimeout(refreshProcs, 1500);
+// The processes at once, so a session in a pane (one made before an update
+// too) is tied to it in the first seconds, not at the minute's refresh.
+refreshProcs();
 setInterval(refreshProcs, 60000);
 ideas.load();
 setTimeout(refreshShip, 3000);

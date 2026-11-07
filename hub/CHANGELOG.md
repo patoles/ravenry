@@ -27,6 +27,11 @@
   folder, instead of waiting with no answer, and starts once it may.
 - From the Wi-Fi, the board's port opens to phone browsers only while
   phone access is on; off, they get 403.
+- A session start says in the log how long each part took; on macOS the
+  hub runs the real git rather than /usr/bin/git's stand-in, which asked
+  xcrun at every call (1.8 s on a session's start).
+- The hub reads the processes at start and again when a pane it has not
+  seen appears, so a pane's session is tied to it in seconds.
 - A session in a Ravenry pane says when another process holds the same
   session in cmux, iTerm2 or Rex (`alsoOpen`), and `/api/open` can bring
   that tab, or the cmux app, forward.

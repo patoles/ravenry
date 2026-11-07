@@ -468,3 +468,19 @@ func TestPaneEnvLeavesOuterTerminalsOut(t *testing.T) {
 		t.Errorf("env %v", got)
 	}
 }
+
+// With no $SHELL (launchd gives its agents none), a pane's shell is the
+// account's login shell, not /bin/sh, so its shell integration draws the
+// prompt a session waits for (2026-11-07: a 4 s wait at every start).
+func TestLoginShellWithoutSHELL(t *testing.T) {
+	sh := loginShell(nil, []string{"HOME=/h", "PATH=/usr/bin:/bin"})
+	if !strings.HasPrefix(sh, "/") {
+		t.Fatalf("login shell %q", sh)
+	}
+	if acct := accountShell(); acct != "" && sh != acct {
+		t.Fatalf("login shell %q, account shell %q", sh, acct)
+	}
+	if got := loginShell(nil, []string{"SHELL=/bin/bash"}); got != "/bin/bash" {
+		t.Fatalf("$SHELL first: %q", got)
+	}
+}

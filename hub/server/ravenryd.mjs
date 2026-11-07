@@ -311,7 +311,10 @@ export async function openTab({ near = null, cwd = null, label = null, machine =
 // outlives the assistant. Returns { ok, surfaceId, pane, machine } or
 // { ok: false, err }.
 export async function startSession({ machine = null, cwd, line, label = null, labels = null, cols = null, rows = null, env = null }) {
+  const t0 = Date.now();
+  const at = {};
   const made = await openTab({ machine, cwd, label, labels, env });
+  at.pane = Date.now() - t0;
   if (!made.ok) return made;
   const d = await daemonOf(made.surfaceId);
   if (!d) return { ok: false, err: 'its pane closed at once' };
@@ -320,12 +323,15 @@ export async function startSession({ machine = null, cwd, line, label = null, la
     if (cols && rows) await d.c.request('pane.resize', { pane, cols, rows }, { timeoutMs: 3000 });
     // The shell's first prompt (shell integration); without it, a quiet moment.
     const w = await d.c.request('pane.wait', { pane, prompt: true, since: 0, timeout_ms: 4000 }, { timeoutMs: 6000 });
-    if (w.condition === 'timeout') await d.c.request('pane.wait', { pane, quiet_ms: 300, timeout_ms: 3000 }, { timeoutMs: 5000 });
+    at.prompt = Date.now() - t0;
+    at.promptBy = w.condition;
+    if (w.condition === 'timeout') { await d.c.request('pane.wait', { pane, quiet_ms: 300, timeout_ms: 3000 }, { timeoutMs: 5000 }); at.quiet = Date.now() - t0; }
     await d.c.request('pane.send', { pane, input: [{ text: line, mode: 'paste' }, { key: 'Enter' }] }, { timeoutMs: 6000 });
+    at.typed = Date.now() - t0;
   } catch (e) {
     return { ok: false, err: `the pane opened but the command was not typed: ${e.message}`, surfaceId: made.surfaceId };
   }
-  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine };
+  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine, timing: at };
 }
 
 // A page's run button (server/pages.mjs): an approve checkpoint on this

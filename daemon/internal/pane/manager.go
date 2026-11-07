@@ -222,12 +222,10 @@ func (m *Manager) Update(id string, name *string, labels map[string]*string) (In
 	return info, nil
 }
 
-// LoginShell is the user's shell as panes see it ($SHELL, else /bin/sh).
+// LoginShell is the user's shell as panes see it ($SHELL, else the
+// account's login shell, else /bin/sh).
 func (m *Manager) LoginShell() string {
-	if sh := envValue("SHELL", nil, m.o.Env); sh != "" {
-		return sh
-	}
-	return "/bin/sh"
+	return loginShell(nil, m.o.Env)
 }
 
 // Get returns a pane by id.
