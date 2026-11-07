@@ -1203,7 +1203,9 @@ function tabForSession(key: string, pane?: string): string {
   const p = (f ? paneOf(f.session) : null) || pane || null;
   const had = S.tabs.find((t) => (t.kind === 'session' && t.key === key) || (!!p && t.kind === 'shell' && t.pane === p));
   if (had) { if (had.kind === 'session' && pane && !had.pane) had.pane = pane; return had.id; }
-  const t: SessionTab = { id: pinId(key), kind: 'session', key, ...(pane ? { pane } : {}) };
+  // Its id from its key, unless a tab (renamed since) already has that one.
+  const id = S.tabs.some((x) => x.id === pinId(key)) ? `${pinId(key)}#${Date.now().toString(36)}` : pinId(key);
+  const t: SessionTab = { id, kind: 'session', key, ...(pane ? { pane } : {}) };
   S.tabs.push(t);
   return t.id;
 }
@@ -1935,7 +1937,6 @@ async function handOff(p: HubProject, s: HubSession): Promise<void> {
 function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
-  moveStates();
   // A session that kept its id but changed its key keeps its place: the
   // middle, its pinned tab and the panel follow it.
   const moved = rekeyed(prev, next);
@@ -1950,6 +1951,8 @@ function onHubState(next: HubState): void {
     if (elseLast && moved.has(elseLast.key)) elseLast.key = moved.get(elseLast.key)!;
     save();
   }
+  // A move done since (after the tabs took their sessions' new keys).
+  moveStates();
   pages.update((next as { pages?: NavRow[] }).pages);
   machinesSaid((next as { machines?: MachineView[] }).machines);
   // A session the start screen just started: the view follows it once listed.
