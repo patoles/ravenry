@@ -24,6 +24,7 @@
 // for everything the app reads there.
 
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,7 +34,7 @@ import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
 import { HubFeed, hubAnswer, hubCall, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
-import { dataRoot, ensureService, launchctlBin, pruneVersions, readBuildInfo, removeService, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
+import { dataRoot, ensureService, updateAttempt, launchctlBin, pruneVersions, readBuildInfo, removeService, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
 import type { Staged } from './install.ts';
 import { launchPlan, offerFor, runScript, scriptPath } from './npmswitch.ts';
 import type { NpmDetect, Offer } from './npmswitch.ts';
@@ -216,6 +217,8 @@ function ipc(): void {
     return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
   });
   ipcMain.handle('store:get', () => store.get());
+  // "Try again" on an update that stopped after 3 tries: the count starts over.
+  ipcMain.on('update:retry', () => { store.set({ update: null }); if (lastStaged && !retrying) { retrying = true; appLog('launch: update tried again from the window'); void setUpService(lastStaged).finally(() => { retrying = false; }); } });
   ipcMain.on('store:set', (_e, patch: Record<string, unknown>) => store.set(patch));
   ipcMain.on('focus-window', () => {
     if (!win || OFFSCREEN) return;
@@ -282,7 +285,10 @@ function serviceRun(cmd: string, args: string[]): { status: number | null; out: 
   return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
 }
 
+let lastStaged: Staged | null = null;
+let retrying = false;
 async function setUpService(staged: Staged, opts: { port?: number; restart?: boolean } = {}): Promise<void> {
+  lastStaged = staged;
   const mode = serviceMode(process.env, app.isPackaged);
   const run = serviceRun;
   try {
@@ -293,9 +299,25 @@ async function setUpService(staged: Staged, opts: { port?: number; restart?: boo
     // The npm board's port when it ran on another (PORT=4700 ravenry).
     const env = opts.port && opts.port !== 4600 ? { ...process.env, PORT: String(opts.port) } : process.env;
     const port = opts.port || Number(new URL(hubUrl()).port) || 4600;
-    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged, env }), run, boardAnswers, restart: opts.restart, answers: () => hubAnswers(port, 30000) });
+    // An update (the service runs another version's hub): each attempt is
+    // said in app.log; after 3 failures in a row it stops, and the window
+    // says why. A success clears the count.
+    let before: string | null = null;
+    try { before = fs.readFileSync(serviceFile(), 'utf8'); } catch { /* none yet */ }
+    const updating = mode !== 'off' && mode !== 'dry-run' && !!before && !before.includes(`${path.sep}versions${path.sep}${staged.version}${path.sep}`);
+    const rec = (store.get().update || null) as { version?: string; attempts?: number; why?: string } | null;
+    const { attempt, stop } = updateAttempt(rec, staged.version);
+    if (updating && stop) {
+      appLog(`launch: update to ${staged.version} stopped after 3 failed attempts: ${rec?.why || ''}`);
+      send('command', 'update-stopped', `The update to ${staged.version} did not start after 3 tries (${rec?.why || 'the new hub did not answer'}), so Ravenry keeps the hub that runs now.`);
+      return;
+    }
+    if (updating) appLog(`launch: update to ${staged.version}, attempt ${attempt}`);
+    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged, env }), run, boardAnswers, restart: opts.restart, answers: () => newHubAnswers(port) });
     const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
     appLog(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
+    if (updating) store.set({ update: r.state === 'failed' ? { version: staged.version, attempts: attempt, why: r.why || '' } : null });
+    if (updating && r.state === 'failed' && attempt >= 3) send('command', 'update-stopped', `The update to ${staged.version} did not start after 3 tries (${r.why || 'the new hub did not answer'}), so Ravenry keeps the hub that runs now.`);
     // An older version's folder goes only once this build's hub runs: never
     // after a failed update, whose fallback runs from it.
     if (r.state === 'failed') return;
@@ -321,6 +343,28 @@ async function setUpService(staged: Staged, opts: { port?: number; restart?: boo
 
 // Whether a hub answers on this port within `ms`: any HTTP answer counts (a
 // hub waiting for macOS's privacy answer says 503 and is alive).
+// The new hub after an update: up to 60 s for it to listen (a first launch
+// of a fresh copy waits on macOS's checks), then 30 s from its listen for
+// any HTTP answer. The 30 s used to count from the bootstrap, so a hub that
+// took long to start used part of them before it could answer.
+async function newHubAnswers(port: number): Promise<boolean> {
+  const t0 = Date.now();
+  const open = () => new Promise<boolean>((r) => {
+    const s = net.connect(port, '127.0.0.1');
+    const done = (v: boolean) => { s.destroy(); r(v); };
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+    s.setTimeout(1000, () => done(false));
+  });
+  let listening = false;
+  while (!listening && Date.now() - t0 < 60000) { listening = await open(); if (!listening) await new Promise((r) => setTimeout(r, 250)); }
+  if (!listening) { appLog('service: the new hub did not listen within 60 s'); return false; }
+  const at = Date.now();
+  const ok = await hubAnswers(port, 30000);
+  appLog(`service: the new hub listened ${at - t0} ms after it started${ok ? ` and answered ${Date.now() - at} ms after that` : ', and did not answer within 30 s of it'}`);
+  return ok;
+}
+
 async function hubAnswers(port: number, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -510,7 +554,13 @@ app.whenReady().then(async () => {
 });
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-app.on('activate', () => { if (!win && app.isReady()) win = createWindow(); });
+app.on('activate', () => {
+  if (!win && app.isReady()) win = createWindow();
+  // The app still ran (its window closed): coming back to it is a launch
+  // too for an update that failed, so it is tried again (counted, logged).
+  const rec = (store?.get().update || null) as { attempts?: number } | null;
+  if (rec && (rec.attempts || 0) < 3 && lastStaged && !retrying) { retrying = true; void setUpService(lastStaged).finally(() => { retrying = false; }); }
+});
 app.on('window-all-closed', () => { if (!isMac || OFFSCREEN) app.quit(); });
 app.on('before-quit', () => { store?.flush(); feed?.stop(); updates.stop(); });
 // A quit while the service is being set up (an AppImage copying its

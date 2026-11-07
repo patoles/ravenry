@@ -42,6 +42,8 @@ export interface RavenryApi {
   copyText(text: string): void;
   /** The clipboard's text (a test's own text offscreen, never the real clipboard). */
   readClipboard(): Promise<string>;
+  /** An update that stopped after 3 tries: try it again. */
+  retryUpdate(): void;
   /** A hub call whose answer is read whatever its status. */
   hubCall(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   focusWindow(): void;

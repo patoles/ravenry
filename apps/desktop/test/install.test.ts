@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  dataRoot, ensureService, launchctlBin, plistText, pruneVersions, removeService, runtimeSource, selfUpdating, serviceFile, serviceMode,
+  dataRoot, ensureService, updateAttempt, launchctlBin, plistText, pruneVersions, removeService, runtimeSource, selfUpdating, serviceFile, serviceMode,
   serviceSpec, stageRuntime, stageVersion, unitText,
 } from '../src/main/install.ts';
 import type { Runner } from '../src/main/install.ts';
@@ -362,4 +362,13 @@ test('ensureService on macOS, from each way the service came to be: it ends load
     assert.match(String(ld.loaded()), /0\.1\.1\+good/);
     assert.match(fs.readFileSync(serviceFile(platform, home, {}), 'utf8'), /0\.1\.1\+good/);
   }
+});
+
+test('a failed update is tried again, counting, and stops after 3 failures in a row', () => {
+  assert.deepEqual(updateAttempt(null, '0.1.12'), { attempt: 1, stop: false });
+  assert.deepEqual(updateAttempt({ version: '0.1.12', attempts: 1 }, '0.1.12'), { attempt: 2, stop: false });
+  assert.deepEqual(updateAttempt({ version: '0.1.12', attempts: 2 }, '0.1.12'), { attempt: 3, stop: false });
+  assert.deepEqual(updateAttempt({ version: '0.1.12', attempts: 3 }, '0.1.12'), { attempt: 3, stop: true });
+  // Another version: a fresh count.
+  assert.deepEqual(updateAttempt({ version: '0.1.11', attempts: 3 }, '0.1.12'), { attempt: 1, stop: false });
 });

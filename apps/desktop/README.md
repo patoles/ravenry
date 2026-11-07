@@ -349,6 +349,13 @@ the app quits, or at once from the menu (Ravenry > Check for Updates on
 macOS, Help on Linux). A .deb does not update itself and says so there.
 A Mac update needs a signed app: an unsigned build cannot update.
 
+**A failed update is tried again.** When the new hub does not answer, the
+service that ran before is loaded again, and the next launch (or the app
+coming back to the front) tries the update again: app.log says `launch:
+update to X, attempt N`. After 3 failures in a row it stops, and the window
+says why, with Try again. The 30 s the new hub has to answer count from its
+listen (it has 60 s to start listening), not from the bootstrap.
+
 **An update never ends a session.** Sessions live in ravenryd, not in the
 app. On the next launch the new version's ravenryd starts beside the old
 one: new panes go to it, and the old one keeps its panes and exits once

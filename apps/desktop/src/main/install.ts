@@ -604,3 +604,19 @@ export function removeService(opts: { mode: ServiceMode; run: Runner; platform?:
   if (platform === 'linux' && !dry) run('systemctl', ['--user', 'daemon-reload']);
   return { state: 'skipped', file, why: 'removed', commands };
 }
+
+// ------------------------------------------------------------ update attempts
+
+/** The record of an update that has not started yet (in the app's store). */
+export interface UpdateRecord { version?: string; attempts?: number; why?: string }
+
+/**
+ * Whether to try the update to `version` now, and which attempt it is: a
+ * failed update is tried again at each launch (and when the app comes back
+ * to the front after one), counting; after 3 failures in a row it stops.
+ * A record for another version starts the count again.
+ */
+export function updateAttempt(rec: UpdateRecord | null, version: string): { attempt: number; stop: boolean } {
+  const before = rec && rec.version === version ? rec.attempts || 0 : 0;
+  return before >= 3 ? { attempt: before, stop: true } : { attempt: before + 1, stop: false };
+}
