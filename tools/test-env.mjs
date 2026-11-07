@@ -28,6 +28,11 @@
 // through node:child_process that is ravenryd, the hub or the app is
 // checked with the environment it is given, so no tool can forget.
 //
+// Nothing left running: guardSpawns() also stops, when the tool ends (its
+// end, an uncaught error, process.exit, SIGINT, SIGTERM or SIGHUP), every
+// ravenryd, hub and app it started, and every ravenryd still listening in
+// their runtime folders (reapStarted; hub/tools/reap-test.mjs).
+//
 // launchd: a test never runs the real launchctl, which would load a job
 // (a hub, a board) into the person's own session whatever HOME says.
 // guardSpawns() refuses /bin/launchctl, and an app that would install its
@@ -280,6 +285,54 @@ function check(file, args, opts) {
   const kind = childKind(file, args, env);
   if (kind) assertTestEnv(env, `${NAMES[kind]} (${path.basename(String(file))}${args && args.length ? ' ' + args.slice(0, 2).join(' ') : ''})`, { app: kind === 'app' });
   checkTerminal(file, args, env, kind);
+  return { kind, env };
+}
+
+// ------------------------------------------------------------ nothing left running
+// On 2026-11-07 five test daemons and a test hub from runs the day before
+// were still running: a tool stopped by a signal or a time-out never ran its
+// own clean-up. So guardSpawns() also remembers every ravenryd, hub and app
+// a tool starts, and the runtime folder each was given, and when the tool
+// ends (its last line, an uncaught error, process.exit, or SIGINT, SIGTERM
+// or SIGHUP) stops them: each child, then every ravenryd still listening in
+// those runtime folders (one a hub or `serve --detach` started is not the
+// tool's child). Only a test's folder is ever looked in.
+const started = new Set();   // child processes: ravenryd, hubs, apps
+const runtimes = new Set();  // RAVENRY_RUNTIME_DIR of each
+let origSync = null;         // execFileSync before the guard
+let reaped = false;
+
+function remember(kind, env, child) {
+  if (!kind) return;
+  if (child && typeof child.kill === 'function' && child.pid) started.add(child);
+  const rt = env && env.RAVENRY_RUNTIME_DIR;
+  if (rt && isTestPath(rt, env)) runtimes.add(path.resolve(rt));
+}
+
+/** The ravenryd processes listening in a runtime folder (lsof on its sockets). */
+function daemonsIn(dir) {
+  const out = new Set();
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.sock')); } catch { return out; }
+  for (const n of names) {
+    let pids = '';
+    try { pids = origSync('lsof', ['-t', '--', path.join(dir, n)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }); } catch (e) { pids = (e && e.stdout) || ''; }
+    for (const p of String(pids).split(/\s+/).map(Number).filter((x) => x > 0 && x !== process.pid)) {
+      let comm = '';
+      try { comm = origSync('ps', ['-o', 'comm=', '-p', String(p)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).trim(); } catch { continue; }
+      if (/^ravenryd/.test(path.basename(comm))) out.add(p);
+    }
+  }
+  return out;
+}
+
+/** Stops every ravenryd, hub and app this tool started. Safe to call twice. */
+export function reapStarted() {
+  if (reaped) return;
+  reaped = true;
+  for (const c of started) { if (c.exitCode === null && c.signalCode === null) { try { c.kill('SIGTERM'); } catch { /* gone */ } } }
+  if (!origSync) return;
+  for (const dir of runtimes) for (const pid of daemonsIn(dir)) { try { process.kill(pid, 'SIGTERM'); } catch { /* gone */ } }
 }
 
 let guarded = false;
@@ -296,22 +349,30 @@ export function guardSpawns() {
   // Children that inherit this process's environment read the stand-in.
   for (const k of ['MC_PS_BIN', 'MC_LSOF_BIN']) if (!stubbed(process.env[k])) process.env[k] = STUB_PS;
   const cp = createRequire(import.meta.url)('node:child_process');
+  origSync = cp.execFileSync;
   const split = (args, opts) => (Array.isArray(args) ? [args, opts] : [[], args]);
   for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync']) {
     const orig = cp[name];
     cp[name] = function guardedChild(file, a, b, ...rest) {
       const [args, opts] = split(a, b);
-      if (opts && opts.shell) check('/bin/sh', ['-c', [file, ...args].join(' ')], opts);
-      else check(file, args, opts);
-      return orig.call(this, file, a, b, ...rest);
+      const c = opts && opts.shell ? check('/bin/sh', ['-c', [file, ...args].join(' ')], opts) : check(file, args, opts);
+      const r = orig.call(this, file, a, b, ...rest);
+      remember(c.kind, c.env, name === 'spawn' || name === 'execFile' ? r : null);
+      return r;
     };
   }
   const fork = cp.fork;
   cp.fork = function guardedFork(mod, a, b, ...rest) {
     const [args, opts] = split(a, b);
-    check(process.execPath, [String(mod), ...args], opts);
-    return fork.call(this, mod, a, b, ...rest);
+    const c = check(process.execPath, [String(mod), ...args], opts);
+    const r = fork.call(this, mod, a, b, ...rest);
+    remember(c.kind, c.env, r);
+    return r;
   };
+  process.on('exit', reapStarted);
+  for (const [sig, n] of [['SIGINT', 2], ['SIGTERM', 15], ['SIGHUP', 1]]) {
+    process.on(sig, () => { reapStarted(); process.exit(128 + n); });
+  }
   for (const name of ['exec', 'execSync']) {
     const orig = cp[name];
     cp[name] = function guardedExec(command, opts, ...rest) {

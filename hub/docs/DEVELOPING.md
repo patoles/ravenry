@@ -1033,6 +1033,10 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   conversation); its process ended and Continue in Ravenry in a real pane
   (docs/TERMINALS.md, Sessions in other terminals). Without RAVENRYD_BIN
   the resume is skipped. Touches only `.tmp/`.
+- `RAVENRYD_BIN=../daemon/ravenryd node tools/reap-test.mjs`: every
+  ravenryd and hub a test tool starts stops when the tool ends, by a
+  signal, an uncaught error or process.exit (tools/test-env.mjs,
+  reapStarted), the one `serve --detach` started too.
 - `node tools/iterm-mode-test.mjs`: iTerm2 mode and `npm run iterm`
   (above, "The board in iTerm2"): which terminal the board drives from
   where it was started, the Ravenry tab against `tools/fake-iterm.mjs`
