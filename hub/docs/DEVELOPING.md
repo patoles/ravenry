@@ -1222,3 +1222,30 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   model on test boards (`MC_PLAN_COMMAND`). Env for tests:
   `MC_ALERT_ALLOW_TEST=1` lets a test board alert on its own `mc-test`
   workspace.
+
+## The hub answers at once after it listens
+
+A first tick on a real set of projects (23 of them, tens of thousands of
+files each, plan files in docs/) held the main thread for 30 to 50 s on
+2026-11-07: plans.mjs ran two synchronous git commands per plan file. So the
+0.1.11 update rolled back (the new hub printed its listen line and answered
+nothing for 30 s). Now:
+
+- No git or other process runs synchronously on the tick: plans.mjs reads a
+  folder's git facts in three background runs for all its plan files (the
+  file's modified time stands in until they answer), handoff.mjs finds a
+  repository by its .git instead of `git rev-parse`.
+- The tick gives the event loop back every 50 ms: while it reads each
+  session's work folder from its transcript (a first read of a big one
+  takes a while), while it builds the projects, and while it builds the
+  Sessions view.
+- `/api/state` answers 503 "starting" until the first state is built
+  (whoami and the rest answer as always).
+
+`hub/tools/startup-load-test.mjs` builds a made-up set of the same size and
+fails if the first answer comes over 1 s after the listen line, if any
+answer in the first 30 s takes over 1 s, or if the state is not ready
+within 10 s; the release check runs it on the packaged hub (step 12).
+Measured on a copy of a real board's data (its ~/.ravenry and 7.1 GB of
+transcripts, with stand-in project folders): the first answer 6 ms after
+listen, the slowest 674 ms, the state at 252 ms; before, 49.6 s.

@@ -26,7 +26,7 @@ import * as rules from './rules.mjs';
 import * as repeats from './repeats.mjs';
 import * as rulefiles from './rulefiles.mjs';
 import { shipView } from './ship.mjs';
-import { plansFor } from './plans.mjs';
+import { plansFor, onGitAnswer } from './plans.mjs';
 import { ownerOf, repoRoot, isBroadFolder } from './folders.mjs';
 import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
@@ -1184,13 +1184,37 @@ async function tick() {
     picBudget = 3;
     loose = looseSessions(evAll);
     // An unowned workspace is on the board only while a session runs in it.
-    const build = () => [...reg.projects.filter((p) => !p.hidden), ...loose, ...unowned].map((p) => buildProject(p, wsById, hooks, settings, now)).filter((p) => !p.unowned || p.sessions.length);
-    let projects = build();
-    if (noticeWritten(projects)) { boardTabs = []; projects = build(); }
+    // Each session's work folder (from its transcript's tool calls; read in
+    // full once, then only what was added): read here, one session at a
+    // time, giving the event loop back every 50 ms; every project's build
+    // below asks for all of them, and the first one used to read them all
+    // at once (seconds on big transcripts).
+    {
+      let slice = Date.now();
+      for (const e of evAll.values()) {
+        const tp = transcriptOf(e);
+        if (tp) { try { realFolder(tp, e); } catch { /* read again in the build */ } }
+        if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+      }
+    }
+    // Project by project, giving the event loop back every 50 ms: the
+    // board answers HTTP while a big set of projects is read (2026-11-07,
+    // a first tick held the main thread for tens of seconds).
+    const build = async () => {
+      const out = [];
+      let slice = Date.now();
+      for (const p of [...reg.projects.filter((x) => !x.hidden), ...loose, ...unowned]) {
+        out.push(buildProject(p, wsById, hooks, settings, now));
+        if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+      }
+      return out.filter((p) => !p.unowned || p.sessions.length);
+    };
+    let projects = await build();
+    if (noticeWritten(projects)) { boardTabs = []; projects = await build(); }
     if (cmuxOk) lastWorkspaces = workspaces;
     if (tickNo <= 3) console.log(`tick ${tickNo}: ${Date.now() - now} ms, ${Math.round(process.uptime() * 1000)} ms after start`);
     let sessionsView;
-    try { sessionsView = buildSessions(cmuxOk ? workspaces : [], hooks, settings, now, projects); } catch (e) {
+    try { sessionsView = await buildSessions(cmuxOk ? workspaces : [], hooks, settings, now, projects); } catch (e) {
       console.error('sessions view:', e.message);
       sessionsView = { at: procState.at, error: String(e.message || e), idleHours: Number(settings.idleHours) || 24, totalKb: 0, count: 0, idleCount: 0, idleKb: 0, rows: [], closed: [], result: null, closing };
     }
@@ -1338,7 +1362,9 @@ function mixOf(st, waitingOn) {
 }
 
 // One row per claude process, grouped the way the Sessions page shows them.
-function buildSessions(workspaces, hooks, settings, now, projects) {
+// Async only to give the event loop back every 50 ms: the first read of a
+// session's transcripts (its work folder) takes a while on big ones.
+async function buildSessions(workspaces, hooks, settings, now, projects) {
   const where = new Map();
   for (const w of workspaces) for (const s of w.surfaces) where.set(s.id, { w, s, kind: 'cmux' });
   // A process in an iTerm2 session or a Rex pane (ITERM_SESSION_ID or
@@ -1353,7 +1379,9 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
   const boardTab = new Map(boardTabs.filter((b) => b.s.terminal !== false).map((b) => [b.s.surfaceId, { sessionId: b.s.sessionId, method: b.s.method }]));
   const bySid = new Map(boardTabs.filter((b) => b.s.sessionId).map((b) => [b.s.sessionId, b]));
   const rows = [];
+  let slice = Date.now();
   for (let p of procState.procs) {
+    if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
     // A process a move ended is gone, even before the process list says so.
     if (endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
     const otherKind = p.surfaceId ? null : p.ravenryId ? 'ravenry' : p.rexId ? 'rex' : p.itermId ? 'iterm' : null;
@@ -3309,7 +3337,10 @@ async function handleRequest(req, res) {
       if (await refusedAsPerson(req, res, p)) return;
       return sendJson(res, 426, { error: 'Open /api/term as a WebSocket with the subprotocol ravenry.v1.' });
     }
-    if (req.method === 'GET' && p === '/api/state') return sendJson(res, 200, snapshot);
+    // Before its first state is built (a second or two, whatever the data):
+    // 503 "starting", at once, never a held request (the app counts any
+    // answer as the hub being up; docs in server/access.mjs's 503 too).
+    if (req.method === 'GET' && p === '/api/state') return snapshot.generatedAt ? sendJson(res, 200, snapshot) : sendJson(res, 503, { ...snapshot, starting: true, waitingFor: null, folder: null, error: 'Ravenry is starting: reading your projects.' });
     if (req.method === 'GET' && p === '/api/decisions') {
       // The ledger, newest first (server/decisions.mjs): an open read, so an
       // agent checks it before asking. project: an id, a name or a folder.
@@ -3806,6 +3837,9 @@ server.listen(PORT, () => {
 });
 tick();
 setInterval(tick, TICK_MS);
+// A plan file's git facts came in (server/plans.mjs reads them in the background).
+let gitSoon = null;
+onGitAnswer(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
 // The processes at once, so a session in a pane (one made before an update
 // too) is tied to it in the first seconds, not at the minute's refresh.
 refreshProcs();

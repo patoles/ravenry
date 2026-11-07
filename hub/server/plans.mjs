@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { slug } from './registry.mjs';
 
 // Root files: PLAN.md, PLAN-TV.md, REVIEW-PLAN.md, ROADMAP.md, TODO.md, TASKS.md.
@@ -77,28 +77,74 @@ function candidates(folder) {
   return out;
 }
 
+// git, never on the board's main thread: two synchronous git runs per plan
+// file held the hub's first tick for 49 s on a real set of projects
+// (2026-11-07, the 0.1.11 update that rolled back). A few at a time, in the
+// background; the file's modified time stands in until they answer, and
+// `onGit` hears when one did (the board builds its state again).
+let onGit = () => {};
+export function onGitAnswer(fn) { onGit = fn; }
+const gitQueue = [];
+let gitRunning = 0;
+const GIT_AT_ONCE = 3;
 function git(folder, args) {
-  try {
-    return execFileSync('git', ['-C', folder, ...args], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch { return null; }
+  return new Promise((resolve) => {
+    gitQueue.push(() => new Promise((finished) => execFile('git', ['-C', folder, ...args], { encoding: 'utf8', timeout: 4000 }, (err, out) => { resolve(err ? null : String(out).trim()); finished(); })));
+    pump();
+  });
+}
+function pump() {
+  while (gitRunning < GIT_AT_ONCE && gitQueue.length) {
+    const run = gitQueue.shift();
+    gitRunning++;
+    run().catch(() => {}).then(() => { gitRunning--; pump(); });
+  }
 }
 
-// Committed and unchanged: the last commit's time. Changed or never
-// committed: the file's own modified time.
-function updatedAt(folder, f, st, entry, now) {
-  if (!entry.gitAt || now - entry.gitAt > GIT_MS || entry.mtimeMs !== st.mtimeMs) {
-    const rel = path.relative(folder, f);
-    const ct = git(folder, ['log', '-1', '--format=%ct', '--', rel]);
-    const dirty = git(folder, ['status', '--porcelain', '--', rel]);
-    entry.commitAt = ct ? Number(ct) * 1000 : null;
-    entry.dirty = dirty == null ? true : dirty !== '';
-    entry.gitAt = now;
+// A folder's git facts for its plan files, three runs for all of them
+// (never two per file: thousands of spawns on a big set of projects):
+// each file's last commit time, and which ones changed or are new.
+const folderGit = new Map(); // folder -> { at, asking, key, commit: Map(rel -> ms), dirty: Set(rel) }
+function gitFacts(folder, rels, now) {
+  let g = folderGit.get(folder);
+  if (!g) { g = { at: 0, asking: false, key: '', commit: new Map(), dirty: new Set() }; folderGit.set(folder, g); }
+  const key = rels.join('\n');
+  if (rels.length && !g.asking && (!g.at || now - g.at > GIT_MS || g.key !== key)) {
+    g.asking = true;
+    g.key = key;
+    Promise.all([
+      git(folder, ['log', '--format=%x01%ct', '--name-only', '--relative', '-n', '500', '--', ...rels]),
+      git(folder, ['diff', '--name-only', '--relative', 'HEAD', '--', ...rels]),
+      git(folder, ['ls-files', '-o', '--exclude-standard', '--', ...rels]),
+    ]).then(([log, changed, untracked]) => {
+      const commit = new Map();
+      let t = null;
+      for (const line of String(log || '').split('\n')) {
+        if (line.startsWith('\x01')) t = Number(line.slice(1)) * 1000;
+        else if (line && t && !commit.has(line)) commit.set(line, t);
+      }
+      g.commit = commit;
+      // No HEAD yet (or git failed): every file counts as changed.
+      g.dirty = changed == null ? new Set(rels) : new Set([...changed.split('\n'), ...String(untracked || '').split('\n')].filter(Boolean));
+      g.at = Date.now();
+      g.asking = false;
+      onGit();
+    });
   }
-  const at = entry.commitAt && !entry.dirty ? entry.commitAt : st.mtimeMs;
+  return g;
+}
+
+// Committed and unchanged: the last commit's time. Changed, never
+// committed, or git not answered yet: the file's own modified time.
+function updatedAt(folder, f, st, g) {
+  const rel = path.relative(folder, f);
+  // Changed since git looked: the file's time, whatever git said then.
+  const commitAt = g && g.at && st.mtimeMs <= g.at ? g.commit.get(rel) : null;
+  const at = commitAt && !g.dirty.has(rel) ? commitAt : st.mtimeMs;
   return new Date(at).toISOString();
 }
 
-function readPlan(folder, f, now) {
+function readPlan(folder, f, g) {
   let st;
   try { st = fs.statSync(f); } catch { files.delete(f); return null; }
   let e = files.get(f);
@@ -106,12 +152,12 @@ function readPlan(folder, f, now) {
     let md = '';
     try { md = fs.readFileSync(f, 'utf8'); } catch { return null; }
     const prev = e;
-    e = { mtimeMs: st.mtimeMs, size: st.size, count: countBoxes(md), title: planTitle(md, f), gitAt: prev ? prev.gitAt : 0, commitAt: prev ? prev.commitAt : null, dirty: prev ? prev.dirty : true };
-    if (prev && prev.mtimeMs !== st.mtimeMs) e.gitAt = 0;
+    e = { mtimeMs: st.mtimeMs, size: st.size, count: countBoxes(md), title: planTitle(md, f) };
+    void prev;
     files.set(f, e);
   }
   if (!e.count.total) return null;
-  return { file: f, source: path.relative(folder, f), title: e.title, done: e.count.done, total: e.count.total, updatedAt: updatedAt(folder, f, st, e, now) };
+  return { file: f, source: path.relative(folder, f), title: e.title, done: e.count.done, total: e.count.total, updatedAt: updatedAt(folder, f, st, g) };
 }
 
 export function folderPlans(folder, now = Date.now()) {
@@ -121,7 +167,8 @@ export function folderPlans(folder, now = Date.now()) {
     c = { at: now, list: candidates(folder) };
     folders.set(folder, c);
   }
-  return c.list.map((f) => readPlan(folder, f, now)).filter(Boolean)
+  const g = gitFacts(folder, c.list.map((f) => path.relative(folder, f)), now);
+  return c.list.map((f) => readPlan(folder, f, g)).filter(Boolean)
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 

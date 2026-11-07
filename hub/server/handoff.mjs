@@ -15,7 +15,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { RAVENRY_HOME, REGISTRY_PATH, DEFAULT_SETTINGS } from './registry.mjs';
 import { sessionFolder, ownerOf, isBroadFolder } from './folders.mjs';
 
@@ -115,10 +114,18 @@ function readAt(file, from, n) {
   } catch { return null; } finally { fs.closeSync(fd); }
 }
 
+// The repository a folder is in: the nearest folder up with a .git (a
+// folder, or a worktree's file). No git process: this runs on the board's
+// tick, and a spawn per session held the main thread (2026-11-07).
 function gitRootLocal(dir) {
-  try {
-    return execFileSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
-  } catch { return null; }
+  let d = dir ? path.resolve(dir) : null;
+  for (let i = 0; d && i < 64; i++) {
+    try { fs.statSync(path.join(d, '.git')); return d; } catch { /* not here */ }
+    const up = path.dirname(d);
+    if (up === d) break;
+    d = up;
+  }
+  return null;
 }
 
 export const localIo = {
