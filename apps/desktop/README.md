@@ -156,6 +156,35 @@ picks:
   it is done ("Done. 3 files to review" in the sidebar) and, after the
   merge, Undo the merge and Delete the branch.
 
+## Sessions in other terminals
+
+A session the person runs in cmux, iTerm2, Rex or another terminal shows
+in the middle as its discussion, read only (`renderElsewhere` in
+`src/renderer/app.ts`):
+
+- **Live** when the hub reads that terminal: the hub's Live screen
+  (`GET /api/live`), drawn as the board draws it (what was asked, the
+  answers, the tools), every 1.5 s.
+- **From its transcript** when it cannot: one line says why (cmux lets
+  only programs it started read its tabs, and launchd starts the app's
+  hub; hub/docs/TERMINALS.md, Sessions in other terminals), then its last
+  turns.
+- **Open in cmux** (iTerm2, Rex) brings its tab forward, or the cmux app
+  when cmux refuses the hub.
+- **Continue in Ravenry** resumes it in a pane here (`POST
+  /api/sessions/resume`: `claude --resume <id>`, `codex resume <id>`) once
+  its process there has ended; while it runs, the button is off and one
+  line says to close it there first. The hub never ends it and never runs
+  two processes on one session. When it ends there, the button turns on
+  by itself, also when its last hook event takes it off the board.
+
+A session whose tab the hub finds or loses keeps its place: the middle,
+its pinned tab and the panel follow its new key (`rekeyed` in
+`model.ts`), and it is not taken for an arrival.
+
+The panel's brief shows each field in about four lines, with Show all and
+Show less.
+
 ## The back end it uses
 
 - **Plain shells** are panes labelled `ravenry.kind: shell` (and
@@ -194,7 +223,10 @@ Nothing outside the user's own folders, and nothing as root.
   runs from a folder it mounts only while it runs, and its launcher adds
   `--no-sandbox`, which Node refuses, so its hub runs a copy of the
   Electron runtime kept in `versions/<version>/runtime`. Written on
-  first launch, rewritten and restarted when the app changes. While the
+  first launch, rewritten and restarted when the app changes: its file
+  names the build (`RAVENRY_APP_BUILD`, build.json's id), so a rebuilt
+  package of the same version restarts the hub too, which would
+  otherwise keep serving the old build's code. While the
   npm board is here (below), nothing is installed and the app shows that
   board. `RAVENRY_SERVICE=off` turns it off; `dry-run` writes the file and
   runs no launchctl or systemctl.
@@ -321,6 +353,7 @@ RAVENRYD=../../daemon/ravenryd node tools/checkpoint-shots.mjs out   # the check
 RAVENRYD=<new build> RAVENRYD_OLD=<older build> node tools/machines-shots.mjs out   # the Machines page, from real installs behind a fake ssh
 RAVENRYD=../../daemon/ravenryd node tools/pages-test.mjs out [light|dark]   # the pages, end to end, and every frame of their picture
 RAVENRYD=../../daemon/ravenryd node tools/phase2-shots.mjs out   # the Phase 2 screens in dark and light, from stand-in agents in real panes
+RAVENRYD=../../daemon/ravenryd node tools/outside-shots.mjs out  # a session in cmux (live, refused, ended) and the brief's fold, dark and light
 ```
 
 The smoke test and the screenshots never put a window on screen: the

@@ -146,6 +146,17 @@ test('ensureService: installs, keeps a current one, updates a changed one, and l
     const upd = await ensureService({ ...base, mode: 'install', spec: next, boardAnswers: async () => true });
     assert.equal(upd.state, 'updated');
     assert.match(fs.readFileSync(file, 'utf8'), /versions\/0\.2\.0/);
+
+    // The same version rebuilt (another build id): rewritten and restarted
+    // too, so the hub never keeps serving the old build.
+    const built = (id: string) => serviceSpec({ execPath: '/app/ravenry', staged: { ...staged, version: '0.2.0', hubEntry: '/d/versions/0.2.0/hub/server/index.mjs', build: id }, env: { PATH: '/usr/bin' }, platform, home });
+    assert.equal((await ensureService({ ...base, mode: 'install', spec: built('0.2.0+aaa.1') })).state, 'updated');
+    calls.length = 0;
+    assert.equal((await ensureService({ ...base, mode: 'install', spec: built('0.2.0+aaa.1') })).state, 'kept');
+    const rebuilt = await ensureService({ ...base, mode: 'install', spec: built('0.2.0+bbb.2') });
+    assert.equal(rebuilt.state, 'updated');
+    assert.match(fs.readFileSync(file, 'utf8'), /0\.2\.0\+bbb\.2/);
+    assert.ok(calls.some((c: string) => c.includes(platform === 'darwin' ? 'bootstrap gui/501' : 'restart dev.ravenry.hub.service')), calls.join('; '));
   }
 });
 

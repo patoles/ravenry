@@ -73,6 +73,8 @@ export interface Staged {
   cli: string;
   /** The hub's server, to run with node. */
   hubEntry: string;
+  /** The build staged there (build.json's id): a rebuilt package of the same version is another build. */
+  build?: string;
 }
 
 const exe = (platform: string) => (platform === 'win32' ? 'ravenryd.exe' : 'ravenryd');
@@ -94,6 +96,7 @@ export function stageVersion(opts: { resources: string; root: string; build: Bui
     link: path.join(root, 'bin', name),
     cli: path.join(root, 'bin', name.replace('ravenryd', 'ravenry')),
     hubEntry: path.join(dir, 'hub', 'server', 'index.mjs'),
+    build: build.id,
   };
   const marker = path.join(dir, '.build.json');
   let have: BuildInfo | null = null;
@@ -261,6 +264,11 @@ export function serviceSpec(opts: { execPath: string; staged: Staged; env?: Env;
     RAVENRY_HUB_SERVICE: '1',
     RAVENRY_APP_VERSION: opts.staged.version,
   };
+  // The build, so a rebuilt package of the same version changes the
+  // service's file: ensureService then rewrites it and restarts the hub,
+  // which would otherwise keep serving the old build's code from memory
+  // while versions/<version> holds the new one.
+  if (opts.staged.build) hubEnv.RAVENRY_APP_BUILD = opts.staged.build;
   for (const k of SHARED) if (env[k]) hubEnv[k] = env[k]!;
   return {
     exe: opts.execPath,
