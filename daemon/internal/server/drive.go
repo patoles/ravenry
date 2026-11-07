@@ -156,6 +156,9 @@ type who struct {
 	src    proto.Source
 	conn   *conn
 	pane   string // the agent's own pane
+	// reason: the agent's words on why, for the drive checkpoint this
+	// request opens.
+	reason string
 }
 
 // who says who this connection is when it sends input with by.
@@ -180,6 +183,17 @@ func (c *conn) who(by string) who {
 	}
 	return w
 }
+
+// checkReason checks an agent's reason for a drive: at most 1000 bytes of
+// text (new lines allowed).
+func checkReason(r string) error {
+	if len(r) > maxDriveReason || !plainText(strings.ReplaceAll(r, "\n", " ")) {
+		return bad("reason is at most %d bytes of text", maxDriveReason)
+	}
+	return nil
+}
+
+const maxDriveReason = 1000
 
 // whoKeys is who sends a display's keystrokes (binary input frames): on
 // a person's connection, the person.
@@ -364,6 +378,9 @@ func (s *Server) askToDrive(w who, p *pane.Pane, preview, action string) (*cpoin
 		s.cps.mu.Lock()
 		x := s.cps.all[id]
 		open := x != nil && x.c.State == stOpen
+		if open && w.reason != "" && x.c.Drive != nil && x.c.Drive.Reason == "" {
+			x.c.Drive.Reason = w.reason
+		}
 		s.cps.mu.Unlock()
 		if open {
 			d.mu.Unlock()
@@ -378,7 +395,7 @@ func (s *Server) askToDrive(w who, p *pane.Pane, preview, action string) (*cpoin
 	cp := proto.Checkpoint{
 		Kind:  kindDrive,
 		Title: clip(fmt.Sprintf("Let %s %s %s?", asker, actionVerb(action), target), maxTitle),
-		Drive: &proto.Drive{Pane: p.ID(), Agent: w.src, Input: clip(preview, maxPreview), Action: action},
+		Drive: &proto.Drive{Pane: p.ID(), Agent: w.src, Input: clip(preview, maxPreview), Reason: w.reason, Action: action},
 	}
 	if w.pane != "" {
 		cp.Pane = w.pane
@@ -706,6 +723,11 @@ func (c *conn) paneLease(id uint64, data []byte) {
 		return
 	}
 	w := c.who("")
+	if err := checkReason(r.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	w.reason = r.Reason
 	if r.RefuseWaiting && !c.asPerson(id, "pane.lease with refuse_waiting") {
 		return
 	}

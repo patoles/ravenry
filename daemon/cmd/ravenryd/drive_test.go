@@ -108,7 +108,7 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 	// the person, and the person lets it once.
 	link := filepath.Join(e.dir, "bin-0.2.0", "ravenry")
 	runCmd(t, e.ravenry("0.2.0", "version"))
-	agent := strings.TrimSpace(e.ok("0.2.0", "new", "--", "/bin/sh", "-c", "'"+link+"' send "+target+" --raw hi; echo exit=$?; '"+link+"' send "+target+" --raw no --no-wait; echo exit=$?; '"+link+"' close "+target+" --no-wait; echo close=$?; exec sleep 60"))
+	agent := strings.TrimSpace(e.ok("0.2.0", "new", "--", "/bin/sh", "-c", "'"+link+"' send "+target+" --raw hi --reason 'Restart it so the phone can reach it'; echo exit=$?; '"+link+"' send "+target+" --raw no --no-wait; echo exit=$?; '"+link+"' close "+target+" --no-wait; echo close=$?; exec sleep 60"))
 	var cp proto.Checkpoint
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -127,7 +127,7 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if cp.Drive.Pane != target || cp.Drive.Agent.Pane != agent || !strings.Contains(cp.Title, `"server"`) {
+	if cp.Drive.Pane != target || cp.Drive.Agent.Pane != agent || !strings.Contains(cp.Title, `"server"`) || cp.Drive.Reason != "Restart it so the phone can reach it" {
 		t.Fatalf("drive: %+v", cp)
 	}
 	e.ok("0.2.0", "checkpoint", cp.ID, "--approve")
@@ -146,7 +146,7 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 	// and a note.
 	pic := filepath.Join(e.dir, "a.png")
 	os.WriteFile(pic, []byte("\x89PNG\r\n\x1a\n"), 0o600)
-	done := startCmd(t, e.ravenry("0.2.0", "pick", "Which one?", "--variant", "A="+pic, "--variant", "B=pane:"+target))
+	done := startCmd(t, e.ravenry("0.2.0", "pick", "Which one?", "--variant", "A="+pic, "--variant", "B=pane:"+target, "--describe", "B=The server as it is now"))
 	var pk proto.Checkpoint
 	for pk.ID == "" {
 		var l proto.CheckpointListResult
@@ -161,7 +161,7 @@ func TestDriveAndPickFromTheCommandLine(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if len(pk.Variants) != 2 || pk.Variants[0].Path != pic || pk.Variants[1].Type != "image" || pk.Variants[1].Pane != target {
+	if len(pk.Variants) != 2 || pk.Variants[0].Path != pic || pk.Variants[1].Type != "image" || pk.Variants[1].Pane != target || pk.Variants[1].Description != "The server as it is now" || pk.Variants[0].Description != "" {
 		t.Fatalf("variants: %+v", pk.Variants)
 	}
 	if b, err := os.ReadFile(pk.Variants[1].Path); err != nil || !bytes.HasPrefix(b, []byte("\x89PNG")) {

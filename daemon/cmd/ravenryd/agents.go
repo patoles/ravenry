@@ -132,7 +132,7 @@ func cmdRestart(in []string) error {
 	}
 	defer c.Close()
 	var r proto.RestartResult
-	if err := callAsking(ctx, c, "pane.restart", params, &r, a.bools["no-wait"]); err != nil {
+	if err := callAsking(ctx, c, "pane.restart", withReason(a, params), &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {

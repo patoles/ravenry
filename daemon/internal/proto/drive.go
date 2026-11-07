@@ -113,6 +113,9 @@ type LeaseRequest struct {
 	// lease fail with leased instead of being handed it.
 	RefuseWaiting bool `json:"refuse_waiting,omitempty"`
 	NoWait        bool `json:"no_wait,omitempty"`
+	// Reason: the agent's own words on why, shown on the drive checkpoint
+	// this opens (at most 1000 bytes).
+	Reason string `json:"reason,omitempty"`
 }
 
 type LeaseResult struct {
@@ -274,6 +277,7 @@ type OverrideRequest struct {
 	Clear   bool    `json:"clear,omitempty"`
 	Restart bool    `json:"restart,omitempty"`
 	NoWait  bool    `json:"no_wait,omitempty"`
+	Reason  string  `json:"reason,omitempty"`
 }
 
 // ------------------------------------------------------------ checkpoints
@@ -284,6 +288,8 @@ type Drive struct {
 	Pane  string `json:"pane"`
 	Agent Source `json:"agent"`
 	Input string `json:"input,omitempty"`
+	// Reason is the agent's own words on why it asks, when it gave them.
+	Reason string `json:"reason,omitempty"`
 	// Action is what the agent asks to do to the pane: "input" (type into
 	// it), "close", "restart" or "override" (set its test conditions).
 	// Absent means input.
@@ -295,23 +301,27 @@ type Drive struct {
 type DriveRequest struct {
 	Pane   string `json:"pane"`
 	Action string `json:"action,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // Variant is one choice of a pick.
 type Variant struct {
 	Label string `json:"label"`
-	Path  string `json:"path"`
-	Type  string `json:"type"` // "image" or "html"
-	Size  int64  `json:"size"`
-	Pane  string `json:"pane,omitempty"`
+	// Description: the agent's words on this variant, at most 200 bytes.
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path"`
+	Type        string `json:"type"` // "image" or "html"
+	Size        int64  `json:"size"`
+	Pane        string `json:"pane,omitempty"`
 }
 
 // VariantRequest is a variant as checkpoint.new takes it: a file, or Pane
 // for a shot of that pane taken now.
 type VariantRequest struct {
-	Label string `json:"label"`
-	Path  string `json:"path,omitempty"`
-	Pane  string `json:"pane,omitempty"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Pane        string `json:"pane,omitempty"`
 }
 
 // Pick is a person's pick: the variant's label, optionally a region of it

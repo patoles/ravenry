@@ -1892,6 +1892,11 @@
         "drive": {
           "type": "object",
           "properties": {
+            "reason": {
+              "type": "string",
+              "maxLength": 1000,
+              "description": "The agent's own words on why it asks."
+            },
             "pane": {
               "$ref": "#/$defs/PaneId"
             },
@@ -1918,6 +1923,11 @@
           "items": {
             "type": "object",
             "properties": {
+              "description": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "The agent's words on this variant."
+              },
               "label": {
                 "type": "string",
                 "minLength": 1,
@@ -2173,6 +2183,11 @@
     "request.pane.close": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "For a pane this connection did not start: the agent's own words on why, shown on the drive checkpoint it opens."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },
@@ -2476,6 +2491,11 @@
     "request.pane.restart": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "For a pane this connection did not start: the agent's own words on why, shown on the drive checkpoint it opens."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },
@@ -2515,6 +2535,11 @@
     "request.pane.send": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "For a pane this connection did not start: the agent's own words on why, shown on the drive checkpoint it opens."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },
@@ -2553,6 +2578,11 @@
     "request.pane.settle": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "For a pane this connection did not start: the agent's own words on why, shown on the drive checkpoint it opens."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },
@@ -4976,6 +5006,11 @@
     "Drive": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "The agent's own words on why it asks, when it gave them."
+        },
         "pane": {
           "$ref": "#/$defs/PaneId"
         },
@@ -5006,6 +5041,11 @@
     "Variant": {
       "type": "object",
       "properties": {
+        "description": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "The agent's words on this variant, shown under its picture."
+        },
         "label": {
           "type": "string",
           "minLength": 1,
@@ -5309,6 +5349,11 @@
     "request.pane.lease": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "For a pane this connection did not start: the agent's own words on why, shown on the drive checkpoint it opens."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },
@@ -5911,6 +5956,11 @@
     "request.pane.override": {
       "type": "object",
       "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "For a pane this connection did not start: the agent's own words on why, shown on the drive checkpoint it opens."
+        },
         "v": {
           "$ref": "#/$defs/Version"
         },

@@ -222,6 +222,9 @@ type CloseRequest struct {
 	GraceMs *int64 `json:"grace_ms,omitempty"`
 	// NoWait: as in pane.send, for a pane this connection did not start.
 	NoWait bool `json:"no_wait,omitempty"`
+	// Reason: the agent's own words on why, shown on the drive checkpoint
+	// this opens (at most 1000 bytes).
+	Reason string `json:"reason,omitempty"`
 }
 
 type CloseResult struct {
@@ -324,6 +327,9 @@ type SendRequest struct {
 	// once (forbidden, with the checkpoint) instead of waiting for the
 	// person.
 	NoWait bool `json:"no_wait,omitempty"`
+	// Reason: the agent's own words on why, shown on the drive checkpoint
+	// this opens (at most 1000 bytes).
+	Reason string `json:"reason,omitempty"`
 }
 
 type SendResult struct {
@@ -373,6 +379,9 @@ type SettleRequest struct {
 	TimeoutMs *int64  `json:"timeout_ms,omitempty"`
 	By        string  `json:"by,omitempty"`
 	NoWait    bool    `json:"no_wait,omitempty"`
+	// Reason: the agent's own words on why, shown on the drive checkpoint
+	// this opens (at most 1000 bytes).
+	Reason string `json:"reason,omitempty"`
 }
 
 type SettleResult struct {
@@ -526,6 +535,9 @@ type RestartRequest struct {
 	GraceMs      *int64 `json:"grace_ms,omitempty"`
 	ShellCommand bool   `json:"shell_command,omitempty"`
 	NoWait       bool   `json:"no_wait,omitempty"`
+	// Reason: the agent's own words on why, shown on the drive checkpoint
+	// this opens (at most 1000 bytes).
+	Reason string `json:"reason,omitempty"`
 }
 
 type RestartResult struct {

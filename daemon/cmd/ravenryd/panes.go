@@ -278,7 +278,7 @@ func cmdSend(in []string, settle bool) error {
 	defer c.Close()
 	if !settle {
 		var r proto.SendResult
-		if err := callAsking(ctx, c, "pane.send", params, &r, a.bools["no-wait"]); err != nil {
+		if err := callAsking(ctx, c, "pane.send", withReason(a, params), &r, a.bools["no-wait"]); err != nil {
 			return err
 		}
 		if a.g.json {
@@ -288,7 +288,7 @@ func cmdSend(in []string, settle bool) error {
 		return nil
 	}
 	var r proto.SettleResult
-	if err := callAsking(ctx, c, "pane.settle", params, &r, a.bools["no-wait"]); err != nil {
+	if err := callAsking(ctx, c, "pane.settle", withReason(a, params), &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {
@@ -503,7 +503,7 @@ func cmdClose(in []string) error {
 	}
 	defer c.Close()
 	var r proto.CloseResult
-	if err := callAsking(ctx, c, "pane.close", params, &r, a.bools["no-wait"]); err != nil {
+	if err := callAsking(ctx, c, "pane.close", withReason(a, params), &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {

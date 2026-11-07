@@ -329,7 +329,12 @@ func (c *conn) driveNew(id uint64, r proto.CheckpointNewRequest) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkReason(r.Drive.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	w := c.who("")
+	w.reason = r.Drive.Reason
 	if w.person {
 		c.failErr(id, bad("a person drives every pane"))
 		return

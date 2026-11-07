@@ -244,6 +244,8 @@ export interface Drive {
   pane: PaneId;
   agent: Source;
   input?: string;
+  /** The agent's own words on why it asks, when it gave them. */
+  reason?: string;
   /** What it asks to do to the pane; absent means input. */
   action?: DriveAction;
 }
@@ -253,6 +255,8 @@ export type DriveAction = 'input' | 'close' | 'restart' | 'override';
 /** One choice of a pick: a file on the daemon's machine (a shot of `pane` when set). */
 export interface Variant {
   label: string;
+  /** The agent's words on this variant, shown under its picture. */
+  description?: string;
   path: string;
   type: 'image' | 'html';
   size: number;
@@ -481,7 +485,7 @@ export interface Methods {
   };
   'pane.list': { params: { hidden?: boolean; labels?: Labels; processes?: boolean }; result: { panes: Pane[] } };
   'pane.update': { params: { pane: PaneId; name?: string; labels?: Record<string, string | null> }; result: { pane: Pane } };
-  'pane.close': { params: { pane: PaneId; grace_ms?: number; no_wait?: boolean }; result: { pane: Pane; signalled: number } };
+  'pane.close': { params: { pane: PaneId; grace_ms?: number; no_wait?: boolean; reason?: string }; result: { pane: Pane; signalled: number } };
   'pane.resize': { params: { pane: PaneId; cols: number; rows: number }; result: { pane: Pane } };
   'pane.capture': {
     params: { pane: PaneId; styles?: boolean; history?: number; vt?: boolean };
@@ -491,7 +495,7 @@ export interface Methods {
     params: { pane: PaneId; since: Mark; limit?: number; format?: 'text' | 'raw' };
     result: ReadResult;
   };
-  'pane.send': { params: { pane: PaneId; input: Input[]; by?: string; no_wait?: boolean }; result: SendResult };
+  'pane.send': { params: { pane: PaneId; input: Input[]; by?: string; no_wait?: boolean; reason?: string }; result: SendResult };
   'pane.wait': {
     params: {
       pane: PaneId;
@@ -507,7 +511,7 @@ export interface Methods {
   };
   'pane.process': { params: { pane: PaneId }; result: { pane: PaneId; foreground: Process } };
   'pane.restart': {
-    params: { pane: PaneId; grace_ms?: number; shell_command?: boolean; no_wait?: boolean };
+    params: { pane: PaneId; grace_ms?: number; shell_command?: boolean; no_wait?: boolean; reason?: string };
     result: { pane: Pane; replaced: Pane; command?: string; mark?: Mark; stopped_by?: 'interrupt' | 'SIGTERM' | 'SIGKILL' };
   };
   'pane.focus': { params: { pane: PaneId }; result: { displays: number } };
@@ -532,7 +536,7 @@ export interface Methods {
   'agent.decisions': { params: Record<string, never>; result: Record<string, never> };
   'agent.decide': { params: { request: number; reply?: Reply }; result: Record<string, never> };
   'pane.settle': {
-    params: { pane: PaneId; input: Input[]; quiet_ms?: number; timeout_ms?: number; by?: string; no_wait?: boolean };
+    params: { pane: PaneId; input: Input[]; quiet_ms?: number; timeout_ms?: number; by?: string; no_wait?: boolean; reason?: string };
     result: { sent: SendResult; wait: WaitResult };
   };
   'pane.subscribe': {
@@ -555,8 +559,8 @@ export interface Methods {
       warning?: string;
       env?: Record<string, string>;
       secret?: SecretTarget;
-      drive?: { pane: PaneId; action?: DriveAction };
-      variants?: { label: string; path?: string; pane?: PaneId }[];
+      drive?: { pane: PaneId; action?: DriveAction; reason?: string };
+      variants?: { label: string; description?: string; path?: string; pane?: PaneId }[];
       timeout_ms?: number;
     };
     result: { checkpoint: Checkpoint };
@@ -569,7 +573,7 @@ export interface Methods {
   'pane.grants': { params: { pane?: PaneId }; result: { grants: Grant[] } };
   'pane.revoke': { params: { grant: string }; result: { grant: Grant } };
   'pane.lease': {
-    params: { pane: PaneId; ttl_ms?: number; wait_ms?: number; release?: boolean; refuse_waiting?: boolean; no_wait?: boolean };
+    params: { pane: PaneId; ttl_ms?: number; wait_ms?: number; release?: boolean; refuse_waiting?: boolean; no_wait?: boolean; reason?: string };
     result: { pane: PaneId; lease?: Lease };
   };
   'pane.files': { params: { pane: PaneId; no_git?: boolean }; result: { pane: PaneId; files: FileTouch[]; git_root?: string; partial?: boolean } };
@@ -602,7 +606,7 @@ export interface Methods {
     result: { pane?: Pane; capture?: Omit<CaptureResult, 'pane'> & { pane?: PaneId }; png?: string; frames?: FramesResult };
   };
   'pane.override': {
-    params: { pane: PaneId; cols?: number; rows?: number; slow_bps?: number; term?: string; clear?: boolean; restart?: boolean; no_wait?: boolean };
+    params: { pane: PaneId; cols?: number; rows?: number; slow_bps?: number; term?: string; clear?: boolean; restart?: boolean; no_wait?: boolean; reason?: string };
     result: { pane: Pane };
   };
 }

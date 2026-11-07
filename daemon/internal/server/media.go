@@ -791,7 +791,12 @@ func (c *conn) paneOverride(id uint64, data []byte) {
 		}
 		o.Term = *r.Term
 	}
+	if err := checkReason(r.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	w := c.who("")
+	w.reason = r.Reason
 	c.track(id, func(ctx context.Context) {
 		// Test conditions change what a program sees: whoever may drive
 		// the pane may set them.

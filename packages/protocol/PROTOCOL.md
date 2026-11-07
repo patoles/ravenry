@@ -425,7 +425,7 @@ changed, event subscribers get `pane.updated`.
 | --- | --- | --- |
 | `pane` | id | |
 | `grace_ms` | integer, optional | 0 to 60000. Default 1000. |
-| `no_wait` | boolean, optional | As in `pane.send`, for a pane this connection did not start. |
+| `no_wait`, `reason` | optional | As in `pane.send`, for a pane this connection did not start. |
 
 Ends the pane's processes (section 3) and removes the pane. A pane this
 connection did not start waits for a person's yes first (Panes and who
@@ -484,6 +484,7 @@ and the data starts later, at `from`), and `text` or `data`. Read on from
 | `input` | array | Input items, in order (section 7). |
 | `by` | string, optional | At most 64 bytes: who typed it, for a client that passes on a person's own typing (`composer`, `phone`). On a connection that may act as the person, it makes the input the person's in the input log. |
 | `no_wait` | boolean, optional | When this connection may not drive the pane yet: fail at once with `forbidden` and the drive checkpoint, instead of waiting for the person. |
+| `reason` | string, optional | At most 1000 bytes: the agent's own words on why, set on the drive checkpoint this input opens (or on the open one that has none), for the person to read. The same field, with the same meaning, is on `pane.settle`, `pane.close`, `pane.restart`, `pane.lease` and `pane.override`. |
 
 Every item is checked before anything is written. Into a pane this
 connection did not start, the input first waits for a person's yes
@@ -533,7 +534,7 @@ It replaces press, sleep, read, compare.
 | `input` | array | As in `pane.send`. |
 | `quiet_ms` | integer, optional | Default 300. |
 | `timeout_ms` | integer, optional | Default 10000. |
-| `by`, `no_wait` | optional | As in `pane.send`. |
+| `by`, `no_wait`, `reason` | optional | As in `pane.send`. |
 
 Result: `sent` (as `pane.send`) and `wait` (as `pane.wait`, with `since`
 at the input and `changes` against the screen just before the input).
@@ -599,7 +600,7 @@ Process gets:
 | `pane` | id | |
 | `grace_ms` | integer, optional | As in `pane.close`. |
 | `shell_command` | boolean, optional | Keep the pane and start only the command its shell runs again (below). |
-| `no_wait` | boolean, optional | As in `pane.send`. A pane this connection did not start waits for a person's yes first (Panes and who drives them). |
+| `no_wait`, `reason` | optional | As in `pane.send`. A pane this connection did not start waits for a person's yes first (Panes and who drives them). |
 
 Closes the pane as `pane.close` does, then starts its command again in a
 new pane: the same `command` (the login shell when none was given),
@@ -800,13 +801,16 @@ Five kinds (`drive` and `pick` added after the first draft, section 10):
   below). The daemon opens it itself when such a request arrives (or an
   agent asks ahead with `checkpoint.new` and `drive`); its `drive` is
   `pane` (the pane to act on), `agent` (a Source: who asks), `action`
-  (`input`, `close`, `restart` or `override`; absent means `input`) and
+  (`input`, `close`, `restart` or `override`; absent means `input`),
   `input` (a preview: what it would type, masked as the input log masks,
-  or the conditions it would set). A person approves with `allow`: `once`
+  or the conditions it would set) and `reason` (the agent's own words on
+  why, when the request gave them). A person approves with `allow`: `once`
   (default: the input waiting now) or `session` (a grant for the agent's
   session), or declines.
 - **`pick`**: an agent shows 2 to 4 `variants` and waits for the
-  person's pick. Each is a `label` and a file on the daemon's machine
+  person's pick. Each is a `label`, optionally a `description` (the
+  agent's words on it, at most 200 bytes, shown under its picture), and a
+  file on the daemon's machine
   (`path`, `type` `image` or `html`, `size`), or a shot of a pane taken
   when the checkpoint opens (`pane` set; the daemon writes the PNG into
   its state folder, `picks/`, and removes it once the checkpoint leaves
@@ -863,8 +867,8 @@ below). An agent opens, lists, waits on and cancels them.
 | `warning` | string, optional | approve: what the agent warns the person about (what cannot be undone), at most 1000 bytes. |
 | `env` | object, optional | approve: variables the command runs with, at most 16: names of letters, digits and `_` (not `RAVENRY_*`), values of one line, at most 1000 bytes. The person sees them beside the command. A page's run button passes an item's values this way, so they never go inside the command line. |
 | `secret` | object, optional | secret: `to` (`input`, `run` or `env`), `pane` (input), `env` (env: a variable name, not `RAVENRY_*`), `enter` (input and run: end with Enter, default true). |
-| `variants` | array, optional | pick: 2 to 4 of `label` (1 to 64 bytes, unique) and `path` (an absolute path: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.html` or `.htm`, at most 32 MiB) or `pane` (a shot of it now). |
-| `drive` | object, optional | drive: `pane`, the pane the agent asks to act on, and `action` (`input`, the default, `close`, `restart` or `override`). The request takes no other field, not even `timeout_ms`: the daemon writes the title, and the checkpoint lasts one hour. From a person's connection it is refused (a person drives every pane). |
+| `variants` | array, optional | pick: 2 to 4 of `label` (1 to 64 bytes, unique), optionally `description` (at most 200 bytes on one line) and `path` (an absolute path: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.html` or `.htm`, at most 32 MiB) or `pane` (a shot of it now). |
+| `drive` | object, optional | drive: `pane`, the pane the agent asks to act on, `action` (`input`, the default, `close`, `restart` or `override`) and optionally `reason` (the agent's words on why, at most 1000 bytes). The request takes no other field, not even `timeout_ms`: the daemon writes the title, and the checkpoint lasts one hour. From a person's connection it is refused (a person drives every pane). |
 | `timeout_ms` | integer, optional | How long a person has, 1 to 24 hours. Default one hour. |
 
 Result: `checkpoint`. Event subscribers get `checkpoint.opened`.
@@ -1123,7 +1127,7 @@ may not act as the person.
 | `wait_ms` | integer, optional | While another driver holds it, wait this long, in turn with other waiters, before failing with `leased`. |
 | `release` | boolean, optional | Let it go (no `ttl_ms` or `wait_ms`). |
 | `refuse_waiting` | boolean, optional | With `release`, from a person: the drivers waiting for it fail with `leased` instead of being handed it. Refused with `forbidden` to a connection that may not act as the person. |
-| `no_wait` | boolean, optional | As in `pane.send`, for the drive checkpoint. |
+| `no_wait`, `reason` | optional | As in `pane.send`, for the drive checkpoint. |
 
 Result: `pane` and `lease` (a Lease: `holder`, `acquired_at`,
 `expires_at`, and `waiting`, the Sources waiting for it in turn; absent
@@ -1264,7 +1268,7 @@ Overrides carry over a `pane.restart`.
 | `term` | string, optional | A terminal name (letters, digits, `.`, `_`, `+`, `-`, at most 64); empty: as it was. |
 | `clear` | boolean, optional | Clear them all (nothing else but `restart`). |
 | `restart` | boolean, optional | Then restart the pane as `pane.restart` does. |
-| `no_wait` | boolean, optional | As in `pane.send`. |
+| `no_wait`, `reason` | optional | As in `pane.send`. |
 
 Fields left out keep their value. On a pane this connection did not
 start, it waits for a person's yes first (the drive action `override`). Result: `pane` (with `restart`,

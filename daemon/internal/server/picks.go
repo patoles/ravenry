@@ -50,6 +50,9 @@ func (s *Server) picksDir() string { return filepath.Join(s.stateDir(), "picks")
 
 // checkVariants checks a pick's variants, and takes the shots of the
 // panes it names now, into files of the daemon's.
+// maxDescription: the agent's words on a variant.
+const maxDescription = 200
+
 func (s *Server) checkVariants(in []proto.VariantRequest) ([]proto.Variant, error) {
 	if len(in) < minVariants || len(in) > maxVariants {
 		return nil, bad("a pick has %d to %d variants", minVariants, maxVariants)
@@ -64,6 +67,10 @@ func (s *Server) checkVariants(in []proto.VariantRequest) ([]proto.Variant, erro
 			return nil, bad("variant %d: label %q is taken", i, v.Label)
 		}
 		seen[v.Label] = true
+		if len(v.Description) > maxDescription || !plainText(v.Description) {
+			removeShots(out)
+			return nil, bad("variant %d: description is at most %d bytes on one line", i, maxDescription)
+		}
 		if (v.Path == "") == (v.Pane == "") {
 			removeShots(out)
 			return nil, bad("variant %d: a file (path) or a pane to take a shot of (pane)", i)
@@ -74,7 +81,7 @@ func (s *Server) checkVariants(in []proto.VariantRequest) ([]proto.Variant, erro
 				removeShots(out)
 				return nil, err
 			}
-			out = append(out, proto.Variant{Label: v.Label, Path: f, Type: "image", Size: size, Pane: v.Pane})
+			out = append(out, proto.Variant{Label: v.Label, Description: v.Description, Path: f, Type: "image", Size: size, Pane: v.Pane})
 			continue
 		}
 		if !filepath.IsAbs(v.Path) || len(v.Path) > 4096 {
@@ -95,7 +102,7 @@ func (s *Server) checkVariants(in []proto.VariantRequest) ([]proto.Variant, erro
 			removeShots(out)
 			return nil, bad("variant %d: %s is over %d MiB", i, v.Path, maxVariantSize>>20)
 		}
-		out = append(out, proto.Variant{Label: v.Label, Path: v.Path, Type: t, Size: fi.Size()})
+		out = append(out, proto.Variant{Label: v.Label, Description: v.Description, Path: v.Path, Type: t, Size: fi.Size()})
 	}
 	return out, nil
 }

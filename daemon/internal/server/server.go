@@ -822,7 +822,12 @@ func (c *conn) paneClose(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkReason(r.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	w := c.who("")
+	w.reason = r.Reason
 	c.track(id, func(ctx context.Context) {
 		// Closing a pane outside its own ends another's work: the person
 		// says yes first, as for input.
@@ -1048,7 +1053,12 @@ func (c *conn) paneSend(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkReason(r.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	w := c.who(r.By)
+	w.reason = r.Reason
 	ctx, cancel := context.WithCancel(c.ctx)
 	c.mu.Lock()
 	c.reqs[id] = cancel
@@ -1174,7 +1184,12 @@ func (c *conn) paneSettle(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkReason(r.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	w := c.who(r.By)
+	w.reason = r.Reason
 	quiet, timeout := 300*time.Millisecond, 10*time.Second
 	for _, v := range []*int64{r.QuietMs, r.TimeoutMs} {
 		if v != nil && (*v < 1 || *v > maxWaitTimeout.Milliseconds()) {

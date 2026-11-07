@@ -492,8 +492,13 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
+	if err := checkReason(r.Reason); err != nil {
+		c.failErr(id, err)
+		return
+	}
 	if r.ShellCommand {
 		w := c.who("")
+		w.reason = r.Reason
 		c.track(id, func(ctx context.Context) {
 			// It types: Ctrl-C, then the command line again.
 			cmd := ""
@@ -518,6 +523,7 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 		return
 	}
 	w := c.who("")
+	w.reason = r.Reason
 	c.track(id, func(ctx context.Context) {
 		// Restarting a pane outside its own ends what runs there: the
 		// person says yes first, as for input.

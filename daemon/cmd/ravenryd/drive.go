@@ -136,7 +136,7 @@ func cmdLease(in []string) error {
 	}
 	defer c.Close()
 	var r proto.LeaseResult
-	if err := callAsking(ctx, c, "pane.lease", params, &r, a.bools["no-wait"]); err != nil {
+	if err := callAsking(ctx, c, "pane.lease", withReason(a, params), &r, a.bools["no-wait"]); err != nil {
 		return err
 	}
 	if a.g.json {
@@ -153,6 +153,15 @@ func cmdLease(in []string) error {
 // callAsking calls a method that may need the person to let this agent
 // drive the pane: it tries without waiting, says on stderr that it asked
 // and waits for the answer, unless noWait.
+// withReason adds --reason, the agent's words on why, to a request that
+// may open a drive checkpoint: the person reads them on its card.
+func withReason(a *args, params map[string]any) map[string]any {
+	if r := a.values["reason"]; r != "" {
+		params["reason"] = r
+	}
+	return params
+}
+
 func callAsking(ctx context.Context, c *client.Client, method string, params map[string]any, out any, noWait bool) error {
 	params["no_wait"] = true
 	err := c.Call(ctx, method, params, out)
@@ -707,7 +716,7 @@ func cmdOverride(in []string) error {
 	}
 	defer c.Close()
 	var r proto.PaneResult
-	if err := callAsking(ctx, c, "pane.override", params, &r, false); err != nil {
+	if err := callAsking(ctx, c, "pane.override", withReason(a, params), &r, false); err != nil {
 		return err
 	}
 	if a.g.json {
@@ -764,6 +773,19 @@ func cmdPick(in []string) error {
 			return err
 		}
 		vs = append(vs, map[string]any{"label": label, "path": abs})
+	}
+	for _, d := range a.lists["describe"] {
+		label, text, ok := strings.Cut(d, "=")
+		found := false
+		for _, v := range vs {
+			if ok && v["label"] == label {
+				v["description"] = text
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("--describe %q: LABEL=TEXT, for the label of a --variant", d)
+		}
 	}
 	if len(vs) < 2 || len(vs) > 4 {
 		return errors.New("a pick shows 2 to 4 variants: --variant LABEL=FILE (an image or an .html page) or LABEL=pane:PANE")

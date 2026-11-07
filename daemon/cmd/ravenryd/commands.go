@@ -79,6 +79,7 @@ func init() {
 		{"key", valueFlag, "NAME", "a named key: Enter, Ctrl+C, Up, Shift+Tab, M-x, ..."},
 		{"delay", valueFlag, durationArg, "pause between typed characters (default 10ms)"},
 		{"no-wait", boolFlag, "", "into a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person to let you"},
+		{"reason", valueFlag, "TEXT", "into a pane you did not start: why, in your words; the person reads it on the question"},
 	}
 	wait := []flagDoc{
 		{"wait", boolFlag, "", "wait for the answer (the default)"},
@@ -120,11 +121,13 @@ func init() {
 		{name: "resize", group: "Panes", args: "PANE COLSxROWS", summary: "change its size", run: cmdResize},
 		{name: "restart", group: "Panes", args: "PANE", summary: "close it and start its command again (same env, its current folder, name and labels); prints the new id. A pane you did not start waits for the person's yes", flags: []flagDoc{
 			{"no-wait", boolFlag, "", "a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person"},
+			{"reason", valueFlag, "TEXT", "for a pane you did not start: why, in your words; the person reads it on the question"},
 			{"grace", valueFlag, durationArg, "how long its processes get to end (default 1s)"},
 			{"command", boolFlag, "", "only the command its shell runs, in the same pane: Ctrl-C (then SIGTERM, SIGKILL within --grace), wait for the prompt, type the same command line; prints the mark just before it"},
 		}, run: cmdRestart},
 		{name: "close", group: "Panes", args: "PANE", summary: "end the pane and every process it started. A pane you did not start waits for the person's yes", flags: []flagDoc{
 			{"no-wait", boolFlag, "", "a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person"},
+			{"reason", valueFlag, "TEXT", "for a pane you did not start: why, in your words; the person reads it on the question"},
 			{"grace", valueFlag, durationArg, "how long its processes get to end (default 1s)"},
 		}, run: cmdClose},
 		{name: "focus", group: "Panes", args: "PANE", summary: "ask the windows that show panes to show this one", run: cmdFocus},
@@ -153,6 +156,7 @@ func init() {
 			{"wait", valueFlag, durationArg, "while another agent holds it, wait in turn this long"},
 			{"release", boolFlag, "", "let it go"},
 			{"no-wait", boolFlag, "", "do not wait for the person to let you drive the pane"},
+			{"reason", valueFlag, "TEXT", "for a pane you did not start: why, in your words; the person reads it on the question"},
 		}, run: cmdLease},
 		{name: "grants", group: "Who drives", args: "[PANE]", summary: "the agents a person let type into panes they did not start, for their session", run: cmdGrants},
 		{name: "revoke", group: "Who drives", args: "GRANT", summary: "end a grant (a person only: refused inside a pane)", run: cmdRevoke},
@@ -196,6 +200,7 @@ func init() {
 			{"term", valueFlag, "NAME", "TERM for its next restart (dumb, vt100, xterm; empty: as it was)"},
 			{"restart", boolFlag, "", "restart it now, with them (prints the new pane's id)"},
 			{"clear", boolFlag, "", "take every condition off"},
+			{"reason", valueFlag, "TEXT", "for a pane you did not start: why, in your words; the person reads it on the question"},
 		}, run: cmdOverride},
 		// Checkpoints
 		{name: "ask", group: "Checkpoints", args: "TITLE", summary: "ask a person, with buttons, and wait for the answer; prints it", flags: append([]flagDoc{
@@ -215,6 +220,7 @@ func init() {
 		}, wait...), run: cmdSecret},
 		{name: "pick", group: "Checkpoints", args: "TITLE", summary: "show the person 2 to 4 variants (pictures, HTML pages, or a shot of a pane) and wait for their pick; prints its label, then the region they circled (x y w h, fractions) and their note (\"this, but...\")", flags: append([]flagDoc{
 			{"variant", listFlag, "LABEL=FILE", "a variant: an image or an .html file, or LABEL=pane:PANE for a shot of that pane now (repeat 2 to 4 times)"},
+			{"describe", listFlag, "LABEL=TEXT", "what a variant is, in your words, under its picture (at most 200 bytes; repeatable)"},
 		}, wait...), run: cmdPick},
 		{name: "checkpoints", group: "Checkpoints", summary: "list open checkpoints", flags: []flagDoc{
 			{"all", boolFlag, "", "with the closed ones the daemon still holds"},

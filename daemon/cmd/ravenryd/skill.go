@@ -140,7 +140,8 @@ person never needs to come back to your chat.
 - **Pictures, not words, for a look.** ` + "`ravenry pick \"Which header?\" --variant A=a.png --variant B=b.html --variant C=pane:$id`" + `
   shows 2 to 4 variants and waits; it prints the label they picked, then
   ` + "`region x y w h`" + ` (the part they circled, fractions of the picture) and
-  ` + "`note ...`" + ` ("this, but..."). Exit codes as ` + "`ask`" + `.
+  ` + "`note ...`" + ` ("this, but..."). Exit codes as ` + "`ask`" + `. Say what each
+  one is with ` + "`--describe A=\"The hull stays flat\"`" + `: the label stays its name.
 
 ## Panes you did not start
 
@@ -148,7 +149,8 @@ person never needs to come back to your chat.
   Typing into any other pane, another agent's session included, and
   closing, restarting or overriding it, asks the person first: ` + "`send`" + ` waits until they let you (once, or for your
   session), and exits 125 if they say no. ` + "`--no-wait`" + ` fails at once and
-  prints the checkpoint instead.
+  prints the checkpoint instead. Say why with ` + "`--reason \"...\"`" + `, in a
+  sentence: the person reads it on the question.
 - **Every input is logged with who sent it** (` + "`ravenry inputs PANE`" + `): the
   person always sees what you typed.
 - **One driver at a time.** ` + "`ravenry lease PANE --ttl 10m`" + ` keeps other agents
