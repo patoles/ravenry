@@ -40,6 +40,9 @@ type Screen interface {
 	Title() string
 	// AltScreen reports whether the alternate screen is active.
 	AltScreen() bool
+	// Grid reads the visible screen cell by cell, with resolved colours,
+	// for a picture of it (package render).
+	Grid() (*Grid, error)
 	// Close frees the screen.
 	Close()
 }
@@ -173,4 +176,38 @@ type Key struct {
 	// Char is the character a printable key produces, without modifiers.
 	Char                    rune
 	Ctrl, Alt, Shift, Super bool
+}
+
+// RGB is a resolved colour.
+type RGB struct{ R, G, B uint8 }
+
+// Grid is the visible screen cell by cell, with every colour resolved
+// through the terminal's palette, for drawing a picture of it.
+type Grid struct {
+	Cols, Rows int
+	// Cells holds Rows rows of Cols cells.
+	Cells  [][]Cell
+	Cursor Cursor
+	// CursorStyle is "block", "bar", "underline" or "block_hollow".
+	CursorStyle string
+	// Fg and Bg are the default colours: the ones the program set with
+	// OSC 10 and 11, else the screen's defaults.
+	Fg, Bg RGB
+	// CursorColor is the cursor's colour when the program set one (OSC
+	// 12); nil means Fg.
+	CursorColor *RGB
+}
+
+// Cell is one cell of a Grid.
+type Cell struct {
+	// Text is the grapheme cluster, or "" for an empty cell.
+	Text string
+	// Wide: a wide character, which covers this cell and the next.
+	Wide bool
+	// Spacer: the second half of a wide character, drawn by the first.
+	Spacer bool
+	Fg, Bg RGB
+	// HasFg and HasBg are false when the cell uses the default colour.
+	HasFg, HasBg                                               bool
+	Bold, Faint, Italic, Underline, Strike, Inverse, Invisible bool
 }
