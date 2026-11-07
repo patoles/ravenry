@@ -26,9 +26,11 @@ interface Fake {
 // A daemon that knows hello, pane.list, pane.subscribe (a snapshot, then
 // "out" once the client acked it), pane.unsubscribe, events.subscribe, and
 // echoes input frames back as output.
-async function fakeDaemon(opts: { sameBatch?: boolean } = {}): Promise<Fake> {
+async function fakeDaemon(opts: { sameBatch?: boolean; folder?: string } = {}): Promise<Fake> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rvc-'));
-  const socket = path.join(dir, 'ravenryd-9.9.9.sock');
+  if (opts.folder) fs.mkdirSync(path.join(dir, opts.folder), { recursive: true });
+  const at = opts.folder ? path.join(dir, opts.folder) : dir;
+  const socket = path.join(at, 'ravenryd-9.9.9.sock');
   const server = http.createServer();
   const wss = new WebSocketServer({ server, handleProtocols: (ps) => (ps.has('ravenry.v1') ? 'ravenry.v1' : false) });
   const fake: Fake = { socket, received: [], frames: [], conns: [], close: async () => {} };
@@ -203,6 +205,18 @@ test('a lost connection rejects what is pending and says why, without ending str
     assert.equal(why, 'bye');
     assert.ok(s.ended);
     assert.equal(ended, false);
+  } finally { await fake.close(); }
+});
+
+// On a Mac the daemons' folder is ~/Library/Application Support/Ravenry/run:
+// a space, which a ws+unix URL percent-encodes, so every connection went to
+// ".../Application%20Support/..." and the app found no daemon (2026-11-07).
+test('a daemon whose folder has a space, a # and a % in its path is reached', async () => {
+  const fake = await fakeDaemon({ folder: 'App Support #1 50%' });
+  try {
+    const c = await connectSocket(fake.socket, { name: 'test' });
+    assert.ok(!c.closed);
+    c.close();
   } finally { await fake.close(); }
 });
 

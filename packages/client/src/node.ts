@@ -2,6 +2,7 @@
 // starting one, and a WebSocket transport over its unix socket.
 
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -74,7 +75,13 @@ export function openUnixSocket(socket: string, opts: { timeoutMs?: number } = {}
     return Promise.reject(new Error(`socket path ${socket} is ${Buffer.byteLength(socket)} bytes, over the limit of ${MAX_SOCKET_PATH}`));
   }
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws+unix://${socket}:${PATH}`, SUBPROTOCOL, {
+    // The socket is connected as it is named, never through a URL: a
+    // ws+unix URL percent-encodes its path, and on a Mac the daemons'
+    // folder is ~/Library/Application Support/Ravenry/run, so every
+    // connection went to ".../Application%20Support/..." and the app found
+    // no daemon (2026-11-07).
+    const ws = new WebSocket(`ws://localhost${PATH}`, SUBPROTOCOL, {
+      createConnection: () => net.connect({ path: socket }),
       perMessageDeflate: false,
       handshakeTimeout: opts.timeoutMs ?? 3000,
       maxPayload: 32 * 1024 * 1024,
@@ -131,11 +138,13 @@ export async function findDaemon(opts: FindOptions): Promise<FoundDaemon> {
   const pinned = opts.socket || env.RAVENRY_SOCKET;
   if (pinned) return { socket: pinned, client: await connectSocket(pinned, opts) };
   const dir = runtimeDir(env);
+  let lastError = '';
   const tryAll = async (): Promise<FoundDaemon | null> => {
     let draining: FoundDaemon | null = null;
     for (const s of listSockets(dir)) {
       let client: RavenryClient;
-      try { client = await connectSocket(s.socket, opts); } catch { continue; } // a stale socket file
+      // A stale socket file; its error is said if no daemon answers at all.
+      try { client = await connectSocket(s.socket, opts); } catch (e) { lastError = `${s.socket}: ${(e as Error).message || e}`; continue; }
       if (client.hello.daemon.draining) { if (!draining) draining = { socket: s.socket, client }; else client.close(); continue; }
       draining?.client.close();
       return { socket: s.socket, client };
@@ -144,7 +153,7 @@ export async function findDaemon(opts: FindOptions): Promise<FoundDaemon> {
   };
   const found = await tryAll();
   if (found) return found;
-  if (!opts.start) throw new Error(`no ravenryd is running in ${dir}`);
+  if (!opts.start) throw new Error(`no ravenryd is running in ${dir}${lastError ? ` (${lastError})` : ''}`);
   await startDaemon(opts.start, { ...env, ...(opts.startEnv || {}) });
   const until = Date.now() + (opts.startTimeoutMs ?? 5000);
   while (Date.now() < until) {
@@ -152,7 +161,7 @@ export async function findDaemon(opts: FindOptions): Promise<FoundDaemon> {
     if (f) return f;
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(`started ${opts.start} but no daemon answered in ${dir}`);
+  throw new Error(`started ${opts.start} but no daemon answered in ${dir}${lastError ? ` (${lastError})` : ''}`);
 }
 
 export async function connectSocket(socket: string, opts: ConnectOptions): Promise<RavenryClient> {
