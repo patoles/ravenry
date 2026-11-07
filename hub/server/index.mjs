@@ -47,6 +47,9 @@ import * as checkpoints from './checkpoints.mjs';
 import * as gates from './gates.mjs';
 import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
+import * as decisions from './decisions.mjs';
+import * as worktrees from './worktrees.mjs';
+import * as picks from './picks.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
@@ -1489,7 +1492,8 @@ function shellQuote(s) {
 function resumePrompt(m, cwd) {
   const f = m.handoffFile;
   const rel = f && cwd && !path.relative(cwd, f).startsWith('..') ? path.relative(cwd, f) : f;
-  return `Read the Hand-off section of ${rel || 'BRIEF.md (or HANDOFF.md)'} and continue from it.`;
+  const line = decisions.promptLine(m.projectId || null);
+  return `Read the Hand-off section of ${rel || 'BRIEF.md (or HANDOFF.md)'} and continue from it.${line ? ' ' + line : ''}`;
 }
 
 // Opens the fresh session for a written hand-off, ONCE per marker: the
@@ -1635,11 +1639,15 @@ function checkpointsView(projects) {
     const p = tab ? projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
     const { daemon: _d, ...rest } = cp;
     const run = pageRuns.get(cp.id);
-    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}) };
+    const kept = cp.kind === 'pick' ? picks.record(cp.id) : null;
+    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) };
   });
 }
 
 function onCheckpoint(cp, where) {
+  // A pick's pictures are kept with its project in Ravenry's data
+  // (server/picks.mjs) as soon as it is seen, and its answer once it closes.
+  if (cp && cp.kind === 'pick') keepPick(cp, where);
   if (!checkpoints.take(cp, where)) return;
   const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
   const p = tab && snapshot && snapshot.projects ? snapshot.projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
@@ -1647,6 +1655,159 @@ function onCheckpoint(cp, where) {
 }
 
 function safe(fn) { try { return fn(); } catch (e) { return { state: 'unreadable', error: e.message }; } }
+
+// The project a reader or an agent names: its id, its name, or a folder in
+// it or in one of its sessions' worktrees (server/decisions.mjs).
+function projectIdOf(name) {
+  const all = [...((reg && reg.projects) || []), ...loose, ...unowned];
+  const p = decisions.resolveProject(name, all, worktrees.folders());
+  return p ? p.id : null;
+}
+
+// A pick checkpoint's variant n, served from the copy kept in Ravenry's
+// data (server/picks.mjs), made from the machine that holds the
+// checkpoint if it is not kept yet. Only the files the checkpoint names;
+// HTML and SVG come sandboxed, so they never run a script on the hub's
+// origin.
+async function serveVariant(res, id, n) {
+  const cp = checkpoints.get(id);
+  let k = picks.keptFile(id, n);
+  if (!k && cp && cp.kind === 'pick' && Array.isArray(cp.variants) && cp.variants[n]) {
+    await picks.keep(cp, { projectId: cp.pane ? projectOfPane(cp.pane) : null, machine: cp.machine || null, read: (f) => term.ravenryReadFile(cp.daemon, f, { max: picks.MAX_FILE }) }).catch(() => null);
+    k = picks.keptFile(id, n);
+  }
+  if (!k) {
+    const r = picks.record(id);
+    const v = (r && r.variants && r.variants[n]) || null;
+    return sendJson(res, v ? 502 : 404, { error: v ? `That picture could not be kept: ${v.error || 'unknown'}.` : 'No such pick, or no such variant.' });
+  }
+  const type = picks.TYPES[k.ext];
+  const sandboxed = k.type === 'html' || k.ext === 'svg';
+  const data = fs.readFileSync(k.file);
+  res.writeHead(200, {
+    'Content-Type': type, 'Content-Length': data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': sandboxed ? 'sandbox' : "default-src 'none'",
+  });
+  res.end(data);
+}
+
+// The ledger's writes (server/decisions.mjs). /record is open: an agent
+// records the person's words with `ravenry decide`, marked with the pane
+// its process runs in (judged by ravenryd peer, never taken from the body)
+// and that pane's assistant session; the person is told at once, with
+// Undo for a minute. add, edit, undo and remove are person rows.
+async function decisionsWrite(req, res, p) {
+  let body;
+  try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+  const b = body && typeof body === 'object' ? body : {};
+  const projectOf = (v) => (v == null || v === '' ? { id: null } : { id: projectIdOf(v), bad: !projectIdOf(v) });
+  const done = (r, extra = {}) => sendJson(res, r.ok ? 200 : r.status, r.ok ? { ok: true, ...extra } : { error: r.error });
+  const fields = { '/api/decisions/record': ['quote', 'project', 'replaces', 'scope'], '/api/decisions/add': ['quote', 'project', 'replaces', 'overrides', 'scope'], '/api/decisions/edit': ['id', 'quote', 'project', 'scope'], '/api/decisions/undo': ['id'], '/api/decisions/remove': ['id'] }[p];
+  // A field the ledger does not know is refused, not dropped: who
+  // recorded an entry is never taken from the body.
+  const unknown = fields ? Object.keys(b).filter((k) => !fields.includes(k)) : [];
+  if (unknown.length) return sendJson(res, 400, { error: `The ledger does not take ${unknown.join(', ')}.` });
+  if (p === '/api/decisions/record' || p === '/api/decisions/add') {
+    if (b.replaces != null && b.overrides != null) return sendJson(res, 400, { error: 'Give replaces or overrides, not both.' });
+    const pr = projectOf(b.project);
+    if (pr.bad) return sendJson(res, 404, { error: 'No such project.' });
+    const replaces = b.replaces != null ? [b.replaces] : b.overrides;
+    if (p === '/api/decisions/add') {
+      const r = decisions.add({ quote: b.quote, projectId: pr.id, scope: b.scope, overrides: replaces, by: 'person' });
+      if (r.ok) broadcast('decision', { type: 'saved', decision: decisions.view(r.entry) });
+      return done(r, r.ok ? { decision: decisions.view(r.entry) } : {});
+    }
+    const { pane } = await person.callerPane(req, term.ravenryBin());
+    let recordedBy = null;
+    if (pane) {
+      const ag = pane !== '?' ? await term.ravenryPaneAgent(pane).catch(() => null) : null;
+      recordedBy = { pane, ...(ag && ag.session ? { session: ag.session } : {}), ...(ag && ag.assistant ? { assistant: ag.assistant } : {}) };
+    }
+    // An agent that names no project records for its own session's.
+    const projectId = pr.id || (pane && pane !== '?' ? projectOfPane(pane) : null);
+    const r = decisions.add({ quote: b.quote, projectId, scope: b.scope, overrides: replaces, by: pane ? 'agent' : 'client', recordedBy });
+    if (!r.ok) return done(r);
+    const v = decisions.view(r.entry);
+    console.log(`decisions: ${r.entry.id} recorded by ${pane ? `pane ${pane}` : 'a program outside every pane'} for ${projectId || 'every project'}`);
+    broadcast('decision', { type: 'saved', decision: v, undo_until: v.undo_until });
+    const proj = projectId ? findProject(projectId) : null;
+    try { push.fromDecision(r.entry, { project: proj }); } catch (e) { console.error('push:', e.message); }
+    return done(r, { decision: v });
+  }
+  const id = String(b.id || '');
+  if (p === '/api/decisions/undo' || p === '/api/decisions/remove') {
+    const r = p === '/api/decisions/undo' ? decisions.undo(id) : decisions.remove(id);
+    if (r.ok) { broadcast('decision', { type: 'removed', id }); try { push.closeDecision(id); } catch { /* none */ } }
+    return done(r, r.ok ? { removed: r.removed } : {});
+  }
+  if (p === '/api/decisions/edit') {
+    const patch = {};
+    if (b.quote !== undefined) patch.quote = b.quote;
+    if (b.scope !== undefined) patch.scope = b.scope;
+    if (b.project !== undefined) {
+      const pr = projectOf(b.project);
+      if (pr.bad) return sendJson(res, 404, { error: 'No such project.' });
+      patch.projectId = pr.id;
+    }
+    if (!Object.keys(patch).length) return sendJson(res, 400, { error: 'Give the quote, the project or the scope to change.' });
+    const r = decisions.edit(id, patch);
+    if (r.ok) broadcast('decision', { type: 'edited', decision: decisions.view(r.entry) });
+    return done(r, r.ok ? { decision: decisions.view(r.entry) } : {});
+  }
+  return sendJson(res, 404, { error: 'unknown' });
+}
+
+// The review pane's writes on a worktree session (server/worktrees.mjs):
+// a comment typed to its agent, the merge (a fast-forward or a merge
+// commit, never a squash: the agent's commits stay in the history), or
+// throwing it away. Person rows.
+async function worktreeWrite(req, res, surfaceId, act) {
+  let body;
+  try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+  const w = worktrees.bySurface(surfaceId);
+  if (!w) return sendJson(res, 404, { error: 'That session has no worktree.' });
+  if (act === 'comment') {
+    const b = body || {};
+    if (typeof b.file !== 'string' || !b.file.trim() || b.file.length > 1000) return sendJson(res, 400, { error: 'file is the path the comment is on.' });
+    if (b.line != null && !(Number.isInteger(b.line) && b.line >= 1)) return sendJson(res, 400, { error: 'line is a line number, from 1.' });
+    if (b.side != null && b.side !== 'old' && b.side !== 'new') return sendJson(res, 400, { error: 'side is old or new.' });
+    if (typeof b.text !== 'string' || !b.text.trim() || b.text.length > 4000) return sendJson(res, 400, { error: 'Type the comment (at most 4000 characters).' });
+    if (w.state !== 'open') return sendJson(res, 409, { error: `This session's work was ${w.state} already.` });
+    const text = worktrees.commentText({ file: b.file.trim(), line: b.line || null, text: b.text, side: b.side || null });
+    // The person's comment, through the composer's send path, tagged as a
+    // review comment in the pane's input log.
+    const r = await sendMessage({ projectId: w.projectId, surfaceId, text, by: 'review' });
+    return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, sent: text, delivered: r.delivered } : { error: r.error });
+  }
+  if (act === 'merge') {
+    const mode = (body && body.mode) || 'ff';
+    const msg = body && typeof body.message === 'string' ? body.message : null;
+    const r = await worktrees.merge(w, { mode, message: msg });
+    if (r.ok) { console.log(`worktrees: ${w.branch} merged into ${w.baseBranch} (${mode}, ${r.commit.slice(0, 12)})`); wantTick = true; setTimeout(tick, 30); }
+    const { status: _s, ...out } = r;
+    return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { ...out, error: r.error });
+  }
+  const r = await worktrees.discard(w);
+  if (r.ok) console.log(`worktrees: ${w.branch} discarded`);
+  return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { error: r.error });
+}
+
+function keepPick(cp, where) {
+  const kept = picks.record(cp.id);
+  const finalState = ['answered', 'declined', 'cancelled', 'expired'].includes(cp.state);
+  const go = kept && kept.variants.every((v) => v.file) ? Promise.resolve(kept)
+    : picks.keep(cp, { projectId: cp.pane ? projectOfPane(cp.pane) : null, machine: where.machine || null, read: (f) => term.ravenryReadFile(where.daemon, f, { max: picks.MAX_FILE }) });
+  go.then(() => { if (finalState) picks.closed(cp); }).catch((e) => console.error('picks:', e.message));
+}
+
+// The project whose session runs in a pane of this hub's daemons.
+function projectOfPane(pane) {
+  const tab = term.tabIdFor('ravenry', pane);
+  const wt = tab ? worktrees.bySurface(tab) : null;
+  if (wt && wt.projectId) return wt.projectId;
+  const p = tab && snapshot && snapshot.projects ? snapshot.projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
+  return p ? p.id : null;
+}
 
 function findProject(id) {
   return (reg && reg.projects.find((p) => p.id === id && !p.hidden)) || loose.find((p) => p.id === id) || unowned.find((p) => p.id === id) || null;
@@ -1677,7 +1838,10 @@ function assistantOf(projectId, surfaceId, raw) {
 
 // `prefill`: types the text into the prompt and leaves it there for the
 // person to send (a page's ask button), never pressing Enter.
-async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill = false }) {
+// `by` says who typed it, for the pane's input log (server/ravenryd.mjs):
+// the composer, the phone, a page's button, a plan's answer, a review
+// comment. Every caller relays a person's own words or answer.
+async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill = false, by = null }) {
   const project = findProject(projectId);
   if (!project) return { ok: false, status: 404, error: 'No such project.' };
   let tab;
@@ -1690,12 +1854,17 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill 
     // Another terminal's tab (iTerm2, Rex): the board must show it in this
     // project, and the terminal must list it now.
     const snap = snapshot.projects.find((x) => x.id === projectId);
-    if (!snap || !snap.sessions.some((x) => x.surfaceId === surfaceId && x.terminal)) return { ok: false, status: 400, error: 'That session is not in this project.' };
+    // A session the hub started in a worktree of this project is the
+    // project's whether or not its hooks reported yet (server/worktrees.mjs).
+    const wt = worktrees.bySurface(surfaceId);
+    const ours = wt && wt.projectId === projectId && wt.state === 'open';
+    if (!ours && (!snap || !snap.sessions.some((x) => x.surfaceId === surfaceId && x.terminal))) return { ok: false, status: 400, error: 'That session is not in this project.' };
     let t = null;
     try { t = await freshTab(surfaceId); } catch (e) { return { ok: false, status: 502, error: String(e.message || e) }; }
     if (!t) return { ok: false, status: 409, error: `That ${term.nameOf(term.kindOf(surfaceId))} tab is closed, so nothing was typed.` };
     tab = t;
   }
+  if (by) tab = { ...tab, by: String(by).slice(0, 64) };
   const where = term.nameOf(tab.kind);
   // Fresh look at the screen, never the cached one, read as its session's
   // assistant (else as the screen shows).
@@ -1955,7 +2124,7 @@ async function pagesWrite(req, res, p) {
         }
         const t = askTarget(plan.session);
         if (t.error) return sendJson(res, t.status, { error: t.error });
-        const r = await sendMessage({ projectId: t.project.id, surfaceId: t.session.surfaceId, text: plan.text, prefill: !plan.background });
+        const r = await sendMessage({ projectId: t.project.id, surfaceId: t.session.surfaceId, text: plan.text, prefill: !plan.background, by: 'page' });
         if (!r.ok) return sendJson(res, r.status || 500, { error: r.error });
         return ok({ projectId: t.project.id, surfaceId: t.session.surfaceId, typed: plan.text, sent: !!plan.background });
       }
@@ -2210,7 +2379,7 @@ async function deliverPlan(project, text, mode) {
     if (s.dialog) return { ok: false, status: 409, error: 'A choice is open in its tab. Answer it first, then try again.' };
     if (s.draft) return { ok: false, status: 409, error: `There is half-typed text in its prompt. Finish or clear it in ${s.termName || term.nameOf(term.BOARD)} first.` };
     if (s.working && mode === 'start') return { ok: false, status: 409, error: 'Its session is working on something else. Start the plan when it is back at its prompt.' };
-    const r = await sendMessage({ projectId: project.id, surfaceId: s.surfaceId, text });
+    const r = await sendMessage({ projectId: project.id, surfaceId: s.surfaceId, text, by: 'plan' });
     return r.ok ? { ...r, via: 'session', surfaceId: s.surfaceId } : r;
   }
   if (mode === 'note') return { ok: true, via: 'brief' };
@@ -2525,6 +2694,38 @@ async function handleRequest(req, res) {
       return sendJson(res, 426, { error: 'Open /api/term as a WebSocket with the subprotocol ravenry.v1.' });
     }
     if (req.method === 'GET' && p === '/api/state') return sendJson(res, 200, snapshot);
+    if (req.method === 'GET' && p === '/api/decisions') {
+      // The ledger, newest first (server/decisions.mjs): an open read, so an
+      // agent checks it before asking. project: an id, a name or a folder.
+      const pq = url.searchParams.get('project');
+      let projectId;
+      if (pq != null && pq !== '') {
+        projectId = projectIdOf(pq);
+        if (!projectId) return sendJson(res, 404, { error: 'No such project.' });
+      }
+      const list = decisions.query({ projectId, search: url.searchParams.get('search') || '', all: url.searchParams.has('all') && url.searchParams.get('all') !== '0' });
+      // An agent's read counts ("Read 5 times today"): agent=1 (what
+      // `ravenry decisions` sends), or a caller inside a pane. The board's
+      // and the app's own looks do not.
+      const agent = url.searchParams.get('agent') === '1' || (!req.mcPhone && list.length && (await person.callerPane(req, term.ravenryBin())).pane);
+      if (agent && list.length) { try { decisions.countReads(list.map((d) => d.id)); } catch (e) { console.error('decisions:', e.message); } }
+      const fresh = agent ? decisions.query({ projectId, search: url.searchParams.get('search') || '', all: true }) : list;
+      return sendJson(res, 200, { ok: true, project: projectId || null, decisions: list.map((d) => decisions.view(fresh.find((x) => x.id === d.id) || d)) });
+    }
+    {
+      const m = req.method === 'GET' && /^\/api\/checkpoints\/([a-z0-9]{1,16})\/variants\/(\d)$/.exec(p);
+      if (m) return serveVariant(res, m[1], Number(m[2]));
+    }
+    {
+      const m = req.method === 'GET' && /^\/api\/sessions\/([^/]+)\/(diff|worktree)$/.exec(p);
+      if (m) {
+        const w = worktrees.bySurface(decodeURIComponent(m[1]));
+        if (!w) return sendJson(res, 404, { error: 'That session has no worktree.' });
+        if (m[2] === 'worktree') return sendJson(res, 200, { ok: true, worktree: w });
+        const d = await worktrees.diff(w);
+        return sendJson(res, d.ok ? 200 : d.status, d.ok ? { ...d, worktree: w } : { error: d.error });
+      }
+    }
     if (req.method === 'GET' && p === '/api/machines') {
       // Each machine with its version beside this hub's build, and the last
       // install or uninstall (server/remoteinstall.mjs); on the Mac, the
@@ -2653,7 +2854,8 @@ async function handleRequest(req, res) {
       }
       if (p === '/api/send') {
         const body = JSON.parse((await readBody(req, 1e6)).toString('utf8') || '{}');
-        const r = await sendMessage(body);
+        // The person's own words: from the composer, or the phone.
+        const r = await sendMessage({ ...body, by: req.mcPhone ? 'phone' : 'composer' });
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
       }
       if (p.startsWith('/api/inbox/')) {
@@ -2699,21 +2901,46 @@ async function handleRequest(req, res) {
         let body;
         try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         const project = body && body.projectId != null ? findProject(body.projectId) : null;
-        const pl = sessionstart.plan(body, {
+        // worktree: true, a parallel session on its own branch in a sibling
+        // folder (server/worktrees.mjs). This computer only for now.
+        let made = null;
+        if (body && body.worktree === true) {
+          if (!project) return sendJson(res, 400, { error: 'A worktree session belongs to a project: give projectId.' });
+          if ((body.machine != null && body.machine !== '') || project.machine) return sendJson(res, 409, { error: 'Worktree sessions run on this computer only for now; this project is on another machine.' });
+          if (body.name != null && (typeof body.name !== 'string' || body.name.length > 100)) return sendJson(res, 400, { error: 'name is the session\'s name, at most 100 characters.' });
+          made = await worktrees.create(typeof body.folder === 'string' && body.folder.trim() ? body.folder.trim() : project.folder, { name: body.name || null });
+          if (!made.ok) return sendJson(res, made.status, { error: made.error });
+        } else if (body && body.worktree != null && body.worktree !== false) return sendJson(res, 400, { error: 'worktree is true or false.' });
+        const pl = sessionstart.plan(made ? { ...body, folder: made.cwd } : body, {
           project,
           launch: (proj, kind) => (kind ? launchFor({ kind, note: null }) : proj ? continueLaunch(proj) : launchFor(asst.startChoice(reg ? reg.settings : {}))),
           briefPath: (proj) => registry.briefPath(proj),
           briefExists: (f) => fs.existsSync(f),
           machines: machines.status().map((m) => m.name),
           binPath: assistantPath,
+          worktree: made ? { branch: made.branch, folder: made.folder } : null,
+          decisions: project ? decisions.promptLine(project.id) : '',
         });
-        if (!pl.ok) return sendJson(res, pl.status, { error: pl.error });
+        if (!pl.ok) {
+          if (made) await worktrees.removeTree(made, { force: true });
+          return sendJson(res, pl.status, { error: pl.error });
+        }
+        if (made) pl.labels = { ...pl.labels, 'ravenry.worktree': made.branch.slice(0, 256) };
         const r = await term.ravenryStart(pl);
-        if (!r.ok) return sendJson(res, 502, { error: `Could not start it: ${r.err}` });
+        if (!r.ok) {
+          if (made) await worktrees.removeTree(made, { force: true });
+          return sendJson(res, 502, { error: `Could not start it: ${r.err}` });
+        }
+        if (made) worktrees.remember(made, { surfaceId: r.surfaceId, pane: r.pane && r.pane.id, projectId: project.id });
         watchOpened(r);
         if (project && pl.machine && project.machine !== pl.machine) afterRegistry(registry.update((rg) => { const x = rg.projects.find((y) => y.id === project.id); if (x) x.machine = pl.machine; }));
         wantTick = true; setTimeout(tick, 30);
-        return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind });
+        return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind, ...(made ? { worktree: { branch: made.branch, folder: made.folder, base: made.base, baseBranch: made.baseBranch } } : {}) });
+      }
+      if (p.startsWith('/api/decisions/')) return decisionsWrite(req, res, p);
+      {
+        const m = /^\/api\/sessions\/([^/]+)\/(comment|merge|discard)$/.exec(p);
+        if (m) return worktreeWrite(req, res, decodeURIComponent(m[1]), m[2]);
       }
       if (p === '/api/machines/add' || p === '/api/machines/remove' || p === '/api/machines/retry') {
         // The machines the hub reaches over ssh (server/machines.mjs).

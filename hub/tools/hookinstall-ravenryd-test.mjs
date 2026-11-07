@@ -56,6 +56,11 @@ check('status: the scripts and the daemon hook are ok', st.state === 'ok' && st.
 const ch = read(path.join(CODEX, 'hooks.json'));
 const toml = fs.readFileSync(path.join(CODEX, 'config.toml'), 'utf8');
 check('Codex: the daemon hook, the scripts with --assistant=codex --ravenryd, theirs kept', cmds(ch, 'PermissionRequest').includes(`${BIN} hook --assistant codex`) && cmds(ch, 'Stop').some((c) => /events\.mjs --assistant=codex --ravenryd$/.test(c)) && cmds(ch, 'Stop').includes('their-codex-hook'));
+// The files an agent touches come from PostToolUse (paths only, kept by
+// the daemon's hook allow-list): the daemon hook is on it for every tool,
+// with no matcher that would leave Write, Edit or apply_patch out.
+const postGroups = (json, a) => ((json.hooks || {}).PostToolUse || []).filter((g) => (g.hooks || []).some((h) => h.command === `${BIN} hook --assistant ${a}`));
+check('PostToolUse reaches the daemon hook for every tool, Claude and Codex (the files an agent touches)', postGroups(s, 'claude').length === 1 && !postGroups(s, 'claude')[0].matcher && postGroups(ch, 'codex').length === 1 && !postGroups(ch, 'codex')[0].matcher, JSON.stringify([postGroups(s, 'claude'), postGroups(ch, 'codex')]));
 const cs = hk.codexStatus();
 check('Codex: every entry of ours is trusted in config.toml', /model = "gpt"/.test(toml) && cs.state === 'ok' && cs.ravenryd.state === 'ok', JSON.stringify({ state: cs.state, untrusted: cs.untrusted }));
 

@@ -43,7 +43,7 @@ const acts = src.match(/\\\/api\\\/ideas\\\/\(\[\\w-\]\+\)\\\/\(([\w|]+)\)\$/);
 if (acts) for (const a of acts[1].split('|')) ideaRoutes.push(`/api/ideas/x/${a}`);
 const mock = src.match(/\\\/api\\\/ideas\\\/\(\[\\w-\]\+\)\\\/mockups\(\?:\\\/\(([\w|]+)\)\)\?\$/);
 if (mock) { ideaRoutes.push('/api/ideas/x/mockups'); for (const a of mock[1].split('|')) ideaRoutes.push(`/api/ideas/x/mockups/${a}`); }
-const dynamic = ['/api/rules/x', '/api/repeats/x', '/api/inbox/x', ...ideaRoutes];
+const dynamic = ['/api/rules/x', '/api/repeats/x', '/api/inbox/x', '/api/sessions/x/comment', '/api/sessions/x/merge', '/api/sessions/x/discard', ...ideaRoutes];
 const missing = [...lits, ...planActs, ...dynamic].filter((p) => !person.routeOf('POST', p) && !person.routeOf('GET', p));
 check(`every write route has a row (${lits.size} paths, ${planActs.length} plan actions, ${ideaRoutes.length} idea actions)`, missing.length === 0 && planActs.length >= 12 && ideaRoutes.length >= 8, missing.join(', '));
 const rows = person.ROUTES;
@@ -193,6 +193,13 @@ const bodies = {
   '/api/phone/access': { on: true },
   '/api/phone/devices/rename': { id: 'dnone', name: 'An agent' },
   '/api/phone/devices/revoke': { id: 'dnone' },
+  '/api/decisions/add': { quote: 'Ship it on Fridays only', project: 'proj' },
+  '/api/decisions/undo': { id: 'daaaaaaa' },
+  '/api/decisions/edit': { id: 'daaaaaaa', quote: 'Changed by an agent' },
+  '/api/decisions/remove': { id: 'daaaaaaa' },
+  '/api/sessions/x/comment': { file: 'a.txt', line: 1, text: 'Use a constant here' },
+  '/api/sessions/x/merge': { mode: 'ff' },
+  '/api/sessions/x/discard': {},
 };
 const bodyOf = (r) => bodies[eg(r)] || { projectId: 'proj' };
 
@@ -278,6 +285,8 @@ const OPEN = [
   ['/api/hook-event', {}, 400],
   ['/api/pages/check', { text: 'version: 1\nid: x\n' }, 200],
   ['/api/pages/item/create', { key: 'notes', action: { scope: 'page', index: 0 }, fields: { title: 'From an agent' } }, 200],
+  ['/api/decisions/record', { quote: 'Keep the tabs on the left.', project: 'proj', recorded_by: { pane: 'pforged1' } }, 400],
+  ['/api/decisions/record', { quote: 'Keep the tabs on the left.', project: 'proj' }, 200],
 ];
 const olines = OPEN.map(([p, b], i) => {
   fs.writeFileSync(path.join(OUT, `open${i}.body`), JSON.stringify(b));
@@ -288,6 +297,8 @@ const openPane = (await dc.request('pane.new', { command: ['/bin/sh', SCRIPT], c
 await until(async () => fs.existsSync(path.join(OUT, 'open-finished')), 30000);
 const ocodes = fs.readFileSync(path.join(OUT, 'open-codes'), 'utf8').trim().split('\n').map((l) => Number(l.split(' ')[1]));
 check('from a pane, the open rows go through (a note, an idea, a hook event, a page check, a new page item)', OPEN.every(([, , want], i) => ocodes[i] === want) && fs.readFileSync(BRIEF, 'utf8').includes('from an agent') && fs.existsSync(path.join(MC, 'pages', 'notes', 'from-an-agent.md')), JSON.stringify(ocodes));
+const recorded = (() => { try { return JSON.parse(fs.readFileSync(path.join(MC, 'decisions.json'), 'utf8')).decisions; } catch { return []; } })();
+check('from a pane, a decision is recorded as the agent\'s, marked with the pane its process runs in (never one the body names)', recorded.length === 1 && recorded[0].by === 'agent' && recorded[0].recorded_by && recorded[0].recorded_by.pane === openPane.id && recorded[0].project === 'proj', JSON.stringify(recorded));
 await dc.request('pane.close', { pane: openPane.id });
 
 // ------------------------------------------------------------ a gate ticked in the file

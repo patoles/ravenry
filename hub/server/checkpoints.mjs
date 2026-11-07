@@ -21,7 +21,11 @@ import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
 export const FILE = path.join(RAVENRY_HOME, 'checkpoints.json');
 const KEEP_CLOSED = 100;
 const FINAL = new Set(['answered', 'declined', 'cancelled', 'expired']);
-const KINDS = new Set(['ask', 'approve', 'secret']);
+const KINDS = new Set(['ask', 'approve', 'secret', 'drive', 'pick']);
+// How long a drive grant lasts (checkpoint.answer `allow`): this input,
+// or the rest of the asking agent's session.
+const ALLOW = new Set(['once', 'session']);
+export const MAX_NOTE = 4000;
 
 // id -> checkpoint (the daemon's object) plus { machine, daemon }
 let byId = null;
@@ -52,14 +56,48 @@ function save() {
 
 // Only the fields the protocol defines, so nothing else a daemon might send
 // is ever stored or shown.
-const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
+const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'drive', 'variants', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
 function clean(cp) {
   const out = {};
   for (const k of FIELDS) if (cp[k] !== undefined) out[k] = cp[k];
   if (out.secret) out.secret = { to: out.secret.to, ...(out.secret.pane ? { pane: out.secret.pane } : {}), ...(out.secret.env ? { env: out.secret.env } : {}), ...(out.secret.enter === false ? { enter: false } : {}) };
   if (out.answer) {
     const a = out.answer;
-    out.answer = { at: a.at, ...(a.choice != null ? { choice: a.choice, option: a.option } : {}), ...(a.text != null ? { text: a.text } : {}), ...(a.approved ? { approved: true } : {}), ...(typeof a.command === 'string' && a.command ? { command: a.command } : {}), ...(a.delivered ? { delivered: true } : {}), ...(a.declined ? { declined: true } : {}), ...(typeof a.reason === 'string' && a.reason ? { reason: a.reason } : {}), ...(a.by ? { by: a.by } : {}) };
+    out.answer = { at: a.at, ...(a.choice != null ? { choice: a.choice, option: a.option } : {}), ...(a.text != null ? { text: a.text } : {}), ...(a.approved ? { approved: true } : {}), ...(typeof a.command === 'string' && a.command ? { command: a.command } : {}), ...(a.delivered ? { delivered: true } : {}), ...(a.declined ? { declined: true } : {}), ...(typeof a.allow === 'string' && a.allow ? { allow: a.allow } : {}), ...(a.pick && typeof a.pick === 'object' ? { pick: cleanPick(a.pick) } : {}), ...(typeof a.reason === 'string' && a.reason ? { reason: a.reason } : {}), ...(a.by ? { by: a.by } : {}) };
+  }
+  if (out.variants) out.variants = (Array.isArray(out.variants) ? out.variants : []).slice(0, 4).map((v) => ({ label: String(v && v.label || ''), path: String(v && v.path || ''), type: v && v.type === 'html' ? 'html' : 'image', ...(Number.isFinite(v && v.size) ? { size: v.size } : {}), ...(v && typeof v.pane === 'string' ? { pane: v.pane } : {}) }));
+  if (out.drive) { const d = out.drive; out.drive = { pane: String(d.pane || ''), ...(d.agent && typeof d.agent === 'object' ? { agent: cleanSource(d.agent) } : {}), ...(typeof d.input === 'string' ? { input: d.input } : {}) }; }
+  return out;
+}
+
+// An input source (PROTOCOL.md: person, an agent's pane, an API client).
+function cleanSource(s) {
+  return { kind: String(s.kind || ''), ...(typeof s.pane === 'string' ? { pane: s.pane } : {}), ...(typeof s.client === 'string' ? { client: s.client } : {}), ...(typeof s.by === 'string' ? { by: s.by } : {}) };
+}
+
+// A pick answer: the variant's label, a region on it (each 0 to 1), a note.
+function cleanPick(p) {
+  const r = p.region;
+  return { label: String(p.label || ''), ...(r && typeof r === 'object' ? { region: { x: +r.x, y: +r.y, w: +r.w, h: +r.h } } : {}), ...(typeof p.note === 'string' && p.note ? { note: p.note } : {}) };
+}
+
+// A pick from a client: { label, region?, note? }, checked against the
+// checkpoint's variants. Returns the params' pick or an error string.
+export function checkPick(cp, p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return 'pick is { label, region?, note? }.';
+  const extra = Object.keys(p).filter((k) => !['label', 'region', 'note'].includes(k));
+  if (extra.length) return `This board does not know pick.${extra.join(', pick.')}, so it did not pass the answer on.`;
+  if (typeof p.label !== 'string' || !(cp.variants || []).some((v) => v.label === p.label)) return 'Pick one of the variants by its label.';
+  const out = { label: p.label };
+  if (p.region != null) {
+    const r = p.region;
+    const ok = r && typeof r === 'object' && ['x', 'y', 'w', 'h'].every((k) => typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) && r.x + r.w <= 1.000001 && r.y + r.h <= 1.000001 && r.w > 0 && r.h > 0;
+    if (!ok) return 'The region is { x, y, w, h }, each from 0 to 1 of the picture, inside it.';
+    out.region = { x: r.x, y: r.y, w: r.w, h: r.h };
+  }
+  if (p.note != null) {
+    if (typeof p.note !== 'string' || Buffer.byteLength(p.note) > MAX_NOTE) return `The note is text, at most ${MAX_NOTE} bytes.`;
+    if (p.note.trim()) out.note = p.note.trim();
   }
   return out;
 }
@@ -93,7 +131,8 @@ export function list({ all = false } = {}) {
 }
 
 // A person's answer, from the board's API: { id, choice | text | approve |
-// secret | decline, by }, with `command` (approve: the command as the
+// secret | pick | decline, by }, with `allow` (approve on a drive: once
+// or session), `command` (approve: the command as the
 // person edited it, which runs instead) or `reason` (decline: why, for the
 // agent). Every field the person gave reaches the daemon or the answer is
 // refused: an edited command never runs as proposed because a field was
@@ -105,11 +144,11 @@ export async function answer(body, send) {
   const cp = typeof b.id === 'string' ? byId.get(b.id) : null;
   if (!cp) return { ok: false, status: 404, error: 'No such checkpoint. It may have closed already.' };
   if (cp.state !== 'open') return { ok: false, status: 409, error: `It was ${cp.state === 'running' ? 'approved already and is running' : cp.state} already.` };
-  const keys = ['choice', 'text', 'approve', 'secret', 'decline'].filter((k) => b[k] !== undefined && b[k] !== null && b[k] !== false);
-  if (keys.length !== 1) return { ok: false, status: 400, error: 'Answer with exactly one of choice, text, approve, secret or decline.' };
+  const keys = ['choice', 'text', 'approve', 'secret', 'pick', 'decline'].filter((k) => b[k] !== undefined && b[k] !== null && b[k] !== false);
+  if (keys.length !== 1) return { ok: false, status: 400, error: 'Answer with exactly one of choice, text, approve, secret, pick or decline.' };
   const k = keys[0];
   // Fields this board does not know are refused, not dropped.
-  const known = new Set(['id', 'by', 'choice', 'text', 'approve', 'secret', 'decline', 'command', 'reason']);
+  const known = new Set(['id', 'by', 'choice', 'text', 'approve', 'secret', 'pick', 'decline', 'command', 'reason', 'allow']);
   const unknown = Object.keys(b).filter((x) => !known.has(x));
   if (unknown.length) return { ok: false, status: 400, error: `This board does not know ${unknown.join(', ')}, so it did not pass the answer on.` };
   const hasCommand = b.command !== undefined && b.command !== null;
@@ -118,6 +157,10 @@ export async function answer(body, send) {
   if (hasReason && k !== 'decline') return { ok: false, status: 400, error: 'A reason goes with decline.' };
   if (hasCommand && (typeof b.command !== 'string' || !b.command.trim())) return { ok: false, status: 400, error: 'The edited command is empty.' };
   if (hasReason && typeof b.reason !== 'string') return { ok: false, status: 400, error: 'The reason is text.' };
+  const hasAllow = b.allow !== undefined && b.allow !== null;
+  if (hasAllow && (k !== 'approve' || cp.kind !== 'drive')) return { ok: false, status: 400, error: 'allow goes with approve, on a request to type into a pane.' };
+  if (hasAllow && !ALLOW.has(b.allow)) return { ok: false, status: 400, error: 'allow is once or session.' };
+  if (hasCommand && cp.kind !== 'approve') return { ok: false, status: 400, error: 'Only a command to approve can be edited.' };
   const params = { checkpoint: cp.id, ...(typeof b.by === 'string' && b.by ? { by: b.by.slice(0, 64) } : {}) };
   if (k === 'choice') {
     if (!Number.isInteger(b.choice)) return { ok: false, status: 400, error: 'choice is a number.' };
@@ -126,7 +169,13 @@ export async function answer(body, send) {
   else if (k === 'secret') {
     if (typeof b.secret !== 'string' || b.secret.length < 4) return { ok: false, status: 400, error: 'Type the whole secret (at least 4 characters).' };
     params.secret = b.secret;
+  } else if (k === 'pick') {
+    if (cp.kind !== 'pick') return { ok: false, status: 400, error: 'Only a pick is answered with a pick.' };
+    const pk = checkPick(cp, b.pick);
+    if (typeof pk === 'string') return { ok: false, status: 400, error: pk };
+    params.pick = pk;
   } else params[k] = true;
+  if (hasAllow) params.allow = b.allow;
   if (hasCommand) params.command = b.command;
   // An empty reason is no reason.
   if (hasReason && b.reason.trim()) params.reason = b.reason.trim();
@@ -139,7 +188,7 @@ export async function answer(body, send) {
     // The daemon's own words, never the request (it may hold the secret).
     if (e && e.code === 'forbidden') return { ok: false, status: 403, error: `${cp.machine ? cp.machine : 'The daemon'} did not take the answer from this hub: ${e.message}` };
     // A daemon older than the field refuses it: nothing ran.
-    if (e && e.code === 'bad_request' && (params.command || params.reason)) return { ok: false, status: 400, error: `${cp.machine ? `ravenryd on ${cp.machine}` : 'ravenryd'} did not take the answer, so nothing ran: ${e.message}. An older ravenryd cannot run an edited command or pass a reason; update it there, or answer without them.` };
+    if (e && e.code === 'bad_request' && (params.command || params.reason || params.allow || params.pick)) return { ok: false, status: 400, error: `${cp.machine ? `ravenryd on ${cp.machine}` : 'ravenryd'} did not take the answer, so nothing ran: ${e.message}. An older ravenryd cannot take every field of this answer; update it there.` };
     const why = e && e.code === 'not_found' ? 'It closed already: answered somewhere else, cancelled or expired.' : `The daemon did not take the answer (${e && e.code ? e.code : 'unreachable'}).`;
     return { ok: false, status: e && e.code === 'not_found' ? 409 : 502, error: why };
   } finally {

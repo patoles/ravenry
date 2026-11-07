@@ -245,6 +245,24 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
     msg.detail = `${prog && to !== 'input' ? `for ${prog} ` : ''}on ${machine || phone.hubName()}. Type it in the app.`;
     msg.actions = [{ id: 'open', label: 'Type it' }, { id: 'decline', label: 'Not now' }];
     msg.reply = null;
+  } else if (cp.kind === 'drive') {
+    // An agent asks to type into a pane it did not start. Allowing it is as
+    // strong as running a command there, so it takes a fingerprint, like
+    const d = cp.drive || {};
+    msg.title = `${who(cp.assistant)} wants to type into another tab`;
+    msg.body = d.input ? clip(String(d.input), 300) : (head || '');
+    msg.detail = `${topic ? `${topic}, ` : ''}on ${machine || phone.hubName()}`;
+    msg.checkpoint.drive = { pane: d.pane || null };
+    msg.actions = [{ id: 'allow:once', label: 'Allow once', biometric: true }, { id: 'allow:session', label: 'This session', biometric: true }, { id: 'refuse', label: 'Refuse' }];
+  } else if (cp.kind === 'pick') {
+    // Pictures to choose from. The shade picks a variant by its label; the
+    // region and the note ("this, but...") are in the app. Each variant's
+    // file is GET /api/checkpoints/<id>/variants/<n> with the device token.
+    const vs = Array.isArray(cp.variants) ? cp.variants : [];
+    msg.title = `${name} wants you to pick`;
+    msg.detail = `${vs.length} variants.`;
+    msg.checkpoint.variants = vs.map((v, i) => ({ label: String(v.label || ''), type: v.type === 'html' ? 'html' : 'image', url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${i}` }));
+    msg.actions = fit(vs.map((v, i) => ({ id: `pick:${i}`, label: String(v.label || '') })), 3);
   } else {
     msg.title = `${name} waits for you`;
     msg.actions = [{ id: 'open', label: 'Open' }];
@@ -316,6 +334,34 @@ export function fromCheckpoint(cp, where = {}) {
   send(msg);
   return msg;
 }
+
+// "Saved your decision": an agent recorded the person's words in the
+// ledger (server/decisions.mjs). Undo, for a minute, takes it back
+// (POST /api/decisions/undo { id }).
+export function decisionMessage(d, { project = null } = {}) {
+  return capped({
+    v: 1, type: 'alert', id: `dec:${d.id}`, at: d.at, kind: 'decision',
+    title: 'Saved your decision', body: clip(d.quote.replace(/\s*\n\s*/g, ' '), 600),
+    detail: `${who(d.recorded_by && d.recorded_by.assistant)} recorded it${project ? ` for ${project.name}` : ''}.`,
+    project: project ? { id: project.id, name: project.name } : null, machine: (d.recorded_by && d.recorded_by.machine) || null, session: null,
+    decision: { id: d.id, undo_until: new Date(Date.parse(d.at) + 60000).toISOString() },
+    actions: [{ id: 'undo', label: 'Undo' }], reply: null,
+  });
+}
+
+export function fromDecision(d, where = {}) {
+  if (!ready()) return null;
+  const msg = decisionMessage(d, where);
+  send(msg);
+  // Undo lasts a minute; then the alert has nothing left to offer.
+  const tm = setTimeout(() => { timers.delete(tm); send({ v: 1, type: 'close', id: msg.id }); }, 60000);
+  if (tm.unref) tm.unref();
+  timers.add(tm);
+  return msg;
+}
+
+// Takes a decision's alert off the phone (undone).
+export const closeDecision = (id) => send({ v: 1, type: 'close', id: `dec:${id}` });
 
 export function fromProject(alert, p) {
   if (!ready()) return null;

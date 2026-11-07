@@ -26,7 +26,11 @@ const ASSISTANTS = new Set(['claude', 'codex']);
 // even when the person's shell files do not add that folder, so a pane
 // started from the app (whose daemon has the short PATH the Finder gives)
 // would say "command not found: claude".
-export function plan(body, { project = null, launch, briefPath = () => null, briefExists = () => false, machines = [], binPath = () => null }) {
+// worktree: { branch, folder } when the session works in a worktree of its
+// own (server/worktrees.mjs), so its first prompt says so. decisions: one
+// line pointing at the project's decisions on record (server/decisions.mjs
+// promptLine), added to the brief's prompt.
+export function plan(body, { project = null, launch, briefPath = () => null, briefExists = () => false, machines = [], binPath = () => null, worktree = null, decisions = '' }) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.projectId != null && !project) return { ok: false, status: 404, error: 'No such project.' };
   const machine = b.machine == null || b.machine === '' ? (project && project.machine) || null : String(b.machine);
@@ -42,7 +46,12 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
     if (bp && (machine || briefExists(bp))) {
       const rel = path.relative(folder, bp);
       prompt = `Read ${rel.startsWith('..') ? bp : rel} (Hand-off section first) and continue.`;
+      if (decisions) prompt += ` ${decisions}`;
     }
+  }
+  if (worktree) {
+    const note = `You work in your own git worktree, ${worktree.folder}, on the branch ${worktree.branch}: commit your work there. The user reviews the branch and merges it.`;
+    prompt = prompt ? `${prompt} ${note}` : note;
   }
   const line = prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
   const first = String(L.command).trim().split(/\s+/)[0];

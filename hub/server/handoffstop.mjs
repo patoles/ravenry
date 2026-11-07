@@ -15,6 +15,7 @@
 // minutes pass (h.deferralHold).
 
 import * as h from './handoff.mjs';
+import { promptBlock } from './decisions.mjs';
 import { lastUsage as codexUsage } from './codexrollout.mjs';
 
 const RANK = (s) => h.stateRank(s);
@@ -135,6 +136,7 @@ export async function decideStop(input, { assistant = 'claude', tab = null, env 
   const reason = h.reasonText({
     pct, tokens, window, threshold, ceiling, manual,
     file: target.file, autoStart: settings.handoffAutoStart !== false,
+    decisions: (() => { try { return promptBlock(target.projectId || null); } catch { return ''; } })(),
     ...(ASSISTANT === 'codex' ? { name: 'Codex', short: 'Codex' } : {}),
   });
   h.writeMarker(sid, {

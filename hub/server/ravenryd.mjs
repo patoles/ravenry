@@ -221,18 +221,28 @@ export function tidy(text, lines) {
 
 // Text as one paste: bracketed when the program asked for it, so newlines
 // arrive as written (the daemon encodes it, PROTOCOL.md section 7).
-export const pasteText = (id, text) => send(id, [{ text: String(text), mode: 'paste' }]);
+// `by` says a person typed it (the composer, the phone, a page's button):
+// the daemon then tags the input as the person's in the pane's input log
+// (PROTOCOL.md, pane.send). Without it, the input is the hub's own (a
+// hand-off's prompt), tagged as this client.
+export const pasteText = (id, text, by = null) => send(id, [{ text: String(text), mode: 'paste' }], by);
 // Text key by key, for the "!" that turns on Claude Code's bash mode.
-export const typeText = (id, text) => send(id, [{ text: String(text), mode: 'typed' }]);
+export const typeText = (id, text, by = null) => send(id, [{ text: String(text), mode: 'typed' }], by);
 
 const KEYS = { enter: 'Enter', up: 'Up', down: 'Down', backspace: 'Backspace', escape: 'Escape', tab: 'Tab' };
-export async function pressKey(id, key) {
+export async function pressKey(id, key, by = null) {
   if (!KEYS[key]) return { ok: false, err: `the board does not send the ${key} key to Ravenry` };
-  return send(id, [{ key: KEYS[key] }]);
+  return send(id, [{ key: KEYS[key] }], by);
 }
 
-async function send(id, input) {
-  const r = await call(id, 'pane.send', { input });
+// A daemon that tags input by its source lists pane.inputs; an older one
+// refuses the `by` field, so it is sent only where it is known.
+export const tagsInput = (c) => !!(c && c.has && c.has('pane.inputs'));
+
+async function send(id, input, by = null) {
+  const d = await daemonOf(id);
+  const tag = by && tagsInput(d && d.c) ? { by: String(by).slice(0, 64) } : {};
+  const r = await call(id, 'pane.send', { input, ...tag });
   return r.ok ? { ok: true, out: '', err: '' } : r;
 }
 
@@ -329,6 +339,47 @@ export async function answerCheckpoint(daemon, params) {
   const d = (await daemons()).find((x) => x.id === daemon);
   if (!d) { const e = new Error('that daemon is not connected'); e.code = 'disconnected'; throw e; }
   return d.c.request('checkpoint.answer', params, { timeoutMs: 15000 });
+}
+
+// The agent state of a pane on this machine's daemons (pane.list), for a
+// decision an agent recorded from it: { assistant, session } or null.
+export async function paneAgent(paneId) {
+  for (const d of (await daemons()).filter((x) => !x.machine)) {
+    try {
+      const { panes } = await d.c.request('pane.list', { hidden: true }, { timeoutMs: 5000 });
+      const p = (panes || []).find((x) => x.id === paneId);
+      if (p) return { assistant: (p.agent && p.agent.assistant) || null, session: (p.agent && p.agent.session) || null };
+    } catch { /* the next one */ }
+  }
+  return null;
+}
+
+// A file on the machine of the daemon `daemon` (the hub's id for it),
+// read through file.stat and file.read, so a remote machine's file comes
+// the same way: { ok, data: Buffer, size } or { ok: false, status, error }.
+// At most `max` bytes.
+export async function readDaemonFile(daemon, file, { max = 32 << 20 } = {}) {
+  const d = (await daemons()).find((x) => x.id === daemon);
+  if (!d) return { ok: false, status: 502, error: 'The machine that holds it is not connected.' };
+  try {
+    const { files } = await d.c.request('file.stat', { paths: [file] }, { timeoutMs: 10000 });
+    const f = files && files[0];
+    if (!f || f.type !== 'file') return { ok: false, status: 404, error: 'The file is gone.' };
+    if (f.size > max) return { ok: false, status: 413, error: `The file is ${Math.round(f.size / 1048576)} MiB; at most ${max >> 20} MiB is served.` };
+    const parts = [];
+    let off = 0;
+    while (off < f.size) {
+      const r = await d.c.request('file.read', { path: file, offset: off, limit: Math.min(8 << 20, f.size - off), format: 'raw' }, { timeoutMs: 30000 });
+      const b = Buffer.from(r.data || '', 'base64');
+      if (!b.length) break;
+      parts.push(b);
+      off += b.length;
+      if (off > max) return { ok: false, status: 413, error: 'The file grew past the limit.' };
+    }
+    return { ok: true, data: Buffer.concat(parts), size: off };
+  } catch (e) {
+    return { ok: false, status: e.code === 'not_found' ? 404 : 502, error: e.code === 'not_found' ? 'The file is gone.' : `ravenryd: ${e.message}` };
+  }
 }
 
 function machineError(name) {

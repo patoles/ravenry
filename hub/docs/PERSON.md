@@ -80,12 +80,20 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-74 person rows (22 of them judged ambiguous), 7 open rows. GET routes not
+81 person rows (22 of them judged ambiguous), 8 open rows. GET routes not
 listed are reads and stay open; the two `GET /api/phone...` rows hand out a
-pairing secret, and `GET /api/term` opens a terminal.
+pairing secret, and `GET /api/term` opens a terminal. Among the open
+reads: `GET /api/decisions` (the ledger, which agents check before
+asking), `GET /api/sessions/<id>/diff` (a worktree session's diff) and
+`GET /api/checkpoints/<id>/variants/<n>` (a pick's pictures, from the
+copies kept in Ravenry's data, HTML and SVG sandboxed).
 
 | Endpoint | Class | Why |
 | --- | --- | --- |
+| `/api/decisions/add` | person | A decision the person adds is their own word, which every agent then follows (an agent records one through /api/decisions/record instead, marked as its own). |
+| `/api/decisions/undo` | person | Taking a decision back is the person's call; an agent would undo the person's words. |
+| `/api/decisions/edit` | person | Rewriting a decision changes what every agent follows. |
+| `/api/decisions/remove` | person | Taking a decision off the record changes what every agent follows. |
 | `/api/checkpoints/answer` | person | Answering a checkpoint is the person's answer to an agent. |
 | `/api/plan/answer` | person | Passing a gate is the person's answer; an agent would pass its own gate. |
 | `/api/plan/confirm` | person | It passes a gate the file alone marked passed; an agent would confirm its own. |
@@ -104,6 +112,9 @@ pairing secret, and `GET /api/term` opens a terminal.
 | `/api/send` | person | The composer types the person's words into a session; an agent would answer its own prompts. |
 | `/api/sessions/start` | person | Judged (ambiguous): it starts an assistant on the person's account, with a first prompt. |
 | `/api/sessions/close` | person | Closing a session ends the assistant in it. |
+| `/api/sessions/<id>/comment` | person | It types the person's review comment into the session, as the composer does; an agent would steer another agent in the person's name. |
+| `/api/sessions/<id>/merge` | person | Merging a session's branch into the project's is the person's call; an agent would merge its own work unreviewed. |
+| `/api/sessions/<id>/discard` | person | It deletes the session's worktree and branch, uncommitted changes included. |
 | `/api/sessions/reopen` | person | Reopening starts an assistant again. |
 | `/api/project/revive` | person | Revive and New session start an assistant, with the person's first message. |
 | `/api/handoff` | person | A hand-off decision is the person's. |
@@ -164,6 +175,7 @@ pairing secret, and `GET /api/term` opens a terminal.
 | `/api/pages/customize` | person | Judged (ambiguous): the copy takes the shipped page's place in the sidebar. An agent can write a page file itself. |
 | `/api/pages/ask` | person | It types into a session, and a background ask sends it: what the composer does. |
 | `/api/pages/run` | person | Judged (ambiguous): it puts a command in front of the person to approve as if they pressed the button (an agent asks with `ravenry approve` instead). |
+| `/api/decisions/record` | open | An agent records the person's words verbatim (`ravenry decide`): it counts at once, marked with the pane and session that recorded it, and the person is told at once and can undo it for a minute, or edit or remove it any time. |
 | `/api/note` | open | Adds a line under Notes in the brief. |
 | `/api/inbox/<project>` | open | Puts a file in the project's inbox folder; nothing is sent or run. |
 | `/api/hook-event` | open | The hooks inside every session post it: it only makes the board look at events already on disk. |

@@ -441,7 +441,7 @@ export function observe(projects, opts = {}) {
 // blocked until someone answers). Like every alert it says who and what
 // kind, never the agent's text: the question, the command and the secret's
 // label stay on the board.
-export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to run a command', secret: 'Needs you to type a secret' };
+export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to run a command', secret: 'Needs you to type a secret', drive: 'Wants to type into another tab', pick: 'Wants you to pick a variant' };
 
 export function checkpointAlert(cp, { project = null, machine = null, boardUrl = null } = {}) {
   const who = project ? project.name : machine ? `An agent on ${machine}` : 'An agent';

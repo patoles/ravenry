@@ -168,10 +168,12 @@ const ADAPTERS = {
     readScreen: (t, n) => ravenry.readScreen(t.surfaceId, n),
     // pane.capture has styles, but the suggestion reader reads cmux's grid.
     readStyled: async () => null,
-    pasteText: (t, text) => ravenry.pasteText(t.surfaceId, text),
+    // `t.by`: a person typed it (server/index.mjs sendMessage), so the
+    // daemon tags the input as theirs.
+    pasteText: (t, text) => ravenry.pasteText(t.surfaceId, text, t.by || null),
     // The daemon's typed mode: one key at a time, never one read.
-    typeText: (t, text) => ravenry.typeText(t.surfaceId, text),
-    pressKey: (t, k) => ravenry.pressKey(t.surfaceId, k),
+    typeText: (t, text) => ravenry.typeText(t.surfaceId, text, t.by || null),
+    pressKey: (t, k) => ravenry.pressKey(t.surfaceId, k, t.by || null),
     focus: (t) => ravenry.focus(t.surfaceId),
     close: (t) => ravenry.close(t.surfaceId),
     openTab: (o) => ravenry.openTab({ near: o.near || null, cwd: o.cwd || null, label: o.label || null }),
@@ -262,4 +264,6 @@ export const ravenryStart = (o) => ravenry.startSession(o);
 export const ravenryAnswer = (daemon, params) => ravenry.answerCheckpoint(daemon, params);
 export const ravenryApprove = (o) => ravenry.newApprove(o);
 export const ravenryBin = () => ravenry.findBin();
+export const ravenryReadFile = (daemon, file, o) => ravenry.readDaemonFile(daemon, file, o);
+export const ravenryPaneAgent = (pane) => ravenry.paneAgent(pane);
 export const ravenryDaemonsHere = () => ravenry.localSockets();

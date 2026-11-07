@@ -161,3 +161,40 @@ covers the parsers, the mapping order, the groups and the records.
   a close, which refuses when it cannot.
 - "Mid-turn" for a session with no screen (outside cmux) comes from its
   events and transcript only; those rows cannot be closed anyway.
+
+## Worktrees
+
+`POST /api/sessions/start` with `worktree: true` (and a `projectId`, and
+optionally a `name`) starts a parallel session on its own branch, so two
+sessions of one project never write the same files
+(`server/worktrees.mjs`):
+
+- The branch is `ravenry/<slug of the name>` (`ravenry/session-<id>`
+  without one, `-2` and on when it is taken), from the repository's HEAD,
+  in a sibling folder `<parent>/<repo folder>-<slug>`. The session starts in
+  the same subfolder the project's folder is in, its pane is labelled
+  `ravenry.worktree: <branch>`, and its first prompt says where it works and
+  that the person reviews and merges the branch. On this computer only for
+  now; a project on another machine is refused.
+- `<RAVENRY_HOME>/worktrees.json` records each one: surface id, pane,
+  project, repository, folder, branch, base commit and base branch, state
+  (`open`, `merged`, `discarded`).
+- **The review pane's API.** `GET /api/sessions/<id>/diff` (open): the
+  session's work against the merge base with the branch it came from,
+  committed, uncommitted and untracked, as unified diff text (2 MiB at
+  most, `truncated` past it) and `files` with added and removed counts.
+  `GET /api/sessions/<id>/worktree` gives the record. Person rows:
+  `POST /api/sessions/<id>/comment { file, line?, text, side? }` types
+  "Review comment on <file> line <n>: <text>" into the session through the
+  composer's send path (tagged `review` in the pane's input log);
+  `POST /api/sessions/<id>/merge { mode: "ff" | "merge", message? }` merges
+  the branch into the base branch in the repository's main work tree, as a
+  fast-forward or a merge commit, never a squash, so the agent's own
+  commits stay in the history. It is refused, with the files named, while
+  the session has uncommitted changes, on a conflict (checked first with
+  `git merge-tree --write-tree`, which touches no work tree), and as a
+  fast-forward once the base branch moved; then the worktree and the
+  branch are removed. `POST /api/sessions/<id>/discard` throws the
+  worktree and the branch away. `<id>` is the surface id, URL-encoded.
+- Every git command runs without a shell, with a timeout.
+  `node tools/worktree-test.mjs` covers it on scratch repositories.

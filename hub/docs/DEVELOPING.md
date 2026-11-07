@@ -1174,6 +1174,21 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   copy", page check and docs, live updates and the web board's tabs. With
   `RAVENRYD_BIN` it also runs the ravenry binary's `page check` and `page
   docs` against that board.
+- `node tools/decisions-test.mjs`: the decision ledger (docs/DECISIONS.md):
+  entries, replacing, edit, undo within the minute, remove, search, the
+  project filter, read counts, the hand-off's words and a new session's
+  first prompt, and a board on scratch data: /record from outside every
+  pane, the stream's "saved", reads counted only for agents.
+- `node tools/worktree-test.mjs`: a worktree per session on scratch git
+  repositories (docs/SESSIONS.md, Worktrees): the branch and sibling folder,
+  the diff, merge refused on uncommitted work, a conflict and a moved base,
+  fast-forward and merge commit, discard. With `RAVENRYD_BIN`, the routes
+  on a real board and daemon, a review comment typed into a stand-in
+  assistant.
+- `node tools/picks-test.mjs`: a pick's pictures kept in Ravenry's data,
+  its record, pick and drive answers, and their phone alerts. With
+  `RAVENRYD_BIN` and a daemon that opens picks, the variants served
+  (types, HTML and SVG sandboxed) and a pick answered through the hub.
 - `node tools/vendor-page-format.mjs [--check]`: bundles
   `packages/page-format` into `server/vendor/page-format.mjs` and copies the
   shipped pages and the page docs; `--check` fails when they are not current.

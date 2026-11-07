@@ -68,6 +68,12 @@ export const REFUSED = 'Only a person can answer a checkpoint, in the Ravenry ap
 // `what` finishes "Only a person can ..." in the refusal.
 const P = 'person', O = 'open';
 export const ROUTES = [
+  // The decision ledger (server/decisions.mjs)
+  { m: 'POST', p: '/api/decisions/add', c: P, what: 'record a decision', why: 'A decision the person adds is their own word, which every agent then follows (an agent records one through /api/decisions/record instead, marked as its own).' },
+  { m: 'POST', p: '/api/decisions/record', c: O, why: 'An agent records the person\'s words verbatim (`ravenry decide`): it counts at once, marked with the pane and session that recorded it, and the person is told at once and can undo it for a minute, or edit or remove it any time.' },
+  { m: 'POST', p: '/api/decisions/undo', c: P, what: 'undo a decision', why: 'Taking a decision back is the person\'s call; an agent would undo the person\'s words.' },
+  { m: 'POST', p: '/api/decisions/edit', c: P, what: 'edit a decision', why: 'Rewriting a decision changes what every agent follows.' },
+  { m: 'POST', p: '/api/decisions/remove', c: P, what: 'remove a decision', why: 'Taking a decision off the record changes what every agent follows.' },
   // Checkpoints and plans
   { m: 'POST', p: '/api/checkpoints/answer', c: P, what: 'answer a checkpoint', why: 'Answering a checkpoint is the person\'s answer to an agent.', strict: true },
   { m: 'POST', p: '/api/plan/answer', c: P, what: 'answer a plan\'s gate or question', why: 'Passing a gate is the person\'s answer; an agent would pass its own gate.' },
@@ -88,6 +94,9 @@ export const ROUTES = [
   { m: 'POST', p: '/api/send', c: P, what: 'type into a session from the board', why: 'The composer types the person\'s words into a session; an agent would answer its own prompts.' },
   { m: 'POST', p: '/api/sessions/start', c: P, what: 'start a session', why: 'Ambiguous, so the safer class: it starts an assistant on the person\'s account, with a first prompt.' },
   { m: 'POST', p: '/api/sessions/close', c: P, what: 'close sessions', why: 'Closing a session ends the assistant in it.' },
+  { m: 'POST', p: /^\/api\/sessions\/[^/]+\/comment$/, eg: '/api/sessions/x/comment', doc: '/api/sessions/<id>/comment', c: P, what: 'comment on a session\'s work', why: 'It types the person\'s review comment into the session, as the composer does; an agent would steer another agent in the person\'s name.' },
+  { m: 'POST', p: /^\/api\/sessions\/[^/]+\/merge$/, eg: '/api/sessions/x/merge', doc: '/api/sessions/<id>/merge', c: P, what: 'merge a session\'s work', why: 'Merging a session\'s branch into the project\'s is the person\'s call; an agent would merge its own work unreviewed.' },
+  { m: 'POST', p: /^\/api\/sessions\/[^/]+\/discard$/, eg: '/api/sessions/x/discard', doc: '/api/sessions/<id>/discard', c: P, what: 'throw a session\'s work away', why: 'It deletes the session\'s worktree and branch, uncommitted changes included.' },
   { m: 'POST', p: '/api/sessions/reopen', c: P, what: 'reopen a session', why: 'Reopening starts an assistant again.' },
   { m: 'POST', p: '/api/project/revive', c: P, what: 'start a session', why: 'Revive and New session start an assistant, with the person\'s first message.' },
   { m: 'POST', p: '/api/handoff', c: P, what: 'decide a hand-off', why: 'A hand-off decision is the person\'s.' },
@@ -203,6 +212,23 @@ export async function fromPerson(req, bin, { strict = false, daemons = null } = 
       try { r = JSON.parse(stdout); } catch { /* below */ }
       if (err || !r) return resolve({ ok: false, why: `the board cannot tell who sent it (ravenryd peer: ${err ? err.message.split('\n')[0] : 'no answer'})` });
       resolve(r.person ? { ok: true } : { ok: false, why: r.why || 'it did not come from a person' });
+    });
+  });
+}
+
+// The pane a request on this machine comes from, as `ravenryd peer` judges
+// the process that holds the connection: { pane } (a pane id, or "?" when
+// the daemon saw it in a pane it could not name), or { pane: null } for a
+// process outside every pane, another machine, or nothing to judge with.
+// Never from the request's body: a program cannot claim another pane.
+export async function callerPane(req, bin) {
+  const s = req.socket;
+  if (!bin || !s || !s.remotePort || !s.localPort || !fromThisMachine(s.remoteAddress)) return { pane: null };
+  return new Promise((resolve) => {
+    execFile(bin, ['peer', '--tcp', String(s.remotePort), '--to', String(s.localPort), '--json'], { timeout: 10000, maxBuffer: 1 << 20 }, (err, stdout) => {
+      let r = null;
+      try { r = JSON.parse(stdout); } catch { /* below */ }
+      resolve({ pane: !err && r && typeof r.pane === 'string' && r.pane ? r.pane : null });
     });
   });
 }

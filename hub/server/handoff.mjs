@@ -421,7 +421,9 @@ function k(n) {
 
 // `name` and `short` name the assistant the hook asks (Claude Code by
 // default; the Codex hook passes 'Codex' for both).
-export function reasonText({ pct, tokens, window, threshold, ceiling, manual, file, autoStart, name = 'Claude Code', short = 'Claude' }) {
+// `decisions`: the project's decisions on record, as server/decisions.mjs
+// promptBlock gives them, or empty.
+export function reasonText({ pct, tokens, window, threshold, ceiling, manual, file, autoStart, name = 'Claude Code', short = 'Claude', decisions = '' }) {
   const where = file ? file : 'HANDOFF.md at the repo root';
   const isBrief = isBriefFile(file);
   const used = tokens != null ? `${Math.round(pct)}% (${k(tokens)} of ${k(window)})` : 'unknown';
@@ -448,5 +450,6 @@ export function reasonText({ pct, tokens, window, threshold, ceiling, manual, fi
       ? `Ravenry then opens a fresh ${short} session in a new tab next to this one that reads it and carries on. Do not open or close any session yourself, and do nothing after that line.`
       : 'The user starts the fresh session from Ravenry. Do not open or close any session yourself, and do nothing after that line.',
   );
+  if (decisions) lines.push('', `${decisions}\nThe fresh session reads them from the ledger itself, so do not copy them into the hand-off.`);
   return lines.join('\n');
 }

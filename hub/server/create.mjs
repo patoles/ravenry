@@ -15,6 +15,7 @@ import * as term from './terminal.mjs';
 
 const { cmux } = term;
 import * as registry from './registry.mjs';
+import * as decisions from './decisions.mjs';
 import { RAVENRY_HOME } from './home.mjs';
 import { sayPath } from '../public/homepath.mjs';
 
@@ -406,7 +407,10 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   if (!project.folder && term.BOARD !== 'cmux') return { ok: false, status: 409, error: `${project.name} has no folder, so there is nowhere to start its session.` };
   const rel = project.folder && bp ? path.relative(project.folder, bp) : '..';
   const briefRel = rel.startsWith('..') ? bp : rel;
-  const prompt = custom || `Read ${briefRel} (Hand-off section first) and continue.`;
+  // The brief's prompt also points at the user's decisions on record
+  // (server/decisions.mjs); a prompt of the person's own stays as written.
+  const dl = custom ? '' : decisions.promptLine(project.id);
+  const prompt = custom || `Read ${briefRel} (Hand-off section first) and continue.${dl ? ' ' + dl : ''}`;
   // `typed`: the line is pasted into a new tab's shell; else it is cmux's
   // --command for a new workspace, which reads backslashes (quoteWord).
   const line = (typed) => (fm ? `${L.command} ${fm.startsWith('-') ? '-- ' : ''}${typed ? shellWord(fm) : quoteWord(fm)}` : launchLine(L.command, prompt));
