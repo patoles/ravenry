@@ -14,6 +14,7 @@
 //
 // Usage: node hub/tools/startup-load-test.mjs [--exe APP_EXECUTABLE --hub HUB_DIR]
 //   (the packaged app's hub: its executable as Node, ELECTRON_RUN_AS_NODE=1)
+import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import { guardSpawns } from '../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
