@@ -301,6 +301,48 @@ while `TERM_PROGRAM` is `ravenry` (server/termenv.mjs, server/sessions.mjs).
 The board runs in Ravenry mode with `RAVENRY_TERMINAL=ravenry`, or when it
 starts in a ravenryd pane.
 
+**Sessions in other terminals, from Ravenry mode.** The desktop app's hub
+runs in Ravenry mode, under launchd, and follows the sessions the person
+still runs elsewhere. iTerm2 and Rex are followed as in the other modes.
+cmux is too (`term.CMUX_OUTSIDE`, Ravenry mode with cmux installed): its
+tabs are listed (`tree --all`) only while a session's events or a claude
+process place a session there, the session is tied to its tab by the
+surface id its events and its process's `CMUX_SURFACE_ID` carry, its screen
+is read, the Sessions page says it is in cmux, and Open in cmux focuses its
+tab. It is a read-only mirror: in this mode the board never types into a
+cmux tab, closes one or opens one (`canDrive('cmux')` is false and the cmux
+adapter's writes refuse whatever the caller checked), so a send is refused
+with "Answer it in cmux, or continue it in Ravenry", and Close idle leaves
+it ("In cmux").
+
+cmux's socket, in its default mode, answers only programs cmux started
+("Access denied - only processes started inside cmux can connect"), and
+launchd, not cmux, starts the app's hub. The npm board read cmux only
+because it was started by hand in a cmux tab. The hub never works around
+that: until the person allows it in cmux (Settings > Automation: a socket
+password, which the cmux command reads from cmux's settings or
+`CMUX_SOCKET_PASSWORD`, or a wider access mode), the session shows from its
+events with one line saying so ("cmux shows its tabs only to programs it
+started..."), its conversation comes from its transcript (the session's
+`conversation`: its last turns, what was asked and the answer), cmux is
+asked again every 30 s, and Open in cmux brings the cmux app forward (`open
+-b com.cmuxterm.app`, no socket needed).
+
+**Continue in Ravenry.** A session on this machine in a terminal outside
+Ravenry carries `outside: { name, open, resumable }`: `open` is whether its
+process still runs there (its hook's pid, one `ps -p` per tick; else the
+last process list). `POST /api/sessions/resume { projectId, sessionId,
+cols, rows }` resumes it in a Ravenry pane in its folder, through ravenryd
+as any session the app starts, with `claude --resume <id>` or `codex resume
+<id>` (Claude Code 2.1.319's and Codex 0.166.0's `--help`). It reads the
+processes again first and never starts a second process on a session id:
+while one still runs outside, it answers 409 with "It is still open in
+cmux. Close it there first, then continue it here." and `open: true`; one
+in a Ravenry pane is answered with that pane, as is a second ask for one it
+resumed. It never ends the outside process. A hand-off's fresh session of a
+session in a terminal the board cannot open tabs in goes to a Ravenry pane
+in this mode (`term.freshTerminal`); the other modes keep it where it ran.
+
 **The agent status channel.** In a ravenryd pane, an assistant's hooks can
 run `ravenryd hook --assistant claude|codex` instead of the Node scripts
 (a remote machine may have no Node). The daemon keeps what they report, and
@@ -499,6 +541,16 @@ read a tab and type into it without bringing it forward.
 against the fake (its `board-*` scripts and the split helper), and a test
 board on :4682 in iTerm2 mode whose `CMUX_BIN` is a tripwire that logs any
 call (none may happen).
+
+`node tools/outside-terminal-test.mjs` (with `RAVENRYD_BIN` for the
+resume) proves the above on a test board in Ravenry mode with
+`tools/fake-cmux.mjs` and the stand-in ps: the session tied to its cmux tab
+and its screen read, inCmux on the Sessions page, a send refused, Open
+focusing the tab, nothing ever written to cmux; with cmux refusing the
+board, the one line, the transcript's conversation and the cmux app
+brought forward; then its process ended, Continue in Ravenry running
+`<claude> --resume <id>` in a real pane in its folder, and a second ask
+answered with the same pane.
 
 `node tools/iterm-test.mjs` proves the detection, the hook's lines, the
 adapter against `tools/fake-iterm.mjs` (which plays both osascript and the

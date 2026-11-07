@@ -1026,6 +1026,13 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   its menu chosen, a hand-off, Close idle and Reopen), :4672 and :4678
   (watch only, and why) and :4673 (Rex mode with a cmux tripwire: New
   project, Revive, the page). Touches only `.tmp/`.
+- `RAVENRYD_BIN=../daemon/ravenryd node tools/outside-terminal-test.mjs`:
+  a session in cmux seen from Ravenry mode (the app's hub), with
+  `tools/fake-cmux.mjs` and the stand-in ps: tied to its cmux tab, read
+  only, Open in cmux; cmux refusing the board (one line, the transcript's
+  conversation); its process ended and Continue in Ravenry in a real pane
+  (docs/TERMINALS.md, Sessions in other terminals). Without RAVENRYD_BIN
+  the resume is skipped. Touches only `.tmp/`.
 - `node tools/iterm-mode-test.mjs`: iTerm2 mode and `npm run iterm`
   (above, "The board in iTerm2"): which terminal the board drives from
   where it was started, the Ravenry tab against `tools/fake-iterm.mjs`

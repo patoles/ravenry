@@ -21,9 +21,21 @@ function run(args, { timeout = 6000, env = ENV } = {}) {
   });
 }
 
+// cmux's socket, in its default mode, answers only programs cmux started:
+// "Access denied - only processes started inside cmux can connect". A board
+// launchd runs (the app's hub) is not one, so every call is refused until
+// the person allows it in cmux (Settings > Automation: a socket password,
+// which the cmux command reads from cmux's settings or CMUX_SOCKET_PASSWORD,
+// or a wider access mode). The board says so; it never works around it.
+export const DENIED = /access denied|only processes started inside cmux/i;
+
 async function runJson(args) {
   const r = await run(args);
-  if (!r.ok) throw new Error(`cmux ${args.join(' ')}: ${r.err}`);
+  if (!r.ok) {
+    const e = new Error(`cmux ${args.join(' ')}: ${r.err}`);
+    if (DENIED.test(r.err)) e.denied = true;
+    throw e;
+  }
   return JSON.parse(r.out);
 }
 

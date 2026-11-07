@@ -155,6 +155,7 @@ const bodies = {
   '/api/plan/answer': { projectId: 'proj', choice: 'Add it' },
   '/api/send': { projectId: 'proj', surfaceId: 'ravenry:' + agentPane.id, text: 'yes' },
   '/api/sessions/start': { projectId: 'proj', assistant: 'claude', text: 'hello' },
+  '/api/sessions/resume': { projectId: 'proj', sessionId: '00000000-0000-4000-8000-000000000000' },
   '/api/sessions/close': { surfaceIds: ['ravenry:' + agentPane.id] },
   '/api/handoff': { projectId: 'proj', sessionId: 'x' },
   '/api/machines/add': { name: 'box', host: 'box' },

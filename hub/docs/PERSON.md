@@ -114,6 +114,7 @@ session's review comments and the agent's replies).
 | `/api/plan/discard` | person | It throws the person's draft away. |
 | `/api/send` | person | The composer types the person's words into a session; an agent would answer its own prompts. |
 | `/api/sessions/start` | person | Judged (ambiguous): it starts an assistant on the person's account, with a first prompt. |
+| `/api/sessions/resume` | person | It starts the assistant again on one of the person's sessions, in a Ravenry pane. |
 | `/api/sessions/close` | person | Closing a session ends the assistant in it. |
 | `/api/sessions/<id>/comment` | person | It types the person's review comment into the session, as the composer does; an agent would steer another agent in the person's name. |
 | `/api/sessions/<id>/merge` | person | Merging a session's branch into the project's is the person's call; an agent would merge its own work unreviewed. |

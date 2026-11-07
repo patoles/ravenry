@@ -143,6 +143,13 @@ let boardTabs = [];          // this tick's project sessions: { project, s, wait
 let sessRows = [];           // the Sessions page rows, with what a close needs
 let closing = false;
 const reopening = new Set();
+// Continue in Ravenry (POST /api/sessions/resume): sessionIds being resumed,
+// and the pane each was resumed in (sessionId -> { at, surfaceId, pane }).
+const resumeBusy = new Set();
+const resumed = new Map();
+// The hook pids of sessions in a terminal outside Ravenry that still run,
+// asked each tick (server/sessions.mjs alivePids); null before the first.
+let outsideAlive = null;
 let lastResult = null;       // the last close, shown on the page for a while
 let picBudget = 0;           // project pictures worked out this tick (server/pictures.mjs)
 let loose = [];              // this tick's cards for sessions no project holds, in a too-broad folder
@@ -373,18 +380,39 @@ function transcriptOf(e) {
   return asst.findTranscript(asst.kindOf(e), e.sessionId, e.cwd);
 }
 
-// The open tab of a session its events place in a terminal other than
-// cmux (iTerm2, Rex): { id: 'iterm:<UUID>' or 'rex:<uuid>', title, ... }, or null.
+// The terminal a session's events place it in: what the hook recorded,
+// else cmux when they name a cmux surface (hooks older than `terminal`).
+const termOf = (e) => (e ? e.terminal || (e.surfaceId ? 'cmux' : null) : null);
+
+// The board's id of the tab a session's events name, in a terminal the board
+// lists itself (iTerm2, Rex, Ravenry, and cmux in Ravenry mode), or null.
+function otherTabId(e) {
+  const kind = termOf(e);
+  if (!kind || !term.OTHER_KINDS.includes(kind)) return null;
+  return term.tabIdFor(kind, kind === 'cmux' ? e.surfaceId : e.terminalId);
+}
+
+// The open tab of a session its events place in a terminal other than the
+// board's cmux (iTerm2, Rex; cmux in Ravenry mode): { id: 'iterm:<UUID>',
+// 'rex:<uuid>' or cmux's surface UUID, title, ... }, or null.
 function otherTab(e) {
-  if (!e || !e.terminal || e.terminal === 'cmux') return null;
-  const id = term.tabIdFor(e.terminal, e.terminalId);
-  const o = otherTabs[e.terminal];
+  const id = otherTabId(e);
+  const o = id ? otherTabs[termOf(e)] : null;
   return id && o && o.tabs.has(id) ? o.tabs.get(id) : null;
 }
+
+// cmux in its default mode lets only programs it started use its socket,
+// and launchd, not cmux, starts the app's hub (server/cmux.mjs, DENIED).
+const CMUX_DENIED = 'cmux shows its tabs only to programs it started, so Ravenry cannot read this screen (cmux Settings > Automation can allow it).';
 
 // Why the board cannot act on a session it shows from its events only:
 // the full reason (the Live screen) and a short one (the composer).
 function cannotFor(kind) {
+  if (kind === 'cmux' && term.CMUX_OUTSIDE) {
+    const o = otherTabs.cmux;
+    if (o && !o.ok) return o.denied ? { why: CMUX_DENIED, short: term.cannotType('cmux') } : { why: `Ravenry could not reach cmux: ${String(o.error).replace(/\.?$/, '.')} Until it can, it shows what this session's hook events say.`, short: term.cannotType('cmux') };
+    return { why: term.cannotDrive('cmux', { open: false }), short: term.cannotType('cmux') };
+  }
   if (kind === 'cmux' && !term.canDrive('cmux')) return { why: term.cannotDrive(kind), short: term.cannotType(kind) };
   if (kind === 'cmux') return { why: "cmux is not answering, so the board only shows what this session's hook events say.", short: 'cmux is not answering, so the board cannot type into this session.' };
   const o = otherTabs[kind];
@@ -398,7 +426,9 @@ function tabOf(surfaceId, workspaces = lastWorkspaces) {
   const kind = term.kindOf(surfaceId);
   if (kind === 'cmux') {
     const ws = workspaces.find((w) => w.surfaces.some((x) => x.id === surfaceId));
-    return ws ? { kind, workspaceId: ws.id, surfaceId } : null;
+    if (ws) return { kind, workspaceId: ws.id, surfaceId };
+    const t = term.CMUX_OUTSIDE && otherTabs.cmux ? otherTabs.cmux.tabs.get(surfaceId) : null;
+    return t ? { kind, workspaceId: t.workspaceId, surfaceId, title: t.title } : null;
   }
   const o = otherTabs[kind];
   return o && o.tabs.has(surfaceId) ? { kind, surfaceId, title: o.tabs.get(surfaceId).title } : null;
@@ -408,10 +438,10 @@ function tabOf(surfaceId, workspaces = lastWorkspaces) {
 // asked again, never the tick's cached list.
 async function freshTab(surfaceId) {
   const kind = term.kindOf(surfaceId);
-  if (kind === 'cmux') return tabOf(surfaceId, await term.cmux.listWorkspaces());
+  if (kind === 'cmux' && !term.CMUX_OUTSIDE) return tabOf(surfaceId, await term.cmux.listWorkspaces());
   const list = await term.listTabs(kind);
   const t = list.find((x) => x.id === surfaceId);
-  return t ? { kind, surfaceId, title: t.title, sessionId: t.sessionId || null } : null;
+  return t ? { kind, surfaceId, title: t.title, sessionId: t.sessionId || null, ...(t.workspaceId ? { workspaceId: t.workspaceId } : {}) } : null;
 }
 
 // Lists iTerm2's and Rex's tabs, each only while a session needs it: a
@@ -420,33 +450,36 @@ async function freshTab(surfaceId) {
 // (ITERM_SESSION_ID, REX_BLOCK). So a Mac without iTerm2 or Rex never runs
 // osascript or rex for them. Then reads the screen of every open tab such
 // a session reports from.
-const PROC_TAB = { iterm: 'itermId', rex: 'rexId', ravenry: 'ravenryId' };
+const PROC_TAB = { iterm: 'itermId', rex: 'rexId', ravenry: 'ravenryId', cmux: 'surfaceId' };
 async function refreshOtherTabs(evAll) {
   for (const kind of term.OTHER_KINDS) await refreshKind(kind, evAll);
 }
 async function refreshKind(kind, evAll) {
   const week = Date.now() - 7 * 86400000;
-  const wanted = [...evAll.values()].filter((e) => e.terminal === kind && !e.endedAt && Date.parse(e.lastEventAt) > week);
+  const wanted = [...evAll.values()].filter((e) => termOf(e) === kind && !e.endedAt && Date.parse(e.lastEventAt) > week);
   const procs = procState.procs.filter((p) => p[PROC_TAB[kind]]);
   if (!wanted.length && !procs.length) {
     otherTabs[kind] = { ok: true, tabs: new Map(), asked: false };
     if (kind === 'rex') term.rexWatch([], rexSoon);
     return;
   }
+  // cmux refused this board: asked again every 30 s, not every tick.
+  const was = otherTabs[kind];
+  if (was && was.denied && Date.now() - was.at < 30000) return;
   try {
     const list = await term.listTabs(kind);
     otherTabs[kind] = { ok: true, tabs: new Map(list.map((t) => [t.id, t])), asked: true };
   } catch (e) {
-    otherTabs[kind] = { ok: false, tabs: new Map(), error: String(e.message || e).replace(/^(iTerm2|Rex): /, ''), asked: true };
+    otherTabs[kind] = { ok: false, tabs: new Map(), error: String(e.message || e).replace(/^(iTerm2|Rex): /, ''), asked: true, denied: !!e.denied, at: Date.now() };
     if (kind === 'rex') term.rexWatch([], rexSoon);
     return;
   }
   const tabs = otherTabs[kind].tabs;
-  const ids = [...new Set(wanted.map((e) => term.tabIdFor(kind, e.terminalId)).filter((id) => id && tabs.has(id)))];
+  const ids = [...new Set(wanted.map(otherTabId).filter((id) => id && tabs.has(id)))];
   // Rex's events, per Rex session holding a tab the board reads, only make
   // the next refresh come sooner (as cmux's do).
   if (kind === 'rex') term.rexWatch([...new Set(ids.map((id) => tabs.get(id).sessionId).filter(Boolean))], rexSoon);
-  await term.pool(ids, 4, (id) => readSurface({ kind, surfaceId: id }));
+  await term.pool(ids, 4, (id) => readSurface({ kind, surfaceId: id, ...(tabs.get(id).workspaceId ? { workspaceId: tabs.get(id).workspaceId } : {}) }));
 }
 let rexTimer = null;
 function rexSoon() {
@@ -769,7 +802,7 @@ function buildProject(project, wsById, hooks, settings, now) {
   for (const e of ev.all.values()) {
     if (e.endedAt || ev.claimed.has(e.sessionId) || taken.has(e.sessionId)) continue;
     if (e.surfaceId && ev.cmuxOk) continue; // a cmux tab: shown through it, or closed
-    const tkind = e.terminal || (e.surfaceId ? 'cmux' : null);
+    const tkind = termOf(e);
     const tab = otherTab(e);
     const x = tab ? screens.get(tab.id) : null;
     const kind = asst.kindOf(e);
@@ -788,8 +821,9 @@ function buildProject(project, wsById, hooks, settings, now) {
     const marker = markers.get(e.sessionId) || null;
     sessions.push({
       marker, paneId: null, cwd: e.cwd || (t && t.cwd) || project.folder, terminal: !!tab, term: tkind, assistant: kind,
-      cannot: tab ? null : cannotFor(tkind),
-      surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(tkind) + ' tab' : null, workspaceId: e.workspaceId, workspaceRef: null,
+      // A cmux tab followed from Ravenry mode is shown, never typed into.
+      cannot: tab ? (tkind === 'cmux' && !term.canDrive('cmux') ? { why: null, short: term.cannotType('cmux') } : null) : cannotFor(tkind),
+      surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(tkind) + ' tab' : null, workspaceId: (tab && tab.workspaceId) || e.workspaceId, workspaceRef: (tab && tab.workspaceRef) || null,
       // Never named after a too-broad folder ("projects" for the projects root).
       topic: title.topic || (t && t.title) || worktreeName(e.cwd) || [e.cwd, project.folder].filter((f) => f && !isBroadFolder(f, reg.projects, rootFolder())).map((f) => path.basename(f))[0] || 'Session', live: screen.claudeLive,
       sessionId: e.sessionId, method: tab ? `hook events (${term.nameOf(tkind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
@@ -910,6 +944,11 @@ function buildProject(project, wsById, hooks, settings, now) {
       handed: !!(s.marker && (s.marker.state === 'written' || s.marker.state === 'resumed')),
       freshSurface: (s.marker && s.marker.resumeSurfaceId) || null,
       doneWhen: s.screen.done ? s.screen.done.when : null,
+      // In a terminal outside Ravenry: whether its process still runs
+      // there, and so whether Continue in Ravenry can resume it.
+      outside: outsideOf(s),
+      // No screen to show: the conversation from its transcript instead.
+      ...(s.terminal === false && s.transcript ? { conversation: conversationOf(s.transcript) } : {}),
       ...worktreeOf(s.surfaceId),
     })),
   };
@@ -921,6 +960,33 @@ function worktreeOf(surfaceId) {
   const w = surfaceId ? worktrees.bySurface(surfaceId) : null;
   if (!w) return {};
   return { worktree: { branch: w.branch, folder: w.folder, base: w.base, baseBranch: w.baseBranch, state: w.state, ...(w.merged ? { merged: w.merged } : {}), ...(w.unmerged_at ? { unmerged_at: w.unmerged_at } : {}), ...(w.branch_deleted_at ? { branch_deleted_at: w.branch_deleted_at } : {}) } };
+}
+
+// A session in a terminal outside Ravenry (cmux, iTerm2, Rex, any other),
+// on this machine: { name, open, resumable }. `open` is whether its process
+// still runs there (its hook's pid, checked each tick; else the last process
+// list), so Continue in Ravenry resumes only a session nothing else runs:
+// two processes on one session id would write one transcript.
+function outsideOf(s) {
+  if (!s.sessionId || !s.term || s.term === 'ravenry' || sessionMachine(s)) return null;
+  const e = ev.all.get(s.sessionId);
+  let open = null;
+  if (e && e.pid && outsideAlive) open = outsideAlive.has(e.pid);
+  if (open == null) open = !procState.at || sessRows.some((r) => r.sessionId === s.sessionId);
+  const kind = asst.kindOf(s.assistant);
+  return { name: term.nameOf(s.term), open, resumable: !open && (kind === 'claude' || kind === 'codex') };
+}
+
+// The last few turns of a transcript, oldest first: what was asked (Claude
+// Code's transcripts say) and the answer, each cut to a readable length, and
+// a turn still running with what it said so far.
+function conversationOf(t) {
+  const cut = (x) => { const v = plain(String(x || '')).trim(); return v.length > 1500 ? v.slice(0, 1497).replace(/\s+\S*$/, '') + '...' : v; };
+  const out = (t.turns || []).slice(0, 4).reverse().map((x) => ({ at: x.at || null, ask: x.ask ? cut(x.ask) : null, text: cut(x.text) }));
+  if (t.inTurn && t.lastPrompt && t.lastPromptAt && !(out.length && out[out.length - 1].at && out[out.length - 1].at >= t.lastPromptAt)) {
+    out.push({ at: t.lastPromptAt, ask: cut(t.lastPrompt), text: t.lastText && t.lastTextAt > t.lastPromptAt ? cut(t.lastText) : null, working: true });
+  }
+  return out;
 }
 
 function sessionMachine(s) {
@@ -1017,6 +1083,7 @@ async function tick() {
     }
     for (const e of evAll.values()) { const t = otherTab(e); if (t && newestInTab.get(t.id) !== e) claimed.add(e.sessionId); }
     ev = { all: evAll, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
+    await refreshOutsideAlive(evAll);
     const wsById = new Map(workspaces.map((w) => [w.id, w]));
     const settings = reg.settings;
     markers = handoff.listMarkers();
@@ -1112,6 +1179,17 @@ function refreshProcs() {
   return procBusy;
 }
 
+// Which sessions in a terminal outside Ravenry still have their process:
+// one `ps -p` over their hooks' pids. A process that ended there makes the
+// Sessions page read the processes again.
+async function refreshOutsideAlive(evAll) {
+  const pids = [...evAll.values()].filter((e) => !e.endedAt && e.pid && termOf(e) !== 'ravenry' && !e.machine).map((e) => e.pid);
+  const now = await sess.alivePids(pids);
+  if (!now) return;
+  if (outsideAlive && [...outsideAlive].some((p) => !now.has(p))) refreshProcs();
+  outsideAlive = now;
+}
+
 // A tick that has finished by the time this resolves (after a close).
 async function freshTick() {
   while (ticking) await new Promise((r) => setTimeout(r, 40));
@@ -1160,7 +1238,7 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
   for (const kind of term.OTHER_KINDS) {
     const it = otherTabs[kind];
     const name = term.nameOf(kind);
-    if (it && it.ok) for (const t of it.tabs.values()) where.set(t.id, { w: { id: null, ref: name, title: name }, s: { id: t.id, title: t.title, type: 'terminal' }, kind });
+    if (it && it.ok) for (const t of it.tabs.values()) where.set(t.id, { w: kind === 'cmux' ? { id: t.workspaceId, ref: t.workspaceRef, title: t.workspaceTitle } : { id: null, ref: name, title: name }, s: { id: t.id, title: t.title, type: 'terminal' }, kind });
   }
   // The tab this board itself runs in, outside cmux.
   const boardOther = [process.env.ITERM_SESSION_ID ? term.tabIdFor('iterm', process.env.ITERM_SESSION_ID) : null, process.env.REX_BLOCK ? term.tabIdFor('rex', process.env.REX_BLOCK) : null, process.env.RAVENRY_PANE ? term.tabIdFor('ravenry', process.env.RAVENRY_PANE) : null].filter(Boolean);
@@ -1189,6 +1267,7 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     let blocked = null;
     if (!tab) blocked = otherId ? `Its ${term.nameOf(otherKind)} tab is gone` : p.surfaceId ? (term.canDrive('cmux') ? 'Its cmux tab is gone' : 'In cmux') : `Outside ${term.nameOf(term.BOARD)}`;
     else if (p.surfaceId === process.env.CMUX_SURFACE_ID || boardOther.includes(p.surfaceId)) blocked = 'The tab this board runs in';
+    else if (tab.kind === 'cmux' && !term.canDrive('cmux')) blocked = 'In cmux';
     else if (sc && !sc.claudeLive) blocked = 'Claude is not on screen in its tab';
     // Close idle ends Claude Code sessions only (docs/SESSIONS.md).
     if (!blocked && base.assistant !== 'claude') blocked = `Close idle ends Claude Code sessions only; end ${asst.nameOf(base.assistant)} in its tab`;
@@ -1384,6 +1463,73 @@ async function reopenSession(body) {
   }
 }
 
+// Continue in Ravenry (POST /api/sessions/resume { projectId, sessionId,
+// cols, rows }): a session in a terminal outside Ravenry is resumed in a
+// Ravenry pane, in its folder, with `claude --resume <id>` (`codex resume
+// <id>`), through ravenryd as any session the app starts. Never while a
+// process still holds that session id, wherever it runs: two processes on
+// one session would both write its transcript. The board never ends the
+// outside one; while it runs, the answer says to close it there first.
+// Asked again for a session it resumed, the answer is the same pane.
+function procHolding(sid) {
+  for (const p of procState.procs) {
+    const m = sess.mapProcess(p, { evAll: ev.all, hooks: [], boardTab: null });
+    if ((m && m.sessionId === sid) || p.argvSession === sid) return p;
+  }
+  return null;
+}
+
+async function resumeSession(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const sid = String(b.sessionId || '').toLowerCase();
+  if (!sess.UUID.test(sid)) return { ok: false, status: 400, error: 'sessionId is a session id.' };
+  const project = findProject(b.projectId);
+  if (!project) return { ok: false, status: 404, error: 'No such project.' };
+  const e = ev.all.get(sid) || null;
+  const snap = snapshot.projects.find((x) => x.id === project.id);
+  const s = snap ? snap.sessions.find((x) => x.sessionId === sid) || null : null;
+  if (!e && !s) return { ok: false, status: 404, error: 'No such session in that project.' };
+  if ((e && e.machine) || (s && s.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; continue it there.' };
+  const paneOfTab = (id) => (term.kindOf(id) === 'ravenry' ? id.slice('ravenry:'.length) : null);
+  // Already in a Ravenry pane: that pane.
+  if (s && term.kindOf(s.surfaceId) === 'ravenry') return { ok: true, already: true, surfaceId: s.surfaceId, pane: { id: paneOfTab(s.surfaceId) }, projectId: project.id };
+  const done = resumed.get(sid);
+  if (done && (await freshTab(done.surfaceId).catch(() => null))) return { ok: true, already: true, surfaceId: done.surfaceId, pane: done.pane, projectId: project.id };
+  if (resumeBusy.has(sid)) return { ok: false, status: 409, error: 'Already starting it.' };
+  resumeBusy.add(sid);
+  try {
+    // A fresh process list, never the minute-old one.
+    await refreshProcs();
+    if (procState.error) return { ok: false, status: 503, error: `Ravenry could not list the running sessions (${procState.error}), so it started nothing.` };
+    const holder = procHolding(sid);
+    if (holder && holder.ravenryId) return { ok: true, already: true, surfaceId: term.tabIdFor('ravenry', holder.ravenryId), pane: { id: holder.ravenryId }, projectId: project.id };
+    if (holder) {
+      const where = term.nameOf((s && s.term) || termOf(e) || (holder.surfaceId ? 'cmux' : holder.itermId ? 'iterm' : holder.rexId ? 'rex' : null));
+      return { ok: false, status: 409, open: true, error: `It is still open in ${where}. Close it there first, then continue it here.` };
+    }
+    const kind = asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
+    const cwd = [e && e.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || null;
+    if (!cwd) return { ok: false, status: 409, error: 'Its folder is gone, so there is nowhere to continue it.' };
+    const pl = sessionstart.plan({ projectId: project.id, folder: cwd, assistant: kind, resume: sid, cols: b.cols, rows: b.rows }, {
+      project,
+      launch: (_p, k) => launchFor({ kind: k, note: null }),
+      machines: machines.status().map((m) => m.name),
+      binPath: assistantPath,
+    });
+    if (!pl.ok) return { ok: false, status: pl.status, error: pl.error };
+    const r = await term.ravenryStart(pl);
+    if (!r.ok) return { ok: false, status: 502, error: `Could not start it: ${r.err}` };
+    watchOpened(r);
+    resumed.set(sid, { at: Date.now(), surfaceId: r.surfaceId, pane: r.pane });
+    console.log(`sessions: ${sid} continues in Ravenry (${r.surfaceId})`);
+    wantTick = true; setTimeout(tick, 30);
+    setTimeout(refreshProcs, 4000);
+    return { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project.id, command: pl.line, assistant: pl.kind };
+  } finally {
+    resumeBusy.delete(sid);
+  }
+}
+
 // ------------------------------------------------------------ hand-off
 
 // Tracked changes in a folder, refreshed in the background (never blocks a
@@ -1548,7 +1694,7 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
     // The fresh session opens in the terminal the old one ran in: a new
     // cmux tab next to it, a new iTerm2 tab in its window, or a new Rex tab
     // in its Rex session.
-    const where = sessionTerminal(sid, m);
+    const where = term.freshTerminal(sessionTerminal(sid, m));
     let made, tab, whereRef;
     if (where.kind === 'cmux' && term.canDrive('cmux')) {
       const ws = workspaces.find((w) => w.id === m.workspaceId);
@@ -1618,7 +1764,7 @@ function autoStarts(workspaces, cmuxOk) {
   if (reg.settings.handoffAutoStart === false) return;
   for (const [sid, m] of markers) {
     if (m.state === 'written' && !m.resumeStartedAt && !starting.has(sid)) {
-      const k = sessionTerminal(sid, m).kind;
+      const k = term.freshTerminal(sessionTerminal(sid, m)).kind;
       if (k === 'cmux' && term.canDrive('cmux') ? !cmuxOk : term.canDrive(k) && otherTabs[k] && !otherTabs[k].ok) continue;
       startFresh(sid, workspaces).catch((e) => console.error('hand-off start:', e.message));
     }
@@ -2008,6 +2154,8 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill 
   const project = findProject(projectId);
   if (!project) return { ok: false, status: 404, error: 'No such project.' };
   let tab;
+  if (String(surfaceId || '').startsWith('ev:')) return { ok: false, status: 409, error: 'That session has no tab Ravenry can type into.' };
+  if (term.kindOf(surfaceId) === 'cmux' && term.CMUX_OUTSIDE) return { ok: false, status: 409, error: term.cannotType('cmux') };
   if (term.kindOf(surfaceId) === 'cmux') {
     const workspaces = await term.cmux.listWorkspaces();
     const ws = workspaces.find((w) => (project.workspaces || []).includes(w.id) && w.surfaces.some((s) => s.id === surfaceId));
@@ -2248,7 +2396,7 @@ function askTarget(name) {
   const n = String(name || '').trim().toLowerCase();
   const snap = (snapshot.projects || []).find((p) => !p.unowned && (p.id.toLowerCase() === n || String(p.name).toLowerCase() === n));
   if (!snap) return { error: `No project called ${name || '(none)'} is on the board.`, status: 404 };
-  const live = snap.sessions.filter((s) => s.terminal !== false && !s.cannot);
+  const live = snap.sessions.filter((s) => s.terminal !== false && !s.cannot && !s.cannotType);
   const s = live.find((x) => x.surfaceId === snap.primary) || live[0];
   if (!s) return { error: `No ${snap.name} session is open to type into. Start one, then press the button again.`, status: 409 };
   return { project: snap, session: s };
@@ -2346,6 +2494,19 @@ function openFolder(folder, pre = []) {
   return new Promise((resolve) => {
     execFile(cmd, [...args, ...pre, folder], { timeout: 10000 }, (err, _out, stderr) => {
       resolve(err ? { ok: false, status: 500, error: `Finder did not open it: ${(String(stderr || '').trim().split('\n').pop() || err.message).slice(0, 160)}` } : { ok: true });
+    });
+  });
+}
+
+// An app brought forward by its bundle id (`open -b`), on the Mac only, with
+// the same stand-in rules as openFolder.
+function openApp(bundle) {
+  const stub = process.env.MC_OPEN_COMMAND ? JSON.parse(process.env.MC_OPEN_COMMAND) : null;
+  if (!stub && HOME_OVERRIDE && process.env.MC_OPEN_REAL !== '1') return Promise.resolve({ ok: false, status: 503, error: 'A test board does not open apps. Set MC_OPEN_COMMAND or MC_OPEN_REAL=1.' });
+  const [cmd, ...args] = stub || ['/usr/bin/open'];
+  return new Promise((resolve) => {
+    execFile(cmd, [...args, '-b', bundle], { timeout: 10000 }, (err, _out, stderr) => {
+      resolve(err ? { ok: false, status: 500, error: `It did not open: ${(String(stderr || '').trim().split('\n').pop() || err.message).slice(0, 160)}` } : { ok: true });
     });
   });
 }
@@ -3087,6 +3248,12 @@ async function handleRequest(req, res) {
         if (r.ok) { wantTick = true; setTimeout(tick, 30); }
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => c)(r.checkpoint) } : { error: r.error });
       }
+      if (p === '/api/sessions/resume') {
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = await resumeSession(body);
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error, ...(r.open ? { open: true } : {}) });
+      }
       if (p === '/api/sessions/start') {
         // A session in a ravenryd pane, here or on a machine
         // (server/sessionstart.mjs): the app's first-launch "Start" and its
@@ -3231,13 +3398,21 @@ async function handleRequest(req, res) {
         const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');
         const project = findProject(body.projectId);
         if (!project) return sendJson(res, 404, { error: 'No such project.' });
-        if (body.surfaceId && term.kindOf(body.surfaceId) !== 'cmux') {
-          // A session in iTerm2 or Rex: bring that tab forward.
+        if (body.surfaceId && (term.kindOf(body.surfaceId) !== 'cmux' || term.CMUX_OUTSIDE)) {
+          // A session in iTerm2 or Rex (or cmux, followed from Ravenry
+          // mode): bring that tab forward.
           const snap = snapshot.projects.find((x) => x.id === project.id);
           if (!snap || !snap.sessions.some((x) => x.surfaceId === body.surfaceId)) return sendJson(res, 404, { error: 'No such session in that project.' });
-          const t = await freshTab(body.surfaceId).catch(() => null);
+          const isCmux = term.kindOf(body.surfaceId) === 'cmux';
+          // cmux refused this board its socket: the cmux app comes forward
+          // (`open -b`), which needs no socket, and the person picks the tab.
+          const cmuxApp = async () => { const a = await openApp('com.cmuxterm.app'); return sendJson(res, a.ok ? 200 : 500, a.ok ? { ok: true, where: 'cmux', app: true } : { error: a.error }); };
+          let denied = false;
+          const t = String(body.surfaceId).startsWith('ev:') ? null : await freshTab(body.surfaceId).catch((e) => { denied = !!e.denied; return null; });
+          if (!t && isCmux && (denied || (otherTabs.cmux && otherTabs.cmux.denied))) return cmuxApp();
           if (!t) return sendJson(res, 409, { error: `That ${term.nameOf(term.kindOf(body.surfaceId))} tab is closed.` });
           const r = await term.focus(t);
+          if (!r.ok && isCmux && term.CMUX_DENIED.test(r.err || '')) return cmuxApp();
           return sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, where: term.nameOf(t.kind) } : { error: r.err });
         }
         if (!term.canDrive('cmux')) return sendJson(res, 409, { error: `${project.name} has no open ${term.nameOf(term.BOARD)} tab. Revive it to start one.` });

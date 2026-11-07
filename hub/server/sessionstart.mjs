@@ -14,8 +14,12 @@ import path from 'node:path';
 import { shellWord } from './create.mjs';
 
 const ASSISTANTS = new Set(['claude', 'codex']);
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// body: { projectId, folder, machine, assistant, text, cols, rows }.
+// body: { projectId, folder, machine, assistant, text, cols, rows, resume }.
+// resume: a session id to continue (Continue in Ravenry): the assistant
+// runs `claude --resume <id>` or `codex resume <id>` (each CLI's --help,
+// Claude Code 2.1.319 and Codex 0.166.0), with no prompt.
 // project: the registry's (or null); launch(project, assistant): { kind,
 // command }; briefPath(project): its BRIEF.md or null; briefExists(p).
 // Returns { ok, cwd, machine, line, label, labels, cols, rows, kind, env } or
@@ -38,10 +42,11 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
   const folder = typeof b.folder === 'string' && b.folder.trim() ? b.folder.trim() : project ? project.folder : null;
   if (!folder || !path.isAbsolute(folder)) return { ok: false, status: 400, error: 'Give the folder to start in (an absolute path).' };
   if (b.assistant != null && !ASSISTANTS.has(b.assistant)) return { ok: false, status: 400, error: 'assistant is claude or codex.' };
+  if (b.resume != null && !(typeof b.resume === 'string' && SESSION_ID.test(b.resume))) return { ok: false, status: 400, error: 'resume is a session id.' };
   const L = launch(project, b.assistant || null);
   const text = typeof b.text === 'string' && b.text.trim() ? b.text.trim() : null;
-  let prompt = text;
-  if (!prompt && project) {
+  let prompt = b.resume ? null : text;
+  if (!prompt && project && !b.resume) {
     const bp = briefPath(project);
     if (bp && (machine || briefExists(bp))) {
       const rel = path.relative(folder, bp);
@@ -49,11 +54,13 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
       if (decisions) prompt += ` ${decisions}`;
     }
   }
-  if (worktree) {
+  if (worktree && !b.resume) {
     const note = `You work in your own git worktree, ${worktree.folder}, on the branch ${worktree.branch}: commit your work there. The user reviews the branch and merges it.`;
     prompt = prompt ? `${prompt} ${note}` : note;
   }
-  const line = prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
+  const resume = b.resume ? b.resume.toLowerCase() : null;
+  const line = resume ? (L.kind === 'codex' ? `${L.command} resume ${resume}` : `${L.command} --resume ${resume}`)
+    : prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
   const first = String(L.command).trim().split(/\s+/)[0];
   const PATH = !machine && ASSISTANTS.has(first) ? binPath(first) : null;
   const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);

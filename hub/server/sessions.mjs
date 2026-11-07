@@ -155,6 +155,17 @@ export function parseLsof(text) {
 
 const envCache = new Map(); // pid -> { startedAt, surfaceId, workspaceId }
 
+// Which of these pids still run: one quick `ps -p`, for the sessions the
+// board follows in another terminal (has its process ended there?). Null
+// when ps did not answer.
+export async function alivePids(pids) {
+  const list = [...new Set(pids.filter((p) => Number.isInteger(p) && p > 0))];
+  if (!list.length) return new Set();
+  const out = await run(PS_BIN, ['-o', 'pid=,ppid=,rss=,lstart=,command=', '-p', list.join(',')], 4000);
+  if (out == null) return null;
+  return new Set(parsePs(out).map((p) => p.pid));
+}
+
 // Every claude and codex session process with its memory, tab and folder.
 export async function readProcesses() {
   const ps = await run(PS_BIN, ['-axww', '-o', 'pid=,ppid=,rss=,lstart=,command=']);

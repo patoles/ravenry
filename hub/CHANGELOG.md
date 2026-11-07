@@ -16,6 +16,12 @@
 - `ravenry page check FILE` and `ravenry page docs [TOPIC]`.
 - The Ship page's line for each repository ("3 commits to push", "Pushed
   and clean") is the git provider's `status_text`.
+- In Ravenry mode (the desktop app's hub), a session in cmux is tied to its
+  cmux tab and its screen read, read only, with Open in cmux; when cmux
+  lets only programs it started read its tabs, the session says so in one
+  line and shows its conversation from the transcript.
+- `POST /api/sessions/resume` continues a session from another terminal in
+  a Ravenry pane once its process there has ended, never two at once.
 
 ## 0.4.0
 

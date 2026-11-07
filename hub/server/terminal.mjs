@@ -103,9 +103,21 @@ const NO_CMUX = {
 // board is built around cmux workspaces. In iTerm2 mode and Rex mode, the stand in.
 export const cmux = BOARD === 'cmux' ? cmuxAdapter : NO_CMUX;
 
+// In Ravenry mode (the desktop app's hub) cmux is an outside terminal, as
+// iTerm2 and Rex are: its tabs are listed only while a session runs there,
+// a session there is tied to its tab and its screen is read, and "Open in
+// cmux" focuses that tab. It is a read-only mirror: the board never types
+// into cmux, closes or opens a cmux tab in this mode (canDrive('cmux') stays
+// false and the adapter's writes refuse), so the person answers there or
+// continues the session in Ravenry. iTerm2 mode and Rex mode keep never
+// running the cmux command.
+export const CMUX_OUTSIDE = BOARD === 'ravenry' && appInstalled('cmux');
+// cmux's refusal of a program it did not start (server/cmux.mjs).
+export const CMUX_DENIED = cmuxAdapter.DENIED;
+
 // The terminals besides cmux that list their own tabs, which the board asks
 // only while some session runs there (server/index.mjs refreshOtherTabs).
-export const OTHER_KINDS = ['iterm', 'rex', 'ravenry'];
+export const OTHER_KINDS = CMUX_OUTSIDE ? ['iterm', 'rex', 'ravenry', 'cmux'] : ['iterm', 'rex', 'ravenry'];
 
 // The kind of terminal a board surface id belongs to.
 export function kindOf(surfaceId) {
@@ -122,19 +134,37 @@ export function tabIdFor(kind, terminalId) {
   if (kind === 'iterm') return iterm.tabIdOf(terminalId);
   if (kind === 'rex') return rex.tabIdOf(terminalId);
   if (kind === 'ravenry') return ravenry.tabIdOf(terminalId);
+  // A cmux tab's id is cmux's surface UUID (the events' surface_id).
+  if (kind === 'cmux') return /^[0-9A-Fa-f-]{36}$/.test(String(terminalId || '')) ? String(terminalId) : null;
   return null;
+}
+
+// A write to cmux outside cmux mode: refused here, whatever the caller checked.
+const READ_ONLY = async () => ({ ok: false, out: '', err: `this board runs in ${nameOf(BOARD)} mode and only reads cmux; answer the session in cmux` });
+const cmuxWrite = (fn) => (BOARD === 'cmux' ? fn : READ_ONLY);
+
+// cmux's tabs as an outside terminal lists them: every terminal surface
+// with its workspace (`tree --all`). A refusal of cmux's socket throws with
+// `denied` set (server/cmux.mjs).
+async function cmuxTabs() {
+  const out = [];
+  for (const w of await cmuxAdapter.listWorkspaces()) {
+    for (const s of w.surfaces) if (!s.type || s.type === 'terminal') out.push({ id: s.id, title: s.title || '', workspaceId: w.id, workspaceRef: w.ref, workspaceTitle: w.title, paneId: s.paneId || null });
+  }
+  return out;
 }
 
 const ADAPTERS = {
   cmux: {
+    listTabs: () => cmuxTabs(),
     readScreen: (t, n) => cmuxAdapter.readScreen(t.workspaceId, t.surfaceId, n),
     readStyled: (t) => cmuxAdapter.readStyled(t.workspaceId, t.surfaceId),
-    pasteText: (t, text) => cmuxAdapter.pasteText(t.workspaceId, t.surfaceId, text),
-    typeText: (t, text) => cmuxAdapter.typeText(t.workspaceId, t.surfaceId, text),
-    pressKey: (t, k) => cmuxAdapter.pressKey(t.workspaceId, t.surfaceId, k),
+    pasteText: cmuxWrite((t, text) => cmuxAdapter.pasteText(t.workspaceId, t.surfaceId, text)),
+    typeText: cmuxWrite((t, text) => cmuxAdapter.typeText(t.workspaceId, t.surfaceId, text)),
+    pressKey: cmuxWrite((t, k) => cmuxAdapter.pressKey(t.workspaceId, t.surfaceId, k)),
     focus: (t) => cmuxAdapter.focusSurface(t.workspaceId, t.surfaceId),
-    close: (t) => cmuxAdapter.closeSurface(t.workspaceId, t.surfaceId),
-    openTab: (o) => cmuxAdapter.newTerminalSurface({ workspaceId: o.workspaceId, paneId: o.paneId || null, cwd: o.cwd || null }),
+    close: cmuxWrite((t) => cmuxAdapter.closeSurface(t.workspaceId, t.surfaceId)),
+    openTab: cmuxWrite((o) => cmuxAdapter.newTerminalSurface({ workspaceId: o.workspaceId, paneId: o.paneId || null, cwd: o.cwd || null })),
   },
   iterm: {
     listTabs: () => iterm.listTabs(),
@@ -192,6 +222,7 @@ export function canDrive(kind) {
 // the session's tab was not found in it.
 export function cannotDrive(kind, { open = true } = {}) {
   if (!kind) return "The board does not know which terminal this session runs in, so it only shows what the session's hook events say. Answer it in its own window.";
+  if (kind === 'cmux' && CMUX_OUTSIDE) return open ? 'This session runs in cmux. Ravenry shows it from there and does not type into cmux: answer it in cmux, or continue it in Ravenry.' : "Ravenry cannot find this session's cmux tab, so it shows what the session's hook events say.";
   if (kind === 'cmux' && BOARD !== 'cmux') return `This session runs in cmux, and this board runs in ${nameOf(BOARD)}, so it only shows what the session's hook events say. Answer it in cmux.`;
   if (!canDrive(kind)) return `This session runs in ${nameOf(kind)}. The board cannot read or type into ${nameOf(kind)} yet, so it only shows what the session's hook events say. Answer it in ${nameOf(kind)}.`;
   if (!open) return `The board cannot find this session's ${nameOf(kind)} tab, so it only shows what the session's hook events say.`;
@@ -201,10 +232,21 @@ export function cannotDrive(kind, { open = true } = {}) {
 // The same, short, for the composer: why nothing can be typed from here.
 export function cannotType(kind, { open = true } = {}) {
   if (!kind) return 'The board does not know which terminal this session runs in, so it cannot type into it.';
+  if (kind === 'cmux' && CMUX_OUTSIDE) return 'This session runs in cmux, so Ravenry does not type into it. Answer it in cmux, or continue it in Ravenry.';
   if (kind === 'cmux' && BOARD !== 'cmux') return `This session runs in cmux and this board runs in ${nameOf(BOARD)}, so it cannot type into it. Answer it in cmux.`;
   if (!canDrive(kind)) return `This session runs in ${nameOf(kind)}, so the board cannot type into it. Answer it in ${nameOf(kind)}.`;
   if (!open) return `The board cannot find this session's ${nameOf(kind)} tab, so it cannot type into it.`;
   return null;
+}
+
+// Where a session's fresh session (a hand-off's) opens: the terminal it ran
+// in when the board can open tabs there. In Ravenry mode (the app's hub), a
+// session in a terminal the board cannot open tabs in (cmux, which it only
+// reads; Ghostty, Terminal...) hands off into a Ravenry pane instead; the
+// other modes keep it where it ran (and say so when it cannot open there).
+export function freshTerminal(where, board = BOARD) {
+  const can = where.kind === 'cmux' ? board === 'cmux' : !!ADAPTERS[where.kind];
+  return can || board !== 'ravenry' ? where : { kind: 'ravenry', near: null };
 }
 
 function adapter(tab) {

@@ -24,6 +24,10 @@
 // "newSurfacesShell": true as well, the new tab draws a plain shell prompt
 // (as a real tab does before Claude starts in it) until the test sets its
 // prompt's "shell" to false: then it draws Claude's box.
+// "denied": true refuses every call as cmux's socket refuses a program it
+// did not start; "logCalls" appends each call to <fixture>.calls.log;
+// "focusLog" takes Open in cmux (select-workspace, focus-panel) and appends
+// it to <fixture>.focus.log.
 // A surface listed in "prompts" (and only such a surface) plays Claude
 // Code's prompt box under its "body" text: { body, ghost, typed, bash,
 // noStyle, sent }. "ghost" is Claude's dim suggested reply, shown while
@@ -43,6 +47,18 @@ let st = { workspaces: [], screens: {} };
 try { st = JSON.parse(fs.readFileSync(process.env.FAKE_CMUX_STATE, 'utf8')); } catch { /* empty */ }
 const out = (x) => { process.stdout.write(typeof x === 'string' ? x : JSON.stringify(x)); process.exit(0); };
 const refuse = () => { process.stderr.write(`fake cmux: ${args[0] || '?'} refused\n`); process.exit(1); };
+// Every call, one JSON line in <fixture>.calls.log when "logCalls" is set,
+// so a test can prove a board never wrote to a tab.
+if (st.logCalls) fs.appendFileSync(process.env.FAKE_CMUX_STATE + '.calls.log', JSON.stringify(args) + '\n');
+// "denied": true plays cmux's socket in its default mode, refusing a
+// program cmux did not start (a board launchd runs), as cmux 0.64 words it.
+if (st.denied) { process.stderr.write('Error: ERROR: Access denied - only processes started inside cmux can connect\n'); process.exit(1); }
+// "Open in cmux" (select-workspace, then focus-panel): appended to
+// <fixture>.focus.log when "focusLog" is set, else refused as before.
+if (st.focusLog && (args[0] === 'select-workspace' || args[0] === 'focus-panel')) {
+  fs.appendFileSync(process.env.FAKE_CMUX_STATE + '.focus.log', JSON.stringify(args) + '\n');
+  out('OK\n');
+}
 
 switch (args[0]) {
   case 'tree':

@@ -95,6 +95,7 @@ function parse(text) {
     turns: [],
   };
   let pendingText = null;
+  let turnAsk = null; // the prompt the turn under way answers
   for (const line of text.split('\n')) {
     if (!line) continue;
     let rec;
@@ -108,7 +109,8 @@ function parse(text) {
     if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) { r.recap = String(rec.content); r.recapAt = at; }
     if (rec.type === 'system' && rec.subtype === 'turn_duration') {
       r.lastTurnEndAt = at;
-      r.turns.push({ at, text: pendingText });
+      r.turns.push({ at, text: pendingText, ask: turnAsk });
+      turnAsk = null;
     }
     if (rec.type === 'assistant' && rec.message) {
       const m = rec.message;
@@ -137,7 +139,7 @@ function parse(text) {
       if (isRealPrompt(rec)) {
         r.lastPromptAt = at;
         const t = textOf(rec.message.content).trim();
-        if (t) r.lastPrompt = t;
+        if (t) { r.lastPrompt = t; turnAsk = t; }
       }
     }
   }
