@@ -133,7 +133,8 @@ try {
   check('launch: the launch shell is in front; no row is highlighted, and the panel shows that shell', j('launch.json').front.startsWith('tab:') && j('launch.json').row === null && (j('launch.json').panel === null || j('launch.json').panel === j('launch.json').front), JSON.stringify(j('launch.json')));
   check('a real click on the row (the sidebar redrawn meanwhile) brings its pane to the front; row, panel and tab agree', j('clicked.json').front === KEY && j('clicked.json').row === KEY && j('clicked.json').panel === KEY, JSON.stringify(j('clicked.json')));
   check('another session moving into Needs you leaves the front alone (a toast says so)', j('arrived.json').front === KEY && j('arrived.json').row === KEY, JSON.stringify(j('arrived.json')));
-  const needs = (f) => j(f).filter((t) => /Sync settings needs you/.test(t)).length;
+  const needs = (f) => j(f).filter((t) => /^Sync settings in notes needs you: Ship it/.test(t)).length;
+  check('no toast about the session in front (Kite tail), all along', ['after9.json', 'again.json', 'hovered.json'].every((f) => !j(f).some((t) => /Kite tail/.test(t))), JSON.stringify(j('hovered.json')));
   check('a toast with an action is still there 9 s after it came', needs('after9.json') === 1, JSON.stringify(j('after9.json')));
   check('the same session needing you again replaces its toast, never stacks a second', needs('again.json') === 1 && j('againOld.json') === 0, JSON.stringify([j('again.json'), j('againOld.json')]));
   check('the pointer over a toast keeps it (14 s later, over 12 s)', needs('hovered.json') === 1, JSON.stringify(j('hovered.json')));
