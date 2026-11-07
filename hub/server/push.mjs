@@ -207,7 +207,7 @@ export function program(command) {
 }
 
 // A checkpoint's alert.
-export function checkpointMessage(cp, { project = null, machine = null } = {}) {
+export function checkpointMessage(cp, { project = null, machine = null, paneName = null } = {}) {
   const s = sessionOf(project, cp.pane);
   const topic = (s && s.topic) || null;
   const name = topic || (project ? project.name : null) || who(cp.assistant);
@@ -248,12 +248,19 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
   } else if (cp.kind === 'drive') {
     // An agent asks to type into a pane it did not start. Allowing it is as
     // strong as running a command there, so it takes a fingerprint, like
+    // Run. The pane and the asker are named as the sidebar names them
+    // (`paneName`: the pane's session topic, else its tab name), never by
+    // their ids; the daemon's own title only when the pane is not known.
     const d = cp.drive || {};
-    const verb = { close: 'close', restart: 'restart' }[d.action] || 'type into';
-    msg.title = d.action === 'override' ? `${who(cp.assistant)} wants to change how another tab runs` : `${who(cp.assistant)} wants to ${verb} another tab`;
-    msg.body = d.input ? clip(String(d.input), 300) : (head || '');
-    msg.detail = `${topic ? `${topic}, ` : ''}on ${machine || phone.hubName()}`;
-    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input' };
+    const asker = `${who(cp.assistant)}${topic ? `, in ${topic},` : ''}`;
+    const pn = paneName ? clip(String(paneName), 80) : null;
+    const what = { close: `close ${pn}`, restart: `restart ${pn}`, override: `change how ${pn} runs` }[d.action] || `type in ${pn}`;
+    msg.title = pn ? `${asker} wants to ${what}` : (head || `${who(cp.assistant)} wants to use another tab`);
+    const reason = typeof d.reason === 'string' && d.reason.trim() ? clip(d.reason.replace(/\s*\n\s*/g, ' ').trim(), 300) : null;
+    const input = d.input ? clip(String(d.input), 300) : null;
+    msg.body = reason ? `${who(cp.assistant)} says: ${reason}` : (input || '');
+    msg.detail = reason && input ? `It would type: ${input}` : `on ${machine || phone.hubName()}`;
+    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input', name: pn, session: topic, ...(reason ? { reason } : {}) };
     msg.actions = [{ id: 'allow:once', label: 'Allow once', biometric: true }, { id: 'allow:session', label: 'This session', biometric: true }, { id: 'refuse', label: 'Refuse' }];
   } else if (cp.kind === 'pick') {
     // Pictures to choose from. The shade picks a variant by its label; the
@@ -262,7 +269,7 @@ export function checkpointMessage(cp, { project = null, machine = null } = {}) {
     const vs = Array.isArray(cp.variants) ? cp.variants : [];
     msg.title = `${name} wants you to pick`;
     msg.detail = `${vs.length} variants.`;
-    msg.checkpoint.variants = vs.map((v, i) => ({ label: String(v.label || ''), type: v.type === 'html' ? 'html' : 'image', url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${i}` }));
+    msg.checkpoint.variants = vs.map((v, i) => ({ label: String(v.label || ''), type: v.type === 'html' ? 'html' : 'image', ...(typeof v.description === 'string' && v.description ? { description: clip(v.description, 200) } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${i}` }));
     msg.actions = fit(vs.map((v, i) => ({ id: `pick:${i}`, label: String(v.label || '') })), 3);
   } else {
     msg.title = `${name} waits for you`;

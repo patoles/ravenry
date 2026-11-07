@@ -51,13 +51,14 @@ const read = async (f) => { try { return { ok: true, data: fs.readFileSync(f) };
 // ------------------------------------------------------------ kept copies
 const cp = {
   id: 'cpick001', kind: 'pick', state: 'open', title: 'Which header?', pane: 'pagent01', assistant: 'claude', created_at: '2026-11-07T10:00:00.000Z',
-  variants: [{ label: 'A', path: path.join(FILES, 'a.png'), type: 'image', size: PNG.length }, { label: 'B', path: path.join(FILES, 'b.svg'), type: 'image' }, { label: 'C', path: path.join(FILES, 'c.html'), type: 'html' }, { label: 'D', path: path.join(FILES, 'd.txt'), type: 'image' }],
+  variants: [{ label: 'A', path: path.join(FILES, 'a.png'), type: 'image', size: PNG.length, description: 'The hull stays flat.' }, { label: 'B', path: path.join(FILES, 'b.svg'), type: 'image' }, { label: 'C', path: path.join(FILES, 'c.html'), type: 'html' }, { label: 'D', path: path.join(FILES, 'd.txt'), type: 'image' }],
 };
 const rec = await picks.keep(cp, { projectId: 'game', machine: null, read });
 const dir = path.join(MC, 'projects', 'game', 'picks', 'cpick001');
 check('kept with the project in Ravenry\'s data: <n>.<ext> beside pick.json', rec.dir === dir && fs.readFileSync(path.join(dir, '0.png')).equals(PNG) && fs.existsSync(path.join(dir, '1.svg')) && fs.existsSync(path.join(dir, '2.html')) && fs.existsSync(path.join(dir, 'pick.json')), JSON.stringify(rec));
 const pj = JSON.parse(fs.readFileSync(path.join(dir, 'pick.json'), 'utf8'));
 check('the record: checkpoint, title, project, each variant\'s source and kept file', pj.checkpoint === 'cpick001' && pj.title === 'Which header?' && pj.project === 'game' && pj.variants[0].source === path.join(FILES, 'a.png') && pj.variants[0].file === '0.png' && pj.variants[2].type === 'html');
+check('a variant\'s description is kept with it', pj.variants[0].description === 'The hull stays flat.' && !('description' in pj.variants[1]));
 check('a variant that is not a picture or a page is not kept', pj.variants[3].file === null && !!pj.variants[3].error && !fs.existsSync(path.join(dir, '3.txt')));
 check('the kept file of a variant; none for the others', picks.keptFile('cpick001', 0).file === path.join(dir, '0.png') && picks.keptFile('cpick001', 3) === null && picks.keptFile('cpick001', 9) === null && picks.keptFile('../x', 0) === null);
 check('a pick with no project is kept under picks/', picks.dirFor('cnoproj1', null) === path.join(MC, 'picks', 'cnoproj1') && picks.dirFor('cbad', '../escape') === path.join(MC, 'picks', 'cbad'));
@@ -93,13 +94,19 @@ check('a drive allowed for the session goes to the daemon', sess.ok && sent.at(-
 
 // ------------------------------------------------------------ the phone's alerts
 const pm = checkpointMessage({ ...cp, variants: cp.variants.slice(0, 4) });
+check('a pick\'s alert carries each variant\'s description', pm.checkpoint.variants[0].description === 'The hull stays flat.' && !('description' in pm.checkpoint.variants[1]));
 check('a pick\'s alert: the variants with their URLs, buttons by label (the fourth behind Open)', pm.kind === 'pick' && pm.checkpoint.variants.length === 4 && pm.checkpoint.variants[2].url === '/api/checkpoints/cpick001/variants/2' && pm.checkpoint.variants[2].type === 'html' && pm.actions.map((x) => x.id).join() === 'pick:0,pick:1,open', JSON.stringify(pm));
 const dm = checkpointMessage(open);
 check('a drive\'s alert: what it would type, Allow once and This session behind a fingerprint, Refuse', dm.kind === 'drive' && dm.body === 'npm run dev' && dm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse', JSON.stringify(dm));
 const closeOpen = { ...open, id: 'cdrive02', drive: { ...open.drive, action: 'close', input: undefined } };
 checkpoints.take(closeOpen, { daemon: 'd1' });
-const cm = checkpointMessage(closeOpen);
-check('a drive to close a tab says so, keeps its action, and takes a fingerprint the same way', /wants to close another tab$/.test(cm.title) && cm.checkpoint.drive.action === 'close' && checkpoints.get('cdrive02').drive.action === 'close' && cm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse', JSON.stringify(cm));
+const boat = { id: 'paper-boat', name: 'paper-boat', sessions: [{ surfaceId: 'ravenry:pagent01', topic: 'Tilting the hull', assistant: 'claude' }] };
+const cm = checkpointMessage(closeOpen, { project: boat, paneName: 'dev server' });
+check('a drive to close a tab names the asker and the pane as the sidebar does, keeps its action, and takes a fingerprint the same way', cm.title === 'Claude, in Tilting the hull, wants to close dev server' && cm.checkpoint.drive.action === 'close' && cm.checkpoint.drive.name === 'dev server' && cm.checkpoint.drive.session === 'Tilting the hull' && checkpoints.get('cdrive02').drive.action === 'close' && cm.actions.map((x) => `${x.id}${x.biometric ? '+bio' : ''}`).join() === 'allow:once+bio,allow:session+bio,refuse' && !/p[a-z2-7]{7}/.test(cm.title + cm.body + cm.detail), JSON.stringify(cm));
+const why = checkpointMessage({ ...open, id: 'cdrive03', drive: { ...open.drive, reason: 'The game only listens on this Mac.' } }, { project: boat, paneName: 'dev server' });
+check('a drive with the agent\'s words: "Claude says: ..." as its body, what it would type below, the words for the phone', why.title === 'Claude, in Tilting the hull, wants to type in dev server' && why.body === 'Claude says: The game only listens on this Mac.' && why.detail === 'It would type: npm run dev' && why.checkpoint.drive.reason === 'The game only listens on this Mac.', JSON.stringify(why));
+const bare = checkpointMessage({ ...open, id: 'cdrive04' });
+check('a drive whose pane is not known falls back to the daemon\'s title', bare.title === 'Type into the server pane?', bare.title);
 
 // ------------------------------------------------------------ end to end
 const BIN = process.env.RAVENRYD_BIN && path.resolve(process.env.RAVENRYD_BIN);

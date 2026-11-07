@@ -90,7 +90,7 @@ async function keepNow(cp, { projectId = null, machine = null, read, home = RAVE
     const had = rec.variants && rec.variants[n];
     if (had && had.file && fs.existsSync(path.join(dir, had.file))) return had;
     const ext = extOf(v.path);
-    const out = { label: v.label, type: v.type === 'html' ? 'html' : 'image', source: v.path, file: null, ...(v.size != null ? { size: v.size } : {}), ...(v.pane ? { pane: v.pane } : {}) };
+    const out = { label: v.label, type: v.type === 'html' ? 'html' : 'image', source: v.path, file: null, ...(typeof v.description === 'string' && v.description ? { description: v.description } : {}), ...(v.size != null ? { size: v.size } : {}), ...(v.pane ? { pane: v.pane } : {}) };
     if (!TYPES[ext] || (out.type === 'html') !== /^html?$/.test(ext)) return { ...out, error: 'not a picture or an HTML page' };
     const r = await read(v.path);
     if (!r.ok) return { ...out, error: r.error };

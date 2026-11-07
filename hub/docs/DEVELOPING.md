@@ -1187,7 +1187,9 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   each session changed. With `RAVENRYD_BIN`, the routes on a real board
   and daemon, a review comment typed into a stand-in assistant, the files
   a session's hooks named with their counts, a pane's filmstrip sent to
-  the session, unmerge and delete-branch.
+  the session, unmerge and delete-branch, and review comments kept across
+  a hub restart, sent with their ids into a stand-in pane, answered from
+  that pane with the real `ravenry review reply` and refused from another.
 - `node tools/picks-test.mjs`: a pick's pictures kept in Ravenry's data,
   its record, pick and drive answers, and their phone alerts. With
   `RAVENRYD_BIN` and a daemon that opens picks, the variants served

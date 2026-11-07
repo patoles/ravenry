@@ -271,13 +271,20 @@ cannot be turned off. So do **Allow once** and **This session** on a
 `drive`: letting an agent type into a pane is as strong as running a
 command there.
 
-**A drive** carries `checkpoint.drive: { pane, action }`: the pane the
-agent wants to act on, and what it wants to do (`input`: type into it;
-`close`; `restart`; `override`: change its size, speed or TERM). The
-title says it ("... wants to close another tab"), and `body` what it
-would type or which conditions it would set. The phone says it with the
-pane's name, never its id ("Claude wants to close dev server", from the
-daemon's title in `body` when it names the pane), and with one yes for an
+**A drive** carries `checkpoint.drive: { pane, action, name, session,
+reason? }`: the pane the agent wants to act on, what it wants to do
+(`input`: type into it; `close`; `restart`; `override`: change its size,
+speed or TERM), the pane's `name` as the sidebar and the tabs show it
+(the topic of the session that runs in it, else its name, its title or
+its command's program; null when the hub does not know the pane), the
+asking `session`'s topic, and `reason`, the agent's own words for why
+(at most 300 characters here), when it gave them. The title names both,
+never by id: "Claude, in Tilting the hull, wants to type in dev server"
+("... wants to close dev server", "... restart ...", "... change how
+dev server runs"); with no `name`, the daemon's own title. `body` is
+"Claude says: <reason>" when there is a reason, with what it would type
+in `detail` ("It would type: ..."); else `body` is what it would type or
+which conditions it would set. The phone says it the same way, with one yes for an
 action other than typing (**Let it close**, **Let it restart**, **Let it
 change it**, as `allow:once`) beside **Refuse**; typing keeps **Allow
 once** and **This session**. Closing or restarting ends
@@ -286,7 +293,8 @@ session. Allowing it for the
 session lasts until the agent's session ends; there is no "always".
 
 **A pick** carries `checkpoint.variants: [{ label, type: "image" | "html",
-url }]`. `url` is `/api/checkpoints/<id>/variants/<n>` on the hub, served
+description?, url }]` (`description`: the agent's line about the
+variant, at most 200 characters here, when it gave one). `url` is `/api/checkpoints/<id>/variants/<n>` on the hub, served
 with the device token from the copy the hub keeps in its data (never the
 agent's own file); HTML and SVG come with `Content-Security-Policy:
 sandbox`. The app fetches the image variants over the pinned connection

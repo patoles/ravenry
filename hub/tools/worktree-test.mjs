@@ -204,15 +204,21 @@ fs.writeFileSync(SETTINGS, '{}');
 // sent: never the real assistant.
 const FAKEBIN = path.join(T, 'fakebin');
 fs.mkdirSync(FAKEBIN);
-fs.writeFileSync(path.join(FAKEBIN, 'claude'), '#!/bin/sh\necho stand-in claude ready\nexec cat\n', { mode: 0o755 });
+// A line typed as "RUN:<command>" runs, so the test can call the ravenry
+// CLI from inside the session's own pane; everything else is echoed.
+fs.writeFileSync(path.join(FAKEBIN, 'claude'), '#!/bin/sh\necho stand-in claude ready\nwhile IFS= read -r l; do case "$l" in RUN:*) eval "${l#RUN:}";; *) printf "%s\\n" "$l";; esac; done\n', { mode: 0o755 });
 const env = {
   ...DENV, PATH: `${FAKEBIN}:${process.env.PATH}`, RAVENRY_HOME: MC, PORT: String(PORT), RAVENRY_TERMINAL: 'ravenry', RAVENRY_DAEMON_BIN: BIN,
   MC_CLAUDE_SETTINGS: SETTINGS, MC_CLAUDE_PROJECTS: path.join(HOME, '.claude', 'projects'), MC_CODEX: '0', TEST_RAVENRY: '1', MC_TEST: '1',
   GIT_CONFIG_NOSYSTEM: '1',
 };
-const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-board.stdout.on('data', (x) => { boardLog += x; });
-board.stderr.on('data', (x) => { boardLog += x; });
+let board;
+function startBoard() {
+  board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  board.stdout.on('data', (x) => { boardLog += x; });
+  board.stderr.on('data', (x) => { boardLog += x; });
+}
+startBoard();
 process.on('exit', () => { board.kill('SIGTERM'); daemon.kill('SIGTERM'); try { fs.rmSync(DD, { recursive: true, force: true }); } catch { /* gone */ } });
 const base = `http://localhost:${PORT}`;
 const get = async (p) => { const r = await fetch(base + p); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch { /* not JSON */ } return { status: r.status, body: j, text: t }; };
@@ -270,6 +276,40 @@ check('a filmstrip goes to the session: a GIF in the project\'s inbox, its path 
 const w5 = await dc.request('pane.wait', { pane: PANE, text: 'as an animation', since: mark2, timeout_ms: 5000 });
 check('and reaches its pane', w5.condition === 'text');
 check('a filmstrip needs a pane', (await post(`/api/sessions/${sid}/filmstrip`, {})).status === 400);
+// Review comments kept by the hub (server/reviews.mjs).
+const rc1 = await post(`/api/sessions/${sid}/review/comment`, { file: 'app/a.txt', line: 4, text: 'Call it Main menu.' });
+const rc2 = await post(`/api/sessions/${sid}/review/comment`, { file: 'app/a.txt', line: 2, side: 'old', text: 'Why did two go?' });
+check('a review comment is kept, pending, nothing typed', rc1.status === 200 && /^rc[a-z2-7]{7}$/.test(rc1.body.comment.id) && rc1.body.comment.state === 'pending' && rc2.status === 200, rc1.text);
+check('a review comment needs its line', (await post(`/api/sessions/${sid}/review/comment`, { file: 'app/a.txt', text: 'x' })).status === 400);
+check('one is taken back', (await post(`/api/sessions/${sid}/review/remove`, { id: rc2.body.comment.id })).status === 200);
+board.kill('SIGTERM');
+await new Promise((r) => board.once('exit', r));
+startBoard();
+await until(async () => { const r = await get('/api/state'); return r.body && r.body.generatedAt ? r : null; }, 20000);
+const kept = await get(`/api/sessions/${sid}/review`);
+const sentBefore = kept.body.comments.filter((x) => x.state === 'sent').length;
+check('the comments outlive a hub restart', kept.status === 200 && kept.body.comments.some((x) => x.id === rc1.body.comment.id && x.state === 'pending') && !kept.body.comments.some((x) => x.id === rc2.body.comment.id), kept.text);
+const mark3 = (await dc.request('pane.list', { hidden: true })).panes.find((x) => x.id === PANE).mark;
+const snd = await post(`/api/sessions/${sid}/review/send`, {});
+check('send types the pending comment into the session, with its id, and marks it sent', snd.status === 200 && snd.body.sent.join() === rc1.body.comment.id, snd.text);
+const w6 = await dc.request('pane.wait', { pane: PANE, text: `Review comment ${rc1.body.comment.id} on app/a.txt line 4: Call it Main menu. \\(reply with: ravenry review reply ${rc1.body.comment.id}`, since: mark3, timeout_ms: 5000 });
+check('and it reaches the pane', w6.condition === 'text');
+const after = (await get(`/api/sessions/${sid}/review`)).body.comments;
+check('the old comment route keeps its comment too, as sent', after.filter((x) => x.state === 'sent').length === sentBefore + 1 && after.some((x) => x.text === 'Call it Menu.' && x.state === 'sent'), JSON.stringify(after));
+check('nothing left to send', (await post(`/api/sessions/${sid}/review/send`, {})).status === 409);
+// The agent answers from its own pane, with the real CLI.
+const CLI = fs.existsSync(path.join(path.dirname(BIN), 'ravenry')) ? path.join(path.dirname(BIN), 'ravenry') : BIN;
+const mark4 = (await dc.request('pane.list', { hidden: true })).panes.find((x) => x.id === PANE).mark;
+await dc.request('pane.send', { pane: PANE, input: [{ text: `RUN:RAVENRY_HUB_URL=${base} '${CLI}' review reply ${rc1.body.comment.id} 'Renamed it to Main menu.' && echo replied-$((1+1))`, mode: 'raw' }, { key: 'Enter' }] });
+const w7 = await dc.request('pane.wait', { pane: PANE, text: 'replied-2|Only the session|hub', since: mark4, timeout_ms: 10000 });
+const th = (await get(`/api/sessions/${sid}/review`)).body.comments.find((x) => x.id === rc1.body.comment.id);
+check('a reply from the session\'s pane, through ravenry review reply, joins the thread', w7.condition === 'text' && th.replies.length === 1 && th.replies[0].text === 'Renamed it to Main menu.' && th.replies[0].by === 'agent' && th.replies[0].pane === PANE, JSON.stringify(th) + ' ' + JSON.stringify((await dc.request('pane.capture', { pane: PANE })).lines.map((l) => l.text).filter(Boolean).slice(-4)));
+const other = (await dc.request('pane.new', { command: [CLI, 'review', 'reply', rc1.body.comment.id, 'From elsewhere'], env: { RAVENRY_HUB_URL: base }, cwd: HOME })).pane;
+await dc.request('pane.wait', { pane: other.id, exit: true, timeout_ms: 10000 });
+const otherOut = (await dc.request('pane.capture', { pane: other.id })).lines.map((l) => l.text).join('\n');
+check('a reply from another pane is refused', /Only the session the comment is on/.test(otherOut) && (await get(`/api/sessions/${sid}/review`)).body.comments.find((x) => x.id === rc1.body.comment.id).replies.length === 1, otherOut);
+check('and from outside every pane', (await post('/api/review/reply', { id: rc1.body.comment.id, text: 'x' })).status === 403);
+check('an unknown comment is 404', (await post('/api/review/reply', { id: 'rcaaaaaaa', text: 'x' })).status === 404);
 check('the diff route carries the merge check', (await get(`/api/sessions/${sid}/diff`)).body.check.clean === true);
 const dirty = await post(`/api/sessions/${sid}/merge`, { mode: 'ff' });
 check('merge refused while uncommitted, with the files', dirty.status === 409 && dirty.body.files.includes('app/a.txt'), dirty.text);

@@ -248,6 +248,7 @@ func init() {
 			{"replaces", valueFlag, "ID", "the decision it overrides"},
 			{"scope", valueFlag, "TEXT", "what it covers, in a few words (the menus, the release)"},
 		}, run: cmdDecide},
+		{name: "review", group: "Decisions", args: "reply ID TEXT", summary: "answer the person's review comment on your work (the id is in the comment, rc...): your words join its thread, where they read them; prints the reply's id", run: cmdReview},
 		// Agents
 		{name: "agents", group: "Agents", summary: "the agent state of every pane", run: cmdAgents},
 		{name: "reports", group: "Agents", args: "[PANE]", summary: "what agents reported, oldest first", flags: []flagDoc{

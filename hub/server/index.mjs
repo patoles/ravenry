@@ -50,6 +50,7 @@ import * as sessionstart from './sessionstart.mjs';
 import * as decisions from './decisions.mjs';
 import * as worktrees from './worktrees.mjs';
 import { projectFiles } from './filesview.mjs';
+import * as reviews from './reviews.mjs';
 import { paneRequest } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
 import * as pages from './pages.mjs';
@@ -1670,7 +1671,7 @@ function checkpointsView(projects) {
     const { daemon: _d, ...rest } = cp;
     const run = pageRuns.get(cp.id);
     const kept = cp.kind === 'pick' ? picks.record(cp.id) : null;
-    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) };
+    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) };
   });
 }
 
@@ -1681,7 +1682,25 @@ function onCheckpoint(cp, where) {
   if (!checkpoints.take(cp, where)) return;
   const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
   const p = tab && snapshot && snapshot.projects ? snapshot.projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
-  try { alerts.checkpointAlert(cp, { project: p || null, machine: where.machine, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); }
+  const alert = (paneName = null) => { try { alerts.checkpointAlert(cp, { project: p || null, machine: where.machine, boardUrl: boardUrl(), paneName }); } catch (e) { console.error('alerts:', e.message); } };
+  // A drive names the pane it would act on as the sidebar does.
+  if (cp.kind === 'drive' && cp.drive && cp.drive.pane) drivePaneName(cp.drive.pane).then(alert, () => alert());
+  else alert();
+}
+
+// A pane as the sidebar and the tabs name it: the topic of the session that
+// runs in it, else its name, its title or its command's program; null when
+// no daemon here knows it.
+async function drivePaneName(pane) {
+  const tab = term.tabIdFor('ravenry', pane);
+  for (const p of (snapshot && snapshot.projects) || []) {
+    const s = p.sessions.find((x) => x.surfaceId === tab);
+    if (s) return s.topic || p.name;
+  }
+  const r = await paneRequest(pane, 'pane.list', { hidden: true }, 3000);
+  const x = r.ok ? (r.result.panes || []).find((y) => y.id === pane) : null;
+  if (!x) return null;
+  return x.name || x.title || (x.command && x.command[0] ? path.basename(x.command[0]) : null);
 }
 
 function safe(fn) { try { return fn(); } catch (e) { return { state: 'unreadable', error: e.message }; } }
@@ -1807,6 +1826,8 @@ async function worktreeWrite(req, res, surfaceId, act) {
     // The person's comment, through the composer's send path, tagged as a
     // review comment in the pane's input log.
     const r = await sendMessage({ projectId: w.projectId, surfaceId, text, by: 'review' });
+    // Kept with the session's review, as sent (server/reviews.mjs).
+    if (r.ok) { try { reviews.add(surfaceId, { file: b.file, line: b.line || null, side: b.side || null, text: b.text, state: 'sent' }); broadcast('review', { surfaceId }); } catch (e) { console.error('reviews:', e.message); } }
     return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, sent: text, delivered: r.delivered } : { error: r.error });
   }
   if (act === 'merge') {
@@ -1826,6 +1847,70 @@ async function worktreeWrite(req, res, surfaceId, act) {
   const r = await worktrees.discard(w);
   if (r.ok) console.log(`worktrees: ${w.branch} discarded`);
   return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { error: r.error });
+}
+
+// The person's review comments on a worktree session's work, kept by the
+// hub (server/reviews.mjs): added pending, taken back, then sent, each
+// typed into the session with its id through the composer's send path.
+// Person rows.
+async function reviewWrite(req, res, surfaceId, act) {
+  let body;
+  try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+  const b = body || {};
+  const w = worktrees.bySurface(surfaceId);
+  if (!w) return sendJson(res, 404, { error: 'That session has no worktree.' });
+  if (act === 'comment') {
+    const bad = reviews.problem(b);
+    if (bad) return sendJson(res, 400, { error: bad });
+    if (w.state !== 'open') return sendJson(res, 409, { error: `This session's work was ${w.state} already.` });
+    const r = reviews.add(surfaceId, { file: b.file, line: b.line, side: b.side || null, text: b.text });
+    if (r.ok) broadcast('review', { surfaceId });
+    return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { error: r.error });
+  }
+  if (act === 'remove') {
+    if (typeof b.id !== 'string' || !reviews.COMMENT_ID.test(b.id)) return sendJson(res, 400, { error: 'id is the comment\'s id.' });
+    const r = reviews.remove(surfaceId, b.id);
+    if (r.ok) broadcast('review', { surfaceId });
+    return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { error: r.error });
+  }
+  // send: the pending ones named (all without ids), in order.
+  if (b.ids != null && !(Array.isArray(b.ids) && b.ids.every((x) => typeof x === 'string' && reviews.COMMENT_ID.test(x)))) return sendJson(res, 400, { error: 'ids is a list of comment ids.' });
+  if (w.state !== 'open') return sendJson(res, 409, { error: `This session's work was ${w.state} already.` });
+  const todo = reviews.pending(surfaceId, b.ids || null);
+  if (!todo.length) return sendJson(res, 409, { error: 'There is no comment waiting to be sent.' });
+  const sent = [];
+  for (const c of todo) {
+    const r = await sendMessage({ projectId: w.projectId, surfaceId, text: reviews.sendText(c), by: 'review' });
+    if (!r.ok) {
+      if (sent.length) broadcast('review', { surfaceId });
+      return sendJson(res, r.status || 500, { error: r.error, sent });
+    }
+    reviews.markSent(surfaceId, c.id);
+    sent.push(c.id);
+  }
+  broadcast('review', { surfaceId });
+  return sendJson(res, 200, { ok: true, sent });
+}
+
+// An agent answers a review comment (`ravenry review reply <id> "..."`):
+// the reply joins the comment's thread. Open to programs, but only from the
+// pane of the session the comment is on: the person reads the reply, and
+// nothing runs.
+async function reviewReply(req, res) {
+  let body;
+  try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+  const b = body || {};
+  if (typeof b.id !== 'string' || !reviews.COMMENT_ID.test(b.id)) return sendJson(res, 400, { error: 'id is the review comment\'s id (rc and 7 letters).' });
+  if (typeof b.text !== 'string' || !b.text.trim() || b.text.length > reviews.MAX_TEXT) return sendJson(res, 400, { error: `Type the reply (at most ${reviews.MAX_TEXT} characters).` });
+  const at = reviews.find(b.id);
+  if (!at) return sendJson(res, 404, { error: 'No such review comment.' });
+  const w = worktrees.bySurface(at.surfaceId);
+  const pane = term.kindOf(at.surfaceId) === 'ravenry' ? at.surfaceId.slice('ravenry:'.length) : (w && w.pane) || null;
+  const caller = (await person.callerPane(req, term.ravenryBin())).pane;
+  if (!caller || caller !== pane) return sendJson(res, 403, { error: 'Only the session the comment is on can reply to it, from its own pane.' });
+  const r = reviews.reply(b.id, b.text, caller);
+  if (r.ok) broadcast('review', { surfaceId: at.surfaceId });
+  return sendJson(res, r.ok ? 200 : r.status, r.ok ? { ok: true, reply: r.reply } : { error: r.error });
 }
 
 // A pane's last seconds, sent to a session (the filmstrip's Send to
@@ -2784,6 +2869,12 @@ async function handleRequest(req, res) {
       if (m) return serveVariant(res, m[1], Number(m[2]));
     }
     {
+      // A worktree session's review comments (server/reviews.mjs), oldest
+      // first: an open read.
+      const m = req.method === 'GET' && /^\/api\/sessions\/([^/]+)\/review$/.exec(p);
+      if (m) return sendJson(res, 200, { ok: true, comments: reviews.list(decodeURIComponent(m[1])) });
+    }
+    {
       // What each session of a project changed (server/filesview.mjs): an
       // open read, for a session's panel and the project's grid.
       const m = req.method === 'GET' && /^\/api\/projects\/([^/]+)\/files$/.exec(p);
@@ -3032,6 +3123,9 @@ async function handleRequest(req, res) {
       {
         const m = /^\/api\/sessions\/([^/]+)\/(comment|merge|discard|unmerge|delete-branch)$/.exec(p);
         if (m) return worktreeWrite(req, res, decodeURIComponent(m[1]), m[2]);
+        const rv = /^\/api\/sessions\/([^/]+)\/review\/(comment|remove|send)$/.exec(p);
+        if (rv) return reviewWrite(req, res, decodeURIComponent(rv[1]), rv[2]);
+        if (p === '/api/review/reply') return reviewReply(req, res);
         const f = /^\/api\/sessions\/([^/]+)\/filmstrip$/.exec(p);
         if (f) return sendFilmstrip(req, res, decodeURIComponent(f[1]));
       }

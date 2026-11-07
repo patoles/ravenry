@@ -223,6 +223,38 @@ sessions of one project never write the same files
 - Every git command runs without a shell, with a timeout.
   `node tools/worktree-test.mjs` covers it on scratch repositories.
 
+## Review comments
+
+The person's comments on a worktree session's work are kept by the hub
+(`server/reviews.mjs`), so they outlive the window and a hub restart, in
+`<RAVENRY_HOME>/reviews.json` (mode 0600, written atomically): `{
+version: 1, reviews: { "<surfaceId>": [Comment] } }`, a Comment being `{
+id ("rc" and 7 of a-z2-7), file, line, side ("new" or "old"), text, at,
+state ("pending" or "sent"), sent_at?, replies: [{ id ("rr" and 7), text,
+at, by: "agent", pane }] }`.
+
+- `GET /api/sessions/<id>/review` (open read): `{ ok, comments }`,
+  oldest first.
+- `POST /api/sessions/<id>/review/comment { file, line, side?, text }`
+  (person): a pending comment, nothing typed yet; `{ ok, comment }`.
+- `POST /api/sessions/<id>/review/remove { id }` (person): takes a pending
+  one back.
+- `POST /api/sessions/<id>/review/send { ids? }` (person): types each
+  pending one (all of them without `ids`), in order, into the session
+  through the composer's send path (tagged `review` in the pane's input
+  log), as "Review comment <id> on <file> line <n>: <text> (reply with:
+  ravenry review reply <id> "...")", and marks it sent; `{ ok, sent: [ids]
+  }`.
+- `POST /api/review/reply { id, text }` (open row): the agent's answer,
+  `ravenry review reply ID TEXT`, joins the comment's thread. Only the
+  pane of the session the comment is on may reply, as `ravenryd peer`
+  judges the caller; any other caller, a program outside every pane
+  included, gets 403. An unknown id is 404.
+- `POST /api/sessions/<id>/comment` (above) still types at once, and keeps
+  the comment as sent.
+- After each change the board's stream (`GET /api/events`) carries `event:
+  review` with `{ surfaceId }`.
+
 ## Files each session changed
 
 `GET /api/projects/<id>/files` (open read, `server/filesview.mjs`): for

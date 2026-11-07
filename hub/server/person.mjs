@@ -99,6 +99,9 @@ export const ROUTES = [
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/discard$/, eg: '/api/sessions/x/discard', doc: '/api/sessions/<id>/discard', c: P, what: 'throw a session\'s work away', why: 'It deletes the session\'s worktree and branch, uncommitted changes included.' },
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/unmerge$/, eg: '/api/sessions/x/unmerge', doc: '/api/sessions/<id>/unmerge', c: P, what: 'undo a merge', why: 'It moves the project\'s branch back to before the merge and opens the session\'s work again: the person\'s call, as the merge was.' },
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/delete-branch$/, eg: '/api/sessions/x/delete-branch', doc: '/api/sessions/<id>/delete-branch', c: P, what: 'delete a session\'s branch', why: 'It deletes the branch a merged session kept, which ends the way to undo the merge.' },
+  { m: 'POST', p: /^\/api\/sessions\/[^/]+\/review\/comment$/, eg: '/api/sessions/x/review/comment', doc: '/api/sessions/<id>/review/comment', c: P, what: 'comment on a session\'s work', why: 'A review comment is the person\'s word on an agent\'s work, which the session is then told; an agent would review its own work in the person\'s name.' },
+  { m: 'POST', p: /^\/api\/sessions\/[^/]+\/review\/remove$/, eg: '/api/sessions/x/review/remove', doc: '/api/sessions/<id>/review/remove', c: P, what: 'take a review comment back', why: 'Ambiguous, so the safer class: it takes back what the person wrote before it was sent.' },
+  { m: 'POST', p: /^\/api\/sessions\/[^/]+\/review\/send$/, eg: '/api/sessions/x/review/send', doc: '/api/sessions/<id>/review/send', c: P, what: 'send review comments', why: 'It types the person\'s review comments into the session, as the composer does; an agent would steer another agent in the person\'s name.' },
   { m: 'POST', p: /^\/api\/sessions\/[^/]+\/filmstrip$/, eg: '/api/sessions/x/filmstrip', doc: '/api/sessions/<id>/filmstrip', c: P, what: 'send a pane\'s last seconds to a session', why: 'It types into the session, as the composer does, and puts a file in the project\'s inbox; an agent would steer another agent in the person\'s name.' },
   { m: 'POST', p: '/api/sessions/reopen', c: P, what: 'reopen a session', why: 'Reopening starts an assistant again.' },
   { m: 'POST', p: '/api/project/revive', c: P, what: 'start a session', why: 'Revive and New session start an assistant, with the person\'s first message.' },
@@ -168,6 +171,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/pages/ask', c: P, what: 'press a page\'s ask button', why: 'It types into a session, and a background ask sends it: what the composer does.' },
   { m: 'POST', p: '/api/pages/run', c: P, what: 'press a page\'s run button', why: 'Ambiguous, so the safer class: it puts a command in front of the person to approve as if they pressed the button (an agent asks with `ravenry approve` instead).' },
   // Notes, files, hooks
+  { m: 'POST', p: '/api/review/reply', c: O, why: 'An agent answers a review comment (`ravenry review reply`): its words join the comment\'s thread for the person to read, and nothing runs. Only the pane of the session the comment is on may reply (403 otherwise).' },
   { m: 'POST', p: '/api/note', c: O, why: 'Adds a line under Notes in the brief.' },
   { m: 'POST', p: /^\/api\/inbox\/.+$/, eg: '/api/inbox/x', doc: '/api/inbox/<project>', c: O, why: 'Puts a file in the project\'s inbox folder; nothing is sent or run.' },
   { m: 'POST', p: '/api/hook-event', c: O, why: 'The hooks inside every session post it: it only makes the board look at events already on disk.' },

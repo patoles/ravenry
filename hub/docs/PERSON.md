@@ -80,7 +80,7 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-84 person rows (22 of them judged ambiguous), 8 open rows. GET routes not
+87 person rows (23 of them judged ambiguous), 9 open rows. GET routes not
 listed are reads and stay open; the two `GET /api/phone...` rows hand out a
 pairing secret, and `GET /api/term` opens a terminal. Among the open
 reads: `GET /api/decisions` (the ledger, which agents check before
@@ -88,7 +88,8 @@ asking), `GET /api/sessions/<id>/diff` (a worktree session's diff) and
 `GET /api/checkpoints/<id>/variants/<n>` (a pick's pictures, from the
 copies kept in Ravenry's data, HTML and SVG sandboxed) and `GET
 /api/projects/<id>/files` (what each session of a project changed, from
-its hooks and git).
+its hooks and git) and `GET /api/sessions/<id>/review` (a worktree
+session's review comments and the agent's replies).
 
 | Endpoint | Class | Why |
 | --- | --- | --- |
@@ -119,6 +120,9 @@ its hooks and git).
 | `/api/sessions/<id>/discard` | person | It deletes the session's worktree and branch, uncommitted changes included. |
 | `/api/sessions/<id>/unmerge` | person | It moves the project's branch back to before the merge and opens the session's work again: the person's call, as the merge was. |
 | `/api/sessions/<id>/delete-branch` | person | It deletes the branch a merged session kept, which ends the way to undo the merge. |
+| `/api/sessions/<id>/review/comment` | person | A review comment is the person's word on an agent's work, which the session is then told; an agent would review its own work in the person's name. |
+| `/api/sessions/<id>/review/remove` | person | Ambiguous, so the safer class: it takes back what the person wrote before it was sent. |
+| `/api/sessions/<id>/review/send` | person | It types the person's review comments into the session, as the composer does; an agent would steer another agent in the person's name. |
 | `/api/sessions/<id>/filmstrip` | person | It types into the session, as the composer does, and puts a file in the project's inbox; an agent would steer another agent in the person's name. |
 | `/api/sessions/reopen` | person | Reopening starts an assistant again. |
 | `/api/project/revive` | person | Revive and New session start an assistant, with the person's first message. |
@@ -181,6 +185,7 @@ its hooks and git).
 | `/api/pages/ask` | person | It types into a session, and a background ask sends it: what the composer does. |
 | `/api/pages/run` | person | Judged (ambiguous): it puts a command in front of the person to approve as if they pressed the button (an agent asks with `ravenry approve` instead). |
 | `/api/decisions/record` | open | An agent records the person's words verbatim (`ravenry decide`): it counts at once, marked with the pane and session that recorded it, and the person is told at once and can undo it for a minute, or edit or remove it any time. |
+| `/api/review/reply` | open | An agent answers a review comment (`ravenry review reply`): its words join the comment's thread for the person to read, and nothing runs. Only the pane of the session the comment is on may reply (403 otherwise). |
 | `/api/note` | open | Adds a line under Notes in the brief. |
 | `/api/inbox/<project>` | open | Puts a file in the project's inbox folder; nothing is sent or run. |
 | `/api/hook-event` | open | The hooks inside every session post it: it only makes the board look at events already on disk. |
