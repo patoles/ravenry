@@ -403,7 +403,10 @@ export async function ensureService(opts: {
   env?: Env;
   /** Restart a running service even when its file is current (after the switch from the npm board, whose board held the port). */
   restart?: boolean;
+  /** Waits (tests pass one that does not sleep). */
+  wait?: (ms: number) => Promise<void>;
 }): Promise<ServiceResult> {
+  const wait = opts.wait || ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const platform = opts.platform || process.platform;
   const home = opts.home || os.homedir();
   const uid = opts.uid ?? (process.getuid ? process.getuid() : 0);
@@ -438,19 +441,47 @@ export async function ensureService(opts: {
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (platform === 'darwin') fs.mkdirSync(opts.spec.logDir, { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, text, { mode: 0o644 });
-  fs.renameSync(tmp, file);
+  const put = (t: string) => {
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, t, { mode: 0o644 });
+    fs.renameSync(tmp, file);
+  };
+  put(text);
 
   let ok: boolean;
   let detail = '';
   if (platform === 'darwin') {
     // bootout stops the old hub (SIGTERM, it exits cleanly); its daemons
-    // are in their own process session and keep running.
+    // are in their own process session and keep running. launchd lets go
+    // of the job a moment after bootout returns, and a bootstrap before
+    // then fails ("Bootstrap failed: 5: Input/output error") and leaves no
+    // service at all: on 2026-11-07 that left the hub down. So the app
+    // waits until the job is gone, bootstraps (again, a few times, if
+    // launchd still says no), and checks the service is loaded. When it
+    // is not, the file that ran before is put back and loaded, and the
+    // result says so.
+    const up = async (): Promise<{ ok: boolean; out: string }> => {
+      if (dry) { run(lctl, ['bootstrap', domain, file]); return { ok: true, out: '' }; }
+      let out = '';
+      for (let i = 0; i < 5; i++) {
+        if (i) await wait(400 * i);
+        if (loaded()) return { ok: true, out };
+        const r = run(lctl, ['bootstrap', domain, file]);
+        out = r.out;
+        if (r.status === 0 && loaded()) return { ok: true, out };
+      }
+      return { ok: loaded(), out };
+    };
     run(lctl, ['bootout', `${domain}/${SERVICE_LABEL}`]);
-    const r = run(lctl, ['bootstrap', domain, file]);
-    ok = r.status === 0;
+    for (let i = 0; !dry && i < 50 && loaded(); i++) await wait(200);
+    const r = await up();
+    ok = r.ok;
     detail = r.out;
+    if (!ok && existing !== null) {
+      put(existing);
+      const back = await up();
+      detail = `${detail || 'launchd did not load it'}; ${back.ok ? 'the service that ran before is loaded again' : 'the service that ran before did not load either'}`;
+    }
   } else {
     const r1 = run('systemctl', ['--user', 'daemon-reload']);
     const r2 = run('systemctl', ['--user', 'enable', UNIT_NAME]);

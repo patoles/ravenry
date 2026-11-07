@@ -35,7 +35,7 @@ import { HubFeed, hubAnswer, hubCall, hubGet, hubPost, hubUrl } from './hub.ts';
 import type { HubStatus } from './hub.ts';
 import { dataRoot, ensureService, launchctlBin, pruneVersions, readBuildInfo, removeService, runtimeSource, serviceFile, serviceMode, serviceSpec, stageRuntime, stageVersion } from './install.ts';
 import type { Staged } from './install.ts';
-import { mayRunHub, offerFor, runScript, scriptPath } from './npmswitch.ts';
+import { launchPlan, offerFor, runScript, scriptPath } from './npmswitch.ts';
 import type { NpmDetect, Offer } from './npmswitch.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
@@ -286,9 +286,9 @@ async function setUpService(staged: Staged, opts: { port?: number; restart?: boo
     const env = opts.port && opts.port !== 4600 ? { ...process.env, PORT: String(opts.port) } : process.env;
     const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged, env }), run, boardAnswers, restart: opts.restart });
     const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
-    console.log(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
+    appLog(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
   } catch (e) {
-    console.error('service:', e);
+    appLog(`service: ${(e as Error).message || e}`);
   }
   setTimeout(() => {
     let svc: string | null = null;
@@ -336,12 +336,40 @@ async function detectNpm(): Promise<void> {
   }
 }
 
-// The hub at launch: none of the app's own beside the npm board.
+// The hub at launch: none of the app's own beside the npm board; once
+// switched, the app's service is brought up to this build whatever traces
+// of the npm board are left, and those are moved as the switch would
+// (launchPlan in npmswitch.ts).
 async function startHub(st: Staged): Promise<void> {
   await detectNpm();
+  let installed = false;
+  try { installed = fs.existsSync(serviceFile()); } catch { /* none */ }
+  const plan = launchPlan(npm.detect, installed);
+  appLog(`launch: ${plan} (npm board traces: ${npm.detect ? (npm.detect.npm ? 'yes' : 'none') : 'not looked at'}, service ${installed ? 'installed' : 'not installed'})`);
+  if (plan === 'finish') {
+    npm.offer = 'none';
+    pushNpm();
+    const r = await npmScript(['switch', '--ravenryd', hookBin() || '']);
+    appLog(`npm board: finished the switch: ${r.ok ? 'its traces moved' : r.error || 'it stopped'}`);
+    await detectNpm();
+  }
   pushNpm();
-  if (!mayRunHub(npm.detect)) return;
+  if (plan === 'offer') return;
   await setUpService(st);
+}
+
+// A line in the app's log (~/Library/Logs/Ravenry/app.log, or
+// ~/.local/state/ravenry/app.log), beside the hub's: what the app did with
+// its hub service at launch, which a Finder-started app has nowhere else to
+// say. Only the packaged app writes it.
+function appLog(line: string): void {
+  console.log(line);
+  if (!app.isPackaged) return;
+  try {
+    const dir = process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Logs', 'Ravenry') : path.join(os.homedir(), '.local', 'state', 'ravenry');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, 'app.log'), `${new Date().toISOString()} ${line}\n`);
+  } catch { /* no log: the app goes on */ }
 }
 
 async function waitForHub(port: number, ms = 30000): Promise<boolean> {

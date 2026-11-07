@@ -17,6 +17,10 @@
 //     the switch included, its picture and the mockups back in ideas/), the
 //     folder set aside, the hooks and Codex's trust entries exactly the npm
 //     board's again; and a second switch moves the ideas again
+//   - Codex's hooks count whenever its hooks.json exists (an app started
+//     from the Finder does not find codex on its PATH), and finishing a
+//     switch that left the npm board's Codex hooks keeps what the first
+//     switch recorded
 import './test-guard.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -177,6 +181,36 @@ const s2 = await sw.doSwitch({ ravenryd: BIN });
 m = ideasfiles.migrate(DATA, quiet);
 const again = ideasfiles.readAll(DATA);
 check('a second switch moves the ideas again, with the npm board\'s change', s2.ok && m.done && again.length === 4 && again.find((x) => x.id === 'idea-a').pitch === 'Changed on the npm board.', JSON.stringify(m));
+
+// 8. 2026-11-07: the app started from the Finder has a short PATH, so the
+// first switch did not find Codex and left the npm board's Codex hooks; the
+// next launch took them for an npm board and offered the switch again.
+// Codex's hooks are kept up to date whenever its hooks.json exists.
+{
+  const saved = { MC_CODEX: process.env.MC_CODEX, PATH: process.env.PATH };
+  delete process.env.MC_CODEX;
+  process.env.PATH = '/nonexistent';
+  check('Codex counts when its hooks.json exists, whatever the PATH says', hk.codexPresent() === true);
+  const empty = path.join(T, 'codex-none');
+  fs.mkdirSync(empty);
+  process.env.MC_CODEX_HOME = empty;
+  const cx = await import('../server/codexhooks.mjs');
+  if (!cx.codexInstalled()) check('and does not without it or the command', hk.codexPresent() === false);
+  process.env.MC_CODEX_HOME = path.join(HOME, '.codex');
+  // The switch's traces: the npm board's Codex hooks back in place after a
+  // switch, its record naming the board it stopped.
+  const first = sw.readRecord();
+  const was = { port: 4600, pid: 24001, command: 'node /npm/bin/ravenry --no-open', again: 'ravenry --no-open', cwd: '/p' };
+  fs.writeFileSync(path.join(DATA, 'switch.json'), JSON.stringify({ ...first, from: { ...first.from, board: was } }, null, 2));
+  hk.codexWrite(hk.codexPlan({ root: NPM, node: NODE, electron: false }));
+  const dd = await sw.detect();
+  check('the traces: detect finds the npm board\'s Codex hooks with no board and the PATH short', dd.npm && !dd.board && dd.hooks.codex.length === 7 && dd.hooks.claude.length === 0, JSON.stringify({ npm: dd.npm, n: [dd.hooks.claude.length, dd.hooks.codex.length] }));
+  const fin = await sw.doSwitch({ ravenryd: BIN });
+  const rr = sw.readRecord();
+  check('finishing the switch moves them and keeps what the first switch found (its board and command, its hooks), noting the earlier one', fin.ok && rr.state === 'switched' && rr.from.board && rr.from.board.command === was.command && rr.from.root === first.from.root && rr.hooks.claude.length === first.hooks.claude.length && rr.hooks.codex.length === first.hooks.codex.length + 7 && rr.earlier.length === 1 && rr.earlier[0].backup === first.backup, JSON.stringify({ ok: fin.ok, from: rr.from, n: [rr.hooks.claude.length, rr.hooks.codex.length], earlier: rr.earlier }));
+  check('and nothing of the npm board is left', !(await sw.detect()).npm && !Object.values(cmds(read(path.join(HOME, '.codex', 'hooks.json')))).flat().some((c) => c.includes(NPM)));
+  Object.assign(process.env, saved);
+}
 
 fs.rmSync(T, { recursive: true, force: true });
 console.log(fails ? `\n${fails} failed` : '\nall passed');

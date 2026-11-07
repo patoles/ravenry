@@ -115,9 +115,10 @@ test('ensureService: installs, keeps a current one, updates a changed one, and l
       calls.push([cmd, ...args].join(' '));
       if (args[0] === 'print' || args.includes('is-active')) return { status: active ? 0 : 3, out: '' };
       if (args[0] === 'bootstrap' || args.includes('restart')) active = true;
+      if (args[0] === 'bootout') active = false;
       return { status: 0, out: '' };
     };
-    const base = { platform, home, uid: 501, run, env: {}, boardAnswers: async () => false };
+    const base = { platform, home, uid: 501, run, env: {}, boardAnswers: async () => false, wait: async () => {} };
     const spec = serviceSpec({ execPath: '/app/ravenry', staged, env: { PATH: '/usr/bin' }, platform, home });
     const file = serviceFile(platform, home, {});
 
@@ -210,4 +211,81 @@ test('stageRuntime copies what the hub needs of an AppImage runtime, once per bu
   assert.equal(fs.readFileSync(exe, 'utf8'), 'ravenry');
   await stageRuntime({ from: appdir, staged, build: { version: '0.1.0', id: 'b' }, exeName: 'ravenry' });
   assert.equal(fs.readFileSync(exe, 'utf8'), 'changed');
+});
+
+// launchd as it is: after bootout the job lingers for a moment, and a
+// bootstrap then fails with 5 and loads nothing (2026-11-07, the hub down).
+function lingeringLaunchd(opts: { linger: number; refuse?: (file: string) => boolean }) {
+  const calls: string[] = [];
+  let loadedFile: string | null = null;
+  let lingering = 0;
+  const run: Runner = (cmd, args) => {
+    calls.push([cmd, ...args].join(' '));
+    if (args[0] === 'print') { if (lingering > 0) { lingering--; return { status: 0, out: '' }; } return { status: loadedFile ? 0 : 113, out: '' }; }
+    if (args[0] === 'bootout') { if (loadedFile) lingering = opts.linger; loadedFile = null; return { status: 0, out: '' }; }
+    if (args[0] === 'bootstrap') {
+      const text = fs.readFileSync(args[2], 'utf8');
+      if (lingering > 0 || (opts.refuse && opts.refuse(text))) return { status: 5, out: 'Bootstrap failed: 5: Input/output error' };
+      loadedFile = text;
+      return { status: 0, out: '' };
+    }
+    if (args[0] === 'kickstart') return { status: loadedFile ? 0 : 113, out: '' };
+    return { status: 0, out: '' };
+  };
+  return { run, calls, loaded: () => loadedFile };
+}
+
+test('ensureService on macOS, from each way the service came to be: it ends loaded with this build, or the one that ran is put back', async () => {
+  const platform = 'darwin';
+  const specOf = (home: string, version: string, build: string) => serviceSpec({ execPath: '/Applications/Ravenry.app/Contents/MacOS/Ravenry', staged: { ...staged, version, hubEntry: `/d/versions/${version}/hub/server/index.mjs`, build }, env: { PATH: '/usr/bin' }, platform, home });
+  // A hub answers on the port (the one the service runs) whenever a service is there.
+  const go = (home: string, ld: ReturnType<typeof lingeringLaunchd>, spec: ReturnType<typeof specOf>, more: { restart?: boolean } = {}) =>
+    ensureService({ mode: 'install', spec, run: ld.run, platform, home, uid: 501, env: {}, boardAnswers: async () => !!ld.loaded(), wait: async () => {}, ...more });
+
+  // First launch: nothing installed, nothing answering.
+  {
+    const home = tmp();
+    const ld = lingeringLaunchd({ linger: 3 });
+    const r = await ensureService({ mode: 'install', spec: specOf(home, '0.1.2', 'b2'), run: ld.run, platform, home, uid: 501, env: {}, boardAnswers: async () => false, wait: async () => {} });
+    assert.equal(r.state, 'installed');
+    assert.match(String(ld.loaded()), /0\.1\.2/);
+  }
+  // Installed by the switch from the npm board (0.1.0, no build named),
+  // loaded, its hub answering; a new build: rewritten and loaded, even
+  // though launchd lingers after the bootout.
+  for (const [what, before] of [['the switch (0.1.0, no build named)', specOf('', '0.1.0', '')], ['an earlier version', specOf('', '0.1.1', '0.1.1+aaa')], ['the same version, another build', specOf('', '0.1.2', '0.1.2+old')]] as const) {
+    const home = tmp();
+    const ld = lingeringLaunchd({ linger: 4 });
+    const old = { ...before, env: { ...before.env } };
+    if (!old.env.RAVENRY_APP_BUILD) delete old.env.RAVENRY_APP_BUILD;
+    assert.equal((await go(home, ld, old)).state, 'installed', what);
+    const r = await go(home, ld, specOf(home, '0.1.2', '0.1.2+new'));
+    assert.equal(r.state, 'updated', `${what}: ${r.why}`);
+    assert.match(String(ld.loaded()), /0\.1\.2\+new/, what);
+    assert.ok(ld.calls.filter((c) => c.includes(' bootstrap ')).length >= 1, what);
+  }
+  // The file is current but the service is not loaded (a bootstrap that
+  // failed before): loaded now.
+  {
+    const home = tmp();
+    const ld = lingeringLaunchd({ linger: 0 });
+    const spec = specOf(home, '0.1.2', '0.1.2+new');
+    await go(home, ld, spec);
+    ld.run('/bin/launchctl', ['bootout', 'gui/501/dev.ravenry.hub']);
+    const r = await go(home, ld, spec);
+    assert.equal(r.state, 'updated');
+    assert.ok(ld.loaded());
+  }
+  // launchd refuses the new file every time: the old one is put back and
+  // loaded, and the result says so.
+  {
+    const home = tmp();
+    const ld = lingeringLaunchd({ linger: 2, refuse: (t) => t.includes('0.1.2+bad') });
+    await go(home, ld, specOf(home, '0.1.1', '0.1.1+good'));
+    const r = await go(home, ld, specOf(home, '0.1.2', '0.1.2+bad'));
+    assert.equal(r.state, 'failed');
+    assert.match(String(r.why), /the service that ran before is loaded again/);
+    assert.match(String(ld.loaded()), /0\.1\.1\+good/);
+    assert.match(fs.readFileSync(serviceFile(platform, home, {}), 'utf8'), /0\.1\.1\+good/);
+  }
 });

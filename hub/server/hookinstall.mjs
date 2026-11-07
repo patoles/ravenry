@@ -330,6 +330,18 @@ export const codexInstalled = (env = process.env) => {
   if (env.TEST_RAVENRY === '1' && !env.MC_CODEX_HOME) return false;
   return cx.codexInstalled(env);
 };
+// Codex's hooks are ours to keep up to date: Codex is installed, or its
+// hooks.json already exists. Codex found on the PATH alone is not enough:
+// an app started from the Finder has a short PATH that misses an nvm or
+// npm-global codex, and on 2026-11-07 the switch from the npm board left
+// the npm board's Codex hooks in place that way, so the next launch offered
+// the switch again. MC_CODEX=0|1 decides in tests, as for codexInstalled.
+export const codexPresent = (env = process.env) => {
+  if (env.TEST_RAVENRY === '1' && !env.MC_CODEX_HOME) return false;
+  if (env.MC_CODEX === '0' || env.MC_CODEX === '1') return env.MC_CODEX === '1';
+  if (cx.codexInstalled(env)) return true;
+  try { return cx.readHooks().exists; } catch { return true; }
+};
 export const CODEX_HOOKS_FILE = cx.HOOKS_FILE;
 export const CODEX_CONFIG_FILE = cx.CONFIG_FILE;
 
@@ -424,7 +436,7 @@ export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root 
   const p = plan(cur.json, remove ? { remove: true, root, node } : { ravenryd, root, node });
   out.claude = { file: cur.file, changes: p.changes, backup: null };
   if (!dry && p.changes.length) out.claude.backup = writeSettings(cur.file, cur.exists ? cur.raw : null, p.settings);
-  if (codexInstalled()) {
+  if (codexPresent()) {
     const cp = codexPlan(remove ? { remove: true, root, node } : { ravenryd, root, node });
     out.codex = { file: cp.hooks.file, changes: cp.changes, backups: [], hooksOff: cp.hooksOff };
     if (!dry && cp.changes.length) out.codex.backups = codexWrite(cp);
@@ -458,7 +470,7 @@ export function refreshAppHooks({ root = ROOT, node } = {}) {
     }
   } catch { /* unreadable: left as it is */ }
   try {
-    if (codexInstalled() && ownOrGone(codexStatus({ root }))) {
+    if (codexPresent() && ownOrGone(codexStatus({ root }))) {
       const cp = codexPlan({ root, node });
       if (cp.changes.length) { codexWrite(cp); out.codex = cp.changes; }
     }

@@ -226,7 +226,13 @@ Nothing outside the user's own folders, and nothing as root.
   first launch, rewritten and restarted when the app changes: its file
   names the build (`RAVENRY_APP_BUILD`, build.json's id), so a rebuilt
   package of the same version restarts the hub too, which would
-  otherwise keep serving the old build's code. While the
+  otherwise keep serving the old build's code. On macOS the app waits
+  for launchd to let go of the old job after `bootout` (a `bootstrap`
+  before then fails with 5 and loads nothing), bootstraps again while
+  launchd says no, and checks the service is loaded; when it is not, the
+  file that ran before is put back and loaded, and the result says so.
+  What it did is in `~/Library/Logs/Ravenry/app.log`
+  (`~/.local/state/ravenry/app.log` on Linux). While the
   npm board is here (below), nothing is installed and the app shows that
   board. `RAVENRY_SERVICE=off` turns it off; `dry-run` writes the file and
   runs no launchctl or systemctl.
@@ -243,6 +249,19 @@ data (its board.json, else :4600, checked by its projects.json), a login
 start (a LaunchAgent that runs it), and its hooks in Claude Code's and
 Codex's settings. While there is any, it installs no hub and offers the
 switch, full size the first time, then as a quiet bar after Not now.
+
+At launch (`launchPlan` in `src/main/npmswitch.ts`): with nothing of the
+npm board here, or once switched (switch.json says so, or the app's
+service is installed) with only its traces left (its hooks, a login start
+launchd has not loaded) and no board of npm's serving the data, the app
+brings its own hub service up to this build; the traces are moved first,
+as the switch moves them, without asking again, and switch.json keeps
+what the first switch found (the board and its command, for the way
+back). Only an npm board serving the data, one launchd starts, or a
+person who never switched gets the offer, and no hub of the app's. The
+app's own hub, of any version, is never the npm board. Codex's hooks are
+moved whenever its hooks.json exists: an app started from the Finder has a
+short PATH and may not find codex itself.
 
 The person agrees once. The switch turns each login start off (booted
 out, its file kept in the backup), stops the board, keeps a copy of the

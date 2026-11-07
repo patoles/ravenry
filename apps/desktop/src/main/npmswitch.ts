@@ -43,6 +43,32 @@ export function mayRunHub(d: NpmDetect | null): boolean {
   return !d || !d.ok || !d.npm;
 }
 
+/**
+ * What the app does at launch, from what the hub script found and whether
+ * the app's own hub service is installed (its file is there):
+ *   'hub'     install the app's hub service, or bring it up to this build;
+ *   'finish'  the person switched already (the record says so, or the
+ *             app's service is installed) and only traces of the npm board
+ *             are left: its hooks, a login start launchd has not loaded.
+ *             No board of npm's serves the data, so nothing runs beside the
+ *             app's hub. The switch is finished without asking again (its
+ *             hooks moved, the record kept), then 'hub';
+ *   'offer'   an npm board serves the data or will at the next login, or
+ *             the person never switched: the offer, and no hub of the app's.
+ * The app's own hub, of any version, is never the npm board (the hub script
+ * says `own`). On 2026-11-07 the npm board's Codex hooks, left by the first
+ * switch, made 0.1.1 skip its service update and offer the switch again.
+ */
+export function launchPlan(d: NpmDetect | null, serviceInstalled: boolean): 'hub' | 'finish' | 'offer' {
+  if (mayRunHub(d)) return 'hub';
+  const det = d as NpmDetect;
+  const foreignBoard = !!det.board && !det.board.own;
+  const loginLoaded = det.login.some((l) => l.loaded);
+  const switched = (!!det.record && det.record.state === 'switched') || serviceInstalled;
+  if (switched && !foreignBoard && !loginLoaded && !(det.record && det.record.state === 'back')) return 'finish';
+  return 'offer';
+}
+
 /** The hub script, beside the hub's server in the staged copy (or the repository's, in development). */
 export function scriptPath(hubEntry: string): string {
   return path.join(path.dirname(hubEntry), 'npmswitch.mjs');

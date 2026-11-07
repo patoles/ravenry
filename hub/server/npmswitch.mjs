@@ -241,7 +241,7 @@ export function foreignHooks(json, { appData = null, scripts = hk.OURS } = {}) {
 function hooksNow(appData) {
   const out = { claude: [], codex: [] };
   try { out.claude = foreignHooks(hk.readSettings().json, { appData }); } catch { /* unreadable: left alone */ }
-  if (hk.codexInstalled()) { try { out.codex = foreignHooks(cx.readHooks().json, { appData, scripts: hk.CODEX_OURS }); } catch { /* unreadable */ } }
+  if (hk.codexPresent()) { try { out.codex = foreignHooks(cx.readHooks().json, { appData, scripts: hk.CODEX_OURS }); } catch { /* unreadable */ } }
   return out;
 }
 
@@ -316,14 +316,23 @@ export async function doSwitch({ ravenryd, appData = null, log = () => {}, step 
   const at = new Date();
   const dir = path.join(RAVENRY_HOME, 'backups', `switch-${stamp(at)}`);
   const half = prev && prev.state === 'switching' ? prev : null;
+  // Switched already, and what is left of the npm board are its traces (its
+  // Codex hooks a first switch missed): this one finishes that switch. What
+  // the first one found (the board and its command, its port, its login
+  // starts and hooks) is kept, so the way back still knows them; the hooks
+  // found now are added.
+  const done = prev && prev.state === 'switched' ? prev : null;
+  const base = half || done;
   const rec = {
     version: 1, state: 'switching', at: at.toISOString(),
-    from: half ? half.from : { ...(d.copy || {}), board: d.board && !d.board.own ? { port: d.board.port, pid: d.board.pid, command: d.board.command, again: d.board.again, cwd: d.board.cwd } : null },
-    port: half ? half.port : (d.board && !d.board.own ? d.board.port : (readJson(path.join(RAVENRY_HOME, 'board.json')) || {}).port || Number(process.env.PORT) || 4600),
-    login: half ? [...half.login] : [],
-    hooks: half ? half.hooks : { claude: d.hooks.claude, codex: d.hooks.codex },
+    from: base ? { ...base.from, board: base.from && base.from.board ? base.from.board : (d.board && !d.board.own ? { port: d.board.port, pid: d.board.pid, command: d.board.command, again: d.board.again, cwd: d.board.cwd } : null) } : { ...(d.copy || {}), board: d.board && !d.board.own ? { port: d.board.port, pid: d.board.pid, command: d.board.command, again: d.board.again, cwd: d.board.cwd } : null },
+    port: base ? base.port : (d.board && !d.board.own ? d.board.port : (readJson(path.join(RAVENRY_HOME, 'board.json')) || {}).port || Number(process.env.PORT) || 4600),
+    login: base ? [...base.login] : [],
+    hooks: half ? half.hooks : done ? { claude: [...(done.hooks.claude || []), ...d.hooks.claude], codex: [...(done.hooks.codex || []), ...d.hooks.codex] } : { claude: d.hooks.claude, codex: d.hooks.codex },
     backup: path.relative(RAVENRY_HOME, dir),
+    ...(done ? { earlier: [...(done.earlier || []), { at: done.at, backup: done.backup }] } : {}),
   };
+  if (base && !rec.from.root && d.copy && d.copy.root) rec.from = { ...rec.from, root: d.copy.root, version: d.copy.version, node: rec.from.node || d.copy.node };
   if (!rec.from.node && rec.from.root) rec.from.node = half && half.from.node || null;
   fs.mkdirSync(dir, { recursive: true });
   writeRecord(rec);
@@ -393,7 +402,7 @@ function hooksBack(rec) {
   const cur = hk.readSettings();
   const p = rec.hooks.claude.length && root && node ? hk.plan(cur.json, { root, node, ravenryd: false, electron: false }) : hk.plan(cur.json, { remove: true });
   if (p.changes.length) { hk.writeSettings(cur.file, cur.raw, p.settings); out.claude = p.changes; }
-  if (hk.codexInstalled()) {
+  if (hk.codexPresent()) {
     const cp = rec.hooks.codex.length && root && node ? hk.codexPlan({ root, node, ravenryd: false, electron: false }) : hk.codexPlan({ remove: true });
     if (cp.changes.length) { hk.codexWrite(cp); out.codex = cp.changes; }
   }
