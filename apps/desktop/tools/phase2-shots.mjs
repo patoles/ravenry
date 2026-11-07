@@ -193,7 +193,7 @@ try {
   // The login shell of panes the board starts: zsh without rc files, so
   // /etc's prompt (the machine's and the user's names) never shows.
   const LOGIN = script(STAND, 'login-shell', `PS1='you@mac %1~ %# ' exec /bin/zsh -f "$@"`);
-  const local = { HOME: HOME0, PATH: `${STAND}:/usr/bin:/bin:/usr/sbin:/sbin`, SHELL: LOGIN, LANG: 'en_US.UTF-8', TERM: 'xterm-256color', PS1: 'you@mac %1~ %# ', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state') };
+  const local = { HOME: HOME0, PATH: `${STAND}:/usr/bin:/bin:/usr/sbin:/sbin`, SHELL: LOGIN, LANG: 'en_US.UTF-8', TERM: 'xterm-256color', PS1: 'you@mac %1~ %# ', RAVENRY_PANE_PASS: 'PS1', RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state') };
   execFileSync(BIN, ['serve', '--detach'], { env: local });
   const port = await freePort();
   hub = await startDemoHub({

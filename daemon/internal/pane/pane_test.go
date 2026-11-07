@@ -469,6 +469,25 @@ func TestPaneEnvLeavesOuterTerminalsOut(t *testing.T) {
 	}
 }
 
+// A variable named in RAVENRY_PANE_PASS is handed on (a test harness's
+// prompt); nothing else of the daemon's is, and never a RAVENRY_ one.
+func TestPaneEnvPassesOnlyWhatIsNamed(t *testing.T) {
+	base := []string{"HOME=/h", "PATH=/usr/bin", "PS1=you@mac % ", "SMOKE=1", "OTHER=x", "RAVENRY_HOME=/r", PanePassEnv + "=PS1,SMOKE,RAVENRY_HOME"}
+	got := map[string]string{}
+	for _, kv := range paneEnv(base, nil, "pnew0002", "") {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+	if got["PS1"] != "you@mac % " || got["SMOKE"] != "1" {
+		t.Errorf("named variables missing: %v", got)
+	}
+	for _, k := range []string{"OTHER", "RAVENRY_HOME", PanePassEnv} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s reached the pane", k)
+		}
+	}
+}
+
 // With no $SHELL (launchd gives its agents none), a pane's shell is the
 // account's login shell, not /bin/sh, so its shell integration draws the
 // prompt a session waits for (2026-11-07: a 4 s wait at every start).

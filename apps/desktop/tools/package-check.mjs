@@ -225,7 +225,7 @@ try {
     name: 'package', work: WORK, rt: RT, home: HOME, hubUrl: 'http://127.0.0.1:9',
     exe, cli: LINK, steps: smokeSteps(OUT, WORK), shell, width: 1200, height: 760,
     env: {
-      PS1: '$ ', RAVENRY_SERVICE: 'dry-run', RAVENRY_DESKTOP_DATA: DATA,
+      PS1: '$ ', RAVENRY_PANE_PASS: 'PS1', RAVENRY_SERVICE: 'dry-run', RAVENRY_DESKTOP_DATA: DATA,
       ...(isAppImage ? { APPIMAGE_EXTRACT_AND_RUN: '1' } : {}),
     },
   });

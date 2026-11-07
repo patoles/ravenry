@@ -34,6 +34,9 @@ export async function runApp(opts) {
     ...(bin ? { RAVENRYD: bin } : {}), SMOKE_RAVENRYD: opts.cli || bin, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: path.join(work, 'state'),
     RAVENRY_HUB_URL: hubUrl, RAVENRY_DESKTOP_DATA: path.join(work, `app-${name}`),
     RAVENRY_NEW_SHELL: shell, PS1: 'you@mac %1~ %# ',
+    // A pane takes only the account's variables from its daemon
+    // (daemon/internal/pane accountVar), and these, named on purpose.
+    RAVENRY_PANE_PASS: 'PS1,SMOKE_RAVENRYD',
     RAVENRY_OFFSCREEN: '1', RAVENRY_THEME: 'dark', RAVENRY_WIDTH: String(width), RAVENRY_HEIGHT: String(height),
     RAVENRY_DRIVER: path.join(HERE, 'driver.cjs'), RAVENRY_DRIVE: plan, RAVENRY_DRIVE_LOG: process.env.RAVENRY_DRIVE_LOG || '',
     // A hub the app starts lists the stand-in ps's processes, never this

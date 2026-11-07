@@ -383,6 +383,10 @@ func lookPath(name string, extra map[string]string, env []string) (string, error
 // Claude resumed in a pane saved no transcript (2026-11-07). The login
 // shell then sets the rest from the account's profile, and a client adds
 // what a pane needs in its own config (Config.Env).
+// PanePassEnv names the extra variables a pane takes from the daemon's
+// environment, comma separated (paneEnv).
+const PanePassEnv = "RAVENRY_PANE_PASS"
+
 func accountVar(k string) bool {
 	if strings.HasPrefix(k, "LC_") {
 		return true
@@ -410,9 +414,19 @@ func paneEnv(base []string, extra map[string]string, id, socket string) []string
 		}
 		set[k] = v
 	}
+	// RAVENRY_PANE_PASS names more variables to hand on, by name (a test's
+	// PS1); it is set on purpose, never inherited from a session.
+	pass := map[string]bool{}
+	for _, kv := range base {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == PanePassEnv {
+			for _, n := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' }) {
+				pass[n] = true
+			}
+		}
+	}
 	for _, kv := range base {
 		k, v, ok := strings.Cut(kv, "=")
-		if !ok || !accountVar(k) {
+		if !ok || !(accountVar(k) || pass[k] && !strings.HasPrefix(k, "RAVENRY_")) {
 			continue
 		}
 		put(k, v)
