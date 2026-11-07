@@ -34,12 +34,14 @@ function phaseAt(t) {
   return n;
 }
 
+// RAVENRY_STALL_MS: the line drawn lower (hub/tools/startup-load-test.mjs: 200).
+const STALL_MS = Number(process.env.RAVENRY_STALL_MS) > 0 ? Number(process.env.RAVENRY_STALL_MS) : 500;
 export function watchStalls() {
   let last = Date.now();
   const iv = setInterval(() => {
     const t = Date.now();
     const held = t - last - 100;
-    if (held > 500) console.log(`stall: the main thread was held ${held} ms in "${phaseAt(last + 100)}", ${since()} ms after start`);
+    if (held > STALL_MS) console.log(`stall: the main thread was held ${held} ms in "${phaseAt(last + 100)}", ${since()} ms after start`);
     last = t;
   }, 100);
   iv.unref();

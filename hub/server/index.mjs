@@ -1253,6 +1253,7 @@ async function tick() {
     tp.mark('pages');
     try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
     tp.mark('snapshot');
+    if (!snapshot.generatedAt) console.log(`start: first state built, ${Date.now() - startlog.T0} ms after start`);
     snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the

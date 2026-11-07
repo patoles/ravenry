@@ -21,7 +21,12 @@ const cap = (s, n) => {
 // true when Codex's shared app-server ran the hook (its environment is
 // another terminal's); `home` the data folder, for the task log; `at` the
 // event's time (default now).
-export function record(assistant, input, { env = {}, ppid = 0, daemon = false, home = null, at = null } = {}) {
+// `tasks: false` (a daemon's backlog taken in at once): a Stop's running
+// tasks are not checked against its transcript here; the record is kept in
+// `deferredTasks` with its input, and the caller checks the last one of each
+// session once (server/ravenryd.mjs).
+export const deferredTasks = new WeakMap();
+export function record(assistant, input, { env = {}, ppid = 0, daemon = false, home = null, at = null, tasks = true } = {}) {
   const sh = shape(assistant, input);
   if (!sh) return null;
   const ev = sh.event;
@@ -77,9 +82,14 @@ export function record(assistant, input, { env = {}, ppid = 0, daemon = false, h
     }
     // Only tasks still running: Claude Code can keep a finished one listed
     // (server/tasks.mjs checks the transcript). What it sent is logged.
-    const running = runningTasks(input);
-    if (home) logTasks(home, input, running);
-    r.background_tasks = running.length;
+    if (tasks) {
+      const running = runningTasks(input);
+      if (home) logTasks(home, input, running);
+      r.background_tasks = running.length;
+    } else {
+      r.background_tasks = runningTasks(input, { transcript: false }).length;
+      deferredTasks.set(r, input);
+    }
     if (Array.isArray(input.session_crons) && input.session_crons.length) r.crons = input.session_crons.length;
     if (input.stop_hook_active) r.stop_hook_active = true;
   }

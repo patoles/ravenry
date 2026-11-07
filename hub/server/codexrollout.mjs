@@ -39,9 +39,11 @@ function readTail(file, bytes) {
     const start = Math.max(0, size - bytes);
     const buf = Buffer.alloc(size - start);
     fs.readSync(fd, buf, 0, buf.length, start);
-    let text = buf.toString('utf8');
-    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
-    return { text, whole: start === 0 };
+    // Whole lines only: the cursor (readRollout) goes on after the last.
+    const from = start > 0 ? buf.indexOf(0x0a) + 1 : 0;
+    const last = buf.lastIndexOf(0x0a);
+    const text = last >= from ? buf.toString('utf8', from, last) : '';
+    return { text, whole: start === 0, end: last >= 0 ? start + last + 1 : start };
   } finally {
     fs.closeSync(fd);
   }
@@ -66,7 +68,15 @@ function toolWhat(p) {
 }
 
 export function parseRollout(text) {
-  const r = {
+  const r = freshRollout();
+  feedRollout(r, text);
+  return r;
+}
+
+// The parse state of a rollout, fed its lines in order: kept per file, so a
+// rollout that grew is read from where the last read stopped.
+function freshRollout() {
+  return {
     usage: null, model: null, usageAt: null, contextWindow: null,
     lastText: null, lastTextAt: null,
     lastPromptAt: null, lastPrompt: null,
@@ -75,8 +85,12 @@ export function parseRollout(text) {
     lastInterruptAt: null,
     recap: null, recapAt: null, title: null, cwd: null,
     turns: [],
+    pendingText: null,
   };
-  let pendingText = null;
+}
+
+function feedRollout(r, text) {
+  let { pendingText } = r;
   for (const line of text.split('\n')) {
     if (!line) continue;
     let rec;
@@ -112,7 +126,8 @@ export function parseRollout(text) {
       }
     }
   }
-  return r;
+  r.pendingText = pendingText;
+  if (r.turns.length > 60) r.turns = r.turns.slice(-60);
 }
 
 // Context in use: the last request's tokens, input (cached included) and
@@ -133,15 +148,35 @@ export function readRollout(file) {
   const hit = cache.get(file);
   if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.value;
   let value = null;
+  let state = null;
+  let offset = 0;
   try {
-    const { text, whole } = readTail(file, 768 * 1024);
-    value = parseRollout(text);
-    if ((!value.usage || !value.model) && !whole) {
-      const more = parseRollout(readTail(file, 6 * 1024 * 1024).text);
-      if (!value.usage) Object.assign(value, { usage: more.usage, usageAt: more.usageAt, contextWindow: more.contextWindow });
-      if (!value.model) value.model = more.model;
-      if (!value.cwd) value.cwd = more.cwd;
+    if (hit && hit.state && st.size >= hit.offset && st.size - hit.offset <= TAIL) {
+      // Grown: only the bytes added since, whole lines (a cursor per file).
+      state = hit.state;
+      offset = hit.offset;
+      if (st.size > offset) {
+        const fd = fs.openSync(file, 'r');
+        try {
+          const buf = Buffer.alloc(st.size - offset);
+          fs.readSync(fd, buf, 0, buf.length, offset);
+          const last = buf.lastIndexOf(0x0a);
+          if (last >= 0) { feedRollout(state, buf.toString('utf8', 0, last)); offset += last + 1; }
+        } finally { fs.closeSync(fd); }
+      }
+    } else {
+      const t = readTail(file, TAIL);
+      state = parseRollout(t.text);
+      offset = t.end;
+      if ((!state.usage || !state.model) && !t.whole) {
+        const more = parseRollout(readTail(file, 6 * 1024 * 1024).text);
+        if (!state.usage) Object.assign(state, { usage: more.usage, usageAt: more.usageAt, contextWindow: more.contextWindow });
+        if (!state.model) state.model = more.model;
+        if (!state.cwd) state.cwd = more.cwd;
+      }
     }
+    const { pendingText, ...v } = state;
+    value = v;
     value.contextTokens = tokensOf(value.usage);
     value.inTurn = !!(value.lastActivityAt && (!value.lastTurnEndAt || value.lastActivityAt > value.lastTurnEndAt));
     value.turns = value.turns.filter((t) => t.text).slice(-12).reverse();
@@ -149,10 +184,13 @@ export function readRollout(file) {
     value.mtimeMs = st.mtimeMs;
   } catch {
     value = null;
+    state = null;
   }
-  cache.set(file, { size: st.size, mtimeMs: st.mtimeMs, value });
+  cache.set(file, { size: st.size, mtimeMs: st.mtimeMs, value, state, offset });
   return value;
 }
+
+const TAIL = 768 * 1024;
 
 // The hand-off hook's reading: { tokens, window, model, lastText,
 // lastPromptAt, lastPrompt } from the end of the rollout, or null when it

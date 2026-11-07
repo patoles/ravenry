@@ -32,7 +32,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { HOME_OVERRIDE, RAVENRY_HOME } from './home.mjs';
-import { record } from './hookrecord.mjs';
+import { record, deferredTasks } from './hookrecord.mjs';
+import { runningTasksAsync, logTasks } from './tasks.mjs';
 import { decideStop } from './handoffstop.mjs';
 import * as machines from './machines.mjs';
 import { answerKey } from './person.mjs';
@@ -491,26 +492,56 @@ async function follow(d) {
     // What this daemon reported while the hub was not following it.
     const t0 = Date.now();
     let n = 0;
+    // As one batch: no transcript is read per report; each session's
+    // running tasks are checked once at the end, on its last Stop.
+    const batch = new Map();
     for (;;) {
       phase(`daemon ${name}: report replay`);
       const r = await d.c.request('agent.events', { since: lastSeq.get(d.key) || 0, limit: 1000 });
       slice = Date.now();
-      for (const rep of r.reports) { take(d, rep); await breathe(); }
+      for (const rep of r.reports) { take(d, rep, batch); await breathe(); }
       n += r.reports.length;
       if (r.reports.length < 1000) break;
     }
+    phase(`daemon ${name}: running tasks`);
+    void settleBatch(batch);
     if (process.uptime() < 120) console.log(`start: daemon ${name}: ${n} reports taken in ${Date.now() - t0} ms`);
     phase('idle');
     o.onChange();
   } catch { /* the daemon went away: found again at the next poll */ }
 }
 
-function take(d, rep) {
+// A Stop's running tasks are checked against its transcript off the main
+// thread's way (server/tasks.mjs runningTasksAsync): the record goes on at
+// once with what Claude Code listed, and its count is set when the check is
+// done. In a backlog (`batch`), only each session's last Stop is checked,
+// once, at the end.
+function take(d, rep, batch = null) {
   if (!rep || rep.seq <= (lastSeq.get(d.key) || 0)) return;
   lastSeq.set(d.key, rep.seq);
-  const rec = recordOf(rep, d.machine);
+  const rec = recordOf(rep, d.machine, false);
   if (rec && rep.pane) where.set(rep.pane, d.id);
+  if (rec && deferredTasks.has(rec)) {
+    if (batch) batch.set(rec.session_id, rec);
+    else void settle(rec);
+  }
   if (rec && statusOpts) statusOpts.onRecord(rec);
+}
+
+async function settle(rec) {
+  const input = deferredTasks.get(rec);
+  if (!input) return;
+  deferredTasks.delete(rec);
+  try {
+    const running = await runningTasksAsync(input);
+    rec.background_tasks = running.length;
+    logTasks(RAVENRY_HOME, input, running);
+  } catch { /* Claude Code's count stands */ }
+  if (statusOpts) statusOpts.onChange();
+}
+
+async function settleBatch(batch) {
+  for (const rec of batch.values()) await settle(rec);
 }
 
 async function answer(d, e) {
@@ -522,17 +553,17 @@ async function answer(d, e) {
 // A daemon's agent report as the board's hook record (server/hookrecord.mjs),
 // or null for a report the board's sessions do not use (a program's own
 // status report, which the app shows from the pane).
-export function recordOf(rep, machine = null) {
-  const r = recordOfReport(rep);
+export function recordOf(rep, machine = null, tasks = true) {
+  const r = recordOfReport(rep, tasks);
   if (r && machine) r.machine = machine;
   return r;
 }
 
-function recordOfReport(rep) {
+function recordOfReport(rep, tasks = true) {
   if (!rep) return null;
   if (rep.source === 'hook' && rep.data && typeof rep.data.session_id === 'string') {
     const paneEnv = rep.pane ? { RAVENRY_PANE: rep.pane, TERM_PROGRAM: 'ravenry' } : {};
-    const r = record(rep.assistant, rep.data, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at });
+    const r = record(rep.assistant, rep.data, { env: paneEnv, ppid: rep.pid || 0, daemon: !rep.pane, home: RAVENRY_HOME, at: rep.at, tasks });
     // The daemon passes on no tool input (PROTOCOL.md, agent.report), so a
     // Codex approval's line ("Run <command>") comes from the report's
     // message, which ravenryd hook made from it.

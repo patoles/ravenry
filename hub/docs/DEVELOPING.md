@@ -1254,6 +1254,23 @@ nothing for 30 s). Now:
   whole: it concatenated its whole buffer at each chunk, so a 16 MB reply
   in a pipe's 4 KB chunks (a remote machine over ssh) took 4 s; now 20 ms.
 - ship.mjs runs git a few at a time (each start costs the main thread).
+- A Stop's background tasks are checked against its transcript
+  (server/tasks.mjs). 0.1.14's hub re-read the transcript's last 64 MB for
+  each Stop report a daemon had kept: 761 reports of one 67 MB session
+  held it for 40 s. Now each transcript has a cursor (the byte it was read
+  to, and what it said: each task's last finished notification and
+  restart, the Monitor calls, which ids it names), and only what was
+  appended is read. A daemon's backlog is taken as one batch, and each
+  session's last Stop is checked once at the end, off the main thread's
+  way (read in 2 MB chunks, the event loop given back between them); a
+  live Stop the same. The record goes on at once with Claude Code's own
+  count, set right when the check is done. The Stop hooks, each a process
+  of its own, keep the cursor on disk
+  (`<RAVENRY_HOME>/cache/tasks/<hash>.json`).
+- The same for every reader that runs again as a transcript grows: the
+  summary of a transcript or a Codex rollout (transcript.mjs,
+  codexrollout.mjs) and whether a queued hand-off was written
+  (handoff.mjs wroteFile) go on from where the last read stopped.
 
 `hub/tools/startup-load-test.mjs` builds a made-up set of the same size and
 fails if the first answer comes over 1 s after the listen line, if any
@@ -1262,6 +1279,16 @@ within 10 s, beside 4 panes that print without a pause and a daemon whose
 report ring is full; the release check runs it on the packaged hub (step
 12). 0.1.12's hub fails it (an answer took 1,177 ms); this one passes
 (147 ms with 6 busy panes).
+It also has the session of 2026-11-07: a 70 MB transcript holding 200
+Agent, Task and Monitor launches, and 761 hook reports for it in the
+daemon's ring, a Stop in every 5 listing 27 tasks. It fails if the first
+state is not ready within 3 s, if the hub's main thread is held over
+200 ms in its first 30 s (RAVENRY_STALL_MS=200 draws the stall line
+there), or if that session's count of running tasks is wrong. 0.1.14's
+hub: the first state at 11,973 ms, 45 stalls (the worst 1,124 ms, in the
+replay), the replay not done in 30 s. 0.1.15's: the first state at
+1,604 ms, no stall, the 2,048 reports taken in 257 ms, the count right
+6.1 s after listen.
 Measured on a copy of a real board's data (its ~/.ravenry and 7.1 GB of
 transcripts, with stand-in project folders): the first answer 6 ms after
 listen, the slowest 674 ms, the state at 252 ms; before, 49.6 s.
@@ -1276,8 +1303,17 @@ server/startlog.mjs, in every hub, says in hub.log where its start goes:
 - `tick N phases (ms): registry 5, cmux workspaces 12, ...` for the first
   3 ticks;
 - `stall: the main thread was held N ms in "<phase>"` whenever a watchdog
-  that checks every 100 ms finds the main thread was held over 500 ms,
-  with the phase it began in.
+  that checks every 100 ms finds the main thread was held over 500 ms
+  (RAVENRY_STALL_MS), with the phase it began in;
+- `start: first state built, N ms after start`: when `/api/state` stops
+  answering 503;
+- `access: macOS answered for <folder> in N ms`: the board reads nothing
+  of its projects until macOS says whether it may read the protected
+  folders they are in (server/access.mjs). A build signed ad hoc is a new
+  app to macOS, so the first start of each build waits there on the
+  person's click: 0.1.14's first start on a real board waited about 4
+  minutes (its CPU profile: the main thread idle, every tick stopped at
+  that gate), and its next start passed it within 3 s.
 
 A service hub (RAVENRY_HUB_SERVICE=1) of a version not profiled before also
 writes a CPU profile of its first 90 s with the inspector (no flags), in

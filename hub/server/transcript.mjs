@@ -59,9 +59,11 @@ function readTail(file, bytes) {
     const start = Math.max(0, size - bytes);
     const buf = Buffer.alloc(size - start);
     fs.readSync(fd, buf, 0, buf.length, start);
-    let text = buf.toString('utf8');
-    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
-    return { text, whole: start === 0 };
+    // Whole lines only: the cursor (readTranscript) goes on after the last.
+    const from = start > 0 ? buf.indexOf(0x0a) + 1 : 0;
+    const last = buf.lastIndexOf(0x0a);
+    const text = last >= from ? buf.toString('utf8', from, last) : '';
+    return { text, whole: start === 0, end: last >= 0 ? start + last + 1 : start };
   } finally {
     fs.closeSync(fd);
   }
@@ -83,8 +85,11 @@ function isRealPrompt(rec) {
   return false;
 }
 
-function parse(text) {
-  const r = {
+// The parse state of a transcript, fed its lines in order (feed): what it
+// read up to, kept per file, so a transcript that grew is read from where
+// the last read stopped, not from its tail again.
+function fresh() {
+  return {
     usage: null, model: null, usageAt: null,
     lastText: null, lastTextAt: null,
     lastPromptAt: null, lastPrompt: null,
@@ -93,9 +98,19 @@ function parse(text) {
     lastInterruptAt: null,
     recap: null, recapAt: null, title: null, cwd: null,
     turns: [],
+    pendingText: null,
+    turnAsk: null, // the prompt the turn under way answers
   };
-  let pendingText = null;
-  let turnAsk = null; // the prompt the turn under way answers
+}
+
+function parse(text) {
+  const r = fresh();
+  feed(r, text);
+  return r;
+}
+
+function feed(r, text) {
+  let { pendingText, turnAsk } = r;
   for (const line of text.split('\n')) {
     if (!line) continue;
     let rec;
@@ -143,31 +158,61 @@ function parse(text) {
       }
     }
   }
-  return r;
+  r.pendingText = pendingText;
+  r.turnAsk = turnAsk;
+  if (r.turns.length > 60) r.turns = r.turns.slice(-60);
 }
 
-// Summary of one transcript; null if unreadable.
+// Summary of one transcript; null if unreadable. Read once from its tail,
+// then only the lines added since (a cursor per file).
 export function readTranscript(file) {
   let st;
   try { st = fs.statSync(file); } catch { return null; }
-  const key = file;
-  const hit = cache.get(key);
+  const hit = cache.get(file);
   if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.value;
   let value = null;
+  let state = null;
+  let offset = 0;
   try {
-    let { text, whole } = readTail(file, 768 * 1024);
-    value = parse(text);
-    if (!value.usage && !whole) value = parse(readTail(file, 6 * 1024 * 1024).text);
-    const u = value.usage;
-    value.contextTokens = u ? (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) : null;
-    // A turn is in flight when activity came after the last turn end.
-    value.inTurn = !!(value.lastActivityAt && (!value.lastTurnEndAt || value.lastActivityAt > value.lastTurnEndAt));
-    value.turns = value.turns.filter((t) => t.text).slice(-12).reverse();
+    if (hit && hit.state && st.size >= hit.offset && st.size - hit.offset <= TAIL) {
+      // Grown: only the bytes added since, whole lines.
+      state = hit.state;
+      offset = hit.offset;
+      if (st.size > offset) {
+        const fd = fs.openSync(file, 'r');
+        try {
+          const buf = Buffer.alloc(st.size - offset);
+          fs.readSync(fd, buf, 0, buf.length, offset);
+          const last = buf.lastIndexOf(0x0a);
+          if (last >= 0) { feed(state, buf.toString('utf8', 0, last)); offset += last + 1; }
+        } finally { fs.closeSync(fd); }
+      }
+    } else {
+      // First read, rewritten, or grown by more than a tail: its tail.
+      let t = readTail(file, TAIL);
+      state = parse(t.text);
+      if (!state.usage && !t.whole) { t = readTail(file, 6 * 1024 * 1024); state = parse(t.text); }
+      offset = t.end;
+    }
+    value = summary(state);
     value.path = file;
     value.mtimeMs = st.mtimeMs;
   } catch {
     value = null;
+    state = null;
   }
-  cache.set(key, { size: st.size, mtimeMs: st.mtimeMs, value });
+  cache.set(file, { size: st.size, mtimeMs: st.mtimeMs, value, state, offset });
+  return value;
+}
+
+const TAIL = 768 * 1024;
+
+function summary(state) {
+  const { pendingText, turnAsk, ...value } = state;
+  const u = value.usage;
+  value.contextTokens = u ? (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) : null;
+  // A turn is in flight when activity came after the last turn end.
+  value.inTurn = !!(value.lastActivityAt && (!value.lastTurnEndAt || value.lastActivityAt > value.lastTurnEndAt));
+  value.turns = value.turns.filter((t) => t.text).slice(-12).reverse();
   return value;
 }

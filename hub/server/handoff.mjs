@@ -233,11 +233,23 @@ const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash
 
 // Did this session (not a subagent) call a tool that writes, naming the
 // file, at or after `sinceIso`? Reads the transcript's last 64 MB.
+// Locally, a cursor per question: a transcript that grew is read from where
+// the last look stopped (the board asks again at each change of it).
+const wroteSeen = new Map(); // `${transcript}|${file}|${since}|${cwd}` -> offset after the last whole line looked at
 export function wroteFile(transcriptPath, file, sinceIso, cwd, io = localIo) {
   if (!transcriptPath || !file) return false;
-  const t = io.tail(transcriptPath, 64 * 1024 * 1024);
+  const key = io === localIo ? `${transcriptPath}|${file}|${sinceIso}|${cwd || ''}` : null;
+  const from = key ? wroteSeen.get(key) : undefined;
+  let t = from != null ? readAt(transcriptPath, from, 64 * 1024 * 1024) : null;
+  if (t && (t.size < from || t.start + t.buf.length < t.size)) t = null; // rewritten, or grown by more than one read
+  if (!t) t = io.tail(transcriptPath, 64 * 1024 * 1024);
   if (!t) return false;
-  const text = t.buf.toString('utf8');
+  const last = t.buf.lastIndexOf(0x0a);
+  if (key) {
+    if (wroteSeen.size > 200) wroteSeen.delete(wroteSeen.keys().next().value);
+    wroteSeen.set(key, last >= 0 ? t.start + last + 1 : t.start);
+  }
+  const text = t.buf.toString('utf8', 0, last >= 0 ? last : 0);
   const names = [file];
   if (cwd) { const rel = path.relative(cwd, file); if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) names.push(rel); }
   const since = Date.parse(sinceIso) || 0;

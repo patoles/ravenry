@@ -63,10 +63,15 @@ function probe(root) {
   state.set(root, was ? { ...was, since: Date.now() } : { state: 'waiting', since: Date.now(), error: null });
   const target = PROBES[root] || null;
   const read = target ? fs.promises.open(target, 'r').then((h) => h.close()) : fs.promises.readdir(root);
+  const asked = Date.now();
+  // How long macOS took is in the log: a build signed ad hoc is a new app
+  // to macOS, and its first read of ~/Documents waits on the person's click.
+  const took = (how) => console.log(`access: macOS answered for ${root} in ${Date.now() - asked} ms (${how})`);
   read.then(
-    () => { state.set(root, { state: 'ok', since: Date.now(), error: null }); changed(root); },
+    () => { state.set(root, { state: 'ok', since: Date.now(), error: null }); if (!was) took('allowed'); changed(root); },
     (e) => {
       const refused = e && (e.code === 'EPERM' || e.code === 'EACCES');
+      if (!was) took(refused ? 'refused' : 'allowed');
       state.set(root, { state: refused ? 'denied' : 'ok', since: Date.now(), error: refused ? e.code : null });
       if (refused) console.error(`access: macOS did not let the board read ${root} (${e.code})`);
       changed(root);
