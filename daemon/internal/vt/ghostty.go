@@ -2,6 +2,7 @@ package vt
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	gt "go.mitchellh.com/libghostty"
@@ -22,6 +23,9 @@ type ghostty struct {
 	cols  int
 	rows  int
 	title string
+	// scrollback is the number of history lines the screen keeps at
+	// least (Options.Scrollback).
+	scrollback int
 	// defPal is the palette the screen starts with, to tell the entries a
 	// program changed (OSC 4).
 	defPal [16]RGB
@@ -42,10 +46,16 @@ func New(o Options) (Screen, error) {
 	if o.Cols <= 0 || o.Rows <= 0 || o.Cols > 0xffff || o.Rows > 0xffff {
 		return nil, fmt.Errorf("vt: bad size %dx%d", o.Cols, o.Rows)
 	}
-	s := &ghostty{cols: o.Cols, rows: o.Rows}
+	s := &ghostty{cols: o.Cols, rows: o.Rows, scrollback: max(o.Scrollback, 0)}
 	opts := []gt.TerminalOption{
 		gt.WithSize(uint16(o.Cols), uint16(o.Rows)),
-		gt.WithMaxScrollbackLines(uint(max(o.Scrollback, 0))),
+		// The history is counted in lines only. libghostty also has a byte
+		// limit, 10,000 bytes by default, which it rounds up to one page
+		// (about 400 KB): left at the default, that page decided, and a
+		// pane kept some 600 lines at 100 columns, fewer when wider. With
+		// no byte limit the line limit bounds the memory instead.
+		gt.WithMaxScrollbackBytes(math.MaxUint),
+		gt.WithMaxScrollbackLines(lineLimit(o.Scrollback, o.Cols)),
 		gt.WithTitleChanged(func(t *gt.Terminal) {
 			if title, err := t.Title(); err == nil {
 				s.title = title
@@ -165,6 +175,26 @@ func New(o Options) (Screen, error) {
 	return s, nil
 }
 
+// pageBytes bounds the cell memory of one libghostty page: its standard
+// page is 215 by 215 cells in 400 KB (page.zig std_capacity at the pinned
+// commit), with some room to spare. TestPageRowsBound checks it.
+const pageBytes = 512 << 10
+
+// pageRows bounds how many rows one page holds at this width: a row costs
+// 8 bytes of metadata and 8 per cell.
+func pageRows(cols int) int { return pageBytes/(8+8*max(cols, 1)) + 1 }
+
+// lineLimit is the line limit to give libghostty for a screen that must
+// keep at least n history lines. libghostty prunes whole pages: once the
+// history passes its limit it drops the oldest page, so the history falls
+// back to the limit less up to a page. One page more than n keeps n.
+func lineLimit(n, cols int) uint {
+	if n <= 0 {
+		return 0
+	}
+	return uint(n + pageRows(cols))
+}
+
 func newVTFormatter(t *gt.Terminal) (*gt.Formatter, error) {
 	f, err := gt.NewFormatter(t,
 		gt.WithFormatterFormat(gt.FormatterFormatVT),
@@ -188,6 +218,12 @@ func (s *ghostty) Resize(cols, rows int) error {
 	}
 	if err := s.t.Resize(uint16(cols), uint16(rows), 0, 0); err != nil {
 		return fmt.Errorf("vt: resize: %w", err)
+	}
+	if cols != s.cols {
+		limit := lineLimit(s.scrollback, cols)
+		if err := s.t.SetScrollbackMaxLines(&limit); err != nil {
+			return fmt.Errorf("vt: scrollback limit: %w", err)
+		}
 	}
 	s.cols, s.rows = cols, rows
 	return nil
