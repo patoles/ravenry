@@ -83,6 +83,11 @@
 //                   open -n -a in the foreground, exactly one instance is
 //                   left, with none of RAVENRY_PANE, RAVENRY_SOCKET,
 //                   TERM_PROGRAM
+//   14 basics       tools/basics-test.mjs on the test twin, a row each: the
+//                   scroll position kept across tab switches, Cmd+click on
+//                   links (OSC 8 and plain URLs, http, https and file only),
+//                   terminal-only zoom kept across a relaunch, a dropped
+//                   file's quoted path, the window's size kept, Cmd+Home/End
 //   env             every app the check launched ran with a clean environment
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
@@ -678,6 +683,22 @@ try {
     const fg = rows.filter((x) => x.name.startsWith('3 '));
     step(`13 opened from a pane: started with RAVENRY_PANE and RAVENRY_SOCKET, it relaunches clean (${rows.filter((x) => x.ok).length} of ${rows.length} rows, tools/relaunch-check.mjs)`, r.status === 0 && rows.length > 0 && rows.every((x) => x.ok), { failed: rows.filter((x) => !x.ok), out: (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-500) });
     step('13 opened from a pane in the foreground (open -n -a, no -g): once it settles, exactly one instance runs, with none of RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM', fg.length >= 3 && fg.every((x) => x.ok), { rows: fg });
+    spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
+    fs.rmSync(k, { recursive: true, force: true });
+  });
+  // ------------------------------------------------------------ 14, the terminal's basics
+  await guarded('14 basics', async () => {
+    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
+    const app = path.join(k, 'Ravenry.app');
+    execFileSync('/usr/bin/ditto', [DRIVEN, app]);
+    const r = spawnSync(process.execPath, [path.join(HERE, 'basics-test.mjs'), path.join(OUT, 'basics'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
+    const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+    if (!lines.length) step('14 basics: tools/basics-test.mjs ran', false, { status: r.status, tail: ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-8) });
+    for (const l of lines) {
+      const ok = l.startsWith('PASS');
+      const [name, ...rest] = l.slice(6).split('  ');
+      step(`14 basics: ${name.trim()}`, ok, ok ? {} : { detail: rest.join('  ').slice(0, 1500) });
+    }
     spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
     fs.rmSync(k, { recursive: true, force: true });
   });

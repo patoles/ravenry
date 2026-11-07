@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { suppressTerminalQueries } from '@ravenry/client';
 import type { PaneStream, RavenryClient } from '@ravenry/client';
 
@@ -43,6 +44,19 @@ const MAC_OPT_SEND: Record<string, string> = { ArrowLeft: '\x1bb', ArrowRight: '
 const SHIFT_SEND: Record<string, string> = { Enter: '\n' };
 const MAC_CMD_ACT: Record<string, KeyAct> = { k: 'clear', c: 'copy', v: 'paste', a: 'select-all' };
 
+/** The terminal's text size (Cmd+= / Cmd+- / Cmd+0 change it, the window's stays). */
+export const FONT_SIZE = { base: 13, min: 8, max: 32 };
+
+/** A path as a shell reads it back: quoted when it needs to be. */
+export function shellQuote(p: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Links open on Cmd+click (Ctrl+click off the Mac), and only these kinds. */
+export function openableLink(uri: string): boolean {
+  return /^(https?|file):\/\//i.test(uri);
+}
+
 export class TerminalView {
   readonly term: Terminal;
   readonly el: HTMLElement;
@@ -72,6 +86,14 @@ export class TerminalView {
   onWritten: (a: Attached, mark: number, snapshot: boolean) => void = () => {};
   /** The pane on screen changed (or none). */
   onShown: (a: Attached | null) => void = () => {};
+  /** A link was Cmd+clicked (an OSC 8 link or a URL in the text). */
+  onOpenLink: (uri: string) => void = () => {};
+  /** The path of a file dropped on the terminal (Electron's webUtils), or ''. */
+  pathOf: (f: File) => string = () => '';
+  /** Where each pane's view stood when it was last on screen: its first line, or the bottom. */
+  private scrolls = new Map<string, number | 'bottom'>();
+  /** A scroll to put back once the pane's snapshot is written. */
+  private restoreTo: number | 'bottom' | null = null;
 
   constructor(el: HTMLElement) {
     this.el = el;
@@ -85,7 +107,14 @@ export class TerminalView {
       theme: THEME,
       macOptionClickForcesSelection: true,
       drawBoldTextInBrightColors: false,
+      // OSC 8 links (a program names the link): opened on Cmd+click.
+      linkHandler: {
+        activate: (e, uri) => this.link(e, uri),
+        allowNonHttpProtocols: true,
+      },
     });
+    // Plain URLs in the text: the same.
+    this.term.loadAddon(new WebLinksAddon((e, uri) => this.link(e, uri)));
     this.term.loadAddon(this.fit);
     const u = new Unicode11Addon();
     this.term.loadAddon(u);
@@ -104,6 +133,11 @@ export class TerminalView {
       const shift = e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey;
       const send = cmd ? MAC_CMD_SEND[e.key] : only && e.altKey && !e.metaKey ? MAC_OPT_SEND[e.key] : shift ? SHIFT_SEND[e.key] : undefined;
       const act = cmd ? MAC_CMD_ACT[e.key.toLowerCase()] : undefined;
+      // Cmd+Home and Cmd+End: the top and the bottom of the scrollback.
+      if (cmd && (e.key === 'Home' || e.key === 'End')) {
+        if (e.type === 'keydown') { e.preventDefault(); if (e.key === 'Home') this.term.scrollToTop(); else this.term.scrollToBottom(); }
+        return false;
+      }
       if (!send && !act) return !this.isAppKey(e);
       if (e.type === 'keydown') { e.preventDefault(); if (send) this.input(send); else this.onKeyAct(act!); }
       return false;
@@ -127,6 +161,18 @@ export class TerminalView {
       const a = this.current;
       if (text && a) void a.client.paste(a.pane, text).catch(() => {});
     }, true);
+    // A file dropped on the terminal: its path, quoted, as if pasted (as
+    // Terminal.app and iTerm2 do), several separated by spaces.
+    el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    el.addEventListener('drop', (e) => {
+      const files = [...(e.dataTransfer?.files || [])];
+      if (!files.length) return;
+      e.preventDefault();
+      const paths = files.map((f) => this.pathOf(f)).filter(Boolean);
+      const a = this.current;
+      if (paths.length && a) void a.client.paste(a.pane, paths.map(shellQuote).join(' ') + ' ').catch(() => {});
+      this.focus();
+    });
     new ResizeObserver(() => this.queueResize()).observe(el);
   }
 
@@ -139,6 +185,34 @@ export class TerminalView {
     } catch {
       this.webgl = null; // the DOM renderer draws instead
     }
+  }
+
+  private link(e: MouseEvent, uri: string): void {
+    if (!(this.mac ? e.metaKey : e.ctrlKey) || !openableLink(uri)) return;
+    this.onOpenLink(uri);
+  }
+
+  /** The text size: n, or a step up (+1) or down (-1) from now, or the base (0). */
+  zoom(step: 1 | -1 | 0): number {
+    const now = this.term.options.fontSize || FONT_SIZE.base;
+    return this.setFontSize(step === 0 ? FONT_SIZE.base : now + step);
+  }
+
+  setFontSize(n: number): number {
+    const size = Math.max(FONT_SIZE.min, Math.min(FONT_SIZE.max, Math.round(n)));
+    if (this.term.options.fontSize !== size) {
+      this.term.options.fontSize = size;
+      this.queueResize();
+    }
+    return size;
+  }
+
+  /** Where the view stands now, for the pane on screen. */
+  private keepScroll(): void {
+    const a = this.current;
+    if (!a) return;
+    const b = this.term.buffer.active;
+    this.scrolls.set(a.pane, b.viewportY >= b.baseY ? 'bottom' : b.viewportY);
   }
 
   private input(d: string | Uint8Array): void {
@@ -160,9 +234,11 @@ export class TerminalView {
       return;
     }
     const gen = ++this.gen;
+    this.keepScroll();
     this.detachStream();
     this.early = [];
     this.current = a;
+    this.restoreTo = this.scrolls.get(a.pane) ?? null;
     this.term.reset();
     this.onShown(a);
     this.fitNow();
@@ -178,7 +254,17 @@ export class TerminalView {
         // Frames can come before this call returns; a stale stream's are dropped.
         if (gen !== this.gen) { info.ack(); return; }
         const end = info.snapshot ? info.mark : info.mark + d.byteLength;
-        this.term.write(d, () => { info.ack(); if (gen === this.gen) this.onWritten(a, end, info.snapshot); });
+        this.term.write(d, () => {
+          info.ack();
+          if (gen !== this.gen) return;
+          // Back where the view stood when the pane was last on screen.
+          if (info.snapshot && this.restoreTo !== null) {
+            const to = this.restoreTo;
+            this.restoreTo = null;
+            if (to === 'bottom') this.term.scrollToBottom(); else this.term.scrollToLine(Math.min(to, this.term.buffer.active.baseY));
+          }
+          this.onWritten(a, end, info.snapshot);
+        });
       },
       end: () => { if (gen === this.gen) this.onEnded(a); },
     });
@@ -191,6 +277,7 @@ export class TerminalView {
 
   /** Shows nothing: unsubscribes, so no xterm.js work runs for any pane. */
   hide(): void {
+    this.keepScroll();
     this.gen++;
     this.detachStream();
     this.early = [];

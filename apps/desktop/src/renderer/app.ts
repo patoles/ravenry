@@ -2156,6 +2156,11 @@ function onCommand(name: string, arg?: unknown): void {
     case 'update-stopped': showToast(String(arg || ''), [{ label: 'Try again', run: () => api().retryUpdate() }], { key: 'update-stopped', ms: Infinity }); break;
     case 'tab': { const t = S.tabs[Number(arg)]; if (t) setView({ kind: 'tab', id: t.id }); break; }
     case 'toggle-panel': togglePanel(); break;
+    case 'zoom': {
+      const size = term.zoom((Number(arg) || 0) as 1 | -1 | 0);
+      try { localStorage.setItem('ravenry.fontSize', String(size)); } catch { /* not kept */ }
+      break;
+    }
   }
 }
 
@@ -2238,6 +2243,12 @@ async function boot(): Promise<void> {
   };
   // The Cmd keys of macOS's terminals xterm.js does not do (terminal.ts).
   term.mac = isMac();
+  // Cmd+click on a link (OSC 8 or a URL in the text): the browser, or the file.
+  term.onOpenLink = (uri) => api().openExternal(uri);
+  // A file dropped on the terminal pastes its path.
+  term.pathOf = (f) => { try { return api().pathForFile(f) || ''; } catch { return ''; } };
+  // The terminal's text size as it was left (Cmd+= / Cmd+- / Cmd+0).
+  try { const n = Number(localStorage.getItem('ravenry.fontSize')); if (n) term.setFontSize(n); } catch { /* the base size */ }
   term.onKeyAct = (act) => {
     const t = term.term;
     if (act === 'clear') {

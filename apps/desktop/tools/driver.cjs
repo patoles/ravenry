@@ -12,7 +12,10 @@
 //   typeJs: "expr"              type the text expr gives in the page
 //   key: "Backspace", modifiers  one key (modifiers: ["control"], ...)
 //   click: "css selector"       a real mouse click on it (press, hold, release);
-//                               clickJs: true when click is an expression
+//                               clickJs: true when click is an expression;
+//                               modifiers: ["meta"] held through it
+//   clickAt: "expr"             the same at the point { x, y } expr gives
+//                               (a cell in the terminal), after a hover there
 //   hover: "css selector" | [x, y]  the pointer moved there
 //   shot: "file.png", el        capture the window, or the element el (a
 //                               CSS selector) at the window's scale
@@ -87,15 +90,27 @@ module.exports = async function drive(win, ctx) {
       wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y });
       await sleep(step.after ?? 100);
     }
+    else if (step.clickAt) {
+      const r = await js(step.clickAt);
+      if (!r) throw new Error(`no point from ${step.clickAt} to click`);
+      const modifiers = step.modifiers || [];
+      wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y, modifiers });
+      await sleep(250); // xterm.js finds the link under the pointer on hover
+      wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1, modifiers });
+      await sleep(step.hold ?? 80);
+      wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1, modifiers });
+      await sleep(step.after ?? 150);
+    }
     else if (step.click) {
       // A real mouse click in the middle of the element: press, a person's
       // pause, release (the page may draw itself again in between).
       const r = await js(`(() => { const e = typeof ${JSON.stringify(step.click)} === 'string' ? (${step.clickJs ? step.click : `document.querySelector(${JSON.stringify(step.click)})`}) : null; if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; })()`);
       if (!r) throw new Error(`no element ${step.click} to click`);
-      wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y });
-      wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+      const modifiers = step.modifiers || [];
+      wc.sendInputEvent({ type: 'mouseMove', x: r.x, y: r.y, modifiers });
+      wc.sendInputEvent({ type: 'mouseDown', x: r.x, y: r.y, button: 'left', clickCount: 1, modifiers });
       await sleep(step.hold ?? 120);
-      wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1 });
+      wc.sendInputEvent({ type: 'mouseUp', x: r.x, y: r.y, button: 'left', clickCount: 1, modifiers });
       await sleep(step.after ?? 100);
     }
     else if (step.shot) {

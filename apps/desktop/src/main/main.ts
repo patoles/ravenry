@@ -36,7 +36,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { listSockets, runtimeDir } from '@ravenry/client/node';
 import { DaemonLink } from './daemon.ts';
@@ -149,10 +149,41 @@ function newShellCommand(): string[] | null {
   return v ? v.split(/\s+/) : null;
 }
 
+// The window where it was left: its size and place (window.json), on a
+// screen that is still there, else the default size, centred.
+interface Bounds { x: number; y: number; width: number; height: number; maximized?: boolean }
+function savedBounds(): Bounds | null {
+  const b = store?.get().bounds as Bounds | undefined;
+  if (!b || ![b.x, b.y, b.width, b.height].every((n) => Number.isFinite(n)) || b.width < 720 || b.height < 480) return null;
+  const seen = screen.getAllDisplays().some((d) => {
+    const a = d.workArea;
+    const w = Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x);
+    const h = Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y);
+    return w >= 160 && h >= 80;
+  });
+  return seen ? b : { ...b, x: NaN, y: NaN };
+}
+
+function keepBounds(w: BrowserWindow): void {
+  let t: NodeJS.Timeout | null = null;
+  const save = () => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => {
+      if (w.isDestroyed() || w.isFullScreen()) return;
+      store?.set({ bounds: { ...w.getNormalBounds(), maximized: w.isMaximized() } });
+    }, 300);
+  };
+  w.on('resize', save);
+  w.on('move', save);
+  w.on('close', () => { if (!w.isFullScreen()) store?.set({ bounds: { ...w.getNormalBounds(), maximized: w.isMaximized() } }); });
+}
+
 function createWindow(): BrowserWindow {
+  const saved = savedBounds();
   const w = new BrowserWindow({
-    width: Number(process.env.RAVENRY_WIDTH) || 1440,
-    height: Number(process.env.RAVENRY_HEIGHT) || 900,
+    width: saved?.width || Number(process.env.RAVENRY_WIDTH) || 1440,
+    height: saved?.height || Number(process.env.RAVENRY_HEIGHT) || 900,
+    ...(saved && Number.isFinite(saved.x) ? { x: saved.x, y: saved.y } : {}),
     minWidth: 720,
     minHeight: 480,
     show: false,
@@ -170,6 +201,8 @@ function createWindow(): BrowserWindow {
     },
   });
   if (OFFSCREEN) w.webContents.setFrameRate(60);
+  if (saved?.maximized && !OFFSCREEN) w.maximize();
+  keepBounds(w);
   w.loadFile(path.join(__dirname, 'index.html'));
   if (!OFFSCREEN) w.once('ready-to-show', () => w.show());
   // Links open in the browser, never in this window.
@@ -246,7 +279,11 @@ function menu(): void {
         ] : []),
         ...tabs,
         { type: 'separator' },
-        { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+        // The terminal's text, not the whole window (renderer: terminal.ts zoom).
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: cmd('zoom', 0) },
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: cmd('zoom', 1) },
+        { label: 'Zoom In ', accelerator: 'CmdOrCtrl+Plus', click: cmd('zoom', 1), visible: false },
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: cmd('zoom', -1) },
         { type: 'separator' },
         { role: 'toggleDevTools' },
       ],
@@ -299,7 +336,8 @@ function ipc(): void {
     win.show();
     win.focus();
   });
-  ipcMain.on('open-external', (_e, url: string) => { if (/^https?:\/\//.test(url)) outside('url', url, () => void shell.openExternal(url)); });
+  // Links: the web, and files (a terminal's file:// links), nothing else.
+  ipcMain.on('open-external', (_e, url: string) => { if (/^(https?|file):\/\//i.test(String(url))) outside('url', url, () => void shell.openExternal(url)); });
   // A page's file, an item's file or its folder, in the person's editor or
   // file manager: only page files, markdown items and folders.
   ipcMain.on('open-path', (_e, p: string) => {

@@ -135,6 +135,8 @@ jobs:
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/keys-test.mjs "$RUNNER_TEMP/smoke/keys"
       - name: Only agents' input is marked, beside the cells (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/marks-test.mjs "$RUNNER_TEMP/smoke/marks"
+      - name: The terminal's basics (headless Electron, xvfb)
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/basics-test.mjs "$RUNNER_TEMP/smoke/basics"
       - name: The sidebar's pages in the app (headless Electron, xvfb)
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" node apps/desktop/tools/pages-test.mjs "$RUNNER_TEMP/smoke/pages"
       # The release build (no test hooks, src/main/gate.ts) and its test

@@ -535,6 +535,15 @@ gets, and checks the bytes; the release check runs it on the packaged app.
 | ⌘V | the clipboard, as one paste through the daemon | Ravenry |
 | ⌘C, ⌘A | copy the selection, select everything; nothing is typed | Ravenry |
 | ⌘K | clears the scrollback; nothing is typed | Ravenry |
+| ⌘Home / ⌘End | the top / the bottom of the scrollback; nothing is typed | Ravenry |
+| ⌘= / ⌘- / ⌘0 | the terminal's text bigger / smaller / back to 13 pt (the rest of the window stays; kept across launches) | Ravenry |
+| ⌘click on a link | opens it: an OSC 8 link or a URL in the text, `http`, `https` or `file` only, nothing typed | Ravenry |
+| a file dropped on the terminal | its path, quoted for a shell, as one paste | Ravenry |
+
+A pane keeps where its view stood when another tab comes to the front,
+and the window comes back at the size and place it was left (on a screen
+that is still there). `tools/basics-test.mjs` checks these in the app; the
+release check runs it on the test twin (step 14).
 
 Option is not Meta (xterm.js's `macOptionIsMeta` stays off): ⌥ with a
 letter types that keyboard's character, as on a French keyboard's
