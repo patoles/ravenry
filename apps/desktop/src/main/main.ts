@@ -19,6 +19,8 @@
 //   RAVENRY_UPDATES=0      never check for updates (updater.ts)
 //   RAVENRY_LAUNCHCTL      a stand-in for /bin/launchctl (tests: the hub
 //                          service and the npm board's login start)
+//   RAVENRY_RELAUNCH_TEST=1  tools/relaunch-check.mjs only: a start from a
+//                          pane relaunches in a test run too (relaunch.ts)
 //
 // The home folder is HOME (os.homedir), so a test's throwaway HOME is used
 // for everything the app reads there.
@@ -27,7 +29,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { listSockets, runtimeDir } from '@ravenry/client/node';
@@ -41,6 +43,7 @@ import type { NpmDetect, Offer } from './npmswitch.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
 import { initSettings, openSettings } from './settings.ts';
+import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 
 const APP_ROOT = path.resolve(__dirname, '..');
 const OFFSCREEN = process.env.RAVENRY_OFFSCREEN === '1';
@@ -50,8 +53,13 @@ app.setName('Ravenry');
 if (process.env.RAVENRY_DESKTOP_DATA) app.setPath('userData', process.env.RAVENRY_DESKTOP_DATA);
 if (process.env.RAVENRY_THEME === 'dark' || process.env.RAVENRY_THEME === 'light') nativeTheme.themeSource = process.env.RAVENRY_THEME;
 
+// Started with a pane's variables (an agent in a pane opened the app):
+// relaunched clean, as the Dock starts it, before anything else
+// (relaunch.ts). This start exits without a window or a daemon.
+const leaving = relaunchClean();
+
 // Two windows on one set of tabs would fight over them.
-if (!OFFSCREEN && !app.requestSingleInstanceLock()) app.exit(0);
+if (!leaving && !OFFSCREEN && !app.requestSingleInstanceLock()) app.exit(0);
 
 const daemon = new DaemonLink(APP_ROOT);
 let store: Store;
@@ -69,6 +77,33 @@ function send(channel: string, ...args: unknown[]): void {
 function hookBin(): string | null {
   const p = app.isPackaged ? path.join(dataRoot(), 'bin', 'ravenryd') : process.env.RAVENRYD || '';
   return p && path.isAbsolute(p) && fs.existsSync(p) ? p : null;
+}
+
+function relaunchClean(): boolean {
+  // The relaunching app's marker, read once: the loop guard and the log line.
+  const file = path.join(app.getPath('userData'), MARKER);
+  const marker = app.isPackaged ? readMarker(file) : null;
+  if (app.isPackaged) { try { fs.rmSync(file, { force: true }); } catch { /* none */ } }
+  const plan = relaunchPlan({ env: process.env, packaged: app.isPackaged, platform: process.platform, execPath: process.execPath, marker });
+  if (marker && !plan.relaunch && plan.why === 'clean') {
+    appLog(`launch: relaunched clean (pid ${marker.pid} was started with a pane's variables); dropped: ${marker.dropped.join(', ') || 'nothing'}`);
+  } else if (!plan.relaunch && plan.why === 'loop') {
+    appLog(`launch: still started with ${paneVars(process.env).join(', ')} after relaunching clean; staying, and the window says its answers are off`);
+  }
+  if (!plan.relaunch) return false;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ pid: process.pid, at: Date.now(), dropped: plan.dropped }));
+    const logDir = path.join(plan.env.HOME || os.homedir(), 'Library', 'Logs', 'Ravenry');
+    fs.mkdirSync(logDir, { recursive: true });
+    spawn('/bin/sh', helperArgs(process.pid, plan.bundle, path.join(logDir, 'app.log'), plan.background), { env: plan.env, cwd: '/', detached: true, stdio: 'ignore' }).unref();
+  } catch (e) {
+    appLog(`launch: started with ${paneVars(process.env).join(', ')} and could not relaunch clean: ${(e as Error).message || e}`);
+    try { fs.rmSync(file, { force: true }); } catch { /* none */ }
+    return false;
+  }
+  app.exit(0);
+  return true;
 }
 
 function newShellCommand(): string[] | null {
@@ -538,6 +573,7 @@ async function backToNpm(): Promise<object> {
 }
 
 app.whenReady().then(async () => {
+  if (leaving) return;
   if (OFFSCREEN && isMac) app.dock?.hide();
   store = new Store(app.getPath('userData'));
   initSettings({ dir: app.getPath('userData'), offscreen: OFFSCREEN });

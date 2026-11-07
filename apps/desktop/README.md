@@ -100,6 +100,20 @@ machine's), and answers through the daemon when it holds it, else the hub.
 Only the person may answer: a window started from inside a pane shows the
 cards with their buttons off and says so.
 
+**Opened from a pane, the app starts again clean.** macOS's `open` hands
+the caller's environment to the app, so an agent in a pane running `open
+-a Ravenry` made a window the daemon took for that pane: the person's
+typing became checkpoints nobody could answer (2026-11-07). The packaged
+Mac app that starts with `RAVENRY_PANE` or `RAVENRY_SOCKET` exits before
+any window or daemon, and a detached helper, once it is gone, starts the
+bundle through LaunchServices (`open -n -a`) with no arguments, only the
+account's variables and the system `PATH`, as the Dock does; app.log names
+what was dropped. An agent already gets that with `env -i open -a
+Ravenry`, and nothing it set (`RAVENRY_DRIVER`, `ELECTRON_*`,
+`NODE_OPTIONS`, a debugging port) carries over. Offscreen and test runs
+never relaunch; a relaunch still carrying pane variables stays, its
+answers off (`src/main/relaunch.ts`, `tools/relaunch-check.mjs`).
+
 **The secret stays in its field.** It is never in the window's state, a log
 or an error: the field is emptied when it loses the focus, when its card
 leaves the panel or the panel closes, and as it is sent, in the one answer
