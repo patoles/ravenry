@@ -92,6 +92,14 @@ export function hookCommand(o, { root = ROOT, node = stableNode(), electron = on
 // folder an update removes leaves its hook scripts behind as stubs that
 // run current's (apps/desktop/src/main/install.ts pruneVersions).
 
+// Whether a hook script is named through <data>/current (`stable` is
+// <data>/current/hub), whatever spelling the folders above have (/var or
+// /private/var): by the real <data> and the word current.
+function throughStable(script, stable) {
+  const hub = path.dirname(path.dirname(script));
+  return path.basename(hub) === 'hub' && path.basename(path.dirname(hub)) === 'current' && !!realOr(path.dirname(path.dirname(hub))) && realOr(path.dirname(path.dirname(hub))) === realOr(path.dirname(path.dirname(stable)));
+}
+
 /** <data>/current/hub for a hub in <data>/versions/<v>/hub, else null. */
 export function appStableRoot(root = ROOT) {
   const versions = path.dirname(path.dirname(root));
@@ -164,7 +172,7 @@ function staleWhy(command, script0, root) {
   if (!script || !fs.existsSync(script)) return `its script (${script}) is not there any more`;
   if (realOr(script) !== realOr(path.join(root, 'hooks', script0))) return `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
   const r = hookRoot(root);
-  if (r !== root && !script.startsWith(r + path.sep)) return `it names a version folder (${path.dirname(path.dirname(script))}) that an update removes`;
+  if (r !== root && !throughStable(script, r)) return `it names a version folder (${path.dirname(path.dirname(script))}) that an update removes`;
   if (onElectron() && realOr(node) === realOr(process.execPath) && !splitCommand(command).includes(AS_NODE)) return `it starts the Ravenry app without ${AS_NODE}, which opens the app instead of running the hook`;
   return null;
 }
@@ -518,7 +526,8 @@ export function refreshAppHooks({ root = ROOT, node } = {}) {
   const stable = appStableRoot(root);
   const ownOrGone = (st) => st.stale.length > 0 && st.stale.every((x) => {
     const script = commandWords(x.command)[1] || '';
-    return !fs.existsSync(script) || path.dirname(path.dirname(path.dirname(path.dirname(script)))) === versions || (stable && script.startsWith(stable + path.sep)) || realOr(script) === realOr(path.join(root, 'hooks', x.script));
+    // By real paths: the settings may spell a folder another way (/var or /private/var).
+    return !fs.existsSync(script) || realOr(path.dirname(path.dirname(path.dirname(path.dirname(script))))) === realOr(versions) || (stable && throughStable(script, stable)) || realOr(script) === realOr(path.join(root, 'hooks', x.script));
   });
   const out = { claude: [], codex: [] };
   try {

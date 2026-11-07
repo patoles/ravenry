@@ -123,6 +123,15 @@ check('status: hooks naming current are up to date for the version current point
 const pinned = hk.plan({}, { root: APPHUB('0.3.0'), node: APPEXE }).settings;
 const pinnedCmd = JSON.stringify(pinned).replaceAll(CURRENT, APPHUB('0.3.0'));
 check('status: a hook naming a version folder is stale even when it is this version', hk.status(JSON.parse(pinnedCmd), { root: APPHUB('0.3.0') }).state === 'stale');
+// The settings spell the app's folder another way (/var for /private/var
+// on macOS): still this app's version, still moved to current.
+fs.symlinkSync(T, path.join(T, 'alias'));
+const viaAlias = (x) => x.replaceAll(T + '/data/', T + '/alias/data/');
+const aliased = hk.plan({}, { root: APPHUB('0.2.0'), node: APPEXE }).settings;
+fs.writeFileSync(SETTINGS, viaAlias(JSON.stringify(aliased).replaceAll(path.join(T, 'data', 'current', 'hub'), APPHUB('0.2.0'))));
+const movedAlias = hk.refreshAppHooks({ root: APPHUB('0.3.0'), node: APPEXE });
+check('refresh: a version folder spelled through another path (/var, /private/var) is still the app\'s own, and moves to current', movedAlias.claude.length > 0 && !/versions\//.test(fs.readFileSync(SETTINGS, 'utf8')) && fs.readFileSync(SETTINGS, 'utf8').includes('/current/hub/hooks/'), fs.readFileSync(SETTINGS, 'utf8').slice(0, 300));
+check('refresh: hooks through current, spelled another way, are not rewritten again', hk.refreshAppHooks({ root: APPHUB('0.3.0'), node: APPEXE }).claude.length === 0);
 // Another copy of Ravenry's hooks (a checkout) are never taken over.
 const other = path.join(T, 'checkout', 'ravenry');
 fs.mkdirSync(path.join(other, 'hooks'), { recursive: true });

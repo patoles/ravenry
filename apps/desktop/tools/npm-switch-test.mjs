@@ -166,7 +166,8 @@ async function loginCase() {
   check('both sessions are in the events', u.sessions.every((s) => fs.existsSync(path.join(u.home, '.ravenry', 'events', `${s}.jsonl`))));
   const claude = readJson(path.join(u.home, '.claude', 'settings.json'));
   const all = Object.values(hookCmds(claude)).flat();
-  check("Claude Code's hooks run the app's copy, with ravenryd, and none of the npm board's", !all.some((c) => c.includes(u.pkg)) && all.filter((c) => /\/versions\/[^/]+\/hub\/hooks\/events\.mjs --ravenryd$/.test(c) && c.startsWith('ELECTRON_RUN_AS_NODE=1 ')).length === 5 && all.filter((c) => / hook --assistant claude$/.test(c)).length === 6, JSON.stringify(hookCmds(claude)));
+  // Through the app's stable folder (<data>/current), never a version folder an update removes.
+  check("Claude Code's hooks run the app's copy, with ravenryd, and none of the npm board's", !all.some((c) => c.includes(u.pkg)) && !all.some((c) => /\/versions\//.test(c)) && all.filter((c) => /\/current\/hub\/hooks\/events\.mjs --ravenryd$/.test(c) && c.startsWith('ELECTRON_RUN_AS_NODE=1 ')).length === 5 && all.filter((c) => / hook --assistant claude$/.test(c)).length === 6, JSON.stringify(hookCmds(claude)));
   check("the person's own hook and settings stay", all.includes('echo mine') && claude.model === 'opus');
   const codex = Object.values(hookCmds(readJson(path.join(u.home, '.codex', 'hooks.json')))).flat();
   check("Codex's hooks run the app's copy too", !codex.some((c) => c.includes(u.pkg)) && codex.some((c) => /hooks\/events\.mjs --assistant=codex --ravenryd$/.test(c)), JSON.stringify(codex));
