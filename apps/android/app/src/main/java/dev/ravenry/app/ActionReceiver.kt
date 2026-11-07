@@ -23,6 +23,7 @@ class ActionReceiver : BroadcastReceiver() {
     companion object {
         /** Makes the call as the device and says how it went in the notification. */
         fun send(context: Context, a: Alert, call: ActionCall.Post, label: String): Boolean {
+            Notifier.answering(a.id)
             val hub = Hub.get(context)
             if (hub == null) { Notifier.after(context, a, false, context.getString(R.string.not_paired)); return false }
             val r = runCatching { hub.call("POST", call.path, call.json) }

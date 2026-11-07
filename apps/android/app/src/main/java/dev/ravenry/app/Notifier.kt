@@ -24,10 +24,30 @@ object Notifier {
     const val REPLY_KEY = "reply"
     const val ORANGE = 0xFFFF9F0A.toInt()
 
+    // Alerts answered from the shade on this phone, with when and whether the
+    // hub has closed them since. The hub closes an alert as soon as its answer
+    // lands, just before or just after the answer's own reply is back here; a
+    // close in the next few seconds leaves the alert to `after`, so the person
+    // sees "Sent: ..." for its four seconds instead of the alert vanishing.
+    private class Answered(val at: Long) { @Volatile var closed = false }
+    private val answered = java.util.concurrent.ConcurrentHashMap<String, Answered>()
+    private const val ANSWER_HOLD_MS = 15_000L
+
+    /** An answer to this alert leaves the phone now (ActionReceiver.send). */
+    fun answering(id: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        answered.entries.removeIf { now - it.value.at > ANSWER_HOLD_MS }
+        answered[id] = Answered(now)
+    }
+
     /** A message from push or the live stream: drawn once per id, or a close. */
     fun handle(context: Context, text: String, fromPush: Boolean) {
         val a = Alert.parse(text) ?: return
-        if (a.type == "close") { cancel(context, a.id); return }
+        if (a.type == "close") {
+            val x = answered[a.id]
+            if (x != null && android.os.SystemClock.elapsedRealtime() - x.at < ANSWER_HOLD_MS) { x.closed = true; return }
+            cancel(context, a.id); return
+        }
         if (Store.get(context).seen(a.id)) return
         show(context, a)
     }
@@ -83,6 +103,9 @@ object Notifier {
 
     /** After an action: what was sent, then gone after four seconds; or why it failed, with Open. */
     fun after(context: Context, a: Alert, ok: Boolean, said: String) {
+        // Not sent, and closed meanwhile (answered on the computer): nothing waits.
+        // Not sent and still open: a later close takes it off as usual.
+        if (!ok) { val x = answered.remove(a.id); if (x?.closed == true) { cancel(context, a.id); return } }
         val b = base(context, a).setContentText(said).setOnlyAlertOnce(true).setSilent(true)
         if (ok) b.setTimeoutAfter(4000) else b.addAction(0, context.getString(R.string.open), openIntent(context, a)).setStyle(NotificationCompat.BigTextStyle().bigText(said))
         post(context, a.id, b.build())

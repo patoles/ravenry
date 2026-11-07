@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,13 +101,15 @@ class PairActivity : ComponentActivity() {
     private val analysis = Executors.newSingleThreadExecutor()
 
     private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { cameraOn.value = it }
+    // Asked when the camera's screen shows, not before: a pairing link
+    // opens on "Pair with ...?" and needs no camera.
+    private var cameraAsked = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (intent.getBooleanExtra(SIGNED_OUT, false)) error.value = getString(R.string.signed_out)
         cameraOn.value = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        if (!cameraOn.value) askCamera.launch(Manifest.permission.CAMERA)
         fromIntent(intent)
         setContent { Screen() }
     }
@@ -220,6 +223,7 @@ class PairActivity : ComponentActivity() {
     private fun ScanStep(busy: Boolean) {
         val tx2 = colorResource(R.color.tx2); val blue = colorResource(R.color.work)
         val ctx = LocalContext.current
+        LaunchedEffect(Unit) { if (!cameraOn.value && !cameraAsked) { cameraAsked = true; askCamera.launch(Manifest.permission.CAMERA) } }
         Title(stringResource(R.string.pair_title), stringResource(R.string.pair_sub))
         Box(Modifier.fillMaxWidth().height(356.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFF1E1E21)), contentAlignment = Alignment.Center) {
             if (cameraOn.value && !busy) Camera() else if (!busy) Text(stringResource(R.string.pair_no_camera), color = Color(0xFFA1A1A8), fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(32.dp))

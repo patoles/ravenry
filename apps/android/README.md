@@ -73,7 +73,12 @@ pairs and opens the board.
   alert for this phone (RFC 8291) and the connector decrypts it. A
   foreground service also holds the hub's live stream while paired, so
   alerts arrive without a distributor too, under the quiet "Linked to ..."
-  line.
+  line. With a single distributor on the phone the app takes it without
+  asking. ntfy listens only while Android lets it run in the background:
+  turn its battery optimization off (the "Fix now" of its banner), or a
+  registration made while ntfy is in the background gets an endpoint that
+  nobody listens on until ntfy is next opened (Android 12 and later refuse
+  its listening service otherwise).
 - **Alerts.** Buttons and the reply line per docs/PHONE.md section 5,
   answered from the shade (`ActionReceiver`); Run opens only the
   fingerprint prompt (`RunActivity`). A secret is never typed into a
@@ -85,6 +90,13 @@ pairs and opens the board.
   authority signed), the pairing link and the check number, the alert
   messages and their calls, push bodies opened with the connector's own
   decryption (the RFC 8291 example and one made by Node).
+- Push through a real distributor, on the emulator:
+  `RAVENRYD_BIN=../daemon/ravenryd node tools/push-ntfy-e2e.mjs --serial emulator-5554`
+  in `hub/` installs ntfy's published APK (its SHA-256 and signer checked),
+  runs ntfy's server in Docker on 127.0.0.1, pairs this app with a test hub,
+  turns Stay connected off, closes the app, and proves that an ask and an
+  approve arrive in the shade through ntfy and that their buttons answer
+  the waiting `ravenry ask` and `ravenry approve`.
 - On the emulator (`app/src/androidTest`): the bridge round trip against
   a pinned TLS server, and the MCP Apps sandbox spike (`SpikeActivity`,
   debug builds only). Build `assembleDebug assembleDebugAndroidTest`,
