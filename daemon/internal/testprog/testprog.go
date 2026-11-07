@@ -202,7 +202,11 @@ func answer() {
 func agentSteps() {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	c, err := client.Dial(ctx, os.Getenv("RAVENRY_SOCKET"), client.Options{Name: "agent"})
+	name := os.Getenv("RAVENRY_TESTPROG_NAME") // the name it gives at hello; default agent
+	if name == "" {
+		name = "agent"
+	}
+	c, err := client.Dial(ctx, os.Getenv("RAVENRY_SOCKET"), client.Options{Name: name})
 	if err != nil {
 		fmt.Println("error", err)
 		os.Exit(1)

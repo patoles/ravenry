@@ -67,6 +67,17 @@ func peerPID(nc net.Conn) int {
 // judge decides, at hello, whether this connection may act as the person.
 func (c *conn) judge(key string) {
 	o := pane.OriginOf(c.peer, c.s.scope())
+	// The Ravenry app's own main process is the person's window, wherever
+	// it was started from: on 2026-11-07 an agent opened it with `open -a`
+	// from a pane, it inherited RAVENRY_PANE and RAVENRY_SOCKET, and every
+	// key the person typed in it became that agent's drive checkpoint. Its
+	// hello name alone is not enough (any program can give it): the
+	// process must be the app's (pane.DesktopApp).
+	app := c.client.Name == pane.DesktopAppClient && pane.DesktopApp(c.peer)
+	if app && o.Pane {
+		c.s.o.Log.Printf("the Ravenry app (process %d) carries pane %s's variables or runs under it; its window is the person's, so it is judged as the person", c.peer, firstNonEmpty(o.PaneID, "?"))
+		o.Pane, o.PaneID = false, ""
+	}
 	person, why := o.Person(), o.Why()
 	if c.peer == 0 {
 		why = "the daemon could not tell which process this connection comes from"
@@ -89,6 +100,29 @@ func (c *conn) judge(key string) {
 		c.agentPane = o.PaneID
 	}
 	c.mu.Unlock()
+	if app && person {
+		c.s.cancelAppDrives()
+	}
+}
+
+// cancelAppDrives cancels the open drive checkpoints a connection named as
+// the app asked: the person's own typing, taken for an agent's while the
+// app was judged inside a pane. The app is back as the person, so none of
+// them is a real question.
+func (s *Server) cancelAppDrives() {
+	var ids []string
+	s.cps.mu.Lock()
+	for id, x := range s.cps.all {
+		if x.c.State == stOpen && x.c.Kind == kindDrive && x.c.Drive != nil && x.c.Drive.Agent.Client == pane.DesktopAppClient {
+			ids = append(ids, id)
+		}
+	}
+	s.cps.mu.Unlock()
+	for _, id := range ids {
+		if _, ok := s.closeCheckpoint(id, stOpen, stCancelled, nil, "typed by the person in the Ravenry window, which was taken for a program in a pane"); ok {
+			s.o.Log.Printf("cancelled drive checkpoint %s: the Ravenry app's own typing", id)
+		}
+	}
 }
 
 // scope is whose panes count: this daemon's, by their first processes,

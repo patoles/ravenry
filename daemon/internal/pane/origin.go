@@ -3,6 +3,7 @@ package pane
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"ravenryd/internal/paths"
@@ -148,6 +149,56 @@ func OriginOf(pid int, sc Scope) Origin {
 		}
 	}
 	return o
+}
+
+// DesktopAppClient is the name the Ravenry app gives at hello.
+const DesktopAppClient = "ravenry-desktop"
+
+// DesktopApp reports whether process pid is the Ravenry app's own main
+// process, running only the app's code: the executable of an app bundle
+// (<X>.app/Contents/MacOS/<name>; on Linux a file named ravenry, the
+// AppImage's or the unpacked app's), not run as Node, with no option or
+// variable that loads other code into it or lets another program drive it
+// (ELECTRON_RUN_AS_NODE, NODE_OPTIONS, RAVENRY_DRIVER, --inspect,
+// --remote-debugging-port, --js-flags). Its window is the person's: the
+// keys typed in it are theirs even when it was started from a pane (an
+// agent ran `open -a Ravenry` and the app inherited the pane's variables,
+// 2026-11-07). The exec path comes from the kernel, not argv[0].
+func DesktopApp(pid int) bool {
+	if pid <= 1 {
+		return false
+	}
+	exe := execPathOf(pid)
+	if exe == "" {
+		return false
+	}
+	if runtime.GOOS == "darwin" {
+		macos := filepath.Dir(exe)
+		contents := filepath.Dir(macos)
+		if filepath.Base(macos) != "MacOS" || filepath.Base(contents) != "Contents" || !strings.HasSuffix(filepath.Dir(contents), ".app") {
+			return false
+		}
+	} else if strings.ToLower(filepath.Base(exe)) != "ravenry" {
+		return false
+	}
+	args, env, ok := procArgsEnv(pid)
+	if !ok {
+		return false
+	}
+	get := envGetter(env)
+	for _, k := range []string{"ELECTRON_RUN_AS_NODE", "NODE_OPTIONS", "RAVENRY_DRIVER"} {
+		if get(k) != "" {
+			return false
+		}
+	}
+	for _, a := range args {
+		for _, p := range []string{"--inspect", "--remote-debugging", "--js-flags", "--require"} {
+			if strings.HasPrefix(a, p) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // has reports whether dir is the scope's runtime directory. An unknown

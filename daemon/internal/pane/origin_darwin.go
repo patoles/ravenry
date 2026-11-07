@@ -58,6 +58,20 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// execPathOf is the file a process runs (KERN_PROCARGS2's exec path, which
+// the process cannot change, unlike its argv[0]), or "".
+func execPathOf(pid int) string {
+	raw, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil || len(raw) < 4 {
+		return ""
+	}
+	rest := raw[4:]
+	if i := bytes.IndexByte(rest, 0); i > 0 {
+		return string(rest[:i])
+	}
+	return ""
+}
+
 // procArgsEnv reads a process's arguments and environment as it was
 // started (KERN_PROCARGS2).
 func procArgsEnv(pid int) (argv, env []string, ok bool) {

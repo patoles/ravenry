@@ -28,6 +28,15 @@ func procArgsEnv(pid int) (argv, env []string, ok bool) {
 	return argv, env, true
 }
 
+// execPathOf is the file a process runs (/proc/<pid>/exe), or "".
+func execPathOf(pid int) string {
+	p, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe")
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
 func commOf(pid int) string {
 	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
 	if err != nil {

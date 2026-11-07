@@ -973,6 +973,20 @@ is at the other end of the socket (`LOCAL_PEERPID` on macOS,
    Ravenry (a test's). How the process connects does not matter: the
    command line, a raw call on the socket, a script, `ravenryd proxy`
    started in the pane.
+   One exception: **the Ravenry app's own window is the person's**,
+   wherever it was started from. A connection whose `hello` names the
+   client `ravenry-desktop` and whose process is the app's own main
+   process (the executable of an app bundle, `<X>.app/Contents/MacOS/<name>`,
+   or on Linux a file named `ravenry`, by the path the kernel gives, not
+   its argv; not run as Node, `ELECTRON_RUN_AS_NODE`; with no
+   `NODE_OPTIONS`, `RAVENRY_DRIVER`, `--inspect`, `--remote-debugging-port`,
+   `--js-flags` or `--require`) is judged by rules 2 and 3 even when it
+   carries a pane's variables or runs under a pane. An app opened with
+   `open -a` by an agent in a pane inherits that pane's variables, and its
+   person's typing would otherwise be taken for that agent's (2026-11-07).
+   The name alone is not enough: any program can give it. When such a
+   connection is judged the person, the daemon cancels the open drive
+   checkpoints that a connection giving that name asked for.
 2. **Over ssh: the person only with the answer key.** The process, or one
    of its ancestors, runs in an ssh session (`SSH_CONNECTION`,
    `SSH_CLIENT` or `SSH_TTY` in its environment, or an `sshd` ancestor):
