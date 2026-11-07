@@ -53,6 +53,16 @@ export default {
     { from: '.stage/build.json', to: 'build.json' },
   ],
   artifactName: 'Ravenry-${version}-${os}-${arch}.${ext}',
+  // Electron's fuses, set in the executable itself. Off: NODE_OPTIONS (and
+  // NODE_EXTRA_CA_CERTS), and Node's --inspect arguments and SIGUSR1, each
+  // a way for whoever starts the app to run code in it (src/main/gate.ts).
+  // On: ELECTRON_RUN_AS_NODE, which the hub service, the hooks and the npm
+  // switch run the app's executable with (install.ts, npmswitch.ts).
+  electronFuses: {
+    runAsNode: true,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+  },
   publish: [{ provider: 'github', owner, repo, releaseType: 'draft' }],
 
   mac: {
@@ -61,13 +71,15 @@ export default {
     minimumSystemVersion: '13.0',
     darkModeSupport: true,
     // Unsigned builds are signed ad hoc ("-"): Apple silicon runs nothing
-    // without a signature, and no keychain is read. The hardened runtime
-    // (which notarization requires) comes with a real signature only: ad
-    // hoc, its library validation would refuse Electron's own framework.
+    // without a signature, and no keychain is read. Both run under the
+    // hardened runtime (which notarization requires), so DYLD_ variables
+    // from whoever starts the app load nothing into it. Ad hoc, library
+    // validation would refuse Electron's own framework, so the ad hoc
+    // entitlements turn it off (build/entitlements.adhoc.plist says why).
     ...(signed ? {} : { identity: '-' }),
-    hardenedRuntime: signed,
-    entitlements: 'build/entitlements.mac.plist',
-    entitlementsInherit: 'build/entitlements.mac.plist',
+    hardenedRuntime: true,
+    entitlements: signed ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist',
+    entitlementsInherit: signed ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist',
     notarize,
   },
   dmg: {

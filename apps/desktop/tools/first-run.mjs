@@ -154,7 +154,7 @@ async function oneRun(kind, n) {
       // never this machine's own cmux, iTerm2 or Rex.
       // never this machine's own processes either (the stand-in ps).
       env: withStubMachine({ ...svcEnv, HOME: home, RAVENRY_HOME: path.join(home, '.ravenry'), PORT: String(port), RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: state, RAVENRY_NO_OPEN: '1', CMUX_BIN: '/usr/bin/false', ITERM_OSASCRIPT_BIN: '/usr/bin/false', RAVENRY_REX_BIN: 'none', MC_APPS: 'none' }),
-      cwd: path.dirname(path.dirname(svcArgs[0])), stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: path.dirname(path.dirname(svcArgs.find((a) => a.endsWith('.mjs')))), stdio: ['ignore', 'pipe', 'pipe'],
     });
     hub.stdout.on('data', (d) => { hubLog += d; });
     hub.stderr.on('data', (d) => { hubLog += d; });

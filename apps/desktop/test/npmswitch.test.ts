@@ -63,12 +63,14 @@ test('scriptPath: beside the hub server', () => {
 test('runScript: the JSON it prints, its log lines as they come, and a clear error when it prints none', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rv-npmswitch-'));
   const ok = path.join(dir, 'ok.mjs');
-  fs.writeFileSync(ok, "process.stderr.write('one\\ntwo\\n'); console.log(JSON.stringify({ ok: true, asNode: process.env.ELECTRON_RUN_AS_NODE, args: process.argv.slice(2) }));\n");
+  fs.writeFileSync(ok, "process.stderr.write('one\\ntwo\\n'); console.log(JSON.stringify({ ok: true, asNode: process.env.ELECTRON_RUN_AS_NODE, args: process.argv.slice(2), execArgv: process.execArgv }));\n");
   const lines: string[] = [];
-  const r = await runScript<{ asNode: string; args: string[] }>({ exe: process.execPath, script: ok, args: ['detect', '--x'], onLog: (l) => lines.push(l) });
+  const r = await runScript<{ asNode: string; args: string[]; execArgv: string[] }>({ exe: process.execPath, script: ok, args: ['detect', '--x'], onLog: (l) => lines.push(l) });
   assert.equal(r.ok, true);
   assert.equal(r.asNode, '1');
   assert.deepEqual(r.args, ['detect', '--x']);
+  // No inspector on SIGUSR1 in a script the app runs outside every pane.
+  assert.deepEqual(r.execArgv, ['--disable-sigusr1']);
   assert.deepEqual(lines, ['one', 'two']);
   const bad = path.join(dir, 'bad.mjs');
   fs.writeFileSync(bad, "process.stderr.write('boom\\n'); process.exit(3);\n");

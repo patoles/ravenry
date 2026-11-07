@@ -13,6 +13,7 @@
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { NODE_ARGS } from './install.ts';
 
 export interface NpmBoard { port: number; pid: number | null; command: string; again?: string | null; cwd: string | null; root: string | null; version: string | null; own: boolean }
 export interface NpmLogin { label: string; plist: string; loaded: boolean; root: string | null; version: string | null }
@@ -82,7 +83,7 @@ export function scriptPath(hubEntry: string): string {
 export function runScript<T = Record<string, unknown>>(opts: { exe: string; script: string; args: string[]; env?: NodeJS.ProcessEnv; onLog?: (line: string) => void; timeoutMs?: number }): Promise<T & { ok: boolean; error?: string; log?: string[] }> {
   return new Promise((resolve) => {
     const env = { ...(opts.env || process.env), ELECTRON_RUN_AS_NODE: '1' };
-    const child = spawn(opts.exe, [opts.script, ...opts.args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(opts.exe, [...NODE_ARGS, opts.script, ...opts.args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     let errAll = '';

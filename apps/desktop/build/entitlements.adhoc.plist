@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- An ad hoc signed build (no Developer ID) runs under the hardened
+     runtime too, so dyld ignores DYLD_INSERT_LIBRARIES and the other DYLD_
+     variables whoever starts the app sets: open's env option reaches an
+     app outside every pane (src/main/gate.ts). An ad hoc signature has no
+     team, so library validation would refuse Electron's own framework: it
+     is off here, and only here. V8 needs the JIT exceptions, in the window
+     and in the hub (the app's executable run as Node). And a program in a
+     pane asks macOS for the microphone, the camera, the location, contacts,
+     calendars, photos or another app's scripting through the app: under
+     the hardened runtime it may ask only with these, as it could before. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.device.camera</key>
+  <true/>
+  <key>com.apple.security.personal-information.location</key>
+  <true/>
+  <key>com.apple.security.personal-information.addressbook</key>
+  <true/>
+  <key>com.apple.security.personal-information.calendars</key>
+  <true/>
+  <key>com.apple.security.personal-information.photos-library</key>
+  <true/>
+</dict>
+</plist>

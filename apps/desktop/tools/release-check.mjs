@@ -4,10 +4,18 @@
 // on the person's Mac: "You should have tested those before telling me its
 // ready".
 //
-//   node tools/release-check.mjs APP [--prev OLD_APP_OR_ZIP] [OUT]
+//   node tools/release-check.mjs APP [--driven TWIN] [--prev OLD_APP_OR_ZIP] [OUT]
 //
 // APP is the new Ravenry.app (release/mac-arm64/Ravenry.app); OLD is the
 // build before it (an .app, or its release zip), for the update step.
+//
+// A release build takes no driver (src/main/gate.ts): nothing outside it
+// can script its window. So the release itself is checked as it is, with
+// no driver (step 0, tools/package-check.mjs, and steps 12 and 13), and the
+// steps that look into the window and click in it run on its test twin,
+// TWIN (default: release-test/mac-arm64/Ravenry.app beside release/, which
+// `npm run pack` makes): the same stage, the same build.json, ravenryd and
+// hub, with the test hooks on. Step 0 checks that it is that twin.
 // Everything runs in throwaway HOMEs under the system's temporary folder
 // (outside ~/Documents, which macOS guards), on spare ports, offscreen; the
 // daemons' folder has a space in its path, as ~/Library/Application
@@ -18,6 +26,16 @@
 // the throwaway HOME's ~/.local/bin.
 //
 // Each step asserts on what the window shows:
+//   0 release       tools/package-check.mjs on APP: a release build, its
+//                   fuses, its own ravenryd started and a shell opened in
+//                   it with no driver; it runs nothing an agent's launch
+//                   names (RAVENRY_DRIVER, RAVENRYD, RAVENRY_LAUNCHCTL,
+//                   NODE_OPTIONS) and quits on --remote-debugging-port and
+//                   --inspect; DYLD_INSERT_LIBRARIES loads nothing; its
+//                   hub answers as its service says, and SIGUSR1 opens
+//                   no inspector in it. And
+//                   TWIN is APP's twin (same build.json, ravenryd, hub)
+//   1-11            on TWIN, as the window shows them:
 //   1 cold launch   the service is installed and loaded, its hub answers,
 //                   the daemon runs; a shell prompt is in the window within
 //                   2 s; `echo ok` typed in it reads back
@@ -85,6 +103,7 @@ const HUB = path.resolve(HERE, '..', '..', '..', 'hub');
 const argv = process.argv.slice(2);
 const flag = (k) => { const i = argv.indexOf(k); if (i < 0) return null; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const PREV = flag('--prev');
+const DRIVEN_ARG = flag('--driven');
 const NO_NPM = argv.includes('--no-npm') ? (argv.splice(argv.indexOf('--no-npm'), 1), true) : false;
 // --only 9,5: just those steps (a quick run while working on them; never the release gate).
 const ONLY = argv.includes('--only') ? argv.splice(argv.indexOf('--only'), 2)[1].split(',') : null;
@@ -94,16 +113,18 @@ if (process.platform !== 'darwin') { console.error('release-check: macOS only (l
 const OUT = path.resolve(argv[1] || path.join(HERE, '..', '.tmp', 'release-check'));
 fs.mkdirSync(OUT, { recursive: true });
 const BUILD = JSON.parse(fs.readFileSync(path.join(APP_PATH, 'Contents', 'Resources', 'build.json'), 'utf8'));
+// The test twin the window steps drive (scripts/pack.mjs, release-test/).
+const DRIVEN = path.resolve(DRIVEN_ARG || APP_PATH.replace(`${path.sep}release${path.sep}`, `${path.sep}release-test${path.sep}`));
 const UID = process.getuid();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((r) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const R = 'window.__ravenry';
-const results = { app: APP_PATH, build: BUILD, at: new Date().toISOString(), steps: [] };
+const results = { app: APP_PATH, driven: DRIVEN, build: BUILD, at: new Date().toISOString(), steps: [] };
 const labels = [];
 
 // A throwaway Mac account: its own HOME, data folder, runtime folder (with
 // a space), port, launchd label, and the stand-ins.
-async function account(name) {
+async function account(name, source = DRIVEN) {
   // A short folder name: a daemon's socket path has 103 bytes at most on
   // macOS, and "<tmp>/rvrc-update-XXXXXX/App Support/run/ravenryd-0.1.10.sock"
   // was 105.
@@ -117,7 +138,7 @@ async function account(name) {
   // run from inside ~/Documents, the service would wait for macOS's
   // privacy answer to read its own files.
   const app = path.join(root, 'Applications', 'Ravenry.app');
-  execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+  execFileSync('/usr/bin/ditto', [source, app]);
   const label = `dev.ravenry.hub.test-${crypto.randomBytes(5).toString('hex')}`;
   labels.push(label);
   const port = await freePort();
@@ -233,6 +254,22 @@ const pause = (a, n) => [{ signal: sigFile(a, n) }, { wait: goFile(a, n), timeou
 async function at(a, n) { for (let i = 0; i < 2400 && !fs.existsSync(sigFile(a, n)); i++) await sleep(50); }
 
 try {
+  // ------------------------------------------------------------ 0, the release as it is
+  await guarded('0 release', async () => {
+    const r = spawnSync(process.execPath, [path.join(HERE, 'package-check.mjs'), APP_PATH, path.join(OUT, 'package-check')], { encoding: 'utf8', timeout: 300000 });
+    const oks = (r.stdout || '').split('\n').filter((l) => l.startsWith('check: ok'));
+    const want = ['a release build: no driver', 'fuses', 'with no driver, opened a shell', 'it loaded and ran none of', '--remote-debugging-port', '--inspect', 'run as Node', 'the hub runs as the service says', 'SIGUSR1'];
+    const missing = want.filter((w) => !oks.some((l) => l.includes(w)));
+    step(`0 release: the release itself, with no driver (tools/package-check.mjs, ${oks.length} checks): no test hooks, fuses, its own daemon and a shell in it, nothing an agent's launch names runs, debugging switches refused, its hub answers`, r.status === 0 && !missing.length, { exit: r.status, missing, tail: ((r.stderr || '') + (r.stdout || '')).trim().split('\n').slice(-6) });
+    // The twin: the same build, with the test hooks on.
+    const res = (a, f) => path.join(a, 'Contents', 'Resources', f);
+    const same = (f) => { try { return crypto.createHash('sha256').update(fs.readFileSync(res(APP_PATH, f))).digest('hex') === crypto.createHash('sha256').update(fs.readFileSync(res(DRIVEN, f))).digest('hex'); } catch { return false; } };
+    let twinBuild = null;
+    try { twinBuild = JSON.parse(fs.readFileSync(res(DRIVEN, 'build.json'), 'utf8')); } catch { /* below */ }
+    const twinHooks = (() => { try { return fs.readFileSync(res(DRIVEN, 'app.asar')).includes(Buffer.from('require(process.env.RAVENRY_DRIVER)')); } catch { return false; } })();
+    step(`0 release: the window steps run on its test twin (${DRIVEN}): the same build ${BUILD.id}, ravenryd and hub, with the test hooks on`, !!twinBuild && twinBuild.id === BUILD.id && same('ravenryd') && same(path.join('hub', 'server', 'index.mjs')) && same(path.join('remote', 'builds.json')) && twinHooks, { twinBuild: twinBuild && twinBuild.id, ravenryd: same('ravenryd'), hub: same(path.join('hub', 'server', 'index.mjs')), twinHooks, hint: twinBuild ? undefined : 'npm run pack makes it in release-test/' });
+  });
+
   // ------------------------------------------------------------ 1-4, one account
   const a = await account('main');
   outsideSession(a);
@@ -430,7 +467,7 @@ try {
   // ------------------------------------------------------------ 6, the npm switch
   await guarded('6 npm switch', async () => {
     if (NO_NPM) { step('6 npm switch: skipped (--no-npm)', false); return; }
-    const r = spawnSync(process.execPath, [path.join(HERE, 'npm-switch-test.mjs'), APP_PATH, path.join(OUT, 'npm-switch')], { encoding: 'utf8', timeout: 900000 });
+    const r = spawnSync(process.execPath, [path.join(HERE, 'npm-switch-test.mjs'), DRIVEN, path.join(OUT, 'npm-switch')], { encoding: 'utf8', timeout: 900000 });
     const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
     step('6 npm switch: from the npm board 0.4.0 and the way back (tools/npm-switch-test.mjs)', r.status === 0 && !fails.length, { exit: r.status, fails: fails.slice(0, 5), tail: (r.stderr || r.stdout || '').trim().split('\n').slice(-3) });
   });
@@ -604,10 +641,10 @@ try {
   });
   // ------------------------------------------------------------ 11, keys
   await guarded('11 keys', async () => {
-    // The packaged app, copied out as it sits in /Applications.
+    // The test twin, copied out as it sits in /Applications.
     const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvck-'));
     const app = path.join(k, 'Ravenry.app');
-    execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+    execFileSync('/usr/bin/ditto', [DRIVEN, app]);
     const r = spawnSync(process.execPath, [path.join(HERE, 'keys-test.mjs'), path.join(OUT, 'keys'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
     const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
     step(`11 keys: every row of the keys table arrives as its exact bytes in a pane (${lines.filter((l) => l.startsWith('PASS')).length} of ${lines.length}), tools/keys-test.mjs`, r.status === 0 && lines.length > 20 && !lines.some((l) => l.startsWith('FAIL')), { fails: lines.filter((l) => l.startsWith('FAIL')).slice(0, 5), tail: (r.stderr || '').trim().split('\n').slice(-2) });
