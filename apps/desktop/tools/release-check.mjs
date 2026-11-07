@@ -338,10 +338,13 @@ try {
 } finally {
   // Every test label out of launchd, whatever happened.
   for (const l of labels) if (loaded(l)) launchctl('bootout', `gui/${UID}/${l}`);
+  // launchd lets go of a job a moment after bootout returns.
+  for (let i = 0; i < 50 && labels.some(loaded); i++) await sleep(200);
   results.labelsLeft = labels.filter(loaded);
   reapStarted();
   fs.writeFileSync(path.join(OUT, 'release-check.json'), JSON.stringify(results, null, 2) + '\n');
 }
 const failed = results.steps.filter((s) => !s.ok);
+if (results.labelsLeft.length) console.log(`release-check: test launchd label(s) still loaded: ${results.labelsLeft.join(', ')}`);
 console.log(failed.length ? `\nrelease-check: ${failed.length} step(s) FAILED (${OUT}/release-check.json)` : `\nrelease-check: every step passed for ${BUILD.id} (${OUT}/release-check.json)`);
 process.exit(failed.length || results.labelsLeft.length ? 1 : 0);
