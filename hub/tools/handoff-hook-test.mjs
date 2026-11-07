@@ -81,6 +81,9 @@ const { hasTag } = await import('../server/handoff.mjs');
 check('reason: starts with the [ravenry hand-off] tag; the board knows it and the pre-rename tag', r.out && r.out.reason.startsWith('[ravenry hand-off]\n') && !/Mission Control/.test(r.out.reason) && hasTag(r.out.reason) && hasTag('[mission-control hand-off] Context is at 55%') && !hasTag('a prompt from the user'));
 check('marker: requested, asks 1, workspace from env', marker(SID)?.state === 'requested' && marker(SID).asks === 1 && marker(SID).workspaceId === 'ws-proj' && marker(SID).surfaceId === 'sf-1');
 if (r.out) fs.writeFileSync(path.join(T, 'reason-50.txt'), r.out.reason);
+// The brief's Next step: replaced whole by at most 3 one-line bullets of
+// next actions; the history goes in the Hand-off (docs/BRIEF-FORMAT.md).
+check('reason: replace "## Next step" with at most 3 one-line bullets of next actions; history in the Hand-off', r.out && /replace the whole "## Next step" section/.test(r.out.reason) && /at most 3 one-line bullets, each a next action/.test(r.out.reason) && /what happened goes in the Hand-off bullet, never in Next step/.test(r.out.reason) && !/Update "## Next step" too/.test(r.out.reason));
 
 // 3. The stop right after (stop_hook_active): never blocks. Claude deferred,
 // so the marker records the deferral and the board's line says when it asks.

@@ -24,7 +24,7 @@ status: draft (from README.md, memory (3 notes), session recap 2026-11-02, git l
 
 # Project name
 
-Goal: One or two sentences. What we are making and why.
+Goal: One sentence. What we are making and why.
 Done means: How we will both know it is finished.
 Kind: Free text. Web game, VR app, Mac menu-bar app, research, anything.
 Stage: Free text. Idea, Mockup, Build, Trial, Live, or whatever fits.
@@ -45,7 +45,8 @@ Waiting on: Optional. Who or what, when the work is blocked on someone else.
 Progress: 119 of 141 (PLAN-IOS.md)
 
 ## Next step
-What happens next, in a sentence.
+- At most 3 one-line bullets, each a next action
+- Fix the header at 390 px
 
 ## Hand-off
 - 2026-11-02 21:10 What the last session finished and where the next one starts.
@@ -76,10 +77,10 @@ Back when: What would bring it back.
 | --- | --- | --- |
 | Status | `status:` line at the top | `status: draft (from <sources>), review me` marks a brief drafted from the project's own material; the Objectives view shows a Draft label until the line is changed or removed. |
 | Title | `# Name` | Informational; the board uses the registry name. |
-| Goal, Done means, Kind, Stage, Waiting on | `Key: value` lines before the first `##`, or a `## Goal` (etc.) section with a paragraph | Kind and Stage are free text, so non-game projects fit. |
+| Goal, Done means, Kind, Stage, Waiting on | `Key: value` lines before the first `##`, or a `## Goal` (etc.) section with a paragraph | Goal is one sentence: the app's panel shows it on one line. Kind and Stage are free text, so non-game projects fit. |
 | Rules | `## Rules`, one bullet each | |
 | Plan | `## Plan`, one `###` per objective | Tasks are bullets with a state mark. A plan the board drafted is an objective too (Plans, below). Instead of a mark, a trailing `(now)`, `(waiting on you)`, `(waiting on others)` or `(done)` also works. An objective with no tasks can carry `Progress: N of M (source)`. |
-| Next step | `Next step:` line or `## Next step` | |
+| Next step | `## Next step` with at most 3 one-line bullets, each a next action (a `Next step:` line also works) | Replaced whole at each hand-off: what happened goes in the Hand-off bullet, never here. The app's panel shows the first 3 bullets on one line each. An older brief whose Next step is one paragraph with a dated entry per session (`2026-11-06: ...`) is split at each date: the panel's items come from the newest entry (its `Next:` list, else its first sentences), and the Brief page shows the entries newest first, the newest open. |
 | Hand-off | `## Hand-off` bullets, optionally starting with a date `YYYY-MM-DD HH:MM` | Shown first in the Hand-backs card. Indented sub-bullets (`State:`, `Next step:`, `Open items:`, `Key files:`, as the automatic hand-off writes them) belong to the bullet above and are not shown as their own rows. A `Quick answers: a \| b` line (also allowed at the top or as its own `## Quick answers` section) becomes the quick-answer buttons while the project needs you. |
 | Notes | `## Notes` bullets, `[ ]` open, `[x]` fixed | "Add as note" on the board appends `- [ ] text (added <time>)` here, creating the section when it is missing. A trailing `(fixed)` also marks a note fixed. |
 | Pictures | `## Pictures` bullets: `path \| alt`, `path: alt`, or `![alt](path)` | Paths are relative to the brief's folder. Only listed files that exist are served. After the listed ones comes the project's latest picture, picked by the board (server/pictures.mjs) from the project's current session only (the one the board shows for it): the newest image its main transcript showed you (its own Read of an image, or an image path it wrote in its text to you, outside tool calls). Never a subagent's transcript, a path in a tool call's input or a path in tool output. No older sessions, no scan of the folder. Only from the project's folder or the current session's scratchpad, at most 15 MB and 30 days old. When the current session changes (a hand-off's fresh session), the old picture goes and nothing shows until the new session shows an image. No listed pictures and no image shown in the current session means no picture block at all. |

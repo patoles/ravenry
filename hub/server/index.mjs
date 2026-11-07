@@ -3363,6 +3363,23 @@ async function handleRequest(req, res) {
     // 503 "starting", at once, never a held request (the app counts any
     // answer as the hub being up; docs in server/access.mjs's 503 too).
     if (req.method === 'GET' && p === '/api/state') return snapshot.generatedAt ? sendJson(res, 200, snapshot) : sendJson(res, 503, { ...snapshot, starting: true, waitingFor: null, folder: null, error: 'Ravenry is starting: reading your projects.' });
+    if (req.method === 'GET' && p === '/api/brief') {
+      // A project's brief as written, for the app's Brief tab: its text,
+      // when it last changed, and the assistant of the project's session
+      // then (a brief is written by its sessions). project: an id, a name
+      // or a folder.
+      const id = projectIdOf(url.searchParams.get('project') || '');
+      const project = id && findProject(id);
+      const file = project && registry.briefPath(project);
+      if (!file || !fs.existsSync(file)) return sendJson(res, 404, { error: 'No brief for that project.' });
+      let st;
+      try { st = fs.statSync(file); } catch { return sendJson(res, 404, { error: 'No brief for that project.' }); }
+      if (st.size > 1024 * 1024) return sendJson(res, 413, { error: 'The brief is over 1 MB.' });
+      const view = (snapshot.projects || []).find((x) => x.id === id);
+      const writer = (view && view.sessions || []).find((x) => x.assistant && Date.parse(x.startedAt || x.since || 0) <= st.mtimeMs) || (view && view.sessions || [])[0] || null;
+      const by = writer ? ({ claude: 'Claude', codex: 'Codex' }[writer.assistant] || null) : null;
+      return sendJson(res, 200, { project: id, file, path: homes.sayLocal(file), text: fs.readFileSync(file, 'utf8'), updatedAt: new Date(st.mtimeMs).toISOString(), by });
+    }
     if (req.method === 'GET' && p === '/api/decisions') {
       // The ledger, newest first (server/decisions.mjs): an open read, so an
       // agent checks it before asking. project: an id, a name or a folder.

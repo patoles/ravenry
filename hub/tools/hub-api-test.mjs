@@ -35,7 +35,10 @@ const MC = path.join(T, 'mc');
 const HOME = path.join(T, 'home');
 const PROJ = path.join(T, 'proj');
 for (const d of [MC, HOME, PROJ, path.join(HOME, '.claude')]) fs.mkdirSync(d, { recursive: true });
-fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [{ id: 'proj', name: 'Proj', folder: PROJ, workspaces: [], brief: null }] }, null, 2));
+fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [{ id: 'proj', name: 'Proj', folder: PROJ, workspaces: [], brief: null }, { id: 'docs', name: 'Docs', folder: path.join(T, 'docs'), workspaces: [], brief: 'BRIEF.md' }] }, null, 2));
+fs.mkdirSync(path.join(T, 'docs'), { recursive: true });
+const BRIEF_TEXT = '# Docs\n\nGoal: Write the docs.\n\n## Next step\n- Write the intro\n';
+fs.writeFileSync(path.join(T, 'docs', 'BRIEF.md'), BRIEF_TEXT);
 const D = fs.mkdtempSync(path.join(os.tmpdir(), 'rva-'));
 const RUN = path.join(D, 'run');
 const PORT = 4791;
@@ -78,6 +81,14 @@ const post = async (p, body) => {
 
 const first = await until(async () => { const r = await get('/api/state'); return r.body && r.body.generatedAt ? r.body : null; }, 20000);
 check('the board answers', !!first, boardLog.slice(-800));
+// The app's Brief page reads a brief as written (GET /api/brief).
+{
+  const b = await get('/api/brief?project=docs');
+  check('GET /api/brief: the brief as written, with its file and when it changed', b.status === 200 && b.body.text === BRIEF_TEXT && b.body.file === path.join(T, 'docs', 'BRIEF.md') && !isNaN(Date.parse(b.body.updatedAt)), JSON.stringify(b.body).slice(0, 300));
+  const none = await get('/api/brief?project=proj');
+  const bad = await get('/api/brief?project=nope');
+  check('GET /api/brief: 404 for a project with no brief and for no such project', none.status === 404 && bad.status === 404, `${none.status} ${bad.status}`);
+}
 check('state: machines and checkpoints, machine on each project', !!first && Array.isArray(first.machines) && Array.isArray(first.checkpoints) && first.projects.every((p) => 'machine' in p), JSON.stringify(first && { m: first.machines, c: first.checkpoints }));
 
 // ------------------------------------------------------------ start a session

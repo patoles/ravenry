@@ -54,8 +54,9 @@ export function briefMarkdown(form, { stage } = {}) {
   // Each milestone is an objective; the agent breaks it into tasks.
   for (const m of ms) out.push(`### ${m}`);
   out.push('');
+  // At most 3 one-line bullets, each a next action (docs/BRIEF-FORMAT.md).
   out.push('## Next step');
-  out.push(ms.length ? `Break "${ms[0]}" into tasks and start on it.` : 'Write the first milestone.');
+  out.push(ms.length ? `- Break "${ms[0]}" into tasks and start on it` : '- Write the first milestone');
   out.push('');
   out.push('## Hand-off');
   out.push('');
