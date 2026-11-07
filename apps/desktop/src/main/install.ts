@@ -145,7 +145,12 @@ export function stageVersion(opts: { resources: string; root: string; build: Bui
  * of that version in the runtime folder, and not named by the service file.
  * Returns the versions removed.
  */
-export function pruneVersions(root: string, keep: string, runningVersions: string[], serviceText: string | null): string[] {
+// `inUse`: text that names what runs or will run from a version folder:
+// the command lines of the running processes (a ravenryd or hub of that
+// version, whatever its socket says) and the assistants' hook settings
+// (a hook that names a version runs it at the next event). A version
+// folder any of them names is kept.
+export function pruneVersions(root: string, keep: string, runningVersions: string[], serviceText: string | null, inUse: string[] = []): string[] {
   const versions = path.join(root, 'versions');
   let names: string[];
   try { names = fs.readdirSync(versions); } catch { return []; }
@@ -158,6 +163,8 @@ export function pruneVersions(root: string, keep: string, runningVersions: strin
     }
     if (v === keep || runningVersions.includes(v)) continue;
     if (serviceText && serviceText.includes(path.join(versions, v) + path.sep)) continue;
+    const dir = path.join(versions, v) + path.sep;
+    if (inUse.some((t) => t && t.includes(dir))) continue;
     try { fs.rmSync(path.join(versions, v), { recursive: true, force: true }); removed.push(v); } catch { /* in use: next time */ }
   }
   return removed;
@@ -405,6 +412,15 @@ export async function ensureService(opts: {
   restart?: boolean;
   /** Waits (tests pass one that does not sleep). */
   wait?: (ms: number) => Promise<void>;
+  /**
+   * Whether the hub the service now runs answers (any HTTP answer: a hub
+   * waiting for macOS's privacy answer says 503 and is alive). Asked after
+   * the service is written and loaded; no answer, and the file that ran
+   * before is put back and loaded, and the result says so. On 2026-11-07
+   * the new hub listened and answered nothing, and the old version was
+   * removed with nothing to go back to.
+   */
+  answers?: () => Promise<boolean>;
 }): Promise<ServiceResult> {
   const wait = opts.wait || ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const platform = opts.platform || process.platform;
@@ -477,17 +493,33 @@ export async function ensureService(opts: {
     const r = await up();
     ok = r.ok;
     detail = r.out;
+    let why = detail || 'launchd did not load it';
+    if (ok && !dry && opts.answers && !(await opts.answers())) { ok = false; why = 'the new hub did not answer'; }
     if (!ok && existing !== null) {
+      if (!dry) {
+        run(lctl, ['bootout', `${domain}/${SERVICE_LABEL}`]);
+        for (let i = 0; i < 50 && loaded(); i++) await wait(200);
+      }
       put(existing);
       const back = await up();
-      detail = `${detail || 'launchd did not load it'}; ${back.ok ? 'the service that ran before is loaded again' : 'the service that ran before did not load either'}`;
-    }
+      detail = `${why}; ${back.ok ? 'the service that ran before is loaded again' : 'the service that ran before did not load either'}`;
+    } else if (!ok) detail = why;
   } else {
     const r1 = run('systemctl', ['--user', 'daemon-reload']);
     const r2 = run('systemctl', ['--user', 'enable', UNIT_NAME]);
     const r3 = run('systemctl', ['--user', 'restart', UNIT_NAME]);
     ok = r1.status === 0 && r2.status === 0 && r3.status === 0;
     detail = [r1, r2, r3].map((r) => r.out).join('').trim();
+    if (ok && !dry && opts.answers && !(await opts.answers())) {
+      ok = false;
+      detail = 'the new hub did not answer';
+      if (existing !== null) {
+        put(existing);
+        const b1 = run('systemctl', ['--user', 'daemon-reload']);
+        const b2 = run('systemctl', ['--user', 'restart', UNIT_NAME]);
+        detail += b1.status === 0 && b2.status === 0 ? '; the service that ran before runs again' : '; the service that ran before did not start either';
+      }
+    }
   }
   if (!ok) return { state: 'failed', file, why: detail || 'the service manager refused it', commands };
   return { state: existing === null ? 'installed' : 'updated', file, commands };

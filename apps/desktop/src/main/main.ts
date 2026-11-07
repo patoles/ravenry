@@ -284,19 +284,42 @@ async function setUpService(staged: Staged, opts: { port?: number; restart?: boo
     if (from && build && mode !== 'off') execPath = await stageRuntime({ from, staged, build, exeName: path.basename(process.execPath) });
     // The npm board's port when it ran on another (PORT=4700 ravenry).
     const env = opts.port && opts.port !== 4600 ? { ...process.env, PORT: String(opts.port) } : process.env;
-    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged, env }), run, boardAnswers, restart: opts.restart });
+    const port = opts.port || Number(new URL(hubUrl()).port) || 4600;
+    const r = await ensureService({ mode, spec: serviceSpec({ execPath, staged, env }), run, boardAnswers, restart: opts.restart, answers: () => hubAnswers(port, 30000) });
     const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
     appLog(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
+    // An older version's folder goes only once this build's hub runs: never
+    // after a failed update, whose fallback runs from it.
+    if (r.state === 'failed') return;
   } catch (e) {
     appLog(`service: ${(e as Error).message || e}`);
+    return;
   }
   setTimeout(() => {
     let svc: string | null = null;
     try { svc = fs.readFileSync(serviceFile(), 'utf8'); } catch { /* none */ }
     const running = listSockets(runtimeDir()).map((s) => s.version);
-    const gone = pruneVersions(dataRoot(), staged.version, running, svc);
-    if (gone.length) console.log(`install: removed versions nothing runs from: ${gone.join(', ')}`);
+    // What runs from a version folder (any process's command line), and
+    // the hooks that name one.
+    const inUse: string[] = [];
+    try { inUse.push(spawnSync('/bin/ps', ['-axww', '-o', 'command='], { encoding: 'utf8', timeout: 10000 }).stdout || ''); } catch { /* none */ }
+    for (const f of [path.join(os.homedir(), '.claude', 'settings.json'), path.join(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), 'hooks.json')]) {
+      try { inUse.push(fs.readFileSync(f, 'utf8')); } catch { /* none */ }
+    }
+    const gone = pruneVersions(dataRoot(), staged.version, running, svc, inUse);
+    if (gone.length) appLog(`install: removed versions nothing runs from: ${gone.join(', ')}`);
   }, OFFSCREEN ? 0 : 60000).unref();
+}
+
+// Whether a hub answers on this port within `ms`: any HTTP answer counts (a
+// hub waiting for macOS's privacy answer says 503 and is alive).
+async function hubAnswers(port: number, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    try { await fetch(`http://127.0.0.1:${port}/api/whoami`, { signal: AbortSignal.timeout(2000) }); return true; } catch { /* not yet */ }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }
 
 // ------------------------------------------------------------ the npm board

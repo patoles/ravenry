@@ -70,6 +70,8 @@ export interface HubState {
   settings?: { handoffThreshold?: number; handoffCeiling?: number; handoffEnabled?: boolean };
   sessions?: { totalKb?: number };
   views?: { ideas?: number; rules?: number; ship?: number };
+  /** macOS's privacy answers for the protected folders the board reads (hub/server/access.mjs). */
+  access?: { waiting: { folder: string; name: string } | null; denied: { folder: string; name: string }[] } | null;
   /** The phone alerts: on and set up means an open checkpoint is on the phone too. */
   alerts?: { enabled?: boolean; configured?: boolean } | null;
   /** The home folder of each machine, "" for the hub's own: folders are said against them (hub/public/homepath.mjs). */

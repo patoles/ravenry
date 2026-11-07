@@ -185,6 +185,17 @@ its pinned tab and the panel follow its new key (`rekeyed` in
 The panel's brief shows each field in about four lines, with Show all and
 Show less.
 
+## macOS's privacy question
+
+An app signed ad hoc is a new app to macOS at every build, so the hub asks
+again to read ~/Documents (or Desktop, Downloads, iCloud Drive, another
+volume) where the person's projects are. Until macOS answers, the hub
+answers 503 with the folder (hub/server/access.mjs), and the window says
+"macOS is asking whether Ravenry may read ~/Documents. Click Allow in the
+dialog.", with where to turn it on in System Settings when the dialog was
+closed and Open Files & Folders. A refused folder is one line at the top of
+the sidebar. `node tools/access-shots.mjs OUT` shoots it, dark and light.
+
 ## The back end it uses
 
 - **Plain shells** are panes labelled `ravenry.kind: shell` (and
@@ -231,6 +242,10 @@ Nothing outside the user's own folders, and nothing as root.
   before then fails with 5 and loads nothing), bootstraps again while
   launchd says no, and checks the service is loaded; when it is not, the
   file that ran before is put back and loaded, and the result says so.
+  Then it asks the new hub (any answer counts; a hub waiting for macOS's
+  privacy answer says 503): no answer within 30 s, and the service that
+  ran before is put back and loaded. An older version's folder goes only
+  after that, and never while a process runs from it or a hook names it.
   What it did is in `~/Library/Logs/Ravenry/app.log`
   (`~/.local/state/ravenry/app.log` on Linux). While the
   npm board is here (below), nothing is installed and the app shows that

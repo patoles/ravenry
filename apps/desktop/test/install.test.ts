@@ -99,6 +99,45 @@ test('self-updating: macOS and the AppImage, not a .deb', () => {
   assert.equal(selfUpdating({}, 'linux'), false);
 });
 
+test('pruneVersions keeps a version a running process or a hook names, whatever its daemon socket says', () => {
+  const root = path.join(tmp(), 'data');
+  for (const v of ['0.1.0', '0.1.1', '0.1.2', '0.1.3']) fs.mkdirSync(path.join(root, 'versions', v, 'hub'), { recursive: true });
+  // 0.1.1's ravenryd runs (its socket gone or elsewhere); the hooks still name 0.1.0's scripts.
+  const ps = `/sbin/launchd\n${path.join(root, 'versions', '0.1.1', 'ravenryd')} serve\n/usr/bin/zsh\n`;
+  const hooks = JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `ELECTRON_RUN_AS_NODE=1 /A/Ravenry '${path.join(root, 'versions', '0.1.0', 'hub', 'hooks', 'events.mjs')}' --ravenryd` }] }] } });
+  const gone = pruneVersions(root, '0.1.3', [], null, [ps, hooks]);
+  assert.deepEqual(gone, ['0.1.2']);
+  assert.deepEqual(fs.readdirSync(path.join(root, 'versions')).sort(), ['0.1.0', '0.1.1', '0.1.3']);
+});
+
+test('ensureService: a new hub that does not answer is rolled back to the service that ran before', async () => {
+  for (const platform of ['darwin', 'linux']) {
+    const home = tmp();
+    const calls: string[] = [];
+    let active = false;
+    const run: Runner = (cmd, args) => {
+      calls.push([cmd, ...args].join(' '));
+      if (args[0] === 'print' || args.includes('is-active')) return { status: active ? 0 : 3, out: '' };
+      if (args[0] === 'bootstrap' || args.includes('restart')) active = true;
+      if (args[0] === 'bootout') active = false;
+      return { status: 0, out: '' };
+    };
+    const specOf = (v: string) => serviceSpec({ execPath: '/app/ravenry', staged: { ...staged, version: v, hubEntry: `/d/versions/${v}/hub/server/index.mjs`, build: `${v}+b` }, env: { PATH: '/usr/bin' }, platform, home });
+    const base = { platform, home, uid: 501, run, env: {}, boardAnswers: async () => false, wait: async () => {} };
+    assert.equal((await ensureService({ ...base, mode: 'install', spec: specOf('0.1.1'), answers: async () => true })).state, 'installed');
+    const file = serviceFile(platform, home, {});
+    const r = await ensureService({ ...base, mode: 'install', spec: specOf('0.1.2'), answers: async () => false });
+    assert.equal(r.state, 'failed', platform);
+    assert.match(String(r.why), /the new hub did not answer; the service that ran before (is loaded again|runs again)/, `${platform}: ${r.why}`);
+    assert.match(fs.readFileSync(file, 'utf8'), /versions\/0\.1\.1\//, platform);
+    assert.ok(active, platform);
+    // Answering, it stays.
+    const ok = await ensureService({ ...base, mode: 'install', spec: specOf('0.1.2'), answers: async () => true });
+    assert.equal(ok.state, 'updated', platform);
+    assert.match(fs.readFileSync(file, 'utf8'), /versions\/0\.1\.2\//, platform);
+  }
+});
+
 test('serviceMode: install when packaged, off in development and offscreen runs, RAVENRY_SERVICE wins', () => {
   assert.equal(serviceMode({}, true), 'install');
   assert.equal(serviceMode({}, false), 'off');

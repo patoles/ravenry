@@ -614,9 +614,11 @@ function renderSidebar(): void {
 
   let list: HTMLElement;
   if (empty || !groups.length) {
-    list = h('div.sl', h('div.empty-side', S.hubStatus && !S.hubStatus.reachable
-      ? 'Your sessions show up here, the ones that need you on top, once the board is running.'
-      : 'Your sessions show up here, the ones that need you on top.'));
+    list = h('div.sl', h('div.empty-side', S.hubStatus?.starting?.waitingFor
+      ? `Your sessions show up here once macOS lets Ravenry read ${S.hubStatus.starting.waitingFor}.`
+      : S.hubStatus && !S.hubStatus.reachable
+        ? 'Your sessions show up here, the ones that need you on top, once the board is running.'
+        : 'Your sessions show up here, the ones that need you on top.'));
   } else {
     list = h('div.sl', groups.map((g) => h(`section.grp.g-${g.group}`,
       h('div.grp-h', svg(RING[g.group]), h('span.t', g.title), h(`span.cnt.c-${g.group}`, String(g.count))),
@@ -666,7 +668,11 @@ function renderSidebar(): void {
 
   const mix = !empty && total ? h('div.mix', (['you', 'work', 'wait', 'idle'] as Group[]).filter((g) => counts[g]).map((g) => h('span', { style: { flex: String(counts[g]), background: GROUP_VAR[g] } }))) : null;
 
-  replace($('side'), h('div.side-top'), brand, mix, list, empty ? h('span.fill') : null, nav, foot);
+  // A folder macOS did not let the board read: its projects show without
+  // their files, and one line says where to turn it on.
+  const denied = S.hub?.access?.denied || [];
+  const deniedNote = denied.length ? h('div.access-note', `macOS did not let Ravenry read ${denied.map((d) => d.folder).join(', ')}. Turn it on in System Settings > Privacy & Security > Files & Folders.`) : null;
+  replace($('side'), h('div.side-top'), brand, mix, deniedNote, list, empty ? h('span.fill') : null, nav, foot);
 }
 
 /** 19: "Using dev server" for the session that holds a pane, "Waiting for dev server, Claude has it" for one in line. */
@@ -1243,6 +1249,8 @@ function openStart(): void {
 function renderStart(): void {
   // The switch from the npm board takes the first-launch place (npmswitch.ts).
   if (npmTakesCentre()) { renderNpmCentre($('start')); return; }
+  // The hub waits for macOS to say whether it may read a folder.
+  if (S.hubStatus?.starting) { replace($('start'), accessCard(S.hubStatus.starting)); return; }
   const need = npmNeed();
   if (need) { renderNpmPointer($('start'), need, { url: S.config?.hubUrl || 'http://localhost:4600', reachable: !!S.hubStatus?.reachable, newShell: () => void newShell(), openUrl: (u) => api().openExternal(u) }); return; }
   const st = S.start;
@@ -1331,6 +1339,17 @@ function onDrop(e: DragEvent): void {
   if (!f) return;
   const p = api().pathForFile(f);
   if (p) { S.start.folder = p; renderStart(); }
+}
+
+// macOS's privacy question, said in the window while the hub waits for the
+// answer (hub/server/access.mjs): the dialog is easy to miss, or was closed.
+const PRIVACY_PANE = 'x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders';
+function accessCard(st: { waitingFor: string | null; folder: string | null }): HTMLElement {
+  if (!st.waitingFor) return h('div.access-card', h('p.ac-t', 'The board is starting.'));
+  return h('div.access-card',
+    h('p.ac-t', `macOS is asking whether Ravenry may read ${st.waitingFor}. Click Allow in the dialog.`),
+    h('p.ac-s', `Closed the dialog? Open System Settings > Privacy & Security > Files & Folders, find Ravenry and turn on ${st.folder || st.waitingFor}. The board starts by itself once it may read it.`),
+    h('div.row', h('button.btn', { on: { click: () => api().openExternal(PRIVACY_PANE) } }, 'Open Files & Folders')));
 }
 
 async function startSession(): Promise<void> {

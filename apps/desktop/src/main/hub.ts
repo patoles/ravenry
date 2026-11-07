@@ -22,7 +22,11 @@ export function hubUrl(env: NodeJS.ProcessEnv = process.env, home: string = os.h
   return `http://127.0.0.1:${DEFAULT_PORT}`;
 }
 
-export type HubStatus = { reachable: boolean; url: string; error?: string };
+/**
+ * `starting`: the hub answers but is not reading yet, with the folder macOS
+ * is asking about (hub/server/access.mjs): its 503 says so.
+ */
+export type HubStatus = { reachable: boolean; url: string; error?: string; starting?: { waitingFor: string | null; folder: string | null } };
 
 /** Reads the hub's server-sent events (event: state) and calls back with each state. */
 export class HubFeed {
@@ -64,6 +68,14 @@ export class HubFeed {
       try {
         this.abort = new AbortController();
         const res = await fetch(this.url + '/api/events', { signal: this.abort.signal, headers: { Accept: 'text/event-stream' } });
+        if (res.status === 503) {
+          // Starting: waiting for macOS to say whether it may read a folder.
+          let j: { error?: string; waitingFor?: string; folder?: string } = {};
+          try { j = await res.json() as typeof j; } catch { /* not JSON */ }
+          this.setStatus({ reachable: false, url: this.url, error: j.error || 'The board is starting.', starting: { waitingFor: j.waitingFor || null, folder: j.folder || null } });
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
         if (!res.ok || !res.body) throw new Error(`the board answered ${res.status}`);
         this.setStatus({ reachable: true, url: this.url });
         this.retryMs = 1000;
