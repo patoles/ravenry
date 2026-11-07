@@ -37,6 +37,10 @@ export interface Attached { client: RavenryClient; pane: string }
 type KeyAct = 'clear' | 'copy' | 'paste' | 'select-all';
 const MAC_CMD_SEND: Record<string, string> = { ArrowLeft: '\x01', ArrowRight: '\x05', Backspace: '\x15' };
 const MAC_OPT_SEND: Record<string, string> = { ArrowLeft: '\x1bb', ArrowRight: '\x1bf' };
+// Shift+Enter, everywhere: a newline in Claude Code and Codex instead of
+// submitting (xterm.js sends CR, as for Enter). LF (Ctrl+J) is the newline
+// both document; a shell takes it as Enter.
+const SHIFT_SEND: Record<string, string> = { Enter: '\n' };
 const MAC_CMD_ACT: Record<string, KeyAct> = { k: 'clear', c: 'copy', v: 'paste', a: 'select-all' };
 
 export class TerminalView {
@@ -97,7 +101,8 @@ export class TerminalView {
     this.term.attachCustomKeyEventHandler((e) => {
       const only = this.mac && !e.ctrlKey && !e.shiftKey;
       const cmd = only && e.metaKey && !e.altKey;
-      const send = cmd ? MAC_CMD_SEND[e.key] : only && e.altKey && !e.metaKey ? MAC_OPT_SEND[e.key] : undefined;
+      const shift = e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey;
+      const send = cmd ? MAC_CMD_SEND[e.key] : only && e.altKey && !e.metaKey ? MAC_OPT_SEND[e.key] : shift ? SHIFT_SEND[e.key] : undefined;
       const act = cmd ? MAC_CMD_ACT[e.key.toLowerCase()] : undefined;
       if (!send && !act) return !this.isAppKey(e);
       if (e.type === 'keydown') { e.preventDefault(); if (send) this.input(send); else this.onKeyAct(act!); }

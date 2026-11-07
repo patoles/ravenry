@@ -470,6 +470,8 @@ gets, and checks the bytes; the release check runs it on the packaged app.
 | Home, End | `CSI H`, `CSI F` | xterm.js |
 | PageUp, PageDown | `CSI 5~`, `CSI 6~` | xterm.js |
 | ⇧Tab, Esc, Ctrl+O, Ctrl+R, Ctrl+C | `CSI Z`, `1b`, `0f`, `12`, `03` (Claude Code's own keys) | xterm.js |
+| ⇧Enter | LF `0a`, Ctrl+J: a newline in Claude Code and Codex (Enter is CR `0d`) | Ravenry |
+| ⌥Enter | ESC CR `1b 0d` (Claude Code's newline too) | xterm.js |
 | ⌘V | the clipboard, as one paste through the daemon | Ravenry |
 | ⌘C, ⌘A | copy the selection, select everything; nothing is typed | Ravenry |
 | ⌘K | clears the scrollback; nothing is typed | Ravenry |
