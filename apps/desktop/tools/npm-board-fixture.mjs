@@ -62,6 +62,8 @@ export function testEnv(home, port, more = {}) {
     CMUX_BIN: '/usr/bin/false', ITERM_OSASCRIPT_BIN: '/usr/bin/false', RAVENRY_REX_BIN: 'none',
     MC_OSASCRIPT_BIN: '/usr/bin/true', MC_OPEN_COMMAND: '["/usr/bin/true"]', RAVENRY_OPEN_BIN: '/usr/bin/true', RAVENRY_NO_OPEN: '1',
     MC_CODEX: '1', MC_REPEATS_AUTO: '0', MC_NO_AUTOSTART: '1',
+    // ps and lsof stand-ins: a test board never lists this Mac's own processes.
+    MC_PS_BIN: path.join(REPO, 'hub', 'tools', 'stub-ps.mjs'), MC_LSOF_BIN: path.join(REPO, 'hub', 'tools', 'stub-ps.mjs'),
     MC_PLAN_COMMAND: JSON.stringify([process.execPath, path.join(REPO, 'hub', 'tools', 'stub-plan-claude.mjs')]),
     ...more,
   };

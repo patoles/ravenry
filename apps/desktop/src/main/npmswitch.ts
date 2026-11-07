@@ -14,9 +14,9 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-export interface NpmBoard { port: number; pid: number | null; command: string; cwd: string | null; root: string | null; version: string | null; own: boolean }
+export interface NpmBoard { port: number; pid: number | null; command: string; again?: string | null; cwd: string | null; root: string | null; version: string | null; own: boolean }
 export interface NpmLogin { label: string; plist: string; loaded: boolean; root: string | null; version: string | null }
-export interface NpmRecord { state: 'switching' | 'switched' | 'back'; at: string; port: number; from: { root: string | null; version: string | null; node: string | null; board: { port: number; pid: number; command: string; cwd: string | null } | null }; login: { label: string; plist: string; loaded: boolean }[]; backup: string; switchedAt?: string; backAt?: string }
+export interface NpmRecord { state: 'switching' | 'switched' | 'back'; at: string; port: number; from: { root: string | null; version: string | null; node: string | null; board: { port: number; pid: number; command: string; again?: string | null; cwd: string | null } | null }; login: { label: string; plist: string; loaded: boolean }[]; backup: string; switchedAt?: string; backAt?: string }
 export interface NpmDetect {
   ok: boolean;
   error?: string;

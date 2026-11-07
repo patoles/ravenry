@@ -34,7 +34,7 @@ import {
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
-import { initNpmSwitch } from './npmswitch.ts';
+import { initNpmSwitch, npmTakesCentre, renderNpmCentre } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
@@ -738,7 +738,7 @@ function openTab(): HTMLElement | null {
 
 function renderTabs(): void {
   const el = $('tabs');
-  if (firstRun() || S.view.kind === 'start' && !S.tabs.length) { el.hidden = true; return; }
+  if (npmTakesCentre() || firstRun() || S.view.kind === 'start' && !S.tabs.length) { el.hidden = true; return; }
   el.hidden = false;
   const active = tabOfView();
   const rk = viewSessionKey();
@@ -950,7 +950,7 @@ async function renderCentre(): Promise<void> {
     renderStrip();
     return;
   }
-  if (firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
+  if (npmTakesCentre() || firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
   if (v.kind === 'none') { term.hide(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
     await showPane(`pane|${v.socket}|${v.pane}`, () => daemons.get(v.socket), v.pane, (e) => { setView(S.tabs[0] ? { kind: 'tab', id: S.tabs[0].id } : { kind: 'none' }); toast(`That pane is gone: ${e.message}`); });
@@ -1069,6 +1069,8 @@ function openStart(): void {
 }
 
 function renderStart(): void {
+  // The switch from the npm board takes the first-launch place (npmswitch.ts).
+  if (npmTakesCentre()) { renderNpmCentre($('start')); return; }
   const st = S.start;
   const first = firstRun();
   const folderName = st.folder ? base(st.folder) : null;
@@ -1196,7 +1198,7 @@ async function startSession(): Promise<void> {
 // ---------------------------------------------------------------- panel
 
 function panelVisible(): boolean {
-  if (firstRun() || S.view.kind === 'start') return false;
+  if (npmTakesCentre() || firstRun() || S.view.kind === 'start') return false;
   if (S.overlay) return true;
   // A page takes the right column too; a checkpoint it opened comes over it.
   if (WIDE_VIEWS.has(S.view.kind)) return false;
@@ -1756,7 +1758,7 @@ async function boot(): Promise<void> {
     store, marks: () => marks, film: () => film, decisions: () => decisions, picker: () => picker, files: () => files, review: () => review, openPicker,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };
-  initNpmSwitch();
+  initNpmSwitch(() => render());
   document.body.dataset.ready = '1';
 }
 

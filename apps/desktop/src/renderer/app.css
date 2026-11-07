@@ -498,14 +498,40 @@ select.field { padding: 0 6px; }
 .code .n { display: inline-block; width: 34px; text-align: right; padding-right: 14px; color: #4E4E55; user-select: none; }
 .toast .undo { margin-left: 10px; font-size: 12.5px; }
 
-/* The switch from the npm board: a plain placeholder (renderer/npmswitch.ts). */
-.npmsw.screen { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); }
-.npmsw-card { width: min(520px, calc(100vw - 32px)); background: var(--sheet); border: 1px solid var(--sheet-ring); border-radius: 12px; padding: 22px 24px; color: var(--tx); }
-.npmsw-card h2 { font-size: 17px; font-weight: 600; margin: 0 0 12px; }
-.npmsw-card p { font-size: 13px; line-height: 1.5; color: var(--tx2); margin: 10px 0; }
-.npmsw-card ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
-.npmsw-log { color: var(--tx2); font-family: ui-monospace, Menlo, monospace; font-size: 12px !important; }
-.npmsw-err { color: var(--bad) !important; }
-.npmsw-btns { display: flex; gap: 8px; margin-top: 16px; }
-.npmsw.bar { position: fixed; top: 0; left: 0; right: 0; z-index: 40; }
-.npmsw-bar { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 6px 12px; background: var(--card); border-bottom: 1px solid var(--sep); font-size: 12px; color: var(--tx2); }
+/* The switch from the npm board (renderer/npmswitch.ts): the offer and its
+   steps in the first-launch place, the quiet bar atop the terminal sheet,
+   and the way back's sheet over the window. */
+.sw-card { width: min(580px, 100%); }
+.sw-r { display: flex; align-items: flex-start; gap: 14px; padding: 14px 18px; border-top: 1px solid var(--sep); }
+.sw-r:first-child { border-top: 0; }
+.sw-i { width: 22px; height: 22px; border-radius: 50%; background: var(--card2); color: var(--tx2); display: flex; align-items: center; justify-content: center; flex: none; margin-top: 1px; box-sizing: border-box; }
+.sw-i.ok { background: var(--ok); color: #FFF; }
+.sw-i.bad { background: var(--bad); color: #FFF; }
+.sw-i.run { background: transparent; border: 2px solid var(--work); border-top-color: transparent; animation: sw-spin 1s linear infinite; }
+@keyframes sw-spin { to { transform: rotate(360deg); } }
+.sw-c { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sw-c .h { font-weight: 650; font-size: 13.5px; }
+.sw-c .s { font-size: 12.5px; color: var(--tx2); line-height: 1.45; }
+.sw-c code, .qbar .code1 { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11.5px; color: var(--tx2); background: var(--input); border-radius: 5px; padding: 2px 6px; box-shadow: inset 0 0 0 1px var(--sep); }
+.sw-go { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--sep); }
+.sw-go .sp { flex: 1; }
+.sw-go .small, .sw .small { font-size: 12px; }
+.btn.lg { font-size: 14px; padding: 9px 18px; min-height: 38px; font-weight: 600; }
+.sw .fl-foot { max-width: 580px; line-height: 1.5; margin-top: 16px; }
+.kept { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 14px 18px; }
+.kept div { background: var(--input); border-radius: 9px; padding: 10px 12px; box-shadow: inset 0 0 0 1px var(--sep); }
+.kept b { display: block; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+.kept span { font-size: 12px; color: var(--tx2); }
+.qbar { display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; height: 38px; flex: none; background: var(--work-t); border-bottom: 1px solid var(--sep); font-size: 12.5px; color: var(--tx); }
+.qbar.back { background: var(--idle-t); }
+.qbar[hidden] { display: none; }
+.qbar .sp { flex: 1; }
+.veil { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.42); }
+.veil[hidden] { display: none; }
+@media (prefers-color-scheme: light) { .veil { background: rgba(0,0,0,.18); } }
+.vsheet { width: min(520px, calc(100vw - 32px)); background: var(--sheet); border-radius: 14px; box-shadow: 0 0 0 1px var(--sheet-ring), 0 24px 60px rgba(0,0,0,.5); overflow: hidden; color: var(--tx); }
+.vsheet .hd { padding: 20px 22px 6px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.vsheet .bd { padding: 4px 22px 6px; font-size: 13px; line-height: 1.55; color: var(--tx2); }
+.vsheet ul { margin: 8px 0 6px; padding-left: 18px; }
+.vsheet li { margin: 3px 0; }
+.vsheet .ft { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 22px 18px; }

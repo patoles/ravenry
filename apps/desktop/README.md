@@ -224,7 +224,11 @@ stops and its service goes, ideas.json is written again from
 login start is put back and loaded, which starts the board. A board that
 was started by hand is left to start as before; the bar says the command.
 
-The screen is a plain placeholder for now (`src/renderer/npmswitch.ts`).
+The offer takes the first-launch place, the person's own sessions in the
+sidebar beside it, and says what was found and what happens to each; the
+steps tick as they are done, and the end counts what the app's hub shows
+(`src/renderer/npmswitch.ts`). `node tools/npm-switch-shots.mjs
+release/mac-arm64/Ravenry.app OUT` takes every screen, dark and light.
 `node tools/npm-switch-test.mjs release/mac-arm64/Ravenry.app OUT` proves
 the switch and the way back on macOS with the real npm board 0.4.0
 installed from npm, run in throwaway HOMEs on spare ports, with

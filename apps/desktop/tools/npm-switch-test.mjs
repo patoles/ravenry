@@ -226,6 +226,7 @@ async function byHandCase() {
   const log = await runSteps(u, 'not-now', [
     { ready: true, timeout: 30000 },
     { until: view(`${R}.view().offer === 'screen'`), timeout: 30000 },
+    { until: `!document.getElementById('start').hidden && document.querySelector('#start .sw [data-act=switch]') && /ravenry --no-open/.test(document.querySelector('#start .sw').textContent)`, timeout: 10000 },
     { shot: path.join(OUT, 'by-hand-1-screen.png') },
     { js: `${R}.notNow()` },
     { until: view(`${R}.view().offer === 'bar'`), timeout: 10000 },
@@ -245,8 +246,8 @@ async function byHandCase() {
   const log2 = await runSteps(u, 'switch', [
     { ready: true, timeout: 30000 },
     { until: view(`${R}.view().offer === 'bar'`), timeout: 30000 },
-    { until: `document.querySelector('#npm-switch [data-act=switch]')`, timeout: 10000 },
-    { js: `document.querySelector('#npm-switch [data-act=switch]').click()` },
+    { until: `document.querySelector('#npm-bar:not([hidden]) [data-act=switch]')`, timeout: 10000 },
+    { js: `document.querySelector('#npm-bar [data-act=switch]').click()` },
     { until: view(`['switched', 'error'].includes(${R}.view().phase)`), timeout: 120000 },
     { save: { expr: `${R}.view()`, out: path.join(root, 'switch-view.json') } },
   ]);
@@ -260,12 +261,13 @@ async function byHandCase() {
     { until: view(`${R}.view().detect && ${R}.view().detect.record && ${R}.view().detect.record.state === 'switched'`), timeout: 30000 },
     { js: `${R}.back()` },
     { until: view(`['back', 'error'].includes(${R}.view().phase)`), timeout: 120000 },
+    { until: `document.querySelector('#npm-bar:not([hidden]) .code1') && document.querySelector('#npm-bar .code1').textContent === 'ravenry --no-open'`, timeout: 10000 },
     { shot: path.join(OUT, 'by-hand-3-back-bar.png') },
     { save: { expr: `${R}.view()`, out: path.join(root, 'back-view.json') } },
   ]);
   fs.writeFileSync(path.join(OUT, 'by-hand-back-app.log'), log3);
   const b = readJson(path.join(root, 'back-view.json'));
-  check('the way back ends with the board stopped and its command to start it as before', b && b.phase === 'back' && b.result && !b.result.started && /bin\/ravenry\.mjs --no-open$/.test(b.result.command || ''), b && JSON.stringify(b.result));
+  check('the way back ends with the board stopped and its command to start it as before', b && b.phase === 'back' && b.result && !b.result.started && /bin\/ravenry\.mjs --no-open$/.test(b.result.command || '') && b.result.again === 'ravenry --no-open', b && JSON.stringify(b.result));
   check("the app's hub is gone", !jobs(u)['dev.ravenry.hub'] && !fs.existsSync(path.join(u.home, '.ravenry', 'board.json')));
   // The person starts it as before.
   startNpmBoard(u.pkg, u.env, path.join(u.home, '.ravenry', 'logs', 'board.out.log'));

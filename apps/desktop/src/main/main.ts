@@ -302,13 +302,17 @@ async function setUpService(staged: Staged, opts: { port?: number; restart?: boo
 // ------------------------------------------------------------ the npm board
 
 // What the window shows of the switch (npmswitch.ts), and where it is.
-const npm: { detect: NpmDetect | null; offer: Offer; phase: 'idle' | 'switching' | 'switched' | 'going-back' | 'back' | 'error'; message: string | null; log: string[]; result: unknown; confirmBack: boolean } = {
-  detect: null, offer: 'none', phase: 'idle', message: null, log: [], result: null, confirmBack: false,
+// `from` is what was found when the person agreed (the steps the window
+// lists), `steps` each one done so far, `counts` what the app's hub shows
+// once it answers.
+type NpmStep = { id: string; [k: string]: unknown };
+const npm: { detect: NpmDetect | null; from: NpmDetect | null; offer: Offer; phase: 'idle' | 'switching' | 'switched' | 'going-back' | 'back' | 'error'; message: string | null; log: string[]; steps: NpmStep[]; counts: Record<string, number> | null; result: unknown; confirmBack: boolean } = {
+  detect: null, from: null, offer: 'none', phase: 'idle', message: null, log: [], steps: [], counts: null, result: null, confirmBack: false,
 };
 let staged: Staged | null = null;
 
 function npmView(): object {
-  return { offer: npm.offer, phase: npm.phase, message: npm.message, log: npm.log, result: npm.result, confirmBack: npm.confirmBack, detect: npm.detect };
+  return { offer: npm.offer, phase: npm.phase, message: npm.message, log: npm.log, steps: npm.steps, counts: npm.counts, result: npm.result, confirmBack: npm.confirmBack, detect: npm.detect, from: npm.from, platform: process.platform };
 }
 function pushNpm(): void { send('npm:state', npmView()); menu(); }
 
@@ -353,16 +357,22 @@ async function waitForHub(port: number, ms = 30000): Promise<boolean> {
 // and the app's hub starts on the same data and port.
 async function switchFromNpm(): Promise<object> {
   if (npm.phase === 'switching' || npm.phase === 'going-back') return npmView();
-  npm.phase = 'switching'; npm.message = null; npm.log = []; npm.result = null;
+  npm.phase = 'switching'; npm.message = null; npm.log = []; npm.steps = []; npm.counts = null; npm.result = null; npm.from = npm.detect;
   pushNpm();
-  const r = await npmScript(['switch', '--ravenryd', hookBin() || ''], (l) => { npm.log.push(l); pushNpm(); });
+  const r = await npmScript(['switch', '--ravenryd', hookBin() || ''], (l) => {
+    if (l.startsWith('@step ')) { try { npm.steps.push(JSON.parse(l.slice(6))); } catch { /* a cut line */ } } else npm.log.push(l);
+    pushNpm();
+  });
   if (!r.ok) { npm.phase = 'error'; npm.message = r.error || 'The switch stopped.'; pushNpm(); return npmView(); }
   const rec = (r as { record?: { port?: number } }).record || {};
   const port = Number(rec.port) || 4600;
   npm.log.push(`hub: starting the app's hub on :${port}`);
+  const hubStep: NpmStep = { id: 'hub', port, done: false };
+  npm.steps.push(hubStep);
   pushNpm();
   if (staged) await setUpService(staged, { port, restart: true });
   const up = await waitForHub(port);
+  if (up) { hubStep.done = true; npm.counts = await hubCounts(port); }
   await detectNpm();
   store.set({ npmChoice: 'switched' });
   npm.result = r;
@@ -371,6 +381,24 @@ async function switchFromNpm(): Promise<object> {
   npm.offer = 'none';
   pushNpm();
   return npmView();
+}
+
+// What the person cares about, as the app's hub now shows it.
+async function hubCounts(port: number): Promise<Record<string, number> | null> {
+  const url = `http://127.0.0.1:${port}`;
+  try {
+    const st = await hubGet(url, '/api/state') as { projects?: { hidden?: boolean; sessions?: unknown[]; plan?: unknown }[] };
+    const projects = (st.projects || []).filter((p) => !p.hidden);
+    const ideas = await hubGet(url, '/api/ideas').catch(() => ({})) as { ideas?: { archived?: boolean }[] };
+    const rules = await hubGet(url, '/api/rules/mine').catch(() => ({})) as { count?: number };
+    return {
+      projects: projects.length,
+      sessions: projects.reduce((n, p) => n + (p.sessions || []).length, 0),
+      ideas: (ideas.ideas || []).filter((i) => !i.archived).length,
+      plans: projects.filter((p) => p.plan).length,
+      rules: Number(rules.count) || 0,
+    };
+  } catch { return null; }
 }
 
 // The way back: the app's hub stops and leaves, then the hub script puts

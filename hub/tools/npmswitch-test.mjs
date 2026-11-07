@@ -73,6 +73,11 @@ const codexNpm = read(path.join(HOME, '.codex', 'hooks.json'));
 const configNpm = fs.readFileSync(path.join(HOME, '.codex', 'config.toml'), 'utf8');
 check('setup as npm writes it: the npm copy\'s commands', cmds(claudeNpm).SessionStart[0] === `${NODE} ${path.join(NPM, 'hooks', 'events.mjs')}`, JSON.stringify(cmds(claudeNpm)));
 
+// What the person types to start the board again, from its command line.
+fs.mkdirSync(path.join(T, 'npm', 'bin'), { recursive: true });
+fs.symlinkSync(path.join(NPM, 'bin', 'ravenry.mjs'), path.join(T, 'npm', 'bin', 'ravenry'));
+check('the command to start it again: ravenry and its arguments, through npm\'s link or the package\'s bin', sw.startCommand(`node ${path.join(T, 'npm', 'bin', 'ravenry')} --no-open`) === 'ravenry --no-open' && sw.startCommand(`${NODE} ${path.join(NPM, 'bin', 'ravenry.mjs')} serve`) === 'ravenry serve' && sw.startCommand('node /elsewhere/server.js') === 'node /elsewhere/server.js');
+
 // 1. An npm copy's hook is Ravenry's: a dry run of the app's setup rewrites
 // it, never adds a second.
 check('an npm copy\'s hook (…/ravenry-app/hooks/events.mjs) is recognised as Ravenry\'s', hk.isOurs({ command: cmds(claudeNpm).SessionStart[0] }, hk.OURS[1], { root: ROOT }));

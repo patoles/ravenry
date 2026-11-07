@@ -141,6 +141,16 @@ export function boardOf(words) {
   return null;
 }
 
+// What the person types to start that board again: `ravenry` and its
+// arguments when it ran through the package's bin (npm's link included),
+// else the command line as it was.
+export function startCommand(command) {
+  const words = psWords(command);
+  const i = words.findIndex((w) => path.isAbsolute(w) && /[/\\]bin[/\\]ravenry(\.mjs)?$/.test(realOr(w)) && boardOf([w]));
+  if (i < 0) return String(command || '').trim() || null;
+  return ['ravenry', ...words.slice(i + 1)].join(' ');
+}
+
 // ------------------------------------------------------------ the board
 
 async function stateAt(port) {
@@ -173,7 +183,7 @@ export async function findBoard({ home = RAVENRY_HOME, appData = null } = {}) {
   if (holders.length && !holders.includes(b.pid)) return null;
   const command = commandOf(b.pid);
   const copy = boardOf(psWords(command));
-  return { port: b.port, pid: b.pid, command, cwd: cwdOf(b.pid), root: copy ? copy.root : null, version: copy ? copy.version : null, own: copy ? isOwn(copy.root, appData) : false };
+  return { port: b.port, pid: b.pid, command, again: startCommand(command), cwd: cwdOf(b.pid), root: copy ? copy.root : null, version: copy ? copy.version : null, own: copy ? isOwn(copy.root, appData) : false };
 }
 
 // ------------------------------------------------------------ login starts
@@ -296,7 +306,9 @@ async function stopPid(pid, port) {
 }
 
 /** The switch, once the person agreed. `ravenryd`: the app's ravenryd for the hooks. */
-export async function doSwitch({ ravenryd, appData = null, log = () => {} } = {}) {
+// `step(id, data)` says each step as it is done, for the window: login,
+// stopped, backup, hooks.
+export async function doSwitch({ ravenryd, appData = null, log = () => {}, step = () => {} } = {}) {
   const d = await detect({ appData });
   const prev = d.record;
   if (!d.npm && !(prev && prev.state === 'switching')) return { ok: false, error: 'There is no npm board here to switch from.' };
@@ -306,7 +318,7 @@ export async function doSwitch({ ravenryd, appData = null, log = () => {} } = {}
   const half = prev && prev.state === 'switching' ? prev : null;
   const rec = {
     version: 1, state: 'switching', at: at.toISOString(),
-    from: half ? half.from : { ...(d.copy || {}), board: d.board && !d.board.own ? { port: d.board.port, pid: d.board.pid, command: d.board.command, cwd: d.board.cwd } : null },
+    from: half ? half.from : { ...(d.copy || {}), board: d.board && !d.board.own ? { port: d.board.port, pid: d.board.pid, command: d.board.command, again: d.board.again, cwd: d.board.cwd } : null },
     port: half ? half.port : (d.board && !d.board.own ? d.board.port : (readJson(path.join(RAVENRY_HOME, 'board.json')) || {}).port || Number(process.env.PORT) || 4600),
     login: half ? [...half.login] : [],
     hooks: half ? half.hooks : { claude: d.hooks.claude, codex: d.hooks.codex },
@@ -330,6 +342,7 @@ export async function doSwitch({ ravenryd, appData = null, log = () => {} } = {}
     rec.login.push({ label: it.label, plist: it.plist, kept: path.relative(RAVENRY_HOME, kept), loaded: it.loaded });
     writeRecord(rec);
     log(`login start ${it.label}: off (its file is in ${rec.backup}/LaunchAgents)`);
+    step('login', { label: it.label });
   }
 
   // 2. The board, when it still runs (started by hand, or launchd was slow).
@@ -338,6 +351,7 @@ export async function doSwitch({ ravenryd, appData = null, log = () => {} } = {}
     if (!board.root) return { ok: false, error: `Something that is not a Ravenry board answers on :${board.port}. Stop it first.`, record: rec };
     if (!(await stopPid(board.pid, board.port))) return { ok: false, error: `The npm board (pid ${board.pid}) did not stop.`, record: rec };
     log(`board: stopped pid ${board.pid} on :${board.port}`);
+    step('stopped', { pid: board.pid, port: board.port });
   }
   // A board that was killed leaves its board.json.
   const bj = readJson(path.join(RAVENRY_HOME, 'board.json'));
@@ -352,6 +366,7 @@ export async function doSwitch({ ravenryd, appData = null, log = () => {} } = {}
   keep(cx.CONFIG_FILE(), 'codex-config.toml');
   writeRecord(rec);
   log(`backup: ${rec.copied} files in ${rec.backup}`);
+  step('backup', { files: rec.copied, dir: rec.backup });
 
   // 4. The hooks, to the app's copy.
   if (ravenryd) {
@@ -359,6 +374,7 @@ export async function doSwitch({ ravenryd, appData = null, log = () => {} } = {}
     if (!r.ok) return { ok: false, error: `The hooks were not moved: ${r.error}`, record: rec };
     rec.hooksMoved = { claude: r.claude ? r.claude.changes.length : 0, codex: r.codex ? r.codex.changes.length : 0 };
     log(`hooks: ${rec.hooksMoved.claude} change(s) in Claude Code's settings, ${rec.hooksMoved.codex} in Codex's`);
+    step('hooks', { claude: !!r.claude && r.claude.changes.length > 0, codex: !!r.codex && r.codex.changes.length > 0 });
   }
   rec.state = 'switched';
   rec.switchedAt = new Date().toISOString();
@@ -394,7 +410,7 @@ export async function goBack({ appData = null, log = () => {} } = {}) {
   if (rec.hooks.claude.length + rec.hooks.codex.length && root && !fs.existsSync(path.join(root, 'hooks', 'events.mjs'))) {
     return { ok: false, error: `The npm board's copy is not in ${root} any more. Install it again (npm i -g ravenry-app@${rec.from.version || 'latest'}), then go back.` };
   }
-  const result = { ok: true, ideas: null, hooks: null, login: [], started: false, command: rec.from && rec.from.board ? rec.from.board.command : null, cwd: rec.from && rec.from.board ? rec.from.board.cwd : null, port: rec.port };
+  const result = { ok: true, ideas: null, hooks: null, login: [], started: false, command: rec.from && rec.from.board ? rec.from.board.command : null, again: rec.from && rec.from.board ? rec.from.board.again || startCommand(rec.from.board.command) : null, cwd: rec.from && rec.from.board ? rec.from.board.cwd : null, port: rec.port };
   result.ideas = ideasfiles.moveBack(RAVENRY_HOME, { log });
   result.hooks = hooksBack(rec);
   log(`hooks: back to ${root || 'none'} (${result.hooks.claude.length} change(s) in Claude Code's settings, ${result.hooks.codex.length} in Codex's)`);
@@ -428,9 +444,11 @@ if (isMain) {
   const appData = opt('--app-data') || null;
   const lines = [];
   const log = (s) => { lines.push(s); process.stderr.write(s + '\n'); };
+  // One line per step for the window (apps/desktop/src/main/npmswitch.ts).
+  const step = (id, data) => process.stderr.write(`@step ${JSON.stringify({ id, ...data })}\n`);
   const cmd = argv[0];
   const job = cmd === 'detect' ? detect({ appData })
-    : cmd === 'switch' ? doSwitch({ ravenryd: opt('--ravenryd') || null, appData, log })
+    : cmd === 'switch' ? doSwitch({ ravenryd: opt('--ravenryd') || null, appData, log, step })
       : cmd === 'back' ? goBack({ appData, log })
         : Promise.resolve({ ok: false, error: `usage: npmswitch.mjs detect|switch|back` });
   job.then((r) => { process.stdout.write(JSON.stringify({ ...r, log: lines }) + '\n'); process.exit(r.ok ? 0 : 1); },
