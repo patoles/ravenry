@@ -20,8 +20,10 @@
 // Needs you (syncProjects).
 
 import crypto from 'node:crypto';
+import net from 'node:net';
 import os from 'node:os';
 import * as phone from './phone.mjs';
+import { isLoopbackAddr, isPrivateV4Addr, isTailscaleAddr, isUlaAddr } from './phonetls.mjs';
 import { sayFolder } from './homes.mjs';
 
 const env = process.env;
@@ -73,13 +75,22 @@ export function encrypt(plaintext, p256dh, auth, { as = null, salt = null } = {}
 
 const KINDS = new Set(['unifiedpush', 'apns', 'fcm', 'none']);
 
-function endpointOk(u) {
+// https to anywhere. http only to an address written as a number on this
+// computer, the home network (10/8, 172.16/12, 192.168/16, IPv6 fc00::/7)
+// or Tailscale (100.64/10): a self-hosted distributor, such as ntfy on a
+// computer at home, is often plain http there, and every body is
+// encrypted for the phone anyway (RFC 8291). A host name is never taken
+// over http, since what it points to can change; nor a public address.
+export function endpointOk(u) {
   let x;
   try { x = new URL(String(u || '')); } catch { return false; }
   if (x.username || x.password) return false;
   if (x.protocol === 'https:') return true;
+  if (x.protocol !== 'http:') return false;
   const h = x.hostname.replace(/^\[|\]$/g, '');
-  return x.protocol === 'http:' && (h === '127.0.0.1' || h === 'localhost' || h === '::1');
+  if (h === 'localhost') return true;
+  if (!net.isIP(h)) return false;
+  return isLoopbackAddr(h) || isPrivateV4Addr(h) || isTailscaleAddr(h) || isUlaAddr(h);
 }
 
 // A device's push target, checked: { ok, target } or { ok: false, status, error }.
@@ -89,7 +100,7 @@ export function checkTarget(b) {
   if (!KINDS.has(kind)) return { ok: false, status: 400, error: 'Unknown push kind. This hub knows unifiedpush and none.' };
   if (kind === 'none') return { ok: true, target: null };
   if (kind !== 'unifiedpush') return { ok: false, status: 400, error: `Push through ${kind} is not built yet. Use unifiedpush, or none.` };
-  if (!endpointOk(body.endpoint)) return { ok: false, status: 400, error: 'The endpoint is not an https address.' };
+  if (!endpointOk(body.endpoint)) return { ok: false, status: 400, error: 'The endpoint must be https, or http to an address on this computer, the home network or Tailscale (such as http://192.168.1.20:8080/...).' };
   const p = unb64u(body.p256dh), a = unb64u(body.auth);
   if (p.length !== 65 || p[0] !== 4) return { ok: false, status: 400, error: 'p256dh is not an uncompressed P-256 public key in base64url.' };
   if (a.length !== 16) return { ok: false, status: 400, error: 'auth is not 16 bytes in base64url.' };

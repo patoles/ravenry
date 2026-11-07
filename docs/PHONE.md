@@ -175,7 +175,11 @@ message of section 5, at most 3000 bytes (longer texts are cut with `...`).
 - **unifiedpush**: `POST <endpoint>` with `Content-Encoding: aes128gcm`,
   `TTL: 3600`, `Urgency: high`, the encrypted body. 404 or 410 drops the
   target; another failure is tried once more after 30 s. The endpoint must
-  be https (http only to loopback, for tests).
+  be https, or http to an IP address on this computer (loopback), the home
+  network (10/8, 172.16/12, 192.168/16, IPv6 fc00::/7) or Tailscale
+  (100.64/10), where a self-hosted distributor such as ntfy often runs
+  without TLS; the body is encrypted for the phone either way. http to a
+  host name or a public address is refused with 400.
 - **apns** (designed): `POST <relay>/v1/apns` `{ token, ttl, body }` with the
   same encrypted body in base64url; the relay sends it to APNs with
   `mutable-content: 1` and a placeholder title, and the app's Notification

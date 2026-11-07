@@ -114,7 +114,18 @@ const auth = crypto.randomBytes(16);
   check('a permission menu of four: its first two answers and Open', JSON.stringify(perm.actions.map((a) => a.id)) === '["quick:1","quick:2","open"]' && perm.title === 'Lazy-load gallery needs you' && perm.reply === null, JSON.stringify(perm.actions));
   const q = projectMessage({ kind: 'question' }, { id: 'w', name: 'weather-api', primary: 's2', state: 'you', question: 'Which do you want: 10 minutes or 30?', quick: [{ label: '10 minutes' }, { label: '30 minutes' }], sessions: [{ surfaceId: 's2', assistant: 'claude' }] });
   check('a question in a session: its quick answers (typed ones say their text) and Reply', JSON.stringify(q.actions) === '[{"id":"quick:0","label":"10 minutes","text":"10 minutes"},{"id":"quick:1","label":"30 minutes","text":"30 minutes"}]' && q.reply && q.reply.label === 'Reply');
-  check('push targets: unifiedpush is checked, apns is not built yet, http only to loopback', checkTarget({ kind: 'unifiedpush', endpoint: 'https://ntfy.example/up1?up=1', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && checkTarget({ kind: 'apns' }).status === 400 && !checkTarget({ kind: 'unifiedpush', endpoint: 'http://ntfy.example/up', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && checkTarget({ kind: 'none' }).target === null);
+  check('push targets: unifiedpush is checked, apns is not built yet, none clears', checkTarget({ kind: 'unifiedpush', endpoint: 'https://ntfy.example/up1?up=1', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && checkTarget({ kind: 'apns' }).status === 400 && checkTarget({ kind: 'none' }).target === null);
+  // http: only to an address written as a number on this computer, the
+  // home network or Tailscale (a self-hosted ntfy); never a host name or a
+  // public address.
+  const ep = (endpoint) => checkTarget({ kind: 'unifiedpush', endpoint, p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) });
+  const httpOk = ['http://127.0.0.1:2586/up1?up=1', 'http://localhost/up1', 'http://[::1]/up1', 'http://10.0.2.2:2586/upAbc?up=1', 'http://172.16.4.1/up1', 'http://172.31.255.1/up1', 'http://192.168.1.20:8080/up1', 'http://100.64.0.1/up1', 'http://100.127.9.9/up1', 'http://[fd7a:115c:a1e0::1]/up1', 'http://[fc00::5]/up1'];
+  const httpNo = ['http://ntfy.example/up', 'http://ntfy.local/up', 'http://10.0.0.1.nip.io/up', 'http://8.8.8.8/up', 'http://172.32.0.1/up', 'http://100.128.0.1/up', 'http://[2001:db8::1]/up', 'http://[fc::1]/up', 'http://[fe80::1]/up', 'http://u:p@10.0.0.1/up', 'ftp://10.0.0.1/up', 'not a url'];
+  const wrongOk = httpOk.filter((u) => !ep(u).ok);
+  const wrongNo = httpNo.filter((u) => ep(u).ok);
+  check('http endpoints: taken on loopback, the home network and Tailscale, refused to host names and public addresses', !wrongOk.length && !wrongNo.length, JSON.stringify({ refused: wrongOk, taken: wrongNo }));
+  const said = ep('http://ntfy.example/up');
+  check('a refused http endpoint says what is taken', said.status === 400 && /https, or http to an address on this computer, the home network or Tailscale/.test(said.error), said.error);
 }
 
 // ------------------------------------------------------------ pairing, in process

@@ -140,6 +140,12 @@ export function isTailscaleAddr(a) {
   return /^fd7a:115c:a1e0:/.test(s);
 }
 
+// An IPv6 unique local address (fc00::/7), a home network's own range;
+// Tailscale's fd7a:115c:a1e0::/48 is one.
+export function isUlaAddr(a) {
+  return /^f[cd][0-9a-f]{2}:/i.test(String(a || ''));
+}
+
 // Whether a connection that arrived on this local address may talk to the
 // phone port.
 export function localAddressOk(a) {
