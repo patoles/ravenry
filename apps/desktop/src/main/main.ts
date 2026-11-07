@@ -227,6 +227,9 @@ function ipc(): void {
     outside('path', p, () => void shell.openPath(p));
   });
   ipcMain.on('copy-text', (_e, text: string) => { if (typeof text === 'string' && text.length <= 64 * 1024) outside('copy', text, () => clipboard.writeText(text)); });
+  // Paste in the terminal (keymap.ts Cmd+V): offscreen a test's own text
+  // (RAVENRY_TEST_CLIPBOARD), never the person's clipboard.
+  ipcMain.handle('clipboard:read', () => (OFFSCREEN ? process.env.RAVENRY_TEST_CLIPBOARD || '' : clipboard.readText()));
   ipcMain.handle('hub:call', (_e, method: string, p: string, body: unknown) => hubCall(feed!.url, method, p, body));
   // The switch from the npm board (npmswitch.ts): the window's answers.
   ipcMain.handle('npm:state', () => npmView());

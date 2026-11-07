@@ -94,7 +94,7 @@ try {
       { signal: sig('arrive2') }, { wait: go('arrive2') },
       { until: `!document.getElementById('toast').hidden && [...document.querySelectorAll('#toast button')].some((b) => b.textContent === 'Show')`, timeout: 20000 },
       { js: `[...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click()` },
-      { until: `window.__ravenry.S.view.kind === 'session' && window.__ravenry.S.view.key === 'notes-app/sf-4'`, timeout: 20000 },
+      { until: `document.querySelector('#tabs .tab.on') && document.querySelector('#tabs .tab.on').dataset.key === 'notes-app/sf-4'`, timeout: 20000 },
       shot('narrow-arrival.png'),
       { save: { expr: `({ tabs: ${S}.tabs.length, renderer: window.__ravenry.term().renderer, cols: window.__ravenry.term().term.cols, rows: window.__ravenry.term().term.rows })`, out: path.join(WORK, 'board-state.json') } },
     ],

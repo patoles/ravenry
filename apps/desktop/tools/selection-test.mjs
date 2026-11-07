@@ -122,8 +122,21 @@ try {
     { shot: path.join(OUT, 'selection-toast.png') },
     { hover: [700, 400] },
     { click: `[...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show')`, clickJs: true },
-    { until: `${R}.S.view.kind === 'session' && ${R}.S.view.key === '${NOTES}' && ${AGREE}`, timeout: 10000 },
+    { until: `(${SEL}).front === '${NOTES}' && ${AGREE}`, timeout: 10000 },
     { save: { expr: SEL, out: path.join(work, 'shown.json') } },
+    // The strip: a session, a shell and a second session are each a tab;
+    // clicking through them brings each to the front and never removes or
+    // moves one (2026-11-07: "if I select on other tab at the top the
+    // ravenry tab disappears").
+    { js: `${R}.onCommand('new-shell')` },
+    { until: `${R}.S.tabs.filter((t) => t.kind === 'shell').length === 2 && ${R}.term().ready`, timeout: 10000 },
+    { save: { expr: `${R}.S.tabs.map((t) => t.id)`, out: path.join(work, 'strip0.json') } },
+    ...[0, 1, 2, 3].flatMap((i) => [
+      { click: `document.querySelectorAll('#tabs .tabrow > .tab')[${i}]`, clickJs: true, hold: 150 },
+      { until: `document.querySelectorAll('#tabs .tabrow > .tab')[${i}].classList.contains('on') && ${AGREE}`, timeout: 8000 },
+      { save: { expr: `({ ids: ${R}.S.tabs.map((t) => t.id), on: document.querySelectorAll('#tabs .tabrow > .tab')[${i}].dataset.key, sel: ${SEL} })`, out: path.join(work, `strip${i + 1}.json`) } },
+    ]),
+    { shot: path.join(OUT, 'strip-dark.png'), el: '#tabs' },
     // Back to the kite session, the one in front when the app quits.
     { click: `[...document.querySelectorAll('#side .ss')].find((e) => e.dataset.key === '${KEY}')`, clickJs: true },
     { until: `${R}.term().attached && ${R}.term().attached.pane === '${pane.id}' && ${AGREE}`, timeout: 10000 },
@@ -133,6 +146,9 @@ try {
   check('launch: the launch shell is in front; no row is highlighted, and the panel shows that shell', j('launch.json').front.startsWith('tab:') && j('launch.json').row === null && (j('launch.json').panel === null || j('launch.json').panel === j('launch.json').front), JSON.stringify(j('launch.json')));
   check('a real click on the row (the sidebar redrawn meanwhile) brings its pane to the front; row, panel and tab agree', j('clicked.json').front === KEY && j('clicked.json').row === KEY && j('clicked.json').panel === KEY, JSON.stringify(j('clicked.json')));
   check('another session moving into Needs you leaves the front alone (a toast says so)', j('arrived.json').front === KEY && j('arrived.json').row === KEY, JSON.stringify(j('arrived.json')));
+  const s0 = j('strip0.json');
+  const clicks = [1, 2, 3, 4].map((i) => j(`strip${i}.json`));
+  check('the strip: a session, a second session and two shells are tabs; a click on each brings it to the front, every tab stays, in order, and row, panel and tab agree', s0.length === 4 && clicks.every((c, i) => JSON.stringify(c.ids) === JSON.stringify(s0) && c.sel.front === c.on), JSON.stringify({ s0, fronts: clicks.map((c) => c.sel.front) }));
   const needs = (f) => j(f).filter((t) => /^Sync settings in notes needs you: Ship it/.test(t)).length;
   check('no toast about the session in front (Kite tail), all along', ['after9.json', 'again.json', 'hovered.json'].every((f) => !j(f).some((t) => /Kite tail/.test(t))), JSON.stringify(j('hovered.json')));
   check('a toast with an action is still there 9 s after it came', needs('after9.json') === 1, JSON.stringify(j('after9.json')));
@@ -166,7 +182,7 @@ try {
   const gn = j('gone.json');
   const asks = (third.match(/could not show pane/g) || []).length;
   if (asks) console.log(third.split('\n').filter((l) => /window:/.test(l)).join('\n'));
-  check('its pane gone: the launch shell is in front, no toast, no repeated tries', gn.sel.front.startsWith('tab:') && gn.sel.row === null && !/Could not/.test(gn.toast) && asks === 0 && /is gone; the launch shell instead/.test(third), JSON.stringify({ ...gn, asks }));
+  check('its pane gone: the launch shell is in front, no toast, no repeated tries', gn.sel.front.startsWith('tab:') && gn.sel.row === null && !/Could not/.test(gn.toast) && asks === 0 && /is gone; its tab closes/.test(third), JSON.stringify({ ...gn, asks }));
 } finally {
   clearInterval(tickTimer);
   for (const s of streams) s.end();

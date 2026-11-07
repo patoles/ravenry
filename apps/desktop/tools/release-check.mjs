@@ -47,6 +47,12 @@
 //                   cmux ends the Ravenry copy. Each time exactly one
 //                   process remains and the pane shows the latest turn.
 //                   Each state shot dark and light.
+//   10 strip        (in 9) two sessions, two shells and an agent's pane are
+//                   tabs, the agent's right after the shell it came from;
+//                   clicking through each keeps every tab, in order, and
+//                   the row, the panel and the tab agree; shot dark, light
+//   11 keys         tools/keys-test.mjs on the packaged app: every row of
+//                   the keys table arrives as its exact bytes
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
 import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
@@ -529,6 +535,30 @@ try {
       { click: `[...document.querySelectorAll('#movebar button')].find((b) => b.textContent === 'Keep it in cmux')`, clickJs: true }, mark('clickD'),
       { until: `document.getElementById('movebar').hidden && !document.getElementById('elsewhere').hidden`, timeout: 30000 }, mark('keptD'),
       ...pause(m, 'checkD'),
+      // 10, the strip: two sessions, a shell, and a pane an agent made from
+      // that shell are tabs; clicking through them brings each to the front
+      // and never removes or moves one; row, panel and tab agree each time.
+      { click: `[...document.querySelectorAll('#side .ss')].find((e) => /a slow plan/.test(e.textContent))`, clickJs: true },
+      { until: AGREE, timeout: 8000 },
+      { js: `${R}.onCommand('new-shell')` },
+      { until: `${R}.S.tabs.filter((t) => t.kind === 'shell' && !t.owner).length >= 2 && ${R}.term().ready`, timeout: 15000 }, { sleep: 800 },
+      { type: `'${path.join(m.data, 'bin', 'ravenryd')}' new --name 'dev server' -- /bin/sh -c 'echo serving on :5173; exec sleep 600'\r`, after: 300 },
+      { until: `${R}.S.tabs.some((t) => t.owner)`, timeout: 15000 }, mark('agentTab'),
+      save('agentAfterOwner', `(() => { const i = ${R}.S.tabs.findIndex((t) => t.owner); return i > 0 && ${R}.S.tabs[i - 1].kind === 'shell' && ${R}.S.tabs[i - 1].pane === ${R}.S.tabs[i].owner; })()`),
+      save('agentNotFront', `${R}.S.view.kind === 'tab' && !${R}.S.tabs.find((t) => t.id === ${R}.S.view.id).owner`),
+      { click: rowOf(SFA, SA), clickJs: true },
+      { until: AGREE, timeout: 8000 },
+      save('strip0', `${R}.S.tabs.map((t) => t.id)`),
+      { js: `window.__stripOk = true; window.__stripN = document.querySelectorAll('#tabs .tabrow > .tab').length` },
+      ...Array.from({ length: 8 }, (_, i) => [
+        { js: `window.__i = ${i}` },
+        { click: `document.querySelectorAll('#tabs .tabrow > .tab')[Math.min(${i}, window.__stripN - 1)]`, clickJs: true, hold: 120 },
+        { until: `document.querySelectorAll('#tabs .tabrow > .tab')[Math.min(${i}, window.__stripN - 1)].classList.contains('on') && ${AGREE}`, timeout: 8000 },
+        { js: `if (JSON.stringify(${R}.S.tabs.map((t) => t.id)) !== JSON.stringify(window.__marks.strip0)) window.__stripOk = false` },
+      ]).flat(),
+      save('stripOk', `window.__stripOk`), save('stripN', `window.__stripN`),
+      { click: `[...document.querySelectorAll('#tabs .tabrow > .tab')].find((e) => /a slow plan|kite/.test(e.textContent))`, clickJs: true }, { sleep: 600 },
+      shot('10-strip-dark.png'), { theme: 'light' }, shot('10-strip-light.png'), { theme: 'dark' },
     ]);
     feed.catch((e) => { fs.writeFileSync(path.join(m.work, 'feed-error.txt'), String(e.stack || e)); for (const n of ['hooks', 'checkA', 'checkB', 'checkC', 'checkD']) try { fs.writeFileSync(goFile(m, n), '1'); } catch { /* */ } });
     const mk = await Promise.all([run, feed]).then(([x]) => x);
@@ -545,9 +575,21 @@ try {
     const frontToast = (list, line) => (list || []).some((t) => t.includes(line));
     const dupes = (list) => new Set(list || []).size !== (list || []).length;
     step('9 move: no toast about the session in front, and no two toasts alike; an empty cmux screen shows the transcript instead', mk.transcriptA > 0 && !frontToast(mk.toastsA, 'make the tail flutter') && !frontToast(mk.toastsD, 'it went on elsewhere') && !dupes(mk.toastsA) && !dupes(mk.toastsD), { toastsA: mk.toastsA, toastsD: mk.toastsD });
+    step('10 strip: two sessions, two shells and an agent\'s pane are tabs (the agent\'s right after the shell it came from, not brought to the front); clicking through each, every tab stays, in order, and row, panel and tab agree', mk.agentTab > 0 && mk.agentAfterOwner === true && mk.agentNotFront === true && mk.stripN >= 5 && mk.stripOk === true, { tabs: mk.strip0, n: mk.stripN });
     step('9 move: every move is in app.log with each process it ended, and in the hub\'s log', /window: move .*: ended \d+ in cmux \(SIGTERM/.test(appLog) && /after its turn: ended/.test(appLog) && /kept in the other terminal/.test(appLog) && /sessions: move .*: ended \d+ in cmux with SIGTERM/.test(hubLog), { app: appLog.split('\n').filter((l) => / move /.test(l)).slice(-8) });
     for (const k of kids) if (!k.exited) k.c.kill('SIGTERM');
     launchctl('bootout', `gui/${UID}/${m.label}`);
+  });
+  // ------------------------------------------------------------ 11, keys
+  await guarded('11 keys', async () => {
+    // The packaged app, copied out as it sits in /Applications.
+    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvck-'));
+    const app = path.join(k, 'Ravenry.app');
+    execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+    const r = spawnSync(process.execPath, [path.join(HERE, 'keys-test.mjs'), path.join(OUT, 'keys'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
+    const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+    step(`11 keys: every row of the keys table arrives as its exact bytes in a pane (${lines.filter((l) => l.startsWith('PASS')).length} of ${lines.length}), tools/keys-test.mjs`, r.status === 0 && lines.length > 20 && !lines.some((l) => l.startsWith('FAIL')), { fails: lines.filter((l) => l.startsWith('FAIL')).slice(0, 5), tail: (r.stderr || '').trim().split('\n').slice(-2) });
+    fs.rmSync(k, { recursive: true, force: true });
   });
 } finally {
   // Every test label out of launchd, whatever happened.

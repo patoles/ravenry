@@ -29,6 +29,16 @@ const enc = new TextEncoder();
 
 export interface Attached { client: RavenryClient; pane: string }
 
+// macOS's terminals (Terminal.app, iTerm2, Ghostty) where xterm.js does
+// otherwise: Cmd+arrows to the line's start and end, Cmd+Backspace to
+// delete to its start, Option+arrows by word (xterm.js sends CSI 1;3D/C);
+// and what the window does on Cmd (clear the scrollback, copy, paste,
+// select all).
+type KeyAct = 'clear' | 'copy' | 'paste' | 'select-all';
+const MAC_CMD_SEND: Record<string, string> = { ArrowLeft: '\x01', ArrowRight: '\x05', Backspace: '\x15' };
+const MAC_OPT_SEND: Record<string, string> = { ArrowLeft: '\x1bb', ArrowRight: '\x1bf' };
+const MAC_CMD_ACT: Record<string, KeyAct> = { k: 'clear', c: 'copy', v: 'paste', a: 'select-all' };
+
 export class TerminalView {
   readonly term: Terminal;
   readonly el: HTMLElement;
@@ -47,6 +57,9 @@ export class TerminalView {
   onEnter: (a: Attached) => void = () => {};
   /** Shortcuts the app handles; xterm.js lets them through. */
   isAppKey: (e: KeyboardEvent) => boolean = () => false;
+  /** What the window does with Cmd+K, C, V, A on a Mac (MAC_CMD_ACT). */
+  onKeyAct: (act: KeyAct) => void = () => {};
+  mac = false;
   /**
    * A frame was written: the output position the cursor stands at now
    * (marks.ts places an input's echo from it). `fresh` is a new pane on
@@ -77,7 +90,19 @@ export class TerminalView {
     suppressTerminalQueries(this.term.parser);
     this.term.open(el);
     this.useWebgl();
-    this.term.attachCustomKeyEventHandler((e) => !this.isAppKey(e));
+    // xterm.js sends the keys itself, macOS's Option+arrows and
+    // Option+Backspace included; the app's shortcuts go on to the menu
+    // (isAppKey), except the few Cmd keys of macOS's terminals xterm.js
+    // does not do (docs in apps/desktop/README.md, Keys).
+    this.term.attachCustomKeyEventHandler((e) => {
+      const only = this.mac && !e.ctrlKey && !e.shiftKey;
+      const cmd = only && e.metaKey && !e.altKey;
+      const send = cmd ? MAC_CMD_SEND[e.key] : only && e.altKey && !e.metaKey ? MAC_OPT_SEND[e.key] : undefined;
+      const act = cmd ? MAC_CMD_ACT[e.key.toLowerCase()] : undefined;
+      if (!send && !act) return !this.isAppKey(e);
+      if (e.type === 'keydown') { e.preventDefault(); if (send) this.input(send); else this.onKeyAct(act!); }
+      return false;
+    });
     this.term.onData((d) => {
       this.input(d);
       if (d.includes('\r') && this.current) this.onEnter(this.current);

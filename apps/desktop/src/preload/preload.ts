@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('ravenry', {
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
   openPath: (p: string) => ipcRenderer.send('open-path', p),
   copyText: (text: string) => ipcRenderer.send('copy-text', text),
+  readClipboard: () => ipcRenderer.invoke('clipboard:read') as Promise<string>,
   hubCall: (method: string, p: string, body?: unknown) => ipcRenderer.invoke('hub:call', method, p, body),
   focusWindow: () => ipcRenderer.send('focus-window'),
   log: (line: string) => ipcRenderer.send('app:log', String(line).slice(0, 2000)),

@@ -40,6 +40,8 @@ export interface RavenryApi {
   /** A page file, an item's file or a folder, in the person's own app (logged instead when offscreen). */
   openPath(p: string): void;
   copyText(text: string): void;
+  /** The clipboard's text (a test's own text offscreen, never the real clipboard). */
+  readClipboard(): Promise<string>;
   /** A hub call whose answer is read whatever its status. */
   hubCall(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   focusWindow(): void;

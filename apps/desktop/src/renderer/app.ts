@@ -61,12 +61,15 @@ interface ShellTab {
   /** The assistant the first launch started in it (its `ravenry.agent` label). */
   agent?: string | null;
   title?: string; name?: string; cwd?: string; command?: string[]; cols?: number; rows?: number; createdAt?: string;
+  /** An agent's own pane (a dev server it started): the pane its agent runs in. */
+  owner?: string;
   /** The agent running in it, from the daemon's status channel. */
   status?: AgentStatus | null;
   /** It printed while it was not on screen. */
   activity?: boolean;
 }
-interface SessionTab { id: string; kind: 'session'; key: string }
+/** A session's tab; `pane` for one just started, until the hub lists it. */
+interface SessionTab { id: string; kind: 'session'; key: string; pane?: string }
 type Tab = ShellTab | SessionTab;
 type View =
   | { kind: 'tab'; id: string }
@@ -295,11 +298,13 @@ const replacedPanes = new Set<string>();
 // A move resumed the session in a new pane: it takes the old pane's place,
 // in the tab that showed it (a shell tab becomes the session's tab at the
 // same position; a pinned session tab follows by its session id).
-function swapMoved(b: MoveResult, projectId: string): string | null {
+function swapMoved(b: MoveResult, projectId: string, sid: string): string | null {
   for (const old of b.replaced || []) replacedPanes.add(old);
   if (!b.surfaceId) return null;
   const key = `${b.projectId || projectId}/${b.surfaceId}`;
   let tabId: string | null = null;
+  // Its tab from before (in cmux, or an old pane) is its tab still.
+  for (const t of S.tabs) if (t.kind === 'session') { const f = findSession(S.hub, t.key); if (f && f.session.sessionId === sid) { t.key = key; tabId = t.id; } }
   for (const old of b.replaced || []) {
     const i = S.tabs.findIndex((t) => t.kind === 'shell' && t.pane === old);
     if (i >= 0) {
@@ -324,7 +329,7 @@ function followMove(sid: string, projectId: string, b: MoveResult): void {
   if (b.keep === 'outside') { moveFollow = sid; return; }
   if (!b.surfaceId) return;
   const pane = b.pane && typeof b.pane.id === 'string' ? b.pane.id : null;
-  const tabId = swapMoved(b, projectId);
+  const tabId = swapMoved(b, projectId, sid);
   elseLast = null;
   liveStop();
   setView(tabId ? { kind: 'tab', id: tabId } : { kind: 'session', key: `${b.projectId || projectId}/${b.surfaceId}`, ...(pane ? { pane } : {}) });
@@ -991,9 +996,7 @@ function pickSession(key: string, why = 'click'): void {
 function togglePin(key: string): void {
   const i = S.tabs.findIndex((t) => t.kind === 'session' && t.key === key);
   if (i >= 0) {
-    const t = S.tabs[i];
-    S.tabs.splice(i, 1);
-    if (S.view.kind === 'tab' && S.view.id === t.id) S.view = { kind: 'session', key };
+    removeTab(S.tabs[i].id);
   } else {
     const t: SessionTab = { id: pinId(key), kind: 'session', key };
     S.tabs.push(t);
@@ -1005,33 +1008,20 @@ function togglePin(key: string): void {
 
 // ---------------------------------------------------------------- tabs
 
-/** The open session (picked in the sidebar, not pinned) or a command's pane: shown first in the strip while it is open. */
+/** A session's Review tab, beside its session (every session and pane is a tab of the strip: setView). */
 function openTab(): HTMLElement | null {
   const v = S.view;
-  let name = '', sub: string | null = null, group: Group = 'idle', machine: string | null = null;
   if (v.kind === 'review') {
-    // The session's own tab, beside its Review tab (when it is not pinned).
+    // The session's own tab, beside its Review tab (when it has no tab).
     if (S.tabs.some((t) => (t.kind === 'session' && t.key === v.key) || (t.kind === 'shell' && sessionOfPane(S.hub, t.pane)?.key === v.key))) return null;
     const f = findSession(S.hub, v.key);
     if (!f) return null;
-    name = f.session.topic || f.project.name;
+    const name = f.session.topic || f.project.name;
     return h('div.tab', { role: 'tab', 'aria-selected': 'false', title: name, on: { click: () => setView({ kind: 'session', key: v.key }) } },
       h('span.sd', { style: { background: GROUP_VAR[hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session)] } }),
       h('span.n', name), secondLine(name, f.project.name) ? h('span.p', f.project.name) : null);
   }
-  if (v.kind === 'session') {
-    const key = viewSessionKey();
-    const f = key ? findSession(S.hub, key) : null;
-    if (f) { name = f.session.topic || f.project.name; sub = secondLine(name, f.project.name); group = hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session); machine = machineOf(f.project, f.session); } else name = 'Starting…';
-  } else if (v.kind === 'pane') {
-    name = v.name;
-    group = 'idle';
-  } else return null;
-  const close = () => { const t = S.tabs[0]; setView(t ? { kind: 'tab', id: t.id } : { kind: 'none' }); };
-  return h('div.tab.on', { role: 'tab', 'aria-selected': 'true', title: name, 'data-key': v.kind === 'session' ? viewSessionKey() || '' : `pane:${v.pane}`, on: { auxclick: (e: Event) => { if ((e as MouseEvent).button === 1) close(); } } },
-    v.kind === 'pane' ? h('span.ti', svg(I.SHELL)) : h('span.sd', { style: { background: GROUP_VAR[group] } }),
-    h('span.n', name), sub ? h('span.p', sub) : null, machineTag(machine),
-    h('button.x', { title: 'Close', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); close(); } } }, svg(I.CLOSE)));
+  return null;
 }
 
 function renderTabs(): void {
@@ -1063,7 +1053,7 @@ function renderTabs(): void {
         machineTag(l.machine),
         t.kind === 'shell' ? leaseBadge(t.pane) : null,
         t.kind === 'shell' && t.activity && !on ? h('span.act', { title: 'New output' }) : null,
-        h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Unpin', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
+        h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Close the tab (the session goes on)', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
     }).flatMap((tab, i) => (rv && sessTab(S.tabs[i]) ? [tab, rv] : [tab])));
   replace(el,
     row,
@@ -1123,6 +1113,24 @@ function addShellTab(socket: string, pane: Pane, agent: string | null, show: boo
   return t;
 }
 
+/** An agent's own pane: made by an agent in a pane, shown, running. */
+function agentPane(p: Pane): boolean {
+  return p.creator?.kind === 'agent' && !!p.creator.pane && !p.hidden && p.state === 'running' && p.labels?.['ravenry.kind'] !== 'shell';
+}
+
+/** An agent's own pane as a tab, right after its session's tab (and its other panes), else at the end. */
+function addAgentPaneTab(socket: string, p: Pane): ShellTab {
+  const owner = p.creator!.pane!;
+  const t: ShellTab = { id: shellId(p.id), kind: 'shell', socket, pane: p.id, owner };
+  applyPane(t, p);
+  const ofOwner = (x: Tab) => (x.kind === 'shell' && (x.pane === owner || x.owner === owner))
+    || (x.kind === 'session' && (x.pane === owner || x.key.endsWith(`/ravenry:${owner}`) || (() => { const f = findSession(S.hub, x.key); return !!f && paneOf(f.session) === owner; })()));
+  let at = -1;
+  S.tabs.forEach((x, i) => { if (ofOwner(x)) at = i; });
+  S.tabs.splice(at < 0 ? S.tabs.length : at + 1, 0, t);
+  return t;
+}
+
 function applyPane(t: ShellTab, p: Pane): void {
   t.status = p.agent || null;
   t.title = p.title;
@@ -1152,9 +1160,8 @@ function removeTab(id: string): void {
   S.tabs.splice(i, 1);
   if (S.view.kind === 'tab' && S.view.id === id) {
     const next = S.tabs[Math.min(i, S.tabs.length - 1)];
-    if (next) S.view = { kind: 'tab', id: next.id };
-    else if (t.kind === 'session') S.view = { kind: 'session', key: t.key };
-    else S.view = { kind: 'none' };
+    void t;
+    S.view = next ? { kind: 'tab', id: next.id } : { kind: 'none' };
   }
   if (S.panelKey === `tab:${id}`) S.panelKey = null;
   save();
@@ -1171,15 +1178,43 @@ function stepTab(d: number): void {
 
 // ---------------------------------------------------------------- middle
 
+// The strip works like any terminal's (2026-11-07: "if I select on other
+// tab at the top the ravenry tab disappears"): a session or a pane comes to
+// the front as a tab, which stays until it is closed; clicking a tab only
+// brings it to the front. Here, the one place every caller goes through.
 function setView(v: View): void {
+  if (v.kind === 'session') v = { kind: 'tab', id: tabForSession(v.key, v.pane) };
+  else if (v.kind === 'pane') v = { kind: 'tab', id: tabForPane(v.socket, v.pane, v.name) };
   if (v.kind !== 'start') npmAsked = null;
   if (S.view.kind === 'page' && v.kind !== 'page') pages.close();
   if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
   if (v.kind !== 'review' && S.view.kind === 'review') review.key = null;
   S.view = v;
-  if (v.kind === 'session') { const f = findSession(S.hub, v.key); if (f) lastSessionProject = f.project.id; }
+  const sk = viewSessionKey();
+  const sf = sk ? findSession(S.hub, sk) : null;
+  if (sf) lastSessionProject = sf.project.id;
   save();
   render();
+}
+
+/** The tab that shows this session (the shell tab of its pane, else its own), added at the end if none does. */
+function tabForSession(key: string, pane?: string): string {
+  const f = findSession(S.hub, key);
+  const p = (f ? paneOf(f.session) : null) || pane || null;
+  const had = S.tabs.find((t) => (t.kind === 'session' && t.key === key) || (!!p && t.kind === 'shell' && t.pane === p));
+  if (had) { if (had.kind === 'session' && pane && !had.pane) had.pane = pane; return had.id; }
+  const t: SessionTab = { id: pinId(key), kind: 'session', key, ...(pane ? { pane } : {}) };
+  S.tabs.push(t);
+  return t.id;
+}
+
+/** The tab of a pane (a command's run), added at the end if none shows it. */
+function tabForPane(socket: string, pane: string, name: string): string {
+  const had = S.tabs.find((t) => t.kind === 'shell' && t.pane === pane);
+  if (had) return had.id;
+  const t: ShellTab = { id: shellId(pane), kind: 'shell', socket, pane, name };
+  S.tabs.push(t);
+  return t.id;
 }
 
 function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review'): void {
@@ -1281,16 +1316,18 @@ async function renderCentre(): Promise<void> {
   }
   const key = viewSessionKey();
   const f = key ? findSession(S.hub, key) : null;
-  const pane = f ? paneOf(f.session) : v.kind === 'session' ? v.pane || null : null;
+  const pane = f ? paneOf(f.session) : v.kind === 'session' ? v.pane || null : t && t.kind === 'session' ? t.pane || null : null;
   if (pane && (!f || !machineOf(f.project, f.session))) {
     // A session the hub runs in a ravenryd pane here shows its pane.
     // Gone: said once, and a shell in front (one opened if none is), so the
     // middle never keeps asking for a pane that is not there.
     await showPane(`session|${pane}`, () => daemons.holding(pane), pane, (e) => {
       if (!replacedPanes.has(pane)) toast(`Could not show that session: ${e.message}`);
-      const v2 = S.view;
-      if (v2.kind !== 'session' || (v2.pane || null) !== (v.kind === 'session' ? v.pane || null : null) || viewSessionKey() !== key) return;
-      const sh = S.tabs.find((t) => t.kind === 'shell');
+      const front = tabOfView();
+      if (!front || front.kind !== 'session' || viewSessionKey() !== key) return;
+      // Its tab goes (its pane is gone); a shell comes to the front.
+      removeTab(front.id);
+      const sh = S.tabs.find((x) => x.kind === 'shell');
       if (sh) setView({ kind: 'tab', id: sh.id }); else void newShell();
     });
     return;
@@ -1330,7 +1367,7 @@ function renderElsewhere(f: { project: HubProject; session: HubSession } | null,
     if (again) {
       key = sessionKey(again.project.id, again.session);
       const t = tabOfView();
-      if (t && t.kind === 'session') t.key = key; else S.view = { kind: 'session', key };
+      if (t && t.kind === 'session') t.key = key; else S.view = { kind: 'tab', id: tabForSession(key) };
       f = again;
     } else if (elseLast.session.outside) { f = elseLast; ended = true; }
   }
@@ -1906,6 +1943,9 @@ function onHubState(next: HubState): void {
     const v = S.view;
     if (v.kind === 'session' && moved.has(v.key)) S.view = { ...v, key: moved.get(v.key)! };
     for (const t of S.tabs) if (t.kind === 'session' && moved.has(t.key)) t.key = moved.get(t.key)!;
+    // One tab per session: a second one for the same session goes.
+    const seen = new Set<string>();
+    for (const t of [...S.tabs]) if (t.kind === 'session') { if (seen.has(t.key)) removeTab(t.id); else seen.add(t.key); }
     if (S.panelKey && moved.has(S.panelKey)) S.panelKey = moved.get(S.panelKey)!;
     if (elseLast && moved.has(elseLast.key)) elseLast.key = moved.get(elseLast.key)!;
     save();
@@ -1913,10 +1953,10 @@ function onHubState(next: HubState): void {
   pages.update((next as { pages?: NavRow[] }).pages);
   machinesSaid((next as { machines?: MachineView[] }).machines);
   // A session the start screen just started: the view follows it once listed.
-  const v = S.view;
-  if (v.kind === 'session' && v.pane && !findSession(next, v.key)) {
-    const f = sessionOfPane(next, v.pane);
-    if (f) S.view = { kind: 'session', key: f.key };
+  const ft = tabOfView();
+  if (ft && ft.kind === 'session' && ft.pane && !findSession(next, ft.key)) {
+    const f = sessionOfPane(next, ft.pane);
+    if (f) { ft.key = f.key; ft.id = pinId(f.key); S.view = { kind: 'tab', id: ft.id }; }
   }
   const { opened, gone } = S.cps.fromHub(next.checkpoints as HubCheckpoint[] | undefined);
   if (gone.length) void closedOnHub(gone);
@@ -1991,6 +2031,8 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
     case 'pane.created': case 'pane.updated': {
       // A plain shell another window or the command line made.
       if (e.pane.labels?.['ravenry.kind'] === 'shell' && e.pane.state === 'running' && !shellTabOf(socket, e.pane.id)) addShellTab(socket, e.pane, null, false);
+      // An agent's own pane: a tab right after its session's, the front left alone.
+      else if (agentPane(e.pane) && !shellTabOf(socket, e.pane.id)) { addAgentPaneTab(socket, e.pane); save(); render(); }
       return;
     }
     case 'agent.report': {
@@ -2087,6 +2129,14 @@ async function restoreTabs(saved: Record<string, unknown>): Promise<void> {
         applyPane(t, p);
         shells.push(t);
       }
+      // The agents' own panes: back as tabs too (their places from the saved order).
+      const all = await c.request('pane.list', {}).catch(() => ({ panes: [] as Pane[] }));
+      for (const p of all.panes) {
+        if (!agentPane(p) || shells.some((x) => x.pane === p.id)) continue;
+        const t: ShellTab = { id: shellId(p.id), kind: 'shell', socket, pane: p.id, owner: p.creator!.pane! };
+        applyPane(t, p);
+        shells.push(t);
+      }
     } catch { /* that daemon is gone, and its panes with it */ }
   }));
   shells.sort((a, b) => (a.createdAt || '') < (b.createdAt || '') ? -1 : 1);
@@ -2112,6 +2162,16 @@ async function boot(): Promise<void> {
     // The app's shortcuts reach the menu instead of the shell.
     if (isMac()) return e.metaKey;
     return e.ctrlKey && e.shiftKey && /^[tTwWnNbBcCvVaA]$/.test(e.key);
+  };
+  // The Cmd keys of macOS's terminals xterm.js does not do (terminal.ts).
+  term.mac = isMac();
+  term.onKeyAct = (act) => {
+    const t = term.term;
+    if (act === 'clear') { t.clear(); return; }
+    if (act === 'select-all') { t.selectAll(); return; }
+    if (act === 'copy') { if (t.hasSelection()) api().copyText(t.getSelection()); return; }
+    const a = term.attached;
+    if (a) void api().readClipboard().then((text) => { if (text) void a.client.paste(a.pane, text).catch(() => {}); });
   };
   term.onEnded = (a) => {
     const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === a.pane);
@@ -2251,17 +2311,31 @@ async function boot(): Promise<void> {
   // (else the home folder). A failure says why in a toast.
   // A session that was in front last time, with a pane, is in front again;
   // the launch shell opens only when nothing else comes back.
+  // The tabs come back as they were, the one in front in front. A session
+  // tab whose pane went with its daemon did not come back: it closes, with
+  // nothing said, and a shell is in front instead. The launch shell opens
+  // only when no tab came back.
   const was = saved.selected as { key?: string; pane?: string } | null | undefined;
-  // Its pane must still be there (a daemon that ended took it): else it did
-  // not come back, and the launch shell is in front, with nothing to say.
-  const back = was && typeof was.key === 'string' && typeof was.pane === 'string' ? await daemons.holding(was.pane).then((c) => !!c, () => false) : false;
-  if (was && back) {
-    api().log(`window: launch: the session that was in front, ${was.key} (pane ${was.pane})`);
-    S.view = { kind: 'session', key: was.key!, pane: was.pane! };
-  } else {
-    if (was && was.pane) api().log(`window: launch: the session that was in front (pane ${was.pane}) is gone; the launch shell instead`);
-    if (!S.tabs.some((t) => t.kind === 'shell')) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
+  if (was && typeof was.key === 'string' && typeof was.pane === 'string' && !S.tabs.some((t) => t.kind === 'session' && t.key === was.key)) {
+    // A window.json from before every session was a tab.
+    const t: SessionTab = { id: pinId(was.key), kind: 'session', key: was.key, pane: was.pane };
+    S.tabs.push(t);
+    S.view = { kind: 'tab', id: t.id };
   }
+  const frontId = S.view.kind === 'tab' ? S.view.id : null;
+  const gone = await Promise.all(S.tabs.map(async (t) => {
+    if (t.kind !== 'session') return null;
+    const p = (t.key.match(/\/ravenry:(p[a-z2-7]{7})$/) || [])[1] || t.pane;
+    return p && !(await daemons.holding(p).then((c) => !!c, () => false)) ? { t, p } : null;
+  }));
+  for (const g of gone) if (g) { api().log(`window: launch: ${g.t.key} (pane ${g.p}) is gone; its tab closes`); removeTab(g.t.id); }
+  if (frontId && !S.tabs.some((t) => t.id === frontId)) {
+    const sh = S.tabs.find((t) => t.kind === 'shell') || S.tabs[0];
+    S.view = sh ? { kind: 'tab', id: sh.id } : { kind: 'none' };
+  }
+  const fr = tabOfView();
+  if (fr && fr.kind === 'session') api().log(`window: launch: the session that was in front, ${fr.key}`);
+  if (!S.tabs.length) await newShell(typeof saved.lastCwd === 'string' ? saved.lastCwd : null);
   // The daemon new panes go to is followed from the start, for its checkpoints.
   void daemons.forNew().catch(() => {});
   render();

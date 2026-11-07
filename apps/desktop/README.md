@@ -186,6 +186,17 @@ both copies and resumes the latest in a new pane in the old one's place
 (the old pane closes: its shell may carry what an older daemon inherited). Each move is a line
 in app.log with each process it ended.
 
+**The strip works like any terminal's.** Every tab open in the window
+stays in the strip until it is closed; clicking a tab only brings it to the
+front. Selecting a session (its row, a toast's Show, a pane asked to show)
+opens its tab at the end of the strip, or brings its tab forward when one
+is open (`setView`, the one place every caller goes through). A pane an
+agent made (a dev server it started) gets a tab right after its session's
+tab, without coming to the front. Closing a session's tab leaves the
+session running. At launch the tabs come back in their order, the one in
+front in front; a session tab whose pane is gone closes quietly, and the
+launch shell opens only when no tab comes back.
+
 **The selection is what is in front.** The tab in front decides what the
 sidebar highlights and what the panel shows, in one place (`frontKey` in
 `src/renderer/app.ts`); they never disagree. Selecting a session (its row,
@@ -437,6 +448,37 @@ it cannot update itself. No keychain is ever searched for an identity.
 | Ctrl+Tab, ⌘⇧] | Ctrl+Tab | Next tab |
 | ⌘⌥B | Ctrl+Shift+B | Show or hide the session panel |
 | ⌘C, ⌘V | Ctrl+Shift+C, Ctrl+Shift+V | Copy, paste |
+
+## Keys in the terminal
+
+As in Terminal.app, iTerm2 and Ghostty on a Mac. xterm.js sends almost all
+of them itself; the few it does otherwise are a table in
+`src/renderer/terminal.ts` (MAC_CMD_SEND, MAC_OPT_SEND, MAC_CMD_ACT). No
+app shortcut takes any of them while a terminal has focus.
+`tools/keys-test.mjs` types every row into a pane that prints each byte it
+gets, and checks the bytes; the release check runs it on the packaged app.
+
+| Key (macOS) | The program gets | By |
+| --- | --- | --- |
+| ⌘← / ⌘→ | Ctrl-A `01` / Ctrl-E `05` (start / end of the line) | Ravenry |
+| ⌘⌫ | Ctrl-U `15` (delete to the line start) | Ravenry |
+| ⌥← / ⌥→ | ESC b `1b 62` / ESC f `1b 66` (a word back / on) | Ravenry |
+| ⌥⌫ | ESC DEL `1b 7f` (delete a word) | xterm.js |
+| Ctrl+← → ↑ ↓ | `CSI 1;5D` `1;5C` `1;5A` `1;5B` | xterm.js |
+| ⇧← / ⇧→ | `CSI 1;2D` / `1;2C` | xterm.js |
+| ⌥↑ / ⌥↓ | `CSI 1;3A` / `1;3B` | xterm.js |
+| Home, End | `CSI H`, `CSI F` | xterm.js |
+| PageUp, PageDown | `CSI 5~`, `CSI 6~` | xterm.js |
+| ⇧Tab, Esc, Ctrl+O, Ctrl+R, Ctrl+C | `CSI Z`, `1b`, `0f`, `12`, `03` (Claude Code's own keys) | xterm.js |
+| ⌘V | the clipboard, as one paste through the daemon | Ravenry |
+| ⌘C, ⌘A | copy the selection, select everything; nothing is typed | Ravenry |
+| ⌘K | clears the scrollback; nothing is typed | Ravenry |
+
+Option is not Meta (xterm.js's `macOptionIsMeta` stays off): ⌥ with a
+letter types that keyboard's character, as on a French keyboard's
+{ } | ~ [ ]. Ctrl+← and Ctrl+→ are Mission Control's on a Mac unless
+turned off in System Settings > Keyboard > Keyboard Shortcuts; macOS keeps
+them from every terminal.
 
 ## Checks
 
