@@ -1,4 +1,5 @@
 // The one formatter of typed keys (public/keys.mjs).
+import './test-guard.mjs'; // first, as every test: keeps it off the real ~/.ravenry
 import assert from 'node:assert/strict';
 import { keyLabel, keyLine, keyParts } from '../public/keys.mjs';
 
