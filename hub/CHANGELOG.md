@@ -27,6 +27,9 @@
   folder, instead of waiting with no answer, and starts once it may.
 - From the Wi-Fi, the board's port opens to phone browsers only while
   phone access is on; off, they get 403.
+- A session in a Ravenry pane says when another process holds the same
+  session in cmux, iTerm2 or Rex (`alsoOpen`), and `/api/open` can bring
+  that tab, or the cmux app, forward.
 
 ## 0.4.0
 

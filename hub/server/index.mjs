@@ -948,6 +948,10 @@ function buildProject(project, wsById, hooks, settings, now) {
       // In a terminal outside Ravenry: whether its process still runs
       // there, and so whether Continue in Ravenry can resume it.
       outside: outsideOf(s),
+      // In a Ravenry pane, and a process in another terminal holds the same
+      // session (cmux's restore relaunched it there): both write one
+      // transcript. Said, never ended.
+      alsoOpen: alsoOpenIn(s),
       // No screen to show: the conversation from its transcript instead.
       ...(s.terminal === false && s.transcript ? { conversation: conversationOf(s.transcript) } : {}),
       ...worktreeOf(s.surfaceId),
@@ -976,6 +980,14 @@ function outsideOf(s) {
   if (open == null) open = !procState.at || sessRows.some((r) => r.sessionId === s.sessionId);
   const kind = asst.kindOf(s.assistant);
   return { name: term.nameOf(s.term), open, resumable: !open && (kind === 'claude' || kind === 'codex') };
+}
+
+// Another process on this session, outside Ravenry, while it runs in a
+// Ravenry pane: { name, surfaceId } (the processes as last listed).
+function alsoOpenIn(s) {
+  if (!s.sessionId || term.kindOf(s.surfaceId) !== 'ravenry') return null;
+  const r = sessRows.find((x) => x.sessionId === s.sessionId && x.termKind && x.termKind !== 'ravenry');
+  return r ? { name: term.nameOf(r.termKind), term: r.termKind, surfaceId: r.surfaceId || null, pid: r.pid } : null;
 }
 
 // The last few turns of a transcript, oldest first: what was asked (Claude
@@ -1297,6 +1309,8 @@ function buildSessions(workspaces, hooks, settings, now, projects) {
     const base = {
       pid: p.pid, startedAt: p.startedAt, memKb: p.rssKb, cwd: p.cwd, folder: homes.sayLocal(p.cwd), assistant: asst.kindOf(p.assistant),
       surfaceId: tab ? p.surfaceId : null, workspaceId: tab ? tab.w.id : null, workspaceRef: tab ? tab.w.ref : null, inCmux: !!tab && tab.kind === 'cmux',
+      // The terminal the process runs in, from its environment (its tab or not).
+      termKind: p.ravenryId ? 'ravenry' : p.rexId ? 'rex' : p.itermId ? 'iterm' : (otherId ? null : p.surfaceId) ? 'cmux' : null,
       sessionId: m ? m.sessionId : null, method: m ? m.method : null,
     };
     if (!m) {
@@ -3452,12 +3466,16 @@ async function handleRequest(req, res) {
         const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');
         const project = findProject(body.projectId);
         if (!project) return sendJson(res, 404, { error: 'No such project.' });
+        // The cmux app itself (a session's other process runs there, in a tab the board does not know).
+        if (body.app === 'cmux' && !body.surfaceId) { const a = await openApp('com.cmuxterm.app'); return sendJson(res, a.ok ? 200 : 500, a.ok ? { ok: true, where: 'cmux', app: true } : { error: a.error }); }
         if (body.surfaceId && (term.kindOf(body.surfaceId) !== 'cmux' || term.CMUX_OUTSIDE)) {
           // A session in iTerm2 or Rex (or cmux, followed from Ravenry
           // mode): bring that tab forward.
           const snap = snapshot.projects.find((x) => x.id === project.id);
-          if (!snap || !snap.sessions.some((x) => x.surfaceId === body.surfaceId)) return sendJson(res, 404, { error: 'No such session in that project.' });
           const isCmux = term.kindOf(body.surfaceId) === 'cmux';
+          // A session's tab, or a cmux tab where one of its sessions also runs.
+          const twin = isCmux && snap && snap.sessions.some((x) => x.alsoOpen && x.alsoOpen.surfaceId === body.surfaceId);
+          if (!snap || (!snap.sessions.some((x) => x.surfaceId === body.surfaceId) && !twin)) return sendJson(res, 404, { error: 'No such session in that project.' });
           // cmux refused this board its socket: the cmux app comes forward
           // (`open -b`), which needs no socket, and the person picks the tab.
           const cmuxApp = async () => { const a = await openApp('com.cmuxterm.app'); return sendJson(res, a.ok ? 200 : 500, a.ok ? { ok: true, where: 'cmux', app: true } : { error: a.error }); };

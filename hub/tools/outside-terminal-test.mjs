@@ -174,6 +174,19 @@ if (BIN) {
   const r4 = await post('/api/sessions/resume', { projectId: 'kite', sessionId: SID });
   const runs = fs.existsSync(FAKE_CLAUDE_LOG) ? fs.readFileSync(FAKE_CLAUDE_LOG, 'utf8').trim().split('\n').length : 0;
   check('asked again: the same pane, no second process on that session id', r4.status === 200 && r4.body.surfaceId === r3.body.surfaceId && r4.body.already === true && runs === 1, r4.text + ` runs=${runs}`);
+  // cmux's restore starts the same session again in its own tab: the
+  // session in its Ravenry pane says so, and the board ends neither.
+  const PANE = r3.body && r3.body.pane ? r3.body.pane.id : null;
+  fs.appendFileSync(EVF, ev('SessionStart', 0, { terminal: 'ravenry', terminal_id: PANE, claude_pid: 6101, surface_id: undefined, workspace_id: undefined, source: 'resume' }) + '\n');
+  procs([
+    { pid: 6101, ppid: 6100, rssKb: 300000, startedAt: iso(0.5), command: `claude --resume ${SID}`, cwd: PROJ, env: `TERM_PROGRAM=ravenry RAVENRY_PANE=${PANE}` },
+    { pid: 6202, ppid: 6200, rssKb: 300000, startedAt: iso(0.2), command: `claude --resume ${SID}`, cwd: PROJ, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF}` },
+  ]);
+  await post('/api/sessions/resume', { projectId: 'kite', sessionId: SID }); // reads the processes again
+  const twin = await until(async () => { const s = sessionOf(await state()); return s && s.alsoOpen ? s : null; }, 15000);
+  check('also open in cmux: the session in its Ravenry pane says another process holds it there', !!twin && twin.surfaceId === `ravenry:${PANE}` && twin.alsoOpen.name === 'cmux' && twin.alsoOpen.surfaceId === SF, JSON.stringify(twin && { surfaceId: twin.surfaceId, alsoOpen: twin.alsoOpen }));
+  const twinOpen = await post('/api/open', { projectId: 'kite', surfaceId: SF });
+  check('also open in cmux: Open in cmux focuses that tab', twinOpen.status === 200, twinOpen.text);
 } else {
   console.log('SKIP  Continue in Ravenry in a real pane: set RAVENRYD_BIN to a ravenryd binary');
 }
