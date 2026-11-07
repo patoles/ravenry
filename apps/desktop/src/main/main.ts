@@ -19,7 +19,7 @@
 //   RAVENRY_UPDATES=0      never check for updates (updater.ts)
 //   RAVENRY_LAUNCHCTL      a stand-in for /bin/launchctl (tests: the hub
 //                          service and the npm board's login start)
-//   RAVENRY_RELAUNCH_TEST=1  tools/relaunch-check.mjs only: a start from a
+//   RAVENRY_RELAUNCH_TEST=1 | foreground  tools/relaunch-check.mjs only: a start from a
 //                          pane relaunches in a test run too (relaunch.ts)
 //
 // The home folder is HOME (os.homedir), so a test's throwaway HOME is used
@@ -395,11 +395,8 @@ async function newHubAnswers(port: number): Promise<boolean> {
   while (!listening && Date.now() - t0 < 60000) { listening = await open(); if (!listening) await new Promise((r) => setTimeout(r, 250)); }
   if (!listening) { appLog('service: the new hub did not listen within 60 s'); return false; }
   const at = Date.now();
-  // 60 s in 0.1.14 only, while its start-up record (hub.log, the CPU
-  // profile in ~/Library/Logs/Ravenry) says where a real board's time goes;
-  // 30 s again after that.
-  const wait = 60000;
-  appLog(`service: the new hub listened ${at - t0} ms after it started; waiting up to ${wait / 1000} s for its answer (60 s in this build only)`);
+  const wait = 30000;
+  appLog(`service: the new hub listened ${at - t0} ms after it started; waiting up to ${wait / 1000} s for its answer`);
   const ok = await hubAnswers(port, wait);
   appLog(`service: the new hub ${ok ? `answered ${Date.now() - at} ms after it listened` : `did not answer within ${wait / 1000} s of its listen`}`);
   return ok;
