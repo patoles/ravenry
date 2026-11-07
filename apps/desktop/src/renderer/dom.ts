@@ -48,12 +48,27 @@ export function svg(markup: string): Element {
 let pressed: Element | null = null;
 let pressTimer: ReturnType<typeof setTimeout> | undefined;
 const putOff = new Map<Element, Child[]>();
+const afterRelease = new Set<() => void>();
 function released(): void {
   if (!pressed) return;
   pressed = null;
   clearTimeout(pressTimer);
   // After the click the release gives, which comes in the same task.
-  setTimeout(() => { for (const [el, ch] of [...putOff]) { putOff.delete(el); el.textContent = ''; append(el, ch); } }, 0);
+  setTimeout(() => {
+    for (const [el, ch] of [...putOff]) { putOff.delete(el); el.textContent = ''; append(el, ch); }
+    for (const fn of [...afterRelease]) { afterRelease.delete(fn); fn(); }
+  }, 0);
+}
+
+/**
+ * For a drawing that does not go through replace() (the panel patches its
+ * sections): true while a press is held inside el, and `redraw` runs once
+ * the release has given its click.
+ */
+export function heldIn(el: Element, redraw: () => void): boolean {
+  if (!pressed || !el.contains(pressed)) return false;
+  afterRelease.add(redraw);
+  return true;
 }
 if (typeof document !== 'undefined') {
   document.addEventListener('pointerdown', (e) => { pressed = e.target instanceof Element ? e.target : null; clearTimeout(pressTimer); pressTimer = setTimeout(released, 3000); }, true);

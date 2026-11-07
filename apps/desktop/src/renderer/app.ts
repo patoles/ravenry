@@ -27,7 +27,7 @@ import type { CardCtx, Reply } from './cards.ts';
 import { Checkpoints, daemonAnswer, driveVerb, hubAnswer, isOpen, markOf, timeOf } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 import { Daemons } from './daemons.ts';
-import { h, replace, svg } from './dom.ts';
+import { h, heldIn, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
   ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
@@ -1795,6 +1795,9 @@ function renderPanel(): void {
     }
   }
   el.dataset.shows = shows;
+  // A press held on a button of the panel: drawn again after its click
+  // (patch swaps every section for a new one, and the click would be lost).
+  if (heldIn(el, renderPanel)) return;
   patch(el, [head, panelBody]);
   patch(panelBody, body);
   clearHiddenSecrets(true);
