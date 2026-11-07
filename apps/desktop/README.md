@@ -353,7 +353,8 @@ A Mac update needs a signed app: an unsigned build cannot update.
 service that ran before is loaded again, and the next launch (or the app
 coming back to the front) tries the update again: app.log says `launch:
 update to X, attempt N`. After 3 failures in a row it stops, and the window
-says why, with Try again. The 30 s the new hub has to answer count from its
+says why, with Try again. The 30 s (60 s in 0.1.14, while its start-up record
+is read on a real board) the new hub has to answer count from its
 listen (it has 60 s to start listening), not from the bootstrap.
 
 **An update never ends a session.** Sessions live in ravenryd, not in the

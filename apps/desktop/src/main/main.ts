@@ -360,8 +360,13 @@ async function newHubAnswers(port: number): Promise<boolean> {
   while (!listening && Date.now() - t0 < 60000) { listening = await open(); if (!listening) await new Promise((r) => setTimeout(r, 250)); }
   if (!listening) { appLog('service: the new hub did not listen within 60 s'); return false; }
   const at = Date.now();
-  const ok = await hubAnswers(port, 30000);
-  appLog(`service: the new hub listened ${at - t0} ms after it started${ok ? ` and answered ${Date.now() - at} ms after that` : ', and did not answer within 30 s of it'}`);
+  // 60 s in 0.1.14 only, while its start-up record (hub.log, the CPU
+  // profile in ~/Library/Logs/Ravenry) says where a real board's time goes;
+  // 30 s again after that.
+  const wait = 60000;
+  appLog(`service: the new hub listened ${at - t0} ms after it started; waiting up to ${wait / 1000} s for its answer (60 s in this build only)`);
+  const ok = await hubAnswers(port, wait);
+  appLog(`service: the new hub ${ok ? `answered ${Date.now() - at} ms after it listened` : `did not answer within ${wait / 1000} s of its listen`}`);
   return ok;
 }
 

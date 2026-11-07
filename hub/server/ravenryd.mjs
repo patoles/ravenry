@@ -26,6 +26,7 @@
 // A test board (RAVENRY_HOME or MC_HOME set) never talks to a daemon of the
 // user's: it needs RAVENRY_RUNTIME_DIR set to the test's own folder.
 
+import { phase } from './startlog.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -471,20 +472,35 @@ async function follow(d) {
     else if (String(e.event).startsWith('checkpoint.') && e.checkpoint) { o.onCheckpoint(e.checkpoint, { machine: d.machine, daemon: d.id, event: e.event }); o.onChange(); }
     else if (String(e.event).startsWith('pane.')) o.onChange();
   });
+  // Each step named in the hub's start-up record, and the event loop given
+  // back every 50 ms while a daemon's backlog is taken in.
+  const name = d.machine ? `${d.machine}/${d.id}` : d.id;
+  let slice = Date.now();
+  const breathe = async () => { if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); } };
   try {
+    phase(`daemon ${name}: subscribe`);
     await d.c.request('events.subscribe', {});
     if (d.c.has('agent.decisions')) await d.c.request('agent.decisions', {});
     // The checkpoints open while the hub was away.
     if (d.c.has('checkpoint.list')) {
+      phase(`daemon ${name}: checkpoints`);
       const { checkpoints } = await d.c.request('checkpoint.list', {});
-      for (const cp of checkpoints) o.onCheckpoint(cp, { machine: d.machine, daemon: d.id, event: 'checkpoint.listed' });
+      slice = Date.now();
+      for (const cp of checkpoints) { o.onCheckpoint(cp, { machine: d.machine, daemon: d.id, event: 'checkpoint.listed' }); await breathe(); }
     }
     // What this daemon reported while the hub was not following it.
+    const t0 = Date.now();
+    let n = 0;
     for (;;) {
+      phase(`daemon ${name}: report replay`);
       const r = await d.c.request('agent.events', { since: lastSeq.get(d.key) || 0, limit: 1000 });
-      for (const rep of r.reports) take(d, rep);
+      slice = Date.now();
+      for (const rep of r.reports) { take(d, rep); await breathe(); }
+      n += r.reports.length;
       if (r.reports.length < 1000) break;
     }
+    if (process.uptime() < 120) console.log(`start: daemon ${name}: ${n} reports taken in ${Date.now() - t0} ms`);
+    phase('idle');
     o.onChange();
   } catch { /* the daemon went away: found again at the next poll */ }
 }

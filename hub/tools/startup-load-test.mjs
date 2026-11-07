@@ -108,6 +108,8 @@ try {
     RAVENRY_TERMINAL: 'ravenry', RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'state'),
     MC_PS_BIN: T('stub-ps.mjs'), MC_LSOF_BIN: T('stub-ps.mjs'), STUB_PS_STATE: path.join(root, 'ps.json'), CMUX_BIN: T('fake-cmux.mjs'), FAKE_CMUX_STATE: path.join(root, 'cmux.json'),
     MC_OPEN_COMMAND: JSON.stringify([process.execPath, T('stub-open.mjs')]), STUB_OPEN_LOG: path.join(root, 'open.jsonl'), MC_PHONE_LAN: 'none', MC_CODEX: '0',
+    // As the app's service runs it: its start-up record and the CPU profile.
+    RAVENRY_HUB_SERVICE: '1', RAVENRY_APP_VERSION: 'load-test',
     ...(EXE ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
   };
   const started = Date.now();
@@ -142,6 +144,13 @@ try {
       check('no answer in its first 30 s takes over 1 s', worst.ms <= 1000, `slowest ${worst.ms} ms, ${worst.at} ms after listen`);
       check('its state is ready within 10 s', ready != null && ready <= 10000, `${ready} ms after listen`);
       console.log(`MEASURE startup-load firstAnswerMs=${first} slowestMs=${worst.ms} stateReadyMs=${ready}`);
+      // The hub's own record of its start (hub/server/startlog.mjs).
+      const rec = out.split('\n').filter((l) => /^(start:|stall:|tick \d phases)/.test(l));
+      console.log(rec.join('\n'));
+      const prof = path.join(home, 'Library', 'Logs', 'Ravenry');
+      const parts = fs.existsSync(prof) ? fs.readdirSync(prof).filter((f) => f.endsWith('.cpuprofile')) : [];
+      check('the hub writes its start-up CPU profile in parts as it goes', process.platform !== 'darwin' || parts.some((f) => /^start-load-test\.\d+-\d+s\.cpuprofile$/.test(f)), parts.join(', ') || 'none');
+      check('the hub logs each phase of its first ticks', rec.some((l) => /^tick 1 phases \(ms\): registry \d+, /.test(l)), rec.find((l) => l.startsWith('tick 1')) || 'none');
     }
   } finally {
     child.kill('SIGTERM');

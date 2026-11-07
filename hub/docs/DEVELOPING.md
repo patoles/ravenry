@@ -1265,3 +1265,24 @@ report ring is full; the release check runs it on the packaged hub (step
 Measured on a copy of a real board's data (its ~/.ravenry and 7.1 GB of
 transcripts, with stand-in project folders): the first answer 6 ms after
 listen, the slowest 674 ms, the state at 252 ms; before, 49.6 s.
+
+## The hub's start-up record
+
+server/startlog.mjs, in every hub, says in hub.log where its start goes:
+
+- `start: <step> N ms` for each start-up step (the phone port, the hooks,
+  the first process list, ideas, ship, each daemon's report replay with
+  how many reports it took);
+- `tick N phases (ms): registry 5, cmux workspaces 12, ...` for the first
+  3 ticks;
+- `stall: the main thread was held N ms in "<phase>"` whenever a watchdog
+  that checks every 100 ms finds the main thread was held over 500 ms,
+  with the phase it began in.
+
+A service hub (RAVENRY_HUB_SERVICE=1) of a version not profiled before also
+writes a CPU profile of its first 90 s with the inspector (no flags), in
+~/Library/Logs/Ravenry (~/.local/state/ravenry on Linux): a part every
+15 s as it goes (`start-<version>.<from>-<to>s.cpuprofile`), so an update
+rolled back early still leaves one, and the parts joined into
+`start-<version>.cpuprofile` at 90 s or when the hub exits. Open them in
+Chrome's DevTools (Performance) or any .cpuprofile reader.

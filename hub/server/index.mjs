@@ -4,6 +4,9 @@
 // snapshot of every project, serves it to the board (SSE), and carries the
 // board's answers back into the right Claude surface.
 
+// First: the start-up record (hub.log: phases, stalls; a CPU profile of a
+// new version's first 90 s), so it covers every module's own loading too.
+import * as startlog from './startlog.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1108,8 +1111,10 @@ function accessWait(req, res, url) {
 async function tick() {
   if (ticking) { wantTick = true; return; }
   ticking = true;
+  const tp = startlog.tickPhases(tickNo + 1);
   try {
     tickNo++;
+    tp.mark('registry');
     reloadRegistry();
     // Nothing of the projects' folders is read until macOS lets the board
     // read the protected folders they are in (server/access.mjs).
@@ -1119,15 +1124,21 @@ async function tick() {
     // Without cmux the board still shows what the hook events say.
     let workspaces = [];
     let cmuxError = null;
+    tp.mark('cmux workspaces');
     try { workspaces = await term.cmux.listWorkspaces(); } catch (e) { if (!reg) throw e; cmuxError = String(e.message || e); }
     const cmuxOk = !cmuxError;
     // In iTerm2 mode and Rex mode cmux is never asked (term.cmux answers
     // "nothing"), and a read is whole unless the board's terminal could not be asked.
     const driven = term.BOARD === 'cmux';
+    tp.mark('cmux hooks');
     const hooks = cmuxOk ? (await term.cmux.listHookSessions()).filter((h) => h.active || h.surfaceId) : [];
+    tp.mark('cmux sidebars');
     if (cmuxOk) await refreshSidebars(workspaces, !reg);
+    tp.mark('events');
     const evAll = events.scan();
+    tp.mark('other terminals');
     await refreshOtherTabs(evAll);
+    tp.mark('surfaces');
     const fullRead = driven ? cmuxOk : !(otherTabs[term.BOARD] && otherTabs[term.BOARD].ok === false);
     if (cmuxOk && (!reg || reg.settings.autoImport !== false)) {
       try {
@@ -1171,7 +1182,9 @@ async function tick() {
     ev = { all: evAll, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
     // A Move here that waited for a turn to end (moveSession).
     if (moves.size) runMoves();
+    tp.mark('outside alive');
     await refreshOutsideAlive(evAll);
+    tp.mark('markers');
     const held = holdersInPanes(evAll);
     // Said once per change: when sessions get tied to their Ravenry panes
     // (how long after the hub started shows how soon a pane shows).
@@ -1182,7 +1195,9 @@ async function tick() {
     markers = handoff.listMarkers();
     boardTabs = [];
     picBudget = 3;
+    tp.mark('loose sessions');
     loose = looseSessions(evAll);
+    tp.mark('work folders');
     // An unowned workspace is on the board only while a session runs in it.
     // Each session's work folder (from its transcript's tool calls; read in
     // full once, then only what was added): read here, one session at a
@@ -1209,8 +1224,10 @@ async function tick() {
       }
       return out.filter((p) => !p.unowned || p.sessions.length);
     };
+    tp.mark('projects');
     let projects = await build();
     if (noticeWritten(projects)) { boardTabs = []; projects = await build(); }
+    tp.mark('sessions view');
     if (cmuxOk) lastWorkspaces = workspaces;
     if (tickNo <= 3) console.log(`tick ${tickNo}: ${Date.now() - now} ms, ${Math.round(process.uptime() * 1000)} ms after start`);
     let sessionsView;
@@ -1224,6 +1241,7 @@ async function tick() {
     // Phone alerts and Mac notifications (server/alerts.mjs): a project that
     // moved into Needs you starts a send that never holds up the tick. Only on a full read: a
     // tick without cmux sees fewer sessions and would make false moves.
+    tp.mark('alerts');
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
     // An app's alert for a checkpoint that closed comes off the phone (server/push.mjs).
     try { push.syncCheckpoints(checkpoints.list().filter((c) => c.state === 'open').map((c) => c.id)); } catch (e) { console.error('push:', e.message); }
@@ -1232,7 +1250,9 @@ async function tick() {
     pagesProjects = projects;
     pagesSessions = sessionsView;
     let pageRows = [];
+    tp.mark('pages');
     try { pages.refresh(); pageRows = pages.navRows(); } catch (e) { console.error('pages:', e.message); }
+    tp.mark('snapshot');
     snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
@@ -1254,6 +1274,7 @@ async function tick() {
     snapshot = { ...snapshot, cmuxOk: false, error: 'The board could not read its terminals: ' + String(e.message || e), generatedAt: new Date().toISOString() };
     console.error('tick:', e.message);
   } finally {
+    tp.done();
     ticking = false;
   }
   const j = JSON.stringify(snapshot);
@@ -3820,6 +3841,10 @@ if (SCRATCH_DATA && PORT === 4600) {
 // board wherever it listens (PORT=4700 ravenry); removed when it stops.
 const BOARD_FILE = path.join(registry.RAVENRY_HOME, 'board.json');
 function forgetPort() { try { if (JSON.parse(fs.readFileSync(BOARD_FILE, 'utf8')).pid === process.pid) fs.rmSync(BOARD_FILE, { force: true }); } catch { /* gone */ } }
+startlog.watchStalls();
+void startlog.profileStart();
+console.log(`start: modules loaded, ${Math.round(process.uptime() * 1000)} ms after start`);
+startlog.phase('listen');
 server.listen(PORT, () => {
   try { fs.mkdirSync(registry.RAVENRY_HOME, { recursive: true }); fs.writeFileSync(BOARD_FILE, JSON.stringify({ port: PORT, pid: process.pid, at: new Date().toISOString() }) + '\n'); } catch (e) { console.error('board.json:', e.message); }
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { forgetPort(); process.exit(0); });
@@ -3827,12 +3852,14 @@ server.listen(PORT, () => {
   const lan = phone.lanAddresses()[0];
   console.log(`Ravenry on http://localhost:${PORT}${lan ? `, phones on http://${lan.address}:${PORT}` : ''}  (registry ${registry.REGISTRY_PATH})`);
   // Phone access on: the phone port opens with the board (docs/PHONE.md).
-  syncPhonePort();
+  void startlog.step('phone port', () => syncPhonePort());
   // The desktop app's hub after an update: its hooks follow it to this
   // version's folder (server/hookinstall.mjs refreshAppHooks).
   if (process.env.RAVENRY_HUB_SERVICE === '1') {
-    const r = hookinstall.refreshAppHooks();
-    for (const [who, ch] of Object.entries(r)) if (ch.length) console.log(`hooks: ${who}'s moved to this version: ${ch.join('; ')}`);
+    void startlog.step('hooks refresh', () => {
+      const r = hookinstall.refreshAppHooks();
+      for (const [who, ch] of Object.entries(r)) if (ch.length) console.log(`hooks: ${who}'s moved to this version: ${ch.join('; ')}`);
+    });
   }
 });
 tick();
@@ -3844,10 +3871,10 @@ onGitAnswer(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; w
 onFolderScan(() => { if (!gitSoon) gitSoon = setTimeout(() => { gitSoon = null; wantTick = true; void tick(); }, 600); });
 // The processes at once, so a session in a pane (one made before an update
 // too) is tied to it in the first seconds, not at the minute's refresh.
-refreshProcs();
+void startlog.step('first process list', () => refreshProcs());
 setInterval(refreshProcs, 60000);
-ideas.load();
-setTimeout(refreshShip, 3000);
+void startlog.step('ideas', () => ideas.load());
+setTimeout(() => void startlog.step('ship', () => refreshShip()), 3000);
 setInterval(refreshShip, 30000);
 // The repeats detector (server/repeats.mjs): daily, and at start when the
 // last run is older than a day. The real board seeds itself at start.
