@@ -49,6 +49,8 @@ import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
 import * as decisions from './decisions.mjs';
 import * as worktrees from './worktrees.mjs';
+import { projectFiles } from './filesview.mjs';
+import { paneRequest } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
@@ -888,8 +890,17 @@ function buildProject(project, wsById, hooks, settings, now) {
       handed: !!(s.marker && (s.marker.state === 'written' || s.marker.state === 'resumed')),
       freshSurface: (s.marker && s.marker.resumeSurfaceId) || null,
       doneWhen: s.screen.done ? s.screen.done.when : null,
+      ...worktreeOf(s.surfaceId),
     })),
   };
+}
+
+// A session's worktree for the board's state (server/worktrees.mjs), as
+// { worktree: { branch, folder, base, baseBranch, state, merged? } }, or {}.
+function worktreeOf(surfaceId) {
+  const w = surfaceId ? worktrees.bySurface(surfaceId) : null;
+  if (!w) return {};
+  return { worktree: { branch: w.branch, folder: w.folder, base: w.base, baseBranch: w.baseBranch, state: w.state, ...(w.merged ? { merged: w.merged } : {}), ...(w.unmerged_at ? { unmerged_at: w.unmerged_at } : {}), ...(w.branch_deleted_at ? { branch_deleted_at: w.branch_deleted_at } : {}) } };
 }
 
 function sessionMachine(s) {
@@ -1787,9 +1798,46 @@ async function worktreeWrite(req, res, surfaceId, act) {
     const { status: _s, ...out } = r;
     return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { ...out, error: r.error });
   }
+  if (act === 'unmerge' || act === 'delete-branch') {
+    const r = act === 'unmerge' ? await worktrees.unmerge(w) : await worktrees.deleteBranch(w);
+    if (r.ok) { console.log(`worktrees: ${w.branch} ${act === 'unmerge' ? 'unmerged' : 'deleted'}`); wantTick = true; setTimeout(tick, 30); }
+    const { status: _s, ...out } = r;
+    return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { ...out, error: r.error });
+  }
   const r = await worktrees.discard(w);
   if (r.ok) console.log(`worktrees: ${w.branch} discarded`);
   return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { error: r.error });
+}
+
+// A pane's last seconds, sent to a session (the filmstrip's Send to
+// <agent>): the daemon draws them as an animated GIF, which goes into the
+// session's project inbox, and the session is told where it is through
+// the composer's send path. A person row: it types into the session.
+async function sendFilmstrip(req, res, surfaceId) {
+  let body;
+  try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+  const b = body || {};
+  if (typeof b.pane !== 'string' || !/^p[a-z2-7]{7}$/.test(b.pane)) return sendJson(res, 400, { error: 'pane is the pane whose last seconds to send.' });
+  if (b.last_ms != null && !(Number.isInteger(b.last_ms) && b.last_ms >= 1000 && b.last_ms <= 60000)) return sendJson(res, 400, { error: 'last_ms is 1000 to 60000.' });
+  const sp = (snapshot.projects || []).find((x) => x.sessions.some((y) => y.surfaceId === surfaceId));
+  const wt = worktrees.bySurface(surfaceId);
+  const project = findProject(sp ? sp.id : wt && wt.projectId);
+  if (!project) return sendJson(res, 404, { error: 'No such session.' });
+  const last = b.last_ms || 20000;
+  const fr = await paneRequest(b.pane, 'pane.frames', { last_ms: last, format: 'gif', max_frames: 120 }, 30000);
+  if (!fr.ok) return sendJson(res, 502, { error: fr.err });
+  if (!fr.result || !fr.result.data) return sendJson(res, 409, { error: 'The pane drew nothing in that time.' });
+  const info = await paneRequest(b.pane, 'pane.list', { hidden: true }, 5000);
+  const pi = info.ok ? (info.result.panes || []).find((x) => x.id === b.pane) : null;
+  const name = (pi && (pi.name || pi.title)) || b.pane;
+  const d = new Date();
+  const hms = [d.getHours(), d.getMinutes(), d.getSeconds()].map((x) => String(x).padStart(2, '0')).join('');
+  let file;
+  try { file = saveToInbox(project, `${name}-filmstrip-${hms}.gif`, Buffer.from(fr.result.data, 'base64')); } catch (e) { return sendJson(res, 409, { error: e.message }); }
+  const secs = fr.result.from && fr.result.to ? Math.max(1, Math.round((Date.parse(fr.result.to) - Date.parse(fr.result.from)) / 1000)) : Math.round(last / 1000);
+  const text = `The ${name} pane's last ${secs} seconds, as an animation: ${escapePath(file)}`;
+  const r = await sendMessage({ projectId: project.id, surfaceId, text, by: 'filmstrip' });
+  return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, path: file, sent: text } : { error: r.error, path: file });
 }
 
 function keepPick(cp, where) {
@@ -2717,6 +2765,30 @@ async function handleRequest(req, res) {
       if (m) return serveVariant(res, m[1], Number(m[2]));
     }
     {
+      // What each session of a project changed (server/filesview.mjs): an
+      // open read, for a session's panel and the project's grid.
+      const m = req.method === 'GET' && /^\/api\/projects\/([^/]+)\/files$/.exec(p);
+      if (m) {
+        const id = decodeURIComponent(m[1]);
+        const project = findProject(id);
+        const sp = (snapshot.projects || []).find((x) => x.id === id);
+        if (!project || !sp) return sendJson(res, 404, { error: 'No such project.' });
+        const sessions = sp.sessions.filter((x) => !x.handed).map((x) => {
+          const w = worktrees.bySurface(x.surfaceId);
+          return { surfaceId: x.surfaceId, topic: x.topic, assistant: x.assistant, machine: x.machine || null, pane: term.kindOf(x.surfaceId) === 'ravenry' ? x.surfaceId.slice('ravenry:'.length) : null, worktree: w && w.projectId === id ? w : null };
+        });
+        // A session the hub started in a worktree of this project is the
+        // project's whether or not its hooks reported yet.
+        for (const w of worktrees.load()) {
+          if (w.projectId === id && w.state === 'open' && w.pane && !w.machine && !sessions.some((x) => x.surfaceId === w.surfaceId)) sessions.push({ surfaceId: w.surfaceId, topic: w.name, assistant: null, machine: null, pane: w.pane, worktree: w });
+        }
+        const filesOf = async (pane) => { const r = await paneRequest(pane, 'pane.files', { no_git: true }, 5000); return r.ok ? r.result.files : null; };
+        try {
+          return sendJson(res, 200, await projectFiles({ projectId: id, folder: project.folder, sessions, filesOf }));
+        } catch (e) { return sendJson(res, 500, { error: `Could not read the files: ${e.message}` }); }
+      }
+    }
+    {
       const m = req.method === 'GET' && /^\/api\/sessions\/([^/]+)\/(diff|worktree)$/.exec(p);
       if (m) {
         const w = worktrees.bySurface(decodeURIComponent(m[1]));
@@ -2939,8 +3011,10 @@ async function handleRequest(req, res) {
       }
       if (p.startsWith('/api/decisions/')) return decisionsWrite(req, res, p);
       {
-        const m = /^\/api\/sessions\/([^/]+)\/(comment|merge|discard)$/.exec(p);
+        const m = /^\/api\/sessions\/([^/]+)\/(comment|merge|discard|unmerge|delete-branch)$/.exec(p);
         if (m) return worktreeWrite(req, res, decodeURIComponent(m[1]), m[2]);
+        const f = /^\/api\/sessions\/([^/]+)\/filmstrip$/.exec(p);
+        if (f) return sendFilmstrip(req, res, decodeURIComponent(f[1]));
       }
       if (p === '/api/machines/add' || p === '/api/machines/remove' || p === '/api/machines/retry') {
         // The machines the hub reaches over ssh (server/machines.mjs).

@@ -193,8 +193,50 @@ sessions of one project never write the same files
   commits stay in the history. It is refused, with the files named, while
   the session has uncommitted changes, on a conflict (checked first with
   `git merge-tree --write-tree`, which touches no work tree), and as a
-  fast-forward once the base branch moved; then the worktree and the
-  branch are removed. `POST /api/sessions/<id>/discard` throws the
-  worktree and the branch away. `<id>` is the surface id, URL-encoded.
+  fast-forward once the base branch moved; then the worktree is removed
+  and the branch kept until the person deletes it. The record gets
+  `merged: { mode, commit, before, tip, at }` (`before`: the base branch's
+  commit before the merge, `tip`: the session branch's).
+  `POST /api/sessions/<id>/unmerge` undoes it: the base branch goes back
+  to `before` with `git reset --keep` (which keeps the main work tree's
+  own changes, and refuses when they are in the way), only while it still
+  points at the merge and is checked out; then the worktree comes back on
+  the branch in the same folder (the branch made again at `tip` if it was
+  deleted) and the record is `open` again, with `unmerged_at`.
+  `POST /api/sessions/<id>/delete-branch` deletes a merged session's
+  branch (`git branch -d`) and records `branch_deleted_at`.
+  `POST /api/sessions/<id>/discard` throws the worktree and the branch
+  away. `<id>` is the surface id, URL-encoded.
+- The diff carries `check: { clean, conflicts, moved, ahead }`: whether
+  the branch merges cleanly into the base branch now (`git merge-tree`,
+  with the files that would conflict), how many commits the base branch
+  gained since the session's merge base and how many the session made.
+- In the board's state each session with a record has `worktree: {
+  branch, folder, base, baseBranch, state, merged?, unmerged_at?,
+  branch_deleted_at? }`.
 - Every git command runs without a shell, with a timeout.
   `node tools/worktree-test.mjs` covers it on scratch repositories.
+
+## Files each session changed
+
+`GET /api/projects/<id>/files` (open read, `server/filesview.mjs`): for
+each session of the project, the files its pane's hooks named (ravenryd
+`pane.files`, the paths a PostToolUse hook gave), relative to the
+repository's top folder, with `added` and `removed` from `git diff
+--numstat` in the folder it works in (its worktree against its diff base,
+else the project's work tree against HEAD; an untracked file counts its
+lines; `unchanged` when git shows no change for it now, as after a
+commit); and `you`, what changed in the project's work tree that no
+session's hooks named. `{ ok, project, root, sessions: [{ surfaceId,
+topic, assistant, pane, worktree, folder, files: [{ path, added, removed,
+at, unchanged? }] }], you: [{ path, added, removed }] }`. A session on
+another machine lists no files. Nothing is cached.
+
+## A pane's last seconds, to a session
+
+`POST /api/sessions/<id>/filmstrip { pane, last_ms? }` (person): the
+daemon that holds the pane draws its last `last_ms` (default 20000, 1000
+to 60000) as an animated GIF (`pane.frames`), the hub writes it into the
+project's inbox (`<project>/.inbox/`, kept out of git) and types into the
+session, through the composer's send path, "The <pane name> pane's last
+<n> seconds, as an animation: <path>". Answer `{ ok, path, sent }`.

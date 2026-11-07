@@ -80,13 +80,15 @@ the Log lines of a confirm or a reopen.
 
 ## The table
 
-81 person rows (22 of them judged ambiguous), 8 open rows. GET routes not
+84 person rows (22 of them judged ambiguous), 8 open rows. GET routes not
 listed are reads and stay open; the two `GET /api/phone...` rows hand out a
 pairing secret, and `GET /api/term` opens a terminal. Among the open
 reads: `GET /api/decisions` (the ledger, which agents check before
 asking), `GET /api/sessions/<id>/diff` (a worktree session's diff) and
 `GET /api/checkpoints/<id>/variants/<n>` (a pick's pictures, from the
-copies kept in Ravenry's data, HTML and SVG sandboxed).
+copies kept in Ravenry's data, HTML and SVG sandboxed) and `GET
+/api/projects/<id>/files` (what each session of a project changed, from
+its hooks and git).
 
 | Endpoint | Class | Why |
 | --- | --- | --- |
@@ -115,6 +117,9 @@ copies kept in Ravenry's data, HTML and SVG sandboxed).
 | `/api/sessions/<id>/comment` | person | It types the person's review comment into the session, as the composer does; an agent would steer another agent in the person's name. |
 | `/api/sessions/<id>/merge` | person | Merging a session's branch into the project's is the person's call; an agent would merge its own work unreviewed. |
 | `/api/sessions/<id>/discard` | person | It deletes the session's worktree and branch, uncommitted changes included. |
+| `/api/sessions/<id>/unmerge` | person | It moves the project's branch back to before the merge and opens the session's work again: the person's call, as the merge was. |
+| `/api/sessions/<id>/delete-branch` | person | It deletes the branch a merged session kept, which ends the way to undo the merge. |
+| `/api/sessions/<id>/filmstrip` | person | It types into the session, as the composer does, and puts a file in the project's inbox; an agent would steer another agent in the person's name. |
 | `/api/sessions/reopen` | person | Reopening starts an assistant again. |
 | `/api/project/revive` | person | Revive and New session start an assistant, with the person's first message. |
 | `/api/handoff` | person | A hand-off decision is the person's. |

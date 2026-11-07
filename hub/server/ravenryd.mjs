@@ -172,6 +172,14 @@ async function call(id, method, params, timeoutMs = 6000) {
   }
 }
 
+// A request to the daemon that holds a pane (its id, or "ravenry:<id>"):
+// { ok, result } or { ok: false, err }.
+export async function paneRequest(id, method, params = {}, timeoutMs = 6000) {
+  const p = paneOf(id);
+  if (!p) return { ok: false, err: 'Not a Ravenry pane.' };
+  return call(PREFIX + p, method, params, timeoutMs);
+}
+
 // { ok, sockets, error }: whether the board can drive Ravenry's panes now.
 export async function check() {
   if (held()) return { ok: false, error: 'a test board does not reach the real ravenryd' };

@@ -15,7 +15,9 @@
 //       branch, base (the commit it started from), baseBranch (the branch
 //       the repository had checked out, or null when detached),
 //       name, created_at, state ("open", "merged" or "discarded"),
-//       merged? { mode, commit, at }
+//       merged? { mode, commit, before, tip, at } (before: the base
+//       branch's commit before the merge, tip: the session branch's),
+//       unmerged_at?, branch_deleted_at?
 //   } ] }
 //
 // Every git command runs with execFile (no shell), with a timeout.
@@ -119,10 +121,10 @@ export async function create(folder, { name = null } = {}) {
   return { ok: true, repo, folder: wt, cwd, branch, base, baseBranch, name: s };
 }
 
-// Takes a worktree and its branch away (a start that failed, a discard,
-// after a merge). `force` also throws away uncommitted changes and an
-// unmerged branch.
-export async function removeTree(w, { force = false } = {}) {
+// Takes a worktree and its branch away (a start that failed, a discard).
+// `force` also throws away uncommitted changes and an unmerged branch;
+// `keepBranch` (after a merge) leaves the branch.
+export async function removeTree(w, { force = false, keepBranch = false } = {}) {
   const out = [];
   if (fs.existsSync(w.folder)) {
     const r = await git(w.repo, ['worktree', 'remove', ...(force ? ['--force'] : []), w.folder], { timeout: 60000 });
@@ -131,6 +133,7 @@ export async function removeTree(w, { force = false } = {}) {
   } else {
     await git(w.repo, ['worktree', 'prune']);
   }
+  if (keepBranch) return { ok: true, removed: out };
   const d = await git(w.repo, ['branch', force ? '-D' : '-d', w.branch]);
   if (d.ok) out.push('branch');
   else if (!/not found/.test(d.err)) return { ok: false, error: `git kept the branch ${w.branch}: ${d.err}` };
@@ -147,7 +150,7 @@ async function dirty(folder) {
 
 // Where the session's work starts: the merge base with the branch it came
 // from (what merging brings), else the commit it started on.
-async function diffBase(w) {
+export async function diffBase(w) {
   if (w.baseBranch) {
     const mb = await git(w.repo, ['merge-base', w.baseBranch, w.branch]);
     if (mb.ok && mb.out.trim()) return mb.out.trim();
@@ -182,14 +185,27 @@ export async function diff(w, { max = MAX_DIFF } = {}) {
     if (text.length < max) text += u.out;
   }
   const truncated = text.length > max || files.length > MAX_FILES;
-  return { ok: true, base, head, branch: w.branch, files: files.slice(0, MAX_FILES), diff: text.length > max ? text.slice(0, max) : text, truncated, uncommitted: st.map((x) => x.path) };
+  return { ok: true, base, head, branch: w.branch, files: files.slice(0, MAX_FILES), diff: text.length > max ? text.slice(0, max) : text, truncated, uncommitted: st.map((x) => x.path), check: await mergeCheck(w, base) };
+}
+
+// Whether the session's branch merges cleanly into the branch it came
+// from now (git merge-tree, which touches no work tree): { clean,
+// conflicts, moved (commits on the base branch since the merge base),
+// ahead (the session's commits past it) }, or null without a base branch.
+export async function mergeCheck(w, mergeBase = null) {
+  if (!w.baseBranch) return null;
+  const mb = mergeBase || await diffBase(w);
+  const count = async (range) => { const r = await git(w.repo, ['rev-list', '--count', range]); return r.ok ? Number(r.out.trim()) || 0 : 0; };
+  const mt = await git(w.repo, ['merge-tree', '--write-tree', '--name-only', '--no-messages', w.baseBranch, w.branch], { okCodes: [0, 1] });
+  const conflicts = mt.code === 1 ? mt.out.split('\n').slice(1).map((x) => x.trim()).filter(Boolean) : [];
+  return { clean: mt.code === 0, conflicts, moved: await count(`${mb}..${w.baseBranch}`), ahead: await count(`${mb}..${w.branch}`) };
 }
 
 // ------------------------------------------------------------ merging
 
 // Merges the session's branch into the branch it came from, in the
-// repository's main work tree, then takes the worktree and the branch
-// away. mode "ff": only when the base branch has not moved since (else
+// repository's main work tree, then takes the worktree away and keeps the
+// branch (the person deletes it, or undoes the merge with it). mode "ff": only when the base branch has not moved since (else
 // it says so); "merge": a merge commit. Never a squash: the agent's own
 // commits stay in the history either way. Refused, with the files named,
 // when the session's worktree has uncommitted changes, when the two
@@ -231,10 +247,48 @@ export async function merge(w, { mode = 'ff', message = null } = {}) {
     return { ok: false, status: 409, error: `git did not merge: ${m.err.split('\n')[0]}${files.length ? ` (${files.join(', ')})` : ''}. Nothing was merged.`, files, reason: 'refused' };
   }
   const commit = (await git(w.repo, ['rev-parse', 'HEAD'])).out.trim();
-  const rm = await removeTree(w);
+  const rm = await removeTree(w, { keepBranch: true });
   const at = new Date().toISOString();
-  update(w.surfaceId, { state: 'merged', merged: { mode, commit, at } });
-  return { ok: true, mode, commit, cleanup: rm.ok ? rm.removed : [], ...(rm.ok ? {} : { cleanupError: rm.error }) };
+  update(w.surfaceId, { state: 'merged', merged: { mode, commit, before: baseTip, tip, at } });
+  return { ok: true, mode, commit, before: baseTip, branch: w.branch, cleanup: rm.ok ? rm.removed : [], ...(rm.ok ? {} : { cleanupError: rm.error }) };
+}
+
+// Undoes a merge: the base branch goes back to where it was before it
+// (git reset --keep, which keeps the main work tree's own changes and
+// refuses when they are in the way), only while it still points at the
+// merge and is checked out there; then the worktree comes back on the
+// kept branch (made again at its tip when it was deleted), in the same
+// folder, and the session's work is open again.
+export async function unmerge(w) {
+  if (w.state !== 'merged' || !w.merged || !w.merged.before) return { ok: false, status: 409, error: 'This session\'s work is not merged, or was merged before Ravenry could undo a merge.' };
+  const m = w.merged;
+  const cur = await git(w.repo, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { okCodes: [0, 1] });
+  if (cur.out.trim() !== w.baseBranch) return { ok: false, status: 409, error: `The repository has ${cur.code === 0 ? cur.out.trim() : 'no branch'} checked out, not ${w.baseBranch}. Check out ${w.baseBranch} there first.`, reason: 'branch' };
+  const now = (await git(w.repo, ['rev-parse', w.baseBranch])).out.trim();
+  if (now !== m.commit) {
+    const n = await git(w.repo, ['rev-list', '--count', `${m.commit}..${w.baseBranch}`]);
+    return { ok: false, status: 409, error: `${w.baseBranch} moved on since the merge${n.ok && Number(n.out.trim()) ? ` (${n.out.trim()} more commit${n.out.trim() === '1' ? '' : 's'})` : ''}, so undoing it would throw that away. Revert the merge by hand instead.`, reason: 'moved' };
+  }
+  if (fs.existsSync(w.folder)) return { ok: false, status: 409, error: `${w.folder} exists, so the worktree cannot come back there.`, reason: 'folder' };
+  const reset = await git(w.repo, ['reset', '--keep', m.before], { timeout: 60000 });
+  if (!reset.ok) return { ok: false, status: 409, error: `git did not undo the merge: ${reset.err.split('\n')[0]}. Nothing changed.`, reason: 'refused' };
+  const has = await git(w.repo, ['show-ref', '--verify', '--quiet', `refs/heads/${w.branch}`], { okCodes: [0, 1] });
+  if (has.code === 1 && m.tip) await git(w.repo, ['branch', w.branch, m.tip]);
+  const add = await git(w.repo, ['worktree', 'add', w.folder, w.branch], { timeout: 60000 });
+  if (!add.ok) return { ok: false, status: 500, error: `The merge is undone, but git could not make the worktree again: ${add.err}`, before: m.before };
+  update(w.surfaceId, { state: 'open', unmerged_at: new Date().toISOString(), branch_deleted_at: null });
+  return { ok: true, before: m.before };
+}
+
+// Deletes a merged session's kept branch (git branch -d: refused while it
+// holds work the base branch does not have).
+export async function deleteBranch(w) {
+  if (w.state !== 'merged') return { ok: false, status: 409, error: w.state === 'open' ? 'Its work is not merged yet; discard it instead to throw it away.' : `This session's work was ${w.state}.` };
+  if (w.branch_deleted_at) return { ok: false, status: 409, error: `${w.branch} was deleted already.` };
+  const d = await git(w.repo, ['branch', '-d', w.branch]);
+  if (!d.ok && !/not found/.test(d.err)) return { ok: false, status: 409, error: `git kept ${w.branch}: ${d.err.split('\n')[0]}` };
+  update(w.surfaceId, { branch_deleted_at: new Date().toISOString() });
+  return { ok: true };
 }
 
 // Throws the session's work away: its worktree (uncommitted changes

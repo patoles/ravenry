@@ -43,7 +43,7 @@ const acts = src.match(/\\\/api\\\/ideas\\\/\(\[\\w-\]\+\)\\\/\(([\w|]+)\)\$/);
 if (acts) for (const a of acts[1].split('|')) ideaRoutes.push(`/api/ideas/x/${a}`);
 const mock = src.match(/\\\/api\\\/ideas\\\/\(\[\\w-\]\+\)\\\/mockups\(\?:\\\/\(([\w|]+)\)\)\?\$/);
 if (mock) { ideaRoutes.push('/api/ideas/x/mockups'); for (const a of mock[1].split('|')) ideaRoutes.push(`/api/ideas/x/mockups/${a}`); }
-const dynamic = ['/api/rules/x', '/api/repeats/x', '/api/inbox/x', '/api/sessions/x/comment', '/api/sessions/x/merge', '/api/sessions/x/discard', ...ideaRoutes];
+const dynamic = ['/api/rules/x', '/api/repeats/x', '/api/inbox/x', '/api/sessions/x/comment', '/api/sessions/x/merge', '/api/sessions/x/discard', '/api/sessions/x/unmerge', '/api/sessions/x/delete-branch', '/api/sessions/x/filmstrip', ...ideaRoutes];
 const missing = [...lits, ...planActs, ...dynamic].filter((p) => !person.routeOf('POST', p) && !person.routeOf('GET', p));
 check(`every write route has a row (${lits.size} paths, ${planActs.length} plan actions, ${ideaRoutes.length} idea actions)`, missing.length === 0 && planActs.length >= 12 && ideaRoutes.length >= 8, missing.join(', '));
 const rows = person.ROUTES;
@@ -200,6 +200,9 @@ const bodies = {
   '/api/sessions/x/comment': { file: 'a.txt', line: 1, text: 'Use a constant here' },
   '/api/sessions/x/merge': { mode: 'ff' },
   '/api/sessions/x/discard': {},
+  '/api/sessions/x/unmerge': {},
+  '/api/sessions/x/delete-branch': {},
+  '/api/sessions/x/filmstrip': { pane: 'paaaaaaa' },
 };
 const bodyOf = (r) => bodies[eg(r)] || { projectId: 'proj' };
 
