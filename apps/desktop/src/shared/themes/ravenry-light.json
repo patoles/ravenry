@@ -1,0 +1,30 @@
+{
+  "name": "Ravenry Light",
+  "appearance": "light",
+  "theme": {
+    "background": "#FBFAF8",
+    "foreground": "#2C2C30",
+    "cursor": "#1D1D1F",
+    "cursorAccent": "#FBFAF8",
+    "selectionBackground": "rgba(47, 111, 235, 0.22)",
+    "scrollbarSliderBackground": "rgba(0, 0, 0, 0.12)",
+    "scrollbarSliderHoverBackground": "rgba(0, 0, 0, 0.20)",
+    "scrollbarSliderActiveBackground": "rgba(0, 0, 0, 0.28)",
+    "black": "#2C2C30",
+    "red": "#C8352B",
+    "green": "#1F8A44",
+    "yellow": "#9A6700",
+    "blue": "#2F6FEB",
+    "magenta": "#8A4FD8",
+    "cyan": "#0F7B8A",
+    "white": "#6B6B70",
+    "brightBlack": "#57575C",
+    "brightRed": "#E0443A",
+    "brightGreen": "#23A455",
+    "brightYellow": "#B07A00",
+    "brightBlue": "#4C84F0",
+    "brightMagenta": "#A066E6",
+    "brightCyan": "#1592A3",
+    "brightWhite": "#9A9AA0"
+  }
+}

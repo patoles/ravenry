@@ -1,0 +1,30 @@
+{
+  "name": "Paper",
+  "appearance": "light",
+  "theme": {
+    "background": "#F2EEDE",
+    "foreground": "#3B3A36",
+    "cursor": "#3B3A36",
+    "cursorAccent": "#F2EEDE",
+    "selectionBackground": "rgba(61, 90, 128, 0.20)",
+    "scrollbarSliderBackground": "rgba(0, 0, 0, 0.12)",
+    "scrollbarSliderHoverBackground": "rgba(0, 0, 0, 0.20)",
+    "scrollbarSliderActiveBackground": "rgba(0, 0, 0, 0.28)",
+    "black": "#3B3A36",
+    "red": "#A33A2B",
+    "green": "#5B7F3A",
+    "yellow": "#8A6A10",
+    "blue": "#3D5A80",
+    "magenta": "#7A4E8C",
+    "cyan": "#2F6F73",
+    "white": "#7A776C",
+    "brightBlack": "#6B685E",
+    "brightRed": "#C0473A",
+    "brightGreen": "#4F8A2E",
+    "brightYellow": "#A07B12",
+    "brightBlue": "#4D6E99",
+    "brightMagenta": "#9160A6",
+    "brightCyan": "#3A8589",
+    "brightWhite": "#9A968A"
+  }
+}

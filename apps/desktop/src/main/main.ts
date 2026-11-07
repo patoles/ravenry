@@ -39,6 +39,7 @@ import { launchPlan, offerFor, runScript, scriptPath } from './npmswitch.ts';
 import type { NpmDetect, Offer } from './npmswitch.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
+import { initSettings, openSettings } from './settings.ts';
 
 const APP_ROOT = path.resolve(__dirname, '..');
 const OFFSCREEN = process.env.RAVENRY_OFFSCREEN === '1';
@@ -130,6 +131,8 @@ function menu(): void {
         updateItem,
         ...backItems,
         { type: 'separator' as const },
+        { label: 'Settings…', accelerator: 'Cmd+,', click: () => openSettings() },
+        { type: 'separator' as const },
         { role: 'services' as const },
         { type: 'separator' as const },
         { role: 'hide' as const }, { role: 'hideOthers' as const }, { role: 'unhide' as const },
@@ -153,6 +156,7 @@ function menu(): void {
         { role: 'copy', accelerator: isMac ? 'Cmd+C' : 'Ctrl+Shift+C' },
         { role: 'paste', accelerator: isMac ? 'Cmd+V' : 'Ctrl+Shift+V' },
         { role: 'selectAll', accelerator: isMac ? 'Cmd+A' : 'Ctrl+Shift+A' },
+        ...(isMac ? [] : [{ type: 'separator' as const }, { label: 'Settings…', accelerator: 'Ctrl+,', click: () => openSettings() }]),
       ],
     },
     {
@@ -487,6 +491,7 @@ async function backToNpm(): Promise<object> {
 app.whenReady().then(async () => {
   if (OFFSCREEN && isMac) app.dock?.hide();
   store = new Store(app.getPath('userData'));
+  initSettings({ dir: app.getPath('userData'), offscreen: OFFSCREEN });
   staged = stage();
   ipc();
   menu();

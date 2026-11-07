@@ -1,0 +1,31 @@
+{
+  "name": "GitHub Light",
+  "appearance": "light",
+  "credit": "GitHub Light from Primer (github-vscode-theme, primer/primitives), MIT License",
+  "theme": {
+    "background": "#FFFFFF",
+    "foreground": "#24292F",
+    "cursor": "#0969DA",
+    "cursorAccent": "#FFFFFF",
+    "selectionBackground": "rgba(9, 105, 218, 0.20)",
+    "scrollbarSliderBackground": "rgba(0, 0, 0, 0.12)",
+    "scrollbarSliderHoverBackground": "rgba(0, 0, 0, 0.20)",
+    "scrollbarSliderActiveBackground": "rgba(0, 0, 0, 0.28)",
+    "black": "#24292F",
+    "red": "#CF222E",
+    "green": "#116329",
+    "yellow": "#4D2D00",
+    "blue": "#0969DA",
+    "magenta": "#8250DF",
+    "cyan": "#1B7C83",
+    "white": "#6E7781",
+    "brightBlack": "#57606A",
+    "brightRed": "#A40E26",
+    "brightGreen": "#1A7F37",
+    "brightYellow": "#633C01",
+    "brightBlue": "#218BFF",
+    "brightMagenta": "#A475F9",
+    "brightCyan": "#3192AA",
+    "brightWhite": "#8C959F"
+  }
+}

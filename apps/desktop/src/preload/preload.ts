@@ -51,4 +51,12 @@ contextBridge.exposeInMainWorld('ravenry', {
   npmBack: () => ipcRenderer.invoke('npm:back'),
   npmConfirmBack: (on: boolean) => ipcRenderer.invoke('npm:confirm-back', on),
   onNpm: on('npm:state'),
+  // The terminal settings (docs/SETTINGS.md; SettingsApi in src/shared/settings.ts).
+  settings: {
+    get: () => ipcRenderer.invoke('settings:get'),
+    set: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),
+    onChange: on('settings:changed'),
+    bell: () => ipcRenderer.send('settings:bell'),
+    open: (tab?: string) => ipcRenderer.send('settings:open', tab),
+  },
 });

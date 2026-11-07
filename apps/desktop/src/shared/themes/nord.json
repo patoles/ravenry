@@ -1,0 +1,31 @@
+{
+  "name": "Nord",
+  "appearance": "dark",
+  "credit": "Nord by Sven Greb (Arctic Ice Studio), MIT License",
+  "theme": {
+    "background": "#2E3440",
+    "foreground": "#D8DEE9",
+    "cursor": "#D8DEE9",
+    "cursorAccent": "#2E3440",
+    "selectionBackground": "rgba(67, 76, 94, 0.80)",
+    "scrollbarSliderBackground": "rgba(255, 255, 255, 0.10)",
+    "scrollbarSliderHoverBackground": "rgba(255, 255, 255, 0.18)",
+    "scrollbarSliderActiveBackground": "rgba(255, 255, 255, 0.24)",
+    "black": "#3B4252",
+    "red": "#BF616A",
+    "green": "#A3BE8C",
+    "yellow": "#EBCB8B",
+    "blue": "#81A1C1",
+    "magenta": "#B48EAD",
+    "cyan": "#88C0D0",
+    "white": "#E5E9F0",
+    "brightBlack": "#4C566A",
+    "brightRed": "#BF616A",
+    "brightGreen": "#A3BE8C",
+    "brightYellow": "#EBCB8B",
+    "brightBlue": "#81A1C1",
+    "brightMagenta": "#B48EAD",
+    "brightCyan": "#8FBCBB",
+    "brightWhite": "#ECEFF4"
+  }
+}

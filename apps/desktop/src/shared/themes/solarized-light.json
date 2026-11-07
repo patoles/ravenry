@@ -1,0 +1,31 @@
+{
+  "name": "Solarized Light",
+  "appearance": "light",
+  "credit": "Solarized by Ethan Schoonover, MIT License",
+  "theme": {
+    "background": "#FDF6E3",
+    "foreground": "#657B83",
+    "cursor": "#586E75",
+    "cursorAccent": "#FDF6E3",
+    "selectionBackground": "rgba(88, 110, 117, 0.20)",
+    "scrollbarSliderBackground": "rgba(0, 0, 0, 0.12)",
+    "scrollbarSliderHoverBackground": "rgba(0, 0, 0, 0.20)",
+    "scrollbarSliderActiveBackground": "rgba(0, 0, 0, 0.28)",
+    "black": "#073642",
+    "red": "#DC322F",
+    "green": "#859900",
+    "yellow": "#B58900",
+    "blue": "#268BD2",
+    "magenta": "#D33682",
+    "cyan": "#2AA198",
+    "white": "#EEE8D5",
+    "brightBlack": "#002B36",
+    "brightRed": "#CB4B16",
+    "brightGreen": "#586E75",
+    "brightYellow": "#657B83",
+    "brightBlue": "#839496",
+    "brightMagenta": "#6C71C4",
+    "brightCyan": "#93A1A1",
+    "brightWhite": "#FDF6E3"
+  }
+}

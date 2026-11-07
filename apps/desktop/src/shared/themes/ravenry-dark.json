@@ -1,0 +1,30 @@
+{
+  "name": "Ravenry Dark",
+  "appearance": "dark",
+  "theme": {
+    "background": "#0B0B0C",
+    "foreground": "#D1D1D6",
+    "cursor": "#E5E5EA",
+    "cursorAccent": "#0B0B0C",
+    "selectionBackground": "rgba(64, 156, 255, 0.35)",
+    "scrollbarSliderBackground": "rgba(255, 255, 255, 0.10)",
+    "scrollbarSliderHoverBackground": "rgba(255, 255, 255, 0.18)",
+    "scrollbarSliderActiveBackground": "rgba(255, 255, 255, 0.24)",
+    "black": "#1C1C1E",
+    "red": "#FF6961",
+    "green": "#30D158",
+    "yellow": "#FFD60A",
+    "blue": "#409CFF",
+    "magenta": "#BF5AF2",
+    "cyan": "#64D2FF",
+    "white": "#D1D1D6",
+    "brightBlack": "#636366",
+    "brightRed": "#FF8A80",
+    "brightGreen": "#4CE07A",
+    "brightYellow": "#FFE066",
+    "brightBlue": "#6BB5FF",
+    "brightMagenta": "#DA8FFF",
+    "brightCyan": "#8AE0FF",
+    "brightWhite": "#F2F2F4"
+  }
+}

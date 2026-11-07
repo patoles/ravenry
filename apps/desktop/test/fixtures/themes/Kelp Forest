@@ -1,0 +1,25 @@
+# Ghostty theme: Kelp Forest
+# palette entries are index=colour, as in Ghostty's bundled themes
+palette = 0=#1d2521
+palette = 1=#e5786d
+palette = 2=#8fc887
+palette = 3=#e3c07a
+palette = 4=#6fa8dc
+palette = 5=#c391d9
+palette = 6=#68c2b5
+palette = 7=#c9d1cb
+palette = 8=#56635c
+palette = 9=#f08f85
+palette = 10=#a6d99e
+palette = 11=#efd093
+palette = 12=#8bbbe6
+palette = 13=#d4a9e5
+palette = 14=#84d2c6
+palette = 15=#eef3ef
+palette = 16=#ff8800
+background = 141b17
+foreground = c9d1cb
+cursor-color = e3c07a
+cursor-text = 141b17
+selection-background = 2c3a33
+selection-foreground = eef3ef

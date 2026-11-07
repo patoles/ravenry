@@ -1,0 +1,19 @@
+background = #fafafa
+foreground = #333333
+cursor-color = cell-foreground
+palette = 0 = #333333
+palette = 1 = #c82829
+palette = 2 = #718c00
+palette = 3 = #a07a00
+palette = 4 = #4271ae
+palette = 5 = #8959a8
+palette = 6 = #3e999f
+palette = 7 = #8e908c
+palette = 8 = #666666
+palette = 9 = #e33d3e
+palette = 10 = #839c10
+palette = 11 = #b58b00
+palette = 12 = #5683c1
+palette = 13 = #9b6cba
+palette = 14 = #4aabb1
+palette = 15 = white
