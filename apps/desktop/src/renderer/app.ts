@@ -1664,6 +1664,11 @@ async function boot(): Promise<void> {
         palette: [THEME.black, THEME.red, THEME.green, THEME.yellow, THEME.blue, THEME.magenta, THEME.cyan, THEME.white, THEME.brightBlack, THEME.brightRed, THEME.brightGreen, THEME.brightYellow, THEME.brightBlue, THEME.brightMagenta, THEME.brightCyan, THEME.brightWhite],
       },
     }),
+    // The live text's width, for a frame shown at the same size.
+    textWidth: () => {
+      const el = document.querySelector('#term .xterm-screen') as HTMLElement | null;
+      return el ? el.getBoundingClientRect().width : null;
+    },
     client: (pane) => daemons.holding(pane),
     sendTo: (pane) => {
       const c = store.get(pane)?.pane.creator;

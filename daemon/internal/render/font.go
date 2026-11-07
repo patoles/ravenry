@@ -19,7 +19,8 @@ import (
 // NOTICE), in the four faces a terminal uses. They cover Latin, Greek and
 // Cyrillic text and the usual symbols; box drawing, block elements and
 // braille are drawn by glyphs.go instead, and a character none of them has
-// (emoji, CJK) is drawn as a hollow box.
+// comes from the fallback fonts (fallback.go), else is drawn as a hollow
+// box.
 
 var (
 	fontsOnce sync.Once
@@ -45,6 +46,7 @@ func loadFonts() error {
 // not safe for concurrent use, so drawing holds mu.
 type faceSet struct {
 	mu     sync.Mutex
+	size   float64
 	faces  [4]font.Face
 	cellW  int
 	cellH  int
@@ -111,7 +113,7 @@ func facesFor(o Options) (*faceSet, error) {
 	if fs := faces[size]; fs != nil {
 		return fs, nil
 	}
-	fs := &faceSet{masks: map[glyphKey]*image.Alpha{}}
+	fs := &faceSet{size: size, masks: map[glyphKey]*image.Alpha{}}
 	for i, f := range fonts {
 		face, err := opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
 		if err != nil {

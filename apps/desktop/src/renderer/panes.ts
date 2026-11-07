@@ -172,25 +172,10 @@ export function sameSource(a: Source | null | undefined, b: Source | null | unde
   return true;
 }
 
-/** A key typed as its token in the input log ("<Ctrl+C>"), as people read it ("Ctrl C"). */
-export function keyLabel(token: string): string {
-  return token.replace(/^</, '').replace(/>$/, '').replace(/\+/g, ' ');
-}
-
-/** What an input typed, as text and keys in order: "npm run dev", "Enter". */
-export function inputParts(text: string | undefined): { kind: 'text' | 'key'; text: string }[] {
-  const out: { kind: 'text' | 'key'; text: string }[] = [];
-  const re = /<([A-Za-z0-9+/]+)>/g;
-  let at = 0;
-  const t = String(text || '');
-  for (let m = re.exec(t); m; m = re.exec(t)) {
-    if (m.index > at) out.push({ kind: 'text', text: t.slice(at, m.index) });
-    out.push({ kind: 'key', text: keyLabel(m[0]) });
-    at = m.index + m[0].length;
-  }
-  if (at < t.length) out.push({ kind: 'text', text: t.slice(at) });
-  return out;
-}
+// What an input typed, as text and keys: the one formatter every place
+// that shows keys uses (hub/public/keys.mjs).
+export { keyLabel, keyParts as inputParts } from '../../../../hub/public/keys.mjs';
+import { keyParts as inputParts } from '../../../../hub/public/keys.mjs';
 
 /**
  * What a terminal shows for an input's typing: its text, and ^C for a

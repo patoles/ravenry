@@ -223,6 +223,34 @@ function pngText(buf) {
   return out;
 }
 
+// The text a TrueType or OpenType font carries: its name table (family,
+// copyright, designer, URLs, licence), where a name or a path could hide.
+// null when it is not a font this can read.
+export function fontText(buf) {
+  if (buf.length < 12) return null;
+  const tag = buf.readUInt32BE(0);
+  if (tag !== 0x00010000 && tag !== 0x4f54544f) return null; // TrueType, OTTO
+  const n = buf.readUInt16BE(4);
+  let name = null;
+  for (let i = 0; i < n; i++) {
+    const o = 12 + i * 16;
+    if (o + 16 > buf.length) return null;
+    if (buf.toString('latin1', o, o + 4) === 'name') name = { off: buf.readUInt32BE(o + 8), len: buf.readUInt32BE(o + 12) };
+  }
+  if (!name || name.off + 6 > buf.length) return [];
+  const t = buf.subarray(name.off, name.off + name.len);
+  const count = t.readUInt16BE(2), strings = t.readUInt16BE(4);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const r = 6 + i * 12;
+    if (r + 12 > t.length) break;
+    const platform = t.readUInt16BE(r), len = t.readUInt16BE(r + 8), off = t.readUInt16BE(r + 10);
+    const raw = t.subarray(strings + off, strings + off + len);
+    if (platform === 0 || platform === 3) { const b = Buffer.from(raw); b.swap16(); out.push(b.toString('utf16le')); } else out.push(raw.toString('latin1'));
+  }
+  return out;
+}
+
 function excerpt(line, at, len) {
   const s = Math.max(0, at - 40), e = Math.min(line.length, at + len + 40);
   return (s ? '...' : '') + line.slice(s, e).trim() + (e < line.length ? '...' : '');
@@ -262,6 +290,14 @@ export function audit(dir, termsFile) {
       const chunks = pngText(buf);
       for (const t of chunks) scanText(rel, t, rules, hits, ' (PNG text chunk)');
       if (rel.endsWith('.png') && chunks.length) hits.list.push(`${rel}:0: PNG carries text chunks: ${chunks.map((t) => t.slice(0, 60)).join(' | ')}`);
+      continue;
+    }
+    if (/\.(ttf|otf)$/i.test(rel)) {
+      // A font: the text it carries is audited; a file that is not a font
+      // this can read is a binary the audit cannot read.
+      const names = fontText(buf);
+      if (names === null) { hits.other.push(rel); continue; }
+      for (const t of names) scanText(rel, t, rules, hits, ' (font name table)');
       continue;
     }
     if (!TEXT_EXT.test(rel) && buf.includes(0)) { hits.other.push(rel); continue; }

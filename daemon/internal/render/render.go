@@ -186,7 +186,8 @@ func drawCursor(img *image.RGBA, g *vt.Grid, fs *faceSet, pad int, cc color.RGBA
 }
 
 // glyph draws a cell's text: procedurally for lines, blocks and braille,
-// from the matching Go Mono face, or as a hollow box when no face has it.
+// from the matching Go Mono face, else from the first fallback font that
+// has it, fitted to its cells, or as a hollow box when none has it.
 func (p cellPainter) glyph(fs *faceSet, c vt.Cell) {
 	r, _ := utf8.DecodeRuneInString(c.Text)
 	if procedural(r) && utf8.RuneCountInString(c.Text) == 1 {
@@ -194,19 +195,23 @@ func (p cellPainter) glyph(fs *faceSet, c vt.Cell) {
 			return
 		}
 	}
-	if !fs.has(r) {
+	span := (p.r.Dx() + fs.cellW - 1) / fs.cellW
+	var m *image.Alpha
+	if fs.has(r) {
+		face := 0
+		if c.Bold {
+			face |= 1
+		}
+		if c.Italic {
+			face |= 2
+		}
+		m = fs.mask(face, span, c.Text)
+	} else if f := fs.fallbackFor(r); f != nil {
+		m = fs.fallbackMask(f, span, c.Text)
+	} else {
 		p.hollow()
 		return
 	}
-	face := 0
-	if c.Bold {
-		face |= 1
-	}
-	if c.Italic {
-		face |= 2
-	}
-	span := (p.r.Dx() + fs.cellW - 1) / fs.cellW
-	m := fs.mask(face, span, c.Text)
 	// Each pixel moves from what the cell shows towards the foreground by
 	// the glyph's coverage.
 	fr, fgc, fb := int(p.fg.R), int(p.fg.G), int(p.fg.B)

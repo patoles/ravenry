@@ -165,7 +165,7 @@ func TestBrailleAndBlocks(t *testing.T) {
 
 func TestWideMissingAndCursor(t *testing.T) {
 	g := grid("    x")
-	g.Cells[0][0] = vt.Cell{Text: "界", Wide: true}
+	g.Cells[0][0] = vt.Cell{Text: "\U0010FFFD", Wide: true} // a private use character no font has
 	g.Cells[0][1] = vt.Cell{Spacer: true}
 	g.Cells[0][2] = vt.Cell{Text: "a", Invisible: true}
 	g.Cursor = vt.Cursor{X: 4, Y: 0, Visible: true}
@@ -173,7 +173,7 @@ func TestWideMissingAndCursor(t *testing.T) {
 	img := Image(g, o)
 	cw, ch := CellSize(o)
 	pad := padding(o)
-	// No Go Mono glyph for 界: a hollow box two cells wide, its left side
+	// No font has a glyph for it: a hollow box two cells wide, its left side
 	// in the first cell and its right side in the second.
 	if at(img, pad+1, pad+ch/2) != fg || at(img, pad+2*cw-2, pad+ch/2) != fg {
 		t.Errorf("hollow box for a wide character missing")
@@ -521,5 +521,45 @@ func TestTheme(t *testing.T) {
 	px, py, _, _ := cellPx(o, 0, 0)
 	if got := at(img, px, py); got != red {
 		t.Errorf("a palette entry the program changed = %v", got)
+	}
+}
+
+// The symbols agents print are drawn, never as hollow boxes, and the
+// fallback fonts keep the cell's size: each glyph is fitted to its cells.
+func TestFallbackGlyphs(t *testing.T) {
+	o := Options{FontSize: 14}
+	cw, ch := CellSize(o)
+	text := "▸⏎⏺✓⎿✻⚠★→∑┌─┐"
+	g := grid(text)
+	img := Image(g, o)
+	pad := padding(o)
+	if got := img.Bounds().Size(); got != image.Pt(len([]rune(text))*cw+2*pad, ch+2*pad) {
+		t.Fatalf("image %v: the cells changed size (cell %dx%d)", got, cw, ch)
+	}
+	// What a hollow box looks like in one cell.
+	hb := image.NewRGBA(image.Rect(0, 0, cw, ch))
+	draw.Draw(hb, hb.Bounds(), image.NewUniform(color.RGBA{bg.R, bg.G, bg.B, 255}), image.Point{}, draw.Src)
+	cellPainter{img: hb, r: hb.Bounds(), fg: color.RGBA{fg.R, fg.G, fg.B, 255}, bg: color.RGBA{bg.R, bg.G, bg.B, 255}}.hollow()
+	for i, r := range []rune(text) {
+		cell := image.Rect(pad+i*cw, pad, pad+(i+1)*cw, pad+ch)
+		ink, same := 0, true
+		for y := 0; y < ch; y++ {
+			for x := 0; x < cw; x++ {
+				c := img.RGBAAt(cell.Min.X+x, cell.Min.Y+y)
+				if rgbOf(c.R, c.G, c.B) != bg {
+					ink++
+				}
+				if c != hb.RGBAAt(x, y) {
+					same = false
+				}
+			}
+		}
+		if ink < 3 || same {
+			t.Errorf("%q (U+%04X) is not drawn (ink %d, hollow box %v)", r, r, ink, same)
+		}
+	}
+	if out := os.Getenv("RAVENRY_RENDER_OUT"); out != "" {
+		b, _ := PNG(g, Options{FontSize: 28})
+		os.WriteFile(out, b, 0o644)
 	}
 }

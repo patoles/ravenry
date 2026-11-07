@@ -33,3 +33,11 @@ fonts, built into the binary from golang.org/x/image/font/gofont, under a
 BSD 3-Clause licence:
   Copyright (c) 2016 Bigelow & Holmes Inc.. All rights reserved.
 The full licence text is in that module's font/gofont/ttfs/README.
+
+ravenryd's fallback fonts for pictures of panes (daemon/internal/render/fonts,
+made by daemon/tools/fallback-fonts.py) are subsets of Noto Sans Mono, Noto
+Sans Symbols 2, Noto Sans Math, Noto Sans Symbols and Noto Emoji, under the
+SIL Open Font License, Version 1.1 (daemon/internal/render/fonts/OFL.txt):
+  Copyright 2022 The Noto Project Authors (https://github.com/notofonts)
+  Copyright 2013 Google LLC (Noto Emoji)
+The fonts are embedded beside, not combined with, the GPL code.

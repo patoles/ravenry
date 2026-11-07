@@ -15,6 +15,8 @@ export interface FilmHost {
   now(): number;
   /** The terminal's colours and font size: frames look as the pane does live. */
   theme(): { theme: Theme; fontSize: number; scale: number };
+  /** The live terminal's text width: its columns times its cell width, in CSS pixels. */
+  textWidth(): number | null;
   /** The client of the daemon that holds the pane. */
   client(pane: string): Promise<RavenryClient | null>;
   /** The agent to send it to ("Codex") and how, or null. */
@@ -179,7 +181,12 @@ export class Filmstrip {
     if (shown) {
       if (!over) { over = h('div.frame-view'); this.stage.append(over); }
       over.style.background = shown.bg;
-      replace(over, h('img', { src: `data:image/png;base64,${shown.png}`, alt: `The pane at ${hhmmss(shown.at)}`, style: shown.w ? { width: `${shown.w / this.scale}px` } : undefined }));
+      // At the live text's size: the frame's text (its width less the
+      // picture's 8 px margins) as wide as the terminal's columns.
+      const live = this.host.textWidth();
+      const natural = shown.w / this.scale;
+      const k = live && natural > 16 ? live / (natural - 16) : 1;
+      replace(over, h('img', { src: `data:image/png;base64,${shown.png}`, alt: `The pane at ${hhmmss(shown.at)}`, style: shown.w ? { width: `${natural * k}px`, maxWidth: 'none', margin: `${-8 * k}px 0 0 ${-8 * k}px` } : undefined }));
       replace(this.strip, h('div.showing', svg(I.FILM), h('span', 'Showing ', h('b.num', hhmmss(shown.at)), `, ${Math.max(0, Math.round((this.host.now() - shown.at) / 1000))} s ago. The pane is still running underneath.`),
         h('button.btn.sm', { on: { click: () => this.live() } }, 'Back to live')));
     } else {
