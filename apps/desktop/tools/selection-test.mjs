@@ -32,7 +32,7 @@ import { APP, runApp, stopDaemons } from './run-app.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const BIN = process.env.RAVENRYD || path.resolve(APP, '..', '..', 'daemon', 'ravenryd');
+const BIN = path.resolve(process.env.RAVENRYD || path.join(APP, '..', '..', 'daemon', 'ravenryd'));
 const OUT = path.resolve(process.argv[2] || path.join(APP, '.tmp', 'selection-test'));
 fs.mkdirSync(OUT, { recursive: true });
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rvsel-'));
@@ -136,6 +136,12 @@ try {
       { until: `document.querySelectorAll('#tabs .tabrow > .tab')[${i}].classList.contains('on') && ${AGREE}`, timeout: 8000 },
       { save: { expr: `({ ids: ${R}.S.tabs.map((t) => t.id), on: document.querySelectorAll('#tabs .tabrow > .tab')[${i}].dataset.key, sel: ${SEL} })`, out: path.join(work, `strip${i + 1}.json`) } },
     ]),
+    // A pane an agent makes from inside a pane (here the shell in front): a
+    // tab right after that one, the front left alone.
+    { js: `${R}.term().focus()` },
+    { type: `${BIN} new --name 'dev server' -- /bin/sleep 600\r`, after: 300 },
+    { until: `${R}.S.tabs.some((t) => t.owner)`, timeout: 10000 },
+    { save: { expr: `(() => { const i = ${R}.S.tabs.findIndex((t) => t.owner); const front = ${R}.S.tabs.find((t) => t.id === ${R}.S.view.id); return { after: i > 0 && ${R}.S.tabs[i - 1].pane === ${R}.S.tabs[i].owner, front: !!front && !front.owner }; })()`, out: path.join(work, 'agentTab.json') } },
     { shot: path.join(OUT, 'strip-dark.png'), el: '#tabs' },
     // Back to the kite session, the one in front when the app quits.
     { click: `[...document.querySelectorAll('#side .ss')].find((e) => e.dataset.key === '${KEY}')`, clickJs: true },
@@ -149,6 +155,7 @@ try {
   const s0 = j('strip0.json');
   const clicks = [1, 2, 3, 4].map((i) => j(`strip${i}.json`));
   check('the strip: a session, a second session and two shells are tabs; a click on each brings it to the front, every tab stays, in order, and row, panel and tab agree', s0.length === 4 && clicks.every((c, i) => JSON.stringify(c.ids) === JSON.stringify(s0) && c.sel.front === c.on), JSON.stringify({ s0, fronts: clicks.map((c) => c.sel.front) }));
+  check('a pane an agent makes is a tab right after the pane it came from, and does not come to the front', j('agentTab.json').after === true && j('agentTab.json').front === true, JSON.stringify(j('agentTab.json')));
   const needs = (f) => j(f).filter((t) => /^Sync settings in notes needs you: Ship it/.test(t)).length;
   check('no toast about the session in front (Kite tail), all along', ['after9.json', 'again.json', 'hovered.json'].every((f) => !j(f).some((t) => /Kite tail/.test(t))), JSON.stringify(j('hovered.json')));
   check('a toast with an action is still there 9 s after it came', needs('after9.json') === 1, JSON.stringify(j('after9.json')));

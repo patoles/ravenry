@@ -69,7 +69,7 @@ interface ShellTab {
   activity?: boolean;
 }
 /** A session's tab; `pane` for one just started, until the hub lists it. */
-interface SessionTab { id: string; kind: 'session'; key: string; pane?: string }
+interface SessionTab { id: string; kind: 'session'; key: string; pane?: string; /** Its name when last on the board. */ name?: string }
 type Tab = ShellTab | SessionTab;
 type View =
   | { kind: 'tab'; id: string }
@@ -620,8 +620,10 @@ function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | nu
     return { ...l, group, machine: null };
   }
   const f = findSession(S.hub, t.key);
-  if (!f) return { name: 'Session', sub: null, group: 'idle', machine: null };
+  // Off the board for now (it ended, or between two states): the name it had.
+  if (!f) return { name: t.name || 'Session', sub: null, group: 'idle', machine: null };
   const name = f.session.topic || f.project.name;
+  t.name = name;
   return { name, sub: secondLine(name, f.project.name), group: hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session), machine: machineOf(f.project, f.session) };
 }
 
@@ -2036,6 +2038,15 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
       if (e.pane.labels?.['ravenry.kind'] === 'shell' && e.pane.state === 'running' && !shellTabOf(socket, e.pane.id)) addShellTab(socket, e.pane, null, false);
       // An agent's own pane: a tab right after its session's, the front left alone.
       else if (agentPane(e.pane) && !shellTabOf(socket, e.pane.id)) { addAgentPaneTab(socket, e.pane); save(); render(); }
+      // pane.created can come before the daemon has recorded who made the
+      // pane: asked once more, from the pane list.
+      else if (e.event === 'pane.created' && !e.pane.creator && e.pane.labels?.['ravenry.kind'] !== 'shell') {
+        const id = e.pane.id;
+        void daemons.get(socket).then((c) => c.request('pane.list', {})).then(({ panes }) => {
+          const p = panes.find((x) => x.id === id);
+          if (p && agentPane(p) && !shellTabOf(socket, id)) { addAgentPaneTab(socket, p); save(); render(); }
+        }).catch(() => {});
+      }
       return;
     }
     case 'agent.report': {
