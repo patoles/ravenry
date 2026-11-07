@@ -24,13 +24,14 @@ export interface HubCheckpoint extends Checkpoint {
   surfaceId?: string | null;
 }
 
-export type CardKind = 'ask' | 'approve' | 'secret' | 'other';
+export type CardKind = 'ask' | 'approve' | 'secret' | 'drive' | 'pick' | 'other';
 
 export const OPEN_STATES = new Set(['open', 'running']);
 export const isOpen = (cp: Checkpoint): boolean => OPEN_STATES.has(cp.state);
+const STAGE = (cp: Checkpoint): number => (cp.state === 'open' ? 0 : cp.state === 'running' ? 1 : 2);
 
 export function kindOf(cp: Checkpoint): CardKind {
-  return cp.kind === 'ask' || cp.kind === 'approve' || cp.kind === 'secret' ? cp.kind : 'other';
+  return cp.kind === 'ask' || cp.kind === 'approve' || cp.kind === 'secret' || cp.kind === 'drive' || cp.kind === 'pick' ? cp.kind : 'other';
 }
 
 /** Who waits: "Claude", "Codex", else "The agent". */
@@ -61,8 +62,30 @@ export function heading(cp: Checkpoint): string {
     case 'ask': return `${w} asks`;
     case 'approve': return `${w} wants to run`;
     case 'secret': return `${w} needs a secret`;
+    case 'pick': return `${w} asks you to pick`;
+    case 'drive': return `${w} ${driveVerb(cp).wants}`;
     default: return `${w} is waiting`;
   }
+}
+
+/** What a drive asks to do, in the words its card and its row use. */
+export function driveVerb(cp: Checkpoint): { action: string; wants: string; once: string; session: string | null; row: string } {
+  switch (cp.drive?.action) {
+    case 'close': return { action: 'close', wants: 'wants to close', once: 'Let it close', session: null, row: 'Wants to close' };
+    case 'restart': return { action: 'restart', wants: 'wants to restart', once: 'Let it restart', session: 'Let it restart it when it needs to', row: 'Wants to restart' };
+    case 'override': return { action: 'change', wants: 'wants to change', once: 'Let it change this', session: 'Let it change it when it needs to', row: 'Wants to change' };
+    default: return { action: 'type', wants: 'wants to type', once: 'Let it type this', session: 'Let it use this pane', row: 'Wants to type in' };
+  }
+}
+
+/**
+ * A pick's variant label as a name and the agent's words about it: the
+ * label up to its first ": " or ". " (as the phone board splits it), so
+ * "Level: The hull stays flat" reads as Level, then Claude's words.
+ */
+export function variantLabel(label: string): { name: string; words: string | null } {
+  const m = /^(.+?)(?::|\.)\s+(.+)$/.exec(String(label || '').trim());
+  return m ? { name: m[1].trim(), words: m[2].trim() } : { name: String(label || '').trim(), words: null };
 }
 
 /** "waiting 2 min", "waiting 1 h", "just now". */
@@ -187,6 +210,7 @@ export function markOf(cp: Checkpoint): Mark {
   const k = kindOf(cp);
   if (k === 'approve') return { kind: k, text: String(cp.command || '').split('\n')[0], code: true };
   if (k === 'secret') return { kind: k, text: wantsLine(cp.title), code: false };
+  if (k === 'pick') return { kind: k, text: `Pick one of ${cp.variants?.length || 'the'}: ${splitTitle(cp.title).head}`, code: false };
   return { kind: k, text: splitTitle(cp.title).head, code: false };
 }
 
@@ -256,6 +280,16 @@ export function afterOf(cp: HubCheckpoint, now: number, platform: string, here =
   if (k === 'secret') {
     const to = cp.secret?.to === 'input' ? 'the program in its pane' : shortCommand(cp.command) || 'its command';
     return { ...base, ok: true, head: 'Secret sent', big: splitTitle(cp.title).head, text: `Sent to ${to}. Ravenry didn't keep a copy, so it can't be shown again. To change it, ${whoMid(cp)} has to ask again.` };
+  }
+  if (k === 'drive') {
+    const v = driveVerb(cp);
+    const session = a?.allow === 'session';
+    const did = v.action === 'type' ? (session ? 'You let it use the pane until its session ends' : 'You let it type this, once') : `You let it ${v.action} it${session ? ' when it needs to, until its session ends' : ', once'}`;
+    return { ...base, ok: true, head: 'Allowed', text: `${did} ${byText(a?.by, here)}.` };
+  }
+  if (k === 'pick') {
+    const pk = (a as { pick?: { label?: string; note?: string; region?: unknown } } | null)?.pick;
+    return { ...base, ok: true, head: 'Picked', small: splitTitle(cp.title).head, big: pk?.label ? `${pk.label}${pk.note ? `, with a note: "${pk.note}"` : ''}` : null, text: `You picked ${byText(a?.by, here)}.` };
   }
   return { ...base, ok: true, head: 'Answered', small: splitTitle(cp.title).head, text: `You answered ${byText(a?.by, here)}.` };
 }
@@ -369,6 +403,9 @@ export class Checkpoints {
 
   private put(cp: HubCheckpoint, from: { socket?: string; hub?: boolean }, now: number): { opened: boolean; closed: boolean } {
     const had = this.items.get(cp.id);
+    // A checkpoint only moves on (open, running, closed): a late copy (the
+    // hub's state from before the answer reached it) never reopens one.
+    if (had && STAGE(cp) < STAGE(had.cp)) return { opened: false, closed: false };
     const merged: HubCheckpoint = had ? { ...had.cp, ...cp } : { ...cp };
     // The hub's extras survive a daemon event that lacks them.
     if (had) for (const k of ['machine', 'projectId', 'project', 'surfaceId'] as const) if (cp[k] === undefined && had.cp[k] !== undefined) merged[k] = had.cp[k] as never;

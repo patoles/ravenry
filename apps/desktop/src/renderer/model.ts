@@ -27,6 +27,8 @@ export interface HubSession {
   machine?: string | null;
   /** The ravenryd pane a session runs in, when the hub sends it on its own. */
   pane?: string | { id: string } | null;
+  /** A session started in a git worktree of its own (hub/docs/SESSIONS.md, Worktrees). */
+  worktree?: { branch: string; folder: string; base?: string; baseBranch?: string | null; state: 'open' | 'merged' | 'discarded'; merged?: { mode: string; commit: string; before?: string; tip?: string; at: string } | null; branch_deleted_at?: string | null } | null;
 }
 
 export interface HubProject {
@@ -119,7 +121,7 @@ export function machineOf(p: HubProject, s?: HubSession): string | null {
 }
 
 /** An open checkpoint on a session's row: what kind of answer waits, its words, since when. */
-export interface RowMark { kind: 'ask' | 'approve' | 'secret' | 'other'; text: string; code: boolean; since: string }
+export interface RowMark { kind: 'ask' | 'approve' | 'secret' | 'drive' | 'pick' | 'review' | 'other'; text: string; code: boolean; since: string }
 
 export interface Row {
   key: string;

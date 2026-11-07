@@ -365,14 +365,14 @@ try {
 }
 
 const has = (n) => fs.existsSync(path.join(WORK, `${n}.json`));
-if (has('rows0')) check('the sidebar\'s pages from their files: Objectives, Plans, Ideas, Rules, Ship, then a line and trail-map\'s Map tiles', /^Objectives\|Plans[^|]*\|Ideas4\|Rules\|Ship\d*\|Map tilestrail-map$/.test(read('rows0')), read('rows0'));
+if (has('rows0')) check('the sidebar\'s pages from their files: Objectives, Plans, Ideas, Rules, Ship, then Decisions (the ledger, not a page file), then a line and trail-map\'s Map tiles', /^Objectives\|Plans[^|]*\|Ideas4\|Rules\|Ship\d*\|Decisions\d*\|Map tilestrail-map$/.test(read('rows0')), read('rows0'));
 if (has('objectives')) {
   const o = read('objectives');
   check('the default Objectives page: a card per project with a brief, its rows, a quiet Customize, in place of the terminal and the panel', o.cards.length === 5 && o.chip === 'Default page' && o.rows === 8 && o.centre && o.panel && o.quiet.some((x) => /^No brief yet/.test(x)), JSON.stringify(o));
 }
 if (has('agent')) {
   const a = read('agent');
-  check('the agent\'s page: its row appears after the line, lit, with its count; ravenry page check said OK in the pane', a.fresh === 'Playtest notes4' && /Ship\d*\|Playtest notes4\|Map tiles/.test(a.rows) && /OK {2}board by status: New 4, Fixing 2, Fixed 6\. 3 buttons\./.test(a.term), JSON.stringify({ fresh: a.fresh, rows: a.rows }));
+  check('the agent\'s page: its row appears after the line, lit, with its count; ravenry page check said OK in the pane', a.fresh === 'Playtest notes4' && /Ship\d*\|Decisions\d*\|Playtest notes4\|Map tiles/.test(a.rows) && /OK {2}board by status: New 4, Fixing 2, Fixed 6\. 3 buttons\./.test(a.term), JSON.stringify({ fresh: a.fresh, rows: a.rows }));
 }
 if (has('board0')) {
   const b = read('board0');
@@ -388,7 +388,7 @@ if (has('tiles0')) {
   const t = read('tiles0');
   check('a project\'s page: read-only, its buttons off, what each would do, its project\'s name on its row', /This page came with the project\. Its buttons stay off until you trust it\./.test(t.bar) && t.off && t.would.join('|').includes('Runs npm run build:tiles in ~/Projects/trail-map, with REGION set to the item\'s region. You approve each run first.') && t.chip === 'trail-map' && /^Read-only/.test(t.src) && t.row === 'Map tilestrail-map', JSON.stringify(t));
 }
-if (has('navcls')) check('a page is lit only when it first appears, and the page shown is the one selected', read('navcls') === 'vrow|vrow|vrow|vrow|vrow|vrow|vrow sel', read('navcls'));
+if (has('navcls')) check('a page is lit only when it first appears, and the page shown is the one selected', read('navcls') === 'vrow|vrow|vrow|vrow|vrow|vrow|vrow|vrow sel', read('navcls'));
 if (has('run')) check('trusted, its run button shows the command and REGION in an approval card, as the page\'s button and not an agent\'s', /REGION/.test(read('run').panel) && /Lake District/.test(read('run').panel) && read('run').cmd === 'npm run build:tiles' && /Map tiles: Rebuild tiles/.test(read('run').panel) && !/agent/i.test(read('run').panel), JSON.stringify(read('run')).slice(0, 400));
 if (has('copy')) check('Customize: the copy takes Objectives\' place; the default changed since: one quiet line', /Default page, changed since your copy\./.test(read('copy').bar) && /objectives\.page\.yaml/.test(read('copy').src) && read('copy').rows.startsWith('Objectives|Plans'), JSON.stringify(read('copy')));
 if (has('changed')) check('See what changed: the default\'s change, line by line', /What changed in the default Objectives page/.test(read('changed').text) && read('changed').added.some((x) => /time: updated/.test(x)), JSON.stringify(read('changed').added));

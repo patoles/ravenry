@@ -11,8 +11,9 @@
 import type { CheckpointReply } from '@ravenry/client';
 import { h, svg } from './dom.ts';
 import * as I from './icons.ts';
+import { inputParts } from './panes.ts';
 import {
-  afterOf, changedRange, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
+  afterOf, changedRange, driveVerb, variantLabel, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
 } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 
@@ -41,6 +42,28 @@ export interface CardCtx {
   showRun(k: Known): (() => void) | null;
   /** The card was answered from the keyboard or a button: a narrow window goes back to the terminal. */
   answered(): void;
+  /** A drive's pane and asker as the sidebar names them. */
+  drive(k: Known): DriveInfo;
+  /** A pick's picture n, as a URL the window can show, or null. */
+  variantSrc(k: Known, n: number): string | null;
+  /** Opens the pick side by side, in the middle. */
+  openPicker(k: Known): void;
+  /** The person's decisions an agent read just before it asked, or null. */
+  checked(k: Known): { quote: string; when: string }[] | null;
+}
+
+export interface DriveInfo {
+  /** "Claude", "Codex". */
+  who: string;
+  /** The asking session's name ("Tilting the hull"), or null. */
+  session: string | null;
+  /** The pane as the tabs name it ("dev server"). */
+  pane: string;
+  /** "a shell", "Codex's pane". */
+  what: string;
+  /** "By you, at 16:58". */
+  opened: string | null;
+  folder: string | null;
 }
 
 /** What a card says when the window may not answer (PROTOCOL.md section 4, Who acts as the person). */
@@ -81,7 +104,7 @@ function changed(id: string): void { stamp++; const v = views.get(id); if (v) v.
 export function cardFor(k: Known, ctx: CardCtx): HTMLElement {
   const u = ui(k.cp.id);
   // A page's run (the hub's word on it can come after the daemon's) changes the heading.
-  const key = `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}|${!!(k.cp as HubCheckpoint).page}`;
+  const key = `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}|${!!(k.cp as HubCheckpoint).page}|${kindOf(k.cp) === 'ask' ? ctx.checked(k)?.length || 0 : ''}|${kindOf(k.cp) === 'drive' ? JSON.stringify(ctx.drive(k)) : ''}`;
   const had = views.get(k.cp.id);
   if (had && had.key === key) { had.refresh(); return had.el; }
   had?.secret?.clear();
@@ -111,6 +134,18 @@ export function pruneCards(ids: Set<string>): void {
 
 /** A number key, typed while a question's card has the keyboard: its answer. */
 export function cardKey(k: Known, e: KeyboardEvent, ctx: CardCtx): boolean {
+  if (kindOf(k.cp) === 'drive' && /^[1-3]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && ctx.canAnswer(k)) {
+    const v = driveVerb(k.cp);
+    const n = Number(e.key);
+    if (n === 2 && !v.session) return false;
+    void send(k, ctx, n === 1 ? { approve: true, allow: 'once' } : n === 2 ? { approve: true, allow: 'session' } : { decline: true });
+    return true;
+  }
+  if (kindOf(k.cp) === 'pick' && /^[1-4]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (Number(e.key) > (k.cp.variants || []).length) return false;
+    ctx.openPicker(k);
+    return true;
+  }
   const i = digitChoice(e.key, k.cp);
   if (i === null || e.metaKey || e.ctrlKey || e.altKey || !ctx.canAnswer(k)) return false;
   void send(k, ctx, { choice: i });
@@ -141,8 +176,8 @@ async function send(k: Known, ctx: CardCtx, reply: Reply): Promise<void> {
 
 // ---------------------------------------------------------------- open cards
 
-function header(k: Known, ctx: CardCtx, icon: string): { el: HTMLElement; refresh(): void } {
-  const when = h('span.t3.num', waiting(k.cp, ctx.now()));
+function header(k: Known, ctx: CardCtx, icon: string, short = false): { el: HTMLElement; refresh(): void } {
+  const when = h('span.t3.num', short ? waiting(k.cp, ctx.now()).replace(/^waiting /, '') : waiting(k.cp, ctx.now()));
   return { el: h('div.cp-h', h('span.kd', svg(icon)), heading(k.cp), h('span.sp'), when), refresh: () => { when.textContent = waiting(k.cp, ctx.now()); } };
 }
 
@@ -167,6 +202,8 @@ function openCard(k: Known, ctx: CardCtx, u: UI): View {
     case 'ask': return askCard(k, ctx, u);
     case 'approve': return approveCard(k, ctx, u);
     case 'secret': return secretCard(k, ctx, u);
+    case 'drive': return driveCard(k, ctx, u);
+    case 'pick': return pickCard(k, ctx);
     default: return otherCard(k, ctx, u);
   }
 }
@@ -208,6 +245,7 @@ function askCard(k: Known, ctx: CardCtx, u: UI): View {
     hd.el,
     h('div.cp-q', head),
     body ? h('p.cp-d', body) : null,
+    checkedBox(k, ctx),
     opts.length ? h('div.opts', opts) : null,
     fieldBox,
     errorLine(u, k, ctx),
@@ -394,6 +432,103 @@ function secretCard(k: Known, ctx: CardCtx, u: UI): View {
     refresh: () => { hd.refresh(); ft.refresh(); },
     focus: () => input.focus(),
   };
+}
+
+/**
+ * "Checked your decisions first" (31, variant A): the person's decisions
+ * the agent read just before it asked, quoted, so the card shows what it
+ * found. Nothing when it read none.
+ */
+function checkedBox(k: Known, ctx: CardCtx): HTMLElement | null {
+  const list = ctx.checked(k);
+  if (!list || !list.length) return null;
+  return h('div.chkd',
+    h('div.chkd-h', svg(I.CHECK_C), 'Checked your decisions first'),
+    list.slice(0, 3).map((d) => h('div.chkd-q', `"${d.quote.length > 52 ? d.quote.slice(0, 50).replace(/[\s,;.]+\S*$/, '') + '...' : d.quote}"`, h('span.t3', ` ${d.when}`))));
+}
+
+/**
+ * An agent asks to act on a pane it did not start (6, the drive card): to
+ * type into it, close it, restart it or change how it runs. What it would
+ * type, as text and keys in order; then once, for its session (the grant
+ * ends with the session), or Refuse, with a field to say why.
+ */
+function driveCard(k: Known, ctx: CardCtx, u: UI): View {
+  const off = u.busy || !ctx.canAnswer(k);
+  const cp = k.cp;
+  const v = driveVerb(cp);
+  const d = ctx.drive(k);
+  const hd = header(k, ctx, I.KEYBOARD);
+  const ft = footer(k, ctx);
+  const title = v.action === 'type' ? `Let it type in ${d.pane}?` : v.action === 'change' ? `Let it change how ${d.pane} runs?` : `Let it ${v.action} ${d.pane}?`;
+  const input = cp.drive?.input || '';
+  const parts = v.action === 'type' && input && !/^\(/.test(input) ? inputParts(input) : [];
+  const press = parts.length ? h('div.press',
+    h('div.press-h', 'It would press, in order'),
+    h('div.keys', parts.map((p) => (p.kind === 'key' ? h('span.key', p.text) : h('span.ktx', p.text))))) : input && v.action !== 'type' ? h('pre.cmdb', input) : null;
+  const field = h('input.fi', { type: 'text', placeholder: `Or tell ${d.who} something else`, 'aria-label': `Tell ${d.who} something else`, maxlength: '1000', disabled: off }) as HTMLInputElement;
+  field.value = u.reason;
+  const go = h('button.snd', { title: 'Send (Enter)', 'aria-label': 'Send', disabled: off, on: { click: () => sendWhy() } }, svg(I.SEND));
+  function sendWhy(): void {
+    const r = field.value.trim();
+    if (!r) { field.focus(); return; }
+    void send(k, ctx, { decline: true, reason: r });
+  }
+  field.addEventListener('input', () => { u.reason = field.value; go.classList.toggle('go', !!field.value.trim()); fld.classList.toggle('typed', !!field.value); });
+  field.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); sendWhy(); } e.stopPropagation(); });
+  const fld = h('div.fld', field, go);
+  const opt = (n: number, label: string, sub: string | null, reply: Reply, cls = '') => h(`button.btn.opt${cls}`, { disabled: off, on: { click: () => void send(k, ctx, reply) } },
+    h('span.kb', String(n)), h('span.ol', label, sub ? h('span.os', sub) : null));
+  const opts = [
+    opt(1, v.once, null, { approve: true, allow: 'once' }),
+    v.session ? opt(2, v.session, v.action === 'type' ? 'Until its session ends or you take it back' : 'Until its session ends', { approve: true, allow: 'session' }) : null,
+    opt(v.session ? 3 : 2, 'Refuse', null, { decline: true }, '.no'),
+  ];
+  const el = h('div.sec.ask.cp.drive', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${title}` },
+    h('div.cp-h', h('span.kd', svg(I.KEYBOARD)), `${d.who} ${v.wants}`, h('span.sp'), hd.el.lastElementChild!),
+    h('div.cp-q', title),
+    h('div.kv',
+      h('span', 'Pane'), h('span', h('b', d.pane), `, ${d.what}`),
+      d.session ? [h('span', 'Asks'), h('span', `${d.who}, in ${d.session}`)] : null,
+      d.opened ? [h('span', 'Opened'), h('span', d.opened)] : null,
+      d.folder ? [h('span', 'Folder'), h('span.mono', d.folder)] : null),
+    press,
+    h('div.opts', opts),
+    fld,
+    errorLine(u, k, ctx),
+    ft.el);
+  return {
+    key: '', el,
+    refresh: () => { hd.refresh(); ft.refresh(); },
+    focus: () => el.focus(),
+  };
+}
+
+/**
+ * A pick in the panel (32, C): the pictures small, with Open side by side
+ * (or 1 to 4), which opens the picker in the middle.
+ */
+function pickCard(k: Known, ctx: CardCtx): View {
+  const cp = k.cp;
+  const vs = cp.variants || [];
+  const hd = header(k, ctx, I.PICK, true);
+  const ft = footer(k, ctx);
+  const tiles = vs.map((v, n) => {
+    const src = ctx.variantSrc(k, n);
+    const letter = 'ABCD'[n] || String(n + 1);
+    const name = variantLabel(v.label).name;
+    return h('button.ptile', { title: `Open ${name} side by side`, on: { click: () => ctx.openPicker(k) } },
+      h('div.pimg', src ? h('img', { src, alt: name, draggable: 'false' }) : h('span.t3', 'No picture'), h('span.plab', letter)),
+      h('span.pcap', `${letter}. ${name}`));
+  });
+  const open = h('div.popen', h('button.btn.sm.pri', { on: { click: () => ctx.openPicker(k) } }, 'Open side by side'), h('span.t3.small', `or press ${vs.map((_, i) => i + 1).join(', ')}`));
+  const el = h('div.sec.ask.cp.pick', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${splitTitle(cp.title).head}` },
+    hd.el,
+    h('div.cp-q', splitTitle(cp.title).head),
+    h('div.ptiles', tiles, vs.length % 2 ? open : null),
+    vs.length % 2 ? null : open,
+    ft.el);
+  return { key: '', el, refresh: () => { hd.refresh(); ft.refresh(); }, focus: () => el.focus() };
 }
 
 function otherCard(k: Known, ctx: CardCtx, u: UI): View {

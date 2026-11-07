@@ -18,12 +18,13 @@
 
 import '@xterm/xterm/css/xterm.css';
 import './app.css';
-import type { AgentStatus, Checkpoint, DaemonEvent, Pane, RavenryClient } from '@ravenry/client';
+import './phase2.css';
+import type { AgentStatus, Checkpoint, DaemonEvent, InputRecord, Pane, RavenryClient, Source } from '@ravenry/client';
 import { api } from './api.ts';
 import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
 import { cardFor, cardKey, clearHiddenSecrets, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
 import type { CardCtx, Reply } from './cards.ts';
-import { Checkpoints, daemonAnswer, hubAnswer, isOpen, markOf } from './checkpoints.ts';
+import { Checkpoints, daemonAnswer, driveVerb, hubAnswer, isOpen, markOf, timeOf } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 import { Daemons } from './daemons.ts';
 import { h, replace, svg } from './dom.ts';
@@ -38,6 +39,15 @@ import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
 import type { NavRow } from './pages.ts';
 import { TerminalView } from './terminal.ts';
+import { PaneStore } from './panes.ts';
+import { TerminalMarks } from './marks.ts';
+import { leaseStrip, leaseWords, openedLine, panesItUses, typedHere, whoCanType } from './panepanel.ts';
+import type { PaneCtx, Who } from './panepanel.ts';
+import { Filmstrip } from './filmstrip.ts';
+import { Decisions } from './decisions.ts';
+import { Picker } from './picker.ts';
+import { Files } from './files.ts';
+import { Review } from './review.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 import { PhoneCard } from './phonecard.ts';
 
@@ -50,7 +60,7 @@ interface ShellTab {
   id: string; kind: 'shell'; socket: string; pane: string;
   /** The assistant the first launch started in it (its `ravenry.agent` label). */
   agent?: string | null;
-  title?: string; cwd?: string; command?: string[]; cols?: number; rows?: number; createdAt?: string;
+  title?: string; name?: string; cwd?: string; command?: string[]; cols?: number; rows?: number; createdAt?: string;
   /** The agent running in it, from the daemon's status channel. */
   status?: AgentStatus | null;
   /** It printed while it was not on screen. */
@@ -68,6 +78,14 @@ type View =
   | { kind: 'page'; key: string }
   /** The Machines page (machines.ts), in the middle and right columns. */
   | { kind: 'machines' }
+  /** The Decisions page (decisions.ts). */
+  | { kind: 'decisions' }
+  /** A pick, side by side (picker.ts); `back` is where Close goes. */
+  | { kind: 'picker'; cp: string; back: View }
+  /** Who changed what in a project (files.ts). */
+  | { kind: 'grid'; project: string; back: View }
+  /** A worktree session's review, beside its terminal (review.ts). */
+  | { kind: 'review'; key: string }
   | { kind: 'start' }
   | { kind: 'none' };
 
@@ -101,7 +119,7 @@ const S = {
   hubRefused: false,
   /** A checkpoint whose card gets the keyboard after the next render. */
   focusCp: null as string | null,
-  start: { folders: [] as FolderPick[], root: null as string | null, folder: null as string | null, assistants: [] as AssistantInfo[], assistant: null as string | null, busy: false, error: null as string | null },
+  start: { folders: [] as FolderPick[], root: null as string | null, folder: null as string | null, assistants: [] as AssistantInfo[], assistant: null as string | null, busy: false, error: null as string | null, inFolder: false },
   /** The first-launch offer to set up the assistants' hooks. */
   hooks: { asked: false, offer: null as null | { files: string[]; names: string[] }, busy: false, error: null as string | null, checked: false },
 };
@@ -111,6 +129,11 @@ let term: TerminalView;
 let daemons: Daemons;
 let pages: Pages;
 let machinesView: Machines;
+let film: Filmstrip;
+let decisions: Decisions;
+let picker: Picker;
+let files: Files;
+let review: Review;
 /** The machines a toast already said were older or would not talk, by name and version. */
 const toldMachines = new Set<string>();
 /** The project of the session last shown, for a page's Ask Claude to fix. */
@@ -132,6 +155,117 @@ const tilde = (p?: string, machine?: string | null) => {
   return sayPathOn(p, machine, { ...(S.hub?.homes || {}), ...(S.config?.home ? { '': S.config.home } : {}) });
 };
 
+// ---------------------------------------------------------------- who drives a pane (6, 19)
+
+const store = new PaneStore();
+let marks: TerminalMarks;
+
+/** Who a Source is, as people know it: "Claude" in "Tilting the hull", "You". */
+function sourceOf(src: Source | null | undefined): Who {
+  if (!src || src.kind === 'person') return { who: 'You', where: null, cls: 'you' };
+  if (src.kind === 'agent' && src.pane) {
+    const f = sessionOfPane(S.hub, src.pane);
+    const k = store.get(src.pane);
+    const kind = f?.session.assistant || k?.pane.agent?.assistant || k?.pane.labels?.['ravenry.agent'] || null;
+    const who = assistantName(kind) || 'An agent';
+    const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === src.pane);
+    const where = f ? f.session.topic || f.project.name : t ? tabLabel(t).name : k?.pane.name || null;
+    return { who, where: where && where !== who ? where : null, cls: kind === 'claude' || kind === 'codex' ? kind : 'other' };
+  }
+  return { who: src.client || 'A program', where: null, cls: 'other' };
+}
+
+/** A pane as the tabs name it: "dev server". */
+function paneNameOf(pane: string): string {
+  const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === pane);
+  if (t) return tabLabel(t).name;
+  const f = sessionOfPane(S.hub, pane);
+  if (f) return f.session.topic || f.project.name;
+  const k = store.get(pane);
+  return k?.pane.name || k?.pane.title || (k?.pane.command || [])[0]?.split('/').pop() || 'a pane';
+}
+
+/** The drive a person answered that let this input through: "You let it, once, at 17:41". */
+function letBy(pane: string, r: InputRecord): { once: boolean; at: string } | null {
+  if (r.source.kind !== 'agent') return null;
+  const t = Date.parse(r.at);
+  let best: { once: boolean; at: string; d: number } | null = null;
+  for (const k of S.cps.items.values()) {
+    const cp = k.cp;
+    const a = cp.answer;
+    if (cp.kind !== 'drive' || cp.drive?.pane !== pane || cp.drive.agent.pane !== r.source.pane || !a?.approved || !a.at) continue;
+    const d = t - Date.parse(a.at);
+    if (d < -2000 || d > (a.allow === 'session' ? 1e12 : 15000)) continue;
+    if (!best || d < best.d) best = { once: a.allow !== 'session', at: a.at, d };
+  }
+  return best;
+}
+
+const paneCtx: PaneCtx = {
+  store,
+  now,
+  source: sourceOf,
+  paneName: paneNameOf,
+  time: (iso) => (iso ? timeOf(iso, now()) : ''),
+  agents: () => {
+    const out: { pane: string; who: Who }[] = [];
+    for (const p of S.hub?.projects || []) for (const s of p.sessions) {
+      const pane = paneOf(s);
+      if (pane && !machineOf(p, s) && store.get(pane)) out.push({ pane, who: sourceOf({ kind: 'agent', pane }) });
+    }
+    return out;
+  },
+  letNote: (pane, r) => { const l = letBy(pane, r); return l ? (l.once ? `You let it, once, at ${timeOf(l.at, now())}` : `You let it use the pane at ${timeOf(l.at, now())}`) : null; },
+  toast: (text) => toast(text),
+  rerender: () => render(),
+};
+
+let storeQueued = false;
+store.onChange = (what) => {
+  if (what.kind === 'input' && marks && term?.attached?.pane === what.pane) marks.show(store.inputsOf(what.pane));
+  if (storeQueued) return;
+  storeQueued = true;
+  requestAnimationFrame(() => { storeQueued = false; renderSidebar(); renderTabs(); renderStrip(); if (panelVisible()) renderPanel(); });
+};
+
+/** The pane on screen in the middle, if any. */
+function paneOnScreen(): string | null {
+  return term?.attached?.pane || null;
+}
+
+/** A pick's picture, from the copy the hub keeps (hub/server/picks.mjs). */
+function variantSrc(k: { cp: Checkpoint }, n: number): string | null {
+  if (!S.config || !S.hubStatus?.reachable) return null;
+  return `${S.config.hubUrl}/api/checkpoints/${encodeURIComponent(k.cp.id)}/variants/${n}`;
+}
+
+function openPicker(k: { cp: Checkpoint }): void {
+  S.overlay = false;
+  S.panelKey = null;
+  const back = S.view.kind === 'picker' ? S.view.back : S.view;
+  setView({ kind: 'picker', cp: k.cp.id, back });
+}
+
+/** 31 A: the decisions an agent read just before it asked. */
+function checkedFor(k: { cp: Checkpoint }): { quote: string; when: string }[] | null {
+  if (k.cp.kind !== 'ask' || !decisions) return null;
+  const list = decisions.checkedBefore((k.cp as { projectId?: string | null }).projectId, k.cp.created_at);
+  return list.map((d) => {
+    const at = new Date(d.at);
+    const today = at.toDateString() === new Date(now()).toDateString();
+    return { quote: d.quote, when: today ? `today ${timeOf(d.at, now())}` : at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+  });
+}
+
+/** 19 A: the strip across the top of a lent pane. */
+function renderStrip(): void {
+  const el = $('lstrip');
+  const pane = paneOnScreen();
+  const strip = pane && !$('term').hidden ? leaseStrip(pane, paneCtx) : null;
+  el.hidden = !strip;
+  replace(el, strip);
+}
+
 function tabOfView(): Tab | null {
   const v = S.view;
   return v.kind === 'tab' ? S.tabs.find((t) => t.id === v.id) || null : null;
@@ -140,15 +274,19 @@ function tabOfView(): Tab | null {
 /** The session the middle shows: a pinned session's tab, a session picked in the sidebar, or the one a shell runs. */
 function viewSessionKey(): string | null {
   const v = S.view;
+  if (v.kind === 'review') return v.key;
   if (v.kind === 'session') return v.key || (v.pane ? sessionOfPane(S.hub, v.pane)?.key || null : null);
   const t = tabOfView();
   if (t && t.kind === 'shell') return sessionOfPane(S.hub, t.pane)?.key || null;
   return t && t.kind === 'session' ? t.key : null;
 }
 
+/** The views that take the middle and right columns. */
+const WIDE_VIEWS = new Set(['page', 'machines', 'decisions', 'picker', 'grid']);
+
 function firstRun(): boolean {
   if (S.tabs.length) return false;
-  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'page' || S.view.kind === 'machines') return false;
+  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'review' || WIDE_VIEWS.has(S.view.kind)) return false;
   if (!S.hubStatus) return false; // not known yet
   return !S.hubStatus.reachable || isEmpty(S.hub);
 }
@@ -194,6 +332,15 @@ function toast(text: string, undo?: { label: string; run: () => void }, at?: Toa
   toastTimer = window.setTimeout(() => { el.hidden = true; }, undo ? 8000 : 5000);
 }
 
+/** A toast with links (the decision ledger's Undo and Show). */
+function toastLinks(text: string, links: { label: string; run: () => void }[]): void {
+  const el = $('toast');
+  replace(el, text, links.map((l) => h('button.lk', { on: { click: () => { el.hidden = true; l.run(); } } }, l.label)));
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => { el.hidden = true; }, links.some((l) => l.label === 'Undo') ? 60000 : 8000);
+}
+
 function showKept(where: string): void {
   const l = kept.get(where);
   if (!l || !l.length) return;
@@ -220,7 +367,11 @@ function shellLabel(t: ShellTab): { name: string; sub: string | null } {
   const prog = base((t.command || [])[0] || '') || 'Shell';
   const home = S.config?.home;
   const folder = t.cwd && home && t.cwd === home ? '~' : base(t.cwd);
-  const name = agent || title || prog;
+  const own = t.name && t.name !== 'Shell' ? t.name : '';
+  const name = agent || own || title || prog;
+  // A pane an agent opened says whose it is ("Claude's"), as its folder would.
+  const c = store.get(t.pane)?.pane.creator;
+  if (c && c.kind === 'agent') return { name, sub: `${sourceOf(c).who}'s` };
   return { name, sub: secondLine(name, folder) };
 }
 
@@ -242,7 +393,7 @@ function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | nu
 
 const GROUP_VAR: Record<Group, string> = { you: 'var(--you)', work: 'var(--work)', wait: 'var(--wait)', idle: 'var(--idle)' };
 const RING: Record<Group, string> = { you: I.RING_YOU, work: I.RING_WORK, wait: I.RING_WAIT, idle: I.RING_IDLE };
-const MARK_ICON: Record<string, string> = { ask: I.ASK, approve: I.RUN, secret: I.KEY, other: I.ASK };
+const MARK_ICON: Record<string, string> = { ask: I.ASK, approve: I.RUN, secret: I.KEY, drive: I.KEYBOARD, pick: I.PICK, review: I.REVIEW, other: I.ASK };
 
 function machineTag(name: string | null): HTMLElement | null {
   return name ? h('span.mt', { title: `Runs on ${name}` }, svg(I.MACHINE), name) : null;
@@ -303,10 +454,17 @@ function targetOf(k: Known): string {
 /** The marks on the sidebar's rows, by session key. */
 function rowMarks(): Map<string, RowMark> {
   const out = new Map<string, RowMark>();
+  // 33: a worktree session done and with work to review needs you.
+  for (const p of S.hub?.projects || []) for (const s of p.sessions) {
+    const n = review ? review.readyFiles(s) : null;
+    if (n) out.set(sessionKey(p.id, s), { kind: 'review', text: `Done. ${n} file${n === 1 ? '' : 's'} to review`, code: false, since: s.since || new Date(now()).toISOString() });
+  }
   for (const k of S.cps.open()) {
     const t = targetOf(k);
-    if (t.startsWith('tab:') || t.startsWith('cp:') || out.has(t)) continue;
-    out.set(t, { ...markOf(k.cp), since: k.cp.created_at });
+    if (t.startsWith('tab:') || t.startsWith('cp:') || (out.has(t) && out.get(t)!.kind !== 'review')) continue;
+    const m = markOf(k.cp);
+    if (k.cp.kind === 'drive' && k.cp.drive) m.text = `${driveVerb(k.cp).row} ${paneNameOf(k.cp.drive.pane)}`;
+    out.set(t, { ...m, since: k.cp.created_at });
   }
   return out;
 }
@@ -370,6 +528,26 @@ const cardCtx: CardCtx = {
   canAnswer,
   answer: answerCp,
   showRun: (k) => (k.socket && k.cp.run?.pane ? () => setView({ kind: 'pane', socket: k.socket!, pane: k.cp.run!.pane, name: 'Command' }) : null),
+  drive: (k) => {
+    const d = k.cp.drive;
+    const asker = d ? sourceOf(d.agent) : { who: assistantName(k.cp.assistant) || 'The agent', where: null, cls: 'other' };
+    const pane = d ? d.pane : '';
+    const kn = pane ? store.get(pane) : null;
+    const c = kn?.pane.creator;
+    const shellish = /(^|\/)(zsh|bash|sh|fish|login)$/.test((kn?.pane.command || [])[0] || '') || kn?.pane.labels?.['ravenry.kind'] === 'shell';
+    return {
+      who: assistantName(k.cp.assistant) || asker.who,
+      session: asker.where,
+      pane: pane ? paneNameOf(pane) : 'a pane',
+      // Another agent's session is said as one, so its card reads as asking to type to that agent.
+      what: pane && sessionOfPane(S.hub, pane) ? `${assistantName(sessionOfPane(S.hub, pane)!.session.assistant) || 'an agent'}'s session` : !c || c.kind === 'person' ? (shellish ? 'a shell' : 'a pane you opened') : `${sourceOf(c).who}'s pane`,
+      opened: kn ? `By ${!c || c.kind === 'person' ? 'you' : sourceOf(c).who}, at ${timeOf(kn.pane.created_at, now())}` : null,
+      folder: kn?.pane.cwd ? tilde(kn.pane.cwd) : null,
+    };
+  },
+  variantSrc: (k, n) => variantSrc(k, n),
+  openPicker: (k) => openPicker(k),
+  checked: (k) => checkedFor(k),
   answered: () => {
     // Answered: a narrow window goes back to the terminal, and the keyboard
     // goes back to the terminal unless it is somewhere else on purpose.
@@ -431,7 +609,7 @@ function renderSidebar(): void {
             const pinned = S.tabs.some((t) => t.kind === 'session' && t.key === r.key);
             const second = r.mark
               ? h('div.ss-q.k', h('span.kd', svg(MARK_ICON[r.mark.kind])), h(`span.qt${r.mark.code ? '.code' : ''}`, r.mark.text))
-              : r.line ? h('div.ss-q', r.line) : null;
+              : r.line ? h('div.ss-q', r.line) : useLine(r.session);
             return h(`div.ss${sel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': r.key, on: { click: () => pickSession(r.key), keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') pickSession(r.key); } } },
               h('div.ss-r',
                 h('span.sd', { style: { background: GROUP_VAR[r.group] } }),
@@ -447,7 +625,12 @@ function renderSidebar(): void {
 
   // The pages, from their files (pages.ts): the shipped ones, then the ones
   // you or an agent added, then a project's own.
-  const nav = h(`nav.nav${empty ? '.dim' : ''}`, pages.nav(S.view.kind === 'page' ? S.view.key : null, (key) => openPage(key)));
+  const rowsNav = pages.nav(S.view.kind === 'page' ? S.view.key : null, (key) => openPage(key));
+  const decRow = h(`button.vrow${S.view.kind === 'decisions' ? '.sel' : ''}`, { 'data-page': 'decisions', title: 'Decisions', on: { click: () => { S.overlay = false; S.panelKey = null; setView({ kind: 'decisions' }); } } },
+    svg(I.BOOK), h('span.vl', 'Decisions'), decisions.active.length ? h('span.c.num', decisions.list.some((d) => d.undo_until && Date.parse(d.undo_until) > now()) ? h('i.ndot') : null, String(decisions.active.length)) : null);
+  const gapAt = rowsNav.findIndex((e) => e.classList.contains('gap'));
+  rowsNav.splice(gapAt < 0 ? rowsNav.length : gapAt, 0, decRow);
+  const nav = h(`nav.nav${empty ? '.dim' : ''}`, rowsNav);
 
   const mem = memoryLine(S.hub);
   const foot = h('div.foot',
@@ -461,6 +644,17 @@ function renderSidebar(): void {
   const mix = !empty && total ? h('div.mix', (['you', 'work', 'wait', 'idle'] as Group[]).filter((g) => counts[g]).map((g) => h('span', { style: { flex: String(counts[g]), background: GROUP_VAR[g] } }))) : null;
 
   replace($('side'), h('div.side-top'), brand, mix, list, empty ? h('span.fill') : null, nav, foot);
+}
+
+/** 19: "Using dev server" for the session that holds a pane, "Waiting for dev server, Claude has it" for one in line. */
+function useLine(s: HubSession): HTMLElement | null {
+  const pane = paneOf(s);
+  if (!pane) return null;
+  const held = store.heldBy(pane)[0];
+  if (held) return h('div.ss-q.use.holds', svg(I.HOLDS), h('span.qt', `Using ${paneNameOf(held.pane.id)}`));
+  const w = store.waitedBy(pane)[0];
+  if (w) return h('div.ss-q.use', svg(I.CLOCK), h('span.qt', `Waiting for ${paneNameOf(w.k.pane.id)}, ${sourceOf(w.holder).who} has it`));
+  return null;
 }
 
 function openBoard(hash: string): void {
@@ -517,6 +711,16 @@ function togglePin(key: string): void {
 function openTab(): HTMLElement | null {
   const v = S.view;
   let name = '', sub: string | null = null, group: Group = 'idle', machine: string | null = null;
+  if (v.kind === 'review') {
+    // The session's own tab, beside its Review tab (when it is not pinned).
+    if (S.tabs.some((t) => (t.kind === 'session' && t.key === v.key) || (t.kind === 'shell' && sessionOfPane(S.hub, t.pane)?.key === v.key))) return null;
+    const f = findSession(S.hub, v.key);
+    if (!f) return null;
+    name = f.session.topic || f.project.name;
+    return h('div.tab', { role: 'tab', 'aria-selected': 'false', title: name, on: { click: () => setView({ kind: 'session', key: v.key }) } },
+      h('span.sd', { style: { background: GROUP_VAR[hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session)] } }),
+      h('span.n', name), secondLine(name, f.project.name) ? h('span.p', f.project.name) : null);
+  }
   if (v.kind === 'session') {
     const key = viewSessionKey();
     const f = key ? findSession(S.hub, key) : null;
@@ -537,8 +741,18 @@ function renderTabs(): void {
   if (firstRun() || S.view.kind === 'start' && !S.tabs.length) { el.hidden = true; return; }
   el.hidden = false;
   const active = tabOfView();
+  const rk = viewSessionKey();
+  const rf = rk ? findSession(S.hub, rk) : null;
+  const rv = rf && rf.session.worktree && rf.session.worktree.state === 'open'
+    ? h(`div.tab${S.view.kind === 'review' ? '.on' : ''}`, { role: 'tab', 'aria-selected': S.view.kind === 'review' ? 'true' : 'false', title: 'Review its work', on: { click: () => setView({ kind: 'review', key: rk! }) } },
+      h('span.ti', svg(I.REVIEW)), h('span.n', 'Review'), h('span.p', rf.session.worktree.branch.replace(/^ravenry\//, '')),
+      S.view.kind === 'review' ? h('button.x', { title: 'Close the review', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); setView({ kind: 'session', key: rk! }); } } }, svg(I.CLOSE)) : null)
+    : null;
+  const sessTab = (t: Tab) => (t.kind === 'session' && t.key === rk) || (t.kind === 'shell' && !!rk && sessionOfPane(S.hub, t.pane)?.key === rk);
+  const filmable = !!paneOnScreen() && !$('term').hidden;
   replace(el,
     openTab(),
+    rv && !S.tabs.some(sessTab) ? rv : null,
     S.tabs.map((t, i) => {
       const l = tabLabel(t);
       const on = active && active.id === t.id;
@@ -548,12 +762,20 @@ function renderTabs(): void {
         h('span.n', l.name),
         l.sub ? h('span.p', l.sub) : null,
         machineTag(l.machine),
+        t.kind === 'shell' ? leaseBadge(t.pane) : null,
         t.kind === 'shell' && t.activity && !on ? h('span.act', { title: 'New output' }) : null,
         h('button.x', { title: t.kind === 'shell' ? `Close (${shortcut('W')})` : 'Unpin', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); closeTab(t.id); } } }, svg(I.CLOSE)));
-    }),
+    }).flatMap((tab, i) => (rv && sessTab(S.tabs[i]) ? [tab, rv] : [tab])),
     h('button.tab.add', { title: `New shell (${shortcut('T')})`, 'aria-label': 'New shell', on: { click: () => void newShell() } }, svg(I.PLUS(12))),
     h('span.sp'),
+    filmable ? h(`button.icon-btn${film.open ? '.on' : ''}`, { title: 'The last 20 seconds of this pane', 'aria-label': 'Filmstrip', on: { click: () => { const pn = paneOnScreen(); if (pn) void film.toggle(pn); } } }, svg(I.FILM)) : null,
     h(`button.icon-btn${panelVisible() ? '.on' : ''}`, { title: panelVisible() ? 'Hide the session panel' : 'Show the session panel', 'aria-label': 'Session panel', on: { click: () => togglePanel() } }, svg(I.PANEL)));
+}
+
+/** 19 A: who holds a lent pane, on its tab. */
+function leaseBadge(pane: string): HTMLElement | null {
+  const w = leaseWords(pane, paneCtx);
+  return w ? h(`span.lbadge.${w.holder.cls}`, { title: `${w.holder.who} has this pane` }, svg(I.HOLDS), w.holder.who) : null;
 }
 
 async function newShell(): Promise<void> {
@@ -587,6 +809,7 @@ function addShellTab(socket: string, pane: Pane, agent: string | null, show: boo
 function applyPane(t: ShellTab, p: Pane): void {
   t.status = p.agent || null;
   t.title = p.title;
+  t.name = p.name;
   t.cwd = p.cwd;
   t.command = p.command;
   t.cols = p.cols;
@@ -634,14 +857,16 @@ function stepTab(d: number): void {
 function setView(v: View): void {
   if (S.view.kind === 'page' && v.kind !== 'page') pages.close();
   if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
+  if (v.kind !== 'review' && S.view.kind === 'review') review.key = null;
   S.view = v;
   if (v.kind === 'session') { const f = findSession(S.hub, v.key); if (f) lastSessionProject = f.project.id; }
   save();
   render();
 }
 
-function show(id: 'term' | 'elsewhere' | 'start' | 'none'): void {
-  for (const k of ['term', 'elsewhere', 'start', 'none']) ($(k) as HTMLElement).hidden = k !== id;
+function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review'): void {
+  for (const k of ['term', 'elsewhere', 'start', 'none', 'review']) ($(k) as HTMLElement).hidden = k !== id;
+  if (id !== 'term') film.close();
   $('centre').classList.toggle('sheet', id === 'start' || id === 'none');
 }
 
@@ -675,11 +900,38 @@ async function renderCentre(): Promise<void> {
   toastFollows(viewKey(v));
   const onPage = v.kind === 'page';
   const onMachines = v.kind === 'machines';
-  $('centre').hidden = onPage || onMachines;
+  $('centre').hidden = WIDE_VIEWS.has(v.kind);
   $('page').hidden = !onPage;
   $('machines').hidden = !onMachines;
+  $('decisions').hidden = v.kind !== 'decisions';
+  $('picker').hidden = v.kind !== 'picker';
+  $('grid').hidden = v.kind !== 'grid';
+  if (WIDE_VIEWS.has(v.kind)) { film.close(); }
   if (onPage) { term.hide(); shownKey = ''; pages.show(v.key); return; }
   if (onMachines) { term.hide(); shownKey = ''; machinesView.show(); return; }
+  if (v.kind === 'decisions') { term.hide(); shownKey = ''; decisions.render(); return; }
+  if (v.kind === 'picker') {
+    term.hide(); shownKey = '';
+    const k = S.cps.get(v.cp);
+    if (!k) { setView(v.back); return; }
+    picker.show(k);
+    return;
+  }
+  if (v.kind === 'grid') {
+    term.hide(); shownKey = '';
+    const p = (S.hub?.projects || []).find((x) => x.id === v.project);
+    files.grid($('grid'), v.project, p ? p.name : v.project, () => setView(v.back));
+    return;
+  }
+  if (v.kind === 'review') {
+    const f = findSession(S.hub, v.key);
+    if (!f || !f.session.worktree) { setView({ kind: 'session', key: v.key }); return; }
+    term.hide(); shownKey = '';
+    show('review');
+    review.show(v.key, f.project, f.session);
+    renderStrip();
+    return;
+  }
   if (firstRun() || v.kind === 'start') { term.hide(); shownKey = ''; show('start'); renderStart(); return; }
   if (v.kind === 'none') { term.hide(); shownKey = ''; show('none'); renderNone(); focusPending(); return; }
   if (v.kind === 'pane') {
@@ -829,6 +1081,13 @@ function renderStart(): void {
         : h('p.t2.small', 'Neither Claude Code nor Codex is installed here yet. Install one, then come back. A plain shell works meanwhile.')));
 
   const label = a && folderName ? `Start ${assistantName(a.kind)} in ${folderName}` : folderName ? `Open a shell in ${folderName}` : 'Open a shell';
+  // 33 B: when another session already works in that folder, the new one
+  // gets its own copy of the code, and one line says why.
+  const busy = a ? busyIn(st.folder) : null;
+  const why = busy ? h('div.fl-why', svg(I.BRANCH),
+    h('div', st.inFolder
+      ? [h('b', 'It works right in the folder'), `, beside ${busy.topic}, so they share the files. `, h('button.link', { on: { click: () => { st.inFolder = false; renderStart(); } } }, 'Give it its own copy instead')]
+      : [h('b', 'It gets its own copy of the code'), `, on a new branch, because ${busy.topic} is already working in ${busy.project.name}. You review and merge it when it's done. `, h('button.link', { on: { click: () => { st.inFolder = true; renderStart(); } } }, 'Work in the folder instead')])) : null;
   const go = h('div.fl-go',
     h('button.btn.pri', { disabled: st.busy, on: { click: () => void startSession() } }, label),
     h('span.t3.small', `${shortcut('N')} starts another one any time`),
@@ -845,7 +1104,7 @@ function renderStart(): void {
       h('button.btn.pri.sm', { disabled: hk.busy, on: { click: () => void setUpHooks(true) } }, 'Set them up'),
       h('button.btn.ghost.sm', { disabled: hk.busy, on: { click: () => void setUpHooks(false) } }, 'Skip'))) : null;
 
-  const card = h('div.fl-card', { on: { dragover: (e: Event) => e.preventDefault(), drop: (e: Event) => onDrop(e as DragEvent) } }, folderRow, asstRow, go);
+  const card = h('div.fl-card', { on: { dragover: (e: Event) => e.preventDefault(), drop: (e: Event) => onDrop(e as DragEvent) } }, folderRow, asstRow, why, go);
   replace($('start'), h('div.fl',
     svg(I.APP_ICON),
     h('h2', first ? 'Start your first session' : 'Start a session'),
@@ -854,6 +1113,17 @@ function renderStart(): void {
     st.error ? h('p.err', st.error) : null,
     hooksCard,
     h('div.fl-foot', 'Keeping cmux, iTerm2 or Rex? Ravenry still follows the sessions you run there.')));
+}
+
+/** A session already working in a folder's project here, if any (33 B decides a worktree then). */
+function busyIn(folder: string | null): { project: HubProject; topic: string } | null {
+  if (!folder) return null;
+  for (const p of S.hub?.projects || []) {
+    if (!p.folder || (folder !== p.folder && !folder.startsWith(p.folder + '/')) || p.machine) continue;
+    const s = p.sessions.find((x) => !x.handed && !machineOf(p, x) && sessionGroup(x) !== 'idle' && !(x.worktree && x.worktree.state === 'open'));
+    if (s) return { project: p, topic: s.topic || p.name };
+  }
+  return null;
 }
 
 async function chooseFolder(): Promise<void> {
@@ -881,7 +1151,9 @@ async function startSession(): Promise<void> {
       // The board starts it in a ravenryd pane, so its hooks, brief and
       // hand-off apply, and it shows in the sidebar.
       // The hub answers with the pane itself (hub/docs/TERMINALS.md), not its id.
-      const r = await api().hubPost('/api/sessions/start', { folder: st.folder || S.config?.home, assistant: a.kind, cols, rows }) as { surfaceId?: string; pane?: { id?: string }; projectId?: string | null };
+      const busy = busyIn(st.folder);
+      const own = busy && !st.inFolder ? { worktree: true, projectId: busy.project.id } : {};
+      const r = await api().hubPost('/api/sessions/start', { folder: st.folder || S.config?.home, assistant: a.kind, cols, rows, ...own }) as { surfaceId?: string; pane?: { id?: string }; projectId?: string | null };
       const pane = r.pane && typeof r.pane.id === 'string' ? r.pane.id : null;
       setView({ kind: 'session', key: r.projectId && r.surfaceId ? `${r.projectId}/${r.surfaceId}` : '', ...(pane ? { pane } : {}) });
       return;
@@ -909,7 +1181,7 @@ function panelVisible(): boolean {
   if (firstRun() || S.view.kind === 'start') return false;
   if (S.overlay) return true;
   // A page takes the right column too; a checkpoint it opened comes over it.
-  if (S.view.kind === 'page' || S.view.kind === 'machines') return false;
+  if (WIDE_VIEWS.has(S.view.kind)) return false;
   return wide() && S.panelPref !== 'closed';
 }
 
@@ -936,7 +1208,7 @@ function renderPanel(): void {
   const el = $('panel');
   const vis = panelVisible();
   el.hidden = !vis;
-  const docked = vis && !S.overlay && wide() && S.view.kind !== 'page' && S.view.kind !== 'machines';
+  const docked = vis && !S.overlay && wide() && !WIDE_VIEWS.has(S.view.kind);
   el.classList.toggle('overlay', vis && !docked);
   if (!vis) { clearHiddenSecrets(false); return; }
   const key = panelTargetKey();
@@ -990,14 +1262,20 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   if (k) body.push(cardFor(k, cardCtx));
   // Over the terminal on a narrow window, a card keeps the panel short: it and the context.
   const lean = !!k && isOpen(k.cp) && S.overlay;
-  // The card replaces the plain question box.
-  if (!k && g === 'you') {
-    const q = w.headline || w.question || w.line || '';
+  // The card replaces the plain question box, and a box with nothing to say is left out.
+  const q0 = w.headline || w.question || w.line || '';
+  if (!k && g === 'you' && (q0 || (w.dialog && w.dialog.length) || (w.quick || []).length)) {
+    const q = q0;
     const quick = (w.quick || []).slice(0, 6);
     body.push(h('div.sec.ask',
       q ? h('p.q', q) : null,
       w.dialog && w.dialog.length ? h('pre.dlg', w.dialog.join('\n')) : null,
       quick.length ? h('div.qa', quick.map((o) => h('button.btn.sm', { on: { click: () => void answer(p, s, o.label, o.choice) } }, o.label))) : null));
+  }
+
+  const ap = paneOf(s);
+  if (ap && !machineOf(p, s) && !lean) {
+    body.push(...sessionExtras(p, s, ap));
   }
 
   if (s.ctx) {
@@ -1042,6 +1320,15 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   return [head, body];
 }
 
+/** What a session's panel shows of Phase 2 between its card and its context. */
+function sessionExtras(p: HubProject, s: HubSession, pane: string): (HTMLElement | null)[] {
+  return [
+    ...review.panelCards(p, s, () => setView({ kind: 'review', key: sessionKey(p.id, s) })),
+    files.section(p.id, p.name, s.surfaceId),
+    panesItUses(pane, paneCtx),
+  ];
+}
+
 function shellPanel(t: ShellTab): [HTMLElement, (HTMLElement | null)[]] {
   const started = t.createdAt ? clock(t.createdAt, now()) : null;
   // What the agent in it reported through the daemon's status channel.
@@ -1054,19 +1341,24 @@ function shellPanel(t: ShellTab): [HTMLElement, (HTMLElement | null)[]] {
       : st.state === 'needs_you' ? h('div.st.c-you', svg(RING.you), `${who} ${needs[st.need?.kind || 'other']}${st.since ? ` since ${clock(st.since, now())}` : ''}`)
         : st.state === 'working' ? h('div.st.c-work', svg(RING.work), `${who} is working`)
           : st.state === 'idle' ? h('div.st.c-idle', svg(RING.idle), `${who} is done with its turn`) : null;
+  void started;
+  const known = store.get(t.pane);
+  const proj = (S.hub?.projects || []).find((p) => p.folder && t.cwd && (t.cwd === p.folder || t.cwd.startsWith(p.folder + '/')));
+  const creator = known?.pane.creator;
+  const tag = creator && creator.kind === 'agent' ? `${sourceOf(creator).who}'s pane` : t.agent ? null : 'Shell';
   return [
-    panelHead(t.agent ? assistantName(t.agent) || 'Shell' : shellLabel(t).name, null),
+    panelHead(t.agent ? assistantName(t.agent) || 'Shell' : shellLabel(t).name, tag),
     [
+      known ? openedLine(known, paneCtx, proj ? proj.name : null) : null,
       stLine,
       k ? cardFor(k, cardCtx) : null,
       !k && st?.need?.message ? h('div.sec.ask', h('p.q', st.need.message)) : null,
-      h('div.sec',
+      known ? whoCanType(t.pane, paneCtx) : null,
+      known ? typedHere(t.pane, paneCtx) : null,
+      known ? null : h('div.sec',
         h('div.kv',
           h('span', 'Folder'), h('span.mono', tilde(t.cwd)),
-          h('span', 'Runs'), h('span.mono', (t.command || []).join(' ') || 'your login shell'),
-          [h('span', 'Size'), h('span.num', `${term.term.cols} x ${term.term.rows}`)],
-          started ? [h('span', 'Started'), h('span.num', started)] : null)),
-      h('p.t3.small', 'Shells keep running when you close the window. Closing the tab ends the shell and everything it started.'),
+          h('span', 'Runs'), h('span.mono', (t.command || []).join(' ') || 'your login shell'))),
     ],
   ];
 }
@@ -1163,6 +1455,7 @@ function onCheckpoint(socket: string, cp: Checkpoint): void {
 }
 
 function onDaemonEvent(socket: string, e: DaemonEvent): void {
+  store.event(socket, e);
   switch (e.event) {
     case 'pane.focus': focusPane(socket, e.pane.id); return;
     case 'checkpoint.opened': case 'checkpoint.running': case 'checkpoint.closed': onCheckpoint(socket, e.checkpoint); return;
@@ -1203,6 +1496,7 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
 }
 
 function onDaemonReady(socket: string, client: RavenryClient): void {
+  void store.load(socket, client);
   // Started from inside a pane, this window is not the person to that
   // daemon: its cards show, with their buttons off.
   if (client.hello.person === false) S.notPerson.add(socket); else S.notPerson.delete(socket);
@@ -1217,6 +1511,7 @@ function onDaemonLost(socket: string): void {
   // The daemon went away (stopped, or replaced by an update that finished).
   // Its tabs reconnect when shown; if it is gone for good they close then.
   S.cps.dropDaemon(socket);
+  store.drop(socket);
   if (term.attached && S.tabs.some((t) => t.kind === 'shell' && t.socket === socket)) { shownKey = ''; void renderCentre(); }
 }
 
@@ -1247,7 +1542,7 @@ function render(): void {
   renderSidebar();
   renderTabs();
   renderPanel();
-  void renderCentre();
+  void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); });
 }
 
 /** The plain shells: every running daemon's panes labelled as the app's shells. */
@@ -1304,6 +1599,14 @@ async function boot(): Promise<void> {
     if (t) { removeTab(t.id); void a.client.request('pane.close', { pane: a.pane }).catch(() => {}); }
   };
   daemons = new Daemons(onDaemonEvent, onDaemonLost, onDaemonReady);
+  store.useClients((s) => daemons.get(s));
+  marks = new TerminalMarks(term.term, {
+    who: (r) => (r.source.kind === 'person' ? null : (() => { const w = sourceOf(r.source); return { name: w.who, cls: w.cls }; })()),
+    note: (r) => { const a = term.attached; const l = a ? letBy(a.pane, r) : null; return l ? (l.once ? 'you let it once' : 'you let it for its session') : null; },
+    time: (iso) => timeOf(iso, now()),
+  });
+  term.onShown = (a) => { marks.reset(); if (a) marks.show(store.inputsOf(a.pane)); renderStrip(); };
+  term.onWritten = (_a, mark, snapshot) => marks.written(mark, snapshot);
   (window as unknown as { __ravenryHome?: string }).__ravenryHome = S.config.home;
   machinesView = new Machines($('machines'), {
     call: (method, p, body) => api().hubCall(method, p, body),
@@ -1331,12 +1634,61 @@ async function boot(): Promise<void> {
     rerender: () => render(),
     now,
   });
+  film = new Filmstrip($('fsheet'), $('showing'), $('stage'), {
+    now,
+    client: (pane) => daemons.holding(pane),
+    sendTo: (pane) => {
+      const c = store.get(pane)?.pane.creator;
+      const f = c && c.kind === 'agent' && c.pane ? sessionOfPane(S.hub, c.pane) : sessionOfPane(S.hub, pane);
+      if (!f) return null;
+      return {
+        who: assistantName(f.session.assistant) || 'the agent',
+        send: async (lastMs) => {
+          const r = await api().hubCall('POST', `/api/sessions/${encodeURIComponent(f.session.surfaceId)}/filmstrip`, { pane, last_ms: lastMs });
+          if (r.status !== 200) throw new Error((r.body as { error?: string }).error || `the board answered ${r.status}`);
+        },
+      };
+    },
+    save: (name, b64) => { const a = h('a', { href: `data:image/gif;base64,${b64}`, download: name }) as HTMLAnchorElement; document.body.append(a); a.click(); a.remove(); },
+    paneName: paneNameOf,
+    toast: (text) => toast(text),
+    changed: () => renderTabs(),
+  });
+  decisions = new Decisions($('decisions'), {
+    call: (method, p, body) => api().hubCall(method, p, body),
+    hub: () => S.hub,
+    now,
+    say: (text, links) => toastLinks(text, links),
+    show: () => setView({ kind: 'decisions' }),
+    rerender: () => { renderSidebar(); if (panelVisible() && document.querySelector('#panel .cp')) renderPanel(); },
+    onScreen: () => S.view.kind === 'decisions',
+  });
+  picker = new Picker($('picker'), {
+    now,
+    src: (k, n) => variantSrc(k, n),
+    where: (k) => { const t = targetOf(k); const f = findSession(S.hub, t); return f ? [f.session.topic, f.project.name].filter(Boolean).join(', ') : (k.cp as HubCheckpoint).project || null; },
+    answer: (k, reply) => answerCp(k, reply),
+    close: () => { const v = S.view; setView(v.kind === 'picker' ? v.back : { kind: 'none' }); },
+    canAnswer,
+  });
+  files = new Files({ call: (method, p) => api().hubCall(method, p), now, rerender: () => { if (panelVisible()) renderPanel(); if (S.view.kind === 'grid') void renderCentre(); }, openGrid: (id) => setView({ kind: 'grid', project: id, back: S.view.kind === 'grid' ? S.view.back : S.view }) });
+  review = new Review($('review'), {
+    call: (method, p, body) => api().hubCall(method, p, body),
+    now,
+    toast: (text) => toast(text),
+    rerender: () => { if (S.view.kind === 'review') void renderCentre(); renderTabs(); if (panelVisible()) renderPanel(); },
+    back: () => { const v = S.view; if (v.kind === 'review') setView({ kind: 'session', key: v.key }); },
+    // A worktree's folder comes as its real path (/private/var on macOS for /var).
+    tilde: (p) => tilde(S.config?.home && !S.config.home.startsWith('/private/') ? p.replace(/^\/private(?=\/var\/)/, '') : p),
+  });
+  decisions.start();
   onCardChange(() => { renderPanel(); });
   api().onCommand((n, a) => onCommand(String(n), a));
   api().onHubState((s) => onHubState(s as HubState));
   api().onHubStatus((st) => { S.hubStatus = st as HubStatus; if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
   window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); });
   window.addEventListener('keydown', (e) => {
+    if (S.view.kind === 'picker' && picker.key(e)) { e.preventDefault(); return; }
     if (e.key === 'Escape' && S.overlay) { S.overlay = false; S.panelKey = null; render(); term.focus(); return; }
     // Number keys answer the question on screen, unless the keyboard is in
     // the terminal or a field.
@@ -1366,6 +1718,7 @@ async function boot(): Promise<void> {
   // For tests and screenshots (tools/driver.cjs): the state and a few calls.
   (window as unknown as { __ravenry: unknown }).__ravenry = {
     S, term: () => term, newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
+    store, marks: () => marks, film: () => film, decisions: () => decisions, picker: () => picker, files: () => files, review: () => review, openPicker,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };
   initNpmSwitch();

@@ -17,6 +17,8 @@
 //   wait: "file", timeout       wait for a file to exist
 //   echo: { n, out }            measure keystroke echo (see below)
 //   save: { expr, out }         write the value of expr as JSON
+//   theme: "dark" | "light"     switch the window's theme (nativeTheme), so
+//                               one state is shot in both
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -91,6 +93,7 @@ module.exports = async function drive(win, ctx) {
       while (!fs.existsSync(step.wait)) { if (Date.now() - t0 > (step.timeout || 20000)) throw new Error('timed out waiting for ' + step.wait); await sleep(50); }
     } else if (step.echo) await echo(step.echo);
     else if (step.save) fs.writeFileSync(step.save.out, JSON.stringify(await js(step.save.expr), null, 2) + '\n');
+    else if (step.theme) { require('electron').nativeTheme.themeSource = step.theme; await sleep(step.after ?? 250); }
   }
   }
 

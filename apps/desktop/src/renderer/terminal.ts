@@ -47,6 +47,14 @@ export class TerminalView {
   onEnter: (a: Attached) => void = () => {};
   /** Shortcuts the app handles; xterm.js lets them through. */
   isAppKey: (e: KeyboardEvent) => boolean = () => false;
+  /**
+   * A frame was written: the output position the cursor stands at now
+   * (marks.ts places an input's echo from it). `fresh` is a new pane on
+   * screen (a snapshot starts over).
+   */
+  onWritten: (a: Attached, mark: number, snapshot: boolean) => void = () => {};
+  /** The pane on screen changed (or none). */
+  onShown: (a: Attached | null) => void = () => {};
 
   constructor(el: HTMLElement) {
     this.el = el;
@@ -126,6 +134,7 @@ export class TerminalView {
     this.early = [];
     this.current = a;
     this.term.reset();
+    this.onShown(a);
     this.fitNow();
     const { cols, rows } = this.term;
     this.sizeSent = '';
@@ -138,7 +147,8 @@ export class TerminalView {
       data: (d, info) => {
         // Frames can come before this call returns; a stale stream's are dropped.
         if (gen !== this.gen) { info.ack(); return; }
-        this.term.write(d, info.ack);
+        const end = info.snapshot ? info.mark : info.mark + d.byteLength;
+        this.term.write(d, () => { info.ack(); if (gen === this.gen) this.onWritten(a, end, info.snapshot); });
       },
       end: () => { if (gen === this.gen) this.onEnded(a); },
     });
@@ -156,6 +166,7 @@ export class TerminalView {
     this.early = [];
     this.current = null;
     this.term.reset();
+    this.onShown(null);
   }
 
   private detachStream(): void {

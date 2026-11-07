@@ -110,6 +110,52 @@ call. The daemon masks it in the pane's output from then on.
 edited one as `approve` with `command`, which today's daemons refuse (and the
 hub would drop), so Run edited command says it can't yet.
 
+## Who drives a pane, and what it shows
+
+The Phase 2 screens (the picks of the design notes' frames 6, 16, 19, 31,
+32 and 33), over ravenryd's per-pane permissions, input log, leases, files
+and filmstrips (PROTOCOL.md section 4) and the hub's ledger, worktrees and
+picks:
+
+- **An agent asks to act on a pane it did not start** (a `drive`
+  checkpoint): the card says the action in its title and buttons ("Claude
+  wants to close", Let it close; "Let it type in dev server?", what it would
+  press in order, Let it type this, Let it use this pane until its session
+  ends, Refuse, or a word for it), with the pane and the asking session by
+  the names the window shows. The row in the sidebar says "Wants to type in
+  dev server".
+- **What an agent typed is marked where it shows** (`marks.ts`): its exact
+  keys are tinted in its colour in the terminal, with its name and the time
+  (and "you let it once") at the end of the line; the person's typing stays
+  plain and nothing moves. A shell's panel says who opened it, **Who can
+  type here** (you always; an agent asks each time, or can type until its
+  session ends, which the person takes back there) and **Typed here**, the
+  pane's input log, filtered by All, Agents and You.
+- **A lent pane** (an agent holds its lease) has a strip across its top:
+  who has it since when, who waits, **Hand it to ...** and **Take it back**;
+  its tab carries the holder's name, and the sidebar says "Using dev
+  server" and "Waiting for dev server, Claude has it". A session's panel
+  lists **Panes it uses** and **Files it changed**, with a file another
+  session changed too in orange, and **See all** opens the project's grid.
+- **The filmstrip** (the film button in the tab strip): a sheet under the
+  pane with its last 20 seconds, frames along a track, the blank, half drawn
+  and stalled ones marked, step and play, Send to the agent that owns the
+  pane, and Save as GIF; a clicked frame fills the pane under a "Showing"
+  strip until Back to live.
+- **Decisions** (a row under the pages): the ledger newest first, a
+  decision that replaced another with the old one crossed out, how often
+  agents read each, and a toast with Undo and Show when an agent saves one.
+  A question's card says what the agent checked first.
+- **A pick**: its card in the panel, and side by side in the middle, with
+  Circle a part (a ring and its note), anything else for the agent, None of
+  these and Send B, with 1 note.
+- **A new session where another one works** gets its own copy of the code
+  and the start screen says why in one line, with Work in the folder
+  instead. A worktree session gets a **Review** tab beside its terminal
+  (files, diff, line comments sent together, Merge into main), a card when
+  it is done ("Done. 3 files to review" in the sidebar) and, after the
+  merge, Undo the merge and Delete the branch.
+
 ## The back end it uses
 
 - **Plain shells** are panes labelled `ravenry.kind: shell` (and
@@ -270,6 +316,7 @@ RAVENRYD=../../daemon/ravenryd npm run shots -- out   # screenshots and keystrok
 RAVENRYD=../../daemon/ravenryd node tools/checkpoint-shots.mjs out   # the checkpoint cards, from real checkpoints
 RAVENRYD=<new build> RAVENRYD_OLD=<older build> node tools/machines-shots.mjs out   # the Machines page, from real installs behind a fake ssh
 RAVENRYD=../../daemon/ravenryd node tools/pages-test.mjs out [light|dark]   # the pages, end to end, and every frame of their picture
+RAVENRYD=../../daemon/ravenryd node tools/phase2-shots.mjs out   # the Phase 2 screens in dark and light, from stand-in agents in real panes
 ```
 
 The smoke test and the screenshots never put a window on screen: the
