@@ -151,6 +151,9 @@ const resumed = new Map();
 // The hook pids of sessions in a terminal outside Ravenry that still run,
 // asked each tick (server/sessions.mjs alivePids); null before the first.
 let outsideAlive = null;
+// sessionId -> { pane, pid }: the claude or codex processes that run in a
+// ravenryd pane here, by the session each holds (the last process list).
+let paneHolders = new Map();
 let lastResult = null;       // the last close, shown on the page for a while
 let picBudget = 0;           // project pictures worked out this tick (server/pictures.mjs)
 let loose = [];              // this tick's cards for sessions no project holds, in a too-broad folder
@@ -476,7 +479,10 @@ async function refreshKind(kind, evAll) {
     return;
   }
   const tabs = otherTabs[kind].tabs;
-  const ids = [...new Set(wanted.map(otherTabId).filter((id) => id && tabs.has(id)))];
+  // The tabs sessions report from, and the tabs claude processes run in
+  // (a session resumed in a Ravenry pane, whose events another terminal's
+  // process keeps writing).
+  const ids = [...new Set([...wanted.map(otherTabId), ...procs.map((p) => term.tabIdFor(kind, p[PROC_TAB[kind]]))].filter((id) => id && tabs.has(id)))];
   // Rex's events, per Rex session holding a tab the board reads, only make
   // the next refresh come sooner (as cmux's do).
   if (kind === 'rex') term.rexWatch([...new Set(ids.map((id) => tabs.get(id).sessionId).filter(Boolean))], rexSoon);
@@ -801,10 +807,15 @@ function buildProject(project, wsById, hooks, settings, now) {
   // no adapter for (watch only), or every cmux session while cmux does not
   // answer.
   for (const e of ev.all.values()) {
-    if (e.endedAt || ev.claimed.has(e.sessionId) || taken.has(e.sessionId)) continue;
-    if (e.surfaceId && ev.cmuxOk) continue; // a cmux tab: shown through it, or closed
-    const tkind = termOf(e);
-    const tab = otherTab(e);
+    // One session, one row: a Ravenry pane that runs it comes first, even
+    // when another terminal's process on the same session wrote its last
+    // events (or ended), and that process is said as alsoOpen.
+    const ph = paneHolders.get(e.sessionId);
+    const phTab = ph && otherTabs.ravenry ? otherTabs.ravenry.tabs.get(term.tabIdFor('ravenry', ph.pane)) || null : null;
+    if ((e.endedAt && !phTab) || ev.claimed.has(e.sessionId) || taken.has(e.sessionId)) continue;
+    if (e.surfaceId && ev.cmuxOk && !phTab) continue; // a cmux tab: shown through it, or closed
+    const tkind = phTab ? 'ravenry' : termOf(e);
+    const tab = phTab || otherTab(e);
     const x = tab ? screens.get(tab.id) : null;
     const kind = asst.kindOf(e);
     const screen = judgedScreen(x, kind);
@@ -1139,6 +1150,7 @@ async function tick() {
     for (const e of evAll.values()) { const t = otherTab(e); if (t && newestInTab.get(t.id) !== e) claimed.add(e.sessionId); }
     ev = { all: evAll, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
     await refreshOutsideAlive(evAll);
+    paneHolders = holdersInPanes(evAll);
     const wsById = new Map(workspaces.map((w) => [w.id, w]));
     const settings = reg.settings;
     markers = handoff.listMarkers();
@@ -1232,6 +1244,16 @@ function refreshProcs() {
     wantTick = true;
   })();
   return procBusy;
+}
+
+function holdersInPanes(evAll) {
+  const out = new Map();
+  for (const p of procState.procs) {
+    if (!p.ravenryId) continue;
+    const m = sess.mapProcess(p, { evAll, hooks: [], boardTab: null });
+    if (m && m.sessionId && !out.has(m.sessionId)) out.set(m.sessionId, { pane: p.ravenryId, pid: p.pid });
+  }
+  return out;
 }
 
 // Which sessions in a terminal outside Ravenry still have their process:

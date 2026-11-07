@@ -328,6 +328,16 @@ started..."), its conversation comes from its transcript (the session's
 asked again every 30 s, and Open in cmux brings the cmux app forward (`open
 -b com.cmuxterm.app`, no socket needed).
 
+**One session, one row.** A session id is one row however many processes
+hold it: a process in a ravenryd pane comes first (its pane is the
+session's tab, in a daemon of any version in the runtime folder, so panes
+made before an update stay until they end), even when another terminal's
+process on the same session wrote its last events or ended; that other
+process is the session's `alsoOpen`. A ravenryd pane is the innermost
+terminal while TERM_PROGRAM says ravenry, whatever cmux, iTerm2 or Rex
+variables it inherited, and ravenryd no longer hands those variables to
+its panes.
+
 **Continue in Ravenry.** A session on this machine in a terminal outside
 Ravenry carries `outside: { name, open, resumable }`: `open` is whether its
 process still runs there (its hook's pid, one `ps -p` per tick; else the

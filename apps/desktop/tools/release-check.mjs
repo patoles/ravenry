@@ -32,6 +32,9 @@
 //                   launched leaves exactly one hub, answering, on the new
 //                   version; the old folder is kept until it answers; a
 //                   prompt is in the window within 2 s
+//   7 old panes     (in 5) a session in a pane of the build before's daemon,
+//                   also running in cmux: one row, its pane opens on a
+//                   click, and it says Also open in cmux
 //   6 npm switch    tools/npm-switch-test.mjs: from the npm board 0.4.0 and
 //                   the way back
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
@@ -266,11 +269,35 @@ try {
     const oldUp = await hubAnswers(b.port, 30000);
     step(`5 update: the build before (${prevBuild.version}) runs as the service and answers`, boot.status === 0 && !!oldUp, { bootstrap: boot.status, out: boot.stderr.trim().slice(0, 200) });
     if (!oldUp) return;
+    // 7: before the update, a session continued in a pane of the build
+    // before's daemon, while its process in cmux runs on (cmux's restore
+    // started it again). That daemon was started from a cmux tab, so its
+    // panes inherited the tab's variables, as on 2026-11-07.
+    outsideSession(b);
+    const oldEnv = { HOME: b.home, PATH: b.env.PATH, LANG: 'en_US.UTF-8', SHELL: '/bin/zsh', RAVENRY_RUNTIME_DIR: b.rt, RAVENRY_STATE_DIR: b.data, CMUX_SURFACE_ID: SF, CMUX_WORKSPACE_ID: WS, TERM_PROGRAM: 'ghostty' };
+    execFileSync(path.join(oldDir, 'ravenryd'), ['serve', '--detach'], { env: oldEnv });
+    const { connectSocket } = await import(path.join(HUB, '..', 'packages', 'node-client', 'index.mjs'));
+    const oldSock = path.join(b.rt, `ravenryd-${prevBuild.version}.sock`);
+    for (let i = 0; i < 100 && !fs.existsSync(oldSock); i++) await sleep(50);
+    const oc = await connectSocket(oldSock, { name: 'release-check' });
+    const { pane: oldPane } = await oc.request('pane.new', { cols: 100, rows: 30, cwd: path.join(b.home, 'Projects', 'kite'), command: [path.join(b.home, '.local', 'bin', 'claude'), '--resume', SID], labels: { 'ravenry.session': 'claude', 'ravenry.project': 'kite' } });
+    oc.close();
+    const procs = JSON.parse(fs.readFileSync(b.ps, 'utf8'));
+    procs.push({ pid: 7201, ppid: 7200, rssKb: 300000, startedAt: new Date(Date.now() - 60000).toISOString(), command: `claude --resume ${SID}`, cwd: path.join(b.home, 'Projects', 'kite'), env: `CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF} TERM_PROGRAM=ravenry RAVENRY_PANE=${oldPane.id}` });
+    fs.writeFileSync(b.ps, JSON.stringify(procs));
+    const rowsOf = `[...document.querySelectorAll('#side .ss')].filter((e) => /ravenry:${oldPane.id}|${SID}|${SF}/.test(e.dataset.key || ''))`;
     const m = await launch(b, 'update', [
       { ready: true, timeout: 30000 }, mark('ready'),
       { until: PROMPT, timeout: 20000 }, mark('prompt'), shot('5-update-prompt.png'),
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && Array.isArray(${R}.S.hub.projects)`, timeout: 60000 }, mark('hub'),
+      { until: `${rowsOf}.length === 1 && ${rowsOf}[0].dataset.key.endsWith('/ravenry:${oldPane.id}')`, timeout: 30000 }, mark('oneRow'),
+      { js: `${rowsOf}[0].click()` }, mark('click'),
+      { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane === '${oldPane.id}' && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('opened'),
+      { until: `document.querySelector('#panel .sec.twin') && /Also open in cmux/.test(document.querySelector('#panel .sec.twin').textContent)`, timeout: 20000 }, mark('twin'), shot('7-old-pane-also-cmux.png'),
     ]);
+    step(`7 update: a session in a pane of the build before's daemon (${prevBuild.version}) is listed after the update, as one row`, m.oneRow > 0, { msFromStart: m.oneRow });
+    step('7 update: clicking that row opens its pane in the middle', m.opened > 0, { msFromClick: m.opened - m.click });
+    step('7 update: with its process in cmux too, the session says "Also open in cmux"', m.twin > 0);
     const newUp = await hubAnswers(b.port, 30000);
     const prog = argsOf(b.label);
     const hubs = listeners(b.port);

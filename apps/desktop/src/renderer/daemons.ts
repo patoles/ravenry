@@ -65,11 +65,20 @@ export class Daemons {
     return c;
   }
 
-  /** The client of the daemon that holds a pane: the newest first, then the others this window knows. */
+  /**
+   * The client of the daemon that holds a pane: the newest first, then the
+   * others this window knows, then every other daemon running in the
+   * runtime folder, of any version. A pane made before an update lives in
+   * the older daemon until it ends (2026-11-07: a session resumed in 0.1.3's
+   * daemon could not be shown by 0.1.4).
+   */
   async holding(pane: string): Promise<RavenryClient | null> {
     const cands: RavenryClient[] = [];
     try { cands.push((await this.forNew()).client); } catch { /* none running */ }
     for (const p of this.clients.values()) { try { const c = await p; if (!cands.includes(c)) cands.push(c); } catch { /* gone */ } }
+    let sockets: string[] = [];
+    try { sockets = await api().daemonSockets(); } catch { /* none */ }
+    for (const s of sockets) { try { const c = await this.get(s); if (!cands.includes(c)) cands.push(c); } catch { /* a stale socket */ } }
     for (const c of cands) {
       try { const { panes } = await c.request('pane.list', { hidden: true }); if (panes.some((x) => x.id === pane)) return c; } catch { /* next */ }
     }

@@ -178,6 +178,11 @@ in the middle as its discussion, read only (`renderElsewhere` in
   two processes on one session. When it ends there, the button turns on
   by itself, also when its last hook event takes it off the board.
 
+A session's pane is found in whichever daemon holds it, of any version
+running in the runtime folder, so a pane made before an update opens like
+any other until it ends. A session that runs in a Ravenry pane and in
+another terminal too is one row; its panel says "Also open in cmux".
+
 A session whose tab the hub finds or loses keeps its place: the middle,
 its pinned tab and the panel follow its new key (`rekeyed` in
 `model.ts`), and it is not taken for an arrival.
