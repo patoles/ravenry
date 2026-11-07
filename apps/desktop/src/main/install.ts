@@ -296,6 +296,17 @@ export function servicePath(env: Env = process.env, platform: string = process.p
   return [...new Set([...own, ...usual])].join(':');
 }
 
+/**
+ * Node's arguments for the app's executable run as Node (the hub service,
+ * the npm switch script). The hub runs outside every pane, so it acts as
+ * the person (PROTOCOL.md section 4); without --disable-sigusr1, any
+ * program of the user's, an agent in a pane included, could send it
+ * SIGUSR1 and open Node's inspector on 127.0.0.1:9229, then run code in
+ * it. (The fuse that turns the inspector off, electron-builder.config.mjs,
+ * does so for the app, not for its executable run as Node.)
+ */
+export const NODE_ARGS = ['--disable-sigusr1'] as const;
+
 /** Variables a test (or a developer) set for the app that the hub should share. */
 const SHARED = ['RAVENRY_HOME', 'RAVENRY_RUNTIME_DIR', 'RAVENRY_STATE_DIR', 'PORT'];
 
@@ -358,7 +369,7 @@ export function plistText(spec: ServiceSpec): string {
   <key>ProgramArguments</key>
   <array>
     <string>${xml(spec.exe)}</string>
-    <string>${xml(spec.hubEntry)}</string>
+${NODE_ARGS.map((a) => `    <string>${xml(a)}</string>\n`).join('')}    <string>${xml(spec.hubEntry)}</string>
   </array>
   <key>WorkingDirectory</key>
   <string>${xml(path.dirname(path.dirname(spec.hubEntry)))}</string>
@@ -401,7 +412,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=${sdQuote(spec.exe)} ${sdQuote(spec.hubEntry)}
+ExecStart=${[spec.exe, ...NODE_ARGS, spec.hubEntry].map(sdQuote).join(' ')}
 WorkingDirectory=${path.dirname(path.dirname(spec.hubEntry)).replace(/%/g, '%%')}
 ${Object.entries(env).map(([k, v]) => `Environment=${sdQuote(`${k}=${v}`)}`).join('\n')}
 Restart=on-failure

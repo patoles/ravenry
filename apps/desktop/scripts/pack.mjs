@@ -3,12 +3,22 @@
 //
 //   node scripts/pack.mjs [--mac | --linux] [--arch arm64,x64] [--dir]
 //                         [--ravenryd DIR] [--skip-build]
+//                         [--test-twin | --no-test-twin]
 //
 // Defaults: this machine's platform and architecture. --dir makes the
 // unpacked app only (no DMG, zip, AppImage or .deb). --ravenryd DIR takes
 // ravenryd from DIR/ravenryd-<platform>-<arch> (CI builds each on a machine
 // of that platform and architecture); without it, ravenryd is built here
 // for this machine (scripts/build-ravenryd.sh). Output: release/.
+//
+// What goes in release/ is a release build (build.mjs --release): no test
+// hooks (src/main/gate.ts), checked in its main.cjs before it is packed.
+// Beside it, for one architecture of this machine's platform, its test
+// twin in release-test/ (unpacked only): the same stage (ravenryd, hub,
+// build.json) with the test hooks on, for the tools that drive the window
+// (tools/release-check.mjs runs its window steps on it, CI's first-run.mjs
+// too). The twin is never published and never installed. Made by default
+// outside CI; --test-twin makes it in CI, --no-test-twin skips it.
 //
 // What goes inside the app, staged in .stage/ first:
 //   resources/ravenryd     the daemon, this app's version
@@ -38,13 +48,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertTestEnv } from '../../../tools/test-env.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(APP, '..', '..');
 const STAGE = path.join(APP, '.stage');
 const OUT = path.join(APP, 'release');
+const TWIN_OUT = path.join(APP, 'release-test');
 const pkg = JSON.parse(fs.readFileSync(path.join(APP, 'package.json'), 'utf8'));
 
 const argv = process.argv.slice(2);
@@ -55,6 +66,7 @@ if (platform !== 'darwin' && platform !== 'linux') { console.error(`pack: no pac
 const arches = (opt('--arch') || process.arch).split(',').map((a) => a.trim()).filter(Boolean);
 for (const a of arches) if (a !== 'arm64' && a !== 'x64') { console.error(`pack: unknown architecture ${a}`); process.exit(1); }
 const dirOnly = flag('--dir');
+const twin = (flag('--test-twin') || (!flag('--no-test-twin') && !process.env.GITHUB_ACTIONS)) && platform === process.platform && arches.length === 1 && arches[0] === process.arch;
 const ravenrydDir = opt('--ravenryd') ? path.resolve(opt('--ravenryd')) : null;
 
 const say = (s) => console.log(`pack: ${s}`);
@@ -214,10 +226,22 @@ function signing() {
 
 // ------------------------------------------------------------- build
 
+// The build in dist/ is the kind wanted: a release has no test hooks
+// (no driver, no "test hooks on" line), the twin has them.
+function checkBuild(kind) {
+  let got = '';
+  try { got = fs.readFileSync(path.join(APP, '.build-kind'), 'utf8').trim(); } catch { /* none */ }
+  const main = fs.readFileSync(path.join(APP, 'dist', 'main.cjs'), 'utf8');
+  const hooks = main.includes('require(process.env.RAVENRY_DRIVER)') || main.includes('its test hooks on');
+  if (got !== kind || (kind === 'release') === hooks) throw new Error(`dist/ is not a ${kind} build (build.mjs says ${got || 'nothing'}; test hooks ${hooks ? 'in' : 'not in'} main.cjs)`);
+  say(kind === 'release' ? 'dist/: a release build, no test hooks' : 'dist/: the test twin, test hooks on');
+}
+
 function size(n) { return n > 1048576 ? `${(n / 1048576).toFixed(1)} MiB` : `${(n / 1024).toFixed(0)} KiB`; }
 
 async function main() {
-  if (!flag('--skip-build')) execFileSync(process.execPath, [path.join(APP, 'build.mjs')], { cwd: APP, stdio: 'inherit' });
+  if (!flag('--skip-build')) execFileSync(process.execPath, [path.join(APP, 'build.mjs'), '--release'], { cwd: APP, stdio: 'inherit' });
+  checkBuild('release');
   stage();
   signing();
   fs.rmSync(OUT, { recursive: true, force: true });
@@ -241,6 +265,23 @@ async function main() {
   fs.writeFileSync(path.join(OUT, 'artifacts.json'), JSON.stringify({ platform, arches, signed: process.env.RAVENRY_SIGNED === '1', notarized: process.env.RAVENRY_NOTARIZE === '1', files: rows }, null, 2) + '\n');
   for (const r of rows) say(`${r.file}  ${size(r.bytes)}`);
   if (platform === 'darwin' && process.env.RAVENRY_SIGNED !== '1') say('UNSIGNED: see the banner above.');
+  if (twin) {
+    // The test twin: the same stage, dist/ rebuilt with the test hooks,
+    // unpacked only. dist/ stays a development build after it.
+    execFileSync(process.execPath, [path.join(APP, 'build.mjs')], { cwd: APP, stdio: 'inherit' });
+    checkBuild('test-hooks');
+    fs.rmSync(TWIN_OUT, { recursive: true, force: true });
+    // The config afresh: electron-builder changes the object it was given.
+    const { default: fresh } = await import(`${pathToFileURL(path.join(APP, 'electron-builder.config.mjs')).href}?twin`);
+    await build({
+      projectDir: APP,
+      config: { ...fresh, directories: { ...fresh.directories, output: 'release-test' } },
+      publish: 'never',
+      targets: P.createTarget(['dir'], Arch[process.arch]),
+    });
+    fs.writeFileSync(path.join(TWIN_OUT, 'README.txt'), 'The test twin of the build in release/: the same ravenryd, hub and build.json, with the test hooks on\n(src/main/gate.ts) for the tools that drive the window. Never install or publish it.\n');
+    say(`release-test/: the test twin (test hooks on; tools only)`);
+  }
 }
 
 main().catch((e) => { console.error(`pack: ${e.stack || e}`); process.exit(1); });

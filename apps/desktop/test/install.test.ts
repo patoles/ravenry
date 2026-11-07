@@ -116,13 +116,14 @@ test('the service runs the app as Node on the staged hub; an AppImage copies its
   assert.match(p, /<key>AbandonProcessGroup<\/key>\s*<true\/>/);
   // Never Background: macOS throttles it, and the panes of a daemon it starts.
   assert.match(p, /<key>ProcessType<\/key>\s*<string>Standard<\/string>/);
-  assert.match(p, /<string>\/Applications\/Ravenry\.app\/Contents\/MacOS\/Ravenry<\/string>\s*<string>\/d\/versions\/0\.1\.0\/hub\/server\/index\.mjs<\/string>/);
+  // Node's arguments first: no inspector on SIGUSR1 (NODE_ARGS).
+  assert.match(p, /<string>\/Applications\/Ravenry\.app\/Contents\/MacOS\/Ravenry<\/string>\s*<string>--disable-sigusr1<\/string>\s*<string>\/d\/versions\/0\.1\.0\/hub\/server\/index\.mjs<\/string>/);
 
   assert.equal(runtimeSource('/tmp/.mount_x/ravenry', { APPIMAGE: '/home/you/Apps/Ravenry.AppImage' }, 'linux'), '/tmp/.mount_x');
   assert.equal(runtimeSource('/opt/Ravenry/ravenry', {}, 'linux'), null);
   assert.equal(runtimeSource('/Applications/Ravenry.app/Contents/MacOS/Ravenry', { APPIMAGE: '/x' }, 'darwin'), null);
   const u = unitText(serviceSpec({ execPath: '/opt/Ravenry/ravenry', staged: { ...staged, hubEntry: '/d/100% $x/index.mjs' }, env: { PATH: '/usr/bin' }, platform: 'linux', home: '/h' }));
-  assert.match(u, /^ExecStart="\/opt\/Ravenry\/ravenry" "\/d\/100%% \$\$x\/index\.mjs"$/m);
+  assert.match(u, /^ExecStart="\/opt\/Ravenry\/ravenry" "--disable-sigusr1" "\/d\/100%% \$\$x\/index\.mjs"$/m);
   assert.match(u, /^Environment="ELECTRON_RUN_AS_NODE=1"$/m);
   assert.match(u, /^KillMode=process$/m);
   assert.match(u, /^WantedBy=default\.target$/m);

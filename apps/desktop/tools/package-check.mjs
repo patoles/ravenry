@@ -19,14 +19,25 @@
 //    (remote/builds.json, each binary's SHA-256; --all-builds wants all
 //    four), the hub and its node client, build.json, app-update.yml; on
 //    macOS the code signature.
-// 2. The app, offscreen, with the smoke test's steps (smoke-steps.mjs) and
-//    no RAVENRYD: it must copy its own ravenryd out of the app and start it.
-//    With --old-ravenryd, an older ravenryd runs first with a pane in it,
-//    as after an update: the app's ravenryd must start beside it, and the
-//    old one must keep its pane.
+//    A release build: its main.cjs has no test hooks (src/main/gate.ts),
+//    and its executable's fuses turn NODE_OPTIONS and --inspect off and
+//    keep ELECTRON_RUN_AS_NODE (the hub service runs on it); on macOS the
+//    hardened runtime, ad hoc too, so DYLD_ variables load nothing.
+// 2. The app, offscreen, as it is (a release takes no driver): it must
+//    copy its own ravenryd out of the app and start it, and its window
+//    must open a shell there (the daemon's pane list says so). It is
+//    started with what an agent could add (RAVENRY_DRIVER, RAVENRYD,
+//    RAVENRY_LAUNCHCTL, NODE_OPTIONS), and none of it may run; started
+//    with --remote-debugging-port or --inspect, it must quit at once with
+//    no port open. With --old-ravenryd, an older ravenryd runs first with
+//    a pane in it, as after an update: the app's ravenryd must start
+//    beside it, and the old one must keep its pane. (The window's steps,
+//    typing, paste, tabs, run on a test build: tools/smoke.mjs, and
+//    tools/release-check.mjs on the test twin.)
 // 3. The hub service file the app wrote, then the hub run exactly as it
-//    says (the app's executable as Node), on a spare port: it must answer,
-//    stop cleanly on SIGTERM, and leave every daemon running.
+//    says (the app's executable as Node, with --disable-sigusr1), on a
+//    spare port: it must answer, open no inspector on SIGUSR1, stop
+//    cleanly on SIGTERM, and leave every daemon running.
 import { guardSpawns, isTestPath, withStubMachine } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -35,8 +46,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { runApp, stopDaemons } from './run-app.mjs';
-import { smokeSteps } from './smoke-steps.mjs';
+import { stopDaemons } from './run-app.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (f) => { const i = argv.indexOf(f); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
@@ -183,6 +193,49 @@ if (platform === 'darwin') {
   const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', target], { encoding: 'utf8' });
   if (verify.status !== 0) fail(`codesign --verify: ${verify.stderr}`);
   ok(`signature valid: ${adhoc ? 'ad hoc (UNSIGNED build)' : authority}`);
+  // The hardened runtime, ad hoc too: dyld ignores DYLD_INSERT_LIBRARIES
+  // and the other DYLD_ variables whoever starts the app sets.
+  const flags = parseInt((sig.match(/flags=0x([0-9a-f]+)/) || [])[1] || '0', 16);
+  const ents = spawnSync('codesign', ['-d', '--entitlements', '-', '--xml', target], { encoding: 'utf8' }).stdout || '';
+  if (!(flags & 0x10000)) fail(`not signed with the hardened runtime (flags 0x${flags.toString(16)}): DYLD_ variables would load code into the app`);
+  if (ents.includes('allow-dyld-environment-variables')) fail('its entitlements allow DYLD_ variables');
+  ok(`hardened runtime (flags 0x${flags.toString(16)}), no DYLD_ variables allowed`);
+}
+
+{
+  // A release build: no test hooks in the app's code (src/main/gate.ts).
+  // app.asar keeps each file whole, so its bytes are searched as they are.
+  const asar = fs.readFileSync(path.join(resources, 'app.asar'));
+  const has = (t) => asar.includes(Buffer.from(t));
+  if (has('require(process.env.RAVENRY_DRIVER)') || has('its test hooks on')) fail('app.asar is a test build: it loads RAVENRY_DRIVER (a release is packed with build.mjs --release; the test twin is in release-test/)');
+  if (!has('a release build takes no test hooks')) fail('app.asar has no release gate (src/main/gate.ts)');
+  ok('a release build: no driver and no test hooks in app.asar');
+  // Electron's fuses (electron-builder.config.mjs), read from the binary
+  // that holds them: each copy (both halves of a universal binary).
+  const fuseBin = platform === 'darwin' ? path.join(target, 'Contents', 'Frameworks', 'Electron Framework.framework', 'Electron Framework') : isAppImage ? path.join(X, 'squashfs-root', 'ravenry') : exe;
+  const fuses = readFuses(fs.readFileSync(fuseBin));
+  if (!fuses.length) fail(`no Electron fuses in ${fuseBin}`);
+  for (const f of fuses) {
+    if (f.runAsNode !== '1') fail(`the RunAsNode fuse is ${f.runAsNode}: the hub service runs the app's executable as Node`);
+    if (f.nodeOptions !== '0') fail(`the NODE_OPTIONS fuse is ${f.nodeOptions}, not off`);
+    if (f.inspect !== '0') fail(`the --inspect fuse is ${f.inspect}, not off`);
+  }
+  ok(`fuses (${fuses.length} cop${fuses.length === 1 ? 'y' : 'ies'}): ELECTRON_RUN_AS_NODE on, NODE_OPTIONS off, --inspect off`);
+}
+
+// Electron's fuse wire: a sentinel, a version byte (1), a length, then one
+// byte per fuse ('0' off, '1' on, 'r' removed) in FuseV1Options order.
+function readFuses(buf) {
+  const SENTINEL = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX');
+  const out = [];
+  for (let i = buf.indexOf(SENTINEL); i >= 0; i = buf.indexOf(SENTINEL, i + 1)) {
+    const at = i + SENTINEL.length;
+    if (buf[at] !== 1) continue;
+    const n = buf[at + 1];
+    const v = (k) => (k < n ? String.fromCharCode(buf[at + 2 + k]) : 'missing');
+    out.push({ runAsNode: v(0), nodeOptions: v(2), inspect: v(3) });
+  }
+  return out;
 }
 
 if (CONTENTS_ONLY || !runsHere) {
@@ -220,17 +273,109 @@ try {
     ok(`an older ravenryd ${oldVersion} runs, with pane ${oldPane}`);
   }
 
-  const shell = fs.existsSync('/bin/bash') ? '/bin/bash --noprofile --norc' : '/bin/sh';
-  const log = await runApp({
-    name: 'package', work: WORK, rt: RT, home: HOME, hubUrl: 'http://127.0.0.1:9',
-    exe, cli: LINK, steps: smokeSteps(OUT, WORK), shell, width: 1200, height: 760,
-    env: {
-      PS1: '$ ', RAVENRY_PANE_PASS: 'PS1', RAVENRY_SERVICE: 'dry-run', RAVENRY_DESKTOP_DATA: DATA,
-      ...(isAppImage ? { APPIMAGE_EXTRACT_AND_RUN: '1' } : {}),
-    },
-  });
+  // What an agent could launch the app with: a module to load, programs
+  // to run in place of its own, Node's options. Each writes a file if it
+  // ever runs.
+  const TRAP = path.join(WORK, 'trap');
+  fs.mkdirSync(TRAP, { recursive: true });
+  const ran = (what) => path.join(TRAP, `${what}.ran`);
+  const trapModule = (what) => { const f = path.join(TRAP, `${what}.cjs`); fs.writeFileSync(f, `require('node:fs').writeFileSync(${JSON.stringify(ran(what))}, String(process.pid)); module.exports = async () => {};\n`); return f; };
+  const trapProgram = (what) => { const f = path.join(TRAP, what); fs.writeFileSync(f, `#!/bin/sh\necho "$$" > '${ran(what)}'\nexit 1\n`, { mode: 0o755 }); return f; };
+  const traps = {
+    RAVENRY_DRIVER: trapModule('driver'), RAVENRY_DRIVE: path.join(TRAP, 'plan.json'),
+    RAVENRYD: trapProgram('ravenryd'), RAVENRY_LAUNCHCTL: trapProgram('launchctl'), RAVENRY_NEW_SHELL: trapProgram('shell'),
+    NODE_OPTIONS: `--require ${trapModule('node-options')}`,
+  };
+  const appEnv = {
+    PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, LANG: 'en_US.UTF-8', TERM: 'xterm-256color', SHELL: '/bin/sh',
+    RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state'), RAVENRY_HUB_URL: 'http://127.0.0.1:9', RAVENRY_DESKTOP_DATA: DATA,
+    RAVENRY_SERVICE: 'dry-run', RAVENRY_OFFSCREEN: '1', RAVENRY_UPDATES: '0', RAVENRY_THEME: 'dark',
+    ...(isAppImage ? { APPIMAGE_EXTRACT_AND_RUN: '1' } : {}),
+    ...Object.fromEntries(['DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR'].filter((k) => process.env[k]).map((k) => [k, process.env[k]])),
+    ...traps,
+  };
+  const noSandbox = platform === 'linux' ? ['--no-sandbox'] : [];
+  const appRun = spawn(exe, noSandbox, { env: appEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  let log = '';
+  appRun.stdout.on('data', (d) => { log += d; });
+  appRun.stderr.on('data', (d) => { log += d; });
+  const appExit = new Promise((r) => appRun.on('exit', (c, sig) => r(c ?? sig)));
+  cleanups.push(() => { try { appRun.kill('SIGKILL'); } catch { /* gone */ } });
+  // Up: this version's daemon runs from the app's copy, its window opened a
+  // shell there, and the service line is said.
+  let pane = null;
+  const tUp = Date.now();
+  while (Date.now() - tUp < 60000 && appRun.exitCode === null) {
+    try {
+      const mine = JSON.parse(execFileSync(fs.existsSync(LINK) ? LINK : bundled, ['daemons', '--json', '--no-start'], { env: daemonsEnv, encoding: 'utf8' })).find((d) => d.version === build.version);
+      if (mine) {
+        const panes = JSON.parse(execFileSync(LINK, ['ls', '--json', '--no-start', '--socket', mine.socket], { env: daemonsEnv, encoding: 'utf8' }));
+        pane = (Array.isArray(panes) ? panes : panes.panes || []).find((p) => p.state === 'running') || null;
+      }
+    } catch { /* not yet */ }
+    if (pane && /^service: /m.test(log)) break;
+    await sleep(250);
+  }
+  if (!pane) fail(`the app's window opened no shell in its daemon within 60 s (exit ${appRun.exitCode})\n${log.slice(-3000)}`);
+  ok(`the packaged app, offscreen and with no driver, opened a shell in its daemon (pane ${pane.id}, ${(pane.command || []).join(' ')}) in ${Date.now() - tUp} ms`);
+  const gateLine = log.split('\n').find((l) => l.startsWith('launch: a release build takes no test hooks')) || '';
+  // (NODE_OPTIONS never reaches the app's code: the fuse takes it out first.)
+  for (const k of Object.keys(traps).filter((k) => k !== 'NODE_OPTIONS')) if (!gateLine.includes(k)) fail(`the app did not say it ignored ${k}: ${gateLine || '(no gate line)'}`);
+  const sprung = fs.readdirSync(TRAP).filter((f) => f.endsWith('.ran'));
+  if (sprung.length) fail(`what the launch named ran in or through the app: ${sprung.join(', ')}`);
+  ok(`it loaded and ran none of ${Object.keys(traps).join(', ')}; it says: ${gateLine}`);
+  appRun.kill('SIGTERM');
+  const appCode = await Promise.race([appExit, sleep(15000).then(() => 'still running')]);
+  if (appCode !== 0) fail(`the app did not quit cleanly on SIGTERM: ${appCode}\n${log.slice(-2000)}`);
   fs.writeFileSync(path.join(OUT, 'app.log'), log);
-  ok('the packaged app ran the smoke steps offscreen (shell, typing, paste, tabs, focus, agent status, close)');
+  ok('it quit on SIGTERM');
+
+  // Started with a debugging switch: it quits at once, with no port open.
+  for (const sw of ['--remote-debugging-port', '--inspect']) {
+    const port = await new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+    const c = spawn(exe, [...noSandbox, `${sw}=${port}`], { env: { ...appEnv, ...Object.fromEntries(Object.keys(traps).map((k) => [k, undefined])) }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    c.stdout.on('data', (d) => { out += d; });
+    c.stderr.on('data', (d) => { out += d; });
+    let open = false;
+    const until = Date.now() + 15000;
+    const exited = new Promise((r) => c.on('exit', (code, sig) => r(code ?? sig)));
+    let code = null;
+    exited.then((v) => { code = v; });
+    while (code === null && Date.now() < until) {
+      open = open || await new Promise((r) => { const k = net.connect(port, '127.0.0.1'); k.once('connect', () => { k.destroy(); r(true); }); k.once('error', () => r(false)); });
+      await sleep(100);
+    }
+    if (code === null) { c.kill('SIGKILL'); fail(`started with ${sw}, the app kept running\n${out.slice(-1500)}`); }
+    if (open) fail(`started with ${sw}=${port}, the app opened that port`);
+    if (code !== 1 || !/which a release build refuses: quitting/.test(out)) fail(`started with ${sw}, the app exited with ${code} without saying it refuses it\n${out.slice(-1500)}`);
+    ok(`started with ${sw}=${port}: it quits at once (exit ${code}), the port never opened`);
+  }
+
+  // The executable run as Node (as the hub service runs it): NODE_OPTIONS
+  // does nothing there either (the fuse).
+  {
+    const nodeExe = isAppImage ? path.join(X, 'squashfs-root', 'ravenry') : exe;
+    const r = spawnSync(nodeExe, ['-e', 'console.log("as-node " + process.versions.node)'], { env: { ...preEnv, ELECTRON_RUN_AS_NODE: '1', NODE_OPTIONS: `--require ${trapModule('as-node-options')}` }, encoding: 'utf8', timeout: 20000 });
+    if (r.status !== 0 || !/^as-node /m.test(r.stdout)) fail(`the app's executable did not run as Node: ${r.status} ${r.stderr}`);
+    if (fs.existsSync(ran('as-node-options'))) fail('run as Node, the app\'s executable loaded the module NODE_OPTIONS named');
+    // (Its --inspect argument is Node's own here: whoever runs it as Node
+    // runs a script of their choosing anyway. What matters is the running
+    // hub: SIGUSR1, below.)
+    ok(`run as Node (${r.stdout.trim()}): NODE_OPTIONS loads nothing`);
+    // DYLD_INSERT_LIBRARIES: a library that writes a file when loaded.
+    if (platform === 'darwin' && fs.existsSync('/usr/bin/clang')) {
+      const src = path.join(TRAP, 'inject.c');
+      const lib = path.join(TRAP, 'inject.dylib');
+      fs.writeFileSync(src, `#include <stdio.h>\n__attribute__((constructor)) static void f(void) { FILE *x = fopen("${ran('dyld')}", "w"); if (x) { fputs("loaded", x); fclose(x); } }\n`);
+      const cc = spawnSync('/usr/bin/clang', ['-dynamiclib', '-o', lib, src], { encoding: 'utf8' });
+      if (cc.status === 0 && spawnSync('codesign', ['-s', '-', '-f', lib]).status === 0) {
+        const d = spawnSync(exe, ['-e', '1'], { env: { ...preEnv, ELECTRON_RUN_AS_NODE: '1', DYLD_INSERT_LIBRARIES: lib }, encoding: 'utf8', timeout: 20000 });
+        if (fs.existsSync(ran('dyld'))) fail('DYLD_INSERT_LIBRARIES loaded a library into the app\'s executable');
+        ok(`DYLD_INSERT_LIBRARIES loads nothing into the app's executable (exit ${d.status})`);
+      }
+    }
+  }
 
   if (fs.readlinkSync(LINK) !== path.relative(path.dirname(LINK), STAGED)) fail(`${LINK} does not point at ${STAGED}`);
   const ds = daemons();
@@ -294,7 +439,10 @@ try {
     RAVENRY_RUNTIME_DIR: RT, RAVENRY_STATE_DIR: path.join(WORK, 'state'), MC_NO_EVENTS: '1', RAVENRY_NO_OPEN: '1',
   });
   let hubLog = '';
-  hub = spawn(svcExe, svcArgs, { env: hubEnv, cwd: path.dirname(path.dirname(svcArgs[0])), stdio: ['ignore', 'pipe', 'pipe'] });
+  // Node's arguments come before the hub's script: no inspector on SIGUSR1.
+  const entry = svcArgs.find((a) => a.endsWith('.mjs'));
+  if (!svcArgs.slice(0, svcArgs.indexOf(entry)).includes('--disable-sigusr1')) fail(`the service runs the hub without --disable-sigusr1: ${svcArgs.join(' ')}`);
+  hub = spawn(svcExe, svcArgs, { env: hubEnv, cwd: path.dirname(path.dirname(entry)), stdio: ['ignore', 'pipe', 'pipe'] });
   hub.stdout.on('data', (d) => { hubLog += d; });
   hub.stderr.on('data', (d) => { hubLog += d; });
   const t0 = Date.now();
@@ -308,6 +456,16 @@ try {
   }
   if (!state) fail(`the hub did not answer on :${port} within 30 s\n${hubLog.slice(-3000)}`);
   ok(`the hub runs as the service says (${svcExe === exe ? "the app's executable" : `the runtime copied to ${path.relative(WORK, svcExe)}`} as Node) and answers /api/state on :${port} in ${Date.now() - t0} ms`);
+  // SIGUSR1, which any program of the user's can send it, opens no
+  // inspector (checked when Node's port, 9229, is free here).
+  const inspectorOpen = () => new Promise((r) => { const k = net.connect(9229, '127.0.0.1'); k.once('connect', () => { k.destroy(); r(true); }); k.once('error', () => r(false)); });
+  if (!(await inspectorOpen())) {
+    hub.kill('SIGUSR1');
+    await sleep(1500);
+    if (await inspectorOpen()) fail('SIGUSR1 opened Node\'s inspector in the hub on 127.0.0.1:9229');
+    if (hub.exitCode !== null) fail(`SIGUSR1 ended the hub: ${hub.exitCode}`);
+    ok('SIGUSR1 to the hub opens no inspector (127.0.0.1:9229 stays closed) and the hub runs on');
+  } else ok('SIGUSR1: not checked, something else listens on 127.0.0.1:9229 here');
   const before = daemons().map((d) => d.pid).sort();
   hub.kill('SIGTERM');
   const code = await Promise.race([new Promise((r) => hub.on('exit', (c, s) => r(c ?? s))), sleep(10000).then(() => 'timeout')]);

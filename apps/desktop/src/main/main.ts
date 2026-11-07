@@ -13,7 +13,8 @@
 //   RAVENRY_OFFSCREEN=1    never show the window (tests and screenshots), and
 //                          never open a browser, an editor or the clipboard:
 //                          what would open is written to RAVENRY_OPEN_LOG
-//   RAVENRY_DRIVER         a script that drives the window (tools/)
+//   RAVENRY_DRIVER         a script that drives the window (tools/); a
+//                          development or test build only (gate.ts)
 //   RAVENRY_SERVICE        install, dry-run or off: the hub service
 //                          (install.ts; default: install when packaged)
 //   RAVENRY_UPDATES=0      never check for updates (updater.ts)
@@ -21,6 +22,11 @@
 //                          service and the npm board's login start)
 //   RAVENRY_RELAUNCH_TEST=1 | foreground  tools/relaunch-check.mjs only: a start from a
 //                          pane relaunches in a test run too (relaunch.ts)
+//
+// A release build takes none of the variables that run code in the app or
+// feed its window (RAVENRYD, RAVENRY_DRIVER, RAVENRY_LAUNCHCTL,
+// RAVENRY_NEW_SHELL, RAVENRY_TEST_CLIPBOARD, the hub's stand-ins: gate.ts
+// lists them) and quits when started with a debugging switch.
 //
 // The home folder is HOME (os.homedir), so a test's throwaway HOME is used
 // for everything the app reads there.
@@ -44,6 +50,18 @@ import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts
 import { Updates } from './updater.ts';
 import { initSettings, openSettings } from './settings.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
+import { applyGate } from './gate.ts';
+
+// build.mjs defines it: false in a release build, so what it guards is not
+// in the app at all (gate.ts).
+declare const RAVENRY_TEST_HOOKS: boolean;
+
+// The environment as launched, then the gate (gate.ts): a release build
+// drops every test hook from process.env before anything reads it. The
+// relaunch from a pane (relaunch.ts) judges the launch as it came, so its
+// log still names everything it dropped.
+const LAUNCH_ENV: Record<string, string | undefined> = { ...process.env };
+const GATE = applyGate(process.env, process.argv, RAVENRY_TEST_HOOKS);
 
 const APP_ROOT = path.resolve(__dirname, '..');
 const OFFSCREEN = process.env.RAVENRY_OFFSCREEN === '1';
@@ -56,7 +74,9 @@ if (process.env.RAVENRY_THEME === 'dark' || process.env.RAVENRY_THEME === 'light
 // Started with a pane's variables (an agent in a pane opened the app):
 // relaunched clean, as the Dock starts it, before anything else
 // (relaunch.ts). This start exits without a window or a daemon.
-const leaving = relaunchClean();
+const leaving = relaunchClean() || refuseSwitches();
+if (!leaving && GATE.ignored.length) appLog(`launch: a release build takes no test hooks from its environment: ignored ${GATE.ignored.join(', ')}`);
+if (RAVENRY_TEST_HOOKS && !leaving && app.isPackaged) appLog('launch: a test build, its test hooks on (tools only: never install it)');
 
 // Two windows on one set of tabs would fight over them.
 if (!leaving && !OFFSCREEN && !app.requestSingleInstanceLock()) app.exit(0);
@@ -84,11 +104,11 @@ function relaunchClean(): boolean {
   const file = path.join(app.getPath('userData'), MARKER);
   const marker = app.isPackaged ? readMarker(file) : null;
   if (app.isPackaged) { try { fs.rmSync(file, { force: true }); } catch { /* none */ } }
-  const plan = relaunchPlan({ env: process.env, packaged: app.isPackaged, platform: process.platform, execPath: process.execPath, marker });
+  const plan = relaunchPlan({ env: LAUNCH_ENV, packaged: app.isPackaged, platform: process.platform, execPath: process.execPath, marker });
   if (marker && !plan.relaunch && plan.why === 'clean') {
     appLog(`launch: relaunched clean (pid ${marker.pid} was started with a pane's variables); dropped: ${marker.dropped.join(', ') || 'nothing'}`);
   } else if (!plan.relaunch && plan.why === 'loop') {
-    appLog(`launch: still started with ${paneVars(process.env).join(', ')} after relaunching clean; staying, and the window says its answers are off`);
+    appLog(`launch: still started with ${paneVars(LAUNCH_ENV).join(', ')} after relaunching clean; staying, and the window says its answers are off`);
   }
   if (!plan.relaunch) return false;
   try {
@@ -98,11 +118,20 @@ function relaunchClean(): boolean {
     fs.mkdirSync(logDir, { recursive: true });
     spawn('/bin/sh', helperArgs(process.pid, plan.bundle, path.join(logDir, 'app.log'), plan.background), { env: plan.env, cwd: '/', detached: true, stdio: 'ignore' }).unref();
   } catch (e) {
-    appLog(`launch: started with ${paneVars(process.env).join(', ')} and could not relaunch clean: ${(e as Error).message || e}`);
+    appLog(`launch: started with ${paneVars(LAUNCH_ENV).join(', ')} and could not relaunch clean: ${(e as Error).message || e}`);
     try { fs.rmSync(file, { force: true }); } catch { /* none */ }
     return false;
   }
   app.exit(0);
+  return true;
+}
+
+// A release build started with a debugging switch (gate.ts) quits before it
+// opens a window or reaches a daemon.
+function refuseSwitches(): boolean {
+  if (!GATE.switches.length) return false;
+  appLog(`launch: started with ${GATE.switches.map((s) => `--${s}`).join(', ')}, which a release build refuses: quitting`);
+  app.exit(1);
   return true;
 }
 
@@ -582,8 +611,9 @@ app.whenReady().then(async () => {
   win = createWindow();
   if (staged) settingUp = startHub(staged).finally(() => { settingUp = null; });
   if (!OFFSCREEN) updates.start();
-  if (process.env.RAVENRY_DRIVER) {
+  if (RAVENRY_TEST_HOOKS && process.env.RAVENRY_DRIVER) {
     // Tests and screenshots: a script outside the app drives the window.
+    // Never in a release build: this block is not in it (gate.ts).
     const drive = require(process.env.RAVENRY_DRIVER) as (w: BrowserWindow, ctx: object) => Promise<void>;
     win.webContents.once('did-finish-load', () => {
       drive(win!, { app, daemon }).then(() => app.quit(), (e) => { console.error('driver:', e); app.exit(1); });

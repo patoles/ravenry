@@ -2,3 +2,5 @@ dist/
 .stage/
 release/
 .tmp/
+.build-kind
+release-test/

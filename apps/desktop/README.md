@@ -114,6 +114,29 @@ Ravenry`, and nothing it set (`RAVENRY_DRIVER`, `ELECTRON_*`,
 never relaunch; a relaunch still carrying pane variables stays, its
 answers off (`src/main/relaunch.ts`, `tools/relaunch-check.mjs`).
 
+**A release build takes no test hook from whoever starts it.** Any
+program of the person's can start the app outside every pane (`env -i
+X=... open -a Ravenry`), and such an app acts as the person. So the
+build people install (`build.mjs --release`, what `npm run pack` puts in
+release/) has no code that loads `RAVENRY_DRIVER`, removes from its
+environment every variable that runs code in or through it or feeds its
+window (`RAVENRYD`, `RAVENRY_LAUNCHCTL`, `RAVENRY_NEW_SHELL`,
+`RAVENRY_TEST_CLIPBOARD`, `RAVENRY_SETTINGS_IMPORT`, the hub's stand-ins
+`MC_*`, `FAKE_*`, `STUB_*`, `CMUX_BIN`, `NODE_OPTIONS`, `NODE_PATH`) and
+says so in app.log, and quits at once when started with
+`--remote-debugging-port`, `--inspect` or a switch that runs another
+program in place of one of its own. Its executable's fuses turn
+`NODE_OPTIONS` and `--inspect` off and keep `ELECTRON_RUN_AS_NODE`, which
+the hub service and the hooks run on; the hub service and the npm switch
+script run with `--disable-sigusr1`, so no program can open Node's
+inspector in them with a signal. On macOS it runs under the hardened
+runtime even signed ad hoc, so `DYLD_INSERT_LIBRARIES` (which `open
+--env` passes to an app) loads nothing into it. Settings that only say where things
+are (data, runtime and state folders, the hub's address, a test's launchd
+label) or how the window looks stay (`src/main/gate.ts`). Development
+builds keep every hook, and so does the release's test twin
+(release-test/), which the tools that drive the window run.
+
 **The secret stays in its field.** It is never in the window's state, a log
 or an error: the field is emptied when it loses the focus, when its card
 leaves the panel or the panel closes, and as it is sent, in the one answer
@@ -382,8 +405,15 @@ and the service leaves it alone (`AbandonProcessGroup`, `KillMode=process`).
 
 No build is called ready before `node tools/release-check.mjs APP --prev
 OLD_APP_OR_ZIP [OUT]` passes on it (2026-11-07: three builds passed CI
-and failed at once on the person's Mac). It runs the packaged app as
-a Mac runs it: a copy outside ~/Documents, throwaway HOMEs, a daemons'
+and failed at once on the person's Mac). The release itself takes no
+driver, so it is checked as it is first (step 0, `tools/package-check.mjs`
+on APP: no test hooks, its fuses, its own daemon and a shell in it, none
+of what an agent's launch names runs, debugging switches refused, its hub
+answers as its service says), then the steps that look into the window
+and click in it run on its test twin (`--driven TWIN`, default
+release-test/mac-arm64/Ravenry.app), checked to be the same build
+(build.json, ravenryd, hub) with the test hooks on. It runs the packaged
+app as a Mac runs it: a copy outside ~/Documents, throwaway HOMEs, a daemons'
 folder with a space in its path (as `~/Library/Application
 Support/Ravenry/run` has), the hub service loaded into the real launchd
 under a label of its own (`dev.ravenry.hub.test-<random>`, booted out at
@@ -411,8 +441,8 @@ folder. The first-session screen is New session.
 ## Packaging
 
 ```sh
-npm run pack                          # this machine: DMG and zip, or AppImage and .deb
-npm run pack -- --dir                 # the unpacked app only
+npm run pack                          # this machine: DMG and zip, or AppImage and .deb, and the test twin
+npm run pack -- --dir                 # the unpacked app only (and the test twin)
 npm run pack -- --mac --arch arm64,x64 --ravenryd DIR   # ravenryd-<platform>-<arch> from DIR
 node tools/package-check.mjs release/Ravenry-<version>-mac-arm64.dmg
 ```
@@ -420,16 +450,24 @@ node tools/package-check.mjs release/Ravenry-<version>-mac-arm64.dmg
 `scripts/pack.mjs` stages ravenryd (built here by
 `scripts/build-ravenryd.sh` when it is for this machine: static on Linux,
 macOS 13 or newer on the Mac, the app's version), the hub and
-`build.json`, then runs electron-builder (`electron-builder.config.mjs`).
+`build.json`, then runs electron-builder (`electron-builder.config.mjs`)
+on a release build (`build.mjs --release`, checked to have no test hooks
+before it is packed). For one architecture of this machine's platform it
+then packs the test twin into release-test/, unpacked only: the same
+stage with the test hooks on, for the tools that drive the window
+(`--test-twin` in CI, `--no-test-twin` to skip it). The twin is never
+published or installed.
 `tools/package-check.mjs` checks a DMG, zip, AppImage, .deb or unpacked
-app: what is inside, then the app offscreen beside an older ravenryd, the
+app: what is inside (a release build, its fuses), then the app offscreen
+with no driver beside an older ravenryd (its own daemon and a shell in
+it, nothing an agent's launch names runs, debugging switches refused), the
 hub service in dry-run mode in a throwaway HOME, and the hub run as that
 service says. CI's release workflow (`.github/workflows/release.yml`),
 run by hand only, builds every target on a machine of its own, checks
 every artifact and, run on a `v*` tag (`gh workflow run release.yml --ref
 v<version>`), uploads them to a draft release, never published by CI.
 
-**The first run, timed.** `node tools/first-run.mjs APP [OUT] [--runs N]`
+**The first run, timed.** `node tools/first-run.mjs APP [OUT] [--runs N]` (APP: a test twin, release-test/, which a script can drive)
 opens a packaged app for the first time in a fresh throwaway HOME (a
 project in ~/code and a stand-in Claude Code, `tools/stand-in-claude.sh`,
 in ~/.local/bin, off the PATH as for an app started from the Finder),
