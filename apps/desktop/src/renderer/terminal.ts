@@ -115,8 +115,9 @@ export class TerminalView {
   pathOf: (f: File) => string = () => '';
   /** Where each pane's view stood when it was last on screen: its first line, or the bottom. */
   private scrolls = new Map<string, number | 'bottom'>();
-  /** A scroll to put back once the pane's snapshot is written. */
+  /** A scroll to put back once the pane's snapshot is written (and, for a line, once the buffer reaches it). */
   private restoreTo: number | 'bottom' | null = null;
+  private restoreUntil = 0;
 
   constructor(el: HTMLElement) {
     this.el = el;
@@ -301,6 +302,7 @@ export class TerminalView {
     this.early = [];
     this.current = a;
     this.restoreTo = this.scrolls.get(a.pane) ?? null;
+    this.restoreUntil = 0;
     this.term.reset();
     this.onShown(a);
     this.fitNow();
@@ -319,11 +321,18 @@ export class TerminalView {
         this.term.write(d, () => {
           info.ack();
           if (gen !== this.gen) return;
-          // Back where the view stood when the pane was last on screen.
-          if (info.snapshot && this.restoreTo !== null) {
+          // Back where the view stood when the pane was last on screen. A
+          // snapshot can come in more than one write: a line past what is
+          // written so far waits for the rest (at most 1.5 s), so the view
+          // is not left at the bottom, following it.
+          if (info.snapshot && this.restoreTo !== null) this.restoreUntil = Date.now() + 1500;
+          if (this.restoreTo !== null && this.restoreUntil) {
             const to = this.restoreTo;
-            this.restoreTo = null;
-            if (to === 'bottom') this.term.scrollToBottom(); else this.term.scrollToLine(Math.min(to, this.term.buffer.active.baseY));
+            const base = this.term.buffer.active.baseY;
+            if (to === 'bottom') { this.term.scrollToBottom(); this.restoreTo = null; }
+            else if (base >= to || Date.now() > this.restoreUntil) { this.term.scrollToLine(Math.min(to, base)); this.restoreTo = null; }
+            else this.term.scrollToLine(base);
+            if (this.restoreTo === null) this.restoreUntil = 0;
           }
           this.onWritten(a, end, info.snapshot);
         });
