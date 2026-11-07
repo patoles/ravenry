@@ -23,6 +23,12 @@ export interface HubSession {
   handed?: boolean;
   terminal?: boolean;
   screen?: string[];
+  /** Why it cannot be typed into from here (a cmux tab Ravenry only reads). */
+  cannotType?: string | null;
+  /** In a terminal outside Ravenry: whether its process still runs there, and so whether Continue in Ravenry can resume it. */
+  outside?: { name: string; open: boolean; resumable: boolean } | null;
+  /** Its last turns from its transcript, oldest first, when no screen of it is read. */
+  conversation?: { at?: string | null; ask?: string | null; text?: string | null; working?: boolean }[];
   /** The machine a remote session runs on (the hub's ravenryd over ssh); null on this one. */
   machine?: string | null;
   /** The ravenryd pane a session runs in, when the hub sends it on its own. */
@@ -247,11 +253,31 @@ export function findSession(state: HubState | null, key: string): { project: Hub
 export function arrivals(prev: HubState | null, next: HubState | null): string[] {
   if (!prev || !next) return [];
   const before = new Set<string>();
-  for (const p of prev.projects || []) for (const s of p.sessions) if (sessionGroup(s) === 'you') before.add(sessionKey(p.id, s));
+  for (const p of prev.projects || []) for (const s of p.sessions) if (sessionGroup(s) === 'you') { before.add(sessionKey(p.id, s)); if (s.sessionId) before.add(`sid:${s.sessionId}`); }
   const out: string[] = [];
   for (const p of next.projects || []) for (const s of p.sessions) {
     const k = sessionKey(p.id, s);
-    if (sessionGroup(s) === 'you' && !before.has(k)) out.push(k);
+    // The same session under a new key (its tab was found or lost) has not arrived.
+    if (sessionGroup(s) === 'you' && !before.has(k) && !(s.sessionId && before.has(`sid:${s.sessionId}`))) out.push(k);
+  }
+  return out;
+}
+
+/**
+ * Sessions whose key changed between two states while they stayed the same
+ * session: the hub names a session by its tab, and a tab it finds or loses
+ * (cmux starting or stopping to answer) changes the key. Old key -> new key.
+ */
+export function rekeyed(prev: HubState | null, next: HubState | null): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!prev || !next) return out;
+  const now = new Map<string, string>();
+  const keys = new Set<string>();
+  for (const p of next.projects || []) for (const s of p.sessions) { const k = sessionKey(p.id, s); keys.add(k); if (s.sessionId) now.set(s.sessionId, k); }
+  for (const p of prev.projects || []) for (const s of p.sessions) {
+    const k = sessionKey(p.id, s);
+    const n = s.sessionId ? now.get(s.sessionId) : undefined;
+    if (n && n !== k && !keys.has(k)) out.set(k, n);
   }
   return out;
 }

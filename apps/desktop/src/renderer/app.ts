@@ -30,7 +30,7 @@ import { Daemons } from './daemons.ts';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
-  ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, sessionGroup, sessionKey, sessionOfPane, tokens,
+  ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
 import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
@@ -1001,7 +1001,7 @@ async function renderCentre(): Promise<void> {
   term.hide();
   shownKey = '';
   show('elsewhere');
-  renderElsewhere(f);
+  renderElsewhere(f, key);
   focusPending();
 }
 
@@ -1011,22 +1011,164 @@ function renderNone(): void {
     h('div.row', h('button.btn.pri', { on: { click: () => void newShell() } }, 'New shell'), h('span.t3', shortcut('T')))));
 }
 
-function renderElsewhere(f: { project: HubProject; session: HubSession } | null): void {
-  if (!f) { replace($('elsewhere'), h('div.none-card', h('p', 'That session has ended.'))); return; }
+// A session in a terminal outside Ravenry (cmux, iTerm2, Rex, another):
+// its discussion in the middle, read only, live from its screen when the
+// hub reads that terminal, else from its transcript with one line saying
+// why; "Open in <terminal>" focuses its tab; Continue in Ravenry resumes it
+// in a pane here once its process there has ended (never two processes on
+// one session). The last one shown is kept, so a session that ends there
+// (its SessionEnd takes it off the board) still offers the resume.
+const ELSE_OPEN = new Set(['cmux', 'iterm', 'rex']);
+let elseLast: { key: string; project: HubProject; session: HubSession } | null = null;
+let elseBusy: string | null = null;
+let elseError: { key: string; text: string } | null = null;
+const live = { surface: null as string | null, ver: 0, entries: null as LiveEntry[] | null, timer: 0 as unknown as ReturnType<typeof setTimeout> | 0 };
+
+function renderElsewhere(f: { project: HubProject; session: HubSession } | null, key: string | null): void {
+  let ended = false;
+  if (!f && key && elseLast && elseLast.key === key && elseLast.session.sessionId) {
+    // Its tab id changed (the hub found or lost its tab): the same session
+    // under its new key. Else it ended there.
+    const sid = elseLast.session.sessionId;
+    const again = (S.hub?.projects || []).flatMap((p) => p.sessions.map((s) => ({ project: p, session: s }))).find((x) => x.session.sessionId === sid);
+    if (again) {
+      key = sessionKey(again.project.id, again.session);
+      const t = tabOfView();
+      if (t && t.kind === 'session') t.key = key; else S.view = { kind: 'session', key };
+      f = again;
+    } else if (elseLast.session.outside) { f = elseLast; ended = true; }
+  }
+  if (f && key && !ended) elseLast = { key, ...f };
+  if (!f || !key) { liveStop(); replace($('elsewhere'), h('div.none-card', h('p', 'That session has ended.'))); return; }
   const { project, session } = f;
   const m = machineOf(project, session);
   const where = m ? `a terminal on ${m}` : session.termName || 'another terminal';
-  const screen = (session.screen || []).join('\n').replace(/\s+$/, '');
+  const out = session.outside || null;
+  const open = !ended && !!out && out.open !== false;
+  const canOpen = !m && !ended && !!session.term && ELSE_OPEN.has(session.term);
+  const canResume = !!out && !open && (out.resumable || ended) && !!session.sessionId;
+  const busy = elseBusy === key;
+  const folder = project.folderShort ? `, in ${project.folderShort}` : '';
+  const sub = ended || (out && !open) ? `Ran in ${where}${folder}. It ended there.` : `Runs in ${where}${folder}.`;
+  const readable = !ended && session.terminal !== false && !session.surfaceId.startsWith('ev:');
+  if (readable) liveFollow(session.surfaceId); else liveStop();
+  const note = out
+    ? open
+      ? h('div.else-note', svg(I.CLOCK), h('span', `Still open in ${where}. Close it there first, then continue it here.`))
+      : h('div.else-note.ok', svg(I.DONE), h('span', 'Continue in Ravenry picks up this conversation in a pane here.'))
+    : null;
+  const err = elseError && elseError.key === key ? h('div.else-note.bad', h('span', elseError.text)) : null;
+  // Why its screen is not shown, while it still runs there.
+  const why = !readable && session.cannot && open ? h('p.else-why', session.cannot) : null;
+  const old = $('elsewhere').querySelector('.else-disc');
+  const atBottom = !old || old.scrollHeight - old.scrollTop - old.clientHeight < 40;
+  const keep = old ? old.scrollTop : 0;
   replace($('elsewhere'),
     h('div.else-head',
-      h('div', h('div.else-t', session.topic || project.name), h('div.t2', `Runs in ${where}${project.folderShort ? `, in ${project.folderShort}` : ''}. Ravenry follows it from there.`)),
-      !m && session.terminal !== false && !session.cannot ? h('button.btn', { on: { click: () => void hubOpen(project, session) } }, `Open in ${where}`) : null),
-    screen ? h('pre.else-screen', screen) : h('p.t3', 'Nothing on its screen yet.'));
+      h('div', h('div.else-t', session.topic || project.name), h('div.t2', sub)),
+      h('div.else-acts',
+        canOpen ? h(`button.btn${canResume ? '' : '.pri'}`, { on: { click: () => void hubOpen(project, session) } }, `Open in ${where}`) : null,
+        out ? h(`button.btn${canResume ? '.pri' : ''}`, { disabled: !canResume || busy, title: canResume ? 'Resume this conversation in a Ravenry pane' : `Close it in ${where} first`, on: { click: () => void continueHere(key, project, session) } }, busy ? 'Continuing...' : 'Continue in Ravenry') : null)),
+    note, err, why,
+    h('div.else-disc', readable ? discussionLive(session) : discussionFromTranscript(session)));
+  const sc = $('elsewhere').querySelector('.else-disc');
+  if (sc) sc.scrollTop = atBottom ? sc.scrollHeight : keep;
+}
+
+interface LiveEntry { k: string; l?: string[]; n?: string; a?: string; m?: number; b?: string; x?: number; t?: string; g?: string; orphan?: boolean }
+
+/** One discussion row: a glyph and its text, as the board's Live screen draws them. */
+function discRow(cls: string, glyph: string, body: (HTMLElement | string | null)[] | string): HTMLElement {
+  return h(`div.dr.${cls}`, h('span.g', glyph), h('span.x', ...(Array.isArray(body) ? body : [body])));
+}
+
+function discussionLive(session: HubSession): (HTMLElement | null)[] {
+  const entries = live.surface === session.surfaceId && live.entries ? live.entries : null;
+  const cap = h('div.else-cap', `Live from ${session.termName || 'its terminal'}, read only`);
+  if (!entries) {
+    const lines = (session.screen || []).join('\n').replace(/\s+$/, '');
+    return [cap, lines ? h('pre.else-screen', lines) : h('p.t3', `Reading its screen in ${session.termName || 'its terminal'}...`)];
+  }
+  const rows = entries.map((e) => {
+    const text = (e.l || []).join('\n');
+    if (e.k === 'u') return discRow('u', '❯', text);
+    if (e.k === 'c') return discRow('c', e.orphan ? ' ' : '⏺', text);
+    if (e.k === 'r') return discRow('s', '※', `recap: ${text}`);
+    if (e.k === 's') return discRow('s', e.g || '✻', e.t || '');
+    if (e.k === 'o') return discRow('s', '⎿', e.t || '');
+    if (e.k === 't') return discRow('t', '⏺', e.b ? [e.b, e.x && e.x > 1 ? h('span.lv-more', ` ×${e.x}`) : null] : [h('b', e.n || ''), ` ${e.a || ''}`, e.m ? h('span.lv-more', ` +${e.m} line${e.m > 1 ? 's' : ''}`) : null]);
+    return discRow('p', ' ', text);
+  });
+  return [cap, ...(rows.length ? rows : [h('p.t3', 'Its screen is empty.')])];
+}
+
+function discussionFromTranscript(session: HubSession): (HTMLElement | null)[] {
+  const conv = session.conversation || [];
+  if (!conv.length) return [h('p.t3', 'Its transcript has no finished turn yet.')];
+  const rows: HTMLElement[] = [];
+  for (const t of conv) {
+    if (t.ask) rows.push(discRow('u', '❯', t.ask));
+    if (t.text) rows.push(discRow('c', '⏺', t.text));
+    if (t.working) rows.push(discRow('s', '✻', 'Working...'));
+  }
+  return [h('div.else-cap', 'From its transcript'), ...rows];
+}
+
+/** Reads the session's screen through the hub's Live screen while it is in the middle. */
+function liveFollow(surface: string): void {
+  if (live.surface === surface && live.timer) return;
+  liveStop();
+  live.surface = surface;
+  const poll = async (): Promise<void> => {
+    if (live.surface !== surface) return;
+    try {
+      const r = await api().hubGet(`/api/live?surface=${encodeURIComponent(surface)}${live.ver ? `&v=${live.ver}` : ''}`) as { ver?: number; same?: boolean; entries?: LiveEntry[] };
+      if (live.surface !== surface) return;
+      if (!r.same && r.entries) {
+        live.ver = r.ver || 0;
+        live.entries = r.entries;
+        if (S.view.kind === 'session' || S.view.kind === 'tab') void renderCentre();
+      }
+    } catch { /* the hub reads it again next time */ }
+    if (live.surface === surface) live.timer = setTimeout(() => void poll(), 1500);
+  };
+  live.timer = setTimeout(() => void poll(), 0);
+}
+
+function liveStop(): void {
+  if (live.timer) clearTimeout(live.timer);
+  live.timer = 0;
+  live.surface = null;
+  live.ver = 0;
+  live.entries = null;
 }
 
 async function hubOpen(p: HubProject, s: HubSession): Promise<void> {
   const at = here();
   try { await api().hubPost('/api/open', { projectId: p.id, surfaceId: s.surfaceId }); } catch (e) { toast((e as Error).message, undefined, { at, error: true }); }
+}
+
+/** Continue in Ravenry: the hub resumes the session in a Ravenry pane, and the middle follows it there. */
+async function continueHere(key: string, p: HubProject, s: HubSession): Promise<void> {
+  if (elseBusy || !s.sessionId) return;
+  elseBusy = key;
+  elseError = null;
+  void renderCentre();
+  try {
+    const { cols, rows } = term.term;
+    const r = await api().hubCall('POST', '/api/sessions/resume', { projectId: p.id, sessionId: s.sessionId, cols, rows });
+    const b = (r.body || {}) as { ok?: boolean; error?: string; surfaceId?: string; pane?: { id?: string }; projectId?: string };
+    if (r.status !== 200 || !b.ok || !b.surfaceId) { elseError = { key, text: b.error || `Ravenry could not continue it (${r.status}).` }; return; }
+    const pane = b.pane && typeof b.pane.id === 'string' ? b.pane.id : null;
+    elseLast = null;
+    liveStop();
+    setView({ kind: 'session', key: `${b.projectId || p.id}/${b.surfaceId}`, ...(pane ? { pane } : {}) });
+  } catch (e) {
+    elseError = { key, text: (e as Error).message };
+  } finally {
+    elseBusy = null;
+    if (S.view.kind === 'session' && S.view.key === key) void renderCentre();
+  }
 }
 
 // ---------------------------------------------------------------- first launch
@@ -1360,7 +1502,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   if (p.brief && (p.brief.goal || p.brief.next)) {
     body.push(h('div.sec',
       h('div.sec-h', 'Brief', h('span.sp'), h('button.lk', { on: { click: () => openBoard(`#${p.id}`) } }, 'Edit')),
-      h('div.kv', p.brief.goal ? [h('span', 'Goal'), h('span', p.brief.goal)] : null, p.brief.next ? [h('span', 'Next'), h('span', p.brief.next)] : null)));
+      h('div.kv', p.brief.goal ? [h('span', 'Goal'), briefValue(p.id, 'goal', p.brief.goal)] : null, p.brief.next ? [h('span', 'Next'), briefValue(p.id, 'next', p.brief.next)] : null)));
   }
 
   const plan = p.plan;
@@ -1370,6 +1512,20 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
     h('button.btn.sm.self', { on: { click: () => openBoard(plan ? `#/plan/${p.id}` : `#${p.id}`) } }, plan ? 'Open the plan' : 'New plan')));
 
   return [head, body];
+}
+
+// A brief field in the panel: about four lines, with Show all when there is
+// more (and Show less once open). Which fields are open is kept per project
+// while the window lives, so a new state from the hub does not fold them.
+const briefOpen = new Set<string>();
+function briefValue(projectId: string, field: string, text: string): HTMLElement {
+  const k = `${projectId}\u0000${field}`;
+  const open = briefOpen.has(k);
+  const body = h(`span.bv${open ? '' : '.clamp'}`, text);
+  const toggle = h('button.lk.bv-more', { hidden: !open, on: { click: () => { if (briefOpen.has(k)) briefOpen.delete(k); else briefOpen.add(k); renderPanel(); } } }, open ? 'Show less' : 'Show all');
+  // Folded: Show all only when the text runs past its four lines.
+  if (!open) requestAnimationFrame(() => { if (body.scrollHeight > body.clientHeight + 1) toggle.hidden = false; });
+  return h('span.bv-cell', body, toggle);
 }
 
 /** What a session's panel shows of Phase 2 between its card and its context. */
@@ -1441,6 +1597,17 @@ async function handOff(p: HubProject, s: HubSession): Promise<void> {
 function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
+  // A session that kept its id but changed its key keeps its place: the
+  // middle, its pinned tab and the panel follow it.
+  const moved = rekeyed(prev, next);
+  if (moved.size) {
+    const v = S.view;
+    if (v.kind === 'session' && moved.has(v.key)) S.view = { ...v, key: moved.get(v.key)! };
+    for (const t of S.tabs) if (t.kind === 'session' && moved.has(t.key)) t.key = moved.get(t.key)!;
+    if (S.panelKey && moved.has(S.panelKey)) S.panelKey = moved.get(S.panelKey)!;
+    if (elseLast && moved.has(elseLast.key)) elseLast.key = moved.get(elseLast.key)!;
+    save();
+  }
   pages.update((next as { pages?: NavRow[] }).pages);
   machinesSaid((next as { machines?: MachineView[] }).machines);
   // A session the start screen just started: the view follows it once listed.

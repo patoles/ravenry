@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, secondLine, sessionGroup, sessionOfPane, tokens } from '../src/renderer/model.ts';
+import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, rekeyed, secondLine, sessionGroup, sessionOfPane, tokens } from '../src/renderer/model.ts';
 import type { HubProject, HubSession, HubState } from '../src/renderer/model.ts';
 import { hubUrl, parseEvent } from '../src/main/hub.ts';
 import { daemonEnv } from '../src/main/spawn.ts';
@@ -59,6 +59,18 @@ test('a session that moves into Needs you is an arrival; the first state is not'
   assert.deepEqual(arrivals(null, after), []);
   assert.deepEqual(arrivals(before, after), ['a/x']);
   assert.deepEqual(arrivals(after, after), []);
+});
+
+test('a session whose tab is found or lost keeps its place: a new key, not an arrival', () => {
+  const sid = '8a30a013-0000-4000-8000-000000000001';
+  const inCmux: HubState = { projects: [proj('a', 'you', [sess('5F000000-0000-4000-8000-000000000001', 'asked', { sessionId: sid })])] };
+  const fromEvents: HubState = { projects: [proj('a', 'you', [sess(`ev:${sid}`, 'asked', { sessionId: sid })])] };
+  assert.deepEqual(arrivals(inCmux, fromEvents), []);
+  assert.deepEqual([...rekeyed(inCmux, fromEvents)], [['a/5F000000-0000-4000-8000-000000000001', `a/ev:${sid}`]]);
+  assert.deepEqual([...rekeyed(fromEvents, fromEvents)], []);
+  // Another session in its place is a new one.
+  const other: HubState = { projects: [proj('a', 'you', [sess(`ev:${sid}`, 'asked', { sessionId: '8a30a013-0000-4000-8000-000000000002' })])] };
+  assert.deepEqual([...rekeyed(inCmux, other)], []);
 });
 
 test('helpers: groups, times, tokens, memory, empty, seams', () => {

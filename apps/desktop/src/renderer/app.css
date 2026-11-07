@@ -141,6 +141,21 @@ body.first .sl { flex: none; }
 .else-head > div { flex: 1; }
 .else-t { font-weight: 650; font-size: 15px; color: #F2F2F4; margin-bottom: 4px; }
 .elsewhere .t2 { color: #A1A1A8; }
+.else-head > .else-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.else-note { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 550; color: #F0A33A; margin-top: -6px; }
+.else-note.ok { color: #A1A1A8; font-weight: 500; }
+.else-note.bad { color: #FF7A6E; }
+.else-why { margin: -6px 0 0; font-size: 12.5px; line-height: 1.45; color: #A1A1A8; }
+.else-disc { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 6px; font: 12.5px/1.55 ui-monospace, 'SF Mono', Menlo, monospace; color: #D1D1D6; }
+.else-disc > :first-child { margin-top: auto; }
+.else-cap { font: 600 11px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: .02em; color: #8E8E93; padding-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.dr { display: grid; grid-template-columns: 16px 1fr; gap: 0 6px; }
+.dr .g { color: #8E8E93; }
+.dr .x { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.dr.u { background: rgba(255,255,255,.06); border-radius: 6px; padding: 5px 8px 5px 6px; }
+.dr.u .x, .dr.c .g { color: #F2F2F4; }
+.dr.t .x, .dr.s .x { color: #A1A1A8; }
+.dr .lv-more { color: #8E8E93; }
 .else-screen { margin: 0; flex: 1; min-height: 0; overflow: hidden; font: 12.5px/1.5 ui-monospace, 'SF Mono', Menlo, monospace; color: #D1D1D6; white-space: pre; display: flex; flex-direction: column; justify-content: flex-end; opacity: .85; user-select: text; }
 
 /* buttons */
@@ -220,6 +235,10 @@ body.first .sl { flex: none; }
 .kv { display: grid; grid-template-columns: 52px 1fr; gap: 5px 8px; font-size: 12.5px; line-height: 1.4; }
 .kv > span:nth-child(odd) { color: var(--tx3); font-size: 12px; }
 .kv > span:nth-child(even) { user-select: text; overflow-wrap: anywhere; }
+.bv-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
+.bv { white-space: pre-line; }
+.bv.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
+.bv-more[hidden] { display: none; }
 .chk { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--tx2); }
 .chk i { width: 13px; height: 13px; border-radius: 50%; background: var(--ok); flex: none; display: flex; align-items: center; justify-content: center; }
 

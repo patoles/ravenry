@@ -19,7 +19,9 @@
 // phone alerts on, sent to a closed local port. `extra` adds projects with
 // no session (each { id, name }: a folder under Projects), and
 // `prepare({ HOME, ROOT, MC })` writes more of the demo (pages, briefs)
-// before the board starts.
+// before the board starts. `cmuxIds` gives the cmux workspaces and tabs
+// UUIDs, as real cmux has, and each session's process its CMUX_SURFACE_ID,
+// for a board that follows cmux from outside (Ravenry mode).
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -99,7 +101,7 @@ const PROJECTS = [
     turn: ['Round the temperatures', 'Done: whole degrees everywhere, tests pass.', 60 * 73.5], machine: 'gpu-box' },
 ];
 
-export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null }) {
+export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null, cmuxIds = false }) {
   fs.rmSync(dir, { recursive: true, force: true });
   const HOME = path.join(dir, 'home');
   const ROOT = path.join(HOME, 'Projects');
@@ -120,11 +122,12 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     fs.writeFileSync(path.join(folder, 'README.md'), `# ${p.name}\n`);
     const git = (...a) => execFileSync('git', ['-C', folder, '-c', 'user.name=Demo', '-c', 'user.email=demo@example.com', ...a], { encoding: 'utf8' });
     git('init', '-q', '-b', 'main'); git('add', '.'); git('commit', '-q', '-m', 'Start');
-    const sf = `sf-${k}`;
+    const sf = cmuxIds ? `5F000000-0000-4000-8000-00000000000${k}` : `sf-${k}`;
+    const ws = cmuxIds ? `3A000000-0000-4000-8000-00000000000${k}` : `ws-${k}`;
     const inPane = panes.includes(p.id);
-    if (!inPane) workspaces.push({ id: `ws-${k}`, ref: `workspace:${k}`, title: p.name, cwd: folder, surfaces: [{ id: sf, ref: `surface:${k}`, title: p.title }] });
+    if (!inPane) workspaces.push({ id: ws, ref: `workspace:${k}`, title: p.name, cwd: folder, surfaces: [{ id: sf, ref: `surface:${k}`, title: p.title }] });
     if (!inPane) screens[sf] = p.screen;
-    projects.push({ id: p.id, name: p.name, folder, brief: 'BRIEF.md', workspaces: inPane ? [] : [`ws-${k}`] });
+    projects.push({ id: p.id, name: p.name, folder, brief: 'BRIEF.md', workspaces: inPane ? [] : [ws] });
     const TD = path.join(CLAUDE, slug(folder));
     fs.mkdirSync(TD, { recursive: true });
     const TR = path.join(TD, p.sid + '.jsonl');
@@ -144,10 +147,11 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     const evFile = path.join(MC, 'events', p.sid + '.jsonl');
     // A remote session's records say its machine, as the board's ravenryd
     // adapter tags them.
-    const evLine = ([event, mm, extra]) => JSON.stringify({ at: ago(mm), event, session_id: p.sid, cwd: folder, transcript_path: TR, workspace_id: `ws-${k}`, surface_id: sf, ...(p.machine ? { machine: p.machine } : {}), ...(event === 'Stop' ? { ends_on_question: false, background_tasks: 0 } : {}), ...(event === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : {}), ...(extra || {}) });
+    const pid = 4100 + k * 7;
+    const evLine = ([event, mm, extra]) => JSON.stringify({ at: ago(mm), event, session_id: p.sid, cwd: folder, transcript_path: TR, workspace_id: ws, surface_id: sf, ...(cmuxIds ? { terminal: 'cmux', claude_pid: pid } : {}), ...(p.machine ? { machine: p.machine } : {}), ...(event === 'Stop' ? { ends_on_question: false, background_tasks: 0 } : {}), ...(event === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : {}), ...(extra || {}) });
     fs.writeFileSync(evFile, p.events.map(evLine).join('\n') + '\n');
     files[p.id] = { evFile, evLine, TR, rec, sf, p };
-    ps.push({ pid: 4100 + k * 7, ppid: 4000 + k * 7, rssKb: [612000, 445000, 845000, 690000, 298000][k - 1], startedAt: ago(p.events[0][1] + 1), command: `claude --resume ${p.sid}`, cwd: folder });
+    ps.push({ pid, ppid: 4000 + k * 7, rssKb: [612000, 445000, 845000, 690000, 298000][k - 1], startedAt: ago(p.events[0][1] + 1), command: `claude --resume ${p.sid}`, cwd: folder, ...(cmuxIds ? { env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${ws} CMUX_SURFACE_ID=${sf}` } : {}) });
   }
   for (const x of extra) {
     const folder = path.join(ROOT, x.id);
@@ -194,7 +198,7 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
   if (!st || !st.generatedAt) { child.kill(); throw new Error('the demo board did not start:\n' + log.slice(-2000)); }
 
   return {
-    url, home: HOME, root: ROOT, log: () => log, sessions,
+    url, home: HOME, root: ROOT, log: () => log, sessions, fake: FAKE, ps: PS,
     state: async () => (await fetch(url + '/api/state')).json(),
     /** A working session stops on a question: a checkpoint arrives. */
     async arrive(id, question = 'Tilt the hull with the slope too, or keep it level?') {
