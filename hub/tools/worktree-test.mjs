@@ -253,6 +253,14 @@ const pf = await until(async () => { const r = await get('/api/projects/proj/fil
 const pfs = pf && pf.body.sessions.find((x) => x.surfaceId === SID);
 check('GET /api/projects/<id>/files: the file its hooks named, with its counts, in its worktree; the person\'s own change under you', !!pfs && pfs.worktree === true && pfs.pane === PANE && pfs.files[0].path === 'app/a.txt' && pfs.files[0].added === 1 && pf.body.you.some((x) => x.path === 'app/mine.txt'), pf ? pf.text : 'no answer');
 fs.rmSync(path.join(P, 'app', 'mine.txt'));
+// Its hooks report from its worktree, a sibling of the project's folder:
+// the session is the project's, named as it was started.
+const WSID = 'f1f1f1f1-0000-4000-8000-0000000000f1';
+await dc.request('agent.report', { pane: PANE, assistant: 'claude', event: 'SessionStart', cwd: path.join(WT, 'app'), data: { hook_event_name: 'SessionStart', session_id: WSID, cwd: path.join(WT, 'app'), source: 'startup' } });
+await dc.request('agent.report', { pane: PANE, assistant: 'claude', event: 'UserPromptSubmit', cwd: path.join(WT, 'app'), data: { hook_event_name: 'UserPromptSubmit', session_id: WSID, cwd: path.join(WT, 'app') } });
+const inProj = async () => { const r = await get('/api/state'); const pr = r.body && (r.body.projects || []).find((x) => x.id === 'proj'); return pr && pr.sessions.find((x) => x.worktree && x.worktree.branch === 'ravenry/menu-polish') || null; };
+const ws = await until(inProj, 15000);
+check("a worktree session is its project's, named as it was started, with its worktree in the state", !!ws && ws.topic === 'Menu polish' && ws.worktree.state === 'open', JSON.stringify(ws));
 check('an unknown project has no files', (await get('/api/projects/nope/files')).status === 404);
 // A pane's last seconds, sent to the session as a GIF in the inbox.
 const mark2 = (await dc.request('pane.list', { hidden: true })).panes.find((x) => x.id === PANE).mark;
@@ -268,6 +276,8 @@ check('merge refused while uncommitted, with the files', dirty.status === 409 &&
 g(WT, 'commit', '-q', '-am', 'menu');
 const mg = await post(`/api/sessions/${sid}/merge`, { mode: 'ff' });
 check('merge (fast-forward) through the API, then the worktree is gone', mg.status === 200 && mg.body.ok && fs.readFileSync(path.join(P, 'app', 'a.txt'), 'utf8').endsWith('menu\n') && !fs.existsSync(WT), mg.text);
+const wsm = await until(async () => { const x = await inProj(); return x && x.worktree.state === 'merged' ? x : null; }, 15000);
+check("merged, the session stays its project's, with the merge in the state", !!wsm && !!wsm.worktree.merged && wsm.worktree.merged.mode === 'ff', JSON.stringify(wsm));
 const um = await post(`/api/sessions/${sid}/unmerge`, {});
 check('unmerge through the API: main back, the worktree back', um.status === 200 && !fs.readFileSync(path.join(P, 'app', 'a.txt'), 'utf8').endsWith('menu\n') && fs.existsSync(path.join(WT, 'app', 'a.txt')), um.text);
 check('delete-branch is refused while the work is open', (await post(`/api/sessions/${sid}/delete-branch`, {})).status === 409);

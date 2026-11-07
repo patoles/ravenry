@@ -477,6 +477,19 @@ function realFolder(tp, e, kind = asst.kindOf(e)) {
   return r ? { folder: r, share: null, hits: real ? real.hits : 0, repos: real ? real.repos : [], from: 'hook cwd' } : real;
 }
 
+// The name a session started in a worktree was given ("Harbour level"
+// for ravenry/harbour-level), for a session that names itself nowhere else.
+function worktreeName(cwd) {
+  if (!cwd) return null;
+  const w = worktrees.load().find((x) => x.name && inside(realOr(cwd), realOr(x.folder)));
+  if (!w || /^session-[0-9a-f]+$/.test(w.name)) return null;
+  const words = w.name.replace(/-\d+$/, '').replace(/-/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// A folder's real path when it exists (/var and /private/var are one on macOS), else as it is.
+function realOr(p) { try { return fs.realpathSync(p); } catch { return path.resolve(p); } }
+
 function inside(child, parent) {
   const rel = path.relative(parent, child);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
@@ -523,6 +536,12 @@ function eventOwner(e, real) {
   if (!reg || !e) return null;
   const root = rootFolder();
   const live = reg.projects.filter((p) => !p.hidden);
+  // A session in one of a project's worktrees (server/worktrees.mjs) is
+  // that project's, though its folder is a sibling of the project's.
+  const where = [e.cwd, real && real.folder].filter(Boolean).map(realOr);
+  // Merged or thrown away, its folder is gone but the session stays the project's.
+  const wt = worktrees.load().find((w) => w.projectId && where.some((x) => inside(x, realOr(w.folder))));
+  if (wt) { const p = live.find((x) => x.id === wt.projectId); if (p) return p; }
   if (e.workspaceId) {
     const owners = live.filter((p) => (p.workspaces || []).includes(e.workspaceId));
     if (owners.length) return ownerOf(owners, e.surfaceId || null, real && real.folder, null, { projects: reg.projects, root });
@@ -771,7 +790,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       cannot: tab ? null : cannotFor(tkind),
       surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(tkind) + ' tab' : null, workspaceId: e.workspaceId, workspaceRef: null,
       // Never named after a too-broad folder ("projects" for the projects root).
-      topic: title.topic || (t && t.title) || [e.cwd, project.folder].filter((f) => f && !isBroadFolder(f, reg.projects, rootFolder())).map((f) => path.basename(f))[0] || 'Session', live: screen.claudeLive,
+      topic: title.topic || (t && t.title) || worktreeName(e.cwd) || [e.cwd, project.folder].filter((f) => f && !isBroadFolder(f, reg.projects, rootFolder())).map((f) => path.basename(f))[0] || 'Session', live: screen.claudeLive,
       sessionId: e.sessionId, method: tab ? `hook events (${term.nameOf(tkind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
     });
   }

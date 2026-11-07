@@ -176,6 +176,12 @@ sessions of one project never write the same files
   `ravenry.worktree: <branch>`, and its first prompt says where it works and
   that the person reviews and merges the branch. On this computer only for
   now; a project on another machine is refused.
+- **Its project.** The session's hooks report from its worktree, a
+  sibling of the project's folder, so the board finds its project through
+  the record (before its folder: server/index.mjs eventOwner), open,
+  merged or thrown away; and a session that names itself nowhere else
+  (Codex sets no title) takes the name it was started with ("Harbour
+  level" for `ravenry/harbour-level`).
 - `<RAVENRY_HOME>/worktrees.json` records each one: surface id, pane,
   project, repository, folder, branch, base commit and base branch, state
   (`open`, `merged`, `discarded`).

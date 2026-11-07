@@ -304,6 +304,28 @@ function showKept() {
   t.classList.add('wide');
   t.hidden = false;
 }
+// "Decision replaced: the hull tilt." or "Saved your decision: ...", with
+// Undo until its minute is over (POST /api/decisions/undo, the person's).
+function decisionToast(d, undoUntil) {
+  const t = $('#toast');
+  const what = d.scope ? `: the ${d.scope}.` : `: "${String(d.quote || '').slice(0, 60)}${String(d.quote || '').length > 60 ? '...' : ''}"`;
+  t.textContent = undash(`${(d.overrides || []).length ? 'Decision replaced' : 'Saved your decision'}${what}`);
+  const left = undoUntil ? Date.parse(undoUntil) - Date.now() : 0;
+  if (left > 0) {
+    const u = document.createElement('button');
+    u.style.cssText = 'margin-left:12px;color:var(--work);font:inherit;background:none;border:0;padding:0;cursor:pointer';
+    u.textContent = 'Undo';
+    u.addEventListener('click', async () => {
+      try { await post('/api/decisions/undo', { id: d.id }); toast('Undone. The decision before it holds again.'); } catch (e) { toast(e.message, 5000, true); }
+    });
+    t.append(u);
+  }
+  t.classList.remove('wide');
+  t.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.hidden = true; }, Math.max(6000, Math.min(left, 60000)));
+}
+
 function toast(msg, ms = 3200, wide = false) {
   const t = $('#toast');
   t.textContent = undash(String(msg ?? ''));
@@ -4941,6 +4963,14 @@ function connect() {
     const lb = ui.ideas.lastBrainstorm;
     if (ui.wantBrainstorm && lb && (!prev || !prev.lastBrainstorm || prev.lastBrainstorm.at !== lb.at)) { ui.wantBrainstorm = false; ui.selIdea = lb.ids[0]; toast('3 directions in Spark'); }
     if (ui.view === 'ideas') render();
+  });
+  // An agent saved the person's words in the decision ledger
+  // (docs/DECISIONS.md): said at once, with Undo while its minute lasts.
+  es.addEventListener('decision', (ev) => {
+    let m = null;
+    try { m = JSON.parse(ev.data); } catch { return; }
+    if (!m || m.type !== 'saved' || !m.decision || m.decision.by === 'person') return;
+    decisionToast(m.decision, m.undo_until || m.decision.undo_until || null);
   });
   // EventSource reconnects by itself; a phone signed out by New key gets 401.
   es.onerror = () => { checkSignedIn(); };
