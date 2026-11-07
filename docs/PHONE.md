@@ -272,7 +272,7 @@ cannot be turned off. So do **Allow once** and **This session** on a
 command there.
 
 **A drive** carries `checkpoint.drive: { pane, action, name, session,
-reason? }`: the pane the agent wants to act on, what it wants to do
+reason?, keys? }`: the pane the agent wants to act on, what it wants to do
 (`input`: type into it; `close`; `restart`; `override`: change its size,
 speed or TERM), the pane's `name` as the sidebar and the tabs show it
 (the topic of the session that runs in it, else its name, its title or
@@ -284,7 +284,11 @@ never by id: "Claude, in Tilting the hull, wants to type in dev server"
 dev server runs"); with no `name`, the daemon's own title. `body` is
 "Claude says: <reason>" when there is a reason, with what it would type
 in `detail` ("It would type: ..."); else `body` is what it would type or
-which conditions it would set. The phone says it the same way, with one yes for an
+which conditions it would set. What it would type always reads with its
+keys as people say them, never as tokens ("[Ctrl C] npm run dev
+[Enter]", from the one formatter, hub/public/keys.mjs), and `keys` carries
+it in parts (`{ kind: "text" | "key", text }`) so the app draws each key as
+a key. The phone says it the same way, with one yes for an
 action other than typing (**Let it close**, **Let it restart**, **Let it
 change it**, as `allow:once`) beside **Refuse**; typing keeps **Allow
 once** and **This session**. Closing or restarting ends

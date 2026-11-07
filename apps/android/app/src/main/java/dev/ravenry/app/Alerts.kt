@@ -6,6 +6,9 @@ import org.json.JSONObject
 /** `text`: a quick answer with no menu number is typed into the session as these words. `biometric`: a fingerprint first. */
 data class AlertAction(val id: String, val label: String, val text: String? = null, val biometric: Boolean = false)
 
+/** A part of what a drive would type, as the hub's one formatter split it (hub/public/keys.mjs): text, or a key as people read it ("Ctrl C"). */
+data class KeyPart(val key: Boolean, val text: String)
+
 /** One picture of a pick (docs/PHONE.md section 5): its label and where the hub serves it. */
 data class AlertVariant(val label: String, val type: String, val url: String)
 
@@ -32,10 +35,18 @@ data class Alert(
     val variants: List<AlertVariant> = emptyList(),
     /** A saved decision's id, for Undo. */
     val decisionId: String? = null,
+    /** What a drive would type, in parts, so its keys are drawn as keys. */
+    val keys: List<KeyPart> = emptyList(),
 ) {
     companion object {
         const val VERSION = 1
         private val KNOWN = setOf("ask", "approve", "secret", "permission", "question", "handback", "gate", "drive", "pick", "decision")
+
+        private fun keysOf(a: org.json.JSONArray?): List<KeyPart> = (0 until (a?.length() ?: 0)).mapNotNull { i ->
+            val p = a!!.optJSONObject(i) ?: return@mapNotNull null
+            val t = p.optString("text")
+            if (t.isEmpty()) null else KeyPart(p.optString("kind") == "key", t)
+        }
 
         /** The message, or null when it is not one this app reads (another version, another type). */
         fun parse(text: String): Alert? {
@@ -105,6 +116,7 @@ data class Alert(
                 cp?.optString("id")?.takeIf { it.isNotEmpty() },
                 actions, reply, text, variants,
                 o.optJSONObject("decision")?.optString("id")?.takeIf { it.isNotEmpty() },
+                keysOf(cp?.optJSONObject("drive")?.optJSONArray("keys")),
             )
         }
     }

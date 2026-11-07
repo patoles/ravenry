@@ -25,6 +25,7 @@ import os from 'node:os';
 import * as phone from './phone.mjs';
 import { isLoopbackAddr, isPrivateV4Addr, isTailscaleAddr, isUlaAddr } from './phonetls.mjs';
 import { sayFolder } from './homes.mjs';
+import { keyLine, keyParts } from '../public/keys.mjs';
 
 const env = process.env;
 const num = (v, d) => (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
@@ -258,10 +259,14 @@ export function checkpointMessage(cp, { project = null, machine = null, paneName
     const what = { close: `close ${pn}`, restart: `restart ${pn}`, override: `change how ${pn} runs` }[d.action] || `type in ${pn}`;
     msg.title = pn ? `${asker} wants to ${what}` : (head || `${who(cp.assistant)} wants to use another tab`);
     const reason = typeof d.reason === 'string' && d.reason.trim() ? clip(d.reason.replace(/\s*\n\s*/g, ' ').trim(), 300) : null;
+    // What it would type, with its keys as people read them ("[Ctrl C] npm
+    // run dev [Enter]", public/keys.mjs), never as tokens; the parts go
+    // along so the app draws the keys as chips.
     const input = d.input ? clip(String(d.input), 300) : null;
-    msg.body = reason ? `${who(cp.assistant)} says: ${reason}` : (input || '');
-    msg.detail = reason && input ? `It would type: ${input}` : `on ${machine || phone.hubName()}`;
-    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input', name: pn, session: topic, ...(reason ? { reason } : {}) };
+    const typed = input ? keyLine(input) : null;
+    msg.body = reason ? `${who(cp.assistant)} says: ${reason}` : (typed || '');
+    msg.detail = reason && typed ? `It would type: ${typed}` : `on ${machine || phone.hubName()}`;
+    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input', name: pn, session: topic, ...(reason ? { reason } : {}), ...(input ? { keys: keyParts(input) } : {}) };
     msg.actions = [{ id: 'allow:once', label: 'Allow once', biometric: true }, { id: 'allow:session', label: 'This session', biometric: true }, { id: 'refuse', label: 'Refuse' }];
   } else if (cp.kind === 'pick') {
     // Pictures to choose from. The shade picks a variant by its label; the

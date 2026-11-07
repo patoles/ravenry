@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.style.BackgroundColorSpan
 import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -89,10 +90,38 @@ object Notifier {
         // one line: each keeps its buttons in the shade.
         .setGroup(a.id)
 
+    /**
+     * What a drive would type, its keys drawn as keys: each one bold on a
+     * tinted ground ("Ctrl C"), the text between them as it is. The hub
+     * split it (hub/public/keys.mjs); nothing is parsed here.
+     */
+    fun typed(keys: List<KeyPart>): CharSequence {
+        val out = SpannableStringBuilder()
+        for (p in keys) {
+            if (out.isNotEmpty()) out.append(' ')
+            val at = out.length
+            if (p.key) {
+                out.append('\u00A0').append(p.text.replace(' ', '\u00A0')).append('\u00A0')
+                out.setSpan(BackgroundColorSpan(KEY_GROUND), at, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                out.setSpan(StyleSpan(Typeface.BOLD), at, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            } else out.append(p.text.trim())
+        }
+        return out
+    }
+    private const val KEY_GROUND = 0x40808080
+
     fun show(context: Context, a: Alert) {
         val text = SpannableStringBuilder()
-        if (a.body.isNotEmpty()) { text.append(a.body); text.setSpan(StyleSpan(Typeface.BOLD), 0, a.body.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
-        if (a.detail != null) { if (text.isNotEmpty()) text.append(' '); text.append(a.detail) }
+        // A drive's keys come as parts: the hub's line ("[Ctrl C] npm run
+        // dev [Enter]") is drawn again with the keys as keys.
+        val keyed = a.kind == "drive" && a.keys.isNotEmpty()
+        val bodyTyped = keyed && !a.body.contains(" says: ")
+        if (bodyTyped) text.append(typed(a.keys))
+        else if (a.body.isNotEmpty()) { text.append(a.body); text.setSpan(StyleSpan(Typeface.BOLD), 0, a.body.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        if (a.detail != null) {
+            if (text.isNotEmpty()) text.append(' ')
+            if (keyed && a.detail.startsWith("It would type: ")) text.append("It would type: ").append(typed(a.keys)) else text.append(a.detail)
+        }
         val b = base(context, a).setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text))
         for (act in a.actions) b.addAction(0, act.label, actionIntent(context, a, act.id))
         a.reply?.let { r ->

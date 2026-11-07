@@ -184,19 +184,6 @@ export function regionOf(points: [number, number][]): { x: number; y: number; w:
   return { x: r(x), y: r(y), w: r(Math.min(w, 1 - x)), h: r(Math.min(h, 1 - y)) };
 }
 
-/** What a drive would type, as text and keys: "npm run dev", then <Enter> as a key. */
-export function typedParts(input: string): { key: boolean; text: string }[] {
-  const out: { key: boolean; text: string }[] = [];
-  const re = /<((?:Ctrl|Alt|Shift|Meta)\+[^<>\s]+|Enter|Tab|Esc|Escape|Backspace|Delete|Up|Down|Left|Right|Home|End|PageUp|PageDown|Space|F\d{1,2})>/g;
-  let at = 0;
-  for (let m = re.exec(input); m; m = re.exec(input)) {
-    if (m.index > at) out.push({ key: false, text: input.slice(at, m.index) });
-    out.push({ key: true, text: m[1].replace(/\+/g, ' ') });
-    at = m.index + m[0].length;
-  }
-  if (at < input.length) out.push({ key: false, text: input.slice(at) });
-  return out;
-}
 
 /** What a drive asks, in words: its title, the yes buttons and what each says once sent. `action` absent is input. */
 export function driveWords(action: string | null | undefined, who: string, pane: string): { title: string; what: string | null; yes: { allow: 'once' | 'session'; label: string; sub: string | null; said: string }[] } {

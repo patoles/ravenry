@@ -113,6 +113,13 @@ class AlertsTest {
         assertEquals(null, plain.says)
     }
 
+    @Test fun aDrivesKeysComeAsPartsAndNoTokenIsShown() {
+        val m = """{"v":1,"type":"alert","id":"cp:c3","kind":"drive","title":"Claude, in Tilting the hull, wants to type in dev server","body":"Claude says: Because.","detail":"It would type: [Ctrl C] npm run dev [Enter]","checkpoint":{"id":"c3","kind":"drive","drive":{"pane":"pk3m9q2x","action":"input","name":"dev server","session":"Tilting the hull","keys":[{"kind":"key","text":"Ctrl C"},{"kind":"text","text":"npm run dev"},{"kind":"key","text":"Enter"}]}},"actions":[]}"""
+        val x = Alert.parse(m)!!
+        assertEquals(listOf(KeyPart(true, "Ctrl C"), KeyPart(false, "npm run dev"), KeyPart(true, "Enter")), x.keys)
+        assertTrue(listOf(x.title, x.body, x.detail ?: "").none { it.contains("<Ctrl+C>") || it.contains("<Enter>") })
+    }
+
     @Test fun aPickShowsCompareAndNotNowAndKeepsItsPictures() {
         val vs = """{"id":"c1234567","kind":"pick","variants":[{"label":"Level","type":"image","url":"/api/checkpoints/c1234567/variants/0"},{"label":"Tilt with the slope","type":"image","url":"/api/checkpoints/c1234567/variants/1"},{"label":"Page","type":"html","url":"/api/checkpoints/c1234567/variants/2"}]}"""
         val x = Alert.parse(msg("pick", listOf(a("pick:0", "Level"), a("pick:1", "Tilt with the slope"), a("open", "Open")).joinToString(","), cp = vs))!!

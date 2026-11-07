@@ -2,7 +2,7 @@
 // (src/shell.ts), without a page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, driveWords, paneInTitle, regionOf, strip, topLabel, typedParts, variantOf, waitOf } from '../src/logic.ts';
+import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, driveWords, paneInTitle, regionOf, strip, topLabel, variantOf, waitOf } from '../src/logic.ts';
 import { BRIDGE_VERSION, Wire } from '../src/shell.ts';
 import { board } from '../../desktop/src/renderer/model.ts';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
@@ -131,10 +131,6 @@ test('the circled part is the box around the finger\'s path, in fractions of the
   assert.equal(regionOf([[0.5, 0.5]]), null);
 });
 
-test('what a drive would type shows its keys as keys', () => {
-  assert.deepEqual(typedParts('<Ctrl+C>npm run dev -- --host<Enter>'), [{ key: true, text: 'Ctrl C' }, { key: false, text: 'npm run dev -- --host' }, { key: true, text: 'Enter' }]);
-  assert.deepEqual(typedParts('a <b> c'), [{ key: false, text: 'a <b> c' }]);
-});
 
 test('a drive says its action and names the pane, never its id', () => {
   const input = driveWords(undefined, 'Claude', 'dev server');

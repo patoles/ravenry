@@ -26,10 +26,11 @@ import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
-import { checksOf, driveWords, dropLine, mmss, paneInTitle, topLabel, typedParts, waitOf } from './logic.ts';
+import { checksOf, driveWords, dropLine, mmss, paneInTitle, topLabel, waitOf } from './logic.ts';
 import { newPick, pickView } from './pick.ts';
 import type { PickUI } from './pick.ts';
 import { sayPathOn } from '../../../hub/public/homepath.mjs';
+import { keyParts } from '../../../hub/public/keys.mjs';
 import type { Drop } from './logic.ts';
 import { back, go, toast } from './main.ts';
 import type { Screen } from './main.ts';
@@ -278,7 +279,7 @@ function driveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement 
     h('h2.sm', words.title),
     words.what ? h('p.det', words.what) : null,
     input ? [h('div.plbl', action === 'override' ? 'It would set' : 'It would press, in order'),
-      h('div.ptyped', action === 'override' ? input : typedParts(input).map((x) => (x.key ? h('span.kc', x.text) : h('span', x.text))))] : null,
+      h('div.ptyped', action === 'override' ? input : keyParts(input).map((x) => (x.kind === 'key' ? h('span.kc', x.text) : h('span', x.text))))] : null,
     reason ? h('p.psays', h('span', `${w} says:`), ' ', reason) : null,
     waitBox(cp),
     ui.error ? h('p.err', ui.error) : null,
