@@ -800,6 +800,7 @@ try {
     // works in kite, so a session there would get its own copy and a first
     // instruction about it).
     fs.mkdirSync(path.join(o.home, 'Projects', 'notes'), { recursive: true });
+    fs.writeFileSync(path.join(o.home, 'Projects', 'notes', 'README.md'), '# notes\n');
     for (const n of ['a', 'b']) fs.writeFileSync(path.join(o.home, `${n}.html`), `<body style="margin:0;background:${n === 'a' ? '#E05A33' : '#2F6FEB'}"></body>`);
     const CLI = `'${path.join(o.data, 'bin', 'ravenryd')}'`;
     const both = (name) => [shot(`21-${name}-dark.png`), { theme: 'light', after: 700 }, shot(`21-${name}-light.png`), { theme: 'dark', after: 500 }];

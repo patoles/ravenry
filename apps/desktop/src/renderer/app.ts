@@ -1622,7 +1622,8 @@ function setView(v: View): void {
 function tabForSession(key: string, pane?: string): string {
   const f = findSession(S.hub, key);
   const p = (f ? paneOf(f.session) : null) || pane || null;
-  const had = S.tabs.find((t) => (t.kind === 'session' && t.key === key) || (!!p && t.kind === 'shell' && t.pane === p));
+  // A session the board does not list yet has no key: its pane names it.
+  const had = S.tabs.find((t) => (t.kind === 'session' && (key ? t.key === key : !!p && t.pane === p)) || (!!p && t.kind === 'shell' && t.pane === p));
   if (had) { if (had.kind === 'session' && pane && !had.pane) had.pane = pane; return had.id; }
   // Its id from its key, unless a tab (renamed since) already has that one.
   const id = S.tabs.some((x) => x.id === pinId(key)) ? `${pinId(key)}#${Date.now().toString(36)}` : pinId(key);
@@ -2371,6 +2372,9 @@ function renderPanel(): void {
     else {
       const t = tabOfView();
       if (t && t.kind === 'shell') { [head, body] = shellPanel(t); shows = 'shell'; }
+      // A session just started, before the board lists it (B): its folder,
+      // its assistant and what is set up for it.
+      else if (t && t.kind === 'session' && t.pane && store.get(t.pane)) { [head, body] = newSessionPanel(t.pane); shows = 'new-session'; }
       else [head, body] = [panelHead('Session', null), [h('p.t3.small', 'Pick a session on the left to see its context, hand-off and brief here.')]];
     }
   }
@@ -2479,15 +2483,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
 
   // What the first-launch step set up for its assistant (B), on this machine.
   const sl = !machineOf(p, s) && (s.assistant === 'claude' || s.assistant === 'codex') ? setupLines[s.assistant] : null;
-  if (sl && !k) {
-    const line = (on: boolean, yes: string, no: string, what: string) => on
-      ? h('div.chk', { 'data-setup': what }, h('i', svg(I.CHECK)), yes)
-      : h('div.chk.off', { 'data-setup': what }, h('i'), no, ' ', h('button.lk', { on: { click: () => api().settings.open('skills') } }, 'Settings'));
-    body.push(h('div.sec.setup-lines',
-      h('div.sec-h', 'This session'),
-      line(sl.hooks, 'Tells Ravenry when it needs you', 'Does not tell Ravenry when it needs you.', 'hooks'),
-      line(sl.skill, 'Has the Ravenry skill', 'Has no Ravenry skill.', 'skill')));
-  }
+  if (sl && !k) body.push(h('div.sec.setup-lines', h('div.sec-h', 'This session'), ...setupLineEls(sl)));
 
   if (k) body.push(cardFor(k, cardCtx));
   // Over the terminal on a narrow window, a card keeps the panel short: it and the context.
@@ -2592,6 +2588,30 @@ function sessionExtras(p: HubProject, s: HubSession, pane: string): (HTMLElement
     files.section(p.id, p.name, s.surfaceId),
     panesItUses(pane, paneCtx),
   ];
+}
+
+function newSessionPanel(pane: string): [HTMLElement, (HTMLElement | null)[]] {
+  const p = store.get(pane)!.pane;
+  // The board starts it as ravenry.session=<assistant> (a shell types its command).
+  const lab = p.labels?.['ravenry.session'] || p.labels?.['ravenry.agent'] || base(p.command[0] || '');
+  const kind = /codex/.test(lab) ? 'codex' : /claude/.test(lab) ? 'claude' : null;
+  const sl = kind ? setupLines[kind] : null;
+  return [panelHead('New session', kind ? assistantName(kind) : null), [
+    h('div.st.c-idle', svg(RING.idle), 'Ready for your first message'),
+    h('div.sec.setup-lines',
+      h('div.sec-h', 'This session'),
+      h('div.kv.wide', h('span', 'Folder'), h('span.mono', tilde(p.cwd)), kind ? h('span', 'Assistant') : null, kind ? h('span', kind === 'claude' ? 'Claude Code' : 'Codex') : null),
+      ...(sl ? setupLineEls(sl) : [])),
+  ]];
+}
+
+/** The two lines of what is set up for an assistant (B): on, or off with the way to Settings. */
+function setupLineEls(sl: { hooks: boolean; skill: boolean }): HTMLElement[] {
+  const line = (on: boolean, yes: string, no: string, what: string) => on
+    ? h('div.chk', { 'data-setup': what }, h('i', svg(I.CHECK)), yes)
+    : h('div.chk.off', { 'data-setup': what }, h('i'), no, ' ', h('button.lk', { on: { click: () => api().settings.open('skills') } }, 'Settings'));
+  return [line(sl.hooks, 'Tells Ravenry when it needs you', 'Does not tell Ravenry when it needs you.', 'hooks'),
+    line(sl.skill, 'Has the Ravenry skill', 'Has no Ravenry skill.', 'skill')];
 }
 
 function shellPanel(t: ShellTab): [HTMLElement, (HTMLElement | null)[]] {
