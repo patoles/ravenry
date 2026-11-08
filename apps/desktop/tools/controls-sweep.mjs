@@ -82,7 +82,13 @@ for (const v of views) {
     // Back in the view, and the control found again by its key (the sidebar is drawn again every second).
     await js("(() => { const v = " + base + "; if (JSON.stringify(" + R + ".S.view) !== JSON.stringify(v)) " + R + ".setView(v); return true; })()");
     await sleep(250);
-    const now = (await js(LIST)).find((x) => x.key === c.key);
+    let now = (await js(LIST)).find((x) => x.key === c.key);
+    // Not there after a click before it: the view opened again from the start, then looked for again.
+    if (!now) {
+      await js(v.go); await sleep(900);
+      if (v.wait) for (let i = 0; i < 40 && !(await js('!!(' + v.wait + ')')); i++) await sleep(250);
+      now = (await js(LIST)).find((x) => x.key === c.key);
+    }
     if (!now) { results.push({ view: v.name, ...c, what: 'gone before its click' }); continue; }
     // How much the page changes by itself in 500 ms, then the click and 600 ms.
     const s0 = await js(SNAP); await sleep(350); const s1 = await js(SNAP);
@@ -197,8 +203,8 @@ try {
   const byView = new Map();
   for (const r of rows) { if (!byView.has(r.view)) byView.set(r.view, []); byView.get(r.view).push(r); }
   for (const [v, rs] of byView) {
-    const bad = rs.filter((r) => r.toHub || r.what === 'nothing');
-    check(`${v}: ${rs.length} controls, none does nothing, none opens the board in the browser`, !bad.length, bad.map((r) => `${r.where} "${r.label}": ${r.toHub ? 'opens ' + r.detail : 'nothing'}`).join(' | '));
+    const bad = rs.filter((r) => r.toHub || r.what === 'nothing' || r.what === 'gone before its click');
+    check(`${v}: ${rs.length} controls, each clicked, none does nothing, none opens the board in the browser`, !bad.length, bad.map((r) => `${r.where} "${r.label}": ${r.toHub ? 'opens ' + r.detail : r.what}`).join(' | '));
   }
   const md = ['| View | Where | Control | What it did | Detail |', '| --- | --- | --- | --- | --- |', ...rows.map((r) => `| ${r.view} | ${r.where} | ${String(r.label).replace(/\|/g, '/')} | ${r.toHub ? 'BROWSER (board)' : r.what} | ${String(r.detail || '').replace(/\|/g, '/').slice(0, 90)} |`)];
   fs.writeFileSync(path.join(OUT, 'controls.md'), md.join('\n') + '\n');
