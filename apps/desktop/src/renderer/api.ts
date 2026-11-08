@@ -45,6 +45,12 @@ export interface RavenryApi {
   /** A page file, an item's file or a folder, in the person's own app (logged instead when offscreen). */
   openPath(p: string): void;
   copyText(text: string): void;
+  /** The colour macOS shows where the window grows before the page is drawn there (a live resize). */
+  windowBackground(color: string): void;
+  /** System Settings > Notifications (Alerts, when macOS has not allowed Ravenry's). */
+  openNotificationSettings(): void;
+  /** A click on one of Ravenry's Mac notifications: the session it was about. */
+  onNotifyOpen(fn: (n: { projectId: string | null; surfaceId: string | null; kind: string | null }) => void): void;
   /** The clipboard's text (a test's own text offscreen, never the real clipboard). */
   readClipboard(): Promise<string>;
   /** An update that stopped after 3 tries: try it again. */

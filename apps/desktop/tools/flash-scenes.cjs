@@ -86,7 +86,9 @@ exports.dragDivider = async (win, { name, by = -200, steps = 30, regions, dir })
   const dpr = await js(win, 'devicePixelRatio');
   const g = await rectOf(win, '#split .gutter');
   if (!g) throw new Error('no divider');
-  const x = Math.round(g.x + g.w / 2), y = Math.round(g.y + g.h / 2);
+  // Input events are in window pixels: the page's (CSS) times its zoom (a test's Retina scale).
+  const x = Math.round((g.x + g.w / 2) * dpr), y = Math.round((g.y + g.h / 2) * dpr);
+  by = Math.round(by * dpr);
   const wc = win.webContents;
   F.start(win);
   await sleep(200);
@@ -131,7 +133,7 @@ exports.switches = async (win, { list, dir, settle = 1200, region = null }) => {
   const res = [];
   for (const s of list) {
     if (s.before) { await js(win, s.before); await sleep(s.beforeWait ?? 700); }
-    const at = await js(win, `(() => { const e = ${s.at}; if (!e) return null; e.scrollIntoView?.({ block: 'nearest' }); const b = e.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; })()`);
+    const at = await js(win, `(() => { const e = ${s.at}; if (!e) return null; e.scrollIntoView?.({ block: 'nearest' }); const b = e.getBoundingClientRect(); return { x: Math.round((b.x + b.width / 2) * devicePixelRatio), y: Math.round((b.y + b.height / 2) * devicePixelRatio) }; })()`);
     if (!at) { res.push({ name: s.name, error: `nothing at ${s.at}` }); continue; }
     wc.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y });
     await sleep(250);

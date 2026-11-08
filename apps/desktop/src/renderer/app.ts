@@ -3303,7 +3303,27 @@ function render(): void {
   if (holdView()) return;
   renderTabs();
   renderPanel();
-  void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); renderHint(); });
+  void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); renderHint(); syncWindowBackground(); });
+}
+
+/**
+ * macOS grows the window before the page is drawn into the new part (a
+ * live resize), showing the window's own colour there for a frame: it is
+ * set to the colour the page has at its right edge (the terminal's, the
+ * panel's, a page's), so the edge does not blink another colour.
+ */
+let windowBg = '';
+function syncWindowBackground(): void {
+  const el = document.elementFromPoint(window.innerWidth - 40, Math.round(window.innerHeight / 2));
+  let c = '';
+  for (let x: Element | null = el; x && !c; x = x.parentElement) {
+    const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/.exec(getComputedStyle(x).backgroundColor);
+    if (m && (m[4] === undefined || Number(m[4]) > 0.5)) c = '#' + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('');
+  }
+  if (!c) { const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(document.body).backgroundColor); if (m) c = '#' + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join(''); }
+  if (!c || c === windowBg) return;
+  windowBg = c;
+  try { api().windowBackground(c); } catch { /* an older preload */ }
 }
 
 /** The plain shells: every running daemon's panes labelled as the app's shells. */
@@ -3690,6 +3710,7 @@ async function boot(): Promise<void> {
     openBrief: (project) => setView({ kind: 'brief', key: `project:${project}`, project }),
     showSession: (project) => { const p = (S.hub?.projects || []).find((x) => x.id === project); const s = p && p.sessions.find((x) => !x.handed); if (!p || !s) return false; pickSession(`${p.id}/${s.surfaceId}`, 'plan page'); return true; },
     pairPhone: () => { const b = document.querySelector('#side .foot [aria-label="Open on your phone"]') as HTMLElement | null; if (b && !phoneCard.open) b.click(); },
+    notificationSettings: () => api().openNotificationSettings(),
     toast: (text, error) => toast(text, undefined, error ? { at: here(), error: true } : undefined),
     onScreen: () => (IN_KINDS.has(S.view.kind) ? (S.view as InView) : null),
     now,
@@ -3730,6 +3751,14 @@ async function boot(): Promise<void> {
   // The strip's room changes when the panel shows or hides.
   new ResizeObserver(() => fitTabs($('tabs'))).observe($('tabs'));
   document.addEventListener('pointerover', (e) => prepareFrom(e.target), true);
+  // A click on one of Ravenry's Mac notifications: the session it was about, else its project.
+  api().onNotifyOpen((n) => {
+    if (!n || !n.projectId) return;
+    const p = (S.hub?.projects || []).find((x) => x.id === n.projectId);
+    if (!p) return;
+    const s = n.surfaceId ? p.sessions.find((x) => x.surfaceId === n.surfaceId) : null;
+    if (s) pickSession(`${p.id}/${s.surfaceId}`, 'notification'); else pickProject(p, 'notification');
+  });
   window.addEventListener('keydown', (e) => {
     if (S.view.kind === 'picker' && picker.key(e)) { e.preventDefault(); return; }
     if (e.key === 'Escape' && S.overlay) { S.overlay = false; S.panelKey = null; render(); term.focus(); return; }

@@ -49,6 +49,8 @@ import type { NpmDetect, Offer } from './npmswitch.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
 import { initSettings, openSettings } from './settings.ts';
+import { postNotification } from './notify.ts';
+import type { NotifyRequest } from './notify.ts';
 import { installSkill, removeSkill, skillStatus, SKILL_ASSISTANTS } from './skills.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 import { applyGate } from './gate.ts';
@@ -71,6 +73,10 @@ const isMac = process.platform === 'darwin';
 app.setName('Ravenry');
 if (process.env.RAVENRY_DESKTOP_DATA) app.setPath('userData', process.env.RAVENRY_DESKTOP_DATA);
 if (process.env.RAVENRY_THEME === 'dark' || process.env.RAVENRY_THEME === 'light') nativeTheme.themeSource = process.env.RAVENRY_THEME;
+// Tests only: an offscreen window drawn at a Retina scale (its zoom; the
+// window is that many times bigger), where a canvas's size in device
+// pixels can differ from what xterm.js set by its rounding.
+const TEST_SCALE = OFFSCREEN && /^[1-4](\.\d+)?$/.test(process.env.RAVENRY_TEST_SCALE || '') ? Number(process.env.RAVENRY_TEST_SCALE) : 0;
 
 // Started with a pane's variables (an agent in a pane opened the app):
 // relaunched clean, as the Dock starts it, before anything else
@@ -223,6 +229,7 @@ function createWindow(primary = true): BrowserWindow {
   if (saved?.maximized && !OFFSCREEN) w.maximize();
   wins.add(w);
   if (primary) keepBounds(w);
+  if (TEST_SCALE) w.webContents.on('did-finish-load', () => w.webContents.setZoomFactor(TEST_SCALE));
   w.loadFile(path.join(__dirname, 'index.html'));
   if (!OFFSCREEN) w.once('ready-to-show', () => w.show());
   // Links open in the browser, never in this window.
@@ -471,6 +478,15 @@ function ipc(): void {
     if (typeof p !== 'string' || !path.isAbsolute(p) || !(/\.(page\.yaml|md)$/i.test(p) || isDir(p))) return;
     outside('path', p, () => void shell.openPath(p));
   });
+  // The window's own colour, shown where it grows before the page is drawn
+  // there (a live resize on macOS): the page's colour at its right edge,
+  // so the edge never shows a band of another colour.
+  // Alerts' "Open Notifications settings": System Settings > Notifications.
+  ipcMain.on('open-notification-settings', () => outside('settings', 'notifications', () => void shell.openExternal('x-apple.systempreferences:com.apple.Notifications-Settings.extension')));
+  ipcMain.on('window:background', (e, color: string) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (w && !w.isDestroyed() && /^#[0-9a-f]{6}$/i.test(String(color))) w.setBackgroundColor(color);
+  });
   ipcMain.on('copy-text', (_e, text: string) => { if (typeof text === 'string' && text.length <= 64 * 1024) outside('copy', text, () => clipboard.writeText(text)); });
   // Paste in the terminal (keymap.ts Cmd+V): offscreen a test's own text
   // (RAVENRY_TEST_CLIPBOARD), never the person's clipboard.
@@ -677,6 +693,27 @@ async function startHub(st: Staged): Promise<void> {
 // ~/.local/state/ravenry/app.log), beside the hub's: what the app did with
 // its hub service at launch, which a Finder-started app has nowhere else to
 // say. Only the packaged app writes it.
+/**
+ * A Mac notification the hub asked for (notify.ts): posted as Ravenry, and
+ * its answer (shown, or not and why) sent back to the hub. A click brings
+ * the window forward on that session.
+ */
+async function notifyFromHub(raw: unknown): Promise<void> {
+  const n = raw as Partial<NotifyRequest> | null;
+  if (!n || typeof n.id !== 'string' || typeof n.title !== 'string' || typeof n.body !== 'string') return;
+  const req: NotifyRequest = { id: n.id, title: n.title.slice(0, 200), body: n.body.slice(0, 500), kind: n.kind || null, projectId: n.projectId || null, surfaceId: n.surfaceId || null };
+  const r = await postNotification(req, {
+    standIn: OFFSCREEN,
+    log: appLog,
+    open: (q) => {
+      const w = win && !win.isDestroyed() ? win : [...wins][0];
+      if (w && !OFFSCREEN) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); app.focus({ steal: true }); }
+      send('notify:open', { projectId: q.projectId, surfaceId: q.surfaceId, kind: q.kind });
+    },
+  });
+  try { await hubPost(feed ? feed.url : hubUrl(), '/api/alerts/desktop/result', r); } catch (e) { appLog(`notify: the board did not take the answer: ${(e as Error).message}`); }
+}
+
 function appLog(line: string): void {
   console.log(line);
   if (!app.isPackaged) return;
@@ -781,6 +818,9 @@ app.whenReady().then(async () => {
   ipc();
   menu();
   feed = new HubFeed(hubUrl(), (s) => send('hub:state', s), (st: HubStatus) => send('hub:status', st));
+  feed.onNotify = (n) => void notifyFromHub(n);
+  // Tests (offscreen): a step can hand the app a notification as the hub would.
+  if (OFFSCREEN) (globalThis as unknown as { __ravenryNotify?: (n: unknown) => Promise<void> }).__ravenryNotify = notifyFromHub;
   feed.start();
   win = createWindow();
   if (staged) settingUp = startHub(staged).finally(() => { settingUp = null; });

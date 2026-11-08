@@ -32,23 +32,26 @@ export const THEME = {
 };
 
 const enc = new TextEncoder();
-/** The least time between two sizes sent to a pane's program while its terminal is resized. */
-const SIZE_EVERY = 50;
-/** DEC mode 2026, synchronized output: xterm.js draws nothing between the two. */
+/** DEC mode 2026, synchronized output: nothing is drawn between the two. */
 const SYNC_ON = '\x1b[?2026h';
 const SYNC_OFF = '\x1b[?2026l';
-/** A program's redraw after a clear: shown once its output pauses this long (ms), or after REDRAW_MAX. */
-const REDRAW_QUIET = 12;
-const REDRAW_MAX = 100;
-/** ED 2 (ESC [ 2 J): the whole screen erased. */
-function hasClear(b: Uint8Array): boolean {
-  for (let i = 0; i + 3 < b.length; i++) if (b[i] === 0x1b && b[i + 1] === 0x5b && b[i + 2] === 0x32 && b[i + 3] === 0x4a) return true;
-  return false;
-}
-/** ESC [ ? 2026 (the program's own synchronized output). */
-function hasSyncMode(b: Uint8Array): boolean {
-  for (let i = 0; i + 6 < b.length; i++) if (b[i] === 0x1b && b[i + 1] === 0x5b && b[i + 2] === 0x3f && b[i + 3] === 0x32 && b[i + 4] === 0x30 && b[i + 5] === 0x32 && b[i + 6] === 0x36) return true;
-  return false;
+const BSU = [0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x68]; // ESC [ ? 2026 h
+const ESU = [0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x6c]; // ESC [ ? 2026 l
+/** The longest a program's synchronized update is held before what came of it is shown (ms). */
+const SYNC_MAX = 150;
+/** The longest a resize waits for the program's drawing at the new size (ms). */
+const RESIZE_WAIT = 150;
+
+/** The last of BSU or ESU in b (from `from` on): 'on', 'off', or null. */
+function lastSyncToken(b: Uint8Array, from = 0): 'on' | 'off' | null {
+  for (let i = b.length - 8; i >= from; i--) {
+    if (b[i] !== 0x1b || b[i + 1] !== 0x5b || b[i + 2] !== 0x3f) continue;
+    let on = true, off = true;
+    for (let k = 3; k < 8; k++) { if (b[i + k] !== BSU[k]) on = false; if (b[i + k] !== ESU[k]) off = false; }
+    if (on) return 'on';
+    if (off) return 'off';
+  }
+  return null;
 }
 
 export interface Attached { client: RavenryClient; pane: string }
@@ -297,9 +300,32 @@ export class TerminalView {
       w.onContextLoss(() => { w.dispose(); this.webgl = null; });
       this.term.loadAddon(w);
       this.webgl = w;
+      this.drawOnDevicePixels();
     } catch {
       this.webgl = null; // the DOM renderer draws instead
     }
+  }
+
+  /**
+   * On a Retina screen the canvas's size in device pixels can come out a
+   * pixel off what xterm.js set (the canvas's place on the pixel grid).
+   * The WebGL addon then sets it again from its own ResizeObserver, which
+   * clears the canvas, and asks for a draw on the next frame: the frame in
+   * between showed the pane empty, at steps of a resize in a real window
+   * (2026-11-08, a plain zsh pane). This observer comes after the addon's,
+   * in the same round, and draws again at once.
+   */
+  private drawOnDevicePixels(): void {
+    const canvas = (this.term as unknown as { _core?: { _renderService?: { _renderer?: { value?: { _canvas?: HTMLCanvasElement } } } } })._core?._renderService?._renderer?.value?._canvas;
+    if (!canvas) return;
+    let w = canvas.width, h = canvas.height;
+    try {
+      new ResizeObserver(() => {
+        if (canvas.width === w && canvas.height === h) return;
+        w = canvas.width; h = canvas.height;
+        this.drawNow();
+      }).observe(canvas, { box: 'device-pixel-content-box' });
+    } catch { /* no device-pixel-content-box: the addon does not set it again either */ }
   }
 
   private link(e: MouseEvent, uri: string): void {
@@ -433,6 +459,7 @@ export class TerminalView {
     try {
       await a.client.request('pane.resize', { pane: a.pane, cols, rows });
       this.sizeSent = `${a.pane}:${cols}x${rows}`;
+      if (gen === this.gen) this.ptySize = { cols, rows };
     } catch { /* an exited pane cannot resize; its screen still shows */ }
     if (gen !== this.gen) return;
     const s = await a.client.subscribe(a.pane, {
@@ -443,10 +470,14 @@ export class TerminalView {
         // The first frame: the screen before goes, and the new one is drawn
         // whole (synchronized output: nothing shows until it is all written).
         const first = this.resetPending;
-        if (first) { this.dropHeld(); this.resetPending = false; this.term.reset(); this.term.write(SYNC_ON); }
-        const put = () => this.term.write(d, () => {
+        if (first) { this.dropHold(); this.resetPending = false; this.term.reset(); this.term.write(SYNC_ON); }
+        // Acknowledged once: at once when the frame is held (the daemon sends
+        // no more until it is, and the rest of an update was kept back).
+        let acked = false;
+        const ack = () => { if (!acked) { acked = true; info.ack(); } };
+        const after = () => {
           if (first && gen === this.gen) { this.term.write(SYNC_OFF, () => { if (gen === this.gen) this.drawnYes = true; this.drawnDone(); }); }
-          info.ack();
+          ack();
           if (gen !== this.gen) return;
           // Back where the view stood when the pane was last on screen. A
           // snapshot can come in more than one write: a line past what is
@@ -463,8 +494,9 @@ export class TerminalView {
             if (this.restoreTo === null) { this.restoreUntil = 0; this.trace('restored'); }
           }
           this.onWritten(a, end, info.snapshot);
-        });
-        if (first || !this.holdRedraw(d, put)) put();
+        };
+        if (first) this.term.write(d, after);
+        else this.output(d, after, ack);
       },
       end: () => { if (gen === this.gen) this.onEnded(a); },
     });
@@ -476,38 +508,85 @@ export class TerminalView {
   }
 
   /**
-   * A program that clears its screen and draws it again (Claude Code at
-   * each size, a full-screen program) writes more than one read of its
-   * terminal: drawn as it came, a frame showed the screen half drawn. From
-   * a clear (ED 2) until its output pauses (REDRAW_QUIET ms, at most
-   * REDRAW_MAX), its frames are kept back and then written in one go: the
-   * screen before stays (and is drawn again at a resize), then the new one
-   * shows whole. A program that brackets its own updates (mode 2026) is
-   * left to do so.
+   * A program's output, as it comes. Claude Code draws its whole screen
+   * again at each size, between BSU and ESU (synchronized output, mode
+   * 2026: ravenryd answers that it has it, as Ghostty does). Its update
+   * comes in more than one read of its terminal; xterm.js held drawing
+   * until ESU, but a resize in between cleared its canvas with nothing
+   * drawn again: a blank frame at each step of a drag (2026-11-08, a screen
+   * recording). Here an update is kept whole until its ESU (at most
+   * SYNC_MAX ms) and then written and drawn in one go, the pane meanwhile
+   * showing the drawing before it (drawn again at any resize).
    */
-  private redrawHeld = 0;
-  private redrawTimer: ReturnType<typeof setTimeout> | undefined;
-  private heldWrites: (() => void)[] = [];
-  /** Keeps this frame back (true) while a redraw is held, or when it starts one. */
-  private holdRedraw(d: Uint8Array | ArrayBuffer, put: () => void): boolean {
+  private hold: { items: { d: Uint8Array; after: () => void }[]; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** The pane's program draws itself in synchronized updates (seen since it showed). */
+  private syncAware = false;
+  /** The last bytes of the frame before, for a BSU or ESU cut between two frames. */
+  private tail: Uint8Array = new Uint8Array(0);
+
+  private output(d: Uint8Array | ArrayBuffer, after: () => void, ack: () => void): void {
     const b = d instanceof Uint8Array ? d : new Uint8Array(d);
-    if (!this.redrawHeld) {
-      if (!hasClear(b) || hasSyncMode(b)) return false;
-      this.redrawHeld = Date.now();
+    const t = this.tail;
+    const joined = t.length ? (() => { const j = new Uint8Array(t.length + b.length); j.set(t); j.set(b, t.length); return j; })() : b;
+    this.tail = joined.slice(Math.max(0, joined.length - 7));
+    const tok = lastSyncToken(joined);
+    if (tok) this.syncAware = true;
+    if (this.hold) {
+      this.hold.items.push({ d: b, after });
+      if (tok === 'off') this.flush(); else ack();
+      return;
     }
-    this.heldWrites.push(put);
-    clearTimeout(this.redrawTimer);
-    const left = this.redrawHeld + REDRAW_MAX - Date.now();
-    this.redrawTimer = setTimeout(() => this.flushHeld(), Math.max(0, Math.min(REDRAW_QUIET, left)));
-    return true;
+    if (tok === 'on') {
+      this.hold = { items: [{ d: b, after }], timer: setTimeout(() => this.flush(), SYNC_MAX) };
+      ack();
+      return;
+    }
+    // A whole update in one frame, while a resize waits for it: drawn with the new size.
+    if (tok === 'off' && this.pendingDims) { this.hold = { items: [{ d: b, after }], timer: setTimeout(() => {}, 0) }; this.flush(); return; }
+    this.term.write(b, after);
   }
-  /** The held frames, written in one go: xterm.js parses them before it draws again. */
-  private flushHeld(): void {
-    clearTimeout(this.redrawTimer);
-    this.redrawHeld = 0;
-    for (const put of this.heldWrites.splice(0)) put();
+
+  /**
+   * Writes the held update, with the size it was drawn for when a resize
+   * waits for it, and draws it, all in this task: the next frame shows the
+   * program's drawing at its new size, never the old one reflowed.
+   */
+  private flush(): void {
+    const h = this.hold;
+    this.hold = null;
+    if (h) clearTimeout(h.timer);
+    // The size the update was drawn for: the pane's size when the program
+    // drew it (the last one the daemon set), not a newer one still on its
+    // way (the update would be cut by a wrap it did not make).
+    let dims = this.pendingDims ? (this.ptySize || this.pendingDims) : null;
+    if (dims && this.pendingDims && dims.cols === this.pendingDims.cols && dims.rows === this.pendingDims.rows) {
+      this.pendingDims = null;
+      clearTimeout(this.pendingTimer);
+      this.pendingTimer = undefined;
+    }
+    if (dims && dims.cols === this.term.cols && dims.rows === this.term.rows) dims = null;
+    if (dims) this.term.resize(dims.cols, dims.rows);
+    const wb = (this.term as unknown as { _core?: { _writeBuffer?: { writeSync?: (d: Uint8Array) => void } } })._core?._writeBuffer;
+    const items = h ? h.items : [];
+    if (wb && typeof wb.writeSync === 'function') {
+      for (const it of items) wb.writeSync(it.d);
+      this.drawNow();
+      for (const it of items) it.after();
+    } else {
+      for (const it of items) this.term.write(it.d, it.after);
+      if (dims) this.drawNow();
+    }
   }
-  private dropHeld(): void { clearTimeout(this.redrawTimer); this.redrawHeld = 0; this.heldWrites = []; }
+  private dropHold(): void {
+    if (this.hold) clearTimeout(this.hold.timer);
+    this.hold = null;
+    this.tail = new Uint8Array(0);
+    this.syncAware = false;
+    this.pendingDims = null;
+    clearTimeout(this.pendingTimer);
+    this.pendingTimer = undefined;
+    this.ptySize = null;
+  }
 
   /** Resolves once the pane on screen has its screen written (or right away with none being attached). */
   get drawn(): Promise<void> { return this.drawnNow; }
@@ -522,7 +601,7 @@ export class TerminalView {
   hide(): void {
     this.keepScroll();
     this.resetPending = false;
-    this.dropHeld();
+    this.dropHold();
     this.drawnYes = false;
     this.drawnDone();
     this.gen++;
@@ -568,33 +647,68 @@ export class TerminalView {
     requestAnimationFrame(() => { this.resizeQueued = false; this.resizeNow(); });
   }
 
-  /** Fits now, and tells the pane's program its size (sendSize). */
+  /**
+   * The terminal's new size (a window, divider or panel moved). A pane
+   * whose program draws itself again at each size (synchronized updates)
+   * keeps its drawing at the size before until the program's drawing at
+   * the new one comes (at most RESIZE_WAIT ms), then shows it in one frame:
+   * xterm.js reflowing the old drawing first showed words cut at the edge
+   * and the screen in three states a step. Any other pane is fitted now.
+   * The program learns each size at once (sendSize).
+   */
+  private pendingDims: { cols: number; rows: number } | null = null;
+  private pendingTimer: ReturnType<typeof setTimeout> | undefined;
   private resizeNow(): void {
+    if (!this.el.offsetWidth || !this.el.offsetHeight) return;
+    let dims: { cols: number; rows: number } | undefined;
+    try { dims = this.fit.proposeDimensions(); } catch { dims = undefined; }
+    if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return;
+    if (this.syncAware && this.stream && this.drawnYes) {
+      const same = dims.cols === this.term.cols && dims.rows === this.term.rows;
+      this.pendingDims = same ? null : { cols: dims.cols, rows: dims.rows };
+      if (!this.pendingDims) { clearTimeout(this.pendingTimer); this.pendingTimer = undefined; }
+      else if (!this.pendingTimer) this.pendingTimer = setTimeout(() => this.applyPending(), RESIZE_WAIT);
+      this.sendSize(dims.cols, dims.rows);
+      return;
+    }
     this.fitNow();
-    this.sendSize();
+    this.sendSize(this.term.cols, this.term.rows);
+  }
+
+  /** The program did not draw at the new size in time: the size now, its old drawing reflowed. */
+  private applyPending(): void {
+    this.pendingTimer = undefined;
+    if (this.hold) { this.flush(); return; }
+    const dims = this.pendingDims;
+    this.pendingDims = null;
+    if (!dims || (dims.cols === this.term.cols && dims.rows === this.term.rows)) return;
+    this.term.resize(dims.cols, dims.rows);
+    this.drawNow();
   }
 
   /**
    * The pane's program learns its size (the daemon resizes the PTY, which
-   * signals it): at most once every SIZE_EVERY ms while a drag goes on, so
-   * a program that draws its whole screen again at each size (Claude Code
-   * does) is not asked to sixty times a second, and always the last size.
+   * signals it), each new size at once: one request at a time, the latest
+   * size sent when it answers.
    */
-  private sizeTimer: ReturnType<typeof setTimeout> | undefined;
-  private sizeAt = 0;
-  private sendSize(): void {
+  private sizeBusy = false;
+  /** The pane's size as the daemon last set it (what its program draws for). */
+  private ptySize: { cols: number; rows: number } | null = null;
+  private sizeNext: { cols: number; rows: number } | null = null;
+  private sendSize(cols: number, rows: number): void {
     const a = this.current;
     if (!a || !this.stream) return;
-    const key = `${a.pane}:${this.term.cols}x${this.term.rows}`;
-    if (key === this.sizeSent) { clearTimeout(this.sizeTimer); this.sizeTimer = undefined; return; }
-    const wait = this.sizeAt + SIZE_EVERY - Date.now();
-    if (wait > 0) {
-      if (!this.sizeTimer) this.sizeTimer = setTimeout(() => { this.sizeTimer = undefined; this.sendSize(); }, wait);
-      return;
-    }
-    this.sizeAt = Date.now();
+    if (this.sizeBusy) { this.sizeNext = { cols, rows }; return; }
+    const key = `${a.pane}:${cols}x${rows}`;
+    if (key === this.sizeSent) return;
     this.sizeSent = key;
-    void a.client.request('pane.resize', { pane: a.pane, cols: this.term.cols, rows: this.term.rows }).catch(() => {});
+    this.sizeBusy = true;
+    void a.client.request('pane.resize', { pane: a.pane, cols, rows }).then(() => { if (this.current === a) this.ptySize = { cols, rows }; }, () => {}).finally(() => {
+      this.sizeBusy = false;
+      const n = this.sizeNext;
+      this.sizeNext = null;
+      if (n) this.sendSize(n.cols, n.rows);
+    });
   }
 
   /** Bytes for the pane on screen, as if typed. */

@@ -331,7 +331,7 @@
 /* Each pane keeps its terminal while it is not on screen (app.ts pools):
    stacked, the one in front shown; the others drawn under it, hidden. */
 .pbox > .term-stack { flex: 1; min-height: 0; position: relative; }
-.term-stack > .term-host { position: absolute; inset: 0; }
+.term-stack > .term-host { position: absolute; inset: 0; overflow: hidden; }
 .term-stack > .term-host.pooled { visibility: hidden; pointer-events: none; }
 .split.two .pbox.focus::after { content: ''; position: absolute; inset: 0; border: 1px solid var(--work); pointer-events: none; z-index: 3; }
 .split.two .pbox:not(.focus) .term-host { opacity: .82; }
