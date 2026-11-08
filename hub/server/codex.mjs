@@ -30,7 +30,7 @@
 
 import * as term from './terminal.mjs';
 import { isShellLine } from './screen.mjs';
-import { readRollout, findRollout, firstPrompt as rolloutFirstPrompt } from './codexrollout.mjs';
+import { readRollout, findRollout, rolloutsFor, firstPrompt as rolloutFirstPrompt } from './codexrollout.mjs';
 import * as exec from './codexexec.mjs';
 
 export const KIND = 'codex';
@@ -361,6 +361,7 @@ export async function typeMessage(tab, msg, { where }) {
 export const findTranscript = (sessionId) => findRollout(sessionId);
 // Rollouts are filed by date, not by folder, so there is no folder guess.
 export const newestTranscriptFor = () => null;
+export const transcriptsFor = (cwd) => rolloutsFor(cwd);
 export const readTranscript = (file) => readRollout(file);
 // The repo comes from the hook's cwd: a rollout's tool calls are scripts.
 export const workFolder = () => null;

@@ -117,6 +117,8 @@ export const readMenu = (kind, text) => menuOf(text, of(kind).parseScreen);
 export const findTranscript = (kind, sessionId, cwd) => of(kind).findTranscript(sessionId, cwd);
 export const newestTranscriptFor = (kind, cwd, exclude) => of(kind).newestTranscriptFor(cwd, exclude);
 export const readTranscript = (kind, file) => of(kind).readTranscript(file);
+// Every conversation of a folder, as { path, sessionId } (not in order).
+export const transcriptsFor = (kind, cwd) => (of(kind).transcriptsFor ? of(kind).transcriptsFor(cwd) : []);
 // The repo a session works in, from its transcript's tool calls, or null.
 export const workFolder = (kind, file) => of(kind).workFolder(file);
 // The first thing typed into a session (a hand-off's fresh session starts

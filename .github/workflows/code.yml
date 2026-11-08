@@ -137,6 +137,7 @@ jobs:
           RAVENRYD_OLD_BIN="$RUNNER_TEMP/ravenryd-0.8.0" RAVENRYD_NEW_BIN="$RUNNER_TEMP/ravenryd-0.9.0" node hub/tools/remote-install-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/hub-api-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/outside-terminal-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
+          node hub/tools/last-conversation-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/reap-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/person-routes-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"
           node hub/tools/phone-app-test.mjs 2>&1 | tee -a "$RUNNER_TEMP/test.log"

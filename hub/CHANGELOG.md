@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `GET /api/project/last?projectId=` names a project's last conversation by
+  its last turn (never a file's time): the sessions the board gives the
+  project, ended ones too, else its folder's Claude Code transcripts and
+  Codex rollouts, without the ones another project sharing the folder
+  owns; with its title, your last message and the answer, where it is
+  still open, and the command that continues it. `/api/sessions/resume`
+  and `/api/sessions/move` take a conversation found that way.
 - The sidebar's pages are page files (docs/PAGES.md): Objectives, Plans,
   Ideas, Rules and Ship ship as defaults, and you or your agent can copy
   one (Customize) or write a new one in `~/.ravenry/pages/`. A project can

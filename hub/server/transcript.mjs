@@ -36,6 +36,14 @@ export function findTranscript(sessionId, cwd) {
   return null;
 }
 
+// Every transcript of a folder (its sessions' conversations, newest first by
+// file time; the caller orders them by their last turn).
+export function transcriptsFor(cwd) {
+  if (!cwd) return [];
+  const dir = path.join(PROJECTS_DIR, slugForCwd(cwd));
+  try { return fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl') && /^[0-9a-f-]{36}\.jsonl$/i.test(f)).map((f) => ({ path: path.join(dir, f), sessionId: f.slice(0, -6) })); } catch { return []; }
+}
+
 // Newest transcript for a cwd: the fallback when a surface names no session.
 export function newestTranscriptFor(cwd, exclude = new Set()) {
   if (!cwd) return null;

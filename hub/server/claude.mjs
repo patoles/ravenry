@@ -20,7 +20,7 @@ import path from 'node:path';
 import * as term from './terminal.mjs';
 import { parseScreen, parseTitle, trimScreen } from './screen.mjs';
 import * as suggest from './suggestion.mjs';
-import { findTranscript, newestTranscriptFor, readTranscript } from './transcript.mjs';
+import { findTranscript, newestTranscriptFor, readTranscript, transcriptsFor } from './transcript.mjs';
 import { sessionFolder } from './folders.mjs';
 import { firstPrompt } from './handoff.mjs';
 
@@ -44,7 +44,7 @@ export const SUPPORTS = {
 export const CMUX_AGENT = 'claude';
 
 export { parseScreen, parseTitle, trimScreen };
-export { findTranscript, newestTranscriptFor, readTranscript };
+export { findTranscript, newestTranscriptFor, readTranscript, transcriptsFor };
 export const workFolder = (transcriptPath) => sessionFolder(transcriptPath);
 export { firstPrompt };
 

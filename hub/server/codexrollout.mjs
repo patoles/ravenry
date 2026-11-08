@@ -220,6 +220,34 @@ function remoteRollout(file, io) {
 
 // Finds the rollout of a session id: rollout-*-<id>.jsonl under
 // sessions/YYYY/MM/DD, newest days first.
+// The rollouts whose session started in a folder (its session_meta's cwd),
+// among the newest `max` (by day folder): Codex keeps them by date, not by
+// folder. Each one's first line only is read.
+export function rolloutsFor(cwd, { home = codexHome(), max = 400 } = {}) {
+  if (!cwd) return [];
+  const root = path.join(home, 'sessions');
+  const list = (d) => { try { return fs.readdirSync(d).sort().reverse(); } catch { return []; } };
+  const out = [];
+  let seen = 0;
+  for (const y of list(root)) for (const m of list(path.join(root, y))) for (const d of list(path.join(root, y, m))) {
+    const dir = path.join(root, y, m, d);
+    for (const f of list(dir)) {
+      if (!f.endsWith('.jsonl') || ++seen > max) continue;
+      const file = path.join(dir, f);
+      let first = '';
+      try { const fd = fs.openSync(file, 'r'); try { const buf = Buffer.alloc(16384); const n = fs.readSync(fd, buf, 0, buf.length, 0); first = buf.toString('utf8', 0, n).split('\n')[0]; } finally { fs.closeSync(fd); } } catch { continue; }
+      // The first line (session_meta) runs past 20 KB with its instructions:
+      // its cwd comes early, read from the start of it.
+      if (!/"type":"session_meta"/.test(first)) continue;
+      let at = null;
+      try { const m = first.match(/"cwd":("(?:[^"\\]|\\.)*")/); at = m ? JSON.parse(m[1]) : null; } catch { /* not a string */ }
+      const id = (f.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i) || [])[1];
+      if (id && at && path.resolve(at) === path.resolve(cwd)) out.push({ path: file, sessionId: id.toLowerCase() });
+    }
+  }
+  return out;
+}
+
 export function findRollout(sessionId, home = codexHome()) {
   if (!/^[0-9a-f-]{36}$/i.test(String(sessionId || ''))) return null;
   const root = path.join(home, 'sessions');

@@ -1658,6 +1658,75 @@ function procHolding(sid) {
   return null;
 }
 
+// ------------------------------------------------------------ the last conversation
+//
+// A project no session runs in (an idle or waiting row) opens its page,
+// which continues its last conversation (2026-11-08: "for waiting and idle
+// sessions they start from an empty session?"). The last one, by its last
+// turn (never a file's time: Claude Code writes into old transcripts, and
+// on 2026-11-08 every one of a folder's 17 had today's time):
+//   1. the sessions the board gives the project (its hook events, ended ones
+//      too, through eventOwner: a workspace's project before its folder);
+//   2. else the conversations of its folder (Claude Code's transcripts,
+//      Codex's rollouts), without the ones the board gives another
+//      project (two projects can share a folder).
+// With where it is still open (a process on it), and the command that
+// continues it.
+async function lastConversation(project) {
+  if (!project || project.machine) return null;
+  const mine = [];
+  const others = new Set();
+  for (const e of ev.all.values()) {
+    const tp = transcriptOf(e);
+    const own = project.loose ? (project.sessionIds.includes(e.sessionId) ? project : null) : eventOwner(e, realFolder(tp, e));
+    if (own && own.id === project.id) mine.push({ sessionId: e.sessionId, kind: asst.kindOf(e), tp, cwd: e.cwd || project.folder, at: e.lastEventAt || null });
+    else if (own) others.add(e.sessionId);
+    await slice.breathe();
+  }
+  let pool = mine.filter((c) => c.tp);
+  if (!pool.length && project.folder) {
+    for (const kind of asst.KINDS) for (const t of asst.transcriptsFor(kind, project.folder)) {
+      if (!others.has(t.sessionId)) pool.push({ sessionId: t.sessionId, kind, tp: t.path, cwd: project.folder, at: null });
+    }
+  }
+  let best = null;
+  for (const c of pool) {
+    const t = asst.readTranscript(c.kind, c.tp);
+    await slice.breathe();
+    if (!t) continue;
+    const at = t.lastTurnEndAt || t.lastTextAt || t.lastActivityAt || c.at;
+    if (!at || (best && Date.parse(at) <= Date.parse(best.at))) continue;
+    best = { ...c, at, t };
+  }
+  if (!best) return null;
+  const holder = procHolding(best.sessionId);
+  const kind = best.kind;
+  const short = (x, n) => { const v = String(x || '').replace(/\s+/g, ' ').trim(); return v.length > n ? v.slice(0, n - 1).replace(/\s+\S*$/, '') + '...' : v; };
+  return {
+    sessionId: best.sessionId, assistant: kind, title: best.t.title || best.t.lastPrompt && short(best.t.lastPrompt, 60) || 'Conversation',
+    stoppedAt: best.at, lastPrompt: short(best.t.lastPrompt, 300) || null, lastText: short(best.t.lastText, 600) || null,
+    folder: best.cwd, folderShort: homes.sayLocal(best.cwd),
+    command: kind === 'codex' ? `codex resume ${best.sessionId}` : `claude --resume ${best.sessionId}`,
+    // Where it still runs: a Ravenry pane (shown), or another terminal (Move here).
+    openIn: holder ? (holder.ravenryId ? { ravenry: true, pane: holder.ravenryId } : { ravenry: false, name: term.nameOf(holder.surfaceId ? 'cmux' : holder.itermId ? 'iterm' : holder.rexId ? 'rex' : 'cmux') }) : null,
+  };
+}
+
+// A session found by its conversation only (no hook events, not on the
+// board), checked to be this project's: its folder's, and not another's.
+function projectConversation(project, sid) {
+  if (!project || !project.folder) return null;
+  for (const kind of asst.KINDS) {
+    const tp = asst.findTranscript(kind, sid, project.folder);
+    if (!tp) continue;
+    const t = asst.readTranscript(kind, tp);
+    const cwd = (t && t.cwd) || project.folder;
+    if (path.resolve(cwd) !== path.resolve(project.folder) && !inside(path.resolve(cwd), path.resolve(project.folder))) continue;
+    return { kind, tp, cwd };
+  }
+  return null;
+}
+
 // `fresh` (Move here, never over HTTP): a new pane even when the board's row
 // still names an old one, which the move is about to close; the check that
 // no process holds the session still applies.
@@ -1670,7 +1739,9 @@ async function resumeSession(body, { fresh = false } = {}) {
   const e = ev.all.get(sid) || null;
   const snap = snapshot.projects.find((x) => x.id === project.id);
   const s = snap ? snap.sessions.find((x) => x.sessionId === sid) || null : null;
-  if (!e && !s) return { ok: false, status: 404, error: 'No such session in that project.' };
+  // Or a conversation of the project's folder that the board has no events for (its page's Continue).
+  const conv = !e && !s ? projectConversation(project, sid) : null;
+  if (!e && !s && !conv) return { ok: false, status: 404, error: 'No such session in that project.' };
   if ((e && e.machine) || (s && s.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; continue it there.' };
   const paneOfTab = (id) => (term.kindOf(id) === 'ravenry' ? id.slice('ravenry:'.length) : null);
   // Already in a Ravenry pane: that pane.
@@ -1689,8 +1760,8 @@ async function resumeSession(body, { fresh = false } = {}) {
       const where = term.nameOf((s && s.term) || termOf(e) || (holder.surfaceId ? 'cmux' : holder.itermId ? 'iterm' : holder.rexId ? 'rex' : null));
       return { ok: false, status: 409, open: true, error: `It is still open in ${where}. Close it there first, then continue it here.` };
     }
-    const kind = asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
-    const cwd = [e && e.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || null;
+    const kind = conv ? conv.kind : asst.kindOf((e && e.assistant) || (s && s.assistant) || 'claude');
+    const cwd = [e && e.cwd, conv && conv.cwd, project.folder].find((d) => d && path.isAbsolute(d) && fs.existsSync(d)) || null;
     if (!cwd) return { ok: false, status: 409, error: 'Its folder is gone, so there is nowhere to continue it.' };
     const pl = sessionstart.plan({ projectId: project.id, folder: cwd, assistant: kind, resume: sid, cols: b.cols, rows: b.rows }, {
       project,
@@ -1781,7 +1852,7 @@ async function moveSession(body) {
   if ((e && e.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; move it there.' };
   const snap = snapshot.projects.find((x) => x.id === project.id);
   const s = snap ? snap.sessions.find((x) => x.sessionId === sid) || null : null;
-  if (!e && !s) return { ok: false, status: 404, error: 'No such session in that project.' };
+  if (!e && !s && !projectConversation(project, sid)) return { ok: false, status: 404, error: 'No such session in that project.' };
   if (resumeBusy.has(sid)) return { ok: false, status: 409, error: 'Already moving it.' };
   const holders0 = await holdersOf(sid);
   const outside = holders0.find((h) => !h.ravenryId);
@@ -3486,6 +3557,11 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { kinds: create.KINDS, globalRules: rules.globalHeadings(c), globalPath: short(c.globalClaudeMd), projectsRoot: short(c.projectsRoot), launchCommand: c.launchCommand, assistants: assistantsView() });
     }
     if (req.method === 'GET' && p === '/api/project/folders') return sendJson(res, 200, projectFolders());
+    if (req.method === 'GET' && p === '/api/project/last') {
+      const project = findProject(url.searchParams.get('projectId'));
+      if (!project) return sendJson(res, 404, { error: 'No such project.' });
+      try { return sendJson(res, 200, { ok: true, projectId: project.id, last: await lastConversation(project) }); } catch (err) { return sendJson(res, 500, { error: String(err.message || err) }); }
+    }
     if (req.method === 'GET' && p === '/api/plan/draft') {
       const project = findProject(url.searchParams.get('projectId') || '');
       if (!project) return sendJson(res, 404, { error: 'No such project.' });
