@@ -19,7 +19,8 @@
 //   nothing    none of these: a failure
 // After each click the window goes back to the view under test.
 //
-//   node tools/controls-sweep.mjs [OUT] [--exe APP_EXECUTABLE]
+//   [SWEEP_ONLY=regexp] node tools/controls-sweep.mjs [OUT] [--exe APP_EXECUTABLE]
+// SWEEP_ONLY: just the views whose names match (no Settings window); never the release gate.
 // Writes OUT/controls.json (every control and what it did) and prints a
 // PASS or FAIL line per view.
 import { guardSpawns } from '../../../tools/test-env.mjs';
@@ -69,7 +70,7 @@ const results = [];
 await js("document.getElementById('toast').style.visibility = 'hidden'; true");
 // Each page of the sidebar (pages.ts), by its key.
 const pageKeys = await js("(window.__ravenry.S.hub.pages || []).map((p) => p.key)");
-const views = VIEWS.flatMap((v) => (v.pages ? pageKeys.map((k) => ({ name: 'page: ' + k, go: 'window.__ravenry.openPage(' + JSON.stringify(k) + '), true' })) : [v]));
+const views = VIEWS.flatMap((v) => (v.pages ? pageKeys.map((k) => ({ name: 'page: ' + k, go: 'window.__ravenry.openPage(' + JSON.stringify(k) + '), true' })) : [v])).filter((v) => !ONLY || new RegExp(ONLY).test(v.name));
 for (const v of views) {
   // Into the view under test.
   await js(v.go); await sleep(900);
@@ -122,11 +123,14 @@ for (const v of views) {
     for (const w of require('electron').BrowserWindow.getAllWindows()) if (w !== win && !w.isDestroyed()) w.close();
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
     await js("document.querySelectorAll('.pmodal').forEach((m) => { const c = [...m.querySelectorAll('button')].find((x) => /^(Cancel|Close)$/.test(x.textContent.trim()) || x.getAttribute('aria-label') === 'Close'); if (c) c.click(); else m.remove(); }); document.querySelectorAll('.ctx-menu').forEach((e) => e.remove()); { const t = document.getElementById('toast'); if (t) t.style.visibility = 'hidden'; } " + R + ".S.panelPref = " + panelPref + "; " + R + ".S.overlay = false; " + R + ".render(); true");
+    // The last answer gone (a toast lasts a few seconds) and no field holding the keyboard: the next click starts clean.
+    for (let i = 0; i < 40 && !(await js("document.getElementById('toast').hidden")); i++) await sleep(150);
+    await js("document.activeElement && document.activeElement.blur && document.activeElement.blur(), true");
     await sleep(150);
   }
 }
 // The Settings window: each tab, each control (a setting it changes is put back after).
-{
+if (!ONLY) {
   await js("window.ravenry.settings.open(), true");
   let sw = null;
   for (let i = 0; i < 50 && !sw; i++) { sw = require('electron').BrowserWindow.getAllWindows().find((w) => w !== win && !w.isDestroyed() && /settings\.html/.test(w.webContents.getURL())); if (!sw) await sleep(100); }
@@ -198,7 +202,7 @@ try {
       { ready: true },
       { until: `window.__ravenry.S.hub && window.__ravenry.S.hub.projects && window.__ravenry.S.hub.projects.length > 2 && window.__ravenry.term().attached`, timeout: 30000 },
       { sleep: 1500 },
-      { main: `const VIEWS = ${JSON.stringify(VIEWS)}; const OUTFILE = ${JSON.stringify(outFile)};\n${SWEEP}` },
+      { main: `const VIEWS = ${JSON.stringify(VIEWS)}; const OUTFILE = ${JSON.stringify(outFile)}; const ONLY = ${JSON.stringify(process.env.SWEEP_ONLY || '')};\n${SWEEP}` },
     ],
   });
   const rows = JSON.parse(fs.readFileSync(outFile, 'utf8'));
