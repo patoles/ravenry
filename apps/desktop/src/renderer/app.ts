@@ -105,6 +105,8 @@ type View =
   | { kind: 'review'; key: string }
   /** A project's brief as a page, beside the session it was opened from (briefdoc.ts). */
   | { kind: 'brief'; key: string; project: string }
+  /** A project no session runs in, picked in the sidebar: what it is and a way to start one. */
+  | { kind: 'project'; id: string }
   | { kind: 'start' }
   | { kind: 'none' };
 
@@ -530,7 +532,7 @@ function npmPoint(what: string): boolean {
 
 function firstRun(): boolean {
   if (S.tabs.length) return false;
-  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'review' || S.view.kind === 'brief' || WIDE_VIEWS.has(S.view.kind)) return false;
+  if (S.view.kind === 'session' || S.view.kind === 'pane' || S.view.kind === 'review' || S.view.kind === 'brief' || S.view.kind === 'project' || WIDE_VIEWS.has(S.view.kind)) return false;
   if (!S.hubStatus) return false; // not known yet
   return !S.hubStatus.reachable || isEmpty(S.hub);
 }
@@ -918,6 +920,7 @@ function dropFrontToast(): void {
 let rowPressedAt = 0; // a sidebar row's last press (its click then does nothing more)
 
 function frontKey(): string | null {
+  if (S.view.kind === 'project') return `project:${S.view.id}`;
   const key = viewSessionKey();
   if (key) return key;
   const t = focusedTab();
@@ -957,8 +960,20 @@ function renderSidebar(): void {
     list = h('div.sl', groups.map((g) => h(`section.grp.g-${g.group}`,
       h('div.grp-h', svg(RING[g.group]), h('span.t', g.title), h(`span.cnt.c-${g.group}`, String(g.count))),
       g.projects.map((pr) => {
+        // Every row opens what it stands for on the first press: an idle
+        // project, and a project shown with no session row (Waiting on
+        // others from its brief, a plan gate), open its main session, else
+        // the project itself (2026-11-08: "only "needs you" sessions are
+        // clickable, all other (waiting, idle, ..) are not").
+        const pk = `project:${pr.project.id}`;
+        const fk = frontKey();
+        const psel = fk === pk || (!!fk && fk.startsWith(`${pr.project.id}/`) && !pr.rows.some((r) => r.key === fk));
         if (g.group === 'idle') {
-          return h('button.idl', { on: { pointerdown: (e: Event) => { if ((e as PointerEvent).button === 0) { rowPressedAt = Date.now(); pickProject(pr.project); } }, click: () => { if (Date.now() - rowPressedAt > 1500) pickProject(pr.project); } } },
+          return h(`button.idl${psel ? '.sel' : ''}`, { 'data-key': pk, on: rowPress(() => pickProject(pr.project)) },
+            h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
+        }
+        if (!pr.rows.length) {
+          return h(`div.pj.open${psel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': pk, on: rowPress(() => pickProject(pr.project)) },
             h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
         }
         return [
@@ -969,11 +984,7 @@ function renderSidebar(): void {
             const second = r.mark
               ? h('div.ss-q.k', h('span.kd', svg(MARK_ICON[r.mark.kind])), h(`span.qt${r.mark.code ? '.code' : ''}`, r.mark.text))
               : r.line ? h('div.ss-q', r.line) : useLine(r.session);
-            // On pointerdown, not click: the sidebar is drawn again at each
-            // state from the hub (about once a second), and a click whose
-            // press and release land on two drawings never fires.
-            // (A click with no press before it, as from assistive tools, still selects.)
-            return h(`div.ss${sel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': r.key, on: { pointerdown: (e: Event) => { if ((e as PointerEvent).button === 0 && !(e.target as HTMLElement).closest('button.pin')) { rowPressedAt = Date.now(); pickSession(r.key); } }, click: (e: Event) => { if (Date.now() - rowPressedAt > 1500 && !(e.target as HTMLElement).closest('button.pin')) pickSession(r.key); }, keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') pickSession(r.key); } } },
+            return h(`div.ss${sel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': r.key, on: rowPress(() => pickSession(r.key)) },
               h('div.ss-r',
                 h('span.sd', { style: { background: GROUP_VAR[r.group] } }),
                 h('span.n', r.name),
@@ -1041,9 +1052,29 @@ function openPage(key: string): void {
   setView({ kind: 'page', key });
 }
 
-function pickProject(p: HubProject): void {
-  const s = p.sessions.find((x) => x.surfaceId === p.primary) || p.sessions[0];
-  if (s) pickSession(`${p.id}/${s.surfaceId}`);
+/**
+ * A sidebar row's handlers. It opens on pointerdown, not click: the sidebar
+ * is drawn again at each state from the hub (about once a second), and a
+ * click whose press and release land on two drawings never fires. A click
+ * with no press before it (assistive tools) and Enter open it too. A press
+ * on the row's pin button is the pin's.
+ */
+function rowPress(open: () => void): Record<string, (e: Event) => void> {
+  const onPin = (e: Event) => !!(e.target as HTMLElement).closest('button.pin');
+  return {
+    pointerdown: (e: Event) => { if ((e as PointerEvent).button === 0 && !onPin(e)) { rowPressedAt = Date.now(); open(); } },
+    click: (e: Event) => { if (Date.now() - rowPressedAt > 1500 && !onPin(e)) open(); },
+    keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') open(); },
+  };
+}
+
+/** A project's row: its main session (pickSession), else the project itself, in front. */
+function pickProject(p: HubProject, why = 'click'): void {
+  const s = p.sessions.find((x) => x.surfaceId === p.primary && !x.handed) || p.sessions.find((x) => !x.handed);
+  if (s) { pickSession(`${p.id}/${s.surfaceId}`, why); return; }
+  api().log(`window: project ${why} ${p.id}: no session runs in it, the project in front`);
+  S.panelKey = null;
+  setView({ kind: 'project', id: p.id });
 }
 
 // Selecting a session (a click on its row, a notification's Show, a pane
@@ -1116,8 +1147,14 @@ function renderTabs(): void {
   const bp = bv ? (S.hub?.projects || []).find((x) => x.id === bv.project) : null;
   const bt = bv ? h('div.tab.on', { role: 'tab', 'aria-selected': 'true', 'data-key': `brief:${bv.project}`, title: 'The brief' },
     h('span.ti', svg(I.DOC)), h('span.n', 'Brief'), h('span.p', bp ? bp.name : bv.project),
-    h('button.x', { title: 'Close the brief', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); setView({ kind: 'session', key: bv.key }); } } }, svg(I.CLOSE))) : null;
-  const extra = [rv, bt].filter((x): x is HTMLElement => !!x);
+    h('button.x', { title: 'Close the brief', 'aria-label': 'Close', on: { click: (e: Event) => { e.stopPropagation(); setView(bv.key.startsWith('project:') ? { kind: 'project', id: bv.key.slice(8) } : { kind: 'session', key: bv.key }); } } }, svg(I.CLOSE))) : null;
+  // A project no session runs in, while it is in front.
+  const pv = S.view.kind === 'project' ? S.view : null;
+  const pp = pv ? (S.hub?.projects || []).find((x) => x.id === pv.id) : null;
+  const pt = pv ? h('div.tab.on', { role: 'tab', 'aria-selected': 'true', 'data-key': `project:${pv.id}`, title: pp ? pp.name : pv.id },
+    h('span.sd', { style: { background: GROUP_VAR[pp && ['you', 'work', 'wait', 'idle'].includes(pp.state) ? pp.state as Group : 'idle'] } }),
+    h('span.n', pp ? pp.name : pv.id)) : null;
+  const extra = [rv, bt, pt].filter((x): x is HTMLElement => !!x);
   const sessTab = (t: Tab) => (t.kind === 'session' && t.key === rk) || (t.kind === 'shell' && !!rk && sessionOfPane(S.hub, t.pane)?.key === rk);
   const filmable = !!paneOnScreen() && !$('term').hidden;
   const row = h('div.tabrow', { role: 'presentation' },
@@ -1607,6 +1644,13 @@ async function renderCentre(): Promise<void> {
     renderStrip();
     return;
   }
+  if (v.kind === 'project') {
+    hideTerms(); shownKey = '';
+    show('none');
+    renderProject(v.id);
+    renderStrip();
+    return;
+  }
   if (v.kind === 'brief') {
     hideTerms(); shownKey = '';
     show('brief');
@@ -1821,6 +1865,12 @@ async function loadStart(): Promise<void> {
       folders = [...known, ...folders.filter((f) => !known.some((k) => k.path === f.path))].slice(0, 5);
     }
   } catch { /* the board has none to offer */ }
+  if (startIn) {
+    const want = startIn;
+    if (!folders.some((f) => f.path === want)) folders = [{ name: base(want), path: want, short: await api().shortPath(want) }, ...folders].slice(0, 5);
+    S.start.folder = want;
+    startIn = null;
+  }
   S.start.folders = folders;
   S.start.root = found.root ? await api().shortPath(found.root) : null;
   if (!S.start.folder || !folders.some((f) => f.path === S.start.folder)) S.start.folder = folders[0]?.path || S.start.folder;
@@ -1866,8 +1916,13 @@ async function setUpHooks(yes: boolean): Promise<void> {
   }
 }
 
-function openStart(): void {
+/** The folder openStart was asked to start in (a project's), first among the picks. */
+let startIn: string | null = null;
+
+function openStart(folder?: string): void {
   if (npmPoint('Starting a session')) return;
+  startIn = folder || null;
+  if (folder) S.start.folder = folder;
   S.start.error = null;
   setView({ kind: 'start' });
   void loadStart();
@@ -2036,6 +2091,7 @@ function togglePanel(): void {
 /** What the panel shows, as panelKey names it. */
 function panelTargetKey(): string | null {
   if (S.panelKey && S.panelKey.startsWith('cp:')) return S.panelKey;
+  if (S.view.kind === 'project') return `project:${S.view.id}`;
   const key = viewSessionKey();
   if (key && findSession(S.hub, key)) return key;
   const t = focusedTab();
@@ -2066,6 +2122,10 @@ function renderPanel(): void {
     const k = S.cps.get(key.slice(3));
     [head, body] = k ? loosePanel(k) : [panelHead('Session', null), []];
     if (k) shows = 'cp';
+  } else if (key && key.startsWith('project:')) {
+    const p = (S.hub?.projects || []).find((x) => x.id === key.slice(8));
+    [head, body] = p ? projectPanel(p) : [panelHead('Project', null), [h('p.t3.small', 'That project is no longer on the board.')]];
+    if (p) shows = 'project';
   } else {
     const f = key ? findSession(S.hub, key) : null;
     const last = key && !f ? lastKnown.get(key) : null;
@@ -2111,6 +2171,43 @@ function offBoardPanel(p: HubProject, s: HubSession): [HTMLElement, (HTMLElement
     lastTurn ? h('div.sec', lastTurn.ask ? h('p.t3.small', `You: ${lastTurn.ask.length > 140 ? lastTurn.ask.slice(0, 139) + '...' : lastTurn.ask}`) : null, lastTurn.text ? h('p', lastTurn.text.length > 240 ? lastTurn.text.slice(0, 239) + '...' : lastTurn.text) : null) : null,
     canMove ? h('div.sec', h('p.t3.small', 'Move here picks up this conversation in a pane here.'), h('div.acts', h('button.btn.sm.pri', { on: { click: () => void moveTo(p, s, 'ravenry', 'panel, off the board') } }, 'Move here'))) : null,
   ]];
+}
+
+/** What a project says of itself while no session runs in it: why it is in its section, its brief's goal and next step. */
+function projectFacts(p: HubProject): (HTMLElement | null)[] {
+  const g: Group = ['you', 'work', 'wait', 'idle'].includes(p.state) ? p.state : 'idle';
+  const t = p.planGate?.question ? `Needs you: ${p.planGate.question}`
+    : g === 'wait' ? (p.waitingOn ? `Waiting on ${p.waitingOn}` : 'Waiting on others')
+      : g === 'you' ? 'Needs you' : g === 'work' ? 'Working'
+        : `Idle${p.since ? ` for ${ago(p.since, now())}` : ''}`;
+  return [
+    h(`div.st.c-${g}`, svg(RING[g]), t),
+    p.brief?.goal ? h('div.sec', h('p.t3.small', 'Goal'), h('p', p.brief.goal)) : null,
+    p.brief?.next ? h('div.sec', h('p.t3.small', 'Next'), h('p', p.brief.next)) : null,
+  ];
+}
+
+function projectPanel(p: HubProject): [HTMLElement, (HTMLElement | null)[]] {
+  return [panelHead(p.name, null, null, p.machine || null), [
+    ...projectFacts(p),
+    h('div.sec', h('p.t3.small', 'No session runs in it now.'), p.folderShort ? h('p.t3.small', p.folderShort) : null),
+  ]];
+}
+
+/** The middle for a project no session runs in: it, and a way to start one or read its brief. */
+function renderProject(id: string): void {
+  const p = (S.hub?.projects || []).find((x) => x.id === id);
+  if (!p) { replace($('none'), h('div.none-card', h('p', 'That project is no longer on the board.'))); return; }
+  const s = p.sessions.find((x) => !x.handed);
+  replace($('none'), h('div.none-card.project', { 'data-project': p.id },
+    h('p', h('b', p.name)),
+    p.folderShort ? h('p.t3', p.folderShort) : null,
+    projectFacts(p)[0],
+    h('p', s ? 'A session runs in it.' : 'No session runs in it now.'),
+    h('div.row',
+      s ? h('button.btn.pri', { on: { click: () => pickSession(`${p.id}/${s.surfaceId}`, 'project page') } }, 'Show the session')
+        : p.folder && !p.machine ? h('button.btn.pri', { on: { click: () => openStart(p.folder!) } }, 'New session here') : null,
+      p.brief ? h('button.btn', { on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null)));
 }
 
 function panelHead(name: string, tag: string | null, extra?: HTMLElement | null, machine: string | null = null): HTMLElement {

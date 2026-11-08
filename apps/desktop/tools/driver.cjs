@@ -28,6 +28,8 @@
 //   signal: "file"              write a file (for the script that started the app)
 //   wait: "file", timeout       wait for a file to exist
 //   echo: { n, out }            measure keystroke echo (see below)
+//   until: "expr", timeout     wait for expr to be true (soft: true goes on
+//                               when it never is, for a check after it)
 //   save: { expr, out }         write the value of expr as JSON
 //   theme: "dark" | "light"     switch the window's theme (nativeTheme), so
 //                               one state is shot in both
@@ -83,7 +85,7 @@ module.exports = async function drive(win, ctx) {
     if (process.env.RAVENRY_DRIVE_LOG) console.log('step', JSON.stringify(step).slice(0, 120));
     if (step.ready) await until('document.body.dataset.ready === "1"', step.timeout || 20000);
     else if (step.js) await js(step.js);
-    else if (step.until) await until(step.until, step.timeout);
+    else if (step.until) { try { await until(step.until, step.timeout); } catch (e) { if (!step.soft) throw e; } }
     else if (step.sleep) await sleep(step.sleep);
     else if (step.size) { win.setContentSize(step.size[0], step.size[1]); await sleep(300); }
     else if (step.type) { type(step.type); await sleep(step.after ?? 100); }
