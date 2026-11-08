@@ -39,6 +39,14 @@ const BSU = [0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x68]; // ESC [ ? 2026 h
 const ESU = [0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x6c]; // ESC [ ? 2026 l
 /** The longest a program's synchronized update is held before what came of it is shown (ms). */
 const SYNC_MAX = 150;
+/**
+ * VS Code's terminal resize (TerminalResizeDebouncer): with this many lines
+ * or more in the normal buffer a width change waits until the size has held
+ * COLS_WAIT ms ("horizontal resize is expensive due to reflow"); rows change
+ * at once.
+ */
+const DEBOUNCE_FROM_LINES = 200;
+const COLS_WAIT = 100;
 
 /** The last of BSU or ESU in b (from `from` on): 'on', 'off', or null. */
 function lastSyncToken(b: Uint8Array, from = 0): 'on' | 'off' | null {
@@ -110,9 +118,9 @@ export class TerminalView {
   private gen = 0;
   private sizeSent = '';
   private resizeQueued = false;
-  /** A size was sent to the pane in this frame; a newer one waits for the next (sizeLater). */
-  private sizeThisFrame = false;
-  private sizeLater = false;
+  /** The width waiting for the size to hold (COLS_WAIT), and the latest size proposed. */
+  private colsTimer: ReturnType<typeof setTimeout> | undefined;
+  private proposed: { cols: number; rows: number } | null = null;
   /** Called when the pane on screen ended (its program exited or it was closed). */
   onEnded: (a: Attached) => void = () => {};
   /** Called after Enter is typed in the pane on screen. */
@@ -266,9 +274,8 @@ export class TerminalView {
     // A right click: the system's own menu (app.ts asks the main process).
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); this.onContextMenu(this.hoverLink); });
     // Fitted in the same frame as the layout that changed its size (a
-    // ResizeObserver runs after layout, before paint, once a frame), and
-    // drawn in that callback too (fitNow), so a resize never shows a pane
-    // blank or a frame late.
+    // ResizeObserver runs after layout, before paint, once a frame), as VS
+    // Code lays its terminal out from the window's resize.
     new ResizeObserver(() => this.fitNow()).observe(el);
   }
 
@@ -314,7 +321,8 @@ export class TerminalView {
    * from its own ResizeObserver, which clears the canvas, and only asks for
    * a draw on the next frame: the frame in between showed the pane empty
    * (2026-11-08, a plain zsh pane, a screen recording). The addon's own
-   * handler draws at once instead.
+   * handler draws at once instead, as addon-webgl 0.20 (xterm.js 6.1, VS
+   * Code's) does itself: its redraw request there is `sync: true`.
    */
   private drawWhenRefitted(): void {
     const r = (this.term as unknown as { _core?: { _renderService?: { _renderer?: { value?: { _canvas?: HTMLCanvasElement; _setCanvasDevicePixelDimensions?: (w: number, h: number) => void } } } } })._core?._renderService?._renderer?.value;
@@ -453,7 +461,7 @@ export class TerminalView {
     this.drawnDone();
     this.drawnNow = new Promise<void>((r) => { this.drawnDone = r; });
     this.onShown(a);
-    this.fitNow();
+    this.fitNow(true);
     const { cols, rows } = this.term;
     this.sizeSent = '';
     try {
@@ -516,7 +524,10 @@ export class TerminalView {
    * (2026-11-08, a screen recording). So xterm.js never sees a pair open:
    * an update is kept here from its BSU to its ESU (at most SYNC_MAX ms)
    * and then written in one go, the pane meanwhile showing the drawing
-   * before it, which a resize can always draw again.
+   * before it, which a resize can always draw again. VS Code needs none of
+   * this: its pty host gathers a program's output for 5 ms
+   * (TerminalDataBufferer) before xterm.js sees it, so an update comes
+   * whole; the daemon's frames can cut one.
    */
   private hold: { items: { d: Uint8Array; after: () => void }[]; timer: ReturnType<typeof setTimeout> } | null = null;
   /** The last bytes of the frame before, for a BSU or ESU cut between two frames. */
@@ -599,7 +610,11 @@ export class TerminalView {
     if (s && !s.ended) void s.unsubscribe().catch(() => {});
   }
 
-  /** Draws every row now, in this task (xterm.js's own draw waits for the next frame). */
+  /**
+   * Draws every row now, in this task: xterm.js 6.0 draws a resize on its
+   * next frame, after the canvas was cleared; 6.1 (VS Code's) draws it at
+   * once, and this does the same.
+   */
   private drawNow(): void {
     const rs = (this.term as unknown as { _core?: { _renderService?: { _renderRows?: (s: number, e: number) => void } } })._core?._renderService;
     if (!rs || typeof rs._renderRows !== 'function' || this.term.rows < 1) return;
@@ -609,33 +624,74 @@ export class TerminalView {
   private queueResize(): void {
     if (this.resizeQueued) return;
     this.resizeQueued = true;
-    requestAnimationFrame(() => { this.resizeQueued = false; this.fitNow(); });
+    requestAnimationFrame(() => { this.resizeQueued = false; this.fitNow(true); });
   }
 
   /**
-   * Fits the terminal to its element: from the ResizeObserver (after
-   * layout, before paint, once a frame) or a frame after a font change.
-   * A new size clears xterm.js's WebGL canvas at once (setting its width
-   * does) while xterm.js draws on its next animation frame, so the frame
-   * between showed the pane blank; it is drawn here, in the same callback,
-   * so the frame that shows the new size shows the text reflowed to it.
-   * The program learns the size too (sendSize).
+   * Fits the terminal to its element, as VS Code does
+   * (terminalResizeDebouncer.ts): with a short buffer, or `now` (a pane
+   * shown, a font change), rows and columns at once; else the rows at once
+   * and the columns once the size has held COLS_WAIT ms, so a drag does
+   * not reflow the text, nor make its program draw itself again at a new
+   * width, at every step.
    */
-  private fitNow(): void {
+  private fitNow(now = false): void {
     if (!this.el.offsetWidth || !this.el.offsetHeight) return;
-    const before = `${this.term.cols}x${this.term.rows}`;
-    try { this.fit.fit(); } catch { /* not laid out yet */ }
-    if (`${this.term.cols}x${this.term.rows}` !== before) this.drawNow();
-    this.sendSize();
+    this.redrawAfterResize();
+    let d: { cols: number; rows: number } | undefined;
+    try { d = this.fit.proposeDimensions(); } catch { d = undefined; }
+    if (!d || !Number.isFinite(d.cols) || !Number.isFinite(d.rows)) return;
+    this.proposed = d;
+    if (now || this.term.buffer.normal.length < DEBOUNCE_FROM_LINES) {
+      clearTimeout(this.colsTimer);
+      this.colsTimer = undefined;
+      if (!this.resizeTo(d.cols, d.rows)) this.drawNow();
+      return;
+    }
+    if (!this.resizeTo(this.term.cols, d.rows)) this.drawNow();
+    clearTimeout(this.colsTimer);
+    this.colsTimer = setTimeout(() => {
+      this.colsTimer = undefined;
+      if (this.proposed) this.resizeTo(this.proposed.cols, this.term.rows);
+    }, COLS_WAIT);
   }
 
   /**
-   * The pane's program learns the terminal's size (the daemon resizes its
-   * PTY, which signals it): at most one size a frame, and the last one
-   * always, a frame later at most.
+   * A window resized shows a WebGL canvas blank from the frame after the
+   * one it was drawn in, until it is drawn again, even when its size stayed
+   * (measured 2026-11-08, offscreen: the canvas untouched, its pane blank in
+   * every frame of a 100 ms wait for the columns, and at the drag's turn).
+   * A resize that changes the canvas draws it at each step anyway; one that
+   * keeps it (the columns waiting) draws it here, in this callback and on
+   * the next two frames.
    */
+  private redrawFrames = 0;
+  private redrawAfterResize(): void {
+    const going = this.redrawFrames > 0;
+    this.redrawFrames = 2;
+    if (going) return;
+    const tick = () => {
+      if (this.redrawFrames <= 0) return;
+      this.redrawFrames--;
+      this.drawNow();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /** xterm.js resized, drawn in this task (drawNow), and the pane's program told (sendSize); false when its size stayed. */
+  private resizeTo(cols: number, rows: number): boolean {
+    const changed = cols !== this.term.cols || rows !== this.term.rows;
+    if (changed) {
+      this.term.resize(cols, rows);
+      this.drawNow();
+    }
+    this.sendSize();
+    return changed;
+  }
+
+  /** The pane's program learns the terminal's size at each resize (the daemon resizes its PTY, which signals it). */
   private sendSize(): void {
-    if (this.sizeThisFrame) { this.sizeLater = true; return; }
     const a = this.current;
     if (!a || !this.stream) return;
     const { cols, rows } = this.term;
@@ -643,11 +699,6 @@ export class TerminalView {
     if (key === this.sizeSent) return;
     this.sizeSent = key;
     void a.client.request('pane.resize', { pane: a.pane, cols, rows }).catch(() => {});
-    this.sizeThisFrame = true;
-    requestAnimationFrame(() => {
-      this.sizeThisFrame = false;
-      if (this.sizeLater) { this.sizeLater = false; this.sendSize(); }
-    });
   }
 
   /** Bytes for the pane on screen, as if typed. */
