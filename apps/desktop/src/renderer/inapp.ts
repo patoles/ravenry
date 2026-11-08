@@ -73,9 +73,10 @@ export class InApp {
   private busy = '';
   private timer: number | undefined;
   private shown = '';
-  /** One picture large: fitted to the page, or at its own size (a click on it). */
   /** One picture large: null fits it to the page, else its width in pixels (a click, a pinch). */
   private zoomW: number | null = null;
+  /** The zoomed picture's margins: room on the side it moved off, so a zoom stays around the pointer. */
+  private zoomAt = { l: 0, t: 0, r: 0, b: 0 };
   constructor(el: HTMLElement, host: InAppHost) {
     this.el = el; this.host = host;
     // Escape closes what is open in the page: a channel's setup, a picture at its own size.
@@ -83,14 +84,14 @@ export class InApp {
       if (e.key !== 'Escape' || el.hidden) return;
       const v = this.host.onScreen();
       if (!v) return;
-      if (this.open) { this.open = null; this.draw(v); } else if (this.zoomW) { this.zoomW = null; this.draw(v); }
+      if (this.open) { this.open = null; this.draw(v); } else if (this.zoomW) { this.zoomW = null; this.zoomAt = { l: 0, t: 0, r: 0, b: 0 }; this.draw(v); }
     });
   }
 
   /** Draws the page for v, and reads what it waits on. */
   show(v: InView): void {
     const key = JSON.stringify({ ...v, back: null });
-    if (key !== this.shown) { this.shown = key; this.busy = ''; this.open = null; this.zoomW = null; void this.load(v); }
+    if (key !== this.shown) { this.shown = key; this.busy = ''; this.open = null; this.zoomW = null; this.zoomAt = { l: 0, t: 0, r: 0, b: 0 }; void this.load(v); }
     clearInterval(this.timer);
     if (v.kind === 'newplan' || v.kind === 'idea' || v.kind === 'alerts') this.timer = window.setInterval(() => { const now = this.host.onScreen(); if (!now || JSON.stringify({ ...now, back: null }) !== this.shown) { clearInterval(this.timer); return; } void this.load(now); }, 2000);
     this.draw(v);
@@ -139,7 +140,9 @@ export class InApp {
    * pan while zoomed. Zoom and scroll stay through the window's redraws.
    */
   private bigPicture(x: Pic): HTMLElement {
-    const img = h('img', { src: this.host.hubUrl() + x.url, alt: x.name, role: 'button', title: this.zoomW ? 'Fit it to the page' : 'Zoom in', 'aria-pressed': this.zoomW ? 'true' : 'false', draggable: 'false', style: this.zoomW ? { width: `${this.zoomW}px` } : undefined }) as HTMLImageElement;
+    // The same style a zoom writes on the live picture, so the next drawing matches it and redraw leaves it alone.
+    const zoomStyle = (): Record<string, string> | undefined => this.zoomW ? { width: `${this.zoomW}px`, margin: `${this.zoomAt.t}px ${this.zoomAt.r}px ${this.zoomAt.b}px ${this.zoomAt.l}px` } : undefined;
+    const img = h('img', { src: this.host.hubUrl() + x.url, alt: x.name, role: 'button', title: this.zoomW ? 'Fit it to the page' : 'Zoom in', 'aria-pressed': this.zoomW ? 'true' : 'false', draggable: 'false', style: zoomStyle() }) as HTMLImageElement;
     const frame = h(`div.ia-big${this.zoomW ? '.full' : ''}`, img);
     const fitW = () => { const f = frame.getBoundingClientRect(); return Math.max(1, Math.min(f.width, img.naturalWidth * (f.height / Math.max(1, img.naturalHeight)), img.naturalWidth)); };
     const zoomTo = (w: number | null, cx: number, cy: number) => {
@@ -153,15 +156,25 @@ export class InApp {
       const fy = (cy - before.top) / Math.max(1, before.height);
       const fit = Math.min(r.width, im.naturalWidth * (r.height / Math.max(1, im.naturalHeight)), im.naturalWidth);
       this.zoomW = w && w > fit * 1.02 ? Math.round(Math.min(w, Math.max(im.naturalWidth, fit) * 6)) : null;
+      // The point under the pointer stays under it: the picture goes where
+      // that puts it, part of it out of the page if need be. Its margins
+      // make room on the side it left, the page scrolls the rest, and two
+      // fingers pan it back.
+      const nw = this.zoomW || 0, nh = nw * (im.naturalHeight / Math.max(1, im.naturalWidth));
+      const vw = live.clientWidth, vh = live.clientHeight;
+      const left = (cx - r.left - live.clientLeft) - fx * nw, top = (cy - r.top - live.clientTop) - fy * nh;
+      const sx = Math.round(Math.max(0, -left)), sy = Math.round(Math.max(0, -top));
+      const ml = Math.round(Math.max(0, left)), mt = Math.round(Math.max(0, top));
+      this.zoomAt = !nw ? { l: 0, t: 0, r: 0, b: 0 } : { l: ml, t: mt, r: Math.max(0, Math.ceil(vw + sx - ml - nw)), b: Math.max(0, Math.ceil(vh + sy - mt - nh)) };
       live.classList.toggle('full', !!this.zoomW);
-      im.style.width = this.zoomW ? `${this.zoomW}px` : '';
-      if (!im.getAttribute('style')) im.removeAttribute('style');
+      im.removeAttribute('style');
+      const st = zoomStyle();
+      if (st) Object.assign(im.style, st);
       im.setAttribute('aria-pressed', this.zoomW ? 'true' : 'false');
       im.title = this.zoomW ? 'Fit it to the page' : 'Zoom in';
       if (!this.zoomW) return;
-      const after = im.getBoundingClientRect();
-      live.scrollLeft += (after.left + fx * after.width) - cx;
-      live.scrollTop += (after.top + fy * after.height) - cy;
+      live.scrollLeft = sx;
+      live.scrollTop = sy;
     };
     img.addEventListener('click', (e) => {
       const me = e as MouseEvent;

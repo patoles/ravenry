@@ -138,7 +138,11 @@ export class Decisions {
       if (last && last.label === label) last.items.push(d); else days.push({ label, items: [d] });
     }
     const seg = (f: Filter, label: string) => h(`button.seg${this.filter === f ? '.on' : ''}`, { on: { click: () => { this.filter = f; this.render(); } } }, label);
-    const search = h('input', { type: 'search', placeholder: 'Search what you said', value: this.search, 'aria-label': 'Search what you said', on: { input: (e: Event) => { this.search = (e.target as HTMLInputElement).value; this.renderList(); } } }) as HTMLInputElement;
+    const search = h('input', { type: 'search', placeholder: 'Search what you said', 'aria-label': 'Search what you said', on: { input: (e: Event) => { this.search = (e.target as HTMLInputElement).value; this.renderList(); } } }) as HTMLInputElement;
+    // What is typed is the field's value, not its markup: as an attribute it
+    // made each drawing after typing differ from the page, and redraw put a
+    // new field in its place.
+    search.value = this.search;
     const sel = h('select', { 'aria-label': 'Project', on: { change: (e: Event) => { this.project = (e.target as HTMLSelectElement).value; this.render(); } } },
       h('option', { value: '', selected: !this.project }, 'All projects'),
       [...projects].map(([id, name]) => h('option', { value: id, selected: this.project === id }, name)));

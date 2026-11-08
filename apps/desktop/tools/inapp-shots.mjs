@@ -90,14 +90,18 @@ try {
   ];
   const SET = (root, field) => `(() => {
     const root = document.querySelector(${JSON.stringify(root)});
-    const sc = [...root.querySelectorAll('*')].find((e) => e.scrollHeight > e.clientHeight + 30 && /auto|scroll/.test(getComputedStyle(e).overflowY));
-    if (sc) sc.scrollTop = 37;
+    // Each page's body made short (a style, so a new drawing keeps it), so
+    // that every page has something to scroll even with little in it.
+    if (!document.getElementById('keep-short')) document.head.appendChild(Object.assign(document.createElement('style'), { id: 'keep-short', textContent: '.pg-b:not(.ia-view), .pa { max-height: 40px !important; overflow-y: auto !important; }' }));
+    const sc = [root, ...root.querySelectorAll('*')].find((e) => e.scrollHeight > e.clientHeight + 30 && /auto|scroll/.test(getComputedStyle(e).overflowY));
     let f = null;
     if (${JSON.stringify(field)} === 'search') f = root.querySelector('input[type=search]');
     else if (${JSON.stringify(field)}) f = document.getElementById(${JSON.stringify(field)});
     if (f) { f.focus(); f.value = 'kept through the redraws'; f.dispatchEvent(new Event('input', { bubbles: true })); f.setSelectionRange(5, 10); }
+    // Scrolled after the field took the keyboard (which scrolls it into view).
+    if (sc) sc.scrollTop = 37;
     // Some words of the page selected (no field): the selection stays too.
-    if (!f) { const t = [...root.querySelectorAll('p, h2, span, b')].find((e) => e.textContent.trim().length > 12 && e.offsetParent); if (t) { const r = document.createRange(); r.selectNodeContents(t); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } }
+    if (!f) { const t = [...root.querySelectorAll('p, h2, span, b, div')].find((e) => !e.children.length && e.textContent.trim().length > 6 && e.offsetParent && getComputedStyle(e).userSelect !== 'none'); if (t) { const r = document.createRange(); r.selectNodeContents(t); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } }
     window.__keep = { scroll: sc ? sc.scrollTop : null, value: f ? f.value : null, sel: f ? [f.selectionStart, f.selectionEnd] : String(getSelection()), focus: f ? document.activeElement === f : null };
     window.__keepEls = { sc, f };
     window.__refreshes = 0; let g = ${R}.S.hub; clearInterval(window.__keepT); window.__keepT = setInterval(() => { if (${R}.S.hub !== g) { g = ${R}.S.hub; window.__refreshes++; } }, 50);
@@ -110,6 +114,7 @@ try {
     steps.push({ until: 'window.__refreshes >= 3', timeout: 20000, soft: true }, { sleep: 200 });
     steps.push({ save: { expr: READ, out: path.join(work, `keep-${name.replace(/ /g, '-')}.json`) } });
   }
+  steps.push({ js: `document.getElementById('keep-short')?.remove(), true` });
   // A pinch on the large picture (a wheel with Ctrl, as macOS sends a trackpad
   // pinch) zooms in around the pointer.
   steps.push({ size: [1280, 820] }, { js: `${R}.setView(${JSON.stringify({ kind: 'gallery', project: sess.id, at: 0, back })}), true` }, { until: `document.querySelector('#inapp .ia-big img') && document.querySelector('#inapp .ia-big img').complete`, timeout: 8000 }, { sleep: 600 });
@@ -146,7 +151,9 @@ try {
   const opens = fs.existsSync(openLog) ? fs.readFileSync(openLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
   for (const [name] of KEEP) {
     const k = read(`keep-${name.replace(/ /g, '-')}.json`) || {};
-    const same = !!k.before && k.refreshes >= 3 && JSON.stringify(k.before) === JSON.stringify(k.after);
+    // Something to keep on every page: a scroll (the large picture's is its zoom, below), and typed text or selected words.
+    const real = !!k.before && (name === 'picture' || typeof k.before.scroll === 'number') && (Array.isArray(k.before.sel) || !!k.before.sel);
+    const same = real && k.refreshes >= 3 && JSON.stringify(k.before) === JSON.stringify(k.after);
     check(`${name}: its scroll, focus, selection and typed text stay through ${k.refreshes || 0} states from the board`, same, JSON.stringify(k));
   }
   const pz = read('pinch.json') || {};
