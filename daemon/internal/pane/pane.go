@@ -443,6 +443,13 @@ func paneEnv(base []string, extra map[string]string, id, socket string) []string
 	put("TERM", "xterm-256color")
 	put("COLORTERM", "truecolor")
 	put("TERM_PROGRAM", "ravenry")
+	// The terminal draws OSC 8 links (opened with Cmd+click). Programs
+	// judge that from the environment alone, by a list of terminal names
+	// Ravenry is not on: Claude Code then prints its links and paths as
+	// plain text, without the link or its colour (2026-11-08: "there's no
+	// colors in Ravenry, links or commands are the same as normal text").
+	// FORCE_HYPERLINK is the switch they read (supports-hyperlinks).
+	put("FORCE_HYPERLINK", "1")
 	put("RAVENRY_PANE", id)
 	if socket != "" {
 		put("RAVENRY_SOCKET", socket)

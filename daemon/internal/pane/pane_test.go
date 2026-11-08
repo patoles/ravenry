@@ -467,6 +467,10 @@ func TestPaneEnvLeavesOuterTerminalsOut(t *testing.T) {
 	if got["TERM_PROGRAM"] != "ravenry" || got["RAVENRY_PANE"] != "pnew0001" || got["HOME"] != "/h" || got["LANG"] != "en_US.UTF-8" || got["LC_CTYPE"] != "UTF-8" || got["FOO"] != "bar" {
 		t.Errorf("env %v", got)
 	}
+	// Its links are drawn: programs that judge it by name are told so.
+	if got["FORCE_HYPERLINK"] != "1" || got["COLORTERM"] != "truecolor" || got["TERM"] != "xterm-256color" {
+		t.Errorf("a pane says less than its terminal draws: %v", got)
+	}
 }
 
 // A variable named in RAVENRY_PANE_PASS is handed on (a test harness's
