@@ -392,6 +392,16 @@ function mapSession(surface, hook, binding, folder, taken, kind = 'claude') {
   return null;
 }
 
+// A session that wrote its hand-off and stopped is done: its "hand-off
+// written" line is not a hand-back to the user, and the fresh session
+// carries on. One that writes its hand-off and goes on working (or asks,
+// or has a draft) keeps its state, and its row (2026-11-08: a session that
+// had written a hand-off and was working showed nowhere in the sidebar).
+function handedState(st, marker) {
+  if (!marker || !(marker.state === 'written' || marker.state === 'resumed') || ['working', 'dialog', 'draft', 'none'].includes(st.state)) return st;
+  return { state: 'handed', since: marker.writtenAt || st.since, reasons: [...(st.reasons || []), 'wrote its hand-off; a fresh session carries on'] };
+}
+
 // The transcript a hook event names, else the one found by session id.
 function transcriptOf(e) {
   if (e.anon) return null; // a pane session with no session id yet (paneSessions)
@@ -829,11 +839,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       let st = eventState({ ev: evs, screen, screenAt: screens.get(s.id)?.at || null, title, transcript: t }, settings, now);
       if (!st) st = { ...sessionState({ screen, title, transcript: t, hook, who: asst.of(kind).SHORT }, settings, now), source: 'screen' };
       const marker = map ? markers.get(map.sessionId) || null : null;
-      // A session that handed off is done; its "hand-off written" line is
-      // not a hand-back to the user.
-      if (marker && (marker.state === 'written' || marker.state === 'resumed') && !['working', 'dialog', 'draft', 'none'].includes(st.state)) {
-        st = { state: 'handed', since: marker.writtenAt || st.since, reasons: [...st.reasons, 'wrote its hand-off; a fresh session carries on'] };
-      }
+      st = handedState(st, marker);
       sessions.push({
         marker, paneId: s.paneId, cwd: (evs && evs.cwd) || (hook && hook.cwd) || (t && t.cwd) || (map && map.cwd) || project.folder, terminal: true, term: 'cmux', cannot: null, assistant: kind,
         surfaceId: s.id, surfaceRef: s.ref, workspaceId: w.id, workspaceRef: w.ref,
@@ -879,6 +885,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     if (!st) continue;
     taken.add(e.sessionId);
     const marker = markers.get(e.sessionId) || null;
+    st = handedState(st, marker);
     sessions.push({
       marker, paneId: null, cwd: e.cwd || (t && t.cwd) || project.folder, terminal: !!tab, term: tkind, assistant: kind,
       // A cmux tab followed from Ravenry mode is shown, never typed into.
@@ -1001,7 +1008,9 @@ function buildProject(project, wsById, hooks, settings, now) {
       handoff: s.handoff,
       // The Sessions card's order: newest first, handed-off ones last.
       startedAt: (s.sessionId && ev.all.get(s.sessionId) && ev.all.get(s.sessionId).startedAt) || null,
-      handed: !!(s.marker && (s.marker.state === 'written' || s.marker.state === 'resumed')),
+      // Done after its hand-off (handedState): a session that wrote one and
+      // works on is listed like any other.
+      handed: s.st.state === 'handed',
       freshSurface: (s.marker && s.marker.resumeSurfaceId) || null,
       doneWhen: s.screen.done ? s.screen.done.when : null,
       // In a terminal outside Ravenry: whether its process still runs
