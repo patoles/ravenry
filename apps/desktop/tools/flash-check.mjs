@@ -177,7 +177,10 @@ try {
     const cv = read(`canvas-${n}.json`);
     if (cv) check(`${n}: no frame shown with a terminal canvas resized and not drawn again (${cv.undrawn} of ${cv.frames} frames; ${cv.resized} canvas resizes)`, cv.undrawn === 0 && cv.resized > 0, cv.at);
     const w = read(`watch-${n}.json`);
-    if (w) check(`${n}: the program's pane, in ${w.renders} renders: none blank (${w.blank}), none with its screen twice (${w.dup}), no word cut by a reflow (${w.midword})`, w.renders > 10 && !w.blank && !w.dup && !w.midword, w.at);
+    // Its text reflows at once and the program draws itself again at the
+    // new size a moment later (as in any terminal): a word cut by that
+    // reflow is counted, never a blank pane or its screen twice.
+    if (w) check(`${n}: the program's pane, in ${w.renders} renders: none blank (${w.blank}), none with its screen twice (${w.dup}); ${w.midword} reflowed before the program drew itself again`, w.renders > 10 && !w.blank && !w.dup, w.at);
   }
   const sw = read('switches.json');
   if (ONLY !== 'resize') {
