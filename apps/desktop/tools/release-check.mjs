@@ -1002,26 +1002,11 @@ try {
       { ready: true, timeout: 30000 },
       { until: PROMPT, timeout: 20000 },
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length >= 4 && ${ROW('lantern')}`, timeout: 30000 },
+      // Ravenry's hooks in this HOME, as a real Mac has them (Settings, Set them up).
+      { main: `const r = await fetch(${JSON.stringify(c.env.RAVENRY_HUB_URL + '/api/setup/hooks')}, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ ravenryd: ${JSON.stringify(path.join(c.data, 'bin', 'ravenryd'))} }) }); if (r.status !== 200) throw new Error('hook setup: ' + r.status + ' ' + await r.text()); return r.status;` },
       { click: ROW('lantern'), clickJs: true },
       { until: `(${CARD}) && (${CARD}).last`, timeout: 15000 }, { sleep: 600 },
       save('lantern', CARD), ...both23('lantern'),
-      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Continue this conversation').click()` },
-      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S2})')`, timeout: 20000 }, { sleep: 800 },
-      save('resumed', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.continued')})` }, shot('23-continued.png'),
-      { click: ROW('moss'), clickJs: true },
-      { until: `(${CARD}) && (${CARD}).still`, timeout: 15000 }, { sleep: 600 },
-      save('moss', CARD), ...both23('moss'),
-      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Move here').click()` },
-      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S4})')`, timeout: 20000, soft: true }, { sleep: 800 },
-      save('moved', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view), err: (document.querySelector('#none .pa .err') || {}).textContent || null, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, text: ${R}.text().slice(-300) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.moved')})` }, shot('23-moved.png'),
-      { click: ROW('attic'), clickJs: true },
-      { until: `document.querySelector('#none .none-card.project[data-project="attic"]')`, timeout: 15000 }, { sleep: 600 },
-      save('attic', `(() => { const e = document.querySelector('#none .none-card.project'); return { text: e.textContent, buttons: [...e.querySelectorAll('button')].map((b) => b.textContent) }; })()`), ...both23('attic'),
-      { js: `[...document.querySelectorAll('#none .none-card.project button')].find((b) => b.textContent === 'New session here').click()` },
-      { until: `!document.getElementById('start').hidden`, timeout: 8000 }, { sleep: 800 },
-      save('atticStart', `${R}.S.start.folder`),
-      { click: ROW('lantern'), clickJs: true },
-      { until: `(${CARD}) && (${CARD}).last`, timeout: 15000 },
       { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'New session').click()` },
       { until: `!document.getElementById('start').hidden`, timeout: 8000 }, { sleep: 800 },
       save('lanternStart', `${R}.S.start.folder`),
@@ -1030,6 +1015,29 @@ try {
       { js: `document.querySelector('#none .pa .acts .lk').click()` },
       { until: `${R}.S.view.kind === 'brief'`, timeout: 8000 },
       save('brief', `${R}.S.view.kind`),
+      { click: ROW('lantern'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).last`, timeout: 15000 }, { sleep: 400 },
+      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Continue this conversation').click()` },
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S2})')`, timeout: 20000 },
+      // The panel names the continued conversation (its hooks told the board), never "New session".
+      { until: `!document.getElementById('panel').hidden && document.querySelector('#panel .p-h .n') && document.querySelector('#panel .p-h .n').textContent !== 'New session' && document.getElementById('panel').textContent.includes('Tells Ravenry when it needs you') && (document.querySelector('#tabs .tab.on') || {}).textContent.includes('Glass for the lantern')`, timeout: 20000, soft: true }, { sleep: 600 },
+      shot('23-continued-panel.png'),
+      save('continuedPanel', `(() => { const p = document.getElementById('panel'); const pr = (${R}.S.hub.projects || []).find((x) => x.id === 'lantern'); const se = pr && pr.sessions.find((x) => x.sessionId === '${S2}'); return { head: (p.querySelector('.p-h .n') || {}).textContent || null, text: p.innerText.replace(/\\s+/g, ' ').slice(0, 400), tab: (document.querySelector('#tabs .tab.on') || {}).textContent || null, session: se ? { title: se.title, name: se.name, label: se.label, task: se.task } : null }; })()`),
+      save('resumed', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.continued')})` }, shot('23-continued.png'),
+      { click: ROW('moss'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).still`, timeout: 15000 }, { sleep: 600 },
+      save('moss', CARD), ...both23('moss'),
+      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Move here').click()` },
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S4})')`, timeout: 20000, soft: true },
+      { until: `!document.getElementById('panel').hidden && document.querySelector('#panel .p-h .n') && document.querySelector('#panel .p-h .n').textContent !== 'New session' && document.getElementById('panel').textContent.includes('Tells Ravenry when it needs you') && (document.querySelector('#tabs .tab.on') || {}).textContent.includes('Moss on the north wall')`, timeout: 20000, soft: true }, { sleep: 600 },
+      save('movedPanel', `(() => { const p = document.getElementById('panel'); return { head: (p.querySelector('.p-h .n') || {}).textContent || null, text: p.innerText.replace(/\\s+/g, ' ').slice(0, 400), tab: (document.querySelector('#tabs .tab.on') || {}).textContent || null }; })()`), shot('23-moved-panel.png'),
+      save('moved', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view), err: (document.querySelector('#none .pa .err') || {}).textContent || null, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, text: ${R}.text().slice(-300) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.moved')})` }, shot('23-moved.png'),
+      { click: ROW('attic'), clickJs: true },
+      { until: `document.querySelector('#none .none-card.project[data-project="attic"]')`, timeout: 15000 }, { sleep: 600 },
+      save('attic', `(() => { const e = document.querySelector('#none .none-card.project'); return { text: e.textContent, buttons: [...e.querySelectorAll('button')].map((b) => b.textContent) }; })()`), ...both23('attic'),
+      { js: `[...document.querySelectorAll('#none .none-card.project button')].find((b) => b.textContent === 'New session here').click()` },
+      { until: `!document.getElementById('start').hidden`, timeout: 8000 }, { sleep: 800 },
+      save('atticStart', `${R}.S.start.folder`),
     ], {}, {});
     const L = m.lantern || {};
     const real = (x) => { try { return fs.realpathSync(x); } catch { return x; } };
@@ -1039,6 +1047,10 @@ try {
     const ran = (sid, f) => procsAt(f).find((x) => x.command === `claude --resume ${sid}` && /RAVENRY_PANE=/.test(x.env || '')) || null;
     const rs = { ...(m.resumed || {}), ran: ran(S2, c.ps + '.continued') };
     step('23 continue: Continue this conversation runs `claude --resume <id>` in a Ravenry pane in the project\'s folder', !!rs.pane && !!rs.ran && real(rs.ran.cwd) === real(P('lantern')) && rs.ran.env.includes(`RAVENRY_PANE=${rs.pane}`), rs);
+    const cp = m.continuedPanel || {}, mp = m.movedPanel || {};
+    const notNew = (x) => !!x.head && x.head !== 'New session' && !/Ready for your first message/.test(x.text || '');
+    step('23 continue: with Ravenry\'s hooks set up (as on a real Mac), the continued pane is the conversation: its tab is "Glass for the lantern", its panel is that session (its last answer, "Tells Ravenry when it needs you"), not "New session, Ready for your first message"', notNew(cp) && cp.head === 'lantern' && /Glass for the lantern/.test(cp.tab || '') && /Frosted: it spreads the light/.test(cp.text || '') && /Tells Ravenry when it needs you/.test(cp.text || ''), cp);
+    step('23 continue: after Move here, the same: its tab is "Moss on the north wall", its panel is that session, not a new one', notNew(mp) && mp.head === 'moss' && /Moss on the north wall/.test(mp.tab || '') && /Slowly, only where it stays damp/.test(mp.text || '') && /Tells Ravenry when it needs you/.test(mp.text || ''), mp);
     const M = m.moss || {};
     step('23 continue: a conversation still open in cmux says "Still open in cmux." with Move here, never a second copy', /Still open in cmux/.test(M.still || '') && JSON.stringify(M.buttons) === '["Move here","New session"]', M);
     const holderGone = !holderAlive(); try { holder.kill('SIGKILL'); } catch { /* gone */ }
