@@ -652,6 +652,7 @@ select.field { padding: 0 6px; }
 .hint[hidden] { display: none; }
 .hint::before { content: ''; position: absolute; top: -5px; left: var(--arrow, 24px); width: 10px; height: 10px; background: var(--work); transform: rotate(45deg); border-radius: 2px; }
 .hint.beside::before { top: 12px; left: -5px; }
+.hint.above::before { top: auto; bottom: -5px; }
 .hint-t { flex: 1; min-width: 0; }
 .hint .lk { color: #FFF; text-decoration: underline; font-weight: 600; white-space: nowrap; }
 .hint .x { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: #FFF; background: rgba(255,255,255,.18); flex: none; }

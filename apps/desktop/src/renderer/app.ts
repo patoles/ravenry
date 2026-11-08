@@ -717,7 +717,9 @@ function tabLabel(t: Tab): { name: string; sub: string | null; group: Group | nu
   }
   const f = findSession(S.hub, t.key);
   // Off the board for now (it ended, or between two states): the name it had.
-  if (!f) return { name: t.name || 'Session', sub: null, group: 'idle', machine: null };
+  // Not on the board yet (just started), or off it for now: the name it
+  // had, else "Session" with its folder, as other tabs say theirs.
+  if (!f) { const cwd = t.pane ? store.get(t.pane)?.pane.cwd : null; return { name: t.name || 'Session', sub: !t.name && cwd ? base(cwd) : null, group: 'idle', machine: null }; }
   const name = f.session.topic || f.project.name;
   t.name = name;
   return { name, sub: secondLine(name, f.project.name), group: hasOpenCp(f.project, f.session) ? 'you' : sessionGroup(f.session), machine: machineOf(f.project, f.session) };
@@ -1183,8 +1185,13 @@ function dismissHint(learn: boolean): void {
   if (learn) openLearn(HINT_CARD[id]);
 }
 
-/** The hint's place and words now, or null while its thing is not on screen. */
-function hintAt(): { el: Element; html: (HTMLElement | string)[]; beside?: boolean } | null {
+/**
+ * The hint's place and words now, or null while its thing is not on screen.
+ * `region`: where it may sit, the part of the window it points into (the
+ * middle column for a pane's tab and a sidebar row, the picker's page):
+ * never over the panel, the sidebar or the tab strip.
+ */
+function hintAt(): { el: Element; region: DOMRect; html: (HTMLElement | string)[]; beside?: boolean } | null {
   const hn = hintNow;
   if (!hn) return null;
   if (hn.id === 'agent-pane') {
@@ -1195,15 +1202,33 @@ function hintAt(): { el: Element; html: (HTMLElement | string)[]; beside?: boole
     if (!el || (el as HTMLElement).offsetParent === null) return null;
     const owner = t.owner ? sessionOfPane(S.hub, t.owner) : null;
     const who = assistantName(owner?.session.assistant || null) || 'An agent';
-    return { el, html: [h('b', t.name ? `${who} opened \u201c${t.name}\u201d` : `${who} opened this pane`), ' beside it. Watch it here, or type in it yourself.'] };
+    return { el, region: middleRegion(), html: [h('b', t.name ? `${who} opened \u201c${t.name}\u201d` : `${who} opened this pane`), ' beside it. Watch it here, or type in it yourself.'] };
   }
   if (hn.id === 'needs-you') {
     const el = document.querySelector('#side .g-you .ss');
-    return el ? { el, beside: true, html: [h('b', 'This session waits on you.'), ' Answer it here, or on your phone; the ones that need you stay on top.'] } : null;
+    return el ? { el, region: middleRegion(), beside: true, html: [h('b', 'This session waits on you.'), ' Answer it here, or on your phone; the ones that need you stay on top.'] } : null;
   }
   const el = document.querySelector('#picker .pg-h, #picker');
-  return S.view.kind === 'picker' && el ? { el, html: [h('b', 'Pick one, or circle the part you mean.'), ' Your answer goes back to the agent.'] } : null;
+  return S.view.kind === 'picker' && el ? { el, region: $('picker').getBoundingClientRect(), html: [h('b', 'Pick one, or circle the part you mean.'), ' Your answer goes back to the agent.'] } : null;
 }
+
+/** The middle column under the tab strip and the bar above the panes: the panes' area (the hints' region there). */
+function middleRegion(): DOMRect {
+  const c = $('centre').getBoundingClientRect();
+  let top = c.top;
+  for (const id of ['tabs', 'movebar', 'showing', 'lstrip']) { const e = $(id); if (!e.hidden && e.offsetParent !== null) top = Math.max(top, e.getBoundingClientRect().bottom); }
+  return new DOMRect(c.left, top, c.width, c.bottom - top);
+}
+
+/** A region less the panel where the panel covers it (open beside, or over the middle). */
+function besidePanel(g: DOMRect): DOMRect {
+  const p = $('panel');
+  if (p.hidden) return g;
+  const r = p.getBoundingClientRect();
+  if (r.left >= g.right || r.right <= g.left) return g;
+  return new DOMRect(g.left, g.top, Math.max(0, r.left - g.left), g.height);
+}
+let hintRegion: DOMRect | null = null;
 
 function renderHint(): void {
   if (!hintNow && document.querySelector('#side .g-you .ss')) wantHint('needs-you');
@@ -1216,19 +1241,33 @@ function renderHint(): void {
     h('button.x', { title: 'Dismiss', 'aria-label': 'Dismiss', on: { click: () => dismissHint(false) } }, svg(I.CLOSE)));
   box.dataset.hint = hintNow!.id;
   box.hidden = false;
-  const w = Math.min(at.beside ? 420 : 560, window.innerWidth - 24);
+  // Inside its region, 10 px in from each side: as wide as it wants up to
+  // the region's width (its text wraps), moved left as needed; below its
+  // thing, else above it.
+  const g = besidePanel(at.region), pad = 10;
+  // No room beside the panel: it waits until there is.
+  if (g.width < 220) { box.hidden = true; hintRegion = null; return; }
+  hintRegion = g;
+  const w = Math.max(160, Math.min(at.beside ? 420 : 560, g.width - 2 * pad));
   box.style.width = `${w}px`;
   box.classList.toggle('beside', !!at.beside);
+  let left: number, top: number;
   if (at.beside) {
     // Beside a sidebar row, pointing at it: the rows under it stay clear.
-    box.style.left = `${r.right + 10}px`;
-    box.style.top = `${r.top}px`;
+    left = Math.max(g.left + pad, r.right + 10);
+    top = r.top;
   } else {
-    const left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
-    box.style.left = `${left}px`;
-    box.style.top = `${r.bottom + 8}px`;
-    box.style.setProperty('--arrow', `${Math.max(14, Math.min(w - 20, r.left + Math.min(r.width, 60) / 2 - left))}px`);
+    left = Math.max(g.left + pad, Math.min(r.left, g.right - pad - w));
+    top = r.bottom + 8;
   }
+  box.style.left = `${left}px`;
+  box.style.top = `${top}px`;
+  const hh = box.getBoundingClientRect().height;
+  const flip = !at.beside && top + hh > g.bottom - pad && r.top - 8 - hh >= g.top + pad;
+  if (flip) { top = r.top - 8 - hh; box.style.top = `${top}px`; }
+  box.style.top = `${Math.max(g.top + pad, Math.min(top, g.bottom - pad - hh))}px`;
+  box.classList.toggle('above', flip);
+  if (!at.beside) box.style.setProperty('--arrow', `${Math.max(14, Math.min(w - 20, r.left + Math.min(r.width, 60) / 2 - left))}px`);
 }
 
 /**
@@ -3374,7 +3413,7 @@ async function boot(): Promise<void> {
   if (firstRun() || !S.tabs.length) void loadStart();
   // For tests and screenshots (tools/driver.cjs): the state and a few calls.
   (window as unknown as { __ravenry: unknown }).__ravenry = {
-    S, term: () => term, views: () => [termA, termB], newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
+    S, term: () => term, views: () => [termA, termB], hintRegion: () => (hintRegion ? { left: hintRegion.left, top: hintRegion.top, right: hintRegion.right, bottom: hintRegion.bottom } : null), newShell, setView, onCommand, pickSession, render, ready: true, pages: () => pages, openPage, machines: () => machinesView,
     store, marks: () => marks, film: () => film, decisions: () => decisions, picker: () => picker, files: () => files, review: () => review, openPicker,
     text: () => { const b = term.term.buffer.active; const out: string[] = []; for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || ''); return out.join('\n'); },
   };

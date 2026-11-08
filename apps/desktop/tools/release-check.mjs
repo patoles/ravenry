@@ -740,8 +740,9 @@ try {
     execFileSync('/usr/bin/ditto', [APP_PATH, app]);
     const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub'), '--ravenryd', path.join(app, 'Contents', 'Resources', 'ravenryd')], { encoding: 'utf8', timeout: 600000 });
     const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
+    const ss = (r.stdout || '').match(/slowestStallMs=(\d+) slowestOwnStallMs=(\d+)/);
     const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
-    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms, and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, fails: fails.slice(0, 3) });
+    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms itself (the wall-clock stall and the hub\'s own part are both reported), and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, slowestStallMs: ss ? Number(ss[1]) : null, slowestOwnStallMs: ss ? Number(ss[2]) : null, fails: fails.slice(0, 3) });
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 13, opened from a pane
@@ -805,6 +806,20 @@ try {
     const CLI = `'${path.join(o.data, 'bin', 'ravenryd')}'`;
     const both = (name) => [shot(`21-${name}-dark.png`), { theme: 'light', after: 700 }, shot(`21-${name}-light.png`), { theme: 'dark', after: 500 }];
     const HINT = (id) => `!document.getElementById('hint').hidden && document.getElementById('hint').dataset.hint === '${id}'`;
+    // Where a hint is: its box, its region (the part of the window it points
+    // into), and whether it lies inside that region and clear of the panel,
+    // the sidebar and the tab strip.
+    const GEO = `(() => { const b = document.getElementById('hint'); const rg = ${R}.hintRegion(); const rect = (e) => { if (!e || e.hidden || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }; const box = rect(b); const hit = (a, c) => !!a && !!c && a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5; const panel = rect(document.getElementById('panel')), side = rect(document.getElementById('side')), tabs = rect(document.getElementById('tabs')); return { shown: !!box, box, region: rg, inside: !!box && !!rg && box.left >= rg.left - 0.5 && box.right <= rg.right + 0.5 && box.top >= rg.top - 0.5 && box.bottom <= rg.bottom + 0.5, panel: hit(box, panel), side: hit(box, side), tabs: hit(box, tabs), win: [innerWidth, innerHeight], overlay: ${R}.S.overlay }; })()`;
+    // At 1440 x 900 with the panel open and closed, and at the smallest
+    // window (720 x 480) with the panel closed and over the middle.
+    const geo = (id) => [
+      { sleep: 400 }, save(`geo_${id}_wide_open`, GEO), shot(`21-F-${id}-1440.png`),
+      { js: `${R}.onCommand('toggle-panel')` }, { sleep: 500 }, save(`geo_${id}_wide_closed`, GEO),
+      { size: [720, 480] }, { sleep: 700 }, save(`geo_${id}_small_closed`, GEO), shot(`21-F-${id}-720.png`),
+      { js: `${R}.onCommand('toggle-panel')` }, { sleep: 500 }, save(`geo_${id}_small_panel`, GEO), shot(`21-F-${id}-720-panel.png`),
+      { js: `${R}.onCommand('toggle-panel')` }, { sleep: 300 }, { size: [1440, 900] }, { sleep: 700 },
+      { js: `if (document.getElementById('panel').hidden && !${R}.S.view.kind.match(/^(picker|learn|decisions|page|machines|grid)$/)) ${R}.onCommand('toggle-panel')` }, { sleep: 400 },
+    ];
     const SW = `require('electron').BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && /settings\.html/.test(w.webContents.getURL()))`;
     const swJs = (expr) => ({ main: `const t0 = Date.now(); let sw = null; while (!(sw = ${SW}) && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 100)); if (!sw) throw new Error('no Settings window'); return sw.webContents.executeJavaScript(${JSON.stringify(expr)});`, out: null });
     const swUntil = (expr, out) => ({ main: `const t0 = Date.now(); for (;;) { const sw = ${SW}; const v = sw ? await sw.webContents.executeJavaScript(${JSON.stringify(`(() => { try { return ${expr}; } catch { return null; } })()`)}) : null; if (v) return v; if (Date.now() - t0 > 15000) throw new Error('timed out in Settings: ' + ${JSON.stringify(expr)}); await new Promise((r) => setTimeout(r, 150)); }`, ...(out ? { out: path.join(o.work, out) } : {}) });
@@ -815,7 +830,7 @@ try {
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length >= 1`, timeout: 30000 },
       save('learnAtLaunch', `${R}.S.view.kind === 'learn'`),
       // F: the first Needs-you row gets its hint, beside it.
-      { until: HINT('needs-you'), timeout: 15000 }, save('needsHint', `document.getElementById('hint').textContent`), ...both('F-needs-you'),
+      { until: HINT('needs-you'), timeout: 15000 }, save('needsHint', `document.getElementById('hint').textContent`), ...both('F-needs-you'), ...geo('needs-you'),
       { js: `document.querySelector('#hint .x').click()` },
       { until: `document.getElementById('hint').hidden`, timeout: 3000 }, mark('needsGone'),
       // A2: Start leads to step 2, in the same place.
@@ -830,7 +845,7 @@ try {
       { js: `document.querySelector('#start .ob .fl-go .btn.pri').click()` }, mark('setUp'),
       // B: the session opens as usual, nothing typed in it.
       { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') && document.querySelector('#panel .setup-lines')`, timeout: 20000 }, { sleep: 2500 },
-      save('b', `({ text: ${R}.text(), lines: [...document.querySelectorAll('#panel .setup-lines .chk')].map((e) => ({ what: e.dataset.setup, on: !e.classList.contains('off'), text: e.textContent })) })`),
+      save('b', `({ tab: [...(document.querySelector('#tabs .tab.on') || { children: [] }).children].map((e) => e.textContent).filter(Boolean), text: ${R}.text(), lines: [...document.querySelectorAll('#panel .setup-lines .chk')].map((e) => ({ what: e.dataset.setup, on: !e.classList.contains('off'), text: e.textContent })) })`),
       ...both('B'),
       // D: Settings, Skills.
       { js: `window.ravenry.settings.open('skills')` },
@@ -858,7 +873,7 @@ try {
       { until: `${R}.S.tabs.filter((t) => t.kind === 'shell' && !t.owner).length >= 2 && ${R}.term().ready && /[%$#] *$/m.test(${R}.text())`, timeout: 15000 },
       { js: `${R}.term().focus()` },
       { type: `cd ~ && ${CLI} new --name 'dev server' -- /bin/sleep 600\r`, after: 400 },
-      { until: HINT('agent-pane'), timeout: 15000 }, save('paneHint', `document.getElementById('hint').textContent`), ...both('F-agent-pane'),
+      { until: HINT('agent-pane'), timeout: 15000 }, save('paneHint', `document.getElementById('hint').textContent`), ...both('F-agent-pane'), ...geo('agent-pane'),
       { js: `document.querySelector('#hint .x').click()` }, { until: `document.getElementById('hint').hidden`, timeout: 3000 },
       { js: `${R}.term().focus()` },
       { type: `${CLI} new --name 'second' -- /bin/sleep 600\r`, after: 400 },
@@ -869,7 +884,7 @@ try {
       { type: `${CLI} pick 'Which colour?' --variant A=a.html --variant B=b.html --no-wait\r`, after: 400 },
       { until: `[...${R}.S.cps.items.values()].some((k) => k.cp.kind === 'pick' && k.cp.state === 'open')`, timeout: 15000 },
       { js: `${R}.openPicker([...${R}.S.cps.items.values()].find((k) => k.cp.kind === 'pick'))` },
-      { until: HINT('pick'), timeout: 10000 }, save('pickHint', `document.getElementById('hint').textContent`), ...both('F-pick'),
+      { until: HINT('pick'), timeout: 10000 }, save('pickHint', `document.getElementById('hint').textContent`), ...both('F-pick'), ...geo('pick'),
       { js: `document.querySelector('#hint .lk').click()` },
       { until: `!document.getElementById('learn').hidden && document.querySelector('#learn .ln-c.lit[data-card="pick"]')`, timeout: 5000 }, mark('learnMore'),
     ], {}, { hints: true });
@@ -879,6 +894,7 @@ try {
     step('21 A2: Start leads to step 2 in the same place, before the session: "Let Claude work with Ravenry", both lines ticked ("Tell Ravenry when it needs you", "Install the Ravenry skill"), "Set them up" and "Not now", step 2 of 2', a2.title === 'Let Claude work with Ravenry' && ln('hooks').ticked && ln('skill').ticked && ln('hooks').title === 'Tell Ravenry when it needs you' && /^Install the Ravenry skill/.test(ln('skill').title || '') && /settings\.json/.test(ln('hooks').file || '') && /skills\/ravenry/.test(ln('skill').file || '') && JSON.stringify(a2.buttons) === '["Set them up","Not now"]' && /Step 2 of 2/.test(a2.steps || '') && a2.sessionYet === 1, a2);
     const b = m.b || {};
     const afterReady = (b.text || '').split('fake claude ready').slice(1).join('');
+    step('21 B: a session the board does not list yet is a tab named "Session" with its folder ("Session  notes"), as other tabs say theirs', JSON.stringify(b.tab) === '["Session","notes"]', { tab: b.tab });
     step('21 B: after Set them up the session opens as usual, nothing typed or suggested in it; the panel shows "Tells Ravenry when it needs you" and "Has the Ravenry skill"', !!b.text && !/thinking:/.test(b.text) && !afterReady.replace(/\(args:[^)]*\)/, '').trim() && (b.lines || []).length === 2 && b.lines.every((x) => x.on) && /Tells Ravenry when it needs you/.test(b.lines[0].text) && /Has the Ravenry skill/.test(b.lines[1].text), { lines: b.lines, after: afterReady.slice(0, 200) });
     const fi = j('d-files-installed.json') || {};
     step('21 D: Set them up wrote the hook line and ~/.claude/skills/ravenry (it runs `ravenry skill`); Settings, Skills shows each assistant with Remove, then Install and Set up after Remove', !!fi.skill && /" skill`/.test(fi.skill) && /hook --assistant claude/.test(fi.settings || '') && Array.isArray(j('d-installed.json')) && Array.isArray(j('d-removed.json')) && j('d-removed.json').some((t) => /Claude Code.*Not installed/.test(t)), { installed: j('d-installed.json'), removed: j('d-removed.json') });
@@ -890,6 +906,13 @@ try {
     const ti = m.tryIt || {};
     step('21 E: Try it opens a session with its message ready in the input, not sent', /Record that as my decision in Ravenry/.test(ti.text || '') && ti.sent === false, { sent: ti.sent });
     step('21 F: one-time hints: the first Needs-you row, the first pane an agent opens (under its tab), the first pick; each with Learn more and an x; a second agent pane gets none; Learn more opens Learn Ravenry at its card', /waits on you/.test(m.needsHint || '') && /opened \u201cdev server\u201d beside it/.test(m.paneHint || '') && /Learn more/.test(m.paneHint || '') && /Pick one/.test(m.pickHint || '') && m.secondPaneHint === false && m.learnMore > 0 && m.needsGone > 0, { needs: m.needsHint, pane: m.paneHint, pick: m.pickHint, second: m.secondPaneHint });
+    for (const id of ['needs-you', 'agent-pane', 'pick']) {
+      const g = ['wide_open', 'wide_closed', 'small_closed', 'small_panel'].map((k) => [k, m[`geo_${id}_${k}`] || {}]);
+      // Shown, it lies inside its region, clear of the panel, the sidebar and the tab strip; with the
+      // panel over the middle of a small window it may wait (no room), never cover it.
+      const ok = g.every(([k, x]) => (x.shown ? x.inside && !x.panel && !x.side && !x.tabs : k === 'small_panel')) && g.filter(([k]) => k !== 'small_panel').every(([, x]) => x.shown);
+      step(`21 F: the ${id} hint lies inside the region it points into, clear of the panel, the sidebar and the tab strip, at 1440 x 900 and at the smallest window (720 x 480), with the panel open and closed`, ok, Object.fromEntries(g.map(([k, x]) => [k, x.shown ? { box: x.box && [x.box.left, x.box.top, x.box.right, x.box.bottom].map(Math.round), region: x.region && [x.region.left, x.region.top, x.region.right, x.region.bottom].map(Math.round), inside: x.inside, panel: x.panel, side: x.side, tabs: x.tabs } : 'waits'])));
+    }
     // Relaunched: no hint comes back, Learn Ravenry does not open, and Start goes straight to the session (step 2 answered).
     const r2 = await launch(o, 'onboard2', [
       { ready: true, timeout: 30000 },
