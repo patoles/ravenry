@@ -13,9 +13,7 @@
 //
 // Needs ravenryd: RAVENRYD, else ../../daemon/ravenryd. Writes to <outDir>
 // each card open, the edit state of the command, the typed secret and each
-// after state, at 1440x900 (wide) and 900x700 (narrow), and the first
-// launch's hook offer (hooks-offer.png; its Set up runs against the
-// throwaway HOME only and is checked there).
+// after state, at 1440x900 (wide) and 900x700 (narrow).
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -201,27 +199,7 @@ try {
   stopDaemons(BIN, RT);
   hub.stop(); hub = null;
 
-  // ------------------------------------------------ the first launch's hook offer
-  const emptyHub = await startDemoHub({ dir: path.join(WORK, 'demo-empty'), port: await freePort(), empty: true });
-  hub = emptyHub;
-  const settings = path.join(emptyHub.home, '.claude', 'settings.json');
-  await run('hooks', {
-    home: emptyHub.home, hubUrl: emptyHub.url, env: { RAVENRY_SERVICE: 'off' },
-    steps: [
-      { ready: true },
-      // A shell opens at launch; the hook offer is on New session's screen.
-      { until: `window.__ravenry.S.tabs.length === 1`, timeout: 20000 },
-      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` },
-      { until: `document.querySelector('.fl-hooks')`, timeout: 20000 },
-      shot('hooks-offer.png'),
-      { js: `[...document.querySelectorAll('.fl-hooks button')].find((b) => b.textContent === 'Set them up').click()` },
-      { until: `!document.querySelector('.fl-hooks') && !document.getElementById('toast').hidden`, timeout: 20000 },
-      shot('hooks-done.png'),
-    ],
-  });
-  const set = fs.readFileSync(settings, 'utf8');
-  if (!set.includes(`${BIN} hook --assistant claude`) && !set.includes('hook --assistant claude')) throw new Error(`the hooks were not set up in the throwaway HOME: ${set.slice(0, 400)}`);
-  console.log('hooks: set up in the throwaway HOME', path.relative(OUT, settings));
+  // (The first launch's hook offer is step 2 of starting a session now: tools/onboarding-test.mjs.)
   console.log('wrote', fs.readdirSync(OUT).filter((f) => f.endsWith('.png')).join(', '));
 } catch (e) {
   // What the board saw, beside the app's own failure files.

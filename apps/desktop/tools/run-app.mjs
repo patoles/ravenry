@@ -46,6 +46,15 @@ export async function runApp(opts) {
     ...Object.fromEntries(['DISPLAY', 'XAUTHORITY', 'XDG_RUNTIME_DIR'].filter((k) => process.env[k]).map((k) => [k, process.env[k]])),
     ...more,
   };
+  // The one-time hints (F) are for a person's first times: a run that is
+  // not about them starts with them all dismissed, so none covers what it
+  // clicks (opts.hints: true keeps them).
+  if (!opts.hints) {
+    const f = path.join(env.RAVENRY_DESKTOP_DATA, 'window.json');
+    let w = {};
+    try { w = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* none yet */ }
+    if (!w.hintsDone) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify({ ...w, hintsDone: { 'agent-pane': true, 'needs-you': true, pick: true } }, null, 2) + '\n'); }
+  }
   // Linux CI has no setuid sandbox helper.
   const noSandbox = process.platform === 'linux' ? ['--no-sandbox'] : [];
   const child = opts.exe

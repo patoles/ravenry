@@ -111,11 +111,10 @@ async function oneRun(kind, n) {
       { shot: path.join(OUT, `${name}-first-launch.png`) },
       // The hub answers, so the session starts through it (in the sidebar, with its hooks).
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable`, timeout: 30000 }, mark('hub'),
-      // The hook offer, accepted as a person would, when it shows.
-      // It shows once the hub answered the dry run (up to 10 s here; none when nothing would change).
-      { js: `new Promise((r) => { const t0 = Date.now(); const f = () => { const b = document.querySelector('#start .fl-hooks .btn.pri'); if (b) { b.click(); r(true); } else if (Date.now() - t0 > 10000) r(false); else setTimeout(f, 20); }; f(); })` },
-      { until: `!document.querySelector('#start .fl-hooks') || ${R}.S.hooks.asked`, timeout: 15000 }, mark('hooks'),
       { js: `${startBtn}.click()` }, mark('click'),
+      // Step 2, the hooks and the skill for Claude, accepted as a person would.
+      { until: `document.querySelector('#start .ob .fl-go .btn.pri')`, timeout: 15000 }, mark('hooks'),
+      { js: `document.querySelector('#start .ob .fl-go .btn.pri').click()` },
       { until: `${R}.term().ready && ${has('Welcome to Claude Code')} && /^> *$/m.test(${R}.text())`, timeout: 30000 }, mark('claude'),
       { until: `document.querySelector('#side .grp .ss, #side .grp .idl')`, timeout: 15000 }, mark('sidebar'),
       // No tab says its name twice (a session named after its folder: "weather-api weather-api").

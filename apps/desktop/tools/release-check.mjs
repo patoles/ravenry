@@ -216,11 +216,11 @@ const programOf = (label) => (launchctl('print', `gui/${UID}/${label}`).stdout.m
 const argsOf = (label) => launchctl('print', `gui/${UID}/${label}`).stdout;
 
 // One run of the app: the steps given, then quit. Returns the window's marks.
-async function launch(a, name, steps, more = {}) {
+async function launch(a, name, steps, more = {}, opts = {}) {
   fs.mkdirSync(a.work, { recursive: true });
   const marks = path.join(a.work, `${name}-marks.json`);
   const t0 = Date.now();
-  await runApp({ name, work: a.work, rt: a.rt, exe: a.exe, home: a.home, hubUrl: a.env.RAVENRY_HUB_URL, timeoutMs: 240000, env: { ...a.env, ...more }, steps: [
+  await runApp({ name, work: a.work, rt: a.rt, exe: a.exe, home: a.home, hubUrl: a.env.RAVENRY_HUB_URL, timeoutMs: 240000, env: { ...a.env, ...more }, ...opts, steps: [
     { js: '(window.__marks = window.__marks || {}, true)' },
     ...steps,
     { save: { expr: 'window.__marks', out: marks } },
@@ -364,8 +364,10 @@ try {
       // 2: New session with the stand-in Claude.
       { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` }, // New session, as a person opens it
       { until: `!document.getElementById('start').hidden && document.querySelector('#start .fl-go .btn.pri') && /^Start Claude in /.test(document.querySelector('#start .fl-go .btn.pri').textContent)`, timeout: 20000 },
-      { js: `new Promise((r) => { const t0 = Date.now(); const f = () => { const b = document.querySelector('#start .fl-hooks .btn.pri'); if (b) { b.click(); r(true); } else if (Date.now() - t0 > 8000) r(false); else setTimeout(f, 50); }; f(); })` },
-      { js: `document.querySelector('#start .fl-go .btn.pri').click()` }, mark('sessionClick'),
+      // Start, then its step 2 (the hooks and the skill for Claude): Set them up.
+      { js: `document.querySelector('#start .fl-go .btn.pri').click()` },
+      { until: `document.querySelector('#start .ob .fl-go .btn.pri')`, timeout: 15000 },
+      { js: `document.querySelector('#start .ob .fl-go .btn.pri').click()` }, mark('sessionClick'),
       { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('session'), shot('2-new-session.png'), ...agree('session'),
       // 3: the session in cmux, shown live.
       { until: `[...document.querySelectorAll('#side .ss')].some((e) => e.textContent.includes('Kite tail'))`, timeout: 20000 },
@@ -780,6 +782,127 @@ try {
       fs.rmSync(k, { recursive: true, force: true });
     });
   }
+  // ------------------------------------------------------------ 21: the first launch's onboarding (0.1.21)
+  // On a fresh account with the person's own Claude Code settings and a
+  // skill of theirs already there: the one-time hints (F), step 2 after
+  // Start (A2), the session as usual (B), Settings, Skills (D), Learn
+  // Ravenry (E), and Install then Remove leaving the files as they were.
+  await guarded('21 onboarding', async () => {
+    const o = await account('onboard');
+    outsideSession(o); // a session in cmux that needs you: the first Needs-you row
+    const claudeDir = path.join(o.home, '.claude');
+    fs.mkdirSync(path.join(claudeDir, 'skills', 'rex'), { recursive: true });
+    fs.writeFileSync(path.join(claudeDir, 'skills', 'rex', 'SKILL.md'), '---\nname: rex\ndescription: Someone else\'s skill.\n---\nLeave me be.\n');
+    fs.writeFileSync(path.join(claudeDir, 'settings.json'), '{\n    "model": "opus",\n    "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "echo mine" } ] } ] }\n}\n');
+    const tree = (d) => { const out = {}; const walk = (x) => { for (const e of fs.readdirSync(x, { withFileTypes: true })) { const f = path.join(x, e.name); if (e.isDirectory()) { out[path.relative(d, f) + '/'] = ''; walk(f); } else out[path.relative(d, f)] = crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } }; try { walk(d); } catch { /* none */ } return out; };
+    const before = { skills: tree(path.join(claudeDir, 'skills')), settings: fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8') };
+    // A second project folder: the first session starts there (kite's session
+    // works in kite, so a session there would get its own copy and a first
+    // instruction about it).
+    fs.mkdirSync(path.join(o.home, 'Projects', 'notes'), { recursive: true });
+    for (const n of ['a', 'b']) fs.writeFileSync(path.join(o.home, `${n}.html`), `<body style="margin:0;background:${n === 'a' ? '#E05A33' : '#2F6FEB'}"></body>`);
+    const CLI = `'${path.join(o.data, 'bin', 'ravenryd')}'`;
+    const both = (name) => [shot(`21-${name}-dark.png`), { theme: 'light', after: 700 }, shot(`21-${name}-light.png`), { theme: 'dark', after: 500 }];
+    const HINT = (id) => `!document.getElementById('hint').hidden && document.getElementById('hint').dataset.hint === '${id}'`;
+    const SW = `require('electron').BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && /settings\.html/.test(w.webContents.getURL()))`;
+    const swJs = (expr) => ({ main: `const t0 = Date.now(); let sw = null; while (!(sw = ${SW}) && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 100)); if (!sw) throw new Error('no Settings window'); return sw.webContents.executeJavaScript(${JSON.stringify(expr)});`, out: null });
+    const swUntil = (expr, out) => ({ main: `const t0 = Date.now(); for (;;) { const sw = ${SW}; const v = sw ? await sw.webContents.executeJavaScript(${JSON.stringify(`(() => { try { return ${expr}; } catch { return null; } })()`)}) : null; if (v) return v; if (Date.now() - t0 > 15000) throw new Error('timed out in Settings: ' + ${JSON.stringify(expr)}); await new Promise((r) => setTimeout(r, 150)); }`, ...(out ? { out: path.join(o.work, out) } : {}) });
+    const swShot = (f) => ({ main: `const sw = ${SW}; await new Promise((r) => setTimeout(r, 400)); require('fs').writeFileSync(${JSON.stringify(path.join(OUT, f))}, (await sw.webContents.capturePage()).toPNG());` });
+    const m = await launch(o, 'onboard', [
+      { ready: true, timeout: 30000 },
+      { until: PROMPT, timeout: 20000 },
+      { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length >= 1`, timeout: 30000 },
+      save('learnAtLaunch', `${R}.S.view.kind === 'learn'`),
+      // F: the first Needs-you row gets its hint, beside it.
+      { until: HINT('needs-you'), timeout: 15000 }, save('needsHint', `document.getElementById('hint').textContent`), ...both('F-needs-you'),
+      { js: `document.querySelector('#hint .x').click()` },
+      { until: `document.getElementById('hint').hidden`, timeout: 3000 }, mark('needsGone'),
+      // A2: Start leads to step 2, in the same place.
+      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` },
+      { until: `document.querySelector('#start .fl-go .btn.pri') && /^Start Claude in /.test(document.querySelector('#start .fl-go .btn.pri').textContent) && [...document.querySelectorAll('#start .fo')].some((b) => b.textContent.startsWith('notes'))`, timeout: 20000 },
+      { js: `[...document.querySelectorAll('#start .fo')].find((b) => b.textContent.startsWith('notes')).click()` },
+      { until: `/^Start Claude in notes/.test(document.querySelector('#start .fl-go .btn.pri').textContent)`, timeout: 5000 },
+      { js: `document.querySelector('#start .fl-go .btn.pri').click()` },
+      { until: `document.querySelector('#start .ob')`, timeout: 15000 },
+      save('a2', `({ title: document.querySelector('#start .ob h2').textContent, lines: [...document.querySelectorAll('#start .ob .ob-r')].map((r) => ({ line: r.dataset.line, title: r.querySelector('.h').textContent, ticked: r.querySelector('.ob-tick').getAttribute('aria-checked') === 'true', file: r.querySelector('.ob-m').textContent })), buttons: [...document.querySelectorAll('#start .ob .fl-go .btn')].map((b) => b.textContent), steps: document.querySelector('#start .ob-steps').textContent, sessionYet: ${R}.S.tabs.length })`),
+      ...both('A2'),
+      { js: `document.querySelector('#start .ob .fl-go .btn.pri').click()` }, mark('setUp'),
+      // B: the session opens as usual, nothing typed in it.
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') && document.querySelector('#panel .setup-lines')`, timeout: 20000 }, { sleep: 2500 },
+      save('b', `({ text: ${R}.text(), lines: [...document.querySelectorAll('#panel .setup-lines .chk')].map((e) => ({ what: e.dataset.setup, on: !e.classList.contains('off'), text: e.textContent })) })`),
+      ...both('B'),
+      // D: Settings, Skills.
+      { js: `window.ravenry.settings.open('skills')` },
+      swUntil(`document.querySelector('[data-skill="claude"]') && document.querySelector('[data-skill="claude"]').textContent === 'Remove' && document.querySelector('[data-hooks="claude"]') && document.querySelector('[data-hooks="claude"]').textContent === 'Remove' && [...document.querySelectorAll('.sk-r')].map((r) => r.textContent)`, 'd-installed.json'),
+      swShot('21-D-dark.png'), { theme: 'light', after: 700 }, swShot('21-D-light.png'), { theme: 'dark', after: 500 },
+      { main: `require('fs').writeFileSync(${JSON.stringify(path.join(o.work, 'd-files-installed.json'))}, JSON.stringify({ skill: require('fs').existsSync(${JSON.stringify(path.join(claudeDir, 'skills', 'ravenry', 'SKILL.md'))}) ? require('fs').readFileSync(${JSON.stringify(path.join(claudeDir, 'skills', 'ravenry', 'SKILL.md'))}, 'utf8') : null, settings: require('fs').readFileSync(${JSON.stringify(path.join(claudeDir, 'settings.json'))}, 'utf8') }))` },
+      swJs(`document.querySelector('[data-skill="claude"]').click(); true`),
+      swUntil(`document.querySelector('[data-skill="claude"]') && document.querySelector('[data-skill="claude"]').textContent === 'Install'`),
+      swJs(`document.querySelector('[data-hooks="claude"]').click(); true`),
+      swUntil(`document.querySelector('[data-hooks="claude"]') && document.querySelector('[data-hooks="claude"]').textContent === 'Set up' && [...document.querySelectorAll('.sk-r')].map((r) => r.textContent)`, 'd-removed.json'),
+      { main: `const sw = ${SW}; if (sw) sw.close(); await new Promise((r) => setTimeout(r, 300));` },
+      // E: Learn Ravenry, from the ? in the sidebar's bottom row; Decisions used first.
+      { js: `${R}.setView({ kind: 'decisions' })` }, { sleep: 500 },
+      { js: `document.querySelector('#side .foot .learn-btn').click()` },
+      { until: `!document.getElementById('learn').hidden && document.querySelectorAll('#learn .ln-c').length === 7`, timeout: 10000 },
+      save('e', `({ cards: [...document.querySelectorAll('#learn .ln-c')].map((c) => ({ key: c.dataset.card, title: c.querySelector('.ln-ti b').textContent, used: !!c.querySelector('.ln-used'), action: c.querySelector('[data-try]').textContent, play: !!c.querySelector('.ln-play') })), bar: !!document.querySelector('#learn progress, #learn [role=progressbar]') })`),
+      { main: `const items = []; const walk = (m) => { for (const i of (m && m.items) || []) { items.push(i.label); walk(i.submenu); } }; walk(electron.Menu.getApplicationMenu()); return items;`, out: path.join(o.work, 'menu.json') },
+      ...both('E'),
+      // Try it on Decisions: a session with its message ready, not sent.
+      { js: `document.querySelector('#learn [data-try="decisions"]').click()` },
+      { until: `${R}.term().ready && ${R}.text().includes('Record that as my decision')`, timeout: 40000 }, { sleep: 1500 },
+      save('tryIt', `({ text: ${R}.text(), sent: /thinking: From now on/.test(${R}.text()) })`),
+      // F: an agent's first pane gets its line under its tab.
+      { js: `${R}.onCommand('new-shell')` },
+      { until: `${R}.S.tabs.filter((t) => t.kind === 'shell' && !t.owner).length >= 2 && ${R}.term().ready && /[%$#] *$/m.test(${R}.text())`, timeout: 15000 },
+      { js: `${R}.term().focus()` },
+      { type: `cd ~ && ${CLI} new --name 'dev server' -- /bin/sleep 600\r`, after: 400 },
+      { until: HINT('agent-pane'), timeout: 15000 }, save('paneHint', `document.getElementById('hint').textContent`), ...both('F-agent-pane'),
+      { js: `document.querySelector('#hint .x').click()` }, { until: `document.getElementById('hint').hidden`, timeout: 3000 },
+      { js: `${R}.term().focus()` },
+      { type: `${CLI} new --name 'second' -- /bin/sleep 600\r`, after: 400 },
+      { until: `${R}.S.tabs.filter((t) => t.owner).length >= 2`, timeout: 15000 }, { sleep: 800 },
+      save('secondPaneHint', `!document.getElementById('hint').hidden`),
+      // F: the first pick.
+      { js: `${R}.term().focus()` },
+      { type: `${CLI} pick 'Which colour?' --variant A=a.html --variant B=b.html --no-wait\r`, after: 400 },
+      { until: `[...${R}.S.cps.items.values()].some((k) => k.cp.kind === 'pick' && k.cp.state === 'open')`, timeout: 15000 },
+      { js: `${R}.openPicker([...${R}.S.cps.items.values()].find((k) => k.cp.kind === 'pick'))` },
+      { until: HINT('pick'), timeout: 10000 }, save('pickHint', `document.getElementById('hint').textContent`), ...both('F-pick'),
+      { js: `document.querySelector('#hint .lk').click()` },
+      { until: `!document.getElementById('learn').hidden && document.querySelector('#learn .ln-c.lit[data-card="pick"]')`, timeout: 5000 }, mark('learnMore'),
+    ], {}, { hints: true });
+    const j = (f) => { try { return JSON.parse(fs.readFileSync(path.join(o.work, f), 'utf8')); } catch { return null; } };
+    const a2 = m.a2 || {};
+    const ln = (k) => (a2.lines || []).find((x) => x.line === k) || {};
+    step('21 A2: Start leads to step 2 in the same place, before the session: "Let Claude work with Ravenry", both lines ticked ("Tell Ravenry when it needs you", "Install the Ravenry skill"), "Set them up" and "Not now", step 2 of 2', a2.title === 'Let Claude work with Ravenry' && ln('hooks').ticked && ln('skill').ticked && ln('hooks').title === 'Tell Ravenry when it needs you' && /^Install the Ravenry skill/.test(ln('skill').title || '') && /settings\.json/.test(ln('hooks').file || '') && /skills\/ravenry/.test(ln('skill').file || '') && JSON.stringify(a2.buttons) === '["Set them up","Not now"]' && /Step 2 of 2/.test(a2.steps || '') && a2.sessionYet === 1, a2);
+    const b = m.b || {};
+    const afterReady = (b.text || '').split('fake claude ready').slice(1).join('');
+    step('21 B: after Set them up the session opens as usual, nothing typed or suggested in it; the panel shows "Tells Ravenry when it needs you" and "Has the Ravenry skill"', !!b.text && !/thinking:/.test(b.text) && !afterReady.replace(/\(args:[^)]*\)/, '').trim() && (b.lines || []).length === 2 && b.lines.every((x) => x.on) && /Tells Ravenry when it needs you/.test(b.lines[0].text) && /Has the Ravenry skill/.test(b.lines[1].text), { lines: b.lines, after: afterReady.slice(0, 200) });
+    const fi = j('d-files-installed.json') || {};
+    step('21 D: Set them up wrote the hook line and ~/.claude/skills/ravenry (it runs `ravenry skill`); Settings, Skills shows each assistant with Remove, then Install and Set up after Remove', !!fi.skill && /" skill`/.test(fi.skill) && /hook --assistant claude/.test(fi.settings || '') && Array.isArray(j('d-installed.json')) && Array.isArray(j('d-removed.json')) && j('d-removed.json').some((t) => /Claude Code.*Not installed/.test(t)), { installed: j('d-installed.json'), removed: j('d-removed.json') });
+    const afterT = { skills: tree(path.join(claudeDir, 'skills')), settings: fs.readFileSync(path.join(claudeDir, 'settings.json'), 'utf8') };
+    step('21 D: install then remove leaves ~/.claude/skills and settings.json byte for byte as they were (the person\'s own skill and hooks kept)', JSON.stringify(afterT.skills) === JSON.stringify(before.skills) && afterT.settings === before.settings, { before: before.skills, after: afterT.skills, settingsSame: afterT.settings === before.settings });
+    const e = m.e || {};
+    const menu = j('menu.json') || [];
+    step('21 E: Learn Ravenry, from the ? in the sidebar and Help > Learn Ravenry: seven cards with a play mark and their actions, Decisions ticked once used, no progress bar, never opened by itself', (e.cards || []).length === 7 && e.cards.every((c) => c.play) && e.cards.filter((c) => c.used).map((c) => c.key).join() === 'decisions' && e.cards.find((c) => c.key === 'phone').action === 'Pair your phone' && e.cards.filter((c) => c.action === 'Try it').length === 6 && !e.bar && menu.includes('Learn Ravenry') && m.learnAtLaunch === false, { cards: e.cards, menu: menu.includes('Learn Ravenry') });
+    const ti = m.tryIt || {};
+    step('21 E: Try it opens a session with its message ready in the input, not sent', /Record that as my decision in Ravenry/.test(ti.text || '') && ti.sent === false, { sent: ti.sent });
+    step('21 F: one-time hints: the first Needs-you row, the first pane an agent opens (under its tab), the first pick; each with Learn more and an x; a second agent pane gets none; Learn more opens Learn Ravenry at its card', /waits on you/.test(m.needsHint || '') && /opened \u201cdev server\u201d beside it/.test(m.paneHint || '') && /Learn more/.test(m.paneHint || '') && /Pick one/.test(m.pickHint || '') && m.secondPaneHint === false && m.learnMore > 0 && m.needsGone > 0, { needs: m.needsHint, pane: m.paneHint, pick: m.pickHint, second: m.secondPaneHint });
+    // Relaunched: no hint comes back, Learn Ravenry does not open, and Start goes straight to the session (step 2 answered).
+    const r2 = await launch(o, 'onboard2', [
+      { ready: true, timeout: 30000 },
+      { until: PROMPT, timeout: 20000 },
+      { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length >= 1`, timeout: 30000 }, { sleep: 1500 },
+      save('hint', `!document.getElementById('hint').hidden`), save('learn', `${R}.S.view.kind === 'learn'`),
+      { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` },
+      { until: `document.querySelector('#start .fl-go .btn.pri') && /^Start Claude in /.test(document.querySelector('#start .fl-go .btn.pri').textContent)`, timeout: 20000 },
+      { js: `document.querySelector('#start .fl-go .btn.pri').click()` },
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready') || document.querySelector('#start .ob')`, timeout: 20000 },
+      save('step2Again', `!!document.querySelector('#start .ob')`),
+    ], {}, { hints: true });
+    step('21 F/A2: relaunched, no hint comes back, Learn Ravenry stays closed, and Start opens the session with no step 2 again', r2.hint === false && r2.learn === false && r2.step2Again === false, { hint: r2.hint, learn: r2.learn, step2Again: r2.step2Again });
+  });
   // ------------------------------------------------------------ the app's environment
   // On 2026-11-07 an app opened from inside a Ravenry pane inherited the
   // pane's variables, and the daemon took the whole window for that pane.
