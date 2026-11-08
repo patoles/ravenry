@@ -38,11 +38,16 @@ function phaseAt(t) {
 const STALL_MS = Number(process.env.RAVENRY_STALL_MS) > 0 ? Number(process.env.RAVENRY_STALL_MS) : 500;
 export function watchStalls() {
   let last = Date.now();
+  let cpu = process.cpuUsage();
   const iv = setInterval(() => {
     const t = Date.now();
     const held = t - last - 100;
-    if (held > STALL_MS) console.log(`stall: the main thread was held ${held} ms in "${phaseAt(last + 100)}", ${since()} ms after start`);
+    const c = process.cpuUsage(cpu);
+    // How much of it the hub itself ran (all its threads): far less means the
+    // system did not give it the processor (a busy Mac), not code that held it.
+    if (held > STALL_MS) console.log(`stall: the main thread was held ${held} ms in "${phaseAt(last + 100)}", ${since()} ms after start (it ran ${Math.round((c.user + c.system) / 1000)} ms of ${t - last})`);
     last = t;
+    cpu = process.cpuUsage();
   }, 100);
   iv.unref();
 }
@@ -117,6 +122,8 @@ export async function profileStart() {
   await post('Profiler.enable');
   await post('Profiler.setSamplingInterval', { interval: 1000 });
   await post('Profiler.start');
+  // Where the profile's time 0 is, to find a stall line's moment in it.
+  console.log(`start: CPU profile from ${since()} ms after start`);
   fs.mkdirSync(dir, { recursive: true });
   const parts = [];
   let from = 0;

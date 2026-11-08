@@ -19,6 +19,7 @@
 // shell it ever started. So the list is checked against the transcript.
 
 import fs from 'node:fs';
+import { breathe } from './slice.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { RAVENRY_HOME } from './home.mjs';
@@ -243,11 +244,11 @@ function launchedMonitors(transcriptPath, ids) {
   return found;
 }
 
-// ---- the same, for the board's main thread: read in 2 MB chunks, the
+// ---- the same, for the board's main thread: read in 256 KB chunks, the
 // event loop given back between them (a first read of a big transcript is
 // tens of MB).
-const yieldNow = () => new Promise((r) => setImmediate(r));
-const CHUNK = 2 * 1024 * 1024;
+// 256 KB: a 2 MB chunk's lines took the main thread 20 to 40 ms at once.
+const CHUNK = 256 * 1024;
 // Reads [start, end) of a file as whole lines, chunk by chunk: onText(text,
 // base) for each, base the byte position of its first character. Returns
 // the position after the last whole line.
@@ -268,7 +269,7 @@ async function eachChunk(file, start, end, onText, skipFirst = false) {
       const last = all.lastIndexOf(0x0a);
       if (last >= 0) { onText(all.toString('utf8', 0, last), base); carry = all.subarray(last + 1); } else carry = all;
       pos += n;
-      await yieldNow();
+      await breathe();
     }
     return pos - carry.length;
   } finally { await fh.close().catch(() => {}); }

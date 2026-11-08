@@ -27,6 +27,7 @@
 //   runs.jsonl       one line per run: messages, calls, tokens, changes
 
 import fs from 'node:fs';
+import { breathe } from './slice.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
@@ -217,7 +218,7 @@ export async function scanFile(file, prev, onText, { marker = USER, read = claud
       }
       consumed = pos - (data.length - from);
       carry = from < data.length ? Buffer.from(data.subarray(from)) : null;
-      await new Promise((r) => setImmediate(r));
+      await breathe();
     }
   } finally {
     fs.closeSync(fd);

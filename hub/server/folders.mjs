@@ -8,6 +8,7 @@
 // Node built-ins only: the Stop hook uses this too.
 
 import fs from 'node:fs';
+import { breathe } from './slice.mjs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -145,13 +146,15 @@ function scan(file, size, prev) {
 // synchronously for the ~20 live sessions at the hub's start it held the
 // main thread for tens of seconds on a real board (2026-11-07, two updates
 // that rolled back).
-const yieldNow = () => new Promise((r) => setImmediate(r));
 async function linesHits(text, slice) {
   const lines = text.split('\n');
   const hits = [];
-  for (let i = 0; i < lines.length; i += 500) {
-    hits.push(...hitsIn(lines.slice(i, i + 500)));
-    if (Date.now() - slice.at > 30) { await yieldNow(); slice.at = Date.now(); }
+  // Line by line: 500 lines of big tool calls held the main thread up to
+  // 140 ms between two looks at the clock (2026-11-08, the start-up load test).
+  for (let i = 0; i < lines.length; i++) {
+    const h = hitsIn([lines[i]]);
+    if (h.length) hits.push(...h);
+    await breathe();
   }
   return hits;
 }
@@ -202,7 +205,7 @@ async function runScans() {
       const sc = await scanAsync(file, size, c && size - c.size < 64 * 1024 * 1024 ? c : null);
       if (sc) sessions.set(file, { size: sc.size, hits: sc.hits, value: folderOf(sc.hits) });
       onScan();
-      await yieldNow();
+      await breathe();
     }
   } finally { scanRunning = false; }
 }

@@ -7,6 +7,7 @@
 // First: the start-up record (hub.log: phases, stalls; a CPU profile of a
 // new version's first 90 s), so it covers every module's own loading too.
 import * as startlog from './startlog.mjs';
+import * as slice from './slice.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -592,15 +593,29 @@ function broadProject(p) {
 //    repo its tool calls work in sits deeper inside that one; with no
 //    project around the cwd (started in the projects root), the project of
 //    the repo it works in.
+// The same answer for the same session all tick long: each project's build
+// asked again for every session, each time with real paths (a syscall each)
+// for the session's folders and every worktree's (2026-11-08: 100 to 250 ms
+// held per project on the start-up load test). Forgotten at each tick.
+const ownerMemo = { tick: -1, reg: null, map: new Map() };
 function eventOwner(e, real) {
   if (!reg || !e) return null;
+  if (ownerMemo.tick !== tickNo || ownerMemo.reg !== reg) { ownerMemo.tick = tickNo; ownerMemo.reg = reg; ownerMemo.map = new Map(); }
+  const key = `${e.cwd || ''}\0${(real && real.folder) || ''}\0${e.workspaceId || ''}\0${e.surfaceId || ''}`;
+  if (ownerMemo.map.has(key)) return ownerMemo.map.get(key);
+  const own = eventOwnerOf(e, real);
+  ownerMemo.map.set(key, own);
+  return own;
+}
+function eventOwnerOf(e, real) {
   const root = rootFolder();
   const live = reg.projects.filter((p) => !p.hidden);
   // A session in one of a project's worktrees (server/worktrees.mjs) is
   // that project's, though its folder is a sibling of the project's.
   const where = [e.cwd, real && real.folder].filter(Boolean).map(realOr);
   // Merged or thrown away, its folder is gone but the session stays the project's.
-  const wt = worktrees.load().find((w) => w.projectId && where.some((x) => inside(x, realOr(w.folder))));
+  if (ownerMemo.wtTick !== tickNo) { ownerMemo.wtTick = tickNo; ownerMemo.wts = worktrees.load().filter((w) => w.projectId).map((w) => ({ ...w, real: realOr(w.folder) })); }
+  const wt = ownerMemo.wts.find((w) => where.some((x) => inside(x, w.real)));
   if (wt) { const p = live.find((x) => x.id === wt.projectId); if (p) return p; }
   if (e.workspaceId) {
     const owners = live.filter((p) => (p.workspaces || []).includes(e.workspaceId));
@@ -1204,26 +1219,26 @@ async function tick() {
     // An unowned workspace is on the board only while a session runs in it.
     // Each session's work folder (from its transcript's tool calls; read in
     // full once, then only what was added): read here, one session at a
-    // time, giving the event loop back every 50 ms; every project's build
+    // time, giving the event loop back as it goes (slice.mjs); every project's build
     // below asks for all of them, and the first one used to read them all
     // at once (seconds on big transcripts).
     {
-      let slice = Date.now();
       for (const e of evAll.values()) {
         const tp = transcriptOf(e);
         if (tp) { try { realFolder(tp, e); } catch { /* read again in the build */ } }
-        if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        await slice.breathe();
       }
     }
-    // Project by project, giving the event loop back every 50 ms: the
+    // Project by project, giving the event loop back as it goes (slice.mjs): the
     // board answers HTTP while a big set of projects is read (2026-11-07,
     // a first tick held the main thread for tens of seconds).
     const build = async () => {
       const out = [];
-      let slice = Date.now();
       for (const p of [...reg.projects.filter((x) => !x.hidden), ...loose, ...unowned]) {
+        // Its name in a stall line (startlog: the phase a held main thread was in).
+        startlog.phase(`tick ${tickNo}: projects: ${p.id}`);
         out.push(buildProject(p, wsById, hooks, settings, now));
-        if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+        await slice.breathe();
       }
       return out.filter((p) => !p.unowned || p.sessions.length);
     };
@@ -1404,9 +1419,8 @@ async function buildSessions(workspaces, hooks, settings, now, projects) {
   const boardTab = new Map(boardTabs.filter((b) => b.s.terminal !== false).map((b) => [b.s.surfaceId, { sessionId: b.s.sessionId, method: b.s.method }]));
   const bySid = new Map(boardTabs.filter((b) => b.s.sessionId).map((b) => [b.s.sessionId, b]));
   const rows = [];
-  let slice = Date.now();
   for (let p of procState.procs) {
-    if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+    await slice.breathe();
     // A process a move ended is gone, even before the process list says so.
     if (endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
     const otherKind = p.surfaceId ? null : p.ravenryId ? 'ravenry' : p.rexId ? 'rex' : p.itermId ? 'iterm' : null;

@@ -27,6 +27,7 @@
 // user's: it needs RAVENRY_RUNTIME_DIR set to the test's own folder.
 
 import { phase } from './startlog.mjs';
+import * as shared from './slice.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -477,7 +478,7 @@ async function follow(d) {
   // back every 50 ms while a daemon's backlog is taken in.
   const name = d.machine ? `${d.machine}/${d.id}` : d.id;
   let slice = Date.now();
-  const breathe = async () => { if (Date.now() - slice > 50) { await new Promise((r) => setImmediate(r)); slice = Date.now(); } };
+  const breathe = shared.breathe;
   try {
     phase(`daemon ${name}: subscribe`);
     await d.c.request('events.subscribe', {});

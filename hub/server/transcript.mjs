@@ -7,6 +7,7 @@
 // by size and mtime.
 
 import fs from 'node:fs';
+import { breathe } from './slice.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { hasTag, DEFERRED } from './handoff.mjs';
@@ -189,9 +190,10 @@ export function readTranscript(file) {
       }
     } else {
       // First read, rewritten, or grown by more than a tail: its tail.
-      let t = readTail(file, TAIL);
+      const t = readTail(file, TAIL);
       state = parse(t.text);
-      if (!state.usage && !t.whole) { t = readTail(file, 6 * 1024 * 1024); state = parse(t.text); }
+      // No usage in its tail: the last 6 MB are read after, in pieces (deeper).
+      if (!state.usage && !t.whole) void deeper(file);
       offset = t.end;
     }
     value = summary(state);
@@ -206,6 +208,47 @@ export function readTranscript(file) {
 }
 
 const TAIL = 768 * 1024;
+
+// A transcript whose last 768 KB say nothing of the model's usage is read
+// again from its last 6 MB, for the context size. Done at once it held the
+// board's main thread 100 to 230 ms per session at start (2026-11-08, the
+// start-up load test): now the tail is read asynchronously and fed in
+// pieces of whole lines, the event loop given back every 15 ms, and the
+// cache takes it when the file has not changed since (readTranscript goes
+// on from there; the next tick shows the context size).
+const deep = new Set();
+async function deeper(file) {
+  if (deep.has(file)) return;
+  deep.add(file);
+  try {
+    const st = await fs.promises.stat(file);
+    const fh = await fs.promises.open(file, 'r');
+    let t;
+    try {
+      const start = Math.max(0, st.size - 6 * 1024 * 1024);
+      const buf = Buffer.alloc(st.size - start);
+      await fh.read(buf, 0, buf.length, start);
+      const from = start > 0 ? buf.indexOf(0x0a) + 1 : 0;
+      const last = buf.lastIndexOf(0x0a);
+      t = { text: last >= from ? buf.toString('utf8', from, last) : '', end: last >= 0 ? start + last + 1 : start };
+    } finally { await fh.close(); }
+    const state = fresh();
+    let at = Date.now();
+    for (let i = 0; i < t.text.length;) {
+      let j = t.text.indexOf('\n', i + 64 * 1024);
+      if (j < 0) j = t.text.length;
+      feed(state, t.text.slice(i, j));
+      i = j + 1;
+      await breathe();
+    }
+    const hit = cache.get(file);
+    if (!hit || hit.size !== st.size || hit.mtimeMs !== st.mtimeMs) return; // changed meanwhile: read again as usual
+    const value = summary(state);
+    value.path = file;
+    value.mtimeMs = st.mtimeMs;
+    cache.set(file, { size: st.size, mtimeMs: st.mtimeMs, value, state, offset: t.end });
+  } catch { /* the tail's reading stands */ } finally { deep.delete(file); }
+}
 
 function summary(state) {
   const { pendingText, turnAsk, ...value } = state;

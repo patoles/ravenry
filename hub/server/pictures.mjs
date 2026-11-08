@@ -33,6 +33,7 @@
 // Node built-ins only.
 
 import fs from 'node:fs';
+import { breathe } from './slice.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -364,7 +365,7 @@ async function scanTail(file) {
       foldText(e, all.toString('utf8', 0, last));
       done = base + last + 1;
       carry = all.subarray(last + 1);
-      if (Date.now() - slice > 30) { await new Promise((r) => setImmediate(r)); slice = Date.now(); }
+      await breathe();
     }
     e.offset = done;
     e.fresh = false;
