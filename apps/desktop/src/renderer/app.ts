@@ -1191,7 +1191,7 @@ function dismissHint(learn: boolean): void {
  * middle column for a pane's tab and a sidebar row, the picker's page):
  * never over the panel, the sidebar or the tab strip.
  */
-function hintAt(): { el: Element; region: DOMRect; html: (HTMLElement | string)[]; beside?: boolean } | null {
+function hintAt(): { el: Element; region: DOMRect; html: (HTMLElement | string)[]; beside?: boolean; room?: boolean } | null {
   const hn = hintNow;
   if (!hn) return null;
   if (hn.id === 'agent-pane') {
@@ -1208,8 +1208,10 @@ function hintAt(): { el: Element; region: DOMRect; html: (HTMLElement | string)[
     const el = document.querySelector('#side .g-you .ss');
     return el ? { el, region: middleRegion(), beside: true, html: [h('b', 'This session waits on you.'), ' Answer it here, or on your phone; the ones that need you stay on top.'] } : null;
   }
-  const el = document.querySelector('#picker .pg-h, #picker');
-  return S.view.kind === 'picker' && el ? { el, region: $('picker').getBoundingClientRect(), html: [h('b', 'Pick one, or circle the part you mean.'), ' Your answer goes back to the agent.'] } : null;
+  // Under the picker's title, in room made for it there (pickRoom): the
+  // pictures and the note below it move down, nothing is covered.
+  const el = $('picker').querySelector('.pk-h');
+  return S.view.kind === 'picker' && el ? { el, region: $('picker').getBoundingClientRect(), room: true, html: [h('b', 'Pick one, or circle the part you mean.'), ' Your answer goes back to the agent.'] } : null;
 }
 
 /** The middle column under the tab strip and the bar above the panes: the panes' area (the hints' region there). */
@@ -1234,6 +1236,8 @@ function renderHint(): void {
   if (!hintNow && document.querySelector('#side .g-you .ss')) wantHint('needs-you');
   const box = $('hint');
   const at = hintAt();
+  // The room made under a picker's title goes with its hint.
+  for (const e of document.querySelectorAll<HTMLElement>('[data-hint-room]')) if (!at || e !== at.el) { e.style.marginBottom = ''; delete e.dataset.hintRoom; }
   if (!at) { box.hidden = true; return; }
   const r = at.el.getBoundingClientRect();
   replace(box, h('div.hint-t', ...at.html),
@@ -1267,6 +1271,14 @@ function renderHint(): void {
   if (flip) { top = r.top - 8 - hh; box.style.top = `${top}px`; }
   box.style.top = `${Math.max(g.top + pad, Math.min(top, g.bottom - pad - hh))}px`;
   box.classList.toggle('above', flip);
+  if (at.room) {
+    // Room under its thing, so it covers nothing: what follows moves down.
+    const el = at.el as HTMLElement;
+    el.dataset.hintRoom = '1';
+    el.style.marginBottom = `${hh + 16}px`;
+    box.style.top = `${r.bottom + 8}px`;
+    box.classList.remove('above');
+  }
   if (!at.beside) box.style.setProperty('--arrow', `${Math.max(14, Math.min(w - 20, r.left + Math.min(r.width, 60) / 2 - left))}px`);
 }
 

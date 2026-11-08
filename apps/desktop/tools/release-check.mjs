@@ -824,7 +824,7 @@ try {
     // Where a hint is: its box, its region (the part of the window it points
     // into), and whether it lies inside that region and clear of the panel,
     // the sidebar and the tab strip.
-    const GEO = `(() => { const b = document.getElementById('hint'); const rg = ${R}.hintRegion(); const rect = (e, fixed) => { if (!e || e.hidden || (!fixed && e.offsetParent === null)) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }; const box = rect(b, true); const hit = (a, c) => !!a && !!c && a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5; const panel = rect(document.getElementById('panel')), side = rect(document.getElementById('side')), tabs = rect(document.getElementById('tabs')); return { shown: !!box, box, region: rg, inside: !!box && !!rg && box.left >= rg.left - 0.5 && box.right <= rg.right + 0.5 && box.top >= rg.top - 0.5 && box.bottom <= rg.bottom + 0.5, panel: hit(box, panel), side: hit(box, side), tabs: hit(box, tabs), win: [innerWidth, innerHeight], overlay: ${R}.S.overlay }; })()`;
+    const GEO = `(() => { const b = document.getElementById('hint'); const rg = ${R}.hintRegion(); const rect = (e, fixed) => { if (!e || e.hidden || (!fixed && e.offsetParent === null)) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }; const box = rect(b, true); const hit = (a, c) => !!a && !!c && a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5; const panel = rect(document.getElementById('panel')), side = rect(document.getElementById('side')), tabs = rect(document.getElementById('tabs')); const ctl = !!box && [...document.querySelectorAll('#picker button, #picker textarea, #picker input, #tabs .tab, .phead button, #movebar button')].some((e) => hit(box, rect(e))); return { shown: !!box, box, region: rg, inside: !!box && !!rg && box.left >= rg.left - 0.5 && box.right <= rg.right + 0.5 && box.top >= rg.top - 0.5 && box.bottom <= rg.bottom + 0.5, panel: hit(box, panel), side: hit(box, side), tabs: hit(box, tabs), controls: ctl, win: [innerWidth, innerHeight], overlay: ${R}.S.overlay }; })()`;
     // At 1440 x 900 with the panel open and closed, and at the smallest
     // window (720 x 480) with the panel closed and over the middle.
     const geo = (id) => [
@@ -846,7 +846,7 @@ try {
       save('learnAtLaunch', `${R}.S.view.kind === 'learn'`),
       // F: the first Needs-you row gets its hint, beside it.
       { until: HINT('needs-you'), timeout: 15000 }, save('needsHint', `document.getElementById('hint').textContent`), ...both('F-needs-you'), ...geo('needs-you'),
-      { js: `document.querySelector('#hint .x').click()` },
+      { until: HINT('needs-you'), timeout: 5000 }, { js: `document.querySelector('#hint .x').click()` },
       { until: `document.getElementById('hint').hidden`, timeout: 3000 }, mark('needsGone'),
       // A2: Start leads to step 2, in the same place.
       { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` },
@@ -889,7 +889,7 @@ try {
       { js: `${R}.term().focus()` },
       { type: `cd ~ && ${CLI} new --name 'dev server' -- /bin/sleep 600\r`, after: 400 },
       { until: HINT('agent-pane'), timeout: 15000 }, save('paneHint', `document.getElementById('hint').textContent`), ...both('F-agent-pane'), ...geo('agent-pane'),
-      { js: `document.querySelector('#hint .x').click()` }, { until: `document.getElementById('hint').hidden`, timeout: 3000 },
+      { until: HINT('agent-pane'), timeout: 5000 }, { js: `document.querySelector('#hint .x').click()` }, { until: `document.getElementById('hint').hidden`, timeout: 3000 },
       { js: `${R}.term().focus()` },
       { type: `${CLI} new --name 'second' -- /bin/sleep 600\r`, after: 400 },
       { until: `${R}.S.tabs.filter((t) => t.owner).length >= 2`, timeout: 15000 }, { sleep: 800 },
@@ -900,7 +900,7 @@ try {
       { until: `[...${R}.S.cps.items.values()].some((k) => k.cp.kind === 'pick' && k.cp.state === 'open')`, timeout: 15000 },
       { js: `${R}.openPicker([...${R}.S.cps.items.values()].find((k) => k.cp.kind === 'pick'))` },
       { until: HINT('pick'), timeout: 10000 }, save('pickHint', `document.getElementById('hint').textContent`), ...both('F-pick'), ...geo('pick'),
-      { js: `document.querySelector('#hint .lk').click()` },
+      { until: HINT('pick'), timeout: 5000 }, { js: `document.querySelector('#hint .lk').click()` },
       { until: `!document.getElementById('learn').hidden && document.querySelector('#learn .ln-c.lit[data-card="pick"]')`, timeout: 5000 }, mark('learnMore'),
     ], {}, { hints: true });
     const j = (f) => { try { return JSON.parse(fs.readFileSync(path.join(o.work, f), 'utf8')); } catch { return null; } };
@@ -925,15 +925,15 @@ try {
       const g = ['wide_open', 'wide_closed', 'small_closed', 'small_panel'].map((k) => [k, m[`geo_${id}_${k}`] || {}]);
       // Shown, it lies inside its region, clear of the panel, the sidebar and the tab strip; with the
       // panel over the middle of a small window it may wait (no room), never cover it.
-      const ok = g.every(([k, x]) => (x.shown ? x.inside && !x.panel && !x.side && !x.tabs : k === 'small_panel')) && g.filter(([k]) => k !== 'small_panel').every(([, x]) => x.shown);
-      step(`21 F: the ${id} hint lies inside the region it points into, clear of the panel, the sidebar and the tab strip, at 1440 x 900 and at the smallest window (720 x 480), with the panel open and closed`, ok, Object.fromEntries(g.map(([k, x]) => [k, x.shown ? { box: x.box && [x.box.left, x.box.top, x.box.right, x.box.bottom].map(Math.round), region: x.region && [x.region.left, x.region.top, x.region.right, x.region.bottom].map(Math.round), inside: x.inside, panel: x.panel, side: x.side, tabs: x.tabs } : 'waits'])));
+      const ok = g.every(([k, x]) => (x.shown ? x.inside && !x.panel && !x.side && !x.tabs && !x.controls : k === 'small_panel')) && g.filter(([k]) => k !== 'small_panel').every(([, x]) => x.shown);
+      step(`21 F: the ${id} hint lies inside the region it points into, clear of the panel, the sidebar, the tab strip and every button or field, at 1440 x 900 and at the smallest window (720 x 480), with the panel open and closed`, ok, Object.fromEntries(g.map(([k, x]) => [k, x.shown ? { box: x.box && [x.box.left, x.box.top, x.box.right, x.box.bottom].map(Math.round), region: x.region && [x.region.left, x.region.top, x.region.right, x.region.bottom].map(Math.round), inside: x.inside, panel: x.panel, side: x.side, tabs: x.tabs, controls: x.controls } : 'waits'])));
     }
     // Relaunched: no hint comes back, Learn Ravenry does not open, and Start goes straight to the session (step 2 answered).
     const r2 = await launch(o, 'onboard2', [
       { ready: true, timeout: 30000 },
       { until: PROMPT, timeout: 20000 },
       { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length >= 1`, timeout: 30000 }, { sleep: 1500 },
-      save('hint', `!document.getElementById('hint').hidden`), save('learn', `${R}.S.view.kind === 'learn'`),
+      save('hint', `document.getElementById('hint').hidden ? false : document.getElementById('hint').dataset.hint`), save('learn', `${R}.S.view.kind === 'learn'`),
       { js: `document.querySelector('#side .brand .icon-btn[aria-label="New session"]').click()` },
       { until: `document.querySelector('#start .fl-go .btn.pri') && /^Start Claude in /.test(document.querySelector('#start .fl-go .btn.pri').textContent)`, timeout: 20000 },
       { js: `document.querySelector('#start .fl-go .btn.pri').click()` },
