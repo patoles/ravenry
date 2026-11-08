@@ -101,7 +101,7 @@ const PROJECTS = [
     turn: ['Round the temperatures', 'Done: whole degrees everywhere, tests pass.', 60 * 73.5], machine: 'gpu-box' },
 ];
 
-export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null, cmuxIds = false }) {
+export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null, cmuxIds = false, plan = false, ideas = false }) {
   fs.rmSync(dir, { recursive: true, force: true });
   const HOME = path.join(dir, 'home');
   const ROOT = path.join(HOME, 'Projects');
@@ -176,6 +176,22 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
   fs.writeFileSync(path.join(HOME, '.claude', 'CLAUDE.md'), '# Working rules\n');
   if (alerts) fs.writeFileSync(path.join(MC, 'alerts.json'), JSON.stringify({ enabled: true, channel: 'ntfy', ntfy: { server: 'http://127.0.0.1:9', topic: 'demo-board-alerts' } }), { mode: 0o600 });
 
+  // A running plan in garden-planner's brief (its panel's Open the plan).
+  if (plan) {
+    const bf = path.join(ROOT, 'garden-planner', 'BRIEF.md');
+    fs.appendFileSync(bf, '\n## Plan\n### Send the first reminders\nRuns on its own. Started: 2026-11-07 10:00. Not in the plan: stop and ask.\nGoal: "Send each bed\'s first reminder at the right time"\n\n'
+      + '- [x] Do: Work out each bed\'s sowing window from the frost dates\n  - Proof: windows.json has 12 beds, each with a start and an end (10:40)\n'
+      + '- [ ] Do: Write the reminder text for each kind of bed\n'
+      + '- [ ] Gate: Pick when the first reminder goes out\n  - Choices: A week before sowing | On the first frost-free day\n');
+  }
+  // An idea with a thread (the Ideas page's card opens it).
+  if (ideas) {
+    const at = (m) => new Date(Date.now() - m * MIN).toISOString();
+    fs.writeFileSync(path.join(MC, 'ideas.json'), JSON.stringify({ ideas: [{ id: 'demo-tidepool', name: 'A tide pool you look after', stage: 'spark', pitch: 'A small screen of rock pool that changes with the tides.', status: 'Added today.', img: null, alt: null,
+      thread: [{ who: 'you', text: 'Would this work as a phone widget?', at: at(30) }, { who: 'claude', text: 'Yes: one pool, redrawn at each tide, with a single creature to look after. It stays calm because nothing is urgent.', at: at(29) }],
+      created: at(31), updated: at(29) }] }, null, 2));
+  }
+
   if (prepare) await prepare({ HOME, ROOT, MC });
   const T = path.join(HUB, 'tools');
   const env = {
@@ -186,6 +202,15 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     MC_PS_BIN: path.join(T, 'stub-ps.mjs'), MC_LSOF_BIN: path.join(T, 'stub-ps.mjs'), STUB_PS_STATE: PS,
     MC_OSASCRIPT_BIN: path.join(T, 'stub-osascript.mjs'), ITERM_OSASCRIPT_BIN: path.join(T, 'stub-osascript.mjs'), STUB_OSASCRIPT_LOG: path.join(dir, 'osascript.jsonl'),
     MC_CODEX: '0', MC_CODEX_HOME: path.join(HOME, '.codex'),
+    // Every model call the board makes (an idea's reply, a plan draft, a
+    // mockup round, the repeats) goes to a stand-in: a click never spends quota.
+    MC_CLAUDE_BIN: path.join(T, 'stub-claude.mjs'),
+    MC_PRINT_COMMAND: JSON.stringify([process.execPath, path.join(T, 'stub-claude.mjs')]),
+    MC_PLAN_COMMAND: JSON.stringify([process.execPath, path.join(T, 'stub-plan-claude.mjs')]),
+    MC_MOCKUP_COMMAND: JSON.stringify([process.execPath, path.join(T, 'stub-mockup-claude.mjs')]),
+    MC_REPEATS_COMMAND: JSON.stringify(['/usr/bin/false']),
+    // Copy (the ntfy link) never reaches the person's clipboard.
+    MC_COPY_COMMAND: JSON.stringify(['/usr/bin/true']),
     ...(runtime ? { RAVENRY_RUNTIME_DIR: runtime } : {}),
     ...moreEnv,
   };

@@ -125,7 +125,14 @@
 //                   pages, brief, Decisions, Machines, Start, Learn, each
 //                   page, the Settings window) clicked; fails on any click
 //                   that opens the board in the browser and on any that
-//                   changes nothing on the test twin, a row each: the
+//                   changes nothing
+//   25 in-app       tools/inapp-shots.mjs on the test twin: Gallery, one
+//                   picture large, a plan, a new plan, an idea's thread and
+//                   Alerts drawn in the window at 1280 and 900, dark and
+//                   light (a picture of each); the panel's picture, Gallery
+//                   and Open the plan and the bell lead to them; nothing
+//                   opens outside the window
+//   15 brief        tools/brief-test.mjs on the test twin, a row each: the
 //                   panel's Brief card (goal on one line, Next as 3 items,
 //                   the older entries counted) and the Brief page (the
 //                   dated entries newest first, the plan, Edit, links)
@@ -769,7 +776,7 @@ try {
     const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
     const ss = (r.stdout || '').match(/slowestStallMs=(\d+) slowestOwnStallMs=(\d+)/);
     const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
-    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms itself (the wall-clock stall and the hub\'s own part are both reported), and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, slowestStallMs: ss ? Number(ss[1]) : null, slowestOwnStallMs: ss ? Number(ss[2]) : null, fails: fails.slice(0, 3) });
+    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms by the wall clock (the gate; the hub\'s own CPU part is reported beside it), and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, slowestStallMs: ss ? Number(ss[1]) : null, slowestOwnStallMs: ss ? Number(ss[2]) : null, fails: fails.slice(0, 3) });
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 13, opened from a pane
@@ -793,7 +800,7 @@ try {
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
-  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs'], [24, 'controls', 'controls-sweep.mjs']]) {
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs'], [24, 'controls', 'controls-sweep.mjs'], [25, 'in-app', 'inapp-shots.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
       const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
       const app = path.join(k, 'Ravenry.app');

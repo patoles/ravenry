@@ -262,18 +262,17 @@ try {
       // Every hold over 50 ms is said (RAVENRY_STALL_MS=50), so the slowest
       // is measured, with how much of it the hub itself ran ("it ran X ms
       // of Y": its process's CPU time in that stretch). The gate is the
-      // hub's own hold, at most what it ran: on a busy Mac (load average
-      // 25 to 57 on 10 cores, 2026-11-08) the system took the processor
-      // from it for up to 500 ms while it ran 80, and no code of the hub's
-      // can hold what it is not given. The wall-clock stall is reported.
+      // wall-clock hold, what the person waits (2026-11-08: the gate on the
+      // wall clock, not on the CPU share); the hub's own part is reported
+      // beside it, to tell its code from a busy Mac.
       const held = (l) => Number((l.match(/held (\d+) ms/) || [])[1]);
       const ran = (l) => { const m = l.match(/it ran (\d+) ms of/); return m ? Number(m[1]) : held(l); };
       const own = (l) => Math.min(held(l), ran(l));
       const early = out.split('\n').filter((l) => /^stall:/.test(l) && Number((l.match(/(\d+) ms after start/) || [])[1]) <= (listenAt - started) + 30000);
-      const stalls = early.filter((l) => own(l) > 200);
+      const stalls = early.filter((l) => held(l) > 200);
       slowestStall = early.reduce((m, l) => Math.max(m, held(l)), 0);
       slowestOwn = early.reduce((m, l) => Math.max(m, own(l)), 0);
-      check('its main thread is never held over 200 ms by the hub itself in its first 30 s', !stalls.length, stalls.slice(0, 5).join(' | ') || 'none');
+      check(`its main thread is never held over 200 ms by the wall clock in its first 30 s (slowest ${slowestStall} ms; the hub itself ran at most ${slowestOwn} ms of a hold)`, !stalls.length, stalls.slice(0, 5).join(' | ') || 'none');
       check(`the big session's running tasks are counted right (${bigRunning} of the ${listed.length} listed) within 30 s`, tasksRight != null, tasksRight != null ? `${tasksRight} ms after listen` : `saw ${tasksSeen}`);
       if (tasksRight == null && lastBody) {
         // What the state says of that session, to read why.
