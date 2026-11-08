@@ -188,6 +188,8 @@ function retire(acct) {
   if (loaded(acct.label)) launchctl('bootout', `gui/${UID}/${acct.label}`);
   // Its daemons (started with its runtime folder), then its folder.
   try { for (const line of execFileSync('/bin/ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' }).split('\n')) { const m = line.trim().match(/^(\d+) (.*)$/); if (m && m[2].includes(acct.root)) { try { process.kill(Number(m[1]), 'SIGTERM'); } catch { /* gone */ } } } } catch { /* none */ }
+  // RC_KEEP_LOGS=1: its logs kept in OUT/logs/<name>, to read a failure after.
+  if (process.env.RC_KEEP_LOGS) { try { const to = path.join(OUT, 'logs', acct.name); fs.mkdirSync(to, { recursive: true }); for (const d of [acct.data, acct.work]) { for (const f of fs.readdirSync(d, { recursive: true })) { const src = path.join(d, String(f)); if (/\.(log|txt|jsonl)$/.test(src) && fs.statSync(src).isFile() && fs.statSync(src).size < 20e6) fs.copyFileSync(src, path.join(to, String(f).replace(/[\/]/g, '_'))); } } } catch { /* best effort */ } }
   try { fs.rmSync(acct.root, { recursive: true, force: true }); } catch { /* left */ }
 }
 async function account(name, source = DRIVEN) {
