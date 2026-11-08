@@ -36,15 +36,16 @@ test('groups come in order, newest first, with counts', () => {
   assert.equal(b[3].count, 1);
 });
 
-test('rows: only the sessions of the group, else the primary; lines, context and the warning', () => {
+test('rows: every session of a project not idle, the most urgent first; lines, context and the warning', () => {
   const b = board(STATE, NOW);
   const you = b[0].projects;
-  assert.deepEqual(you[0].rows.map((r) => r.key), ['new-ask/s2']); // its working session is not repeated
+  assert.deepEqual(you[0].rows.map((r) => [r.key, r.group]), [['new-ask/s2', 'you'], ['new-ask/s2b', 'work']]); // its working session has its own row
   assert.equal(you[0].rows[0].line, 'Allow it?');
   assert.deepEqual(you[1].rows.map((r) => r.key), ['gate/s4']); // a plan gate: the primary session
   assert.equal(you[2].rows[0].line, 'Keep the old format?');
   const work = b[1].projects[0];
-  assert.deepEqual(work.rows.map((r) => r.key), ['busy/s3', 'busy/s3b']);
+  assert.deepEqual(work.rows.map((r) => r.key), ['busy/s3', 'busy/s3b', 'busy/s3c']); // its idle one too
+  assert.equal(b[1].count, 2); // the rows working
   assert.equal(work.rows[0].pct, 58);
   assert.ok(work.rows[0].pctWarn);
   assert.equal(work.time, 'now');

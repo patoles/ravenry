@@ -224,7 +224,11 @@ function row(p: HubProject, s: HubSession, threshold: number, mark: RowMark | nu
 
 /**
  * The sidebar: Needs you first, then Working, Waiting on others and Idle,
- * newest first in each. A session with an open checkpoint (marks, by
+ * newest first in each. A project not idle shows every session the hub
+ * lists in it, each its own row with its own state's dot, the most urgent
+ * first (2026-11-08: a session working beside another showed nowhere); an
+ * idle project is one line. A group's count is its rows in that state (one
+ * at least a project). A session with an open checkpoint (marks, by
  * session key) needs you whatever its own state says, and its project's
  * time is when it started waiting.
  */
@@ -236,8 +240,8 @@ export function board(state: HubState | null, now: number, marks: Map<string, Ro
     const live = p.sessions.filter((s) => !s.handed);
     const marked = live.filter((s) => marks.has(sessionKey(p.id, s)));
     const g: Group = marked.length ? 'you' : ORDER.includes(p.state) ? p.state : 'idle';
-    let shown = g === 'idle' ? [] : live.filter((s) => marks.has(sessionKey(p.id, s)) || sessionGroup(s) === g);
-    if (g !== 'idle' && !shown.length) shown = live.filter((s) => s.surfaceId === p.primary).slice(0, 1);
+    const rank = (s: HubSession) => (marks.has(sessionKey(p.id, s)) ? 0 : ORDER.indexOf(sessionGroup(s)));
+    const shown = g === 'idle' ? [] : live.map((s, i) => ({ s, i })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).map((x) => x.s);
     const first = marked.map((s) => Date.parse(marks.get(sessionKey(p.id, s))!.since)).filter(Number.isFinite).sort((a, b) => a - b)[0];
     if (first !== undefined) since.set(p, first);
     const list = by.get(g) || [];
@@ -248,7 +252,7 @@ export function board(state: HubState | null, now: number, marks: Map<string, Ro
   const t = (p: HubProject) => since.get(p) ?? (p.since ? Date.parse(p.since) : now);
   return ORDER.filter((g) => by.has(g)).map((g) => {
     const projects = by.get(g)!.sort((a, b) => t(b.project) - t(a.project));
-    const count = g === 'idle' ? projects.length : projects.reduce((n, p) => n + Math.max(p.rows.length, 1), 0);
+    const count = g === 'idle' ? projects.length : projects.reduce((n, p) => n + Math.max(p.rows.filter((r) => r.group === g).length, 1), 0);
     return { group: g, title: GROUP_TITLES[g], projects, count };
   });
 }
