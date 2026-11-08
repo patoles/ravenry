@@ -261,6 +261,27 @@ its pinned tab and the panel follow its new key (`rekeyed` in
 The panel's brief shows each field in about four lines, with Show all and
 Show less.
 
+## The first session, Skills and Learn Ravenry
+
+Start on the first-session screen leads to step 2, once per assistant
+(Claude Code, then Codex the first time it is started): its hooks ("Tell
+Ravenry when it needs you", a line in ~/.claude/settings.json or Codex's
+hooks.json) and the Ravenry skill (~/.claude/skills/ravenry or
+~/.codex/skills/ravenry, one SKILL.md that runs `ravenry skill`), both
+ticked. "Set them up" or "Not now", then the session opens as usual, with
+nothing typed in it; the panel says what is set up. Settings, Skills
+installs or removes either later (src/main/skills.ts; the hooks through
+the hub, hub/server/hookinstall.mjs). Removing puts the files back byte for
+byte as they were, unless something else changed them since: then only
+Ravenry's own part goes.
+
+Learn Ravenry (src/renderer/learn.ts) opens from the ? in the sidebar's
+bottom row and Help > Learn Ravenry, never by itself: seven cards, ticked
+once that part was used, each with a "Try it" that opens a session with a
+message ready in its input (not sent). The first pane an agent opens, the
+first Needs-you row and the first pick each get one hint, with Learn more
+and an x; dismissed, it never comes back (window.json, hintsDone).
+
 ## macOS's privacy question
 
 An app signed ad hoc is a new app to macOS at every build (on the

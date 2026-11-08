@@ -22,6 +22,7 @@ import './phase2.css';
 import type { AgentStatus, Checkpoint, DaemonEvent, InputRecord, Pane, RavenryClient, Source } from '@ravenry/client';
 import { api } from './api.ts';
 import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
+import type { SkillRow } from '../shared/skills.ts';
 import { cardFor, cardKey, clearHiddenSecrets, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
 import type { CardCtx, Reply } from './cards.ts';
 import { Checkpoints, daemonAnswer, driveVerb, hubAnswer, isOpen, markOf, timeOf } from './checkpoints.ts';
@@ -37,6 +38,8 @@ import { Machines, MACHINES_ICON } from './machines.ts';
 import { initNpmSwitch, npmChosen, npmTakesCentre, renderNpmCentre, renderNpmPointer, setBoardLive } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
 import { Pages } from './pages.ts';
+import { renderLearn } from './learn.ts';
+import type { LearnCard, LearnKey } from './learn.ts';
 import type { NavRow } from './pages.ts';
 import { FONT_SIZE, TerminalView, THEME } from './terminal.ts';
 import { PaneStore } from './panes.ts';
@@ -107,6 +110,8 @@ type View =
   | { kind: 'brief'; key: string; project: string }
   /** A project no session runs in, picked in the sidebar: what it is and a way to start one. */
   | { kind: 'project'; id: string }
+  /** Learn Ravenry (learn.ts): opened by the person, never by itself; `lit` is the card Learn more points at. */
+  | { kind: 'learn'; lit?: LearnKey | null; back?: View }
   | { kind: 'start' }
   | { kind: 'none' };
 
@@ -141,9 +146,25 @@ const S = {
   /** A checkpoint whose card gets the keyboard after the next render. */
   focusCp: null as string | null,
   start: { folders: [] as FolderPick[], root: null as string | null, folder: null as string | null, assistants: [] as AssistantInfo[], assistant: null as string | null, busy: false, error: null as string | null, inFolder: false },
-  /** The first-launch offer to set up the assistants' hooks. */
-  hooks: { asked: false, offer: null as null | { files: string[]; names: string[] }, busy: false, error: null as string | null, checked: false },
+  /**
+   * The first-launch step 2 (A2): the agreement for the assistant picked,
+   * its hooks and the Ravenry skill, shown once per assistant after Start.
+   */
+  setup: null as null | SetupStep,
+  /** The assistants whose step 2 was answered (Set them up or Not now). */
+  setupAsked: {} as Record<string, boolean>,
 };
+
+interface SetupStep {
+  kind: 'claude' | 'codex';
+  /** Ticked. */
+  hooks: boolean; skill: boolean;
+  /** Already on (the line says so and is not written again). */
+  hooksOn: boolean; skillOn: boolean;
+  /** The file the hooks go in, or null when the board cannot write them now. */
+  hooksFile: string | null; skillDir: string;
+  busy: boolean; error: string | null;
+}
 
 const $ = (id: string) => document.getElementById(id)!;
 /** The terminal of the pane with the keyboard: termA (the tab's own pane) or termB (its split's). */
@@ -505,7 +526,7 @@ function viewSessionKey(): string | null {
 }
 
 /** The views that take the middle and right columns. */
-const WIDE_VIEWS = new Set(['page', 'machines', 'decisions', 'picker', 'grid']);
+const WIDE_VIEWS = new Set(['page', 'machines', 'decisions', 'picker', 'grid', 'learn']);
 
 // While the person keeps the npm board (npmswitch.ts npmChosen), the app runs
 // no hub of its own: each view that needs one says so and points at the npm
@@ -805,6 +826,7 @@ function canAnswer(k: Known): boolean {
  * (bad_request), and then nothing ran.
  */
 async function answerCp(k: Known, reply: Reply): Promise<void> {
+  markUsed('needs');
   if (k.socket) {
     const c = await daemons.get(k.socket).catch(() => null);
     if (c && !c.closed) {
@@ -1009,8 +1031,9 @@ function renderSidebar(): void {
   const mem = memoryLine(S.hub);
   const foot = h('div.foot',
     h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => openBoard('') } }, svg(I.SETTINGS)),
-    empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { if (npmPoint('Pairing a phone')) return; phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
+    empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { if (npmPoint('Pairing a phone')) return; if (!phoneCard.open) markUsed('phone'); phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
     empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', on: { click: () => openBoard('') } }, svg(I.BELL)),
+    h(`button.icon-btn.learn-btn${S.view.kind === 'learn' ? '.on' : ''}`, { title: 'Learn Ravenry', 'aria-label': 'Learn Ravenry', on: { click: () => openLearn() } }, svg(I.QUESTION)),
     h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => { if (!npmPoint('Machines')) setView({ kind: 'machines' }); } } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
     h('span.sp'),
     mem && !empty ? h('span.mem.num', `Claude ${mem}`) : null);
@@ -1050,6 +1073,162 @@ function openPage(key: string): void {
   S.overlay = false;
   S.panelKey = null;
   setView({ kind: 'page', key });
+}
+
+// ---------------------------------------------------------------- learn (E) and hints (F)
+
+/** The parts of Ravenry the person used (Learn Ravenry ticks them). */
+let learnUsed: Partial<Record<LearnKey, boolean>> = {};
+function markUsed(k: LearnKey): void {
+  if (learnUsed[k]) return;
+  learnUsed = { ...learnUsed, [k]: true };
+  api().storeSet({ learnUsed });
+}
+
+function openLearn(lit: LearnKey | null = null): void {
+  const back = S.view.kind === 'learn' ? S.view.back : S.view;
+  S.overlay = false; S.panelKey = null;
+  setView({ kind: 'learn', lit, back });
+  api().log(`window: Learn Ravenry opened${lit ? ` at ${lit}` : ''}`);
+}
+
+const learnHost = {
+  used: () => learnUsed,
+  close: () => { const v = S.view; setView(v.kind === 'learn' && v.back && v.back.kind !== 'learn' ? v.back : S.tabs[0] ? { kind: 'tab', id: S.tabs[0].id } : { kind: 'none' }); },
+  tryIt: (c: LearnCard) => void tryIt(c),
+};
+
+/** Try it: the action of a Learn Ravenry card. */
+async function tryIt(c: LearnCard): Promise<void> {
+  api().log(`window: Learn Ravenry, try ${c.key}`);
+  if (c.key === 'phone') {
+    learnHost.close();
+    requestAnimationFrame(() => { const b = document.querySelector('#side .foot [aria-label="Open on your phone"]') as HTMLElement | null; if (b && !phoneCard.open) b.click(); });
+    return;
+  }
+  if (c.key === 'film') {
+    // The busiest terminal: the shell tab that printed last.
+    const tabs = S.tabs.filter((t): t is ShellTab => t.kind === 'shell');
+    if (!tabs.length) { toast('The filmstrip needs a terminal with some history: open one and use it a little first.'); return; }
+    let best = tabs[0], most = '';
+    for (const t of tabs) { const at = store.get(t.pane)?.pane.last_output_at || ''; if (at > most) { most = at; best = t; } }
+    setView({ kind: 'tab', id: best.id });
+    setTimeout(() => { const pn = paneOnScreen(); if (pn && !film.open) { markUsed('film'); void film.toggle(pn); } }, 400);
+    return;
+  }
+  // A session in the last folder used, with the message in its input, not sent.
+  if (!S.hubStatus?.reachable) { toast('Try it starts a session through Ravenry\u2019s board, which is not running.'); return; }
+  const lastProject = lastSessionProject ? (S.hub?.projects || []).find((p) => p.id === lastSessionProject) : null;
+  const saved = await api().storeGet().catch(() => ({} as Record<string, unknown>));
+  const folder = (lastProject && !lastProject.machine && lastProject.folder) || (typeof saved.lastCwd === 'string' ? saved.lastCwd : null) || S.config?.home || null;
+  const found = await api().assistants().catch(() => [] as AssistantInfo[]);
+  const a = found.find((x) => x.kind === S.start.assistant && x.found) || found.find((x) => x.kind === 'claude' && x.found) || found.find((x) => x.found);
+  if (!a) { toast('Try it needs Claude Code or Codex on this Mac.'); return; }
+  const proj = folder ? (S.hub?.projects || []).find((p) => p.folder === folder && !p.machine) : null;
+  try {
+    const r = await api().hubPost('/api/sessions/start', { folder, assistant: a.kind, cols: term.term.cols, rows: term.term.rows, ...(c.worktree && proj ? { worktree: true, projectId: proj.id } : {}) }) as { surfaceId?: string; pane?: { id?: string }; projectId?: string | null };
+    const pane = r.pane && typeof r.pane.id === 'string' ? r.pane.id : null;
+    setView({ kind: 'session', key: r.projectId && r.surfaceId ? `${r.projectId}/${r.surfaceId}` : '', ...(pane ? { pane } : {}) });
+    if (pane && c.message) void readyMessage(pane, c.message);
+  } catch (e) { toast(`Could not start it: ${(e as Error).message}`); }
+}
+
+/**
+ * Puts `text` in the assistant's input once it is waiting there: its screen
+ * drawn and still for 1.5 s. No Enter: the person reads it and sends it.
+ */
+async function readyMessage(pane: string, text: string): Promise<void> {
+  const t0 = Date.now();
+  let last = '', since = Date.now();
+  while (Date.now() - t0 < 40000) {
+    const at = term.attached;
+    const now = at && at.pane === pane && term.ready ? viewText().trim() : '';
+    if (now !== last) { last = now; since = Date.now(); }
+    else if (now && Date.now() - since >= 1500 && at) {
+      try { await at.client.paste(pane, text); api().log(`window: Try it, a message ready in ${pane}`); return; } catch { break; }
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  api().copyText(text);
+  toast('The message is on the clipboard: paste it when the assistant is ready.');
+}
+
+/** What the terminal with the keyboard shows, as text. */
+function viewText(): string {
+  const b = term.term.buffer.active;
+  const out: string[] = [];
+  for (let y = 0; y < b.length; y++) out.push(b.getLine(y)?.translateToString(true) || '');
+  return out.join('\n');
+}
+
+// One-time hints (F): a line under the thing itself, the first time it
+// happens, with Learn more and an x. Dismissed (either), never again.
+type HintId = 'agent-pane' | 'needs-you' | 'pick';
+const HINT_CARD: Record<HintId, LearnKey> = { 'agent-pane': 'panes', 'needs-you': 'needs', pick: 'pick' };
+let hintsDone: Partial<Record<HintId, boolean>> = {};
+let hintNow: { id: HintId; tab?: string } | null = null;
+
+function wantHint(id: HintId, tab?: string): void {
+  if (hintsDone[id] || (hintNow && hintNow.id !== id)) return;
+  hintNow = { id, tab };
+}
+function dismissHint(learn: boolean): void {
+  if (!hintNow) return;
+  const id = hintNow.id;
+  hintsDone = { ...hintsDone, [id]: true };
+  api().storeSet({ hintsDone });
+  api().log(`window: hint ${id} dismissed${learn ? ' (Learn more)' : ''}`);
+  hintNow = null;
+  renderHint();
+  if (learn) openLearn(HINT_CARD[id]);
+}
+
+/** The hint's place and words now, or null while its thing is not on screen. */
+function hintAt(): { el: Element; html: (HTMLElement | string)[]; beside?: boolean } | null {
+  const hn = hintNow;
+  if (!hn) return null;
+  if (hn.id === 'agent-pane') {
+    const t = S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.id === hn.tab);
+    if (!t) { hintNow = null; return null; }
+    const host = S.tabs.find((x) => x.split && x.split.guest === t.id);
+    const el = document.querySelector(`#tabs .tab[data-tab="${t.id}"]`) || (host && tabOfView()?.id === host.id ? $('phead1') : null);
+    if (!el || (el as HTMLElement).offsetParent === null) return null;
+    const owner = t.owner ? sessionOfPane(S.hub, t.owner) : null;
+    const who = assistantName(owner?.session.assistant || null) || 'An agent';
+    return { el, html: [h('b', t.name ? `${who} opened \u201c${t.name}\u201d` : `${who} opened this pane`), ' beside it. Watch it here, or type in it yourself.'] };
+  }
+  if (hn.id === 'needs-you') {
+    const el = document.querySelector('#side .g-you .ss');
+    return el ? { el, beside: true, html: [h('b', 'This session waits on you.'), ' Answer it here, or on your phone; the ones that need you stay on top.'] } : null;
+  }
+  const el = document.querySelector('#picker .pg-h, #picker');
+  return S.view.kind === 'picker' && el ? { el, html: [h('b', 'Pick one, or circle the part you mean.'), ' Your answer goes back to the agent.'] } : null;
+}
+
+function renderHint(): void {
+  if (!hintNow && document.querySelector('#side .g-you .ss')) wantHint('needs-you');
+  const box = $('hint');
+  const at = hintAt();
+  if (!at) { box.hidden = true; return; }
+  const r = at.el.getBoundingClientRect();
+  replace(box, h('div.hint-t', ...at.html),
+    h('button.lk', { on: { click: () => dismissHint(true) } }, 'Learn more'),
+    h('button.x', { title: 'Dismiss', 'aria-label': 'Dismiss', on: { click: () => dismissHint(false) } }, svg(I.CLOSE)));
+  box.dataset.hint = hintNow!.id;
+  box.hidden = false;
+  const w = Math.min(at.beside ? 420 : 560, window.innerWidth - 24);
+  box.style.width = `${w}px`;
+  box.classList.toggle('beside', !!at.beside);
+  if (at.beside) {
+    // Beside a sidebar row, pointing at it: the rows under it stay clear.
+    box.style.left = `${r.right + 10}px`;
+    box.style.top = `${r.top}px`;
+  } else {
+    const left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+    box.style.left = `${left}px`;
+    box.style.top = `${r.bottom + 8}px`;
+    box.style.setProperty('--arrow', `${Math.max(14, Math.min(w - 20, r.left + Math.min(r.width, 60) / 2 - left))}px`);
+  }
 }
 
 /**
@@ -1182,7 +1361,7 @@ function renderTabs(): void {
     row,
     h('button.tab.add', { title: `New shell (${shortcut('T')})`, 'aria-label': 'New shell', on: { click: () => void newShell() } }, svg(I.PLUS(12))),
     h('span.sp'),
-    filmable ? h(`button.icon-btn${film.open ? '.on' : ''}`, { title: 'The last 20 seconds of this pane', 'aria-label': 'Filmstrip', on: { click: () => { const pn = paneOnScreen(); if (pn) void film.toggle(pn); } } }, svg(I.FILM)) : null,
+    filmable ? h(`button.icon-btn${film.open ? '.on' : ''}`, { title: 'The last 20 seconds of this pane', 'aria-label': 'Filmstrip', on: { click: () => { const pn = paneOnScreen(); if (pn) { if (!film.open) markUsed('film'); void film.toggle(pn); } } } }, svg(I.FILM)) : null,
     h(`button.icon-btn${panelVisible() ? '.on' : ''}`, { title: panelVisible() ? 'Hide the session panel' : 'Show the session panel', 'aria-label': 'Session panel', on: { click: () => togglePanel() } }, svg(I.PANEL)));
   fitTabs(el);
 }
@@ -1345,6 +1524,8 @@ function addAgentPaneTab(socket: string, p: Pane): ShellTab {
   let at = -1;
   S.tabs.forEach((x, i) => { if (ofOwner(x)) at = i; });
   S.tabs.splice(at < 0 ? S.tabs.length : at + 1, 0, t);
+  markUsed('panes');
+  wantHint('agent-pane', t.id);
   return t;
 }
 
@@ -1426,6 +1607,9 @@ function setView(v: View): void {
   if (S.view.kind === 'machines' && v.kind !== 'machines') machinesView.hide();
   if (v.kind !== 'review' && S.view.kind === 'review') review.key = null;
   S.view = v;
+  const learnOf: Partial<Record<string, LearnKey>> = { picker: 'pick', review: 'review', decisions: 'decisions' };
+  if (learnOf[v.kind]) markUsed(learnOf[v.kind]!);
+  if (v.kind === 'picker') wantHint('pick');
   if (v.kind === 'tab') { const t = S.tabs.find((x) => x.id === (v as { id: string }).id); bells.delete(v.id); if (t?.split) bells.delete(t.split.guest); }
   const sk = viewSessionKey();
   const sf = sk ? findSession(S.hub, sk) : null;
@@ -1617,11 +1801,13 @@ async function renderCentre(): Promise<void> {
   $('decisions').hidden = v.kind !== 'decisions' || !!need;
   $('picker').hidden = v.kind !== 'picker' || !!need;
   $('grid').hidden = v.kind !== 'grid' || !!need;
+  $('learn').hidden = v.kind !== 'learn' || !!need;
   if (WIDE_VIEWS.has(v.kind)) { film.close(); }
   if (need) { hideTerms(); shownKey = ''; show('start'); renderStart(); return; }
   if (onPage) { hideTerms(); shownKey = ''; pages.show(v.key); return; }
   if (onMachines) { hideTerms(); shownKey = ''; machinesView.show(); return; }
   if (v.kind === 'decisions') { hideTerms(); shownKey = ''; decisions.render(); return; }
+  if (v.kind === 'learn') { hideTerms(); shownKey = ''; renderLearn($('learn'), learnHost, v.lit || null); return; }
   if (v.kind === 'picker') {
     hideTerms(); shownKey = '';
     const k = S.cps.get(v.cp);
@@ -1877,43 +2063,95 @@ async function loadStart(): Promise<void> {
   S.start.assistants = assistants;
   const ready = assistants.find((a) => a.found && a.signedIn) || assistants.find((a) => a.found);
   if (!S.start.assistant || !assistants.some((a) => a.kind === S.start.assistant && a.found)) S.start.assistant = ready ? ready.kind : null;
-  void checkHooks();
   if (firstRun() || S.view.kind === 'start') renderStart();
 }
 
 /**
- * The assistants' hooks: when the board would change Claude Code's or
- * Codex's settings to report through ravenryd (a dry run says), the start
- * screen asks once, in plain words, with a Skip.
+ * Step 2 of starting a session, once per assistant (A2): Ravenry's hooks
+ * (it tells Ravenry when it needs you) and the Ravenry skill, both ticked.
+ * Null when it was answered before, or both are on already.
  */
-async function checkHooks(): Promise<void> {
-  const hk = S.hooks;
-  if (hk.asked || hk.checked || !S.hubStatus?.reachable || !S.config?.hookBin) return;
-  hk.checked = true;
-  try {
-    const r = await api().hubPost('/api/setup/hooks', { ravenryd: S.config.hookBin, dry: true }) as { claude?: { file?: string; changes?: unknown[] } | null; codex?: { file?: string; changes?: unknown[] } | null };
-    const which = ([['Claude Code', r.claude], ['Codex', r.codex]] as const).filter(([, x]) => x && x.changes && x.changes.length && x.file);
-    hk.offer = which.length ? { names: which.map(([n]) => n), files: which.map(([, x]) => tilde(x!.file)) } : null;
-  } catch { hk.offer = null; }
-  if (firstRun() || S.view.kind === 'start') renderStart();
+async function setupStep(kind: 'claude' | 'codex'): Promise<SetupStep | null> {
+  if (S.setupAsked[kind]) return null;
+  let rows: SkillRow[] = [];
+  try { rows = await api().skills.get(); } catch { /* none */ }
+  const r = rows.find((x) => x.kind === kind);
+  if (!r) return null;
+  const hooksOn = r.hooks === 'on', skillOn = r.ours || r.installed;
+  if (hooksOn && skillOn) return null;
+  return { kind, hooks: r.hooks !== 'unavailable', skill: !r.installed, hooksOn, skillOn, hooksFile: r.hooksFile, skillDir: r.dir, busy: false, error: null };
 }
 
-async function setUpHooks(yes: boolean): Promise<void> {
-  const hk = S.hooks;
-  if (!yes) { hk.asked = true; hk.offer = null; api().storeSet({ hooksAsked: true }); renderStart(); return; }
-  hk.busy = true; hk.error = null; renderStart();
-  const at = here();
-  try {
-    await api().hubPost('/api/setup/hooks', { ravenryd: S.config!.hookBin });
-    const names = hk.offer?.names || ['Claude Code'];
-    hk.asked = true; hk.offer = null; api().storeSet({ hooksAsked: true });
-    toast(`${names.join(' and ')} now ${names.length > 1 ? 'tell' : 'tells'} Ravenry when ${names.length > 1 ? 'they need' : 'it needs'} you. The old settings were backed up.`, undefined, { at, error: false });
-  } catch (e) {
-    hk.error = `Could not set them up: ${(e as Error).message}`;
-  } finally {
-    hk.busy = false;
-    renderStart();
-  }
+async function answerSetup(yes: boolean): Promise<void> {
+  const su = S.setup;
+  if (!su) return;
+  if (yes) {
+    su.busy = true; su.error = null; renderStart();
+    const done: string[] = [];
+    if (su.hooks && !su.hooksOn) {
+      const r = await api().skills.setHooks(su.kind, true);
+      if (!r.ok) { su.busy = false; su.error = `Could not set up the hooks: ${r.error}`; renderStart(); return; }
+      done.push('hooks');
+    }
+    if (su.skill && !su.skillOn) {
+      const r = await api().skills.set(su.kind, true);
+      if (!r.ok) { su.busy = false; su.error = `Could not install the skill: ${r.error}`; renderStart(); return; }
+      done.push('skill');
+    }
+    api().log(`window: step 2 for ${su.kind}: set up ${done.join(' and ') || 'nothing'}`);
+  } else api().log(`window: step 2 for ${su.kind}: not now`);
+  S.setupAsked = { ...S.setupAsked, [su.kind]: true };
+  api().storeSet({ setupAsked: S.setupAsked });
+  S.setup = null;
+  setupReady = true;
+  void loadSetupLines();
+  await startSession();
+}
+/** Step 2 was answered for the session about to start: Start goes on to it. */
+let setupReady = false;
+
+/** Per assistant, what is set up (the panel's two lines, B). */
+let setupLines: Partial<Record<'claude' | 'codex', { hooks: boolean; skill: boolean }>> = {};
+function takeSetupLines(rows: SkillRow[]): void {
+  setupLines = Object.fromEntries(rows.filter((r) => r.found).map((r) => [r.kind, { hooks: r.hooks === 'on', skill: r.installed }]));
+  if (panelVisible()) renderPanel();
+}
+async function loadSetupLines(): Promise<void> {
+  try { takeSetupLines(await api().skills.get()); } catch { /* none */ }
+}
+
+/** Step 2, in the start screen's place (A2). */
+function setupCard(su: SetupStep): HTMLElement {
+  const st = S.start;
+  const who = assistantName(su.kind) || 'The assistant';
+  const folderName = st.folder ? base(st.folder) : 'your folder';
+  const tick = (key: 'hooks' | 'skill', on: boolean, disabled: boolean) => h(`button.ob-tick${on ? '.on' : ''}`, { role: 'checkbox', 'aria-checked': on ? 'true' : 'false', disabled, 'data-line': key, on: { click: () => { su[key] = !su[key]; renderStart(); } } }, on ? svg(I.CHECK) : null);
+  const hooksLine = h('div.ob-r', { 'data-line': 'hooks' },
+    tick('hooks', su.hooksOn || su.hooks, su.hooksOn || !su.hooksFile || su.busy),
+    h('div.ob-c',
+      h('span.h', 'Tell Ravenry when it needs you'),
+      h('p', `${who}\u2019s sessions say here when they wait for you or hand off, so the list on the left puts them on top.`),
+      su.hooksOn ? h('span.ob-m.ok', 'Already set up') : su.hooksFile ? h('span.ob-m', `Adds a line to ${su.hooksFile}`) : h('span.ob-m', 'Needs Ravenry\u2019s board running; Settings can do it later.')));
+  const skillLine = h('div.ob-r', { 'data-line': 'skill' },
+    tick('skill', su.skillOn || su.skill, su.skillOn || su.busy),
+    h('div.ob-c',
+      h('span.h', 'Install the Ravenry skill', h('span.ob-new', 'New')),
+      h('p', `${who} can open panes beside it, read their screens, show you pictures to pick from, and ask you through the board and your phone. The skill runs `, h('code', 'ravenry skill'), ', so it always matches this version.'),
+      su.skillOn ? h('span.ob-m.ok', 'Already installed') : h('span.ob-m', `Adds ${su.skillDir}`)));
+  return h('div.fl.ob', { 'data-step': '2' },
+    svg(I.APP_ICON),
+    h('h2', `Let ${who} work with Ravenry`),
+    h('p.lead', `One step before ${who} opens in ${folderName}. Both are on; you can change either later in Settings.`),
+    h('div.fl-card',
+      hooksLine, skillLine,
+      h('div.fl-go',
+        h('button.btn.pri', { disabled: su.busy, on: { click: () => void answerSetup(true) } }, 'Set them up'),
+        h('button.btn.ghost', { disabled: su.busy, on: { click: () => void answerSetup(false) } }, 'Not now'),
+        h('span.sp'),
+        h('span.t3.small', `Then ${who} opens in ${folderName}`))),
+    su.error ? h('p.err', su.error) : null,
+    h('div.fl-foot', 'Each file is backed up first, and your other hooks and skills stay as they are.'),
+    h('div.ob-steps', h('i'), h('i.on'), 'Step 2 of 2'));
 }
 
 /** The folder openStart was asked to start in (a project's), first among the picks. */
@@ -1922,6 +2160,7 @@ let startIn: string | null = null;
 function openStart(folder?: string): void {
   if (npmPoint('Starting a session')) return;
   startIn = folder || null;
+  S.setup = null;
   if (folder) S.start.folder = folder;
   S.start.error = null;
   setView({ kind: 'start' });
@@ -1936,6 +2175,7 @@ function renderStart(): void {
   const need = npmNeed();
   if (need) { renderNpmPointer($('start'), need, { url: S.config?.hubUrl || 'http://localhost:4600', reachable: !!S.hubStatus?.reachable, newShell: () => void newShell(), openUrl: (u) => api().openExternal(u) }); return; }
   const st = S.start;
+  if (S.setup) { replace($('start'), setupCard(S.setup)); return; }
   const first = firstRun();
   const folderName = st.folder ? base(st.folder) : null;
   const a = st.assistants.find((x) => x.kind === st.assistant) || null;
@@ -1978,16 +2218,6 @@ function renderStart(): void {
     !first ? h('span.sp') : null,
     !first ? h('button.btn.ghost', { on: { click: () => { const t = S.tabs[0]; setView(t ? { kind: 'tab', id: t.id } : { kind: 'none' }); } } }, 'Cancel') : null);
 
-  const hk = S.hooks;
-  const hooksCard = hk.offer && !hk.asked ? h('div.fl-hooks',
-    h('div.fl-c',
-      h('span.h', `Let ${hk.offer.names.join(' and ')} tell Ravenry when ${hk.offer.names.length > 1 ? 'they need' : 'it needs'} you`),
-      h('p.t2.small', `Ravenry adds its own line to the hooks in ${hk.offer.files.join(' and ')}, so the sessions here say when they wait for you or hand off. Each file is backed up first, and your other hooks stay as they are.`),
-      hk.error ? h('p.err', hk.error) : null),
-    h('div.fl-hb',
-      h('button.btn.pri.sm', { disabled: hk.busy, on: { click: () => void setUpHooks(true) } }, 'Set them up'),
-      h('button.btn.ghost.sm', { disabled: hk.busy, on: { click: () => void setUpHooks(false) } }, 'Skip'))) : null;
-
   const card = h('div.fl-card', { on: { dragover: (e: Event) => e.preventDefault(), drop: (e: Event) => onDrop(e as DragEvent) } }, folderRow, asstRow, why, go);
   replace($('start'), h('div.fl',
     svg(I.APP_ICON),
@@ -1995,7 +2225,6 @@ function renderStart(): void {
     h('p.lead', 'Pick a folder and an assistant. It opens in a real terminal here, and the list on the left keeps every session in order, the ones that need you first.'),
     card,
     st.error ? h('p.err', st.error) : null,
-    hooksCard,
     h('div.fl-foot', 'Keeping cmux, iTerm2 or Rex? Ravenry still follows the sessions you run there.')));
 }
 
@@ -2041,6 +2270,12 @@ async function startSession(): Promise<void> {
   renderStart();
   try {
     const a = st.assistants.find((x) => x.kind === st.assistant && x.found) || null;
+    // Step 2, once per assistant: its hooks and the skill (A2).
+    if (a && !setupReady) {
+      const su = await setupStep(a.kind);
+      if (su) { S.setup = su; return; }
+    }
+    setupReady = false;
     const { cols, rows } = term.term;
     if (a && S.hubStatus?.reachable) {
       // The board starts it in a ravenryd pane, so its hooks, brief and
@@ -2242,6 +2477,18 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
       h('div.acts', ...moveActs(p, s, other, s.alsoOpen ? 'double open, panel' : 'went on elsewhere, panel', !!s.alsoOpen))));
   }
 
+  // What the first-launch step set up for its assistant (B), on this machine.
+  const sl = !machineOf(p, s) && (s.assistant === 'claude' || s.assistant === 'codex') ? setupLines[s.assistant] : null;
+  if (sl && !k) {
+    const line = (on: boolean, yes: string, no: string, what: string) => on
+      ? h('div.chk', { 'data-setup': what }, h('i', svg(I.CHECK)), yes)
+      : h('div.chk.off', { 'data-setup': what }, h('i'), no, ' ', h('button.lk', { on: { click: () => api().settings.open('skills') } }, 'Settings'));
+    body.push(h('div.sec.setup-lines',
+      h('div.sec-h', 'This session'),
+      line(sl.hooks, 'Tells Ravenry when it needs you', 'Does not tell Ravenry when it needs you.', 'hooks'),
+      line(sl.skill, 'Has the Ravenry skill', 'Has no Ravenry skill.', 'skill')));
+  }
+
   if (k) body.push(cardFor(k, cardCtx));
   // Over the terminal on a narrow window, a card keeps the panel short: it and the context.
   const lean = !!k && isOpen(k.cp) && S.overlay;
@@ -2390,6 +2637,7 @@ function loosePanel(k: Known): [HTMLElement, (HTMLElement | null)[]] {
 }
 
 async function answer(p: HubProject, s: HubSession, label: string, choice?: number): Promise<void> {
+  markUsed('needs');
   const at = here();
   try {
     await api().hubPost('/api/send', { projectId: p.id, surfaceId: s.surfaceId, ...(choice == null ? { text: label } : { choice }) });
@@ -2584,6 +2832,7 @@ function onCommand(name: string, arg?: unknown): void {
   switch (name) {
     case 'new-shell': void newShell(); break;
     case 'new-session': openStart(); break;
+    case 'learn': openLearn(); break;
     // Cmd+W: the pane with the keyboard (its tab, or its split's pane).
     case 'close-tab': { const t = focusedTab(); if (t) void askClose(t); break; }
     // Cmd+D / Cmd+Shift+D: a new shell beside or under the pane in front.
@@ -2629,7 +2878,7 @@ function render(): void {
   renderSidebar();
   renderTabs();
   renderPanel();
-  void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); });
+  void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); renderHint(); });
 }
 
 /** The plain shells: every running daemon's panes labelled as the app's shells. */
@@ -3035,8 +3284,8 @@ async function boot(): Promise<void> {
   onCardChange(() => { renderPanel(); });
   api().onCommand((n, a) => onCommand(String(n), a));
   api().onHubState((s) => onHubState(s as HubState));
-  api().onHubStatus((st) => { S.hubStatus = st as HubStatus; setBoardLive(!!(st as HubStatus).reachable); if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
-  window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); });
+  api().onHubStatus((st) => { const was = !!S.hubStatus?.reachable; S.hubStatus = st as HubStatus; if (!was && (st as HubStatus).reachable) void loadSetupLines(); setBoardLive(!!(st as HubStatus).reachable); if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
+  window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); renderHint(); });
   // The strip's room changes when the panel shows or hides.
   new ResizeObserver(() => fitTabs($('tabs'))).observe($('tabs'));
   window.addEventListener('keydown', (e) => {
@@ -3057,7 +3306,11 @@ async function boot(): Promise<void> {
   }, 20000);
   const saved = await api().storeGet();
   S.panelPref = saved.panelPref === 'closed' || saved.panelPref === 'open' ? saved.panelPref : null;
-  S.hooks.asked = !!saved.hooksAsked;
+  S.setupAsked = saved.setupAsked && typeof saved.setupAsked === 'object' ? saved.setupAsked as Record<string, boolean> : {};
+  learnUsed = saved.learnUsed && typeof saved.learnUsed === 'object' ? saved.learnUsed as Partial<Record<LearnKey, boolean>> : {};
+  hintsDone = saved.hintsDone && typeof saved.hintsDone === 'object' ? saved.hintsDone as Partial<Record<HintId, boolean>> : {};
+  api().skills.onChange((rows) => takeSetupLines(rows as SkillRow[]));
+  void loadSetupLines();
   const hs = await api().hubState();
   S.hub = (hs.state as HubState) || null;
   S.hubStatus = hs.status;
