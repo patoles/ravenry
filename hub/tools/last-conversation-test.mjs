@@ -164,6 +164,14 @@ if (BIN) {
   let ran = null;
   for (let i = 0; i < 100 && !ran; i++) { ran = fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8').trim() : null; if (!ran) await sleep(100); }
   check('it runs `<claude> --resume <id>` in the project\'s folder', ran === `${fs.realpathSync(P('lantern'))}|--resume ${S2}` || ran === `${P('lantern')}|--resume ${S2}`, ran);
+  // Move here on the one still open in cmux: its process (this test's own) ends, and it continues here.
+  const mv = await post('/api/sessions/move', { projectId: 'moss', sessionId: S4, keep: 'ravenry', cols: 100, rows: 30 });
+  let gone = false;
+  for (let i = 0; i < 50 && !gone; i++) { try { process.kill(holder.pid, 0); await sleep(100); } catch { gone = true; } }
+  check('Move here on a conversation found by its transcript, still open in cmux: its process ends and a Ravenry pane continues it', mv.status === 200 && mv.body && mv.body.ok && /^ravenry:p/.test(mv.body.surfaceId || '') && gone, mv.text);
+  let ran2 = '';
+  for (let i = 0; i < 100 && !ran2.includes(S4); i++) { ran2 = fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8') : ''; if (!ran2.includes(S4)) await sleep(100); }
+  check('it runs `<claude> --resume <id>` in its folder', ran2.split('\n').some((l) => l.endsWith(`|--resume ${S4}`) && l.startsWith(fs.realpathSync(P('moss')))), ran2);
 } else {
   console.log('SKIP  Continue in a real pane: set RAVENRYD_BIN to a ravenryd binary');
 }

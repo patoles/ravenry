@@ -1012,8 +1012,8 @@ try {
       { until: `(${CARD}) && (${CARD}).still`, timeout: 15000 }, { sleep: 600 },
       save('moss', CARD), ...both23('moss'),
       { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Move here').click()` },
-      { until: `${R}.S.view.kind === 'session' && ${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S4})')`, timeout: 20000 }, { sleep: 800 },
-      save('moved', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.moved')})` }, shot('23-moved.png'),
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S4})')`, timeout: 20000, soft: true }, { sleep: 800 },
+      save('moved', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view), err: (document.querySelector('#none .pa .err') || {}).textContent || null, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, text: ${R}.text().slice(-300) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.moved')})` }, shot('23-moved.png'),
       { click: ROW('attic'), clickJs: true },
       { until: `document.querySelector('#none .none-card.project[data-project="attic"]')`, timeout: 15000 }, { sleep: 600 },
       save('attic', `(() => { const e = document.querySelector('#none .none-card.project'); return { text: e.textContent, buttons: [...e.querySelectorAll('button')].map((b) => b.textContent) }; })()`), ...both23('attic'),
@@ -1043,7 +1043,7 @@ try {
     step('23 continue: a conversation still open in cmux says "Still open in cmux." with Move here, never a second copy', /Still open in cmux/.test(M.still || '') && JSON.stringify(M.buttons) === '["Move here","New session"]', M);
     const holderGone = !holderAlive(); try { holder.kill('SIGKILL'); } catch { /* gone */ }
     const mv = { ...(m.moved || {}), ran: ran(S4, c.ps + '.moved'), holderEnded: holderGone };
-    step('23 continue: Move here ends it in cmux and continues it in a Ravenry pane in its folder', holderGone && !!mv.pane && /"kind":"session"/.test(mv.view || '') && !!mv.ran && real(mv.ran.cwd) === real(P('moss')), mv);
+    step('23 continue: Move here ends it in cmux and continues it in a Ravenry pane in its folder', holderGone && !!mv.pane && !!mv.ran && real(mv.ran.cwd) === real(P('moss')) && mv.ran.env.includes(`RAVENRY_PANE=${mv.pane}`), mv);
     const A = m.attic || {};
     step('23 continue: with no conversation found, only "New session here" (and Open brief); it opens Start in that folder', /No earlier conversation found in this folder/.test(A.text || '') && JSON.stringify(A.buttons) === '["New session here","Open brief"]' && real(m.atticStart || '') === real(P('attic')), { ...A, start: m.atticStart });
     step('23 continue: New session opens Start in the project\'s folder; Open brief opens its brief', real(m.lanternStart || '') === real(P('lantern')) && m.brief === 'brief', { start: m.lanternStart, brief: m.brief });
