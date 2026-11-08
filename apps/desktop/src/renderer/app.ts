@@ -1002,7 +1002,8 @@ function renderSidebar(): void {
         const pk = `project:${pr.project.id}`;
         const fk = frontKey();
         const psel = fk === pk || (!!fk && fk.startsWith(`${pr.project.id}/`) && !pr.rows.some((r) => r.key === fk));
-        if (g.group === 'idle') {
+        // An idle project is one line; an idle session of a project at work is a row under it.
+        if (g.group === 'idle' && !pr.rows.length) {
           return h(`button.idl${psel ? '.sel' : ''}`, { 'data-key': pk, on: rowPress(() => pickProject((S.hub?.projects || []).find((x) => x.id === pr.project.id) || pr.project)) },
             h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
         }

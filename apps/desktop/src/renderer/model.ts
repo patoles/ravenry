@@ -224,35 +224,49 @@ function row(p: HubProject, s: HubSession, threshold: number, mark: RowMark | nu
 
 /**
  * The sidebar: Needs you first, then Working, Waiting on others and Idle,
- * newest first in each. A project not idle shows every session the hub
- * lists in it, each its own row with its own state's dot, the most urgent
- * first (2026-11-08: a session working beside another showed nowhere); an
- * idle project is one line. A group's count is its rows in that state (one
- * at least a project). A session with an open checkpoint (marks, by
- * session key) needs you whatever its own state says, and its project's
- * time is when it started waiting.
+ * newest first in each. Each session sits in the section of its own state
+ * (2026-11-08: a session done and waiting for you showed under Working,
+ * beside its project's working one), so a project can be in more than one
+ * section, its header in each. A project in a section for its own reason
+ * (a brief waiting on someone, a plan gate) with no session of that state
+ * shows its main session there. A project with every session idle is one
+ * line in Idle; an idle session of a project at work is a row there under
+ * its project. A section's count is its rows (one at least a project). A
+ * session with an open checkpoint (marks, by session key) needs you
+ * whatever its own state says, and its project's time there is when it
+ * started waiting.
  */
 export function board(state: HubState | null, now: number, marks: Map<string, RowMark> = new Map()): BoardGroup[] {
   const threshold = state?.settings?.handoffThreshold ?? 50;
   const by = new Map<Group, ProjectRow[]>();
-  const since = new Map<HubProject, number>();
+  const since = new Map<ProjectRow, number>();
   for (const p of state?.projects || []) {
     const live = p.sessions.filter((s) => !s.handed);
-    const marked = live.filter((s) => marks.has(sessionKey(p.id, s)));
-    const g: Group = marked.length ? 'you' : ORDER.includes(p.state) ? p.state : 'idle';
-    const rank = (s: HubSession) => (marks.has(sessionKey(p.id, s)) ? 0 : ORDER.indexOf(sessionGroup(s)));
-    const shown = g === 'idle' ? [] : live.map((s, i) => ({ s, i })).sort((a, b) => rank(a.s) - rank(b.s) || a.i - b.i).map((x) => x.s);
-    const first = marked.map((s) => Date.parse(marks.get(sessionKey(p.id, s))!.since)).filter(Number.isFinite).sort((a, b) => a - b)[0];
-    if (first !== undefined) since.set(p, first);
-    const list = by.get(g) || [];
-    const time = first !== undefined ? clock(new Date(first).toISOString(), now) : projectTime(p, now);
-    list.push({ project: p, time, machine: machineOf(p), rows: shown.map((s) => row(p, s, threshold, marks.get(sessionKey(p.id, s)) || null)) });
-    by.set(g, list);
+    const markOf = (s: HubSession) => marks.get(sessionKey(p.id, s)) || null;
+    const own = (s: HubSession): Group => (markOf(s) ? 'you' : sessionGroup(s));
+    const g: Group = live.some(markOf) ? 'you' : ORDER.includes(p.state) ? p.state : 'idle';
+    const add = (k: Group, sessions: HubSession[]) => {
+      const marked = sessions.map((s) => markOf(s)).filter((m): m is RowMark => !!m);
+      const first = marked.map((m) => Date.parse(m.since)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+      const pr: ProjectRow = { project: p, time: first !== undefined ? clock(new Date(first).toISOString(), now) : projectTime(p, now), machine: machineOf(p), rows: sessions.map((s) => row(p, s, threshold, markOf(s))) };
+      if (first !== undefined) since.set(pr, first);
+      by.set(k, [...(by.get(k) || []), pr]);
+    };
+    if (g === 'idle') { add('idle', []); continue; }
+    const buckets = new Map<Group, HubSession[]>();
+    for (const s of live) buckets.set(own(s), [...(buckets.get(own(s)) || []), s]);
+    // In its section for its own reason: its main session there.
+    if (!buckets.get(g)?.length) {
+      const main = live.find((s) => s.surfaceId === p.primary) || null;
+      if (main) buckets.set(own(main), (buckets.get(own(main)) || []).filter((s) => s !== main));
+      buckets.set(g, main ? [main] : []);
+    }
+    for (const k of ORDER) { const list = buckets.get(k); if (list && (list.length || k === g)) add(k, list); }
   }
-  const t = (p: HubProject) => since.get(p) ?? (p.since ? Date.parse(p.since) : now);
+  const t = (pr: ProjectRow) => since.get(pr) ?? (pr.project.since ? Date.parse(pr.project.since) : now);
   return ORDER.filter((g) => by.has(g)).map((g) => {
-    const projects = by.get(g)!.sort((a, b) => t(b.project) - t(a.project));
-    const count = g === 'idle' ? projects.length : projects.reduce((n, p) => n + Math.max(p.rows.filter((r) => r.group === g).length, 1), 0);
+    const projects = by.get(g)!.sort((a, b) => t(b) - t(a));
+    const count = projects.reduce((n, p) => n + Math.max(p.rows.length, 1), 0);
     return { group: g, title: GROUP_TITLES[g], projects, count };
   });
 }

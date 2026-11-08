@@ -28,30 +28,35 @@ const STATE: HubState = {
   ],
 };
 
-test('groups come in order, newest first, with counts', () => {
+test('groups come in order, newest first, each counting its rows', () => {
   const b = board(STATE, NOW);
   assert.deepEqual(b.map((g) => g.title), ['Needs you', 'Working', 'Waiting on others', 'Idle']);
   assert.deepEqual(b[0].projects.map((p) => p.project.id), ['new-ask', 'gate', 'old-ask']);
   assert.equal(b[0].count, 3);
-  assert.equal(b[3].count, 1);
+  assert.deepEqual(b[1].projects.map((p) => p.project.id), ['busy', 'new-ask']); // new-ask's working session, under Working
+  assert.equal(b[1].count, 3);
+  assert.equal(b[2].count, 1);
+  assert.deepEqual(b[3].projects.map((p) => p.project.id), ['busy', 'quiet']);
+  assert.equal(b[3].count, 2);
 });
 
-test('rows: every session of a project not idle, the most urgent first; lines, context and the warning', () => {
+test('rows: each session in the section of its own state, else the main one; lines, context and the warning', () => {
   const b = board(STATE, NOW);
   const you = b[0].projects;
-  assert.deepEqual(you[0].rows.map((r) => [r.key, r.group]), [['new-ask/s2', 'you'], ['new-ask/s2b', 'work']]); // its working session has its own row
+  assert.deepEqual(you[0].rows.map((r) => r.key), ['new-ask/s2']);
   assert.equal(you[0].rows[0].line, 'Allow it?');
-  assert.deepEqual(you[1].rows.map((r) => r.key), ['gate/s4']); // a plan gate: the primary session
+  assert.deepEqual(you[1].rows.map((r) => r.key), ['gate/s4']); // a plan gate: the main session
   assert.equal(you[2].rows[0].line, 'Keep the old format?');
-  const work = b[1].projects[0];
-  assert.deepEqual(work.rows.map((r) => r.key), ['busy/s3', 'busy/s3b', 'busy/s3c']); // its idle one too
-  assert.equal(b[1].count, 2); // the rows working
-  assert.equal(work.rows[0].pct, 58);
-  assert.ok(work.rows[0].pctWarn);
-  assert.equal(work.time, 'now');
-  assert.equal(b[3].projects[0].rows.length, 0); // idle projects are one line
-  assert.equal(b[3].projects[0].time, '3 d');
-  assert.equal(b[3].projects[0].machine, 'devbox');
+  const work = b[1].projects;
+  assert.deepEqual(work.map((p) => p.rows.map((r) => r.key)), [['busy/s3', 'busy/s3b'], ['new-ask/s2b']]);
+  assert.equal(work[0].rows[0].pct, 58);
+  assert.ok(work[0].rows[0].pctWarn);
+  assert.equal(work[0].time, 'now');
+  assert.deepEqual(b[2].projects[0].rows.map((r) => r.key), ['waiting/s6']); // waiting on others: the main session
+  assert.deepEqual(b[3].projects[0].rows.map((r) => r.key), ['busy/s3c']); // an idle session of a project at work
+  assert.equal(b[3].projects[1].rows.length, 0); // an idle project is one line
+  assert.equal(b[3].projects[1].time, '3 d');
+  assert.equal(b[3].projects[1].machine, 'devbox');
 });
 
 test('a session that moves into Needs you is an arrival; the first state is not', () => {
