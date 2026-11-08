@@ -175,7 +175,10 @@ try {
     fs.writeFileSync(path.join(OUT, `${n}.json`), JSON.stringify(r, null, 2));
     check(`${n}: no pane blank or flashed in any of ${r.framesDuringDrag} frames of the drag (${r.frames} kept)`, r.badFrames === 0, { bad: r.badFrames, regions: r.regions });
     const cv = read(`canvas-${n}.json`);
-    if (cv) check(`${n}: no frame shown with a terminal canvas resized and not drawn again (${cv.undrawn} of ${cv.frames} frames; ${cv.resized} canvas resizes)`, cv.undrawn === 0 && cv.resized > 0, cv.at);
+    // The one pane holds over 200 lines, so its columns wait for the size to
+    // hold (terminal.ts COLS_WAIT) and the drag ends at its first width: its
+    // canvas may never be resized there; elsewhere it must be.
+    if (cv) check(`${n}: no frame shown with a terminal canvas resized and not drawn again (${cv.undrawn} of ${cv.frames} frames; ${cv.resized} canvas resizes)`, cv.undrawn === 0 && (cv.resized > 0 || n === 'resize-one-pane'), cv.at);
     const w = read(`watch-${n}.json`);
     // Its text reflows at once and the program draws itself again at the
     // new size a moment later (as in any terminal): a word cut by that

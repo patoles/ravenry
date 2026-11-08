@@ -47,6 +47,58 @@ const SYNC_MAX = 150;
  */
 const DEBOUNCE_FROM_LINES = 200;
 const COLS_WAIT = 100;
+/**
+ * A held update bigger than this is written in xterm.js's own time slices
+ * (term.write), not in one task: Claude Code writes its whole transcript
+ * again at each size, megabytes in a long session, and parsing that in one
+ * go froze the window (2026-11-08, "a 1 second freeze on each resize").
+ */
+const SYNC_WRITE_MAX = 256 * 1024;
+/** A held update written in slices goes in pieces this big: xterm.js yields between writes, not inside one. */
+const SLICE = 16 * 1024;
+/** A hidden terminal's new size waits for the size to hold this long, then for the window to be idle. */
+const HIDDEN_WAIT = 500;
+
+/** What the terminals did lately, for the line a long task writes in app.log (watchLongTasks). */
+interface PerfNote { at: number; ms: number; what: 'resize' | 'write' | 'draw' | 'window'; pane?: string; size?: string; lines?: number; bytes?: number; sync?: boolean; hidden?: boolean }
+const perfNotes: PerfNote[] = [];
+function perfNote(n: PerfNote): void {
+  perfNotes.push(n);
+  if (perfNotes.length > 400) perfNotes.splice(0, 200);
+}
+let watching = false;
+
+/**
+ * Every task over `over` ms in this window writes one line to app.log:
+ * whether the window was resized, each terminal resized (its pane, size,
+ * buffer lines, ms in xterm.js), the bytes written in (and the ms when in
+ * one go), the draws. Cheap: a few numbers kept for each resize and write.
+ */
+export function watchLongTasks(log: (line: string) => void, over = 100): void {
+  if (watching) return;
+  watching = true;
+  window.addEventListener('resize', () => perfNote({ at: performance.now(), ms: 0, what: 'window', size: `${innerWidth}x${innerHeight}` }));
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (e.duration < over) continue;
+        const from = e.startTime - 1, to = e.startTime + e.duration + 1;
+        const in_ = perfNotes.filter((n) => n.at >= from && n.at <= to);
+        const win = perfNotes.some((n) => n.what === 'window' && n.at >= e.startTime - 1000 && n.at <= to);
+        const r = in_.filter((n) => n.what === 'resize');
+        const w = in_.filter((n) => n.what === 'write');
+        const d = in_.filter((n) => n.what === 'draw');
+        const ms = (x: number) => Math.round(x * 10) / 10;
+        const sum = (xs: PerfNote[]) => ms(xs.reduce((a, n) => a + n.ms, 0));
+        const known = sum(r) + sum(w) + sum(d);
+        log(`perf: a ${Math.round(e.duration)} ms task; window resized in the last second: ${win ? 'yes' : 'no'}`
+          + `; xterm.js resized: ${r.length ? r.map((n) => `${n.pane}${n.hidden ? ' (hidden)' : ''} ${n.size} ${n.lines} lines ${ms(n.ms)} ms`).join(', ') : 'none'}`
+          + `; written in: ${w.length ? w.map((n) => `${n.pane} ${n.bytes} B${n.sync ? ` in one go ${ms(n.ms)} ms` : ' in slices'}`).join(', ') : 'none'}`
+          + `; draws: ${d.length} ${sum(d)} ms; the rest: ${ms(Math.max(0, e.duration - known))} ms`);
+      }
+    }).observe({ type: 'longtask' });
+  } catch { /* no long task timing here */ }
+}
 
 /** The last of BSU or ESU in b (from `from` on): 'on', 'off', or null. */
 function lastSyncToken(b: Uint8Array, from = 0): 'on' | 'off' | null {
@@ -121,6 +173,9 @@ export class TerminalView {
   /** The width waiting for the size to hold (COLS_WAIT), and the latest size proposed. */
   private colsTimer: ReturnType<typeof setTimeout> | undefined;
   private proposed: { cols: number; rows: number } | null = null;
+  /** Hidden (a pooled terminal, or the split hidden), its new size waits for it to show or the window to be idle, as VS Code does. */
+  private fitPending = false;
+  private idleFit = 0;
   /** Called when the pane on screen ended (its program exited or it was closed). */
   onEnded: (a: Attached) => void = () => {};
   /** Called after Enter is typed in the pane on screen. */
@@ -549,6 +604,7 @@ export class TerminalView {
       ack();
       return;
     }
+    perfNote({ at: performance.now(), ms: 0, what: 'write', pane: this.current?.pane, bytes: b.byteLength, sync: false });
     this.term.write(b, after);
   }
 
@@ -562,13 +618,24 @@ export class TerminalView {
     this.hold = null;
     if (!h) return;
     clearTimeout(h.timer);
+    const bytes = h.items.reduce((n, it) => n + it.d.byteLength, 0);
     const wb = (this.term as unknown as { _core?: { _writeBuffer?: { writeSync?: (d: Uint8Array | string) => void } } })._core?._writeBuffer;
-    if (wb && typeof wb.writeSync === 'function') {
+    // In one go only when it is small and shown: a hidden terminal is not
+    // seen half-written, and a big update in one task freezes the window
+    // (SYNC_WRITE_MAX); xterm.js draws nothing until its ESU meanwhile.
+    if (wb && typeof wb.writeSync === 'function' && bytes <= SYNC_WRITE_MAX && !this.hidden()) {
+      const t = performance.now();
       for (const it of h.items) wb.writeSync(it.d);
       if (late) wb.writeSync(SYNC_OFF);
+      perfNote({ at: t, ms: performance.now() - t, what: 'write', pane: this.current?.pane, bytes, sync: true });
       for (const it of h.items) it.after();
     } else {
-      for (const it of h.items) this.term.write(it.d, it.after);
+      perfNote({ at: performance.now(), ms: 0, what: 'write', pane: this.current?.pane, bytes, sync: false });
+      for (const it of h.items) {
+        const d = it.d;
+        for (let i = 0; i + SLICE < d.byteLength; i += SLICE) this.term.write(d.subarray(i, i + SLICE));
+        this.term.write(d.byteLength > SLICE ? d.subarray(Math.floor((d.byteLength - 1) / SLICE) * SLICE) : d, it.after);
+      }
       if (late) this.term.write(SYNC_OFF);
     }
   }
@@ -618,7 +685,12 @@ export class TerminalView {
   private drawNow(): void {
     const rs = (this.term as unknown as { _core?: { _renderService?: { _renderRows?: (s: number, e: number) => void } } })._core?._renderService;
     if (!rs || typeof rs._renderRows !== 'function' || this.term.rows < 1) return;
+    // Not halfway through a program's synchronized update (a big one is
+    // parsed in slices): xterm.js draws it whole at its ESU.
+    if (this.term.modes.synchronizedOutputMode) return;
+    const t = performance.now();
     try { rs._renderRows(0, this.term.rows - 1); } catch { /* drawn on the next frame instead */ }
+    perfNote({ at: t, ms: performance.now() - t, what: 'draw', pane: this.current?.pane });
   }
 
   private queueResize(): void {
@@ -637,6 +709,12 @@ export class TerminalView {
    */
   private fitNow(now = false): void {
     if (!this.el.offsetWidth || !this.el.offsetHeight) return;
+    // Hidden: no work in the resize's path (VS Code resizes a hidden
+    // terminal when it shows or the window is idle). Four kept alive, each
+    // reflowing its scrollback and its program writing its screen again,
+    // all at once when the size settled, froze the window.
+    if (!now && this.hidden()) { this.fitLater(); return; }
+    this.fitPending = false;
     this.redrawAfterResize();
     let d: { cols: number; rows: number } | undefined;
     try { d = this.fit.proposeDimensions(); } catch { d = undefined; }
@@ -679,11 +757,45 @@ export class TerminalView {
     requestAnimationFrame(tick);
   }
 
+  /** Hidden from view: a pooled terminal (.term-host.pooled) or the split hidden (#split[hidden]); both keep it laid out. */
+  private hidden(): boolean { return getComputedStyle(this.el).visibility === 'hidden'; }
+
+  /** Once the size has held HIDDEN_WAIT ms, at the window's next idle moment. */
+  private fitLater(): void {
+    this.fitPending = true;
+    this.cancelIdleFit();
+    this.idleFit = window.setTimeout(() => {
+      const run = (): void => {
+        this.idleFit = 0;
+        this.idleKind = '';
+        if (this.fitPending) this.fitNow(true);
+      };
+      if (typeof requestIdleCallback === 'function') { this.idleKind = 'idle'; this.idleFit = requestIdleCallback(run, { timeout: 5000 }); } else run();
+    }, HIDDEN_WAIT);
+    this.idleKind = 'timer';
+  }
+  private idleKind: '' | 'timer' | 'idle' = '';
+  private cancelIdleFit(): void {
+    if (this.idleKind === 'timer') clearTimeout(this.idleFit);
+    else if (this.idleKind === 'idle') cancelIdleCallback(this.idleFit);
+    this.idleFit = 0;
+    this.idleKind = '';
+  }
+
+  /** It shows now (app.ts, as it comes to the front): a size it waited for while hidden is applied before the frame. */
+  shown(): void {
+    if (!this.fitPending) return;
+    this.cancelIdleFit();
+    this.fitNow(true);
+  }
+
   /** xterm.js resized, drawn in this task (drawNow), and the pane's program told (sendSize); false when its size stayed. */
   private resizeTo(cols: number, rows: number): boolean {
     const changed = cols !== this.term.cols || rows !== this.term.rows;
     if (changed) {
+      const t = performance.now();
       this.term.resize(cols, rows);
+      perfNote({ at: t, ms: performance.now() - t, what: 'resize', pane: this.current?.pane, size: `${cols}x${rows}`, lines: this.term.buffer.normal.length, hidden: this.hidden() });
       this.drawNow();
     }
     this.sendSize();

@@ -41,7 +41,7 @@ import { Pages } from './pages.ts';
 import { renderLearn } from './learn.ts';
 import type { LearnCard, LearnKey } from './learn.ts';
 import type { NavRow } from './pages.ts';
-import { FONT_SIZE, TerminalView, THEME } from './terminal.ts';
+import { FONT_SIZE, TerminalView, THEME, watchLongTasks } from './terminal.ts';
 import { PaneStore } from './panes.ts';
 import { TerminalMarks } from './marks.ts';
 import type { SettingsSnapshot, TerminalSettings } from '../shared/settings.ts';
@@ -1758,6 +1758,8 @@ function swapIn(slot: 0 | 1, e: Pooled): void {
   const id = slot ? 'term2' : 'term';
   for (const p of pools[slot]) { p.el.classList.toggle('pooled', p !== e); if (p !== e && p.el.id === id) p.el.removeAttribute('id'); }
   e.el.id = id;
+  // A size it waited for while hidden (terminal.ts fitLater), before this frame shows it.
+  e.view.shown();
   const keys = term === cur;
   if (slot) { termB = e.view; marksB = e.marks; } else { termA = e.view; marksA = e.marks; }
   if (keys) { term = e.view; marks = e.marks; }
@@ -1855,6 +1857,7 @@ async function closePane(t: Tab): Promise<void> {
 function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review' | 'brief'): void {
   // The terminals: the split, laid out even while hidden (app.css #split[hidden]).
   $('split').hidden = id !== 'term';
+  if (id === 'term') for (const v of [termA, termB]) v?.shown();
   for (const k of ['elsewhere', 'start', 'none', 'review', 'brief']) ($(k) as HTMLElement).hidden = k !== id;
   if (id !== 'term') film.close();
   $('centre').classList.toggle('sheet', id === 'start' || id === 'none');
@@ -3629,6 +3632,8 @@ async function boot(): Promise<void> {
   // The terminal settings first, so the terminals start with them.
   try { applyTerminalSettings(await api().settings.get()); } catch { /* the defaults */ }
   api().settings.onChange((snap) => applyTerminalSettings(snap));
+  // A task over 100 ms says in app.log what ran in it (terminal.ts).
+  watchLongTasks((line) => api().log(line));
   [termA, marksA] = makeView($('term'));
   pools[0].push({ view: termA, marks: marksA, el: $('term'), used: Date.now() });
   // A tab dragged onto an edge of the pane in front: a split.
