@@ -19,7 +19,7 @@ const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LAUNCH = {
   HOME: '/Users/you', PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8',
   RAVENRY_DRIVER: '/tmp/x.cjs', RAVENRY_DRIVE: '/tmp/plan.json', RAVENRY_DRIVE_LOG: '1', RAVENRYD: '/tmp/evil-ravenryd',
-  RAVENRY_LAUNCHCTL: '/tmp/evil-launchctl', RAVENRY_NEW_SHELL: '/tmp/evil-shell', RAVENRY_TEST_CLIPBOARD: 'rm -rf ~\r', RAVENRY_SETTINGS_IMPORT: '/tmp/t.itermcolors',
+  RAVENRY_LAUNCHCTL: '/tmp/evil-launchctl', RAVENRY_NEW_SHELL: '/tmp/evil-shell', RAVENRY_TEST_CLIPBOARD: 'rm -rf ~\r', RAVENRY_SETTINGS_IMPORT: '/tmp/t.itermcolors', RAVENRY_TEST_FOLDER: '/tmp/folder',
   MC_PS_BIN: '/tmp/evil-ps', MC_OPEN_COMMAND: '["/tmp/evil"]', STUB_PS_STATE: '/tmp/s.json', FAKE_CMUX_STATE: '/tmp/f.json', CMUX_BIN: '/tmp/evil-cmux', TEST_RAVENRY: '1',
   NODE_OPTIONS: '--require /tmp/x.cjs', NODE_PATH: '/tmp/mods',
   // Settings: where things are and how the window looks.
@@ -27,7 +27,7 @@ const LAUNCH = {
   RAVENRY_SERVICE: 'dry-run', RAVENRY_SERVICE_LABEL: 'dev.ravenry.hub.test-abcd', RAVENRY_UPDATES: '0', RAVENRY_OFFSCREEN: '1', RAVENRY_OPEN_LOG: '/tmp/open.jsonl',
   RAVENRY_THEME: 'dark', RAVENRY_WIDTH: '800', RAVENRY_HEIGHT: '600', ELECTRON_ENABLE_LOGGING: '1', PORT: '4700',
 };
-const CONTROL = ['CMUX_BIN', 'FAKE_CMUX_STATE', 'MC_OPEN_COMMAND', 'MC_PS_BIN', 'NODE_OPTIONS', 'NODE_PATH', 'RAVENRYD', 'RAVENRY_DRIVE', 'RAVENRY_DRIVER', 'RAVENRY_DRIVE_LOG', 'RAVENRY_LAUNCHCTL', 'RAVENRY_NEW_SHELL', 'RAVENRY_SETTINGS_IMPORT', 'RAVENRY_TEST_CLIPBOARD', 'STUB_PS_STATE', 'TEST_RAVENRY'];
+const CONTROL = ['CMUX_BIN', 'FAKE_CMUX_STATE', 'MC_OPEN_COMMAND', 'MC_PS_BIN', 'NODE_OPTIONS', 'NODE_PATH', 'RAVENRYD', 'RAVENRY_DRIVE', 'RAVENRY_DRIVER', 'RAVENRY_DRIVE_LOG', 'RAVENRY_LAUNCHCTL', 'RAVENRY_NEW_SHELL', 'RAVENRY_SETTINGS_IMPORT', 'RAVENRY_TEST_CLIPBOARD', 'RAVENRY_TEST_FOLDER', 'STUB_PS_STATE', 'TEST_RAVENRY'];
 
 test('outside a build, the gate is shut: no test hooks', () => {
   assert.equal(TEST_HOOKS, false);

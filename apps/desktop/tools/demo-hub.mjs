@@ -157,6 +157,14 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     const folder = path.join(ROOT, x.id);
     fs.mkdirSync(folder, { recursive: true });
     projects.push({ id: x.id, name: x.name || x.id, folder, brief: 'BRIEF.md', workspaces: [] });
+    // An earlier conversation in its folder, with no events: the project page's Continue.
+    if (x.conversation) {
+      const c = x.conversation;
+      const f = path.join(CLAUDE, folder.replace(/[^A-Za-z0-9-]/g, '-'), `${c.sid}.jsonl`);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      const rec = (type, more, at) => JSON.stringify({ type, cwd: folder, sessionId: c.sid, timestamp: at, ...more });
+      fs.writeFileSync(f, [rec('ai-title', { aiTitle: c.title }, ago(c.ago + 2)), rec('user', { message: { role: 'user', content: c.ask } }, ago(c.ago + 1)), rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: c.answer }], usage: { input_tokens: 5, cache_read_input_tokens: 30000, output_tokens: 80 } } }, ago(c.ago)), rec('system', { subtype: 'turn_duration' }, ago(c.ago))].join('\n') + '\n');
+    }
   }
   fs.writeFileSync(PS, JSON.stringify(ps));
   fs.writeFileSync(FAKE, JSON.stringify({ workspaces, screens }));

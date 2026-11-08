@@ -113,7 +113,19 @@
 //   20 links        tools/links-test.mjs on the test twin, a row each: the
 //                   "Cmd+click to open" tip, Cmd held underlines with the
 //                   pointing hand, the single-click setting
-//   15 brief        tools/brief-test.mjs on the test twin, a row each: the
+//   23 continue     an idle project's page: its last conversation by its
+//                   last turn (not a file's time, not another project's in
+//                   the same folder); Continue runs `claude --resume <id>`
+//                   in a Ravenry pane in its folder; one still open in cmux
+//                   says so and Move here ends that process (one the check
+//                   started) and continues it here; none found: only New
+//                   session here; New session and Open brief
+//   24 controls     tools/controls-sweep.mjs on the test twin: every visible
+//                   control in every view (sidebar, tabs, panels, project
+//                   pages, brief, Decisions, Machines, Start, Learn, each
+//                   page, the Settings window) clicked; fails on any click
+//                   that opens the board in the browser and on any that
+//                   changes nothing on the test twin, a row each: the
 //                   panel's Brief card (goal on one line, Next as 3 items,
 //                   the older entries counted) and the Brief page (the
 //                   dated entries newest first, the plan, Edit, links)
@@ -781,12 +793,12 @@ try {
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
-  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs']]) {
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs'], [24, 'controls', 'controls-sweep.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
       const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
       const app = path.join(k, 'Ravenry.app');
       execFileSync('/usr/bin/ditto', [DRIVEN, app]);
-      const r = spawnSync(process.execPath, [path.join(HERE, tool), path.join(OUT, label), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
+      const r = spawnSync(process.execPath, [path.join(HERE, tool), path.join(OUT, label), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: n === 24 ? 2400000 : 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
       const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
       if (!lines.length) step(`${n} ${label}: tools/${tool} ran`, false, { status: r.status, tail: ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-8) });
       for (const l of lines) {
@@ -941,6 +953,100 @@ try {
       save('step2Again', `!!document.querySelector('#start .ob')`),
     ], {}, { hints: true });
     step('21 F/A2: relaunched, no hint comes back, Learn Ravenry stays closed, and Start opens the session with no step 2 again', r2.hint === false && r2.learn === false && r2.step2Again === false, { hint: r2.hint, learn: r2.learn, step2Again: r2.step2Again });
+  });
+  // ------------------------------------------------------------ 23: an idle project continues its last conversation (0.1.22)
+  // ravenry-continue.html, variant A, as approved: an idle row opens the
+  // project's page with its last conversation (by its last turn, never a
+  // file's time; another project's sessions in the same folder left out),
+  // Continue runs `claude --resume <id>` in a Ravenry pane in that folder;
+  // one still open in cmux says so with Move here; with none found, only
+  // New session here.
+  await guarded('23 continue', async () => {
+    const c = await account('continue');
+    const at = (m) => new Date(Date.now() - m * 60000).toISOString();
+    const P = (n) => path.join(c.home, 'Projects', n);
+    const S1 = '7a1e0001-0000-4000-8000-000000000001', S2 = '7a1e0002-0000-4000-8000-000000000002', S3 = '7a1e0003-0000-4000-8000-000000000003', S4 = '7a1e0004-0000-4000-8000-000000000004';
+    for (const n of ['lantern', 'moss', 'attic']) { fs.mkdirSync(P(n), { recursive: true }); fs.writeFileSync(path.join(P(n), 'BRIEF.md'), `# ${n}\n\nGoal: A ${n} that works.\n`); execFileSync('/usr/bin/git', ['init', '-q', '-b', 'main', P(n)]); }
+    const WS2 = 'CCCC3333-0000-4000-8000-0000000000CC';
+    fs.writeFileSync(path.join(c.home, '.ravenry', 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [
+      { id: 'lantern', name: 'lantern', folder: P('lantern'), brief: 'BRIEF.md' },
+      { id: 'lantern-tools', name: 'lantern-tools', folder: P('lantern'), workspaces: [WS2] },
+      { id: 'moss', name: 'moss', folder: P('moss'), brief: 'BRIEF.md' },
+      { id: 'attic', name: 'attic', folder: P('attic'), brief: 'BRIEF.md' },
+    ] }, null, 2));
+    // Transcripts: lantern's older (S1, its file touched last, as Claude Code does) and newer (S2);
+    // a newer one still (S3) that the board gives lantern-tools; moss's (S4), still open in cmux.
+    const tr = (folder, sid, title, ask, answer, m) => {
+      const f = path.join(c.home, '.claude', 'projects', folder.replace(/[^A-Za-z0-9-]/g, '-'), `${sid}.jsonl`);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      const rec = (type, extra, t) => JSON.stringify({ type, cwd: folder, sessionId: sid, timestamp: t, ...extra });
+      fs.writeFileSync(f, [rec('ai-title', { aiTitle: title }, at(m + 2)), rec('user', { message: { role: 'user', content: ask } }, at(m + 1)), rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: answer }], usage: { input_tokens: 5, cache_read_input_tokens: 30000, output_tokens: 80 } } }, at(m)), rec('system', { subtype: 'turn_duration' }, at(m))].join('\n') + '\n');
+      return f;
+    };
+    const f1 = tr(P('lantern'), S1, 'Wick length', 'How long should the wick be?', 'Two centimetres; longer smokes.', 60 * 48);
+    tr(P('lantern'), S2, 'Glass for the lantern', 'Clear glass or frosted?', 'Frosted: it spreads the light and hides the wick. I can order a sample.', 60 * 24);
+    const f3 = tr(P('lantern'), S3, 'Tools rack', 'Where do the tools go?', 'On the rack by the door.', 60 * 2);
+    tr(P('moss'), S4, 'Moss on the north wall', 'Will it spread?', 'Slowly, only where it stays damp.', 60 * 5);
+    const now = new Date(); fs.utimesSync(f1, now, now);
+    // S3's events name lantern-tools' workspace: the board gives it lantern-tools.
+    const ev = (sid, folder, trf, extra = {}) => fs.writeFileSync(path.join(c.home, '.ravenry', 'events', `${sid}.jsonl`), [{ event: 'SessionStart', m: 200 }, { event: 'SessionEnd', m: 120 }].map((x) => JSON.stringify({ at: at(x.m), event: x.event, session_id: sid, assistant: 'claude', cwd: folder, transcript_path: trf, ...extra })).join('\n') + '\n');
+    ev(S3, P('lantern'), f3, { workspace_id: WS2 });
+    // S4 still runs in cmux: a process on it, one this check started (Move here ends it; never a made-up id that may be a real process).
+    const holder = spawn('/bin/sleep', ['900'], { stdio: 'ignore' });
+    const holderAlive = () => { try { process.kill(holder.pid, 0); return true; } catch { return false; } };
+    fs.writeFileSync(c.ps, JSON.stringify([{ pid: holder.pid, ppid: process.pid, rssKb: 200000, startedAt: at(400), command: `claude --resume ${S4}`, cwd: P('moss'), env: 'TERM_PROGRAM=ghostty CMUX_SURFACE_ID=DDDD4444-0000-4000-8000-0000000000DD' }]));
+    const ROW = (n) => `[...document.querySelectorAll('#side .sl .idl, #side .sl .pj.open')].find((e) => e.querySelector('.n').textContent === ${JSON.stringify(n)})`;
+    const CARD = `(() => { const pa = document.querySelector('#none .pa'); if (!pa) return null; const q = (s) => { const e = pa.querySelector(s); return e ? e.textContent : null; }; const cv = pa.querySelector('.conv'); return { project: pa.dataset.project, last: cv ? cv.dataset.last : null, title: q('.conv-h .ti'), who: q('.conv-h .as-tag'), when: q('.conv-h .when'), said: q('.said'), still: q('.still'), buttons: [...pa.querySelectorAll('.acts button.btn')].map((b) => b.textContent), brief: q('.acts .lk'), cmd: q('.cmd') }; })()`;
+    const both23 = (name) => [shot(`23-${name}-dark.png`), { theme: 'light', after: 700 }, shot(`23-${name}-light.png`), { theme: 'dark', after: 500 }];
+    const m = await launch(c, 'continue', [
+      { ready: true, timeout: 30000 },
+      { until: PROMPT, timeout: 20000 },
+      { until: `${R}.S.hubStatus && ${R}.S.hubStatus.reachable && ${R}.S.hub && ${R}.S.hub.projects && ${R}.S.hub.projects.length >= 4 && ${ROW('lantern')}`, timeout: 30000 },
+      { click: ROW('lantern'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).last`, timeout: 15000 }, { sleep: 600 },
+      save('lantern', CARD), ...both23('lantern'),
+      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Continue this conversation').click()` },
+      { until: `${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S2})')`, timeout: 20000 }, { sleep: 800 },
+      save('resumed', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.continued')})` }, shot('23-continued.png'),
+      { click: ROW('moss'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).still`, timeout: 15000 }, { sleep: 600 },
+      save('moss', CARD), ...both23('moss'),
+      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'Move here').click()` },
+      { until: `${R}.S.view.kind === 'session' && ${R}.term().ready && ${R}.text().includes('fake claude ready (args: --resume ${S4})')`, timeout: 20000 }, { sleep: 800 },
+      save('moved', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.moved')})` }, shot('23-moved.png'),
+      { click: ROW('attic'), clickJs: true },
+      { until: `document.querySelector('#none .none-card.project[data-project="attic"]')`, timeout: 15000 }, { sleep: 600 },
+      save('attic', `(() => { const e = document.querySelector('#none .none-card.project'); return { text: e.textContent, buttons: [...e.querySelectorAll('button')].map((b) => b.textContent) }; })()`), ...both23('attic'),
+      { js: `[...document.querySelectorAll('#none .none-card.project button')].find((b) => b.textContent === 'New session here').click()` },
+      { until: `!document.getElementById('start').hidden`, timeout: 8000 }, { sleep: 800 },
+      save('atticStart', `${R}.S.start.folder`),
+      { click: ROW('lantern'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).last`, timeout: 15000 },
+      { js: `[...document.querySelectorAll('#none .pa .acts button')].find((b) => b.textContent === 'New session').click()` },
+      { until: `!document.getElementById('start').hidden`, timeout: 8000 }, { sleep: 800 },
+      save('lanternStart', `${R}.S.start.folder`),
+      { click: ROW('lantern'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).last`, timeout: 15000 },
+      { js: `document.querySelector('#none .pa .acts .lk').click()` },
+      { until: `${R}.S.view.kind === 'brief'`, timeout: 8000 },
+      save('brief', `${R}.S.view.kind`),
+    ], {}, {});
+    const L = m.lantern || {};
+    const real = (x) => { try { return fs.realpathSync(x); } catch { return x; } };
+    step('23 continue: an idle project\'s page shows its last conversation by its last turn: "Glass for the lantern", Claude, when it stopped, your last message and the answer; not the older one whose file was touched last, not the newer one the board gives lantern-tools', L.last === S2 && L.title === 'Glass for the lantern' && L.who === 'Claude' && /^Stopped \S/.test(L.when || '') && /Clear glass or frosted\?/.test(L.said || '') && /Frosted/.test(L.said || '') && JSON.stringify(L.buttons) === '["Continue this conversation","New session"]' && new RegExp(`claude --resume ${S2}`).test(L.cmd || ''), L);
+    // What ran, as the stand-in Claude wrote itself into the process list: its arguments, its folder, its pane.
+    const procsAt = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return []; } };
+    const ran = (sid, f) => procsAt(f).find((x) => x.command === `claude --resume ${sid}` && /RAVENRY_PANE=/.test(x.env || '')) || null;
+    const rs = { ...(m.resumed || {}), ran: ran(S2, c.ps + '.continued') };
+    step('23 continue: Continue this conversation runs `claude --resume <id>` in a Ravenry pane in the project\'s folder', !!rs.pane && !!rs.ran && real(rs.ran.cwd) === real(P('lantern')) && rs.ran.env.includes(`RAVENRY_PANE=${rs.pane}`), rs);
+    const M = m.moss || {};
+    step('23 continue: a conversation still open in cmux says "Still open in cmux." with Move here, never a second copy', /Still open in cmux/.test(M.still || '') && JSON.stringify(M.buttons) === '["Move here","New session"]', M);
+    const holderGone = !holderAlive(); try { holder.kill('SIGKILL'); } catch { /* gone */ }
+    const mv = { ...(m.moved || {}), ran: ran(S4, c.ps + '.moved'), holderEnded: holderGone };
+    step('23 continue: Move here ends it in cmux and continues it in a Ravenry pane in its folder', holderGone && !!mv.pane && /"kind":"session"/.test(mv.view || '') && !!mv.ran && real(mv.ran.cwd) === real(P('moss')), mv);
+    const A = m.attic || {};
+    step('23 continue: with no conversation found, only "New session here" (and Open brief); it opens Start in that folder', /No earlier conversation found in this folder/.test(A.text || '') && JSON.stringify(A.buttons) === '["New session here","Open brief"]' && real(m.atticStart || '') === real(P('attic')), { ...A, start: m.atticStart });
+    step('23 continue: New session opens Start in the project\'s folder; Open brief opens its brief', real(m.lanternStart || '') === real(P('lantern')) && m.brief === 'brief', { start: m.lanternStart, brief: m.brief });
   });
   // ------------------------------------------------------------ the app's environment
   // On 2026-11-07 an app opened from inside a Ravenry pane inherited the
