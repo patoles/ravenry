@@ -1202,7 +1202,11 @@ function hintAt(): { el: Element; region: DOMRect; html: (HTMLElement | string)[
     if (!el || (el as HTMLElement).offsetParent === null) return null;
     const owner = t.owner ? sessionOfPane(S.hub, t.owner) : null;
     const who = assistantName(owner?.session.assistant || null) || 'An agent';
-    return { el, region: middleRegion(), html: [h('b', t.name ? `${who} opened \u201c${t.name}\u201d` : `${who} opened this pane`), ' beside it. Watch it here, or type in it yourself.'] };
+    // In a split, its own pane is the region (under that pane's header),
+    // unless that pane is too narrow for one: then the middle column.
+    const pane = el === $('phead1') ? (() => { const pb = $('pbox1').getBoundingClientRect(); const top = el.getBoundingClientRect().bottom; return new DOMRect(pb.left, top, pb.width, pb.bottom - top); })() : null;
+    const region = pane && pane.width >= 320 ? pane : middleRegion();
+    return { el, region, html: [h('b', t.name ? `${who} opened \u201c${t.name}\u201d` : `${who} opened this pane`), ' beside it. Watch it here, or type in it yourself.'] };
   }
   if (hn.id === 'needs-you') {
     const el = document.querySelector('#side .g-you .ss');
