@@ -622,9 +622,15 @@ function eventOwnerOf(e, real) {
     if (owners.length) return ownerOf(owners, e.surfaceId || null, real && real.folder, null, { projects: reg.projects, root });
   }
   const byFolder = live.filter((p) => p.folder && !broadProject(p));
+  // A folder as written and as it really is: a session reports its real
+  // folder (/private/var/... for /var/..., a symlinked projects folder
+  // resolved), a project keeps the one it was added with. Once per tick.
+  if (ownerMemo.pfTick !== tickNo || ownerMemo.pfReg !== reg) { ownerMemo.pfTick = tickNo; ownerMemo.pfReg = reg; ownerMemo.pf = new Map(); }
+  const realOf = (f) => { if (!ownerMemo.pf.has(f)) ownerMemo.pf.set(f, realOr(f)); return ownerMemo.pf.get(f); };
   const closest = (where) => {
     if (!where) return null;
-    const near = byFolder.filter((p) => inside(where, p.folder)).sort((a, b) => b.folder.length - a.folder.length);
+    const rw = realOf(where);
+    const near = byFolder.filter((p) => inside(where, p.folder) || inside(rw, realOf(p.folder))).sort((a, b) => b.folder.length - a.folder.length);
     if (!near.length) return null;
     const same = near.filter((p) => p.folder === near[0].folder);
     return same.find((p) => p.main) || same[0];
@@ -1721,7 +1727,7 @@ function projectConversation(project, sid) {
     if (!tp) continue;
     const t = asst.readTranscript(kind, tp);
     const cwd = (t && t.cwd) || project.folder;
-    if (path.resolve(cwd) !== path.resolve(project.folder) && !inside(path.resolve(cwd), path.resolve(project.folder))) continue;
+    if (!inside(realOr(cwd), realOr(project.folder))) continue;
     return { kind, tp, cwd };
   }
   return null;
