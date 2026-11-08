@@ -1,6 +1,7 @@
 // window.ravenry, as the preload script exposes it.
 
 import type { SettingsApi } from '../shared/settings.ts';
+import type { SkillsApi } from '../shared/skills.ts';
 
 export interface AppConfig {
   platform: string;
@@ -57,6 +58,8 @@ export interface RavenryApi {
   termMenu(info: { selection: boolean; link: string | null; cwd: string | null; split: boolean }): Promise<string | null>;
   /** The terminal settings (docs/SETTINGS.md). */
   settings: SettingsApi;
+  /** The Ravenry skill per assistant (src/main/skills.ts). */
+  skills: SkillsApi;
 }
 
 declare global {

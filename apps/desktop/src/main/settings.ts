@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from 'electron';
-import { terminalSettings } from '../shared/settings.ts';
+import { SETTINGS_TABS, terminalSettings } from '../shared/settings.ts';
 import type { SettingsSnapshot, SettingsTab } from '../shared/settings.ts';
 import type { Appearance } from '../shared/themes.ts';
 import { SettingsStore } from './settingsstore.ts';
@@ -78,11 +78,11 @@ export function initSettings(opts: { dir: string; offscreen: boolean }): Setting
   });
   ipcMain.on('settings:tab', (e, tab: SettingsTab) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    if (!w || w !== settingsWin || (tab !== 'appearance' && tab !== 'behavior')) return;
+    if (!w || w !== settingsWin || !(tab in SETTINGS_TABS)) return;
     lastTab = tab;
-    w.setTitle(tab === 'appearance' ? 'Appearance' : 'Behavior');
+    w.setTitle(SETTINGS_TABS[tab]);
   });
-  ipcMain.on('settings:open', (_e, tab?: SettingsTab) => { openSettings(tab === 'appearance' || tab === 'behavior' ? tab : undefined); });
+  ipcMain.on('settings:open', (_e, tab?: SettingsTab) => { openSettings(tab && tab in SETTINGS_TABS ? tab : undefined); });
   ipcMain.handle('settings:window', () => ({ platform: process.platform, tab: lastTab, offscreen }));
   return store;
 }
@@ -110,7 +110,7 @@ export function openSettings(tab?: SettingsTab): BrowserWindow {
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
-    title: lastTab === 'appearance' ? 'Appearance' : 'Behavior',
+    title: SETTINGS_TABS[lastTab],
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1E1E21' : '#FFFFFF',
     ...(mac ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 14, y: 12 } } : { autoHideMenuBar: true }),
     webPreferences: {

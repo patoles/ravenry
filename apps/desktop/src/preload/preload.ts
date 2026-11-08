@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('ravenry', {
   // The terminal settings (docs/SETTINGS.md; SettingsApi in src/shared/settings.ts).
   // The terminal's right-click menu (main: term:menu): the item picked, or null.
   termMenu: (info: { selection: boolean; link: string | null; cwd: string | null; split: boolean }) => ipcRenderer.invoke('term:menu', info) as Promise<string | null>,
+  skills: { get: () => ipcRenderer.invoke('skills:get'), set: (kind: string, on: boolean) => ipcRenderer.invoke('skills:set', kind, on), setHooks: (kind: string, on: boolean) => ipcRenderer.invoke('hooks:set', kind, on), onChange: on('skills:changed') },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),

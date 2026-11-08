@@ -104,3 +104,15 @@ body[data-platform=linux] .sw-tb .ttl, body[data-platform=win32] .sw-tb .ttl { d
 .th .nm2 { padding: 4px 8px; background: var(--card); color: var(--tx2); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th[aria-checked=true] { box-shadow: 0 0 0 2px var(--work); }
 .th[aria-checked=true] .nm2 { color: var(--tx); font-weight: 600; }
+
+/* Skills: one line per assistant, Install or Remove. */
+.sec-s { margin-left: 6px; font-weight: 400; color: var(--tx3); }
+.sk-r { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.sk-i { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: var(--btn); color: var(--tx2); flex: none; }
+.sk-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sk-n { font-size: 13px; color: var(--tx); }
+.sk-s { font-size: 11.5px; color: var(--tx3); }
+.sk-s.ok { color: var(--ok); }
+.sk-hint + .sec { padding-top: 18px; }
+.sk-hint { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--tx3); max-width: 420px; }
+.sk-err { margin: 6px 0 0; font-size: 12px; color: var(--bad); }

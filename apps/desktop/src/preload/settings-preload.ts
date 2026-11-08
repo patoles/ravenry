@@ -17,4 +17,5 @@ contextBridge.exposeInMainWorld('ravenrySettings', {
   window: () => ipcRenderer.invoke('settings:window'),
   size: (height: number) => ipcRenderer.send('settings:size', height),
   tab: (tab: string) => ipcRenderer.send('settings:tab', tab),
+  skills: { get: () => ipcRenderer.invoke('skills:get'), set: (kind: string, on: boolean) => ipcRenderer.invoke('skills:set', kind, on), setHooks: (kind: string, on: boolean) => ipcRenderer.invoke('hooks:set', kind, on), onChange: on('skills:changed') },
 });

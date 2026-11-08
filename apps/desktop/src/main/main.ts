@@ -49,6 +49,7 @@ import type { NpmDetect, Offer } from './npmswitch.ts';
 import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
 import { Updates } from './updater.ts';
 import { initSettings, openSettings } from './settings.ts';
+import { installSkill, removeSkill, skillStatus, SKILL_ASSISTANTS } from './skills.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 import { applyGate } from './gate.ts';
 
@@ -329,7 +330,8 @@ function menu(): void {
       ],
     },
     { role: 'windowMenu' },
-    ...(isMac ? [] : [{ label: 'Help', submenu: [updateItem, ...backItems] }]),
+    // Learn Ravenry (renderer: learn.ts), the page the person opens when they want.
+    isMac ? { role: 'help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }] } : { label: 'Help', submenu: [{ label: 'Learn Ravenry', click: cmd('learn') }, { type: 'separator' }, updateItem, ...backItems] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -362,6 +364,53 @@ function ipc(): void {
   ipcMain.handle('hub:answer', (_e, body: unknown) => hubAnswer(feed!.url, body));
   ipcMain.handle('local:folders', (_e, root?: string) => findProjectFolders(os.homedir(), 5, root || undefined));
   ipcMain.handle('local:assistants', () => findAssistants(process.env, os.homedir()));
+  // The Ravenry skill, per assistant (skills.ts): the first-launch step and
+  // Settings, Skills. Each change is said to every window.
+  const skillsUndo = () => path.join(app.getPath('userData'), 'skills-undo.json');
+  // Its hooks too (the hub writes them: hookinstall.mjs), by a dry run:
+  // on when setting them up would change nothing.
+  const hooksOf = async (k: 'claude' | 'codex') => {
+    const bin = hookBin();
+    if (!bin || !feed) return { hooks: 'unavailable' as const, hooksFile: null };
+    try {
+      const r = await hubPost(feed.url, '/api/setup/hooks', { ravenryd: bin, dry: true, only: k }) as Record<string, { file?: string; changes?: unknown[] } | null>;
+      const x = r[k];
+      if (!x || !x.file) return { hooks: 'unavailable' as const, hooksFile: null };
+      return { hooks: (x.changes && x.changes.length ? 'off' : 'on') as 'on' | 'off', hooksFile: shortPath(x.file, os.homedir()) };
+    } catch { return { hooks: 'unavailable' as const, hooksFile: null }; }
+  };
+  const skillsView = async () => {
+    const found = findAssistants(process.env, os.homedir());
+    return Promise.all(SKILL_ASSISTANTS.map(async (k) => ({ ...skillStatus(k), dir: shortPath(skillStatus(k).dir, os.homedir()), name: k === 'claude' ? 'Claude Code' : 'Codex', found: !!found.find((x) => x.kind === k)?.found, ...(await hooksOf(k)) })));
+  };
+  const skillsChanged = async () => {
+    const v = await skillsView();
+    for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('skills:changed', v);
+    return v;
+  };
+  ipcMain.handle('skills:get', () => skillsView());
+  ipcMain.handle('hooks:set', async (_e, kind: unknown, on: unknown) => {
+    if (kind !== 'claude' && kind !== 'codex') return { ok: false, error: 'No such assistant.' };
+    const bin = hookBin();
+    if (!bin || !feed) return { ok: false, error: 'Ravenry\'s board is not running.' };
+    try { await hubPost(feed.url, '/api/setup/hooks', { ravenryd: bin, only: kind, ...(on ? {} : { remove: true }) }); }
+    catch (e) { appLog(`hooks: could not ${on ? 'set up' : 'remove'} the ${kind} hooks: ${(e as Error).message}`); return { ok: false, error: (e as Error).message }; }
+    appLog(`hooks: ${on ? 'set up' : 'removed'} Ravenry's hooks for ${kind}`);
+    return { ok: true, skills: await skillsChanged() };
+  });
+  ipcMain.handle('skills:set', async (_e, kind: unknown, on: unknown) => {
+    if (kind !== 'claude' && kind !== 'codex') return { ok: false, error: 'No such assistant.' };
+    const bin = hookBin();
+    try {
+      if (on) {
+        if (!bin) return { ok: false, error: 'Ravenry\'s command is not installed yet.' };
+        const link = path.join(path.dirname(bin), 'ravenry');
+        installSkill(kind, fs.existsSync(link) ? link : bin, app.getVersion(), skillsUndo());
+      } else removeSkill(kind, skillsUndo());
+    } catch (e) { appLog(`skills: could not ${on ? 'install' : 'remove'} the ${kind} skill: ${(e as Error).message}`); return { ok: false, error: (e as Error).message }; }
+    appLog(`skills: ${on ? 'installed' : 'removed'} the Ravenry skill for ${kind}`);
+    return { ok: true, skills: await skillsChanged() };
+  });
   ipcMain.handle('local:short', (_e, p: string) => shortPath(p, os.homedir()));
   ipcMain.handle('local:choose-folder', async () => {
     if (!win) return null;

@@ -257,7 +257,8 @@ export function macOptionIsMetaFor(mode: OptionAsMeta, code: string): boolean {
 
 // ------------------------------------------------------------ the API
 
-export type SettingsTab = 'appearance' | 'behavior';
+export type SettingsTab = 'appearance' | 'behavior' | 'skills';
+export const SETTINGS_TABS: Record<SettingsTab, string> = { appearance: 'Appearance', behavior: 'Behavior', skills: 'Skills' };
 
 /** What `settings:get` answers and `settings:changed` sends (docs/SETTINGS.md). */
 export interface SettingsSnapshot {

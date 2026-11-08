@@ -7,6 +7,7 @@ import './settings.css';
 import { FONT_FALLBACK, FONT_SIZE, SCROLLBACK } from '../shared/settings.ts';
 import type { SettingsPatch, SettingsSetResult, SettingsSnapshot, SettingsTab } from '../shared/settings.ts';
 import type { ThemeInfo } from '../shared/themes.ts';
+import type { SkillRow, SkillsApi } from '../shared/skills.ts';
 
 interface Bridge {
   get(): Promise<SettingsSnapshot>;
@@ -17,11 +18,14 @@ interface Bridge {
   window(): Promise<{ platform: string; tab: SettingsTab; offscreen: boolean }>;
   size(height: number): void;
   tab(tab: SettingsTab): void;
+  skills: SkillsApi;
 }
 const api = (window as unknown as { ravenrySettings: Bridge }).ravenrySettings;
 
 const I = {
   APPEAR: '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="4" width="17" height="14" rx="2.5"/><path d="M6 9l2.5 2L6 13M10.5 13.5H15" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  SKILLS: '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3l2.2 4.6 5 .7-3.6 3.5.9 5L11 14.4 6.5 16.8l.9-5L3.8 8.3l5-.7z"/></svg>',
+  TERM: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2" width="11" height="10" rx="2"/><path d="M4 5.5l2 1.5-2 1.5M7.5 9H10"/></svg>',
   BEHAV: '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 6h9M17 6h1M4 11h3M11 11h7M4 16h7M15 16h3"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="11" r="2"/><circle cx="13" cy="16" r="2"/></svg>',
   CHEV: '<svg width="9" height="12" viewBox="0 0 9 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5l2.5-2.5 2.5 2.5M2 7.5l2.5 2.5 2.5-2.5"/></svg>',
   CHECK: '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5.2l2 2 4-4.4" stroke="#FFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -208,6 +212,61 @@ function behaviorPane(): Node[] {
   return out;
 }
 
+// The Ravenry skill, one line per assistant: Install or Remove (src/main/skills.ts).
+let skills: SkillRow[] = [];
+let skillBusy: string | null = null;
+let skillErr: string | null = null;
+
+function skillsPane(): Node[] {
+  const line = (r: SkillRow) => {
+    const status = !r.found ? `Not on ${mac() ? 'this Mac' : 'this computer'}`
+      : r.ours ? `Installed${r.version ? `, reads ravenry skill ${r.version}` : ''}`
+        : r.installed ? 'A ravenry skill of someone else\u2019s is there; Ravenry leaves it alone' : 'Not installed';
+    const act = !r.found || (r.installed && !r.ours) ? null
+      : h('button.btn', { type: 'button', 'data-skill': r.kind, disabled: skillBusy === r.kind, onclick: () => void setSkill(r.kind, !r.ours) }, r.ours ? 'Remove' : 'Install');
+    return h('div.sk-r', { 'data-kind': r.kind },
+      h('span.sk-i', null, svg(I.TERM)),
+      h('span.sk-t', null, h('span.sk-n', null, r.name), h(`span.sk-s${r.ours ? '.ok' : ''}`, null, status)),
+      act);
+  };
+  // Its hooks, the other half of the first-launch step.
+  const hookLine = (r: SkillRow) => {
+    const status = !r.found ? `Not on ${mac() ? 'this Mac' : 'this computer'}`
+      : r.hooks === 'on' ? 'Tells Ravenry when it needs you' : r.hooks === 'off' ? 'Not set up' : 'Needs Ravenry\u2019s board running';
+    const act = !r.found || r.hooks === 'unavailable' ? null
+      : h('button.btn', { type: 'button', 'data-hooks': r.kind, disabled: skillBusy === `h:${r.kind}`, onclick: () => void setHooks(r.kind, r.hooks !== 'on') }, r.hooks === 'on' ? 'Remove' : 'Set up');
+    return h('div.sk-r', { 'data-hooks-kind': r.kind },
+      h('span.sk-i', null, svg(I.TERM)),
+      h('span.sk-t', null, h('span.sk-n', null, r.name), h(`span.sk-s${r.hooks === 'on' && r.found ? '.ok' : ''}`, null, status)),
+      act);
+  };
+  return [
+    h('div.sec', null, 'Skills', h('span.sec-s', null, mac() ? 'this Mac' : 'this computer')),
+    ...skills.map(line),
+    h('p.sk-hint', null, 'Lets the assistant open panes beside it, read their screens, show you pictures to pick from and ask you through the board and your phone. Remove puts the folder back as it was.'),
+    h('div.sec', null, 'Tell Ravenry when it needs you'),
+    ...skills.map(hookLine),
+    h('p.sk-hint', null, 'A line in the assistant\u2019s hooks, so its sessions say here when they wait for you or hand off. Each file is backed up first; Remove puts it back as it was.'),
+    skillErr ? h('p.sk-err', null, skillErr) : null,
+  ].filter(Boolean) as Node[];
+}
+
+async function setHooks(kind: 'claude' | 'codex', on: boolean): Promise<void> {
+  skillBusy = `h:${kind}`; skillErr = null; draw();
+  const r = await api.skills.setHooks(kind, on);
+  skillBusy = null;
+  if (r.ok) skills = r.skills; else skillErr = r.error;
+  draw();
+}
+
+async function setSkill(kind: 'claude' | 'codex', on: boolean): Promise<void> {
+  skillBusy = kind; skillErr = null; draw();
+  const r = await api.skills.set(kind, on);
+  skillBusy = null;
+  if (r.ok) skills = r.skills; else skillErr = r.error;
+  draw();
+}
+
 async function importTheme(): Promise<void> {
   const r = await api.importTheme();
   if (!r.ok) {
@@ -223,7 +282,7 @@ async function importTheme(): Promise<void> {
 
 // ----------------------------------------------------------------- draw
 
-const TABS: [SettingsTab, string, string][] = [['appearance', 'Appearance', I.APPEAR], ['behavior', 'Behavior', I.BEHAV]];
+const TABS: [SettingsTab, string, string][] = [['appearance', 'Appearance', I.APPEAR], ['behavior', 'Behavior', I.BEHAV], ['skills', 'Skills', I.SKILLS]];
 
 function draw(): void {
   const title = TABS.find((t) => t[0] === tab)![1];
@@ -234,13 +293,14 @@ function draw(): void {
     type: 'button', role: 'tab', 'aria-selected': String(id === tab), 'data-tab': id,
     onclick: () => showTab(id),
   }, svg(icon), label)));
-  const a = document.getElementById('pane-appearance')!;
-  const b = document.getElementById('pane-behavior')!;
+  const panes: Record<SettingsTab, () => Node[]> = { appearance: appearancePane, behavior: behaviorPane, skills: skillsPane };
   // Keep the focus where it was across a redraw (a checkbox, a segment).
   const focusKey = focusPath();
-  a.hidden = tab !== 'appearance';
-  b.hidden = tab !== 'behavior';
-  if (tab === 'appearance') a.replaceChildren(...appearancePane()); else b.replaceChildren(...behaviorPane());
+  for (const t of Object.keys(panes) as SettingsTab[]) {
+    const el = document.getElementById(`pane-${t}`)!;
+    el.hidden = tab !== t;
+    if (tab === t) el.replaceChildren(...panes[t]());
+  }
   restoreFocus(focusKey);
   fit();
 }
@@ -307,6 +367,8 @@ async function start(): Promise<void> {
   tab = w.tab;
   document.body.dataset.platform = platform;
   snap = await api.get();
+  skills = await api.skills.get();
+  api.skills.onChange((rows) => { skills = rows; draw(); });
   api.onChange((s) => { snap = s as SettingsSnapshot; draw(); });
   api.onShowTab((t) => showTab(t as SettingsTab));
   api.tab(tab);
