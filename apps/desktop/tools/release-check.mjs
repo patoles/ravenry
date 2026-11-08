@@ -991,13 +991,20 @@ try {
     const at = (m) => new Date(Date.now() - m * 60000).toISOString();
     const P = (n) => path.join(c.home, 'Projects', n);
     const S1 = '7a1e0001-0000-4000-8000-000000000001', S2 = '7a1e0002-0000-4000-8000-000000000002', S3 = '7a1e0003-0000-4000-8000-000000000003', S4 = '7a1e0004-0000-4000-8000-000000000004';
-    for (const n of ['lantern', 'moss', 'attic']) { fs.mkdirSync(P(n), { recursive: true }); fs.writeFileSync(path.join(P(n), 'BRIEF.md'), `# ${n}\n\nGoal: A ${n} that works.\n`); execFileSync('/usr/bin/git', ['init', '-q', '-b', 'main', P(n)]); }
+    const WSA = 'AAAA8888-0000-4000-8000-0000000000A8', WSP = 'BBBB9999-0000-4000-8000-0000000000B9';
+    const SA = '7a1e0008-0000-4000-8000-000000000008', SPB = '7a1e0009-0000-4000-8000-000000000009';
+    for (const n of ['lantern', 'moss', 'attic', 'arcade']) { fs.mkdirSync(P(n), { recursive: true }); fs.writeFileSync(path.join(P(n), 'BRIEF.md'), `# ${n}\n\nGoal: A ${n} that works.\n`); execFileSync('/usr/bin/git', ['init', '-q', '-b', 'main', P(n)]); }
     const WS2 = 'CCCC3333-0000-4000-8000-0000000000CC';
     fs.writeFileSync(path.join(c.home, '.ravenry', 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, repeatsAuto: false }, projects: [
       { id: 'lantern', name: 'lantern', folder: P('lantern'), brief: 'BRIEF.md' },
       { id: 'lantern-tools', name: 'lantern-tools', folder: P('lantern'), workspaces: [WS2] },
       { id: 'moss', name: 'moss', folder: P('moss'), brief: 'BRIEF.md' },
       { id: 'attic', name: 'attic', folder: P('attic'), brief: 'BRIEF.md' },
+      // The live layout of 2026-11-08: two projects in one folder, one with
+      // the folder and one with only its cmux workspace, each with a
+      // conversation open in its own workspace and no events.
+      { id: 'arcade', name: 'arcade', folder: P('arcade'), workspaces: [WSA], brief: 'BRIEF.md' },
+      { id: 'pinball', name: 'pinball', folder: null, workspaces: [WSP] },
     ] }, null, 2));
     // Transcripts: lantern's older (S1, its file touched last, as Claude Code does) and newer (S2);
     // a newer one still (S3) that the board gives lantern-tools; moss's (S4), still open in cmux.
@@ -1012,6 +1019,8 @@ try {
     tr(P('lantern'), S2, 'Glass for the lantern', 'Clear glass or frosted?', 'Frosted: it spreads the light and hides the wick. I can order a sample.', 60 * 24);
     const f3 = tr(P('lantern'), S3, 'Tools rack', 'Where do the tools go?', 'On the rack by the door.', 60 * 2);
     tr(P('moss'), S4, 'Moss on the north wall', 'Will it spread?', 'Slowly, only where it stays damp.', 60 * 5);
+    tr(P('arcade'), SA, 'Arcade brief hand-off', 'Write the hand-off', 'Done: the brief has it.', 60 * 3);
+    tr(P('arcade'), SPB, 'Modernizing the pinball table', 'Make the flippers snappier', 'Snappier now.', 20);
     const now = new Date(); fs.utimesSync(f1, now, now);
     // S3's events name lantern-tools' workspace: the board gives it lantern-tools.
     const ev = (sid, folder, trf, extra = {}) => fs.writeFileSync(path.join(c.home, '.ravenry', 'events', `${sid}.jsonl`), [{ event: 'SessionStart', m: 200 }, { event: 'SessionEnd', m: 120 }].map((x) => JSON.stringify({ at: at(x.m), event: x.event, session_id: sid, assistant: 'claude', cwd: folder, transcript_path: trf, ...extra })).join('\n') + '\n');
@@ -1019,7 +1028,14 @@ try {
     // S4 still runs in cmux: a process on it, one this check started (Move here ends it; never a made-up id that may be a real process).
     const holder = spawn('/bin/sleep', ['900'], { stdio: 'ignore' });
     const holderAlive = () => { try { process.kill(holder.pid, 0); return true; } catch { return false; } };
-    fs.writeFileSync(c.ps, JSON.stringify([{ pid: holder.pid, ppid: process.pid, rssKb: 200000, startedAt: at(400), command: `claude --resume ${S4}`, cwd: P('moss'), env: 'TERM_PROGRAM=ghostty CMUX_SURFACE_ID=DDDD4444-0000-4000-8000-0000000000DD' }]));
+    // arcade's and pinball's, each open in its own cmux workspace.
+    const holdA = spawn('/bin/sleep', ['900'], { stdio: 'ignore' });
+    const holdP = spawn('/bin/sleep', ['900'], { stdio: 'ignore' });
+    fs.writeFileSync(c.ps, JSON.stringify([
+      { pid: holder.pid, ppid: process.pid, rssKb: 200000, startedAt: at(400), command: `claude --resume ${S4}`, cwd: P('moss'), env: 'TERM_PROGRAM=ghostty CMUX_SURFACE_ID=DDDD4444-0000-4000-8000-0000000000DD' },
+      { pid: holdA.pid, ppid: process.pid, rssKb: 200000, startedAt: at(300), command: `claude --resume ${SA}`, cwd: P('arcade'), env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WSA} CMUX_SURFACE_ID=AAAA8888-0000-4000-8000-0000000000AA` },
+      { pid: holdP.pid, ppid: process.pid, rssKb: 200000, startedAt: at(200), command: `claude --resume ${SPB}`, cwd: P('arcade'), env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WSP} CMUX_SURFACE_ID=BBBB9999-0000-4000-8000-0000000000BB` },
+    ]));
     const ROW = (n) => `[...document.querySelectorAll('#side .sl .idl, #side .sl .pj.open')].find((e) => e.querySelector('.n').textContent === ${JSON.stringify(n)})`;
     const CARD = `(() => { const pa = document.querySelector('#none .pa'); if (!pa) return null; const q = (s) => { const e = pa.querySelector(s); return e ? e.textContent : null; }; const cv = pa.querySelector('.conv'); return { project: pa.dataset.project, last: cv ? cv.dataset.last : null, title: q('.conv-h .ti'), who: q('.conv-h .as-tag'), when: q('.conv-h .when'), said: q('.said'), still: q('.still'), buttons: [...pa.querySelectorAll('.acts button.btn')].map((b) => b.textContent), brief: q('.acts .lk'), cmd: q('.cmd') }; })()`;
     const both23 = (name) => [shot(`23-${name}-dark.png`), { theme: 'light', after: 700 }, shot(`23-${name}-light.png`), { theme: 'dark', after: 500 }];
@@ -1057,6 +1073,13 @@ try {
       { until: `!document.getElementById('panel').hidden && document.querySelector('#panel .p-h .n') && document.querySelector('#panel .p-h .n').textContent !== 'New session' && document.getElementById('panel').textContent.includes('Tells Ravenry when it needs you') && (document.querySelector('#tabs .tab.on') || {}).textContent.includes('Moss on the north wall')`, timeout: 20000, soft: true }, { sleep: 600 },
       save('movedPanel', `(() => { const p = document.getElementById('panel'); return { head: (p.querySelector('.p-h .n') || {}).textContent || null, text: p.innerText.replace(/\\s+/g, ' ').slice(0, 400), tab: (document.querySelector('#tabs .tab.on') || {}).textContent || null }; })()`), shot('23-moved-panel.png'),
       save('moved', `(() => { const a = ${R}.term().attached; return { pane: a && a.pane, view: JSON.stringify(${R}.S.view), err: (document.querySelector('#none .pa .err') || {}).textContent || null, toast: document.getElementById('toast').hidden ? '' : document.getElementById('toast').textContent, text: ${R}.text().slice(-300) }; })()`), { main: `require('fs').copyFileSync(${JSON.stringify(c.ps)}, ${JSON.stringify(c.ps + '.moved')})` }, shot('23-moved.png'),
+      // Two projects in one folder: each its own conversation, by the workspace it is open in.
+      { click: ROW('arcade'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).project === 'arcade' && (${CARD}).last`, timeout: 15000 }, { sleep: 600 },
+      save('arcade', CARD), ...both23('arcade'),
+      { click: ROW('pinball'), clickJs: true },
+      { until: `(${CARD}) && (${CARD}).project === 'pinball' && (${CARD}).last`, timeout: 15000 }, { sleep: 600 },
+      save('pinball', CARD), ...both23('pinball'),
       { click: ROW('attic'), clickJs: true },
       { until: `document.querySelector('#none .none-card.project[data-project="attic"]')`, timeout: 15000 }, { sleep: 600 },
       save('attic', `(() => { const e = document.querySelector('#none .none-card.project'); return { text: e.textContent, buttons: [...e.querySelectorAll('button')].map((b) => b.textContent) }; })()`), ...both23('attic'),
@@ -1081,6 +1104,10 @@ try {
     const holderGone = !holderAlive(); try { holder.kill('SIGKILL'); } catch { /* gone */ }
     const mv = { ...(m.moved || {}), ran: ran(S4, c.ps + '.moved'), holderEnded: holderGone };
     step('23 continue: Move here ends it in cmux and continues it in a Ravenry pane in its folder', holderGone && !!mv.pane && !!mv.ran && real(mv.ran.cwd) === real(P('moss')) && mv.ran.env.includes(`RAVENRY_PANE=${mv.pane}`), mv);
+    const AR = m.arcade || {}, PB = m.pinball || {};
+    step('23 continue: two projects in one folder, each with a conversation open in its own cmux workspace: the project with the folder gets its own ("Arcade brief hand-off", still open in cmux), never the newer one open in the other\'s workspace', AR.last === SA && AR.title === 'Arcade brief hand-off' && /Still open in cmux/.test(AR.still || ''), AR);
+    step('23 continue: the project with no folder gets the conversation open in its workspace ("Modernizing the pinball table")', PB.last === SPB && PB.title === 'Modernizing the pinball table', PB);
+    try { holdA.kill('SIGKILL'); holdP.kill('SIGKILL'); } catch { /* gone */ }
     const A = m.attic || {};
     step('23 continue: with no conversation found, only "New session here" (and Open brief); it opens Start in that folder', /No earlier conversation found in this folder/.test(A.text || '') && JSON.stringify(A.buttons) === '["New session here","Open brief"]' && real(m.atticStart || '') === real(P('attic')), { ...A, start: m.atticStart });
     step('23 continue: New session opens Start in the project\'s folder; Open brief opens its brief', real(m.lanternStart || '') === real(P('lantern')) && m.brief === 'brief', { start: m.lanternStart, brief: m.brief });

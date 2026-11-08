@@ -1678,16 +1678,74 @@ function procHolding(sid) {
 //      project (two projects can share a folder).
 // With where it is still open (a process on it), and the command that
 // continues it.
+// Which project a running assistant process belongs to, by where it runs:
+// the cmux workspace in its environment (CMUX_WORKSPACE_ID) is the project
+// that lists that workspace; else the board's row for its tab (a cmux
+// surface, an iTerm2 session, a Rex block, a Ravenry pane). Never its folder:
+// two projects can share one (2026-11-08: Lemmings' conversation, open in
+// Lemmings' cmux workspace, was offered as Antics' last).
+function holderProject(p) {
+  if (!reg || !p) return null;
+  const live = reg.projects.filter((x) => !x.hidden);
+  if (p.workspaceId) {
+    const o = live.find((x) => (x.workspaces || []).includes(p.workspaceId));
+    if (o) return o;
+  }
+  const tab = p.ravenryId ? term.tabIdFor('ravenry', p.ravenryId) : p.surfaceId ? term.tabIdFor('cmux', p.surfaceId) : p.itermId ? term.tabIdFor('iterm', p.itermId) : p.rexId ? term.tabIdFor('rex', p.rexId) : null;
+  if (!tab) return null;
+  const sp = snapshot.projects.find((x) => x.sessions.some((s) => s.surfaceId === tab));
+  return sp ? live.find((x) => x.id === sp.id) || null : null;
+}
+
+// The conversations open now in some terminal, by session id: the process
+// on it, its project by where it runs (holderProject), and its folder.
+function heldConversations() {
+  const out = new Map();
+  for (const p of procState.procs) {
+    if (endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
+    const m = sess.mapProcess(p, { evAll: ev.all, hooks: [], boardTab: null });
+    const sid = (m && m.sessionId) || p.argvSession || null;
+    if (!sid) continue;
+    const own = holderProject(p);
+    const was = out.get(sid);
+    // Open in two places: the one whose project is known wins.
+    if (!was || (!was.project && own)) out.set(sid, { proc: p, project: own, kind: asst.kindOf({ assistant: p.assistant || 'claude' }), cwd: p.cwd || null });
+  }
+  return out;
+}
+
+// A conversation open in another project's workspace or tab is never
+// continued or moved into this one: the reason, or null.
+function otherProjectHolds(project, sid) {
+  const h = heldConversations().get(sid);
+  if (!h || !h.project || h.project.id === project.id) return null;
+  return `This conversation is ${h.project.name}'s: it is open in ${h.project.name}'s ${h.proc.workspaceId ? 'cmux workspace' : 'tab'}, not ${project.name}'s.`;
+}
+
 async function lastConversation(project) {
   if (!project || project.machine) return null;
   const mine = [];
   const others = new Set();
+  // A conversation open in a terminal belongs to the project where it runs,
+  // whatever its events or its folder say.
+  const held = heldConversations();
+  for (const [sid, h] of held) if (h.project && h.project.id !== project.id) others.add(sid);
   for (const e of ev.all.values()) {
+    if (others.has(e.sessionId)) continue;
     const tp = transcriptOf(e);
-    const own = project.loose ? (project.sessionIds.includes(e.sessionId) ? project : null) : eventOwner(e, realFolder(tp, e));
+    const h = held.get(e.sessionId);
+    const own = h && h.project ? h.project : project.loose ? (project.sessionIds.includes(e.sessionId) ? project : null) : eventOwner(e, realFolder(tp, e));
     if (own && own.id === project.id) mine.push({ sessionId: e.sessionId, kind: asst.kindOf(e), tp, cwd: e.cwd || project.folder, at: e.lastEventAt || null });
     else if (own) others.add(e.sessionId);
     await slice.breathe();
+  }
+  // Open in this project's own workspace or tab, with no events (started
+  // before the hooks, or on another machine's data): found by its id.
+  for (const [sid, h] of held) {
+    if (!h.project || h.project.id !== project.id || mine.some((c) => c.sessionId === sid)) continue;
+    const where = h.cwd || project.folder;
+    const tp = asst.findTranscript(h.kind, sid, where);
+    if (tp) mine.push({ sessionId: sid, kind: h.kind, tp, cwd: where, at: null });
   }
   let pool = mine.filter((c) => c.tp);
   if (!pool.length && project.folder) {
@@ -1721,7 +1779,16 @@ async function lastConversation(project) {
 // A session found by its conversation only (no hook events, not on the
 // board), checked to be this project's: its folder's, and not another's.
 function projectConversation(project, sid) {
-  if (!project || !project.folder) return null;
+  if (!project) return null;
+  const h = heldConversations().get(sid);
+  if (h && h.project && h.project.id !== project.id) return null;
+  // Open in this project's workspace: its own, wherever its folder is.
+  if (h && h.project && h.project.id === project.id) {
+    const where = h.cwd || project.folder;
+    const tp = where ? asst.findTranscript(h.kind, sid, where) : null;
+    if (tp) return { kind: h.kind, tp, cwd: where };
+  }
+  if (!project.folder) return null;
   for (const kind of asst.KINDS) {
     const tp = asst.findTranscript(kind, sid, project.folder);
     if (!tp) continue;
@@ -1746,6 +1813,8 @@ async function resumeSession(body, { fresh = false } = {}) {
   const snap = snapshot.projects.find((x) => x.id === project.id);
   const s = snap ? snap.sessions.find((x) => x.sessionId === sid) || null : null;
   // Or a conversation of the project's folder that the board has no events for (its page's Continue).
+  const other = otherProjectHolds(project, sid);
+  if (other) return { ok: false, status: 409, error: other };
   const conv = !e && !s ? projectConversation(project, sid) : null;
   if (!e && !s && !conv) return { ok: false, status: 404, error: 'No such session in that project.' };
   if ((e && e.machine) || (s && s.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; continue it there.' };
@@ -1760,6 +1829,8 @@ async function resumeSession(body, { fresh = false } = {}) {
     // A fresh process list, never the minute-old one.
     await refreshProcs();
     if (procState.error) return { ok: false, status: 503, error: `Ravenry could not list the running sessions (${procState.error}), so it started nothing.` };
+    const elsewhere = otherProjectHolds(project, sid);
+    if (elsewhere) return { ok: false, status: 409, error: elsewhere };
     const holder = procHolding(sid);
     if (holder && holder.ravenryId) return { ok: true, already: true, surfaceId: term.tabIdFor('ravenry', holder.ravenryId), pane: { id: holder.ravenryId }, projectId: project.id };
     if (holder) {
@@ -1858,9 +1929,13 @@ async function moveSession(body) {
   if ((e && e.machine) || project.machine) return { ok: false, status: 409, error: 'It runs on another machine; move it there.' };
   const snap = snapshot.projects.find((x) => x.id === project.id);
   const s = snap ? snap.sessions.find((x) => x.sessionId === sid) || null : null;
+  const other = otherProjectHolds(project, sid);
+  if (other) return { ok: false, status: 409, error: other };
   if (!e && !s && !projectConversation(project, sid)) return { ok: false, status: 404, error: 'No such session in that project.' };
   if (resumeBusy.has(sid)) return { ok: false, status: 409, error: 'Already moving it.' };
   const holders0 = await holdersOf(sid);
+  const elsewhere = otherProjectHolds(project, sid);
+  if (elsewhere) return { ok: false, status: 409, error: elsewhere };
   const outside = holders0.find((h) => !h.ravenryId);
   const name = outside ? outside.where : termOf(e) ? term.nameOf(termOf(e)) : 'the other terminal';
   if (busyOn(sid)) {

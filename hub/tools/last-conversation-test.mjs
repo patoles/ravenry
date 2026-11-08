@@ -49,6 +49,13 @@ const S4 = '1a5c0004-0000-4000-8000-000000000004'; // moss, still open in cmux
 const S5 = '1a5c0005-0000-4000-8000-000000000005'; // quill, Codex
 const S6 = '1a5c0006-0000-4000-8000-000000000006'; // reed, ended, on the board
 const S7 = '1a5c0007-0000-4000-8000-000000000007'; // reed, newer, no events
+// The live layout of 2026-11-08: two projects in one folder, one with the
+// folder (arcade) and one with only its cmux workspace (pinball), each with
+// a conversation open in its own workspace, and no events for either.
+const SA = '1a5c0008-0000-4000-8000-000000000008'; // arcade's, older, open in arcade's workspace
+const SP = '1a5c0009-0000-4000-8000-000000000009'; // pinball's, newer, open in pinball's workspace
+const WSA = 'AAAA8888-0000-4000-8000-0000000000A8';
+const WSP = 'BBBB9999-0000-4000-8000-0000000000B9';
 const WS2 = 'CCCC3333-0000-4000-8000-0000000000CC';
 const WS6 = 'EEEE6666-0000-4000-8000-0000000000EE';
 
@@ -75,6 +82,9 @@ transcript(P('moss'), S4, 'Moss on the north wall', 'Will it spread?', 'Slowly, 
 const f6 = transcript(P('reed'), S6, 'Reed bed layout', 'Two rows or three?', 'Three, a hand apart.', 60 * 30);
 events(S6, P('reed'), f6, [['SessionStart', 60 * 31], ['SessionEnd', 60 * 30]], { workspace_id: WS6 });
 transcript(P('reed'), S7, 'Not the board one', 'And the edges?', 'Stone.', 30);
+fs.mkdirSync(P('arcade'), { recursive: true });
+transcript(P('arcade'), SA, 'Arcade brief hand-off', 'Write the hand-off', 'Done: the brief has it.', 60 * 3);
+transcript(P('arcade'), SP, 'Modernizing the pinball table', 'Make the flippers snappier', 'Snappier now.', 20);
 // Codex: its rollout, whose first line carries the instructions (past 20 KB).
 const rdir = path.join(CODEX, 'sessions', '2026', '11', '07');
 fs.mkdirSync(rdir, { recursive: true });
@@ -93,11 +103,19 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({ version: 1, se
   { id: 'attic', name: 'attic', folder: P('attic') },
   { id: 'quill', name: 'quill', folder: P('quill') },
   { id: 'reed', name: 'reed', folder: P('reed'), workspaces: [WS6] },
+  { id: 'arcade', name: 'arcade', folder: P('arcade'), workspaces: [WSA] },
+  { id: 'pinball', name: 'pinball', folder: null, workspaces: [WSP] },
 ] }, null, 2));
 // S4's process, still running in cmux: one this test started, so nothing real is ever touched.
 const holder = spawn('/bin/sleep', ['600'], { stdio: 'ignore' });
 const PS = path.join(T, 'stub-ps.json');
-fs.writeFileSync(PS, JSON.stringify([{ pid: holder.pid, ppid: process.pid, rssKb: 200000, startedAt: iso(300), command: `claude --resume ${S4}`, cwd: P('moss'), env: 'TERM_PROGRAM=ghostty CMUX_SURFACE_ID=DDDD4444-0000-4000-8000-0000000000DD' }]));
+const holdA = spawn('/bin/sleep', ['600'], { stdio: 'ignore' });
+const holdP = spawn('/bin/sleep', ['600'], { stdio: 'ignore' });
+fs.writeFileSync(PS, JSON.stringify([
+  { pid: holder.pid, ppid: process.pid, rssKb: 200000, startedAt: iso(300), command: `claude --resume ${S4}`, cwd: P('moss'), env: 'TERM_PROGRAM=ghostty CMUX_SURFACE_ID=DDDD4444-0000-4000-8000-0000000000DD' },
+  { pid: holdA.pid, ppid: process.pid, rssKb: 200000, startedAt: iso(200), command: `claude --resume ${SA}`, cwd: P('arcade'), env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WSA} CMUX_SURFACE_ID=AAAA8888-0000-4000-8000-0000000000AA` },
+  { pid: holdP.pid, ppid: process.pid, rssKb: 200000, startedAt: iso(100), command: `claude --resume ${SP}`, cwd: P('arcade'), env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WSP} CMUX_SURFACE_ID=BBBB9999-0000-4000-8000-0000000000BB` },
+]));
 const LOG = path.join(T, 'fake-claude.log');
 fs.writeFileSync(path.join(T, 'bin', 'fake-claude'), `#!/bin/sh\necho "$PWD|$*" >> '${LOG}'\nexec sleep 300\n`, { mode: 0o755 });
 
@@ -120,7 +138,7 @@ const daemon = BIN ? spawn(BIN, ['serve'], { env: { HOME, PATH: '/usr/bin:/bin',
 const board = spawn(process.execPath, [path.join(ROOT, 'server', 'index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 board.stdout.on('data', (d) => { boardLog += d; });
 board.stderr.on('data', (d) => { boardLog += d; });
-process.on('exit', () => { board.kill('SIGTERM'); holder.kill('SIGKILL'); if (daemon) daemon.kill('SIGTERM'); if (D) { try { fs.rmSync(D, { recursive: true, force: true }); } catch { /* gone */ } } });
+process.on('exit', () => { board.kill('SIGTERM'); holder.kill('SIGKILL'); holdA.kill('SIGKILL'); holdP.kill('SIGKILL'); if (daemon) daemon.kill('SIGTERM'); if (D) { try { fs.rmSync(D, { recursive: true, force: true }); } catch { /* gone */ } } });
 
 const base = `http://127.0.0.1:${PORT}`;
 const get = async (p) => { try { const r = await fetch(base + p); return { status: r.status, body: await r.json() }; } catch { return { status: 0, body: null }; } };
@@ -154,6 +172,16 @@ const M = (await last('moss')).last;
 check('still open in cmux: it says where', !!M && M.sessionId === S4 && M.openIn && M.openIn.ravenry === false && M.openIn.name === 'cmux', JSON.stringify(M && M.openIn));
 const A = await last('attic');
 check('no conversation in the folder: none', A.ok === true && A.last === null, JSON.stringify(A));
+// The live layout: each project gets its own conversation, by the workspace it is open in.
+const AR = (await last('arcade')).last;
+check('two projects in one folder: the one with the folder gets the conversation open in its own cmux workspace, not the newer one open in the other\'s', !!AR && AR.sessionId === SA && AR.openIn && AR.openIn.name === 'cmux', JSON.stringify(AR && { sessionId: AR.sessionId, title: AR.title, openIn: AR.openIn }));
+const PB = (await last('pinball')).last;
+check('the project with no folder gets the conversation open in its workspace', !!PB && PB.sessionId === SP && PB.title === 'Modernizing the pinball table', JSON.stringify(PB && { sessionId: PB.sessionId, title: PB.title }));
+const wrongMove = await post('/api/sessions/move', { projectId: 'arcade', sessionId: SP, keep: 'ravenry' });
+let pAlive = true; try { process.kill(holdP.pid, 0); } catch { pAlive = false; }
+check('Move here of the other project\'s conversation into this one: refused, and its process left alone', wrongMove.status === 409 && /pinball's/.test(wrongMove.text) && pAlive, wrongMove.text);
+const wrongResume = await post('/api/sessions/resume', { projectId: 'arcade', sessionId: SP });
+check('Continue of the other project\'s conversation into this one: refused', wrongResume.status === 409 && /pinball's/.test(wrongResume.text), wrongResume.text);
 const rm = await post('/api/sessions/resume', { projectId: 'moss', sessionId: S4 });
 check('Continue while it is still open in cmux: refused, nothing started', rm.status === 409 && rm.body && rm.body.open === true && !fs.existsSync(LOG), rm.text);
 const rx = await post('/api/sessions/resume', { projectId: 'lantern', sessionId: S7 });
