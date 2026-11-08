@@ -130,7 +130,7 @@ const clients = new Set();
 let markers = new Map();     // sessionId -> hand-off marker
 const gitDirty = new Map();  // folder -> { dirty, at, running }
 // Ravenry's own hook events (hooks/events.mjs), rescanned every tick.
-let ev = { all: new Map(), bySurface: new Map(), claimed: new Set(), live: new Set(), cmuxOk: true, tabs: {} };
+let ev = { all: new Map(), paneOnly: new Map(), bySurface: new Map(), claimed: new Set(), live: new Set(), cmuxOk: true, tabs: {} };
 // Tabs of terminals that list their own (iTerm2, Rex), asked only while some
 // session's events or some claude process place a session there:
 // kind -> { ok, tabs: Map(id -> tab), error, asked }.
@@ -394,6 +394,7 @@ function mapSession(surface, hook, binding, folder, taken, kind = 'claude') {
 
 // The transcript a hook event names, else the one found by session id.
 function transcriptOf(e) {
+  if (e.anon) return null; // a pane session with no session id yet (paneSessions)
   if (e.transcriptPath && fs.existsSync(e.transcriptPath)) return e.transcriptPath;
   return asst.findTranscript(asst.kindOf(e), e.sessionId, e.cwd);
 }
@@ -847,13 +848,17 @@ function buildProject(project, wsById, hooks, settings, now) {
   // through its adapter when its tab is open), in a terminal the board has
   // no adapter for (watch only), or every cmux session while cmux does not
   // answer.
-  for (const e of ev.all.values()) {
+  // Then the sessions running in a Ravenry pane that no event tells of
+  // (paneSessions), each in its pane.
+  for (const e of [...ev.all.values(), ...ev.paneOnly.values()]) {
     // One session, one row: a Ravenry pane that runs it comes first, even
     // when another terminal's process on the same session wrote its last
     // events (or ended), and that process is said as alsoOpen.
-    const ph = paneHolders.get(e.sessionId);
+    const ph = paneHolders.get(e.sessionId) || (e.fromPane ? { pane: e.pane } : null);
     const phTab = ph && otherTabs.ravenry ? otherTabs.ravenry.tabs.get(term.tabIdFor('ravenry', ph.pane)) || null : null;
     if ((e.endedAt && !phTab) || ev.claimed.has(e.sessionId) || taken.has(e.sessionId)) continue;
+    // A pane another row of this project already shows (its events name it).
+    if (e.fromPane && (!phTab || sessions.some((s) => s.surfaceId === phTab.id))) continue;
     if (e.surfaceId && ev.cmuxOk && !phTab) continue; // a cmux tab: shown through it, or closed
     const tkind = phTab ? 'ravenry' : termOf(e);
     const tab = phTab || otherTab(e);
@@ -862,7 +867,9 @@ function buildProject(project, wsById, hooks, settings, now) {
     const screen = judgedScreen(x, kind);
     const title = asst.parseTitle(tab ? tab.title : '', kind);
     const q = e.last && e.last.event === 'Stop' && e.last.question;
-    if (!(tab && screen.claudeLive) && age(now, e.lastEventAt) > (q ? settings.questionHours : settings.handbackHours) * 3600000) continue;
+    // A process running it in a Ravenry pane keeps it listed, however long
+    // ago it last reported.
+    if (!phTab && !(tab && screen.claudeLive) && age(now, e.lastEventAt) > (q ? settings.questionHours : settings.handbackHours) * 3600000) continue;
     const tp = transcriptOf(e);
     const real = realFolder(tp, e);
     if (project.loose ? !project.sessionIds.includes(e.sessionId) : (() => { const own = eventOwner(e, real); return !own || own.id !== project.id; })()) continue;
@@ -879,7 +886,7 @@ function buildProject(project, wsById, hooks, settings, now) {
       surfaceId: tab ? tab.id : 'ev:' + e.sessionId, surfaceRef: tab ? term.nameOf(tkind) + ' tab' : null, workspaceId: (tab && tab.workspaceId) || e.workspaceId, workspaceRef: (tab && tab.workspaceRef) || null,
       // Never named after a too-broad folder ("projects" for the projects root).
       topic: title.topic || (t && t.title) || worktreeName(e.cwd) || [e.cwd, project.folder].filter((f) => f && !isBroadFolder(f, reg.projects, rootFolder())).map((f) => path.basename(f))[0] || 'Session', live: screen.claudeLive,
-      sessionId: e.sessionId, method: tab ? `hook events (${term.nameOf(tkind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
+      sessionId: e.anon ? null : e.sessionId, method: e.fromPane ? `its process in a Ravenry pane (${e.anon ? 'no session id yet' : 'launch argument'})` : tab ? `hook events (${term.nameOf(tkind)} session id)` : 'hook events, no terminal tab', transcript: t, screen, st, hook: null, real, sidebarStatus: null,
     });
   }
   const brief = briefFor(project);
@@ -1161,6 +1168,10 @@ async function tick() {
     const evAll = events.scan();
     // A session that ended in one place but runs on in another is not ended (events.outlivedEnds).
     for (const m of events.outlivedEnds(evAll, procState.procs)) if (!outlivedSaid.has(m.sessionId)) { outlivedSaid.add(m.sessionId); console.log(`sessions: ${m.sessionId.slice(0, 8)} ended in one place but runs on in ${m.terminal} (process ${m.pid})`); }
+    // Pane sessions no event tells of (paneSessions): rows, folders and
+    // loose cards as if they had reported, nothing else.
+    const paneOnly = paneSessions(evAll);
+    const evPanes = paneOnly.size ? new Map([...evAll, ...paneOnly]) : evAll;
     tp.mark('other terminals');
     await refreshOtherTabs(evAll);
     tp.mark('surfaces');
@@ -1177,7 +1188,7 @@ async function tick() {
         if (e.code !== 'EREFUSED' || !reg) throw e;
       }
     }
-    if (!driven && reg.settings.autoImport !== false) importFolders(evAll);
+    if (!driven && reg.settings.autoImport !== false) importFolders(evPanes);
     // The first look at registered projects with no projects root set: the
     // folder most of them share becomes the setting.
     const adopted = projectsRoot.adopt(reg);
@@ -1204,7 +1215,7 @@ async function tick() {
       if (!prev || e.lastEventAt > prev.lastEventAt) newestInTab.set(t.id, e);
     }
     for (const e of evAll.values()) { const t = otherTab(e); if (t && newestInTab.get(t.id) !== e) claimed.add(e.sessionId); }
-    ev = { all: evAll, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
+    ev = { all: evAll, paneOnly, bySurface, claimed, live, cmuxOk: driven && cmuxOk, tabs: otherTabs };
     // A Move here that waited for a turn to end (moveSession).
     if (moves.size) runMoves();
     tp.mark('outside alive');
@@ -1221,7 +1232,7 @@ async function tick() {
     boardTabs = [];
     picBudget = 3;
     tp.mark('loose sessions');
-    loose = looseSessions(evAll);
+    loose = looseSessions(evPanes);
     tp.mark('work folders');
     // An unowned workspace is on the board only while a session runs in it.
     // Each session's work folder (from its transcript's tool calls; read in
@@ -1346,6 +1357,33 @@ function refreshProcs() {
     if (!ticking) setTimeout(tick, 20);
   })();
   return procBusy;
+}
+
+// The sessions running in a Ravenry pane here that no event tells of: a
+// process the last process list found in a pane (RAVENRY_PANE), whose
+// session has no events (no hook has fired since the hub started and the
+// daemon's reports no longer hold it, or no hooks at all). Each is a
+// summary as events.summarize makes, from the process: its pane, folder,
+// assistant and start, and the session id its launch argument gives, else
+// "pane-<pane>" with `anon` (its row has no session id). So the board lists
+// every pane session from the start, never waiting for a hook event
+// (2026-11-08: after an update restarted the hub, a session in a pane
+// showed nowhere until it was typed into).
+function paneSessions(evAll) {
+  const out = new Map();
+  for (const p of procState.procs) {
+    if (!p.ravenryId || endedProcs.has(`${p.pid}@${p.startedAt}`)) continue;
+    const m = sess.mapProcess(p, { evAll, hooks: [], boardTab: null });
+    const sid = (m && m.sessionId) || p.argvSession || null;
+    if (sid && evAll.has(sid)) continue; // its events place it (buildProject's events loop)
+    const id = sid || `pane-${p.ravenryId}`;
+    if (out.has(id)) continue;
+    out.set(id, {
+      ...events.summarize(id, []), assistant: p.assistant || null, cwd: p.cwd || null, pane: p.ravenryId, terminal: 'ravenry', terminalId: p.ravenryId,
+      startedAt: p.startedAt || null, pid: p.pid, pidAt: p.startedAt || null, lastEventAt: p.startedAt || null, fromPane: true, anon: !sid,
+    });
+  }
+  return out;
 }
 
 function holdersInPanes(evAll) {

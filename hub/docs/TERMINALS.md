@@ -301,6 +301,17 @@ while `TERM_PROGRAM` is `ravenry` (server/termenv.mjs, server/sessions.mjs).
 The board runs in Ravenry mode with `RAVENRY_TERMINAL=ravenry`, or when it
 starts in a ravenryd pane.
 
+**Every session in a pane is listed from the start.** A Claude Code or
+Codex process the process list finds in a pane (`RAVENRY_PANE`) is a row
+of the project its folder belongs to as soon as the hub has read the
+processes (about 0.2 s after it starts), whether or not a hook has
+reported it: one with no events is listed from its process (its pane,
+folder and start, and the session id of its `--session-id` or `--resume`
+argument, else none until its first event), and one whose events are
+older than the hand-back window stays listed while its process runs.
+`tools/pane-listed-test.mjs` measures it with a real ravenryd and two
+stand-in processes that send no event.
+
 **Sessions in other terminals, from Ravenry mode.** The desktop app's hub
 runs in Ravenry mode, under launchd, and follows the sessions the person
 still runs elsewhere. iTerm2 and Rex are followed as in the other modes.
