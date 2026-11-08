@@ -263,7 +263,9 @@ Show less.
 
 ## macOS's privacy question
 
-An app signed ad hoc is a new app to macOS at every build, so the hub asks
+An app signed ad hoc is a new app to macOS at every build (on the
+maintainer's Mac builds are signed with an Apple Development identity
+instead, below, and macOS remembers its answer), so the hub asks
 again to read ~/Documents (or Desktop, Downloads, iCloud Drive, another
 volume) where the person's projects are. Until macOS answers, the hub
 answers 503 with the folder (hub/server/access.mjs), and the window says
@@ -481,9 +483,16 @@ sidebar. It fails over 30 s (`--budget`); CI runs it on the Linux package.
 an App Store Connect API key (`APPLE_API_KEY` as the .p8's path,
 `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) or an Apple ID (`APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) it is notarized. Without a
-certificate it is signed ad hoc and the build says UNSIGNED loudly: it
-runs on the machine that built it, macOS blocks it after a download, and
-it cannot update itself. No keychain is ever searched for an identity.
+certificate, on the maintainer's Mac, it is signed with the maintainer's
+Apple Development identity when the keychain has it
+(scripts/local-identity.mjs, read with `security find-identity` and never
+changed): the designated requirement then names that certificate, the
+same at every build, so macOS stops asking again for Documents and the
+rest; every binary inside carries the same team, so library validation
+stays on (build/entitlements.mac.plist). Not notarized: for that Mac only.
+Anywhere else (CI, another Mac, `RAVENRY_LOCAL_IDENTITY=-`) it is signed
+ad hoc and the build says UNSIGNED loudly: it runs on the machine that
+built it, macOS blocks it after a download, and it cannot update itself.
 
 ## Layout
 

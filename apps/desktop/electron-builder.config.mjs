@@ -26,6 +26,10 @@ function githubRepo() {
 }
 
 const signed = process.env.RAVENRY_SIGNED === '1';
+// This Mac's Apple Development identity (scripts/pack.mjs localIdentity),
+// when there is no Developer ID: a team, so library validation stays on.
+const local = !signed && /^[0-9A-F]{40}$/.test(process.env.RAVENRY_SIGN_IDENTITY || '') ? process.env.RAVENRY_SIGN_IDENTITY : null;
+const ents = signed || local ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist';
 const notarize = process.env.RAVENRY_NOTARIZE === '1';
 const { owner, repo } = githubRepo();
 
@@ -76,10 +80,13 @@ export default {
     // from whoever starts the app load nothing into it. Ad hoc, library
     // validation would refuse Electron's own framework, so the ad hoc
     // entitlements turn it off (build/entitlements.adhoc.plist says why).
-    ...(signed ? {} : { identity: '-' }),
+    // This Mac's Apple Development identity signs every binary in the
+    // bundle (Electron's frameworks and helpers, ravenryd, the hub's), so
+    // library validation, on with a team, finds one team everywhere.
+    ...(signed ? {} : { identity: local || '-' }),
     hardenedRuntime: true,
-    entitlements: signed ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist',
-    entitlementsInherit: signed ? 'build/entitlements.mac.plist' : 'build/entitlements.adhoc.plist',
+    entitlements: ents,
+    entitlementsInherit: ents,
     notarize,
     // The words macOS shows when the app, or a program in one of its panes
     // (macOS asks on the app's behalf), wants one of these. Without them a

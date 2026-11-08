@@ -39,9 +39,15 @@
 // Notarized when signed and one of these is given as well:
 //   APPLE_API_KEY (path to the .p8), APPLE_API_KEY_ID, APPLE_API_ISSUER
 //   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
-// Without a certificate the app is signed ad hoc, which runs only on the
+// Without a certificate, on the maintainer's Mac, the app is signed with
+// the maintainer's Apple Development identity when the keychain has it
+// (scripts/local-identity.mjs): macOS then knows each build as the same
+// app, and stops asking again for Documents and the rest at every build.
+// The keychain is only read, never changed. Anywhere
+// else (CI, another Mac) the app is signed ad hoc, which runs only on the
 // machine that built it or after the quarantine is removed, and cannot
-// update itself; this says so loudly. No keychain is ever searched.
+// update itself; this says so loudly. RAVENRY_LOCAL_IDENTITY=- forces ad
+// hoc; RAVENRY_LOCAL_IDENTITY=<SHA-1> names another identity.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,6 +56,7 @@ import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertTestEnv } from '../../../tools/test-env.mjs';
+import { localIdentity } from './local-identity.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = path.resolve(APP, '..', '..');
@@ -204,6 +211,13 @@ function signing() {
     env.RAVENRY_SIGNED = '0';
     env.RAVENRY_NOTARIZE = '0';
     delete env.CSC_LINK;
+    const local = localIdentity();
+    if (local) {
+      env.RAVENRY_SIGN_IDENTITY = local.hash;
+      say(`signing with this Mac's ${local.name} (${local.hash.slice(0, 8)}), library validation on; not notarized: for this Mac only, never publish it`);
+      return;
+    }
+    delete env.RAVENRY_SIGN_IDENTITY;
     loud('UNSIGNED BUILD: not signed with a Developer ID and not notarized', [
       'No CSC_LINK (Developer ID Application certificate) was given, so the app is signed ad hoc.',
       'macOS will refuse to open it after a download ("damaged" or "unidentified developer"),',
@@ -264,7 +278,7 @@ async function main() {
   const rows = names.map((f) => ({ file: `release/${f}`, bytes: fs.statSync(path.join(OUT, f)).size }));
   fs.writeFileSync(path.join(OUT, 'artifacts.json'), JSON.stringify({ platform, arches, signed: process.env.RAVENRY_SIGNED === '1', notarized: process.env.RAVENRY_NOTARIZE === '1', files: rows }, null, 2) + '\n');
   for (const r of rows) say(`${r.file}  ${size(r.bytes)}`);
-  if (platform === 'darwin' && process.env.RAVENRY_SIGNED !== '1') say('UNSIGNED: see the banner above.');
+  if (platform === 'darwin' && process.env.RAVENRY_SIGNED !== '1') say(process.env.RAVENRY_SIGN_IDENTITY ? 'signed for this Mac only (Apple Development), not notarized: never publish it.' : 'UNSIGNED: see the banner above.');
   if (twin) {
     // The test twin: the same stage, dist/ rebuilt with the test hooks,
     // unpacked only. dist/ stays a development build after it.
