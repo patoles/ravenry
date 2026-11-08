@@ -159,7 +159,20 @@ const labels = [];
 
 // A throwaway Mac account: its own HOME, data folder, runtime folder (with
 // a space), port, launchd label, and the stand-ins.
+// The accounts made so far: each one's folder (an app copy, its data, about
+// 600 MB) goes once the next is made and at the end. Kept, a hundred runs
+// filled the disk (2026-11-08: 35 GB of them, and steps failing for room).
+const accountsMade = [];
+function retire(acct) {
+  if (!acct || acct.retired) return;
+  acct.retired = true;
+  if (loaded(acct.label)) launchctl('bootout', `gui/${UID}/${acct.label}`);
+  // Its daemons (started with its runtime folder), then its folder.
+  try { for (const line of execFileSync('/bin/ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' }).split('\n')) { const m = line.trim().match(/^(\d+) (.*)$/); if (m && m[2].includes(acct.root)) { try { process.kill(Number(m[1]), 'SIGTERM'); } catch { /* gone */ } } } } catch { /* none */ }
+  try { fs.rmSync(acct.root, { recursive: true, force: true }); } catch { /* left */ }
+}
 async function account(name, source = DRIVEN) {
+  for (const old of accountsMade) retire(old);
   // A short folder name: a daemon's socket path has 103 bytes at most on
   // macOS, and "<tmp>/rvrc-update-XXXXXX/App Support/run/ravenryd-0.1.10.sock"
   // was 105.
@@ -200,7 +213,9 @@ async function account(name, source = DRIVEN) {
     CMUX_BIN: path.join(bin, 'fake-cmux.mjs'), FAKE_CMUX_STATE: fake, MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(bin, 'stub-open.mjs')]), STUB_OPEN_LOG: path.join(root, 'open.jsonl'),
     MC_CODEX: '0', MC_PHONE_LAN: 'none', MC_REPEATS_AUTO: '0',
   });
-  return { name, root, home, data, rt, label, port, ps, fake, env, exe: path.join(app, 'Contents', 'MacOS', 'Ravenry'), work: path.join(root, 'work') };
+  const acct = { name, root, home, data, rt, label, port, ps, fake, env, exe: path.join(app, 'Contents', 'MacOS', 'Ravenry'), work: path.join(root, 'work') };
+  accountsMade.push(acct);
+  return acct;
 }
 
 const launchctl = (...args) => spawnSync('/bin/launchctl', args, { encoding: 'utf8' });
@@ -809,7 +824,7 @@ try {
     // Where a hint is: its box, its region (the part of the window it points
     // into), and whether it lies inside that region and clear of the panel,
     // the sidebar and the tab strip.
-    const GEO = `(() => { const b = document.getElementById('hint'); const rg = ${R}.hintRegion(); const rect = (e) => { if (!e || e.hidden || e.offsetParent === null) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }; const box = rect(b); const hit = (a, c) => !!a && !!c && a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5; const panel = rect(document.getElementById('panel')), side = rect(document.getElementById('side')), tabs = rect(document.getElementById('tabs')); return { shown: !!box, box, region: rg, inside: !!box && !!rg && box.left >= rg.left - 0.5 && box.right <= rg.right + 0.5 && box.top >= rg.top - 0.5 && box.bottom <= rg.bottom + 0.5, panel: hit(box, panel), side: hit(box, side), tabs: hit(box, tabs), win: [innerWidth, innerHeight], overlay: ${R}.S.overlay }; })()`;
+    const GEO = `(() => { const b = document.getElementById('hint'); const rg = ${R}.hintRegion(); const rect = (e, fixed) => { if (!e || e.hidden || (!fixed && e.offsetParent === null)) return null; const r = e.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; }; const box = rect(b, true); const hit = (a, c) => !!a && !!c && a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5; const panel = rect(document.getElementById('panel')), side = rect(document.getElementById('side')), tabs = rect(document.getElementById('tabs')); return { shown: !!box, box, region: rg, inside: !!box && !!rg && box.left >= rg.left - 0.5 && box.right <= rg.right + 0.5 && box.top >= rg.top - 0.5 && box.bottom <= rg.bottom + 0.5, panel: hit(box, panel), side: hit(box, side), tabs: hit(box, tabs), win: [innerWidth, innerHeight], overlay: ${R}.S.overlay }; })()`;
     // At 1440 x 900 with the panel open and closed, and at the smallest
     // window (720 x 480) with the panel closed and over the middle.
     const geo = (id) => [
@@ -940,6 +955,7 @@ try {
   for (const l of labels) if (loaded(l)) launchctl('bootout', `gui/${UID}/${l}`);
   // launchd lets go of a job a moment after bootout returns.
   for (let i = 0; i < 50 && labels.some(loaded); i++) await sleep(200);
+  for (const acct of accountsMade) retire(acct);
   results.labelsLeft = labels.filter(loaded);
   reapStarted();
   fs.writeFileSync(path.join(OUT, 'release-check.json'), JSON.stringify(results, null, 2) + '\n');
