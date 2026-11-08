@@ -34,7 +34,11 @@
 //                   --inspect; DYLD_INSERT_LIBRARIES loads nothing; its
 //                   hub answers as its service says, and SIGUSR1 opens
 //                   no inspector in it. And
-//                   TWIN is APP's twin (same build.json, ravenryd, hub)
+//                   TWIN is APP's twin (same build.json, ravenryd, hub).
+//                   Both pass codesign --verify --deep --strict; on a Mac
+//                   whose keychain has the Apple Development identity
+//                   (scripts/local-identity.mjs) both are signed with it,
+//                   TeamIdentifier 94C83QNSZ3 on every binary inside
 //   1-11            on TWIN, as the window shows them:
 //   1 cold launch   the service is installed and loaded, its hub answers,
 //                   the daemon runs; a shell prompt is in the window within
@@ -96,6 +100,19 @@
 //   17 features     tools/features-test.mjs on the test twin, a row each:
 //                   Find, the right-click menu, closing a busy shell, the
 //                   bells, new windows, the settings applied
+//   18 sidebar      tools/sidebar-click-test.mjs on the test twin, a row each:
+//                   one click on a row of each section (Needs you, Working,
+//                   Waiting on others, Idle), in a pane, outside, ended, and
+//                   a project with no session, brings its tab, its row and
+//                   its panel to the front
+//   19 colours      tools/colors-test.mjs on the test twin, a row each: a
+//                   login shell with oh-my-zsh, red, green, 256-colour,
+//                   truecolor, an OSC 8 link, ls -G and the prompt in colour,
+//                   in the buffer and on screen, fresh, after a tab switch
+//                   and a relaunch, dark and light
+//   20 links        tools/links-test.mjs on the test twin, a row each: the
+//                   "Cmd+click to open" tip, Cmd held underlines with the
+//                   pointing hand, the single-click setting
 //   15 brief        tools/brief-test.mjs on the test twin, a row each: the
 //                   panel's Brief card (goal on one line, Next as 3 items,
 //                   the older entries counted) and the Brief page (the
@@ -104,6 +121,7 @@
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
 import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
+import { localIdentity, LOCAL_TEAM } from '../scripts/local-identity.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -257,6 +275,25 @@ function outsideSession(a) {
   fs.writeFileSync(a.ps, JSON.stringify([{ pid: 7101, ppid: 7100, rssKb: 300000, startedAt: at(10), command: `claude --session-id ${SID}`, cwd: proj, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF}` }]));
 }
 
+// Each Mach-O file in a bundle by the team that signed it ('none' for ad hoc or unsigned).
+function machoTeams(bundle) {
+  const out = {};
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isSymbolicLink()) continue;
+      if (e.isDirectory()) { walk(f); continue; }
+      let head = null;
+      try { const fd = fs.openSync(f, 'r'); head = Buffer.alloc(4); fs.readSync(fd, head, 0, 4, 0); fs.closeSync(fd); } catch { continue; }
+      if (!['cffaedfe', 'cafebabe', 'feedfacf', 'bebafeca'].includes(head.toString('hex'))) continue;
+      const t = ((spawnSync('codesign', ['-dv', f], { encoding: 'utf8' }).stderr || '').match(/^TeamIdentifier=(.*)$/m) || [])[1] || 'none';
+      (out[t] ||= []).push(path.relative(bundle, f));
+    }
+  };
+  walk(bundle);
+  return out;
+}
+
 // The stub process list, edited under the lock the stand-in Claudes take
 // (tools/stand-in-claude.mjs), so no edit drops another's entry.
 async function editPs(file, fn) {
@@ -284,6 +321,23 @@ try {
     let twinBuild = null;
     try { twinBuild = JSON.parse(fs.readFileSync(res(DRIVEN, 'build.json'), 'utf8')); } catch { /* below */ }
     const twinHooks = (() => { try { return fs.readFileSync(res(DRIVEN, 'app.asar')).includes(Buffer.from('require(process.env.RAVENRY_DRIVER)')); } catch { return false; } })();
+    // The signature, on the release and the twin: verified deep and strict,
+    // and on this Mac signed with its Apple Development identity, every
+    // binary inside with the same team (library validation is on).
+    const local = localIdentity();
+    for (const [what, b] of [['release', APP_PATH], ['twin', DRIVEN]]) {
+      const v = spawnSync('codesign', ['--verify', '--deep', '--strict', b], { encoding: 'utf8' });
+      step(`0 ${what}: codesign --verify --deep --strict passes`, v.status === 0, { out: (v.stderr || '').trim().slice(0, 400) });
+      const dv = spawnSync('codesign', ['-dv', b], { encoding: 'utf8' }).stderr || '';
+      const team = (dv.match(/^TeamIdentifier=(.*)$/m) || [])[1] || null;
+      if (local) {
+        const teams = machoTeams(b);
+        const others = Object.entries(teams).filter(([t]) => t !== LOCAL_TEAM);
+        step(`0 ${what}: signed with this Mac's Apple Development identity, TeamIdentifier=${LOCAL_TEAM}, and every binary inside with the same team (${Object.values(teams).reduce((n, l) => n + l.length, 0)} binaries)`, team === LOCAL_TEAM && !others.length && /certificate leaf\[subject\.CN\]/.test(spawnSync('codesign', ['-d', '-r-', b], { encoding: 'utf8' }).stdout || ''), { team, others: others.map(([t, l]) => `${t}: ${l.slice(0, 5).join(', ')}`) });
+      } else {
+        step(`0 ${what}: ad hoc (no Apple Development identity in this Mac's keychain)`, /Signature=adhoc/.test(dv), { team });
+      }
+    }
     step(`0 release: the window steps run on its test twin (${DRIVEN}): the same build ${BUILD.id}, ravenryd and hub, with the test hooks on`, !!twinBuild && twinBuild.id === BUILD.id && same('ravenryd') && same(path.join('hub', 'server', 'index.mjs')) && same(path.join('remote', 'builds.json')) && twinHooks, { twinBuild: twinBuild && twinBuild.id, ravenryd: same('ravenryd'), hub: same(path.join('hub', 'server', 'index.mjs')), twinHooks, hint: twinBuild ? undefined : 'npm run pack makes it in release-test/' });
   });
 
@@ -706,7 +760,7 @@ try {
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
-  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs']]) {
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
       const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
       const app = path.join(k, 'Ravenry.app');
