@@ -1682,8 +1682,8 @@ function procHolding(sid) {
 // the cmux workspace in its environment (CMUX_WORKSPACE_ID) is the project
 // that lists that workspace; else the board's row for its tab (a cmux
 // surface, an iTerm2 session, a Rex block, a Ravenry pane). Never its folder:
-// two projects can share one (2026-11-08: Lemmings' conversation, open in
-// Lemmings' cmux workspace, was offered as Antics' last).
+// two projects can share one (2026-11-08: one project's conversation, open
+// in its own cmux workspace, was offered as the other's last).
 function holderProject(p) {
   if (!reg || !p) return null;
   const live = reg.projects.filter((x) => !x.hidden);
