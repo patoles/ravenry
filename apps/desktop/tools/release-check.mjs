@@ -317,7 +317,10 @@ try {
     step(`0 release: the release itself, with no driver (tools/package-check.mjs, ${oks.length} checks): no test hooks, fuses, its own daemon and a shell in it, nothing an agent's launch names runs, debugging switches refused, its hub answers`, r.status === 0 && !missing.length, { exit: r.status, missing, tail: ((r.stderr || '') + (r.stdout || '')).trim().split('\n').slice(-6) });
     // The twin: the same build, with the test hooks on.
     const res = (a, f) => path.join(a, 'Contents', 'Resources', f);
-    const same = (f) => { try { return crypto.createHash('sha256').update(fs.readFileSync(res(APP_PATH, f))).digest('hex') === crypto.createHash('sha256').update(fs.readFileSync(res(DRIVEN, f))).digest('hex'); } catch { return false; } };
+    // A signed binary is the same code when its CDHash is: signed with an
+    // identity, each signature carries its own time, so the bytes differ.
+    const cdhash = (f) => ((spawnSync('codesign', ['-dvvv', f], { encoding: 'utf8' }).stderr || '').match(/^CDHash=(\w+)$/m) || [])[1] || null;
+    const same = (f) => { try { if (f === 'ravenryd' && process.platform === 'darwin') { const c = cdhash(res(APP_PATH, f)); return !!c && c === cdhash(res(DRIVEN, f)); } return crypto.createHash('sha256').update(fs.readFileSync(res(APP_PATH, f))).digest('hex') === crypto.createHash('sha256').update(fs.readFileSync(res(DRIVEN, f))).digest('hex'); } catch { return false; } };
     let twinBuild = null;
     try { twinBuild = JSON.parse(fs.readFileSync(res(DRIVEN, 'build.json'), 'utf8')); } catch { /* below */ }
     const twinHooks = (() => { try { return fs.readFileSync(res(DRIVEN, 'app.asar')).includes(Buffer.from('require(process.env.RAVENRY_DRIVER)')); } catch { return false; } })();
