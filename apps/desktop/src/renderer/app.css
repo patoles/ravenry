@@ -181,6 +181,7 @@ body.first .sl { flex: none; }
 .link, .lk { color: var(--link); }
 .lk { font-weight: 500; font-size: 12px; }
 .link:hover, .lk:hover { text-decoration: underline; }
+.lk:disabled { color: var(--tx3); text-decoration: none; cursor: default; }
 
 /* ---------------------------------------------------------------- first launch */
 .start { display: flex; background: var(--sheet); overflow: auto; }
@@ -656,3 +657,22 @@ select.field { padding: 0 6px; }
 .hint-t { flex: 1; min-width: 0; }
 .hint .lk { color: #FFF; text-decoration: underline; font-weight: 600; white-space: nowrap; }
 .hint .x { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: #FFF; background: rgba(255,255,255,.18); flex: none; }
+
+/* A project no session runs in: its last conversation, to continue it (ravenry-continue.html, A). */
+.pa { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 24px; width: 100%; }
+.pa-in { width: min(560px, 100%); display: flex; flex-direction: column; gap: 14px; color: var(--tx); }
+.pa-name { font-size: 20px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+.pa-head { display: flex; flex-direction: column; gap: 5px; }
+.pa-in p { margin: 0; }
+.conv { background: var(--card); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; user-select: text; }
+.conv-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conv-h .ti { font-weight: 650; font-size: 13.5px; }
+.conv-h .when { color: var(--tx3); font-weight: 500; }
+.said { display: grid; grid-template-columns: 52px 1fr; gap: 6px 10px; font-size: 12.5px; line-height: 1.5; }
+.said .who { color: var(--tx3); font-size: 12px; }
+.said .you { color: var(--tx); overflow-wrap: anywhere; }
+.said .ag { color: var(--tx2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.pa .acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pa .still { font-size: 12.5px; color: var(--you); }
+.pa .cmd { font-size: 11.5px; color: var(--tx3); overflow-wrap: anywhere; user-select: text; }
+.pa .cmd .mono { font-size: 11.5px; }

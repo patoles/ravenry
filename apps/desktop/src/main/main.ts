@@ -414,6 +414,8 @@ function ipc(): void {
   ipcMain.handle('local:short', (_e, p: string) => shortPath(p, os.homedir()));
   ipcMain.handle('local:choose-folder', async () => {
     if (!win) return null;
+    // Offscreen (tests): never a dialog on the screen; said in the open log.
+    if (OFFSCREEN) { outside('dialog', 'choose a folder', () => {}); return process.env.RAVENRY_TEST_FOLDER || null; }
     const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], defaultPath: os.homedir() });
     return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
   });

@@ -38,6 +38,7 @@ export const TEST_HOOKS: boolean = typeof RAVENRY_TEST_HOOKS === 'boolean' && RA
  *   RAVENRY_NEW_SHELL       the program a new shell runs
  *   RAVENRY_TEST_CLIPBOARD  what a paste reads, offscreen
  *   RAVENRY_SETTINGS_IMPORT the theme file an import reads, offscreen
+ *   RAVENRY_TEST_FOLDER     the folder Choose another folder picks, offscreen
  *   MC_*, FAKE_*, STUB_*, CMUX_BIN, TEST_RAVENRY
  *                           the hub's stand-ins (programs it runs in place
  *                           of ps, lsof, open, cmux), which the app passes
@@ -46,7 +47,7 @@ export const TEST_HOOKS: boolean = typeof RAVENRY_TEST_HOOKS === 'boolean' && RA
  *                           turn NODE_OPTIONS off in the executable itself;
  *                           this keeps both from the hub script the app runs
  */
-export const CONTROL_VARS = ['RAVENRY_DRIVER', 'RAVENRY_DRIVE', 'RAVENRY_DRIVE_LOG', 'RAVENRYD', 'RAVENRY_LAUNCHCTL', 'RAVENRY_NEW_SHELL', 'RAVENRY_TEST_CLIPBOARD', 'RAVENRY_SETTINGS_IMPORT', 'CMUX_BIN', 'TEST_RAVENRY', 'NODE_OPTIONS', 'NODE_PATH'] as const;
+export const CONTROL_VARS = ['RAVENRY_DRIVER', 'RAVENRY_DRIVE', 'RAVENRY_DRIVE_LOG', 'RAVENRYD', 'RAVENRY_LAUNCHCTL', 'RAVENRY_NEW_SHELL', 'RAVENRY_TEST_CLIPBOARD', 'RAVENRY_SETTINGS_IMPORT', 'RAVENRY_TEST_FOLDER', 'CMUX_BIN', 'TEST_RAVENRY', 'NODE_OPTIONS', 'NODE_PATH'] as const;
 const CONTROL_PREFIXES = ['MC_', 'FAKE_', 'STUB_'];
 
 export function isControlVar(k: string): boolean {

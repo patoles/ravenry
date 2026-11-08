@@ -462,10 +462,17 @@ export class Pages {
       case 'ravenry:not-now':
         void this.post(`/api/repeats/${encodeURIComponent(id)}`, { action: 'notnow' }).then((r) => { this.say(v.key, r.status === 200 ? 'Hidden until you say it again.' : String(r.body.error || 'Not hidden.'), r.status !== 200); void this.afterWrite(v.key); });
         return;
-      case 'ravenry:write-brief':
-        // Today's brief form is the board's: its project sheet.
-        this.host.openBoard(`#${encodeURIComponent(id)}`);
+      case 'ravenry:write-brief': {
+        // In the app: the project's session is asked to write it (the
+        // message typed in its box, for the person to send); with none
+        // running, the project's own page, where one continues or starts.
+        const text = "Write this project's BRIEF.md: its goal, what done means, and its plan.";
+        void this.post('/api/pages/ask', { key: v.key, kind: 'fix', text, session: id }).then((r) => {
+          if (r.status === 200 && r.body.projectId && r.body.surfaceId) { this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`); this.say(v.key, 'Typed in the session\'s box. Press Enter to send it.'); return; }
+          if (!this.host.pickProject(id)) this.say(v.key, String(r.body.error || 'No session to ask.'), true);
+        });
         return;
+      }
       default:
         this.say(v.key, `${a.plugin} is not installed.`);
     }
@@ -476,7 +483,7 @@ export class Pages {
     const s = sec && v.model ? v.model.tabs[sec[0]].sections[sec[1]] : null;
     const detail = s && s.kind === 'core' ? s.item.detail : null;
     if (detail === 'ravenry:plan') { this.host.openBoard(`#/plan/${encodeURIComponent(String(item.project || ''))}`); return; }
-    if (detail === 'ravenry:session-sheet') { if (!this.host.pickProject(String(item.id))) this.host.openBoard(`#${encodeURIComponent(String(item.id))}`); return; }
+    if (detail === 'ravenry:session-sheet') { if (!this.host.pickProject(String(item.id))) this.say(v.key, `No project called ${String(item.id)}.`, true); return; }
     // Today's thread and mockup rounds are the board's Ideas page, with the idea open.
     if (detail === 'ravenry:idea-thread') { this.host.openBoard(`?idea=${encodeURIComponent(String((item.$ravenry as { id?: string } | undefined)?.id || item.id || ''))}#/ideas`); return; }
     if (sec) { this.modal = { kind: 'item', item, section: sec }; this.render(); }
@@ -977,14 +984,16 @@ export class Pages {
     const off = this.off(v);
     const input = h('input.field.seed', { placeholder: 'Brainstorm: a seed, e.g. a cosy co-op game for the TV', value: this.seed, 'aria-label': 'Brainstorm seed, or a new idea' }) as HTMLInputElement;
     input.addEventListener('input', () => { this.seed = input.value; });
+    // With nothing typed, the field gets the keyboard and says what goes in it (never a button that does nothing).
+    const empty = () => { input.focus(); this.say(v.key, 'Type an idea, or a seed for 3 directions, first.', true); };
     const add = async () => {
-      if (!this.seed.trim()) return;
+      if (!this.seed.trim()) { empty(); return; }
       const r = await this.post('/api/ideas/add', { name: this.seed.trim(), stage: 'spark' });
       if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Not added.'), true); return; }
       this.seed = ''; await this.afterWrite(v.key);
     };
     const go = async () => {
-      if (!this.seed.trim()) return;
+      if (!this.seed.trim()) { empty(); return; }
       const r = await this.post('/api/ideas/brainstorm', { seed: this.seed.trim() });
       this.say(v.key, r.status === 200 ? 'Thinking up 3 directions. They land in Spark.' : String(r.body.error || 'Not started.'), r.status !== 200);
       if (r.status === 200) this.seed = '';

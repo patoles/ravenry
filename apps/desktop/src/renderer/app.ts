@@ -1032,7 +1032,7 @@ function renderSidebar(): void {
 
   const mem = memoryLine(S.hub);
   const foot = h('div.foot',
-    h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => openBoard('') } }, svg(I.SETTINGS)),
+    h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => api().settings.open() } }, svg(I.SETTINGS)),
     empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { if (npmPoint('Pairing a phone')) return; if (!phoneCard.open) markUsed('phone'); phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
     empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', on: { click: () => openBoard('') } }, svg(I.BELL)),
     h(`button.icon-btn.learn-btn${S.view.kind === 'learn' ? '.on' : ''}`, { title: 'Learn Ravenry', 'aria-label': 'Learn Ravenry', on: { click: () => openLearn() } }, svg(I.QUESTION)),
@@ -2481,27 +2481,134 @@ function projectFacts(p: HubProject): (HTMLElement | null)[] {
   ];
 }
 
+/** A project's last conversation (the hub's /api/project/last), as its page shows it. */
+interface LastConversation {
+  sessionId: string; assistant: string; title: string; stoppedAt: string | null;
+  lastPrompt: string | null; lastText: string | null; folder: string; folderShort: string; command: string;
+  openIn: { ravenry: boolean; pane?: string; name?: string } | null;
+}
+/** By project id: what the hub said (null: none found), when it was asked, and an error to say. */
+const lastConv = new Map<string, { at: number; last: LastConversation | null; busy?: boolean; error?: string | null; asking?: boolean }>();
+
+async function loadLast(id: string, force = false): Promise<void> {
+  const c = lastConv.get(id);
+  if (c && (c.asking || (!force && Date.now() - c.at < 15000))) return;
+  lastConv.set(id, { at: Date.now(), last: c ? c.last : null, asking: true });
+  let last: LastConversation | null = null;
+  try { const r = await api().hubGet(`/api/project/last?projectId=${encodeURIComponent(id)}`) as { last?: LastConversation | null }; last = r.last || null; } catch { last = c ? c.last : null; }
+  lastConv.set(id, { at: Date.now(), last, asking: false });
+  if (S.view.kind === 'project' && S.view.id === id) render();
+}
+
+/** "Thu 5 Nov, 00:14", as the page says when a conversation stopped. */
+function stoppedWhen(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  const day = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
+  return `${day}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function projectPanel(p: HubProject): [HTMLElement, (HTMLElement | null)[]] {
+  const c = lastConv.get(p.id);
+  const last = c ? c.last : null;
   return [panelHead(p.name, null, null, p.machine || null), [
     ...projectFacts(p),
-    h('div.sec', h('p.t3.small', 'No session runs in it now.'), p.folderShort ? h('p.t3.small', p.folderShort) : null),
+    c && !c.asking ? (last
+      ? h('div.sec', { 'data-last': last.sessionId }, h('div.sec-h', 'Last conversation'), h('p', last.title), h('p.t3.small', `${assistantName(last.assistant) || 'Claude'}, stopped ${stoppedWhen(last.stoppedAt)}`))
+      : h('div.sec', h('p.t3.small', 'No conversation found in this folder.'))) : null,
+    p.folderShort ? h('div.sec', h('p.t3.small', p.folderShort)) : null,
   ]];
 }
 
-/** The middle for a project no session runs in: it, and a way to start one or read its brief. */
+/** Continue: the conversation resumes in a Ravenry pane, in its folder (the hub's /api/sessions/resume). */
+async function continueLast(p: HubProject, last: LastConversation): Promise<void> {
+  const c = lastConv.get(p.id);
+  if (!c || c.busy) return;
+  c.busy = true; c.error = null; render();
+  api().log(`window: project page ${p.id}: continue ${last.sessionId}`);
+  try {
+    const r = await api().hubCall('POST', '/api/sessions/resume', { projectId: p.id, sessionId: last.sessionId, cols: term.term.cols, rows: term.term.rows }) as { status: number; body: { surfaceId?: string; pane?: { id?: string }; projectId?: string; error?: string; open?: boolean } };
+    const b = r.body || {};
+    if (r.status !== 200) {
+      // Still open in another terminal: the page says where, with Move here.
+      if (b.open) { await loadLast(p.id, true); c.error = null; }
+      else c.error = b.error || 'It could not be continued.';
+      return;
+    }
+    const pane = b.pane && typeof b.pane.id === 'string' ? b.pane.id : null;
+    setView({ kind: 'session', key: b.projectId && b.surfaceId ? `${b.projectId}/${b.surfaceId}` : '', ...(pane ? { pane } : {}) });
+  } catch (e) { c.error = `It could not be continued: ${(e as Error).message}`; }
+  finally { c.busy = false; render(); }
+}
+
+/** Move here: it ends where it still runs and goes on in a Ravenry pane (the hub's /api/sessions/move). */
+async function moveLast(p: HubProject, last: LastConversation): Promise<void> {
+  const c = lastConv.get(p.id);
+  if (!c || c.busy) return;
+  c.busy = true; c.error = null; render();
+  api().log(`window: project page ${p.id}: move here ${last.sessionId}`);
+  try {
+    const r = await api().hubCall('POST', '/api/sessions/move', { projectId: p.id, sessionId: last.sessionId, keep: 'ravenry', cols: term.term.cols, rows: term.term.rows }) as { status: number; body: { surfaceId?: string; pane?: { id?: string }; waiting?: boolean; name?: string; error?: string } };
+    const b = r.body || {};
+    if (r.status !== 200) { c.error = b.error || 'It could not be moved.'; return; }
+    if (b.waiting) { toast(`It moves here once Claude finishes its turn in ${b.name || 'the other terminal'}.`); return; }
+    if (b.surfaceId) setView({ kind: 'session', key: `${p.id}/${b.surfaceId}`, ...(b.pane && b.pane.id ? { pane: b.pane.id } : {}) });
+  } catch (e) { c.error = `It could not be moved: ${(e as Error).message}`; }
+  finally { c.busy = false; render(); }
+}
+
+/**
+ * The middle for a project no session runs in (an idle or waiting row,
+ * 2026-11-08 "for waiting and idle sessions they start from an empty
+ * session?"): its last conversation, to continue it (variant A of
+ * ravenry-continue.html); else New session here.
+ */
 function renderProject(id: string): void {
   const p = (S.hub?.projects || []).find((x) => x.id === id);
   if (!p) { replace($('none'), h('div.none-card', h('p', 'That project is no longer on the board.'))); return; }
   const s = p.sessions.find((x) => !x.handed);
-  replace($('none'), h('div.none-card.project', { 'data-project': p.id },
-    h('p', h('b', p.name)),
-    p.folderShort ? h('p.t3', p.folderShort) : null,
-    projectFacts(p)[0],
-    h('p', s ? 'A session runs in it.' : 'No session runs in it now.'),
-    h('div.row',
-      s ? h('button.btn.pri', { on: { click: () => pickSession(`${p.id}/${s.surfaceId}`, 'project page') } }, 'Show the session')
-        : p.folder && !p.machine ? h('button.btn.pri', { on: { click: () => openStart(p.folder!) } }, 'New session here') : null,
-      p.brief ? h('button.btn', { on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null)));
+  if (s) {
+    replace($('none'), h('div.none-card.project', { 'data-project': p.id }, h('p', h('b', p.name)), p.folderShort ? h('p.t3', p.folderShort) : null, projectFacts(p)[0], h('p', 'A session runs in it.'),
+      h('div.row', h('button.btn.pri', { on: { click: () => pickSession(`${p.id}/${s.surfaceId}`, 'project page') } }, 'Show the session'))));
+    return;
+  }
+  const c = lastConv.get(p.id);
+  if (!c || Date.now() - c.at > 15000) void loadLast(p.id);
+  const brief = p.brief ? h('button.lk', { on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null;
+  const newHere = p.folder && !p.machine ? () => openStart(p.folder!) : null;
+  const last = c ? c.last : null;
+  if (!c || (c.asking && !last)) {
+    replace($('none'), h('div.pa', { 'data-project': p.id }, h('div.pa-in', h('div.pa-head', h('h2.pa-name', p.name), p.folderShort ? h('span.t3', p.folderShort) : null, projectFacts(p)[0]), h('p.t3', 'Looking for its last conversation...'))));
+    return;
+  }
+  if (!last) {
+    replace($('none'), h('div.none-card.project', { 'data-project': p.id },
+      h('p', h('b', p.name)), p.folderShort ? h('p.t3', p.folderShort) : null, projectFacts(p)[0],
+      h('p', 'No earlier conversation found in this folder.'),
+      h('div.row', newHere ? h('button.btn.pri', { on: { click: newHere } }, 'New session here') : null,
+        p.brief ? h('button.btn', { on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null)));
+    return;
+  }
+  const who = assistantName(last.assistant) || 'Claude';
+  const outside = last.openIn && !last.openIn.ravenry ? last.openIn.name || 'another terminal' : null;
+  const inRavenry = last.openIn && last.openIn.ravenry ? last.openIn.pane || null : null;
+  replace($('none'), h('div.pa', { 'data-project': p.id }, h('div.pa-in',
+    h('div.pa-head', h('h2.pa-name', p.name), p.folderShort ? h('span.t3', p.folderShort) : null, projectFacts(p)[0]),
+    h('div.conv', { 'data-last': last.sessionId },
+      h('div.conv-h', h('span.ti', last.title), h('span.as-tag', who), h('span.sp'), h('span.when.small', `Stopped ${stoppedWhen(last.stoppedAt)}`)),
+      h('div.said',
+        last.lastPrompt ? [h('span.who', 'You'), h('span.you', last.lastPrompt)] : null,
+        last.lastText ? [h('span.who', who), h('span.ag', last.lastText)] : null)),
+    outside ? h('p.still', `Still open in ${outside}.`) : null,
+    h('div.acts',
+      inRavenry ? h('button.btn.pri', { on: { click: () => setView({ kind: 'session', key: '', pane: inRavenry }) } }, 'Show it')
+        : outside ? h('button.btn.pri', { disabled: !!c.busy, on: { click: () => void moveLast(p, last) } }, c.busy ? 'Moving...' : 'Move here')
+          : h('button.btn.pri', { disabled: !!c.busy, on: { click: () => void continueLast(p, last) } }, c.busy ? 'Continuing...' : 'Continue this conversation'),
+      newHere ? h('button.btn', { on: { click: newHere } }, 'New session') : null,
+      h('span.sp'), brief),
+    c.error ? h('p.err', c.error) : null,
+    h('div.cmd', outside ? `Move here ends it in ${outside} and continues it in a Ravenry pane: ` : 'Continues it in a Ravenry pane: ', h('span.mono', last.command), ` in ${last.folderShort}`))));
 }
 
 function panelHead(name: string, tag: string | null, extra?: HTMLElement | null, machine: string | null = null): HTMLElement {
@@ -2595,7 +2702,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
       h('div.bf',
         p.brief.goal ? [h('div.lbl', 'Goal'), h('div.gl', { title: p.brief.goal }, plain(p.brief.goal))] : null,
         n.items.length ? [h('div.lbl', 'Next'), h('ul', n.items.map((x) => h('li', { title: x }, h('span', x))))] : null,
-        h('div.ft2', h('button.lk', { on: { click: () => setView({ kind: 'brief', key, project: p.id }) } }, 'Open brief'), n.older ? h('span.t3', `, ${n.older} older ${n.older === 1 ? 'entry' : 'entries'}`) : null))));
+        h('div.ft2', h('button.lk', { disabled: S.view.kind === 'brief' && S.view.key === key, title: S.view.kind === 'brief' && S.view.key === key ? 'The brief is open' : '', on: { click: () => setView({ kind: 'brief', key, project: p.id }) } }, 'Open brief'), n.older ? h('span.t3', `, ${n.older} older ${n.older === 1 ? 'entry' : 'entries'}`) : null))));
   }
 
   const plan = p.plan;
@@ -3281,8 +3388,9 @@ async function boot(): Promise<void> {
     openPage: (key) => openPage(key),
     pickProject: (id) => {
       const p = (S.hub?.projects || []).find((x) => x.id === id || x.name.toLowerCase() === String(id).toLowerCase());
-      if (!p || !p.sessions.length) return false;
-      pickProject(p);
+      // Its main session, else its own page (the project view): never the board.
+      if (!p) return false;
+      pickProject(p, 'page');
       return true;
     },
     lastProject: () => lastSessionProject || (viewSessionKey() || '').split('/')[0] || null,
