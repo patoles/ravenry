@@ -2171,12 +2171,23 @@ let setupReady = false;
 
 /** Per assistant, what is set up (the panel's two lines, B). */
 let setupLines: Partial<Record<'claude' | 'codex', { hooks: boolean; skill: boolean }>> = {};
+let setupAt = 0;
+let setupLoading = false;
 function takeSetupLines(rows: SkillRow[]): void {
-  setupLines = Object.fromEntries(rows.filter((r) => r.found).map((r) => [r.kind, { hooks: r.hooks === 'on', skill: r.installed }]));
-  if (panelVisible()) renderPanel();
+  const next = Object.fromEntries(rows.filter((r) => r.found).map((r) => [r.kind, { hooks: r.hooks === 'on', skill: r.installed }]));
+  const changed = JSON.stringify(next) !== JSON.stringify(setupLines);
+  setupLines = next;
+  setupAt = Date.now();
+  if (changed && panelVisible()) renderPanel();
 }
 async function loadSetupLines(): Promise<void> {
-  try { takeSetupLines(await api().skills.get()); } catch { /* none */ }
+  setupLoading = true;
+  try { takeSetupLines(await api().skills.get()); } catch { /* none */ } finally { setupLoading = false; }
+}
+/** The setup lines as they are now: hooks or the skill set up since (in Settings, by an agent, by hand) show within seconds. */
+function setupLinesFor(kind: 'claude' | 'codex'): { hooks: boolean; skill: boolean } | null {
+  if (!setupLoading && Date.now() - setupAt > 5000) void loadSetupLines();
+  return setupLines[kind] || null;
 }
 
 /** Step 2, in the start screen's place (A2). */
@@ -2647,7 +2658,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   }
 
   // What the first-launch step set up for its assistant (B), on this machine.
-  const sl = !machineOf(p, s) && (s.assistant === 'claude' || s.assistant === 'codex') ? setupLines[s.assistant] : null;
+  const sl = !machineOf(p, s) && (s.assistant === 'claude' || s.assistant === 'codex') ? setupLinesFor(s.assistant) : null;
   if (sl && !k) body.push(h('div.sec.setup-lines', h('div.sec-h', 'This session'), ...setupLineEls(sl)));
 
   if (k) body.push(cardFor(k, cardCtx));
@@ -2760,7 +2771,7 @@ function newSessionPanel(pane: string): [HTMLElement, (HTMLElement | null)[]] {
   // The board starts it as ravenry.session=<assistant> (a shell types its command).
   const lab = p.labels?.['ravenry.session'] || p.labels?.['ravenry.agent'] || base(p.command[0] || '');
   const kind = /codex/.test(lab) ? 'codex' : /claude/.test(lab) ? 'claude' : null;
-  const sl = kind ? setupLines[kind] : null;
+  const sl = kind ? setupLinesFor(kind) : null;
   return [panelHead('New session', kind ? assistantName(kind) : null), [
     h('div.st.c-idle', svg(RING.idle), 'Ready for your first message'),
     h('div.sec.setup-lines',
