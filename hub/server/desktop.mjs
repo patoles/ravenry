@@ -19,6 +19,8 @@
 // MC_DESKTOP_REAL=1.
 
 import { execFile } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
 
 import { cmux, BOARD } from './terminal.mjs';
 import { HOME_OVERRIDE } from './home.mjs';
@@ -28,9 +30,16 @@ const REAL_OSASCRIPT = '/usr/bin/osascript';
 export const OSASCRIPT_BIN = env.MC_OSASCRIPT_BIN || REAL_OSASCRIPT;
 const TIMEOUT_MS = 10000;
 
+// A board whose HOME is not the account's own (the release check's
+// throwaway HOMEs, where the hub runs under launchd with no RAVENRY_HOME):
+// a test, whose notifications must never reach the person's screen.
+function scratchHome() {
+  try { return !!env.HOME && path.resolve(env.HOME) !== path.resolve(os.userInfo().homedir); } catch { return false; }
+}
+
 // On a test board, a real binary stays unrun unless MC_DESKTOP_REAL=1.
 function held(bin, real) {
-  return !!HOME_OVERRIDE && env.MC_DESKTOP_REAL !== '1' && (bin === real || bin === 'osascript' || bin === 'cmux');
+  return (!!HOME_OVERRIDE || scratchHome()) && env.MC_DESKTOP_REAL !== '1' && (bin === real || bin === 'osascript' || bin === 'cmux');
 }
 
 // AppleScript string literal: backslashes and double quotes escaped, line

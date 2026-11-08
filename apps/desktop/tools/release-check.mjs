@@ -185,11 +185,12 @@ const accountsMade = [];
 function retire(acct) {
   if (!acct || acct.retired) return;
   acct.retired = true;
+  if (acct.watch) clearInterval(acct.watch);
   if (loaded(acct.label)) launchctl('bootout', `gui/${UID}/${acct.label}`);
   // Its daemons (started with its runtime folder), then its folder.
   try { for (const line of execFileSync('/bin/ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' }).split('\n')) { const m = line.trim().match(/^(\d+) (.*)$/); if (m && m[2].includes(acct.root)) { try { process.kill(Number(m[1]), 'SIGTERM'); } catch { /* gone */ } } } } catch { /* none */ }
   // RC_KEEP_LOGS=1: its logs kept in OUT/logs/<name>, to read a failure after.
-  if (process.env.RC_KEEP_LOGS) { try { const to = path.join(OUT, 'logs', acct.name); fs.mkdirSync(to, { recursive: true }); for (const d of [acct.data, acct.work]) { for (const f of fs.readdirSync(d, { recursive: true })) { const src = path.join(d, String(f)); if (/\.(log|txt|jsonl)$/.test(src) && fs.statSync(src).isFile() && fs.statSync(src).size < 20e6) fs.copyFileSync(src, path.join(to, String(f).replace(/[\/]/g, '_'))); } } } catch { /* best effort */ } }
+  if (process.env.RC_KEEP_LOGS) { try { const to = path.join(OUT, 'logs', acct.name); fs.mkdirSync(to, { recursive: true }); for (const d of [acct.data, acct.work, path.join(acct.home, 'Library', 'Logs')].filter((x) => fs.existsSync(x))) { for (const f of fs.readdirSync(d, { recursive: true })) { const src = path.join(d, String(f)); if (/\.(log|txt|jsonl)$/.test(src) && fs.statSync(src).isFile() && fs.statSync(src).size < 20e6) fs.copyFileSync(src, path.join(to, String(f).replace(/[\/]/g, '_'))); } } } catch { /* best effort */ } }
   try { fs.rmSync(acct.root, { recursive: true, force: true }); } catch { /* left */ }
 }
 async function account(name, source = DRIVEN) {
@@ -221,7 +222,7 @@ async function account(name, source = DRIVEN) {
   // answer (and ask on the person's screen).
   const bin = path.join(root, 'bin');
   fs.mkdirSync(bin);
-  for (const f of ['stub-ps.mjs', 'fake-cmux.mjs', 'stub-open.mjs']) { fs.copyFileSync(path.join(HUB, 'tools', f), path.join(bin, f)); fs.chmodSync(path.join(bin, f), 0o755); }
+  for (const f of ['stub-ps.mjs', 'fake-cmux.mjs', 'stub-open.mjs', 'stub-osascript.mjs']) { fs.copyFileSync(path.join(HUB, 'tools', f), path.join(bin, f)); fs.chmodSync(path.join(bin, f), 0o755); }
   const ps = path.join(root, 'stub-ps.json');
   fs.writeFileSync(ps, '[]');
   const fake = path.join(root, 'fake-cmux.json');
@@ -233,9 +234,24 @@ async function account(name, source = DRIVEN) {
     MC_PS_BIN: path.join(bin, 'stub-ps.mjs'), MC_LSOF_BIN: path.join(bin, 'stub-ps.mjs'), STUB_PS_STATE: ps,
     CMUX_BIN: path.join(bin, 'fake-cmux.mjs'), FAKE_CMUX_STATE: fake, MC_OPEN_COMMAND: JSON.stringify([process.execPath, path.join(bin, 'stub-open.mjs')]), STUB_OPEN_LOG: path.join(root, 'open.jsonl'),
     MC_CODEX: '0', MC_PHONE_LAN: 'none', MC_REPEATS_AUTO: '0',
+    // Mac notifications and Copy never reach the person's screen or clipboard: a test board's hub
+    // under launchd has no RAVENRY_HOME, so it would run the real osascript.
+    MC_OSASCRIPT_BIN: path.join(bin, 'stub-osascript.mjs'), ITERM_OSASCRIPT_BIN: path.join(bin, 'stub-osascript.mjs'), STUB_OSASCRIPT_LOG: path.join(root, 'osascript.jsonl'),
+    MC_COPY_COMMAND: JSON.stringify(['/usr/bin/true']),
   });
   const acct = { name, root, home, data, rt, label, port, ps, fake, env, exe: path.join(app, 'Contents', 'MacOS', 'Ravenry'), work: path.join(root, 'work') };
   accountsMade.push(acct);
+  // RC_KEEP_LOGS=1: the board's sessions every 2 s, to read a failure after (OUT/logs/<name>-state.jsonl).
+  if (process.env.RC_KEEP_LOGS && process.env.RC_STATE_POLL !== '0') {
+    const to = path.join(OUT, 'logs', `${name}-state.jsonl`);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    acct.watch = setInterval(() => {
+      fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(1500) }).then((r) => r.json()).then((st) => {
+        const rows = (st.projects || []).map((p) => ({ p: p.id, s: p.sessions.map((x) => ({ sid: (x.sessionId || '').slice(-3), sf: x.surfaceId, st: x.state, ended: x.ended || null, movedOn: x.movedOn || null, alsoOpen: x.alsoOpen ? x.alsoOpen.name : null })) }));
+        fs.appendFileSync(to, JSON.stringify({ at: new Date().toISOString(), rows, procs: ((st.sessions || {}).rows || []).map((r) => [r.pid, (r.sessionId || '').slice(-3), r.surfaceId, r.projectId]) }) + '\n');
+      }).catch(() => {});
+    }, 2000);
+  }
   return acct;
 }
 

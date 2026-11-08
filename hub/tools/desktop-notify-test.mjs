@@ -203,6 +203,14 @@ try {
   await sleep(300);
   st = await (await fetch(BASE + '/api/state')).json();
   check('board: back on, and the snapshot follows', y.status === 200 && st.alerts.desktop.enabled === true);
+  // A hub whose HOME is a scratch folder (the release check's, run by
+  // launchd with no RAVENRY_HOME) never runs the real osascript.
+  const scratch = fs.mkdtempSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.tmp', 'scratch-home-'));
+  const probe = `import('${path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'server', 'desktop.mjs')}').then(async (d) => { const r = await d.send({ title: 'T', body: 'B' }); process.stdout.write(JSON.stringify(r)); })`;
+  const env2 = { PATH: process.env.PATH, HOME: scratch };
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', probe], { env: env2, encoding: 'utf8' });
+  check('a hub with a scratch HOME and no RAVENRY_HOME does not run the real osascript', /does not run the real osascript/.test(out), out);
+  fs.rmSync(scratch, { recursive: true, force: true });
 } catch (e) {
   console.error('ERROR', e);
   fails++;
