@@ -120,7 +120,10 @@ export async function profileStart() {
   try { s.connect(); } catch { return; }
   const post = (m, p = {}) => new Promise((r) => s.post(m, p, (e, res) => r(e ? null : res)));
   await post('Profiler.enable');
-  await post('Profiler.setSamplingInterval', { interval: 1000 });
+  // Every 2 ms, cut every 5 s: stopping the profiler builds the part on the
+  // main thread, and a 15 s part at 1 ms held it 250 to 300 ms at 15 s and
+  // 30 s (2026-11-08, the start-up load test).
+  await post('Profiler.setSamplingInterval', { interval: 2000 });
   await post('Profiler.start');
   // Where the profile's time 0 is, to find a stall line's moment in it.
   console.log(`start: CPU profile from ${since()} ms after start`);
@@ -131,26 +134,44 @@ export async function profileStart() {
   // Stops, writes the part, and starts again (unless it is the last).
   // Synchronous: the inspector answers in the same turn, so it also runs
   // in an exit handler.
-  const cut = (last) => {
+  const cut = (last, exiting = false) => {
     if (done) return;
     const to = Math.round(since() / 1000);
+    const t0 = Date.now();
     s.post('Profiler.stop', (e, res) => {
       if (!e && res && res.profile) {
         parts.push(res.profile);
-        try { fs.writeFileSync(path.join(dir, `start-${version}.${from}-${to}s.cpuprofile`), JSON.stringify(res.profile)); } catch { /* the hub goes on */ }
+        const f = path.join(dir, `start-${version}.${from}-${to}s.cpuprofile`);
+        // Written as it goes, off the main thread's way (but at exit).
+        if (exiting) { try { fs.writeFileSync(f, JSON.stringify(res.profile)); } catch { /* the hub goes on */ } }
+        else fs.promises.writeFile(f, JSON.stringify(res.profile)).catch(() => {});
       }
     });
+    if (to <= 30) console.log(`start: CPU profile part to ${to} s cut in ${Date.now() - t0} ms`);
     from = to;
     if (last) {
       done = true;
-      try { if (parts.length) fs.writeFileSync(whole, JSON.stringify(join(parts))); } catch { /* the hub goes on */ }
-      console.log(`start: CPU profile of the first ${to} s written to ${whole}`);
       try { s.disconnect(); } catch { /* gone */ }
+      if (exiting) { try { if (parts.length) fs.writeFileSync(whole, JSON.stringify(join(parts))); } catch { /* the hub goes on */ } return; }
+      // The whole one: its parts joined, written piece by piece.
+      void (async () => {
+        try {
+          const j = join(parts);
+          const fh = await fs.promises.open(whole + '.tmp', 'w');
+          try {
+            await fh.write(`{"startTime":${j.startTime},"endTime":${j.endTime},"nodes":[`);
+            for (let i = 0; i < j.nodes.length; i += 2000) { await fh.write((i ? ',' : '') + j.nodes.slice(i, i + 2000).map((n) => JSON.stringify(n)).join(',')); await new Promise((r) => setTimeout(r, 0)); }
+            await fh.write(`],"samples":${JSON.stringify(j.samples)},"timeDeltas":${JSON.stringify(j.timeDeltas)}}`);
+          } finally { await fh.close(); }
+          await fs.promises.rename(whole + '.tmp', whole);
+          console.log(`start: CPU profile of the first ${to} s written to ${whole}`);
+        } catch { /* the hub goes on */ }
+      })();
     } else s.post('Profiler.start');
   };
-  const timers = [15, 30, 45, 60, 75].map((sec) => setTimeout(() => cut(false), sec * 1000 - since()));
+  const timers = Array.from({ length: 17 }, (_, i) => (i + 1) * 5).map((sec) => setTimeout(() => cut(false), sec * 1000 - since()));
   const end = setTimeout(() => cut(true), 90000 - since());
   for (const t of [...timers, end]) t.unref();
-  process.on('exit', () => cut(true));
+  process.on('exit', () => cut(true, true));
   console.log(`start: a CPU profile of the first 90 s goes to ${whole}`);
 }
