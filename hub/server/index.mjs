@@ -40,6 +40,7 @@ import * as push from './push.mjs';
 import * as termproxy from './termproxy.mjs';
 import * as pictures from './pictures.mjs';
 import * as alerts from './alerts.mjs';
+import * as desktop from './desktop.mjs';
 import * as projectsRoot from './projectsroot.mjs';
 import { activePlan, proofKind } from './planfmt.mjs';
 import * as planner from './planner.mjs';
@@ -2791,6 +2792,13 @@ async function jsonBody(req, limit = 1e6) {
   return JSON.parse((await readBody(req, limit)).toString('utf8') || '{}');
 }
 
+// Mac notifications: posted by the Ravenry app while it runs (the last of
+// its streams), and its answer awaited (server/desktop.mjs).
+desktop.useApp({
+  connected: () => [...clients].some((r) => r.mcApp),
+  send: (payload) => { const r = [...clients].filter((x) => x.mcApp).pop(); if (r) r.write(`event: notify\ndata: ${JSON.stringify(payload)}\n\n`); },
+});
+
 function broadcast(event, obj) {
   const j = JSON.stringify(obj);
   for (const res of clients) res.write(`event: ${event}\ndata: ${j}\n\n`);
@@ -2820,6 +2828,8 @@ async function alertsWrite(req, res, p) {
   if (p === '/api/alerts/test') return answer(await alerts.sendTest(local ? body.channel || null : null, boardUrl()));
   if (!local) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
   if (p === '/api/alerts/desktop/test') return answer(await alerts.testDesktop());
+  // The app's answer for a notification it was sent: shown by macOS or not, and why.
+  if (p === '/api/alerts/desktop/result') { const r = desktop.appResult(body); return sendJson(res, r.ok ? 200 : r.status || 400, r); }
   if (p === '/api/alerts/telegram') return answer(await alerts.saveTelegramToken(body.token));
   if (p === '/api/alerts/telegram/find-chat') return answer(await alerts.findTelegramChat());
   if (p === '/api/alerts/webhook') return answer(alerts.saveWebhook(body.url));
@@ -3691,6 +3701,8 @@ async function handleRequest(req, res) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
       res.write(`event: state\ndata: ${snapshotJson}\n\n`);
       res.mcPhone = req.mcPhone || null;
+      // The Ravenry app's own stream (?app=1, from this Mac): Mac notifications go to it (server/desktop.mjs).
+      res.mcApp = !!req.mcLocal && url.searchParams.get('app') === '1';
       res.mcDevice = req.mcDevice || null;
       clients.add(res);
       const hb = setInterval(() => res.write(': hb\n\n'), 15000);

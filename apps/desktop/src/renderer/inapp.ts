@@ -37,6 +37,8 @@ export interface InAppHost {
   openBrief(project: string): void;
   showSession(project: string): boolean;
   pairPhone(): void;
+  /** System Settings > Notifications. */
+  notificationSettings(): void;
   toast(text: string, error?: boolean): void;
   onScreen(): InView | null;
   now(): number;
@@ -47,7 +49,7 @@ interface RawStep { kind?: string; mark?: string; text: string; subs?: { k: stri
 interface PlanLike { title: string; plan?: boolean; goal?: string | null; started?: string | null; state?: string | null; steps: RawStep[]; tasks?: { text: string; state?: string }[]; gate?: { question?: string; choices?: string[] } | null }
 interface Draft { goal?: string; title?: string | null; steps: { id: string; kind: string; text: string; detail?: string; choices?: string[] }[]; questions: { id: string; text: string; options: string[]; answer: string | null }[]; busy?: { what?: string; who?: string } | null; error?: string | null; canStart?: boolean; openQuestions?: number }
 interface Idea { id: string; name: string; stage: string; pitch?: string; thread: { who: string; text: string; at: string; error?: boolean; images?: string[] }[]; pending?: unknown; mockups?: { job?: unknown } | null }
-interface AlertsSetup { enabled?: boolean; channel?: string | null; channelLabel?: string | null; last?: { at: string; ok: boolean; error?: string | null } | null; desktop?: { enabled?: boolean; last?: { at: string; ok: boolean; via?: string | null; error?: string | null } | null }; ready?: Record<string, boolean>; telegram?: { token?: string | null; bot?: string | null; chat?: string | null }; webhook?: { url?: string | null; kind?: string | null }; ntfy?: { server?: string; topic?: string | null; qr?: string } }
+interface AlertsSetup { enabled?: boolean; channel?: string | null; channelLabel?: string | null; last?: { at: string; ok: boolean; error?: string | null } | null; desktop?: { enabled?: boolean; last?: { at: string; ok: boolean; via?: string | null; error?: string | null; denied?: boolean; unconfirmed?: boolean } | null }; ready?: Record<string, boolean>; telegram?: { token?: string | null; bot?: string | null; chat?: string | null }; webhook?: { url?: string | null; kind?: string | null }; ntfy?: { server?: string; topic?: string | null; qr?: string } }
 
 const STAGE: Record<string, string> = { spark: 'Spark', mock: 'Mockup', green: 'Greenlit', park: 'Parked' };
 const PLAN_STATE: Record<string, string> = { running: 'Running', gate: 'At a gate', paused: 'Paused', done: 'Done', stopped: 'Stopped' };
@@ -433,7 +435,16 @@ export class InApp {
     const post = (p: string, body: Record<string, unknown> = {}) => () => this.host.call('POST', `/api/alerts/${p}`, body);
     const dk = a.desktop || {};
     const dkOn = dk.enabled !== false;
-    const dkLine = !dkOn ? 'Off' : dk.last ? (dk.last.ok ? `On. Last sent ${when(dk.last.at)}` : `On. The last one failed: ${dk.last.error || 'no answer'}`) : 'On';
+    // What macOS did with the last one, never more: shown (the app posted
+    // it and macOS said so), sent but unconfirmed (macOS's script, with the
+    // app not open), or not shown and why.
+    const dl = dk.last;
+    const denied = dkOn && !!dl && !dl.ok && !!dl.denied;
+    const dkLine = !dkOn ? 'Off'
+      : !dl ? 'On'
+        : denied ? 'macOS has not allowed Ravenry\'s notifications. Turn them on in System Settings > Notifications.'
+          : dl.ok ? (dl.unconfirmed ? `On. The last one went through macOS's script ${when(dl.at)}, with Ravenry closed: macOS may not have shown it.` : `On. Last shown ${when(dl.at)}.`)
+            : `On. The last one was not shown: ${dl.error || 'no answer'}.`;
     const row = (title: string, line: string, on: boolean, ...acts: (HTMLElement | null)[]) => h('div.ia-al', h('div.tx', h('b', title), h(`span${on ? '.on' : ''}`, line)), ...acts);
     const sw = (on: boolean, label: string, run: () => void) => h(`button.ia-sw${on ? '.on' : ''}`, { role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': label, disabled: !!this.busy, on: { click: run } });
     const ch = (id: 'telegram' | 'webhook' | 'ntfy', title: string, form: () => (HTMLElement | null)[]) => {
@@ -453,8 +464,9 @@ export class InApp {
     const wh = a.webhook || {};
     const nt = a.ntfy || {};
     return [head, h('div.pg-b',
-      row('Mac notifications', dkLine, dkOn,
-        h('button.btn', { disabled: !!this.busy || !dkOn, on: { click: () => void this.act('dtest', v, post('desktop/test'), () => this.host.toast('Test sent: it shows in a moment.')) } }, 'Send a test'),
+      row('Mac notifications', dkLine, dkOn && !denied,
+        denied ? h('button.btn.pri', { on: { click: () => this.host.notificationSettings() } }, 'Open Notifications settings') : null,
+        h('button.btn', { disabled: !!this.busy || !dkOn, on: { click: () => void this.act('dtest', v, post('desktop/test'), (b) => this.host.toast(b.unconfirmed ? 'Sent through macOS\'s script, with Ravenry closed: Ravenry cannot tell whether it showed.' : 'macOS showed the test notification.')) } }, 'Send a test'),
         sw(dkOn, 'Mac notifications', () => void this.act('desk', v, post('desktop', { enabled: !dkOn })))),
       row('Your phone', 'Questions, picks and approvals reach you away from the desk', false,
         h('button.btn.pri', { on: { click: () => this.host.pairPhone() } }, 'Pair your phone')),

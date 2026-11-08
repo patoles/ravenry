@@ -203,6 +203,37 @@ try {
   await sleep(300);
   st = await (await fetch(BASE + '/api/state')).json();
   check('board: back on, and the snapshot follows', y.status === 200 && st.alerts.desktop.enabled === true);
+  // The Ravenry app posts them when it runs: the hub sends each one down
+  // the app's stream (event: notify) and reports what the app answers.
+  const appStream = async (answer) => {
+    const ctl = new AbortController();
+    const res = await fetch(BASE + '/api/events?app=1', { signal: ctl.signal, headers: { Accept: 'text/event-stream' } });
+    const seen = [];
+    (async () => { const dec = new TextDecoder(); let buf = ''; try { for await (const ch of res.body) { buf += dec.decode(ch, { stream: true }); let i; while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); if (/^event: notify/m.test(block)) { const n = JSON.parse(block.split('\n').find((l) => l.startsWith('data: ')).slice(6)); seen.push(n); await post('/api/alerts/desktop/result', { id: n.id, ...answer }); } } } } catch { /* closed */ } })();
+    await sleep(300);
+    return { seen, close: () => ctl.abort() };
+  };
+  let app = await appStream({ ok: true });
+  y = await post('/api/alerts/desktop/test', {});
+  check('app: Send a test goes to the running app, titled "Ravenry" with the test body, and is reported shown by the app', y.status === 200 && y.j.via === 'app' && app.seen.length === 1 && app.seen[0].title === 'Ravenry' && /A test/.test(app.seen[0].body), JSON.stringify({ y, seen: app.seen }));
+  const setup = async () => (await (await fetch(BASE + '/api/alerts/setup')).json());
+  st = { alerts: await setup() };
+  check('app: the status says shown, by the app', st.alerts.desktop.last && st.alerts.desktop.last.ok === true && st.alerts.desktop.last.via === 'app' && !st.alerts.desktop.last.unconfirmed, JSON.stringify(st.alerts.desktop.last));
+  check('app: no osascript ran while the app was there', !osa().some((x) => /A test/.test(JSON.stringify(x))), JSON.stringify(osa().slice(-2)));
+  app.close();
+  await sleep(300);
+  app = await appStream({ ok: false, error: 'Notifications are not allowed for this application', denied: true });
+  y = await post('/api/alerts/desktop/test', {});
+  st = { alerts: await setup() };
+  check('app: macOS refusing them is reported as not shown, with why, and as not allowed', y.status === 502 && /has not allowed Ravenry's notifications/.test(y.j.error || '') && /not allowed for this application/.test(st.alerts.desktop.last.error || '') && st.alerts.desktop.last.ok === false && st.alerts.desktop.last.denied === true, JSON.stringify({ y, last: st.alerts.desktop.last }));
+  const dl = log.split('\n').filter((l) => /^desktop: Ravenry \(test\)/.test(l));
+  check('board log: it says "not shown" and why, never "shown", for one macOS refused', /not shown by app: Notifications are not allowed/.test(dl[dl.length - 1] || ''), dl.slice(-2).join(' | '));
+  app.close();
+  await sleep(300);
+  const before = osa().length;
+  y = await post('/api/alerts/desktop/test', {});
+  st = { alerts: await setup() };
+  check('no app: osascript is the fallback, reported as sent but not confirmed', y.status === 200 && y.j.via === 'osascript' && y.j.unconfirmed === true && osa().length === before + 1 && st.alerts.desktop.last.unconfirmed === true, JSON.stringify({ y, last: st.alerts.desktop.last }));
   // A hub whose HOME is a scratch folder (the release check's, run by
   // launchd with no RAVENRY_HOME) never runs the real osascript.
   const scratch = fs.mkdtempSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '.tmp', 'scratch-home-'));

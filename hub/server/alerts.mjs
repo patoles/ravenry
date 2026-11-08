@@ -130,7 +130,7 @@ export function status() {
 
 function desktopStatus(d) {
   const l = d.desktop.last;
-  return { enabled: d.desktop.enabled !== false, last: l ? { at: l.at, ok: !!l.ok, via: l.via || null, error: l.ok ? null : l.error || null } : null };
+  return { enabled: d.desktop.enabled !== false, last: l ? { at: l.at, ok: !!l.ok, via: l.via || null, error: l.ok ? null : l.error || null, denied: !!l.denied, unconfirmed: !!l.unconfirmed } : null };
 }
 
 export function maskToken(t) {
@@ -418,8 +418,9 @@ const desktopTrigger = makeTrigger({
 async function deliverDesktop(alert) {
   const r = await desktop.send(alert);
   const d = load();
-  d.desktop.last = { at: new Date().toISOString(), ok: r.ok, kind: alert.kind, via: r.via || null, error: r.ok ? null : r.error };
-  console.log(`desktop: ${alert.title} (${alert.kind}) ${r.ok ? `shown by ${r.via}${r.fallbackFrom ? ` (${r.fallbackFrom})` : ''}` : 'failed: ' + r.error}`);
+  d.desktop.last = { at: new Date().toISOString(), ok: r.ok, kind: alert.kind, via: r.via || null, error: r.ok ? null : r.error, denied: !!r.denied, unconfirmed: !!r.unconfirmed };
+  // "shown" only when the app said macOS showed it; osascript only says it ran.
+  console.log(`desktop: ${alert.title} (${alert.kind}) ${r.ok ? (r.unconfirmed ? `sent by ${r.via}, not confirmed (${r.fallbackFrom || 'no answer from macOS'})` : `shown by ${r.via}`) : `not shown${r.via ? ` by ${r.via}` : ''}: ${r.error}`}`);
   try { save(); } catch (e) { console.error('desktop: could not save the status:', e.message); }
 }
 
@@ -428,7 +429,8 @@ async function deliverDesktop(alert) {
 export async function testDesktop() {
   await deliverDesktop({ kind: 'test', projectId: null, title: 'Ravenry', body: 'A test: Mac notifications reach you.', workspaceId: null, surfaceId: null });
   const l = load().desktop.last;
-  return l && l.ok ? { ok: true, via: l.via } : fail(502, (l && l.error) || 'It was not shown.');
+  if (l && l.ok) return { ok: true, via: l.via, unconfirmed: !!l.unconfirmed };
+  return fail(502, l && l.denied ? 'macOS has not allowed Ravenry\'s notifications. Turn them on in System Settings > Notifications.' : (l && l.error) || 'It was not shown.');
 }
 
 // Called with each tick's projects. Returns the phone alerts it started,

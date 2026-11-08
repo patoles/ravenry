@@ -41,6 +41,9 @@ export class HubFeed {
   private retryMs = 1000;
   private startedAt = 0;
 
+  /** A Mac notification the hub asks this app to post (event: notify). */
+  onNotify: (n: unknown) => void = () => {};
+
   constructor(url: string, onState: (s: unknown) => void, onStatus: (s: HubStatus) => void) {
     this.url = url;
     this.onState = onState;
@@ -67,7 +70,8 @@ export class HubFeed {
     while (!this.stopped) {
       try {
         this.abort = new AbortController();
-        const res = await fetch(this.url + '/api/events', { signal: this.abort.signal, headers: { Accept: 'text/event-stream' } });
+        // ?app=1: the app's own stream, which the hub sends Mac notifications to.
+        const res = await fetch(this.url + '/api/events?app=1', { signal: this.abort.signal, headers: { Accept: 'text/event-stream' } });
         if (res.status === 503) {
           // Starting: waiting for macOS to say whether it may read a folder.
           let j: { error?: string; waitingFor?: string; folder?: string } = {};
@@ -106,6 +110,8 @@ export class HubFeed {
         const ev = parseEvent(block);
         if (ev && ev.event === 'state') {
           try { this.last = JSON.parse(ev.data); this.onState(this.last); } catch { /* a cut message */ }
+        } else if (ev && ev.event === 'notify') {
+          try { this.onNotify(JSON.parse(ev.data)); } catch { /* a cut message */ }
         }
       }
     }
