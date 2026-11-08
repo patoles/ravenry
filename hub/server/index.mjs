@@ -2744,6 +2744,7 @@ async function alertsWrite(req, res, p) {
   if (p === '/api/alerts/desktop') return answer(alerts.setDesktop(!!body.enabled));
   if (p === '/api/alerts/test') return answer(await alerts.sendTest(local ? body.channel || null : null, boardUrl()));
   if (!local) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
+  if (p === '/api/alerts/desktop/test') return answer(await alerts.testDesktop());
   if (p === '/api/alerts/telegram') return answer(await alerts.saveTelegramToken(body.token));
   if (p === '/api/alerts/telegram/find-chat') return answer(await alerts.findTelegramChat());
   if (p === '/api/alerts/webhook') return answer(alerts.saveWebhook(body.url));

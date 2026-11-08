@@ -57,6 +57,8 @@ import { Files } from './files.ts';
 import { Review } from './review.ts';
 import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 import { PhoneCard } from './phonecard.ts';
+import { InApp, IN_KINDS } from './inapp.ts';
+import type { InView } from './inapp.ts';
 
 // ---------------------------------------------------------------- state
 
@@ -113,6 +115,12 @@ type View =
   /** Learn Ravenry (learn.ts): opened by the person, never by itself; `lit` is the card Learn more points at. */
   | { kind: 'learn'; lit?: LearnKey | null; back?: View }
   | { kind: 'start' }
+  /** Ravenry's own pages for what opened the board before (inapp.ts): a project's pictures, a plan, a new plan, an idea, Alerts. */
+  | { kind: 'gallery'; project: string; at?: number | null; lit?: number | null; back: View }
+  | { kind: 'plan'; project: string; title?: string | null; back: View }
+  | { kind: 'newplan'; project: string; back: View }
+  | { kind: 'idea'; id: string; back: View }
+  | { kind: 'alerts'; back: View }
   | { kind: 'none' };
 
 /** Below this width the session panel folds away by itself. */
@@ -176,6 +184,7 @@ let pages: Pages;
 let machinesView: Machines;
 let film: Filmstrip;
 let decisions: Decisions;
+let inapp: InApp;
 let picker: Picker;
 let files: Files;
 let review: Review;
@@ -526,7 +535,7 @@ function viewSessionKey(): string | null {
 }
 
 /** The views that take the middle and right columns. */
-const WIDE_VIEWS = new Set(['page', 'machines', 'decisions', 'picker', 'grid', 'learn']);
+const WIDE_VIEWS = new Set(['page', 'machines', 'decisions', 'picker', 'grid', 'learn', ...IN_KINDS]);
 
 // While the person keeps the npm board (npmswitch.ts npmChosen), the app runs
 // no hub of its own: each view that needs one says so and points at the npm
@@ -1035,7 +1044,7 @@ function renderSidebar(): void {
   const foot = h('div.foot',
     h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => api().settings.open() } }, svg(I.SETTINGS)),
     empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { if (npmPoint('Pairing a phone')) return; if (!phoneCard.open) markUsed('phone'); phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
-    empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', on: { click: () => openBoard('') } }, svg(I.BELL)),
+    empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}${S.view.kind === 'alerts' ? '.on' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', 'aria-pressed': S.view.kind === 'alerts' ? 'true' : 'false', on: { click: () => { if (npmPoint('Alerts')) return; if (S.view.kind !== 'alerts') setView({ kind: 'alerts', back: S.view }); } } }, svg(I.BELL)),
     h(`button.icon-btn.learn-btn${S.view.kind === 'learn' ? '.on' : ''}`, { title: 'Learn Ravenry', 'aria-label': 'Learn Ravenry', on: { click: () => openLearn() } }, svg(I.QUESTION)),
     h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => { if (!npmPoint('Machines')) setView({ kind: 'machines' }); } } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
     h('span.sp'),
@@ -1064,12 +1073,8 @@ function useLine(s: HubSession): HTMLElement | null {
   return null;
 }
 
-function openBoard(hash: string): void {
-  if (!S.config) return;
-  // The npm board's own page, when it answers; else where it is said why.
-  if (npmChosen() && !S.hubStatus?.reachable) { npmPoint('Settings and alerts'); return; }
-  api().openExternal(S.config.hubUrl + '/' + hash);
-}
+/** Where a Ravenry page goes back to: the view it was opened from, never another of its own. */
+const backFrom = (): View => (IN_KINDS.has(S.view.kind) ? (S.view as { back: View }).back : S.view);
 
 function openPage(key: string): void {
   if (npmPoint('That page')) return;
@@ -1861,12 +1866,15 @@ async function renderCentre(): Promise<void> {
   $('picker').hidden = v.kind !== 'picker' || !!need;
   $('grid').hidden = v.kind !== 'grid' || !!need;
   $('learn').hidden = v.kind !== 'learn' || !!need;
+  $('inapp').hidden = !IN_KINDS.has(v.kind) || !!need;
+  if (!IN_KINDS.has(v.kind)) inapp.hide();
   if (WIDE_VIEWS.has(v.kind)) { film.close(); }
   if (need) { hideTerms(); shownKey = ''; show('start'); renderStart(); return; }
   if (onPage) { hideTerms(); shownKey = ''; pages.show(v.key); return; }
   if (onMachines) { hideTerms(); shownKey = ''; machinesView.show(); return; }
   if (v.kind === 'decisions') { hideTerms(); shownKey = ''; decisions.render(); return; }
   if (v.kind === 'learn') { hideTerms(); shownKey = ''; renderLearn($('learn'), learnHost, v.lit || null); return; }
+  if (IN_KINDS.has(v.kind)) { hideTerms(); shownKey = ''; inapp.show(v as InView); return; }
   if (v.kind === 'picker') {
     hideTerms(); shownKey = '';
     const k = S.cps.get(v.cp);
@@ -2702,8 +2710,8 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   const pic = pics.filter((x) => x.url).slice(-1)[0];
   if (pic && S.config) {
     body.push(h('div.sec',
-      h('div.sec-h', 'Latest picture', h('span.sp'), h('button.lk', { on: { click: () => openBoard(`#${p.id}`) } }, 'Gallery')),
-      h('img.shot', { src: S.config.hubUrl + pic.url, alt: pic.alt || 'The latest picture this session showed' }),
+      h('div.sec-h', 'Latest picture', h('span.sp'), h('button.lk', { on: { click: () => setView({ kind: 'gallery', project: p.id, at: null, lit: 0, back: backFrom() }) } }, `Gallery${inapp.pictures(p).length > 1 ? ` (${inapp.pictures(p).length})` : ''}`)),
+      h('img.shot', { src: S.config.hubUrl + pic.url, alt: pic.alt || 'The latest picture this session showed', title: 'See it large', role: 'button', tabindex: '0', on: { click: () => setView({ kind: 'gallery', project: p.id, at: 0, back: backFrom() }), keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') setView({ kind: 'gallery', project: p.id, at: 0, back: backFrom() }); } } }),
       pic.alt ? h('span.t3.small', pic.alt) : null));
   }
 
@@ -2723,7 +2731,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   body.push(h('div.sec',
     h('div.sec-h', 'Plan', h('span.sp'), h('span.t3.light', plan ? (p.planGate ? 'At a gate' : 'Running') : 'None running')),
     plan ? h('p', plan.title || plan.name || 'A plan is running.') : h('p.t2.small', 'Hand work over as steps; it runs on its own and stops at your gates.'),
-    h('button.btn.sm.self', { on: { click: () => openBoard(plan ? `#/plan/${p.id}` : `#${p.id}`) } }, plan ? 'Open the plan' : 'New plan')));
+    h('button.btn.sm.self', { on: { click: () => setView(plan ? { kind: 'plan', project: p.id, title: plan.title || null, back: backFrom() } : { kind: 'newplan', project: p.id, back: backFrom() }) } }, plan ? 'Open the plan' : 'New plan')));
 
   return [head, body];
 }
@@ -3408,7 +3416,8 @@ async function boot(): Promise<void> {
       return true;
     },
     lastProject: () => lastSessionProject || (viewSessionKey() || '').split('/')[0] || null,
-    openBoard,
+    openPlan: (project, title) => setView({ kind: 'plan', project, title, back: backFrom() }),
+    openIdea: (id) => setView({ kind: 'idea', id, back: backFrom() }),
     openPath: (p) => api().openPath(p),
     openExternal: (url) => api().openExternal(url),
     copy: (text) => api().copyText(text),
@@ -3449,6 +3458,20 @@ async function boot(): Promise<void> {
     paneName: paneNameOf,
     toast: (text) => toast(text),
     changed: () => renderTabs(),
+  });
+  inapp = new InApp($('inapp'), {
+    hub: () => S.hub,
+    hubUrl: () => S.config?.hubUrl || '',
+    call: (method, p, body) => api().hubCall(method, p, body),
+    go: (v) => setView(v as View),
+    back: (v) => setView((v.back as View) || { kind: 'none' }),
+    openIdeas: () => openPage('ideas'),
+    openBrief: (project) => setView({ kind: 'brief', key: `project:${project}`, project }),
+    showSession: (project) => { const p = (S.hub?.projects || []).find((x) => x.id === project); const s = p && p.sessions.find((x) => !x.handed); if (!p || !s) return false; pickSession(`${p.id}/${s.surfaceId}`, 'plan page'); return true; },
+    pairPhone: () => { const b = document.querySelector('#side .foot [aria-label="Open on your phone"]') as HTMLElement | null; if (b && !phoneCard.open) b.click(); },
+    toast: (text, error) => toast(text, undefined, error ? { at: here(), error: true } : undefined),
+    onScreen: () => (IN_KINDS.has(S.view.kind) ? (S.view as InView) : null),
+    now,
   });
   decisions = new Decisions($('decisions'), {
     call: (method, p, body) => api().hubCall(method, p, body),

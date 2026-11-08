@@ -676,3 +676,78 @@ select.field { padding: 0 6px; }
 .pa .still { font-size: 12.5px; color: var(--you); }
 .pa .cmd { font-size: 11.5px; color: var(--tx3); overflow-wrap: anywhere; user-select: text; }
 .pa .cmd .mono { font-size: 11.5px; }
+
+/* Ravenry's own pages for what opened the board (inapp.ts, ravenry-inapp.html). */
+.ia-back { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--tx2); padding: 4px 6px; border-radius: 6px; }
+.ia-back:hover { background: var(--sel); color: var(--tx); }
+.ia-pill { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--card2); color: var(--tx2); }
+.ia-pill.s-running { background: var(--work-t); color: var(--work); }
+.ia-pill.s-gate, .ia-pill.st-spark { background: var(--you-t); color: var(--you); }
+.ia-pill.s-paused, .ia-pill.st-park { background: var(--card2); color: var(--tx2); }
+.ia-pill.s-done, .ia-pill.st-green { background: var(--ok-t); color: var(--ok); }
+.ia-pill.s-stopped { background: var(--bad-t); color: var(--bad); }
+.ia-pill.st-mock { background: var(--wait-t); color: var(--wait); }
+.ia-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+.ia-gc { background: var(--card); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--tile-ring); }
+.ia-gc:hover { filter: brightness(1.06); }
+.ia-gc img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: #000; }
+.ia-gc .cap { padding: 8px 10px; font-size: 12px; color: var(--tx2); display: flex; flex-direction: column; gap: 2px; }
+.ia-gc .cap b { color: var(--tx); font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ia-gc.lit { box-shadow: 0 0 0 2px var(--work); }
+.pg-b.ia-view { overflow: hidden; }
+.ia-big { flex: 1; min-height: 120px; display: flex; align-items: center; justify-content: center; background: #0B0B0C; border-radius: 10px; overflow: hidden; }
+.ia-big img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; cursor: zoom-in; }
+.ia-big.full { overflow: auto; align-items: flex-start; justify-content: flex-start; }
+.ia-big.full img { max-width: none; max-height: none; cursor: zoom-out; }
+.ia-vbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: none; }
+.ia-vbar .ti { font-weight: 600; }
+.ia-vbar .sp { flex: 1; }
+.ia-strip { display: flex; gap: 8px; overflow-x: auto; flex: none; padding: 2px; }
+.ia-strip button { flex: none; border-radius: 6px; }
+.ia-strip img { width: 84px; height: 54px; object-fit: cover; border-radius: 6px; opacity: .6; display: block; }
+.ia-strip button.on img { opacity: 1; box-shadow: 0 0 0 2px var(--work); }
+img.shot[role=button] { cursor: zoom-in; }
+.ia-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--tx2); }
+.ia-steps { display: flex; flex-direction: column; gap: 2px; }
+.ia-ps { display: grid; grid-template-columns: 20px 1fr; gap: 2px 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.45; user-select: text; }
+.ia-ps .bx { width: 15px; height: 15px; border-radius: 4px; margin-top: 2px; box-shadow: inset 0 0 0 1.5px var(--tx3); display: flex; align-items: center; justify-content: center; color: #FFF; }
+.ia-ps.done .bx { background: var(--ok); box-shadow: none; }
+.ia-ps.now { background: var(--work-t); }
+.ia-ps.now .bx { box-shadow: inset 0 0 0 1.5px var(--work); }
+.ia-ps .proof { grid-column: 2; font-size: 12px; color: var(--tx3); }
+.ia-ps.done .tx { color: var(--tx2); }
+.ia-gate { box-shadow: inset 0 0 0 1px var(--you); }
+.ia-fieldset { display: flex; flex-direction: column; gap: 6px; }
+.ia-fieldset label { font-size: 12px; font-weight: 650; color: var(--tx2); }
+.ia-fieldset .field.ta { flex: none; width: 100%; }
+.ia-err { color: var(--bad); margin: 0; font-size: 12.5px; }
+.ia-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; user-select: text; }
+.ia-thread { display: flex; flex-direction: column; gap: 12px; }
+.ia-msg { display: flex; flex-direction: column; gap: 4px; max-width: 720px; user-select: text; }
+.ia-msg .who { font-size: 12px; color: var(--tx3); }
+.ia-msg .bd { font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.ia-msg.you .bd { background: var(--card2); border-radius: 10px; padding: 8px 12px; align-self: flex-start; }
+.ia-msg.them .bd { color: var(--tx2); }
+.ia-msg .bd.err { color: var(--bad); }
+.ia-imgs { display: flex; gap: 8px; flex-wrap: wrap; }
+.ia-imgs img { max-width: 220px; border-radius: 8px; }
+.ia-reply { display: flex; gap: 10px; align-items: flex-end; }
+.ia-reply .field { flex: 1 1 auto; }
+.ia-reply .field.ta { height: 60px; }
+.ia-al { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--card); border-radius: 10px; box-shadow: var(--shadow); flex-wrap: wrap; }
+.ia-al .tx { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; }
+.ia-al .tx b { font-size: 13px; font-weight: 600; }
+.ia-al .tx span { font-size: 12px; color: var(--tx3); }
+.ia-al .tx span.on { color: var(--ok); }
+.ia-alw { display: flex; flex-direction: column; gap: 0; }
+.ia-alw .ia-al { border-radius: 10px; }
+.ia-setup { background: var(--card); border-radius: 0 0 10px 10px; margin-top: -6px; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.ia-setup p { margin: 0; }
+.ia-qr { width: 156px; height: 156px; background: #FFF; border-radius: 8px; padding: 6px; }
+.ia-sw { width: 34px; height: 20px; border-radius: 10px; background: var(--card2); position: relative; flex: none; box-shadow: inset 0 0 0 1px var(--sep); }
+.ia-sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #F2F2F4; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: left .15s; }
+.ia-sw.on { background: var(--ok); box-shadow: none; }
+.ia-sw.on::after { left: 16px; }
+#inapp .pg-b > p, #inapp .sec p { margin: 0; }
+#inapp .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#inapp .pg-h h2 .ia-pill { font-size: 11.5px; letter-spacing: 0; }

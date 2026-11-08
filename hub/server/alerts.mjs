@@ -423,6 +423,14 @@ async function deliverDesktop(alert) {
   try { save(); } catch (e) { console.error('desktop: could not save the status:', e.message); }
 }
 
+// Alerts' Send a test for Mac notifications: one notification, by the same
+// path a real one takes, and its result as the status shows it.
+export async function testDesktop() {
+  await deliverDesktop({ kind: 'test', projectId: null, title: 'Ravenry', body: 'A test: Mac notifications reach you.', workspaceId: null, surfaceId: null });
+  const l = load().desktop.last;
+  return l && l.ok ? { ok: true, via: l.via } : fail(502, (l && l.error) || 'It was not shown.');
+}
+
 // Called with each tick's projects. Returns the phone alerts it started,
 // with the Mac notifications it started as `.desktop` (tests).
 export function observe(projects, opts = {}) {

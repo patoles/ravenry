@@ -51,7 +51,10 @@ export interface PagesHost {
   pickProject(id: string): boolean;
   /** The project of the session the person last had open, for Ask Claude to fix. */
   lastProject(): string | null;
-  openBoard(hash: string): void;
+  /** A plan, as Ravenry shows it (inapp.ts): by its project and title. */
+  openPlan(project: string, title: string | null): void;
+  /** An idea's thread (inapp.ts). */
+  openIdea(id: string): void;
   openPath(p: string): void;
   openExternal(url: string): void;
   copy(text: string): void;
@@ -482,10 +485,10 @@ export class Pages {
   openItem(v: PageView, item: Item, sec: [number, number] | null): void {
     const s = sec && v.model ? v.model.tabs[sec[0]].sections[sec[1]] : null;
     const detail = s && s.kind === 'core' ? s.item.detail : null;
-    if (detail === 'ravenry:plan') { this.host.openBoard(`#/plan/${encodeURIComponent(String(item.project || ''))}`); return; }
+    if (detail === 'ravenry:plan') { this.openPlan(item); return; }
     if (detail === 'ravenry:session-sheet') { if (!this.host.pickProject(String(item.id))) this.say(v.key, `No project called ${String(item.id)}.`, true); return; }
-    // Today's thread and mockup rounds are the board's Ideas page, with the idea open.
-    if (detail === 'ravenry:idea-thread') { this.host.openBoard(`?idea=${encodeURIComponent(String((item.$ravenry as { id?: string } | undefined)?.id || item.id || ''))}#/ideas`); return; }
+    // An idea's thread, its reply box and its next steps (inapp.ts).
+    if (detail === 'ravenry:idea-thread') { this.host.openIdea(String((item.$ravenry as { id?: string } | undefined)?.id || item.id || '')); return; }
     if (sec) { this.modal = { kind: 'item', item, section: sec }; this.render(); }
   }
 
@@ -852,7 +855,12 @@ export class Pages {
         h('div.pc-a', this.itemButtons(v, spec, it, sec)))))), this.sectionActions(v, s, sec));
   }
 
-  private openPlan(it: Item): void { this.host.openBoard(`#/plan/${encodeURIComponent(String(it.id))}`); }
+  private openPlan(it: Item): void {
+    // A plans item is "<project>/<title>" with both as fields; a projects item is the project.
+    const project = String(it.project || String(it.id || '').split('/')[0] || '');
+    const title = it.title != null && it.project ? valueText(it.title) : null;
+    this.host.openPlan(project, title);
+  }
 
   private board(v: PageView, s: Section & { kind: 'core' }, items: Item[], sec: [number, number]): HTMLElement {
     const spec = s.item;
