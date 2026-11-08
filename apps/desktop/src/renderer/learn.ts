@@ -7,7 +7,7 @@
 // "Try it" opens a session in the last folder used with a message ready in
 // its input: nothing is sent until the person sends it.
 
-import { h, replace, svg } from './dom.ts';
+import { h, redraw, svg } from './dom.ts';
 
 export type LearnKey = 'panes' | 'needs' | 'phone' | 'pick' | 'review' | 'film' | 'decisions';
 
@@ -59,7 +59,7 @@ function still(key: LearnKey): HTMLElement {
 
 export function renderLearn(el: HTMLElement, host: LearnHost, lit: LearnKey | null): void {
   const used = host.used();
-  replace(el,
+  redraw(el,
     h('div.ln-strip', h('div.ln-tab', svg(QMARK), h('span', 'Learn Ravenry'), h('button.x', { title: 'Close', 'aria-label': 'Close Learn Ravenry', on: { click: () => host.close() } }, svg(CLOSE)))),
     h('div.pg-b.ln-b',
       h('div.ln-h', h('h2', 'Learn Ravenry'), h('p', 'Short looks at what Ravenry adds to a session. “Try it” opens a session with a message ready for you to send; nothing runs until you do.')),

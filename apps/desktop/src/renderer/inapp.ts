@@ -10,7 +10,7 @@
 // that waits on something shows. What the person types is kept across the
 // window's redraws.
 
-import { h, replace, svg } from './dom.ts';
+import { h, redraw, svg } from './dom.ts';
 import * as I from './icons.ts';
 import type { HubProject, HubState } from './model.ts';
 
@@ -74,8 +74,8 @@ export class InApp {
   private timer: number | undefined;
   private shown = '';
   /** One picture large: fitted to the page, or at its own size (a click on it). */
-  private full = false;
-  private zoomW = 0;
+  /** One picture large: null fits it to the page, else its width in pixels (a click, a pinch). */
+  private zoomW: number | null = null;
   constructor(el: HTMLElement, host: InAppHost) {
     this.el = el; this.host = host;
     // Escape closes what is open in the page: a channel's setup, a picture at its own size.
@@ -83,14 +83,14 @@ export class InApp {
       if (e.key !== 'Escape' || el.hidden) return;
       const v = this.host.onScreen();
       if (!v) return;
-      if (this.open) { this.open = null; this.draw(v); } else if (this.full) { this.full = false; this.draw(v); }
+      if (this.open) { this.open = null; this.draw(v); } else if (this.zoomW) { this.zoomW = null; this.draw(v); }
     });
   }
 
   /** Draws the page for v, and reads what it waits on. */
   show(v: InView): void {
     const key = JSON.stringify({ ...v, back: null });
-    if (key !== this.shown) { this.shown = key; this.busy = ''; this.open = null; this.full = false; void this.load(v); }
+    if (key !== this.shown) { this.shown = key; this.busy = ''; this.open = null; this.zoomW = null; void this.load(v); }
     clearInterval(this.timer);
     if (v.kind === 'newplan' || v.kind === 'idea' || v.kind === 'alerts') this.timer = window.setInterval(() => { const now = this.host.onScreen(); if (!now || JSON.stringify({ ...now, back: null }) !== this.shown) { clearInterval(this.timer); return; } void this.load(now); }, 2000);
     this.draw(v);
@@ -121,19 +121,65 @@ export class InApp {
   // ------------------------------------------------------------ drawing
 
   private draw(v: InView): void {
-    // Keep the field the person types in, and where in it.
-    const f = document.activeElement as HTMLInputElement | null;
-    const focus = f && this.el.contains(f) && f.id ? { id: f.id, a: f.selectionStart, b: f.selectionEnd } : null;
-    const top = (this.el.querySelector('.pg-b') as HTMLElement | null)?.scrollTop || 0;
+    // Drawn again only when what it shows changed: a scroll, a zoom, the
+    // field with the keyboard and what is typed in it stay (dom.ts redraw).
     const parts = v.kind === 'gallery' ? (v.at != null ? this.viewer(v) : this.gallery(v))
       : v.kind === 'plan' ? this.plan(v)
         : v.kind === 'newplan' ? this.newPlan(v)
           : v.kind === 'idea' ? this.idea(v)
             : this.alertsPage(v);
-    replace(this.el, ...parts);
-    const b = this.el.querySelector('.pg-b') as HTMLElement | null;
-    if (b && top) b.scrollTop = top;
-    if (focus) { const e = document.getElementById(focus.id) as HTMLInputElement | null; if (e) { e.focus(); try { e.setSelectionRange(focus.a, focus.b); } catch { /* not a text field */ } } }
+    redraw(this.el, ...parts);
+  }
+
+  /**
+   * One picture large: fitted to the page, or zoomed. A click zooms in (to
+   * its own size when that is bigger than the page, else twice as big)
+   * around the point clicked, and out again; a trackpad pinch (a wheel with
+   * Ctrl, or Safari's gesture events) zooms around the pointer; two fingers
+   * pan while zoomed. Zoom and scroll stay through the window's redraws.
+   */
+  private bigPicture(x: Pic): HTMLElement {
+    const img = h('img', { src: this.host.hubUrl() + x.url, alt: x.name, role: 'button', title: this.zoomW ? 'Fit it to the page' : 'Zoom in', 'aria-pressed': this.zoomW ? 'true' : 'false', draggable: 'false', style: this.zoomW ? { width: `${this.zoomW}px` } : undefined }) as HTMLImageElement;
+    const frame = h(`div.ia-big${this.zoomW ? '.full' : ''}`, img);
+    const fitW = () => { const f = frame.getBoundingClientRect(); return Math.max(1, Math.min(f.width, img.naturalWidth * (f.height / Math.max(1, img.naturalHeight)), img.naturalWidth)); };
+    const zoomTo = (w: number | null, cx: number, cy: number) => {
+      const live = this.el.querySelector('.ia-big') as HTMLElement | null;
+      const im = live ? live.querySelector('img') as HTMLImageElement : null;
+      if (!live || !im) return;
+      const r = live.getBoundingClientRect();
+      const before = im.getBoundingClientRect();
+      // The picture's point under the pointer, as a share of its size.
+      const fx = (cx - before.left) / Math.max(1, before.width);
+      const fy = (cy - before.top) / Math.max(1, before.height);
+      const fit = Math.min(r.width, im.naturalWidth * (r.height / Math.max(1, im.naturalHeight)), im.naturalWidth);
+      this.zoomW = w && w > fit * 1.02 ? Math.round(Math.min(w, Math.max(im.naturalWidth, fit) * 6)) : null;
+      live.classList.toggle('full', !!this.zoomW);
+      im.style.width = this.zoomW ? `${this.zoomW}px` : '';
+      if (!im.getAttribute('style')) im.removeAttribute('style');
+      im.setAttribute('aria-pressed', this.zoomW ? 'true' : 'false');
+      im.title = this.zoomW ? 'Fit it to the page' : 'Zoom in';
+      if (!this.zoomW) return;
+      const after = im.getBoundingClientRect();
+      live.scrollLeft += (after.left + fx * after.width) - cx;
+      live.scrollTop += (after.top + fy * after.height) - cy;
+    };
+    img.addEventListener('click', (e) => {
+      const me = e as MouseEvent;
+      if (this.zoomW) { zoomTo(null, me.clientX, me.clientY); return; }
+      const fw = fitW();
+      zoomTo(img.naturalWidth > fw * 1.2 ? img.naturalWidth : fw * 2, me.clientX, me.clientY);
+    });
+    frame.addEventListener('wheel', (e) => {
+      const we = e as WheelEvent;
+      if (!we.ctrlKey) return; // two fingers: the frame pans by itself while zoomed
+      we.preventDefault();
+      const cur = this.zoomW || fitW();
+      zoomTo(cur * Math.exp(-we.deltaY * 0.01), we.clientX, we.clientY);
+    }, { passive: false });
+    let g0 = 0;
+    frame.addEventListener('gesturestart', (e) => { e.preventDefault(); g0 = this.zoomW || fitW(); });
+    frame.addEventListener('gesturechange', (e) => { e.preventDefault(); const ge = e as unknown as { scale: number; clientX: number; clientY: number }; zoomTo(g0 * ge.scale, ge.clientX, ge.clientY); });
+    return frame;
   }
 
   private head(v: InView, title: (Node | string | null)[], src: string | null, extra: (HTMLElement | null)[] = [], backTo: { label: string; run: () => void } | null = null): HTMLElement {
@@ -206,10 +252,7 @@ export class InApp {
     const to = (k: number) => this.host.go({ ...v, at: k });
     return [this.head(v, [], `${i + 1} of ${pics.length}`, [], { label: 'Gallery', run: () => this.host.go({ ...v, at: null, lit: i }) }),
       h('div.pg-b.ia-view',
-        h(`div.ia-big${this.full ? '.full' : ''}`, h('img', { src: this.host.hubUrl() + x.url, alt: x.name, role: 'button', title: this.full ? 'Fit it to the page' : 'Zoom in', 'aria-pressed': this.full ? 'true' : 'false',
-          // Zoomed: at its own size when that is bigger than the page, else twice as big; the page scrolls.
-          style: this.full && this.zoomW ? { width: `${this.zoomW}px` } : undefined,
-          on: { click: (e: Event) => { const img = e.currentTarget as HTMLImageElement; const frame = img.parentElement as HTMLElement; this.zoomW = img.naturalWidth > frame.clientWidth ? img.naturalWidth : Math.round(Math.max(img.naturalWidth, img.clientWidth) * 2); this.full = !this.full; this.draw(v); } } })),
+        this.bigPicture(x),
         h('div.ia-vbar',
           h('span.ti', x.name), x.at || x.by ? h('span.t3.small', (x.by === 'the brief' ? 'From the brief' : when(x.at))) : null, h('span.sp'),
           h('button.btn', { disabled: i === 0, on: { click: () => to(i - 1) } }, 'Previous'),

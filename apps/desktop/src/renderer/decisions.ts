@@ -6,7 +6,7 @@
 // Show. The ledger is the hub's (hub/docs/DECISIONS.md); the window reads
 // it every few seconds (its own reads are not counted).
 
-import { h, replace, svg } from './dom.ts';
+import { h, redraw, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import type { HubState } from './model.ts';
 
@@ -144,7 +144,7 @@ export class Decisions {
       [...projects].map(([id, name]) => h('option', { value: id, selected: this.project === id }, name)));
     this.listEl = h('div.dec-list', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
     this.fill(days, byId, now);
-    replace(this.el,
+    redraw(this.el,
       h('div.pg-h', h('div.tt', h('h2', 'Decisions'), h('div.pg-src', 'What you decided, in your words. Agents read this before they ask you.'))),
       h('div.pg-b',
         h('div.dec-tools',
@@ -154,6 +154,8 @@ export class Decisions {
           h('span.sp'),
           h('span.t3.small.num', `${this.list.length} decision${this.list.length === 1 ? '' : 's'}${replaced ? `, ${replaced} replaced` : ''}`)),
         this.listEl));
+    // Drawn again only when it changed: the list the search fills is the one on the page.
+    this.listEl = (this.el.querySelector('.dec-list') as HTMLElement | null) || this.listEl;
     if (this.lit) {
       const target = this.el.querySelector(`[data-dec="${this.lit}"]`);
       if (target) target.scrollIntoView({ block: 'nearest' });

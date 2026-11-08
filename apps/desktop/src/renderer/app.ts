@@ -28,7 +28,7 @@ import type { CardCtx, Reply } from './cards.ts';
 import { Checkpoints, daemonAnswer, driveVerb, hubAnswer, isOpen, markOf, timeOf } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 import { Daemons } from './daemons.ts';
-import { h, heldIn, replace, svg } from './dom.ts';
+import { h, heldIn, redraw, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
   ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
@@ -2588,10 +2588,10 @@ async function moveLast(p: HubProject, last: LastConversation): Promise<void> {
  */
 function renderProject(id: string): void {
   const p = (S.hub?.projects || []).find((x) => x.id === id);
-  if (!p) { replace($('none'), h('div.none-card', h('p', 'That project is no longer on the board.'))); return; }
+  if (!p) { redraw($('none'), h('div.none-card', h('p', 'That project is no longer on the board.'))); return; }
   const s = p.sessions.find((x) => !x.handed);
   if (s) {
-    replace($('none'), h('div.none-card.project', { 'data-project': p.id }, h('p', h('b', p.name)), p.folderShort ? h('p.t3', p.folderShort) : null, projectFacts(p)[0], h('p', 'A session runs in it.'),
+    redraw($('none'), h('div.none-card.project', { 'data-project': p.id }, h('p', h('b', p.name)), p.folderShort ? h('p.t3', p.folderShort) : null, projectFacts(p)[0], h('p', 'A session runs in it.'),
       h('div.row', h('button.btn.pri', { on: { click: () => pickSession(`${p.id}/${s.surfaceId}`, 'project page') } }, 'Show the session'))));
     return;
   }
@@ -2601,11 +2601,11 @@ function renderProject(id: string): void {
   const newHere = p.folder && !p.machine ? () => openStart(p.folder!) : null;
   const last = c ? c.last : null;
   if (!c || (c.asking && !last)) {
-    replace($('none'), h('div.pa', { 'data-project': p.id }, h('div.pa-in', h('div.pa-head', h('h2.pa-name', p.name), p.folderShort ? h('span.t3', p.folderShort) : null, projectFacts(p)[0]), h('p.t3', 'Looking for its last conversation...'))));
+    redraw($('none'), h('div.pa', { 'data-project': p.id }, h('div.pa-in', h('div.pa-head', h('h2.pa-name', p.name), p.folderShort ? h('span.t3', p.folderShort) : null, projectFacts(p)[0]), h('p.t3', 'Looking for its last conversation...'))));
     return;
   }
   if (!last) {
-    replace($('none'), h('div.none-card.project', { 'data-project': p.id },
+    redraw($('none'), h('div.none-card.project', { 'data-project': p.id },
       h('p', h('b', p.name)), p.folderShort ? h('p.t3', p.folderShort) : null, projectFacts(p)[0],
       h('p', 'No earlier conversation found in this folder.'),
       h('div.row', newHere ? h('button.btn.pri', { on: { click: newHere } }, 'New session here') : null,
@@ -2615,7 +2615,7 @@ function renderProject(id: string): void {
   const who = assistantName(last.assistant) || 'Claude';
   const outside = last.openIn && !last.openIn.ravenry ? last.openIn.name || 'another terminal' : null;
   const inRavenry = last.openIn && last.openIn.ravenry ? last.openIn.pane || null : null;
-  replace($('none'), h('div.pa', { 'data-project': p.id }, h('div.pa-in',
+  redraw($('none'), h('div.pa', { 'data-project': p.id }, h('div.pa-in',
     h('div.pa-head', h('h2.pa-name', p.name), p.folderShort ? h('span.t3', p.folderShort) : null, projectFacts(p)[0]),
     h('div.conv', { 'data-last': last.sessionId },
       h('div.conv-h', h('span.ti', last.title), h('span.as-tag', who), h('span.sp'), h('span.when.small', `Stopped ${stoppedWhen(last.stoppedAt)}`)),
@@ -2794,7 +2794,8 @@ function setupLineEls(sl: { hooks: boolean; skill: boolean }): HTMLElement[] {
   const line = (on: boolean, yes: string, no: string, what: string) => on
     ? h('div.chk', { 'data-setup': what }, h('i', svg(I.CHECK)), yes)
     : h('div.chk.off', { 'data-setup': what }, h('i'), no, ' ', h('button.lk', { on: { click: () => api().settings.open('skills') } }, 'Settings'));
-  return [line(sl.hooks, 'Tells Ravenry when it needs you', 'Does not tell Ravenry when it needs you.', 'hooks'),
+  // Its hooks, as asked for on 2026-11-08: "Alerts turned on", or "Alerts turned off" with Settings.
+  return [line(sl.hooks, 'Alerts turned on', 'Alerts turned off', 'hooks'),
     line(sl.skill, 'Has the Ravenry skill', 'Has no Ravenry skill.', 'skill')];
 }
 

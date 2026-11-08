@@ -83,3 +83,32 @@ export function replace(el: Element, ...children: Child[]): void {
   el.textContent = '';
   append(el, children);
 }
+
+/**
+ * replace(), for a page the window draws again at each state from the hub
+ * (about once a second): when the drawing is the same as what shows,
+ * nothing is touched, so a scroll, a zoom, a selection, the field with the
+ * keyboard and what is typed in it all stay; when it differs, what shows is
+ * replaced and each scrolled part is put back where it was (by its place in
+ * the page), with the focus and the selection of the field that had them.
+ */
+export function redraw(el: Element, ...children: Child[]): boolean {
+  const next = document.createElement('div');
+  append(next, children);
+  if (next.innerHTML === el.innerHTML) return false;
+  const pathOf = (n: Element): string => { const p: number[] = []; let x: Element | null = n; while (x && x !== el) { const par: Element | null = x.parentElement; if (!par) break; p.unshift(Array.prototype.indexOf.call(par.children, x)); x = par; } return p.join('.'); };
+  const scrolled: [string, number, number][] = [];
+  for (const s of el.querySelectorAll('*')) if (s.scrollTop || s.scrollLeft) scrolled.push([pathOf(s), s.scrollTop, s.scrollLeft]);
+  const a = document.activeElement as HTMLInputElement | null;
+  const focus = a && el.contains(a) ? { path: pathOf(a), id: a.id, s: a.selectionStart, e: a.selectionEnd } : null;
+  const first = next.firstChild;
+  replace(el, ...Array.from(next.childNodes));
+  if (first && el.firstChild !== first) return true; // put off while a press is held
+  const at = (p: string): Element | null => { let x: Element | null = el; for (const i of p ? p.split('.').map(Number) : []) { x = x ? x.children[i] || null : null; } return x; };
+  for (const [p, t, l] of scrolled) { const s = at(p); if (s) { s.scrollTop = t; s.scrollLeft = l; } }
+  if (focus) {
+    const f = (focus.id && document.getElementById(focus.id)) || at(focus.path);
+    if (f && el.contains(f)) { (f as HTMLElement).focus(); try { (f as HTMLInputElement).setSelectionRange(focus.s, focus.e); } catch { /* not a text field */ } }
+  }
+  return true;
+}
