@@ -4,6 +4,7 @@
 // starts with a fresh snapshot of its screen and scrollback.
 
 import { Terminal } from '@xterm/xterm';
+import type { ILink, ILinkProvider } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -76,6 +77,12 @@ export class TerminalView {
   private ts: TerminalSettings | null = null;
   /** The link under the pointer (for the right-click menu). */
   private hoverLink: string | null = null;
+  /** The link under the pointer as xterm.js has it (its decorations change live), and the tip that says how to open it. */
+  private hovered: ILink | null = null;
+  private tip: HTMLElement;
+  /** Cmd (Ctrl off the Mac) is held: links show as links, underlined, with a pointer. */
+  private modHeld = false;
+  private lastPointer: MouseEvent | null = null;
   private webgl: WebglAddon | null = null;
   private stream: PaneStream | null = null;
   private current: Attached | null = null;
@@ -164,6 +171,21 @@ export class TerminalView {
     suppressTerminalQueries(this.term.parser);
     this.term.open(el);
     this.useWebgl();
+    // Links are found out: hovering one says how it opens, holding Cmd
+    // underlines it with a pointer (a plain click selects, as in iTerm2),
+    // and a setting opens them on a plain click.
+    this.tip = document.createElement('div');
+    this.tip.className = 'link-tip';
+    this.tip.hidden = true;
+    el.appendChild(this.tip);
+    this.decorateLinks();
+    const mod = (e: KeyboardEvent | MouseEvent) => this.setModHeld(this.mac ? e.metaKey : e.ctrlKey);
+    window.addEventListener('keydown', mod, true);
+    window.addEventListener('keyup', mod, true);
+    // In the capture phase, so the key's state is known before xterm.js
+    // finds the link under the pointer.
+    el.addEventListener('mousemove', (e) => { this.lastPointer = e; mod(e); }, true);
+    window.addEventListener('blur', () => this.setModHeld(false));
     // xterm.js sends the keys itself, macOS's Option+arrows and
     // Option+Backspace included; the app's shortcuts go on to the menu
     // (isAppKey), except the few Cmd keys of macOS's terminals xterm.js
@@ -259,8 +281,61 @@ export class TerminalView {
   }
 
   private link(e: MouseEvent, uri: string): void {
-    if (!(this.mac ? e.metaKey : e.ctrlKey) || !openableLink(uri)) return;
+    if (!(this.ts?.openLinksSingleClick || (this.mac ? e.metaKey : e.ctrlKey)) || !openableLink(uri)) return;
     this.onOpenLink(uri);
+  }
+
+  /** Links look like links (underline, pointer) only when a click would open them. */
+  private linkLive(): boolean { return !!this.ts?.openLinksSingleClick || this.modHeld; }
+
+  /**
+   * Every link xterm.js finds (the OSC 8 ones a program names, and plain
+   * URLs in the text) gets its decorations from linkLive, and a tip while
+   * the pointer is on it. xterm.js keeps its link providers in one list
+   * (its own OSC 8 one among them); each is wrapped where it stands.
+   */
+  private decorateLinks(): void {
+    const svc = (this.term as unknown as { _core?: { _linkProviderService?: { linkProviders?: ILinkProvider[] } } })._core?._linkProviderService;
+    const list = svc?.linkProviders;
+    if (!Array.isArray(list)) return;
+    list.forEach((p, i) => {
+      list[i] = { provideLinks: (y, cb) => p.provideLinks(y, (links) => cb(links ? links.map((l) => this.decorate(l)) : links)) };
+    });
+  }
+
+  private decorate(l: ILink): ILink {
+    const live = this.linkLive();
+    l.decorations = { underline: live, pointerCursor: live };
+    const hover = l.hover, leave = l.leave;
+    l.hover = (e, text) => { this.hovered = l; this.showTip(e, l.text); hover?.call(l, e, text); };
+    l.leave = (e, text) => { if (this.hovered === l) { this.hovered = null; this.tip.hidden = true; } leave?.call(l, e, text); };
+    return l;
+  }
+
+  private showTip(e: MouseEvent, uri: string): void {
+    if (this.linkLive() || !openableLink(uri)) { this.tip.hidden = true; return; }
+    this.tip.textContent = `${this.mac ? 'Cmd' : 'Ctrl'}+click to open`;
+    const r = this.el.getBoundingClientRect();
+    this.tip.style.left = `${Math.max(0, Math.min(e.clientX - r.left + 10, r.width - 150))}px`;
+    this.tip.style.top = `${Math.max(0, e.clientY - r.top + 18)}px`;
+    this.tip.hidden = false;
+  }
+
+  private setModHeld(on: boolean): void {
+    if (on === this.modHeld) return;
+    this.modHeld = on;
+    const l = this.hovered;
+    if (!l) return;
+    const live = this.linkLive();
+    if (l.decorations) { l.decorations.underline = live; l.decorations.pointerCursor = live; }
+    if (live) this.tip.hidden = true;
+    else if (this.lastPointer) this.showTip(this.lastPointer, l.text);
+  }
+
+  /** For tests: the link under the pointer, how it shows, and the tip. */
+  get linkState(): { text: string | null; underline: boolean; pointer: boolean; tip: string | null } {
+    const l = this.hovered;
+    return { text: l ? l.text : null, underline: !!l?.decorations?.underline, pointer: !!l?.decorations?.pointerCursor, tip: this.tip.hidden ? null : this.tip.textContent };
   }
 
   /** The text size: n, or a step up (+1) or down (-1) from now, or the base (0). */

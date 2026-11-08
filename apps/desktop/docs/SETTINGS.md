@@ -35,6 +35,7 @@ changes. Imported themes are `<userData>/themes/<slug>.json`.
   "cursorBlink": false,
   "optionAsMeta": "off",
   "copyOnSelect": false,
+  "openLinksSingleClick": false,
   "scrollback": 10000,
   "bell": "visual",
   "bellBounceDock": true,
@@ -52,6 +53,7 @@ changes. Imported themes are `<userData>/themes/<slug>.json`.
 | `cursorBlink` | boolean | false | |
 | `optionAsMeta` | `off`, `left`, `right`, `both` | `off` | Which Option key sends Esc+key. Off is today's behaviour (README, Keys). |
 | `copyOnSelect` | boolean | false | Copy the selection as soon as it is made. |
+| `openLinksSingleClick` | boolean | false | A link in a terminal opens on a plain click. Off: Cmd+click (Ctrl+click off the Mac) opens it; hovering one says so, and holding Cmd underlines it with a pointer. |
 | `scrollback` | whole number, 100 to 100,000 | 10000 | Lines. |
 | `bell` | `visual`, `sound`, `off` | `visual` | |
 | `bellBounceDock` | boolean | true | Bounce the Dock icon on a bell while Ravenry is not the front app (macOS). Nothing when `bell` is off. |
@@ -111,6 +113,7 @@ interface TerminalSettings {
   };
   optionAsMeta: 'off' | 'left' | 'right' | 'both';
   copyOnSelect: boolean;
+  openLinksSingleClick: boolean;
   bell: 'visual' | 'sound' | 'off';
   bellBounceDock: boolean;
   confirmCloseBusy: boolean;

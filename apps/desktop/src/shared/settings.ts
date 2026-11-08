@@ -27,6 +27,8 @@ export interface Settings {
   /** Which Option key sends Esc+key (xterm.js's macOptionIsMeta, per key). */
   optionAsMeta: OptionAsMeta;
   copyOnSelect: boolean;
+  /** A link in a terminal opens on a plain click, not only Cmd+click (Ctrl+click off the Mac). */
+  openLinksSingleClick: boolean;
   /** Lines of scrollback. */
   scrollback: number;
   bell: Bell;
@@ -58,6 +60,8 @@ export const DEFAULTS: Settings = {
   // characters ({ } | ~ [ ] on a French keyboard).
   optionAsMeta: 'off',
   copyOnSelect: false,
+  // Cmd+click, the Mac's way; a plain click selects text, as in iTerm2.
+  openLinksSingleClick: false,
   scrollback: 10000,
   bell: 'visual',
   bellBounceDock: true,
@@ -83,6 +87,7 @@ const FIELDS: { [K in keyof SettingsPatch]-?: { ok: (v: unknown) => boolean; wan
   cursorBlink: { ok: isBool, want: 'true or false' },
   optionAsMeta: { ok: oneOf('off', 'left', 'right', 'both'), want: 'off, left, right or both' },
   copyOnSelect: { ok: isBool, want: 'true or false' },
+  openLinksSingleClick: { ok: isBool, want: 'true or false' },
   scrollback: { ok: intIn(SCROLLBACK), want: `a whole number from ${SCROLLBACK.min} to ${SCROLLBACK.max}` },
   bell: { ok: oneOf('visual', 'sound', 'off'), want: 'visual, sound or off' },
   bellBounceDock: { ok: isBool, want: 'true or false' },
@@ -194,6 +199,7 @@ export interface TerminalSettings {
   };
   optionAsMeta: OptionAsMeta;
   copyOnSelect: boolean;
+  openLinksSingleClick: boolean;
   bell: Bell;
   bellBounceDock: boolean;
   confirmCloseBusy: boolean;
@@ -229,6 +235,7 @@ export function terminalSettings(s: Settings, themes: readonly ThemeInfo[], appe
     },
     optionAsMeta: s.optionAsMeta,
     copyOnSelect: s.copyOnSelect,
+    openLinksSingleClick: s.openLinksSingleClick,
     bell: s.bell,
     bellBounceDock: s.bellBounceDock,
     confirmCloseBusy: s.confirmCloseBusy,

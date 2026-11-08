@@ -194,6 +194,8 @@ function behaviorPane(): Node[] {
   }
   out.push(
     row('Copy on select', ctl(checkbox('Copy text as soon as it is selected', s.copyOnSelect, (on) => void set({ copyOnSelect: on })))),
+    row('Links', ctl(checkbox('Open links with a single click', s.openLinksSingleClick, (on) => void set({ openLinksSingleClick: on }))),
+      { hint: s.openLinksSingleClick ? 'A click on a link opens it.' : `${mac() ? 'Cmd' : 'Ctrl'}+click opens a link; a plain click selects, as in other terminals.` }),
     h('div.sec', null, 'Terminal'),
     row('Scrollback', ctl(scrollbackInput(), h('span', null, 'lines')), { hint: 'Kept by Ravenry\u2019s daemon, so it survives a tab switch and a relaunch.' }),
     row('Bell', ctl(
