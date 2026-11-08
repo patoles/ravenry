@@ -37,6 +37,19 @@ const SIZE_EVERY = 50;
 /** DEC mode 2026, synchronized output: xterm.js draws nothing between the two. */
 const SYNC_ON = '\x1b[?2026h';
 const SYNC_OFF = '\x1b[?2026l';
+/** A program's redraw after a clear: shown once its output pauses this long (ms), or after REDRAW_MAX. */
+const REDRAW_QUIET = 12;
+const REDRAW_MAX = 100;
+/** ED 2 (ESC [ 2 J): the whole screen erased. */
+function hasClear(b: Uint8Array): boolean {
+  for (let i = 0; i + 3 < b.length; i++) if (b[i] === 0x1b && b[i + 1] === 0x5b && b[i + 2] === 0x32 && b[i + 3] === 0x4a) return true;
+  return false;
+}
+/** ESC [ ? 2026 (the program's own synchronized output). */
+function hasSyncMode(b: Uint8Array): boolean {
+  for (let i = 0; i + 6 < b.length; i++) if (b[i] === 0x1b && b[i + 1] === 0x5b && b[i + 2] === 0x3f && b[i + 3] === 0x32 && b[i + 4] === 0x30 && b[i + 5] === 0x32 && b[i + 6] === 0x36) return true;
+  return false;
+}
 
 export interface Attached { client: RavenryClient; pane: string }
 
@@ -430,8 +443,8 @@ export class TerminalView {
         // The first frame: the screen before goes, and the new one is drawn
         // whole (synchronized output: nothing shows until it is all written).
         const first = this.resetPending;
-        if (first) { this.resetPending = false; this.term.reset(); this.term.write(SYNC_ON); }
-        this.term.write(d, () => {
+        if (first) { this.dropHeld(); this.resetPending = false; this.term.reset(); this.term.write(SYNC_ON); }
+        const put = () => this.term.write(d, () => {
           if (first && gen === this.gen) { this.term.write(SYNC_OFF, () => { if (gen === this.gen) this.drawnYes = true; this.drawnDone(); }); }
           info.ack();
           if (gen !== this.gen) return;
@@ -451,6 +464,7 @@ export class TerminalView {
           }
           this.onWritten(a, end, info.snapshot);
         });
+        if (first || !this.holdRedraw(d, put)) put();
       },
       end: () => { if (gen === this.gen) this.onEnded(a); },
     });
@@ -460,6 +474,40 @@ export class TerminalView {
     this.queueResize();
     if (focus) this.focus();
   }
+
+  /**
+   * A program that clears its screen and draws it again (Claude Code at
+   * each size, a full-screen program) writes more than one read of its
+   * terminal: drawn as it came, a frame showed the screen half drawn. From
+   * a clear (ED 2) until its output pauses (REDRAW_QUIET ms, at most
+   * REDRAW_MAX), its frames are kept back and then written in one go: the
+   * screen before stays (and is drawn again at a resize), then the new one
+   * shows whole. A program that brackets its own updates (mode 2026) is
+   * left to do so.
+   */
+  private redrawHeld = 0;
+  private redrawTimer: ReturnType<typeof setTimeout> | undefined;
+  private heldWrites: (() => void)[] = [];
+  /** Keeps this frame back (true) while a redraw is held, or when it starts one. */
+  private holdRedraw(d: Uint8Array | ArrayBuffer, put: () => void): boolean {
+    const b = d instanceof Uint8Array ? d : new Uint8Array(d);
+    if (!this.redrawHeld) {
+      if (!hasClear(b) || hasSyncMode(b)) return false;
+      this.redrawHeld = Date.now();
+    }
+    this.heldWrites.push(put);
+    clearTimeout(this.redrawTimer);
+    const left = this.redrawHeld + REDRAW_MAX - Date.now();
+    this.redrawTimer = setTimeout(() => this.flushHeld(), Math.max(0, Math.min(REDRAW_QUIET, left)));
+    return true;
+  }
+  /** The held frames, written in one go: xterm.js parses them before it draws again. */
+  private flushHeld(): void {
+    clearTimeout(this.redrawTimer);
+    this.redrawHeld = 0;
+    for (const put of this.heldWrites.splice(0)) put();
+  }
+  private dropHeld(): void { clearTimeout(this.redrawTimer); this.redrawHeld = 0; this.heldWrites = []; }
 
   /** Resolves once the pane on screen has its screen written (or right away with none being attached). */
   get drawn(): Promise<void> { return this.drawnNow; }
@@ -474,6 +522,7 @@ export class TerminalView {
   hide(): void {
     this.keepScroll();
     this.resetPending = false;
+    this.dropHeld();
     this.drawnYes = false;
     this.drawnDone();
     this.gen++;

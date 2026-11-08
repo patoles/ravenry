@@ -1003,11 +1003,11 @@ function renderSidebar(): void {
         const fk = frontKey();
         const psel = fk === pk || (!!fk && fk.startsWith(`${pr.project.id}/`) && !pr.rows.some((r) => r.key === fk));
         if (g.group === 'idle') {
-          return h(`button.idl${psel ? '.sel' : ''}`, { 'data-key': pk, on: rowPress(() => pickProject(pr.project)) },
+          return h(`button.idl${psel ? '.sel' : ''}`, { 'data-key': pk, on: rowPress(() => pickProject((S.hub?.projects || []).find((x) => x.id === pr.project.id) || pr.project)) },
             h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
         }
         if (!pr.rows.length) {
-          return h(`div.pj.open${psel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': pk, on: rowPress(() => pickProject(pr.project)) },
+          return h(`div.pj.open${psel ? '.sel' : ''}`, { role: 'button', tabindex: '0', 'data-key': pk, on: rowPress(() => pickProject((S.hub?.projects || []).find((x) => x.id === pr.project.id) || pr.project)) },
             h('span.n', pr.project.name), machineTag(pr.machine), h('span.t3.num.when', pr.time));
         }
         return [
@@ -1059,7 +1059,9 @@ function renderSidebar(): void {
   const deniedNote = asking
     ? h('div.access-note', h('b', `macOS is asking whether Ravenry may read ${asking.waitingFor}. Click Allow in the dialog.`), ' ', `Closed it? System Settings > Privacy & Security > Files & Folders > Ravenry, turn on ${asking.folder || asking.waitingFor}.`, h('button.lk.ac-open', { on: { click: () => api().openExternal(PRIVACY_PANE) } }, 'Open Files & Folders'))
     : denied.length ? h('div.access-note', `macOS did not let Ravenry read ${denied.map((d) => d.folder).join(', ')}. Turn it on in System Settings > Privacy & Security > Files & Folders.`) : null;
-  replace($('side'), h('div.side-top'), brand, mix, deniedNote, list, empty ? h('span.fill') : null, nav, foot);
+  // Drawn again only when it changed, and its list keeps where it was
+  // scrolled (it was set back to the top at each state from the board).
+  redraw($('side'), h('div.side-top'), brand, mix, deniedNote, list, empty ? h('span.fill') : null, nav, foot);
 }
 
 /** 19: "Using dev server" for the session that holds a pane, "Waiting for dev server, Claude has it" for one in line. */
