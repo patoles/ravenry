@@ -121,7 +121,7 @@ for (const v of views) {
     // Back: close what opened, Escape, the view under test.
     for (const w of require('electron').BrowserWindow.getAllWindows()) if (w !== win && !w.isDestroyed()) w.close();
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
-    await js("document.querySelectorAll('.pmodal, .ctx-menu').forEach((e) => e.remove()); { const t = document.getElementById('toast'); if (t) t.style.visibility = 'hidden'; } " + R + ".S.panelPref = " + panelPref + "; " + R + ".S.overlay = false; " + R + ".render(); true");
+    await js("document.querySelectorAll('.pmodal').forEach((m) => { const c = [...m.querySelectorAll('button')].find((x) => /^(Cancel|Close)$/.test(x.textContent.trim()) || x.getAttribute('aria-label') === 'Close'); if (c) c.click(); else m.remove(); }); document.querySelectorAll('.ctx-menu').forEach((e) => e.remove()); { const t = document.getElementById('toast'); if (t) t.style.visibility = 'hidden'; } " + R + ".S.panelPref = " + panelPref + "; " + R + ".S.overlay = false; " + R + ".render(); true");
     await sleep(150);
   }
 }
