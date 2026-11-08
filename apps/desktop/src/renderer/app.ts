@@ -971,7 +971,8 @@ function renderSidebar(): void {
   const total = counts.you + counts.work + counts.wait + counts.idle;
 
   const brand = h('div.brand', svg(I.LOGO), 'Ravenry', h('span.sp'),
-    h('button.icon-btn.sm', { title: `New session (${newSessionKey()})`, 'aria-label': 'New session', on: { click: () => openStart() } }, svg(I.PLUS())));
+    // On while Start is in front: it is where the button leads.
+    h(`button.icon-btn.sm${S.view.kind === 'start' ? '.on' : ''}`, { title: `New session (${newSessionKey()})`, 'aria-label': 'New session', 'aria-pressed': S.view.kind === 'start' ? 'true' : 'false', on: { click: () => openStart() } }, svg(I.PLUS())));
 
   let list: HTMLElement;
   if (empty || !groups.length) {
@@ -1417,7 +1418,9 @@ function renderTabs(): void {
     h('button.tab.add', { title: `New shell (${shortcut('T')})`, 'aria-label': 'New shell', on: { click: () => void newShell() } }, svg(I.PLUS(12))),
     h('span.sp'),
     filmable ? h(`button.icon-btn${film.open ? '.on' : ''}`, { title: 'The last 20 seconds of this pane', 'aria-label': 'Filmstrip', on: { click: () => { const pn = paneOnScreen(); if (pn) { if (!film.open) markUsed('film'); void film.toggle(pn); } } } }, svg(I.FILM)) : null,
-    h(`button.icon-btn${panelVisible() ? '.on' : ''}`, { title: panelVisible() ? 'Hide the session panel' : 'Show the session panel', 'aria-label': 'Session panel', on: { click: () => togglePanel() } }, svg(I.PANEL)));
+    // Where no panel can show (Start, the first run, the npm board), no button for it.
+    npmTakesCentre() || firstRun() || S.view.kind === 'start' ? null
+      : h(`button.icon-btn${panelVisible() ? '.on' : ''}`, { title: panelVisible() ? 'Hide the session panel' : 'Show the session panel', 'aria-label': 'Session panel', on: { click: () => togglePanel() } }, svg(I.PANEL)));
   fitTabs(el);
 }
 
