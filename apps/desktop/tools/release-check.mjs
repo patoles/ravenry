@@ -132,6 +132,14 @@
 //                   light (a picture of each); the panel's picture, Gallery
 //                   and Open the plan and the bell lead to them; nothing
 //                   opens outside the window
+//   26 flash        tools/flash-check.mjs on the test twin, every frame
+//                   the window draws: the window resized 1280 -> 900 and
+//                   back and a split's divider dragged at 60 Hz (a pane of
+//                   text, a program that draws itself again at each size)
+//                   with no pane blank or flashed; switches by click (a
+//                   tab, a session, the brief, Decisions, an idle project,
+//                   Alerts, Learn, a page, the gallery, Start, the panel)
+//                   with no half-drawn, blank or flashed frame
 //   15 brief        tools/brief-test.mjs on the test twin, a row each: the
 //                   panel's Brief card (goal on one line, Next as 3 items,
 //                   the older entries counted) and the Brief page (the
@@ -818,7 +826,7 @@ try {
     fs.rmSync(k, { recursive: true, force: true });
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
-  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs'], [24, 'controls', 'controls-sweep.mjs'], [25, 'in-app', 'inapp-shots.mjs']]) {
+  for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs'], [24, 'controls', 'controls-sweep.mjs'], [25, 'in-app', 'inapp-shots.mjs'], [26, 'flash', 'flash-check.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
       const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
       const app = path.join(k, 'Ravenry.app');

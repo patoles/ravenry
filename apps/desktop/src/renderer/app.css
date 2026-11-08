@@ -34,6 +34,8 @@ body {
 }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: default; text-align: left; }
 button:focus-visible, [role=button]:focus-visible { outline: 2px solid var(--work); outline-offset: 1px; }
+/* An app's pictures and links stay where they are: none drags out as a file or a URL. */
+img, a { -webkit-user-drag: none; }
 .num { font-variant-numeric: tabular-nums; }
 .t2 { color: var(--tx2); } .t3 { color: var(--tx3); }
 .small { font-size: 12px; }
@@ -131,6 +133,9 @@ body.first .sl { flex: none; }
 .stage { flex: 1; min-height: 0; position: relative; display: flex; }
 .stage > * { flex: 1; min-width: 0; }
 .stage > [hidden] { display: none; }
+/* The terminals, hidden, stay laid out under the view in front: a pane
+   about to show is sized and drawn before it does (app.ts showPane). */
+.stage > #split[hidden] { display: flex; position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .term-host { padding: 10px 6px 6px 14px; background: var(--tbg, var(--term-bg)); }
 /* padding-right: the gutter beside the last column, where an agent's input
    is marked (marks.ts); FitAddon leaves it out of the columns. */
@@ -315,7 +320,7 @@ body.first .sl { flex: none; }
 .toast[hidden] { display: none; }
 .toast > .ti { display: flex; align-items: center; background: var(--card2); color: var(--tx); padding: 9px 14px; border-radius: 9px; font-size: 12.5px; box-shadow: 0 10px 30px rgba(0,0,0,.35); max-width: 100%; }
 .toast > .ti .tt { min-width: 0; }
-.toast .tx { margin-left: 10px; margin-right: -4px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--tx2); cursor: pointer; flex: none; }
+.toast .tx { margin-left: 10px; margin-right: -4px; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: var(--tx2); cursor: default; flex: none; }
 .toast .tx:hover { background: var(--card); color: var(--tx); }
 .toast .tx svg { width: 10px; height: 10px; }
 

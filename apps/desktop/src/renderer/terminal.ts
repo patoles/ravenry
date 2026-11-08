@@ -32,6 +32,11 @@ export const THEME = {
 };
 
 const enc = new TextEncoder();
+/** The least time between two sizes sent to a pane's program while its terminal is resized. */
+const SIZE_EVERY = 50;
+/** DEC mode 2026, synchronized output: xterm.js draws nothing between the two. */
+const SYNC_ON = '\x1b[?2026h';
+const SYNC_OFF = '\x1b[?2026l';
 
 export interface Attached { client: RavenryClient; pane: string }
 
@@ -243,7 +248,11 @@ export class TerminalView {
     });
     // A right click: the system's own menu (app.ts asks the main process).
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); this.onContextMenu(this.hoverLink); });
-    new ResizeObserver(() => this.queueResize()).observe(el);
+    // Fitted in the same frame as the layout that changed its size (a
+    // ResizeObserver runs after layout, before paint, at most once a frame),
+    // and drawn in that frame too (fitNow), so a resize never shows a pane
+    // blank or a frame late.
+    new ResizeObserver(() => this.resizeNow()).observe(el);
   }
 
   /** The settings' terminal (docs/SETTINGS.md): font, size, cursor, theme, Option as Meta, scrollback (the daemon keeps as many for the pane: app.ts paneScrollback). */
@@ -397,7 +406,13 @@ export class TerminalView {
     this.restoreTo = this.scrolls.get(a.pane) ?? null;
     this.restoreUntil = 0;
     this.snapshotIn = false;
-    this.term.reset();
+    // What it showed stays until the new pane's screen is written, then
+    // goes in the same frame (a pane blank for a moment, then filled, was
+    // a flash at every tab switch).
+    this.resetPending = true;
+    this.drawnYes = false;
+    this.drawnDone();
+    this.drawnNow = new Promise<void>((r) => { this.drawnDone = r; });
     this.onShown(a);
     this.fitNow();
     const { cols, rows } = this.term;
@@ -412,7 +427,12 @@ export class TerminalView {
         // Frames can come before this call returns; a stale stream's are dropped.
         if (gen !== this.gen) { info.ack(); return; }
         const end = info.snapshot ? info.mark : info.mark + d.byteLength;
+        // The first frame: the screen before goes, and the new one is drawn
+        // whole (synchronized output: nothing shows until it is all written).
+        const first = this.resetPending;
+        if (first) { this.resetPending = false; this.term.reset(); this.term.write(SYNC_ON); }
         this.term.write(d, () => {
+          if (first && gen === this.gen) { this.term.write(SYNC_OFF, () => { if (gen === this.gen) this.drawnYes = true; this.drawnDone(); }); }
           info.ack();
           if (gen !== this.gen) return;
           // Back where the view stood when the pane was last on screen. A
@@ -441,9 +461,21 @@ export class TerminalView {
     if (focus) this.focus();
   }
 
+  /** Resolves once the pane on screen has its screen written (or right away with none being attached). */
+  get drawn(): Promise<void> { return this.drawnNow; }
+  /** True once the pane attached has its screen written. */
+  get isDrawn(): boolean { return this.drawnYes; }
+  private drawnYes = false;
+  private drawnNow: Promise<void> = Promise.resolve();
+  private drawnDone: () => void = () => {};
+  private resetPending = false;
+
   /** Shows nothing: unsubscribes, so no xterm.js work runs for any pane. */
   hide(): void {
     this.keepScroll();
+    this.resetPending = false;
+    this.drawnYes = false;
+    this.drawnDone();
     this.gen++;
     this.detachStream();
     this.early = [];
@@ -460,24 +492,60 @@ export class TerminalView {
     if (s && !s.ended) void s.unsubscribe().catch(() => {});
   }
 
+  /**
+   * Fits the terminal to its element. A new size clears xterm.js's WebGL
+   * canvas at once (setting its width does), while xterm.js draws on its
+   * next animation frame: the frame between showed the pane blank, every
+   * other frame of a resize drag. It is drawn again here, in the same task,
+   * so the frame that shows the new size shows the text too.
+   */
   private fitNow(): void {
     if (!this.el.offsetWidth || !this.el.offsetHeight) return;
+    const before = `${this.term.cols}x${this.term.rows}`;
     try { this.fit.fit(); } catch { /* not laid out yet */ }
+    if (`${this.term.cols}x${this.term.rows}` !== before) this.drawNow();
+  }
+
+  /** Draws every row now, in this task (xterm.js's own draw waits for the next frame). */
+  private drawNow(): void {
+    const rs = (this.term as unknown as { _core?: { _renderService?: { _renderRows?: (s: number, e: number) => void } } })._core?._renderService;
+    if (!rs || typeof rs._renderRows !== 'function' || this.term.rows < 1) return;
+    try { rs._renderRows(0, this.term.rows - 1); } catch { /* drawn on the next frame instead */ }
   }
 
   private queueResize(): void {
     if (this.resizeQueued) return;
     this.resizeQueued = true;
-    requestAnimationFrame(() => {
-      this.resizeQueued = false;
-      this.fitNow();
-      const a = this.current;
-      if (!a || !this.stream) return;
-      const key = `${a.pane}:${this.term.cols}x${this.term.rows}`;
-      if (key === this.sizeSent) return;
-      this.sizeSent = key;
-      void a.client.request('pane.resize', { pane: a.pane, cols: this.term.cols, rows: this.term.rows }).catch(() => {});
-    });
+    requestAnimationFrame(() => { this.resizeQueued = false; this.resizeNow(); });
+  }
+
+  /** Fits now, and tells the pane's program its size (sendSize). */
+  private resizeNow(): void {
+    this.fitNow();
+    this.sendSize();
+  }
+
+  /**
+   * The pane's program learns its size (the daemon resizes the PTY, which
+   * signals it): at most once every SIZE_EVERY ms while a drag goes on, so
+   * a program that draws its whole screen again at each size (Claude Code
+   * does) is not asked to sixty times a second, and always the last size.
+   */
+  private sizeTimer: ReturnType<typeof setTimeout> | undefined;
+  private sizeAt = 0;
+  private sendSize(): void {
+    const a = this.current;
+    if (!a || !this.stream) return;
+    const key = `${a.pane}:${this.term.cols}x${this.term.rows}`;
+    if (key === this.sizeSent) { clearTimeout(this.sizeTimer); this.sizeTimer = undefined; return; }
+    const wait = this.sizeAt + SIZE_EVERY - Date.now();
+    if (wait > 0) {
+      if (!this.sizeTimer) this.sizeTimer = setTimeout(() => { this.sizeTimer = undefined; this.sendSize(); }, wait);
+      return;
+    }
+    this.sizeAt = Date.now();
+    this.sizeSent = key;
+    void a.client.request('pane.resize', { pane: a.pane, cols: this.term.cols, rows: this.term.rows }).catch(() => {});
   }
 
   /** Bytes for the pane on screen, as if typed. */

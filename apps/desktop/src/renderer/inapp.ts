@@ -10,7 +10,10 @@
 // that waits on something shows. What the person types is kept across the
 // window's redraws.
 
-import { h, redraw, svg } from './dom.ts';
+import { h, picturesWait, redraw, svg } from './dom.ts';
+
+/** The gallery's first pictures, loaded before it shows (the rest as they scroll in). */
+const FIRST_PICS = 24;
 import * as I from './icons.ts';
 import type { HubProject, HubState } from './model.ts';
 
@@ -99,7 +102,43 @@ export class InApp {
 
   hide(): void { clearInterval(this.timer); this.shown = ''; }
 
+  /**
+   * What the page waits on before it can be drawn whole, or null when it
+   * can be now (the window keeps the view before it until then, so a page
+   * never shows "Reading..." and fills a moment later, or a picture's
+   * empty frame).
+   */
+  wait(v: InView): Promise<unknown> | null {
+    if (v.kind === 'alerts') return this.alerts ? null : this.fetch(v);
+    if (v.kind === 'idea') return this.ideas ? null : this.fetch(v);
+    if (v.kind === 'newplan') return this.draftFor === v.project ? null : this.fetch(v);
+    if (v.kind === 'gallery') {
+      const pics = this.pictures(this.project(v.project));
+      const at = v.at != null ? Math.min(v.at, Math.max(0, pics.length - 1)) : null;
+      const shown = at != null ? [pics[at], ...pics.slice(0, 12)] : pics.slice(0, FIRST_PICS);
+      return picturesWait(shown.filter(Boolean).map((x) => this.host.hubUrl() + x.url));
+    }
+    return null;
+  }
+
+  private fetching = new Map<string, Promise<void>>();
+  /** Reads what v shows from the hub (once at a time), without drawing. */
+  private fetch(v: InView): Promise<void> {
+    const k = v.kind === 'newplan' ? `newplan:${v.project}` : v.kind;
+    const was = this.fetching.get(k);
+    if (was) return was;
+    const p = this.read(v).finally(() => this.fetching.delete(k));
+    this.fetching.set(k, p);
+    return p;
+  }
+
   private async load(v: InView): Promise<void> {
+    await this.fetch(v);
+    const now = this.host.onScreen();
+    if (now && JSON.stringify({ ...now, back: null }) === this.shown) this.draw(now);
+  }
+
+  private async read(v: InView): Promise<void> {
     try {
       if (v.kind === 'newplan') {
         const r = await this.host.call('GET', `/api/plan/draft?projectId=${encodeURIComponent(v.project)}`);
@@ -111,10 +150,8 @@ export class InApp {
       } else if (v.kind === 'alerts') {
         const r = await this.host.call('GET', '/api/alerts/setup');
         if (r.status === 200) this.alerts = r.body as AlertsSetup;
-      } else return;
-    } catch { return; }
-    const now = this.host.onScreen();
-    if (now && JSON.stringify({ ...now, back: null }) === this.shown) this.draw(now);
+      }
+    } catch { /* drawn with what it had */ }
   }
 
   private project(id: string): HubProject | null { return (this.host.hub()?.projects || []).find((p) => p.id === id) || null; }
@@ -142,7 +179,7 @@ export class InApp {
   private bigPicture(x: Pic): HTMLElement {
     // The same style a zoom writes on the live picture, so the next drawing matches it and redraw leaves it alone.
     const zoomStyle = (): Record<string, string> | undefined => this.zoomW ? { width: `${this.zoomW}px`, margin: `${this.zoomAt.t}px ${this.zoomAt.r}px ${this.zoomAt.b}px ${this.zoomAt.l}px` } : undefined;
-    const img = h('img', { src: this.host.hubUrl() + x.url, alt: x.name, role: 'button', title: this.zoomW ? 'Fit it to the page' : 'Zoom in', 'aria-pressed': this.zoomW ? 'true' : 'false', draggable: 'false', style: zoomStyle() }) as HTMLImageElement;
+    const img = h('img', { src: this.host.hubUrl() + x.url, alt: x.name, decoding: 'sync', role: 'button', title: this.zoomW ? 'Fit it to the page' : 'Zoom in', 'aria-pressed': this.zoomW ? 'true' : 'false', draggable: 'false', style: zoomStyle() }) as HTMLImageElement;
     const frame = h(`div.ia-big${this.zoomW ? '.full' : ''}`, img);
     const fitW = () => { const f = frame.getBoundingClientRect(); return Math.max(1, Math.min(f.width, img.naturalWidth * (f.height / Math.max(1, img.naturalHeight)), img.naturalWidth)); };
     const zoomTo = (w: number | null, cx: number, cy: number) => {
@@ -251,7 +288,7 @@ export class InApp {
     return [this.head(v, ['Gallery'], `${name}, ${pics.length} ${pics.length === 1 ? 'picture' : 'pictures'} its sessions showed, newest first`),
       h('div.pg-b', pics.length
         ? h('div.ia-gal', pics.map((x, i) => h(`button.ia-gc${v.lit === i ? '.lit' : ''}`, { 'aria-label': `Open ${x.name}`, on: { click: () => this.host.go({ ...v, at: i }) } },
-          h('img', { src: this.host.hubUrl() + x.url, alt: x.name, loading: 'lazy' }),
+          h('img', { src: this.host.hubUrl() + x.url, alt: x.name, decoding: 'sync', ...(i >= FIRST_PICS ? { loading: 'lazy' } : {}) }),
           h('span.cap', h('b', x.name), x.at || x.by ? h('span', (x.by === 'the brief' ? 'From the brief' : when(x.at))) : null))))
         : h('p.t2', 'No pictures yet. When a session shows one, it lands here.'))];
   }
@@ -271,7 +308,7 @@ export class InApp {
           h('button.btn', { disabled: i === 0, on: { click: () => to(i - 1) } }, 'Previous'),
           h('button.btn', { disabled: i === pics.length - 1, on: { click: () => to(i + 1) } }, 'Next'),
           x.key ? h('button.btn', { disabled: this.busy === 'reveal', on: { click: () => void this.act('reveal', v, () => this.host.call('POST', '/api/project/reveal-picture', { projectId: v.project, key: x.key }), (b) => this.host.toast(`Shown in Finder: ${String(b.path || x.name)}`)) } }, 'Show in Finder') : null),
-        pics.length > 1 ? h('div.ia-strip', pics.map((y, k) => h(`button${k === i ? '.on' : ''}`, { 'aria-label': `Show ${y.name}`, 'aria-pressed': k === i ? 'true' : 'false', on: { click: () => to(k) } }, h('img', { src: this.host.hubUrl() + y.url, alt: '' })))) : null)];
+        pics.length > 1 ? h('div.ia-strip', pics.map((y, k) => h(`button${k === i ? '.on' : ''}`, { 'aria-label': `Show ${y.name}`, 'aria-pressed': k === i ? 'true' : 'false', on: { click: () => to(k) } }, h('img', { src: this.host.hubUrl() + y.url, alt: '', decoding: 'sync' })))) : null)];
   }
 
   // ------------------------------------------------------------ a plan

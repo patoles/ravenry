@@ -28,7 +28,7 @@ import type { CardCtx, Reply } from './cards.ts';
 import { Checkpoints, daemonAnswer, driveVerb, hubAnswer, isOpen, markOf, timeOf } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 import { Daemons } from './daemons.ts';
-import { h, heldIn, redraw, replace, svg } from './dom.ts';
+import { h, heldIn, preloadPicture, redraw, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import {
   ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
@@ -291,7 +291,7 @@ const paneCtx: PaneCtx = {
 
 let storeQueued = false;
 store.onChange = (what) => {
-  if (what.kind === 'input') for (const [v, m] of [[termA, marksA], [termB, marksB]] as const) if (v && m && v.attached?.pane === what.pane) m.show(store.inputsOf(what.pane));
+  if (what.kind === 'input') for (const p of [...pools[0], ...pools[1]]) if (p.view.attached?.pane === what.pane) p.marks.show(store.inputsOf(what.pane));
   if (storeQueued) return;
   storeQueued = true;
   requestAnimationFrame(() => { storeQueued = false; renderSidebar(); renderTabs(); renderStrip(); if (panelVisible()) renderPanel(); });
@@ -330,7 +330,7 @@ function checkedFor(k: { cp: Checkpoint }): { quote: string; when: string }[] | 
 function renderStrip(): void {
   const el = $('lstrip');
   const pane = paneOnScreen();
-  const strip = pane && !$('term').hidden ? leaseStrip(pane, paneCtx) : null;
+  const strip = pane && !$('split').hidden ? leaseStrip(pane, paneCtx) : null;
   el.hidden = !strip;
   replace(el, strip);
   renderMoveBar();
@@ -468,7 +468,7 @@ function moveActs(p: HubProject, s: HubSession, other: string, why: string, with
 function renderMoveBar(): void {
   const el = $('movebar');
   const k = frontKey();
-  const f = k && !k.startsWith('tab:') && !$('term').hidden ? findSession(S.hub, k) : null;
+  const f = k && !k.startsWith('tab:') && !$('split').hidden ? findSession(S.hub, k) : null;
   const s = f ? f.session : null;
   let line: string | null = null;
   let other = '';
@@ -981,7 +981,7 @@ function renderSidebar(): void {
 
   const brand = h('div.brand', svg(I.LOGO), 'Ravenry', h('span.sp'),
     // On while Start is in front: it is where the button leads.
-    h(`button.icon-btn.sm${S.view.kind === 'start' ? '.on' : ''}`, { title: `New session (${newSessionKey()})`, 'aria-label': 'New session', 'aria-pressed': S.view.kind === 'start' ? 'true' : 'false', on: { click: () => openStart() } }, svg(I.PLUS())));
+    h(`button.icon-btn.sm${S.view.kind === 'start' ? '.on' : ''}`, { title: `New session (${newSessionKey()})`, 'aria-label': 'New session', 'data-prep': '{"kind":"start"}', 'aria-pressed': S.view.kind === 'start' ? 'true' : 'false', on: { click: () => openStart() } }, svg(I.PLUS())));
 
   let list: HTMLElement;
   if (empty || !groups.length) {
@@ -1044,7 +1044,7 @@ function renderSidebar(): void {
   const foot = h('div.foot',
     h('button.icon-btn', { title: 'Settings', 'aria-label': 'Settings', on: { click: () => api().settings.open() } }, svg(I.SETTINGS)),
     empty ? null : h(`button.icon-btn${phoneCard.open ? '.on' : ''}`, { title: 'Open on your phone', 'aria-label': 'Open on your phone', 'aria-haspopup': 'dialog', on: { click: (e: Event) => { if (npmPoint('Pairing a phone')) return; if (!phoneCard.open) markUsed('phone'); phoneCard.toggle(e.currentTarget as HTMLElement); } } }, svg(I.PHONE)),
-    empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}${S.view.kind === 'alerts' ? '.on' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', 'aria-pressed': S.view.kind === 'alerts' ? 'true' : 'false', on: { click: () => { if (npmPoint('Alerts')) return; if (S.view.kind !== 'alerts') setView({ kind: 'alerts', back: S.view }); } } }, svg(I.BELL)),
+    empty ? null : h(`button.icon-btn${counts.you ? '.alert' : ''}${S.view.kind === 'alerts' ? '.on' : ''}`, { title: 'Alerts', 'aria-label': 'Alerts', 'data-prep': '{"kind":"alerts","back":{"kind":"none"}}', 'aria-pressed': S.view.kind === 'alerts' ? 'true' : 'false', on: { click: () => { if (npmPoint('Alerts')) return; if (S.view.kind !== 'alerts') setView({ kind: 'alerts', back: S.view }); } } }, svg(I.BELL)),
     h(`button.icon-btn.learn-btn${S.view.kind === 'learn' ? '.on' : ''}`, { title: 'Learn Ravenry', 'aria-label': 'Learn Ravenry', on: { click: () => openLearn() } }, svg(I.QUESTION)),
     h(`button.icon-btn.m-foot${S.view.kind === 'machines' ? '.on' : ''}`, { title: machinesView && machinesView.attention() ? 'Machines: one needs you' : 'Machines', 'aria-label': 'Machines', on: { click: () => { if (!npmPoint('Machines')) setView({ kind: 'machines' }); } } }, svg(MACHINES_ICON), machinesView && machinesView.attention() ? h('i.bdot') : null),
     h('span.sp'),
@@ -1396,7 +1396,7 @@ function renderTabs(): void {
     h('span.n', pp ? pp.name : pv.id)) : null;
   const extra = [rv, bt, pt].filter((x): x is HTMLElement => !!x);
   const sessTab = (t: Tab) => (t.kind === 'session' && t.key === rk) || (t.kind === 'shell' && !!rk && sessionOfPane(S.hub, t.pane)?.key === rk);
-  const filmable = !!paneOnScreen() && !$('term').hidden;
+  const filmable = !!paneOnScreen() && !$('split').hidden;
   const row = h('div.tabrow', { role: 'presentation' },
     openTab(),
     extra.length && !stripTabs().some(sessTab) ? extra : null,
@@ -1704,12 +1704,60 @@ function tabForPane(socket: string, pane: string, name: string): string {
   return t.id;
 }
 
-/** No pane in the middle: both terminals let go of theirs (no xterm.js work runs). */
+/**
+ * No pane in the middle. The terminals keep their panes, hidden (at most
+ * POOL a slot, pools): coming back to one shows it at once, drawn.
+ */
 function hideTerms(): void {
-  termA.hide();
-  termB?.hide();
   shownKeyB = '';
   layoutSplit(null);
+}
+
+// ---- each pane's terminal, kept while it is not on screen
+// A tab switch used to attach the one xterm.js to the next pane: its
+// screen went blank, or kept the pane before, until the next one's
+// snapshot was written (a flash at each switch). Now each slot (0: a
+// tab's own pane, 1: its split's) keeps up to POOL terminals, each attached
+// to its pane and drawn under the one in front: a switch to one of them
+// only swaps which shows. A pane with none takes the least lately shown,
+// is drawn hidden, and shows once its screen is written.
+const POOL = 4;
+interface Pooled { view: TerminalView; marks: TerminalMarks; el: HTMLElement; used: number }
+const pools: [Pooled[], Pooled[]] = [[], []];
+const allViews = (): TerminalView[] => [...pools[0], ...pools[1]].map((p) => p.view);
+const slotOf = (v: TerminalView): 0 | 1 => (pools[1].some((p) => p.view === v) ? 1 : 0);
+
+/** A terminal for slot to attach a pane to: the one already on that pane, else a free one, else a new one (up to POOL), else the least lately shown. */
+function spareFor(slot: 0 | 1, pane: string): Pooled {
+  const pool = pools[slot];
+  const cur = slot ? termB : termA;
+  const on = pool.find((p) => p.view.attached?.pane === pane);
+  if (on) return on;
+  const free = pool.find((p) => p.view !== cur && !p.view.attached);
+  if (free) return free;
+  if (pool.length < POOL) {
+    const el = h('div.term-host.pooled');
+    $(slot ? 'stack1' : 'stack0').appendChild(el);
+    const [view, m] = makeView(el);
+    const e = { view, marks: m, el, used: 0 };
+    pool.push(e);
+    return e;
+  }
+  const old = pool.filter((p) => p.view !== cur).sort((a, b) => a.used - b.used)[0];
+  return old || pool[0];
+}
+
+/** Shows e in front of its slot: the one before goes under it, still on its pane. */
+function swapIn(slot: 0 | 1, e: Pooled): void {
+  e.used = Date.now();
+  const cur = slot ? termB : termA;
+  if (cur === e.view) return;
+  const id = slot ? 'term2' : 'term';
+  for (const p of pools[slot]) { p.el.classList.toggle('pooled', p !== e); if (p !== e && p.el.id === id) p.el.removeAttribute('id'); }
+  e.el.id = id;
+  const keys = term === cur;
+  if (slot) { termB = e.view; marksB = e.marks; } else { termA = e.view; marksA = e.marks; }
+  if (keys) { term = e.view; marks = e.marks; }
 }
 
 // ---- the split's layout (Split.js), its headers and its focus
@@ -1777,7 +1825,7 @@ function renderPaneHead(i: 0 | 1, t: Tab): void {
 /** The split's second pane in termB (made when first needed). */
 async function showGuest(host: Tab | null): Promise<void> {
   const g = guestOf(host);
-  if (!g) { termB?.hide(); shownKeyB = ''; return; }
+  if (!g) { shownKeyB = ''; return; }
   const v = viewB();
   if (host!.split!.focus === 1) { term = v; marks = marksB!; }
   await showPane(`${g.socket}|${g.pane}`, () => daemons.get(g.socket), g.pane, (e) => { if (/^no answer after/.test(e.message)) return; removeTab(g.id); }, v);
@@ -1802,8 +1850,9 @@ async function closePane(t: Tab): Promise<void> {
 }
 
 function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review' | 'brief'): void {
+  // The terminals: the split, laid out even while hidden (app.css #split[hidden]).
   $('split').hidden = id !== 'term';
-  for (const k of ['term', 'elsewhere', 'start', 'none', 'review', 'brief']) ($(k) as HTMLElement).hidden = k !== id;
+  for (const k of ['elsewhere', 'start', 'none', 'review', 'brief']) ($(k) as HTMLElement).hidden = k !== id;
   if (id !== 'term') film.close();
   $('centre').classList.toggle('sheet', id === 'start' || id === 'none');
 }
@@ -1827,34 +1876,148 @@ function within<T>(p: Promise<T>, ms: number, doing: string): Promise<T> {
 }
 
 let shownKeyB = '';
-const shownOf = (v: TerminalView) => (v === termB ? shownKeyB : shownKey);
-const setShown = (v: TerminalView, k: string) => { if (v === termB) shownKeyB = k; else shownKey = k; };
+const shownIn = (slot: 0 | 1) => (slot ? shownKeyB : shownKey);
+const setShownIn = (slot: 0 | 1, k: string) => { if (slot) shownKeyB = k; else shownKey = k; };
 
+/**
+ * Shows a pane in view's slot. Its own terminal when it has one, drawn: at
+ * once. Else one is attached hidden, and the terminals show once its
+ * screen is written (at most VIEW_WAIT ms): the view before stays until
+ * then. Hidden, the terminals are still laid out (app.css #split[hidden],
+ * .term-host.pooled), so a pane is sized and drawn before it shows.
+ */
 async function showPane(key: string, get: () => Promise<RavenryClient | null>, pane: string, gone: (e: Error) => void, view: TerminalView = termA): Promise<void> {
-  show('term');
+  const slot = slotOf(view);
+  const cur = slot ? termB! : termA;
   // Only when that very pane is on screen: an attempt that failed or hung
   // must not leave the pane before it there and make later clicks no-ops.
-  if (shownOf(view) === key && view.attached && view.attached.pane === pane && view.ready) { focusPending(); return; }
-  setShown(view, key);
+  if (shownIn(slot) === key && cur.attached && cur.attached.pane === pane && cur.ready) { show('term'); focusPending(); return; }
+  setShownIn(slot, key);
+  const e = spareFor(slot, pane);
+  if (e.view.attached?.pane === pane && e.view.ready && e.view.isDrawn) {
+    swapIn(slot, e);
+    show('term');
+    if (e.view === term) e.view.focus();
+    focusPending();
+    return;
+  }
+  let shown = false;
+  // The keyboard goes to it once it shows (a hidden terminal cannot take it).
+  const reveal = () => {
+    if (shown || shownIn(slot) !== key) return;
+    shown = true;
+    swapIn(slot, e);
+    show('term');
+    if (e.view === term) e.view.focus();
+  };
+  const cap = setTimeout(reveal, VIEW_WAIT);
   try {
     const client = await within(get(), 8000, 'looking for the daemon that holds it');
     if (!client) throw new Error('no running daemon holds its pane');
-    if (shownOf(view) !== key) return;
-    await within(view.show({ client, pane }, view === term), 8000, `attaching to pane ${pane}`);
+    if (shownIn(slot) !== key) { clearTimeout(cap); return; }
+    await within(e.view.show({ client, pane }, false), 8000, `attaching to pane ${pane}`);
+    void e.view.drawn.then(() => { clearTimeout(cap); reveal(); });
     void paneScrollback(client, pane);
-  } catch (e) {
-    if (shownOf(view) !== key) return;
-    setShown(view, '');
-    view.hide();
-    const why = (e as Error).message || String(e);
+  } catch (err) {
+    clearTimeout(cap);
+    reveal();
+    if (shownIn(slot) !== key) return;
+    setShownIn(slot, '');
+    e.view.hide();
+    const why = (err as Error).message || String(err);
     api().log(`window: could not show pane ${pane}: ${why}`);
-    gone(e as Error);
+    gone(err as Error);
   }
   focusPending();
 }
 
+// ---- a view is drawn whole, or the one before it stays
+// A view that waits on the hub (a brief, a project's last conversation, a
+// page, an in-app page, a session's screen in another terminal, Start's
+// folders) is read before it shows: the view before it stays on screen
+// until then (at most VIEW_WAIT ms, then it shows with what it has), so
+// no view shows empty and fills in a moment later. A pointer resting on
+// what opens a view reads it already (prepareFrom), so most switches draw
+// at once.
+const VIEW_WAIT = 300;
+let viewGate: { key: string; until: number } | null = null;
+
+function viewWaitsOn(v: View): Promise<unknown> | null {
+  if (v.kind === 'page') return pages.wait(v.key);
+  if (v.kind === 'brief') return briefData.has(v.project) ? null : fetchBrief(v.project);
+  if (v.kind === 'project') {
+    const p = (S.hub?.projects || []).find((x) => x.id === v.id);
+    if (!p || p.sessions.some((x) => !x.handed)) return null;
+    const c = lastConv.get(p.id);
+    return c && !c.asking ? null : loadLast(p.id);
+  }
+  if (IN_KINDS.has(v.kind)) return inapp.wait(v as InView);
+  if (v.kind === 'start') return startRead ? null : loadStart();
+  if (v.kind === 'tab' || v.kind === 'session') {
+    const key = v.kind === 'session' ? v.key : tabSessionKey(S.tabs.find((t) => t.id === v.id) || null);
+    const f = key ? findSession(S.hub, key) : null;
+    return f ? liveWaitsOn(f.project, f.session) : null;
+  }
+  return null;
+}
+
+/** Reads what v shows ahead (the pointer rests on what opens it). */
+function prepareView(v: View): void { void viewWaitsOn(v); }
+const prepOf = (v: View): string => JSON.stringify(v);
+
+/**
+ * The pointer on what opens a view reads that view ahead: a sidebar row
+ * (a session, a project, a page), or a control that names its view
+ * (data-prep). A click comes a moment later and draws it at once.
+ */
+let prepAt: Element | null = null;
+function prepareFrom(target: EventTarget | null): void {
+  const el = target instanceof Element ? target.closest('[data-prep], #side [data-key], #side [data-page]') : null;
+  if (!el || el === prepAt) return;
+  prepAt = el;
+  const prep = el.getAttribute('data-prep');
+  if (prep) { try { prepareView(JSON.parse(prep) as View); } catch { /* not a view */ } return; }
+  const page = el.getAttribute('data-page');
+  if (page) { if (page !== 'decisions' && page !== 'machines') prepareView({ kind: 'page', key: page }); return; }
+  const key = el.getAttribute('data-key') || '';
+  if (key.startsWith('project:')) {
+    // A project's row opens its main session when one runs (pickProject), else the project.
+    const p = (S.hub?.projects || []).find((x) => x.id === key.slice(8));
+    const s = p ? p.sessions.find((x) => x.surfaceId === p.primary && !x.handed) || p.sessions.find((x) => !x.handed) : null;
+    prepareView(p && s ? { kind: 'session', key: `${p.id}/${s.surfaceId}` } : { kind: 'project', id: key.slice(8) });
+  }
+  else if (key && !key.startsWith('tab:')) prepareView({ kind: 'session', key });
+}
+
+/** The session's screen in another terminal, read before its view shows; null when it shows no screen or has it. */
+function liveWaitsOn(p: HubProject, s: HubSession): Promise<unknown> | null {
+  if (paneOf(s) && !machineOf(p, s)) return null;
+  if (s.terminal === false || s.surfaceId.startsWith('ev:')) return null;
+  return liveCache.has(s.surfaceId) ? null : fetchLive(s.surfaceId);
+}
+
+/**
+ * True while the view in front waits on what it shows: the window as it
+ * was (its tabs, its panel, its middle) stays whole until then, and is
+ * drawn again once it comes (or after VIEW_WAIT ms, with what it has).
+ */
+function holdView(): boolean {
+  const v = S.view;
+  const wait = viewWaitsOn(v);
+  if (!wait) { viewGate = null; return false; }
+  const k = viewKey(v);
+  if (!viewGate || viewGate.key !== k) {
+    viewGate = { key: k, until: Date.now() + VIEW_WAIT };
+    const go = () => { if (viewGate && viewGate.key === k && viewKey(S.view) === k) render(); };
+    void wait.then(go, go);
+    setTimeout(go, VIEW_WAIT + 10);
+  }
+  return Date.now() < viewGate.until;
+}
+
 async function renderCentre(): Promise<void> {
   const v = S.view;
+  if (holdView()) return;
   toastFollows(viewKey(v));
   const need = npmNeed();
   const onPage = v.kind === 'page' && !need;
@@ -2068,10 +2231,28 @@ function discussionFromTranscript(session: HubSession, why: string | null = null
 }
 
 /** Reads the session's screen through the hub's Live screen while it is in the middle. */
+/** Each surface's screen as last read: its view draws from it at once while it is read again. */
+const liveCache = new Map<string, { ver: number; entries: LiveEntry[] }>();
+const liveLoading = new Map<string, Promise<void>>();
+function fetchLive(surface: string): Promise<void> {
+  const was = liveLoading.get(surface);
+  if (was) return was;
+  const p = (async () => {
+    try {
+      const r = await api().hubGet(`/api/live?surface=${encodeURIComponent(surface)}`) as { ver?: number; entries?: LiveEntry[] };
+      if (r.entries) liveCache.set(surface, { ver: r.ver || 0, entries: r.entries });
+    } catch { /* drawn from its transcript */ }
+  })().finally(() => liveLoading.delete(surface));
+  liveLoading.set(surface, p);
+  return p;
+}
+
 function liveFollow(surface: string): void {
   if (live.surface === surface && live.timer) return;
   liveStop();
   live.surface = surface;
+  const had = liveCache.get(surface);
+  if (had) { live.ver = had.ver; live.entries = had.entries; }
   const poll = async (): Promise<void> => {
     if (live.surface !== surface) return;
     try {
@@ -2080,6 +2261,7 @@ function liveFollow(surface: string): void {
       if (!r.same && r.entries) {
         live.ver = r.ver || 0;
         live.entries = r.entries;
+        liveCache.set(surface, { ver: live.ver, entries: r.entries });
         if (S.view.kind === 'session' || S.view.kind === 'tab') void renderCentre();
       }
     } catch { /* the hub reads it again next time */ }
@@ -2103,7 +2285,14 @@ async function hubOpen(p: HubProject, s: HubSession): Promise<void> {
 
 // ---------------------------------------------------------------- first launch
 
-async function loadStart(): Promise<void> {
+/** Start's folders and assistants being read (its view waits on them the first time). */
+let startLoading: Promise<void> | null = null;
+let startRead = false;
+function loadStart(): Promise<void> {
+  if (!startLoading) startLoading = readStart().finally(() => { startLoading = null; startRead = true; });
+  return startLoading;
+}
+async function readStart(): Promise<void> {
   const [found, assistants] = await Promise.all([api().folders(), api().assistants()]);
   let folders = found.folders;
   // Folders the board already knows come first.
@@ -2241,8 +2430,8 @@ function openStart(folder?: string): void {
   S.setup = null;
   if (folder) S.start.folder = folder;
   S.start.error = null;
-  setView({ kind: 'start' });
   void loadStart();
+  setView({ kind: 'start' });
 }
 
 function renderStart(): void {
@@ -2512,9 +2701,17 @@ interface LastConversation {
 /** By project id: what the hub said (null: none found), when it was asked, and an error to say. */
 const lastConv = new Map<string, { at: number; last: LastConversation | null; busy?: boolean; error?: string | null; asking?: boolean }>();
 
-async function loadLast(id: string, force = false): Promise<void> {
+const lastLoading = new Map<string, Promise<void>>();
+function loadLast(id: string, force = false): Promise<void> {
+  const was = lastLoading.get(id);
+  if (was) return was;
   const c = lastConv.get(id);
-  if (c && (c.asking || (!force && Date.now() - c.at < 15000))) return;
+  if (c && (c.asking || (!force && Date.now() - c.at < 15000))) return Promise.resolve();
+  const p = readLast(id, c).finally(() => lastLoading.delete(id));
+  lastLoading.set(id, p);
+  return p;
+}
+async function readLast(id: string, c: { last: LastConversation | null } | undefined): Promise<void> {
   lastConv.set(id, { at: Date.now(), last: c ? c.last : null, asking: true });
   let last: LastConversation | null = null;
   try { const r = await api().hubGet(`/api/project/last?projectId=${encodeURIComponent(id)}`) as { last?: LastConversation | null }; last = r.last || null; } catch { last = c ? c.last : null; }
@@ -2597,7 +2794,7 @@ function renderProject(id: string): void {
   }
   const c = lastConv.get(p.id);
   if (!c || Date.now() - c.at > 15000) void loadLast(p.id);
-  const brief = p.brief ? h('button.lk', { on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null;
+  const brief = p.brief ? h('button.lk', { 'data-prep': prepOf({ kind: 'brief', key: `project:${p.id}`, project: p.id }), on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null;
   const newHere = p.folder && !p.machine ? () => openStart(p.folder!) : null;
   const last = c ? c.last : null;
   if (!c || (c.asking && !last)) {
@@ -2609,7 +2806,7 @@ function renderProject(id: string): void {
       h('p', h('b', p.name)), p.folderShort ? h('p.t3', p.folderShort) : null, projectFacts(p)[0],
       h('p', 'No earlier conversation found in this folder.'),
       h('div.row', newHere ? h('button.btn.pri', { on: { click: newHere } }, 'New session here') : null,
-        p.brief ? h('button.btn', { on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null)));
+        p.brief ? h('button.btn', { 'data-prep': prepOf({ kind: 'brief', key: `project:${p.id}`, project: p.id }), on: { click: () => setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }) } }, 'Open brief') : null)));
     return;
   }
   const who = assistantName(last.assistant) || 'Claude';
@@ -2710,8 +2907,8 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
   const pic = pics.filter((x) => x.url).slice(-1)[0];
   if (pic && S.config) {
     body.push(h('div.sec',
-      h('div.sec-h', 'Latest picture', h('span.sp'), h('button.lk', { on: { click: () => setView({ kind: 'gallery', project: p.id, at: null, lit: 0, back: backFrom() }) } }, `Gallery${inapp.pictures(p).length > 1 ? ` (${inapp.pictures(p).length})` : ''}`)),
-      h('img.shot', { src: S.config.hubUrl + pic.url, alt: pic.alt || 'The latest picture this session showed', title: 'See it large', role: 'button', tabindex: '0', on: { click: () => setView({ kind: 'gallery', project: p.id, at: 0, back: backFrom() }), keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') setView({ kind: 'gallery', project: p.id, at: 0, back: backFrom() }); } } }),
+      h('div.sec-h', 'Latest picture', h('span.sp'), h('button.lk', { 'data-prep': prepOf({ kind: 'gallery', project: p.id, at: null, back: { kind: 'none' } }), on: { click: () => setView({ kind: 'gallery', project: p.id, at: null, lit: 0, back: backFrom() }) } }, `Gallery${inapp.pictures(p).length > 1 ? ` (${inapp.pictures(p).length})` : ''}`)),
+      h('img.shot', { src: S.config.hubUrl + pic.url, decoding: 'sync', 'data-prep': prepOf({ kind: 'gallery', project: p.id, at: 0, back: { kind: 'none' } }), alt: pic.alt || 'The latest picture this session showed', title: 'See it large', role: 'button', tabindex: '0', on: { click: () => setView({ kind: 'gallery', project: p.id, at: 0, back: backFrom() }), keydown: (e: Event) => { if ((e as KeyboardEvent).key === 'Enter') setView({ kind: 'gallery', project: p.id, at: 0, back: backFrom() }); } } }),
       pic.alt ? h('span.t3.small', pic.alt) : null));
   }
 
@@ -2724,14 +2921,14 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
       h('div.bf',
         p.brief.goal ? [h('div.lbl', 'Goal'), h('div.gl', { title: p.brief.goal }, plain(p.brief.goal))] : null,
         n.items.length ? [h('div.lbl', 'Next'), h('ul', n.items.map((x) => h('li', { title: x }, h('span', x))))] : null,
-        h('div.ft2', h('button.lk', { disabled: S.view.kind === 'brief' && S.view.key === key, title: S.view.kind === 'brief' && S.view.key === key ? 'The brief is open' : '', on: { click: () => setView({ kind: 'brief', key, project: p.id }) } }, 'Open brief'), n.older ? h('span.t3', `, ${n.older} older ${n.older === 1 ? 'entry' : 'entries'}`) : null))));
+        h('div.ft2', h('button.lk', { 'data-prep': prepOf({ kind: 'brief', key, project: p.id }), disabled: S.view.kind === 'brief' && S.view.key === key, title: S.view.kind === 'brief' && S.view.key === key ? 'The brief is open' : '', on: { click: () => setView({ kind: 'brief', key, project: p.id }) } }, 'Open brief'), n.older ? h('span.t3', `, ${n.older} older ${n.older === 1 ? 'entry' : 'entries'}`) : null))));
   }
 
   const plan = p.plan;
   body.push(h('div.sec',
     h('div.sec-h', 'Plan', h('span.sp'), h('span.t3.light', plan ? (p.planGate ? 'At a gate' : 'Running') : 'None running')),
     plan ? h('p', plan.title || plan.name || 'A plan is running.') : h('p.t2.small', 'Hand work over as steps; it runs on its own and stops at your gates.'),
-    h('button.btn.sm.self', { on: { click: () => setView(plan ? { kind: 'plan', project: p.id, title: plan.title || null, back: backFrom() } : { kind: 'newplan', project: p.id, back: backFrom() }) } }, plan ? 'Open the plan' : 'New plan')));
+    h('button.btn.sm.self', { 'data-prep': prepOf(plan ? { kind: 'plan', project: p.id, back: { kind: 'none' } } : { kind: 'newplan', project: p.id, back: { kind: 'none' } }), on: { click: () => setView(plan ? { kind: 'plan', project: p.id, title: plan.title || null, back: backFrom() } : { kind: 'newplan', project: p.id, back: backFrom() }) } }, plan ? 'Open the plan' : 'New plan')));
 
   return [head, body];
 }
@@ -2740,12 +2937,29 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
 // drawn again only when its text changed (so the entries opened stay open),
 // asked again at most every 4 s while it shows.
 let briefShown: { project: string; text: string; at: number } | null = null;
+/** Each project's brief as the hub last gave it (the Brief page draws from it at once, and reads it again after 4 s). */
+const briefData = new Map<string, { r: { status: number; body: unknown } | null; at: number }>();
+const briefLoading = new Map<string, Promise<void>>();
+function fetchBrief(project: string): Promise<void> {
+  const was = briefLoading.get(project);
+  if (was) return was;
+  const p = (async () => {
+    let r: { status: number; body: unknown } | null = null;
+    try { r = await api().hubCall('GET', `/api/brief?project=${encodeURIComponent(project)}`); } catch { r = null; }
+    briefData.set(project, { r, at: Date.now() });
+  })().finally(() => briefLoading.delete(project));
+  briefLoading.set(project, p);
+  return p;
+}
+
 async function renderBrief(project: string): Promise<void> {
   const el = $('brief');
-  if (briefShown && briefShown.project === project && Date.now() - briefShown.at < 4000) return;
-  let r: { status: number; body: unknown } | null = null;
-  try { r = await api().hubCall('GET', `/api/brief?project=${encodeURIComponent(project)}`); } catch { r = null; }
-  if (S.view.kind !== 'brief' || S.view.project !== project) return;
+  const d = briefData.get(project);
+  if (!d || Date.now() - d.at > 4000) {
+    void fetchBrief(project).then(() => { if (S.view.kind === 'brief' && S.view.project === project && briefData.get(project) !== d) void renderBrief(project); });
+    if (!d) { if (briefShown?.project !== project) { briefShown = null; replace(el); } return; }
+  }
+  const r = d.r;
   const b = r && r.status === 200 ? r.body as { file: string; path: string; text: string; updatedAt: string; by: string | null } : null;
   const p = (S.hub?.projects || []).find((x) => x.id === project);
   if (!b) {
@@ -2860,6 +3074,8 @@ async function handOff(p: HubProject, s: HubSession): Promise<void> {
 function onHubState(next: HubState): void {
   const prev = S.hub;
   S.hub = next;
+  // Each project's latest picture decoded before a panel shows it.
+  if (S.config) for (const p of next.projects || []) { const pic = (p.brief?.pictures || []).filter((x) => x.url).slice(-1)[0]; if (pic) void preloadPicture(S.config.hubUrl + pic.url); }
   // A session that kept its id but changed its key keeps its place: the
   // middle, its pinned tab and the panel follow it.
   const moved = rekeyed(prev, next);
@@ -3081,6 +3297,8 @@ function render(): void {
   document.body.classList.toggle('mac', isMac());
   document.body.classList.toggle('first', firstRun());
   renderSidebar();
+  // The next view waits on the hub: the rest of the window stays as it was until it can be drawn whole.
+  if (holdView()) return;
   renderTabs();
   renderPanel();
   void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); renderHint(); });
@@ -3204,7 +3422,7 @@ function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
 }
 
 function viewB(): TerminalView {
-  if (!termB) [termB, marksB] = makeView($('term2'));
+  if (!termB) { [termB, marksB] = makeView($('term2')); pools[1].push({ view: termB, marks: marksB, el: $('term2'), used: Date.now() }); }
   return termB;
 }
 
@@ -3212,8 +3430,7 @@ function viewB(): TerminalView {
 let termSettings: TerminalSettings | null = null;
 function applyTerminalSettings(snap: SettingsSnapshot): void {
   termSettings = snap.terminal;
-  termA?.applySettings(termSettings);
-  termB?.applySettings(termSettings);
+  for (const v of allViews()) v.applySettings(termSettings);
   // What draws beside the terminals (a split's headers, Find, the marks)
   // takes the terminal theme's colours.
   const th = termSettings.xterm.theme;
@@ -3221,7 +3438,7 @@ function applyTerminalSettings(snap: SettingsSnapshot): void {
   if (th.background) root.setProperty('--tbg', th.background);
   if (th.foreground) root.setProperty('--tfg', th.foreground);
   document.body.classList.toggle('term-light', snap.terminal.appearance === 'light');
-  for (const v of [termA, termB]) if (v?.attached) void paneScrollback(v.attached.client, v.attached.pane);
+  for (const v of allViews()) if (v.attached) void paneScrollback(v.attached.client, v.attached.pane);
   // Find's tints follow the terminal's theme: drawn again in the new one.
   if (find.open && find.query) { termA.clearFind(); termB?.clearFind(); runFind(1, true); }
 }
@@ -3390,6 +3607,7 @@ async function boot(): Promise<void> {
   try { applyTerminalSettings(await api().settings.get()); } catch { /* the defaults */ }
   api().settings.onChange((snap) => applyTerminalSettings(snap));
   [termA, marksA] = makeView($('term'));
+  pools[0].push({ view: termA, marks: marksA, el: $('term'), used: Date.now() });
   // A tab dragged onto an edge of the pane in front: a split.
   const sp = $('split');
   sp.addEventListener('dragover', (e) => splitDragOver(e));
@@ -3509,6 +3727,7 @@ async function boot(): Promise<void> {
   window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); renderHint(); });
   // The strip's room changes when the panel shows or hides.
   new ResizeObserver(() => fitTabs($('tabs'))).observe($('tabs'));
+  document.addEventListener('pointerover', (e) => prepareFrom(e.target), true);
   window.addEventListener('keydown', (e) => {
     if (S.view.kind === 'picker' && picker.key(e)) { e.preventDefault(); return; }
     if (e.key === 'Escape' && S.overlay) { S.overlay = false; S.panelKey = null; render(); term.focus(); return; }

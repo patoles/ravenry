@@ -259,7 +259,7 @@ export class Pages {
   /** Rows that appeared since the window opened, lit for a few seconds. */
   fresh = new Map<string, number>();
   private seen: Set<string> | null = null;
-  private loading = new Set<string>();
+  private loading = new Map<string, Promise<void>>();
   /** For the screenshots: the card the pointer is on. */
   hover: string | null = null;
   el: HTMLElement;
@@ -309,9 +309,18 @@ export class Pages {
 
   // ------------------------------------------------------------ loading
 
-  async load(key: string): Promise<void> {
-    if (this.loading.has(key)) return;
-    this.loading.add(key);
+  /** What the page waits on before the window shows it, or null when it can be drawn now. */
+  wait(key: string): Promise<void> | null { return this.cache.has(key) ? null : this.load(key); }
+
+  load(key: string): Promise<void> {
+    const was = this.loading.get(key);
+    if (was) return was;
+    const p = this.read(key);
+    this.loading.set(key, p);
+    return p;
+  }
+
+  private async read(key: string): Promise<void> {
     try {
       const r = await this.host.call('GET', `/api/pages/page?key=${encodeURIComponent(key)}`);
       const v = (r.body as { page?: PageView }).page;

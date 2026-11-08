@@ -112,3 +112,37 @@ export function redraw(el: Element, ...children: Child[]): boolean {
   }
   return true;
 }
+
+// Pictures decoded before a view that shows them is drawn, so a view never
+// shows an empty frame where a picture lands a moment later. The Image
+// objects are kept (the last 120), which keeps their pixels decoded.
+const decodedUrls = new Set<string>();
+const decoding = new Map<string, Promise<void>>();
+const keptImages: HTMLImageElement[] = [];
+
+/** True when url's picture is loaded and decoded. */
+export function pictureReady(url: string): boolean { return decodedUrls.has(url); }
+
+/** Loads and decodes url's picture (once); resolves when it can be drawn, or failed. */
+export function preloadPicture(url: string): Promise<void> {
+  if (decodedUrls.has(url)) return Promise.resolve();
+  const was = decoding.get(url);
+  if (was) return was;
+  const im = new Image();
+  im.decoding = 'async';
+  im.src = url;
+  const p = im.decode().catch(() => { /* a broken picture draws as one */ }).then(() => {
+    decoding.delete(url);
+    decodedUrls.add(url);
+    keptImages.push(im);
+    if (keptImages.length > 120) { const old = keptImages.shift()!; decodedUrls.delete(old.src); }
+  });
+  decoding.set(url, p);
+  return p;
+}
+
+/** What still waits among these pictures, or null when all of them can be drawn now. */
+export function picturesWait(urls: string[]): Promise<unknown> | null {
+  const miss = urls.filter((u) => !decodedUrls.has(u));
+  return miss.length ? Promise.all(miss.map(preloadPicture)) : null;
+}
