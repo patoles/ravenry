@@ -3717,7 +3717,10 @@ async function handleRequest(req, res) {
         if (!req.mcLocal) return sendJson(res, 403, { error: 'Set up the hooks on the Mac.' });
         let body;
         try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
-        const r = hookinstall.setupWithRavenryd({ ravenryd: body.ravenryd, dry: !!body.dry, remove: !!body.remove });
+        // `only`: one assistant's (the first-launch step names the one picked).
+        // Removing puts the files back exactly when nothing else changed them.
+        const only = body.only === 'claude' || body.only === 'codex' ? body.only : null;
+        const r = hookinstall.setupWithRavenryd({ ravenryd: body.ravenryd, dry: !!body.dry, remove: !!body.remove, only, undoFile: path.join(registry.RAVENRY_HOME, 'setup-undo.json') });
         return sendJson(res, r.ok ? 200 : 400, r.ok ? { ...r, claude: r.claude && { ...r.claude, backup: r.claude.backup ? short(r.claude.backup) : null } } : { error: r.error });
       }
       if (p === '/api/sessions/reopen') {

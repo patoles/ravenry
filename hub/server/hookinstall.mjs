@@ -492,21 +492,70 @@ export function codexStatus({ root = ROOT } = {}) {
 // scripts. Each file is backed up before it is written. `dry` only says
 // what would change. Returns { ok, claude: { file, changes, backup },
 // codex: { file, changes, backups } | null }.
-export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root = ROOT, node } = {}) {
+export function setupWithRavenryd({ ravenryd, dry = false, remove = false, root = ROOT, node, only = null, undoFile = null } = {}) {
   if (!remove && (typeof ravenryd !== 'string' || !ravenryd.startsWith('/'))) return { ok: false, error: 'Give the absolute path of ravenryd.' };
   if (!remove && !isExe(ravenryd)) return { ok: false, error: `${ravenryd} is not an executable file.` };
   const out = { ok: true, claude: null, codex: null };
-  let cur;
-  try { cur = readSettings(); } catch (e) { return { ok: false, error: e.message }; }
-  const p = plan(cur.json, remove ? { remove: true, root, node } : { ravenryd, root, node });
-  out.claude = { file: cur.file, changes: p.changes, backup: null };
-  if (!dry && p.changes.length) out.claude.backup = writeSettings(cur.file, cur.exists ? cur.raw : null, p.settings);
-  if (codexPresent()) {
+  if (only !== 'codex') {
+    let cur;
+    try { cur = readSettings(); } catch (e) { return { ok: false, error: e.message }; }
+    const p = plan(cur.json, remove ? { remove: true, root, node } : { ravenryd, root, node });
+    out.claude = { file: cur.file, changes: p.changes, backup: null };
+    if (!dry && remove && undoFile && restoreExact([cur.file], undoFile)) out.claude.restored = true;
+    else if (!dry && p.changes.length) {
+      out.claude.backup = writeSettings(cur.file, cur.exists ? cur.raw : null, p.settings);
+      if (undoFile) remember(undoFile, [[cur.file, cur.raw]], remove);
+    }
+  }
+  if (only !== 'claude' && (only === 'codex' || codexPresent())) {
     const cp = codexPlan(remove ? { remove: true, root, node } : { ravenryd, root, node });
     out.codex = { file: cp.hooks.file, changes: cp.changes, backups: [], hooksOff: cp.hooksOff };
-    if (!dry && cp.changes.length) out.codex.backups = codexWrite(cp);
+    if (!dry && remove && undoFile && restoreExact([cp.hooks.file, cp.config.file], undoFile)) out.codex.restored = true;
+    else if (!dry && cp.changes.length) {
+      out.codex.backups = codexWrite(cp);
+      if (undoFile) remember(undoFile, [[cp.hooks.file, cp.hooks.raw], [cp.config.file, cp.config.raw]], remove);
+    }
   }
   return out;
+}
+
+// ------------------------------------------------------------ an exact undo
+
+// Removing what setup added puts each file back byte for byte as it was
+// before (or gone, when setup made it), as long as nothing else changed it
+// since: the undo file keeps, per file, its text before Ravenry's first
+// write and its text after Ravenry's last. A file changed since (by the
+// person, or the assistant) gets the plain removal instead: only Ravenry's
+// entries out. Kept in Ravenry's own data folder (RAVENRY_HOME).
+const readText = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return null; } };
+function readUndo(undoFile) { try { return JSON.parse(fs.readFileSync(undoFile, 'utf8')) || {}; } catch { return {}; } }
+function writeUndo(undoFile, u) {
+  fs.mkdirSync(path.dirname(undoFile), { recursive: true });
+  const tmp = `${undoFile}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(u, null, 2) + '\n');
+  fs.renameSync(tmp, undoFile);
+}
+function remember(undoFile, files, removed) {
+  const u = readUndo(undoFile);
+  for (const [file, before] of files) {
+    if (removed) { delete u[file]; continue; }
+    const after = readText(file);
+    if (after === before) continue;
+    u[file] = { before: u[file] ? u[file].before : before, after };
+  }
+  writeUndo(undoFile, u);
+}
+function restoreExact(files, undoFile) {
+  const u = readUndo(undoFile);
+  const recs = files.map((f) => [f, u[f]]).filter(([, r]) => r);
+  if (!recs.length || !recs.every(([f, r]) => readText(f) === r.after)) return false;
+  for (const [f, r] of recs) {
+    if (r.before == null) fs.rmSync(f, { force: true });
+    else { const tmp = `${f}.tmp-${process.pid}`; fs.writeFileSync(tmp, r.before); fs.renameSync(tmp, f); }
+    delete u[f];
+  }
+  writeUndo(undoFile, u);
+  return true;
 }
 
 // ------------------------------------------------------------ app updates

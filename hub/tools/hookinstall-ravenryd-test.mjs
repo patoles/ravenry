@@ -144,5 +144,31 @@ check('refresh: another copy of Ravenry is left alone', hk.refreshAppHooks({ roo
 fs.rmSync(SETTINGS);
 check('refresh: hooks never set up are never added', hk.refreshAppHooks({ root: APPHUB('0.2.0'), node: APPEXE }).claude.length === 0 && !fs.existsSync(SETTINGS));
 
+// One assistant at a time, with an exact undo (the first-launch step and
+// Settings, Skills, 0.1.21): removing puts each file back byte for byte,
+// or gone when setup made it; a file changed since gets the plain removal.
+{
+  const UNDO = path.join(T, 'undo.json');
+  const own = '{\n    "model":"opus",\n  "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "mine" } ] } ] }\n}\n';
+  fs.writeFileSync(SETTINGS, own);
+  for (const f of ['hooks.json', 'config.toml']) fs.rmSync(path.join(CODEX, f), { force: true });
+  fs.writeFileSync(path.join(CODEX, 'config.toml'), 'model = "gpt"   # theirs\n');
+  const c1 = hk.setupWithRavenryd({ ravenryd: BIN, only: 'claude', undoFile: UNDO });
+  check('only claude: Claude Code\'s settings get the hooks, Codex\'s files are not touched', c1.ok && c1.codex === null && fs.readFileSync(SETTINGS, 'utf8').includes(`${BIN} hook --assistant claude`) && !fs.existsSync(path.join(CODEX, 'hooks.json')));
+  const x1 = hk.setupWithRavenryd({ ravenryd: BIN, only: 'codex', undoFile: UNDO });
+  check('only codex: its hooks.json made, config.toml trusted', x1.ok && x1.claude === null && fs.existsSync(path.join(CODEX, 'hooks.json')) && /hooks\.state/.test(fs.readFileSync(path.join(CODEX, 'config.toml'), 'utf8')));
+  const c2 = hk.setupWithRavenryd({ remove: true, only: 'claude', undoFile: UNDO });
+  check('remove, claude: settings.json byte for byte as it was', c2.claude.restored === true && fs.readFileSync(SETTINGS, 'utf8') === own);
+  const x2 = hk.setupWithRavenryd({ remove: true, only: 'codex', undoFile: UNDO });
+  check('remove, codex: hooks.json gone (setup made it), config.toml byte for byte as it was', x2.codex.restored === true && !fs.existsSync(path.join(CODEX, 'hooks.json')) && fs.readFileSync(path.join(CODEX, 'config.toml'), 'utf8') === 'model = "gpt"   # theirs\n');
+  hk.setupWithRavenryd({ ravenryd: BIN, only: 'claude', undoFile: UNDO });
+  const edited = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
+  edited.theme = 'dark';
+  fs.writeFileSync(SETTINGS, JSON.stringify(edited, null, 2));
+  const c3 = hk.setupWithRavenryd({ remove: true, only: 'claude', undoFile: UNDO });
+  const left = JSON.parse(fs.readFileSync(SETTINGS, 'utf8'));
+  check('remove after the person changed the file: only Ravenry\'s entries go, their change stays', !c3.claude.restored && left.theme === 'dark' && !JSON.stringify(left).includes('hook --assistant claude') && JSON.stringify(left).includes('"mine"'));
+}
+
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);
