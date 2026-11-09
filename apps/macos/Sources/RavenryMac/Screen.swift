@@ -91,6 +91,16 @@ struct CellRange: Equatable {
     }
 }
 
+/// A search on the stream (section 6): the count of matches, the
+/// selected one's index from the newest (-1 none), and the matches on the
+/// view's rows.
+struct FindState: Equatable {
+    var active = false
+    var count = 0, selected = -1
+    var current: CellRange?
+    var matches: [CellRange] = []
+}
+
 struct ProgramColors: Equatable {
     var fg: UInt32?, bg: UInt32?, cursor: UInt32?
     var palette: [UInt8: UInt32] = [:]
@@ -114,6 +124,8 @@ final class Screen {
     var held = false
     /// The pane's selection (section 5), nil for none.
     var selection: CellRange?
+    /// The stream's search (section 6).
+    var find = FindState()
     /// Rows changed: bumped by each frame that carried rows.
     var rowsVersion = 0
     /// The newest frame applied, not yet drawn when > drawnSeq.
@@ -205,6 +217,24 @@ final class Screen {
                 var r = range(b, s + 1)
                 r.rect = b[s] & 2 != 0
                 selection = b[s] & 1 != 0 ? r : nil
+            case 6:
+                guard n >= 11 else { throw DecodeError.short }
+                var f = FindState()
+                f.active = b[s] & 1 != 0
+                f.count = u32(s + 1)
+                f.selected = Int(Int32(truncatingIfNeeded: u32(s + 5)))
+                var q = s + 9
+                if b[s] & 2 != 0 {
+                    guard q + 12 <= s + n else { throw DecodeError.short }
+                    f.current = range(b, q)
+                    q += 12
+                }
+                guard q + 2 <= s + n else { throw DecodeError.short }
+                let k = u16(q)
+                q += 2
+                guard q + 12 * k <= s + n else { throw DecodeError.short }
+                for m in 0..<k { f.matches.append(range(b, q + 12 * m)) }
+                find = f
             default:
                 break // a newer section
             }

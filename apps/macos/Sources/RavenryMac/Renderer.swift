@@ -14,6 +14,9 @@ struct Theme {
     var foreground: SIMD4<Float>
     var cursor: SIMD4<Float>
     var selection: SIMD4<Float>
+    /// A search's matches, and the selected one (colour and opacity).
+    var findMatch: SIMD4<Float>
+    var findCurrent: SIMD4<Float>
     var ansi: [SIMD4<Float>] // 16
 
     static func hex(_ v: UInt32, _ a: Float = 1) -> SIMD4<Float> {
@@ -24,6 +27,7 @@ struct Theme {
     static let ravenry = Theme(
         background: hex(0x0B0B0C), foreground: hex(0xD1D1D6), cursor: hex(0xE5E5EA),
         selection: SIMD4(64.0 / 255, 156.0 / 255, 1, 0.35),
+        findMatch: hex(0xFFD60A, 0.35), findCurrent: hex(0xFF9F0A, 0.75),
         ansi: [0x1C1C1E, 0xFF6961, 0x30D158, 0xFFD60A, 0x409CFF, 0xBF5AF2, 0x64D2FF, 0xD1D1D6,
                0x636366, 0xFF8A80, 0x4CE07A, 0xFFE066, 0x6BB5FF, 0xDA8FFF, 0x8AE0FF, 0xF2F2F4].map { hex($0) })
 }
@@ -465,6 +469,14 @@ final class Renderer {
         for y in 0..<min(screen.rows, screen.lines.count) {
             let row = screen.lines[y]
             let oy = py + Float(y) * ch
+            // The find section's matches on this row, the selected one first.
+            var findSpans: [(cols: ClosedRange<Int>, color: SIMD4<Float>)] = []
+            if screen.find.active {
+                if let c = screen.find.current, let sp = c.span(y: top + y, cols: row.count) { findSpans.append((sp, theme.findCurrent)) }
+                for m in screen.find.matches {
+                    if let sp = m.span(y: top + y, cols: row.count) { findSpans.append((sp, theme.findMatch)) }
+                }
+            }
             // Backgrounds, run by run.
             var runStart = -1
             var runColor = SIMD4<Float>(repeating: 0)
@@ -484,8 +496,19 @@ final class Renderer {
                 }
                 let color = hasBg ? resolve(bg, screen, fg: c.style.attrs & CellStyle.inverse != 0 && c.style.fg == 0) : defBg
                 let selected = screen.selection?.contains(x: x, y: top + y) ?? false
-                let col = selected ? mix(color, SIMD4(theme.selection.x, theme.selection.y, theme.selection.z, 1), t: theme.selection.w) : color
-                if !hasBg && !selected {
+                // A search's matches under the selection: the selected
+                // match orange, the others a soft yellow.
+                var col = color
+                var found = false
+                if !findSpans.isEmpty {
+                    for f in findSpans where f.cols.contains(x) {
+                        col = mix(col, SIMD4(f.color.x, f.color.y, f.color.z, 1), t: f.color.w)
+                        found = true
+                        break
+                    }
+                }
+                if selected { col = mix(col, SIMD4(theme.selection.x, theme.selection.y, theme.selection.z, 1), t: theme.selection.w) }
+                if !hasBg && !selected && !found {
                     flush(x)
                     continue
                 }

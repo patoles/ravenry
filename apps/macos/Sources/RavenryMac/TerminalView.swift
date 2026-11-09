@@ -217,8 +217,12 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         screen.lock()
         let title = screen.title, bell = screen.bell, blink = screen.cursor.blink
-        let offset = screen.offset, history = screen.history
+        let offset = screen.offset, history = screen.history, find = screen.find
         screen.unlock()
+        if find != lastFind {
+            lastFind = find
+            findFromFrames(find)
+        }
         if offset != lastOffset {
             // The view scrolled (the wheel, a find, typing brought it back).
             lastOffset = offset
@@ -288,6 +292,7 @@ final class TerminalView: NSView, NSTextInputClient {
 
     private func sizeChanged() {
         metalLayer.drawableSize = pixelSize
+        placeFindBar()
         let g = renderer.grid(for: bounds.size)
         if g != grid {
             grid = g
@@ -392,6 +397,7 @@ final class TerminalView: NSView, NSTextInputClient {
         let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard f.contains(.command), !f.contains(.control) else { return false }
         let key = e.charactersIgnoringModifiers?.lowercased() ?? ""
+        if let found = findShortcut(e) { return found }
         if e.keyCode == 0x73 { scrollToTop(nil); return true }    // Cmd+Home
         if e.keyCode == 0x77 { scrollToBottom(nil); return true } // Cmd+End
         switch key {
@@ -402,6 +408,18 @@ final class TerminalView: NSView, NSTextInputClient {
         case "-": decreaseFontSize(nil)
         case "0": resetFontSize(nil)
         default: return false
+        }
+        return true
+    }
+
+    /// Cmd+F, Cmd+G and Cmd+Shift+G, which work from the find bar too.
+    private func findShortcut(_ e: NSEvent) -> Bool? {
+        let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard f.contains(.command), !f.contains(.control), !f.contains(.option) else { return nil }
+        switch e.charactersIgnoringModifiers?.lowercased() ?? "" {
+        case "f": showFindBar(nil)
+        case "g": f.contains(.shift) ? findPrevious(nil) : findNext(nil)
+        default: return nil
         }
         return true
     }
@@ -470,6 +488,8 @@ final class TerminalView: NSView, NSTextInputClient {
             return true
         }
         if window?.firstResponder === self && shortcut(e) { return true }
+        // The find keys also work while the find bar has the keyboard.
+        if findBarVisible, findShortcut(e) == true { return true }
         return super.performKeyEquivalent(with: e)
     }
 
@@ -747,6 +767,104 @@ final class TerminalView: NSView, NSTextInputClient {
         if motion { sendEvents([mouseEvent(e, action: "motion", button: "")]) }
     }
 
+    // MARK: find
+
+    /// The find bar, made on the first Cmd+F.
+    private(set) var findBar: FindBar?
+    private(set) var findNeedle = ""
+    /// The count and selected match from the last render.find, or the
+    /// frames' find section since.
+    private(set) var findCount = 0, findSelected = -1
+
+    var findBarVisible: Bool { findBar.map { !$0.isHidden } ?? false }
+
+    @objc func showFindBar(_ sender: Any?) {
+        let bar = findBar ?? makeFindBar()
+        bar.isHidden = false
+        placeFindBar()
+        window?.makeFirstResponder(bar.field)
+        bar.field.currentEditor()?.selectAll(nil)
+        if !findNeedle.isEmpty { find(step: 0) }
+    }
+
+    private func makeFindBar() -> FindBar {
+        let bar = FindBar()
+        bar.autoresizingMask = [.minXMargin, .maxYMargin]
+        bar.onChange = { [weak self] s in self?.findChanged(s) }
+        bar.onNext = { [weak self] in self?.findNext(nil) }
+        bar.onPrevious = { [weak self] in self?.findPrevious(nil) }
+        bar.onClose = { [weak self] in self?.closeFindBar() }
+        addSubview(bar)
+        findBar = bar
+        return bar
+    }
+
+    private func placeFindBar() {
+        guard let bar = findBar else { return }
+        let sz = FindBar.size
+        bar.frame = NSRect(x: max(0, bounds.width - sz.width - 12), y: 8, width: sz.width, height: sz.height)
+    }
+
+    /// What to find changed: the first character selects the newest
+    /// match (step 1), and the search keeps it after.
+    func findChanged(_ s: String) {
+        let first = findNeedle.isEmpty
+        findNeedle = s
+        find(step: first && !s.isEmpty ? 1 : 0)
+    }
+
+    /// Next is older output (step 1), previous newer (step -1).
+    @objc func findNext(_ sender: Any?) {
+        if findNeedle.isEmpty { return showFindBar(nil) }
+        find(step: 1)
+    }
+
+    @objc func findPrevious(_ sender: Any?) {
+        if findNeedle.isEmpty { return showFindBar(nil) }
+        find(step: -1)
+    }
+
+    private func find(step: Int) {
+        guard let c = conn else { return }
+        let needle = findNeedle
+        c.request("render.find", ["channel": channel, "needle": needle, "step": step]) { [weak self] r in
+            guard case .success(let v) = r else { return }
+            let n = (v["count"] as? NSNumber)?.intValue ?? 0, sel = (v["selected"] as? NSNumber)?.intValue ?? -1
+            DispatchQueue.main.async {
+                guard let self, needle == self.findNeedle else { return }
+                self.findCount = n
+                self.findSelected = sel
+                self.findBar?.show(count: n, selected: sel, needle: needle)
+            }
+        }
+    }
+
+    /// Esc or the close button: the search ends and the keyboard is the
+    /// terminal's again.
+    func closeFindBar() {
+        guard let bar = findBar, !bar.isHidden else { return }
+        bar.isHidden = true
+        if !findNeedle.isEmpty {
+            findNeedle = ""
+            find(step: 0)
+        }
+        bar.field.stringValue = ""
+        bar.show(count: 0, selected: -1, needle: "")
+        findCount = 0
+        findSelected = -1
+        window?.makeFirstResponder(self)
+    }
+
+    /// The frames' find section changed (new output, a scroll): the count.
+    private func findFromFrames(_ f: FindState) {
+        guard findBarVisible, !findNeedle.isEmpty, f.active else { return }
+        if f.count != findCount || f.selected != findSelected {
+            findCount = f.count
+            findSelected = f.selected
+            findBar?.show(count: f.count, selected: f.selected, needle: findNeedle)
+        }
+    }
+
     // MARK: links
 
     override func resetCursorRects() {
@@ -863,6 +981,7 @@ final class TerminalView: NSView, NSTextInputClient {
     private var scrolledAt: CFTimeInterval = -10
     private var scrollbarTimer: Timer?
     private var lastOffset = 0
+    private var lastFind = FindState()
     static let scrollbarHold: CFTimeInterval = 0.8, scrollbarFade: CFTimeInterval = 0.3
 
     /// The scrollbar's opacity now, 0 when hidden.

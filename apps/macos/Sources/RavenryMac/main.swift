@@ -6,7 +6,7 @@
 //   RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both]
 //              [--font NAME] [--font-size POINTS]
 //              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH]]
-//              [-- COMMAND ARGS...]
+//              [--offscreen --selftest OUT.json] [-- COMMAND ARGS...]
 //
 // With no --attach, it starts a new pane (the login shell, or COMMAND) in
 // the newest running daemon that has the render stream, never starting
@@ -28,6 +28,7 @@ struct Options {
     /// default on a Mac) when not given.
     var font = "Menlo"
     var fontSize: CGFloat?
+    var selftest: String?
     var command: [String] = []
 
     static func parse(_ args: [String]) -> Options {
@@ -44,6 +45,7 @@ struct Options {
             case "--drag-min": i += 1; o.dragMin = CGFloat(Double(args[safe: i] ?? "") ?? 300)
             case "--option-as-alt": i += 1; o.optionAsAlt = args[safe: i] ?? ""
             case "--font": i += 1; o.font = args[safe: i] ?? "Menlo"
+            case "--selftest": i += 1; o.selftest = args[safe: i]
             case "--font-size": i += 1; o.fontSize = Double(args[safe: i] ?? "").map { CGFloat($0) }
             case "--": o.command = Array(args[(i + 1)...]); i = args.count
             default: break // AppKit's own (-NSDocumentRevisionsDebugMode ...)
@@ -174,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let g = v.renderer.grid(for: v.bounds.size)
                 var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "labels": ["ravenry.client": "macos"]]
                 if !options.command.isEmpty { params["command"] = options.command }
-                if options.bench != nil, let home = ProcessInfo.processInfo.environment["HOME"] { params["cwd"] = home }
+                if options.bench != nil || options.selftest != nil, let home = ProcessInfo.processInfo.environment["HOME"] { params["cwd"] = home }
                 let r = try c.call("pane.new", params)
                 pane = ((r["pane"] as? [String: Any])?["id"] as? String) ?? ""
                 ownPane = true
@@ -188,13 +190,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         if let out = options.bench {
             Bench(view: v, window: w, out: out, dragMin: options.dragMin).start()
+        } else if let out = options.selftest {
+            SelfTest(view: v, window: w, out: out).start()
         }
     }
 
     private func fail(_ msg: String) {
         NSLog("RavenryMac: \(msg)")
         if options.offscreen {
-            if let out = options.bench {
+            if let out = options.bench ?? options.selftest {
                 try? JSONSerialization.data(withJSONObject: ["error": msg]).write(to: URL(fileURLWithPath: out))
             }
             NSApp.terminate(nil)
@@ -251,6 +255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "Copy", action: #selector(TerminalView.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(TerminalView.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        let findItem = editMenu.addItem(withTitle: "Find", action: nil, keyEquivalent: "")
+        let findMenu = NSMenu(title: "Find")
+        findMenu.addItem(withTitle: "Find…", action: #selector(TerminalView.showFindBar(_:)), keyEquivalent: "f")
+        findMenu.addItem(withTitle: "Find Next", action: #selector(TerminalView.findNext(_:)), keyEquivalent: "g")
+        let previous = findMenu.addItem(withTitle: "Find Previous", action: #selector(TerminalView.findPrevious(_:)), keyEquivalent: "g")
+        previous.keyEquivalentModifierMask = [.command, .shift]
+        findItem.submenu = findMenu
         editItem.submenu = editMenu
         let viewItem = NSMenuItem()
         main.addItem(viewItem)
