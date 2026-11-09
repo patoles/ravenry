@@ -123,4 +123,44 @@ extension SelfTestBoard {
         pg.buttons["cancel"]?.performClick(nil)
         check("newplan_cancel_goes_back", board.root.middle !== pg, "\(board.front)")
     }
+
+    // MARK: an idea's thread (IDEA-003)
+
+    func screenIdea() {
+        let pg = board.idea
+        board.openPage("idea:demo-tidepool", t("idea.ideas"))
+        check("idea_opens", board.front == .page("idea:demo-tidepool", t("idea.ideas")) && board.root.middle === pg && board.root.wideMiddle, "\(board.front)")
+        check("idea_read_from_hub", wait(5) { pg.ideas != nil } && board.hub.sent.isEmpty == board.hub.sent.isEmpty)
+        check("idea_drawn", wait(3) { self.shows(pg, "A tide pool you look after") } && shows(pg, "Spark") && shows(pg, "A small screen of rock pool") && shows(pg, "Would this work as a phone widget?") && shows(pg, "It stays calm because nothing is urgent."), texts(pg).prefix(8).joined(separator: " | "))
+        check("idea_who_and_when", texts(pg).contains { $0.hasPrefix("You, today, ") } && texts(pg).contains { $0.hasPrefix("Claude, today, ") }, texts(pg).filter { $0.contains("today") }.joined(separator: ","))
+        pictures("idea")
+        let L = board.log.count
+        pg.buttons["send"]?.performClick(nil)
+        check("idea_send_needs_words", toasts(since: L).last == t("idea.typeReply"))
+        if let f = pg.fields["say"] { typeIn(f, "Could the creature be a hermit crab?") }
+        pg.dirty(); pg.redraw()
+        check("idea_typed_kept", pg.fields["say"]?.text == "Could the creature be a hermit crab?")
+        var n = board.hub.sent.count
+        pg.buttons["send"]?.performClick(nil)
+        check("idea_send_posts", wait(3) { self.sentSince(n).contains("POST /api/ideas/demo-tidepool/say") } && wait(20) { pg.fields["say"]?.text == "" }, sentSince(n).joined(separator: ","))
+        check("idea_reply_in_thread", wait(20) { self.shows(pg, "Could the creature be a hermit crab?") }, texts(pg).suffix(8).joined(separator: " | "))
+        n = board.hub.sent.count
+        _ = wait(20) { pg.busy.isEmpty }
+        pg.buttons["greenlight"]?.performClick(nil)
+        check("idea_greenlight", wait(3) { self.sentSince(n).contains("POST /api/ideas/demo-tidepool/update") } && wait(6) { self.shows(pg, "Greenlit") && pg.buttons["greenlight"] == nil }, texts(pg).prefix(4).joined(separator: " | "))
+        n = board.hub.sent.count
+        _ = wait(20) { pg.busy.isEmpty }
+        pg.buttons["park"]?.performClick(nil)
+        check("idea_park", wait(3) { self.sentSince(n).contains("POST /api/ideas/demo-tidepool/update") } && wait(6) { self.shows(pg, "Parked") && pg.buttons["park"] == nil && pg.buttons["greenlight"] != nil })
+        n = board.hub.sent.count
+        let L2 = board.log.count
+        _ = wait(20) { pg.busy.isEmpty }
+        pg.buttons["mockup"]?.performClick(nil)
+        check("idea_mockup_round", wait(3) { self.sentSince(n).contains("POST /api/ideas/demo-tidepool/mockups") } && wait(5) { !self.toasts(since: L2).isEmpty }, toasts(since: L2).joined(separator: ","))
+        pictures("idea-after")
+        board.openIdea("nowhere")
+        check("idea_gone", wait(3) { self.shows(pg, t("idea.gone")) })
+        pg.buttons["back"]?.performClick(nil)
+        check("idea_back_to_ideas", { if case .page(let k, _) = board.front { return k != "idea:nowhere" }; return false }(), "\(board.front)")
+    }
 }

@@ -32,6 +32,36 @@ func wrap(_ s: String, _ font: NSFont = Fonts.pt(13), _ color: String = "tx") ->
     return f
 }
 
+/// Words at most `maxW` wide, from the left (.ia-msg's max-width), on a
+/// bubble (`fill`) as wide as the words, else as wide as the room.
+final class CappedText: Flipped {
+    let text: NSTextField
+    private let maxW: CGFloat, inset: CGFloat
+    init(_ s: String, _ font: NSFont, _ color: String, maxW: CGFloat = 720, fill: String? = nil) {
+        self.maxW = maxW
+        inset = fill == nil ? 0 : 12
+        text = NSTextField(wrappingLabelWithString: s)
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        text.font = font; text.textColor = Design.color(color); text.isSelectable = true; text.drawsBackground = false
+        text.lineBreakMode = .byWordWrapping
+        text.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let inner: NSView = fill.map { boxed(text, fill: $0, radius: 10, insets: NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)) } ?? text
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(inner)
+        var cs = [inner.leadingAnchor.constraint(equalTo: leadingAnchor), inner.topAnchor.constraint(equalTo: topAnchor), inner.bottomAnchor.constraint(equalTo: bottomAnchor),
+                  inner.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor), inner.widthAnchor.constraint(lessThanOrEqualToConstant: maxW)]
+        if fill == nil { let w = inner.widthAnchor.constraint(equalTo: widthAnchor); w.priority = .init(700); cs.append(w) }
+        NSLayoutConstraint.activate(cs)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func layout() {
+        let w = max(40, min(maxW, bounds.width) - 2 * inset)
+        if abs(text.preferredMaxLayoutWidth - w) > 0.5 { text.preferredMaxLayoutWidth = w; text.invalidateIntrinsicContentSize() }
+        super.layout()
+    }
+}
+
 /// .ia-pill: a word on a tint, in its colour.
 func pill(_ s: String, _ tone: String?) -> Box {
     let fg = tone ?? "tx2", bg = tone.map { "\($0)-t" } ?? "card2"

@@ -44,8 +44,9 @@ final class Board: NSObject {
     let brief = BriefPage()
     let gallery = GalleryPage()
     let plan = PlanPage()
+    let idea = IdeaPage()
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -96,11 +97,15 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = { [weak self] s in self?.toast(s) }
-        for f in [plan] as [FormPage] {
+        for f in [plan, idea] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = { [weak self] s in self?.toast(s) }
             f.onClose = { [weak self] in self?.back() }
+        }
+        idea.openIdeas = { [weak self] in
+            guard let self else { return }
+            if let p = self.hub.state?.pages.first(where: { $0.icon == "idea" }) { self.openPage(p.key, p.label) } else { self.back() }
         }
         plan.openBrief = { [weak self] pid in self?.openBrief(pid) }
         plan.openPlan = { [weak self] pid in self?.openPlan(pid, title: nil) }
@@ -329,6 +334,7 @@ final class Board: NSObject {
         if key.hasPrefix("gallery:") { openGallery(String(key.dropFirst(8)), at: nil); return }
         if key.hasPrefix("plan:") { openPlan(String(key.dropFirst(5)), title: nil); return }
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
+        if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
         overlay = false
         notePageBack()
         front = .page(key, name)
@@ -387,6 +393,17 @@ final class Board: NSObject {
         showMiddle(plan)
         plan.show(pid, mode: .new, state: hub.state)
         log.append("newplan \(pid)")
+        render()
+    }
+
+    /// An idea's thread.
+    func openIdea(_ id: String) {
+        overlay = false
+        notePageBack()
+        front = .page("idea:\(id)", t("idea.ideas"))
+        showMiddle(idea)
+        idea.show(id)
+        log.append("idea \(id)")
         render()
     }
 

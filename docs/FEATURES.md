@@ -247,7 +247,7 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | IDEA-001 | The Ideas page: a board from spark to mockup, greenlit and parked; drag a card to another lane (phone: a long press, Move to) | hub page `ideas.page.yaml`; `POST /api/pages/item/set` | `apps/desktop/tools/pages-test.mjs`, `hub/tools/pages-test.mjs` | missing | done | done | done |
 | IDEA-002 | Add an idea, or brainstorm ideas from a seed | hub `POST /api/ideas/add`, `/api/ideas/brainstorm` | none yet | missing | done | done | done |
-| IDEA-003 | An idea's thread: talk with the agent, ask for a mockup round, Greenlight, Park | hub `GET /api/ideas`; `POST /api/ideas/:id/say`, `mockups`, `update` | RC-25, `hub/tools/idea-mockups-test.mjs` | missing | done | missing | missing |
+| IDEA-003 | An idea's thread: talk with the agent, ask for a mockup round, Greenlight, Park | hub `GET /api/ideas`; `POST /api/ideas/:id/say`, `mockups`, `update` | RC-25, `hub/tools/idea-mockups-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen idea`) | done | done | missing | missing |
 | IDEA-004 | Pick a mockup from a round, or stop the round | hub `POST /api/ideas/:id/mockups/pick`, `mockups/stop` | `hub/tools/idea-mockups-test.mjs` | missing | missing | missing | missing |
 | IDEA-005 | Add references and pictures to an idea | hub `POST /api/ideas/:id/ref`, `image` | none yet | missing | missing | missing | missing |
 | IDEA-006 | Make a project from an idea | hub `POST /api/project/new` (ideaId) | none yet | missing | missing | missing | missing |
