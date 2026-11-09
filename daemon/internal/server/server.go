@@ -280,6 +280,17 @@ type stream struct {
 	ch  uint32
 	p   *pane.Pane
 	sub *pane.Sub
+	// rsub is set instead of sub for a render stream (render.go).
+	rsub *pane.RenderSub
+}
+
+// closeSub ends the stream's subscription, of either kind.
+func (st *stream) closeSub() {
+	if st.rsub != nil {
+		st.rsub.Close()
+	} else {
+		st.sub.Close()
+	}
 }
 
 func newConn(s *Server, ws *websocket.Conn) *conn {
@@ -317,7 +328,7 @@ func (c *conn) close() {
 	c.unwatch = nil
 	c.mu.Unlock()
 	for _, st := range streams {
-		st.sub.Close()
+		st.closeSub()
 	}
 	if unwatch != nil {
 		unwatch()
@@ -496,7 +507,13 @@ func (c *conn) binary(data []byte) {
 		c.fail(nil, proto.CodeNotFound, fmt.Sprintf("input for channel %d, which this connection has not subscribed", ch))
 		return
 	}
-	b := append([]byte(nil), payload...)
+	c.keys(st, append([]byte(nil), payload...))
+}
+
+// keys writes a person's keystrokes (already encoded) to a stream's
+// pane, after the drive check, in order with the connection's other
+// input.
+func (c *conn) keys(st *stream, b []byte) {
 	w := c.whoKeys()
 	if ok, lease := c.s.mayDrive(w, st.p.ID()); !ok {
 		// Keystrokes cannot wait: refused, and the person is asked.
@@ -546,6 +563,12 @@ func (c *conn) ack(a proto.Ack) {
 	}
 	if a.Bytes < 0 {
 		c.fail(nil, proto.CodeBadRequest, "ack bytes must not be negative")
+		return
+	}
+	if st.rsub != nil {
+		if a.Frame != nil {
+			st.rsub.Ack(*a.Frame)
+		}
 		return
 	}
 	st.sub.Ack(int(min(a.Bytes, 1<<40)))
@@ -622,6 +645,10 @@ func init() {
 		"pane.replay":       (*conn).paneReplay,
 		"pane.override":     (*conn).paneOverride,
 		"pane.clear":        (*conn).paneClear,
+		"pane.render":       (*conn).paneRender,
+		"render.scroll":     (*conn).renderScroll,
+		"render.input":      (*conn).renderInput,
+		"render.text":       (*conn).renderText,
 	}
 }
 
@@ -1356,7 +1383,7 @@ func (c *conn) paneUnsubscribe(id uint64, data []byte) {
 		c.failErr(id, fmt.Errorf("%w: %d", errNoChannel, *r.Channel))
 		return
 	}
-	st.sub.Close()
+	st.closeSub()
 	c.reply(id, "pane.unsubscribe", proto.Empty{})
 }
 

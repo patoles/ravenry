@@ -46,8 +46,11 @@ type Options struct {
 // Frame is a binary frame of a stream.
 type Frame struct {
 	Snapshot bool
-	Mark     uint64
-	Data     []byte
+	// Render: a render stream's frame (docs/RENDERING.md); Data is its
+	// payload, read with package rframe.
+	Render bool
+	Mark   uint64
+	Data   []byte
 }
 
 // Stream is a subscription to a pane's output.
@@ -178,7 +181,7 @@ func (c *Client) readLoop() {
 			c.mu.Unlock()
 			if st != nil {
 				select {
-				case st.Frames <- Frame{Snapshot: kind == proto.FrameSnapshot, Mark: mark, Data: payload}:
+				case st.Frames <- Frame{Snapshot: kind == proto.FrameSnapshot, Render: kind == proto.FrameRender, Mark: mark, Data: payload}:
 				case <-c.ctx.Done():
 				}
 			}
@@ -222,7 +225,7 @@ func (c *Client) text(data []byte) {
 		c.mu.Lock()
 		ch := c.pending[*m.ID]
 		delete(c.pending, *m.ID)
-		if m.Type == "result" && m.Method == "pane.subscribe" {
+		if m.Type == "result" && (m.Method == "pane.subscribe" || m.Method == "pane.render") {
 			// Register the stream before reading on, so its first frame,
 			// which follows this result, has somewhere to go.
 			var r proto.SubscribeResult
@@ -406,4 +409,60 @@ func (s *Stream) Input(ctx context.Context, b []byte) error {
 // Close ends the stream.
 func (s *Stream) Close(ctx context.Context) error {
 	return s.c.Call(ctx, "pane.unsubscribe", map[string]any{"channel": s.Channel}, nil)
+}
+
+// RenderOptions configures a render stream (pane.render).
+type RenderOptions struct {
+	// Cols and Rows resize the pane first, when set.
+	Cols, Rows int
+	FPS        int
+	Window     int
+}
+
+// Render streams a pane's screen as render frames (docs/RENDERING.md).
+// The client acknowledges each frame it draws with AckFrame.
+func (c *Client) Render(ctx context.Context, pane string, o RenderOptions) (*Stream, error) {
+	params := map[string]any{"pane": pane}
+	if o.Cols > 0 {
+		params["cols"], params["rows"] = o.Cols, o.Rows
+	}
+	if o.FPS > 0 {
+		params["fps"] = o.FPS
+	}
+	if o.Window > 0 {
+		params["window"] = o.Window
+	}
+	r, err := c.call(ctx, "pane.render", params)
+	if err != nil {
+		return nil, err
+	}
+	if r.stream == nil {
+		return nil, errors.New("pane.render answered without a channel")
+	}
+	return r.stream, nil
+}
+
+// AckFrame says the client drew the render stream's frames up to seq.
+func (s *Stream) AckFrame(ctx context.Context, seq uint32) error {
+	b, _ := json.Marshal(proto.Ack{V: proto.Version, Type: "ack", Channel: s.Channel, Frame: &seq})
+	return s.c.writeText(ctx, b)
+}
+
+// Scroll shows the render stream's view offset rows up into the
+// scrollback; 0 is the live screen.
+func (s *Stream) Scroll(ctx context.Context, offset int) error {
+	return s.c.Call(ctx, "render.scroll", map[string]any{"channel": s.Channel, "offset": offset}, nil)
+}
+
+// Events sends input events (key, mouse, text, paste, focus) on a render
+// stream; the daemon encodes them for the program.
+func (s *Stream) Events(ctx context.Context, events []proto.RenderEvent) error {
+	return s.c.Call(ctx, "render.input", proto.RenderInputRequest{Channel: &s.Channel, Events: events}, nil)
+}
+
+// Text reads the text between two cells in screen coordinates.
+func (s *Stream) Text(ctx context.Context, from, to proto.RenderPoint, rect bool) (string, error) {
+	var r proto.RenderTextResult
+	err := s.c.Call(ctx, "render.text", map[string]any{"channel": s.Channel, "from": from, "to": to, "rect": rect}, &r)
+	return r.Text, err
 }

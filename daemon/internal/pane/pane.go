@@ -161,6 +161,17 @@ type Pane struct {
 	// seen is what tracking saw belong to the pane (proctree.go).
 	seen *seen
 
+	// The render stream (render.go): the screen as it sends it, the
+	// hold after a resize, the streams, and the bells rung.
+	rview renderView
+	rhold *resizeHold
+	rsubs map[*RenderSub]struct{}
+	// pendingSize is a size asked for while the shell redraws its prompt
+	// after the last resize; pendingT applies it once the redraw is done.
+	pendingSize *[2]int
+	pendingT    *time.Timer
+	bells       uint32
+
 	// times is when its output came (record.go); frames are its recent
 	// screens (frames.go).
 	times  *timeline
@@ -319,8 +330,11 @@ func start(cfg Config, env []string, logDir string, logCap int64, socket, shellD
 		Prompt:        p.promptMark,
 		Status:        func(st vt.ProgramStatus) { p.notes = append(p.notes, note{status: &st}) },
 		// A real bell (not the BEL that ends an OSC sequence): pane.bell.
-		Bell: func() { p.notes = append(p.notes, note{bell: true}) },
-		Pwd:  p.pwd,
+		Bell: func() {
+			p.bells++
+			p.notes = append(p.notes, note{bell: true})
+		},
+		Pwd: p.pwd,
 	})
 	if err != nil {
 		return nil, err
@@ -495,6 +509,10 @@ func (p *Pane) readLoop() {
 	for s := range p.subs {
 		s.end()
 	}
+	for s := range p.rsubs {
+		s.ended = true
+		s.signal()
+	}
 	p.broadcast()
 	p.mu.Unlock()
 }
@@ -553,6 +571,11 @@ func (p *Pane) outputLocked(b []byte) {
 	}
 	p.writeEnd = mark + uint64(len(b))
 	p.screen.Write(b)
+	if p.rhold != nil {
+		p.rhold.output, p.rhold.last = true, time.Now()
+		p.armPendingResize()
+	}
+	p.renderChanged()
 	for t := range p.taps {
 		t.fn(b)
 	}
@@ -660,6 +683,9 @@ func (p *Pane) promptMark(m vt.PromptMark) {
 	sh := p.shell
 	switch m.Kind {
 	case vt.PromptStart, vt.InputStart:
+		if m.Kind == vt.InputStart && p.rhold != nil {
+			p.rhold.inputStart = true
+		}
 		sh.State = "prompt"
 		p.prompts = append(p.prompts, p.writeEnd)
 		if len(p.prompts) > maxPromptMarks {
@@ -815,16 +841,18 @@ func (p *Pane) Resize(cols, rows int) error {
 		p.realCols, p.realRows = cols, rows
 		return nil
 	}
-	return p.resizeLocked(cols, rows)
+	return p.resizeWhenDrawn(cols, rows)
 }
 
 func (p *Pane) resizeLocked(cols, rows int) error {
 	if c, r := p.screen.Size(); c == cols && r == rows {
 		return nil
 	}
+	atPrompt := p.screen.AtPrompt()
 	if err := p.screen.Resize(cols, rows); err != nil {
 		return err
 	}
+	p.resized(atPrompt)
 	p.times.resize(p.offset, cols, rows, time.Now())
 	return pty.Setsize(p.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 }
@@ -923,8 +951,9 @@ func (p *Pane) Text() ([]string, error) {
 // whatever the program turns on. It runs inside screen.Write, with the
 // pane's lock held.
 func (p *Pane) kittyKeyboard() bool {
+	// A render stream's keys are encoded here, Kitty's included.
 	if len(p.subs) == 0 {
-		return false
+		return len(p.rsubs) > 0
 	}
 	for s := range p.subs {
 		if !s.kitty {
@@ -953,6 +982,7 @@ func (p *Pane) Clear() (bool, error) {
 	for s := range p.subs {
 		s.redraw()
 	}
+	p.renderChanged()
 	return true, nil
 }
 
@@ -1017,6 +1047,9 @@ func (p *Pane) close(grace time.Duration, others map[int]bool) int {
 	p.pty.Close()
 	for s := range p.subs {
 		s.end()
+	}
+	for s := range p.rsubs {
+		s.signal()
 	}
 	p.broadcast()
 	p.mu.Unlock()

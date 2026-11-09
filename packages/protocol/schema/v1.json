@@ -129,6 +129,18 @@
         },
         {
           "$ref": "#/$defs/ack"
+        },
+        {
+          "$ref": "#/$defs/request.pane.render"
+        },
+        {
+          "$ref": "#/$defs/request.render.scroll"
+        },
+        {
+          "$ref": "#/$defs/request.render.input"
+        },
+        {
+          "$ref": "#/$defs/request.render.text"
         }
       ]
     },
@@ -314,6 +326,18 @@
         },
         {
           "$ref": "#/$defs/result.pane.shot"
+        },
+        {
+          "$ref": "#/$defs/result.pane.render"
+        },
+        {
+          "$ref": "#/$defs/result.render.scroll"
+        },
+        {
+          "$ref": "#/$defs/result.render.input"
+        },
+        {
+          "$ref": "#/$defs/result.render.text"
         }
       ]
     },
@@ -4159,17 +4183,22 @@
         "bytes": {
           "type": "integer",
           "minimum": 0,
-          "description": "Payload bytes of this channel's frames the client has processed since its last ack."
+          "description": "Payload bytes of this channel's frames the client has processed since its last ack (a byte stream)."
+        },
+        "frame": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "On a render stream: the newest frame the client has drawn."
         }
       },
       "required": [
         "v",
         "type",
-        "channel",
-        "bytes"
+        "channel"
       ],
       "additionalProperties": false,
-      "description": "Sent by a client that subscribed with ack: true. It has no reply."
+      "description": "Sent by a client that subscribed with ack: true (bytes), or on a render stream (frame). It has no reply."
     },
     "error": {
       "type": "object",
@@ -6264,6 +6293,443 @@
       ],
       "additionalProperties": false,
       "description": "A pane's lease was taken, released or ran out: its lease, or none."
+    },
+    "RenderPoint": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Screen coordinates: row 0 is the oldest scrollback row kept."
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "additionalProperties": false
+    },
+    "RenderEvent": {
+      "type": "object",
+      "description": "One input event: exactly one field.",
+      "properties": {
+        "key": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "The physical key as a W3C KeyboardEvent.code value: KeyA, Digit1, ArrowUp, Enter, F5, NumpadEnter."
+            },
+            "action": {
+              "enum": [
+                "press",
+                "repeat",
+                "release"
+              ],
+              "description": "Default press."
+            },
+            "mods": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 63,
+              "description": "Modifier bits: 1 Shift, 2 Control, 4 Alt (Option), 8 Super (Command), 16 Caps Lock, 32 Num Lock."
+            },
+            "consumed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 63,
+              "description": "The modifiers the keyboard layout used to produce text (Shift for A, Option for a character it types on a Mac)."
+            },
+            "text": {
+              "type": "string",
+              "description": "What the key types with the layout and modifiers applied; empty for a control key."
+            },
+            "unshifted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1114111,
+              "description": "The character the key types with no modifier, as a code point."
+            },
+            "composing": {
+              "type": "boolean"
+            },
+            "option_as_alt": {
+              "enum": [
+                "",
+                "left",
+                "right",
+                "both"
+              ],
+              "description": "The Mac's Option key acts as Alt rather than typing characters."
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        "mouse": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "enum": [
+                "press",
+                "release",
+                "motion"
+              ]
+            },
+            "button": {
+              "enum": [
+                "",
+                "left",
+                "right",
+                "middle",
+                "wheel_up",
+                "wheel_down",
+                "wheel_left",
+                "wheel_right"
+              ]
+            },
+            "mods": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 63,
+              "description": "Modifier bits: 1 Shift, 2 Control, 4 Alt (Option), 8 Super (Command), 16 Caps Lock, 32 Num Lock."
+            },
+            "x": {
+              "type": "number",
+              "description": "From the terminal's top left corner, in the client's units."
+            },
+            "y": {
+              "type": "number"
+            },
+            "cell_width": {
+              "type": "number",
+              "description": "A cell's size, in the same units."
+            },
+            "cell_height": {
+              "type": "number"
+            },
+            "held": {
+              "type": "boolean",
+              "description": "A button is down during a motion."
+            }
+          },
+          "required": [
+            "action",
+            "x",
+            "y",
+            "cell_width",
+            "cell_height"
+          ],
+          "additionalProperties": false
+        },
+        "text": {
+          "type": "string",
+          "description": "Text an input method committed, sent as typed."
+        },
+        "paste": {
+          "type": "string",
+          "description": "Pasted text: bracketed when the program asked (mode 2004), else made safe."
+        },
+        "focus": {
+          "type": "boolean",
+          "description": "The client's view gained (true) or lost focus; reported when the program asked (mode 1004)."
+        }
+      },
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false
+    },
+    "request.pane.render": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "pane.render"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "pane": {
+          "$ref": "#/$defs/PaneId"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096,
+          "description": "Resize the pane before the first frame (with rows)."
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "fps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240,
+          "description": "The client's display rate: at most this many frames a second. Default 60."
+        },
+        "window": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Frames sent and not yet acknowledged, at most. Default 2."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "pane"
+      ],
+      "additionalProperties": false,
+      "description": "Streams the pane's screen as render frames (docs/RENDERING.md) on a new channel, for a client that draws the screen itself."
+    },
+    "result.pane.render": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "pane.render"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "pane": {
+              "$ref": "#/$defs/PaneId"
+            },
+            "channel": {
+              "$ref": "#/$defs/Channel"
+            },
+            "format": {
+              "type": "integer",
+              "description": "The frame format's version."
+            }
+          },
+          "required": [
+            "pane",
+            "channel",
+            "format"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.render.scroll": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "render.scroll"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows up from the bottom; 0 is the live screen."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel",
+        "offset"
+      ],
+      "additionalProperties": false,
+      "description": "Shows a render stream's view scrolled into the scrollback."
+    },
+    "result.render.scroll": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "render.scroll"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.render.input": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "render.input"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RenderEvent"
+          }
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel",
+        "events"
+      ],
+      "additionalProperties": false,
+      "description": "A person's input on a render stream's pane: the daemon encodes it for the program's modes."
+    },
+    "result.render.input": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "render.input"
+        },
+        "result": {
+          "$ref": "#/$defs/Empty"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.render.text": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "render.text"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "from": {
+          "$ref": "#/$defs/RenderPoint"
+        },
+        "to": {
+          "$ref": "#/$defs/RenderPoint"
+        },
+        "rect": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel",
+        "from",
+        "to"
+      ],
+      "additionalProperties": false,
+      "description": "The text between two cells, inclusive, as a copy: wrapped rows joined, trailing spaces trimmed."
+    },
+    "result.render.text": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "render.text"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
     }
   }
 }

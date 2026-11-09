@@ -95,7 +95,9 @@ if [[ $- == *i* && -z "${_ravenry_loaded-}" ]]; then
     fi
     _ravenry_urlencode "$PWD"
     builtin printf '\033]7;file://%s%s\007' "${HOSTNAME-}" "$REPLY"
-    [[ $PS1 == *'\e]133;A\a'* ]] || PS1='\[\e]133;A\a\]'"$PS1"
+    # redraw=1: readline draws the prompt again on a resize, so the
+    # terminal clears the old one first (libghostty-vt does not assume it).
+    [[ $PS1 == *'\e]133;A;redraw=1\a'* ]] || PS1='\[\e]133;A;redraw=1\a\]'"$PS1"
     [[ $PS1 == *'\e]133;B\a'* ]] || PS1="$PS1"'\[\e]133;B\a\]'
     _ravenry_at_prompt=1
     return "$_ravenry_ret"

@@ -9,6 +9,10 @@
 # CMakeLists.txt pins the ghostty commit its bindings were written against.
 # This script reads that commit from the module, so the two can never drift.
 #
+# The patches in daemon/patches (fixes this build needs before upstream has
+# them) are applied to the checkout, and the build folder's name carries
+# their hash, so a changed patch builds again.
+#
 # Needs Zig 0.17 or newer on PATH (ghostty's minimum_zig_version), git and
 # Go. The build takes about two minutes the first time.
 set -eu
@@ -28,7 +32,12 @@ if [ -z "$commit" ]; then
 fi
 short=$(printf %s "$commit" | cut -c1-12)
 target="$(go env GOOS)-$(go env GOARCH)"
-out="$here/.deps/libghostty-vt-$short-$target"
+patches=$(ls "$here"/patches/*.patch 2>/dev/null || true)
+suffix=""
+if [ -n "$patches" ]; then
+  suffix="-p$(cat $patches | shasum -a 256 | cut -c1-8)"
+fi
+out="$here/.deps/libghostty-vt-$short$suffix-$target"
 
 if [ -f "$out/lib/libghostty-vt.a" ] && [ -f "$out/lib/pkgconfig/libghostty-vt-static.pc" ]; then
   echo "$out/lib/pkgconfig"
@@ -59,6 +68,11 @@ if [ "$(git -C "$src" rev-parse HEAD 2>/dev/null || true)" != "$commit" ]; then
   git -C "$src" fetch -q --depth 1 origin "$commit"
   git -C "$src" -c advice.detachedHead=false checkout -q FETCH_HEAD
 fi
+# Start from the pinned tree, then apply this build's patches.
+git -C "$src" checkout -q -- .
+for p in $patches; do
+  git -C "$src" apply "$p"
+done
 
 echo "libghostty.sh: building libghostty-vt $short for $target with zig $zv" >&2
 rm -rf "$out.tmp"

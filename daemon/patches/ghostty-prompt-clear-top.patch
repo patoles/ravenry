@@ -1,0 +1,41 @@
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 810d6ff..3ed7d9b 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -2489,10 +2489,35 @@ fn clearPromptForRedraw(
+                     };
+                 };
+ 
++                // Ravenry (daemon/patches/ghostty-prompt-clear-top.patch):
++                // promptIterator stops at a row that is neither a prompt
++                // nor a prompt continuation, and the rows a command line
++                // soft-wraps onto are neither when the shell typed them
++                // (input wraps are not marked), nor, after a reflow, is
++                // the head of a split prompt row the only row marked as
++                // the prompt. So with a multi-line command line whose
++                // lines wrap, the clear started at the cursor's own line
++                // and the shell's redraw, which moves up by its old row
++                // count, left the rows above as debris ("~ > ..." twice).
++                // Walk up from the cursor instead, through soft-wrapped
++                // rows and continuations, to the prompt's first row.
++                const top = top: {
++                    var p = self.cursor.page_pin.left(self.cursor.page_pin.x);
++                    while (true) {
++                        const row = p.rowAndCell().row;
++                        if (!row.wrap_continuation) switch (row.semantic_prompt) {
++                            .prompt => break :top p,
++                            .prompt_continuation => {},
++                            .none => break :top start,
++                        };
++                        p = p.up(1) orelse break :top start;
++                    }
++                };
++
+                 // Clear cells from our start down. We replace it with spaces,
+                 // and do not physically erase the rows (eraseRows) because the
+                 // shell is going to expect this space to be available.
+-                var it = start.rowIterator(.right_down, null);
++                var it = top.rowIterator(.right_down, null);
+                 while (it.next()) |pin| {
+                     const page = pin.node.page();
+                     const row = pin.rowAndCell().row;

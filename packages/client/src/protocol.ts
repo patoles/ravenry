@@ -405,6 +405,42 @@ export interface HelloResult {
   person: boolean;
 }
 
+/** One input event of a render stream (docs/RENDERING.md): exactly one field. */
+export type RenderEvent =
+  | {
+      key: {
+        code: string;
+        action?: 'press' | 'repeat' | 'release';
+        mods?: number;
+        consumed?: number;
+        text?: string;
+        unshifted?: number;
+        composing?: boolean;
+        option_as_alt?: '' | 'left' | 'right' | 'both';
+      };
+    }
+  | {
+      mouse: {
+        action: 'press' | 'release' | 'motion';
+        button?: '' | 'left' | 'right' | 'middle' | 'wheel_up' | 'wheel_down' | 'wheel_left' | 'wheel_right';
+        mods?: number;
+        x: number;
+        y: number;
+        cell_width: number;
+        cell_height: number;
+        held?: boolean;
+      };
+    }
+  | { text: string }
+  | { paste: string }
+  | { focus: boolean };
+
+/** A cell in screen coordinates: row 0 is the oldest scrollback row kept. */
+export interface RenderPoint {
+  x: number;
+  y: number;
+}
+
 export type Input =
   | { text: string; mode: 'raw' | 'paste' }
   | { text: string; mode: 'typed'; delay_ms?: number }
@@ -528,6 +564,14 @@ export interface Methods {
   'pane.focus': { params: { pane: PaneId }; result: { displays: number } };
   /** Cmd+K: clears the screen and scrollback; the prompt stays at the top. `cleared` is false on the alternate screen (nothing changed). Check supports('pane.clear') first. */
   'pane.clear': { params: { pane: PaneId }; result: { pane: Pane; cleared: boolean } };
+  /** The render stream (docs/RENDERING.md): the screen as frames of changed rows (binary kind 4), for a client that draws it itself. */
+  'pane.render': {
+    params: { pane: PaneId; cols?: number; rows?: number; fps?: number; window?: number };
+    result: { pane: PaneId; channel: number; format: number };
+  };
+  'render.scroll': { params: { channel: number; offset: number }; result: Record<string, never> };
+  'render.input': { params: { channel: number; events: RenderEvent[] }; result: Record<string, never> };
+  'render.text': { params: { channel: number; from: RenderPoint; to: RenderPoint; rect?: boolean }; result: { text: string } };
   'agent.report': {
     params: {
       pane?: PaneId;

@@ -28,8 +28,10 @@ var (
 // a row is always in one page), and colours are resolved with the screen's
 // palette here. A screen of plain text costs four calls per row.
 func (s *ghostty) Grid() (*Grid, error) {
-	if err := s.rs.Update(s.t); err != nil {
-		return nil, fmt.Errorf("vt: render state: %w", err)
+	// During a program's render hold this is the last frame it
+	// finished, as on a screen.
+	if _, err := s.update(); err != nil {
+		return nil, err
 	}
 	g := &Grid{Cols: s.cols, Rows: s.rows, Fg: defaultFg, Bg: defaultBg, CursorStyle: "block"}
 	if c, err := s.t.ColorForeground(); err == nil && c != nil {
@@ -268,7 +270,7 @@ type bitField struct{ lsb, width uint }
 
 func (f bitField) get(v uint64) uint64 { return v >> f.lsb & (1<<f.width - 1) }
 
-type layout struct{ tag, content, style, wide bitField }
+type layout struct{ tag, content, style, wide, link bitField }
 
 var (
 	layoutOnce sync.Once
@@ -312,6 +314,10 @@ func parseLayout(desc string) *layout {
 	}
 	if l.content.width < 24 {
 		return nil
+	}
+	// The hyperlink flag is optional: without it, rows carry no links.
+	if b, ok := t.Bits["hyperlink"]; ok && b.Width == 1 && b.Lsb < 64 {
+		l.link = bitField{b.Lsb, b.Width}
 	}
 	return l
 }

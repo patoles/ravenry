@@ -8,6 +8,8 @@ export const HEADER_BYTES = 14;
 export const KIND_OUTPUT = 1;
 export const KIND_SNAPSHOT = 2;
 export const KIND_INPUT = 3;
+/** A render stream's frame (docs/RENDERING.md); its mark is 0. */
+export const KIND_RENDER = 4;
 
 export interface Frame {
   version: number;

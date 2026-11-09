@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	gt "go.mitchellh.com/libghostty"
 )
@@ -28,7 +29,23 @@ type ghostty struct {
 	scrollback int
 	// defPal is the palette the screen starts with, to tell the entries a
 	// program changed (OSC 4).
-	defPal [16]RGB
+	defPal    [16]RGB
+	defPal256 [256]RGB
+
+	// The render stream (render.go): a program's render hold
+	// (synchronized output) and since when; the render state of a
+	// scrolled view; buffers; the hyperlinks seen, by id.
+	held    bool
+	heldAt  time.Time
+	hs      *gt.RenderState
+	rbuf    []byte
+	tbuf    []byte
+	rstyles map[uint64][styleSize]byte
+	links   []string
+	linkIDs map[string]uint16
+	linkTop int
+	mouse   *gt.MouseEncoder
+	mev     *gt.MouseEvent
 }
 
 // snapshotExtras restores everything except the palette: a client keeps
@@ -46,7 +63,8 @@ func New(o Options) (Screen, error) {
 	if o.Cols <= 0 || o.Rows <= 0 || o.Cols > 0xffff || o.Rows > 0xffff {
 		return nil, fmt.Errorf("vt: bad size %dx%d", o.Cols, o.Rows)
 	}
-	s := &ghostty{cols: o.Cols, rows: o.Rows, scrollback: max(o.Scrollback, 0)}
+	s := &ghostty{cols: o.Cols, rows: o.Rows, scrollback: max(o.Scrollback, 0),
+		rstyles: map[uint64][styleSize]byte{}, linkIDs: map[string]uint16{}, linkTop: -1}
 	opts := []gt.TerminalOption{
 		gt.WithSize(uint16(o.Cols), uint16(o.Rows)),
 		// The history is counted in lines only. libghostty also has a byte
@@ -56,6 +74,7 @@ func New(o Options) (Screen, error) {
 		// no byte limit the line limit bounds the memory instead.
 		gt.WithMaxScrollbackBytes(math.MaxUint),
 		gt.WithMaxScrollbackLines(lineLimit(o.Scrollback, o.Cols)),
+		gt.WithRenderHold(func(_ *gt.Terminal, held bool) { s.onRenderHold(held) }),
 		gt.WithTitleChanged(func(t *gt.Terminal) {
 			if title, err := t.Title(); err == nil {
 				s.title = title
@@ -172,9 +191,10 @@ func New(o Options) (Screen, error) {
 	}
 	if err := s.rs.Update(s.t); err == nil {
 		if colors, err := s.rs.Colors(); err == nil {
-			for i := range s.defPal {
-				s.defPal[i] = rgb(colors.Palette[i])
+			for i := range s.defPal256 {
+				s.defPal256[i] = rgb(colors.Palette[i])
 			}
+			copy(s.defPal[:], s.defPal256[:16])
 		}
 	}
 	return s, nil
@@ -287,8 +307,10 @@ func (s *ghostty) allLines() ([]string, error) {
 // Text reads the visible rows through libghostty's render state, which
 // reads a whole row per call and does not touch the scrollback.
 func (s *ghostty) Text() ([]string, error) {
-	if err := s.rs.Update(s.t); err != nil {
-		return nil, fmt.Errorf("vt: render state: %w", err)
+	// During a program's render hold this is the last frame it
+	// finished, as on a screen.
+	if _, err := s.update(); err != nil {
+		return nil, err
 	}
 	if err := s.rs.RowIterator(s.ri); err != nil {
 		return nil, fmt.Errorf("vt: row iterator: %w", err)
@@ -646,6 +668,15 @@ func (s *ghostty) EncodePaste(text []byte) ([]byte, error) {
 }
 
 func (s *ghostty) Close() {
+	if s.hs != nil {
+		s.hs.Close()
+	}
+	if s.mev != nil {
+		s.mev.Close()
+	}
+	if s.mouse != nil {
+		s.mouse.Close()
+	}
 	if s.rc != nil {
 		s.rc.Close()
 	}

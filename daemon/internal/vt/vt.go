@@ -54,6 +54,30 @@ type Screen interface {
 	// alternate screen, which belongs to a full-screen program, it changes
 	// nothing and returns false.
 	Clear() (bool, error)
+	// Render reads the live screen for a render stream (RENDERING.md):
+	// row gets each row that may have changed since the last call, in
+	// the stream's wire format (only valid during the call), and wrap
+	// says the row continues on the next. During a program's render
+	// hold (synchronized output, at most a second) the rows are those of
+	// the last frame it finished, and held is true. all: every row.
+	Render(all bool, row func(y int, wrap bool, data []byte)) (info RenderInfo, held bool, err error)
+	// RenderAt reads every row of the screen scrolled offset rows up
+	// into the scrollback (clamped to it).
+	RenderAt(offset int, row func(y int, wrap bool, data []byte)) (RenderInfo, error)
+	// LinkURI is the URI of a hyperlink id in a rendered row.
+	LinkURI(id uint16) string
+	// AtPrompt reports whether the cursor is at a shell prompt, which a
+	// resize clears for the shell to draw again.
+	AtPrompt() bool
+	// TextRange is the text between two points, inclusive, in screen
+	// coordinates (row 0 is the oldest scrollback row), as a copy:
+	// wrapped rows joined, trailing spaces trimmed. rect: a block.
+	TextRange(x0, y0, x1, y1 int, rect bool) (string, error)
+	// EncodeKeyEvent, EncodeMouse and EncodeFocus encode a client's
+	// input for the program's current modes (input.go).
+	EncodeKeyEvent(k KeyEvent) ([]byte, error)
+	EncodeMouse(m MouseEvent) ([]byte, error)
+	EncodeFocus(focused bool) ([]byte, error)
 	// Close frees the screen.
 	Close()
 }

@@ -52,6 +52,9 @@ var Methods = []string{
 	"pane.shot", "pane.frames", "pane.recording", "pane.replay", "pane.override",
 	// Cmd+K in a terminal window: clear a pane's screen and history.
 	"pane.clear",
+	// The render stream (docs/RENDERING.md): a pane's screen as frames,
+	// for a client that draws it itself, and that client's input.
+	"pane.render", "render.scroll", "render.input", "render.text",
 }
 
 // Envelope is what every JSON message starts with.
@@ -118,6 +121,8 @@ type Ack struct {
 	Type    string `json:"type"` // "ack"
 	Channel uint32 `json:"channel"`
 	Bytes   int64  `json:"bytes"`
+	// Frame: on a render stream, the newest frame the client has drawn.
+	Frame *uint32 `json:"frame,omitempty"`
 }
 
 // Requests. Each embeds Envelope, so a strict decoder accepts exactly the
@@ -640,6 +645,9 @@ const (
 	FrameOutput   byte = 1
 	FrameSnapshot byte = 2
 	FrameInput    byte = 3
+	// FrameRender is a render stream's frame (docs/RENDERING.md); its
+	// mark is 0.
+	FrameRender byte = 4
 )
 
 // FrameHeader is the size of a binary frame's header: version (1 byte),
@@ -840,4 +848,92 @@ type CheckpointCancelRequest struct {
 	Envelope
 	Checkpoint string `json:"checkpoint"`
 	Reason     string `json:"reason,omitempty"`
+}
+
+// ------------------------------------------------------------ render stream
+
+// RenderRequest starts a render stream (docs/RENDERING.md).
+type RenderRequest struct {
+	Envelope
+	Pane string `json:"pane"`
+	// Cols and Rows resize the pane before the first frame.
+	Cols *int `json:"cols,omitempty"`
+	Rows *int `json:"rows,omitempty"`
+	// FPS is the client's display rate: at most this many frames a
+	// second. Window: frames sent and not yet acknowledged, at most.
+	FPS    *int `json:"fps,omitempty"`
+	Window *int `json:"window,omitempty"`
+}
+
+type RenderResult struct {
+	Pane    string `json:"pane"`
+	Channel uint32 `json:"channel"`
+	// Format is the frame format's version.
+	Format int `json:"format"`
+}
+
+type RenderScrollRequest struct {
+	Envelope
+	Channel *uint32 `json:"channel"`
+	// Offset: rows up from the bottom; 0 is the live screen.
+	Offset *int `json:"offset"`
+}
+
+type RenderInputRequest struct {
+	Envelope
+	Channel *uint32       `json:"channel"`
+	Events  []RenderEvent `json:"events"`
+}
+
+// RenderEvent is one input event: exactly one field is set.
+type RenderEvent struct {
+	Key   *RenderKey   `json:"key,omitempty"`
+	Mouse *RenderMouse `json:"mouse,omitempty"`
+	// Text an input method committed, sent as typed.
+	Text *string `json:"text,omitempty"`
+	// Paste is pasted text (bracketed when the program asked).
+	Paste *string `json:"paste,omitempty"`
+	// Focus: the client's view gained (true) or lost focus.
+	Focus *bool `json:"focus,omitempty"`
+}
+
+type RenderKey struct {
+	Code        string `json:"code"`
+	Action      string `json:"action,omitempty"`
+	Mods        int    `json:"mods,omitempty"`
+	Consumed    int    `json:"consumed,omitempty"`
+	Text        string `json:"text,omitempty"`
+	Unshifted   int    `json:"unshifted,omitempty"`
+	Composing   bool   `json:"composing,omitempty"`
+	OptionAsAlt string `json:"option_as_alt,omitempty"`
+}
+
+type RenderMouse struct {
+	Action     string  `json:"action"`
+	Button     string  `json:"button,omitempty"`
+	Mods       int     `json:"mods,omitempty"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	CellWidth  float64 `json:"cell_width"`
+	CellHeight float64 `json:"cell_height"`
+	Held       bool    `json:"held,omitempty"`
+}
+
+type RenderTextRequest struct {
+	Envelope
+	Channel *uint32     `json:"channel"`
+	From    RenderPoint `json:"from"`
+	To      RenderPoint `json:"to"`
+	Rect    bool        `json:"rect,omitempty"`
+}
+
+// RenderPoint is a cell in screen coordinates: row 0 is the oldest row
+// of the scrollback.
+type RenderPoint struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+type RenderTextResult struct {
+	Text string `json:"text"`
 }

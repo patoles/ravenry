@@ -22,7 +22,7 @@ RFC 2119.
    marks, the agent in a pane, labels, secrets in output
 4. [Methods](#4-methods): panes, agents, files, checkpoints, who acts
    as the person, who drives a pane, files touched, pictures,
-   recordings and replay, test conditions
+   recordings and replay, test conditions, the render stream
 5. [Streams and binary frames](#5-streams-and-binary-frames)
 6. [Events](#6-events)
 7. [Input and keys](#7-input-and-keys)
@@ -1313,6 +1313,63 @@ Fields left out keep their value. On a pane this connection did not
 start, it waits for a person's yes first (the drive action `override`). Result: `pane` (with `restart`,
 the new pane). Subscribers get `pane.updated`.
 
+### The render stream
+
+For a client that draws the terminal itself instead of running a
+terminal emulator: the daemon sends the pane's screen as frames of the
+rows that changed, and the client sends the person's keys and mouse as
+events the daemon encodes for the program. The frame format, the pacing
+and what such a client implements are in
+[docs/RENDERING.md](../../docs/RENDERING.md).
+
+#### pane.render
+
+| Field | | |
+| --- | --- | --- |
+| `pane` | id | |
+| `cols`, `rows` | integers, optional, together | 1 to 4096: resize the pane before the first frame. |
+| `fps` | integer, optional | 1 to 240: the client's display rate; at most this many frames a second. Default 60. |
+| `window` | integer, optional | 1 to 64: frames sent and not yet acknowledged, at most. Default 2. |
+
+Result: `pane`, `channel` and `format`, the frame format's version (1).
+Render frames (kind 4, section 5) follow on the channel, the first one
+full; `stream.end` ends it as for `pane.subscribe`, and
+`pane.unsubscribe` stops it. The client acknowledges each frame it has
+drawn: `{"v": 1, "type": "ack", "channel": <channel>, "frame": <seq>}`.
+Keys a render stream's client sends are encoded by the daemon, the Kitty
+keyboard protocol included, so a program may hear that the terminal has
+it (`pane.subscribe`'s `kitty_keyboard`).
+
+#### render.scroll
+
+`channel`, `offset`: rows up from the bottom, 0 for the live screen.
+Result: `{}`. The following frames show the screen scrolled; output that
+comes meanwhile does not move the view, and the frames say where it is.
+
+#### render.input
+
+`channel`, `events`: a list of events, each with exactly one of:
+
+| Field | | |
+| --- | --- | --- |
+| `key` | object | A key press, repeat or release: `code`, the physical key as a W3C `KeyboardEvent.code` value (`KeyA`, `ArrowUp`, `Enter`); `action` (`press`, the default, `repeat`, `release`); `mods` and `consumed`, modifier bits (1 Shift, 2 Control, 4 Alt or Option, 8 Super or Command, 16 Caps Lock, 32 Num Lock), `consumed` being those the layout used to make the text; `text`, what the key typed; `unshifted`, the code point the key types with no modifier; `composing`; `option_as_alt` (`left`, `right`, `both`). |
+| `mouse` | object | `action` (`press`, `release`, `motion`), `button` (`left`, `right`, `middle`, `wheel_up`, `wheel_down`, `wheel_left`, `wheel_right`, or empty for motion), `mods`, `x` and `y` from the terminal's top left corner and `cell_width` and `cell_height`, in the client's units, and `held` for motion with a button down. Encoded only when the program asked for the mouse. |
+| `text` | string | Text an input method committed, written as typed. |
+| `paste` | string | A paste: bracketed when the program asked (mode 2004), otherwise made safe as in section 7. |
+| `focus` | boolean | The client's view gained or lost focus; reported when the program asked (mode 1004). |
+
+Result: `{}`. The input is the person's, as binary input frames are: it
+goes through the same checks (section 4, Panes and who drives them) and
+into the pane's input log.
+
+#### render.text
+
+`channel`, `from` and `to` (`x`, `y` in screen coordinates: row 0 is the
+oldest row of the scrollback the pane keeps), `rect` (optional, a block).
+Result: `text`, the cells between the two points, inclusive, as a copy
+reads them: wrapped rows joined, trailing spaces trimmed. Secrets given
+to the pane are masked.
+
 ## 5. Streams and binary frames
 
 ### Frame layout
@@ -1322,7 +1379,7 @@ Every binary frame starts with a 14-byte header:
 | Bytes | | |
 | --- | --- | --- |
 | 0 | version | 1 |
-| 1 | kind | 1 output, 2 snapshot, 3 input |
+| 1 | kind | 1 output, 2 snapshot, 3 input, 4 render |
 | 2 to 5 | channel | unsigned, big-endian |
 | 6 to 13 | mark | unsigned, big-endian |
 | 14 on | payload | terminal bytes |
@@ -1338,6 +1395,9 @@ Every binary frame starts with a 14-byte header:
   alone (no palette changes). On the alternate screen, it first draws
   the primary screen, so the shell's history comes back when the program
   leaves the alternate screen.
+- **Render** (daemon to client): a frame of a render stream
+  (`pane.render`); `mark` is 0, and the payload is laid out in
+  [docs/RENDERING.md](../../docs/RENDERING.md).
 - **Input** (client to daemon): bytes to write to the pane as they are,
   on a channel this connection subscribed. `mark` is ignored (send 0).
   This is the path for keystrokes from a person; `pane.send` is the path

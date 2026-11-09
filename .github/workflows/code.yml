@@ -82,7 +82,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: daemon/.deps/libghostty-vt-*
-          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-build-2-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh') }}
+          key: libghostty-vt-${{ runner.os }}-${{ runner.arch }}-zig-0.17.1-build-2-${{ hashFiles('daemon/go.sum', 'daemon/scripts/libghostty.sh', 'daemon/patches/*.patch') }}
       # Zig from its release tarball, pinned by the SHA-256 that
       # ziglang.org/download/index.json lists for 0.17.1. mlugg/setup-zig
       # still runs on the deprecated Node 20 (v2.2.1, its latest release,
