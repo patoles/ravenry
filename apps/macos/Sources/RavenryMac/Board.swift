@@ -43,8 +43,9 @@ final class Board: NSObject {
     let start = StartView()
     let brief = BriefPage()
     let gallery = GalleryPage()
+    let plan = PlanPage()
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -95,6 +96,19 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = { [weak self] s in self?.toast(s) }
+        for f in [plan] as [FormPage] {
+            f.isHidden = true
+            f.hub = hub
+            f.toast = { [weak self] s in self?.toast(s) }
+            f.onClose = { [weak self] in self?.back() }
+        }
+        plan.openBrief = { [weak self] pid in self?.openBrief(pid) }
+        plan.openPlan = { [weak self] pid in self?.openPlan(pid, title: nil) }
+        plan.showSession = { [weak self] pid in
+            guard let self, let p = self.hub.state?.project(pid), let s = p.mainSession else { return false }
+            self.pickSession("\(p.id)/\(s.surfaceId)", why: "plan")
+            return true
+        }
         wire()
         hub.onState = { [weak self] st in self?.onState(st) }
         hub.onStatus = { [weak self] _ in self?.render() }
@@ -313,6 +327,8 @@ final class Board: NSObject {
     func openPage(_ key: String, _ name: String) {
         if key.hasPrefix("brief:") { openBrief(String(key.dropFirst(6))); return }
         if key.hasPrefix("gallery:") { openGallery(String(key.dropFirst(8)), at: nil); return }
+        if key.hasPrefix("plan:") { openPlan(String(key.dropFirst(5)), title: nil); return }
+        if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
         overlay = false
         notePageBack()
         front = .page(key, name)
@@ -349,6 +365,28 @@ final class Board: NSObject {
         showMiddle(gallery)
         gallery.show(pid, at: at, state: hub.state)
         log.append("gallery \(pid) \(at.map { "\($0)" } ?? "grid")")
+        render()
+    }
+
+    /// A project's plan: the one with this title, else the one its page shows first.
+    func openPlan(_ pid: String, title: String?) {
+        overlay = false
+        notePageBack()
+        front = .page("plan:\(pid)", t("panel.plan"))
+        showMiddle(plan)
+        plan.show(pid, mode: .plan, title: title, state: hub.state)
+        log.append("plan \(pid) \(title ?? "-")")
+        render()
+    }
+
+    /// A new plan drafted from a project's brief.
+    func openNewPlan(_ pid: String) {
+        overlay = false
+        notePageBack()
+        front = .page("newplan:\(pid)", t("panel.newPlan"))
+        showMiddle(plan)
+        plan.show(pid, mode: .new, state: hub.state)
+        log.append("newplan \(pid)")
         render()
     }
 
@@ -506,6 +544,7 @@ final class Board: NSObject {
         if case .project(let id) = front, let p = st?.project(id) { projectPage.show(p) }
         if case .brief(let pid, _) = front { brief.show(pid, state: st) }
         if case .page(let k, _) = front, k.hasPrefix("gallery:") { gallery.refresh(st) }
+        if case .page(let k, _) = front, k.hasPrefix("plan:") || k.hasPrefix("newplan:") { plan.refresh(st) }
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay

@@ -287,6 +287,21 @@ check('gate tiles: the last proofs before the gate and the newest screenshot', (
   check('the ledger file is the user\'s only (0600)', (fs.statSync(gates.FILE).mode & 0o777) === 0o600);
 }
 
+// The plan page's list (planPages, the Electron app's planOf): the running
+// plan first, then the brief's plans last first, with states from marks.
+{
+  const md = '# P\n\n## Plan\n### Older\nRuns on its own.\n\n- [x] Do: A\n  - Proof: a.txt has 3 lines\n- [-] Do: B\n\n### Newer\nRuns on its own.\n\n- [x] Do: C\n- [ ] Gate: Ask\n\n### Just tasks\n- [ ] A task\n';
+  const objs = brief.parseBrief(md).plan;
+  const none = fmt.planPages(null, objs);
+  check('planPages: the brief\'s plans, last first, never its task lists', none.map((x) => x.title).join(',') === 'Newer,Older' && none.every((x) => !x.running), none.map((x) => x.title).join(','));
+  check('planPages: a finished plan is done, its proof kept, a skipped step skip', none[1].plan.state === 'done' && none[1].plan.steps[0].state === 'done' && none[1].plan.steps[0].proofs[0].text === 'a.txt has 3 lines' && none[1].plan.steps[1].state === 'skip', JSON.stringify(none[1].plan.steps.map((s) => [s.state, s.proofs])));
+  check('planPages: one with a step left is paused', none[0].plan.state === 'paused' && none[0].plan.steps[1].state === 'todo');
+  const run = { title: 'Newer', state: 'running', steps: [] };
+  const withRun = fmt.planPages(run, objs);
+  check('planPages: the running plan first, as the board derives it', withRun[0].running && withRun[0].plan === run && withRun.length === 3);
+  check('planPages: no brief, no plans', fmt.planPages(null, null).length === 0);
+}
+
 fs.rmSync(MC, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed` : '\nall passed');
 process.exit(failed ? 1 : 0);

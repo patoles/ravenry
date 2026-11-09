@@ -16,6 +16,7 @@ extension SelfTestBoard {
         switch name {
         case "brief": screenBrief()
         case "gallery": screenGallery()
+        case "plan": screenPlan()
         default: check("screen_known", false, name)
         }
         finish()

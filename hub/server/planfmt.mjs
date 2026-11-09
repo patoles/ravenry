@@ -347,6 +347,26 @@ export function activePlan(objectives, { gatesFor = null, ...opts } = {}) {
   return null;
 }
 
+// The plans a project's plan page shows (the Electron app's inapp.ts
+// planOf, which a client worked out itself): the running one as the board
+// derives it (`running`, the state's project.plan), then the brief's plans,
+// last first, each with its steps' state from their marks (done, skip,
+// todo) and their proofs from the Proof lines, and a state: its own, else
+// done when no step is left, else paused. Sent as each project's planPages:
+// a client shows the first whose title is the one asked for, else the
+// first.
+export function planPages(running, objectives) {
+  const out = [];
+  if (running) out.push({ title: running.title, running: true, plan: running });
+  const list = (objectives || []).filter((o) => o && o.plan);
+  for (const o of [...list].reverse()) {
+    const steps = (o.steps || []).map((s) => ({ ...s, state: s.mark === 'x' ? 'done' : s.mark === '-' ? 'skip' : 'todo', proofs: (s.subs || []).filter((x) => x.k === 'proof').map((x) => ({ text: x.text })) }));
+    const state = o.state || (steps.every((s) => s.state !== 'todo') ? 'done' : 'paused');
+    out.push({ title: o.title, running: false, plan: { ...o, steps, state } });
+  }
+  return out;
+}
+
 // ------------------------------------------------------------ writing
 
 // The lines of the `### title` objective under `## Plan`: [start, end) with

@@ -316,7 +316,7 @@ every screen (the bench, the self-test) writes only to
 - One window: no New Window, settings, closing a busy shell's question,
   bells or activity on hidden tabs, or tab dragged to an edge to split.
 - Sidebar and panel: the pages (Objectives, Plans, Ideas, Rules, Ship,
-  Decisions), the plan, Settings, the phone,
+  Decisions), Settings, the phone,
   Alerts, Learn and Machines are native placeholders; New session is a
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; the secret

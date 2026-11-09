@@ -43,7 +43,7 @@ import * as pictures from './pictures.mjs';
 import * as alerts from './alerts.mjs';
 import * as desktop from './desktop.mjs';
 import * as projectsRoot from './projectsroot.mjs';
-import { activePlan, proofKind } from './planfmt.mjs';
+import { activePlan, planPages, proofKind } from './planfmt.mjs';
 import * as planner from './planner.mjs';
 import * as planrun from './planrun.mjs';
 import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp } from './home.mjs';
@@ -976,11 +976,13 @@ function buildProject(project, wsById, hooks, settings, now) {
   // computer's otherwise): it is said against that machine's home. A
   // session's folder goes with the session's machine.
   const where = project.machine || null;
+  const shownPlan = plan ? planView(project, plan) : null;
 
   return {
     id: project.id, name: project.name, state: pstate, since, loose: !!project.loose,
     unowned: !!project.unowned, workspaceTitle: project.unowned ? project.workspaceTitle : undefined,
-    plan: plan ? planView(project, plan) : null, planGate,
+    plan: shownPlan, planGate,
+    planPages: planPages(shownPlan, brief ? brief.plan : []),
     planDraft: (() => { try { const d = planner.get(project.id); return d ? { busy: !!d.busy, steps: d.steps.length } : null; } catch { return null; } })(),
     folder: project.folder, folderShort: homes.sayFolder(project.folder, where), shared,
     waitingOn, flags,
