@@ -584,7 +584,8 @@ function save(): void {
     selected: selKey && selPane ? { key: selKey, pane: selPane } : null,
     // The folder a shell opens in at the next launch when none comes back.
     ...(t && t.kind === 'shell' && t.cwd ? { lastCwd: t.cwd } : {}),
-    pinned: S.tabs.filter((x): x is SessionTab => x.kind === 'session').map((x) => x.key),
+    // Only a session's key is pinned (a tab of a session the board does not list yet has none).
+    pinned: S.tabs.filter((x): x is SessionTab => x.kind === 'session' && typeof x.key === 'string' && !!x.key).map((x) => x.key),
     order: S.tabs.map((x) => x.id),
     // Each split, by its tab: back after a relaunch or an update when both panes are.
     splits: S.tabs.filter((x) => x.split && guestOf(x)).map((x) => ({ host: x.id, ...x.split! })),
@@ -1671,6 +1672,13 @@ function stepTab(d: number): void {
 // the front as a tab, which stays until it is closed; clicking a tab only
 // brings it to the front. Here, the one place every caller goes through.
 function setView(v: View): void {
+  // A Review or Brief of no session, or a session with neither a key nor a
+  // pane, shows nothing: it changes nothing (it used to add a tab of no
+  // session, saved as pinned: [null], which stopped the next launch).
+  if (((v.kind === 'review' || v.kind === 'brief') && !v.key) || (v.kind === 'session' && !v.key && !v.pane)) {
+    api().log(`window: setView(${v.kind}) with no session: nothing to show`);
+    return;
+  }
   if (v.kind === 'session') v = { kind: 'tab', id: tabForSession(v.key, v.pane) };
   else if (v.kind === 'pane') v = { kind: 'tab', id: tabForPane(v.socket, v.pane, v.name) };
   // A split's pane: its tab, with that pane focused.
@@ -3391,15 +3399,19 @@ async function restoreTabs(saved: Record<string, unknown>): Promise<void> {
     } catch { /* that daemon is gone, and its panes with it */ }
   }));
   shells.sort((a, b) => (a.createdAt || '') < (b.createdAt || '') ? -1 : 1);
-  const pinned = (Array.isArray(saved.pinned) ? saved.pinned as string[] : old ? old.filter((t) => t && t.kind === 'session' && t.key).map((t) => t.key!) : [])
+  // window.json is read entry by entry: one that is not what this version
+  // writes (a null pin, a number, a hand edit) is left out, never thrown on.
+  const str = (x: unknown): x is string => typeof x === 'string' && x.length > 0;
+  const pinned = [...new Set((Array.isArray(saved.pinned) ? saved.pinned as unknown[] : old ? old.filter((t) => t && t.kind === 'session').map((t) => t.key) : []).filter(str))]
     .map((key): SessionTab => ({ id: pinId(key), kind: 'session', key }));
   const tabs: Tab[] = [...shells, ...pinned];
   // The order the person left them in, where it still holds.
-  const order = Array.isArray(saved.order) ? saved.order as string[] : old ? old.map((t) => (t.kind === 'shell' ? shellId(t.pane || '') : pinId(t.key || ''))) : [];
+  const order = (Array.isArray(saved.order) ? saved.order as unknown[] : old ? old.filter((t) => t && typeof t === 'object').map((t) => (t.kind === 'shell' ? shellId(t.pane || '') : pinId(t.key || ''))) : []).filter(str);
   const rank = (t: Tab) => { const i = order.indexOf(t.id); return i < 0 ? order.length + tabs.indexOf(t) : i; };
   S.tabs = tabs.sort((a, b) => rank(a) - rank(b));
   // The splits, where both panes are still there.
   for (const sp of Array.isArray(saved.splits) ? saved.splits as (SplitInfo & { host: string })[] : []) {
+    if (!sp || typeof sp !== 'object' || !str(sp.host) || !str(sp.guest)) continue;
     const host = S.tabs.find((x) => x.id === sp.host);
     const g = S.tabs.find((x) => x.id === sp.guest);
     if (host && g && g.kind === 'shell') { linkSplit(host, g, sp.side, sp.focus === 1 ? 1 : 0); if (host.split) { host.split.size = Number(sp.size) || 50; host.split.zoom = !!sp.zoom; } }
@@ -3808,7 +3820,8 @@ async function boot(): Promise<void> {
     pruneCards(new Set(S.cps.items.keys()));
     if (panelVisible() && document.querySelector('#panel .cp')) renderPanel();
   }, 20000);
-  const saved = await api().storeGet();
+  const got: unknown = await api().storeGet().catch(() => ({}));
+  const saved = (got && typeof got === 'object' && !Array.isArray(got) ? got : {}) as Record<string, unknown>;
   S.panelPref = saved.panelPref === 'closed' || saved.panelPref === 'open' ? saved.panelPref : null;
   // The onboarding marks the board does not have yet (all of them, the first time after 0.1.23).
   onbLocal = onb.fromStore(saved);
@@ -3822,7 +3835,10 @@ async function boot(): Promise<void> {
   await Promise.race([onbSync(), new Promise((r) => setTimeout(r, 1500))]);
   if (S.hub) { S.cps.fromHub(S.hub.checkpoints as HubCheckpoint[] | undefined); pages.update((S.hub as { pages?: NavRow[] }).pages); }
   // A window opened with Cmd+N starts with a shell of its own; the first keeps the tabs.
-  if (S.config?.primary !== false) await restoreTabs(saved);
+  if (S.config?.primary !== false) {
+    // Whatever window.json holds, the launch goes on: at worst with no tab back.
+    await restoreTabs(saved).catch((e) => { api().log(`window: launch: the tabs in window.json could not come back: ${(e as Error).message}`); S.tabs = []; S.view = { kind: 'none' }; S.restored = true; });
+  }
   else { thisWindow = `w${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; S.restored = true; }
   // Like any terminal, a launch ends with a working shell in front: the
   // shells that were open come back, else one opens in the last folder used

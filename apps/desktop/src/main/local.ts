@@ -20,7 +20,12 @@ export class Store {
 
   constructor(dir: string) {
     this.file = path.join(dir, 'window.json');
-    try { this.data = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { this.data = {}; }
+    // A file that is not an object (null, a list, a number: hand edited, cut
+    // short) is read as empty, so it never stops a launch; the window's
+    // own entries are checked where they are read (renderer restoreTabs).
+    let d: unknown = {};
+    try { d = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { /* none, or not JSON */ }
+    this.data = d && typeof d === 'object' && !Array.isArray(d) ? d as Record<string, unknown> : {};
   }
 
   get(): Record<string, unknown> { return this.data; }
