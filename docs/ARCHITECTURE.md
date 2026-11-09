@@ -59,11 +59,12 @@ the role above.
 ### The clients
 
 - **The desktop app** (`apps/desktop/`): Electron with xterm.js panes.
-- **The native Mac app** (`apps/macos/`, a spike): Swift and AppKit, its
-  terminals drawn by Ghostty's embedding library. Each terminal runs
-  `ravenry attach`, the daemon's own client, which carries a pane's bytes,
-  keys and size; everything a later native client (Linux, Windows) needs
-  again lives there, in Go, not in Swift.
+- **The native Mac app** (`apps/macos/`): Swift and AppKit, its terminal
+  drawn by its own Metal renderer from the daemon's render stream: the
+  daemon's screen is the only screen, and the daemon encodes the
+  person's keys and mouse. Everything a later native client (Linux,
+  Windows) needs again lives in the daemon, in Go, or in the protocol;
+  a client draws and captures input ([RENDERING.md](RENDERING.md)).
 - **The Android app** (`apps/android/`): Kotlin around a WebView that shows
   the phone board (`apps/phone/`), web code the iOS app will share
   ([PHONE.md](PHONE.md)).
