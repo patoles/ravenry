@@ -75,8 +75,8 @@ release check (`apps/desktop/tools/release-check.mjs`).
   nothing proves it today.
 - **Status columns:** `done`, `partial`, `missing` or `n/a`.
   - **macOS:** the native Mac app (`apps/macos`, Swift with its own Metal
-    renderer on the daemon's render stream, docs/RENDERING.md). One window,
-    one terminal so far: the terminal basics are built, the rest is
+    renderer on the daemon's render stream, docs/RENDERING.md). One window
+    of tabs and splits so far: the terminal basics are built, the rest is
     `missing`, or `n/a` where the feature is a phone's only.
   - **Electron:** the desktop app (`apps/desktop`) as it runs on the Mac,
     where the release check runs it. Linux builds the same code (AppImage,
@@ -99,23 +99,23 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | ID | Behaviour | Logic | Acceptance | macOS | Electron | Android | Phone web |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TERM-001 | Every pane runs in ravenryd, so closing, restarting or updating the window never ends it | daemon `pane.new`, `pane.list` | RC-4 | missing | done | n/a | n/a |
-| TERM-002 | Showing a pane draws its screen and scrollback at once, then its live bytes; a tab off screen runs no renderer | daemon `pane.subscribe` (phone: hub `GET /api/term`) | `apps/desktop/tools/smoke.mjs` | missing | done | done | done |
-| TERM-003 | New Shell (Cmd+T): a login shell, interactive, `TERM=xterm-256color`, `COLORTERM=truecolor`, `FORCE_HYPERLINK=1` | daemon `pane.new` | RC-1, RC-19 | missing | done | n/a | n/a |
-| TERM-004 | Reopened, every shell comes back with what it showed, a prompt within 2 s | daemon `pane.list`; client `window.json` | RC-1, RC-4 | missing | done | n/a | n/a |
-| TERM-005 | Tabs hold the open session, plain shells and pinned sessions, never a copy of the sidebar; their order is kept | client | RC-10 | missing | done | n/a | n/a |
-| TERM-006 | Tab keys: Cmd+1 to 9, Ctrl+Tab and Ctrl+Shift+Tab, Cmd+Shift+] and [ | client | manual: each key brings the tab it names | missing | done | n/a | n/a |
+| TERM-002 | Showing a pane draws its screen and scrollback at once, then its live bytes; a tab off screen runs no renderer | daemon `pane.subscribe` (phone: hub `GET /api/term`) | `apps/desktop/tools/smoke.mjs`; macOS: `apps/macos/scripts/selftest.sh` (tab_hidden_no_stream_no_draws, tab_show_draws_rows_at_once, tab_show_catches_up): a tab not in front has no render stream | done | done | done | done |
+| TERM-003 | New Shell (Cmd+T): a login shell, interactive, `TERM=xterm-256color`, `COLORTERM=truecolor`, `FORCE_HYPERLINK=1` | daemon `pane.new` | RC-1, RC-19; macOS: `apps/macos/scripts/selftest.sh` (tab_cmd_t_new, tab_plus_new) | done | done | n/a | n/a |
+| TERM-004 | Reopened, every shell comes back with what it showed, a prompt within 2 s | daemon `pane.list`; client `window.json` | RC-1, RC-4; macOS: `apps/macos/scripts/selftest.sh` (restore_tabs_order, restore_front_draws): the app is launched again on the same daemon | done | done | n/a | n/a |
+| TERM-005 | Tabs hold the open session, plain shells and pinned sessions, never a copy of the sidebar; their order is kept | client | RC-10; macOS: `apps/macos/scripts/selftest.sh` (tab_drag_reorders, tab_order_saved): plain shells only, no session tabs (no sidebar yet) | partial | done | n/a | n/a |
+| TERM-006 | Tab keys: Cmd+1 to 9, Ctrl+Tab and Ctrl+Shift+Tab, Cmd+Shift+] and [ | client | manual: each key brings the tab it names; macOS: `apps/macos/scripts/selftest.sh` (tab_cmd_1, tab_cmd_2, tab_cmd_shift_bracket_next, tab_cmd_shift_bracket_previous, tab_ctrl_tab_next, tab_ctrl_shift_tab_previous) | done | done | n/a | n/a |
 | TERM-007 | A tab switch keeps each pane's scroll position | client | RC-14 | missing | done | n/a | n/a |
-| TERM-008 | Split Right (Cmd+D) and Split Down (Cmd+Shift+D): a new shell with the keyboard, each pane its header, the tab shows "2" | client; daemon `pane.new` | RC-16 | missing | done | n/a | n/a |
-| TERM-009 | Cmd+Option+arrows or a click moves the keyboard between split panes | client | RC-16 | missing | done | n/a | n/a |
-| TERM-010 | Dragging the divider resizes and is kept; a double click evens | client | RC-16 | missing | done | n/a | n/a |
-| TERM-011 | Zoom Pane (Cmd+Shift+Enter): the focused pane alone, and back | client | RC-16 | missing | done | n/a | n/a |
+| TERM-008 | Split Right (Cmd+D) and Split Down (Cmd+Shift+D): a new shell with the keyboard, each pane its header, the tab shows "2" | client; daemon `pane.new` | RC-16; macOS: `apps/macos/scripts/selftest.sh` (split_cmd_d_right, split_cmd_shift_d_down, split_keyboard_to_new, split_headers_ring, split_tab_shows_2, split_grids_daemon, split_on_split_tab_new_tab) | done | done | n/a | n/a |
+| TERM-009 | Cmd+Option+arrows or a click moves the keyboard between split panes | client | RC-16; macOS: `apps/macos/scripts/selftest.sh` (split_cmd_option_left, split_cmd_option_right, split_click_focuses) | done | done | n/a | n/a |
+| TERM-010 | Dragging the divider resizes and is kept; a double click evens | client | RC-16; macOS: `apps/macos/scripts/selftest.sh` (split_divider_drag, split_double_click_evens, split_cmd_ctrl_equal_evens, split_saved); `apps/macos/scripts/bench.sh` (divider drag) | done | done | n/a | n/a |
+| TERM-011 | Zoom Pane (Cmd+Shift+Enter): the focused pane alone, and back | client | RC-16; macOS: `apps/macos/scripts/selftest.sh` (split_zoom) | done | done | n/a | n/a |
 | TERM-012 | A tab dragged to an edge splits with it ("Split right"); onto a split tab it says "Already split" | client | RC-16 | missing | done | n/a | n/a |
 | TERM-013 | An agent's own pane opens as a split beside the tab it came from, without taking the keyboard; its header says its name and Agent once | client; daemon `pane.created` (creator) | RC-10, RC-16 | missing | done | n/a | n/a |
-| TERM-014 | Splits come back after a relaunch, with their panes | client `window.json` | RC-16 | missing | done | n/a | n/a |
-| TERM-015 | Cmd+W closes the pane with the keyboard and ends its process; an idle shell closes at once | daemon `pane.close` | RC-16, RC-17 (F3) | missing | done | n/a | n/a |
+| TERM-014 | Splits come back after a relaunch, with their panes | client `window.json` | RC-16; macOS: `apps/macos/scripts/selftest.sh` (restore_splits) | done | done | n/a | n/a |
+| TERM-015 | Cmd+W closes the pane with the keyboard and ends its process; an idle shell closes at once | daemon `pane.close` | RC-16, RC-17 (F3); macOS: `apps/macos/scripts/selftest.sh` (split_cmd_w_closes_pane, tab_cmd_w_closes, tab_middle_click_closes): every shell closes at once, a busy one too (no TERM-016 question yet) | partial | done | n/a | n/a |
 | TERM-016 | Closing a busy shell asks "Close this tab?" with what runs, Cancel the default, and Don't ask again | daemon `pane.process`; client setting | RC-17 (F3) | missing | done | n/a | n/a |
-| TERM-017 | Resize: rows at once, columns once the size holds; hidden terminals resize when shown or idle; no pane blank or flashed while dragging | daemon `pane.resize`; client | RC-26, `apps/desktop/tools/frame-time.mjs`, `apps/desktop/tools/resize-load.mjs` | missing | done | n/a | n/a |
-| TERM-018 | Switching views (a tab, a session, a page, the panel) never shows a half-drawn, blank or flashed frame | client | RC-26 | missing | done | n/a | n/a |
+| TERM-017 | Resize: rows at once, columns once the size holds; hidden terminals resize when shown or idle; no pane blank or flashed while dragging | daemon `pane.resize`; client | RC-26, `apps/desktop/tools/frame-time.mjs`, `apps/desktop/tools/resize-load.mjs`; macOS: `apps/macos/scripts/bench.sh` (drag, fast drag, divider drag over both panes of a split, 0 blank, 0 debris, ends on the daemon's screen): a hidden tab resizes when shown; columns follow at once, not once the size holds | partial | done | n/a | n/a |
+| TERM-018 | Switching views (a tab, a session, a page, the panel) never shows a half-drawn, blank or flashed frame | client | RC-26; macOS: `apps/macos/scripts/bench.sh` (tab switches: blank panes 0; the rows a pane had are drawn at the switch, a pane never drawn waits under the tab in front for its first frame) | done | done | n/a | n/a |
 | TERM-019 | Synchronized output: an update shows whole; a big one is parsed in slices and never freezes the window | client; daemon stream frames | RC-26, `apps/desktop/tools/resize-load.mjs` | missing | done | done | done |
 | TERM-020 | Colours: 16, 256 and truecolor, `ls -G` and the prompt, fresh, after a tab switch and after a relaunch | daemon screen; client renderer | RC-19 | missing | done | done | done |
 | TERM-021 | Links: OSC 8 and plain URLs (http, https, file only) open on Cmd+click (Ctrl+click off the Mac); a plain click opens nothing | client; daemon `render.link` | RC-14, RC-20; macOS: `apps/macos/scripts/selftest.sh` (link_*), `daemon/internal/vt/select_test.go` (TestLinkAt), `daemon/internal/server/basics_test.go` (TestRenderLinkAndPaths) | done | done | missing | missing |
@@ -129,7 +129,7 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | TERM-029 | Copy on select (a setting) | client setting | RC-17 (settings) | missing | done | n/a | n/a |
 | TERM-030 | Find (Cmd+F): every match counted, Enter for the next, Cmd+Shift+G the one before, Aa for match case, Esc gives the keyboard back | client; daemon `render.find` | RC-17 (F1); macOS: `apps/macos/scripts/selftest.sh` (find_*), `daemon/internal/vt/select_test.go` (TestFind), `daemon/internal/server/basics_test.go` (TestRenderFind); no Aa: libghostty-vt matches ASCII letters in any case | partial | done | n/a | n/a |
 | TERM-031 | Right-click menu: Open Link, Copy Link, Copy, Paste, Select All, Copy Path, Find, Clear, Split Right, Split Down | client | RC-17 (F2); macOS: `apps/macos/scripts/selftest.sh` (context_menu_items): Copy, Paste, Select All, Clear, Find; no link or split items yet | partial | done | n/a | n/a |
-| TERM-032 | Every row of the keys table arrives as its exact bytes: Cmd+arrows, Option+arrows by word, Cmd+Backspace, Shift+Enter as a newline | client | RC-11 | missing | done | n/a | n/a |
+| TERM-032 | Every row of the keys table arrives as its exact bytes: Cmd+arrows, Option+arrows by word, Cmd+Backspace, Shift+Enter as a newline | client | RC-11; macOS: `apps/macos/scripts/selftest.sh` (key_*), `daemon/internal/server/keybinds_test.go` (TestRenderKeybindsZsh), `daemon/internal/vt/keybinds_test.go` (every row of the daemon's macos table, docs/RENDERING.md "Key bindings") | done | done | n/a | n/a |
 | TERM-033 | Option as Meta: off, left, right or both | client setting | RC-17 (settings) | missing | done | n/a | n/a |
 | TERM-034 | The daemon answers terminal queries; the client never answers them too | daemon | `apps/desktop/test/queries.test.ts` | missing | done | done | done |
 | TERM-035 | Bell: a flash on screen, a small bell on a hidden tab until opened, or a sound, or off; the Dock bounces while the app is not in front | client setting | RC-17 (F4); macOS: `apps/macos/scripts/selftest.sh` (bell_flash_shows, bell_flash_ends): the flash only, no hidden-tab bell, sound or Dock | partial | done | n/a | n/a |
@@ -416,24 +416,18 @@ Between clients:
 - The phone has no Decisions page, brief, gallery, plan page, idea thread, Learn, files changed, review, pane leases or filmstrip.
 - TERM-021, TERM-028: on the phone a link cannot be opened (it needs Cmd or Ctrl) and nothing can be selected or copied.
 - HUB-004: the phone board does not handle the hub's 503 "starting".
-- Tokens: `apps/phone/src/phone.css` repeats `app.css`'s colours by hand and already differs (`--tx3` is `#8E8E93` on the desktop, `#6E6E75` on the phone, dark).
-- `apps/phone/src/logic.ts` words checkpoints itself (`markLabel`, `driveWords`, `topLabel`) beside the desktop's `checkpoints.ts`.
 - UPD-008: no Windows build of the desktop app.
 - A11Y-009, A11Y-010: no screen reader mode in the terminal and no reduced motion in the apps (the browser board has reduced motion).
 - Rows marked `none yet` have no check at all; the Android and phone web statuses rest on code reading, with no end-to-end check of the phone board's terminal, pages or sessions beyond `pick-shots.mjs` and the Kotlin tests.
 
 Client-only logic that should move to the hub:
 
-- `apps/desktop/src/renderer/model.ts` board() and sessionGroup(): the sections, the rows and their order. The hub should send them ready to draw.
-- `apps/desktop/src/renderer/briefdoc.ts` nextItems(): the brief's Next items and dated entries. The hub already reads the brief.
-- `apps/desktop/src/renderer/checkpoints.ts` and `apps/phone/src/logic.ts`: what a checkpoint and its row mark say. The hub should send the words.
-- `packages/page-format` run in the client: a page's filters, sorts, groups and counts. The hub should send the drawn model, or a Swift or Kotlin client has to port the format.
-- `apps/desktop/src/main/local.ts`: the first launch's project folders and assistants, beside the hub's own `GET /api/project/folders` and assistants view.
-- `apps/desktop/src/main/skills.ts`: the Ravenry skill's install and remove, while the hooks are the hub's (`POST /api/setup/hooks`).
 - `apps/desktop/src/main/install.ts` and `apps/desktop/src/main/npmswitch.ts`: the hub service, the version folders and the npm switch's choices. One `ravenry` command every client runs.
 - `apps/desktop/src/shared/settings.ts` and `apps/desktop/src/main/themeimport.ts`: the settings' keys and the theme import. To `shared/` as data, so every client reads the same keys and themes.
-- The onboarding state (hints seen, Learn ticks, step 2 done) in Electron's store: the hub, so a second client does not show it all again.
 - `apps/desktop/src/renderer/app.ts` swapMoved() and moveStates(): which pane a move replaced. The hub's move answer should say it.
+- Left after the moves of 2026-11-09 (each in its row): the first launch runs `hub/server/firstlaunch.mjs` in the app while the hub is not up yet (ONB-001); a checkpoint the desktop hears only from its own daemon has no words until the hub words it, so with the hub down its card is empty (PANEL-015); most strings are still inline in each client, the type sizes, radii and gaps are tokens no rule uses yet, and `hub/public/app.css` keeps its own colours (section 1); terminal themes and icons are not in `shared/` yet.
+
+Moved to the hub on 2026-11-09: the sidebar's sections, rows, order and counts (`state.sidebar`, `hub/server/sidebar.mjs`), what a checkpoint and its row mark say (`cp.words`, `hub/server/cpwords.mjs`, `POST /api/checkpoints/words`), the brief's Next items (`brief.nextParts`, `hub/server/briefnext.mjs`), a page's filters, sorts, groups and counts (`drawn` in `GET /api/pages/page`, `hub/server/pagedraw.mjs`), the first launch's folders and assistants (`GET /api/setup/start`), the skill's install and remove (`GET` and `POST /api/setup/skills`), the onboarding state (`GET` and `POST /api/onboarding`), and the shared strings and tokens (`shared/`, `shared/README.md`).
 
 ## 4. How to keep it current
 
