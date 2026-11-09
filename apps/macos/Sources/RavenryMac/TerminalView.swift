@@ -61,11 +61,16 @@ final class TerminalView: NSView, NSTextInputClient {
         metalLayer.allowsNextDrawableTimeout = true
         let bg = r.theme.background
         metalLayer.backgroundColor = CGColor(red: CGFloat(bg.x), green: CGFloat(bg.y), blue: CGFloat(bg.z), alpha: 1)
-        layer = metalLayer
+        // Never stretch the last frame to a new size: it is drawn again,
+        // at the new size, in the same transaction.
+        metalLayer.contentsGravity = .topLeft
+        metalLayer.needsDisplayOnBoundsChange = false
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func makeBackingLayer() -> CALayer { metalLayer }
 
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { true }
