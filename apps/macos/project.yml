@@ -15,18 +15,10 @@ targets:
     platform: macOS
     sources:
       - path: Sources/RavenryMac
-      - path: Resources/ghostty.conf
-        buildPhase: resources
     dependencies:
-      - framework: ${GHOSTTYKIT}
-        embed: false
-      - sdk: Carbon.framework
       - sdk: Metal.framework
       - sdk: QuartzCore.framework
-      - sdk: IOSurface.framework
       - sdk: CoreText.framework
-      - sdk: CoreImage.framework
-      - sdk: UniformTypeIdentifiers.framework
     settings:
       base:
         PRODUCT_NAME: RavenryMac
@@ -37,7 +29,6 @@ targets:
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
         MARKETING_VERSION: "0.0.1"
         CURRENT_PROJECT_VERSION: "1"
-        OTHER_LDFLAGS: ["-lc++"]
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: ""

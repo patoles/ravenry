@@ -1,165 +1,130 @@
-# Ravenry for macOS (native spike)
+# Ravenry for macOS (native)
 
-A native Mac app, Swift and AppKit with no web view, whose terminals are
-drawn by Ghostty's embedding library (GhosttyKit), as cmux does. This is
-the first piece: one window, one terminal, attached to a pane of ravenryd.
-It exists so the resize, typing and large output of a native terminal can
-be judged against the Electron app.
+A native Mac app, Swift and AppKit with no web view, that draws its
+terminal itself, the way Rex does: the daemon's screen (libghostty-vt in
+`ravenryd`) is the only screen, the app draws the rows the daemon sends
+with its own Metal renderer, and the daemon encodes the person's keys and
+mouse for the program. There is no second terminal emulator to drift from
+the daemon's, which is what made the first spike (GhosttyKit fed by
+`ravenryd attach`) blink and leave prompt debris on a resize.
 
-Licence: GPL-3.0-only, like the other apps. It links GhosttyKit (MIT,
-Mitchell Hashimoto and Ghostty contributors), fetched and built locally,
-never committed. `TerminalView.swift` and `GhosttyRuntime.swift` are
-adapted from Ghostty's own macOS app and say so.
+One window, one terminal, attached to a pane of ravenryd.
+
+Licence: GPL-3.0-only, like the other apps. No third-party code: the
+renderer, the WebSocket client and the key table are this app's.
 
 ## How it works
 
 ```
-  RavenryMac (Swift)                     ravenryd (Go)
-  +-------------------------+            +----------------------+
-  | NSWindow                |            |  pane: pty, process, |
-  |  TerminalView (NSView)  |            |  screen (libghostty- |
-  |   Ghostty surface       |            |  vt), log            |
-  |    pty <-> `ravenryd    | unix socket|                      |
-  |            attach` -----+----------->|  pane.new/subscribe, |
-  |                         |  protocol  |  input frames,       |
-  +-------------------------+     v1     |  pane.resize         |
-                                         +----------------------+
+  RavenryMac (Swift)                       ravenryd (Go)
+  +----------------------------+           +--------------------------------+
+  | TerminalView (NSView)      |  render   | pane: pty, libghostty-vt       |
+  |  Screen: the rows it was   |<----------|  render state -> changed rows  |
+  |   sent, cursor, modes      |  frames   |  frames paced to the display,  |
+  |  Renderer: Metal, CoreText |           |  acked, never mid-update       |
+  |   glyph atlas              |           |  resize: vt + pty together,    |
+  |  NSTextInputClient, mouse, |  events   |  held until the shell redrew   |
+  |   selection, clipboard     |---------->|  key, mouse, paste encoders    |
+  +----------------------------+           +--------------------------------+
+            unix socket, protocol v1 (pane.render, render.input, ...)
 ```
 
-- **The surface's command is `ravenryd attach`** (bundled in the app beside
-  its executable). Ghostty runs it on a pty of its own, as it would run a
-  shell. Ghostty owns drawing, keys, the input method, selection and
-  resize; the daemon owns the pane.
-- **Bytes:** the pane's snapshot, then its live output, come over the
-  protocol and are written to the pty as they are; what Ghostty writes
-  (keys, pastes, mouse and focus reports) goes to the pane in input frames,
-  as the person's keystrokes.
-- **Resize:** the window resizes the view, Ghostty resizes its grid and its
-  pty, `attach` gets SIGWINCH and sends `pane.resize` (the newest size
-  wins while one is on its way). The program redraws, as in any terminal.
-  Two things keep a drag from blinking or leaving debris:
-  - Ghostty clears a shell's prompt on a resize, expecting the shell's
-    redraw within microseconds, as on a local pty. Through the daemon it
-    comes milliseconds later, and the command line vanished on each step
-    of a drag. Keeping the prompt instead (OSC 133 `redraw=0`) is worse:
-    zsh redraws from where it counted its prompt began at the old width,
-    which the reflow moved, and a narrow window filled with old "~ >...."
-    rows. So the window's Ghostty keeps the clear and holds its frames in
-    synchronized output from that clear until the redraw ends it, with
-    Ghostty's own 1 s reset timer (`patches/ghostty-hold-prompt-redraw.patch`).
-  - The same patch makes the clear start at the prompt's first row. At
-    this Ghostty pin it started at the cursor's own line when the command
-    line has several lines that wrap (the rows a line wraps onto carry no
-    prompt mark), so the rows above stayed and zsh's redraw doubled them.
-    The daemon's libghostty-vt still has that, so its own screen can hold
-    such rows during a drag at a narrow width; the window does not.
-  - From the first change of size until the pane has the window's size and
-    its output has been quiet for 8 ms, `attach` keeps the output back and
-    then writes it as one synchronized update, so the window never draws a
-    redraw half done; that update's end, even when it carried nothing, is
-    what ends the hold above. Output is held at most 250 ms after the last
-    change (`daemon/internal/attach`).
-- **Queries:** Ghostty answers a program's terminal queries, and the
-  daemon answers many of them too (PROTOCOL.md section 3), so a program
-  would read two answers. They split by who knows: what the screen's state
-  decides (device attributes, cursor position, modes, XTVERSION, the
-  palette, Kitty keyboard and graphics) the daemon answers, and `attach`
-  drops Ghostty's answer; what only the window knows (its colours, light
-  or dark, its size in pixels, terminfo capabilities) Ghostty answers and
-  the daemon does not. `attach` drops only what a keyboard cannot produce
-  (`daemon/internal/attach`).
-- **Panes outlive windows,** except the pane a window started for itself
-  in this spike (`attach --new --close`): closing or killing the window
-  closes it.
+The frame format, the pacing and the client's duties are in
+[docs/RENDERING.md](../../docs/RENDERING.md); the messages in
+[PROTOCOL.md](../../packages/protocol/PROTOCOL.md) section 4, "The render
+stream".
 
-### What is shared, for the next native clients
-
-Everything a Linux or Windows native client would need again is in Go, in
-the daemon's binary, not in Swift:
-
-- `ravenry attach` (`daemon/cmd/ravenryd/attach.go`): connecting, starting
-  or finding the pane, the byte relay, resize, closing. Any terminal
-  widget that runs a command on a pty (VTE on Linux, a ConPTY host on
-  Windows) gets a Ravenry pane by running it.
-- The query filter (`daemon/internal/attach`), with its tests.
-- The protocol itself (`packages/protocol`), unchanged by this app.
-
-The Swift side is only what is AppKit's: the window, the NSView that hosts
-the surface, key events and the input method, mouse, clipboard. GhosttyKit
-embeds on macOS and iOS only; on Linux the same `attach` works under any
-terminal widget.
+- **Connection** (`Connection.swift`): the protocol's WebSocket over the
+  daemon's unix socket, on a plain socket, with a reader thread.
+- **Screen** (`Screen.swift`): applies each frame to the rows it holds;
+  that is all the terminal state the app has.
+- **Renderer** (`Renderer.swift`): instanced quads for backgrounds,
+  glyphs and lines (underline styles, strikethrough, cursor, selection).
+  Glyphs come from a CoreText atlas, one per grapheme cluster and face
+  (regular, bold, italic), wide characters over two cells, colour emoji
+  as they are. Palette colours resolve with the app's theme (the desktop
+  app's) and whatever the program changed. The shaders are compiled when
+  the app starts, so the build needs no Metal Toolchain.
+- **Drawing**: a frame is drawn as soon as it comes when no draw happened
+  in the display's current refresh interval (a keystroke's echo goes out
+  at once), otherwise at the next one, so draws never outrun the display
+  (120 Hz on ProMotion). During a live resize each step is drawn in the
+  window's own transaction (`presentsWithTransaction`) with the rows it
+  has, at the new size, so the content never lags the frame; the
+  reflowed rows follow from the daemon.
+- **Resize**: the view's grid size goes to `pane.resize`; the daemon
+  resizes the screen and the pty together, and at a shell prompt holds
+  frames until the shell has drawn itself again (RENDERING.md).
+- **Keys** (`KeyCodes.swift`, `TerminalView.swift`): each press, repeat
+  and release as the physical key (a W3C code), the modifiers, the text
+  and the unshifted character; the daemon encodes them (legacy, Kitty
+  keyboard protocol). An input method's marked text is drawn at the
+  cursor and only its committed text is sent. `--option-as-alt` makes
+  Option act as Alt.
+- **Mouse, scrolling, selection**: when the program asks for the mouse,
+  clicks, drags and the wheel go to it (Shift selects anyway); otherwise
+  the wheel scrolls the scrollback (`render.scroll`; on the alternate
+  screen it sends arrow keys) and the mouse selects (two clicks a word,
+  three a line, Option a block). Copy reads the selection from the
+  daemon (`render.text`), so it works beyond the rows on screen.
 
 ## Build
 
-Needs Xcode (27.2 here), Zig 0.17 or newer (Ghostty's minimum at this pin
-is 0.17.0), Go, git and XcodeGen.
+Needs Xcode (27.2 here), Go, XcodeGen and Zig 0.17 (for the daemon's
+libghostty-vt, `daemon/scripts/libghostty.sh`).
 
 ```sh
 cd apps/macos
 scripts/build.sh          # prints build/RavenryMac.app, signed ad hoc
-scripts/selftest.sh       # the headless check (below)
+scripts/bench.sh [DIR]    # the headless bench (below)
 ```
 
-- `scripts/ghosttykit.sh` fetches Ghostty into `vendor/ghostty` and builds
-  `vendor/GhosttyKit-<commit>-....xcframework` (about two minutes the first
-  time). **One Ghostty pin for the repository:** it takes the commit from
-  the go-libghostty version in `daemon/go.mod`, as
-  `daemon/scripts/libghostty.sh` does, so the daemon's terminal state and
-  the window that draws it come from the same Ghostty.
-- Built with `-Dsentry=false`: Ghostty's crash reporter would keep files in
-  Ghostty's own cache folder, shared with every app that embeds Ghostty.
-- **The Metal Toolchain:** Ghostty compiles its shaders at build time with
-  `xcrun metal`, an Xcode component downloaded on its own. Without it, the
-  script applies `patches/ghostty-runtime-metal.patch`, which embeds the
-  shader source and compiles it when a surface starts. Installing the
-  toolchain (`xcodebuild -downloadComponent MetalToolchain`) gives
-  Ghostty's own shader build.
-- **Always applied:** `patches/ghostty-hold-prompt-redraw.patch` (two
-  files of `src/termio` and `src/terminal/Screen.zig`), the resize hold
-  and the prompt clear described under Resize above.
-- `project.yml` is the XcodeGen spec; the `.xcodeproj` is generated by the
-  build and not committed.
+`ravenryd` is built from `daemon/` and goes in the app beside its
+executable: the app asks it which daemons run (`ravenryd daemons`).
 
-## The headless check
+## The headless bench
 
-`scripts/selftest.sh` starts the app's own ravenryd as a throwaway daemon
-(HOME, runtime and state folders in the repository's `.tmp/`, `/bin/sh` as
-the shell), then the app with its window off every screen and no Dock
-icon. The app (`SelfTest.swift`) types through its own key path, reads
-what Ghostty shows, grows the window, prints 200000 lines, runs a program
-that asks the terminal questions, and saves a picture of what Ghostty
-drew. The script checks the daemon's side: the pane's input log has the
-typed command as the person's, the pane took the window's size, the
-program read one answer to each question, and a killed window's pane is
-closed.
+`scripts/bench.sh` starts the app's own ravenryd as a throwaway daemon
+(HOME, runtime and state folders in the repository's `.tmp/`, zsh at a
+`~ > ` prompt), then the app with its window off every screen and no
+Dock icon, drawing into an offscreen texture with the same renderer
+(`BENCH_LAYER=1`: through the window's Metal layer instead). The app
+(`Bench.swift`) draws a line of styles and wide characters, types 40
+keys, pastes a 10-line command line and drags the window from 1200 pt to
+300 pt (`BENCH_MIN`) and back at 120 steps a second, then runs
+`seq 1 2000000`. It writes `bench.json` and pictures, and the script
+prints:
 
-`scripts/drag-test.sh` drags the window over a long multi-line command
-line at a zsh prompt (as a person pastes one) on a throwaway daemon. After
-each of the 166 steps it measures how much text Ghostty's last frame
-shows, then compares the window's final screen with the daemon's.
-`attach` records what it sends the window (`RAVENRY_ATTACH_TRACE=<file>`),
-and the script counts the snapshots and screen clears the window got.
+- key to drawn echo;
+- for the drag: steps whose screen went blank (the command line gone) or
+  held debris (a piece of an old prompt), whether the window ends on the
+  daemon's screen, draws a second and the frame time (CPU to build and
+  encode, plus GPU);
+- for `seq`: the time to the prompt and the draws a second.
+
+The daemon's own drag test (`daemon/internal/server/drag_test.go`) does
+the same through the protocol with a Go client.
 
 ## Run
 
 ```sh
-build/RavenryMac.app/Contents/MacOS/RavenryMac [--socket PATH] [--attach PANE] [-- COMMAND ARGS...]
+build/RavenryMac.app/Contents/MacOS/RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both] [-- COMMAND ARGS...]
 ```
 
 With no `--attach`, it starts a new pane (the login shell, or COMMAND) in
-the newest running daemon, never starting one, and closes it when the
-window closes. Launch it with `open`, from outside a Ravenry pane or with
-the pane's variables removed (the app removes `RAVENRY_PANE` and
+the newest running daemon that has the render stream (protocol method
+`pane.render`), never starting one, and closes the pane when the window
+closes. Launch it with `open`, from outside a Ravenry pane or with the
+pane's variables removed (the app removes `RAVENRY_PANE` and
 `RAVENRY_SOCKET` from its own environment too).
 
 ## Not done yet
 
-- One window, one terminal: no tabs, splits, sidebar, settings or menus
-  beyond Quit and Close.
-- Copy and paste are text only; a program reading the clipboard (OSC 52)
-  is refused; no confirmation dialogs.
-- The palette query (OSC 4) gets the daemon's palette, not the window's
-  theme. Two windows on one pane would both answer the window queries.
-- Ghostty starts the command through `login(1)`, as for a shell, so each
-  window is a login session (it shows in `who`).
+- One window, one terminal: no tabs, splits, sidebar or settings.
+- Box-drawing and block characters come from the font, so with the
+  1.15 line height there are gaps between rows; Ghostty draws them
+  itself.
+- No scrollbar; no link opening (links are in the frames); no images
+  (Kitty graphics, sixel); OSC 52 clipboard and notifications are not
+  forwarded.
 - The app is signed ad hoc for local runs, for this Mac's architecture.

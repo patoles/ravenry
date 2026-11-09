@@ -124,7 +124,7 @@ the shell around the web interface, and how ravenryd stores things.
 | `daemon/` | ravenryd | Go | GPL-3.0-only |
 | `hub/` | the hub, today's board | Node | GPL-3.0-only |
 | `apps/desktop/` | the desktop app | Electron, xterm.js | GPL-3.0-only |
-| `apps/macos/` | the native Mac app (spike) | Swift, AppKit, GhosttyKit | GPL-3.0-only |
+| `apps/macos/` | the native Mac app: draws the daemon's render stream (docs/RENDERING.md) | Swift, AppKit, Metal | GPL-3.0-only |
 | `apps/android/` | the Android app | Kotlin, WebView | GPL-3.0-only |
 | `apps/phone/` | the phone board, the web code the phone apps show | TypeScript, xterm.js | GPL-3.0-only |
 | `packages/` | the protocol spec, plugin SDK, specs, adapter contracts | | Apache-2.0 |

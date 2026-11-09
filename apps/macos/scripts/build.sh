@@ -4,12 +4,14 @@
 #
 #   scripts/build.sh [OUT_DIR]      default OUT_DIR: apps/macos/build
 #
-# 1. GhosttyKit.xcframework (scripts/ghosttykit.sh, the repository's one
-#    Ghostty pin).
-# 2. ravenryd from daemon/, which goes in the app beside its executable:
-#    the window runs `ravenryd attach` as its terminal's command.
-# 3. The Xcode project, generated from project.yml by XcodeGen.
-# 4. xcodebuild, Release, signed ad hoc.
+# 1. ravenryd from daemon/, which goes in the app beside its executable:
+#    the app asks it which daemons run (`ravenryd daemons`), and
+#    open-native.sh can start one from it.
+# 2. The Xcode project, generated from project.yml by XcodeGen.
+# 3. xcodebuild, Release, signed ad hoc.
+#
+# The Metal shaders are compiled when the app starts, so the build needs
+# no Metal Toolchain.
 #
 # Prints the path of the .app.
 set -eu
@@ -19,12 +21,9 @@ repo=$(cd "$here/../.." && pwd)
 out=${1:-$here/build}
 mkdir -p "$out" "$here/build"
 
-for tool in xcodegen xcodebuild go zig; do
+for tool in xcodegen xcodebuild go; do
   command -v "$tool" >/dev/null 2>&1 || { echo "build.sh: $tool is not on PATH" >&2; exit 1; }
 done
-
-GHOSTTYKIT=$("$here/scripts/ghosttykit.sh")
-export GHOSTTYKIT
 
 RAVENRYD_BIN="$here/build/ravenryd"
 export RAVENRYD_BIN
