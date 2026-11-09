@@ -81,7 +81,7 @@ const (
 	holdQuiet = 6 * time.Millisecond
 	// holdQuietPrompt: the shell drew its prompt again and has been
 	// quiet this long (the command line follows the prompt).
-	holdQuietPrompt = 2 * time.Millisecond
+	holdQuietPrompt = 4 * time.Millisecond
 	// holdNoOutput: no output came at all, at a prompt and elsewhere.
 	holdNoOutputPrompt = 120 * time.Millisecond
 	holdNoOutput       = 30 * time.Millisecond

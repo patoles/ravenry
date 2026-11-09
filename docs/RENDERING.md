@@ -130,7 +130,7 @@ theme on the client is never overridden by the daemon's defaults.
   integration marks with `redraw=1`), the resize clears the prompt for the
   shell to draw it again, from the prompt's first row (a libghostty patch,
   `daemon/patches/ghostty-prompt-clear-top.patch`), and frames are held
-  until the shell has drawn it (its prompt mark and 2 ms of quiet, at
+  until the shell has drawn it (its prompt mark and 4 ms of quiet, at
   most 250 ms). A size asked for during that redraw waits for its end: a
   shell resized in the middle of its redraw counts its prompt's rows on a
   screen that changed under it and leaves pieces of the old prompt behind.
