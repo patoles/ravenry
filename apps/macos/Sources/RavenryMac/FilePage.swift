@@ -1239,7 +1239,19 @@ final class FilePage: FormPage {
             self.send("/api/ideas/brainstorm", ["seed": s], fail: t("pg.notStartedShort"), reload: false) { code, _ in if code == 200 { self.toast?(t("pg.thinking")); self.clear("seed") } }
         }
         add.isEnabled = off == nil; go.isEnabled = off == nil
-        return card(hstack([soft(f), add, go], spacing: 8), insets: NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12))
+        // .bs-r (flex-wrap, gap 8): the field (.field, flex 1 1 320px) and the
+        // buttons go on a line while their widths fit, the rest onto the next;
+        // the field takes what its line leaves.
+        let inner = width - 24
+        var lines: [[NSView]] = [[]]
+        var used: CGFloat = 0
+        for (v, w) in [(f as NSView, CGFloat(320)), (add, add.fittingSize.width), (go, go.fittingSize.width)] {
+            if !lines[lines.count - 1].isEmpty && used + 8 + w > inner { lines.append([]); used = 0 }
+            used += (lines[lines.count - 1].isEmpty ? 0 : 8) + w
+            lines[lines.count - 1].append(v)
+        }
+        let rows = lines.map { l in hstack(l.contains { $0 === f } ? [soft(f)] + l.dropFirst() : l + [spring()], spacing: 8) }
+        return card(vstack(rows, spacing: 8), insets: NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12))
     }
 
     private func memoryRules(_ v: [String: Any], _ s: [String: Any]) -> NSView {
