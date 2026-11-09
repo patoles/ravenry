@@ -61,6 +61,9 @@ if "error" in r:
 def s(d, unit="ms"):
     return "median %.2f, p95 %.2f, max %.2f %s (n %d)" % (d.get("median", 0), d.get("p95", 0), d.get("max", 0), unit, d.get("n", 0))
 print("grid %s, cell %s px" % (r.get("grid"), r.get("cell_px")))
+w = r.get("window_900x560")
+if w:
+    print("a 900 x 560 pt window at scale %g: %s, grid %s, cell %s px (%s pt); Rex's cell (14x28 px) there: %s" % (w["scale"], w["font"], w["grid"], w["cell_px"], w["cell_pt"], w["rex_grid"]))
 print("typing, key to drawn echo:", s(r["typing_ms"]))
 d = r["drag"]
 print("drag %d steps in %.2f s down to %d pt: blank %d, debris %d, ends on the daemon's screen: %s" % (d["steps"], d["seconds"], d["min_width"], d["blank"], d["debris"], d["ends_on_daemon_screen"]))

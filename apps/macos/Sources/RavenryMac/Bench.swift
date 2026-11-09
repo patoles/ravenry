@@ -379,6 +379,19 @@ final class Bench {
         ]
         result["grid"] = main { "\(view.gridSize.cols)x\(view.gridSize.rows)" }
         result["cell_px"] = "\(view.renderer.fonts.cellWidth)x\(view.renderer.fonts.cellHeight)"
+        // The grid of the app's first window (900 x 560 pt of terminal at
+        // scale 2, the same padding), with this cell and with Rex's, 14 x 28
+        // px at 2x as measured on a screenshot.
+        let r = view.renderer
+        let s = r.fonts.scale
+        let g = r.grid(for: CGSize(width: 900, height: 560))
+        let rex = (Int((900 - 2 * r.padding) * s / 14), Int((560 - 2 * r.padding) * s / 28))
+        result["window_900x560"] = [
+            "font": "\(r.fontName) \(Int(r.fontSize))", "scale": Double(s), "grid": "\(g.cols)x\(g.rows)",
+            "cell_px": "\(Int(r.fonts.cellWidth))x\(Int(r.fonts.cellHeight))",
+            "cell_pt": "\(Double(r.fonts.cellWidth / s))x\(Double(r.fonts.cellHeight / s))",
+            "rex_grid": "\(rex.0)x\(rex.1)",
+        ]
     }
 
     private func lastLineHas(_ s: String) -> Bool {

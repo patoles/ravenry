@@ -4,7 +4,9 @@
 // draws the rows it is sent and sends what the person does.
 //
 //   RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both]
-//              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH]] [-- COMMAND ARGS...]
+//              [--font NAME] [--font-size POINTS]
+//              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH]]
+//              [-- COMMAND ARGS...]
 //
 // With no --attach, it starts a new pane (the login shell, or COMMAND) in
 // the newest running daemon that has the render stream, never starting
@@ -22,6 +24,10 @@ struct Options {
     var benchLayer = false
     var dragMin: CGFloat = 300
     var optionAsAlt = ""
+    /// The font, and its size in points; Menlo 12 (Rex's, Ghostty's
+    /// default on a Mac) when not given.
+    var font = "Menlo"
+    var fontSize: CGFloat?
     var command: [String] = []
 
     static func parse(_ args: [String]) -> Options {
@@ -37,6 +43,8 @@ struct Options {
             case "--bench-layer": o.benchLayer = true
             case "--drag-min": i += 1; o.dragMin = CGFloat(Double(args[safe: i] ?? "") ?? 300)
             case "--option-as-alt": i += 1; o.optionAsAlt = args[safe: i] ?? ""
+            case "--font": i += 1; o.font = args[safe: i] ?? "Menlo"
+            case "--font-size": i += 1; o.fontSize = Double(args[safe: i] ?? "").map { CGFloat($0) }
             case "--": o.command = Array(args[(i + 1)...]); i = args.count
             default: break // AppKit's own (-NSDocumentRevisionsDebugMode ...)
             }
@@ -118,10 +126,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.allowOffscreen = options.offscreen
         w.backgroundColor = NSColor(red: 0x0B / 255.0, green: 0x0B / 255.0, blue: 0x0C / 255.0, alpha: 1)
         let scale = options.offscreen ? 2 : (NSScreen.main?.backingScaleFactor ?? 2)
-        guard let v = TerminalView(frame: rect, scale: scale) else {
+        // The size the person picked last, kept in the app's defaults; the
+        // bench and the self-test (offscreen) never read or write them.
+        let defaultSize = min(72, max(6, options.fontSize ?? 12))
+        var size = defaultSize
+        if !options.offscreen && options.fontSize == nil,
+           let kept = UserDefaults.standard.object(forKey: TerminalView.fontSizeKey) as? Double {
+            size = min(72, max(6, CGFloat(kept)))
+        }
+        guard let v = TerminalView(frame: rect, scale: scale, fontName: options.font, fontSize: size) else {
             fail("Metal is not available")
             return
         }
+        v.defaultFontSize = defaultSize
+        v.keepsFontSize = !options.offscreen
         v.autoresizingMask = [.width, .height]
         v.offscreen = options.offscreen && !options.benchLayer
         v.optionAsAlt = options.optionAsAlt
@@ -234,6 +252,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "Paste", action: #selector(TerminalView.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
+        let viewItem = NSMenuItem()
+        main.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.addItem(withTitle: "Increase Font Size", action: #selector(TerminalView.increaseFontSize(_:)), keyEquivalent: "=")
+        let plus = viewMenu.addItem(withTitle: "Increase Font Size", action: #selector(TerminalView.increaseFontSize(_:)), keyEquivalent: "+")
+        plus.isHidden = true
+        plus.allowsKeyEquivalentWhenHidden = true
+        viewMenu.addItem(withTitle: "Decrease Font Size", action: #selector(TerminalView.decreaseFontSize(_:)), keyEquivalent: "-")
+        viewMenu.addItem(withTitle: "Reset Font Size", action: #selector(TerminalView.resetFontSize(_:)), keyEquivalent: "0")
+        viewItem.submenu = viewMenu
         NSApp.mainMenu = main
     }
 }

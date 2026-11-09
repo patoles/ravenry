@@ -45,8 +45,15 @@ final class TerminalView: NSView, NSTextInputClient {
     var onTitle: ((String) -> Void)?
     var onFrame: (() -> Void)?
 
-    init?(frame: NSRect, scale: CGFloat) {
-        guard let r = Renderer(scale: scale) else { return nil }
+    /// The font size Cmd+0 goes back to, and whether a size the person
+    /// picks is kept for the next launch (never for the bench and the
+    /// self-test).
+    var defaultFontSize: CGFloat = 12
+    var keepsFontSize = false
+    static let fontSizeKey = "fontSize"
+
+    init?(frame: NSRect, scale: CGFloat, fontName: String = "Menlo", fontSize: CGFloat = 12) {
+        guard let r = Renderer(scale: scale, fontName: fontName, fontSize: fontSize) else { return nil }
         renderer = r
         super.init(frame: frame)
         wantsLayer = true
@@ -281,6 +288,24 @@ final class TerminalView: NSView, NSTextInputClient {
 
     var gridSize: (cols: Int, rows: Int) { grid }
 
+    // MARK: font size
+
+    @objc func increaseFontSize(_ sender: Any?) { setFontSize(renderer.fontSize + 1) }
+    @objc func decreaseFontSize(_ sender: Any?) { setFontSize(renderer.fontSize - 1) }
+    @objc func resetFontSize(_ sender: Any?) { setFontSize(defaultFontSize) }
+
+    /// A new size, 6 to 72 points: the cell, the grid and the pane's size
+    /// follow.
+    func setFontSize(_ size: CGFloat) {
+        let s = min(72, max(6, size.rounded()))
+        guard s != renderer.fontSize else { return }
+        renderer.setFontSize(s)
+        if keepsFontSize {
+            UserDefaults.standard.set(Double(s), forKey: TerminalView.fontSizeKey)
+        }
+        sizeChanged()
+    }
+
     // MARK: focus
 
     override func becomeFirstResponder() -> Bool {
@@ -336,7 +361,24 @@ final class TerminalView: NSView, NSTextInputClient {
         return ["key": ev]
     }
 
+    /// The app's shortcuts with Command. They are also in the menus; the
+    /// view takes them itself so they work the same from the menu, from
+    /// performKeyEquivalent and from keyDown.
+    func shortcut(_ e: NSEvent) -> Bool {
+        let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard f.contains(.command), !f.contains(.control) else { return false }
+        let key = e.charactersIgnoringModifiers?.lowercased() ?? ""
+        switch key {
+        case "=", "+": increaseFontSize(nil)
+        case "-": decreaseFontSize(nil)
+        case "0": resetFontSize(nil)
+        default: return false
+        }
+        return true
+    }
+
     override func keyDown(with e: NSEvent) {
+        if e.modifierFlags.contains(.command) && shortcut(e) { return }
         wakeCursor()
         if wantOffset > 0 { scrollTo(0) }
         let hadMarked = hasMarkedText()
@@ -390,6 +432,7 @@ final class TerminalView: NSView, NSTextInputClient {
             keyDown(with: e)
             return true
         }
+        if window?.firstResponder === self && shortcut(e) { return true }
         return super.performKeyEquivalent(with: e)
     }
 

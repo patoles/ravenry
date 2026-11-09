@@ -134,17 +134,35 @@ struct AtlasGlyph {
     var empty: Bool
 }
 
-/// The font and the cell it makes, in device pixels.
+/// The font and the cell it makes, in device pixels, as Ghostty computes
+/// it: the cell is the advance of "M" wide and the font's ascent, descent
+/// and line gap high, each rounded to a whole pixel, with no extra line
+/// spacing; the baseline sits so the descent (and half the line gap) is
+/// at the cell's bottom.
 final class FontSet {
     let regular, bold, italic, boldItalic: CTFont
     let cellWidth: CGFloat, cellHeight: CGFloat, ascent: CGFloat, descent: CGFloat
-    let underlineY: CGFloat, underlineThickness: CGFloat
+    /// The baseline from the cell's top.
+    let baseline: CGFloat
+    let underlineY: CGFloat, underlineThickness: CGFloat, strikeY: CGFloat
+    /// The light line of the box-drawing characters.
+    let boxThickness: Int
     let scale: CGFloat
+    /// The family drawn, and the size in points.
+    let name: String
+    let size: CGFloat
 
-    init(name: String, size: CGFloat, scale: CGFloat, lineHeight: CGFloat = 1.15) {
+    init(name: String, size: CGFloat, scale: CGFloat) {
         self.scale = scale
+        self.size = size
         let px = size * scale
-        let base = CTFontCreateWithName(name as CFString, px, nil)
+        var base = CTFontCreateWithName(name as CFString, px, nil)
+        if !CTFontGetSymbolicTraits(base).contains(.traitMonoSpace) {
+            // CoreText gives Helvetica for a name it does not know.
+            NSLog("RavenryMac: \(name) is not a monospaced font here; using Menlo")
+            base = CTFontCreateWithName("Menlo" as CFString, px, nil)
+        }
+        self.name = CTFontCopyFamilyName(base) as String
         regular = base
         bold = CTFontCreateCopyWithSymbolicTraits(base, px, nil, .traitBold, .traitBold) ?? base
         italic = CTFontCreateCopyWithSymbolicTraits(base, px, nil, .traitItalic, .traitItalic) ?? base
@@ -154,17 +172,18 @@ final class FontSet {
         CTFontGetGlyphsForCharacters(base, &ch, &glyph, 1)
         var adv = CGSize.zero
         CTFontGetAdvancesForGlyphs(base, .horizontal, &glyph, &adv, 1)
-        cellWidth = ceil(adv.width)
-        ascent = ceil(CTFontGetAscent(base))
-        descent = ceil(CTFontGetDescent(base))
-        let natural = ascent + descent + ceil(CTFontGetLeading(base))
-        cellHeight = ceil(natural * lineHeight)
-        underlineThickness = max(1, round(CTFontGetUnderlineThickness(base)))
-        underlineY = round(-CTFontGetUnderlinePosition(base))
+        let a = CTFontGetAscent(base), d = CTFontGetDescent(base), gap = CTFontGetLeading(base)
+        cellWidth = max(1, adv.width.rounded())
+        cellHeight = max(1, (a + d + gap).rounded())
+        ascent = a.rounded()
+        descent = d.rounded()
+        baseline = cellHeight - (d + gap / 2).rounded()
+        underlineThickness = max(1, CTFontGetUnderlineThickness(base).rounded())
+        // Below the baseline, kept inside the cell.
+        underlineY = min((-CTFontGetUnderlinePosition(base)).rounded(), cellHeight - baseline - underlineThickness)
+        strikeY = (CTFontGetXHeight(base) / 2).rounded()
+        boxThickness = max(1, Int((cellWidth / 7).rounded()))
     }
-
-    /// Where the baseline sits from a cell's top.
-    var baseline: CGFloat { floor((cellHeight - ascent - descent) / 2) + ascent }
 
     func font(bold b: Bool, italic i: Bool) -> CTFont {
         switch (b, i) {
@@ -195,6 +214,12 @@ final class Atlas {
     }
 
     func glyph(_ g: UInt32, bold: Bool, italic: Bool, wide: Bool) -> AtlasGlyph {
+        if Sprites.covers(g) {
+            if let a = cache[UInt64(g)] { return a }
+            let a = sprite(g)
+            cache[UInt64(g)] = a
+            return a
+        }
         let key = UInt64(g) | (bold ? 1 << 40 : 0) | (italic ? 1 << 41 : 0) | (wide ? 1 << 42 : 0)
         if let a = cache[key] { return a }
         let a = render(Graphemes.shared.string(g), bold: bold, italic: italic, wide: wide)
@@ -202,11 +227,33 @@ final class Atlas {
         return a
     }
 
+    private static let emptyGlyph = AtlasGlyph(uv0: .zero, uv1: .zero, offset: .zero, size: .zero, colored: false, empty: true)
+
+    /// A character the renderer draws itself (Sprites), the cell's size.
+    private func sprite(_ g: UInt32) -> AtlasGlyph {
+        let w = Int(fonts.cellWidth), h = Int(fonts.cellHeight)
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let made: Bool = bytes.withUnsafeMutableBytes { p in
+            guard let ctx = CGContext(data: p.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: cs,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { return false }
+            ctx.setShouldAntialias(true)
+            // Top-down coordinates.
+            ctx.translateBy(x: 0, y: CGFloat(h))
+            ctx.scaleBy(x: 1, y: -1)
+            Sprites.draw(g, ctx, w: w, h: h, t: fonts.boxThickness)
+            return true
+        }
+        return made ? upload(bytes, w, h, pad: 0, colored: false) : Atlas.emptyGlyph
+    }
+
     private func render(_ s: String, bold: Bool, italic: Bool, wide: Bool) -> AtlasGlyph {
-        let empty = AtlasGlyph(uv0: .zero, uv1: .zero, offset: .zero, size: .zero, colored: false, empty: true)
+        let empty = Atlas.emptyGlyph
         if s.isEmpty || s == " " { return empty }
         let font = fonts.font(bold: bold, italic: italic)
-        let attr = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: NSColor.white])
+        // No ligatures: each cell shows its own character.
+        let attr = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: NSColor.white, .ligature: 0])
         let line = CTLineCreateWithAttributedString(attr)
         var colored = false
         if let runs = CTLineGetGlyphRuns(line) as? [CTRun] {
@@ -251,6 +298,13 @@ final class Atlas {
             ctx.textPosition = CGPoint(x: x0, y: pad + (ch - fonts.baseline))
         }
         CTLineDraw(line, ctx)
+        return upload(bytes, w, h, pad: pad, colored: colored)
+    }
+
+    /// Puts what is inked in a w by h picture into the atlas; pad is how
+    /// far the cell's corner is inside the picture.
+    private func upload(_ bytes: [UInt8], _ w: Int, _ h: Int, pad: CGFloat, colored: Bool) -> AtlasGlyph {
+        let empty = Atlas.emptyGlyph
         // Trim to the inked box.
         var minX = w, minY = h, maxX = -1, maxY = -1
         for yy in 0..<h {
@@ -336,19 +390,17 @@ final class Renderer {
     private var buffers: [(MTLBuffer, MTLBuffer)] = []
     private var bufferIndex = 0
     private let inflight = DispatchSemaphore(value: 3)
-    let fontName: String
-    let fontSize: CGFloat
+    var fontName: String { fonts.name }
+    var fontSize: CGFloat { fonts.size }
 
     /// Timing of the last frames (milliseconds): CPU to build and encode,
     /// GPU from start to end.
     var onTiming: ((Double, Double) -> Void)?
 
-    init?(scale: CGFloat, fontName: String = "Menlo", fontSize: CGFloat = 13) {
+    init?(scale: CGFloat, fontName: String = "Menlo", fontSize: CGFloat = 12) {
         guard let dev = MTLCreateSystemDefaultDevice(), let q = dev.makeCommandQueue() else { return nil }
         device = dev
         queue = q
-        self.fontName = fontName
-        self.fontSize = fontSize
         do {
             let lib = try dev.makeLibrary(source: shaderSource, options: nil)
             func pipe(_ v: String, _ f: String) throws -> MTLRenderPipelineState {
@@ -377,6 +429,13 @@ final class Renderer {
     func setScale(_ scale: CGFloat) {
         guard scale != fonts.scale else { return }
         fonts = FontSet(name: fontName, size: fontSize, scale: scale)
+        atlas = Atlas(device: device, fonts: fonts)
+    }
+
+    /// Another font size (points): a new cell and a new atlas.
+    func setFontSize(_ size: CGFloat) {
+        guard size != fontSize else { return }
+        fonts = FontSet(name: fontName, size: size, scale: fonts.scale)
         atlas = Atlas(device: device, fonts: fonts)
     }
 
@@ -480,7 +539,7 @@ final class Renderer {
                     }
                 }
                 if st.attrs & CellStyle.strike != 0 {
-                    rects.append(RectInst(pos: SIMD2(ox, oy + Float(fonts.baseline) - Float(fonts.ascent) * 0.3), size: SIMD2(w, ulT), color: fg, kind: 0))
+                    rects.append(RectInst(pos: SIMD2(ox, oy + Float(fonts.baseline - fonts.strikeY)), size: SIMD2(w, ulT), color: fg, kind: 0))
                 }
                 if st.attrs & CellStyle.overline != 0 {
                     rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(w, ulT), color: fg, kind: 0))
