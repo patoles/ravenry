@@ -176,7 +176,10 @@ final class Workspace: NSObject {
         let saved = layout?.read() ?? SavedLayout()
         var ids = panes.compactMap { $0["id"] as? String }
         ids.sort { (info[$0]?.createdAt ?? "") < (info[$1]?.createdAt ?? "") }
-        let rank: (String) -> Int = { id in saved.order.firstIndex(of: "s:" + id) ?? (saved.order.count + ids.firstIndex(of: id)!) }
+        // A copy: the closure must not read `ids` while `ids.sort` mutates it
+        // (Swift's exclusivity check aborts the app on launch otherwise).
+        let byAge = ids
+        let rank: (String) -> Int = { id in saved.order.firstIndex(of: "s:" + id) ?? (saved.order.count + (byAge.firstIndex(of: id) ?? 0)) }
         ids.sort { rank($0) < rank($1) }
         tabs = ids.map { Tab(host: $0) }
         for sp in saved.splits {
