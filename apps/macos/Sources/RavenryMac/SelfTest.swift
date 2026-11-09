@@ -16,7 +16,10 @@ final class SelfTest {
     var result: [String: Any] = [:]
     let started = Date()
 
-    init(view: TerminalView, window: NSWindow, out: String) {
+    let drag: Bool
+
+    init(view: TerminalView, window: NSWindow, out: String, drag: Bool) {
+        self.drag = drag
         self.view = view
         self.window = window
         self.out = out
@@ -24,7 +27,7 @@ final class SelfTest {
 
     func start() {
         Task { @MainActor in
-            await self.run()
+            if self.drag { await self.runDrag() } else { await self.run() }
             self.finish()
         }
     }
@@ -120,9 +123,84 @@ final class SelfTest {
         result["picture"] = savePicture()
     }
 
+    /// The resize drag (--drag): a long multi-line command line pasted at
+    /// the shell's prompt, then the window's width dragged down and back
+    /// at about 120 steps a second, as a person drags its edge. After each
+    /// step it measures how much text Ghostty's last drawn frame shows, so
+    /// a frame that went blank is counted.
+    @MainActor
+    private func runDrag() async {
+        let prompted = await waitFor({ $0.contains("> ") }, timeout: 15)
+        result["prompt"] = prompted
+        guard prompted, let surface = view.surface else { return }
+        let words = "the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows"
+        var lines: [String] = []
+        for i in 0..<10 {
+            lines.append("line \(i): " + String(repeating: words + " ", count: i % 3 + 1))
+        }
+        let text = lines.joined(separator: "\n")
+        text.withCString { p in ghostty_surface_text(surface, p, UInt(text.utf8.count)) }
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        let base = inkRatio()
+        result["ink_before"] = base
+        var steps: [[String: Any]] = []
+        var widths: [CGFloat] = []
+        var w: CGFloat = 1200
+        while w > 620 { widths.append(w); w -= 7 }
+        while w < 1200 { widths.append(w); w += 7 }
+        let t0 = Date()
+        var blankShots = 0
+        for w in widths {
+            window.setContentSize(NSSize(width: w, height: 760))
+            try? await Task.sleep(nanoseconds: 8_000_000)
+            let ink = inkRatio()
+            var step: [String: Any] = ["ms": ms(since: t0), "width": Int(w), "cols": view.gridSize().cols, "ink": ink]
+            if ink < base * 0.3 && blankShots < 3 {
+                // What the terminal holds when the frame looks blank.
+                step["screen"] = view.screenText()
+                step["picture"] = savePicture(suffix: "-blank\(blankShots)")
+                blankShots += 1
+            }
+            steps.append(step)
+        }
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        let after = inkRatio()
+        result["ink_after"] = after
+        result["steps"] = steps
+        let blank = steps.filter { ($0["ink"] as? Double ?? 0) < base * 0.3 }.count
+        result["blank_steps"] = blank
+        result["step_count"] = steps.count
+        result["screen"] = view.screenText()
+        result["picture"] = savePicture()
+    }
+
+    /// The share of Ghostty's last drawn frame covered by text: pixels
+    /// clearly brighter than the background, on a frame scaled down 8 times.
+    @MainActor
+    private func inkRatio() -> Double {
+        var layer = view.layer
+        if let l = layer, l.contents == nil, let sub = l.sublayers?.first(where: { $0.contents != nil }) { layer = sub }
+        guard let contents = layer?.contents else { return -1 }
+        let obj = contents as AnyObject
+        guard CFGetTypeID(obj) == IOSurfaceGetTypeID() else { return -1 }
+        let image = CIImage(ioSurface: unsafeBitCast(obj, to: IOSurfaceRef.self))
+            .transformed(by: CGAffineTransform(scaleX: 0.125, y: 0.125))
+        let ext = image.extent.integral
+        let w = Int(ext.width), h = Int(ext.height)
+        guard w > 0, h > 0 else { return -1 }
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        Self.ciContext.render(image, toBitmap: &px, rowBytes: w * 4, bounds: ext,
+                              format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        var ink = 0
+        for i in stride(from: 0, to: px.count, by: 4) where Int(px[i]) + Int(px[i + 1]) + Int(px[i + 2]) > 240 { ink += 1 }
+        return Double(ink) / Double(w * h)
+    }
+
+    static let ciContext = CIContext()
+
     /// Saves the IOSurface Ghostty renders into, as a PNG beside OUT.json.
     @MainActor
-    private func savePicture() -> String? {
+    private func savePicture(suffix: String = "") -> String? {
         var layer = view.layer
         if let l = layer, l.contents == nil, let sub = l.sublayers?.first(where: { $0.contents != nil }) { layer = sub }
         guard let contents = layer?.contents else { return nil }
@@ -134,7 +212,7 @@ final class SelfTest {
         guard let cg = ctx.createCGImage(image, from: image.extent) else { return nil }
         let rep = NSBitmapImageRep(cgImage: cg)
         guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
-        let path = (out as NSString).deletingPathExtension + ".png"
+        let path = (out as NSString).deletingPathExtension + suffix + ".png"
         try? png.write(to: URL(fileURLWithPath: path))
         return path
     }

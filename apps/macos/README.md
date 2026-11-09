@@ -37,6 +37,17 @@ adapted from Ghostty's own macOS app and say so.
 - **Resize:** the window resizes the view, Ghostty resizes its grid and its
   pty, `attach` gets SIGWINCH and sends `pane.resize` (the newest size
   wins while one is on its way). The program redraws, as in any terminal.
+  Two things keep a drag from blinking, both in `daemon/internal/attach`:
+  - Ghostty clears a shell's prompt on a resize, expecting the shell's
+    redraw within microseconds, as on a local pty. Through the daemon it
+    comes milliseconds later, and the command line vanished on each step
+    of a drag. `attach` marks each prompt with `redraw=0` (OSC 133), so
+    the window keeps the prompt and the shell's redraw replaces it. The
+    daemon's own screen still clears and redraws.
+  - From the first change of size until the pane has the window's size and
+    its output has been quiet for 8 ms, `attach` keeps the output back and
+    then writes it as one synchronized update, so the window never draws a
+    redraw half done. Output is held at most 250 ms after the last change.
 - **Queries:** Ghostty answers a program's terminal queries, and the
   daemon answers many of them too (PROTOCOL.md section 3), so a program
   would read two answers. They split by who knows: what the screen's state
@@ -107,6 +118,13 @@ drew. The script checks the daemon's side: the pane's input log has the
 typed command as the person's, the pane took the window's size, the
 program read one answer to each question, and a killed window's pane is
 closed.
+
+`scripts/drag-test.sh` drags the window over a long multi-line command
+line at a zsh prompt (as a person pastes one) on a throwaway daemon. After
+each of the 166 steps it measures how much text Ghostty's last frame
+shows, then compares the window's final screen with the daemon's.
+`attach` records what it sends the window (`RAVENRY_ATTACH_TRACE=<file>`),
+and the script counts the snapshots and screen clears the window got.
 
 ## Run
 

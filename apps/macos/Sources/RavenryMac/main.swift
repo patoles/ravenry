@@ -3,7 +3,7 @@
 // the pane lives in the daemon, and `ravenryd attach` (bundled beside this
 // executable) carries its bytes, keys and size (apps/macos/README.md).
 //
-//   RavenryMac [--socket PATH] [--attach PANE] [--offscreen] [--selftest OUT.json] [-- COMMAND ARGS...]
+//   RavenryMac [--socket PATH] [--attach PANE] [--offscreen] [--selftest OUT.json [--drag]] [-- COMMAND ARGS...]
 //
 // With no --attach, it starts a new pane (the login shell, or COMMAND)
 // and closes it when the window closes.
@@ -16,6 +16,7 @@ struct Options {
     var attach: String?
     var offscreen = false
     var selftest: String?
+    var drag = false
     var command: [String] = []
 
     static func parse(_ args: [String]) -> Options {
@@ -28,6 +29,7 @@ struct Options {
             case "--attach": i += 1; o.attach = args[safe: i]
             case "--offscreen": o.offscreen = true
             case "--selftest": i += 1; o.selftest = args[safe: i]
+            case "--drag": o.drag = true
             case "--": o.command = Array(args[(i + 1)...]); i = args.count
             default: break // AppKit's own (-NSDocumentRevisionsDebugMode ...)
             }
@@ -108,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.makeFirstResponder(v)
         v.setFocus(true)
         if let out = options.selftest {
-            SelfTest(view: v, window: w, out: out).start()
+            SelfTest(view: v, window: w, out: out, drag: options.drag).start()
         }
     }
 
