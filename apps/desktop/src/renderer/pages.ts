@@ -21,6 +21,7 @@ import { capitaliseField, fillText, getField, valueText } from './pagefmt.ts';
 import type { Action, FieldSpec, Item, ItemSpec, Page, Progress, Section, Source, Tab } from './pagefmt.ts';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
+import { t } from '../shared/strings.ts';
 
 // ---------------------------------------------------------------- the hub's shapes
 
@@ -475,7 +476,7 @@ export class Pages {
       this.render();
       return;
     }
-    if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Nothing was typed.'), true); return; }
+    if (r.status !== 200) { this.say(v.key, String(r.body.error || t('page.nothingTyped')), true); return; }
     if (r.body.projectId && r.body.surfaceId) this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`);
     this.say(v.key, r.body.sent ? 'Sent to the session.' : 'Typed in the session\'s box. Press Enter to send it.');
   }
@@ -658,9 +659,9 @@ export class Pages {
     const file = v.file;
     const text = `The Ravenry page file ${file} has a problem: line ${err.line}: ${err.message}${err.hint ? ' ' + err.hint : ''} Fix it, then run ravenry page check ${file}.`;
     const session = v.project ? v.project.id : this.host.lastProject();
-    if (!session) { this.host.copy(text); this.say(v.key, 'No session is open to ask. The request is copied: paste it into one.'); return; }
+    if (!session) { this.host.copy(text); this.say(v.key, t('page.noSessionToAsk')); return; }
     const r = await this.post('/api/pages/ask', { key: v.key, kind: 'fix', text, session });
-    if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Nothing was typed.'), true); return; }
+    if (r.status !== 200) { this.say(v.key, String(r.body.error || t('page.nothingTyped')), true); return; }
     this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`);
     this.say(v.key, 'Typed in the session\'s box. Press Enter to send it.');
   }
@@ -859,7 +860,7 @@ export class Pages {
         h('div.ra', this.itemButtons(v, spec, it, sec)));
     };
     const head = s.title ? h('div.ocard-h.sec-t', s.title, h('span.num.t3', String(items.length))) : null;
-    if (!items.length) return h('div.ocard', head, h('div.orow.t2.empty', s.empty || 'Nothing here.'), this.sectionActions(v, s, sec));
+    if (!items.length) return h('div.ocard', head, h('div.orow.t2.empty', s.empty || t('page.empty')), this.sectionActions(v, s, sec));
     if (s.groupBy && d.groups) {
       return h('div.lgroups', head, d.groups.map((g) => h('div.ocard', h('div.ocard-h.sec-t', g.value === null ? 'None' : String(g.value), h('span.num.t3', String(g.count))), rowsOf(d, g).map(rowOf))), this.sectionActions(v, s, sec));
     }
@@ -868,7 +869,7 @@ export class Pages {
 
   private cards(v: PageView, s: Section & { kind: 'core' }, items: Item[], sec: [number, number]): HTMLElement {
     const spec = s.item;
-    if (!items.length) return h('div.ocard', s.title ? h('div.ocard-h.sec-t', s.title) : null, h('div.orow.t2.empty', s.empty || 'Nothing here.'));
+    if (!items.length) return h('div.ocard', s.title ? h('div.ocard-h.sec-t', s.title) : null, h('div.orow.t2.empty', s.empty || t('page.empty')));
     if (spec.place === 'ravenry:objective-rows') {
       // Objectives' cards (the board's renderObjectives): one per project,
       // its goal on the line, then its objectives as rows.
@@ -958,7 +959,7 @@ export class Pages {
 
   private async moveTo(v: PageView, it: Item, field: string, value: string, sec: [number, number]): Promise<void> {
     const r = await this.post('/api/pages/item/set', { key: v.key, at: sec, file: it.file, hash: it.$hash, fields: { [field]: it[field] ?? null }, patch: { [field]: value } });
-    if (r.status !== 200) this.say(v.key, String(r.body.error || 'It was not moved.'), true);
+    if (r.status !== 200) this.say(v.key, String(r.body.error || t('page.notMoved')), true);
     await this.afterWrite(v.key);
   }
 
@@ -980,7 +981,7 @@ export class Pages {
       h('table.ptable', h('thead', h('tr', cols.map((c) => h(`th${c.align === 'end' ? '.end' : ''}`, c.label)), hasActs ? h('th') : null)),
         h('tbody', items.length ? items.map((it) => h('tr', { on: { click: () => this.openItem(v, it, sec) } },
           cols.map((c, i) => h(`td${c.align === 'end' ? '.end.num' : ''}${i === 0 ? '.first' : ''}${fields && fields[c.field] && fields[c.field].type === 'date' ? '.t2.num' : ''}`, cell(it, c))),
-          hasActs ? h('td.acts', this.itemButtons(v, spec, it, sec)) : null)) : h('tr', h('td.t2', { colspan: String(cols.length + 1) }, s.empty || 'Nothing here.')))),
+          hasActs ? h('td.acts', this.itemButtons(v, spec, it, sec)) : null)) : h('tr', h('td.t2', { colspan: String(cols.length + 1) }, s.empty || t('page.empty'))))),
       this.sectionActions(v, s, sec));
   }
 
@@ -995,7 +996,7 @@ export class Pages {
   private documentView(v: PageView, s: Section & { kind: 'core' }, d: DrawnSection, sec: [number, number]): HTMLElement {
     const spec = s.item;
     const items = d.rows;
-    if (!items.length) return h('div.ocard', h('div.orow.t2.empty', s.empty || 'Nothing here.'));
+    if (!items.length) return h('div.ocard', h('div.orow.t2.empty', s.empty || t('page.empty')));
     const doc = (it: Item) => {
       const can = spec.actions.some((a) => a.kind === 'toggle') && !this.off(v);
       // The k-th box of the text is the k-th of the file (its line there).
@@ -1118,9 +1119,9 @@ export class Pages {
         const ask = async () => {
           const text = `The default ${name} page Ravenry ships changed (revision ${dc.from} to ${dc.to}). Bring its changes into my copy ${v.file}, keeping my own edits: the new default is ${v.defaultPath}. Then run ravenry page check ${v.file}.`;
           const session = this.host.lastProject();
-          if (!session) { this.host.copy(text); this.say(v.key, 'No session is open to ask. The request is copied: paste it into one.'); return; }
+          if (!session) { this.host.copy(text); this.say(v.key, t('page.noSessionToAsk')); return; }
           const r = await this.post('/api/pages/ask', { key: v.key, kind: 'merge', text, session });
-          if (r.status !== 200) { this.say(v.key, String(r.body.error || 'Nothing was typed.'), true); return; }
+          if (r.status !== 200) { this.say(v.key, String(r.body.error || t('page.nothingTyped')), true); return; }
           this.modal = null;
           this.host.pickSession(`${r.body.projectId}/${r.body.surfaceId}`);
         };
@@ -1191,7 +1192,7 @@ const entryText = (x: unknown): string => (x && typeof x === 'object' ? valueTex
 
 // An item's state ring says its state when pointed at and to a screen
 // reader, in the sidebar's words for the same ring.
-const RING_WORD: Record<string, string> = { you: 'Needs you', work: 'Working', idle: 'Idle', wait: 'Waiting on others' };
+const RING_WORD: Record<string, string> = { you: t('group.you'), work: t('group.work'), idle: t('group.idle'), wait: t('group.wait') };
 function ring(st: string): HTMLElement {
   return h('span.sti', { class: `c-${st}`, title: RING_WORD[st], role: 'img', 'aria-label': RING_WORD[st] }, svg(RING[st]));
 }

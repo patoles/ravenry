@@ -25,6 +25,7 @@ import { current } from './shell.ts';
 import { appBar, views } from './sessions.ts';
 import { back, go, sheet, toast } from './main.ts';
 import type { Screen } from './main.ts';
+import { t } from './strings.ts';
 
 const navRows = (): NavRow[] => ((hub.live.state as unknown as { pages?: NavRow[] } | null)?.pages || []);
 let lastProject: string | null = null;
@@ -163,7 +164,7 @@ async function moveTo(target: HTMLElement): Promise<void> {
   if (i === null || n.values[i] === now) return;
   const to = n.values[i];
   const r = await hub.call('POST', '/api/pages/item/set', { key: v.key, at: n.at, file: item.file, hash: item.$hash, fields: { [field]: item[field] ?? null }, patch: { [field]: to } });
-  if (r.status !== 200) toast(String(r.body.error || 'It was not moved.'));
+  if (r.status !== 200) toast(String(r.body.error || t('page.notMoved')));
   else toast(`Moved to ${capitaliseField(to)}.`);
   await pages!.load(v.key);
 }

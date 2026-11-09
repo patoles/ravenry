@@ -1,9 +1,7 @@
 /* Phase 2 (docs/design/RavenryPhase2.dc.html, the picks of 6, 16, 19, 31,
    32 and 33): who drives a pane, the filmstrip, files changed, decisions,
-   picks and review. Tokens are app.css's. */
-
-:root { --claude: #BF5AF2; --claude-t: rgba(191,90,242,.22); --codex: #409CFF; --codex-t: rgba(64,156,255,.22); --amber-t: rgba(255,159,10,.14); }
-@media (prefers-color-scheme: light) { :root { --claude: #8A4FD8; --claude-t: rgba(138,79,216,.16); --codex: #2F6FEB; --codex-t: rgba(47,111,235,.14); --amber-t: rgba(229,133,11,.12); } }
+   picks and review. Tokens are app.css's (shared/tokens/tokens.json, with
+   the agents' colours --claude and --codex). */
 
 /* ------------------------------------------------ 6: the drive card */
 .cp.drive .kv { grid-template-columns: 60px 1fr; }

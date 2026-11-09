@@ -36,6 +36,7 @@ import { keyParts } from '../../../hub/public/keys.mjs';
 import type { Drop } from './logic.ts';
 import { back, go, toast } from './main.ts';
 import type { Screen } from './main.ts';
+import { t as say } from './strings.ts';
 
 /** Every checkpoint the hub lists, closed ones it still holds included. */
 function find(id: string): HubCheckpoint | null {
@@ -62,7 +63,7 @@ function topBar(cp: HubCheckpoint, icon: string): HTMLElement {
 
 function fromLine(cp: HubCheckpoint): HTMLElement[] {
   const f = cp.projectId && cp.surfaceId ? findSession(hub.live.state, `${cp.projectId}/${cp.surfaceId}`) : null;
-  const name = f ? f.session.topic || f.project.name : cp.page ? cp.page.title : 'A session';
+  const name = f ? f.session.topic || f.project.name : cp.page ? cp.page.title : say('session.unnamed');
   const asst = assistantName(cp.assistant);
   const project = f ? f.project.name : cp.project || null;
   return [
@@ -194,10 +195,10 @@ function approveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () 
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b',
       ui.refusing
-        ? [h('div.pfield', reasonField), h('div.two', h('button.btn', { on: { click: () => { ui.refusing = false; repaint(); } } }, 'Back'), h('button.btn.bad', { disabled: ui.busy, on: { click: () => void refuse() } }, 'Refuse'))]
+        ? [h('div.pfield', reasonField), h('div.two', h('button.btn', { on: { click: () => { ui.refusing = false; repaint(); } } }, 'Back'), h('button.btn.bad', { disabled: ui.busy, on: { click: () => void refuse() } }, say('checkpoint.refuse')))]
         : [h('div.two',
           h('button.btn', { on: { click: () => { ui.editing = !ui.editing; if (ui.editing && !ui.edit) ui.edit = String(cp.command || ''); repaint(); } } }, ui.editing ? 'Done editing' : 'Edit'),
-          h('button.btn.bad-t', { on: { click: () => { ui.refusing = true; repaint(); } } }, 'Refuse')),
+          h('button.btn.bad-t', { on: { click: () => { ui.refusing = true; repaint(); } } }, say('checkpoint.refuse'))),
         runBtn]));
 }
 
@@ -213,7 +214,7 @@ function secretView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () =
   // page draws the field around it, the count and the eye, never the text.
   const fld = h('div.psfld', native
     ? [h('span.slot', ui.count ? '' : h('span.ph', 'Type it here')), ui.count ? h('span.n.num', String(ui.count)) : null,
-      h('button.eye', { 'aria-label': ui.reveal ? 'Hide it' : 'Show it', on: { click: () => { ui.reveal = !ui.reveal; reveal(ui.reveal); repaint(); } } }, svg(ui.reveal ? DI.EYE_OFF : DI.EYE))]
+      h('button.eye', { 'aria-label': ui.reveal ? say('checkpoint.secretHide') : say('checkpoint.secretShow'), on: { click: () => { ui.reveal = !ui.reveal; reveal(ui.reveal); repaint(); } } }, svg(ui.reveal ? DI.EYE_OFF : DI.EYE))]
     : [h('input.sfin', { type: 'password', autocomplete: 'off', placeholder: 'Type it here', on: { input: (e: Event) => { ui.count = (e.target as HTMLInputElement).value.length; } } })]);
   if (native) mount(fld);
   const send = async () => {
@@ -241,7 +242,7 @@ function secretView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () =
     h('ul.pprom', h('li', svg(DI.LOCK), `Goes straight to ${goes}, not to ${w.who}`), h('li', svg(DI.LOCK), 'Not kept in logs, history or on this phone')),
     ui.count && native ? h('p.t2.small', characters(ui.count)) : null,
     ui.error ? h('p.err', ui.error) : null,
-    h('div.pcp-b', h('button.btn.pri.big', { disabled: ui.busy, on: { click: () => void send() } }, 'Send to the terminal')));
+    h('div.pcp-b', h('button.btn.pri.big', { disabled: ui.busy, on: { click: () => void send() } }, say('checkpoint.secretSend'))));
 }
 
 // ---------------------------------------------------------------- drive
@@ -274,14 +275,14 @@ function driveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () =>
     topBar(cp, I.KEYS16), ...fromLine(cp),
     h('h2.sm', words.title),
     words.what ? h('p.det', words.what) : null,
-    input ? [h('div.plbl', action === 'override' ? 'It would set' : 'It would press, in order'),
+    input ? [h('div.plbl', action === 'override' ? 'It would set' : say('checkpoint.wouldPress')),
       h('div.ptyped', action === 'override' ? input : keyParts(input).map((x) => (x.kind === 'key' ? h('span.kc', x.text) : h('span', x.text))))] : null,
     reason ? h('p.psays', h('span', `${w.who} says:`), ' ', reason) : null,
     waitBox(cp),
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b',
       words.yes.map((y) => h('button.btn.big.popt', { disabled: ui.busy, on: { click: () => void allow(y) } }, svg(I.FINGER), y.sub ? h('span.two-l', h('span', y.label), h('span.s', y.sub)) : h('span', y.label))),
-      h('button.btn.bad-t', { disabled: ui.busy, on: { click: () => void refuse() } }, 'Refuse')));
+      h('button.btn.bad-t', { disabled: ui.busy, on: { click: () => void refuse() } }, say('checkpoint.refuse'))));
 }
 
 // ---------------------------------------------------------------- the screen

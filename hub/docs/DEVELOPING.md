@@ -1121,6 +1121,10 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
 - `node tools/sessions-test.mjs`: the Sessions rules on crafted input
   (which processes count, process to session mapping, groups, records).
   Touches only `.tmp/`.
+- `node tools/strings-test.mjs`: the hub's words from the shared file
+  (`server/strings.mjs`, `shared/strings/en.json`, `shared/README.md`): the
+  section titles under `group.you`, `group.work`, `group.wait` and
+  `group.idle`, placeholders, an unknown key, the keys' format. Pure.
 - `node tools/rules-repeats-test.mjs`: the repeats detector and its writes
   on crafted transcripts, temp CLAUDE.md and memory files under `.tmp/`,
   with `tools/stub-repeats-claude.mjs` as the model (no quota): offsets

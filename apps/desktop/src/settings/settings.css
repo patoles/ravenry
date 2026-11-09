@@ -1,24 +1,10 @@
 /* The Settings window (a macOS settings window with toolbar tabs). The
-   tokens are the main window's (src/renderer/app.css). */
+   tokens are the main window's: shared/tokens/tokens.json, imported as CSS
+   variables (shared/tokens/css.mjs, through build.mjs). */
+@import "ravenry-tokens.css";
 
-:root {
-  color-scheme: dark;
-  --win: #161618; --sheet: #1E1E21; --card: #28282C; --sep: #36363B;
-  --tx: #F2F2F4; --tx2: #A1A1A8; --tx3: #8E8E93;
-  --work: #0A84FF; --bad: #FF6961; --ok: #30D158;
-  --sel: rgba(255,255,255,.09); --btn: #3A3A40; --btn-tx: #F2F2F4; --input: #1A1A1D;
-  --btn-ring: 0 0 0 0 transparent;
-}
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --win: #F1F0ED; --sheet: #FFFFFF; --card: #F6F5F2; --sep: #E4E2DD;
-    --tx: #1D1D1F; --tx2: #5F5F66; --tx3: #6B6B70;
-    --work: #2F6FEB; --bad: #D03A2F; --ok: #1F9D4C;
-    --sel: rgba(0,0,0,.06); --btn: #FFFFFF; --btn-tx: #1D1D1F; --input: #FFFFFF;
-    --btn-ring: 0 0 0 1px var(--sep);
-  }
-}
+:root { --btn-ring: 0 0 0 0 transparent; }
+@media (prefers-color-scheme: light) { :root { --btn-ring: 0 0 0 1px var(--sep); } }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--sheet); color: var(--tx); overflow: hidden; }

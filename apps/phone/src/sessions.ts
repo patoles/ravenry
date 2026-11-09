@@ -14,6 +14,7 @@ import { current } from './shell.ts';
 import { checkpointOf, connLabel, strip } from './logic.ts';
 import { go } from './main.ts';
 import type { Screen } from './main.ts';
+import { t } from './strings.ts';
 
 const RING: Record<Group, string> = { you: DI.RING_YOU, work: DI.RING_WORK, wait: DI.RING_WAIT, idle: DI.RING_IDLE };
 const COLOR: Record<Group, string> = { you: 'var(--you)', work: 'var(--work)', wait: 'var(--wait)', idle: 'var(--idle)' };
@@ -90,7 +91,7 @@ export function sessionsScreen(): Screen {
     const parts = strip(groups);
     const body = !st
       ? h('div.empty', hub.live.link === 'down' ? h('p', hub.live.error || 'The computer does not answer.') : h('p.t2', 'Reaching the computer...'))
-      : !groups.length ? h('div.empty', h('p', 'No sessions yet.'), h('p.t2', 'Start one in Ravenry on the computer, and it shows here.'))
+      : !groups.length ? h('div.empty', h('p', t('sessions.empty')), h('p.t2', t('sessions.emptyHint')))
       : h('div.list', groups.map(groupEl));
     const top = el.querySelector('.scroll')?.scrollTop || 0;
     const scroll = h('div.scroll', body);

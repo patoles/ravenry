@@ -17,30 +17,47 @@ release check (`apps/desktop/tools/release-check.mjs`).
   has to decide something (which section a session goes in, what a
   checkpoint says), that is a gap to move, listed in section 3.
 - **Copy and design tokens come from shared files,** never typed again in a
-  client. Proposed home, at the repository root:
-  - `shared/strings/en.json`: every user-facing string, one key each, with
-    `{name}` placeholders. Swift and Kotlin get it through a build step that
-    writes constants.
+  client. They live at the repository root, in `shared/`, and
+  `shared/README.md` is their format (for Swift and Kotlin too):
+  - `shared/strings/en.json`: the user-facing strings, one key each, with
+    `{name}` placeholders. Swift and Kotlin read it as it is or through a
+    build step that writes constants.
   - `shared/tokens/tokens.json`: colours for dark and light (the window, the
-    sheets, text, and the four states: you, work, wait, idle), type sizes,
-    radii and spacing.
+    sheets, text, and the four states: you, work, wait, idle), shadows,
+    fonts, type sizes, radii and spacing.
   - `shared/tokens/themes/`: the terminal themes, moved from
-    `apps/desktop/src/shared/themes/`.
-  - `shared/icons/`: the icons as SVG files.
+    `apps/desktop/src/shared/themes/` (not yet).
+  - `shared/icons/`: the icons as SVG files (not yet).
 
-  What exists today: the colours as CSS variables in
-  `apps/desktop/src/renderer/app.css` (`:root`, dark and light), copied by
-  hand into `apps/phone/src/phone.css` and `hub/public/app.css`; eight
-  terminal themes in `apps/desktop/src/shared/themes/*.json` with
-  `themes.ts`; icons as SVG paths in `apps/desktop/src/renderer/icons.ts`
-  and `apps/phone/src/icons.ts`; the brand in `hub/brand/`; the phone's glyph
-  font (`apps/phone/src/glyphs.css`, `apps/phone/tools/glyph-font.py`). The
-  strings are inline in each client's TypeScript. Shared by import only: the
-  section titles (`GROUP_TITLES` in `apps/desktop/src/renderer/model.ts`),
+  What exists today: the colours and shadows of the desktop and the phone
+  board come from `shared/tokens/tokens.json`, made CSS variables by
+  `shared/tokens/css.mjs` in each build (`apps/desktop/build.mjs` gives
+  `app.css` and `settings.css` an `@import "ravenry-tokens.css"`;
+  `apps/phone/build.mjs` writes them first in its stylesheet), and
+  `apps/desktop/test/shared.test.ts` checks that no stylesheet types them
+  again. The phone's copy had drifted and now takes the desktop's values
+  (`--tx3` #8E8E93 dark and #6B6B70 light, `--idle-t` .02 light). The type
+  sizes, radii and spacing are in the file and are CSS variables
+  (`--fs-*`, `--radius-*`, `--space-*`), but the rules of `app.css` and
+  `phone.css` still write their sizes as numbers (gap). `hub/public/app.css`
+  (the browser board) still has its own copy of the colours, drifted like
+  the phone's was (gap). Strings: `shared/strings/en.json` holds the
+  sidebar's section titles (`group.you`, `group.work`, `group.wait`,
+  `group.idle`, read by the hub through `hub/server/strings.mjs`) and the
+  words the desktop and the phone both wrote (pages, checkpoint cards, the
+  pick, hand-off, the empty board), read with `t(key, vars)`
+  (`apps/desktop/src/shared/strings.ts`, `apps/phone/src/strings.ts`). The
+  rest of the strings are still inline in each client's TypeScript (gap:
+  moved a screen at a time; `app.ts` and `checkpoints.ts` next, after the
+  hub took the board and the checkpoint words). Still shared by import only:
   key names (`hub/public/keys.mjs`), paths as people read them
   (`hub/public/homepath.mjs`), the shipped pages
   (`packages/page-format/defaults/`), and the hub's own words in its API
-  answers and phone alerts (`hub/server/push.mjs`).
+  answers and phone alerts (`hub/server/push.mjs`). Eight terminal themes
+  are in `apps/desktop/src/shared/themes/*.json` with `themes.ts`; icons as
+  SVG paths in `apps/desktop/src/renderer/icons.ts` and
+  `apps/phone/src/icons.ts`; the brand in `hub/brand/`; the phone's glyph
+  font (`apps/phone/src/glyphs.css`, `apps/phone/tools/glyph-font.py`).
 - **Every feature has an id,** `AREA-NNN`. An id is never reused or
   renumbered; a feature that goes keeps its row, marked removed.
 - **A feature is done on a platform only when its acceptance check passes
@@ -377,7 +394,7 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | A11Y-003 | Every visible control does what it says: none does nothing, none opens the board in the browser | client | RC-24 | missing | done | partial | partial |
 | A11Y-004 | Every icon button has a label for screen readers and a tooltip; focus shows a ring | client | RC-24 | missing | done | partial | partial |
 | A11Y-005 | A checkpoint card takes the keyboard: it has a label, and number keys pick an answer | client | `apps/desktop/test/checkpoints.test.ts` | missing | done | n/a | n/a |
-| A11Y-006 | Dark and light on every screen, following the system | client tokens | RC-9, RC-10, RC-19, RC-25 | missing | done | done | done |
+| A11Y-006 | Dark and light on every screen, following the system, in the shared colours | `shared/tokens/tokens.json` (dark and light); client picks the theme | RC-9, RC-10, RC-19, RC-25, `apps/desktop/test/shared.test.ts` | missing | done | done | done |
 | A11Y-007 | Typed text, focus, selection and scroll stay through every new state from the hub | client | RC-25 | missing | done | done | done |
 | A11Y-008 | Esc closes Find, a sheet or a dialog and gives the keyboard back to the terminal; on the phone, Back goes back one screen | client; Android shell (`back`) | RC-17 (F1) | missing | done | done | n/a |
 | A11Y-009 | The terminal's screen reader mode | client (xterm.js `screenReaderMode`) | none yet; macOS: VoiceOver reads the visible rows: `apps/macos/scripts/selftest.sh` (a11y_*) | partial | missing | missing | missing |

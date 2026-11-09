@@ -30,7 +30,8 @@
 //                          builds.json (the version, and each binary's
 //                          SHA-256 and size)
 //   resources/hub/         the hub (hub/package.json "files"), with
-//                          @ravenry/node-client in its node_modules
+//                          @ravenry/node-client in its node_modules and
+//                          the repository's shared/ (words, tokens)
 //   resources/build.json   version, commit and build id (install.ts)
 //
 // Signing, macOS. Signed when a Developer ID certificate is given:
@@ -110,6 +111,10 @@ function stageHub() {
   const ncPkg = JSON.parse(fs.readFileSync(path.join(nc, 'package.json'), 'utf8'));
   for (const f of [...ncPkg.files, 'package.json']) fs.cpSync(path.join(nc, f), path.join(ncDst, f), { recursive: true });
   if (fs.existsSync(path.join(REPO, 'packages', 'LICENSE'))) fs.cpSync(path.join(REPO, 'packages', 'LICENSE'), path.join(ncDst, 'LICENSE'));
+  // The words and design tokens every client shares (shared/README.md): the
+  // hub reads them from hub/shared/ when shipped (server/strings.mjs), as
+  // ../../shared/ from the repository.
+  fs.cpSync(path.join(REPO, 'shared'), path.join(dst, 'shared'), { recursive: true });
   if (!fs.existsSync(path.join(dst, 'server', 'index.mjs'))) throw new Error('the hub has no server/index.mjs');
 }
 

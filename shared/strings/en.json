@@ -1,0 +1,23 @@
+{
+  "$comment": "Ravenry's words, in English. Format: shared/README.md.",
+  "group.you": "Needs you",
+  "group.work": "Working",
+  "group.wait": "Waiting on others",
+  "group.idle": "Idle",
+  "sessions.empty": "No sessions yet.",
+  "sessions.emptyHint": "Start one in Ravenry on the computer, and it shows here.",
+  "session.unnamed": "A session",
+  "session.handOffNow": "Hand off now",
+  "session.handOffQueued": "It hands off after the current task.",
+  "page.empty": "Nothing here.",
+  "page.notMoved": "It was not moved.",
+  "page.nothingTyped": "Nothing was typed.",
+  "page.noSessionToAsk": "No session is open to ask. The request is copied: paste it into one.",
+  "checkpoint.refuse": "Refuse",
+  "checkpoint.wouldPress": "It would press, in order",
+  "checkpoint.secretSend": "Send to the terminal",
+  "checkpoint.secretShow": "Show it",
+  "checkpoint.secretHide": "Hide it",
+  "pick.circle": "Circle a part",
+  "pick.none": "None of these"
+}

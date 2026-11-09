@@ -26,7 +26,8 @@
 # tool and no browser.
 name: code
 
-# Only when the daemon, the hub, the packages or the test guard change;
+# Only when the daemon, the hub, the packages, the shared words and tokens
+# (shared/) or the test guard change;
 # not for Markdown alone, except the person routes' list the hub suite reads.
 on:
   push:
@@ -34,6 +35,7 @@ on:
       - 'daemon/**'
       - 'hub/**'
       - 'packages/**'
+      - 'shared/**'
       - 'tools/test-env.mjs'
       - '.github/workflows/code.yml'
       - '!**/*.md'
@@ -43,6 +45,7 @@ on:
       - 'daemon/**'
       - 'hub/**'
       - 'packages/**'
+      - 'shared/**'
       - 'tools/test-env.mjs'
       - '.github/workflows/code.yml'
       - '!**/*.md'
@@ -158,7 +161,7 @@ jobs:
       - name: Hub suites that run on Linux
         working-directory: hub
         run: |
-          for t in data-guard-test access-wait-test sessions-test events-hook-test handoff-hook-test tasks-cursor-test outlived-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test phone-app-test homepath-test keys-test decisions-test worktree-test picks-test npmswitch-test; do
+          for t in data-guard-test access-wait-test sessions-test events-hook-test handoff-hook-test tasks-cursor-test outlived-test hookinstall-ravenryd-test plans-test assistant-test rules-repeats-test ravenryd-test person-routes-test pages-test phone-app-test homepath-test keys-test strings-test decisions-test worktree-test picks-test npmswitch-test; do
             echo "::group::$t"
             node "tools/$t.mjs"
             echo "::endgroup::"

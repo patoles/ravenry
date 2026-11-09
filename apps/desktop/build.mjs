@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+import { tokensCss } from '../../shared/tokens/css.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const RELEASE = process.argv.includes('--release');
@@ -28,15 +29,24 @@ const absent = {
     b.onLoad({ filter: /.*/, namespace: 'absent' }, (a) => ({ contents: `throw new Error(${JSON.stringify(`${a.path} is not part of the app`)});`, loader: 'js' }));
   },
 };
+// The design tokens (shared/tokens/tokens.json) as CSS variables: app.css
+// and settings.css start with @import "ravenry-tokens.css", which is this.
+const tokens = {
+  name: 'tokens',
+  setup(b) {
+    b.onResolve({ filter: /^ravenry-tokens\.css$/ }, (a) => ({ path: a.path, namespace: 'tokens' }));
+    b.onLoad({ filter: /.*/, namespace: 'tokens' }, () => ({ contents: tokensCss(), loader: 'css', watchFiles: [fileURLToPath(new URL('../../shared/tokens/tokens.json', import.meta.url))] }));
+  },
+};
 const node = { ...common, platform: 'node', format: 'cjs', target: 'node22', external: ['electron'], plugins: [absent] };
 
 const builds = [
   { ...node, entryPoints: { main: 'src/main/main.ts' }, outExtension: { '.js': '.cjs' }, define: { RAVENRY_TEST_HOOKS: RELEASE ? 'false' : 'true' }, minifySyntax: true },
   { ...node, entryPoints: { preload: 'src/preload/preload.ts' }, outExtension: { '.js': '.cjs' } },
-  { ...common, platform: 'browser', format: 'iife', target: 'chrome140', entryPoints: { renderer: 'src/renderer/app.ts' } },
+  { ...common, platform: 'browser', format: 'iife', target: 'chrome140', entryPoints: { renderer: 'src/renderer/app.ts' }, plugins: [tokens] },
   // The Settings window (src/main/settings.ts): its preload and its page.
   { ...node, entryPoints: { 'settings-preload': 'src/preload/settings-preload.ts' }, outExtension: { '.js': '.cjs' } },
-  { ...common, platform: 'browser', format: 'iife', target: 'chrome140', entryPoints: { settings: 'src/settings/settings.ts' } },
+  { ...common, platform: 'browser', format: 'iife', target: 'chrome140', entryPoints: { settings: 'src/settings/settings.ts' }, plugins: [tokens] },
 ];
 await Promise.all(builds.map((b) => esbuild.build({ ...b, absWorkingDir: ROOT, outdir: OUT })));
 fs.copyFileSync(path.join(ROOT, 'src/renderer/index.html'), path.join(OUT, 'index.html'));

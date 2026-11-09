@@ -17,6 +17,7 @@ import { current } from './shell.ts';
 import { checkpointOf, KEYS, quickAnswers } from './logic.ts';
 import { back, go, sheet, toast } from './main.ts';
 import type { Screen } from './main.ts';
+import { t } from './strings.ts';
 
 const COLOR: Record<string, string> = { you: 'var(--you)', work: 'var(--work)', wait: 'var(--wait)', idle: 'var(--idle)' };
 const enc = new TextEncoder();
@@ -100,11 +101,11 @@ export function sessionScreen(key: string): Screen {
   }
 
   async function handOff(p: HubProject, s: HubSession): Promise<void> {
-    try { await hub.post('/api/handoff', { projectId: p.id, surfaceId: s.surfaceId }); toast('It hands off after the current task.'); } catch (e) { toast((e as Error).message); }
+    try { await hub.post('/api/handoff', { projectId: p.id, surfaceId: s.surfaceId }); toast(t('session.handOffQueued')); } catch (e) { toast((e as Error).message); }
   }
 
   async function more(p: HubProject, s: HubSession): Promise<void> {
-    const i = await sheet(s.topic || p.name, [{ label: 'Hand off now' }, { label: 'Close this session', danger: true }]);
+    const i = await sheet(s.topic || p.name, [{ label: t('session.handOffNow') }, { label: 'Close this session', danger: true }]);
     if (i === 0) {
       try { await hub.post('/api/handoff/start', { projectId: p.id, sessionId: s.sessionId }); toast('Handing off now.'); } catch (e) { toast((e as Error).message); }
     } else if (i === 1) {

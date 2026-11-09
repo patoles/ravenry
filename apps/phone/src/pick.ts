@@ -19,6 +19,7 @@ import type { CheckpointWords, HubCheckpoint } from '../../desktop/src/renderer/
 import * as I from './icons.ts';
 import { current, hubUrl } from './shell.ts';
 import { regionOf } from './logic.ts';
+import { t as say } from './strings.ts';
 
 export interface PickUI {
   /** The picture on screen. */
@@ -113,8 +114,8 @@ export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: P
       ui.error ? h('p.err', ui.error) : null,
       h('div.pcp-b',
         h('div.two',
-          h('button.btn', { disabled: ui.busy, on: { click: () => { ui.mode = 'circle'; ui.path = []; ui.error = null; x.repaint(); } } }, svg(I.CIRCLE), 'Circle a part'),
-          h('button.btn', { disabled: ui.busy, on: { click: () => void send({ decline: true }, 'Sent: none of these.') } }, 'None of these')),
+          h('button.btn', { disabled: ui.busy, on: { click: () => { ui.mode = 'circle'; ui.path = []; ui.error = null; x.repaint(); } } }, svg(I.CIRCLE), say('pick.circle')),
+          h('button.btn', { disabled: ui.busy, on: { click: () => void send({ decline: true }, 'Sent: none of these.') } }, say('pick.none'))),
         h('button.btn.pri.big', { disabled: ui.busy, on: { click: pickNow } }, pickLabel)));
   }
 

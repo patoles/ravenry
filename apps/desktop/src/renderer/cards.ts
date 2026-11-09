@@ -18,6 +18,7 @@ import {
   changedRange, characters, digitChoice, fill, givesUp, isOpen, kindOf, SecretField, timeOf, waiting, warningsFor, wordsOf,
 } from './checkpoints.ts';
 import type { CheckpointWords, HubCheckpoint, Known, Reader } from './checkpoints.ts';
+import { t } from '../shared/strings.ts';
 
 /** An answer: an approval may carry the command as the person edited it, a refusal its reason. */
 export type Reply = CheckpointReply;
@@ -288,7 +289,7 @@ function refuseRow(k: Known, ctx: CardCtx, u: UI, off: boolean, w: CheckpointWor
     els: [
       h('div.fld.rsn-f', field),
       h('div.qa',
-        h('button.btn.sm.no', { disabled: off, on: { click: () => go() } }, 'Refuse'),
+        h('button.btn.sm.no', { disabled: off, on: { click: () => go() } }, t('checkpoint.refuse')),
         h('button.btn.sm', { disabled: off, on: { click: () => { u.refusing = false; changed(cp.id); } } }, 'Back')),
       errorLine(u, k, ctx),
       h('div.cp-f', `${w.who} is told you said no, with your reason if you give one.`),
@@ -298,7 +299,7 @@ function refuseRow(k: Known, ctx: CardCtx, u: UI, off: boolean, w: CheckpointWor
 
 /** The card's Refuse button: it opens the reason field. */
 function refuseButton(k: Known, u: UI, off: boolean, cls = 'button.btn.sm.ghost.no'): HTMLElement {
-  return h(cls, { disabled: off, on: { click: () => { u.refusing = true; u.editing = false; u.error = null; changed(k.cp.id); requestAnimationFrame(() => focusCard(k.cp.id)); } } }, 'Refuse');
+  return h(cls, { disabled: off, on: { click: () => { u.refusing = true; u.editing = false; u.error = null; changed(k.cp.id); requestAnimationFrame(() => focusCard(k.cp.id)); } } }, t('checkpoint.refuse'));
 }
 
 function approveCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
@@ -389,9 +390,9 @@ function secretCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   }) as HTMLInputElement;
   const count = h('span.t3.num.cnt-c');
   // Pressed with nothing typed yet, it puts the cursor in the field.
-  const go = h('button.btn.sm.pri', { disabled: off, on: { click: () => sendSecret() } }, 'Send to the terminal');
+  const go = h('button.btn.sm.pri', { disabled: off, on: { click: () => sendSecret() } }, t('checkpoint.secretSend'));
   const box = h('div.sfld', input, count,
-    h('button.eye', { title: u.reveal ? 'Hide it' : 'Show it', 'aria-label': u.reveal ? 'Hide the secret' : 'Show the secret', on: { mousedown: (e: Event) => e.preventDefault(), click: () => { u.reveal = !u.reveal; input.type = u.reveal ? 'text' : 'password'; eye.replaceChildren(svg(u.reveal ? I.EYE_OFF : I.EYE)); input.focus(); } } }));
+    h('button.eye', { title: u.reveal ? t('checkpoint.secretHide') : t('checkpoint.secretShow'), 'aria-label': u.reveal ? 'Hide the secret' : 'Show the secret', on: { mousedown: (e: Event) => e.preventDefault(), click: () => { u.reveal = !u.reveal; input.type = u.reveal ? 'text' : 'password'; eye.replaceChildren(svg(u.reveal ? I.EYE_OFF : I.EYE)); input.focus(); } } }));
   const eye = box.lastElementChild as HTMLElement;
   eye.append(svg(u.reveal ? I.EYE_OFF : I.EYE));
   const field = new SecretField(input, () => {
@@ -464,7 +465,7 @@ function driveCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const input = cp.drive?.input || '';
   const parts = v.action === 'type' && input && !/^\(/.test(input) ? inputParts(input) : [];
   const press = parts.length ? h('div.press',
-    h('div.press-h', 'It would press, in order'),
+    h('div.press-h', t('checkpoint.wouldPress')),
     h('div.keys', parts.map((p) => (p.kind === 'key' ? h('span.key', p.text) : h('span.ktx', p.text))))) : input && v.action !== 'type' ? h('pre.cmdb', input) : null;
   const field = h('input.fi', { type: 'text', placeholder: `Or tell ${d.who} something else`, 'aria-label': `Tell ${d.who} something else`, maxlength: '1000', disabled: off }) as HTMLInputElement;
   field.value = u.reason;
@@ -482,7 +483,7 @@ function driveCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const opts = [
     opt(1, v.once, null, { approve: true, allow: 'once' }),
     v.session ? opt(2, v.session, v.sessionSub, { approve: true, allow: 'session' }) : null,
-    opt(v.session ? 3 : 2, 'Refuse', null, { decline: true }, '.no'),
+    opt(v.session ? 3 : 2, t('checkpoint.refuse'), null, { decline: true }, '.no'),
   ];
   const el = h('div.sec.ask.cp.drive', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${w.heading}: ${title}` },
     h('div.cp-h', h('span.kd', svg(I.KEYBOARD)), `${d.who} ${v.wants}`, h('span.sp'), hd.el.lastElementChild!),

@@ -1,5 +1,6 @@
 // Builds the phone board into one folder the shells ship: index.html,
-// app.js and app.css.
+// app.js and app.css. The colours and scales come from the design tokens
+// (shared/tokens/tokens.json), written first in app.css as CSS variables.
 //   node build.mjs [--out <dir>] [--watch]
 //
 // The pages are drawn by the desktop app's own code (pages.ts), so their
@@ -11,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
+import { tokensCss } from '../../shared/tokens/css.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -36,12 +38,16 @@ await esbuild.build({
   loader: { '.css': 'empty' },
 });
 
-const pages = `.pgx {\n${fs.readFileSync(DESKTOP_CSS, 'utf8')}\n}\n`;
+// The desktop's stylesheet imports the tokens (its build resolves
+// "ravenry-tokens.css"); here they come first, once, for the whole board.
+const pages = `.pgx {\n${fs.readFileSync(DESKTOP_CSS, 'utf8').replace(/^@import "ravenry-tokens\.css";\n/m, '')}\n}\n`;
 const xterm = fs.readFileSync(path.join(ROOT, '..', '..', 'node_modules', '@xterm', 'xterm', 'css', 'xterm.css'), 'utf8');
 const own = fs.readFileSync(path.join(ROOT, 'src', 'phone.css'), 'utf8');
 // "Ravenry Glyphs": the agents' symbols as text (tools/glyph-font.py).
 const glyphs = fs.readFileSync(path.join(ROOT, 'src', 'glyphs.css'), 'utf8');
-const css = await esbuild.transform(`${glyphs}\n${xterm}\n${pages}\n${own}`, { loader: 'css', minify: true, target: TARGET, legalComments: 'none' });
+// The design tokens (shared/tokens/tokens.json) as CSS variables, first.
+const tokens = tokensCss();
+const css = await esbuild.transform(`${tokens}\n${glyphs}\n${xterm}\n${pages}\n${own}`, { loader: 'css', minify: true, target: TARGET, legalComments: 'none' });
 fs.writeFileSync(path.join(OUT, 'app.css'), css.code);
 fs.copyFileSync(path.join(ROOT, 'src', 'index.html'), path.join(OUT, 'index.html'));
 console.log(`built ${path.relative(process.cwd(), OUT) || '.'}`);

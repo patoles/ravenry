@@ -38,8 +38,10 @@
 // state.projects also carries `group`, the section of its own state.
 
 import { assistantName, markLabel, markOf } from './cpwords.mjs';
+import { t } from './strings.mjs';
 
-export const GROUP_TITLES = { you: 'Needs you', work: 'Working', wait: 'Waiting on others', idle: 'Idle' };
+// The section titles from the shared strings (shared/strings/en.json, group.*).
+export const GROUP_TITLES = { you: t('group.you'), work: t('group.work'), wait: t('group.wait'), idle: t('group.idle') };
 export const ORDER = ['you', 'work', 'wait', 'idle'];
 
 const SESSION_GROUP = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };

@@ -11,8 +11,8 @@
 name: android
 
 # Only when what the APK is built from changes (the Android app, the phone
-# board it carries, the protocol client and page format that board uses,
-# the workspace's lockfile, this file); not for Markdown alone.
+# board it carries, the protocol client, page format, words and tokens that
+# board uses, the workspace's lockfile, this file); not for Markdown alone.
 on:
   push:
     paths:
@@ -20,6 +20,7 @@ on:
       - 'apps/phone/**'
       - 'packages/client/**'
       - 'packages/page-format/**'
+      - 'shared/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/android.yml'
@@ -30,6 +31,7 @@ on:
       - 'apps/phone/**'
       - 'packages/client/**'
       - 'packages/page-format/**'
+      - 'shared/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/android.yml'

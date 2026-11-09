@@ -17,14 +17,15 @@
 name: desktop
 
 # Only when the app or what it ships changes (its client and page format,
-# the hub, the daemon), the test guard, the lockfile or this file; not for
-# Markdown alone.
+# the hub, the daemon, the shared words and tokens), the test guard, the
+# lockfile or this file; not for Markdown alone.
 on:
   push:
     paths:
       - 'apps/desktop/**'
       - 'packages/**'
       - 'hub/**'
+      - 'shared/**'
       - 'daemon/**'
       - 'tools/test-env.mjs'
       - 'package.json'
@@ -36,6 +37,7 @@ on:
       - 'apps/desktop/**'
       - 'packages/**'
       - 'hub/**'
+      - 'shared/**'
       - 'daemon/**'
       - 'tools/test-env.mjs'
       - 'package.json'

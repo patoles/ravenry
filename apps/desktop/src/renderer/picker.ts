@@ -11,6 +11,7 @@ import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 import { isOpen, waiting } from './checkpoints.ts';
 import type { Known } from './checkpoints.ts';
+import { t } from '../shared/strings.ts';
 
 export interface PickerHost {
   now(): number;
@@ -150,9 +151,9 @@ export class Picker {
     extra.addEventListener('keydown', (e) => { if (e.key === 'Enter' && st.picked !== null) { e.preventDefault(); void this.send(); } e.stopPropagation(); });
     const had = document.activeElement === f.querySelector('input.note');
     replace(f,
-      h(`button.btn.sm.circ${st.circling ? '.on' : ''}`, { disabled: !open, title: 'Drag a ring around a part of a picture', on: { click: () => { st.circling = !st.circling; this.render(); } } }, svg(I.CIRCLE), st.circling ? 'Drag on a picture' : 'Circle a part'),
+      h(`button.btn.sm.circ${st.circling ? '.on' : ''}`, { disabled: !open, title: 'Drag a ring around a part of a picture', on: { click: () => { st.circling = !st.circling; this.render(); } } }, svg(I.CIRCLE), st.circling ? 'Drag on a picture' : t('pick.circle')),
       extra,
-      h('button.btn.ghost', { disabled: !open || st.busy, on: { click: () => void this.send(true) } }, 'None of these'),
+      h('button.btn.ghost', { disabled: !open || st.busy, on: { click: () => void this.send(true) } }, t('pick.none')),
       h('button.btn.pri', { disabled: !open || st.busy || st.picked === null, on: { click: () => void this.send() } }, letter ? `Send ${letter}${n ? `, with ${n} note` : ''}` : 'Pick one first'));
     if (had) { const i = f.querySelector('input.note') as HTMLInputElement; i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   }

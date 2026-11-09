@@ -94,7 +94,7 @@ test('build.mjs --release leaves the driver out of main.cjs; a development build
     // A copy of the app's sources, so the repository's dist/ is left alone;
     // what they import from beside the app is linked.
     for (const f of ['build.mjs', 'package.json', 'src']) fs.cpSync(path.join(APP, f), path.join(tmp, f), { recursive: true });
-    for (const f of ['node_modules', 'hub', 'packages']) fs.symlinkSync(path.join(APP, '..', '..', f), path.join(root, f));
+    for (const f of ['node_modules', 'hub', 'packages', 'shared']) fs.symlinkSync(path.join(APP, '..', '..', f), path.join(root, f));
     const main = (args: string[]) => { execFileSync(process.execPath, ['build.mjs', ...args], { cwd: tmp, stdio: 'ignore' }); return { js: fs.readFileSync(path.join(tmp, 'dist', 'main.cjs'), 'utf8'), kind: fs.readFileSync(path.join(tmp, '.build-kind'), 'utf8').trim() }; };
     const rel = main(['--release']);
     assert.equal(rel.kind, 'release');
