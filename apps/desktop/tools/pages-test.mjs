@@ -214,8 +214,11 @@ const steps = [
   save('objectives', `({ cards: [...document.querySelectorAll('#page .ocards > .ocard')].map((c) => c.querySelector('.ocard-h').textContent), chip: document.querySelector('#page .chip').textContent, rows: document.querySelectorAll('#page .ocards .orow').length, quiet: [...document.querySelectorAll('#page .sec-t')].map((x) => x.textContent), centre: document.getElementById('centre').hidden, panel: document.getElementById('panel').hidden })`),
   shot('2a-objectives-default.png'),
   // The agent writes the Playtest page in a real pane.
+  // Typed once the new shell is the terminal in front, with its prompt: the
+  // launch shell still in front until then has a prompt too, and keys sent
+  // before the new one shows go to no terminal (the page had the keyboard).
   { js: 'window.__ravenry.newShell()' },
-  { until: 'window.__ravenry.term().attached && window.__ravenry.term().term.buffer.active.cursorX > 0', timeout: 20000 },
+  { until: `(() => { const R = window.__ravenry; const v = R.S.view; const t = v.kind === 'tab' && R.S.tabs.find((x) => x.id === v.id); const a = R.term().attached; return !!t && t.pane && a && a.pane === t.pane && R.term().term.buffer.active.cursorX > 0 && document.activeElement === R.term().term.textarea; })()`, timeout: 20000 },
   { type: `clear; sh ${AGENT}\r`, after: 300 },
   { until: `${S}.hub.pages.some((r) => r.key === 'playtest' && r.number === 4) && document.querySelector('.nav .vrow.fresh')`, timeout: 20000 },
   { until: `window.__ravenry.text().includes('OK  board by status')`, timeout: 20000 },

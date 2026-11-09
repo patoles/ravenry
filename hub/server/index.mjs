@@ -2395,6 +2395,12 @@ function cpWords(cp, projects = snapshot.projects || []) {
   return cpwords.withWords(cp, { platform: process.platform, hubName: phone.hubName(), paneName: (pane) => sidebar.paneNameIn(projects, pane) });
 }
 
+/** A checkpoint a page's run button opened carries its page's name and button (its heading says them, never "The agent"). */
+function withPageRun(cp) {
+  const run = cp && pageRuns.get(cp.id);
+  return run ? { ...cp, page: { title: run.page, label: run.label } } : cp;
+}
+
 function checkpointsView(projects) {
   return checkpoints.list().map((cp) => {
     const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
@@ -3886,7 +3892,7 @@ async function handleRequest(req, res) {
         const list = body && Array.isArray(body.checkpoints) ? body.checkpoints.filter((c) => c && typeof c.id === 'string').slice(0, 200) : null;
         if (!list) return sendJson(res, 400, { error: 'Send { checkpoints: [checkpoint, ...] }.' });
         const words = {};
-        for (const c of list) words[c.id] = cpWords({ ...c, answer: c.answer ? (({ secret: _s, ...a }) => a)(c.answer) : c.answer }).words;
+        for (const c of list) words[c.id] = cpWords(withPageRun({ ...c, answer: c.answer ? (({ secret: _s, ...a }) => a)(c.answer) : c.answer })).words;
         return sendJson(res, 200, { ok: true, words });
       }
       if (p === '/api/checkpoints/answer') {
@@ -3900,7 +3906,7 @@ async function handleRequest(req, res) {
         const r = await checkpoints.answer({ ...body, by }, term.ravenryAnswer);
         body = null;
         if (r.ok) { wantTick = true; setTimeout(tick, 30); }
-        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => cpWords(c))(r.checkpoint) } : { error: r.error });
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => cpWords(withPageRun(c)))(r.checkpoint) } : { error: r.error });
       }
       if (p === '/api/sessions/move') {
         let body;
