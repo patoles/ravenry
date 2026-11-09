@@ -57,9 +57,10 @@ release check (`apps/desktop/tools/release-check.mjs`).
   a test file or tool. `manual:` is a step a person does. `none yet` means
   nothing proves it today.
 - **Status columns:** `done`, `partial`, `missing` or `n/a`.
-  - **macOS:** the native Mac app (`apps/macos`, Swift and Ghostty's
-    terminal library). Nothing is built yet: `missing`, or `n/a` where the
-    feature is a phone's only.
+  - **macOS:** the native Mac app (`apps/macos`, Swift with its own Metal
+    renderer on the daemon's render stream, docs/RENDERING.md). One window,
+    one terminal so far: the terminal basics are built, the rest is
+    `missing`, or `n/a` where the feature is a phone's only.
   - **Electron:** the desktop app (`apps/desktop`) as it runs on the Mac,
     where the release check runs it. Linux builds the same code (AppImage,
     .deb); a row says when Linux differs. There is no Windows build
@@ -100,24 +101,24 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | TERM-018 | Switching views (a tab, a session, a page, the panel) never shows a half-drawn, blank or flashed frame | client | RC-26 | missing | done | n/a | n/a |
 | TERM-019 | Synchronized output: an update shows whole; a big one is parsed in slices and never freezes the window | client; daemon stream frames | RC-26, `apps/desktop/tools/resize-load.mjs` | missing | done | done | done |
 | TERM-020 | Colours: 16, 256 and truecolor, `ls -G` and the prompt, fresh, after a tab switch and after a relaunch | daemon screen; client renderer | RC-19 | missing | done | done | done |
-| TERM-021 | Links: OSC 8 and plain URLs (http, https, file only) open on Cmd+click (Ctrl+click off the Mac); a plain click opens nothing | client | RC-14, RC-20 | missing | done | missing | missing |
-| TERM-022 | Hovering a link says "Cmd+click to open"; holding Cmd underlines it with the pointing hand; a setting opens links on a plain click | client setting | RC-20 | missing | done | n/a | n/a |
-| TERM-023 | Paste goes to the daemon as one paste: bracketed when the program asked, unsafe control characters made harmless | daemon `pane.send` (paste) | `apps/desktop/tools/smoke.mjs` | missing | done | n/a | n/a |
-| TERM-024 | A file dropped on the terminal pastes its path, quoted; several separated by spaces | client | RC-14 | missing | done | n/a | n/a |
+| TERM-021 | Links: OSC 8 and plain URLs (http, https, file only) open on Cmd+click (Ctrl+click off the Mac); a plain click opens nothing | client; daemon `render.link` | RC-14, RC-20; macOS: `apps/macos/scripts/selftest.sh` (link_*), `daemon/internal/vt/select_test.go` (TestLinkAt), `daemon/internal/server/basics_test.go` (TestRenderLinkAndPaths) | done | done | missing | missing |
+| TERM-022 | Hovering a link says "Cmd+click to open"; holding Cmd underlines it with the pointing hand; a setting opens links on a plain click | client setting | RC-20; macOS: `apps/macos/scripts/selftest.sh` (link_pointing_hand, link_underline_drawn); no hover hint and no plain-click setting yet | partial | done | n/a | n/a |
+| TERM-023 | Paste goes to the daemon as one paste: bracketed when the program asked, unsafe control characters made harmless | daemon `pane.send` (paste); daemon `render.input` paste | `apps/desktop/tools/smoke.mjs`; macOS: `apps/macos/scripts/selftest.sh` (paste_cmd_v) | done | done | n/a | n/a |
+| TERM-024 | A file dropped on the terminal pastes its path, quoted; several separated by spaces | client; daemon `render.input` paths | RC-14; macOS: `apps/macos/scripts/selftest.sh` (drop_files_quoted_paths), `daemon/internal/server/basics_test.go` (TestRenderLinkAndPaths) | done | done | n/a | n/a |
 | TERM-025 | Scrollback of 100 to 100,000 lines (10,000 by default), the same length kept by the daemon | client setting; daemon `pane.new` | RC-17 (settings) | missing | done | n/a | n/a |
-| TERM-026 | Cmd+Home and Cmd+End go to the top and the bottom of the scrollback | client | RC-14 | missing | done | n/a | n/a |
-| TERM-027 | Cmd+K clears the scrollback, in the daemon too, and types nothing | daemon `pane.clear` | RC-11 | missing | done | n/a | n/a |
-| TERM-028 | Selection: Cmd+A selects all, Cmd+C copies, neither types anything; a right click selects nothing | client | RC-11 | missing | done | missing | missing |
+| TERM-026 | Cmd+Home and Cmd+End go to the top and the bottom of the scrollback | client | RC-14; macOS: `apps/macos/scripts/selftest.sh` (cmd_home_top, cmd_end_bottom) | done | done | n/a | n/a |
+| TERM-027 | Cmd+K clears the scrollback, in the daemon too, and types nothing | daemon `pane.clear` | RC-11; macOS: `apps/macos/scripts/selftest.sh` (clear_cmd_k) | done | done | n/a | n/a |
+| TERM-028 | Selection: Cmd+A selects all, Cmd+C copies, neither types anything; a right click selects nothing | client; daemon `render.copy` | RC-11; macOS: `apps/macos/scripts/selftest.sh` (select_all_cmd_a, copy_cmd_c_private_pasteboard) | done | done | missing | missing |
 | TERM-029 | Copy on select (a setting) | client setting | RC-17 (settings) | missing | done | n/a | n/a |
-| TERM-030 | Find (Cmd+F): every match counted, Enter for the next, Cmd+Shift+G the one before, Aa for match case, Esc gives the keyboard back | client | RC-17 (F1) | missing | done | n/a | n/a |
-| TERM-031 | Right-click menu: Open Link, Copy Link, Copy, Paste, Select All, Copy Path, Find, Clear, Split Right, Split Down | client | RC-17 (F2) | missing | done | n/a | n/a |
+| TERM-030 | Find (Cmd+F): every match counted, Enter for the next, Cmd+Shift+G the one before, Aa for match case, Esc gives the keyboard back | client; daemon `render.find` | RC-17 (F1); macOS: `apps/macos/scripts/selftest.sh` (find_*), `daemon/internal/vt/select_test.go` (TestFind), `daemon/internal/server/basics_test.go` (TestRenderFind); no Aa: libghostty-vt matches ASCII letters in any case | partial | done | n/a | n/a |
+| TERM-031 | Right-click menu: Open Link, Copy Link, Copy, Paste, Select All, Copy Path, Find, Clear, Split Right, Split Down | client | RC-17 (F2); macOS: `apps/macos/scripts/selftest.sh` (context_menu_items): Copy, Paste, Select All, Clear, Find; no link or split items yet | partial | done | n/a | n/a |
 | TERM-032 | Every row of the keys table arrives as its exact bytes: Cmd+arrows, Option+arrows by word, Cmd+Backspace, Shift+Enter as a newline | client | RC-11 | missing | done | n/a | n/a |
 | TERM-033 | Option as Meta: off, left, right or both | client setting | RC-17 (settings) | missing | done | n/a | n/a |
 | TERM-034 | The daemon answers terminal queries; the client never answers them too | daemon | `apps/desktop/test/queries.test.ts` | missing | done | done | done |
-| TERM-035 | Bell: a flash on screen, a small bell on a hidden tab until opened, or a sound, or off; the Dock bounces while the app is not in front | client setting | RC-17 (F4) | missing | done | n/a | n/a |
-| TERM-036 | Font family, with Menlo, SF Mono, DejaVu Sans Mono and Liberation Mono as fallbacks | client setting | `apps/desktop/test/settings.test.ts` | missing | done | n/a | n/a |
-| TERM-037 | Text size: Cmd+=, Cmd+- and Cmd+0 change the terminals only, write the settings, and are kept across a relaunch | client setting | RC-14, RC-17 (settings) | missing | done | n/a | n/a |
-| TERM-038 | Cursor style (block, bar, underline) and blink; programs may still change it | client setting | RC-17 (settings) | missing | done | n/a | n/a |
+| TERM-035 | Bell: a flash on screen, a small bell on a hidden tab until opened, or a sound, or off; the Dock bounces while the app is not in front | client setting | RC-17 (F4); macOS: `apps/macos/scripts/selftest.sh` (bell_flash_shows, bell_flash_ends): the flash only, no hidden-tab bell, sound or Dock | partial | done | n/a | n/a |
+| TERM-036 | Font family, with Menlo, SF Mono, DejaVu Sans Mono and Liberation Mono as fallbacks | client setting | `apps/desktop/test/settings.test.ts`; macOS: `apps/macos/scripts/selftest.sh` (font_default_menlo_12): Menlo 12 by default and `--font`; no setting yet | partial | done | n/a | n/a |
+| TERM-037 | Text size: Cmd+=, Cmd+- and Cmd+0 change the terminals only, write the settings, and are kept across a relaunch | client setting | RC-14, RC-17 (settings); macOS: `apps/macos/scripts/selftest.sh` (cmd_plus_bigger, cmd_minus_smaller, cmd_0_default); kept in the app's own defaults, not a shared settings file | partial | done | n/a | n/a |
+| TERM-038 | Cursor style (block, bar, underline) and blink; programs may still change it | client setting | RC-17 (settings); macOS: `apps/macos/scripts/selftest.sh` (cursor_*): the program's style and blink; no setting yet | partial | done | n/a | n/a |
 | TERM-039 | Themes: eight shipped; one for light and one for dark following the system, or one always | client setting; `apps/desktop/src/shared/themes/` | `apps/desktop/test/settings.test.ts`, `apps/desktop/tools/settings-shots.mjs` | missing | done | partial | partial |
 | TERM-040 | Import a theme from an .itermcolors or a Ghostty theme file | client (`apps/desktop/src/main/themeimport.ts`) | `apps/desktop/test/themeimport.test.ts` | missing | done | n/a | n/a |
 | TERM-041 | The agents' symbols (record, star, warning, braille spinner) drawn from Ravenry's glyph font, never a colour emoji font | client font | none yet | missing | partial | done | done |
@@ -127,6 +128,13 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | TERM-045 | Filmstrip: the pane's last 20 s, bad frames marked, step and play, Send to the agent, Save as GIF | daemon `pane.frames`; hub `POST /api/sessions/:id/filmstrip` | `apps/desktop/test/phase2.test.ts`, `apps/desktop/tools/phase2-shots.mjs` | missing | done | missing | missing |
 | TERM-046 | A pane asked to show (`ravenryd focus`) comes to the front | daemon event `pane.focus` | `apps/desktop/tools/smoke.mjs` | missing | done | n/a | n/a |
 | TERM-047 | The phone's key bar: Esc, Tab, the arrows, Enter and Ctrl-C into the pane | client; hub `GET /api/term` | `apps/phone/test/logic.test.ts` | n/a | n/a | done | done |
+| TERM-048 | Wheel and trackpad: precise deltas added up in rows with momentum; to the program when it reports the mouse; arrow keys on the alternate screen (mode 1007), as Ghostty does; typing brings a scrolled view back | daemon `render.input` wheel | `daemon/internal/server/basics_test.go` (TestRenderWheel, TestRenderWheelProgram); macOS: `apps/macos/scripts/selftest.sh` (wheel_precise_rows, wheel_discrete_3_rows_a_notch, key_scrolls_back) | done | partial | partial | partial |
+| TERM-049 | An overlay scrollbar shows while the view scrolls and fades out after, macOS style | client | macOS: `apps/macos/scripts/selftest.sh` (scrollbar_shows, scrollbar_drawn, scrollbar_hides) | done | partial | n/a | n/a |
+| TERM-050 | Selection: a drag, two clicks a word, three a line, Shift-click extends, Option a block, across the scrollback (a drag past the edge scrolls); a copy joins soft-wrapped rows | daemon `render.input` select, `render.copy` (libghostty-vt's selection gesture) | `daemon/internal/vt/select_test.go` (TestSelectGesture), `daemon/internal/server/basics_test.go` (TestRenderSelection); macOS: `apps/macos/scripts/selftest.sh` (select_*, drag_past_top_autoscrolls) | done | partial | missing | missing |
+| TERM-051 | Box drawing, block elements, braille and the Powerline triangles drawn by the renderer to fill the cell, so lines join | client renderer | macOS: `apps/macos/scripts/selftest.sh` (box_lines_join_across, box_lines_join_down, block_fills_cell) | done | partial | partial | partial |
+| TERM-052 | The cell comes from the font's own metrics (advance, ascent, descent and line gap rounded to pixels, Ghostty's computation), Menlo 12 by default as in Rex; no ligatures | client renderer | macOS: `apps/macos/scripts/selftest.sh` (cell_14x28_px_at_2x, grid_fills_view); `apps/macos/scripts/bench.sh` prints the grid of a 900 x 560 pt window | done | partial | n/a | n/a |
+| TERM-053 | An unfocused terminal shows a hollow, steady cursor; focused, it blinks when the program asks | client renderer; daemon frame cursor | macOS: `apps/macos/scripts/selftest.sh` (cursor_unfocused_hollow_no_blink, cursor_focused_blinks_again) | done | partial | n/a | n/a |
+| TERM-054 | The window title is the one the program sets (OSC 0, 2) | daemon frame title | macOS: `apps/macos/scripts/selftest.sh` (title_from_program) | done | partial | n/a | n/a |
 
 ### Sessions and sidebar
 
@@ -372,7 +380,7 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | A11Y-006 | Dark and light on every screen, following the system | client tokens | RC-9, RC-10, RC-19, RC-25 | missing | done | done | done |
 | A11Y-007 | Typed text, focus, selection and scroll stay through every new state from the hub | client | RC-25 | missing | done | done | done |
 | A11Y-008 | Esc closes Find, a sheet or a dialog and gives the keyboard back to the terminal; on the phone, Back goes back one screen | client; Android shell (`back`) | RC-17 (F1) | missing | done | done | n/a |
-| A11Y-009 | The terminal's screen reader mode | client (xterm.js `screenReaderMode`) | none yet | missing | missing | missing | missing |
+| A11Y-009 | The terminal's screen reader mode | client (xterm.js `screenReaderMode`) | none yet; macOS: VoiceOver reads the visible rows: `apps/macos/scripts/selftest.sh` (a11y_*) | partial | missing | missing | missing |
 | A11Y-010 | Reduced motion respected | client | none yet | missing | missing | missing | missing |
 
 ## 3. Gaps found while reading
