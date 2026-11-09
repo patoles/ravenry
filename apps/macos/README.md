@@ -39,12 +39,27 @@ stream".
 - **Screen** (`Screen.swift`): applies each frame to the rows it holds;
   that is all the terminal state the app has.
 - **Renderer** (`Renderer.swift`): instanced quads for backgrounds,
-  glyphs and lines (underline styles, strikethrough, cursor, selection).
+  glyphs and lines (underline styles, strikethrough, cursor, selection,
+  find matches), and over them the scrollbar and the bell's flash.
   Glyphs come from a CoreText atlas, one per grapheme cluster and face
   (regular, bold, italic), wide characters over two cells, colour emoji
-  as they are. Palette colours resolve with the app's theme (the desktop
-  app's) and whatever the program changed. The shaders are compiled when
-  the app starts, so the build needs no Metal Toolchain.
+  as they are, no ligatures. Palette colours resolve with the app's
+  theme (the desktop app's) and whatever the program changed. The
+  shaders are compiled when the app starts, so the build needs no Metal
+  Toolchain.
+- **Fonts**: the cell is the font's own, as Ghostty (and so Rex)
+  computes it: the advance of "M" wide, ascent, descent and line gap
+  high, each rounded to a pixel, no extra line spacing; the baseline
+  leaves the descent at the cell's bottom. The default is Menlo 12, 14 x
+  28 px at 2x, Rex's cell. Cmd+= (or Cmd++), Cmd+- and Cmd+0 change the
+  size from 6 to 72 points, in the View menu too; the size is kept for
+  the next launch (never by the bench or the self-test). `--font` and
+  `--font-size` pick another.
+- **Characters drawn, not taken from the font** (`Sprites.swift`): box
+  drawing (light, heavy, double, dashed, rounded corners, diagonals),
+  block elements (halves, eighths, quadrants, shades), braille and the
+  Powerline triangles fill their cell exactly, so lines join across
+  cells and rows.
 - **Drawing**: a frame is drawn as soon as it comes when no draw happened
   in the display's current refresh interval (a keystroke's echo goes out
   at once), otherwise at the next one, so draws never outrun the display
@@ -61,12 +76,40 @@ stream".
   keyboard protocol). An input method's marked text is drawn at the
   cursor and only its committed text is sent. `--option-as-alt` makes
   Option act as Alt.
-- **Mouse, scrolling, selection**: when the program asks for the mouse,
-  clicks, drags and the wheel go to it (Shift selects anyway); otherwise
-  the wheel scrolls the scrollback (`render.scroll`; on the alternate
-  screen it sends arrow keys) and the mouse selects (two clicks a word,
-  three a line, Option a block). Copy reads the selection from the
-  daemon (`render.text`), so it works beyond the rows on screen.
+- **Scrolling**: every wheel and trackpad movement goes to the daemon in
+  rows (`wheel`: a trackpad's points over the cell's height, momentum
+  included; a wheel's notch three rows), and the daemon decides, as
+  Ghostty does, whether the program gets it, it becomes arrow keys on
+  the alternate screen, or the view scrolls. Typing brings the view
+  back (the daemon does). A macOS-style overlay scrollbar shows while
+  the view scrolls and fades out a second after. Cmd+Home and Cmd+End go
+  to the top and the bottom.
+- **Selection and copy**: when the program does not take the mouse (or
+  with Shift), a press, drags and the release go as `select` events with
+  the cell under the pointer; the daemon's gesture (libghostty-vt's)
+  counts the clicks (two a word, three a line), Shift extends, Option
+  makes a block, and the frames carry the selection the app draws. A
+  drag past the top or the bottom scrolls and selects on. Cmd+A selects
+  everything, Cmd+C copies with `render.copy`, so it reaches beyond the
+  rows on screen. A right click has Copy, Paste, Select All, Clear and
+  Find.
+- **Paste and drop**: Cmd+V pastes (bracketed by the daemon when the
+  program asked); files dropped on the view are pasted as their paths,
+  which the daemon quotes, and dropped text as a paste.
+- **Links**: while Cmd is held the app asks the daemon for the link
+  under the pointer (`render.link`: a program's hyperlink or a URL in
+  the text), underlines it and shows the pointing hand; Cmd+click opens
+  it (http, https and file only). A plain click never opens.
+- **Find** (`FindBar.swift`): Cmd+F opens a small bar at the top right;
+  the search is the daemon's (`render.find`), and the frames carry the
+  matches, drawn soft yellow, the selected one orange. Enter or Cmd+G is
+  the next older match, Shift+Enter or Cmd+Shift+G the newer one, Esc
+  closes it.
+- **The rest**: the cursor in the program's style (block, bar,
+  underline), blinking when it asks, a hollow block when the window is
+  not focused; the window's title is the program's; the bell flashes
+  the view; Clear (Cmd+K) is `pane.clear`; for VoiceOver the view is a
+  text area whose value is the visible rows.
 
 ## Build
 
@@ -77,6 +120,7 @@ libghostty-vt, `daemon/scripts/libghostty.sh`).
 cd apps/macos
 scripts/build.sh          # prints build/RavenryMac.app, signed ad hoc
 scripts/bench.sh [DIR]    # the headless bench (below)
+scripts/selftest.sh [DIR] # the headless self-test (below)
 ```
 
 `ravenryd` is built from `daemon/` and goes in the app beside its
@@ -100,15 +144,36 @@ prints:
   held debris (a piece of an old prompt), whether the window ends on the
   daemon's screen, draws a second and the frame time (CPU to build and
   encode, plus GPU);
-- for `seq`: the time to the prompt and the draws a second.
+- for `seq`: the time to the prompt and the draws a second;
+- the grid of the app's first window (900 x 560 pt at 2x) with its cell,
+  beside what Rex's cell (14 x 28 px) makes of it.
 
 The daemon's own drag test (`daemon/internal/server/drag_test.go`) does
 the same through the protocol with a Go client.
 
+## The headless self-test
+
+`scripts/selftest.sh` starts a throwaway daemon the same way, then the
+app with its window off every screen (`--selftest`), a private
+pasteboard of its own (the person's clipboard is never written), the
+font size never saved and links recorded rather than opened. The app
+(`SelfTest.swift`) drives the view's own handlers with real events:
+keys and shortcuts, precise and wheel scroll events made from CGEvents,
+clicks, double and triple clicks, drags with Shift and Option and past
+the top edge, Cmd with the pointer on a URL, a drop of files and text,
+the find bar's field. Each check reads what the view applied (the
+frames' offset, selection and find sections, the grid, the link, the
+pasteboard, the accessibility value, the bell's flash, the scrollbar)
+and, for the drawing, the pixels it drew: box lines that join, the link
+underline, the find colours, the cursor's shape. It prints a line a
+check, writes `selftest.json` and pictures, and exits 1 when a check
+failed.
+
 ## Run
 
 ```sh
-build/RavenryMac.app/Contents/MacOS/RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both] [-- COMMAND ARGS...]
+build/RavenryMac.app/Contents/MacOS/RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both]
+    [--font NAME] [--font-size POINTS] [-- COMMAND ARGS...]
 ```
 
 With no `--attach`, it starts a new pane (the login shell, or COMMAND) in
@@ -121,10 +186,8 @@ pane's variables removed (the app removes `RAVENRY_PANE` and
 ## Not done yet
 
 - One window, one terminal: no tabs, splits, sidebar or settings.
-- Box-drawing and block characters come from the font, so with the
-  1.15 line height there are gaps between rows; Ghostty draws them
-  itself.
-- No scrollbar; no link opening (links are in the frames); no images
-  (Kitty graphics, sixel); OSC 52 clipboard and notifications are not
-  forwarded.
+- No images (Kitty graphics, sixel); OSC 52 clipboard and notifications
+  are not forwarded. Find has no match-case or regular expression
+  option (the daemon's search ignores the case of ASCII letters).
+- The scrollbar shows the position but cannot be dragged.
 - The app is signed ad hoc for local runs, for this Mac's architecture.
