@@ -291,16 +291,17 @@ release check (`apps/desktop/tools/release-check.mjs`).
 
 | ID | Behaviour | Logic | Acceptance | macOS | Electron | Android | Phone web |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| ALERT-001 | The bell in the sidebar's foot, lit while something needs you, opens Alerts in the window | client | RC-25 | missing | done | n/a | n/a |
-| ALERT-002 | The Alerts page: on or off, the channel in use, the last one sent, Send a test | hub `GET /api/alerts/setup`; `POST /api/alerts/test`, `switch` | RC-27, `hub/tools/alerts-test.mjs` | missing | done | n/a | n/a |
-| ALERT-003 | Mac notifications posted by the app as "Ravenry"; the hub hears whether macOS showed each; a click opens its session | hub event `notify`; `POST /api/alerts/desktop/result` | RC-27, `hub/tools/desktop-notify-test.mjs` | missing | done | n/a | n/a |
-| ALERT-004 | macOS not allowing them: Alerts says so, with a button to System Settings, Notifications | client | RC-27 | missing | done | n/a | n/a |
-| ALERT-005 | Telegram, a Discord or Slack webhook, or ntfy (its QR, Copy the link, New topic): set up, Use it, Turn off | hub `POST /api/alerts/telegram`, `webhook`, `ntfy/*`, `done`, `switch` | `hub/tools/alerts-test.mjs`, `hub/tools/push-ntfy-e2e.mjs` | missing | done | n/a | n/a |
-| ALERT-006 | Pair your phone, from Alerts | client | RC-24 | missing | done | n/a | n/a |
+| ALERT-001 | The bell in the sidebar's foot, lit while something needs you, opens Alerts in the window | client | RC-25 (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | done | done | n/a | n/a |
+| ALERT-002 | The Alerts page: on or off, the channel in use, the last one sent, Send a test | hub `GET /api/alerts/setup`; `POST /api/alerts/test`, `switch` | RC-27, `hub/tools/alerts-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | done | done | n/a | n/a |
+| ALERT-003 | Mac notifications posted by the app as "Ravenry"; the hub hears whether macOS showed each; a click opens its session | hub event `notify`; `POST /api/alerts/desktop/result`; to one app only, the one focused last (`POST /api/alerts/desktop/focus`, `hub/server/desktop.mjs` pickApp) | RC-27, `hub/tools/desktop-notify-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | done | done | n/a | n/a |
+| ALERT-004 | macOS not allowing them: Alerts says so, with a button to System Settings, Notifications | client | RC-27 (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | done | done | n/a | n/a |
+| ALERT-005 | Telegram, a Discord or Slack webhook, or ntfy (its QR, Copy the link, New topic): set up, Use it, Turn off | hub `POST /api/alerts/telegram`, `webhook`, `ntfy/*`, `done`, `switch` | `hub/tools/alerts-test.mjs`, `hub/tools/push-ntfy-e2e.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | done | done | n/a | n/a |
+| ALERT-006 | Pair your phone, from Alerts | client | RC-24 (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | partial | done | n/a | n/a |
 | ALERT-007 | Phone push through UnifiedPush, each alert encrypted for that phone; with no distributor, the held connection | hub `POST /api/phone/push`; Android `Push` | `apps/android/app/src/test/java/dev/ravenry/app/WebPushTest.kt` | n/a | n/a | done | n/a |
 | ALERT-008 | Phone alerts answered from the shade: the answers, Run with a fingerprint, a reply line, Undo a decision, Open | hub alert messages (`hub/server/push.mjs`); Android `Notifier`, `ActionReceiver` | `apps/android/app/src/test/java/dev/ravenry/app/AlertsTest.kt` | n/a | n/a | done | n/a |
 | ALERT-009 | A pick's pictures side by side in its alert | Android `Pictures` | `apps/phone/tools/pick-shots.mjs` | n/a | n/a | done | n/a |
 | ALERT-010 | While paired, the connection held in the background, with a quiet "Linked to" notification counting the sessions | Android `ConnectionService`; hub `GET /api/events` | none yet | n/a | n/a | done | n/a |
+| ALERT-011 | With two apps running (the Electron app and the native Mac app), each Mac notification reaches exactly one: the one focused last, else the one connected last, the other when that one goes, osascript only when neither runs | hub `GET /api/events?app=1&client=`, `POST /api/alerts/desktop/focus` (`hub/server/desktop.mjs` pickApp) | `hub/tools/desktop-notify-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen alerts`) | done | done | n/a | n/a |
 
 ### Settings
 

@@ -239,6 +239,8 @@ function createWindow(primary = true): BrowserWindow {
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e) => e.preventDefault());
+  // In front: the hub sends Mac notifications to this app, not to another one running beside it.
+  w.on('focus', () => { if (feed) void hubPost(feed.url, '/api/alerts/desktop/focus', { client: feed.client }).catch(() => {}); });
   w.on('closed', () => {
     wins.delete(w);
     // The first window gone: the next one keeps the tabs from now on.

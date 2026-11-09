@@ -163,4 +163,92 @@ extension SelfTestBoard {
         pg.buttons["back"]?.performClick(nil)
         check("idea_back_to_ideas", { if case .page(let k, _) = board.front { return k != "idea:nowhere" }; return false }(), "\(board.front)")
     }
+
+    // MARK: Alerts and Mac notifications (ALERT rows)
+
+    func screenAlerts() {
+        let pg = board.alerts
+        board.openPage("side.alerts", t("side.alerts"))
+        check("alerts_opens", board.front == .page("side.alerts", t("alerts.title")) && board.root.middle === pg, "\(board.front)")
+        check("alerts_drawn", wait(5) { pg.setup != nil && self.shows(pg, t("alerts.mac")) } && shows(pg, t("alerts.phone")) && shows(pg, "Telegram") && shows(pg, "Discord or Slack webhook") && shows(pg, "ntfy") && shows(pg, t("alerts.oneWay")), texts(pg).prefix(10).joined(separator: " | "))
+        pictures("alerts")
+        // The window in front tells the hub; Send a test comes back down this app's stream and the stand-in posts it.
+        var n = board.hub.sent.count
+        board.reportFocus()
+        check("alerts_focus_reported", wait(3) { self.sentSince(n).contains("POST /api/alerts/desktop/focus") })
+        var L = board.log.count
+        n = board.hub.sent.count
+        pg.buttons["desktopTest"]?.performClick(nil)
+        check("alerts_test_posts", wait(3) { self.sentSince(n).contains("POST /api/alerts/desktop/test") })
+        check("notify_posted_by_this_app", wait(10) { self.board.notifier.record.count == 1 } && board.notifier.record.first?.title == "Ravenry", board.notifier.record.map { $0.title + ": " + $0.body }.joined(separator: ","))
+        check("notify_answered_shown", wait(10) { self.sentSince(n).contains("POST /api/alerts/desktop/result") } && wait(10) { self.toasts(since: L).contains(t("alerts.testShown")) }, toasts(since: L).joined(separator: ","))
+        check("alerts_line_last_shown", wait(5) { self.texts(pg).contains { $0.hasPrefix("On. Last shown today") } }, texts(pg).prefix(4).joined(separator: " | "))
+        n = board.hub.sent.count
+        if let sw = pg.switches["desktop"] { click(sw, at: NSPoint(x: 10, y: 10)) }
+        check("alerts_switch_off", wait(3) { self.sentSince(n).contains("POST /api/alerts/desktop") } && wait(6) { pg.switches["desktop"]?.on == false && self.shows(pg, t("alerts.off")) && pg.buttons["desktopTest"]?.isEnabled == false })
+        _ = wait(5) { pg.busy.isEmpty }
+        if let sw = pg.switches["desktop"] { click(sw, at: NSPoint(x: 10, y: 10)) }
+        check("alerts_switch_on", wait(6) { pg.switches["desktop"]?.on == true })
+        // Telegram: its setup opens; an empty token says so; a wrong one, the hub's words.
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["telegram-toggle"]?.performClick(nil)
+        check("alerts_setup_opens", pg.open == "telegram" && shows(pg, t("alerts.tgHow")) && pg.fields["tg"]?.window != nil && pg.buttons["telegram-toggle"]?.title == t("alerts.close"))
+        L = board.log.count
+        pg.buttons["save-tg"]?.performClick(nil)
+        check("alerts_token_needed", toasts(since: L).last == t("alerts.tgPasteFirst"))
+        if let f = pg.fields["tg"] { typeIn(f, "not-a-token") }
+        L = board.log.count
+        pg.buttons["save-tg"]?.performClick(nil)
+        check("alerts_token_refused_said", wait(5) { self.toasts(since: L).contains { $0.hasPrefix("That is not a bot token") } }, toasts(since: L).joined(separator: ","))
+        pictures("alerts-telegram")
+        window.makeFirstResponder(pg)
+        pg.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!)
+        check("alerts_escape_closes_setup", pg.open == nil)
+        // A webhook: saved, then Use it, then Turn off (never a test: that would reach Discord).
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["webhook-toggle"]?.performClick(nil)
+        if let f = pg.fields["wh"] { typeIn(f, "https://discord.com/api/webhooks/1/abc") }
+        n = board.hub.sent.count
+        pg.buttons["save-wh"]?.performClick(nil)
+        check("alerts_webhook_saved", wait(3) { self.sentSince(n).contains("POST /api/alerts/webhook") } && wait(6) { pg.buttons["webhook-use"]?.title == t("alerts.useIt") && self.shows(pg, t("alerts.chReady")) })
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["webhook-use"]?.performClick(nil)
+        check("alerts_webhook_in_use", wait(6) { pg.buttons["webhook-use"]?.title == t("alerts.turnOff") && pg.buttons["webhook-test"] != nil }, texts(pg).joined(separator: " | ").prefix(200).description)
+        pictures("alerts-webhook")
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["webhook-use"]?.performClick(nil)
+        check("alerts_webhook_off", wait(6) { pg.buttons["webhook-use"]?.title == t("alerts.useIt") })
+        // ntfy: the QR code, Copy the link, New topic.
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["ntfy-toggle"]?.performClick(nil)
+        let qr = { () -> NSImage? in var found: NSImage? = nil; func walk(_ v: NSView) { if let i = (v as? NSImageView)?.image, v.accessibilityLabel() == t("alerts.ntfyQr") { found = i }; v.subviews.forEach(walk) }; walk(pg); return found }
+        check("alerts_ntfy_qr", wait(3) { (qr()?.size.width ?? 0) > 0 } && shows(pg, "Scan this with the ntfy app"), "\(qr()?.size ?? .zero)")
+        L = board.log.count
+        pg.buttons["copyLink"]?.performClick(nil)
+        check("alerts_ntfy_copy", wait(5) { self.toasts(since: L).contains(t("alerts.copied")) }, toasts(since: L).joined(separator: ","))
+        _ = wait(5) { pg.busy.isEmpty }
+        L = board.log.count
+        pg.buttons["newTopic"]?.performClick(nil)
+        check("alerts_ntfy_new_topic", wait(5) { self.toasts(since: L).contains(t("alerts.newTopicDone")) })
+        pictures("alerts-ntfy")
+        pg.buttons["pair"]?.performClick(nil)
+        check("alerts_pair_phone", board.front == .page("side.phone", t("side.phone")), "\(board.front)")
+        // macOS refusing them: said, with the way to System Settings.
+        board.openPage("side.alerts", t("side.alerts"))
+        _ = wait(5) { pg.setup != nil }
+        settle(1.5)
+        var den = pg.setup ?? [:]
+        den["desktop"] = ["enabled": true, "last": ["at": ISO8601DateFormatter().string(from: Date()), "ok": false, "error": "Notifications are not allowed for this application", "denied": true]]
+        pg.apply(den)
+        check("alerts_denied_line", shows(pg, t("alerts.denied")) && pg.buttons["settings"] != nil)
+        let o = Outside.record?.count ?? 0
+        pg.buttons["settings"]?.performClick(nil)
+        check("alerts_open_settings", Outside.record?.dropFirst(o).contains("open x-apple.systempreferences:com.apple.Notifications-Settings.extension") ?? false)
+        pictures("alerts-denied")
+        check("notify_denied_words", Notifier.denied("Notifications are not allowed for this application") && Notifier.denied("UNErrorDomain error 1.") && !Notifier.denied("macOS did not say it showed it"))
+        // A click on one opens the session it is about.
+        board.notifier.post(Notifier.Request(id: "n-click", title: "garden-planner needs you", body: "Asked you a question", kind: "ask", projectId: "garden-planner", surfaceId: "sf-1")) { _ in }
+        board.notifier.click("n-click")
+        check("notify_click_opens_session", board.front == .session("garden-planner/sf-1") || (board.front == .tab && board.frontKey == "garden-planner/sf-1"), "\(board.front)")
+    }
 }

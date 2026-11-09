@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 export const DEFAULT_PORT = 4600;
 
@@ -41,6 +42,9 @@ export class HubFeed {
   private retryMs = 1000;
   private startedAt = 0;
 
+  /** This app's id on the hub: with two apps (this one and the native Mac app), notifications go to the one focused last. */
+  readonly client = randomUUID();
+
   /** A Mac notification the hub asks this app to post (event: notify). */
   onNotify: (n: unknown) => void = () => {};
 
@@ -71,7 +75,7 @@ export class HubFeed {
       try {
         this.abort = new AbortController();
         // ?app=1: the app's own stream, which the hub sends Mac notifications to.
-        const res = await fetch(this.url + '/api/events?app=1', { signal: this.abort.signal, headers: { Accept: 'text/event-stream' } });
+        const res = await fetch(this.url + `/api/events?app=1&client=${this.client}`, { signal: this.abort.signal, headers: { Accept: 'text/event-stream' } });
         if (res.status === 503) {
           // Starting: waiting for macOS to say whether it may read a folder.
           let j: { error?: string; waitingFor?: string; folder?: string } = {};

@@ -85,6 +85,23 @@ const APP_TIMEOUT_MS = Number(env.MC_DESKTOP_APP_TIMEOUT_MS) || 8000;
 /** { connected(): boolean, send(payload): void } */
 export function useApp(channel) { appChannel = channel; }
 
+// Each Mac notification goes to exactly one app (2026-11-09, with the
+// native Mac app beside the Electron one): of the apps' streams connected
+// now, the one whose app was focused last (POST /api/alerts/desktop/focus, kept by
+// its client id through a reconnect), else the one connected last. Never
+// both: the other gets nothing, and osascript runs only when no app is
+// connected. `streams` in the order they connected, each { client };
+// `focus` maps a client id to when it was last focused.
+export function pickApp(streams, focus) {
+  let best = null, bestAt = -1;
+  for (const s of streams) {
+    const at = (s && s.client && focus.get(s.client)) || 0;
+    // A tie goes to the later one: never focused, the one connected last.
+    if (at >= bestAt) { best = s; bestAt = at; }
+  }
+  return best;
+}
+
 /** The app's answer for one it was sent: { id, ok, error, denied }. */
 export function appResult(b) {
   const id = String((b && b.id) || '');

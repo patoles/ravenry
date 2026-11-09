@@ -223,6 +223,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     private(set) var reachable = false
     var onState: ((HubState) -> Void)?
     var onStatus: ((Bool) -> Void)?
+    /// A Mac notification the hub asks this app to post (event: notify, on the app's stream ?app=1).
+    var onNotify: (([String: Any]) -> Void)?
+    /// This app's id on the hub: with two apps (this and the Electron one), notifications go to the one focused last.
+    let client = UUID().uuidString.lowercased()
     /// Every request the window sent, for the self-test: "POST /api/send".
     private(set) var sent: [String] = []
     private var session: URLSession!
@@ -267,7 +271,9 @@ final class HubClient: NSObject, URLSessionDataDelegate {
 
     private func connect() {
         guard !stopped, let b = base else { return }
-        var r = URLRequest(url: b.appendingPathComponent("api/events"))
+        // ?app=1: the app's own stream, which the hub sends Mac notifications to (hub/server/desktop.mjs pickApp).
+        // A read-only window cannot answer, so it never asks for them.
+        var r = URLRequest(url: URL(string: b.absoluteString + (readOnly ? "/api/events" : "/api/events?app=1&client=\(client)")) ?? b.appendingPathComponent("api/events"))
         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         buf = Data()
         task = session.dataTask(with: r)
@@ -301,6 +307,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
                 var v = parts.count > 1 ? String(parts[1]) : ""
                 if v.hasPrefix(" ") { v.removeFirst() }
                 if f == "event" { event = v } else if f == "data" { lines.append(v) }
+            }
+            if event == "notify", let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] {
+                DispatchQueue.main.async { self.onNotify?(j) }
+                continue
             }
             guard event == "state", !lines.isEmpty,
                   let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] else { continue }

@@ -45,8 +45,10 @@ final class Board: NSObject {
     let gallery = GalleryPage()
     let plan = PlanPage()
     let idea = IdeaPage()
+    let alerts = AlertsPage()
+    let notifier: Notifier
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -74,6 +76,7 @@ final class Board: NSObject {
         self.hub = hub
         self.root = ws.root
         self.keep = keep
+        notifier = Notifier(standIn: !keep)
         super.init()
         let d = UserDefaults.standard
         if keep {
@@ -97,12 +100,27 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = { [weak self] s in self?.toast(s) }
-        for f in [plan, idea] as [FormPage] {
+        for f in [plan, idea, alerts] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = { [weak self] s in self?.toast(s) }
             f.onClose = { [weak self] in self?.back() }
         }
+        alerts.pairPhone = { [weak self] in self?.openPage("side.phone", t("side.phone")) }
+        // Mac notifications the hub sends this app (Notifier.swift): posted, and macOS's answer sent back.
+        hub.onNotify = { [weak self] j in
+            guard let self, let q = Notifier.request(j) else { return }
+            self.notifier.post(q) { r in
+                self.log.append("notify \(q.title): \(r["ok"] as? Bool == true ? "shown" : "not shown")")
+                self.hub.post("/api/alerts/desktop/result", r) { _, _ in }
+            }
+        }
+        notifier.onOpen = { [weak self] q in
+            guard let self, let pid = q.projectId else { return }
+            if let sf = q.surfaceId, self.hub.state?.find("\(pid)/\(sf)") != nil { self.pickSession("\(pid)/\(sf)", why: "notification") } else if self.hub.state?.project(pid) != nil { self.pickProject(pid) }
+        }
+        // In front: the hub sends the next Mac notification here, not to another app beside it.
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: ws.window, queue: .main) { [weak self] _ in self?.reportFocus() }
         idea.openIdeas = { [weak self] in
             guard let self else { return }
             if let p = self.hub.state?.pages.first(where: { $0.icon == "idea" }) { self.openPage(p.key, p.label) } else { self.back() }
@@ -335,6 +353,7 @@ final class Board: NSObject {
         if key.hasPrefix("plan:") { openPlan(String(key.dropFirst(5)), title: nil); return }
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
+        if key == "side.alerts" { openAlerts(); return }
         overlay = false
         notePageBack()
         front = .page(key, name)
@@ -394,6 +413,22 @@ final class Board: NSObject {
         plan.show(pid, mode: .new, state: hub.state)
         log.append("newplan \(pid)")
         render()
+    }
+
+    /// Alerts: Mac notifications, the phone and one other way.
+    func openAlerts() {
+        overlay = false
+        notePageBack()
+        front = .page("side.alerts", t("alerts.title"))
+        showMiddle(alerts)
+        alerts.show()
+        log.append("alerts")
+        render()
+    }
+
+    /// The window came to the front: the hub's next Mac notification comes to this app.
+    func reportFocus() {
+        hub.post("/api/alerts/desktop/focus", ["client": hub.client]) { _, _ in }
     }
 
     /// An idea's thread.

@@ -205,9 +205,9 @@ try {
   check('board: back on, and the snapshot follows', y.status === 200 && st.alerts.desktop.enabled === true);
   // The Ravenry app posts them when it runs: the hub sends each one down
   // the app's stream (event: notify) and reports what the app answers.
-  const appStream = async (answer) => {
+  const appStream = async (answer, client = null) => {
     const ctl = new AbortController();
-    const res = await fetch(BASE + '/api/events?app=1', { signal: ctl.signal, headers: { Accept: 'text/event-stream' } });
+    const res = await fetch(BASE + '/api/events?app=1' + (client ? `&client=${client}` : ''), { signal: ctl.signal, headers: { Accept: 'text/event-stream' } });
     const seen = [];
     (async () => { const dec = new TextDecoder(); let buf = ''; try { for await (const ch of res.body) { buf += dec.decode(ch, { stream: true }); let i; while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); if (/^event: notify/m.test(block)) { const n = JSON.parse(block.split('\n').find((l) => l.startsWith('data: ')).slice(6)); seen.push(n); await post('/api/alerts/desktop/result', { id: n.id, ...answer }); } } } } catch { /* closed */ } })();
     await sleep(300);
@@ -230,6 +230,36 @@ try {
   check('board log: it says "not shown" and why, never "shown", for one macOS refused', /not shown by app: Notifications are not allowed/.test(dl[dl.length - 1] || ''), dl.slice(-2).join(' | '));
   app.close();
   await sleep(300);
+  // Two apps (the Electron app and the native one): each notification
+  // reaches exactly one, the one focused last, else the one connected last;
+  // the other takes over when the first goes; osascript only with none.
+  {
+    const fa = new Map([['a', 5]]);
+    check('pickApp: the one focused last', desktop.pickApp([{ client: 'a' }, { client: 'b' }], fa).client === 'a' && desktop.pickApp([{ client: 'a' }, { client: 'b' }], new Map([['a', 5], ['b', 9]])).client === 'b');
+    check('pickApp: none focused, the one connected last; one alone, it; none, nothing', desktop.pickApp([{ client: 'a' }, { client: null }], new Map()).client === null && desktop.pickApp([{ client: 'a' }], new Map([['b', 3]])).client === 'a' && desktop.pickApp([], fa) === null);
+    const osa0 = osa().length;
+    const a = await appStream({ ok: true }, 'app-a');
+    const b = await appStream({ ok: true }, 'app-b');
+    y = await post('/api/alerts/desktop/test', {});
+    check('two apps, none focused: only the one connected last posts it', y.status === 200 && y.j.via === 'app' && a.seen.length === 0 && b.seen.length === 1, JSON.stringify({ a: a.seen.length, b: b.seen.length, y }));
+    y = await post('/api/alerts/desktop/focus', { client: 'app-a' });
+    check('an app says it came to the front', y.status === 200, JSON.stringify(y));
+    y = await post('/api/alerts/desktop/focus', { client: 'app-a' }, { 'X-Ravenry': '0' });
+    check('the focus route keeps the write guard', y.status === 403 || y.status === 400, String(y.status));
+    y = await post('/api/alerts/desktop/test', {});
+    check('two apps: only the one focused last posts it', y.status === 200 && a.seen.length === 1 && b.seen.length === 1, JSON.stringify({ a: a.seen.length, b: b.seen.length }));
+    await sleep(5);
+    await post('/api/alerts/desktop/focus', { client: 'app-b' });
+    y = await post('/api/alerts/desktop/test', {});
+    check('two apps: focus moves it to the other', a.seen.length === 1 && b.seen.length === 2, JSON.stringify({ a: a.seen.length, b: b.seen.length }));
+    b.close();
+    await sleep(300);
+    y = await post('/api/alerts/desktop/test', {});
+    check('the focused app gone: the other posts it', y.status === 200 && y.j.via === 'app' && a.seen.length === 2 && b.seen.length === 2, JSON.stringify({ a: a.seen.length, b: b.seen.length }));
+    check('no osascript while an app was there', osa().length === osa0, String(osa().length - osa0));
+    a.close();
+    await sleep(300);
+  }
   const before = osa().length;
   y = await post('/api/alerts/desktop/test', {});
   st = { alerts: await setup() };

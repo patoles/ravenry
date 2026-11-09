@@ -19,17 +19,11 @@ final class WrapLabel: NSTextField {
 }
 
 /// Words on as many lines as they take, selectable (.sec p, .t2).
-func wrap(_ s: String, _ font: NSFont = Fonts.pt(13), _ color: String = "tx") -> WrapLabel {
-    let f = WrapLabel(wrappingLabelWithString: s)
-    f.font = font
-    f.textColor = Design.color(color)
-    f.isSelectable = true
-    f.lineBreakMode = .byWordWrapping
-    f.drawsBackground = false
-    f.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-    f.setContentHuggingPriority(.defaultHigh, for: .vertical)
-    f.setContentHuggingPriority(.init(1), for: .horizontal)
-    return f
+func wrap(_ s: String, _ font: NSFont = Fonts.pt(13), _ color: String = "tx") -> CappedText {
+    let c = CappedText(s, font, color, maxW: 100000)
+    c.setContentHuggingPriority(.init(1), for: .horizontal)
+    c.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+    return c
 }
 
 /// Words at most `maxW` wide, from the left (.ia-msg's max-width), on a

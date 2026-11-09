@@ -16,6 +16,13 @@ enum Outside {
         NSWorkspace.shared.open(u)
     }
 
+    /// A pane of System Settings (x-apple.systempreferences:).
+    static func settings(_ s: String) {
+        guard s.hasPrefix("x-apple.systempreferences:"), let u = URL(string: s) else { return }
+        if record != nil { record?.append("open \(s)"); return }
+        NSWorkspace.shared.open(u)
+    }
+
     static func openFile(_ path: String) {
         if record != nil { record?.append("open \(path)"); return }
         NSWorkspace.shared.open(URL(fileURLWithPath: path))

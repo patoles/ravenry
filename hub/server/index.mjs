@@ -2886,9 +2886,15 @@ async function jsonBody(req, limit = 1e6) {
 
 // Mac notifications: posted by the Ravenry app while it runs (the last of
 // its streams), and its answer awaited (server/desktop.mjs).
+// Mac notifications go to one app only (desktop.mjs pickApp): the one
+// focused last (POST /api/alerts/desktop/focus), else the one connected last.
+const appFocus = new Map();
 desktop.useApp({
   connected: () => [...clients].some((r) => r.mcApp),
-  send: (payload) => { const r = [...clients].filter((x) => x.mcApp).pop(); if (r) r.write(`event: notify\ndata: ${JSON.stringify(payload)}\n\n`); },
+  send: (payload) => {
+    const r = desktop.pickApp([...clients].filter((x) => x.mcApp).map((x) => ({ client: x.mcClient, res: x })), appFocus);
+    if (r) r.res.write(`event: notify\ndata: ${JSON.stringify(payload)}\n\n`);
+  },
 });
 
 function broadcast(event, obj) {
@@ -2921,6 +2927,8 @@ async function alertsWrite(req, res, p) {
   if (!local) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
   if (p === '/api/alerts/desktop/test') return answer(await alerts.testDesktop());
   // The app's answer for a notification it was sent: shown by macOS or not, and why.
+  // An app's window came to the front: Mac notifications go to it (desktop.mjs pickApp).
+  if (p === '/api/alerts/desktop/focus') { const c = String(body.client || '').slice(0, 80); if (!c) return sendJson(res, 400, { error: 'Which app?' }); appFocus.set(c, Date.now()); return sendJson(res, 200, { ok: true }); }
   if (p === '/api/alerts/desktop/result') { const r = desktop.appResult(body); return sendJson(res, r.ok ? 200 : r.status || 400, r); }
   if (p === '/api/alerts/telegram') return answer(await alerts.saveTelegramToken(body.token));
   if (p === '/api/alerts/telegram/find-chat') return answer(await alerts.findTelegramChat());
@@ -3803,6 +3811,8 @@ async function handleRequest(req, res) {
       res.mcPhone = req.mcPhone || null;
       // The Ravenry app's own stream (?app=1, from this Mac): Mac notifications go to it (server/desktop.mjs).
       res.mcApp = !!req.mcLocal && url.searchParams.get('app') === '1';
+      // Its app's id (?client=), for the focus that picks one app per notification.
+      res.mcClient = res.mcApp ? String(url.searchParams.get('client') || '').slice(0, 80) || null : null;
       res.mcDevice = req.mcDevice || null;
       clients.add(res);
       const hb = setInterval(() => res.write(': hb\n\n'), 15000);
