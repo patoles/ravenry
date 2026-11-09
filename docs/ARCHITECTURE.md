@@ -59,6 +59,11 @@ the role above.
 ### The clients
 
 - **The desktop app** (`apps/desktop/`): Electron with xterm.js panes.
+- **The native Mac app** (`apps/macos/`, a spike): Swift and AppKit, its
+  terminals drawn by Ghostty's embedding library. Each terminal runs
+  `ravenry attach`, the daemon's own client, which carries a pane's bytes,
+  keys and size; everything a later native client (Linux, Windows) needs
+  again lives there, in Go, not in Swift.
 - **The Android app** (`apps/android/`): Kotlin around a WebView that shows
   the phone board (`apps/phone/`), web code the iOS app will share
   ([PHONE.md](PHONE.md)).
@@ -119,6 +124,7 @@ the shell around the web interface, and how ravenryd stores things.
 | `daemon/` | ravenryd | Go | GPL-3.0-only |
 | `hub/` | the hub, today's board | Node | GPL-3.0-only |
 | `apps/desktop/` | the desktop app | Electron, xterm.js | GPL-3.0-only |
+| `apps/macos/` | the native Mac app (spike) | Swift, AppKit, GhosttyKit | GPL-3.0-only |
 | `apps/android/` | the Android app | Kotlin, WebView | GPL-3.0-only |
 | `apps/phone/` | the phone board, the web code the phone apps show | TypeScript, xterm.js | GPL-3.0-only |
 | `packages/` | the protocol spec, plugin SDK, specs, adapter contracts | | Apache-2.0 |
