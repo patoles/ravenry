@@ -89,6 +89,8 @@ check('the board answers', !!first, boardLog.slice(-800));
   const bad = await get('/api/brief?project=nope');
   check('GET /api/brief: 404 for a project with no brief and for no such project', none.status === 404 && bad.status === 404, `${none.status} ${bad.status}`);
 }
+check('state: the sidebar ready to draw, each session with its group', !!first && first.sidebar && Array.isArray(first.sidebar.sections) && first.sidebar.counts && first.projects.every((p) => p.sessions.every((x) => ['you', 'work', 'wait', 'idle'].includes(x.group))), JSON.stringify(first && first.sidebar));
+{ const sb = await get('/api/sidebar'); check('GET /api/sidebar answers the same sections', sb.status === 200 && Array.isArray(sb.body.sections) && !!sb.body.counts, sb.text); }
 check('state: machines and checkpoints, machine on each project', !!first && Array.isArray(first.machines) && Array.isArray(first.checkpoints) && first.projects.every((p) => 'machine' in p), JSON.stringify(first && { m: first.machines, c: first.checkpoints }));
 
 // ------------------------------------------------------------ start a session

@@ -11,7 +11,7 @@ import type { NavRow } from '../../desktop/src/renderer/pages.ts';
 import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
-import { checkpointOf, connLabel, markLabel, marksOf, strip } from './logic.ts';
+import { checkpointOf, connLabel, markLabel, strip } from './logic.ts';
 import { go } from './main.ts';
 import type { Screen } from './main.ts';
 
@@ -86,7 +86,7 @@ export function sessionsScreen(): Screen {
   const el = h('div.scr.sessions');
   const update = () => {
     const st = hub.live.state;
-    const groups = board(st, Date.now(), marksOf(hub.checkpoints()));
+    const groups = board(st, Date.now());
     const parts = strip(groups);
     const body = !st
       ? h('div.empty', hub.live.link === 'down' ? h('p', hub.live.error || 'The computer does not answer.') : h('p.t2', 'Reaching the computer...'))

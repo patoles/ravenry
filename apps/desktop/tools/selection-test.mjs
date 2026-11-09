@@ -21,6 +21,7 @@
 //
 // Usage: node build.mjs && node tools/selection-test.mjs [OUT]
 // Needs ravenryd: RAVENRYD, else ../../daemon/ravenryd.
+import { hubState } from './stub-state.mjs';
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -61,12 +62,12 @@ const NOTES = 'notes/ev:c3c3c3c3-0000-4000-8000-000000000003';
 let state = JSON.parse(fs.readFileSync(path.join(APP, 'test', 'fixtures', 'live-session-in-pane.json'), 'utf8').replace(/PANE/g, pane.id));
 const streams = new Set();
 const srv = http.createServer((q, r) => {
-  if (q.url.startsWith('/api/events')) { r.writeHead(200, { 'Content-Type': 'text/event-stream' }); streams.add(r); r.on('close', () => streams.delete(r)); r.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`); return; }
-  if (q.url.startsWith('/api/state')) { r.writeHead(200, { 'Content-Type': 'application/json' }); r.end(JSON.stringify(state)); return; }
+  if (q.url.startsWith('/api/events')) { r.writeHead(200, { 'Content-Type': 'text/event-stream' }); streams.add(r); r.on('close', () => streams.delete(r)); r.write(`event: state\ndata: ${JSON.stringify(hubState(state))}\n\n`); return; }
+  if (q.url.startsWith('/api/state')) { r.writeHead(200, { 'Content-Type': 'application/json' }); r.end(JSON.stringify(hubState(state))); return; }
   r.writeHead(404, { 'Content-Type': 'application/json' }); r.end('{}');
 });
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-const tickTimer = setInterval(() => { state = { ...state, generatedAt: new Date().toISOString() }; for (const s of streams) s.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`); }, 300);
+const tickTimer = setInterval(() => { state = { ...state, generatedAt: new Date().toISOString() }; for (const s of streams) s.write(`event: state\ndata: ${JSON.stringify(hubState(state))}\n\n`); }, 300);
 const hubUrl = `http://127.0.0.1:${srv.address().port}`;
 
 const R = 'window.__ravenry';

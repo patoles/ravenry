@@ -2,28 +2,28 @@
 // (src/shell.ts), without a page.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, marksOf, mmss, parentOf, quickAnswers, driveWords, paneInTitle, regionOf, strip, topLabel, variantOf, waitOf } from '../src/logic.ts';
+import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, mmss, parentOf, quickAnswers, driveWords, paneInTitle, regionOf, strip, topLabel, variantOf, waitOf } from '../src/logic.ts';
 import { BRIDGE_VERSION, Wire } from '../src/shell.ts';
 import { board } from '../../desktop/src/renderer/model.ts';
+import type { HubProject } from '../../desktop/src/renderer/model.ts';
+// @ts-ignore: the hub's module, plain JavaScript
+import { build, withGroups } from '../../../hub/server/sidebar.mjs';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 
 const NOW = Date.parse('2026-11-06T17:38:00Z');
 const cp = (x: Partial<HubCheckpoint>): HubCheckpoint => ({ id: 'cabc1234', kind: 'ask', state: 'open', title: 'Ship it?', created_at: new Date(NOW - 2 * 60000).toISOString(), expires_at: new Date(NOW + 26 * 60000).toISOString(), ...x } as HubCheckpoint);
 
 test('the strip has one part per group, as wide as its sessions', () => {
-  const groups = board({ projects: [
+  const projects = withGroups([
     { id: 'a', name: 'a', state: 'you', sessions: [{ surfaceId: 's1', state: 'asked' }], primary: 's1' },
     { id: 'b', name: 'b', state: 'work', sessions: [{ surfaceId: 's2', state: 'working' }, { surfaceId: 's3', state: 'working' }], primary: 's2' },
     { id: 'c', name: 'c', state: 'idle', sessions: [], primary: null },
-  ] }, NOW);
+  ]) as HubProject[];
+  const groups = board({ projects, sidebar: build(projects, { now: NOW }) }, NOW);
   assert.deepEqual(strip(groups), [{ group: 'you', n: 1 }, { group: 'work', n: 2 }, { group: 'idle', n: 1 }]);
 });
 
-test('an open checkpoint marks its session row, with the word for its kind', () => {
-  const m = marksOf([cp({ projectId: 'p', surfaceId: 'ravenry:pk3m9q2x' }), cp({ id: 'c2', kind: 'approve', command: 'npm publish', projectId: 'q', surfaceId: 's' }), cp({ id: 'c3', state: 'answered', projectId: 'r', surfaceId: 's' })]);
-  assert.equal(m.size, 2);
-  assert.equal(m.get('p/ravenry:pk3m9q2x')!.text, 'Ship it?');
-  assert.equal(m.get('q/s')!.code, true);
+test('the word for a checkpoint\'s kind on a session row', () => {
   assert.equal(markLabel('ask'), 'Checkpoint:');
   assert.equal(markLabel('approve'), 'Wants to run:');
   assert.equal(markLabel('secret'), 'Needs a secret:');

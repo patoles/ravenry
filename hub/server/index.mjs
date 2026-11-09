@@ -62,6 +62,7 @@ import * as picks from './picks.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
+import * as sidebar from './sidebar.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -1032,6 +1033,27 @@ function buildProject(project, wsById, hooks, settings, now) {
   };
 }
 
+// How many files a worktree session done with its turn has to review, for
+// its sidebar row ("Done. 3 files to review"): its diff read again when
+// older than 20 s, in the background; null until known or when none.
+const reviewCache = new Map();
+function reviewFiles(s) {
+  if (!s.worktree || s.worktree.state !== 'open' || s.state === 'working') return null;
+  const c = reviewCache.get(s.surfaceId);
+  if (!c || (!c.loading && Date.now() - c.at > 20000)) {
+    const w = worktrees.bySurface(s.surfaceId);
+    if (w) {
+      reviewCache.set(s.surfaceId, { at: c ? c.at : 0, n: c ? c.n : null, loading: true });
+      worktrees.diff(w).then((d) => {
+        const n = d && d.ok && d.files.length ? d.files.length : null;
+        reviewCache.set(s.surfaceId, { at: Date.now(), n, loading: false });
+        if (n !== (c ? c.n : null)) { wantTick = true; setTimeout(tick, 30); }
+      }, () => reviewCache.set(s.surfaceId, { at: Date.now(), n: c ? c.n : null, loading: false }));
+    }
+  }
+  return c ? c.n : null;
+}
+
 // A session's worktree for the board's state (server/worktrees.mjs), as
 // { worktree: { branch, folder, base, baseBranch, state, merged? } }, or {}.
 function worktreeOf(surfaceId) {
@@ -1300,6 +1322,9 @@ async function tick() {
     tp.mark('snapshot');
     if (!snapshot.generatedAt) console.log(`start: first state built, ${Date.now() - startlog.T0} ms after start`);
     snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
+    // The sidebar, ready to draw (server/sidebar.mjs): its sections, rows and order.
+    sidebar.withGroups(projects);
+    snapshot.sidebar = sidebar.build(projects, { threshold: snapshot.settings.handoffThreshold ?? 50, marks: sidebar.marksOf(projects, snapshot.checkpoints, { reviewFiles, now }), now });
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
     // one it is set to (its own, else startWith), for the meta line's "New
@@ -3590,6 +3615,7 @@ async function handleRequest(req, res) {
     // 503 "starting", at once, never a held request (the app counts any
     // answer as the hub being up; docs in server/access.mjs's 503 too).
     if (req.method === 'GET' && p === '/api/state') return snapshot.generatedAt ? sendJson(res, 200, snapshot) : sendJson(res, 503, { ...snapshot, starting: true, waitingFor: null, folder: null, error: 'Ravenry is starting: reading your projects.' });
+    if (req.method === 'GET' && p === '/api/sidebar') return snapshot.generatedAt ? sendJson(res, 200, { ok: true, ...snapshot.sidebar }) : sendJson(res, 503, { error: 'Ravenry is starting: reading your projects.' });
     if (req.method === 'GET' && p === '/api/brief') {
       // A project's brief as written, for the app's Brief tab: its text,
       // when it last changed, and the assistant of the project's session

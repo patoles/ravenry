@@ -11,7 +11,9 @@ import {
 } from '../src/renderer/checkpoints.ts';
 import type { HubCheckpoint } from '../src/renderer/checkpoints.ts';
 import { board } from '../src/renderer/model.ts';
-import type { HubState, RowMark } from '../src/renderer/model.ts';
+import type { HubState } from '../src/renderer/model.ts';
+// @ts-ignore: the hub's module, plain JavaScript
+import { build, marksOf, withGroups } from '../../../hub/server/sidebar.mjs';
 
 const NOW = new Date(2026, 10, 6, 17, 36, 0).getTime();
 const at = (min: number) => new Date(NOW - min * 60000).toISOString();
@@ -175,13 +177,14 @@ test('a session waiting at a checkpoint needs you, with its mark and the time it
       { id: 'trail-map', name: 'trail-map', state: 'idle', since: at(3000), primary: 's2', sessions: [{ surfaceId: 's2', state: 'idle' }] },
     ],
   };
-  const marks = new Map<string, RowMark>([['notes-app/ravenry:paaaaaaa', { ...markOf(ask), since: ask.created_at }]]);
-  const g = board(state, NOW, marks);
+  // The hub marks the session and puts it in Needs you (hub/server/sidebar.mjs); the window draws it.
+  const cps = [{ ...ask, pane: 'paaaaaaa', machine: null }];
+  const g = board({ ...state, sidebar: build(state.projects, { marks: marksOf(state.projects, cps, { now: NOW }), now: NOW }) }, NOW);
   assert.equal(g[0].group, 'you');
   assert.equal(g[0].projects[0].time, '17:34');
   assert.deepEqual(g[0].projects[0].rows[0].mark, { kind: 'ask', text: 'Ship the beta to the testers?', code: false, since: ask.created_at });
   assert.equal(g[0].projects[0].rows[0].line, null);
-  assert.equal(board(state, NOW)[0].group, 'work');
+  assert.equal(board({ ...state, sidebar: build(withGroups(state.projects), { now: NOW }) }, NOW)[0].group, 'work');
 });
 
 /** An input element as far as the secret field needs one. */

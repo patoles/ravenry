@@ -33,7 +33,7 @@ import * as I from './icons.ts';
 import {
   ago, arrivals, assistantName, board, secondLine, clock, findSession, isEmpty, machineOf, memoryLine, paneOf, rekeyed, sessionGroup, sessionKey, sessionOfPane, tokens,
 } from './model.ts';
-import type { Group, HubProject, HubSession, HubState, RowMark } from './model.ts';
+import type { Group, HubProject, HubSession, HubState } from './model.ts';
 import { Machines, MACHINES_ICON } from './machines.ts';
 import { initNpmSwitch, npmChosen, npmTakesCentre, renderNpmCentre, renderNpmPointer, setBoardLive } from './npmswitch.ts';
 import type { MachineView } from './machines.ts';
@@ -794,24 +794,6 @@ function targetOf(k: Known): string {
   return `cp:${cp.id}`;
 }
 
-/** The marks on the sidebar's rows, by session key. */
-function rowMarks(): Map<string, RowMark> {
-  const out = new Map<string, RowMark>();
-  // 33: a worktree session done and with work to review needs you.
-  for (const p of S.hub?.projects || []) for (const s of p.sessions) {
-    const n = review ? review.readyFiles(s) : null;
-    if (n) out.set(sessionKey(p.id, s), { kind: 'review', text: `Done. ${n} file${n === 1 ? '' : 's'} to review`, code: false, since: s.since || new Date(now()).toISOString() });
-  }
-  for (const k of S.cps.open()) {
-    const t = targetOf(k);
-    if (t.startsWith('tab:') || t.startsWith('cp:') || (out.has(t) && out.get(t)!.kind !== 'review')) continue;
-    const m = markOf(k.cp);
-    if (k.cp.kind === 'drive' && k.cp.drive) m.text = `${driveVerb(k.cp).row} ${paneNameOf(k.cp.drive.pane)}`;
-    out.set(t, { ...m, since: k.cp.created_at });
-  }
-  return out;
-}
-
 /** The pane a checkpoint's agent runs in, as people know it. */
 function paneName(pane: string | undefined, machine: string | null | undefined): string {
   if (!pane) return 'its session';
@@ -974,7 +956,7 @@ async function closedOnHub(ids: string[]): Promise<void> {
 
 function renderSidebar(): void {
   const empty = firstRun();
-  const groups = board(S.hub, now(), rowMarks());
+  const groups = board(S.hub, now());
   const counts: Record<Group, number> = { you: 0, work: 0, wait: 0, idle: 0 };
   for (const g of groups) counts[g.group] = g.count;
   const total = counts.you + counts.work + counts.wait + counts.idle;

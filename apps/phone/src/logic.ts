@@ -12,17 +12,6 @@ export function strip(groups: BoardGroup[]): { group: Group; n: number }[] {
   return groups.filter((g) => g.count > 0).map((g) => ({ group: g.group, n: g.count }));
 }
 
-/** Open checkpoints as marks on their sessions' rows, by session key. */
-export function marksOf(cps: HubCheckpoint[]): Map<string, RowMark> {
-  const out = new Map<string, RowMark>();
-  for (const cp of cps) {
-    if (!cp.projectId || !cp.surfaceId || cp.state !== 'open') continue;
-    const m = markOf(cp);
-    out.set(`${cp.projectId}/${cp.surfaceId}`, { kind: m.kind as RowMark['kind'], text: m.text, code: m.code, since: cp.created_at });
-  }
-  return out;
-}
-
 /** The word before a checkpoint's text on a session's row. */
 export function markLabel(kind: RowMark['kind']): string {
   switch (kind as string) {

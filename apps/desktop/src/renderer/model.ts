@@ -13,6 +13,8 @@ export interface HubSession {
   topic?: string;
   sessionId?: string | null;
   state: string;
+  /** The section of its own state, decided by the hub (hub/server/sidebar.mjs). */
+  group?: Group;
   since?: string | null;
   assistant?: string | null;
   ctx?: HubCtx | null;
@@ -86,13 +88,20 @@ export interface HubState {
   homes?: Record<string, string>;
   /** Every daemon's open checkpoints (checkpoints.ts HubCheckpoint). */
   checkpoints?: unknown[];
+  /** The sidebar ready to draw (hub/server/sidebar.mjs has the shape). */
+  sidebar?: HubSidebar | null;
 }
 
-const SESSION_GROUP: Record<string, Group> = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
+/** A row as the hub sends it (hub/server/sidebar.mjs). */
+export interface HubRow { key: string; surfaceId: string; name: string; assistant: string | null; pct: number | null; pctWarn: boolean; line: string | null; mark: RowMark | null; group: Group; machine: string | null }
+export interface HubSidebar {
+  sections: { group: Group; title: string; count: number; projects: { id: string; name: string; machine: string | null; time: { at: string | null; style: 'clock' | 'ago' }; rows: HubRow[] }[] }[];
+  counts: Record<Group, number>;
+}
 
-/** Which group a session's own state puts it in. */
+/** Which group a session's own state puts it in: the hub says (hub/server/sidebar.mjs). */
 export function sessionGroup(s: HubSession): Group {
-  return SESSION_GROUP[s.state] || (s.words?.state as Group | undefined) || 'idle';
+  return s.group || 'idle';
 }
 
 export const sessionKey = (projectId: string, s: HubSession): string => `${projectId}/${s.surfaceId}`;
@@ -167,9 +176,6 @@ export interface BoardGroup {
   count: number;
 }
 
-export const GROUP_TITLES: Record<Group, string> = { you: 'Needs you', work: 'Working', wait: 'Waiting on others', idle: 'Idle' };
-const ORDER: Group[] = ['you', 'work', 'wait', 'idle'];
-
 export function assistantName(kind: string | null | undefined): string | null {
   if (!kind) return null;
   if (kind === 'claude') return 'Claude';
@@ -198,77 +204,30 @@ export function clock(iso: string | null | undefined, now: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function projectTime(p: HubProject, now: number): string {
-  if (p.state === 'you' || p.state === 'wait') return clock(p.since, now);
-  return ago(p.since, now);
-}
-
-function row(p: HubProject, s: HubSession, threshold: number, mark: RowMark | null): Row {
-  const pct = s.ctx && Number.isFinite(s.ctx.pct) ? Math.round(s.ctx.pct) : null;
-  const g = mark ? 'you' : sessionGroup(s);
-  const w = s.words || {};
-  const line = g === 'you' && !mark ? (w.question || w.line || null) : null;
-  return {
-    key: sessionKey(p.id, s),
-    session: s,
-    name: s.topic || p.name,
-    assistant: assistantName(s.assistant),
-    pct,
-    pctWarn: pct !== null && pct >= threshold,
-    line: line ? String(line).replace(/\s+/g, ' ').trim() : null,
-    mark,
-    group: g,
-    machine: machineOf(p, s),
-  };
-}
-
 /**
- * The sidebar: Needs you first, then Working, Waiting on others and Idle,
- * newest first in each. Each session sits in the section of its own state
- * (2026-11-08: a session done and waiting for you showed under Working,
- * beside its project's working one), so a project can be in more than one
- * section, its header in each. A project in a section for its own reason
- * (a brief waiting on someone, a plan gate) with no session of that state
- * shows its main session there. A project with every session idle is one
- * line in Idle; an idle session of a project at work is a row there under
- * its project. A section's count is its rows (one at least a project). A
- * session with an open checkpoint (marks, by session key) needs you
- * whatever its own state says, and its project's time there is when it
- * started waiting.
+ * The sidebar as the hub sends it (state.sidebar, hub/server/sidebar.mjs:
+ * the sections, their projects and rows, in order, with their counts),
+ * with each project and session found in the state for the drawing, and
+ * each time said against this clock.
  */
-export function board(state: HubState | null, now: number, marks: Map<string, RowMark> = new Map()): BoardGroup[] {
-  const threshold = state?.settings?.handoffThreshold ?? 50;
-  const by = new Map<Group, ProjectRow[]>();
-  const since = new Map<ProjectRow, number>();
-  for (const p of state?.projects || []) {
-    const live = p.sessions.filter((s) => !s.handed);
-    const markOf = (s: HubSession) => marks.get(sessionKey(p.id, s)) || null;
-    const own = (s: HubSession): Group => (markOf(s) ? 'you' : sessionGroup(s));
-    const g: Group = live.some(markOf) ? 'you' : ORDER.includes(p.state) ? p.state : 'idle';
-    const add = (k: Group, sessions: HubSession[]) => {
-      const marked = sessions.map((s) => markOf(s)).filter((m): m is RowMark => !!m);
-      const first = marked.map((m) => Date.parse(m.since)).filter(Number.isFinite).sort((a, b) => a - b)[0];
-      const pr: ProjectRow = { project: p, time: first !== undefined ? clock(new Date(first).toISOString(), now) : projectTime(p, now), machine: machineOf(p), rows: sessions.map((s) => row(p, s, threshold, markOf(s))) };
-      if (first !== undefined) since.set(pr, first);
-      by.set(k, [...(by.get(k) || []), pr]);
-    };
-    if (g === 'idle') { add('idle', []); continue; }
-    const buckets = new Map<Group, HubSession[]>();
-    for (const s of live) buckets.set(own(s), [...(buckets.get(own(s)) || []), s]);
-    // In its section for its own reason: its main session there.
-    if (!buckets.get(g)?.length) {
-      const main = live.find((s) => s.surfaceId === p.primary) || null;
-      if (main) buckets.set(own(main), (buckets.get(own(main)) || []).filter((s) => s !== main));
-      buckets.set(g, main ? [main] : []);
-    }
-    for (const k of ORDER) { const list = buckets.get(k); if (list && (list.length || k === g)) add(k, list); }
-  }
-  const t = (pr: ProjectRow) => since.get(pr) ?? (pr.project.since ? Date.parse(pr.project.since) : now);
-  return ORDER.filter((g) => by.has(g)).map((g) => {
-    const projects = by.get(g)!.sort((a, b) => t(b) - t(a));
-    const count = projects.reduce((n, p) => n + Math.max(p.rows.length, 1), 0);
-    return { group: g, title: GROUP_TITLES[g], projects, count };
-  });
+export function board(state: HubState | null, now: number): BoardGroup[] {
+  const sb = state?.sidebar;
+  if (!sb) return [];
+  const projects = new Map((state?.projects || []).map((p) => [p.id, p]));
+  return sb.sections.map((g) => ({
+    group: g.group,
+    title: g.title,
+    count: g.count,
+    projects: g.projects.map((pr) => {
+      const project = projects.get(pr.id) || { id: pr.id, name: pr.name, state: g.group, sessions: [] };
+      return {
+        project,
+        time: pr.time.style === 'clock' ? clock(pr.time.at, now) : ago(pr.time.at, now),
+        machine: pr.machine,
+        rows: pr.rows.map(({ surfaceId, ...r }) => ({ ...r, session: project.sessions.find((x) => x.surfaceId === surfaceId) || { surfaceId, state: 'idle' } })),
+      };
+    }),
+  }));
 }
 
 /** Finds a session by its key. */

@@ -7,28 +7,30 @@ import os from 'node:os';
 import path from 'node:path';
 import { ago, arrivals, board, clock, isEmpty, machineOf, memoryLine, paneOf, rekeyed, secondLine, sessionGroup, sessionOfPane, tokens } from '../src/renderer/model.ts';
 import type { HubProject, HubSession, HubState } from '../src/renderer/model.ts';
+// @ts-ignore: the hub's module, plain JavaScript
+import { build, withGroups } from '../../../hub/server/sidebar.mjs';
 import { hubUrl, parseEvent } from '../src/main/hub.ts';
 import { daemonEnv } from '../src/main/spawn.ts';
 import { findAssistants, findProjectFolders, shortPath } from '../src/main/local.ts';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const at = (min: number) => new Date(NOW - min * 60000).toISOString();
-const sess = (surfaceId: string, state: string, extra: Partial<HubSession> = {}): HubSession => ({ surfaceId, state, topic: surfaceId, assistant: 'claude', ...extra });
+const GROUP: Record<string, HubSession['group']> = { dialog: 'you', asked: 'you', draft: 'you', handback: 'you', working: 'work' };
+const sess = (surfaceId: string, state: string, extra: Partial<HubSession> = {}): HubSession => ({ surfaceId, state, group: GROUP[state] || 'idle', topic: surfaceId, assistant: 'claude', ...extra });
 const proj = (id: string, state: HubProject['state'], sessions: HubSession[], extra: Partial<HubProject> = {}): HubProject => ({ id, name: id, state, sessions, primary: sessions[0]?.surfaceId ?? null, ...extra });
 
-const STATE: HubState = {
-  settings: { handoffThreshold: 50 },
-  projects: [
+const PROJECTS: HubProject[] = withGroups([
     proj('old-ask', 'you', [sess('s1', 'asked', { since: at(30), words: { line: 'Keep  the\nold format?' }, ctx: { tokens: 100000, window: 1000000, pct: 10 } })], { since: at(30) }),
     proj('new-ask', 'you', [sess('s2', 'dialog', { words: { question: 'Allow it?' } }), sess('s2b', 'working')], { since: at(2) }),
     proj('busy', 'work', [sess('s3', 'working', { ctx: { tokens: 584000, window: 1000000, pct: 58.4 } }), sess('s3b', 'working'), sess('s3c', 'idle')]),
     proj('gate', 'you', [sess('s4', 'idle')], { since: at(5), primary: 's4' }),
     proj('quiet', 'idle', [sess('s5', 'stale')], { since: at(60 * 72), machine: 'devbox' }),
     proj('waiting', 'wait', [sess('s6', 'idle')], { since: at(10), waitingOn: 'design' }),
-  ],
-};
+]);
+// The sidebar as the hub sends it (hub/server/sidebar.mjs; its rules are tested in hub/tools/sidebar-test.mjs).
+const STATE: HubState = { settings: { handoffThreshold: 50 }, projects: PROJECTS, sidebar: JSON.parse(JSON.stringify(build(PROJECTS, { threshold: 50, now: NOW }))) };
 
-test('groups come in order, newest first, each counting its rows', () => {
+test('the hub\'s sidebar drawn: groups in order, newest first, each counting its rows', () => {
   const b = board(STATE, NOW);
   assert.deepEqual(b.map((g) => g.title), ['Needs you', 'Working', 'Waiting on others', 'Idle']);
   assert.deepEqual(b[0].projects.map((p) => p.project.id), ['new-ask', 'gate', 'old-ask']);
@@ -40,7 +42,7 @@ test('groups come in order, newest first, each counting its rows', () => {
   assert.equal(b[3].count, 2);
 });
 
-test('rows: each session in the section of its own state, else the main one; lines, context and the warning', () => {
+test('the hub\'s rows with their sessions and projects, times against this clock', () => {
   const b = board(STATE, NOW);
   const you = b[0].projects;
   assert.deepEqual(you[0].rows.map((r) => r.key), ['new-ask/s2']);
@@ -51,6 +53,8 @@ test('rows: each session in the section of its own state, else the main one; lin
   assert.deepEqual(work.map((p) => p.rows.map((r) => r.key)), [['busy/s3', 'busy/s3b'], ['new-ask/s2b']]);
   assert.equal(work[0].rows[0].pct, 58);
   assert.ok(work[0].rows[0].pctWarn);
+  assert.equal(work[0].rows[0].session, PROJECTS[2].sessions[0]); // the state's own session, for the drawing
+  assert.equal(work[0].project, PROJECTS[2]);
   assert.equal(work[0].time, 'now');
   assert.deepEqual(b[2].projects[0].rows.map((r) => r.key), ['waiting/s6']); // waiting on others: the main session
   assert.deepEqual(b[3].projects[0].rows.map((r) => r.key), ['busy/s3c']); // an idle session of a project at work
@@ -94,6 +98,7 @@ test('helpers: groups, times, tokens, memory, empty, seams', () => {
   assert.equal(memoryLine({ sessions: { totalKb: 3250586 } }), '3.1 GB');
   assert.equal(memoryLine({}), null);
   assert.ok(isEmpty({ projects: [proj('a', 'idle', [])] }));
+  assert.deepEqual(board({ projects: PROJECTS }, NOW), []); // no sidebar from the hub yet: nothing to draw
   assert.ok(!isEmpty(STATE));
   assert.equal(paneOf(sess('a', 'working')), null);
   assert.equal(paneOf(sess('a', 'working', { pane: 'pabc1234' })), 'pabc1234');

@@ -255,6 +255,32 @@ Sessions card lists them and any can be picked.
 The time windows live in the registry's `settings` (`handbackHours`,
 `questionHours`, `workingMinutes`, and `eventWorkingHours` for events).
 
+## The sidebar
+
+The hub sends the sidebar ready to draw, as `sidebar` in its state (and
+`GET /api/sidebar`), built by `server/sidebar.mjs`, whose header gives the
+shape. Every client draws it as it comes:
+
+- Each session carries `group`, the section of its own state: dialog,
+  asked, draft and handback are Needs you, working is Working, else the
+  group its words say, else Idle.
+- A session with an open checkpoint (open or running, matched by its
+  project and session, else by its pane and machine) needs you whatever
+  its state, and its row shows the checkpoint's mark instead of its line.
+  A worktree session done with files to review is marked "Done. N files to
+  review"; a checkpoint wins over that mark.
+- Each session sits in the section of its own group, under its project's
+  header; a project in a section for its own reason (Waiting on, a plan
+  gate) with no session of that group shows its main session there. A
+  project with every session idle is one line in Idle.
+- Sections come in the order Needs you, Working, Waiting on others, Idle,
+  each newest first (by the first open checkpoint's time, else the
+  project's `since`); a section's count is its rows, one at least per
+  project.
+- A project's `time` is `{ at, style }`: the client says it against its
+  own clock, `clock` as the time of day today (else how long ago), `ago`
+  as how long ago.
+
 ## Which session is in which tab
 
 Tried in order, and the sheet says which one was used:

@@ -22,6 +22,7 @@
 //   (--exe: a packaged app, its test twin; the release check runs it so)
 // Needs ~/.oh-my-zsh (only read; its copy is the test's). Without it the
 // prompt row says so and the rest still runs.
+import { hubState } from './stub-state.mjs';
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -71,12 +72,12 @@ execFileSync('/usr/bin/git', ['init', '-q', '-b', 'main', proj], { env: genv });
 let state = { generatedAt: new Date().toISOString(), cmuxOk: true, board: { kind: 'ravenry', name: 'Ravenry', installed: true }, settings: {}, views: {}, homes: { '': home }, checkpoints: [], machines: [], pages: [], sessions: { totalKb: 0, rows: [] }, projects: [] };
 const streams = new Set();
 const srv = http.createServer((q, r) => {
-  if (q.url.startsWith('/api/events')) { r.writeHead(200, { 'Content-Type': 'text/event-stream' }); streams.add(r); r.on('close', () => streams.delete(r)); r.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`); return; }
-  if (q.url.startsWith('/api/state')) { r.writeHead(200, { 'Content-Type': 'application/json' }); r.end(JSON.stringify(state)); return; }
+  if (q.url.startsWith('/api/events')) { r.writeHead(200, { 'Content-Type': 'text/event-stream' }); streams.add(r); r.on('close', () => streams.delete(r)); r.write(`event: state\ndata: ${JSON.stringify(hubState(state))}\n\n`); return; }
+  if (q.url.startsWith('/api/state')) { r.writeHead(200, { 'Content-Type': 'application/json' }); r.end(JSON.stringify(hubState(state))); return; }
   r.writeHead(404, { 'Content-Type': 'application/json' }); r.end('{}');
 });
 await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-const tick = setInterval(() => { state = { ...state, generatedAt: new Date().toISOString() }; for (const s of streams) s.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`); }, 1000);
+const tick = setInterval(() => { state = { ...state, generatedAt: new Date().toISOString() }; for (const s of streams) s.write(`event: state\ndata: ${JSON.stringify(hubState(state))}\n\n`); }, 1000);
 const hubUrl = `http://127.0.0.1:${srv.address().port}`;
 
 const R = 'window.__ravenry';
