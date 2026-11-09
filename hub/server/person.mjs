@@ -75,6 +75,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/decisions/edit', c: P, what: 'edit a decision', why: 'Rewriting a decision changes what every agent follows.' },
   { m: 'POST', p: '/api/decisions/remove', c: P, what: 'remove a decision', why: 'Taking a decision off the record changes what every agent follows.' },
   // Checkpoints and plans
+  { m: 'POST', p: '/api/checkpoints/words', c: O, why: 'It words the checkpoints the caller sends (server/cpwords.mjs) and changes nothing; an answer\'s secret is never read.' },
   { m: 'POST', p: '/api/checkpoints/answer', c: P, what: 'answer a checkpoint', why: 'Answering a checkpoint is the person\'s answer to an agent.', strict: true },
   { m: 'POST', p: '/api/plan/answer', c: P, what: 'answer a plan\'s gate or question', why: 'Passing a gate is the person\'s answer; an agent would pass its own gate.' },
   { m: 'POST', p: '/api/plan/confirm', c: P, what: 'confirm a plan\'s gate', why: 'It passes a gate the file alone marked passed; an agent would confirm its own.' },
@@ -148,6 +149,8 @@ export const ROUTES = [
   { m: 'POST', p: '/api/alerts/switch', c: P, what: 'turn phone alerts on or off', why: 'Ambiguous, so the safer class: an agent could silence the alerts that call the person.' },
   { m: 'POST', p: '/api/alerts/desktop', c: P, what: 'turn Mac notifications on or off', why: 'Ambiguous, so the safer class: as the switch.' },
   { m: 'POST', p: '/api/alerts/test', c: P, what: 'send a test alert', why: 'Ambiguous, so the safer class: it sends to the person\'s phone.' },
+  { m: 'POST', p: '/api/alerts/desktop/test', c: P, what: 'send a test Mac notification', why: 'Ambiguous, so the safer class: it shows a notification on the person\'s Mac, as the phone\'s test alert does on the phone.' },
+  { m: 'POST', p: '/api/alerts/desktop/result', c: P, what: 'say whether a Mac notification was shown', why: 'Ambiguous, so the safer class: the app says whether macOS showed a notification; an agent could say one reached the person when it never did.' },
   { m: 'POST', p: /^\/api\/alerts\/(telegram|telegram\/find-chat|webhook|ntfy|ntfy\/new-topic|ntfy\/copy|done)$/, eg: '/api/alerts/webhook', doc: '/api/alerts/{telegram,telegram/find-chat,webhook,ntfy,ntfy/new-topic,ntfy/copy,done}', c: P, what: 'change where alerts go', why: 'An agent could send the person\'s alerts to itself.' },
   // Ideas
   { m: 'POST', p: '/api/ideas/add', c: O, why: 'Adding an idea: the person sees it on the Ideas page and decides.' },

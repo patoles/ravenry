@@ -98,6 +98,7 @@ session's review comments and the agent's replies).
 | `/api/decisions/undo` | person | Taking a decision back is the person's call; an agent would undo the person's words. |
 | `/api/decisions/edit` | person | Rewriting a decision changes what every agent follows. |
 | `/api/decisions/remove` | person | Taking a decision off the record changes what every agent follows. |
+| `/api/checkpoints/words` | open | It words the checkpoints the caller sends (`server/cpwords.mjs`) and changes nothing; an answer's secret is never read. |
 | `/api/checkpoints/answer` | person | Answering a checkpoint is the person's answer to an agent. |
 | `/api/plan/answer` | person | Passing a gate is the person's answer; an agent would pass its own gate. |
 | `/api/plan/confirm` | person | It passes a gate the file alone marked passed; an agent would confirm its own. |
@@ -165,6 +166,8 @@ session's review comments and the agent's replies).
 | `/api/alerts/switch` | person | Judged (ambiguous): an agent could silence the alerts that call the person. |
 | `/api/alerts/desktop` | person | Judged (ambiguous): as the switch. |
 | `/api/alerts/test` | person | Judged (ambiguous): it sends to the person's phone. |
+| `/api/alerts/desktop/test` | person | Judged (ambiguous): it shows a notification on the person's Mac, as the phone's test alert does on the phone. |
+| `/api/alerts/desktop/result` | person | Judged (ambiguous): the app says whether macOS showed a notification; an agent could say one reached the person when it never did. |
 | `/api/alerts/{telegram,telegram/find-chat,webhook,ntfy,ntfy/new-topic,ntfy/copy,done}` | person | An agent could send the person's alerts to itself. |
 | `/api/ideas/add` | open | Adding an idea: the person sees it on the Ideas page and decides. |
 | `/api/ideas/<id>/ref` | open | Adds a reference picture to an idea; nothing is replaced. |
