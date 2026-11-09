@@ -7,7 +7,7 @@ them to its terminals.
 | Where | What |
 | --- | --- |
 | `src/shared/settings.ts` | The shape, defaults, checks, migrations, `terminalSettings()` (settings to xterm.js options) and `macOptionIsMetaFor()`. Pure. |
-| `src/shared/themes.ts`, `src/shared/themes/*.json` | The eight shipped themes. |
+| `src/shared/themes.ts`, `shared/themes/*.json` (the repository's), `shared/settings/settings.json` (the keys) | The eight shipped themes. |
 | `src/main/settingsstore.ts` | The store on disk. No Electron, so the tests use it as it is. |
 | `src/main/themeimport.ts` | `.itermcolors` and Ghostty theme import. Pure. |
 | `src/main/settings.ts` | The IPC, and the Settings window. |
@@ -188,7 +188,7 @@ window.ravenry.settings.onChange(apply);
 
 ## Themes
 
-Shipped (`src/shared/themes/<id>.json`, each `{ name, appearance, credit?,
+Shipped (`shared/themes/<id>.json` at the repository's root, each `{ name, appearance, credit?,
 theme }` where `theme` is an xterm.js ITheme): `ravenry-dark` (the
 terminal's colours from before settings, `src/renderer/terminal.ts`),
 `solarized-dark`, `dracula`, `nord`, `ravenry-light` (F6 of the

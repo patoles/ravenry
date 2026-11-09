@@ -1,16 +1,17 @@
-// The terminal themes: the eight that ship with the app (themes/*.json, each
+// The terminal themes: the eight that ship with the app (shared/themes/*.json, each
 // an xterm.js ITheme with a name), and helpers for themes the person
 // imported (src/main/themeimport.ts). Pure: used by the main process, the
 // Settings window and the tests.
 
-import ravenryDark from './themes/ravenry-dark.json' with { type: 'json' };
-import ravenryLight from './themes/ravenry-light.json' with { type: 'json' };
-import solarizedDark from './themes/solarized-dark.json' with { type: 'json' };
-import solarizedLight from './themes/solarized-light.json' with { type: 'json' };
-import dracula from './themes/dracula.json' with { type: 'json' };
-import nord from './themes/nord.json' with { type: 'json' };
-import githubLight from './themes/github-light.json' with { type: 'json' };
-import paper from './themes/paper.json' with { type: 'json' };
+import ravenryDark from '../../../../shared/themes/ravenry-dark.json' with { type: 'json' };
+import ravenryLight from '../../../../shared/themes/ravenry-light.json' with { type: 'json' };
+import solarizedDark from '../../../../shared/themes/solarized-dark.json' with { type: 'json' };
+import solarizedLight from '../../../../shared/themes/solarized-light.json' with { type: 'json' };
+import dracula from '../../../../shared/themes/dracula.json' with { type: 'json' };
+import nord from '../../../../shared/themes/nord.json' with { type: 'json' };
+import githubLight from '../../../../shared/themes/github-light.json' with { type: 'json' };
+import paper from '../../../../shared/themes/paper.json' with { type: 'json' };
+import spec from '../../../../shared/settings/settings.json' with { type: 'json' };
 
 /** xterm.js's ITheme, as plain JSON (every field a CSS colour). */
 export interface XtermTheme {
@@ -24,7 +25,7 @@ export interface XtermTheme {
 
 export type Appearance = 'dark' | 'light';
 
-/** A theme file: built in (src/shared/themes) or imported (<userData>/themes). */
+/** A theme file: built in (shared/themes) or imported (<userData>/themes). */
 export interface ThemeFile { name: string; appearance: Appearance; credit?: string; theme: XtermTheme }
 
 /** A theme as the API lists it. Built-in ids are plain, imported ones start with "user:". */
@@ -44,11 +45,11 @@ const FILES: Record<string, ThemeFile> = {
   paper: paper as ThemeFile,
 };
 
-/** The shipped themes, in the order the Settings window shows them (dark first). */
-export const BUILT_IN_THEMES: ThemeInfo[] = Object.entries(FILES).map(([id, f]) => ({ id, builtIn: true, ...f }));
+/** The shipped themes, in the order the Settings window shows them (dark first; shared/settings/settings.json themes). */
+export const BUILT_IN_THEMES: ThemeInfo[] = spec.themes.map((id) => ({ id, builtIn: true, ...FILES[id] }));
 
-export const DEFAULT_DARK_THEME = 'ravenry-dark';
-export const DEFAULT_LIGHT_THEME = 'ravenry-light';
+export const DEFAULT_DARK_THEME: string = spec.defaultDarkTheme;
+export const DEFAULT_LIGHT_THEME: string = spec.defaultLightTheme;
 
 /** "#abc", "#aabbcc" or "#aabbccdd" to [r, g, b] (0 to 255), else null. */
 export function parseHex(c: string): [number, number, number] | null {

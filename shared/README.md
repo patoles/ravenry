@@ -12,6 +12,8 @@ at launch.
 | `tokens/tokens.json` | colours for dark and light, shadows, fonts, type sizes, line heights, radii, spacing |
 | `tokens/css.mjs` | `tokens.json` as CSS variables, for the web clients' builds |
 | `icons/*.svg` | the icons, one file each, written from the desktop's `icons.ts` by `icons/export.mjs` |
+| `settings/settings.json` | the terminal settings' keys: kind, range or values, default |
+| `themes/<id>.json` | the eight shipped terminal themes |
 
 ## strings/en.json
 
@@ -114,6 +116,23 @@ desktop writes them: `currentColor` (the reader puts the colour it draws
 with) and `var(--token)` (the token's colour of `tokens.json` for the
 theme). The native Mac app bundles the folder and draws them with
 `NSImage(data:)` after filling the colours (`apps/macos/.../Shared.swift`).
+
+## settings/settings.json and themes/
+
+The settings a person sets in the Settings window, kept by every client in
+one file, `settings.json` in the app's data folder (`RAVENRY_DESKTOP_DATA`,
+else `~/Library/Application Support/Ravenry` on the Mac), written whole and
+at once (a temporary file renamed over it). `keys` names each setting with
+its `kind`: `bool`; `int` from `min` to `max`; `oneOf` its `values`;
+`family` a font family name (no quotes, commas, semicolons, braces,
+backslashes or control characters, at most 100 characters); `theme` a
+theme id (`[a-z0-9][a-z0-9-]*`, or `user:` and that for an imported one).
+A missing or wrong value reads as its `default`; the file's `version` is
+`version` here. `themes` lists the shipped themes in the order the window
+shows them; each `themes/<id>.json` is `{ name, appearance, credit?, theme }`,
+`theme` an xterm.js ITheme (CSS colours). Readers: the desktop's
+`apps/desktop/src/shared/settings.ts` and `themes.ts`, the native Mac app's
+`Settings.swift`.
 
 ## Where they ship
 

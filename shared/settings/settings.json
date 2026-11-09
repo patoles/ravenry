@@ -1,0 +1,26 @@
+{
+  "$comment": "The terminal settings every client reads and writes in <data folder>/settings.json (shared/README.md, settings). Each key: its kind (bool, int with min and max, one of values, family, theme), its default and what a wrong value is told it should be.",
+  "version": 1,
+  "keys": {
+    "fontFamily": { "kind": "family", "default": "Menlo", "want": "a font family name" },
+    "fontSize": { "kind": "int", "min": 8, "max": 32, "default": 13 },
+    "themeFollowsSystem": { "kind": "bool", "default": true },
+    "themeDark": { "kind": "theme", "default": "ravenry-dark" },
+    "themeLight": { "kind": "theme", "default": "ravenry-light" },
+    "themeAlways": { "kind": "theme", "default": "ravenry-dark" },
+    "cursorStyle": { "kind": "oneOf", "values": ["block", "bar", "underline"], "default": "block" },
+    "cursorBlink": { "kind": "bool", "default": false },
+    "optionAsMeta": { "kind": "oneOf", "values": ["off", "left", "right", "both"], "default": "off" },
+    "copyOnSelect": { "kind": "bool", "default": false },
+    "openLinksSingleClick": { "kind": "bool", "default": false },
+    "scrollback": { "kind": "int", "min": 100, "max": 100000, "default": 10000 },
+    "bell": { "kind": "oneOf", "values": ["visual", "sound", "off"], "default": "visual" },
+    "bellBounceDock": { "kind": "bool", "default": true },
+    "confirmCloseBusy": { "kind": "bool", "default": true }
+  },
+  "fontFallback": ["Menlo", "SF Mono", "DejaVu Sans Mono", "Liberation Mono"],
+  "themes": ["ravenry-dark", "solarized-dark", "dracula", "nord", "ravenry-light", "solarized-light", "github-light", "paper"],
+  "defaultDarkTheme": "ravenry-dark",
+  "defaultLightTheme": "ravenry-light",
+  "tabs": ["appearance", "behavior", "skills"]
+}

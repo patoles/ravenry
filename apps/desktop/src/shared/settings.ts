@@ -1,12 +1,15 @@
 // The terminal settings: their shape, defaults, checks and migrations, and
 // what they make of the terminal (xterm.js options). Pure: the main
 // process's store (src/main/settings.ts), the Settings window and the
-// main window all use it. The API is in docs/SETTINGS.md.
+// main window all use it. The API is in docs/SETTINGS.md. The keys, their
+// kinds, ranges and defaults are data every client reads
+// (shared/settings/settings.json); this file types them and checks them.
 
+import spec from '../../../../shared/settings/settings.json' with { type: 'json' };
 import { BUILT_IN_THEMES, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from './themes.ts';
 import type { Appearance, ThemeInfo, XtermTheme } from './themes.ts';
 
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION: number = spec.version;
 
 export type CursorStyle = 'block' | 'bar' | 'underline';
 export type OptionAsMeta = 'off' | 'left' | 'right' | 'both';
@@ -41,58 +44,35 @@ export interface Settings {
 /** The settings a person can change: everything but the version. */
 export type SettingsPatch = Partial<Omit<Settings, 'version'>>;
 
-export const DEFAULT_FONT = 'Menlo';
-export const FONT_FALLBACK = ['Menlo', 'SF Mono', 'DejaVu Sans Mono', 'Liberation Mono'];
-export const FONT_SIZE = { min: 8, max: 32 };
-export const SCROLLBACK = { min: 100, max: 100000 };
+type KeySpec = { kind: 'bool' | 'int' | 'oneOf' | 'family' | 'theme'; default: unknown; min?: number; max?: number; values?: string[]; want?: string };
+const KEYS = spec.keys as unknown as Record<keyof SettingsPatch, KeySpec>;
+
+export const DEFAULT_FONT = KEYS.fontFamily.default as string;
+export const FONT_FALLBACK: string[] = spec.fontFallback;
+export const FONT_SIZE = { min: KEYS.fontSize.min!, max: KEYS.fontSize.max! };
+export const SCROLLBACK = { min: KEYS.scrollback.min!, max: KEYS.scrollback.max! };
 
 export const DEFAULTS: Settings = {
   version: SETTINGS_VERSION,
-  fontFamily: DEFAULT_FONT,
-  fontSize: 13,
-  themeFollowsSystem: true,
-  themeDark: DEFAULT_DARK_THEME,
-  themeLight: DEFAULT_LIGHT_THEME,
-  themeAlways: DEFAULT_DARK_THEME,
-  cursorStyle: 'block',
-  cursorBlink: false,
-  // Off, as before settings existed: Option types the keyboard's
-  // characters ({ } | ~ [ ] on a French keyboard).
-  optionAsMeta: 'off',
-  copyOnSelect: false,
-  // Cmd+click, the Mac's way; a plain click selects text, as in iTerm2.
-  openLinksSingleClick: false,
-  scrollback: 10000,
-  bell: 'visual',
-  bellBounceDock: true,
-  confirmCloseBusy: true,
-};
+  ...Object.fromEntries(Object.entries(KEYS).map(([k, f]) => [k, f.default])),
+} as Settings;
 
-const oneOf = <T extends string>(...vals: T[]) => (v: unknown): v is T => typeof v === 'string' && (vals as string[]).includes(v);
 const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
-const intIn = (r: { min: number; max: number }) => (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= r.min && v <= r.max;
 const themeId = (v: unknown): v is string => typeof v === 'string' && /^(user:)?[a-z0-9][a-z0-9-]{0,59}$/.test(v);
 // A family name: no quotes, commas or control characters (it goes into a CSS font list).
 const family = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && v.length <= 100 && !/["',;{}\\\u0000-\u001f]/.test(v);
+const words = (vals: string[]) => vals.length > 1 ? `${vals.slice(0, -1).join(', ')} or ${vals[vals.length - 1]}` : vals.join('');
 
-/** Each setting's check, and what it says when a value fails it. */
-const FIELDS: { [K in keyof SettingsPatch]-?: { ok: (v: unknown) => boolean; want: string } } = {
-  fontFamily: { ok: family, want: 'a font family name' },
-  fontSize: { ok: intIn(FONT_SIZE), want: `a whole number from ${FONT_SIZE.min} to ${FONT_SIZE.max}` },
-  themeFollowsSystem: { ok: isBool, want: 'true or false' },
-  themeDark: { ok: themeId, want: 'a theme id' },
-  themeLight: { ok: themeId, want: 'a theme id' },
-  themeAlways: { ok: themeId, want: 'a theme id' },
-  cursorStyle: { ok: oneOf('block', 'bar', 'underline'), want: 'block, bar or underline' },
-  cursorBlink: { ok: isBool, want: 'true or false' },
-  optionAsMeta: { ok: oneOf('off', 'left', 'right', 'both'), want: 'off, left, right or both' },
-  copyOnSelect: { ok: isBool, want: 'true or false' },
-  openLinksSingleClick: { ok: isBool, want: 'true or false' },
-  scrollback: { ok: intIn(SCROLLBACK), want: `a whole number from ${SCROLLBACK.min} to ${SCROLLBACK.max}` },
-  bell: { ok: oneOf('visual', 'sound', 'off'), want: 'visual, sound or off' },
-  bellBounceDock: { ok: isBool, want: 'true or false' },
-  confirmCloseBusy: { ok: isBool, want: 'true or false' },
-};
+/** Each setting's check, and what it says when a value fails it (from its kind). */
+const FIELDS = Object.fromEntries(Object.entries(KEYS).map(([k, f]) => {
+  switch (f.kind) {
+    case 'bool': return [k, { ok: isBool, want: 'true or false' }];
+    case 'int': return [k, { ok: (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= f.min! && v <= f.max!, want: `a whole number from ${f.min} to ${f.max}` }];
+    case 'oneOf': return [k, { ok: (v: unknown) => typeof v === 'string' && f.values!.includes(v), want: words(f.values!) }];
+    case 'family': return [k, { ok: family, want: f.want || 'a font family name' }];
+    default: return [k, { ok: themeId, want: 'a theme id' }];
+  }
+})) as { [K in keyof SettingsPatch]-?: { ok: (v: unknown) => boolean; want: string } };
 
 export const SETTING_KEYS = Object.keys(FIELDS) as (keyof SettingsPatch)[];
 
@@ -259,6 +239,7 @@ export function macOptionIsMetaFor(mode: OptionAsMeta, code: string): boolean {
 
 export type SettingsTab = 'appearance' | 'behavior' | 'skills';
 export const SETTINGS_TABS: Record<SettingsTab, string> = { appearance: 'Appearance', behavior: 'Behavior', skills: 'Skills' };
+if (spec.tabs.join() !== Object.keys(SETTINGS_TABS).join()) throw new Error('shared/settings/settings.json tabs differ from SETTINGS_TABS');
 
 /** What `settings:get` answers and `settings:changed` sends (docs/SETTINGS.md). */
 export interface SettingsSnapshot {
