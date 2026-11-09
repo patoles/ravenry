@@ -128,7 +128,12 @@ final class TerminalView: NSView, NSTextInputClient {
         } catch {
             NSLog("RavenryMac: bad frame: \(error)")
         }
+        let view = (screen.offset, screen.history)
         screen.unlock()
+        if EventLog.shared.enabled && CACurrentMediaTime() - lastWheelAt < 2 && view != loggedView {
+            loggedView = view
+            EventLog.shared.write("frame offset \(view.0) history \(view.1)")
+        }
         onFrame?()
         scheduleDraw()
     }
@@ -798,6 +803,7 @@ final class TerminalView: NSView, NSTextInputClient {
         let bar = findBar ?? makeFindBar()
         bar.isHidden = false
         placeFindBar()
+        window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(bar.field)
         bar.field.currentEditor()?.selectAll(nil)
         if !findNeedle.isEmpty { find(step: 0) }
@@ -860,6 +866,7 @@ final class TerminalView: NSView, NSTextInputClient {
     func closeFindBar() {
         guard let bar = findBar, !bar.isHidden else { return }
         bar.isHidden = true
+        window?.invalidateCursorRects(for: self)
         if !findNeedle.isEmpty {
             findNeedle = ""
             find(step: 0)
@@ -987,7 +994,41 @@ final class TerminalView: NSView, NSTextInputClient {
     // MARK: links
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: linkCursor ? .pointingHand : .iBeam)
+        for (r, c) in cursorRegions() { addCursorRect(r, cursor: c) }
+    }
+
+    /// The scrollbar's strip at the right edge, while it shows.
+    var scrollbarStrip: NSRect? {
+        scrollbarAlpha > 0 ? NSRect(x: bounds.maxX - 12, y: 0, width: 12, height: bounds.height) : nil
+    }
+
+    /// The pointer over the view: the I-beam over the text (the pointing
+    /// hand over a link with Cmd), the arrow over the overlays (the find
+    /// bar, whose text field sets its own I-beam, and the scrollbar).
+    func cursorRegions() -> [(NSRect, NSCursor)] {
+        var overlays: [NSRect] = []
+        if let bar = findBar, !bar.isHidden { overlays.append(bar.frame) }
+        if let s = scrollbarStrip { overlays.append(s) }
+        var text = [bounds]
+        for o in overlays {
+            text = text.flatMap { r -> [NSRect] in
+                let i = r.intersection(o)
+                if i.isEmpty { return [r] }
+                // What is left of r around i: above, below, left, right.
+                return [NSRect(x: r.minX, y: r.minY, width: r.width, height: i.minY - r.minY),
+                        NSRect(x: r.minX, y: i.maxY, width: r.width, height: r.maxY - i.maxY),
+                        NSRect(x: r.minX, y: i.minY, width: i.minX - r.minX, height: i.height),
+                        NSRect(x: i.maxX, y: i.minY, width: r.maxX - i.maxX, height: i.height)]
+                    .filter { $0.width > 0 && $0.height > 0 }
+            }
+        }
+        let c: NSCursor = linkCursor ? .pointingHand : .iBeam
+        return text.map { ($0, c) } + overlays.map { ($0, NSCursor.arrow) }
+    }
+
+    /// The cursor for a point of the view, as the regions say.
+    func cursorAt(_ p: NSPoint) -> NSCursor? {
+        cursorRegions().last { $0.0.contains(p) }?.1
     }
 
     /// Asks the daemon for the link on a cell (a hyperlink, or a URL in
@@ -1068,15 +1109,37 @@ final class TerminalView: NSView, NSTextInputClient {
         // A trackpad or Magic Mouse gives points; a wheel's notch is three
         // rows (Ghostty's discrete multiplier).
         let rows = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY / ch : e.scrollingDeltaY * 3
+        let log = EventLog.shared
+        if log.enabled {
+            screen.lock()
+            let st = "history \(screen.history) rows \(screen.rows) offset \(screen.offset) modes \(screen.modes)"
+            screen.unlock()
+            log.write("view scrollWheel phase \(e.phase.name) momentum \(e.momentumPhase.name) precise \(e.hasPreciseScrollingDeltas) deltaY \(e.deltaY) scrollingDeltaY \(e.scrollingDeltaY) rows \(rows) sent \(rows != 0 && conn != nil && channel != 0) firstResponder \(window?.firstResponder === self) \(st)")
+            lastWheelAt = CACurrentMediaTime()
+        }
         if rows == 0 { return }
         let p = gridPoint(e)
         var w: [String: Any] = ["rows": Double(rows), "x": Double(max(0, p.x)), "y": Double(max(0, p.y)),
                                 "cell_width": Double(renderer.fonts.cellWidth / s), "cell_height": Double(ch)]
         let md = mods(e.modifierFlags) & 15
         if md != 0 { w["mods"] = md }
-        sendEvents([["wheel": w]])
+        if log.enabled, let c = conn, channel != 0 {
+            c.request("render.input", ["channel": channel, "events": [["wheel": w]]]) { r in
+                switch r {
+                case .success: log.write("daemon wheel ok")
+                case .failure(let err): log.write("daemon wheel error \(err)")
+                }
+            }
+        } else {
+            sendEvents([["wheel": w]])
+        }
         showScrollbar()
     }
+
+    /// When the last wheel event came: the frames' offset is logged for
+    /// two seconds after.
+    private var lastWheelAt: CFTimeInterval = -10
+    private var loggedView = (offset: -1, history: -1)
 
     /// Shows the view `offset` rows up into the scrollback (0: live).
     func scrollTo(_ offset: Int) {
@@ -1118,6 +1181,7 @@ final class TerminalView: NSView, NSTextInputClient {
         scrolledAt = CACurrentMediaTime()
         requestDraw()
         guard scrollbarTimer == nil else { return }
+        window?.invalidateCursorRects(for: self)
         let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             guard let self else { return timer.invalidate() }
             let age = CACurrentMediaTime() - self.scrolledAt
@@ -1125,6 +1189,7 @@ final class TerminalView: NSView, NSTextInputClient {
             if age > TerminalView.scrollbarHold + TerminalView.scrollbarFade {
                 timer.invalidate()
                 self.scrollbarTimer = nil
+                self.window?.invalidateCursorRects(for: self)
             }
         }
         RunLoop.main.add(t, forMode: .common)

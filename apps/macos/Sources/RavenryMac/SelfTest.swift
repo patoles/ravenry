@@ -199,6 +199,11 @@ final class SelfTest {
         check("scrollbar_drawn", lit.count > 24 * s && bright(p, p.w - 12 * s, lit.first ?? 0) < 60,
               "thumb \(lit.count) px tall at x \(thumbX)")
         savePNG("selftest-scrollbar.png")
+        // The arrow over the scrollbar while it shows, the I-beam over the text.
+        let edge = main { view.cursorAt(NSPoint(x: view.bounds.maxX - 4, y: view.bounds.midY)) }
+        let middle = main { view.cursorAt(NSPoint(x: view.bounds.midX, y: view.bounds.midY)) }
+        check("cursor_arrow_over_scrollbar", edge === NSCursor.arrow && middle === NSCursor.iBeam,
+              "edge \(String(describing: edge)), middle \(String(describing: middle))")
         // A mouse wheel: one notch is three rows.
         let notch = scrollEvent(precise: false, 1)
         let before = scr { $0.offset }
@@ -224,6 +229,27 @@ final class SelfTest {
         check("key_scrolls_back", waitFor(3) { self.scr { $0.offset } == 0 }, "offset \(scr { $0.offset })")
         key("\u{7f}", code: 0x33)
         sleep(0.2)
+        // What the window does with a trackpad event on screen: it
+        // hit-tests the event's location to a view. Nothing may sit over
+        // the terminal there (a headless run cannot have the window server
+        // deliver the event itself). Then the view's path, as the event
+        // log records it on the person's Mac.
+        let hit = main { () -> NSView? in
+            let p = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+            return window.contentView?.hitTest(window.contentView?.superview?.convert(p, from: nil) ?? p)
+        }
+        let b0 = scr { $0.offset }
+        main { view.scrollWheel(with: scrollEvent(precise: true, Int32(3 * cellPt.height))) }
+        let moved = waitFor(3) { self.scr { $0.offset } > b0 }
+        sleep(0.2)
+        EventLog.shared.flush()
+        let logText = (try? String(contentsOfFile: EventLog.shared.path ?? "", encoding: .utf8)) ?? ""
+        let steps = ["view scrollWheel phase", "precise true", "firstResponder true", "history ", "daemon wheel ok", "frame offset"]
+        let missing = steps.filter { !logText.contains($0) }
+        check("wheel_hit_test_and_logged", hit === view && moved && missing.isEmpty,
+              "hit \(hit.map { String(describing: type(of: $0)) } ?? "none"), offset \(b0) to \(scr { $0.offset }), log \(EventLog.shared.path ?? "none") missing \(missing)")
+        _ = shortcut("", code: 0x77)
+        _ = waitFor(3) { self.scr { $0.offset } == 0 }
     }
 
     private func click(col: CGFloat, row: CGFloat, flags: NSEvent.ModifierFlags = [], clicks: Int = 1) {
@@ -470,6 +496,12 @@ final class SelfTest {
         let typing = main { bar.map { window.firstResponder === $0.editor } ?? false }
         check("find_cmd_f_opens_bar", opened && main { view.findBarVisible } && typing)
         guard let bar else { return }
+        // The arrow over the bar and its buttons, never the terminal's I-beam.
+        let overBar = main { view.cursorAt(NSPoint(x: bar.frame.maxX - 3, y: bar.frame.midY)) }
+        let overField = main { view.cursorAt(bar.convert(NSPoint(x: bar.field.frame.midX, y: bar.field.frame.midY), to: view)) }
+        let below = main { view.cursorAt(NSPoint(x: bar.frame.midX, y: bar.frame.maxY + 20)) }
+        check("cursor_arrow_over_find_bar", overBar === NSCursor.arrow && overField === NSCursor.arrow && below === NSCursor.iBeam,
+              "bar \(String(describing: overBar)), field area in the view's regions \(String(describing: overField)), below \(String(describing: below))")
         // Typing: the first character selects the newest match.
         main { bar.editor.insertText("needle", replacementRange: NSRange(location: NSNotFound, length: 0)) }
         let first = waitFor(3) { self.findLabel() == "1 of 3" }

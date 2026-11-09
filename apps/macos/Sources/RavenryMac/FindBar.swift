@@ -37,6 +37,12 @@ final class FindBar: NSView, NSTextFieldDelegate {
     private(set) var next: NSButton!
     private(set) var close: NSButton!
 
+    /// The arrow over the bar and its buttons; the text field sets its
+    /// own I-beam.
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .arrow)
+    }
+
     var onChange: ((String) -> Void)?
     var onNext: (() -> Void)?
     var onPrevious: (() -> Void)?

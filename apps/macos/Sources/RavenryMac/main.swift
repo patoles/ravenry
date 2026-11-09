@@ -64,6 +64,14 @@ extension Array {
 /// otherwise moves a titled window back onto one.
 final class TerminalWindow: NSWindow {
     var allowOffscreen = false
+
+    override func sendEvent(_ e: NSEvent) {
+        if e.type == .scrollWheel && EventLog.shared.enabled {
+            let hit = contentView?.hitTest(contentView?.superview?.convert(e.locationInWindow, from: nil) ?? e.locationInWindow)
+            EventLog.shared.write("window scrollWheel hit \(hit.map { String(describing: type(of: $0)) } ?? "none") firstResponder \(firstResponder.map { String(describing: type(of: $0)) } ?? "none") key \(isKeyWindow)")
+        }
+        super.sendEvent(e)
+    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         allowOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }
@@ -117,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        EventLog.shared.open(offscreen: options.offscreen)
         buildMenu()
         let rect = NSRect(x: 0, y: 0, width: 900, height: 560)
         let w = TerminalWindow(contentRect: rect, styleMask: [.titled, .closable, .resizable, .miniaturizable],

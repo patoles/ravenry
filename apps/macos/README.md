@@ -183,6 +183,17 @@ closes. Launch it with `open`, from outside a Ravenry pane or with the
 pane's variables removed (the app removes `RAVENRY_PANE` and
 `RAVENRY_SOCKET` from its own environment too).
 
+## The event log
+
+The app always keeps a small log of its scroll events at
+`~/Library/Logs/RavenryMac/events.log` (started again past 4 MB): for each
+one, the view the window hit-tested it to, the first responder, the
+event's phase, momentum phase, precise or not, `deltaY` and
+`scrollingDeltaY`, the rows sent, the pane's scrollback and offset then,
+the daemon's answer, and the offset the frames show after. A window off
+every screen (the bench, the self-test) writes only to
+`RAVENRY_MAC_EVENTS_LOG` when it is set, never to the person's Library.
+
 ## Not done yet
 
 - One window, one terminal: no tabs, splits, sidebar or settings.

@@ -26,6 +26,8 @@ mkdir -m 700 "$dir/user" "$dir/run" "$dir/state"
 printf '%s\n' "PROMPT='~ > '" > "$dir/user/.zshrc"
 printf '%s\n' "skip_global_compinit=1" > "$dir/user/.zshenv"
 envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state"
+# The app's event log goes to the test's folder, never the person's Library.
+appenv="RAVENRY_MAC_EVENTS_LOG=$dir/events.log"
 sock="$dir/run/ravenryd-0.0.0-dev.sock"
 daemon=
 cleanup() {
@@ -42,7 +44,7 @@ while [ ! -S "$sock" ]; do
   sleep 0.05
 done
 # shellcheck disable=SC2086
-env -i $envs "$app/Contents/MacOS/RavenryMac" --offscreen --socket "$sock" --selftest "$out/selftest.json" 2>"$dir/app.log" &
+env -i $envs $appenv "$app/Contents/MacOS/RavenryMac" --offscreen --socket "$sock" --selftest "$out/selftest.json" 2>"$dir/app.log" &
 apppid=$!
 i=0
 while kill -0 "$apppid" 2>/dev/null; do
