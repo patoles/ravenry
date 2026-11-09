@@ -362,6 +362,8 @@ struct Overlay {
     var scrollbar: Float = 0
     /// The link under the pointer while Cmd is held (screen coordinates).
     var link: CellRange?
+    /// The bell rang: a translucent flash over the view.
+    var flash = false
 }
 
 final class Renderer {
@@ -612,6 +614,9 @@ final class Renderer {
                 rects.append(RectInst(pos: SIMD2(ox, oy + ulY), size: SIMD2(w, ulT), color: theme.foreground, kind: 0))
                 x += wide ? 2 : 1
             }
+        }
+        if o.flash {
+            topRects.append(RectInst(pos: .zero, size: viewport, color: SIMD4(1, 1, 1, 0.14), kind: 0))
         }
         // The overlay scrollbar, macOS style: a thin pill at the right
         // edge, its length the screen's share of the scrollback.

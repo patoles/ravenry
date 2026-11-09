@@ -19,11 +19,17 @@ final class TerminalView: NSView, NSTextInputClient {
     private var drawPending = false
     private let drawLock = NSLock()
     private var ackedSeq: UInt32 = 0
-    private var lastBell: UInt32 = 0
+    private var lastBell: UInt32?
+    /// When the bell last rang: the view flashes for 150 ms.
+    private var bellAt: CFTimeInterval = -10
+    static let bellFlash: CFTimeInterval = 0.15
     private var lastTitle = ""
-    private var cursorOn = true
+    private(set) var cursorOn = true
     private var blinkTimer: Timer?
-    private var focused = true
+    private(set) var focused = true
+    /// The cursor blinks offscreen too (the self-test; never the bench).
+    var blinkOffscreen = false
+    var cursorBlinking: Bool { blinkTimer != nil }
 
     /// A selection gesture is under way (the button went down with no
     /// mouse reporting, or with Shift).
@@ -178,7 +184,8 @@ final class TerminalView: NSView, NSTextInputClient {
     /// transaction (a live resize), so the content never lags its frame.
     func draw(sync: Bool) {
         guard bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
-        let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range)
+        let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range,
+                              flash: bellFlashing)
         let t0 = CACurrentMediaTime()
         var seq: UInt32 = 0
         if offscreen {
@@ -217,7 +224,7 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         screen.lock()
         let title = screen.title, bell = screen.bell, blink = screen.cursor.blink
-        let offset = screen.offset, history = screen.history, find = screen.find
+        let offset = screen.offset, history = screen.history, find = screen.find, rowsVersion = screen.rowsVersion
         screen.unlock()
         if find != lastFind {
             lastFind = find
@@ -232,9 +239,17 @@ final class TerminalView: NSView, NSTextInputClient {
             lastTitle = title
             onTitle?(title)
         }
-        if bell != lastBell {
-            if bell > lastBell && !offscreen { NSSound.beep() }
-            lastBell = bell
+        // The bell: a flash over the view (the count the first frame
+        // brings is the pane's past, not a ring).
+        if let last = lastBell, bell > last {
+            bellAt = CACurrentMediaTime()
+            requestDraw()
+            DispatchQueue.main.asyncAfter(deadline: .now() + TerminalView.bellFlash + 0.01) { [weak self] in self?.requestDraw() }
+        }
+        lastBell = bell
+        if rowsVersion != a11yVersion {
+            a11yVersion = rowsVersion
+            announceValue()
         }
         updateBlink(blink)
     }
@@ -254,7 +269,7 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     private func updateBlink(_ blink: Bool) {
-        if blink && focused && !offscreen {
+        if blink && focused && (!offscreen || blinkOffscreen) {
             if blinkTimer == nil {
                 blinkTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
                     guard let self else { return }
@@ -401,6 +416,7 @@ final class TerminalView: NSView, NSTextInputClient {
         if e.keyCode == 0x73 { scrollToTop(nil); return true }    // Cmd+Home
         if e.keyCode == 0x77 { scrollToBottom(nil); return true } // Cmd+End
         switch key {
+        case "k": clearScreen(nil)
         case "c": copy(nil)
         case "v": paste(nil)
         case "a": selectAll(nil)
@@ -863,6 +879,109 @@ final class TerminalView: NSView, NSTextInputClient {
             findSelected = f.selected
             findBar?.show(count: f.count, selected: f.selected, needle: findNeedle)
         }
+    }
+
+    // MARK: the bell
+
+    var bellFlashing: Bool { CACurrentMediaTime() - bellAt < TerminalView.bellFlash }
+
+    // MARK: the context menu and Clear
+
+    /// Right click, when the program does not take the mouse.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        if mouseReporting { return nil }
+        let m = NSMenu(title: "Terminal")
+        for (title, action) in [("Copy", #selector(copy(_:))), ("Paste", #selector(paste(_:))),
+                                ("Select All", #selector(selectAll(_:))), ("", nil), ("Clear", #selector(clearScreen(_:))),
+                                ("Find…", #selector(showFindBar(_:)))] as [(String, Selector?)] {
+            if action == nil {
+                m.addItem(.separator())
+                continue
+            }
+            m.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+        return m
+    }
+
+    /// Clears the screen and the scrollback, the prompt kept at the top
+    /// (pane.clear, as Cmd+K in Terminal.app).
+    @objc func clearScreen(_ sender: Any?) {
+        guard let c = conn, !pane.isEmpty else { return }
+        c.request("pane.clear", ["pane": pane])
+    }
+
+    // MARK: accessibility
+
+    /// The visible rows' text, as VoiceOver reads it.
+    private var a11yText: String { screen.text() }
+    private var a11yVersion = 0
+    private var a11yPending = false
+    private var a11yPosted: CFTimeInterval = 0
+    private(set) var a11yPosts = 0
+
+    /// Says the value changed, at most four times a second.
+    private func announceValue() {
+        if a11yPending { return }
+        a11yPending = true
+        let wait = max(0, a11yPosted + 0.25 - CACurrentMediaTime())
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+            guard let self else { return }
+            self.a11yPending = false
+            self.a11yPosted = CACurrentMediaTime()
+            self.a11yPosts += 1
+            NSAccessibility.post(element: self, notification: .valueChanged)
+        }
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .textArea }
+    override func accessibilityLabel() -> String? { "Terminal" }
+    override func accessibilityValue() -> Any? { a11yText }
+    override func accessibilityNumberOfCharacters() -> Int { (a11yText as NSString).length }
+    override func accessibilityVisibleCharacterRange() -> NSRange { NSRange(location: 0, length: accessibilityNumberOfCharacters()) }
+    override func accessibilitySelectedText() -> String? { "" }
+
+    override func accessibilityString(for range: NSRange) -> String? {
+        let t = a11yText as NSString
+        guard range.location >= 0, NSMaxRange(range) <= t.length else { return nil }
+        return t.substring(with: range)
+    }
+
+    override func accessibilityLine(for index: Int) -> Int {
+        let t = a11yText as NSString
+        let end = max(0, min(index, t.length))
+        var line = 0
+        for i in 0..<end where t.character(at: i) == 10 { line += 1 }
+        return line
+    }
+
+    override func accessibilityRange(forLine line: Int) -> NSRange {
+        let t = a11yText as NSString
+        var start = 0, n = 0
+        while n < line {
+            let r = t.range(of: "\n", range: NSRange(location: start, length: t.length - start))
+            if r.location == NSNotFound { return NSRange(location: NSNotFound, length: 0) }
+            start = r.location + 1
+            n += 1
+        }
+        let r = t.range(of: "\n", range: NSRange(location: start, length: t.length - start))
+        return NSRange(location: start, length: (r.location == NSNotFound ? t.length : r.location) - start)
+    }
+
+    override func accessibilityInsertionPointLineNumber() -> Int {
+        screen.lock()
+        defer { screen.unlock() }
+        return screen.cursor.y
+    }
+
+    /// The cursor, as the text's selection.
+    override func accessibilitySelectedTextRange() -> NSRange {
+        screen.lock()
+        let c = screen.cursor
+        screen.unlock()
+        let line = accessibilityRange(forLine: c.y)
+        guard line.location != NSNotFound else { return NSRange(location: 0, length: 0) }
+        return NSRange(location: line.location + min(c.x, line.length), length: 0)
     }
 
     // MARK: links
