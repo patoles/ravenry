@@ -26,7 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guardSpawns, isTestPath, requireRealTerminal, withStubMachine } from '../../tools/test-env.mjs';
+import { guardSpawns, isTestPath, paneVarsIn, requireRealTerminal, withStubMachine } from '../../tools/test-env.mjs';
 
 // A test that drives the person's real cmux, iTerm2 or Rex on purpose
 // calls this first: it ends the test unless RAVENRY_TEST_REAL_TERMINAL=1.
@@ -64,10 +64,24 @@ export const TEST_HOME = path.join(TMP, path.basename(process.argv[1] || 'test',
 // whether they are in the home folder), unless it is one already.
 // Playwright's browsers stay where they are installed (a cache of programs,
 // not Ravenry's data), so a board that renders pictures still finds them.
+// The terminal of the shell the test runs in is never the board's: the
+// pane variables the test only inherited are left out (a variable the test
+// set to a value of its own stays). On 2026-11-09 plan-files-test, run
+// from a Ravenry pane, handed its board RAVENRY_PANE and
+// TERM_PROGRAM=ravenry, so the board picked the Ravenry terminal
+// (server/terminal.mjs boardKind), which a test board may not reach, and
+// not the stand-in cmux the test is built on.
 export function withTestHome(env = process.env, home = null) {
+  env = withoutCallerPane(env);
   if (!home && env.HOME && isTestPath(env.HOME, env)) return withStubMachine(env);
   if (home && !isTestPath(home, env)) throw new Error(`withTestHome: ${home} is not a test's folder`);
   fs.mkdirSync(home || TEST_HOME, { recursive: true });
   const browsers = env.PLAYWRIGHT_BROWSERS_PATH || (env.HOME ? path.join(env.HOME, process.platform === 'darwin' ? 'Library/Caches' : '.cache', 'ms-playwright') : null);
   return withStubMachine({ ...env, HOME: home || TEST_HOME, ...(browsers ? { PLAYWRIGHT_BROWSERS_PATH: browsers } : {}) });
+}
+
+function withoutCallerPane(env) {
+  const out = { ...env };
+  for (const k of paneVarsIn(env)) if (out[k] === process.env[k]) delete out[k];
+  return out;
 }
