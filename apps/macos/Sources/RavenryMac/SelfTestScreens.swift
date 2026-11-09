@@ -36,11 +36,44 @@ extension SelfTestBoard {
                 board.render(force: true)
                 settle(0.4)
                 picture("native-\(name)-\(Int(w))-\(dark ? "dark" : "light").png")
+                // No words squeezed into a column (a wrapping label laid out narrow and kept so).
+                let sq = squeezed(window.contentView!)
+                check("\(name)_no_squeezed_text_\(Int(w))_\(dark ? "dark" : "light")", sq.isEmpty, sq.prefix(4).joined(separator: " | "))
                 if name == "brief" { check("brief_top_kept_\(Int(w))_\(dark ? "dark" : "light")", board.brief.scroll.contentView.bounds.origin.y == 0, "clip \(board.brief.scroll.contentView.bounds)") }
             }
         }
         NSApp.appearance = NSAppearance(named: .darkAqua)
         size(1280, 820)
+    }
+
+    /// The words shown in a field narrower than 80 pt while holding more
+    /// than 10 characters that do not fit it on one line and are cut inside
+    /// a word or set a word a line (a wrapping label squeezed).
+    func squeezed(_ v: NSView) -> [String] {
+        var out: [String] = []
+        func walk(_ x: NSView) {
+            if x.isHidden || x.alphaValue == 0 { return }
+            // Narrow, and not room for its words on one line (wrapped or cut).
+            if let f = x as? NSTextField, !f.isEditable, f.stringValue.count > 10, f.frame.width < 80,
+               let one = f.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)), one.width > f.frame.width + 2,
+               squeezedWords(f, lineHeight: one.height) {
+                out.append("\(f.stringValue.prefix(30)) (\(Int(f.frame.width)) pt)")
+            }
+            for s in x.subviews { walk(s) }
+        }
+        walk(v)
+        return out
+    }
+
+    /// A word cut across lines, or a word a line: what a squeezed field
+    /// shows (two words a line, as the Electron app wraps "6 decisions, 1
+    /// replaced" at 900, is not one).
+    private func squeezedWords(_ f: NSTextField, lineHeight: CGFloat) -> Bool {
+        let words = f.stringValue.split(whereSeparator: { $0.isWhitespace })
+        let font = f.font ?? Fonts.pt(13)
+        let widest = words.map { (String($0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        let lines = Int((f.frame.height / max(1, lineHeight)).rounded())
+        return widest > f.frame.width + 1 || (words.count >= 3 && lines >= words.count)
     }
 
     /// A mouse press and release at a point of a view.

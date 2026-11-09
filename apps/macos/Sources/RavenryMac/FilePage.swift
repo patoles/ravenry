@@ -1186,8 +1186,8 @@ final class FilePage: FormPage {
                 case .para(let s): return self.md(s, Fonts.pt(13))
                 case .quote(let s): return hstack([fix(Box(fill: "sep"), w: 2), soft(self.md(s, Fonts.pt(13), "tx2"))], spacing: 10)
                 case .code(let s):
-                    let l = NSTextField(wrappingLabelWithString: s)
-                    l.font = Fonts.mono(12); l.textColor = Design.termFg; l.isSelectable = true
+                    let l = wrap(s, Fonts.mono(12))
+                    l.text.textColor = Design.termFg
                     return boxed(soft(l), fill: "term-bg", radius: 7, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
                 case .list(let items):
                     return vstack(items.map { x -> NSView in

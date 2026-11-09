@@ -24,6 +24,20 @@ extension SelfTestBoard {
         check("dec_where_and_who", shows(pg, "said in Planting reminders") && shows(pg, "said in Tilting the hull") && shows(pg, "you added it") && shows(pg, "Every project") && shows(pg, "garden-planner"), texts(pg).joined(separator: " | "))
         check("dec_reads", shows(pg, "Read 7 times today") && shows(pg, "Read 23 times today") && shows(pg, "Read once today") && shows(pg, "Read twice"))
         pictures("decisions")
+        // A wrapping text first laid out narrow (a page drawn before it had
+        // its width) widens with its row: the replaces line and the count.
+        for (name, wide) in [("replaces_row", true), ("count_by_spring", false)] {
+            let w = wrap("Replaces what you said on Fri Nov 6, 09:12", Fonts.pt(12), "tx2")
+            let row = wide ? boxed(hstack([Icon("undo", "tx3", size: 14), w], spacing: 8), fill: "card2", radius: 6, insets: NSEdgeInsets(top: 7, left: 10, bottom: 7, right: 10))
+                : hstack([label("Holds now", Fonts.pt(12)), spring(), w], spacing: 8)
+            let host = Flipped(frame: NSRect(x: 0, y: 0, width: 30, height: 600))
+            host.addSubview(row)
+            NSLayoutConstraint.activate([row.leadingAnchor.constraint(equalTo: host.leadingAnchor), row.trailingAnchor.constraint(equalTo: host.trailingAnchor), row.topAnchor.constraint(equalTo: host.topAnchor)])
+            host.layoutSubtreeIfNeeded(); host.layoutSubtreeIfNeeded()
+            host.setFrameSize(NSSize(width: 700, height: 600))
+            for _ in 0..<3 { host.layoutSubtreeIfNeeded() }
+            check("dec_wrap_widens_\(name)", w.text.frame.width > 200 && w.text.frame.height < 30, "\(w.text.frame)")
+        }
 
         // Holds now, Replaced, All.
         guard let tabs = pg.tabs, tabs.segs.count == 3 else { check("dec_tabs", false); finishDecisions(); return }

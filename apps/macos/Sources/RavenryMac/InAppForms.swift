@@ -7,14 +7,31 @@
 
 import AppKit
 
-/// A label that wraps at the width it is given (its preferred width follows its frame).
-final class WrapLabel: NSTextField {
-    override func layout() {
-        super.layout()
-        if abs(preferredMaxLayoutWidth - frame.width) > 0.5 {
-            preferredMaxLayoutWidth = frame.width
-            invalidateIntrinsicContentSize()
-        }
+/// Words that wrap at the width they are given. Its natural width is the
+/// words on one line, whatever width it last wrapped at: a wrapping label's
+/// own intrinsic width is its preferred width, so once laid out narrow (a
+/// page drawn before it had its width) nothing widened it again and it
+/// kept one word a line. Its height is the words wrapped at its preferred
+/// width (CappedText sets it from its own width). It gives way below its
+/// natural width just before a plain label does (740).
+final class WrapField: NSTextField {
+    convenience init(wrapping s: String) {
+        self.init(frame: .zero)
+        stringValue = s
+        isEditable = false; isBordered = false; drawsBackground = false; isSelectable = false
+        cell?.wraps = true; cell?.isScrollable = false; cell?.truncatesLastVisibleLine = false
+        usesSingleLineMode = false
+        maximumNumberOfLines = 0
+        lineBreakMode = .byWordWrapping
+        setContentCompressionResistancePriority(.init(740), for: .horizontal)
+    }
+    override var intrinsicContentSize: NSSize {
+        guard let c = cell else { return super.intrinsicContentSize }
+        let big = CGFloat.greatestFiniteMagnitude
+        let one = c.cellSize(forBounds: NSRect(x: 0, y: 0, width: big, height: big))
+        let w = preferredMaxLayoutWidth > 0 ? preferredMaxLayoutWidth : one.width
+        let h = c.cellSize(forBounds: NSRect(x: 0, y: 0, width: w, height: big)).height
+        return NSSize(width: ceil(one.width), height: ceil(h))
     }
 }
 
@@ -34,12 +51,10 @@ final class CappedText: Flipped {
     init(_ s: String, _ font: NSFont, _ color: String, maxW: CGFloat = 720, fill: String? = nil) {
         self.maxW = maxW
         inset = fill == nil ? 0 : 12
-        text = NSTextField(wrappingLabelWithString: s)
+        text = WrapField(wrapping: s)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         text.font = font; text.textColor = Design.color(color); text.isSelectable = true; text.drawsBackground = false
-        text.lineBreakMode = .byWordWrapping
-        text.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         let inner: NSView = fill.map { boxed(text, fill: $0, radius: 10, insets: NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)) } ?? text
         inner.translatesAutoresizingMaskIntoConstraints = false
         addSubview(inner)
