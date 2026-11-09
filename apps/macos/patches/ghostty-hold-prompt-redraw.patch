@@ -1,0 +1,123 @@
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 810d6ff..3ed7d9b 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -2489,10 +2489,35 @@ fn clearPromptForRedraw(
+                     };
+                 };
+ 
++                // Ravenry (apps/macos/patches/ghostty-hold-prompt-redraw.patch):
++                // promptIterator stops at a row that is neither a prompt
++                // nor a prompt continuation, and the rows a command line
++                // soft-wraps onto are neither when the shell typed them
++                // (input wraps are not marked), nor, after a reflow, is
++                // the head of a split prompt row the only row marked as
++                // the prompt. So with a multi-line command line whose
++                // lines wrap, the clear started at the cursor's own line
++                // and the shell's redraw, which moves up by its old row
++                // count, left the rows above as debris ("~ > ..." twice).
++                // Walk up from the cursor instead, through soft-wrapped
++                // rows and continuations, to the prompt's first row.
++                const top = top: {
++                    var p = self.cursor.page_pin.left(self.cursor.page_pin.x);
++                    while (true) {
++                        const row = p.rowAndCell().row;
++                        if (!row.wrap_continuation) switch (row.semantic_prompt) {
++                            .prompt => break :top p,
++                            .prompt_continuation => {},
++                            .none => break :top start,
++                        };
++                        p = p.up(1) orelse break :top start;
++                    }
++                };
++
+                 // Clear cells from our start down. We replace it with spaces,
+                 // and do not physically erase the rows (eraseRows) because the
+                 // shell is going to expect this space to be available.
+-                var it = start.rowIterator(.right_down, null);
++                var it = top.rowIterator(.right_down, null);
+                 while (it.next()) |pin| {
+                     const page = pin.node.page();
+                     const row = pin.rowAndCell().row;
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 49bd6e0..a71720a 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -520,14 +520,17 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
+     };
+ }
+ 
+-/// Resize the terminal.
++/// Resize the terminal. Returns true when the resize cleared a shell
++/// prompt for the shell to redraw and synchronized output was turned on
++/// until that redraw arrives (the caller arms the reset timer).
+ pub fn resize(
+     self: *Termio,
+     td: *ThreadData,
+     size: renderer.Size,
+-) !void {
++) !bool {
+     self.size = size;
+     const grid_size = size.grid();
++    var hold_prompt = false;
+ 
+     // Enter the critical area that we want to keep small
+     {
+@@ -539,6 +542,20 @@ pub fn resize(
+         // its redraw cannot be parsed against the old terminal dimensions.
+         try self.backend.resize(grid_size, size.terminal());
+ 
++        // Ravenry (apps/macos/patches/ghostty-hold-prompt-redraw.patch):
++        // a resize that changes the grid while the cursor is at a shell
++        // prompt clears the prompt (Screen.clearPromptForRedraw) for the
++        // shell to redraw. Ravenry's shell runs behind a daemon, so its
++        // redraw lands milliseconds later, not microseconds, and a frame
++        // drawn in between shows the prompt gone. Hold the frames with
++        // synchronized output until the redraw ends it (or the reset timer
++        // does, as for a program's own mode 2026).
++        const primary = self.terminal.screens.get(.primary).?;
++        hold_prompt = self.terminal.screens.active_key == .primary and
++            self.terminal.flags.shell_redraws_prompt != .false and
++            primary.cursor.semantic_content != .output and
++            (self.terminal.cols != grid_size.columns or self.terminal.rows != grid_size.rows);
++
+         // Update the size of our terminal state
+         try self.terminal.resize(
+             self.alloc,
+@@ -552,6 +569,9 @@ pub fn resize(
+             },
+         );
+ 
++        // Terminal.resize turns synchronized output off; turn it on after.
++        if (hold_prompt) self.terminal.modes.set(.synchronized_output, true);
++
+         // If we have size reporting enabled we need to send a report.
+         if (self.terminal.modes.get(.in_band_size_reports)) {
+             try self.sizeReportLocked(td, .mode_2048);
+@@ -561,6 +581,7 @@ pub fn resize(
+     // Mail the renderer so that it can update the GPU and re-render
+     _ = self.renderer_mailbox.push(global.io(), .{ .resize = size }, .{ .forever = {} });
+     self.renderer_wakeup.notify() catch {};
++    return hold_prompt;
+ }
+ 
+ /// Make a size report.
+diff --git a/src/termio/Thread.zig b/src/termio/Thread.zig
+index 79cdf89..c663bd1 100644
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -442,9 +442,13 @@ fn coalesceCallback(
+ 
+     if (cb.self.coalesce_data.resize) |v| {
+         cb.self.coalesce_data.resize = null;
+-        cb.io.resize(&cb.data, v) catch |err| {
++        const held = cb.io.resize(&cb.data, v) catch |err| held: {
+             log.warn("error during resize err={}", .{err});
++            break :held false;
+         };
++        // Ravenry: a resize that held a prompt redraw in synchronized
++        // output gets the same reset timer as a program's own mode 2026.
++        if (held) cb.self.startSynchronizedOutput(cb);
+     }
+ 
+     return .disarm;

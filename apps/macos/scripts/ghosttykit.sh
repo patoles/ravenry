@@ -22,7 +22,15 @@
 # script applies patches/ghostty-runtime-metal.patch, which embeds the
 # shader source instead and compiles it when a surface starts (the Metal
 # framework's own compiler, a few tens of milliseconds). With the toolchain
-# installed, the build is Ghostty's own, unpatched.
+# installed, the build is Ghostty's own, otherwise.
+#
+# Always applied: patches/ghostty-hold-prompt-redraw.patch. When a resize
+# clears the shell's prompt for the shell to redraw, Ghostty holds its
+# frames in synchronized output until the redraw ends it (or its 1 s reset
+# timer does): through the daemon the redraw comes milliseconds after the
+# clear, not microseconds. And the clear starts at the prompt's first row,
+# not at the cursor's line of a multi-line command line (apps/macos/README.md,
+# Resize).
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -43,7 +51,7 @@ short=$(printf %s "$commit" | cut -c1-12)
 
 metal=yes
 xcrun -sdk macosx metal --version >/dev/null 2>&1 || metal=no
-flavour=$short-nosentry
+flavour=$short-nosentry-holdprompt
 [ "$metal" = no ] && flavour="$flavour-runtime-metal"
 out="$vendor/GhosttyKit-$flavour.xcframework"
 
@@ -71,8 +79,9 @@ if [ "$(git -C "$src" rev-parse HEAD 2>/dev/null || true)" != "$commit" ]; then
   git -C "$src" fetch -q --depth 1 origin "$commit"
   git -C "$src" -c advice.detachedHead=false checkout -q -f FETCH_HEAD
 fi
-# Start from the pinned tree every time, then patch it if needed.
+# Start from the pinned tree every time, then patch it.
 git -C "$src" checkout -q -- .
+git -C "$src" apply "$here/patches/ghostty-hold-prompt-redraw.patch"
 if [ "$metal" = no ]; then
   echo "ghosttykit.sh: no Metal Toolchain; compiling shaders at run time (patches/ghostty-runtime-metal.patch)" >&2
   git -C "$src" apply "$here/patches/ghostty-runtime-metal.patch"

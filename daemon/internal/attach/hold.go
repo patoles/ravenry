@@ -27,6 +27,12 @@ import (
 // output so the terminal draws it once, whole. Max bounds a hold after the
 // last change of size (a program that never goes quiet), and Limit the
 // bytes kept.
+//
+// Every hold ends with the end of synchronized output, even one that kept
+// nothing. The Mac app's Ghostty turns synchronized output on itself when
+// a resize clears the shell's prompt for the shell to redraw
+// (apps/macos/patches/ghostty-hold-prompt-redraw.patch), so it never draws
+// the cleared prompt; the end of the hold is what lets it draw again.
 type Hold struct {
 	// W is the window's terminal; every write to it goes through Hold.
 	W     io.Writer
@@ -143,7 +149,8 @@ func (h *Hold) release() error {
 		h.OnSwitch(false, len(kept))
 	}
 	if len(kept) == 0 {
-		return nil
+		_, err := h.W.Write([]byte(SyncEnd))
+		return err
 	}
 	buf := make([]byte, 0, len(SyncStart)+len(kept)+len(SyncEnd))
 	buf = append(append(append(buf, SyncStart...), kept...), SyncEnd...)

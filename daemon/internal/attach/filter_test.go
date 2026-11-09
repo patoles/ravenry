@@ -77,19 +77,3 @@ func TestFilterCursorReportOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("a stale query still swallowed a key: %q", got)
 	}
 }
-
-func TestNoPromptClear(t *testing.T) {
-	cases := [][2]string{
-		{"plain", "plain"},
-		{"\x1b]133;A\x07~ > ", "\x1b]133;A;redraw=0\x07~ > "},
-		{"\x1b]133;A\x1b\\x", "\x1b]133;A;redraw=0\x1b\\x"},
-		{"\x1b]133;A;cl=m\x07", "\x1b]133;A;redraw=0;cl=m\x07"},
-		{"\x1b]133;A;redraw=1\x07", "\x1b]133;A;redraw=1\x07"},
-		{"\x1b]133;B\x07\x1b]133;A\x07", "\x1b]133;B\x07\x1b]133;A;redraw=0\x07"},
-	}
-	for _, c := range cases {
-		if got := string(NoPromptClear([]byte(c[0]))); got != c[1] {
-			t.Errorf("%q: got %q, want %q", c[0], got, c[1])
-		}
-	}
-}

@@ -94,3 +94,16 @@ func TestHoldPassesOutput(t *testing.T) {
 		t.Fatalf("%q", w.String())
 	}
 }
+
+// A hold that kept nothing still ends synchronized output: the window's
+// terminal may have turned it on itself when the resize cleared a prompt.
+func TestHoldEndsSyncWhenEmpty(t *testing.T) {
+	w := &syncBuf{}
+	h := &Hold{W: w, Quiet: 10 * time.Millisecond, Max: 100 * time.Millisecond}
+	h.Resize()
+	h.Settled()
+	time.Sleep(50 * time.Millisecond)
+	if w.String() != SyncEnd {
+		t.Fatalf("%q", w.String())
+	}
+}

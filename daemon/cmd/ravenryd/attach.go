@@ -114,9 +114,7 @@ func cmdAttach(in []string) error {
 		for f := range st.Frames {
 			queries.Output(f.Data)
 			tr.Frame(f.Snapshot, f.Mark, f.Data)
-			// The window must not clear a prompt itself on a resize: the
-			// shell's redraw comes later than it expects (NoPromptClear).
-			b := attach.NoPromptClear(f.Data)
+			b := f.Data
 			if f.Snapshot {
 				// A snapshot starts with a full reset: the window shows it
 				// once it is whole, never the empty screen before it.
