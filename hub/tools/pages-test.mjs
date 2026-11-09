@@ -370,6 +370,7 @@ fs.writeFileSync(path.join(DEF, 'objectives.page.yaml'), fs.readFileSync(path.jo
 const ch = await until(async () => { const r = (await rows()).find((x) => x.key === 'objectives'); return r && r.defaultChanged ? r : null; }, 6000);
 const chv = (await get('/api/pages/page?key=objectives')).body.page;
 check('the default changed since the copy: the row and the page say so, with both versions of the default', !!ch && chv.defaultChanged.from === 1 && chv.defaultChanged.to === 2 && /revision: 2/.test(chv.defaultText) && /revision: 1/.test(chv.historyText), JSON.stringify(chv.defaultChanged));
+check('See what changed comes drawn: the line the default added, marked, with its number', Array.isArray(chv.changed) && chv.changed.some((l) => l.add && /time: updated/.test(l.text) && l.n > 1) && !chv.changed.some((l) => l.add && /^revision:/.test(l.text)), JSON.stringify(chv.changed));
 const dm = await post('/api/pages/dismiss', { key: 'objectives' });
 check('dismissed, it goes until the next revision', dm.status === 200 && !!(await until(async () => { const r = (await rows()).find((x) => x.key === 'objectives'); return r && !r.defaultChanged ? r : null; }, 6000)));
 

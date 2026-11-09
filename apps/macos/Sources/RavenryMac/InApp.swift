@@ -22,11 +22,16 @@ class InAppPage: Box {
     required init?(coder: NSCoder) { fatalError() }
 
     /// The head: a back link, a title (20 bold), the line under it (12, tx3), more, and Close.
-    func setHead(title: String?, src: String?, back: (String, () -> Void)? = nil, extra: [NSView] = []) {
+    func setHead(title: String?, src: String?, back: (String, () -> Void)? = nil, extra: [NSView] = [], chip: NSView? = nil, srcView: NSView? = nil, closable: Bool = true) {
         head.subviews.forEach { $0.removeFromSuperview() }
         var col: [NSView?] = []
-        if let t0 = title { col.append(label(t0, Fonts.pt(20, .bold))) }
+        if let t0 = title {
+            let tl = label(t0, Fonts.pt(20, .bold))
+            // .pg-h h2: the title, then its chip (Default page, Your copy, the project).
+            col.append(chip.map { c in hstack([tl, c, spring()], spacing: 10) } ?? tl)
+        }
         if let s = src { col.append(label(s, Fonts.pt(12), "tx3")) }
+        if let v = srcView { col.append(v) }
         let tt = vstack(col, spacing: 4)
         tt.setContentHuggingPriority(.init(1), for: .horizontal)
         tt.setContentCompressionResistancePriority(.init(1), for: .horizontal)
@@ -41,7 +46,7 @@ class InAppPage: Box {
         closeButton = close
         buttons["close"] = close
         // .pg-h: 18 above in the Electron app's sheet, under its 12 of window drag area.
-        let h = hstack(row + [tt, spring()] + extra + [close], spacing: 8, insets: NSEdgeInsets(top: title == nil ? 22 : 30, left: 22, bottom: 14, right: 22))
+        let h = hstack(row + [tt, spring()] + extra + (closable ? [close] : []), spacing: 8, insets: NSEdgeInsets(top: title == nil ? 22 : 30, left: 22, bottom: 14, right: 22))
         h.translatesAutoresizingMaskIntoConstraints = true
         h.autoresizingMask = [.width]
         head.addSubview(h)

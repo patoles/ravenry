@@ -134,12 +134,23 @@ final class Icon: NSImageView {
 /// .icon-btn (an icon, lit on hover), each a real NSButton for the
 /// keyboard and VoiceOver.
 final class RButton: NSButton {
-    enum Kind { case normal, primary, ghost, link, icon, no }
+    enum Kind { case normal, primary, ghost, link, icon, no, quiet }
     let kind: Kind
     let small: Bool
     var run: (() -> Void)?
     var on = false { didSet { needsDisplay = true } }
     var iconView: Icon?
+    /// An icon of shared/icons before the title (.btn svg), in the title's colour.
+    var lead: String? { didSet { leadImage(); invalidateIntrinsicContentSize() } }
+    /// The lead icon as the button's image, before its title, in the title's colour for the appearance in effect.
+    private func leadImage() {
+        guard let ln = lead else { image = nil; return }
+        let tok = kind == .primary ? "tx" : kind == .ghost || kind == .quiet ? "tx2" : "btn-tx"
+        let dark = kind == .primary || effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        image = SharedIcons.image(ln, color: tok, size: 14, dark: dark)
+        imagePosition = .imageLeading
+        imageHugsTitle = true
+    }
     private var hover = false { didSet { needsDisplay = true } }
 
     init(_ title: String, _ kind: Kind = .normal, small: Bool = false, icon: String? = nil, run: (() -> Void)? = nil) {
@@ -177,7 +188,7 @@ final class RButton: NSButton {
     func setTitle(_ s: String) {
         title = s
         let size: CGFloat = kind == .link ? 12 : small ? 12 : 13
-        let color: String = kind == .primary ? "" : kind == .link ? "link" : kind == .ghost ? "tx2" : kind == .no ? "bad" : "btn-tx"
+        let color: String = kind == .primary ? "" : kind == .link ? "link" : kind == .ghost || kind == .quiet ? "tx2" : kind == .no ? "bad" : "btn-tx"
         let c: NSColor = kind == .primary ? .white : Design.color(color)
         attributedTitle = NSAttributedString(string: s, attributes: [.font: Fonts.pt(size, .medium), .foregroundColor: isEnabled ? c : c.withAlphaComponent(0.5)])
         invalidateIntrinsicContentSize()
@@ -187,7 +198,7 @@ final class RButton: NSButton {
         if iconView != nil { return NSSize(width: small ? 26 : 30, height: small ? 26 : 30) }
         let t = attributedTitle.size()
         if kind == .link { return NSSize(width: ceil(t.width), height: ceil(t.height)) }
-        return NSSize(width: ceil(t.width) + (small ? 20 : 26), height: small ? 28 : 32)
+        return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil ? 0 : 20), height: small ? 28 : 32)
     }
     @objc private func fire() { run?() }
     override var wantsUpdateLayer: Bool { true }
@@ -199,13 +210,13 @@ final class RButton: NSButton {
             case .primary: bg = Design.color("work")
             case .normal, .no: bg = Design.color("btn")
             case .icon: bg = hover || on ? (hover ? Design.color("sel") : nil) : nil
-            case .ghost, .link: bg = nil
+            case .ghost, .link, .quiet: bg = nil
             }
             if hover && (kind == .primary || kind == .normal || kind == .no), let b = bg { bg = b.blended(withFraction: 0.12, of: .white) }
             l.backgroundColor = isEnabled ? bg?.cgColor : bg?.withAlphaComponent(0.5).cgColor
             l.cornerRadius = 7
             let light = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
-            l.borderWidth = light && (kind == .normal || kind == .no) ? 1 : 0
+            l.borderWidth = kind == .quiet || light && (kind == .normal || kind == .no) ? 1 : 0
             l.borderColor = Design.color("sep").cgColor
         }
         iconView?.tint = kind == .icon ? (hover || on ? "tx" : "tx2") : iconView?.tint ?? "tx3"
@@ -214,7 +225,10 @@ final class RButton: NSButton {
         guard iconView == nil else { return }
         let t = attributedTitle
         let s = t.size()
-        t.draw(at: NSPoint(x: (bounds.width - s.width) / 2, y: (bounds.height - s.height) / 2))
+        guard lead != nil, let img = image else { t.draw(at: NSPoint(x: (bounds.width - s.width) / 2, y: (bounds.height - s.height) / 2)); return }
+        let x0 = (bounds.width - s.width - 20) / 2
+        img.draw(in: NSRect(x: x0, y: (bounds.height - 14) / 2, width: 14, height: 14), from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.5, respectFlipped: true, hints: nil)
+        t.draw(at: NSPoint(x: x0 + 20, y: (bounds.height - s.height) / 2))
     }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -223,7 +237,7 @@ final class RButton: NSButton {
     }
     override func mouseEntered(with e: NSEvent) { hover = true; if kind == .link { NSCursor.pointingHand.push() } }
     override func mouseExited(with e: NSEvent) { hover = false; if kind == .link { NSCursor.pop() } }
-    override func viewDidChangeEffectiveAppearance() { if iconView == nil { setTitle(title) }; needsDisplay = true }
+    override func viewDidChangeEffectiveAppearance() { if iconView == nil { setTitle(title) }; if lead != nil { leadImage() }; needsDisplay = true }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }
 

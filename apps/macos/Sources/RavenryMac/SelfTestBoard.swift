@@ -202,9 +202,9 @@ final class SelfTestBoard {
         settle(0.5)
         picture("native-project-1280.png")
 
-        // The pages and the foot: native placeholders, never a web view.
+        // A page from a file: drawn natively from the hub's page, never a web view.
         if let r = board.sidebar.rows["page:plans"] { click(r) }
-        check("nav_plans", board.front == .page("plans", "Plans") && board.placeholder.page == "Plans" && board.sidebar.rows["page:plans"]?.selected == true)
+        check("nav_plans", board.front == .page("plans", "Plans") && board.root.middle === board.files && board.files.key == "plans" && board.sidebar.rows["page:plans"]?.selected == true)
         board.sidebar.newButton.performClick(nil)
         check("new_session", board.front == .start && !board.start.isHidden)
         board.start.go.performClick(nil)

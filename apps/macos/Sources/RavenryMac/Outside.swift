@@ -32,4 +32,11 @@ enum Outside {
         if record != nil { record?.append("reveal \(path)"); return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
+
+    /// Text to the clipboard (off every screen: recorded, the clipboard untouched).
+    static func copy(_ text: String) {
+        if record != nil { record?.append("copy \(text)"); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 }

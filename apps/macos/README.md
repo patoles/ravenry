@@ -83,7 +83,8 @@ stream".
   its screen from `GET /api/live`), a project's page (Continue this
   conversation, New session, Open brief), New session (a folder and an
   assistant, for now), a page of the Electron app's own (the brief, the
-  gallery), or a page this window does not draw yet, named in a native placeholder. The middle's view is a tab
+  gallery, a plan, an idea, Alerts, the pages from files), or a page this
+  window does not draw yet, named in a native placeholder. The middle's view is a tab
   after the others, as in the Electron app. A session in a pane of this
   window's daemon becomes or focuses its tab. The highlighted row, the
   panel and the tab in front always name the same thing.
@@ -112,6 +113,22 @@ stream".
   again; a trackpad pinch and two fingers are the scroll view's own
   magnification and pan; the zoom and the place stay through the hub's
   refreshes. The panel's latest picture opens it large, its Gallery the grid.
+- **The pages from files** (`FilePage.swift`, `FilePageViews.swift`,
+  `PageFmt.swift`): Objectives, Plans, Ideas, Rules, Ship and any page a
+  person or a project added, drawn from the hub's `drawn` page (`GET
+  /api/pages/page?key=&tab=`, `hub/server/pagedraw.mjs`): its rows already
+  filtered, sorted, limited and grouped, the tabs' counts and the stats, as
+  lists, cards, a board (a list of lanes under 240 points a lane), a table,
+  stats and documents, with Ravenry's own views (brainstorm, rules from
+  project memory, sessions, objectives' and plans' rows). A tab picked is
+  sent and drawn when the hub answers; the page is read again when its
+  sidebar row's rev moves and after each write. Every button posts the
+  route the Electron app posts, through the same sheets (confirm, the
+  address, the approval, the item, See what changed from the hub's
+  `changed`, the form, a rule); a note dragged to another lane is moved
+  there; a project's page stays off until trusted (sha256 of its text, with
+  CryptoKit), a page with a mistake shows its last good version under the
+  problem. An idea opens its thread, a plan its page, a project its session.
 - **The panel** (`Panel.swift`): the head (project, assistant, pin,
   hide), the state since when, the setup lines (`GET /api/setup/skills`),
   a checkpoint's card in its `words` (ask, approve, drive; answers posted
@@ -276,7 +293,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -315,9 +332,10 @@ every screen (the bench, the self-test) writes only to
 
 - One window: no New Window, settings, closing a busy shell's question,
   bells or activity on hidden tabs, or tab dragged to an edge to split.
-- Sidebar and panel: the pages (Objectives, Plans, Ideas, Rules, Ship,
-  Decisions), Settings, the phone,
-  Learn and Machines are native placeholders; New session is a
+- Sidebar and panel: Decisions, Settings, the phone, Learn and Machines
+  are native placeholders; a page's run button says its approval waits
+  (the panel has no card of its own for a page's run yet), a page's form
+  takes a date as text, and a sheet taller than the window is cut; New session is a
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; the secret
   and pick cards say to answer in the Ravenry app; the approve card has no

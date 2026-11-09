@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 import * as pf from './vendor/page-format.mjs';
 import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
 import { itemsOf } from './providers.mjs';
-import { drawPage } from './pagedraw.mjs';
+import { drawPage, changedLines } from './pagedraw.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import { sayFolder } from './homes.mjs';
 
@@ -379,6 +379,7 @@ export function view(key, { tab = 0 } = {}) {
   if (!e) return null;
   const items = itemsFor(e);
   const defText = e.origin !== 'default' ? readText(path.join(DEFAULTS_DIR, `${e.id}.page.yaml`))?.text || null : null;
+  const historyText = e.defaultChanged ? readText(path.join(HISTORY_DIR, `${e.id}-r${e.defaultChanged.from}.page.yaml`))?.text || null : null;
   return {
     key: e.key, id: e.id, origin: e.origin, path: short(e.path), file: e.path, dir: short(e.dir), project: e.project ? { id: e.project.id, name: e.project.name, folder: sayFolder(e.project.folder, e.project.machine) } : null,
     ok: e.ok, stale: e.stale, model: e.page, problems: e.problems,
@@ -386,7 +387,9 @@ export function view(key, { tab = 0 } = {}) {
     defaultChanged: e.defaultChanged,
     // For Customize and See what changed.
     text: e.text, defaultText: defText, defaultPath: defText ? path.join(DEFAULTS_DIR, `${e.id}.page.yaml`) : null,
-    historyText: e.defaultChanged ? readText(path.join(HISTORY_DIR, `${e.id}-r${e.defaultChanged.from}.page.yaml`))?.text || null : null,
+    historyText,
+    // See what changed, as a client shows it (pagedraw.mjs changedLines).
+    changed: e.defaultChanged ? changedLines(historyText || e.text, defText || '') : null,
     replaces: e.replaces,
     items,
     drawn: drawPage(e.page, items, tab),

@@ -35,6 +35,10 @@
 //     }]
 //   }
 //
+// The page view also has `changed` when a default page moved on since a
+// person's copy (See what changed): changedLines() below, the lines a
+// client shows, `{ gap, n, text, add }` each.
+//
 // An item keeps every field the hub read ($hash, $base, $boxes, $ravenry
 // and the source's fields); the client still reads a field by its path and
 // says a value as text (getField, valueText, fillText) to draw it.
@@ -96,4 +100,44 @@ export function drawPage(page, items, tab = 0) {
     return { rows, count: rows.length, groups, stats };
   }) : [];
   return { tab: ti, tabs, pageItems: (items.page || []).length, sections };
+}
+
+// ---------------------------------------------------------------- See what changed
+
+/** The lines of `b` with those not in `a` marked (a longest common
+ * subsequence of lines). */
+export function diffLines(a, b) {
+  const A = String(a).split('\n'), B = String(b).split('\n');
+  const n = A.length, m = B.length;
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (j < m) {
+    if (i < n && A[i] === B[j]) { out.push({ text: B[j], add: false }); i++; j++; }
+    else if (i < n && L[i + 1][j] >= L[i][j + 1]) i++;
+    else { out.push({ text: B[j], add: true }); j++; }
+  }
+  return out;
+}
+
+/** What a client shows under "See what changed" (the default page against
+ * the revision the person's copy started from): the lines the default
+ * added, each with two around it, `{ gap: true }` where lines are left
+ * out, else the first six. Each line has its number in the new default;
+ * the revision line is never news. */
+export function changedLines(old, now) {
+  const rows = diffLines(old || '', now || '');
+  const news = (r) => r.add && !/^revision:/.test(r.text);
+  const keep = new Set();
+  rows.forEach((r, i) => { if (news(r)) for (let j = Math.max(0, i - 2); j <= Math.min(rows.length - 1, i + 2); j++) keep.add(j); });
+  if (!keep.size) for (let j = 0; j < Math.min(rows.length, 6); j++) keep.add(j);
+  const out = [];
+  let last = -2;
+  for (const j of [...keep].sort((x, y) => x - y)) {
+    if (last >= 0 && j > last + 1) out.push({ gap: true, n: null, text: '', add: false });
+    out.push({ gap: false, n: j + 1, text: rows[j].text, add: news(rows[j]) });
+    last = j;
+  }
+  return out;
 }

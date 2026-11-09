@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as pf from '../server/vendor/page-format.mjs';
-import { drawPage } from '../server/pagedraw.mjs';
+import { drawPage, changedLines } from '../server/pagedraw.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const FIX = path.join(ROOT, '..', 'packages', 'page-format', 'fixtures');
@@ -183,6 +183,44 @@ check('a limit: the first rows after the sort', ids(l1.sections[0].rows) === 'c.
 check('a document grouped: a group per value seen, in the order seen', l1.sections[1].groups.map((g) => g.value).join(',') === 'new,fixing,fixed');
 check('a tab past the last is the last', drawPage(listPage, lv, 7).tab === 1);
 check('the head\'s count of the page\'s items', l0.pageItems === 4);
+
+// See what changed (changedLines): what the desktop's drawModal 'changed'
+// worked out from diffLines, kept here as it was, on made-up revisions.
+function beforeChanged(old, now) {
+  const A = old.split('\n'), B = now.split('\n');
+  const n = A.length, m = B.length;
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const rows = [];
+  let i = 0, j = 0;
+  while (j < m) {
+    if (i < n && A[i] === B[j]) { rows.push({ text: B[j], add: false }); i++; j++; }
+    else if (i < n && L[i + 1][j] >= L[i][j + 1]) i++;
+    else { rows.push({ text: B[j], add: true }); j++; }
+  }
+  const added = rows.map((r, k) => ({ ...r, k })).filter((r) => r.add && !/^revision:/.test(r.text));
+  const keep = new Set();
+  for (const a of added) for (let k = Math.max(0, a.k - 2); k <= Math.min(rows.length - 1, a.k + 2); k++) keep.add(k);
+  if (!keep.size) for (let k = 0; k < Math.min(rows.length, 6); k++) keep.add(k);
+  const out = [];
+  let last = -2;
+  for (const k of [...keep].sort((x, y) => x - y)) {
+    if (last >= 0 && k > last + 1) out.push('...');
+    out.push(`${k + 1}${rows[k].add && !/^revision:/.test(rows[k].text) ? '+' : ' '}${rows[k].text}`);
+    last = k;
+  }
+  return out.join('\n');
+}
+const said = (ls) => ls.map((l) => (l.gap ? '...' : `${l.n}${l.add ? '+' : ' '}${l.text}`)).join('\n');
+const r1 = ['version: 1', 'id: objectives', 'revision: 1', 'title: Objectives', 'tabs:', '  - sections:', '    - view: cards', '      item:', '        title: name', '        badges: [machine]', '        detail: x', '        place: y', 'a: 1', 'b: 1', 'c: 1', 'end: 1'].join('\n');
+const r2 = r1.replace('revision: 1', 'revision: 2').replace('        badges: [machine]\n', '        badges: [machine]\n        time: updated\n').replace('end: 1', 'end: 1\nmore: 2');
+const ch = changedLines(r1, r2);
+check('see what changed: the hub\'s lines are the ones the desktop worked out', said(ch) === beforeChanged(r1, r2), said(ch));
+check('see what changed: added lines marked, two around each, a gap between, the revision line not news', ch.filter((l) => l.add).map((l) => l.text.trim()).join(',') === 'time: updated,more: 2' && ch.some((l) => l.gap) && !ch.some((l) => l.add && /^revision/.test(l.text)), said(ch));
+const same = changedLines(r1, r1);
+check('see what changed: nothing added shows the first six lines', same.length === 6 && same.every((l) => !l.add && !l.gap) && said(same) === beforeChanged(r1, r1));
+const fileShapes = [['', 'a'], ['a\nb\nc', 'a\nx\nb\nc\ny'], ['revision: 1\na', 'revision: 2\na']];
+check('see what changed: the same as the desktop on small texts', fileShapes.every(([a, b]) => said(changedLines(a, b)) === beforeChanged(a, b)));
 
 if (fails) { console.log(`\n${fails} failed`); process.exit(1); }
 console.log('\nall passed');

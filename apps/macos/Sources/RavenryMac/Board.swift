@@ -46,9 +46,13 @@ final class Board: NSObject {
     let plan = PlanPage()
     let idea = IdeaPage()
     let alerts = AlertsPage()
+    /// The sidebar's pages from page files (Objectives, Plans, Ideas, Rules, Ship and added ones).
+    let files = FilePage()
     let notifier: Notifier
+    /// The project of the session the person last had open (a page's Ask Claude to fix).
+    private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -100,13 +104,31 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = { [weak self] s in self?.toast(s) }
-        for f in [plan, idea, alerts] as [FormPage] {
+        for f in [plan, idea, alerts, files] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = { [weak self] s in self?.toast(s) }
             f.onClose = { [weak self] in self?.back() }
         }
         alerts.pairPhone = { [weak self] in self?.openPage("side.phone", t("side.phone")) }
+        files.host = FilePage.Host(
+            rows: { [weak self] in self?.hub.state?.pages ?? [] },
+            pickSession: { [weak self] k in self?.pickSession(k, why: "page") },
+            pickProject: { [weak self] name in
+                guard let self, let st = self.hub.state else { return false }
+                let n = name.lowercased()
+                guard let p = st.projects.first(where: { $0.id.lowercased() == n || $0.name.lowercased() == n }) else { return false }
+                self.pickProject(p.id)
+                return true
+            },
+            openPage: { [weak self] k in
+                guard let self else { return }
+                self.openPage(k, self.hub.state?.pages.first { $0.key == k }?.label ?? k)
+            },
+            openPlan: { [weak self] pid, title in self?.openPlan(pid, title: title) },
+            openIdea: { [weak self] id in self?.openIdea(id) },
+            lastProject: { [weak self] in self?.lastProject },
+            toast: { [weak self] s, a in self?.toast(s, action: a) })
         // Mac notifications the hub sends this app (Notifier.swift): posted, and macOS's answer sent back.
         hub.onNotify = { [weak self] j in
             guard let self, let q = Notifier.request(j) else { return }
@@ -310,6 +332,7 @@ final class Board: NSObject {
     func pickSession(_ key: String, why: String) {
         guard let st = hub.state, let f = st.find(key) else { log.append("session \(why) \(key): not on the board"); return }
         overlay = false
+        lastProject = f.project.id
         // A session waiting at a checkpoint: on a narrow window the panel opens over the terminal.
         if st.checkpoint(of: f.project, f.session) != nil, !wide { overlay = true; log.append("session \(key): its question opens the panel") }
         if let pane = f.session.pane, f.session.machine == nil && f.project.machine == nil, let t = ws.tab(showing: pane) {
@@ -354,12 +377,24 @@ final class Board: NSObject {
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
         if key == "side.alerts" { openAlerts(); return }
+        if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
         overlay = false
         notePageBack()
         front = .page(key, name)
         showMiddle(placeholder)
         placeholder.show(name)
         log.append("page \(key)")
+        render()
+    }
+
+    /// A page from a page file, as the hub draws it.
+    func openFilePage(_ key: String, _ name: String) {
+        overlay = false
+        notePageBack()
+        front = .page(key, name)
+        showMiddle(files)
+        files.show(key)
+        log.append("page \(key): drawn")
         render()
     }
 
@@ -597,6 +632,7 @@ final class Board: NSObject {
         if case .brief(let pid, _) = front { brief.show(pid, state: st) }
         if case .page(let k, _) = front, k.hasPrefix("gallery:") { gallery.refresh(st) }
         if case .page(let k, _) = front, k.hasPrefix("plan:") || k.hasPrefix("newplan:") { plan.refresh(st) }
+        if case .page(let k, _) = front, k == files.key { files.refresh() }
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay
@@ -651,6 +687,9 @@ final class Board: NSObject {
     }
 
     // MARK: toasts
+
+    /// The toast's button (Undo, Show), for the self-test.
+    var toastButton: RButton? { toastView.button }
 
     func toast(_ text: String, action: (String, () -> Void)? = nil) {
         log.append("toast \(text)")

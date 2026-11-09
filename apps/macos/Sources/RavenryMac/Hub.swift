@@ -66,7 +66,10 @@ struct SideSection {
 /// A page of the sidebar's lower nav (state.pages).
 struct NavPage {
     let key: String, label: String, icon: String, number: Int?, countLabel: String?, slot: Int?, origin: String, project: String?
+    /// The page's id and route (an open:page button names either), and what changes when it was read again.
+    let id: String, route: String, rev: String
     init(_ d: [String: Any]) {
+        id = d["id"] as? String ?? ""; route = d["route"] as? String ?? ""; rev = d["rev"] as? String ?? ""
         key = d["key"] as? String ?? ""; label = d["label"] as? String ?? ""; icon = d["icon"] as? String ?? "page"
         number = (d["number"] as? NSNumber)?.intValue; countLabel = d["countLabel"] as? String
         slot = (d["slot"] as? NSNumber)?.intValue; origin = d["origin"] as? String ?? "default"; project = d["project"] as? String
