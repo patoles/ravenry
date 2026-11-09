@@ -144,3 +144,46 @@ func TestResizeClearsWholePrompt(t *testing.T) {
 		}
 	}
 }
+
+// Key events from a client that draws (render.input) are encoded for the
+// program's modes.
+func TestEncodeKeyEvent(t *testing.T) {
+	s, _ := newScreen(t, 20, 5)
+	enc := func(k KeyEvent) string {
+		t.Helper()
+		b, err := s.EncodeKeyEvent(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	cases := []struct {
+		k    KeyEvent
+		want string
+	}{
+		{KeyEvent{Code: "KeyA", Text: "a", Unshifted: 'a'}, "a"},
+		{KeyEvent{Code: "KeyA", Text: "A", Unshifted: 'a', Mods: ModShift, Consumed: ModShift}, "A"},
+		{KeyEvent{Code: "KeyC", Unshifted: 'c', Mods: ModCtrl}, "\x03"},
+		{KeyEvent{Code: "Enter"}, "\r"},
+		{KeyEvent{Code: "Backspace"}, "\x7f"},
+		{KeyEvent{Code: "ArrowUp"}, "\x1b[A"},
+		{KeyEvent{Code: "KeyB", Text: "b", Unshifted: 'b', Mods: ModAlt, OptionAsAlt: "both"}, "\x1bb"},
+		{KeyEvent{Code: "KeyE", Text: "é", Unshifted: 'e', Mods: ModAlt, Consumed: ModAlt}, "é"},
+		{KeyEvent{Code: "KeyA", Action: "release", Unshifted: 'a'}, ""},
+		{KeyEvent{Code: "Lang1", Text: "x"}, "x"},
+	}
+	for _, c := range cases {
+		if got := enc(c.k); got != c.want {
+			t.Errorf("%+v: %q, want %q", c.k, got, c.want)
+		}
+	}
+	// Application cursor keys, then the Kitty keyboard protocol.
+	s.Write([]byte("\x1b[?1h"))
+	if got := enc(KeyEvent{Code: "ArrowUp"}); got != "\x1bOA" {
+		t.Errorf("application cursor Up: %q", got)
+	}
+	s.Write([]byte("\x1b[>1u"))
+	if got := enc(KeyEvent{Code: "KeyA", Unshifted: 'a', Mods: ModCtrl}); got != "\x1b[97;5u" {
+		t.Errorf("Kitty Ctrl+A: %q", got)
+	}
+}
