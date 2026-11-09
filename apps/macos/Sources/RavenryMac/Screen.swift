@@ -67,6 +67,30 @@ struct Cursor: Equatable {
     var style: UInt8 = 0
 }
 
+/// Two cells in screen coordinates (row 0 the oldest row of the
+/// scrollback), inclusive, in reading order; a block covers columns x0 to
+/// x1 of each row.
+struct CellRange: Equatable {
+    var x0 = 0, y0 = 0, x1 = 0, y1 = 0
+    var rect = false
+
+    func contains(x: Int, y: Int) -> Bool {
+        if y < y0 || y > y1 { return false }
+        if rect { return x >= min(x0, x1) && x <= max(x0, x1) }
+        if y == y0 && x < x0 { return false }
+        if y == y1 && x > x1 { return false }
+        return true
+    }
+
+    /// The columns it covers on row y, or nil.
+    func span(y: Int, cols: Int) -> ClosedRange<Int>? {
+        if y < y0 || y > y1 || cols <= 0 { return nil }
+        if rect { return max(0, min(x0, x1))...min(cols - 1, max(x0, x1)) }
+        let a = y == y0 ? x0 : 0, b = y == y1 ? x1 : cols - 1
+        return a <= b ? max(0, a)...min(cols - 1, b) : nil
+    }
+}
+
 struct ProgramColors: Equatable {
     var fg: UInt32?, bg: UInt32?, cursor: UInt32?
     var palette: [UInt8: UInt32] = [:]
@@ -88,6 +112,10 @@ final class Screen {
     var history = 0, offset = 0
     var bell: UInt32 = 0
     var held = false
+    /// The pane's selection (section 5), nil for none.
+    var selection: CellRange?
+    /// Rows changed: bumped by each frame that carried rows.
+    var rowsVersion = 0
     /// The newest frame applied, not yet drawn when > drawnSeq.
     var seq: UInt32 = 0
     var frames = 0
@@ -171,12 +199,25 @@ final class Screen {
                     }
                     q = d + l
                 }
+                rowsVersion += 1
+            case 5:
+                guard n >= 13 else { throw DecodeError.short }
+                var r = range(b, s + 1)
+                r.rect = b[s] & 2 != 0
+                selection = b[s] & 1 != 0 ? r : nil
             default:
                 break // a newer section
             }
             i = s + n
         }
         frames += 1
+    }
+
+    /// A range: x0 (2 bytes), y0 (4), x1 (2), y1 (4).
+    private func range(_ b: UnsafeBufferPointer<UInt8>, _ i: Int) -> CellRange {
+        func u16(_ j: Int) -> Int { Int(b[j]) << 8 | Int(b[j + 1]) }
+        func u32(_ j: Int) -> Int { Int(b[j]) << 24 | Int(b[j + 1]) << 16 | Int(b[j + 2]) << 8 | Int(b[j + 3]) }
+        return CellRange(x0: u16(i), y0: u32(i + 2), x1: u16(i + 6), y1: u32(i + 8))
     }
 
     private func decodeRow(_ b: UnsafeBufferPointer<UInt8>, _ start: Int, _ end: Int, _ y: Int) throws {

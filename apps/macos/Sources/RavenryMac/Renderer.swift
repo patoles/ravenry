@@ -349,34 +349,8 @@ final class Atlas {
     }
 }
 
-/// A selection in screen coordinates (row 0 the oldest scrollback row).
-struct Selection: Equatable {
-    var start: (x: Int, y: Int)
-    var end: (x: Int, y: Int)
-    var rect = false
-
-    static func == (a: Selection, b: Selection) -> Bool {
-        a.start == b.start && a.end == b.end && a.rect == b.rect
-    }
-
-    var ordered: (Int, Int, Int, Int) {
-        if start.y < end.y || (start.y == end.y && start.x <= end.x) { return (start.x, start.y, end.x, end.y) }
-        return (end.x, end.y, start.x, start.y)
-    }
-
-    func contains(x: Int, y: Int) -> Bool {
-        let (x0, y0, x1, y1) = ordered
-        if rect { return y >= y0 && y <= y1 && x >= min(x0, x1) && x <= max(x0, x1) }
-        if y < y0 || y > y1 { return false }
-        if y == y0 && x < x0 { return false }
-        if y == y1 && x > x1 { return false }
-        return true
-    }
-}
-
 /// What a draw shows besides the screen.
 struct Overlay {
-    var selection: Selection?
     var focused = true
     var cursorOn = true
     var marked: String = ""
@@ -507,7 +481,7 @@ final class Renderer {
                     hasBg = true
                 }
                 let color = hasBg ? resolve(bg, screen, fg: c.style.attrs & CellStyle.inverse != 0 && c.style.fg == 0) : defBg
-                let selected = o.selection?.contains(x: x, y: top + y) ?? false
+                let selected = screen.selection?.contains(x: x, y: top + y) ?? false
                 let col = selected ? mix(color, SIMD4(theme.selection.x, theme.selection.y, theme.selection.z, 1), t: theme.selection.w) : color
                 if !hasBg && !selected {
                     flush(x)

@@ -25,13 +25,19 @@ final class TerminalView: NSView, NSTextInputClient {
     private var blinkTimer: Timer?
     private var focused = true
 
-    var selection: Selection?
+    /// A selection gesture is under way (the button went down with no
+    /// mouse reporting, or with Shift).
     private var selecting = false
-    private var selectAnchor: (x: Int, y: Int)?
-    private var selectUnit = 1
+    private var autoscroll: Timer?
+    private var lastDrag: NSEvent?
 
     private var marked = NSMutableAttributedString()
     private var keyTexts: [String]?
+    /// Where Copy writes and Paste reads: the general pasteboard, or the
+    /// self-test's own.
+    var pasteboard = NSPasteboard.general
+    /// Opens a link the person Cmd-clicked (the self-test records it).
+    var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// "left", "right", "both": Option acts as Alt. Empty: it types
     /// characters, as on a Mac.
     var optionAsAlt = ""
@@ -71,6 +77,7 @@ final class TerminalView: NSView, NSTextInputClient {
         // at the new size, in the same transaction.
         metalLayer.contentsGravity = .topLeft
         metalLayer.needsDisplayOnBoundsChange = false
+        registerForDraggedTypes([.fileURL, .string])
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
     }
 
@@ -162,7 +169,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// transaction (a live resize), so the content never lags its frame.
     func draw(sync: Bool) {
         guard bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
-        let overlay = Overlay(selection: selection, focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha)
+        let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha)
         let t0 = CACurrentMediaTime()
         var seq: UInt32 = 0
         if offscreen {
@@ -376,6 +383,9 @@ final class TerminalView: NSView, NSTextInputClient {
         if e.keyCode == 0x73 { scrollToTop(nil); return true }    // Cmd+Home
         if e.keyCode == 0x77 { scrollToBottom(nil); return true } // Cmd+End
         switch key {
+        case "c": copy(nil)
+        case "v": paste(nil)
+        case "a": selectAll(nil)
         case "=", "+": increaseFontSize(nil)
         case "-": decreaseFontSize(nil)
         case "0": resetFontSize(nil)
@@ -495,35 +505,55 @@ final class TerminalView: NSView, NSTextInputClient {
 
     // MARK: clipboard
 
+    /// Copies the pane's selection, which the daemon reads (render.copy),
+    /// so it reaches beyond the rows on screen.
     @objc func copy(_ sender: Any?) {
-        guard let sel = selection, let c = conn else { return }
-        let (x0, y0, x1, y1) = sel.ordered
-        c.request("render.text", ["channel": channel, "from": ["x": x0, "y": y0], "to": ["x": x1, "y": y1], "rect": sel.rect]) { r in
-            if case .success(let v) = r, let t = v["text"] as? String {
-                DispatchQueue.main.async {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(t, forType: .string)
-                }
+        guard let c = conn else { return }
+        c.request("render.copy", ["channel": channel]) { [weak self] r in
+            guard case .success(let v) = r, let t = v["text"] as? String, !t.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.pasteboard.clearContents()
+                self.pasteboard.setString(t, forType: .string)
             }
         }
     }
 
     @objc func paste(_ sender: Any?) {
-        guard let s = NSPasteboard.general.string(forType: .string), !s.isEmpty else { return }
-        pasteText(s)
+        _ = paste(from: pasteboard)
     }
 
     func pasteText(_ s: String) {
         sendEvents([["paste": s]])
     }
 
+    /// Files (their paths, which the daemon quotes) or text from a
+    /// pasteboard: a paste, or a drop.
+    func paste(from pb: NSPasteboard) -> Bool {
+        let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if !urls.isEmpty {
+            sendEvents([["paths": urls.map { $0.path }]])
+            return true
+        }
+        guard let s = pb.string(forType: .string), !s.isEmpty else { return false }
+        pasteText(s)
+        return true
+    }
+
     @objc override func selectAll(_ sender: Any?) {
-        screen.lock()
-        let total = screen.history + screen.rows
-        let cols = screen.cols
-        screen.unlock()
-        selection = Selection(start: (0, 0), end: (cols - 1, total - 1))
-        requestDraw()
+        sendEvents([["select": ["action": "all"]]])
+    }
+
+    // MARK: dropping files and text
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let pb = sender.draggingPasteboard
+        let ok = pb.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) || pb.string(forType: .string) != nil
+        return ok ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        paste(from: sender.draggingPasteboard)
     }
 
     // MARK: mouse
@@ -534,18 +564,26 @@ final class TerminalView: NSView, NSTextInputClient {
         return CGPoint(x: p.x - renderer.padding, y: p.y - renderer.padding)
     }
 
-    /// The cell under a point: its column, its row in screen coordinates,
-    /// and the point from the grid's corner.
-    private func cell(_ e: NSEvent) -> (x: Int, y: Int, px: CGPoint) {
-        let p = convert(e.locationInWindow, from: nil)
+    var cellSize: CGSize {
         let s = renderer.fonts.scale
-        let cw = renderer.fonts.cellWidth / s, ch = renderer.fonts.cellHeight / s
+        return CGSize(width: renderer.fonts.cellWidth / s, height: renderer.fonts.cellHeight / s)
+    }
+
+    typealias CellHit = (x: Int, row: Int, y: Int, px: CGPoint)
+
+    /// The cell under a point: its column, its row on the view and in
+    /// screen coordinates, and the point from the grid's corner, kept on
+    /// the grid.
+    func cell(_ e: NSEvent) -> CellHit {
+        let p = gridPoint(e)
+        let c = cellSize
         screen.lock()
-        let cols = screen.cols, rows = screen.rows, top = screen.history - screen.offset
+        let cols = max(1, screen.cols), rows = max(1, screen.rows), top = screen.history - screen.offset
         screen.unlock()
-        let x = max(0, min(cols - 1, Int((p.x - renderer.padding) / cw)))
-        let row = max(0, min(rows - 1, Int((p.y - renderer.padding) / ch)))
-        return (x, top + row, CGPoint(x: max(0, p.x - renderer.padding), y: max(0, p.y - renderer.padding)))
+        let x = max(0, min(cols - 1, Int(floor(p.x / c.width))))
+        let row = max(0, min(rows - 1, Int(floor(p.y / c.height))))
+        let px = CGPoint(x: max(0, min(p.x, CGFloat(cols) * c.width - 0.01)), y: max(0, min(p.y, CGFloat(rows) * c.height - 0.01)))
+        return (x, row, top + row, px)
     }
 
     private var mouseReporting: Bool {
@@ -556,14 +594,27 @@ final class TerminalView: NSView, NSTextInputClient {
 
     private func mouseEvent(_ e: NSEvent, action: String, button: String, held: Bool = false) -> [String: Any] {
         let c = cell(e)
-        let s = renderer.fonts.scale
+        let sz = cellSize
         var m: [String: Any] = ["action": action, "x": Double(c.px.x), "y": Double(c.px.y),
-                                "cell_width": Double(renderer.fonts.cellWidth / s), "cell_height": Double(renderer.fonts.cellHeight / s)]
+                                "cell_width": Double(sz.width), "cell_height": Double(sz.height)]
         if !button.isEmpty { m["button"] = button }
         let md = mods(e.modifierFlags) & 15
         if md != 0 { m["mods"] = md }
         if held { m["held"] = true }
         return ["mouse": m]
+    }
+
+    /// A step of a selection gesture: the daemon (libghostty-vt's
+    /// gesture) counts the clicks by time and place and decides what is
+    /// selected; the frames say what it is.
+    private func selectEvent(_ e: NSEvent, action: String, at hit: CellHit? = nil) -> [String: Any] {
+        let c = hit ?? cell(e)
+        let sz = cellSize
+        var sel: [String: Any] = ["action": action, "col": c.x, "row": c.y, "x": Double(c.px.x), "y": Double(c.px.y),
+                                  "cell_width": Double(sz.width), "cell_height": Double(sz.height)]
+        if e.modifierFlags.contains(.shift) { sel["extend"] = true }
+        if e.modifierFlags.contains(.option) { sel["rect"] = true }
+        return ["select": sel]
     }
 
     override func mouseDown(with e: NSEvent) {
@@ -572,18 +623,8 @@ final class TerminalView: NSView, NSTextInputClient {
             sendEvents([mouseEvent(e, action: "press", button: "left")])
             return
         }
-        let c = cell(e)
-        selectUnit = min(e.clickCount, 3)
-        if e.modifierFlags.contains(.shift), let sel = selection {
-            selection = Selection(start: sel.start, end: (c.x, c.y), rect: e.modifierFlags.contains(.option))
-        } else if e.clickCount == 1 {
-            selection = nil
-        } else {
-            selection = expand(c.x, c.y, unit: selectUnit)
-        }
-        selectAnchor = (c.x, c.y)
         selecting = true
-        requestDraw()
+        sendEvents([selectEvent(e, action: "press")])
     }
 
     override func mouseDragged(with e: NSEvent) {
@@ -594,15 +635,50 @@ final class TerminalView: NSView, NSTextInputClient {
             if drag && mouseReporting { sendEvents([mouseEvent(e, action: "motion", button: "left", held: true)]) }
             return
         }
-        guard let a = selectAnchor else { return }
-        let c = cell(e)
-        if selectUnit > 1, let s1 = expand(a.x, a.y, unit: selectUnit), let s2 = expand(c.x, c.y, unit: selectUnit) {
-            let forward = c.y > a.y || (c.y == a.y && c.x >= a.x)
-            selection = forward ? Selection(start: s1.start, end: s2.end) : Selection(start: s1.end, end: s2.start)
-        } else {
-            selection = Selection(start: a, end: (c.x, c.y), rect: e.modifierFlags.contains(.option))
+        lastDrag = e
+        sendEvents([selectEvent(e, action: "drag")])
+        // Past the top or the bottom of the grid: scroll while the button
+        // is held there.
+        let p = gridPoint(e)
+        screen.lock()
+        let rows = screen.rows
+        screen.unlock()
+        let outside = p.y < 0 || p.y >= CGFloat(rows) * cellSize.height
+        if outside && autoscroll == nil {
+            let t = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.autoscrollStep() }
+            RunLoop.main.add(t, forMode: .common)
+            autoscroll = t
+        } else if !outside {
+            stopAutoscroll()
         }
-        requestDraw()
+    }
+
+    /// Whether a drag past the grid's edge is scrolling the view.
+    var autoscrolling: Bool { autoscroll != nil }
+
+    /// One step of the drag's scrolling: a row up or down, and the
+    /// selection on to the row that comes into view at the edge.
+    private func autoscrollStep() {
+        guard selecting, let e = lastDrag else { return stopAutoscroll() }
+        let p = gridPoint(e)
+        screen.lock()
+        let rows = screen.rows, history = screen.history, offset = screen.offset
+        screen.unlock()
+        let up = p.y < 0
+        let newOffset = max(0, min(history, offset + (up ? 1 : -1)))
+        var c = cell(e)
+        c.row = up ? 0 : rows - 1
+        c.y = history - newOffset + c.row
+        let sz = cellSize
+        let w: [String: Any] = ["rows": up ? 1.0 : -1.0, "x": Double(c.px.x), "y": Double(c.px.y),
+                                "cell_width": Double(sz.width), "cell_height": Double(sz.height)]
+        sendEvents([["wheel": w], selectEvent(e, action: "drag", at: c)])
+        showScrollbar()
+    }
+
+    private func stopAutoscroll() {
+        autoscroll?.invalidate()
+        autoscroll = nil
     }
 
     override func mouseUp(with e: NSEvent) {
@@ -611,6 +687,9 @@ final class TerminalView: NSView, NSTextInputClient {
             return
         }
         selecting = false
+        stopAutoscroll()
+        lastDrag = nil
+        sendEvents([selectEvent(e, action: "release")])
     }
 
     override func rightMouseDown(with e: NSEvent) {
@@ -634,27 +713,6 @@ final class TerminalView: NSView, NSTextInputClient {
         let motion = screen.modes & Screen.modeMouseMotion != 0
         screen.unlock()
         if motion { sendEvents([mouseEvent(e, action: "motion", button: "")]) }
-    }
-
-    /// A word (two clicks) or a line (three) around a cell.
-    private func expand(_ x: Int, _ y: Int, unit: Int) -> Selection? {
-        screen.lock()
-        defer { screen.unlock() }
-        let row = y - (screen.history - screen.offset)
-        if unit >= 3 { return Selection(start: (0, y), end: (screen.cols - 1, y)) }
-        guard unit == 2, row >= 0, row < screen.lines.count else { return Selection(start: (x, y), end: (x, y)) }
-        let line = screen.lines[row]
-        func isWord(_ c: Cell) -> Bool {
-            if c.flags & Cell.spacer != 0 { return true }
-            if c.g == 0 || c.g == 32 { return false }
-            if c.g < 128, let u = Unicode.Scalar(c.g) { return !" \t\"'`()[]{}<>|;,".unicodeScalars.contains(u) }
-            return true
-        }
-        guard x < line.count, isWord(line[x]) else { return Selection(start: (x, y), end: (x, y)) }
-        var a = x, b = x
-        while a > 0 && isWord(line[a - 1]) { a -= 1 }
-        while b + 1 < line.count && isWord(line[b + 1]) { b += 1 }
-        return Selection(start: (a, y), end: (b, y))
     }
 
     // MARK: scrolling
