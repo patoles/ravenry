@@ -228,6 +228,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     var onStatus: ((Bool) -> Void)?
     /// A Mac notification the hub asks this app to post (event: notify, on the app's stream ?app=1).
     var onNotify: (([String: Any]) -> Void)?
+    /// The decision ledger changed (event: decision, { type: saved, edited or removed }).
+    var onDecision: (([String: Any]) -> Void)?
     /// This app's id on the hub: with two apps (this and the Electron one), notifications go to the one focused last.
     let client = UUID().uuidString.lowercased()
     /// Every request the window sent, for the self-test: "POST /api/send".
@@ -313,6 +315,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             }
             if event == "notify", let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] {
                 DispatchQueue.main.async { self.onNotify?(j) }
+                continue
+            }
+            if event == "decision", let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] {
+                DispatchQueue.main.async { self.onDecision?(j) }
                 continue
             }
             guard event == "state", !lines.isEmpty,

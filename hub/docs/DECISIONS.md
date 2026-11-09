@@ -56,6 +56,7 @@ one makes them active again.
 | Call | Class | Body | Answer |
 | --- | --- | --- | --- |
 | `GET /api/decisions?project=&search=&all=&agent=` | open read | | `{ ok, project, decisions: [Entry + reads_today, reads_total, undo_until?] }`, newest first |
+| `GET /api/decisions?page=1&show=&only=&search=` | open read | | what the Decisions page shows (`decisions.page()`): `{ ok, total, active, replaced, undoable, projects: [{ id, name }], days: [{ day, rel, items }], empty }`; never counted as a read |
 | `POST /api/decisions/record` | open | `{ quote, project?, replaces?, scope? }` | `{ ok, decision }` |
 | `POST /api/decisions/add` | person | `{ quote, project?, replaces? or overrides?, scope? }` | `{ ok, decision }` |
 | `POST /api/decisions/edit` | person | `{ id, quote?, project?, scope? }` | `{ ok, decision }` |
@@ -68,6 +69,14 @@ one makes them active again.
   recording pane's session's project.
 - `search`: every word must appear in the quote or the scope, any case.
   `all`: the replaced entries too.
+- `page=1`: the page's view, worked out here for every client. `show`:
+  `now` (the active ones, the default), `replaced` or `all`; `only`: one
+  project's id, its own entries alone; days in the hub's local date, `rel`
+  `today` or `yesterday`; each item adds `project_name` (null for every
+  project), `where` (the session it was said in), `gone`, `replaced_at`
+  (when the entry that replaced it was saved) and `replaces` (the entries
+  it replaced, verbatim, for an active one); `empty` is `none` (no entry
+  at all) or `nomatch`.
 - **Reads.** A GET counts one read of each entry it returns when it comes
   from an agent: `agent=1` (what `ravenry decisions` sends) or a caller
   inside a pane. The board's and the app's own looks do not count.

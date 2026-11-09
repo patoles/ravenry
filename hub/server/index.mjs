@@ -3666,6 +3666,23 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && p === '/api/decisions') {
       // The ledger, newest first (server/decisions.mjs): an open read, so an
       // agent checks it before asking. project: an id, a name or a folder.
+      // page=1: what the Decisions page shows (decisions.page()), with
+      // show, only (a project's id) and search; never counted as a read.
+      if (url.searchParams.get('page') === '1') {
+        const names = {};
+        for (const pr of snapshot.projects || []) names[pr.id] = pr.name;
+        for (const pr of (reg && reg.projects) || []) if (!names[pr.id]) names[pr.id] = pr.name;
+        const where = (rb) => {
+          if (!rb) return null;
+          for (const pr of snapshot.projects || []) for (const s of pr.sessions || []) {
+            const pane = typeof s.pane === 'string' ? s.pane : s.pane && s.pane.id;
+            if ((rb.session && s.sessionId === rb.session) || (rb.pane && (s.surfaceId === `ravenry:${rb.pane}` || pane === rb.pane))) return s.topic || pr.name;
+          }
+          return null;
+        };
+        const sp = url.searchParams;
+        return sendJson(res, 200, { ok: true, ...decisions.page({ show: sp.get('show') || 'now', only: sp.get('only') || '', search: sp.get('search') || '', names, where }) });
+      }
       const pq = url.searchParams.get('project');
       let projectId;
       if (pq != null && pq !== '') {

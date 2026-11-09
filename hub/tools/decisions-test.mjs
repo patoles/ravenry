@@ -60,6 +60,31 @@ check('removing the override brings the old entry back', rm.ok && !D.load(F).fin
 check('the file is private', (fs.statSync(F).mode & 0o777) === 0o600);
 check('a project by id, by name, by a folder inside it, by a worktree folder', D.resolveProject('proj', projects).id === 'proj' && D.resolveProject('other', projects).id === 'other' && D.resolveProject('PROJ', projects).id === 'proj' && D.resolveProject(path.join(PROJ, 'src'), projects).id === 'proj' && D.resolveProject(path.join(T, 'proj-wt', 'a'), projects, [{ folder: path.join(T, 'proj-wt'), projectId: 'proj' }]).id === 'proj' && D.resolveProject('nope', projects) === null && D.resolveProject(T, projects) === null);
 
+// ------------------------------------------------------------ the page's view
+{
+  const P = path.join(T, 'page.json');
+  const now = new Date();
+  const ago = (ms) => new Date(now.getTime() - ms).toISOString();
+  const old = D.add({ quote: 'The menu opens on the right.', projectId: 'proj', at: ago(3 * 86400000) }, { file: P });
+  const nu = D.add({ quote: 'The menu opens on the left.', projectId: 'proj', scope: 'menus', overrides: [old.entry.id], by: 'agent', recordedBy: { pane: 'pqwertyu', session: 's-1' }, at: ago(2 * 86400000) }, { file: P });
+  const every = D.add({ quote: 'No em dashes anywhere.', projectId: null, at: ago(20000) }, { file: P });
+  const names = { proj: 'Proj' };
+  const where = (rb) => (rb && rb.session === 's-1' ? 'Menus pass' : null);
+  const v = D.page({ names, where, now }, { file: P });
+  const flat = v.days.flatMap((d) => d.items);
+  const n = flat.find((x) => x.id === nu.entry.id);
+  check('page: active ones newest first in days, today first, with counts', v.total === 3 && v.active === 2 && v.replaced === 1 && flat.map((x) => x.id).join() === `${every.entry.id},${nu.entry.id}` && v.days[0].rel === 'today' && v.days[1].rel === '' && v.days.length === 2, JSON.stringify(v.days.map((d) => [d.day, d.rel, d.items.length])));
+  check('page: an item says its project\'s name (null for every project), where it was said, and what it replaced verbatim', !!n && n.project_name === 'Proj' && flat[0].project_name === null && n.where === 'Menus pass' && n.replaces.length === 1 && n.replaces[0].quote === 'The menu opens on the right.' && n.gone === false, JSON.stringify(n));
+  check('page: undo_until and undoable while the newest is in its minute', !!flat[0].undo_until && v.undoable && !n.undo_until);
+  const r = D.page({ show: 'replaced', names, where, now }, { file: P }).days.flatMap((d) => d.items);
+  check('page: Replaced shows the replaced one, gone, with when it was replaced and nothing it replaces', r.length === 1 && r[0].id === old.entry.id && r[0].gone && r[0].replaced_at === nu.entry.at && r[0].replaces.length === 0);
+  check('page: All shows every one', D.page({ show: 'all', now }, { file: P }).days.flatMap((d) => d.items).length === 3);
+  const only = D.page({ only: 'proj', now }, { file: P });
+  check('page: a project picked shows its own only (not the ones for every project); the menu lists the ledger\'s projects', only.days.flatMap((d) => d.items).map((x) => x.id).join() === nu.entry.id && JSON.stringify(only.projects) === JSON.stringify([{ id: 'proj', name: 'proj' }]));
+  const s = D.page({ search: 'MENUS left', now }, { file: P });
+  check('page: search, every word in the quote or the scope; nothing matching says nomatch, an empty ledger none', s.days.flatMap((d) => d.items).map((x) => x.id).join() === nu.entry.id && D.page({ search: 'zebra', now }, { file: P }).empty === 'nomatch' && D.page({ now }, { file: path.join(T, 'none.json') }).empty === 'none' && v.empty === null);
+}
+
 // ------------------------------------------------------------ edit, undo, reads
 const e1 = D.add({ quote: 'Use the phone width for every test shot.', projectId: 'proj', scope: 'tests', by: 'agent', recordedBy: { pane: 'pqwertyu', session: 's-1', assistant: 'claude', extra: 'dropped' } }, { file: F });
 check('an agent\'s entry keeps who recorded it, and only those fields', e1.ok && e1.entry.by === 'agent' && JSON.stringify(e1.entry.recorded_by) === JSON.stringify({ pane: 'pqwertyu', session: 's-1', assistant: 'claude' }), JSON.stringify(e1.entry));
@@ -150,6 +175,10 @@ const said = await until(async () => events.join('').includes(rec.body.decision.
 check('the board\'s stream says it was saved, with the undo time', !!said && /event: decision\ndata: \{"type":"saved"/.test(said) && said.includes('"undo_until"'), (said || '').slice(-400));
 const noCount = await get('/api/decisions?project=proj');
 const counted = await get('/api/decisions?project=proj&agent=1');
+const pg = await get('/api/decisions?page=1&show=all');
+const pg2 = await get('/api/decisions?page=1&show=all');
+const reads = (x) => JSON.stringify(x.body.days.flatMap((d) => d.items).map((i) => i.reads_total));
+check('GET page=1 answers the page\'s view (days, counts, projects) and is never counted as a read', pg.status === 200 && Array.isArray(pg.body.days) && pg.body.total > 0 && pg.body.days.flatMap((d) => d.items).length === pg.body.total && Array.isArray(pg.body.projects) && reads(pg) === reads(pg2), pg.text.slice(0, 300));
 check('GET counts a read only for an agent (agent=1); the board\'s own look does not', noCount.body.decisions[0].reads_today === 0 && counted.body.decisions[0].reads_today === 1 && counted.body.decisions[0].reads_total === 1, counted.text);
 const edt = await post('/api/decisions/edit', { id: rec.body.decision.id, scope: 'menus' });
 check('the person edits it', edt.status === 200 && edt.body.decision.scope === 'menus', edt.text);

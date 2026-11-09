@@ -81,7 +81,10 @@ final class FieldBox: Box, NSTextFieldDelegate {
     let field: NSTextField
     let area: Bool
     var onChange: (() -> Void)?
-    init(_ placeholder: String, area: Bool, height: CGFloat? = nil) {
+    /// Its ring turns --work while it has the keyboard (.field:focus); off for .dsearch.
+    var ringOnFocus = true
+    /// `icon`: drawn before the words, in tx3 (.dsearch's search glass).
+    init(_ placeholder: String, area: Bool, height: CGFloat? = nil, icon: String? = nil) {
         self.area = area
         field = area ? NSTextField(wrappingLabelWithString: "") : NSTextField(string: "")
         super.init(fill: "input", ring: "sep", radius: 7)
@@ -100,10 +103,18 @@ final class FieldBox: Box, NSTextFieldDelegate {
         if area { field.cell?.wraps = true; field.cell?.isScrollable = false; field.usesSingleLineMode = false }
         else { field.cell?.wraps = false; field.cell?.isScrollable = true; field.usesSingleLineMode = true }
         addSubview(field)
+        var lead: CGFloat = 10
+        if let name = icon {
+            let ic = Icon(name, "tx3", size: 14)
+            ic.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(ic)
+            NSLayoutConstraint.activate([ic.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), ic.centerYAnchor.constraint(equalTo: centerYAnchor)])
+            lead = 32
+        }
         let h = height ?? (area ? 90 : 32)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: h),
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: lead),
             field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             area ? field.topAnchor.constraint(equalTo: topAnchor, constant: 8) : field.centerYAnchor.constraint(equalTo: centerYAnchor),
             area ? field.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8) : field.heightAnchor.constraint(greaterThanOrEqualToConstant: 18),
@@ -113,7 +124,7 @@ final class FieldBox: Box, NSTextFieldDelegate {
     }
     required init?(coder: NSCoder) { fatalError() }
     var text: String { get { field.stringValue } set { field.stringValue = newValue } }
-    func controlTextDidBeginEditing(_ n: Notification) { ring = "work"; ringWidth = 1.5 }
+    func controlTextDidBeginEditing(_ n: Notification) { if ringOnFocus { ring = "work"; ringWidth = 1.5 } }
     func controlTextDidEndEditing(_ n: Notification) { ring = "sep"; ringWidth = 1 }
     func controlTextDidChange(_ n: Notification) { onChange?() }
     /// Return in an area is a new line (a textarea's); in a field, what Send does.
@@ -185,9 +196,9 @@ class FormPage: InAppPage {
     override func layoutBody() { scroll.frame = body.bounds }
 
     /// A field kept by id (what was typed in it stays).
-    func field(_ id: String, _ placeholder: String, area: Bool = false, height: CGFloat? = nil) -> FieldBox {
+    func field(_ id: String, _ placeholder: String, area: Bool = false, height: CGFloat? = nil, icon: String? = nil) -> FieldBox {
         if let f = fields[id] { return f }
-        let f = FieldBox(placeholder, area: area, height: height)
+        let f = FieldBox(placeholder, area: area, height: height, icon: icon)
         fields[id] = f
         return f
     }

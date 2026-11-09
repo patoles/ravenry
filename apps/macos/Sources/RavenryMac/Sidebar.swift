@@ -105,11 +105,14 @@ final class SidebarView: Flipped {
     }
 
     /// Draws the board as the hub sent it; nothing when nothing changed.
+    /// Decisions' row: the active ones, and a dot while one can still be undone (the hub's count, Board polls it).
+    var decisions: (count: Int, live: Bool) = (0, false)
+
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
         let times = state?.sections.flatMap { $0.projects.map { timeText($0) } }.joined(separator: ",") ?? ""
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String($0.hashValue) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
-                   String(alerts)].joined(separator: "|")
+                   String(alerts), "\(decisions.count)\(decisions.live)"].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
         rows = [:]
@@ -261,11 +264,14 @@ final class SidebarView: Flipped {
         let pages = state?.pages ?? []
         let shipped = pages.filter { $0.slot != nil && $0.origin != "project" }
         let added = pages.filter { !($0.slot != nil && $0.origin != "project") }
-        func navRow(_ key: String, _ text: String, _ icon: String, _ count: String?) -> NSView {
+        func navRow(_ key: String, _ text: String, _ icon: String, _ count: String?, dot: Bool = false) -> NSView {
             let r = Row(radius: 6)
             r.key = "page:\(key)"
             let l = label(text, Fonts.pt(13), page == key ? "tx" : "tx2")
-            let line = hstack([Icon(icon, page == key ? "tx2" : "tx3", size: 14), l, spring(), count.map { label($0, Fonts.pt(11.5).withTabularDigits, "tx3") }],
+            // .ndot: 6 wide, --work, before the count.
+            let nd: NSView? = dot ? { let b = Box(fill: "work", radius: 3); b.translatesAutoresizingMaskIntoConstraints = false
+                b.widthAnchor.constraint(equalToConstant: 6).isActive = true; b.heightAnchor.constraint(equalToConstant: 6).isActive = true; return b }() : nil
+            let line = hstack([Icon(icon, page == key ? "tx2" : "tx3", size: 14), l, spring(), count.map { c -> NSView in let n = label(c, Fonts.pt(11.5).withTabularDigits, "tx3"); return nd.map { hstack([$0, n], spacing: 5) } ?? n }],
                               spacing: 9, insets: NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10))
             r.addSubview(line)
             pinEdges(line, r)
@@ -279,7 +285,7 @@ final class SidebarView: Flipped {
         let icons = ["target": "nav-objectives", "plans": "nav-plans", "idea": "nav-ideas", "rules": "nav-rules", "ship": "nav-ship"]
         let count = { (p: NavPage) -> String? in p.number.flatMap { $0 == 0 ? nil : "\($0)\(p.countLabel.map { " \($0)" } ?? "")" } }
         var items: [NSView] = shipped.map { navRow($0.key, $0.label, icons[$0.icon] ?? "doc", count($0)) }
-        items.append(navRow("decisions", t("side.decisions"), "book", nil))
+        items.append(navRow("decisions", t("side.decisions"), "book", decisions.count > 0 ? "\(decisions.count)" : nil, dot: decisions.count > 0 && decisions.live))
         if !added.isEmpty {
             let gap = Box(fill: "sep")
             gap.heightAnchor.constraint(equalToConstant: 1).isActive = true

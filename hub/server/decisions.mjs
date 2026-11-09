@@ -242,6 +242,57 @@ export function view(d, { now = new Date() } = {}) {
   return { ...d, reads_today: r[today(now)] || 0, reads_total: Object.values(r).reduce((a, b) => a + b, 0), ...(until > now.getTime() ? { undo_until: new Date(until).toISOString() } : {}) };
 }
 
+// What the Decisions page shows (GET /api/decisions?page=1), worked out
+// here for every client (the desktop's decisions.ts render() still works it
+// out itself). `show`: now (the active ones), replaced or all. `only`: that
+// project's entries alone (not the ones for every project). `search`: as in
+// query(). `names`: project id to name. `where(recorded_by)`: the session
+// it was said in, or null. The entries come newest first in days (the
+// hub's local date, `rel` today or yesterday); each says its project's
+// name, where it was said, `gone` and `replaced_at` for a replaced one, and
+// `replaces` (the entries it replaced, verbatim) for an active one.
+// `projects`: the ledger's projects for the page's menu; `empty`: none (no
+// entry at all) or nomatch.
+export function page({ show = 'now', only = '', search = '', names = {}, where = () => null, now = new Date() } = {}, { file = FILE } = {}) {
+  const all = query({ all: true }, { file });
+  const byId = new Map(all.map((d) => [d.id, d]));
+  const words = String(search || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = all.filter((d) => (show === 'replaced' ? !!d.overridden_by : show === 'all' ? true : !d.overridden_by)
+    && (!only || d.project === only)
+    && words.every((w) => `${d.quote}\n${d.scope || ''}`.toLowerCase().includes(w)));
+  const pad = (n) => String(n).padStart(2, '0');
+  const dayOf = (t) => `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  const today = dayOf(now), yesterday = dayOf(new Date(now.getTime() - 86400000));
+  const days = [];
+  for (const d of shown) {
+    const day = dayOf(new Date(d.at));
+    const gone = !!d.overridden_by;
+    const rep = gone ? byId.get(d.overridden_by) : null;
+    const item = {
+      ...view(d, { now }),
+      project_name: d.project ? (names[d.project] || d.project) : null,
+      where: where(d.recorded_by || null) || null,
+      gone,
+      ...(rep ? { replaced_at: rep.at } : {}),
+      replaces: gone ? [] : (d.overrides || []).map((id) => byId.get(id)).filter(Boolean).map((o) => ({ id: o.id, quote: o.quote, at: o.at })),
+    };
+    const last = days[days.length - 1];
+    if (last && last.day === day) last.items.push(item);
+    else days.push({ day, rel: day === today ? 'today' : day === yesterday ? 'yesterday' : '', items: [item] });
+  }
+  const projects = [];
+  for (const d of all) if (d.project && !projects.some((p) => p.id === d.project)) projects.push({ id: d.project, name: names[d.project] || d.project });
+  return {
+    total: all.length,
+    active: all.filter((d) => !d.overridden_by).length,
+    replaced: all.filter((d) => d.overridden_by).length,
+    undoable: all.some((d) => !!view(d, { now }).undo_until),
+    projects,
+    days,
+    empty: shown.length ? null : all.length ? 'nomatch' : 'none',
+  };
+}
+
 // The lines a hand-off gives the next session: the project's active
 // decisions, newest first, verbatim, at most `max` of them and about
 // `budget` bytes. Empty when there are none.

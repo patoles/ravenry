@@ -46,13 +46,16 @@ final class Board: NSObject {
     let plan = PlanPage()
     let idea = IdeaPage()
     let alerts = AlertsPage()
+    /// Decisions (the sidebar's fixed row "decisions").
+    let decisions = DecisionsPage()
+    private var decTimer: Timer?
     /// The sidebar's pages from page files (Objectives, Plans, Ideas, Rules, Ship and added ones).
     let files = FilePage()
     let notifier: Notifier
     /// The project of the session the person last had open (a page's Ask Claude to fix).
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -104,7 +107,7 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = { [weak self] s in self?.toast(s) }
-        for f in [plan, idea, alerts, files] as [FormPage] {
+        for f in [plan, idea, alerts, files, decisions] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = { [weak self] s in self?.toast(s) }
@@ -148,6 +151,12 @@ final class Board: NSObject {
             if let p = self.hub.state?.pages.first(where: { $0.icon == "idea" }) { self.openPage(p.key, p.label) } else { self.back() }
         }
         plan.openBrief = { [weak self] pid in self?.openBrief(pid) }
+        // The ledger: the sidebar's count read every 3 s (as the Electron app
+        // reads it), and an agent's save said at once with Undo and Show.
+        decisions.changed = { [weak self] in self?.readDecisions() }
+        hub.onDecision = { [weak self] j in self?.onDecision(j) }
+        decTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.readDecisions() }
+        readDecisions()
         plan.openPlan = { [weak self] pid in self?.openPlan(pid, title: nil) }
         plan.showSession = { [weak self] pid in
             guard let self, let p = self.hub.state?.project(pid), let s = p.mainSession else { return false }
@@ -377,6 +386,7 @@ final class Board: NSObject {
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
         if key == "side.alerts" { openAlerts(); return }
+        if key == "decisions" { openDecisions(); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
         overlay = false
         notePageBack()
@@ -459,6 +469,58 @@ final class Board: NSObject {
         alerts.show()
         log.append("alerts")
         render()
+    }
+
+    /// Decisions; `lit`: the one a toast's Show points at.
+    func openDecisions(lit: String? = nil) {
+        overlay = false
+        notePageBack()
+        front = .page("decisions", t("side.decisions"))
+        showMiddle(decisions)
+        decisions.show(lit: lit)
+        log.append("decisions\(lit.map { " \($0)" } ?? "")")
+        render()
+    }
+
+    /// The sidebar's count of the active decisions and its dot (GET /api/decisions?page=1).
+    func readDecisions() {
+        hub.get("/api/decisions?page=1") { [weak self] code, j in
+            guard let self, code == 200 else { return }
+            let d = (count: j["active"] as? Int ?? 0, live: j["undoable"] as? Bool ?? false)
+            if d != self.sidebar.decisions { self.sidebar.decisions = d; self.render() }
+        }
+    }
+
+    /// The ledger changed on the hub: an agent's save is said at once, with Undo for its minute and Show.
+    func onDecision(_ j: [String: Any]) {
+        readDecisions()
+        if case .page("decisions", _) = front { decisions.load() }
+        guard j["type"] as? String == "saved", let d = j["decision"] as? [String: Any], d["by"] as? String != "person", let id = d["id"] as? String else { return }
+        let scope = d["scope"] as? String
+        let replaced = !((d["overrides"] as? [Any]) ?? []).isEmpty
+        let quote = d["quote"] as? String ?? ""
+        let text = replaced ? (scope.map { t("dec.replacedScope", ["scope": $0]) } ?? t("dec.replacedToast"))
+            : (scope.map { t("dec.savedScope", ["scope": $0]) } ?? t("dec.savedQuote", ["quote": Self.short(quote, 48)]))
+        var acts: [(String, () -> Void)] = []
+        if let u = When.date(d["undo_until"] as? String ?? j["undo_until"] as? String), u > When.now() {
+            acts.append((t("dec.undo"), { [weak self] in
+                self?.hub.post("/api/decisions/undo", ["id": id]) { code, r in
+                    self?.toast(code == 200 ? t("dec.undone") : r["error"] as? String ?? t("dec.undoOver"))
+                    self?.readDecisions()
+                    if case .page("decisions", _) = self?.front { self?.decisions.load() }
+                }
+            }))
+        }
+        acts.append((t("dec.show"), { [weak self] in self?.openDecisions(lit: id) }))
+        toast(text, actions: acts)
+    }
+
+    /// The quote cut at a word near `n` characters (decisions.ts short()).
+    static func short(_ s: String, _ n: Int) -> String {
+        guard s.count > n else { return s }
+        var cut = String(s.prefix(n - 1))
+        if let r = cut.range(of: "\\s+\\S*$", options: .regularExpression) { cut.removeSubrange(r) }
+        return cut + "..."
     }
 
     /// The window came to the front: the hub's next Mac notification comes to this app.
@@ -690,10 +752,15 @@ final class Board: NSObject {
 
     /// The toast's button (Undo, Show), for the self-test.
     var toastButton: RButton? { toastView.button }
+    /// Every button of the toast (Undo and Show), for the self-test.
+    var toastButtons: [RButton] { toastView.buttons }
 
     func toast(_ text: String, action: (String, () -> Void)? = nil) {
+        toast(text, actions: action.map { [$0] } ?? [])
+    }
+    func toast(_ text: String, actions: [(String, () -> Void)]) {
         log.append("toast \(text)")
-        toastView.show(text, action: action, in: root)
+        toastView.show(text, actions: actions, in: root)
     }
 }
 
@@ -701,20 +768,18 @@ final class Board: NSObject {
 final class ToastView: Box {
     private var timer: Timer?
     private(set) var text = ""
-    private(set) var button: RButton?
+    private(set) var buttons: [RButton] = []
+    var button: RButton? { buttons.first }
     init() { super.init(fill: "card2", radius: 9) }
     required init?(coder: NSCoder) { fatalError() }
-    func show(_ s: String, action: (String, () -> Void)?, in root: NSView) {
+    func show(_ s: String, actions: [(String, () -> Void)], in root: NSView) {
         subviews.forEach { $0.removeFromSuperview() }
         text = s
         let l = label(s, Fonts.pt(12.5), "tx", lines: 2)
         l.preferredMaxLayoutWidth = 520
         var items: [NSView] = [l]
-        if let (name, run) = action {
-            let b = RButton(name, .link) { [weak self] in self?.hide(); run() }
-            button = b
-            items.append(b)
-        } else { button = nil }
+        buttons = actions.map { name, run in RButton(name, .link) { [weak self] in self?.hide(); run() } }
+        items += buttons as [NSView]
         let x = RButton("Dismiss", .icon, small: true, icon: "close")
         x.removeConstraints(x.constraints.filter { $0.firstAttribute == .width || $0.firstAttribute == .height })
         x.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -729,7 +794,7 @@ final class ToastView: Box {
         isHidden = false
         place(in: root)
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: action == nil ? 5 : 12, repeats: false) { [weak self] _ in self?.hide() }
+        timer = Timer.scheduledTimer(withTimeInterval: actions.isEmpty ? 5 : 12, repeats: false) { [weak self] _ in self?.hide() }
     }
     func hide() { isHidden = true; text = "" }
     func place(in root: NSView) {

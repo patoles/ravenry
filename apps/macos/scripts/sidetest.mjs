@@ -21,6 +21,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { writeLedger, recordLive } from './decisions-fixture.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -212,7 +213,8 @@ const screenHub = PAGES ? {
 } : SCREEN ? {
   plan: true, ideas: true,
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
-  prepare: ({ ROOT }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); },
+  // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
+  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 const result = path.join(OUT, 'sidetest.json');
@@ -228,7 +230,8 @@ const t0 = Date.now();
 let n = 1;
 while (!exited && Date.now() - t0 < (PAGES ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
-    if (PAGES) await writeFixtures(); else await hub.arrive(...arrivals[n - 1]);
+    // Decisions: an agent saves one now (inside its undo minute).
+    if (PAGES) await writeFixtures(); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else await hub.arrive(...arrivals[n - 1]);
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }

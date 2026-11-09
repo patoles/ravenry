@@ -129,6 +129,16 @@ stream".
   there; a project's page stays off until trusted (sha256 of its text, with
   CryptoKit), a page with a mistake shows its last good version under the
   problem. An idea opens its thread, a plan its page, a project its session.
+- **Decisions** (`DecisionsPage.swift`): the sidebar's fixed row opens
+  what the hub sends for the page (`GET /api/decisions?page=1&show=&only=
+  &search=`, `hub/server/decisions.mjs` page()): the person's words in
+  days, newest first, with when, the project, where it was said or "you
+  added it", what an entry replaced crossed out under it, a replaced one
+  crossed out with when, how often agents read it, Undo in an agent's
+  minute; the project menu, the search (sent as typed) and Holds now,
+  Replaced and All. The row counts the active ones with a dot while one
+  can be undone (read every 3 s), and an agent's save (the stream's
+  `decision` event) is a toast with Undo and Show.
 - **The panel** (`Panel.swift`): the head (project, assistant, pin,
   hide), the state since when, the setup lines (`GET /api/setup/skills`),
   a checkpoint's card in its `words` (ask, approve, drive; answers posted
@@ -332,8 +342,8 @@ every screen (the bench, the self-test) writes only to
 
 - One window: no New Window, settings, closing a busy shell's question,
   bells or activity on hidden tabs, or tab dragged to an edge to split.
-- Sidebar and panel: Decisions, Settings, the phone, Learn and Machines
-  are native placeholders; a page's run button says its approval waits
+- Sidebar and panel: Settings, the phone, Learn and Machines are native
+  placeholders; Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
   (the panel has no card of its own for a page's run yet), a page's form
   takes a date as text, and a sheet taller than the window is cut; New session is a
   folder and an assistant, without the setup step or the worktree choice;
