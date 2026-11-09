@@ -985,7 +985,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     folder: project.folder, folderShort: homes.sayFolder(project.folder, where), shared,
     waitingOn, flags,
     line: words.line, headline: words.headline, quick: words.quick, question: words.question, dialog: words.dialog || null, draft: words.draft || null,
-    brief: brief ? { path: homes.sayFolder(brief.path, where), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, nextParts: nextParts(brief.next), notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
+    brief: brief ? { path: homes.sayFolder(brief.path, where), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, nextParts: nextParts(brief.next), notes: brief.notes, pictures: brief.pictures, gallery: pictures.galleryList(brief.pictures), parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
     briefExpected: registry.briefPath(project) ? homes.sayFolder(registry.briefPath(project), where) : null,
     plans: project.unowned ? [] : plansFor(project, reg.projects, now),
     timeline: timeline.slice(0, 5),

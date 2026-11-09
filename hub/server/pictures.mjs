@@ -594,6 +594,24 @@ export function galleryJson(list, short = (p) => p) {
   return list.map((g) => ({ key: g.key, name: g.name, url: g.url, at: new Date(g.mtimeMs).toISOString(), by: g.by || null, made: !!g.made, w: g.w, h: g.h, rel: g.rel, path: short(g.abs) }));
 }
 
+// A project's pictures as its gallery shows them, newest first: its
+// session's last ones (the card's picture carries them, oldest first),
+// else that picture alone, then the brief's own. Each { url, name, at, by,
+// key, from }: from 'session' or 'brief'; key names one of the session's
+// (for Show in Finder). Sent as each project's brief.gallery, so a client
+// draws the list as it comes (the Electron app worked it out itself).
+export function galleryList(pics) {
+  const all = Array.isArray(pics) ? pics : [];
+  const base = (p) => String(p || '').split('/').pop();
+  const auto = all.find((x) => x && x.auto);
+  const out = [];
+  if (auto && Array.isArray(auto.gallery) && auto.gallery.length) {
+    for (const g of [...auto.gallery].reverse()) out.push({ url: g.url, name: g.name, at: g.at || null, by: g.by || null, key: g.key || null, from: 'session' });
+  } else if (auto && auto.url) out.push({ url: auto.url, name: auto.alt || base(auto.path), at: null, by: null, key: null, from: 'session' });
+  for (const x of all) if (x && !x.auto && x.url) out.push({ url: x.url, name: x.alt || base(x.path), at: null, by: null, key: null, from: 'brief' });
+  return out;
+}
+
 // One of the project's current pictures, re-checked now: its real path, or
 // null. `key` names one of the 6; with no key, only the pick (the card's
 // picture, as before the gallery) answers to its file name.

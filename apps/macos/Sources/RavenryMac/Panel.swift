@@ -267,7 +267,7 @@ final class PanelView: Box {
         }
         if let pics = p.brief?["pictures"] as? [[String: Any]], let pic = pics.filter({ $0["url"] is String }).last {
             let n = pics.filter { $0["url"] is String }.count
-            let gallery = RButton(n > 1 ? t("panel.galleryCount", ["n": "\(n)"]) : t("panel.gallery"), .link) { [weak self] in self?.host?.openPage("gallery", t("panel.gallery")) }
+            let gallery = RButton(n > 1 ? t("panel.galleryCount", ["n": "\(n)"]) : t("panel.gallery"), .link) { [weak self] in self?.host?.openPage("gallery:\(p.id)", t("panel.gallery")) }
             let img = PictureThumb()
             img.toolTip = t("panel.seeLarge")
             img.setAccessibilityLabel(pic["alt"] as? String ?? t("panel.seeLarge"))

@@ -55,6 +55,15 @@ const otherScratch = img(path.join(SCRATCH, slug(proj), OTHER, 'scratchpad', 'sh
 const looseScratch = img(path.join(SCRATCH, 'loose.png'));
 const roots = P.rootsFor(proj, [SID]);
 
+// The gallery's list (brief.gallery): the session's last ones newest first, then the brief's.
+{
+  const g = P.galleryList([{ path: '~/p/shots/a.png', alt: 'A', url: '/api/pic/p/a.png' }, { path: '~/p/x.png', url: null },
+    { path: '~/p/c.png', alt: 'C', url: '/api/pic/p/c.png', auto: true, gallery: [{ key: 'k1', name: 'b.png', url: '/u/b', at: '2026-11-01T10:00:00Z' }, { key: 'k2', name: 'c.png', url: '/u/c', at: '2026-11-01T11:00:00Z', by: 'Claude' }] }]);
+  check('gallery list: newest first, then the brief\'s, none without a url', JSON.stringify(g.map((x) => [x.name, x.from, x.key])) === JSON.stringify([['c.png', 'session', 'k2'], ['b.png', 'session', 'k1'], ['A', 'brief', null]]), JSON.stringify(g));
+  const one = P.galleryList([{ path: '~/p/shots/z.png', url: '/u/z', auto: true }]);
+  check('gallery list: an older card with no gallery is its one picture, named by its file', one.length === 1 && one[0].name === 'z.png' && one[0].from === 'session');
+  check('gallery list: none', P.galleryList(undefined).length === 0 && P.galleryList([]).length === 0);
+}
 check('guard: an image inside the project folder is allowed', P.allowedPath(inFile, roots) === fs.realpathSync(inFile));
 check('guard: a symlink inside the folder that points outside is refused', P.allowedPath(path.join(proj, 'shots', 'link.png'), roots) === null);
 check('guard: a file reached through a symlinked folder is refused', P.allowedPath(path.join(proj, 'linkdir', 'secret.png'), roots) === null);

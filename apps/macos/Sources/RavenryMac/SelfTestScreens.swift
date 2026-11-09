@@ -15,6 +15,7 @@ extension SelfTestBoard {
         settle(0.6)
         switch name {
         case "brief": screenBrief()
+        case "gallery": screenGallery()
         default: check("screen_known", false, name)
         }
         finish()
@@ -96,7 +97,7 @@ extension SelfTestBoard {
         // A press on a link: the browser, recorded.
         let before = Outside.record?.count ?? 0
         if let p = point(of: "the lamp makers", in: bp.text) {
-            let hit = window.contentView?.hitTest(window.contentView!.convert(bp.text.convert(p, to: nil), from: nil))
+            let hit = window.contentView?.hitTest(window.contentView!.superview!.convert(bp.text.convert(p, to: nil), from: nil))
             check("brief_link_hit", hit === bp.text, "\(hit.map { String(describing: type(of: $0)) } ?? "nil") at \(p)")
             click(bp.text, at: p)
         }
@@ -135,5 +136,77 @@ extension SelfTestBoard {
         // Back to the session: the tab strip's view closes.
         board.ws.bar.onClose?("view:brief")
         check("brief_closes", board.root.middle == nil && board.front == .tab, "\(board.front)")
+    }
+
+    // MARK: the gallery and one picture large (PIC-001, PIC-002)
+
+    func screenGallery() {
+        let g = board.gallery
+        let k1 = "garden-planner/sf-1"
+        if let r = board.sidebar.rows[k1] { click(r) }
+        _ = wait(5) { self.board.panel.pictureView != nil }
+        if let pv = board.panel.pictureView { click(pv) }
+        check("gallery_from_panel_picture", board.front == .page("gallery:garden-planner", t("gallery.title")) && g.at == 0 && board.root.middle === g && board.root.wideMiddle && board.root.panelMode == .hidden,
+              "\(board.front) at \(String(describing: g.at)) \(board.root.panelMode)")
+        check("gallery_list_from_hub", g.pics.count == 2 && g.pics[0].key != nil && g.pics[1].fromBrief, g.pics.map { "\($0.name) \($0.key ?? "-")" }.joined(separator: ", "))
+        check("picture_loaded_fitted", wait(5) { g.zoom.picture.image != nil } && abs(g.zoom.magnification - g.zoom.fit) < 0.001, "mag \(g.zoom.magnification) fit \(g.zoom.fit)")
+        check("picture_prev_off_at_first", g.buttons["previous"]?.isEnabled == false && g.buttons["next"]?.isEnabled == true)
+        g.buttons["next"]?.performClick(nil)
+        check("picture_next", g.at == 1 && g.buttons["next"]?.isEnabled == false && g.buttons["reveal"] == nil, "at \(String(describing: g.at))")
+        g.buttons["previous"]?.performClick(nil)
+        check("picture_previous", g.at == 0)
+        if g.thumbs.count == 2 { click(g.thumbs[1]) }
+        check("picture_strip", g.at == 1, "at \(String(describing: g.at))")
+        if g.thumbs.count == 2 { click(g.thumbs[0]) }
+        g.buttons["reveal"]?.performClick(nil)
+        check("picture_show_in_finder", wait(5) { self.board.hub.sent.contains("POST /api/project/reveal-picture") }, board.hub.sent.suffix(2).joined(separator: ", "))
+        settle(0.5)
+        pictures("picture")
+        // A click zooms in around the point clicked; the point stays under the pointer.
+        size(1280, 820)
+        _ = wait(3) { g.zoom.picture.image != nil }
+        let z = g.zoom
+        let vp = NSPoint(x: z.bounds.width * 0.5 + 60, y: z.bounds.height * 0.5 - 30)
+        let inPic = z.picture.convert(z.convert(vp, to: z.picture.superview), from: z.picture.superview)
+        _ = inPic
+        let docBefore = z.contentView.convert(z.convert(vp, to: z.contentView), to: z.picture)
+        let hv = window.contentView!.hitTest(window.contentView!.superview!.convert(z.convert(vp, to: nil), from: nil))
+        check("picture_hit", hv === z.picture, "\(hv.map { String(describing: type(of: $0)) } ?? "nil") pic \(z.picture.frame) clip \(z.contentView.bounds)")
+        click(z, at: vp)
+        settle(0.3)
+        let docAfter = z.contentView.convert(z.convert(vp, to: z.contentView), to: z.picture)
+        check("picture_click_zooms_in", z.zoomed, "mag \(z.magnification) fit \(z.fit)")
+        check("picture_zoom_keeps_point", abs(docAfter.x - docBefore.x) < 2 && abs(docAfter.y - docBefore.y) < 2, "\(docBefore) to \(docAfter)")
+        check("picture_pinch_and_pan", z.allowsMagnification && z.maxMagnification >= z.fit * 5.9 && z.hasHorizontalScroller, "max \(z.maxMagnification)")
+        // Zoomed and moved: kept through the hub's refreshes.
+        z.contentView.scroll(to: NSPoint(x: z.contentView.bounds.origin.x + 10, y: z.contentView.bounds.origin.y))
+        let m0 = z.magnification, o0 = z.contentView.bounds.origin
+        let gen = board.hub.state.map { ObjectIdentifier($0) }
+        _ = wait(12) { self.board.hub.state.map { ObjectIdentifier($0) } != gen }
+        settle(2.5)
+        board.render()
+        settle(0.3)
+        check("picture_zoom_kept_through_refresh", z.magnification == m0 && z.contentView.bounds.origin == o0, "mag \(m0) to \(z.magnification), \(o0) to \(z.contentView.bounds.origin)")
+        pictures("picture-zoomed")
+        click(z, at: vp)
+        check("picture_click_fits_again", !z.zoomed)
+        // Back to the grid: the picture it came from ringed.
+        g.buttons["back"]?.performClick(nil)
+        check("gallery_back_to_grid", g.at == nil && g.lit == 0 && g.cards.count == 2 && !z.isHidden == false)
+        settle(0.4)
+        pictures("gallery")
+        if g.cards.count == 2 { click(g.cards[1]) }
+        check("gallery_card_opens", g.at == 1)
+        g.closeButton.performClick(nil)
+        check("gallery_close_goes_back", board.front == .session(k1) || (board.front == .tab && board.frontKey == k1), "\(board.front)")
+        // No pictures: said so.
+        board.openGallery("old-notes", at: 0)
+        check("gallery_empty", g.at == nil && g.pics.isEmpty && g.cards.isEmpty)
+        pictures("gallery-empty")
+        // A hub older than brief.gallery: its pictures as they come.
+        let old = HubProject(["id": "x", "name": "x", "brief": ["pictures": [["path": "~/x/a.png", "url": "/a", "auto": true], ["path": "~/x/b.png", "alt": "B", "url": "/b"], ["path": "~/x/c.png"]]]])
+        let ol = GalleryPic.of(old)
+        check("gallery_older_hub", ol.map { $0.name } == ["a.png", "B"] && !ol[0].fromBrief && ol[1].fromBrief, ol.map { $0.name }.joined(separator: ","))
+        g.closeButton.performClick(nil)
     }
 }

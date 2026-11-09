@@ -131,5 +131,20 @@
   "brief.editTip": "Open {path} in your Markdown editor",
   "brief.unreadable": "The brief could not be read.",
   "brief.entriesSplit": "split into {n} dated entries, newest first",
-  "brief.planCount": "{done} of {n}"
+  "brief.planCount": "{done} of {n}",
+  "page.close": "Close",
+  "page.didNotWork": "It did not work.",
+  "gallery.title": "Gallery",
+  "gallery.src": "{name}, {n} pictures its sessions showed, newest first",
+  "gallery.srcOne": "{name}, 1 picture its sessions showed, newest first",
+  "gallery.none": "No pictures yet. When a session shows one, it lands here.",
+  "gallery.nOf": "{i} of {n}",
+  "gallery.previous": "Previous",
+  "gallery.next": "Next",
+  "gallery.showInFinder": "Show in Finder",
+  "gallery.shown": "Shown in Finder: {path}",
+  "gallery.fromBrief": "From the brief",
+  "gallery.today": "today, {time}",
+  "gallery.open": "Open {name}",
+  "gallery.showOne": "Show {name}"
 }

@@ -200,7 +200,7 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | PANEL-004 | A question with its quick answers as buttons, sent as the person | hub state (words.quick); `POST /api/send` | `hub/tools/send-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs`) | partial | done | done | done |
 | PANEL-005 | Context: tokens of the window, the hand-off line, Hand off now | hub state (ctx, settings) | none yet (macOS: `apps/macos/scripts/sidetest.mjs`) | done | done | partial | partial |
 | PANEL-006 | The last hand-off's text and "Read by this session" | hub state (timeline) | `hub/tools/handoff-e2e.mjs` (macOS: `apps/macos/scripts/sidetest.mjs`) | done | done | missing | missing |
-| PANEL-007 | The latest picture, which opens large, and Gallery | hub state (brief.pictures) | RC-25 (macOS: `apps/macos/scripts/sidetest.mjs`) | partial | done | missing | missing |
+| PANEL-007 | The latest picture, which opens large, and Gallery | hub state (brief.pictures) | RC-25 (macOS: `apps/macos/scripts/sidetest.mjs`; `apps/macos/scripts/sidetest.mjs --screen gallery`: gallery_from_panel_picture) | done | done | missing | missing |
 | PANEL-008 | Plan: Running, At a gate or None running; Open the plan, or New plan | hub state (plan, planGate) | RC-25 (macOS: `apps/macos/scripts/sidetest.mjs`) | partial | done | missing | missing |
 | PANEL-009 | A shell's panel: who opened it, its folder, what it runs, and what the agent in it reported | daemon `pane.list`, `agent.report` | `apps/desktop/tools/smoke.mjs` (macOS: `apps/macos/scripts/sidetest.mjs`) | partial | done | n/a | n/a |
 | PANEL-010 | Who can type here: you always; an agent asks each time unless let for its session; take it back | daemon `pane.grants`, `pane.revoke` | `apps/desktop/test/phase2.test.ts`, `apps/desktop/tools/phase2-shots.mjs` | missing | done | missing | missing |
@@ -282,10 +282,10 @@ release check (`apps/desktop/tools/release-check.mjs`).
 
 | ID | Behaviour | Logic | Acceptance | macOS | Electron | Android | Phone web |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| PIC-001 | The gallery of a project's pictures, the first ones loaded before it shows and the rest as they scroll in | hub state (brief.pictures); `GET /api/pic/:project` | RC-25, `hub/tools/gallery-test.mjs` | missing | done | missing | missing |
-| PIC-002 | One picture large; a pinch zooms in around the pointer; the zoom and scroll stay through new states | client | RC-25 | missing | done | missing | missing |
-| PIC-003 | Show a picture in Finder | hub `POST /api/project/reveal-picture` | RC-24 | missing | done | n/a | n/a |
-| PIC-004 | Pictures open in the window, never in a browser | client | RC-25 | missing | done | n/a | n/a |
+| PIC-001 | The gallery of a project's pictures, the first ones loaded before it shows and the rest as they scroll in | hub state (brief.pictures, and brief.gallery: the list newest first, `hub/server/pictures.mjs` galleryList()); `GET /api/pic/:project` | RC-25, `hub/tools/gallery-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen gallery`; `hub/tools/pictures-test.mjs` for the list) | done | done | missing | missing |
+| PIC-002 | One picture large; a pinch zooms in around the pointer; the zoom and scroll stay through new states | client | RC-25 (macOS: `apps/macos/scripts/sidetest.mjs --screen gallery`: picture_click_zooms_in, picture_zoom_keeps_point, picture_zoom_kept_through_refresh; the pinch and the pan are the scroll view's own) | done | done | missing | missing |
+| PIC-003 | Show a picture in Finder | hub `POST /api/project/reveal-picture` | RC-24 (macOS: `apps/macos/scripts/sidetest.mjs --screen gallery`: picture_show_in_finder) | done | done | n/a | n/a |
+| PIC-004 | Pictures open in the window, never in a browser | client | RC-25 (macOS: `apps/macos/scripts/sidetest.mjs --screen gallery`) | done | done | n/a | n/a |
 
 ### Alerts and notifications
 
@@ -431,7 +431,7 @@ Client-only logic that should move to the hub:
 - `apps/desktop/src/renderer/app.ts` swapMoved() and moveStates(): which pane a move replaced. The hub's move answer should say it.
 - Left after the moves of 2026-11-09 (each in its row): the first launch runs `hub/server/firstlaunch.mjs` in the app while the hub is not up yet (ONB-001); a checkpoint the desktop hears only from its own daemon has no words until the hub words it, so with the hub down its card is empty (PANEL-015); most strings are still inline in each client, the type sizes, radii and gaps are tokens no rule uses yet, and `hub/public/app.css` keeps its own colours (section 1); terminal themes and icons are not in `shared/` yet.
 
-Moved to the hub on 2026-11-09: the sidebar's sections, rows, order and counts (`state.sidebar`, `hub/server/sidebar.mjs`), what a checkpoint and its row mark say (`cp.words`, `hub/server/cpwords.mjs`, `POST /api/checkpoints/words`), the brief's Next items (`brief.nextParts`, `hub/server/briefnext.mjs`), a page's filters, sorts, groups and counts (`drawn` in `GET /api/pages/page`, `hub/server/pagedraw.mjs`), the first launch's folders and assistants (`GET /api/setup/start`), the skill's install and remove (`GET` and `POST /api/setup/skills`), the onboarding state (`GET` and `POST /api/onboarding`), and the shared strings and tokens (`shared/`, `shared/README.md`).
+Moved to the hub on 2026-11-09: the sidebar's sections, rows, order and counts (`state.sidebar`, `hub/server/sidebar.mjs`), what a checkpoint and its row mark say (`cp.words`, `hub/server/cpwords.mjs`, `POST /api/checkpoints/words`), the brief's Next items (`brief.nextParts`, `hub/server/briefnext.mjs`), a project's gallery, newest first (`brief.gallery`, `hub/server/pictures.mjs` galleryList(), moved from the desktop's inapp.ts pictures() for the native Mac app; the desktop still works it out itself), a page's filters, sorts, groups and counts (`drawn` in `GET /api/pages/page`, `hub/server/pagedraw.mjs`), the first launch's folders and assistants (`GET /api/setup/start`), the skill's install and remove (`GET` and `POST /api/setup/skills`), the onboarding state (`GET` and `POST /api/onboarding`), and the shared strings and tokens (`shared/`, `shared/README.md`).
 
 ## 4. How to keep it current
 

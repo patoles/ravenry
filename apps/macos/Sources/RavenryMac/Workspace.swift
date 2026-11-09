@@ -669,6 +669,9 @@ final class RootView: NSView {
     weak var panel: NSView?
     /// What covers the stage when the middle is not a tab's terminal.
     weak var middle: NSView?
+    /// The middle over the whole sheet, the strip too (the Electron app's
+    /// own pages: the gallery, a plan, an idea, Alerts, the pages).
+    var wideMiddle = false
     let sheet = SheetView()
     var sideWidth: CGFloat = 0
     /// The panel beside the middle (docked), over it (overlay), or not shown.
@@ -686,12 +689,12 @@ final class RootView: NSView {
         // At once, so the panes draw their new size in this transaction.
         place()
     }
-    private var placedFor: (NSSize, CGFloat, PanelMode, Bool)?
+    private var placedFor: (NSSize, CGFloat, PanelMode, Int)?
     func place() {
         let w = bounds.width, h = bounds.height
         // Nothing moved: nothing to lay out (Board draws at every state).
-        let key = (bounds.size, sideWidth, panelMode, middle != nil)
-        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == stage?.frame { return }
+        let key = (bounds.size, sideWidth, panelMode, middle != nil && !wideMiddle ? 1 : middle != nil ? 2 : 0)
+        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : stage?.frame) { return }
         placedFor = key
         let side = sidebar != nil && sideWidth > 0
         sidebar?.isHidden = !side
@@ -710,8 +713,8 @@ final class RootView: NSView {
         bar?.setIf(NSRect(x: 0, y: 0, width: sheet.bounds.width, height: Design.stripHeight))
         stage?.setIf(NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight)))
         if let mv = middle {
-            if mv.superview !== sheet { sheet.addSubview(mv, positioned: .above, relativeTo: stage) }
-            mv.setIf(stage?.frame ?? .zero)
+            if mv.superview !== sheet || wideMiddle { sheet.addSubview(mv, positioned: .above, relativeTo: wideMiddle ? bar : stage) }
+            mv.setIf(wideMiddle ? sheet.bounds : stage?.frame ?? .zero)
         }
         if let p = panel, panelMode != .hidden {
             if p.superview !== self { addSubview(p) }

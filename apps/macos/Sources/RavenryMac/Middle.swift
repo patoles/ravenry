@@ -10,8 +10,7 @@
 //   is still open elsewhere), New session and Open brief;
 // - New session: a folder and an assistant, started by the hub
 //   (POST /api/sessions/start);
-// - a page this window does not draw yet: a native placeholder naming it;
-// - a picture, large.
+// - a page this window does not draw yet: a native placeholder naming it.
 
 import AppKit
 
@@ -370,29 +369,4 @@ final class StartView: MiddleView {
             self.onStarted?(key, (j["pane"] as? [String: Any])?["id"] as? String)
         }
     }
-}
-
-/// A picture, large, on the window's dark; Esc or Close goes back.
-final class PictureLarge: Box {
-    let image = NSImageView()
-    var onClose: (() -> Void)?
-    private(set) var close: RButton!
-    init() {
-        super.init(fill: "term-bg")
-        image.imageScaling = .scaleProportionallyDown
-        addSubview(image)
-        close = RButton(t("picture.close"), small: true) { [weak self] in self?.onClose?() }
-        close.translatesAutoresizingMaskIntoConstraints = true
-        addSubview(close)
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    override func layout() {
-        super.layout()
-        image.frame = bounds.insetBy(dx: 24, dy: 24)
-        let s = close.intrinsicContentSize
-        close.frame = NSRect(x: bounds.width - s.width - 14, y: 14, width: s.width, height: s.height)
-    }
-    override var isFlipped: Bool { true }
-    override func keyDown(with e: NSEvent) { if e.keyCode == 53 { onClose?() } else { super.keyDown(with: e) } }
-    override var acceptsFirstResponder: Bool { true }
 }

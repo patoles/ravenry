@@ -28,7 +28,6 @@ final class Board: NSObject {
         case project(String)
         case page(String, String)
         case start
-        case picture
         /// A project's brief, beside the session (or project) it was opened from.
         case brief(String, String)
     }
@@ -42,10 +41,12 @@ final class Board: NSObject {
     let projectPage = ProjectPageView()
     let placeholder = PlaceholderView()
     let start = StartView()
-    let picture = PictureLarge()
     let brief = BriefPage()
+    let gallery = GalleryPage()
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, picture, brief] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery] }
+    /// What a page's Close goes back to.
+    private var pageBack: Front = .tab
     private let toastView = ToastView()
     private(set) var front: Front = .tab
     private(set) var pinned: [String] = []
@@ -89,9 +90,11 @@ final class Board: NSObject {
         ws.window.backgroundColor = Design.color("win")
         for v in [outside, projectPage, placeholder, start] as [MiddleView] { v.isHidden = true }
         outside.hub = hub; projectPage.hub = hub; start.hub = hub
-        picture.isHidden = true
         brief.isHidden = true
         brief.hub = hub
+        gallery.isHidden = true
+        gallery.hub = hub
+        gallery.toast = { [weak self] s in self?.toast(s) }
         wire()
         hub.onState = { [weak self] st in self?.onState(st) }
         hub.onStatus = { [weak self] _ in self?.render() }
@@ -142,7 +145,7 @@ final class Board: NSObject {
             pinned: { [weak self] k in self?.pinned.contains(k) ?? false },
             togglePin: { [weak self] k in self?.togglePin(k) },
             hide: { [weak self] in self?.togglePanel() },
-            openPicture: { [weak self] _, pic in self?.openPicture(pic) },
+            openPicture: { [weak self] p, pic in self?.openPicture(p, pic) },
             openPage: { [weak self] k, n in self?.openPage(k, n) },
             inputs: { [weak self] pane in self?.inputsOf(pane) },
             setup: { [weak self] a in self?.setupOf(a) },
@@ -172,7 +175,7 @@ final class Board: NSObject {
             guard let v = self?.ws.focusedView else { return (100, 30) }
             return (v.screen.cols, v.screen.rows)
         }
-        picture.onClose = { [weak self] in self?.back() }
+        gallery.onClose = { [weak self] in self?.back() }
     }
 
     // MARK: what is in front
@@ -239,7 +242,7 @@ final class Board: NSObject {
 
     var panelVisible: Bool {
         switch front {
-        case .start, .page, .picture: return overlay
+        case .start, .page: return overlay
         default: break
         }
         if overlay { return true }
@@ -309,7 +312,9 @@ final class Board: NSObject {
 
     func openPage(_ key: String, _ name: String) {
         if key.hasPrefix("brief:") { openBrief(String(key.dropFirst(6))); return }
+        if key.hasPrefix("gallery:") { openGallery(String(key.dropFirst(8)), at: nil); return }
         overlay = false
+        notePageBack()
         front = .page(key, name)
         showMiddle(placeholder)
         placeholder.show(name)
@@ -330,20 +335,41 @@ final class Board: NSObject {
         render()
     }
 
-    func openPicture(_ pic: [String: Any]) {
-        guard let u = pic["url"] as? String else { return }
+    /// The latest picture from the panel: large, in its project's gallery.
+    func openPicture(_ p: HubProject, _ pic: [String: Any]) {
+        let i = GalleryPic.of(p).firstIndex { $0.url == pic["url"] as? String } ?? 0
+        openGallery(p.id, at: i)
+    }
+
+    /// A project's gallery, or one of its pictures large.
+    func openGallery(_ pid: String, at: Int?) {
         overlay = false
-        front = .picture
-        showMiddle(picture)
-        picture.image.image = nil
-        hub.data(u) { [weak self] d in self?.picture.image.image = d.flatMap(NSImage.init(data:)) }
-        ws.window.makeFirstResponder(picture)
-        log.append("picture")
+        notePageBack()
+        front = .page("gallery:\(pid)", t("gallery.title"))
+        showMiddle(gallery)
+        gallery.show(pid, at: at, state: hub.state)
+        log.append("gallery \(pid) \(at.map { "\($0)" } ?? "grid")")
         render()
     }
 
-    /// Back from a picture: what was in front before, else the tab.
+    /// Where a page's Close goes: what was in front before the first page.
+    private func notePageBack() {
+        if case .page = front { return }
+        pageBack = front
+    }
+
+    /// Back from a page: what was in front before it, else the tab.
     private func back() {
+        let to = pageBack
+        pageBack = .tab
+        if case .page = front {
+            switch to {
+            case .session(let k) where hub.state?.find(k) != nil: pickSession(k, why: "back"); return
+            case .project(let id) where hub.state?.project(id) != nil: pickProject(id); return
+            case .brief(let pid, _): front = to; showMiddle(brief); brief.show(pid, state: hub.state); render(); return
+            default: break
+            }
+        }
         front = .tab
         hideMiddle()
         if let t = ws.active { ws.showAgain(t) }
@@ -355,6 +381,7 @@ final class Board: NSObject {
         if v !== outside { outside.stop() }
         v.isHidden = false
         root.middle = v
+        root.wideMiddle = v is InAppPage
         showingMiddle = true
         root.place()
     }
@@ -363,6 +390,7 @@ final class Board: NSObject {
         outside.stop()
         for m in middles { m.isHidden = true }
         root.middle = nil
+        root.wideMiddle = false
         showingMiddle = false
         if let t = ws.active, let v = ws.boxes[t.focusedPane]?.term { ws.window.makeFirstResponder(v) }
     }
@@ -477,6 +505,7 @@ final class Board: NSObject {
         if case .session(let k) = front, let f = st?.find(k) { outside.show(f.project, f.session, why: f.session.pane != nil ? "it runs in the board's ravenryd" : nil) }
         if case .project(let id) = front, let p = st?.project(id) { projectPage.show(p) }
         if case .brief(let pid, _) = front { brief.show(pid, state: st) }
+        if case .page(let k, _) = front, k.hasPrefix("gallery:") { gallery.refresh(st) }
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay
@@ -514,7 +543,6 @@ final class Board: NSObject {
             return TabModel(id: "view:project", name: p.name, sub: nil, split: false, active: true, tip: p.name, dot: "idle")
         case .page(_, let name): return TabModel(id: "view:page", name: name, sub: nil, split: false, active: true, tip: name, dot: "tx3")
         case .start: return TabModel(id: "view:start", name: t("start.title"), sub: nil, split: false, active: true, tip: t("start.title"), dot: "tx3")
-        case .picture: return TabModel(id: "view:picture", name: t("panel.latestPicture"), sub: nil, split: false, active: true, tip: "", dot: "tx3")
         case .brief(let pid, _):
             return TabModel(id: "view:brief", name: t("brief.title"), sub: st?.project(pid)?.name, split: false, active: true, tip: t("brief.title"), dot: "tx3")
         case .tab: return nil

@@ -181,9 +181,9 @@ final class SelfTestBoard {
         _ = wait(3) { self.board.panel.pictureView != nil }
         check("picture_thumb", board.panel.pictureView != nil)
         if let pv = board.panel.pictureView { click(pv) }
-        check("picture_large", board.front == .picture && !board.picture.isHidden)
-        board.picture.close.performClick(nil)
-        check("picture_closed", board.front == .tab && board.root.middle == nil)
+        check("picture_large", board.front == .page("gallery:garden-planner", t("gallery.title")) && board.gallery.at == 0 && !board.gallery.isHidden)
+        board.gallery.closeButton.performClick(nil)
+        check("picture_closed", board.front == .session(k1) || board.front == .tab, "\(board.front)")
 
         // The paper-boat session: Move here goes to the hub as the person.
         let k2 = "paper-boat/sf-3"

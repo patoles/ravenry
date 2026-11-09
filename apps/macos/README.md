@@ -82,8 +82,8 @@ stream".
   on) read only in the middle with Open in and Move here (`Middle.swift`,
   its screen from `GET /api/live`), a project's page (Continue this
   conversation, New session, Open brief), New session (a folder and an
-  assistant, for now), a picture large, or a page this window does not
-  draw yet, named in a native placeholder. The middle's view is a tab
+  assistant, for now), a page of the Electron app's own (the brief, the
+  gallery), or a page this window does not draw yet, named in a native placeholder. The middle's view is a tab
   after the others, as in the Electron app. A session in a pane of this
   window's daemon becomes or focuses its tab. The highlighted row, the
   panel and the tab in front always name the same thing.
@@ -100,6 +100,18 @@ stream".
   person's editor (`Outside.swift`; off every screen both are recorded,
   never opened). The place scrolled to, the selection and the entries
   opened stay through the hub's refreshes and a resize.
+- **The Electron app's own pages** (`InApp.swift`): over the middle and
+  the right columns, the strip and the panel folded away, with a head
+  (back, title, the line under it, Close, which goes back to what was in
+  front).
+- **The gallery** (`Gallery.swift`): a project's pictures as the hub lists
+  them (`brief.gallery`, newest first), a grid of cards (the one the viewer
+  came from ringed), and one picture large with Previous, Next, the strip
+  and Show in Finder (`POST /api/project/reveal-picture`). A click zooms in
+  around the point (to its own size, or twice the fitted size) and out
+  again; a trackpad pinch and two fingers are the scroll view's own
+  magnification and pan; the zoom and the place stay through the hub's
+  refreshes. The panel's latest picture opens it large, its Gallery the grid.
 - **The panel** (`Panel.swift`): the head (project, assistant, pin,
   hide), the state since when, the setup lines (`GET /api/setup/skills`),
   a checkpoint's card in its `words` (ask, approve, drive; answers posted
@@ -264,7 +276,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`, today `brief`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -304,7 +316,7 @@ every screen (the bench, the self-test) writes only to
 - One window: no New Window, settings, closing a busy shell's question,
   bells or activity on hidden tabs, or tab dragged to an edge to split.
 - Sidebar and panel: the pages (Objectives, Plans, Ideas, Rules, Ship,
-  Decisions), the plan, the gallery, Settings, the phone,
+  Decisions), the plan, Settings, the phone,
   Alerts, Learn and Machines are native placeholders; New session is a
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; the secret
