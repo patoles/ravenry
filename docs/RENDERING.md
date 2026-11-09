@@ -128,15 +128,24 @@ theme on the client is never overridden by the daemon's defaults.
 - **Resize.** On `pane.resize` the daemon resizes the screen and the pty
   together. When the shell is at a prompt (OSC 133, which Ravenry's shell
   integration marks with `redraw=1`), the resize clears the prompt for the
-  shell to draw it again, from the prompt's first row (a libghostty patch,
-  `daemon/patches/ghostty-prompt-clear-top.patch`), and frames are held
-  until the shell has drawn it (its prompt mark and 4 ms of quiet, at
-  most 250 ms). A size asked for during that redraw waits for its end: a
-  shell resized in the middle of its redraw counts its prompt's rows on a
-  screen that changed under it and leaves pieces of the old prompt behind.
-  Any other program's redraw after a resize is held until it has been
-  quiet 6 ms, at most 100 ms. The client meanwhile draws the frame it
-  has at the new size; it never sees a cleared prompt or half a redraw.
+  shell to draw it again (a libghostty patch,
+  `daemon/patches/ghostty-prompt-clear-top.patch`): from the prompt's
+  first row, before the reflow, and it puts the cursor where the shell's
+  redraw, which moves up the rows it drew the prompt on, lands on that
+  first row. So at any width no row of an old prompt stays on the screen
+  or goes into the scrollback (a command line taller than the screen
+  used to leave zsh's ">...." rows there), and the output above the
+  prompt stays. Frames are held until the shell has drawn it: its prompt
+  mark and 4 ms of quiet, or 30 ms while it is most likely still writing
+  (its last read filled the pty's buffer, 1 KiB on macOS, or its output
+  stopped at the prompt while the command line has text, which zsh
+  writes apart), at most 250 ms. A size asked for during that redraw, or
+  while the shell is still writing, waits for its end: a shell resized
+  in the middle of its redraw counts its prompt's rows on a screen that
+  changed under it and leaves pieces of the old prompt behind. Any other
+  program's redraw after a resize is held until it has been quiet 6 ms,
+  at most 100 ms. The client meanwhile draws the frame it has at the new
+  size; it never sees a cleared prompt or half a redraw.
 
 ## What a client implements
 
