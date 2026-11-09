@@ -32,7 +32,6 @@ final class TerminalView: NSView, NSTextInputClient {
 
     private var marked = NSMutableAttributedString()
     private var keyTexts: [String]?
-    private var scrollAccum: CGFloat = 0
     /// "left", "right", "both": Option acts as Alt. Empty: it types
     /// characters, as on a Mac.
     var optionAsAlt = ""
@@ -163,7 +162,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// transaction (a live resize), so the content never lags its frame.
     func draw(sync: Bool) {
         guard bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
-        let overlay = Overlay(selection: selection, focused: focused, cursorOn: cursorOn, marked: marked.string)
+        let overlay = Overlay(selection: selection, focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha)
         let t0 = CACurrentMediaTime()
         var seq: UInt32 = 0
         if offscreen {
@@ -202,7 +201,13 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         screen.lock()
         let title = screen.title, bell = screen.bell, blink = screen.cursor.blink
+        let offset = screen.offset, history = screen.history
         screen.unlock()
+        if offset != lastOffset {
+            // The view scrolled (the wheel, a find, typing brought it back).
+            lastOffset = offset
+            if history > 0 { showScrollbar() }
+        }
         if title != lastTitle {
             lastTitle = title
             onTitle?(title)
@@ -368,6 +373,8 @@ final class TerminalView: NSView, NSTextInputClient {
         let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard f.contains(.command), !f.contains(.control) else { return false }
         let key = e.charactersIgnoringModifiers?.lowercased() ?? ""
+        if e.keyCode == 0x73 { scrollToTop(nil); return true }    // Cmd+Home
+        if e.keyCode == 0x77 { scrollToBottom(nil); return true } // Cmd+End
         switch key {
         case "=", "+": increaseFontSize(nil)
         case "-": decreaseFontSize(nil)
@@ -380,7 +387,6 @@ final class TerminalView: NSView, NSTextInputClient {
     override func keyDown(with e: NSEvent) {
         if e.modifierFlags.contains(.command) && shortcut(e) { return }
         wakeCursor()
-        if wantOffset > 0 { scrollTo(0) }
         let hadMarked = hasMarkedText()
         if !optionAsAlt.isEmpty && e.modifierFlags.contains(.option) && !hadMarked {
             // Option is Alt: the key's own text, without Option's.
@@ -508,7 +514,6 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     func pasteText(_ s: String) {
-        if wantOffset > 0 { scrollTo(0) }
         sendEvents([["paste": s]])
     }
 
@@ -522,6 +527,12 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     // MARK: mouse
+
+    /// The pointer from the grid's top left corner, in points.
+    func gridPoint(_ e: NSEvent) -> CGPoint {
+        let p = convert(e.locationInWindow, from: nil)
+        return CGPoint(x: p.x - renderer.padding, y: p.y - renderer.padding)
+    }
 
     /// The cell under a point: its column, its row in screen coordinates,
     /// and the point from the grid's corner.
@@ -648,34 +659,75 @@ final class TerminalView: NSView, NSTextInputClient {
 
     // MARK: scrolling
 
-    private var wantOffset = 0
-
-    func scrollTo(_ offset: Int) {
-        wantOffset = max(0, offset)
-        conn?.request("render.scroll", ["channel": channel, "offset": wantOffset])
-    }
-
+    /// Every wheel and trackpad movement, momentum included, goes to the
+    /// daemon in rows (positive: up, toward older output); the daemon
+    /// decides, as Ghostty does, whether the program gets it, it becomes
+    /// arrow keys on the alternate screen, or the view scrolls.
     override func scrollWheel(with e: NSEvent) {
         let s = renderer.fonts.scale
         let ch = renderer.fonts.cellHeight / s
-        var dy = e.scrollingDeltaY
-        if !e.hasPreciseScrollingDeltas { dy *= ch }
-        scrollAccum += dy
-        let lines = Int(scrollAccum / ch)
-        if lines == 0 { return }
-        scrollAccum -= CGFloat(lines) * ch
+        // A trackpad or Magic Mouse gives points; a wheel's notch is three
+        // rows (Ghostty's discrete multiplier).
+        let rows = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY / ch : e.scrollingDeltaY * 3
+        if rows == 0 { return }
+        let p = gridPoint(e)
+        var w: [String: Any] = ["rows": Double(rows), "x": Double(max(0, p.x)), "y": Double(max(0, p.y)),
+                                "cell_width": Double(renderer.fonts.cellWidth / s), "cell_height": Double(ch)]
+        let md = mods(e.modifierFlags) & 15
+        if md != 0 { w["mods"] = md }
+        sendEvents([["wheel": w]])
+        showScrollbar()
+    }
+
+    /// Shows the view `offset` rows up into the scrollback (0: live).
+    func scrollTo(_ offset: Int) {
+        conn?.request("render.scroll", ["channel": channel, "offset": max(0, offset)])
+        showScrollbar()
+    }
+
+    @objc func scrollToTop(_ sender: Any?) {
         screen.lock()
-        let modes = screen.modes, history = screen.history
+        let h = screen.history
         screen.unlock()
-        if modes & Screen.modeMouse != 0 {
-            let ev = mouseEvent(e, action: "press", button: lines > 0 ? "wheel_up" : "wheel_down")
-            sendEvents([[String: Any]](repeating: ev, count: min(abs(lines), 10)))
-        } else if modes & Screen.modeAltScreen != 0 {
-            // A full-screen program with no mouse: the wheel is arrow keys.
-            let ev: [String: Any] = ["key": ["code": lines > 0 ? "ArrowUp" : "ArrowDown"]]
-            sendEvents([[String: Any]](repeating: ev, count: min(abs(lines), 10)))
-        } else {
-            scrollTo(max(0, min(history, wantOffset + lines)))
+        scrollTo(h)
+    }
+
+    @objc func scrollToBottom(_ sender: Any?) { scrollTo(0) }
+
+    // MARK: the scrollbar
+
+    /// When the view last scrolled; the scrollbar shows for 0.8 s after,
+    /// then fades out in 0.3 s.
+    private var scrolledAt: CFTimeInterval = -10
+    private var scrollbarTimer: Timer?
+    private var lastOffset = 0
+    static let scrollbarHold: CFTimeInterval = 0.8, scrollbarFade: CFTimeInterval = 0.3
+
+    /// The scrollbar's opacity now, 0 when hidden.
+    var scrollbarAlpha: Float {
+        screen.lock()
+        let history = screen.history
+        screen.unlock()
+        if history == 0 { return 0 }
+        let t = CACurrentMediaTime() - scrolledAt
+        if t < TerminalView.scrollbarHold { return 1 }
+        return Float(max(0, 1 - (t - TerminalView.scrollbarHold) / TerminalView.scrollbarFade))
+    }
+
+    func showScrollbar() {
+        scrolledAt = CACurrentMediaTime()
+        requestDraw()
+        guard scrollbarTimer == nil else { return }
+        let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            let age = CACurrentMediaTime() - self.scrolledAt
+            if age >= TerminalView.scrollbarHold { self.requestDraw() }
+            if age > TerminalView.scrollbarHold + TerminalView.scrollbarFade {
+                timer.invalidate()
+                self.scrollbarTimer = nil
+            }
         }
+        RunLoop.main.add(t, forMode: .common)
+        scrollbarTimer = t
     }
 }

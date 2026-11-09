@@ -78,6 +78,12 @@ fragment float4 rect_fragment(RectOut in [[stage_in]]) {
         a = fmod(in.local.x, in.size.y * 2) < in.size.y ? 1 : 0;   // dotted
     } else if (in.kind == 3) {
         a = fmod(in.local.x, in.size.y * 6) < in.size.y * 4 ? 1 : 0; // dashed
+    } else if (in.kind == 4) {
+        // A pill: a rectangle whose short sides are half circles.
+        float r = min(in.size.x, in.size.y) * 0.5;
+        float2 q = abs(in.local - in.size * 0.5) - (in.size * 0.5 - r);
+        float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+        a = clamp(0.5 - d, 0.0, 1.0);
     }
     return float4(in.color.rgb * in.color.a * a, in.color.a * a);
 }
@@ -374,6 +380,8 @@ struct Overlay {
     var focused = true
     var cursorOn = true
     var marked: String = ""
+    /// The overlay scrollbar's opacity, 0 hidden.
+    var scrollbar: Float = 0
 }
 
 final class Renderer {
@@ -387,6 +395,8 @@ final class Renderer {
     var padding: CGFloat = 4 // points
     private var rects: [RectInst] = []
     private var glyphs: [GlyphInst] = []
+    /// Drawn over the glyphs: the scrollbar, the bell's flash.
+    private var topRects: [RectInst] = []
     private var buffers: [(MTLBuffer, MTLBuffer)] = []
     private var bufferIndex = 0
     private let inflight = DispatchSemaphore(value: 3)
@@ -470,6 +480,7 @@ final class Renderer {
     private func build(_ screen: Screen, _ o: Overlay, viewport: SIMD2<Float>) {
         rects.removeAll(keepingCapacity: true)
         glyphs.removeAll(keepingCapacity: true)
+        topRects.removeAll(keepingCapacity: true)
         let cw = Float(fonts.cellWidth), ch = Float(fonts.cellHeight)
         let px = Float(round(padding * fonts.scale)), py = px
         let defBg = background(screen)
@@ -595,7 +606,19 @@ final class Renderer {
                 x += wide ? 2 : 1
             }
         }
-        _ = viewport
+        // The overlay scrollbar, macOS style: a thin pill at the right
+        // edge, its length the screen's share of the scrollback.
+        if o.scrollbar > 0 && screen.history > 0 {
+            let s = Float(fonts.scale)
+            let inset = 2 * s, width = 6 * s
+            let trackH = viewport.y - 2 * inset
+            let total = Float(screen.history + screen.rows)
+            let thumbH = min(trackH, max(24 * s, trackH * Float(screen.rows) / total))
+            let frac = Float(screen.history - min(screen.offset, screen.history)) / Float(screen.history)
+            let y = inset + (trackH - thumbH) * frac
+            topRects.append(RectInst(pos: SIMD2(viewport.x - inset - width, y), size: SIMD2(width, thumbH),
+                                color: SIMD4(1, 1, 1, 0.45 * o.scrollbar), kind: 4))
+        }
     }
 
     private func isWide(_ v: UInt32) -> Bool {
@@ -627,10 +650,12 @@ final class Renderer {
         }
         bufferIndex = (bufferIndex + 1) % buffers.count
         var (rb, gb) = buffers[bufferIndex]
-        rb = buffer(rects.count * MemoryLayout<RectInst>.stride, rb)
+        rb = buffer((rects.count + topRects.count) * MemoryLayout<RectInst>.stride, rb)
         gb = buffer(glyphs.count * MemoryLayout<GlyphInst>.stride, gb)
         buffers[bufferIndex] = (rb, gb)
         rects.withUnsafeBytes { if let p = $0.baseAddress { rb.contents().copyMemory(from: p, byteCount: $0.count) } }
+        let topOffset = rects.count * MemoryLayout<RectInst>.stride
+        topRects.withUnsafeBytes { if let p = $0.baseAddress { (rb.contents() + topOffset).copyMemory(from: p, byteCount: $0.count) } }
         glyphs.withUnsafeBytes { if let p = $0.baseAddress { gb.contents().copyMemory(from: p, byteCount: $0.count) } }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = texture
@@ -654,6 +679,12 @@ final class Renderer {
             enc.setVertexBytes(&u, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
             enc.setFragmentTexture(atlas.texture, index: 0)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: glyphs.count)
+        }
+        if !topRects.isEmpty {
+            enc.setRenderPipelineState(rectPipeline)
+            enc.setVertexBuffer(rb, offset: topOffset, index: 0)
+            enc.setVertexBytes(&u, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: topRects.count)
         }
         enc.endEncoding()
         let cpu = (CACurrentMediaTime() - t0) * 1000
