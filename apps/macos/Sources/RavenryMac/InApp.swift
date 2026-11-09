@@ -32,7 +32,8 @@ class InAppPage: Box {
         }
         if let s = src { col.append(label(s, Fonts.pt(12), "tx3")) }
         if let v = srcView { col.append(v) }
-        let tt = vstack(col, spacing: 4)
+        // The line 2.5 under the title (h2's line box over .pg-src's, measured against the Electron app's).
+        let tt = vstack(col, spacing: 2.5)
         tt.setContentHuggingPriority(.init(1), for: .horizontal)
         tt.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         var row: [NSView?] = []
@@ -45,22 +46,27 @@ class InAppPage: Box {
         let close = RButton(t("page.close"), .icon, icon: "close") { [weak self] in self?.onClose?() }
         closeButton = close
         buttons["close"] = close
-        // .pg-h: 18 above in the Electron app's sheet, under its 12 of window drag area.
-        let h = hstack(row + [tt, spring()] + extra + (closable ? [close] : []), spacing: 8, insets: NSEdgeInsets(top: title == nil ? 22 : 30, left: 22, bottom: 14, right: 22))
+        // .pg-h: 18 above in the Electron app's sheet, under its 12 of window drag area, and
+        // h2's half-leading: the title's ink 31 under the sheet's top, the line's 61, the body's 111 (1280, dark).
+        let h = hstack(row + [tt, spring()] + extra + (closable ? [close] : []), spacing: 8, insets: NSEdgeInsets(top: 0, left: 22, bottom: 0, right: 22))
+        // Above and below it set here: a row's own top and bottom insets are not in its fitting height.
+        headPad = title == nil ? (17.5, 16.5) : (20, 14.5)
         h.translatesAutoresizingMaskIntoConstraints = true
         h.autoresizingMask = [.width]
         head.addSubview(h)
         needsLayout = true
     }
 
+    /// Room above and below the head's row.
+    private var headPad: (top: CGFloat, bottom: CGFloat) = (0, 0)
     /// The head's height for the width it has.
-    var headHeight: CGFloat { head.subviews.first.map { $0.fittingSize.height } ?? 0 }
+    var headHeight: CGFloat { head.subviews.first.map { headPad.top + $0.fittingSize.height + headPad.bottom } ?? 0 }
 
     override func layout() {
         super.layout()
         let hh = ceil(headHeight)
         head.frame = NSRect(x: 0, y: 0, width: bounds.width, height: hh)
-        head.subviews.first?.frame = head.bounds
+        head.subviews.first?.frame = NSRect(x: 0, y: headPad.top, width: bounds.width, height: max(0, hh - headPad.top - headPad.bottom))
         body.frame = NSRect(x: 0, y: hh, width: bounds.width, height: max(0, bounds.height - hh))
         layoutBody()
     }

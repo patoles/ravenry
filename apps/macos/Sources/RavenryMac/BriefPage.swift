@@ -67,7 +67,8 @@ final class BriefPage: Box, NSTextViewDelegate {
 
     override func layout() {
         super.layout()
-        let hh: CGFloat = 46
+        // The Electron app's brief head: 52 high, its row in the middle, the line under it.
+        let hh: CGFloat = 52
         head.frame = NSRect(x: 0, y: 0, width: bounds.width, height: hh)
         head.subviews.first?.frame = head.bounds
         headLine.frame = NSRect(x: 0, y: hh, width: bounds.width, height: 1)
