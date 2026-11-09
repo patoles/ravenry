@@ -31,6 +31,15 @@ final class TerminalView: NSView, NSTextInputClient {
     private var autoscroll: Timer?
     private var lastDrag: NSEvent?
 
+    /// The link under the pointer while Cmd is held: its URI and its
+    /// cells in screen coordinates (render.link), underlined.
+    private(set) var link: (uri: String, range: CellRange)?
+    private var linkAsked: (x: Int, y: Int)?
+    private var commandDown = false
+    private var pointer: NSPoint?
+    /// The pointing hand shows over the link.
+    private(set) var linkCursor = false
+
     private var marked = NSMutableAttributedString()
     private var keyTexts: [String]?
     /// Where Copy writes and Paste reads: the general pasteboard, or the
@@ -169,7 +178,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// transaction (a live resize), so the content never lags its frame.
     func draw(sync: Bool) {
         guard bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
-        let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha)
+        let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range)
         let t0 = CACurrentMediaTime()
         var seq: UInt32 = 0
         if offscreen {
@@ -366,7 +375,10 @@ final class TerminalView: NSView, NSTextInputClient {
             if flags.contains(.option) && optionAsAlt.isEmpty { consumed |= 4 }
         }
         if consumed != 0 { ev["consumed"] = consumed }
-        if let u = e.characters(byApplyingModifiers: [])?.unicodeScalars.first, KeyCodes.printable(u) {
+        // A modifier key's flagsChanged event has no characters (AppKit
+        // throws when asked).
+        if e.type == .keyDown || e.type == .keyUp,
+           let u = e.characters(byApplyingModifiers: [])?.unicodeScalars.first, KeyCodes.printable(u) {
             ev["unshifted"] = Int(u.value)
         }
         if !optionAsAlt.isEmpty { ev["option_as_alt"] = optionAsAlt }
@@ -429,6 +441,15 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     override func flagsChanged(with e: NSEvent) {
+        let cmd = e.modifierFlags.contains(.command)
+        if cmd != commandDown {
+            commandDown = cmd
+            if cmd, let p = pointer ?? window?.mouseLocationOutsideOfEventStream {
+                hoverLink(cell(at: p))
+            } else {
+                clearLink()
+            }
+        }
         let flag: NSEvent.ModifierFlags
         switch KeyCodes.code(e.keyCode) {
         case "ShiftLeft", "ShiftRight": flag = .shift
@@ -574,8 +595,11 @@ final class TerminalView: NSView, NSTextInputClient {
     /// The cell under a point: its column, its row on the view and in
     /// screen coordinates, and the point from the grid's corner, kept on
     /// the grid.
-    func cell(_ e: NSEvent) -> CellHit {
-        let p = gridPoint(e)
+    func cell(_ e: NSEvent) -> CellHit { cell(at: e.locationInWindow) }
+
+    func cell(at windowPoint: NSPoint) -> CellHit {
+        let v = convert(windowPoint, from: nil)
+        let p = CGPoint(x: v.x - renderer.padding, y: v.y - renderer.padding)
         let c = cellSize
         screen.lock()
         let cols = max(1, screen.cols), rows = max(1, screen.rows), top = screen.history - screen.offset
@@ -619,6 +643,11 @@ final class TerminalView: NSView, NSTextInputClient {
 
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
+        if e.modifierFlags.contains(.command) {
+            // Cmd+click opens the link there; it never selects.
+            openLink(at: cell(e))
+            return
+        }
         if mouseReporting && !e.modifierFlags.contains(.shift) {
             sendEvents([mouseEvent(e, action: "press", button: "left")])
             return
@@ -709,10 +738,85 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     override func mouseMoved(with e: NSEvent) {
+        pointer = e.locationInWindow
+        commandDown = e.modifierFlags.contains(.command)
+        if commandDown { hoverLink(cell(e)) } else { clearLink() }
         screen.lock()
         let motion = screen.modes & Screen.modeMouseMotion != 0
         screen.unlock()
         if motion { sendEvents([mouseEvent(e, action: "motion", button: "")]) }
+    }
+
+    // MARK: links
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: linkCursor ? .pointingHand : .iBeam)
+    }
+
+    /// Asks the daemon for the link on a cell (a hyperlink, or a URL in
+    /// the text), once per cell the pointer comes to while Cmd is held.
+    private func hoverLink(_ c: CellHit) {
+        if let l = link, l.range.contains(x: c.x, y: c.y) { return }
+        if let a = linkAsked, a.x == c.x, a.y == c.y { return }
+        linkAsked = (c.x, c.y)
+        askLink(c) { [weak self] found in
+            guard let self, self.commandDown, let a = self.linkAsked, a.x == c.x, a.y == c.y else { return }
+            if let found { self.setLink(found) } else { self.clearLink(keepAsked: true) }
+        }
+    }
+
+    private func askLink(_ c: CellHit, done: @escaping ((uri: String, range: CellRange)?) -> Void) {
+        guard let conn else { return }
+        conn.request("render.link", ["channel": channel, "at": ["x": c.x, "y": c.y]]) { r in
+            var found: (uri: String, range: CellRange)?
+            if case .success(let v) = r, let uri = v["uri"] as? String, !uri.isEmpty,
+               let f = v["from"] as? [String: Any], let t = v["to"] as? [String: Any] {
+                func n(_ d: [String: Any], _ k: String) -> Int { (d[k] as? NSNumber)?.intValue ?? 0 }
+                found = (uri, CellRange(x0: n(f, "x"), y0: n(f, "y"), x1: n(t, "x"), y1: n(t, "y")))
+            }
+            DispatchQueue.main.async { done(found) }
+        }
+    }
+
+    private func setLink(_ l: (uri: String, range: CellRange)) {
+        link = l
+        setLinkCursor(true)
+        requestDraw()
+    }
+
+    private func clearLink(keepAsked: Bool = false) {
+        if !keepAsked { linkAsked = nil }
+        guard link != nil || linkCursor else { return }
+        link = nil
+        setLinkCursor(false)
+        requestDraw()
+    }
+
+    private func setLinkCursor(_ on: Bool) {
+        guard on != linkCursor else { return }
+        linkCursor = on
+        window?.invalidateCursorRects(for: self)
+        // A window off every screen (the self-test) never sets the
+        // pointer, which is the person's.
+        if !offscreen { (on ? NSCursor.pointingHand : NSCursor.iBeam).set() }
+    }
+
+    /// Cmd+click: opens the link on the cell, the one underlined or the
+    /// one the daemon finds there.
+    private func openLink(at c: CellHit) {
+        if let l = link, l.range.contains(x: c.x, y: c.y) {
+            open(l.uri)
+            return
+        }
+        askLink(c) { [weak self] found in
+            if let found { self?.open(found.uri) }
+        }
+    }
+
+    /// Opens a link's URI: only the web and files.
+    private func open(_ uri: String) {
+        guard let u = URL(string: uri), let scheme = u.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) else { return }
+        openURL(u)
     }
 
     // MARK: scrolling

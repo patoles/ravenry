@@ -356,6 +356,8 @@ struct Overlay {
     var marked: String = ""
     /// The overlay scrollbar's opacity, 0 hidden.
     var scrollbar: Float = 0
+    /// The link under the pointer while Cmd is held (screen coordinates).
+    var link: CellRange?
 }
 
 final class Renderer {
@@ -529,6 +531,14 @@ final class Renderer {
                 if st.attrs & CellStyle.overline != 0 {
                     rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(w, ulT), color: fg, kind: 0))
                 }
+            }
+        }
+        // The link under the pointer, underlined; it may run over rows.
+        if let l = o.link {
+            for y in 0..<screen.rows {
+                guard let sp = l.span(y: top + y, cols: screen.cols) else { continue }
+                rects.append(RectInst(pos: SIMD2(px + Float(sp.lowerBound) * cw, py + Float(y) * ch + ulY),
+                                      size: SIMD2(Float(sp.count) * cw, ulT), color: theme.foreground, kind: 0))
             }
         }
         // The cursor.
