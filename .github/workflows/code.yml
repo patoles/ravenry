@@ -105,7 +105,10 @@ jobs:
       - name: Build libghostty-vt
         run: |
           command -v pkg-config >/dev/null || sudo apt-get install -y pkg-config
-          echo "PKG_CONFIG_PATH=$(scripts/libghostty.sh)" >> "$GITHUB_ENV"
+          pc=$(scripts/libghostty.sh)
+          echo "PKG_CONFIG_PATH=$pc" >> "$GITHUB_ENV"
+          # The library's build in a flag Go's build cache sees (Makefile).
+          echo "CGO_CPPFLAGS=-DRAVENRY_LIBGHOSTTY=$(basename "$(dirname "$(dirname "$pc")")")" >> "$GITHUB_ENV"
       # zsh and fish for the shell integration tests (bash is there).
       - name: Shells
         run: sudo apt-get install -y --no-install-recommends zsh fish && zsh --version && bash --version | head -1 && fish --version

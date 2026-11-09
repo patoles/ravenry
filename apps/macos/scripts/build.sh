@@ -28,7 +28,10 @@ done
 RAVENRYD_BIN="$here/build/ravenryd"
 export RAVENRYD_BIN
 echo "build.sh: ravenryd" >&2
-(cd "$repo/daemon" && PKG_CONFIG_PATH=$(scripts/libghostty.sh) \
+# CGO_CPPFLAGS names the libghostty-vt build (its folder, named after its
+# patches): Go's build cache does not see a rebuilt library otherwise.
+(cd "$repo/daemon" && pc=$(scripts/libghostty.sh) && \
+  PKG_CONFIG_PATH=$pc CGO_CPPFLAGS="${CGO_CPPFLAGS:-} -DRAVENRY_LIBGHOSTTY=$(basename "$(dirname "$(dirname "$pc")")")" \
   go build -o "$RAVENRYD_BIN" ./cmd/ravenryd)
 
 echo "build.sh: Xcode project" >&2

@@ -22,6 +22,10 @@ mkdir -p "$(dirname "$out")"
 
 PKG_CONFIG_PATH=$("$daemon/scripts/libghostty.sh")
 export PKG_CONFIG_PATH
+# The libghostty-vt build (its folder, named after its patches) in a flag
+# Go's build cache sees: it does not see a rebuilt library otherwise.
+CGO_CPPFLAGS="${CGO_CPPFLAGS:-} -DRAVENRY_LIBGHOSTTY=$(basename "$(dirname "$(dirname "$PKG_CONFIG_PATH")")")"
+export CGO_CPPFLAGS
 cd "$daemon"
 ldflags="-s -w -X main.version=$version"
 tags=

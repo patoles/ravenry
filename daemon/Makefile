@@ -4,6 +4,12 @@
 VERSION ?= 0.0.0-dev
 PKG_CONFIG_PATH := $(shell scripts/libghostty.sh)
 export PKG_CONFIG_PATH
+# Go's build cache does not see a rebuilt libghostty-vt (pkg-config's
+# output is not in its key), so a changed patch kept the old library
+# linked. The library's folder, named after its patches, goes into a flag
+# the cache does see.
+CGO_CPPFLAGS += -DRAVENRY_LIBGHOSTTY=$(notdir $(patsubst %/lib/pkgconfig,%,$(PKG_CONFIG_PATH)))
+export CGO_CPPFLAGS
 
 .PHONY: build test vet fmt
 
