@@ -232,7 +232,8 @@ extension SelfTestBoard {
         check("alerts_ntfy_new_topic", wait(5) { self.toasts(since: L).contains(t("alerts.newTopicDone")) })
         pictures("alerts-ntfy")
         pg.buttons["pair"]?.performClick(nil)
-        check("alerts_pair_phone", board.front == .page("side.phone", t("side.phone")), "\(board.front)")
+        check("alerts_pair_phone", wait(2) { self.board.phoneCard.isOpen }, "\(board.front)")
+        board.phoneCard.close()
         // macOS refusing them: said, with the way to System Settings.
         board.openPage("side.alerts", t("side.alerts"))
         _ = wait(5) { pg.setup != nil }

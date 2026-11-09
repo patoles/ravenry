@@ -354,6 +354,18 @@ check('the Mac renames the device, and the phone reads the new name', rn.status 
 const rnEmpty = await mac('POST', '/api/phone/devices/rename', { id: DEV, name: '   ' });
 const rnPhone = await phoneReq('POST', '/api/phone/devices/rename', { token: TOKEN, body: { id: DEV, name: 'Mine' } });
 check('an empty name is refused, and a phone cannot rename', rnEmpty.status === 404 && rnPhone.status === 403);
+// The card's line for each device, worked out by the hub (phone.mjs deviceLine).
+const card2 = await mac('GET', '/api/phone');
+const kd = (card2.body.devices || []).find((d) => d.id === DEV);
+check('the card says what each device is and when it was seen', !!kd && kd.line && kd.line.name === 'Kitchen phone' && /^(Android app|iPhone app|App), seen (now|\d+ min ago)$/.test(kd.line.sub) && kd.line.renamable === true, JSON.stringify(kd && kd.line));
+{
+  const { deviceLine, seen } = await import('../server/phone.mjs');
+  const now = Date.parse('2026-11-09T12:00:00Z');
+  const ago = (m) => new Date(now - m * 60000).toISOString();
+  check('seen(): now, minutes, hours, yesterday, days, never', [seen(ago(0), now), seen(ago(5), now), seen(ago(180), now), seen(ago(30 * 60), now), seen(ago(4 * 1440), now), seen(null, now)].join('|') === 'seen now|seen 5 min ago|seen 3 h ago|seen yesterday|seen 4 d ago|not seen yet');
+  const br = deviceLine({ platform: 'browser', lastSeen: ago(2) }, now);
+  check('a phone browser is not renamed', br.name === 'Phone browser' && br.sub === 'Signed in with the browser code, seen 2 min ago' && !br.renamable);
+}
 
 // Revoke: its stream ends, its token is signed out.
 const rv = await mac('POST', '/api/phone/devices/revoke', { id: DEV });

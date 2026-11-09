@@ -360,8 +360,10 @@ every screen (the bench, the self-test) writes only to
   busy tab: Cmd+= still keeps its size in the app's own defaults); no
   theme import (iTerm2, Ghostty); a broken file is not kept aside and
   an old one is not migrated.
-- Sidebar and panel: the phone, Learn and Machines are native
-  placeholders; Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
+- Sidebar and panel: Learn's ticks come only from the phone card and
+  Decisions (no hints, no filmstrip to tick), and its filmstrip card shows
+  the busiest terminal; no session on another machine (MACH-005 to
+  MACH-007); Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
   (the panel has no card of its own for a page's run yet), a page's form
   takes a date as text, and a sheet taller than the window is cut; New session is a
   folder and an assistant, without the setup step or the worktree choice;

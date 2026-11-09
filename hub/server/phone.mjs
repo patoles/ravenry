@@ -210,6 +210,27 @@ const pub = (t) => ({ id: t.id, name: t.name || null, platform: t.platform || nu
 
 // Every device, without its hash or push secrets.
 export const devices = () => load().tokens.map(pub);
+
+/** "seen now", "seen 2 min ago", "seen 3 h ago", "seen yesterday", "seen 4 d ago". */
+export function seen(iso, now) {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return 'not seen yet';
+  const m = Math.floor((now - t) / 60000);
+  if (m < 1) return 'seen now';
+  if (m < 60) return `seen ${m} min ago`;
+  const hr = Math.floor(m / 60);
+  if (hr < 24) return `seen ${hr} h ago`;
+  return hr < 48 ? 'seen yesterday' : `seen ${Math.floor(hr / 24)} d ago`;
+}
+
+// What a device is, as the phone card lists it (its name and the line
+// under it). Moved from the desktop's renderer/phonecard.ts deviceLine()
+// for the native Mac app; the desktop still works it out itself.
+export function deviceLine(d, now = Date.now()) {
+  if (d.platform === 'browser') return { name: 'Phone browser', sub: `Signed in with the browser code, ${seen(d.lastSeen, now)}` };
+  const what = d.platform === 'android' ? 'Android app' : d.platform === 'ios' ? 'iPhone app' : 'App';
+  return { name: d.name || what, sub: `${what}, ${seen(d.lastSeen, now)}`, renamable: true };
+}
 export function device(id) { const t = load().tokens.find((x) => x.id === id); return t ? pub(t) : null; }
 
 // The device record itself (push.mjs reads its target).
@@ -360,7 +381,7 @@ export function card(port, app = null, { fresh = false } = {}) {
     ? { address: `http://${lan.address}:${port}/?k=`, svg: qrSvg(`http://${lan.address}:${port}/?k=${load().key}`), phones }
     : { address: null, svg: null, phones };
   out.access = access();
-  out.devices = devices();
+  out.devices = devices().map((d) => ({ ...d, line: deviceLine(d) }));
   if (app && out.access) {
     const c = !fresh && pairing && pairing.code && pairing.expires - Date.now() > 2 * 60 * 1000 ? shown(pairing) : pairingCode();
     const link = pairLink({ name: hubName(), hosts: app.hosts, port: app.port, pin: app.pin, code: c.code });

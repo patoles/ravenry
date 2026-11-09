@@ -57,6 +57,7 @@ import { fileURLToPath } from 'node:url';
 import * as machines from './machines.mjs';
 import * as hk from './hookinstall.mjs';
 import { sayPath } from '../public/homepath.mjs';
+import { machineCard } from './machineview.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const MANIFEST = '.ravenry/remote-install.json';
@@ -231,7 +232,9 @@ export function view(env = process.env) {
     const j = jobs.get(m.name);
     // A connection ssh itself refused, said as the installer says it.
     const explain = m.state === 'down' && m.error && !m.missing && compare !== 'protocol' ? sshFailure(m.host, m.error) : null;
-    return { ...m, ours, compare, job: j ? publicJob(j) : null, explain: explain && !/^ssh failed: /.test(explain.why) ? explain : null };
+    const out = { ...m, ours, compare, job: j ? publicJob(j) : null, explain: explain && !/^ssh failed: /.test(explain.why) ? explain : null };
+    // What its card shows, for clients that draw it as sent (machineview.mjs).
+    return { ...out, card: machineCard(out) };
   });
 }
 

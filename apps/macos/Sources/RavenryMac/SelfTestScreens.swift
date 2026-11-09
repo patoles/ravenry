@@ -22,6 +22,9 @@ extension SelfTestBoard {
         case "pages": screenPages()
         case "decisions": screenDecisions()
         case "settings": screenSettings()
+        case "learn": screenLearn()
+        case "machines": screenMachines()
+        case "phone": screenPhone()
         default: check("screen_known", false, name)
         }
         finish()

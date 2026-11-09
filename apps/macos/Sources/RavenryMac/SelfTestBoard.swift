@@ -93,7 +93,8 @@ final class SelfTestBoard {
         }
         var over: [NSView] = []
         if board.root.panelMode == .overlay, let p = board.root.panel { over.append(p) }
-        over += root.subviews.filter { $0 is ToastView && !$0.isHidden }
+        // (the phone card too: the terminal's drawing goes over it here, not on screen, where its layer is above.)
+        over += root.subviews.filter { ($0 is ToastView || $0 is PhoneCard) && !$0.isHidden }
         for v in over {
             guard let r2 = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { continue }
             v.cacheDisplay(in: v.bounds, to: r2)

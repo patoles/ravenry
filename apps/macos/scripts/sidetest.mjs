@@ -22,6 +22,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
+import { machineCard } from '../../../hub/server/machineview.mjs';
+import { SHAPES, HOSTS, BUILDS } from '../../../hub/tools/machine-shapes.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -212,15 +214,20 @@ const screenHub = PAGES ? {
   extra: [{ id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
 } : SCREEN ? {
   plan: true, ideas: true,
+  // --screen machines: ssh never reaches anything from this board.
+  env: { RAVENRY_SSH: '/usr/bin/false' },
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
   prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 const result = path.join(OUT, 'sidetest.json');
+// --screen machines: every shape the page draws, with the hub's own cards.
+const FIXTURE = path.join(OUT, 'machines-fixture.json');
+if (SCREEN === 'machines') fs.writeFileSync(FIXTURE, JSON.stringify({ ok: true, machines: SHAPES.map((m) => ({ ...m, card: machineCard(m) })), hosts: HOSTS, builds: BUILDS }));
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
 const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', '--socket', sock, '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log') },
+  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;

@@ -34,6 +34,8 @@ final class PaneInfo {
     var cwd = ""
     var command: [String] = []
     var createdAt = ""
+    /// When it last printed (the daemon's last_output_at): Learn's filmstrip card picks the busiest.
+    var lastOutput = ""
 
     init(id: String) { self.id = id }
 
@@ -43,6 +45,7 @@ final class PaneInfo {
         if let v = p["cwd"] as? String { cwd = v }
         if let v = p["command"] as? [String] { command = v }
         if let v = p["created_at"] as? String { createdAt = v }
+        if let v = p["last_output_at"] as? String { lastOutput = v }
     }
 }
 

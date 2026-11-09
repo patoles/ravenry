@@ -51,11 +51,15 @@ final class Board: NSObject {
     private var decTimer: Timer?
     /// The sidebar's pages from page files (Objectives, Plans, Ideas, Rules, Ship and added ones).
     let files = FilePage()
+    /// Learn Ravenry (the foot's ?, Help), Machines (the foot's server mark) and the phone card (the foot's phone).
+    let learn = LearnPage()
+    let machines = MachinesPage()
+    let phoneCard = PhoneCard()
     let notifier: Notifier
     /// The project of the session the person last had open (a page's Ask Claude to fix).
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -107,13 +111,20 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = { [weak self] s in self?.toast(s) }
-        for f in [plan, idea, alerts, files, decisions] as [FormPage] {
+        for f in [plan, idea, alerts, files, decisions, learn, machines] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = { [weak self] s in self?.toast(s) }
             f.onClose = { [weak self] in self?.back() }
         }
-        alerts.pairPhone = { [weak self] in self?.openPage("side.phone", t("side.phone")) }
+        alerts.pairPhone = { [weak self] in self?.openPhone() }
+        learn.tryIt = { [weak self] c in self?.tryIt(c) }
+        machines.copy = { Outside.copy($0) }
+        machines.onList = { [weak self] in self?.render() }
+        phoneCard.hub = hub
+        phoneCard.anchorOf = { [weak self] in self?.sidebar.footButtons["side.phone"] }
+        phoneCard.toast = { [weak self] s in self?.toast(s) }
+        phoneCard.onClose = { [weak self] in self?.render() }
         files.host = FilePage.Host(
             rows: { [weak self] in self?.hub.state?.pages ?? [] },
             pickSession: { [weak self] k in self?.pickSession(k, why: "page") },
@@ -387,6 +398,9 @@ final class Board: NSObject {
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
         if key == "side.alerts" { openAlerts(); return }
         if key == "decisions" { openDecisions(); return }
+        if key == "side.learn" { openLearn(); return }
+        if key == "side.machines" { openMachines(); return }
+        if key == "side.phone" { if phoneCard.isOpen { phoneCard.close() } else { openPhone() }; return }
         // The foot's Settings, and the panel's way to Settings when the first-launch step was off (its Skills).
         if key == "side.settings" || key == "settings" { openSettings(key == "settings" ? "skills" : nil); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
@@ -481,8 +495,100 @@ final class Board: NSObject {
     }
     @objc func menuSettings(_ sender: Any?) { openSettings() }
 
+    /// Learn Ravenry; `lit`: the card a hint's Learn more points at.
+    func openLearn(lit: String? = nil) {
+        overlay = false
+        notePageBack()
+        front = .page("side.learn", t("learn.title"))
+        showMiddle(learn)
+        learn.show(lit: lit)
+        log.append("learn\(lit.map { " \($0)" } ?? "")")
+        render()
+    }
+    @objc func menuLearn(_ sender: Any?) { openLearn() }
+
+    /// Machines: the computers the hub reaches over ssh.
+    func openMachines() {
+        overlay = false
+        notePageBack()
+        front = .page("side.machines", t("mach.title"))
+        showMiddle(machines)
+        machines.show()
+        log.append("machines")
+        render()
+    }
+
+    /// The phone card over the sidebar's phone mark (the sidebar shown first).
+    func openPhone() {
+        if sideHidden { sideHidden = false; render(force: true) }
+        guard let mark = sidebar.footButtons["side.phone"] else { return }
+        markUsed("phone")
+        phoneCard.open(in: root, above: mark)
+        ws.window.makeFirstResponder(phoneCard)
+        log.append("phone card")
+        render()
+    }
+
+    /// A part of Ravenry used, for Learn's ticks (the hub's marks, POST /api/onboarding).
+    func markUsed(_ k: String) {
+        if learn.used[k] == true { return }
+        hub.post("/api/onboarding", ["learn": [k: true]]) { [weak self] code, _ in if code == 200 { self?.learn.load() } }
+    }
+
+    /// Try it, a Learn card's action (app.ts tryIt()).
+    func tryIt(_ c: LearnPage.Card) {
+        log.append("try \(c.key)")
+        if c.key == "phone" { back(); openPhone(); return }
+        if c.key == "film" {
+            // The terminal that printed last; the filmstrip itself is not native yet.
+            guard let tb = ws.tabs.max(by: { (ws.paneInfo($0.host)?.lastOutput ?? "") < (ws.paneInfo($1.host)?.lastOutput ?? "") }) else { toast(t("learn.filmNeeds")); return }
+            front = .tab; hideMiddle(); ws.showAgain(tb); render()
+            return
+        }
+        guard hub.reachable else { toast(t("learn.noBoard")); return }
+        hub.get("/api/setup/start") { [weak self] code, j in
+            guard let self else { return }
+            let found = (j["assistants"] as? [[String: Any]] ?? []).filter { $0["found"] as? Bool == true }
+            guard let a = found.first(where: { $0["kind"] as? String == "claude" }) ?? found.first, let kind = a["kind"] as? String else { self.toast(t("learn.noAssistant")); return }
+            // The last folder used: the project of the session last open, else the first folder the hub offers.
+            let lp = self.lastProject.flatMap { self.hub.state?.project($0) }
+            let folders = (j["folders"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+            let folder = lp?.folder ?? folders.first ?? NSHomeDirectory()
+            let g = self.ws.focusedView.map { ($0.screen.cols, $0.screen.rows) } ?? (100, 30)
+            var body: [String: Any] = ["folder": folder, "assistant": kind, "cols": g.0, "rows": g.1]
+            if c.worktree, let p = lp { body["worktree"] = true; body["projectId"] = p.id }
+            self.hub.post("/api/sessions/start", body) { [weak self] code, r in
+                guard let self else { return }
+                if code != 200 {
+                    // The hub's words may already say it could not start.
+                    let why = r["error"] as? String ?? "\(code)"
+                    self.toast(why.hasPrefix("Could not start") ? why : t("learn.failed", ["why": why])); return
+                }
+                let pane = (r["pane"] as? [String: Any])?["id"] as? String
+                if let p = pane, let tb = self.ws.tab(showing: p) { self.front = .tab; self.hideMiddle(); self.ws.showAgain(tb); self.render() }
+                else if let pid = r["projectId"] as? String, let sid = r["surfaceId"] as? String { self.pickSession("\(pid)/\(sid)", why: "try it") }
+                if let p = pane, let m = c.message { self.readyMessage(p, m) }
+            }
+        }
+    }
+
+    /// The card's message in the new session's input once its screen has been still 1.5 s (not sent), else on the clipboard.
+    private func readyMessage(_ pane: String, _ text: String, since: Date = Date(), last: String = "", still: Date = Date()) {
+        if Date().timeIntervalSince(since) > 40 { Outside.copy(text); toast(t("learn.onClipboard")); return }
+        let v = ws.boxes[pane]?.term
+        let now = v.map { $0.screen.text().trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        if !now.isEmpty, now == last, Date().timeIntervalSince(still) >= 1.5, let v {
+            v.pasteText(text)
+            log.append("try: message ready in \(pane)")
+            return
+        }
+        let s2 = now == last ? still : Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.readyMessage(pane, text, since: since, last: now, still: s2) }
+    }
+
     /// Decisions; `lit`: the one a toast's Show points at.
     func openDecisions(lit: String? = nil) {
+        markUsed("decisions")
         overlay = false
         notePageBack()
         front = .page("decisions", t("side.decisions"))
@@ -713,6 +819,13 @@ final class Board: NSObject {
         let fk = frontKey
         var page: String? = nil
         if case .page(let k, _) = front { page = k }
+        // The foot: the Machines mark's dot (the hub's cards less what the page folded), and the marks lit.
+        sidebar.machinesDot = machines.attention(in: st)
+        var on = Set<String>()
+        if phoneCard.isOpen { on.insert("side.phone") }
+        if case .page(let k, _) = front, k == "side.learn" || k == "side.machines" { on.insert(k) }
+        sidebar.footOn = on
+        if phoneCard.isOpen { phoneCard.place() }
         if !sideHidden { sidebar.update(state: st, reachable: hub.reachable, front: fk, pinned: Set(pinned), page: page, alerts: (st?.counts["you"] ?? 0) > 0) }
         if panelVisible {
             var pane: (id: String, name: String, cwd: String, command: [String])? = nil

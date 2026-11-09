@@ -295,6 +295,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             app.insertItem(st, at: 0)
             app.insertItem(.separator(), at: 1)
         }
+        // Help, Learn Ravenry (learn.ts), as the Electron app's Help menu.
+        let helpItem = NSMenuItem()
+        let help = NSMenu(title: "Help")
+        helpItem.submenu = help
+        main.addItem(helpItem)
+        NSApp.helpMenu = help
+        let ln = NSMenuItem(title: t("learn.title"), action: #selector(Board.menuLearn(_:)), keyEquivalent: "")
+        ln.target = b
+        help.addItem(ln)
         let view = main.items.first { $0.submenu?.title == "View" }?.submenu
         view?.addItem(.separator())
         let side = NSMenuItem(title: t("side.hide"), action: #selector(Board.menuToggleSidebar(_:)), keyEquivalent: "s")

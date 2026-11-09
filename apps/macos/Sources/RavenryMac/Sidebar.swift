@@ -107,12 +107,18 @@ final class SidebarView: Flipped {
     /// Draws the board as the hub sent it; nothing when nothing changed.
     /// Decisions' row: the active ones, and a dot while one can still be undone (the hub's count, Board polls it).
     var decisions: (count: Int, live: Bool) = (0, false)
+    /// The foot's Machines mark carries a dot while a machine needs the person (the hub's cards).
+    var machinesDot = false
+    /// The foot's marks lit: the page or card each opens is in front ("side.phone", "side.learn", "side.machines").
+    var footOn = Set<String>()
+    /// The foot's buttons by key (the phone card sits over its own).
+    private(set) var footButtons: [String: RButton] = [:]
 
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
         let times = state?.sections.flatMap { $0.projects.map { timeText($0) } }.joined(separator: ",") ?? ""
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String($0.hashValue) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
-                   String(alerts), "\(decisions.count)\(decisions.live)"].joined(separator: "|")
+                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())"].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
         rows = [:]
@@ -310,12 +316,27 @@ final class SidebarView: Flipped {
         let b = { (key: String, icon: String) -> RButton in
             let x = RButton(t(key), .icon, icon: icon)
             x.run = { [weak self] in self?.onNav?(key, t(key)) }
+            x.on = self.footOn.contains(key)
+            self.footButtons[key] = x
             return x
         }
         let bell = b("side.alerts", "bell")
         if alerts { bell.iconView?.tint = "you" }
         let mem = state?.memoryLine.map { label(t("side.memory", ["mem": $0]), Fonts.pt(11.5).withTabularDigits, "tx3") }
-        let s = hstack([b("side.settings", "settings"), b("side.phone", "phone"), bell, b("side.learn", "question"), b("side.machines", "machines"), spring(), mem],
+        // .m-foot .bdot: 7 wide, --you, ringed in the window's colour, at its top right.
+        let mach = b("side.machines", "machines")
+        mach.onFill = true
+        if machinesDot {
+            let d = Box(fill: "you", ring: "win", radius: 5.5)
+            d.ringWidth = 2
+            // The button is not flipped: 3 from its top and right edges, 11 with the ring.
+            d.frame = NSRect(x: 16, y: 16, width: 11, height: 11)
+            d.autoresizingMask = [.minXMargin, .minYMargin]
+            d.setAccessibilityElement(false)
+            mach.addSubview(d)
+            mach.setAccessibilityValue("needs you")
+        }
+        let s = hstack([b("side.settings", "settings"), b("side.phone", "phone"), bell, b("side.learn", "question"), mach, spring(), mem],
                        spacing: 2, insets: NSEdgeInsets(top: 4, left: 2, bottom: 0, right: 6))
         foot.addSubview(s)
         pinEdges(s, foot)

@@ -52,6 +52,10 @@ enum Design {
         named[name] = c
         return c
     }
+    /// A token's colour in the dark theme, whatever the appearance (Learn's stills are drawn dark in both).
+    static func dark(_ name: String) -> NSColor { token("dark", name) ?? .gray }
+    /// A token's colour in the light theme, whatever the appearance.
+    static func light(_ name: String) -> NSColor { token("light", name) ?? .gray }
     /// A token's colour in one theme, as "#RRGGBB" (the icons are filled with it).
     static func hex(_ name: String, dark: Bool) -> String {
         guard let c = token(dark ? "dark" : "light", name)?.usingColorSpace(.sRGB) else { return "#888888" }

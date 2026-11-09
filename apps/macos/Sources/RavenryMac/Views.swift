@@ -139,6 +139,11 @@ final class RButton: NSButton {
     let small: Bool
     var run: (() -> Void)?
     var on = false { didSet { needsDisplay = true } }
+    /// Lit while on with --sel and a --selring ring (.icon-btn.m-foot.on), not only its icon in tx.
+    var onFill = false { didSet { needsDisplay = true } }
+    /// Its words in this token's colour instead of its kind's (a name to click, .phc-nm).
+    var titleColor: String? { didSet { setTitle(title) } }
+    var titleSize: CGFloat? { didSet { setTitle(title) } }
     var iconView: Icon?
     /// An icon of shared/icons before the title (.btn svg), in the title's colour.
     var lead: String? { didSet { leadImage(); invalidateIntrinsicContentSize() } }
@@ -187,9 +192,9 @@ final class RButton: NSButton {
 
     func setTitle(_ s: String) {
         title = s
-        let size: CGFloat = kind == .link ? 12 : small ? 12 : 13
-        let color: String = kind == .primary ? "" : kind == .link ? "link" : kind == .ghost || kind == .quiet ? "tx2" : kind == .no ? "bad" : "btn-tx"
-        let c: NSColor = kind == .primary ? .white : Design.color(color)
+        let size: CGFloat = titleSize ?? (kind == .link ? 12 : small ? 12 : 13)
+        let color: String = titleColor ?? (kind == .primary ? "" : kind == .link ? "link" : kind == .ghost || kind == .quiet ? "tx2" : kind == .no ? "bad" : "btn-tx")
+        let c: NSColor = kind == .primary && titleColor == nil ? .white : Design.color(color)
         attributedTitle = NSAttributedString(string: s, attributes: [.font: Fonts.pt(size, .medium), .foregroundColor: isEnabled ? c : c.withAlphaComponent(0.5)])
         invalidateIntrinsicContentSize()
     }
@@ -218,6 +223,11 @@ final class RButton: NSButton {
             let light = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
             l.borderWidth = kind == .quiet || light && (kind == .normal || kind == .no) ? 1 : 0
             l.borderColor = Design.color("sep").cgColor
+            if kind == .icon && on && onFill {
+                l.backgroundColor = Design.color("sel").cgColor
+                l.borderWidth = 1
+                l.borderColor = Design.color("selring").cgColor
+            }
         }
         iconView?.tint = kind == .icon ? (hover || on ? "tx" : "tx2") : iconView?.tint ?? "tx3"
     }

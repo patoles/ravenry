@@ -43,6 +43,21 @@ func wrap(_ s: String, _ font: NSFont = Fonts.pt(13), _ color: String = "tx") ->
     return c
 }
 
+/// Words on lines `k` times their size apart (a CSS line-height).
+@discardableResult
+func spaced(_ c: CappedText, _ k: CGFloat) -> CappedText {
+    let f = c.text.font ?? Fonts.pt(13)
+    let p = NSMutableParagraphStyle()
+    p.minimumLineHeight = ceil(f.pointSize * k)
+    p.maximumLineHeight = ceil(f.pointSize * k)
+    let a = NSMutableAttributedString(attributedString: c.text.attributedStringValue)
+    a.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: a.length))
+    // The text sits in the middle of its taller line, as a browser sets it.
+    a.addAttribute(.baselineOffset, value: (ceil(f.pointSize * k) - f.ascender + f.descender) / 4, range: NSRange(location: 0, length: a.length))
+    c.text.attributedStringValue = a
+    return c
+}
+
 /// Words at most `maxW` wide, from the left (.ia-msg's max-width), on a
 /// bubble (`fill`) as wide as the words, else as wide as the room.
 final class CappedText: Flipped {
