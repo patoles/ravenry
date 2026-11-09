@@ -6586,6 +6586,13 @@
           "minimum": 1,
           "maximum": 64,
           "description": "Frames sent and not yet acknowledged, at most. Default 2."
+        },
+        "keybinds": {
+          "enum": [
+            "macos",
+            "none"
+          ],
+          "description": "The key bindings the daemon applies to this stream's keys before encoding them (docs/RENDERING.md, Key bindings): macos, or none (the default)."
         }
       },
       "required": [

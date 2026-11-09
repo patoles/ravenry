@@ -6,6 +6,11 @@
 # It hooks in at the first prompt, after the user's .zshrc ran, so it
 # comes after any prompt theme's own hooks; each prompt it puts the A and
 # B marks back around PS1 when a theme redrew it.
+#
+# Ctrl+Left and Ctrl+Right, which a terminal sends as CSI 1;5D and
+# CSI 1;5C (Ghostty, xterm), move a word left and right, as bash does on
+# most systems; zsh binds neither, and typed ";5D" on the command line.
+# Only where the user's own files left them unbound.
 
 [[ -z "${_ravenry_zsh_loaded-}" ]] || 'builtin' 'return' 0
 typeset -g _ravenry_zsh_loaded=1
@@ -47,7 +52,18 @@ _ravenry_preexec() {
   builtin printf '\e]133;C;cmdline_url=%s\a' "$REPLY"
 }
 
+_ravenry_bind_words() {
+  emulate -L zsh
+  local m
+  for m in emacs viins; do
+    [[ "$(builtin bindkey -M $m '^[[1;5D')" == *undefined-key ]] && builtin bindkey -M $m '^[[1;5D' backward-word
+    [[ "$(builtin bindkey -M $m '^[[1;5C')" == *undefined-key ]] && builtin bindkey -M $m '^[[1;5C' forward-word
+  done
+  return 0
+}
+
 _ravenry_deferred_init() {
+  _ravenry_bind_words
   precmd_functions=(${precmd_functions:#_ravenry_deferred_init} _ravenry_precmd)
   preexec_functions=(${preexec_functions:#_ravenry_preexec} _ravenry_preexec)
   _ravenry_precmd

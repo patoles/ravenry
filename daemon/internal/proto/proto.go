@@ -863,6 +863,9 @@ type RenderRequest struct {
 	// second. Window: frames sent and not yet acknowledged, at most.
 	FPS    *int `json:"fps,omitempty"`
 	Window *int `json:"window,omitempty"`
+	// Keybinds names the key bindings the daemon applies to this
+	// stream's keys before encoding them: "macos" or "none" (default).
+	Keybinds *string `json:"keybinds,omitempty"`
 }
 
 type RenderResult struct {

@@ -282,6 +282,8 @@ type stream struct {
 	sub *pane.Sub
 	// rsub is set instead of sub for a render stream (render.go).
 	rsub *pane.RenderSub
+	// binds: the render stream's key bindings (vt.Keybinds).
+	binds []vt.KeyBind
 }
 
 // closeSub ends the stream's subscription, of either kind.

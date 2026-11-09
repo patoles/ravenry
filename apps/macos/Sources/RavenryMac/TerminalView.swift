@@ -112,7 +112,10 @@ final class TerminalView: NSView, NSTextInputClient {
         pane = id
         c.onBinary = { [weak self] p in self?.binary(p) }
         grid = renderer.grid(for: bounds.size)
-        let r = try c.call("pane.render", ["pane": id, "cols": grid.cols, "rows": grid.rows, "fps": fps, "window": 2])
+        let r = try c.call("pane.render", ["pane": id, "cols": grid.cols, "rows": grid.rows, "fps": fps, "window": 2,
+                                           // Cmd+Left to the line's start and the rest of a Mac's keys
+                                           // (docs/RENDERING.md, Key bindings): the daemon's table.
+                                           "keybinds": "macos"])
         channel = (r["channel"] as? NSNumber)?.uint32Value ?? 0
     }
 

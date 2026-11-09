@@ -417,6 +417,8 @@ type RenderOptions struct {
 	Cols, Rows int
 	FPS        int
 	Window     int
+	// Keybinds names the daemon's key bindings for the stream ("macos").
+	Keybinds string
 }
 
 // Render streams a pane's screen as render frames (docs/RENDERING.md).
@@ -431,6 +433,9 @@ func (c *Client) Render(ctx context.Context, pane string, o RenderOptions) (*Str
 	}
 	if o.Window > 0 {
 		params["window"] = o.Window
+	}
+	if o.Keybinds != "" {
+		params["keybinds"] = o.Keybinds
 	}
 	r, err := c.call(ctx, "pane.render", params)
 	if err != nil {

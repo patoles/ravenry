@@ -33,7 +33,7 @@ it. The Go reference decoder is `daemon/internal/rframe`.
 
 | Message | What |
 | --- | --- |
-| `pane.render` {pane, cols?, rows?, fps?, window?} | Starts a render stream on a new channel, resizing the pane first when cols and rows are given. Result: `channel`, and `format`, the frame format's version (1). |
+| `pane.render` {pane, cols?, rows?, fps?, window?, keybinds?} | Starts a render stream on a new channel, resizing the pane first when cols and rows are given. Result: `channel`, and `format`, the frame format's version (1). `keybinds`: the key bindings for the stream's keys (below, "Key bindings"). |
 | binary frame, kind 4 | One render frame on that channel (below). The header's mark is 0. |
 | `ack` {channel, frame} | The client drew the frames up to `frame` (a frame's `seq`). |
 | `pane.resize` {pane, cols, rows} | The client's grid size changed. |
@@ -162,6 +162,42 @@ theme on the client is never overridden by the daemon's defaults.
   program's redraw after a resize is held until it has been quiet 6 ms,
   at most 100 ms. The client meanwhile draws the frame it has at the new
   size; it never sees a cleared prompt or half a redraw.
+
+## Key bindings
+
+Some keys a terminal sends as fixed bytes for the shell's line editor
+rather than encoding them, because that is what people on the platform
+expect: on a Mac, Cmd+Left to the start of the line. The tables live in
+the daemon (`daemon/internal/vt/keybinds.go`), so every client of a
+platform sends the same bytes and none types them again; a client names
+its table in `pane.render` (`keybinds`). A binding applies to a press or
+a repeat with exactly its modifiers (Caps Lock and Num Lock aside), even
+when the program asked for the Kitty keyboard protocol, as Ghostty's do.
+A setting may later replace single rows; the tables are the defaults.
+
+`macos`, Ghostty's macOS defaults (its `src/config/Config.zig`, "Natural
+text editing", at the libghostty pin) and so Rex's, and what the
+Electron app sends (`apps/desktop/src/renderer/terminal.ts`):
+
+| Key | Sends | At a shell prompt |
+| --- | --- | --- |
+| Cmd+Left | `^A` | the start of the line |
+| Cmd+Right | `^E` | the end of the line |
+| Cmd+Backspace | `^U` | deletes to the start of the line (zsh: the whole line) |
+| Option+Left | `ESC b` | a word left |
+| Option+Right | `ESC f` | a word right (zsh: to the next word's start) |
+| Cmd+Delete (forward) | `^K` | deletes to the end of the line (Ravenry's, not Ghostty's) |
+| Option+Delete (forward) | `ESC d` | deletes the next word (Ravenry's) |
+| Shift+Enter | LF | a new line in Claude Code and Codex; Enter in a shell (the Electron app's) |
+
+Not bound, because the encoder already gives what is expected:
+Option+Backspace is `ESC DEL`, the word before the cursor; Ctrl+Left and
+Ctrl+Right are `CSI 1;5D` and `CSI 1;5C`, as in Ghostty, and Ravenry's
+zsh and bash integrations bind those to a word left and right where the
+person's own files left them unbound (zsh binds neither and typed
+`;5D`). Ghostty's Cmd+Up and Cmd+Down jump to the previous or next
+prompt, a client's action, not bytes: not done yet. `daemon/internal/server/keybinds_test.go`
+checks each at a zsh prompt.
 
 ## What a client implements
 

@@ -1,7 +1,9 @@
 # Ravenry's shell integration for bash. It marks each step of a command
 # with OSC 133 (A a prompt starts, B input starts, C a command runs, D it
 # ended with its status) and tells the terminal the working folder with
-# OSC 7. The user's files are never changed. Opt out with
+# OSC 7. Ctrl+Left and Ctrl+Right (CSI 1;5D and 1;5C) move a word, where
+# the user's inputrc left them unbound. The user's files are never
+# changed. Opt out with
 # RAVENRY_SHELL_INTEGRATION=0.
 #
 # ravenryd loads it one of two ways:
@@ -128,6 +130,14 @@ if [[ $- == *i* && -z "${_ravenry_loaded-}" ]]; then
       builtin printf '\033]133;C\007'
     fi
   }
+
+  # Ctrl+Left and Ctrl+Right a word left and right, unless bound already.
+  if ! builtin bind -p 2>/dev/null | command grep -q '^"\\e\[1;5D"'; then
+    builtin bind '"\e[1;5D": backward-word' 2>/dev/null
+  fi
+  if ! builtin bind -p 2>/dev/null | command grep -q '^"\\e\[1;5C"'; then
+    builtin bind '"\e[1;5C": forward-word' 2>/dev/null
+  fi
 
   if [[ "$(builtin declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
     PROMPT_COMMAND=(_ravenry_status "${PROMPT_COMMAND[@]}" _ravenry_prompt)

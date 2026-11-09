@@ -1330,6 +1330,7 @@ and what such a client implements are in
 | `cols`, `rows` | integers, optional, together | 1 to 4096: resize the pane before the first frame. |
 | `fps` | integer, optional | 1 to 240: the client's display rate; at most this many frames a second. Default 60. |
 | `window` | integer, optional | 1 to 64: frames sent and not yet acknowledged, at most. Default 2. |
+| `keybinds` | string, optional | `macos` or `none` (the default): the key bindings the daemon applies to this stream's keys before encoding them, such as Cmd+Left to the start of the line (docs/RENDERING.md, "Key bindings"). |
 
 Result: `pane`, `channel` and `format`, the frame format's version (1).
 Render frames (kind 4, section 5) follow on the channel, the first one

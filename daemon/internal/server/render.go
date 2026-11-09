@@ -58,6 +58,13 @@ func (c *conn) paneRender(id uint64, data []byte) {
 		}
 		o.Window = *r.Window
 	}
+	var binds []vt.KeyBind
+	if r.Keybinds != nil {
+		if binds, err = vt.Keybinds(*r.Keybinds); err != nil {
+			c.failErr(id, bad("%v", err))
+			return
+		}
+	}
 	rs, err := p.Render(o)
 	if err != nil {
 		c.failErr(id, err)
@@ -66,7 +73,7 @@ func (c *conn) paneRender(id uint64, data []byte) {
 	c.mu.Lock()
 	c.next++
 	ch := c.next
-	st := &stream{ch: ch, p: p, rsub: rs}
+	st := &stream{ch: ch, p: p, rsub: rs, binds: binds}
 	c.streams[ch] = st
 	c.mu.Unlock()
 	c.reply(id, "pane.render", proto.RenderResult{Pane: r.Pane, Channel: ch, Format: rframe.Version})
@@ -194,7 +201,11 @@ func (c *conn) renderInput(id uint64, data []byte) {
 			}
 			ke := vt.KeyEvent{Code: k.Code, Action: k.Action, Mods: uint8(k.Mods), Consumed: uint8(k.Consumed),
 				Text: k.Text, Unshifted: rune(k.Unshifted), Composing: k.Composing, OptionAsAlt: k.OptionAsAlt}
-			b, err = st.p.EncodeInput(func(s vt.Screen) ([]byte, error) { return s.EncodeKeyEvent(ke) })
+			if bound, ok := vt.BoundKey(st.binds, ke); ok {
+				b = bound
+			} else {
+				b, err = st.p.EncodeInput(func(s vt.Screen) ([]byte, error) { return s.EncodeKeyEvent(ke) })
+			}
 		case ev.Mouse != nil:
 			m := ev.Mouse
 			if m.Mods < 0 || m.Mods > 63 {
