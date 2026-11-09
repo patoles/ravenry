@@ -1,8 +1,9 @@
 // The phone board's own rules (src/logic.ts) and the bridge's wire
-// (src/shell.ts), without a page.
+// (src/shell.ts), without a page. What a checkpoint says is the hub's
+// (hub/tools/cpwords-test.mjs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checksOf, connLabel, distributorName, dropLine, KEYS, markLabel, mmss, parentOf, quickAnswers, driveWords, paneInTitle, regionOf, strip, topLabel, variantOf, waitOf } from '../src/logic.ts';
+import { connLabel, distributorName, dropLine, KEYS, mmss, parentOf, quickAnswers, regionOf, strip, waitOf } from '../src/logic.ts';
 import { BRIDGE_VERSION, Wire } from '../src/shell.ts';
 import { board } from '../../desktop/src/renderer/model.ts';
 import type { HubProject } from '../../desktop/src/renderer/model.ts';
@@ -21,12 +22,6 @@ test('the strip has one part per group, as wide as its sessions', () => {
   ]) as HubProject[];
   const groups = board({ projects, sidebar: build(projects, { now: NOW }) }, NOW);
   assert.deepEqual(strip(groups), [{ group: 'you', n: 1 }, { group: 'work', n: 2 }, { group: 'idle', n: 1 }]);
-});
-
-test('the word for a checkpoint\'s kind on a session row', () => {
-  assert.equal(markLabel('ask'), 'Checkpoint:');
-  assert.equal(markLabel('approve'), 'Wants to run:');
-  assert.equal(markLabel('secret'), 'Needs a secret:');
 });
 
 test('quick answers leave out the lines that open a field', () => {
@@ -59,14 +54,6 @@ test('the clock says how long the agent waited and when it gives up', () => {
   assert.equal(waitOf(cp({ created_at: new Date(NOW - 20000).toISOString() }), NOW).label, 'Waiting since just now');
 });
 
-test('a numbered list in the question becomes its checks', () => {
-  const c = checksOf('Build 0.9.4 is on the tablet.\n1. The lobby loads in under 10 seconds\n2. Both hands show');
-  assert.equal(c.text, 'Build 0.9.4 is on the tablet.');
-  assert.deepEqual(c.checks, ['The lobby loads in under 10 seconds', 'Both hands show']);
-  assert.deepEqual(checksOf('One line only').checks, []);
-  assert.equal(checksOf(null).text, null);
-});
-
 test('a photo and a voice note arrive as one line with their paths', () => {
   const d = dropLine({ at: Date.parse('2026-11-06T10:58:00'), topic: 'Tablet build check', answer: 'Didn\'t work', drops: [{ kind: 'photo', name: 'photo-1058.jpg', path: '~/p/.inbox/photo-1058.jpg' }, { kind: 'voice', name: 'voice-1058.m4a', path: '~/p/.inbox/voice-1058.m4a', ms: 7000 }], note: '' });
   assert.equal(d.head, 'Photo and voice note from your phone, 10:58, sent to Tablet build check');
@@ -74,13 +61,6 @@ test('a photo and a voice note arrive as one line with their paths', () => {
   assert.match(d.text, /photo at ~\/p\/\.inbox\/photo-1058\.jpg/);
   assert.match(d.text, /voice note 0:07 at ~\/p\/\.inbox\/voice-1058\.m4a/);
   assert.equal(mmss(65000), '1:05');
-});
-
-test('the top label says who waits and for what', () => {
-  assert.equal(topLabel(cp({ assistant: 'claude' }), 'Claude'), 'Claude is waiting for you');
-  assert.equal(topLabel(cp({ kind: 'approve' }), 'Codex'), 'Codex wants to run a command');
-  assert.equal(topLabel(cp({ kind: 'secret' }), 'Claude'), 'Claude needs a secret');
-  assert.equal(topLabel(cp({ kind: 'approve', page: { title: 'Map tiles', label: 'Rebuild' } }), 'Claude'), 'Map tiles wants to run a command');
 });
 
 test('Back goes up a level, and the sessions are the top', () => {
@@ -116,31 +96,9 @@ test('the wire matches replies to requests and passes events on', async () => {
   w.receive(JSON.stringify({ id: 999, ok: true }));
 });
 
-test('a pick names each variant by its letter and its whole label, and the agent\'s words come from its description', () => {
-  assert.deepEqual(variantOf({ label: 'Level' }, 0, 'Claude'), { letter: 'A', name: 'Level', says: null });
-  assert.deepEqual(variantOf({ label: 'Tilt with the slope', description: 'The hull follows the wave\'s angle at the bow.' }, 1, 'Claude'), { letter: 'B', name: 'Tilt with the slope', says: 'Claude: The hull follows the wave\'s angle at the bow.' });
-  assert.deepEqual(variantOf({ label: 'Half. The slope' }, 2, 'Codex'), { letter: 'C', name: 'Half. The slope', says: null });
-  assert.equal(topLabel(cp({ kind: 'pick' }), 'Claude'), 'Claude wants you to pick');
-  assert.equal(topLabel(cp({ kind: 'drive' }), 'Claude'), 'Claude is asking first');
-});
-
 test('the circled part is the box around the finger\'s path, in fractions of the picture, inside it', () => {
   assert.deepEqual(regionOf([[0.4, 0.3], [0.6, 0.25], [0.62, 0.5], [0.38, 0.48]]), { x: 0.38, y: 0.25, w: 0.24, h: 0.25 });
   assert.deepEqual(regionOf([[-0.2, 0.9], [0.1, 1.4]]), { x: 0, y: 0.9, w: 0.1, h: 0.1 });
   assert.equal(regionOf([[0.5, 0.5], [0.51, 0.505]]), null);
   assert.equal(regionOf([[0.5, 0.5]]), null);
-});
-
-
-test('a drive says its action and names the pane, never its id', () => {
-  const input = driveWords(undefined, 'Claude', 'dev server');
-  assert.equal(input.title, 'Claude wants to type in dev server');
-  assert.deepEqual(input.yes.map((y) => [y.allow, y.label]), [['once', 'Allow once'], ['session', 'This session']]);
-  const close = driveWords('close', 'Claude', 'dev server');
-  assert.equal(close.title, 'Claude wants to close dev server');
-  assert.deepEqual(close.yes.map((y) => [y.allow, y.label]), [['once', 'Let it close']]);
-  assert.equal(driveWords('restart', 'Codex', 'tests').title, 'Codex wants to restart tests');
-  assert.equal(driveWords('override', 'Codex', 'tui').title, 'Codex wants to change how tui runs');
-  assert.equal(paneInTitle('Let Claude close "dev server" (pane pk3m9q2x)?'), 'dev server');
-  assert.equal(paneInTitle('Let Claude close pane pk3m9q2x?'), null);
 });

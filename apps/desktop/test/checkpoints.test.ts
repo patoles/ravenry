@@ -1,15 +1,18 @@
-// The checkpoint cards' states (what each says, open and after), the store
-// that merges the daemons' and the hub's checkpoints, the sidebar marks, and
-// how the secret field holds a secret: only in the field, gone on blur and
-// once taken for the answer call.
+// The checkpoint cards' clocks and how the window fills the hub's words
+// (what each card says is the hub's: hub/tools/cpwords-test.mjs), the store
+// that merges the daemons' and the hub's checkpoints and asks the hub for
+// the words a daemon's copy lacks, the sidebar marks, and how the secret
+// field holds a secret: only in the field, gone on blur and once taken for
+// the answer call.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Checkpoint } from '@ravenry/client';
 import {
-  afterOf, changedRange, characters, Checkpoints, daemonAnswer, digitChoice, duration, givesUp, heading, hubAnswer, markOf, ranCommand, riskOf, runLabel, SecretField, warningsOf,
-  secretProblem, shortCommand, splitTitle, waiting, wantsLine,
+  changedRange, characters, Checkpoints, daemonAnswer, digitChoice, fill, givesUp, hubAnswer, SecretField, secretProblem, timeOf, waiting, warningsFor, wordsBody, wordsOf,
 } from '../src/renderer/checkpoints.ts';
-import type { HubCheckpoint } from '../src/renderer/checkpoints.ts';
+import type { CheckpointWords, HubCheckpoint, Reader } from '../src/renderer/checkpoints.ts';
+// @ts-ignore: the hub's module, plain JavaScript
+import { withWords } from '../../../hub/server/cpwords.mjs';
 import { board } from '../src/renderer/model.ts';
 import type { HubState } from '../src/renderer/model.ts';
 // @ts-ignore: the hub's module, plain JavaScript
@@ -31,68 +34,83 @@ const secret: Checkpoint = {
   secret: { to: 'run', enter: true }, pane: 'pccccccc', assistant: 'claude', created_at: at(1), expires_at: new Date(2026, 10, 6, 18, 1).toISOString(),
 };
 
-test('an open card says who waits, since when, and until when', () => {
-  assert.equal(heading(ask), 'Claude asks');
-  assert.equal(heading(approve), 'Codex wants to run');
-  assert.equal(heading(secret), 'Claude needs a secret');
-  assert.equal(heading({ ...ask, assistant: undefined }), 'The agent asks');
-  assert.equal(heading({ ...ask, kind: 'poll' }), 'Claude is waiting');
+const worded = (cp: HubCheckpoint): HubCheckpoint => withWords(cp, { platform: 'darwin', hubName: 'Studio' });
+const desk: Reader = { me: 'desktop', onHub: true, time: (iso) => timeOf(iso, NOW) };
+const phone: Reader = { me: 'phone', onHub: false, time: (iso) => timeOf(iso, NOW) };
+
+test('an open card says since when and until when, against the window\'s clock', () => {
   assert.equal(waiting(ask, NOW), 'waiting 2 min');
   assert.equal(waiting({ ...ask, created_at: at(0.2) }, NOW), 'just now');
   assert.equal(waiting({ ...ask, created_at: at(130) }, NOW), 'waiting 2 h');
   assert.equal(givesUp(ask, NOW), 'Gives up at 18:04');
   assert.match(givesUp({ ...ask, expires_at: new Date(2026, 10, 7, 9, 0).toISOString() }, NOW), /^Gives up at \w{3} 09:00$/);
-  assert.deepEqual(splitTitle(ask.title), { head: 'Ship the beta to the testers?', body: 'The settings screen is done and all 64 tests pass.' });
-  assert.deepEqual(splitTitle('One line'), { head: 'One line', body: null });
 });
 
-test('the approve card names the machine, warns when it cannot be undone', () => {
-  assert.equal(runLabel('devbox', 'darwin'), 'Run on devbox');
-  assert.equal(runLabel(null, 'darwin'), 'Run on this Mac');
-  assert.equal(runLabel(null, 'linux'), 'Run on this computer');
-  assert.equal(riskOf('git push origin main && npm publish'), 'Publishing to npm can\'t be undone');
-  assert.equal(riskOf('npm --workspace x publish --tag beta'), 'Publishing to npm can\'t be undone');
-  assert.equal(riskOf('git push --force origin main'), 'A force push can\'t be undone');
-  assert.equal(riskOf('rm -rf build'), 'Deleting with rm -rf can\'t be undone');
-  assert.equal(riskOf('git push origin main'), null);
-  assert.equal(riskOf('npm test'), null);
-  assert.equal(riskOf('psql -c "DROP TABLE users"'), 'Dropping data can\'t be undone');
+test('the hub\'s words, their tokens filled by the window\'s rule', () => {
+  const w = worded({ ...approve, machine: null }).words!;
+  assert.equal(w.heading, 'Codex wants to run');
+  assert.equal(fill(w.runLabel, w, desk), 'Run on this Mac');
+  assert.equal(fill(w.runLabel, w, phone), 'Run on Studio');
+  const closed = worded({ ...ask, state: 'answered', closed_at: at(0), answer: { choice: 0, option: 'Ship it', by: 'phone', at: at(0) } });
+  const a = closed.words!.after!;
+  assert.equal(fill(a.text, closed.words!, desk), 'You answered on your phone.');
+  assert.equal(fill(a.text, closed.words!, phone), 'You answered here.');
+  assert.equal(desk.time(a.at), '17:36');
+  const ex = worded({ ...ask, state: 'expired', closed_at: at(0) }).words!;
+  assert.equal(fill(ex.after!.text, ex, desk), 'Claude gave up waiting at 17:36.');
+  // A drive's pane: the window's own name for it, else the hub's.
+  const dr = worded({ ...ask, kind: 'drive', title: 'Let it type into "dev server" (pane pb)?', drive: { pane: 'pb', agent: { kind: 'agent', pane: 'pa' } } } as HubCheckpoint).words!;
+  assert.equal(fill(dr.drive!.title, dr, { ...desk, pane: 'Dev server' }), 'Let it type in Dev server?');
+  assert.equal(fill(dr.drive!.title, dr, desk), 'Let it type in dev server?');
 });
 
-test('the agent\'s warning shows as its own, and never hides Ravenry\'s guess', () => {
-  // Only Ravenry's guess: the fallback, labelled as Ravenry's.
-  assert.deepEqual(warningsOf(approve), [{ from: 'ravenry', label: 'Ravenry\'s guess:', text: 'Publishing to npm can\'t be undone' }]);
-  // The agent declares one: shown as its words, and the guess stays.
-  const reassuring = { ...approve, warning: 'Nothing here can go wrong' };
-  assert.deepEqual(warningsOf(reassuring).map((w) => `${w.from}|${w.label} ${w.text}`), [
-    'agent|Codex warns: Nothing here can go wrong',
-    'ravenry|Ravenry\'s guess: Publishing to npm can\'t be undone',
-  ]);
-  // The agent's warning alone, on a command Ravenry has no guess for.
-  assert.deepEqual(warningsOf({ ...approve, command: 'make deploy', warning: 'This restarts the production server' }).map((w) => w.from), ['agent']);
-  // While the person edits, the guess follows the edited text.
-  assert.deepEqual(warningsOf(approve, 'git push origin main'), []);
-  assert.deepEqual(warningsOf({ ...approve, warning: '  ' }, 'npm test'), []);
+test('the guess follows the edited command at once, from the hub\'s rules', () => {
+  const cp = worded({ ...approve, warning: 'Nothing here can go wrong' });
+  const w = cp.words!;
+  assert.deepEqual(warningsFor(cp, w, cp.command).map((x) => `${x.from}|${x.label} ${x.text}`), ['agent|Codex warns: Nothing here can go wrong', 'ravenry|Ravenry\'s guess: Publishing to npm can\'t be undone']);
+  assert.deepEqual(warningsFor(cp, w, 'git push origin main').map((x) => x.from), ['agent']);
+  assert.deepEqual(warningsFor(cp, w, 'git push --force origin main').map((x) => x.text), ['Nothing here can go wrong', 'A force push can\'t be undone']);
+  const plain = worded(approve);
+  assert.deepEqual(warningsFor(plain, plain.words!, 'npm test'), []);
 });
 
-test('edit then run, and refuse with a reason: the answer carries them, the card says so after', () => {
+test('the store asks the hub for the words a copy lacks, once per state, and keeps them for that state only', () => {
+  const st = new Checkpoints();
+  st.fromDaemon('/s1', ask, NOW);
+  assert.equal(wordsOf(st.get('cask0001')!.cp), null, 'a daemon\'s copy has no words');
+  const want = st.wordsWanted(NOW);
+  assert.deepEqual(want.map((c) => c.id), ['cask0001']);
+  assert.deepEqual(st.wordsWanted(NOW), [], 'asked once');
+  // The hub answers: the card can be drawn.
+  const w = worded(ask).words as CheckpointWords;
+  assert.equal(st.setWords({ cask0001: w }), true);
+  assert.equal(wordsOf(st.get('cask0001')!.cp)!.heading, 'Claude asks');
+  // The daemon says it was answered: the open words stay but are not this state's, so they are asked for.
+  st.fromDaemon('/s1', { ...ask, state: 'answered', answer: { choice: 0, option: 'Ship it', by: 'desktop', at: at(0) }, closed_at: at(0) }, NOW);
+  assert.equal(wordsOf(st.get('cask0001')!.cp), null);
+  const again = st.wordsWanted(NOW);
+  assert.equal(again[0].state, 'answered');
+  // Words made for another state are not kept.
+  assert.equal(st.setWords({ cask0001: w }), false);
+  // The hub did not answer: asked again a little later, not at once.
+  st.wordsFailed(again, NOW);
+  assert.deepEqual(st.wordsWanted(NOW + 500), []);
+  assert.equal(st.wordsWanted(NOW + 2500).length, 1);
+  // The hub's copy carries its words: nothing to ask.
+  const st2 = new Checkpoints();
+  st2.fromHub([worded(approve)], NOW);
+  assert.deepEqual(st2.wordsWanted(NOW), []);
+  // What is sent to be worded carries no old words and never a secret.
+  const typed = ['typed', 'value', 'not', 'sent'].join('-');
+  const body = wordsBody([{ ...secret, state: 'answered', answer: { delivered: true, secret: typed } as never, words: w }]);
+  assert.ok(!JSON.stringify(body).includes(typed));
+  assert.equal((body.checkpoints[0] as HubCheckpoint).words, undefined);
+});
+
+test('edit then run, and refuse with a reason: the answer carries them', () => {
   assert.deepEqual(daemonAnswer('capp0001', { approve: true, command: 'npm publish --tag beta' }), { checkpoint: 'capp0001', by: 'desktop', approve: true, command: 'npm publish --tag beta' });
   assert.deepEqual(hubAnswer('capp0001', { approve: true, command: 'npm publish --tag beta' }), { id: 'capp0001', by: 'desktop', approve: true, command: 'npm publish --tag beta' });
   assert.deepEqual(hubAnswer('capp0001', { decline: true, reason: 'Run the tests first' }), { id: 'capp0001', by: 'desktop', decline: true, reason: 'Run the tests first' });
-  const ed = { ...approve, state: 'answered' as const, answer: { approved: true, command: 'npm publish --tag beta', by: 'desktop', at: at(1) }, closed_at: at(0), run: { pane: 'pd', exit: { code: 0 } } };
-  assert.equal(ranCommand(ed), 'npm publish --tag beta');
-  const after = afterOf(ed, NOW, 'darwin');
-  assert.equal(after.command, 'npm publish --tag beta');
-  assert.equal(after.edited, true);
-  assert.match(after.text, /You edited it and approved it here; codex has the output and knows you changed it\./i);
-  const running = afterOf({ ...ed, state: 'running', run: { pane: 'pd' } }, NOW, 'darwin');
-  assert.match(running.text, /You edited it and approved it here\. Codex gets the output when it ends, and is told you changed it\./);
-  const plain = afterOf({ ...ed, answer: { approved: true, by: 'desktop', at: at(1) } }, NOW, 'darwin');
-  assert.equal(plain.command, approve.command);
-  assert.equal(plain.edited, false);
-  const refused = afterOf({ ...approve, state: 'declined', closed_at: at(0), answer: { declined: true, reason: 'Run the tests first', by: 'desktop', at: at(0) } }, NOW, 'darwin');
-  assert.equal(refused.text, 'You said no here: "Run the tests first". Codex was told.');
-  assert.equal(afterOf({ ...approve, state: 'declined', closed_at: at(0), answer: { declined: true, by: 'phone', at: at(0) } }, NOW, 'darwin').text, 'You said no on your phone. Codex was told.');
 });
 
 test('number keys pick an answer; edits are tinted where they changed', () => {
@@ -105,42 +123,6 @@ test('number keys pick an answer; edits are tinted where they changed', () => {
   assert.deepEqual(changedRange(cmd, cmd + ' --tag beta'), [cmd.length, cmd.length + 11]);
   assert.deepEqual(changedRange(cmd, cmd.replace('main', 'beta')), [16, 20]);
   assert.equal(changedRange(cmd, cmd), null);
-});
-
-test('the sidebar mark says what kind of answer waits', () => {
-  assert.deepEqual(markOf(ask), { kind: 'ask', text: 'Ship the beta to the testers?', code: false });
-  assert.deepEqual(markOf(approve), { kind: 'approve', text: 'git push origin main && npm publish', code: true });
-  assert.deepEqual(markOf(secret), { kind: 'secret', text: 'Wants the mail service API key', code: false });
-  assert.equal(wantsLine('GitHub token'), 'Wants the GitHub token');
-  assert.equal(wantsLine('AWS secret key'), 'Wants the AWS secret key');
-});
-
-test('after an answer the card says how it ended', () => {
-  const asked = afterOf({ ...ask, state: 'answered', closed_at: at(0), answer: { choice: 0, option: 'Ship it', by: 'phone', at: at(0) } }, NOW, 'darwin');
-  assert.deepEqual([asked.ok, asked.head, asked.small, asked.big, asked.text, asked.time], [true, 'Answered', 'Ship the beta to the testers?', 'Ship it', 'You answered on your phone.', '17:36']);
-  const typed = afterOf({ ...ask, state: 'answered', closed_at: at(0), answer: { text: 'Not yet, after the fix', by: 'desktop', at: at(0) } }, NOW, 'darwin');
-  assert.equal(typed.big, 'Not yet, after the fix');
-  assert.equal(typed.text, 'You answered here.');
-  const ran = afterOf({ ...approve, state: 'answered', answer: { approved: true, by: 'desktop', at: at(0.1) }, closed_at: new Date(NOW - 6000 + 6000).toISOString(), run: { pane: 'pdddddddd', exit: { code: 0 } } }, NOW, 'darwin');
-  assert.equal(ran.head, 'Ran on devbox');
-  assert.equal(ran.text, 'Finished in 6 s with no errors. You approved it here; Codex has the output.');
-  assert.equal(ran.runPane, 'pdddddddd');
-  const failed = afterOf({ ...approve, machine: null, state: 'answered', answer: { approved: true, by: 'desktop', at: at(1) }, closed_at: at(0), run: { pane: 'pd', exit: { code: 2 } } }, NOW, 'darwin');
-  assert.equal(failed.ok, false);
-  assert.equal(failed.head, 'Ran on this Mac');
-  assert.match(failed.text, /^Ended with exit code 2 after 1 min\./);
-  const running = afterOf({ ...approve, state: 'running', answer: { approved: true, by: 'desktop', at: at(0) }, run: { pane: 'pd' } }, NOW, 'darwin');
-  assert.equal(running.head, 'Running on devbox');
-  const sent = afterOf({ ...secret, state: 'answered', closed_at: at(0), answer: { delivered: true, by: 'desktop', at: at(0) } }, NOW, 'darwin');
-  assert.deepEqual([sent.head, sent.big], ['Secret sent', 'Mail service API key']);
-  assert.equal(sent.text, 'Sent to wrangler secret put. Ravenry didn\'t keep a copy, so it can\'t be shown again. To change it, Claude has to ask again.');
-  assert.equal(afterOf({ ...approve, state: 'declined', closed_at: at(0), answer: { declined: true, by: 'desktop', at: at(0) } }, NOW, 'darwin').head, 'Refused');
-  assert.equal(afterOf({ ...ask, state: 'expired', closed_at: at(0) }, NOW, 'darwin').head, 'Nobody answered');
-  assert.match(afterOf({ ...ask, state: 'cancelled', reason: 'done another way', closed_at: at(0) }, NOW, 'darwin').text, /withdrew it: done another way/);
-  assert.equal(shortCommand('npx wrangler secret put MAIL_API_KEY'), 'wrangler secret put');
-  assert.equal(shortCommand('gh secret set TOKEN'), 'gh secret set');
-  assert.equal(duration(6000), '6 s');
-  assert.equal(duration(80000), '1 min 20 s');
 });
 
 test('the store merges a daemon\'s checkpoints with the hub\'s, and keeps a closed one a while', () => {
@@ -182,7 +164,7 @@ test('a session waiting at a checkpoint needs you, with its mark and the time it
   const g = board({ ...state, sidebar: build(state.projects, { marks: marksOf(state.projects, cps, { now: NOW }), now: NOW }) }, NOW);
   assert.equal(g[0].group, 'you');
   assert.equal(g[0].projects[0].time, '17:34');
-  assert.deepEqual(g[0].projects[0].rows[0].mark, { kind: 'ask', text: 'Ship the beta to the testers?', code: false, since: ask.created_at });
+  assert.deepEqual(g[0].projects[0].rows[0].mark, { kind: 'ask', text: 'Ship the beta to the testers?', code: false, label: 'Checkpoint:', since: ask.created_at });
   assert.equal(g[0].projects[0].rows[0].line, null);
   assert.equal(board({ ...state, sidebar: build(withGroups(state.projects), { now: NOW }) }, NOW)[0].group, 'work');
 });

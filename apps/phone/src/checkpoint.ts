@@ -14,19 +14,21 @@
 //            the secret), and Send to the terminal
 //
 // Answers go to the hub as the device (POST /api/checkpoints/answer), the
-// person's answer (hub/docs/PERSON.md).
+// person's answer (hub/docs/PERSON.md). Every word about the checkpoint is
+// the hub's (its `words`, hub/server/cpwords.mjs), its tokens filled for
+// the phone (reader below).
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
 import * as DI from '../../desktop/src/renderer/icons.ts';
-import { assistantName, findSession, paneOf, secondLine } from '../../desktop/src/renderer/model.ts';
+import { assistantName, findSession, secondLine } from '../../desktop/src/renderer/model.ts';
 import {
-  afterOf, characters, isRemote, kindOf, secretProblem, splitTitle, warningsOf, who,
+  characters, fill, kindOf, secretProblem, timeOf, warningsFor,
 } from '../../desktop/src/renderer/checkpoints.ts';
-import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
+import type { CheckpointWords, HubCheckpoint, Reader } from '../../desktop/src/renderer/checkpoints.ts';
 import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
-import { checksOf, driveWords, dropLine, mmss, paneInTitle, topLabel, waitOf } from './logic.ts';
+import { dropLine, mmss, waitOf } from './logic.ts';
 import { newPick, pickView } from './pick.ts';
 import type { PickUI } from './pick.ts';
 import { sayPathOn } from '../../../hub/public/homepath.mjs';
@@ -41,7 +43,11 @@ function find(id: string): HubCheckpoint | null {
   return all.find((c) => c && c.id === id) || null;
 }
 
-const machineOfCp = (cp: HubCheckpoint): string => (isRemote(cp.machine) ? String(cp.machine) : current().hello.hub.name);
+/** How the phone fills the words' tokens: its answers say "phone", it is not on the hub's computer, its clock. */
+const reader = (pane: string | null = null): Reader => ({ me: 'phone', onHub: false, time: (iso) => timeOf(iso, Date.now()), pane });
+
+/** The machine a checkpoint runs on, as the phone says it: the hub's words, else this computer's name. */
+const machineOfCp = (cp: HubCheckpoint): string => (cp.words ? cp.words.machine.away : current().hello.hub.name);
 
 async function answer(cp: HubCheckpoint, reply: Record<string, unknown>): Promise<void> {
   await hub.post('/api/checkpoints/answer', { id: cp.id, by: 'phone', ...reply });
@@ -51,7 +57,7 @@ async function answer(cp: HubCheckpoint, reply: Record<string, unknown>): Promis
 function topBar(cp: HubCheckpoint, icon: string): HTMLElement {
   return h('div.pcp-top',
     h('button.icon-btn.fg', { 'aria-label': 'Close', on: { click: back } }, svg(I.X18)), h('span.sp'),
-    h('span.lab', svg(icon), topLabel(cp, who(cp))), h('span.sp'), h('span.icon-sp'));
+    h('span.lab', svg(icon), cp.words?.top || ''), h('span.sp'), h('span.icon-sp'));
 }
 
 function fromLine(cp: HubCheckpoint): HTMLElement[] {
@@ -71,25 +77,25 @@ function waitBox(cp: HubCheckpoint): HTMLElement {
     h('div.bar', h('div.f', { style: { width: `${w.pct}%`, background: 'var(--you)' } })));
 }
 
-function doneView(cp: HubCheckpoint): HTMLElement {
-  const a = afterOf(cp, Date.now(), 'phone', 'phone');
+function doneView(cp: HubCheckpoint, w: CheckpointWords): HTMLElement {
+  const a = w.after || { ok: false, head: '', small: null, big: null, command: null, text: '' };
   return h('div.pcp.done',
     h('div.pcp-top', h('button.icon-btn.fg', { 'aria-label': 'Close', on: { click: back } }, svg(I.X18)), h('span.sp')),
     ...fromLine(cp),
-    h(`div.after${a.ok ? '.ok' : ''}`, h('span.ai', svg(a.ok ? DI.DONE : DI.ENDED)), h('b', a.head)),
+    h(`div.after${a.ok ? '.ok' : ''}`, h('span.ai', svg(a.ok ? DI.DONE : DI.ENDED)), h('b', fill(a.head, w, reader()))),
     a.small ? h('p.det', a.small) : null,
     a.big ? h('h2', a.big) : null,
     a.command ? h('pre.pcmd', a.command) : null,
-    h('p.det', a.text),
+    h('p.det', fill(a.text, w, reader())),
     h('div.pcp-b', h('button.btn.big', { on: { click: back } }, 'Back')));
 }
 
 // ---------------------------------------------------------------- ask
 
-function askView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement {
+function askView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () => void): HTMLElement {
   const sh = current();
-  const t = splitTitle(cp.title);
-  const { text, checks } = checksOf(t.body);
+  const t = w;
+  const { text, checks } = w.checks;
   const opts = cp.options || [];
   const pick = async (i: number) => {
     if (ui.busy) return;
@@ -136,7 +142,7 @@ function askView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement {
 
 // ---------------------------------------------------------------- approve
 
-function approveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement {
+function approveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () => void): HTMLElement {
   const sh = current();
   const machine = machineOfCp(cp);
   const f = cp.projectId && cp.surfaceId ? findSession(hub.live.state, `${cp.projectId}/${cp.surfaceId}`) : null;
@@ -172,8 +178,8 @@ function approveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElemen
     ? h('textarea.pcmd.edit', { rows: '3', spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', on: { input: (e: Event) => { ui.edit = (e.target as HTMLTextAreaElement).value; paintRun(); } } }, ui.edit)
     : h('pre.pcmd', command);
   const env = cp.env && Object.keys(cp.env).length ? Object.entries(cp.env) : [];
-  const warnings = warningsOf(cp, command);
-  const reasonField = h('input.f', { type: 'text', placeholder: 'Why not? (optional, Codex reads it)'.replace('Codex', who(cp)), value: ui.reason, on: { input: (e: Event) => { ui.reason = (e.target as HTMLInputElement).value; } } });
+  const warnings = warningsFor(cp, w, command);
+  const reasonField = h('input.f', { type: 'text', placeholder: `Why not? (optional, ${w.who} reads it)`, value: ui.reason, on: { input: (e: Event) => { ui.reason = (e.target as HTMLInputElement).value; } } });
   return h('div.pcp',
     topBar(cp, DI.RUN), ...fromLine(cp),
     cmdEl,
@@ -182,8 +188,8 @@ function approveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElemen
       h('span', 'Machine'), h('span', machine),
       h('span', 'Pane'), h('span', f ? `This session, ${f.session.topic || f.project.name}` : 'A new pane'),
       env.map(([k, v]) => [h('span.mono', k), h('span.mono', String(v))])),
-    warnings.map((w) => h(`div.prisk${w.from === 'agent' ? '.agent' : ''}`, svg(DI.WARN), w.from === 'agent' ? h('span', h('span.who', w.label), ' ', w.text) : h('span', w.text))),
-    cp.why ? h('p.psays', h('span', `${who(cp)} says:`), ' ', cp.why) : null,
+    warnings.map((x) => h(`div.prisk${x.from === 'agent' ? '.agent' : ''}`, svg(DI.WARN), x.from === 'agent' ? h('span', h('span.who', x.label), ' ', x.text) : h('span', x.text))),
+    cp.why ? h('p.psays', h('span', `${w.who} says:`), ' ', cp.why) : null,
     waitBox(cp),
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b',
@@ -197,10 +203,10 @@ function approveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElemen
 
 // ---------------------------------------------------------------- secret
 
-function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld: HTMLElement) => void, reveal: (on: boolean) => void): HTMLElement {
+function secretView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () => void, mount: (fld: HTMLElement) => void, reveal: (on: boolean) => void): HTMLElement {
   const sh = current();
   const native = sh.has('secret');
-  const t = splitTitle(cp.title);
+  const t = w;
   const to = cp.secret?.to;
   const goes = to === 'input' ? 'that terminal' : 'that command';
   // In the app the shell's private field lies over .slot, transparent: the
@@ -232,7 +238,7 @@ function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld:
     h('h2.sm', t.head),
     cp.command ? h('p.det', 'For ', h('span.mono', cp.command)) : t.body ? h('p.det', t.body) : null,
     fld,
-    h('ul.pprom', h('li', svg(DI.LOCK), `Goes straight to ${goes}, not to ${who(cp)}`), h('li', svg(DI.LOCK), 'Not kept in logs, history or on this phone')),
+    h('ul.pprom', h('li', svg(DI.LOCK), `Goes straight to ${goes}, not to ${w.who}`), h('li', svg(DI.LOCK), 'Not kept in logs, history or on this phone')),
     ui.count && native ? h('p.t2.small', characters(ui.count)) : null,
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b', h('button.btn.pri.big', { disabled: ui.busy, on: { click: () => void send() } }, 'Send to the terminal')));
@@ -240,23 +246,13 @@ function secretView(cp: HubCheckpoint, ui: UI, repaint: () => void, mount: (fld:
 
 // ---------------------------------------------------------------- drive
 
-/** The pane a drive acts on, by the name the board shows: its session's, else its own name; never its id. */
-function drivePane(cp: HubCheckpoint): string {
-  const named = (cp.drive as { name?: string } | undefined)?.name;
-  if (named) return named;
-  const pane = cp.drive?.pane;
-  for (const p of hub.live.state?.projects || []) for (const s of p.sessions || []) {
-    if (pane && paneOf(s) === pane) return s.topic || p.name;
-  }
-  return paneInTitle(cp.title) || 'another tab';
-}
-
-function driveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement {
+function driveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () => void): HTMLElement {
   const sh = current();
-  const w = who(cp);
-  const target = drivePane(cp);
   const action = cp.drive?.action || 'input';
-  const words = driveWords(action, w, target);
+  // The hub's words, with the pane by the name the board shows (never its id).
+  const dw = w.drive!.phone;
+  const say = (s: string) => fill(s, w, reader());
+  const words = { title: say(dw.title), what: dw.what, yes: dw.yes.map((y) => ({ ...y, said: say(y.said) })) };
   const input = String(cp.drive?.input || '');
   const reason = String((cp.drive as { reason?: string } | undefined)?.reason || '').trim();
   const allow = async (y: (typeof words.yes)[number]) => {
@@ -280,7 +276,7 @@ function driveView(cp: HubCheckpoint, ui: UI, repaint: () => void): HTMLElement 
     words.what ? h('p.det', words.what) : null,
     input ? [h('div.plbl', action === 'override' ? 'It would set' : 'It would press, in order'),
       h('div.ptyped', action === 'override' ? input : keyParts(input).map((x) => (x.kind === 'key' ? h('span.kc', x.text) : h('span', x.text))))] : null,
-    reason ? h('p.psays', h('span', `${w} says:`), ' ', reason) : null,
+    reason ? h('p.psays', h('span', `${w.who} says:`), ' ', reason) : null,
     waitBox(cp),
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b',
@@ -325,7 +321,7 @@ export function checkpointScreen(id: string): Screen {
     const cp = find(id);
     // A pick is drawn again only when its state changes: a minute passing
     // must not take the picture from under a finger or a note being typed.
-    const key = cp ? `${cp.state}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? '' : Math.floor(Date.now() / 30000)}` : 'gone';
+    const key = cp ? `${cp.state}|${!!cp.words}|${ui.busy}|${ui.error}|${ui.editing}|${ui.refusing}|${ui.count}|${cp.kind === 'pick' ? '' : Math.floor(Date.now() / 30000)}` : 'gone';
     if (!force && key === lastKey) return;
     lastKey = key;
     if (!cp) {
@@ -334,15 +330,18 @@ export function checkpointScreen(id: string): Screen {
         hub.live.state ? h('p.det', 'It was answered, withdrawn or ran out before this screen opened.') : null));
       return;
     }
-    if (cp.state !== 'open') { closeSecret(); replace(el, doneView(cp)); return; }
+    // The hub's state carries every checkpoint with its words.
+    const w = cp.words;
+    if (!w) return;
+    if (cp.state !== 'open') { closeSecret(); replace(el, doneView(cp, w)); return; }
     const repaint = () => paint(true);
     const k = kindOf(cp);
-    const view = cp.kind === 'pick' ? pickView(cp, pkNow, { topBar, fromLine, answer, repaint, done: (said) => { picks.delete(id); toast(said); back(); } })
-      : cp.kind === 'drive' ? driveView(cp, ui, repaint)
-      : k === 'ask' ? askView(cp, ui, repaint)
-      : k === 'approve' ? approveView(cp, ui, repaint)
-      : k === 'secret' ? secretView(cp, ui, repaint, (f) => { secretField = f; }, (on) => { void sh.call('secret.move', { rect: slotRect(), reveal: on }).catch(() => {}); })
-      : h('div.pcp', topBar(cp, DI.ASK), ...fromLine(cp), h('h2.sm', splitTitle(cp.title).head),
+    const view = cp.kind === 'pick' ? pickView(cp, w, pkNow, { topBar, fromLine, answer, repaint, done: (said) => { picks.delete(id); toast(said); back(); } })
+      : cp.kind === 'drive' && w.drive ? driveView(cp, w, ui, repaint)
+      : k === 'ask' ? askView(cp, w, ui, repaint)
+      : k === 'approve' ? approveView(cp, w, ui, repaint)
+      : k === 'secret' ? secretView(cp, w, ui, repaint, (f) => { secretField = f; }, (on) => { void sh.call('secret.move', { rect: slotRect(), reveal: on }).catch(() => {}); })
+      : h('div.pcp', topBar(cp, DI.ASK), ...fromLine(cp), h('h2.sm', w.head),
         h('div.pcp-b', h('button.btn.big', { on: { click: () => void answer(cp, { decline: true }).then(back, (e) => toast((e as Error).message)) } }, 'Decline')));
     const focusDraft = document.activeElement && (document.activeElement as HTMLElement).tagName === 'TEXTAREA';
     replace(el, view);

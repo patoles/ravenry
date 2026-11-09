@@ -9,7 +9,7 @@
 import type { CheckpointReply, Region } from '@ravenry/client';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
-import { isOpen, splitTitle, waiting, who } from './checkpoints.ts';
+import { isOpen, waiting } from './checkpoints.ts';
 import type { Known } from './checkpoints.ts';
 
 export interface PickerHost {
@@ -24,7 +24,6 @@ export interface PickerHost {
 
 interface State { id: string; picked: number | null; circling: boolean; region: Region | null; pin: string; editingPin: boolean; extra: string; busy: boolean; error: string | null }
 
-const LETTERS = 'ABCD';
 
 export class Picker {
   private st: State | null = null;
@@ -83,10 +82,12 @@ export class Picker {
 
   render(): void {
     const k = this.k, st = this.st;
-    if (!k || !st) { replace(this.el); return; }
+    // The hub's words (any state's: who asks and the variants stay as they were).
+    const w = k && k.cp.words;
+    if (!k || !st || !w) { replace(this.el); return; }
     const cp = k.cp;
     const vs = cp.variants || [];
-    const { head, body } = splitTitle(cp.title);
+    const { head, body } = w;
     const open = isOpen(cp) && this.host.canAnswer(k);
     const where = this.host.where(k);
     const cols = Math.min(vs.length, 3) || 1;
@@ -95,7 +96,7 @@ export class Picker {
       const src = this.host.src(k, n);
       const img = h(`div.pv-img${st.circling ? '.drawing' : ''}`,
         src ? (v.type === 'html' ? h('div.t3', { style: { padding: '20px' } }, 'A page: open it from the board to see it.') : h('img', { src, alt: v.label, draggable: 'false' })) : h('div.t3', { style: { padding: '20px' } }, 'This picture is on another machine.'),
-        h('span.plab', LETTERS[n] || String(n + 1)));
+        h('span.plab', w.variants[n]?.letter || String(n + 1)));
       if (on && st.region) {
         const r = st.region;
         img.append(h('div.ring-r', { style: { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` } }));
@@ -116,15 +117,15 @@ export class Picker {
       return h(`div.pv${on ? '.on' : ''}`,
         img,
         h('div.pv-t', v.label, on ? h('span.yp', 'Your pick') : null),
-        v.description ? h('div.pv-w', `${who(cp)}: ${v.description}`) : null,
+        w.variants[n]?.says ? h('div.pv-w', w.variants[n].says) : null,
         h('div.pv-a',
-          on ? h('button.btn.sm.pri', { disabled: !open }, svg(I.CHECK_C), 'Picked') : h('button.btn.sm', { disabled: !open, on: { click: () => this.pickN(n) } }, `Pick ${LETTERS[n] || n + 1}`),
+          on ? h('button.btn.sm.pri', { disabled: !open }, svg(I.CHECK_C), 'Picked') : h('button.btn.sm', { disabled: !open, on: { click: () => this.pickN(n) } }, `Pick ${w.variants[n]?.letter || n + 1}`),
           h('span.kb', String(n + 1))));
     });
     replace(this.el,
       h('div.pk-h',
         h('div.tt',
-          h('div.pk-k', svg(I.PICK), h('b', `${who(cp)} asks you to pick`), where ? h('span', where) : null),
+          h('div.pk-k', svg(I.PICK), h('b', w.heading), where ? h('span', where) : null),
           h('h2', head),
           body ? h('div.t2', { style: { fontSize: '13px' } }, body) : null),
         h('span.t3.small.num', { style: { marginTop: '2px' } }, waiting(cp, this.host.now())),
@@ -142,8 +143,9 @@ export class Picker {
     const k = this.k!, st = this.st!, f = this.footerEl!;
     const open = isOpen(k.cp) && this.host.canAnswer(k);
     const n = this.notes();
-    const letter = st.picked !== null ? LETTERS[st.picked] || String(st.picked + 1) : null;
-    const extra = h('input.note', { type: 'text', placeholder: `Anything else for ${who(k.cp)} (optional)`, value: st.extra, 'aria-label': `Anything else for ${who(k.cp)}` }) as HTMLInputElement;
+    const letter = st.picked !== null ? k.cp.words?.variants[st.picked]?.letter || String(st.picked + 1) : null;
+    const who = k.cp.words?.who || '';
+    const extra = h('input.note', { type: 'text', placeholder: `Anything else for ${who} (optional)`, value: st.extra, 'aria-label': `Anything else for ${who}` }) as HTMLInputElement;
     extra.addEventListener('input', () => { st.extra = extra.value; });
     extra.addEventListener('keydown', (e) => { if (e.key === 'Enter' && st.picked !== null) { e.preventDefault(); void this.send(); } e.stopPropagation(); });
     const had = document.activeElement === f.querySelector('input.note');

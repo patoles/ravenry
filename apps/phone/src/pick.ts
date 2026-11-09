@@ -15,11 +15,10 @@
 // decline for None of these.
 
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
-import { splitTitle, who } from '../../desktop/src/renderer/checkpoints.ts';
-import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
+import type { CheckpointWords, HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
 import * as I from './icons.ts';
 import { current, hubUrl } from './shell.ts';
-import { regionOf, variantOf } from './logic.ts';
+import { regionOf } from './logic.ts';
 
 export interface PickUI {
   /** The picture on screen. */
@@ -51,9 +50,9 @@ function circleSvg(path: [number, number][]): SVGElement {
 }
 
 /** One variant's picture, with its letter; an HTML variant runs sandboxed, with no scripts. */
-function slide(cp: HubCheckpoint, n: number, total: number, extra: (Node | null)[] = []): HTMLElement {
+function slide(cp: HubCheckpoint, w: CheckpointWords, n: number, total: number, extra: (Node | null)[] = []): HTMLElement {
   const v = (cp.variants || [])[n];
-  const { letter } = variantOf(v, n, '');
+  const letter = w.variants[n]?.letter || String(n + 1);
   const missing = h('div.pmiss', 'The picture is not on the computer yet.');
   missing.hidden = true;
   const media = v && v.type === 'html'
@@ -62,13 +61,14 @@ function slide(cp: HubCheckpoint, n: number, total: number, extra: (Node | null)
   return h('div.pimg', { 'data-n': String(n) }, media, missing, ...extra, h('span.lt', `${letter}, ${n + 1} of ${total}`));
 }
 
-export function pickView(cp: HubCheckpoint, ui: PickUI, x: PickCtx): HTMLElement {
+export function pickView(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx): HTMLElement {
   const sh = current();
   const vs = cp.variants || [];
   const n = vs.length;
   if (ui.i >= n) ui.i = 0;
-  const t = splitTitle(cp.title);
-  const nameOf = (i: number) => variantOf(vs[i], i, who(cp));
+  const t = w;
+  // A variant as the hub words it: its letter, its whole label, the agent's words.
+  const nameOf = (i: number) => w.variants[i] || { letter: String(i + 1), name: '', says: null };
 
   const send = async (reply: Record<string, unknown>, said: string) => {
     if (ui.busy) return;
@@ -95,7 +95,7 @@ export function pickView(cp: HubCheckpoint, ui: PickUI, x: PickCtx): HTMLElement
       replace(dots, vs.map((_, i) => h(`i${i === ui.i ? '.on' : ''}`)), n > 1 ? h('span', 'Swipe for the others') : null);
       pickLabel.textContent = `Pick ${letter}`;
     };
-    const track = h('div.ptrack', vs.map((_, i) => slide(cp, i, n)));
+    const track = h('div.ptrack', vs.map((_, i) => slide(cp, w, i, n)));
     // The picture on screen follows the swipe; only its words change, so the
     // track keeps scrolling under the finger.
     track.addEventListener('scroll', () => {
@@ -122,7 +122,7 @@ export function pickView(cp: HubCheckpoint, ui: PickUI, x: PickCtx): HTMLElement
   const { letter } = nameOf(ui.i);
   const ov = circleSvg(ui.path);
   const pad = h('div.pdraw');
-  const pic = slide(cp, ui.i, n, [ov, ui.mode === 'circle' ? pad : null]);
+  const pic = slide(cp, w, ui.i, n, [ov, ui.mode === 'circle' ? pad : null]);
   if (ui.mode === 'circle') {
     let path: [number, number][] = [];
     const at = (e: PointerEvent): [number, number] => {

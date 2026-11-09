@@ -22,7 +22,8 @@
 //           assistant: string | null,      // "Claude", "Codex"
 //           pct: number | null, pctWarn: boolean,
 //           line: string | null,           // its question, one line
-//           mark: { kind, text, code, since } | null,  // shown instead of line
+//           mark: { kind, text, code, label, since } | null,  // shown instead of line;
+//                                          // label: the word before it ("Wants to run:")
 //           group,                         // its dot's colour
 //           machine: string | null,
 //         }],
@@ -36,7 +37,7 @@
 // 'ago' is always how long ago ("now" under a minute). Each session in
 // state.projects also carries `group`, the section of its own state.
 
-import { assistantName, markOf } from './cpwords.mjs';
+import { assistantName, markLabel, markOf } from './cpwords.mjs';
 
 export const GROUP_TITLES = { you: 'Needs you', work: 'Working', wait: 'Waiting on others', idle: 'Idle' };
 export const ORDER = ['you', 'work', 'wait', 'idle'];
@@ -73,6 +74,13 @@ export function withGroups(projects) {
   return projects;
 }
 
+/** A pane's name as the sidebar says it: its session's topic, else its project's name; null when no session runs in it. */
+export function paneNameIn(projects, pane) {
+  if (!pane) return null;
+  for (const p of projects || []) for (const s of p.sessions || []) if (paneOf(s) === pane) return s.topic || p.name;
+  return null;
+}
+
 /**
  * The marks on the rows, by session key: a worktree session done with
  * files to review (`reviewFiles(session)` gives their number, or null), then
@@ -84,7 +92,7 @@ export function marksOf(projects, checkpoints, { reviewFiles = () => null, now =
   const out = new Map();
   for (const p of projects || []) for (const s of p.sessions || []) {
     const n = reviewFiles(s);
-    if (n) out.set(sessionKey(p.id, s), { kind: 'review', text: `Done. ${n} file${n === 1 ? '' : 's'} to review`, code: false, since: s.since || new Date(now).toISOString() });
+    if (n) out.set(sessionKey(p.id, s), { kind: 'review', text: `Done. ${n} file${n === 1 ? '' : 's'} to review`, code: false, label: markLabel('review'), since: s.since || new Date(now).toISOString() });
   }
   const open = (checkpoints || []).filter((cp) => cp && OPEN.has(cp.state)).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
   const target = (cp) => {
@@ -97,14 +105,10 @@ export function marksOf(projects, checkpoints, { reviewFiles = () => null, now =
     }
     return null;
   };
-  const nameOfPane = (pane) => {
-    for (const p of projects || []) for (const s of p.sessions || []) if (paneOf(s) === pane) return s.topic || p.name;
-    return null;
-  };
   for (const cp of open) {
     const t = target(cp);
     if (!t || (out.has(t) && out.get(t).kind !== 'review')) continue;
-    const name = cp.drive ? (cp.drive.name || nameOfPane(cp.drive.pane)) : null;
+    const name = cp.drive ? (cp.drive.name || paneNameIn(projects, cp.drive.pane)) : null;
     out.set(t, { ...markOf(cp, name), since: cp.created_at });
   }
   return out;

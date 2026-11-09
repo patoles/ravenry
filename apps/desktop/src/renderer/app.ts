@@ -25,7 +25,7 @@ import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
 import type { SkillRow } from '../shared/skills.ts';
 import { cardFor, cardKey, clearHiddenSecrets, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
 import type { CardCtx, Reply } from './cards.ts';
-import { Checkpoints, daemonAnswer, driveVerb, hubAnswer, isOpen, markOf, timeOf } from './checkpoints.ts';
+import { Checkpoints, daemonAnswer, hubAnswer, isOpen, timeOf, wordsBody } from './checkpoints.ts';
 import type { HubCheckpoint, Known } from './checkpoints.ts';
 import { Daemons } from './daemons.ts';
 import { h, heldIn, preloadPicture, redraw, replace, svg } from './dom.ts';
@@ -3280,7 +3280,24 @@ function shownCard(): Known | null {
 
 // ---------------------------------------------------------------- render
 
+/**
+ * Checkpoints whose words this window lacks (a daemon's copy, or one that
+ * moved on since): the hub words them (POST /api/checkpoints/words), and
+ * their cards are drawn when the words come.
+ */
+function askWords(): void {
+  const want = S.cps.wordsWanted();
+  if (!want.length) return;
+  api().hubPost('/api/checkpoints/words', wordsBody(want)).then((r) => {
+    const words = (r as { words?: Record<string, NonNullable<HubCheckpoint['words']>> } | null)?.words || {};
+    const got = S.cps.setWords(words);
+    S.cps.wordsFailed(want.filter((c) => !words[c.id]));
+    if (got) render();
+  }, () => S.cps.wordsFailed(want));
+}
+
 function render(): void {
+  askWords();
   dropFrontToast();
   document.body.classList.toggle('mac', isMac());
   document.body.classList.toggle('first', firstRun());

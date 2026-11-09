@@ -11,7 +11,7 @@ import type { NavRow } from '../../desktop/src/renderer/pages.ts';
 import * as I from './icons.ts';
 import * as hub from './hub.ts';
 import { current } from './shell.ts';
-import { checkpointOf, connLabel, markLabel, strip } from './logic.ts';
+import { checkpointOf, connLabel, strip } from './logic.ts';
 import { go } from './main.ts';
 import type { Screen } from './main.ts';
 
@@ -54,7 +54,7 @@ function rowEl(p: ProjectRow, r: Row): HTMLElement {
   const cp = checkpointOf(hub.checkpoints(), p.project.id, r.session);
   const open = () => go(cp ? `/cp/${encodeURIComponent(cp.id)}` : `/s/${encodeURIComponent(sessionKey(p.project.id, r.session))}`);
   const q = r.mark
-    ? h('div.ss-q', h('b', markLabel(r.mark.kind)), ' ', r.mark.code ? h('span.mono', r.mark.text) : r.mark.text)
+    ? h('div.ss-q', h('b', r.mark.label), ' ', r.mark.code ? h('span.mono', r.mark.text) : r.mark.text)
     : r.line ? h('div.ss-q', r.line) : null;
   return h('button.ss', { on: { click: open } },
     h('div.ss-r', h('span.sd', { style: { background: COLOR[r.group] } }), h('span.n', r.name), r.assistant ? h('span.as-tag', r.assistant) : null,

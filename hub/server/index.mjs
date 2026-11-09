@@ -63,6 +63,7 @@ import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
 import * as sidebar from './sidebar.mjs';
+import * as cpwords from './cpwords.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -2383,6 +2384,13 @@ function nearTab(projectId) {
 // asked): checkpoint id -> { page, label, project }.
 const pageRuns = new Map();
 
+// What a checkpoint says (server/cpwords.mjs), worded on this computer
+// with the sidebar's names for panes: attached to every checkpoint the hub
+// hands out, as `words`.
+function cpWords(cp, projects = snapshot.projects || []) {
+  return cpwords.withWords(cp, { platform: process.platform, hubName: phone.hubName(), paneName: (pane) => sidebar.paneNameIn(projects, pane) });
+}
+
 function checkpointsView(projects) {
   return checkpoints.list().map((cp) => {
     const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
@@ -2392,7 +2400,7 @@ function checkpointsView(projects) {
     const kept = cp.kind === 'pick' ? picks.record(cp.id) : null;
     const dn = cp.kind === 'drive' && rest.drive ? driveNames.get(cp.id) : null;
     if (dn) rest.drive = { ...rest.drive, name: dn.name || null, session: dn.session || null };
-    return { ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) };
+    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) }, projects);
   });
 }
 
@@ -3702,7 +3710,7 @@ async function handleRequest(req, res) {
       const b = req.mcLocal ? remoteinstall.builds() : null;
       return sendJson(res, 200, { ok: true, machines: remoteinstall.view(), ...(req.mcLocal ? { hosts: machines.sshHosts(), builds: b ? { version: b.version, systems: Object.keys(b.systems), source: b.source } : null } : {}) });
     }
-    if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => c) : []) });
+    if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => cpWords(c)) : []) });
     if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => hookinstall.status(hookinstall.readSettings().json)), codex: hookinstall.codexInstalled() ? safe(() => hookinstall.codexStatus()) : null });
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
@@ -3857,6 +3865,19 @@ async function handleRequest(req, res) {
         const r = await closeSessions(await jsonBody(req, 1e5));
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
       }
+      if (p === '/api/checkpoints/words') {
+        // The words of checkpoints a client holds from its own daemons
+        // (server/cpwords.mjs): { checkpoints: [cp, ...] } -> { ok, words:
+        // { <id>: words } }. Worded as sent; an answer's secret is never
+        // read (a daemon's copy carries none).
+        let body;
+        try { body = await jsonBody(req, 1e6); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const list = body && Array.isArray(body.checkpoints) ? body.checkpoints.filter((c) => c && typeof c.id === 'string').slice(0, 200) : null;
+        if (!list) return sendJson(res, 400, { error: 'Send { checkpoints: [checkpoint, ...] }.' });
+        const words = {};
+        for (const c of list) words[c.id] = cpWords({ ...c, answer: c.answer ? (({ secret: _s, ...a }) => a)(c.answer) : c.answer }).words;
+        return sendJson(res, 200, { ok: true, words });
+      }
       if (p === '/api/checkpoints/answer') {
         // A person's answer (the app, the phone), never a program inside a
         // pane: refusedAsPerson above. The body may hold a secret: it is
@@ -3868,7 +3889,7 @@ async function handleRequest(req, res) {
         const r = await checkpoints.answer({ ...body, by }, term.ravenryAnswer);
         body = null;
         if (r.ok) { wantTick = true; setTimeout(tick, 30); }
-        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => c)(r.checkpoint) } : { error: r.error });
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, checkpoint: (({ daemon: _d, ...c }) => cpWords(c))(r.checkpoint) } : { error: r.error });
       }
       if (p === '/api/sessions/move') {
         let body;

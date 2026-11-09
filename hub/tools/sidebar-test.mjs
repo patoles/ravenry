@@ -69,7 +69,7 @@ const PROJECTS = [
   // A worktree session done with files to review; a checkpoint wins over it.
   const projects = [proj('t', 'idle', [sess('a', 'idle', { since: at(6), worktree: { state: 'open' } }), sess('b', 'idle', { worktree: { state: 'open' } })])];
   const marks = marksOf(projects, [{ id: 'x', kind: 'ask', state: 'open', title: 'Which one?\nmore', created_at: at(2), projectId: 't', surfaceId: 'b' }], { reviewFiles: () => 3, now: NOW });
-  check('review mark', eq(marks.get('t/a'), { kind: 'review', text: 'Done. 3 files to review', code: false, since: at(6) }));
+  check('review mark', eq(marks.get('t/a'), { kind: 'review', text: 'Done. 3 files to review', code: false, label: 'Checkpoint:', since: at(6) }));
   check('a checkpoint wins over a review', marks.get('t/b')?.kind === 'ask' && marks.get('t/b')?.text === 'Which one?');
   const b = build(projects, { marks, now: NOW });
   check('an idle project with a marked session is in Needs you', b.sections.length === 1 && b.sections[0].group === 'you' && b.sections[0].count === 2);

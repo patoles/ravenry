@@ -2,7 +2,9 @@
 // (variant A of each, docs in the private design notes): a question with
 // one answer per line and number keys, a command with its folder, machine
 // and pane on labelled lines, and a secret typed into a field in the card.
-// Then what each says once it closed.
+// Then what each says once it closed. Every word about the checkpoint is
+// the hub's (its `words`, hub/server/cpwords.mjs), its tokens filled for
+// this window (checkpoints.ts fill).
 //
 // A card is built once per checkpoint and state and kept, so a new board
 // state never rebuilds it under the person's hands: the field they type in
@@ -13,9 +15,9 @@ import { h, svg } from './dom.ts';
 import * as I from './icons.ts';
 import { inputParts } from './panes.ts';
 import {
-  afterOf, changedRange, driveVerb, whoMid, characters, digitChoice, givesUp, heading, isOpen, isRemote, kindOf, machineLine, runLabel, SecretField, splitTitle, waiting, warningsOf, who,
+  changedRange, characters, digitChoice, fill, givesUp, isOpen, kindOf, SecretField, timeOf, waiting, warningsFor, wordsOf,
 } from './checkpoints.ts';
-import type { HubCheckpoint, Known } from './checkpoints.ts';
+import type { CheckpointWords, HubCheckpoint, Known, Reader } from './checkpoints.ts';
 
 /** An answer: an approval may carry the command as the person edited it, a refusal its reason. */
 export type Reply = CheckpointReply;
@@ -100,15 +102,22 @@ let onChange: () => void = () => {};
 export function onCardChange(fn: () => void): void { onChange = fn; }
 function changed(id: string): void { stamp++; const v = views.get(id); if (v) v.key = ''; onChange(); }
 
+/** How this window fills the words' tokens: the desktop, on the hub's computer, its clock. */
+const reader = (ctx: CardCtx, pane: string | null = null): Reader => ({ me: 'desktop', onHub: true, time: (iso) => timeOf(iso, ctx.now()), pane });
+
 /** The card for a checkpoint, built once per state and kept. */
 export function cardFor(k: Known, ctx: CardCtx): HTMLElement {
   const u = ui(k.cp.id);
+  const w = wordsOf(k.cp);
   // A page's run (the hub's word on it can come after the daemon's) changes the heading.
-  const key = `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}|${!!(k.cp as HubCheckpoint).page}|${kindOf(k.cp) === 'ask' ? ctx.checked(k)?.length || 0 : ''}|${kindOf(k.cp) === 'drive' ? JSON.stringify(ctx.drive(k)) : ''}`;
+  const key = !w ? `nowords|${k.cp.state}` : `${k.cp.state}|${u.editing}|${u.refusing}|${u.busy}|${u.error}|${ctx.canAnswer(k)}|${!!(k.cp as HubCheckpoint).page}|${kindOf(k.cp) === 'ask' ? ctx.checked(k)?.length || 0 : ''}|${kindOf(k.cp) === 'drive' ? JSON.stringify(ctx.drive(k)) : ''}`;
   const had = views.get(k.cp.id);
   if (had && had.key === key) { had.refresh(); return had.el; }
   had?.secret?.clear();
-  const v = isOpen(k.cp) && k.cp.state === 'open' ? openCard(k, ctx, u) : afterCard(k, ctx);
+  // Its words are on their way from the hub (a daemon's copy has none): an
+  // empty card holds its place for the moment they take.
+  const v = !w ? { key: '', el: h('div.sec.cp', { 'data-cp': k.cp.id, 'aria-busy': 'true' }), refresh: () => {}, focus: () => {} }
+    : isOpen(k.cp) && k.cp.state === 'open' ? openCard(k, ctx, u, w) : afterCard(k, ctx, w);
   v.key = key;
   views.set(k.cp.id, v);
   return v.el;
@@ -134,8 +143,8 @@ export function pruneCards(ids: Set<string>): void {
 
 /** A number key, typed while a question's card has the keyboard: its answer. */
 export function cardKey(k: Known, e: KeyboardEvent, ctx: CardCtx): boolean {
-  if (kindOf(k.cp) === 'drive' && /^[1-3]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && ctx.canAnswer(k)) {
-    const v = driveVerb(k.cp);
+  const v = wordsOf(k.cp)?.drive;
+  if (kindOf(k.cp) === 'drive' && v && /^[1-3]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && ctx.canAnswer(k)) {
     const n = Number(e.key);
     if (n === 2 && !v.session) return false;
     void send(k, ctx, n === 1 ? { approve: true, allow: 'once' } : n === 2 ? { approve: true, allow: 'session' } : { decline: true });
@@ -176,9 +185,9 @@ async function send(k: Known, ctx: CardCtx, reply: Reply): Promise<void> {
 
 // ---------------------------------------------------------------- open cards
 
-function header(k: Known, ctx: CardCtx, icon: string, short = false): { el: HTMLElement; refresh(): void } {
+function header(k: Known, ctx: CardCtx, w: CheckpointWords, icon: string, short = false): { el: HTMLElement; refresh(): void } {
   const when = h('span.t3.num', short ? waiting(k.cp, ctx.now()).replace(/^waiting /, '') : waiting(k.cp, ctx.now()));
-  return { el: h('div.cp-h', h('span.kd', svg(icon)), heading(k.cp), h('span.sp'), when), refresh: () => { when.textContent = waiting(k.cp, ctx.now()); } };
+  return { el: h('div.cp-h', h('span.kd', svg(icon)), w.heading, h('span.sp'), when), refresh: () => { when.textContent = waiting(k.cp, ctx.now()); } };
 }
 
 function footer(k: Known, ctx: CardCtx): { el: HTMLElement; refresh(): void } {
@@ -197,22 +206,22 @@ function errorLine(u: UI, k?: Known, ctx?: CardCtx): HTMLElement | null {
   return u.error ? h('p.cp-err', { role: 'alert' }, u.error) : null;
 }
 
-function openCard(k: Known, ctx: CardCtx, u: UI): View {
+function openCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   switch (kindOf(k.cp)) {
-    case 'ask': return askCard(k, ctx, u);
-    case 'approve': return approveCard(k, ctx, u);
-    case 'secret': return secretCard(k, ctx, u);
-    case 'drive': return driveCard(k, ctx, u);
-    case 'pick': return pickCard(k, ctx);
-    default: return otherCard(k, ctx, u);
+    case 'ask': return askCard(k, ctx, u, w);
+    case 'approve': return approveCard(k, ctx, u, w);
+    case 'secret': return secretCard(k, ctx, u, w);
+    case 'drive': return driveCard(k, ctx, u, w);
+    case 'pick': return pickCard(k, ctx, w);
+    default: return otherCard(k, ctx, u, w);
   }
 }
 
-function askCard(k: Known, ctx: CardCtx, u: UI): View {
+function askCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const off = u.busy || !ctx.canAnswer(k);
   const cp = k.cp;
-  const { head, body } = splitTitle(cp.title);
-  const hd = header(k, ctx, I.ASK);
+  const { head, body } = w;
+  const hd = header(k, ctx, w, I.ASK);
   const ft = footer(k, ctx);
   const opts = (cp.options || []).map((o, i) => h('button.btn.opt', { disabled: off, on: { click: () => void send(k, ctx, { choice: i }) } },
     i < 9 ? h('span.kb', String(i + 1)) : null, h('span.ol', o)));
@@ -241,7 +250,7 @@ function askCard(k: Known, ctx: CardCtx, u: UI): View {
     if (!t) { field?.focus(); return; }
     void send(k, ctx, { text: t.slice(0, 4096) });
   }
-  const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${head}`, on: { keydown: (e: Event) => { if (cardKey(k, e as KeyboardEvent, ctx)) { e.preventDefault(); e.stopPropagation(); } } } },
+  const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${w.heading}: ${head}`, on: { keydown: (e: Event) => { if (cardKey(k, e as KeyboardEvent, ctx)) { e.preventDefault(); e.stopPropagation(); } } } },
     hd.el,
     h('div.cp-q', head),
     body ? h('p.cp-d', body) : null,
@@ -263,9 +272,9 @@ function askCard(k: Known, ctx: CardCtx, u: UI): View {
  * one-line field under the card's words; Enter or Refuse sends, with or
  * without text; Escape or Back closes it.
  */
-function refuseRow(k: Known, ctx: CardCtx, u: UI, off: boolean): { els: (HTMLElement | null)[]; field: HTMLInputElement } {
+function refuseRow(k: Known, ctx: CardCtx, u: UI, off: boolean, w: CheckpointWords): { els: (HTMLElement | null)[]; field: HTMLInputElement } {
   const cp = k.cp;
-  const field = h('input.fi.rsn', { type: 'text', placeholder: `Why not? Optional, ${whoMid(cp)} reads it`, 'aria-label': `Why you refuse, for ${whoMid(cp)}`, maxlength: '1000', spellcheck: 'true', disabled: off }) as HTMLInputElement;
+  const field = h('input.fi.rsn', { type: 'text', placeholder: `Why not? Optional, ${w.whoMid} reads it`, 'aria-label': `Why you refuse, for ${w.whoMid}`, maxlength: '1000', spellcheck: 'true', disabled: off }) as HTMLInputElement;
   field.value = u.reason;
   const go = (): void => { const r = field.value.trim(); void send(k, ctx, r ? { decline: true, reason: r } : { decline: true }); };
   field.addEventListener('input', () => { u.reason = field.value; });
@@ -282,7 +291,7 @@ function refuseRow(k: Known, ctx: CardCtx, u: UI, off: boolean): { els: (HTMLEle
         h('button.btn.sm.no', { disabled: off, on: { click: () => go() } }, 'Refuse'),
         h('button.btn.sm', { disabled: off, on: { click: () => { u.refusing = false; changed(cp.id); } } }, 'Back')),
       errorLine(u, k, ctx),
-      h('div.cp-f', `${who(cp)} is told you said no, with your reason if you give one.`),
+      h('div.cp-f', `${w.who} is told you said no, with your reason if you give one.`),
     ],
   };
 }
@@ -292,19 +301,18 @@ function refuseButton(k: Known, u: UI, off: boolean, cls = 'button.btn.sm.ghost.
   return h(cls, { disabled: off, on: { click: () => { u.refusing = true; u.editing = false; u.error = null; changed(k.cp.id); requestAnimationFrame(() => focusCard(k.cp.id)); } } }, 'Refuse');
 }
 
-function approveCard(k: Known, ctx: CardCtx, u: UI): View {
+function approveCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const off = u.busy || !ctx.canAnswer(k);
   const cp = k.cp;
   const command = cp.command || '';
-  const w = who(cp);
-  const hd = header(k, ctx, I.RUN);
+  const hd = header(k, ctx, w, I.RUN);
   const ft = footer(k, ctx);
-  const remote = isRemote(cp.machine);
+  const remote = w.machine.remote;
   // The agent's own warning and Ravenry's guess, each labelled as whose.
-  const warnings = warningsOf(cp, u.editing ? u.edit : command);
+  const warnings = warningsFor(cp, w, u.editing ? u.edit : command);
   const kv = h('div.kv',
     h('span', 'Folder'), h('span.mono', ctx.tilde(cp.cwd, cp.machine)),
-    h('span', 'Machine'), h('span', remote ? h('span.mt', svg(I.MACHINE), cp.machine!) : machineLine(cp.machine, ctx.platform)),
+    h('span', 'Machine'), h('span', remote ? h('span.mt', svg(I.MACHINE), w.machine.here) : w.machine.line),
     h('span', 'Pane'), h('span', cp.pane ? `A new one, beside ${ctx.paneName(k)}` : 'A new one'),
     // A page's run button passes the item's values as variables: shown as
     // they are, never inside the command.
@@ -341,23 +349,23 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
     if (!v.trim()) { editor?.focus(); return; }
     void send(k, ctx, v === command ? { approve: true } : { approve: true, command: v });
   }
-  const refuse = u.refusing && !u.editing ? refuseRow(k, ctx, u, off) : null;
+  const refuse = u.refusing && !u.editing ? refuseRow(k, ctx, u, off, w) : null;
   const buttons = refuse ? refuse.els : u.editing
     ? [h('div.qa',
       h('button.btn.sm.pri', { disabled: off, on: { click: () => runEdited() } }, 'Run edited command'),
       h('button.btn.sm', { disabled: off, on: { click: () => { u.editing = false; changed(cp.id); } } }, 'Cancel')),
     errorLine(u, k, ctx),
-    h('div.cp-f', `${w} is told you changed it.`)]
+    h('div.cp-f', `${w.who} is told you changed it.`)]
     : [h('div.qa',
-      h('button.btn.sm.pri', { disabled: off, on: { click: () => void send(k, ctx, { approve: true }) } }, runLabel(cp.machine, ctx.platform)),
+      h('button.btn.sm.pri', { disabled: off, on: { click: () => void send(k, ctx, { approve: true }) } }, fill(w.runLabel, w, reader(ctx))),
       h('button.btn.sm', { disabled: off, on: { click: () => { u.editing = true; u.edit = command; u.error = null; changed(cp.id); requestAnimationFrame(() => focusCard(cp.id)); } } }, 'Edit'),
       refuseButton(k, u, off)),
     errorLine(u, k, ctx),
     ft.el];
-  const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${command}` },
+  const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${w.heading}: ${command}` },
     hd.el, box, kv,
     ...warnings.map((x) => h(`div.risk.${x.from}`, svg(I.WARN), h('span', h('span.wl', x.label), ' ', x.text))),
-    cp.why ? h('p.says', h('span', `${w} says:`), ' ', cp.why) : null,
+    cp.why ? h('p.says', h('span', `${w.who} says:`), ' ', cp.why) : null,
     buttons);
   return {
     key: '', el,
@@ -368,23 +376,15 @@ function approveCard(k: Known, ctx: CardCtx, u: UI): View {
   };
 }
 
-function secretNoun(title: string): string {
-  if (/\btoken\b/i.test(title)) return 'token';
-  if (/\bpassword\b|\bpassphrase\b/i.test(title)) return 'password';
-  if (/\bkey\b/i.test(title)) return 'key';
-  return 'secret';
-}
-
-function secretCard(k: Known, ctx: CardCtx, u: UI): View {
+function secretCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const off = u.busy || !ctx.canAnswer(k);
   const cp = k.cp;
-  const w = who(cp);
-  const { head } = splitTitle(cp.title);
-  const hd = header(k, ctx, I.KEY);
+  const { head } = w;
+  const hd = header(k, ctx, w, I.KEY);
   const ft = footer(k, ctx);
   const toPane = cp.secret?.to === 'input';
   const input = h('input.si', {
-    type: u.reveal ? 'text' : 'password', placeholder: `Paste or type the ${secretNoun(cp.title)}`, 'aria-label': head,
+    type: u.reveal ? 'text' : 'password', placeholder: `Paste or type the ${w.secret?.noun || 'secret'}`, 'aria-label': head,
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'data-secret': '1', disabled: off,
   }) as HTMLInputElement;
   const count = h('span.t3.num.cnt-c');
@@ -414,13 +414,13 @@ function secretCard(k: Known, ctx: CardCtx, u: UI): View {
   const forLine = toPane
     ? h('p.cp-d', 'Typed into ', h('b', ctx.paneName({ ...k, cp: { ...cp, pane: cp.secret?.pane } })), ', the program waiting there')
     : h('p.cp-d', 'For ', h('span.mono.code', cp.command || ''), cp.cwd ? ` in ${ctx.tilde(cp.cwd, cp.machine)}` : '', cp.secret?.to === 'env' && cp.secret.env ? `, as $${cp.secret.env}` : '');
-  const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${head}` },
+  const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${w.heading}: ${head}` },
     hd.el,
     h('div.cp-q', head),
     forLine,
     box,
     h('ul.prom',
-      h('li', svg(I.LOCK), toPane ? `Goes straight to that program, not to ${whoMid(cp)}` : `Goes straight to that command, not to ${whoMid(cp)}`),
+      h('li', svg(I.LOCK), toPane ? `Goes straight to that program, not to ${w.whoMid}` : `Goes straight to that command, not to ${w.whoMid}`),
       h('li', svg(I.LOCK), 'Not kept in logs, history or on your phone')),
     h('div.qa', go, h('button.btn.sm.ghost', { disabled: off, on: { mousedown: (e: Event) => e.preventDefault(), click: () => { field.clear(); void send(k, ctx, { decline: true }); } } }, 'Not now')),
     errorLine(u, k, ctx),
@@ -453,14 +453,14 @@ function checkedBox(k: Known, ctx: CardCtx): HTMLElement | null {
  * type, as text and keys in order; then once, for its session (the grant
  * ends with the session), or Refuse, with a field to say why.
  */
-function driveCard(k: Known, ctx: CardCtx, u: UI): View {
+function driveCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const off = u.busy || !ctx.canAnswer(k);
   const cp = k.cp;
-  const v = driveVerb(cp);
+  const v = w.drive!;
   const d = ctx.drive(k);
-  const hd = header(k, ctx, I.KEYBOARD);
+  const hd = header(k, ctx, w, I.KEYBOARD);
   const ft = footer(k, ctx);
-  const title = v.action === 'type' ? `Let it type in ${d.pane}?` : v.action === 'change' ? `Let it change how ${d.pane} runs?` : `Let it ${v.action} ${d.pane}?`;
+  const title = fill(v.title, w, reader(ctx, d.pane));
   const input = cp.drive?.input || '';
   const parts = v.action === 'type' && input && !/^\(/.test(input) ? inputParts(input) : [];
   const press = parts.length ? h('div.press',
@@ -481,10 +481,10 @@ function driveCard(k: Known, ctx: CardCtx, u: UI): View {
     h('span.kb', String(n)), h('span.ol', label, sub ? h('span.os', sub) : null));
   const opts = [
     opt(1, v.once, null, { approve: true, allow: 'once' }),
-    v.session ? opt(2, v.session, v.action === 'type' ? 'Until its session ends or you take it back' : 'Until its session ends', { approve: true, allow: 'session' }) : null,
+    v.session ? opt(2, v.session, v.sessionSub, { approve: true, allow: 'session' }) : null,
     opt(v.session ? 3 : 2, 'Refuse', null, { decline: true }, '.no'),
   ];
-  const el = h('div.sec.ask.cp.drive', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${title}` },
+  const el = h('div.sec.ask.cp.drive', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${w.heading}: ${title}` },
     h('div.cp-h', h('span.kd', svg(I.KEYBOARD)), `${d.who} ${v.wants}`, h('span.sp'), hd.el.lastElementChild!),
     h('div.cp-q', title),
     h('div.kv',
@@ -509,35 +509,35 @@ function driveCard(k: Known, ctx: CardCtx, u: UI): View {
  * A pick in the panel (32, C): the pictures small, with Open side by side
  * (or 1 to 4), which opens the picker in the middle.
  */
-function pickCard(k: Known, ctx: CardCtx): View {
+function pickCard(k: Known, ctx: CardCtx, w: CheckpointWords): View {
   const cp = k.cp;
   const vs = cp.variants || [];
-  const hd = header(k, ctx, I.PICK, true);
+  const hd = header(k, ctx, w, I.PICK, true);
   const ft = footer(k, ctx);
   const tiles = vs.map((v, n) => {
     const src = ctx.variantSrc(k, n);
-    const letter = 'ABCD'[n] || String(n + 1);
+    const letter = w.variants[n]?.letter || String(n + 1);
     const name = v.label;
     return h('button.ptile', { title: `Open ${name} side by side`, on: { click: () => ctx.openPicker(k) } },
       h('div.pimg', src ? h('img', { src, alt: name, draggable: 'false' }) : h('span.t3', 'No picture'), h('span.plab', letter)),
       h('span.pcap', `${letter}. ${name}`));
   });
   const open = h('div.popen', h('button.btn.sm.pri', { on: { click: () => ctx.openPicker(k) } }, 'Open side by side'), h('span.t3.small', `or press ${vs.map((_, i) => i + 1).join(', ')}`));
-  const el = h('div.sec.ask.cp.pick', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${heading(cp)}: ${splitTitle(cp.title).head}` },
+  const el = h('div.sec.ask.cp.pick', { tabindex: '-1', 'data-cp': cp.id, 'aria-label': `${w.heading}: ${w.head}` },
     hd.el,
-    h('div.cp-q', splitTitle(cp.title).head),
+    h('div.cp-q', w.head),
     h('div.ptiles', tiles, vs.length % 2 ? open : null),
     vs.length % 2 ? null : open,
     ft.el);
   return { key: '', el, refresh: () => { hd.refresh(); ft.refresh(); }, focus: () => el.focus() };
 }
 
-function otherCard(k: Known, ctx: CardCtx, u: UI): View {
+function otherCard(k: Known, ctx: CardCtx, u: UI, w: CheckpointWords): View {
   const off = u.busy || !ctx.canAnswer(k);
-  const hd = header(k, ctx, I.ASK);
+  const hd = header(k, ctx, w, I.ASK);
   const ft = footer(k, ctx);
-  const { head, body } = splitTitle(k.cp.title);
-  const refuse = u.refusing ? refuseRow(k, ctx, u, off) : null;
+  const { head, body } = w;
+  const refuse = u.refusing ? refuseRow(k, ctx, u, off, w) : null;
   const el = h('div.sec.ask.cp', { tabindex: '-1', 'data-cp': k.cp.id },
     hd.el, h('div.cp-q', head), body ? h('p.cp-d', body) : null,
     h('p.cp-d', 'This version of Ravenry does not know this kind of question. You can only refuse it.'),
@@ -547,15 +547,16 @@ function otherCard(k: Known, ctx: CardCtx, u: UI): View {
 
 // ---------------------------------------------------------------- after
 
-function afterCard(k: Known, ctx: CardCtx): View {
-  const a = afterOf(k.cp, ctx.now(), ctx.platform);
+function afterCard(k: Known, ctx: CardCtx, w: CheckpointWords): View {
+  const a = w.after!;
+  const rd = reader(ctx);
   const show = a.runPane ? ctx.showRun(k) : null;
   const el = h('div.sec.cp.after', { 'data-cp': k.cp.id },
-    h(`div.cp-h${a.ok ? '.ok' : '.no'}`, h('span.kd', svg(a.ok ? I.DONE : I.ENDED)), a.head, h('span.sp'), h('span.t3.num', a.time)),
+    h(`div.cp-h${a.ok ? '.ok' : '.no'}`, h('span.kd', svg(a.ok ? I.DONE : I.ENDED)), fill(a.head, w, rd), h('span.sp'), h('span.t3.num', rd.time(a.at))),
     a.small ? h('div.done-q', a.small) : null,
     a.big ? h('div.cp-q', a.big) : null,
     a.command ? h('pre.cmdb.muted', a.command) : null,
-    h('p.cp-d', a.text),
+    h('p.cp-d', fill(a.text, w, rd)),
     show ? h('button.lk.self', { on: { click: show } }, 'Show in the terminal') : null);
   return { key: '', el, refresh: () => {}, focus: () => {} };
 }

@@ -281,6 +281,52 @@ shape. Every client draws it as it comes:
   own clock, `clock` as the time of day today (else how long ago), `ago`
   as how long ago.
 
+## What a checkpoint says
+
+The hub words every checkpoint it hands out (`server/cpwords.mjs`, whose
+header gives the shape): each one in the state's `checkpoints`, in
+`GET /api/checkpoints` (with `?all`, the closed ones too) and in the
+`POST /api/checkpoints/answer` response carries `words`. Every client
+draws them as they come:
+
+- `words.state` is the checkpoint state they describe. A client that holds
+  a copy in another state (the desktop hears its own daemons first, and
+  their copies carry no words) asks again:
+  `POST /api/checkpoints/words { checkpoints: [cp, ...] }` answers
+  `{ ok, words: { <id>: words } }`, worded as sent (at most 200; an
+  answer's `secret` is never read, and a client sends none). Until then it
+  draws the card empty; there is no wording in the client to fall back on.
+- Open: `heading` (a card's top line), `top` (the phone's), `head` and
+  `body` (the title split), `checks` (the body's numbered list),
+  `mark` (the row's, with `label`), `machine` and `runLabel`, `warnings`
+  (the agent's own, then Ravenry's guess for the proposed command),
+  `secret` (`noun`, `to`), `drive` (the verb's words, the card's question,
+  the phone's screen) and `variants` (a pick's letter, name and the
+  agent's words).
+- Running or closed: `after` (`ok`, `head`, `at`, `small`, `big`,
+  `command`, `edited`, `text`, `runPane`, `where`); null while open.
+- Times stay ISO (`after.at`, the checkpoint's `created_at` and
+  `expires_at`); each client says them against its own clock ("waiting 2
+  min", "18:04", "Gives up at 18:04").
+- Tokens, filled by a fixed rule:
+  - `{machine}`: a client on the hub's computer (the desktop app, the Mac
+    app) says `machine.here` ("this Mac", "this computer", or a remote
+    machine's name); any other (the phone) says `machine.away` (this
+    computer's name, or the remote machine's).
+  - `{where}` (in `after.text`): the client whose answers carry
+    `by` equal to `after.where.by` ("desktop", "phone") says
+    `after.where.mine` ("here"); any other says `after.where.other` ("on
+    your phone", "from desktop").
+  - `{time}` (in `after.text`): `after.at` as the client says a time of day.
+  - `{pane}` (in `drive`): the name the client shows for that pane (its
+    tab's), else `drive.pane`, the hub's name for it (the sidebar's, else
+    the one in the daemon's title, else "another tab").
+- While the person edits a proposed command, the guess follows each
+  keystroke: `guess.rules` (`{ pattern, flags, text }`, regular
+  expressions as data, first match wins) is the hub's table, and the
+  client draws the agent's warnings from `warnings` and the first rule
+  that matches the edited text, labelled `guess.label`.
+
 ## Which session is in which tab
 
 Tried in order, and the sheet says which one was used:

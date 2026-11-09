@@ -146,7 +146,8 @@ export function machineOf(p: HubProject, s?: HubSession): string | null {
 }
 
 /** An open checkpoint on a session's row: what kind of answer waits, its words, since when. */
-export interface RowMark { kind: 'ask' | 'approve' | 'secret' | 'drive' | 'pick' | 'review' | 'other'; text: string; code: boolean; since: string }
+/** A row's mark, as the hub words it (hub/server/cpwords.mjs markOf); label is the word before it ("Wants to run:"). */
+export interface RowMark { kind: 'ask' | 'approve' | 'secret' | 'drive' | 'pick' | 'review' | 'other'; text: string; code: boolean; label: string; since: string }
 
 export interface Row {
   key: string;

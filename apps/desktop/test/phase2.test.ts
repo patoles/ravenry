@@ -1,12 +1,13 @@
 // The pure parts of the Phase 2 screens: what an input typed and how it
-// echoes (6), what a drive asks and the words of its card (6), a pick's
-// variant names (32), the filmstrip's marks (16), the review's diff (33),
-// and the checkpoint store, which never reopens an answered checkpoint.
+// echoes (6), the filmstrip's marks (16), the review's diff (33), and the
+// checkpoint store, which never reopens an answered checkpoint and lets an
+// answered drive or pick leave the panel. What a drive or a pick says is
+// the hub's (hub/tools/cpwords-test.mjs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Checkpoint } from '@ravenry/client';
 import { echoParts, inputParts, keyLabel, sameSource } from '../src/renderer/panes.ts';
-import { afterOf, Checkpoints, driveVerb, heading, markOf } from '../src/renderer/checkpoints.ts';
+import { Checkpoints } from '../src/renderer/checkpoints.ts';
 import { analyse, pickThumbs, summary } from '../src/renderer/filmstrip.ts';
 import { parseDiff } from '../src/renderer/review.ts';
 
@@ -26,23 +27,8 @@ test('an input is its text and keys in order, and echoes as its text and ^C', ()
   assert.ok(!sameSource({ kind: 'agent', pane: 'pa' }, { kind: 'agent', pane: 'pb' }));
 });
 
-test('a drive says its action in its heading, its buttons and its row', () => {
-  const type = base({ drive: { pane: 'pb', agent: { kind: 'agent', pane: 'pa' }, input: '<Ctrl+C>npm run dev<Enter>' } });
-  assert.equal(heading(type), 'Claude wants to type');
-  assert.deepEqual([driveVerb(type).once, driveVerb(type).session, driveVerb(type).row], ['Let it type this', 'Let it use this pane', 'Wants to type in']);
-  const close = base({ drive: { pane: 'pb', agent: { kind: 'agent', pane: 'pa' }, action: 'close' } });
-  assert.equal(heading(close), 'Claude wants to close');
-  assert.equal(driveVerb(close).once, 'Let it close');
-  assert.equal(driveVerb(close).session, null, 'a close is let once, never for a session');
-  assert.equal(driveVerb(base({ drive: { pane: 'pb', agent: { kind: 'agent', pane: 'pa' }, action: 'restart' } })).once, 'Let it restart');
-  const answered = { ...type, state: 'answered', closed_at: '2026-11-07T10:01:00.000Z', answer: { approved: true, allow: 'session', by: 'desktop', at: '2026-11-07T10:01:00.000Z' } } as unknown as Checkpoint;
-  assert.match(afterOf(answered, Date.parse('2026-11-07T10:02:00.000Z'), 'darwin').text, /until its session ends/);
-});
-
-test('a pick says how many in its row, and an answered drive or pick leaves the panel at once', () => {
+test('an answered drive or pick leaves the panel at once', () => {
   const pick = base({ kind: 'pick', title: 'Which tilt reads best?\nRendered at frame 412.', variants: [{ label: 'A', description: 'Flat', path: '/a.png', type: 'image', size: 1 }, { label: 'B', path: '/b.png', type: 'image', size: 1 }, { label: 'C', path: '/c.png', type: 'image', size: 1 }] });
-  assert.equal(heading(pick), 'Claude asks you to pick');
-  assert.equal(markOf(pick).text, 'Pick one of 3: Which tilt reads best?');
   const s = new Checkpoints();
   s.fromDaemon('sock', pick, 1);
   assert.equal(s.forPane(pick.pane || '', null, 2)?.cp.id, undefined);

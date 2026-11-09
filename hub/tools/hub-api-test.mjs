@@ -4,7 +4,9 @@
 //     project and session;
 //   - POST /api/sessions/start starts a session in a labelled pane;
 //   - a checkpoint an agent opens shows in /api/checkpoints and the state,
-//     and POST /api/checkpoints/answer answers it (the agent goes on);
+//     with its words (server/cpwords.mjs), and POST /api/checkpoints/answer
+//     answers it (the agent goes on), its answer worded too, as are closed
+//     ones (?all) and a window's copies (POST /api/checkpoints/words);
 //   - an edited command runs instead of the proposed one through the hub,
 //     a refusal carries its reason, and the agent's warning reaches it;
 //   - only a person answers: from inside a real pane, the command line, a
@@ -111,8 +113,17 @@ const listed = await until(async () => { const r = await get('/api/checkpoints')
 check('the checkpoint shows in /api/checkpoints, with no daemon internals', !!listed && listed.state === 'open' && !('daemon' in listed) && listed.machine === null, JSON.stringify(listed));
 const inState = await until(async () => (await get('/api/state')).body.checkpoints.find((c) => c.id === listed.id));
 check('and in the state', !!inState);
+check('it carries its words, for its state', !!listed.words && listed.words.state === 'open' && listed.words.heading === 'The agent asks' && listed.words.head === 'Ship it?' && listed.words.after === null && !!inState.words && inState.words.mark.label === 'Checkpoint:', JSON.stringify(listed.words));
 const a = await post('/api/checkpoints/answer', { id: listed.id, choice: 1 });
 check('answer: taken, by the desktop', a.status === 200 && a.body.checkpoint.state === 'answered' && a.body.checkpoint.answer.by === 'desktop', a.text);
+check('the answer comes worded', !!a.body.checkpoint.words && a.body.checkpoint.words.state === 'answered' && a.body.checkpoint.words.after.head === 'Answered' && a.body.checkpoint.words.after.text === 'You answered {where}.' && a.body.checkpoint.words.after.where.by === 'desktop', JSON.stringify(a.body.checkpoint.words));
+const closedAll = (await get('/api/checkpoints?all')).body.checkpoints.find((c) => c.id === listed.id);
+check('a closed one in ?all comes worded', !!closedAll && closedAll.words && closedAll.words.state === 'answered' && closedAll.words.after.big === 'Not yet', JSON.stringify(closedAll && closedAll.words));
+// A window's copy from its own daemon (no words, or ones for an earlier state): the hub words it as sent, and never reads a secret.
+const notWorded = ['never', 'worded', '1234'].join('-');
+const wr = await post('/api/checkpoints/words', { checkpoints: [{ ...listed, words: undefined, state: 'expired', closed_at: new Date().toISOString() }, { id: 'csec9', kind: 'secret', state: 'answered', title: 'GitHub token', command: 'gh auth login --with-token', answer: { delivered: true, secret: notWorded }, created_at: new Date().toISOString() }] });
+check('POST /api/checkpoints/words words a window\'s copies', wr.status === 200 && wr.body.words[listed.id].state === 'expired' && wr.body.words[listed.id].after.head === 'Nobody answered' && wr.body.words.csec9.secret.noun === 'token' && !wr.text.includes(notWorded), wr.text);
+check('POST /api/checkpoints/words wants a list', (await post('/api/checkpoints/words', { id: 'x' })).status === 400);
 check('the agent goes on with the answer', (await askDone) === 0 && askOut.trim() === 'Not yet', askOut);
 const twice = await post('/api/checkpoints/answer', { id: listed.id, choice: 0 });
 check('a second answer is refused', twice.status === 409, twice.text);
