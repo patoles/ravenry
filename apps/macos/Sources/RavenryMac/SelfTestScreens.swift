@@ -21,6 +21,7 @@ extension SelfTestBoard {
         case "alerts": screenAlerts()
         case "pages": screenPages()
         case "decisions": screenDecisions()
+        case "settings": screenSettings()
         default: check("screen_known", false, name)
         }
         finish()

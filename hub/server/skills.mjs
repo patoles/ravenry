@@ -92,6 +92,21 @@ export function skillsView(env = process.env, home = os.homedir()) {
   });
 }
 
+/**
+ * Each row with its hooks (Settings, Skills; worked out by the desktop's
+ * main.ts hooksOf() too): `dry(kind)` is a dry run of setting them up
+ * (hookinstall.setupWithRavenryd), `{ file, changes }` or null. On when
+ * setting them up would change nothing, off when it would, unavailable
+ * with no file to write (or the run failing).
+ */
+export function withHooks(rows, dry) {
+  return rows.map((r) => {
+    let x = null;
+    try { x = dry(r.kind); } catch { x = null; }
+    return { ...r, ...(x && x.file ? { hooks: x.changes && x.changes.length ? 'off' : 'on', hooksFile: x.file } : { hooks: 'unavailable', hooksFile: null }) };
+  });
+}
+
 function readUndo(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch { return {}; }
 }

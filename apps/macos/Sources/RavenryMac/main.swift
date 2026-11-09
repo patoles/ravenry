@@ -288,6 +288,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ns.keyEquivalentModifierMask = [.command, .shift]
         ns.target = b
         shell?.insertItem(ns, at: 1)
+        // Settings... (Cmd+,), as the Electron app's app menu.
+        if let app = main.items.first?.submenu {
+            let st = NSMenuItem(title: "Settings\u{2026}", action: #selector(Board.menuSettings(_:)), keyEquivalent: ",")
+            st.target = b
+            app.insertItem(st, at: 0)
+            app.insertItem(.separator(), at: 1)
+        }
         let view = main.items.first { $0.submenu?.title == "View" }?.submenu
         view?.addItem(.separator())
         let side = NSMenuItem(title: t("side.hide"), action: #selector(Board.menuToggleSidebar(_:)), keyEquivalent: "s")

@@ -129,6 +129,18 @@ stream".
   there; a project's page stays off until trusted (sha256 of its text, with
   CryptoKit), a page with a mistake shows its last good version under the
   problem. An idea opens its thread, a plan its page, a project its session.
+- **Settings** (`SettingsWindow.swift`, `Settings.swift`): Cmd+, and the
+  sidebar's foot open a 720-wide window with the Electron app's three
+  tabs. Appearance: the font (the installed monospace families) and its
+  size, a preview in the theme in use, Follow the system with the dark
+  and light themes (or one), the cursor and Blink; Behavior: Option as
+  Meta, copy on select, links, the scrollback (red when not a number in
+  its range), the bell and the Dock, closing a busy tab; Skills: the
+  hub's rows with their hooks (`GET /api/setup/skills?ravenryd=`),
+  Install, Remove and Set up. Every control writes settings.json in the
+  data folder (`RAVENRY_DESKTOP_DATA`, else the Electron app's), its keys
+  from `shared/settings/settings.json`, the themes from `shared/themes/`;
+  the window follows the file when the other app writes it.
 - **Decisions** (`DecisionsPage.swift`): the sidebar's fixed row opens
   what the hub sends for the page (`GET /api/decisions?page=1&show=&only=
   &search=`, `hub/server/decisions.mjs` page()): the person's words in
@@ -340,9 +352,15 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window: no New Window, settings, closing a busy shell's question,
+- One window: no New Window, closing a busy shell's question,
   bells or activity on hidden tabs, or tab dragged to an edge to split.
-- Sidebar and panel: Settings, the phone, Learn and Machines are native
+- Settings: the window reads and writes the shared settings file, but
+  the terminals do not apply its settings yet (font, size, theme, cursor,
+  Option as Meta, copy on select, links, scrollback, bell, closing a
+  busy tab: Cmd+= still keeps its size in the app's own defaults); no
+  theme import (iTerm2, Ghostty); a broken file is not kept aside and
+  an old one is not migrated.
+- Sidebar and panel: the phone, Learn and Machines are native
   placeholders; Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
   (the panel has no card of its own for a page's run yet), a page's form
   takes a date as text, and a sheet taller than the window is cut; New session is a

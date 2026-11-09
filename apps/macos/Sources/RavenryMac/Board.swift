@@ -387,6 +387,8 @@ final class Board: NSObject {
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
         if key == "side.alerts" { openAlerts(); return }
         if key == "decisions" { openDecisions(); return }
+        // The foot's Settings, and the panel's way to Settings when the first-launch step was off (its Skills).
+        if key == "side.settings" || key == "settings" { openSettings(key == "settings" ? "skills" : nil); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
         overlay = false
         notePageBack()
@@ -470,6 +472,14 @@ final class Board: NSObject {
         log.append("alerts")
         render()
     }
+
+    /// The Settings window (SettingsWindow.swift), on the shared settings file (offscreen: in memory, or RAVENRY_DESKTOP_DATA's).
+    private(set) lazy var settings = SettingsWindow(store: SettingsStore(offscreen: !keep), hub: hub, offscreen: !keep)
+    func openSettings(_ tab: String? = nil) {
+        settings.show(tab)
+        log.append("settings \(settings.tab)")
+    }
+    @objc func menuSettings(_ sender: Any?) { openSettings() }
 
     /// Decisions; `lit`: the one a toast's Show points at.
     func openDecisions(lit: String? = nil) {

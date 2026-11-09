@@ -3771,7 +3771,15 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && p === '/api/project/folders') return sendJson(res, 200, projectFolders());
     // The first launch's Start screen (server/firstlaunch.mjs) and the Ravenry skill (server/skills.mjs).
     if (req.method === 'GET' && p === '/api/setup/start') return sendJson(res, 200, { ok: true, ...firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') }) });
-    if (req.method === 'GET' && p === '/api/setup/skills') return sendJson(res, 200, { ok: true, skills: skills.skillsView(process.env, HOME) });
+    if (req.method === 'GET' && p === '/api/setup/skills') {
+      // ravenryd=<path> (on the Mac only): each row adds its hooks, on, off
+      // or unavailable (skills.withHooks, a dry run of setting them up).
+      const rows = skills.skillsView(process.env, HOME);
+      const bin = url.searchParams.get('ravenryd');
+      if (!bin || !req.mcLocal) return sendJson(res, 200, { ok: true, skills: rows });
+      const undoFile = path.join(registry.RAVENRY_HOME, 'setup-undo.json');
+      return sendJson(res, 200, { ok: true, skills: skills.withHooks(rows, (k) => { const r = hookinstall.setupWithRavenryd({ ravenryd: bin, dry: true, only: k, undoFile }); return r.ok && r[k] ? { file: short(r[k].file), changes: r[k].changes } : null; }) });
+    }
     // What the person has seen of the onboarding, for every client (server/onboarding.mjs).
     if (req.method === 'GET' && p === '/api/onboarding') return sendJson(res, 200, { ok: true, ...onboarding.view() });
     if (req.method === 'GET' && p === '/api/project/last') {

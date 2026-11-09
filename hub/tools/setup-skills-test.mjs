@@ -29,6 +29,12 @@ const sk = await import('../server/skills.mjs');
 
 let fails = 0;
 const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${!ok && detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+{
+  const { withHooks } = await import('../server/skills.mjs');
+  const rows = [{ kind: 'claude' }, { kind: 'codex' }, { kind: 'x' }];
+  const w = withHooks(rows, (k) => (k === 'claude' ? { file: '~/.claude/settings.json', changes: [] } : k === 'codex' ? { file: '~/.codex/hooks.json', changes: [{}] } : (() => { throw new Error('no'); })()));
+  check('withHooks: on when setting up changes nothing, off when it would, unavailable when the run fails', w[0].hooks === 'on' && w[0].hooksFile === '~/.claude/settings.json' && w[1].hooks === 'off' && w[2].hooks === 'unavailable' && w[2].hooksFile === null, JSON.stringify(w));
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tree = (d) => {
   const out = {};
@@ -161,6 +167,8 @@ try {
   check('GET /api/setup/start?folder=: that folder first', w.j.folders[0].path === path.join(bhome, 'other'), JSON.stringify(w.j.folders));
   const g = await get('/api/setup/skills');
   check('GET /api/setup/skills: both assistants, said with ~, none installed', g.status === 200 && g.j.skills.length === 2 && g.j.skills[0].dir === '~/.claude/skills/ravenry' && g.j.skills[0].name === 'Claude Code' && g.j.skills[0].found && !g.j.skills[0].installed && !g.j.skills[1].found, JSON.stringify(g.j));
+  const gh = await get(`/api/setup/skills?ravenryd=${encodeURIComponent(ravenryd)}`);
+  check('GET /api/setup/skills?ravenryd=: each row says its hooks (off before set up, unavailable with no file to write), as Settings, Skills shows them', gh.status === 200 && gh.j.skills.length === 2 && ['on', 'off', 'unavailable'].includes(gh.j.skills[0].hooks) && gh.j.skills.every((r) => (r.hooks === 'unavailable') === (r.hooksFile === null)), JSON.stringify(gh.j.skills.map((r) => [r.kind, r.hooks, r.hooksFile])));
   const i = await post('/api/setup/skills', { kind: 'claude', on: true, ravenryd, version: '0.1.23' });
   const md = path.join(bhome, '.claude', 'skills', 'ravenry', 'SKILL.md');
   const text = fs.existsSync(md) ? fs.readFileSync(md, 'utf8') : '';

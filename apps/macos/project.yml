@@ -25,6 +25,12 @@ targets:
       - path: ../../shared/icons
         buildPhase: resources
         type: folder
+      # The terminal settings' keys and the shipped themes (Settings.swift).
+      - path: ../../shared/settings/settings.json
+        buildPhase: resources
+      - path: ../../shared/themes
+        buildPhase: resources
+        type: folder
       # The hub's own code for a hub older than state.sidebar (OlderHub.swift).
       - path: ../../hub/server/sidebar.mjs
         buildPhase: resources

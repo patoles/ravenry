@@ -26,6 +26,12 @@ for (const [name, v] of Object.entries(I)) {
 }
 const m = /export const MACHINES_ICON = '([^']+)'/.exec(fs.readFileSync(path.join(SRC, 'machines.ts'), 'utf8'));
 if (m) out.set('machines.svg', m[1]);
+// The Settings window's tabs (src/settings/settings.ts I).
+const st = fs.readFileSync(path.join(SRC, '..', 'settings', 'settings.ts'), 'utf8');
+for (const [k, f] of [['APPEAR', 'settings-appearance'], ['BEHAV', 'settings-behavior'], ['SKILLS', 'settings-skills']]) {
+  const x = new RegExp(`\\b${k}: '([^']+)'`).exec(st);
+  if (x) out.set(`${f}.svg`, x[1]);
+}
 // The SVG namespace, so a reader that is not a browser draws them.
 const file = (s) => s.replace(/^<svg(?![^>]*xmlns=)/, '<svg xmlns="http://www.w3.org/2000/svg"') + '\n';
 const check = process.argv.includes('--check');
