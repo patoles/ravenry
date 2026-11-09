@@ -31,7 +31,10 @@ final class Bench {
     private var draws: [(t: Double, seq: UInt32, cpu: Double)] = []
     private var gpu: [(cpu: Double, gpu: Double)] = []
 
-    init(view: TerminalView, window: NSWindow, out: String, dragMin: CGFloat) {
+    let workspace: Workspace
+
+    init(view: TerminalView, window: NSWindow, out: String, dragMin: CGFloat, workspace: Workspace) {
+        self.workspace = workspace
         self.view = view
         self.window = window
         self.out = out

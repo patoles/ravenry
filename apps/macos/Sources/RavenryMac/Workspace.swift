@@ -1,0 +1,651 @@
+// The window's tabs and splits, as the Electron app's terminal area has
+// them (apps/desktop/src/renderer/app.ts: newShell, splitNew, closeTab,
+// removeTab, stepTab, focus-pane, layoutSplit, restoreTabs, save):
+//
+// - A tab per pane: the daemon's panes labelled ravenry.kind: shell, each
+//   named as the Electron app names it (shellLabel: the pane's own name,
+//   else the program's title, else the program; its folder after it).
+// - Cmd+T or the + opens a shell in the folder of the pane in front;
+//   Cmd+W closes the pane with the keyboard (its tab, or its split's
+//   pane, the tab whole again) and ends its process; the last tab gone,
+//   the window closes. Cmd+1 to Cmd+9, Cmd+Shift+[ and ], Ctrl+Tab and
+//   Ctrl+Shift+Tab pick a tab; a tab is dragged along the strip.
+// - One split per tab: Cmd+D a new shell on the right, Cmd+Shift+D
+//   below, with the keyboard (a new tab when the tab is split already);
+//   Cmd+Option+arrows or a click move the keyboard; the divider is
+//   dragged, a double click or Cmd+Ctrl+= evens it; Cmd+Shift+Enter
+//   shows the pane with the keyboard alone, and back.
+// - Each pane is its own render stream. A tab not in front has none and
+//   draws nothing; brought to the front, its panes draw the rows they
+//   had at once and open their streams again. A pane never drawn yet is
+//   laid out under the tab in front and takes its place once its first
+//   frame came (at most 300 ms), so a switch never shows a blank pane.
+// - The order, the splits and the tab in front are kept in the Electron
+//   app's window.json (Layout.swift), so both apps agree.
+
+import AppKit
+
+/// What the window knows of a pane, from pane.list and the daemon's
+/// events.
+final class PaneInfo {
+    let id: String
+    var name = ""
+    var title = ""
+    var cwd = ""
+    var command: [String] = []
+    var createdAt = ""
+
+    init(id: String) { self.id = id }
+
+    func update(_ p: [String: Any]) {
+        if let v = p["name"] as? String { name = v }
+        if let v = p["title"] as? String { title = v }
+        if let v = p["cwd"] as? String { cwd = v }
+        if let v = p["command"] as? [String] { command = v }
+        if let v = p["created_at"] as? String { createdAt = v }
+    }
+}
+
+/// A tab: its pane, and the pane beside it when split.
+final class Tab {
+    var host: String
+    var guest: String?
+    /// Where the guest is: right, left, down or up.
+    var side = "right"
+    /// The host's share, in percent.
+    var size: Double = 50
+    /// 1 when the guest has the keyboard.
+    var focus = 0
+    var zoom = false
+
+    init(host: String) { self.host = host }
+    var id: String { "s:" + host }
+    var focusedPane: String { focus == 1 ? (guest ?? host) : host }
+}
+
+final class Workspace: NSObject {
+    let window: TerminalWindow
+    let options: Options
+    let conn: Connection
+    let root = RootView()
+    let bar = TabBar()
+    let stage = StageView()
+    private(set) var tabs: [Tab] = []
+    private(set) var active: Tab?
+    private var info: [String: PaneInfo] = [:]
+    private(set) var boxes: [String: PaneBox] = [:]
+    private var shown: NSView?
+    private var shownTab: Tab?
+    private var pending: (tab: Tab, view: NSView, timer: DispatchWorkItem)?
+    private let layout: LayoutStore?
+    let scale: CGFloat
+    var fontSize: CGFloat
+    var defaultFontSize: CGFloat = 12
+    var closing = false
+    /// Each switch's times: to the first draw of the tab in front, and to
+    /// the first frame of its new streams (the bench reads them).
+    var onSwitch: ((_ tab: String, _ drawnMs: Double, _ frameMs: Double, _ hadRows: Bool) -> Void)?
+    let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+
+    init(window: TerminalWindow, options: Options, conn: Connection, scale: CGFloat, fontSize: CGFloat) {
+        self.window = window
+        self.options = options
+        self.conn = conn
+        self.scale = scale
+        self.fontSize = fontSize
+        layout = LayoutStore(offscreen: options.offscreen)
+        super.init()
+        root.bar = bar
+        root.stage = stage
+        root.addSubview(stage)
+        root.addSubview(bar)
+        bar.onSelect = { [weak self] id in self?.select(id: id) }
+        bar.onClose = { [weak self] id in
+            guard let self, let t = self.tabs.first(where: { $0.id == id }) else { return }
+            self.closeTab(t)
+        }
+        bar.onNew = { [weak self] in self?.newTab(nil) }
+        bar.onMove = { [weak self] id, to in self?.move(id: id, to: to) }
+    }
+
+    // MARK: panes and their views
+
+    var focusedView: TerminalView? { active.flatMap { boxes[$0.focusedPane]?.term } }
+
+    private func box(_ pane: String) -> PaneBox? {
+        if let b = boxes[pane] { return b }
+        guard let v = TerminalView(frame: stage.bounds, scale: scale, fontName: options.font, fontSize: fontSize) else { return nil }
+        v.defaultFontSize = defaultFontSize
+        v.keepsFontSize = !options.offscreen
+        v.offscreen = options.offscreen && !options.benchLayer
+        v.optionAsAlt = options.optionAsAlt
+        let fps = options.offscreen ? 120 : (NSScreen.main?.maximumFramesPerSecond ?? 60)
+        v.refreshInterval = 1.0 / Double(max(fps, 30))
+        v.attach(conn, pane: pane, fps: fps)
+        v.onTitle = { [weak self] t in
+            guard let self else { return }
+            if let i = self.info[pane], !t.isEmpty || !i.title.isEmpty { i.title = t }
+            self.refresh()
+        }
+        v.onFocus = { [weak self] in self?.focused(pane: pane) }
+        v.onFontSize = { [weak self] s in self?.setFontSize(s) }
+        v.windowMinSize = { [weak self] in self?.minContentSize() ?? .zero }
+        let b = PaneBox(term: v)
+        b.onClose = { [weak self] in self?.closePane(pane) }
+        b.onClickHead = { [weak self, weak v] in if let v { self?.window.makeFirstResponder(v) } }
+        boxes[pane] = b
+        return b
+    }
+
+    /// A pane as the tabs name it (app.ts shellLabel): its own name (not
+    /// the default "Shell"), else the title its program set, else the
+    /// program; and its folder (~ for home) when that is not the name.
+    func label(_ pane: String) -> (name: String, sub: String?) {
+        let i = info[pane] ?? PaneInfo(id: pane)
+        let title = i.title.trimmingCharacters(in: .whitespaces)
+        let first = i.command.first.map { ($0 as NSString).lastPathComponent } ?? ""
+        let prog = first.isEmpty ? "Shell" : first
+        let own = !i.name.isEmpty && i.name != "Shell" ? i.name : ""
+        let name = !own.isEmpty ? own : !title.isEmpty ? title : prog
+        var folder = ""
+        if !i.cwd.isEmpty {
+            folder = i.cwd == home ? "~" : (i.cwd as NSString).lastPathComponent
+        }
+        let sub = !folder.isEmpty && folder.lowercased() != name.lowercased() ? folder : nil
+        return (name, sub)
+    }
+
+    // MARK: the start
+
+    /// The tabs the daemon has (its shells), in the saved order with the
+    /// saved splits, the saved one in front; a new shell when none.
+    func restore() throws {
+        let r = try conn.call("pane.list", ["labels": ["ravenry.kind": "shell"]])
+        var panes = (r["panes"] as? [[String: Any]] ?? []).filter { ($0["state"] as? String ?? "running") == "running" }
+        if let a = options.attach, !panes.contains(where: { $0["id"] as? String == a }) {
+            let all = try conn.call("pane.list", ["hidden": true])
+            panes += (all["panes"] as? [[String: Any]] ?? []).filter { $0["id"] as? String == a }
+        }
+        for p in panes {
+            guard let id = p["id"] as? String else { continue }
+            let i = PaneInfo(id: id)
+            i.update(p)
+            info[id] = i
+        }
+        let saved = layout?.read() ?? SavedLayout()
+        var ids = panes.compactMap { $0["id"] as? String }
+        ids.sort { (info[$0]?.createdAt ?? "") < (info[$1]?.createdAt ?? "") }
+        let rank: (String) -> Int = { id in saved.order.firstIndex(of: "s:" + id) ?? (saved.order.count + ids.firstIndex(of: id)!) }
+        ids.sort { rank($0) < rank($1) }
+        tabs = ids.map { Tab(host: $0) }
+        for sp in saved.splits {
+            guard let h = tabs.first(where: { $0.id == sp.host }), let g = tabs.first(where: { $0.id == sp.guest }),
+                  h !== g, h.guest == nil, g.guest == nil, ["right", "left", "down", "up"].contains(sp.side) else { continue }
+            tabs.removeAll { $0 === g }
+            h.guest = g.host
+            h.side = sp.side
+            h.size = sp.size > 0 && sp.size < 100 ? sp.size : 50
+            h.focus = sp.focus == 1 ? 1 : 0
+            h.zoom = sp.zoom
+        }
+        var front = tabs.first { $0.id == saved.active || ("s:" + ($0.guest ?? "")) == saved.active }
+        if let a = options.attach { front = tabs.first { $0.host == a || $0.guest == a } ?? front }
+        if tabs.isEmpty {
+            guard let id = try newPane(cwd: nil, size: stage.bounds.size) else { throw ConnectionError.connect("no pane") }
+            tabs = [Tab(host: id)]
+        }
+        show(front ?? tabs[0], wait: true)
+    }
+
+    /// A new shell in the daemon (pane.new), labelled as the app's shells.
+    @discardableResult
+    func newPane(cwd: String?, size: NSSize) throws -> String? {
+        let r = Renderer(scale: scale, fontName: options.font, fontSize: fontSize)
+        let g = r?.grid(for: NSSize(width: max(size.width, 160), height: max(size.height, 80))) ?? (cols: 80, rows: 24)
+        var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": "Shell", "labels": ["ravenry.kind": "shell"]]
+        if !options.command.isEmpty { params["command"] = options.command }
+        if options.bench != nil || options.selftest != nil { params["cwd"] = home } else if let c = cwd, !c.isEmpty { params["cwd"] = c }
+        let res = try conn.call("pane.new", params)
+        guard let p = res["pane"] as? [String: Any], let id = p["id"] as? String else { return nil }
+        let i = PaneInfo(id: id)
+        i.update(p)
+        info[id] = i
+        return id
+    }
+
+    // MARK: showing a tab
+
+    /// Brings a tab to the front. Its panes draw the rows they had at
+    /// once and open their streams; a pane that never had a frame waits
+    /// under the tab in front for its first one.
+    func show(_ t: Tab, wait: Bool = false) {
+        let t0 = CACurrentMediaTime()
+        if let p = pending {
+            p.timer.cancel()
+            if p.tab !== t { p.view.removeFromSuperview(); panes(of: p.tab).forEach { if shownTab == nil || !panes(of: shownTab!).contains($0) { boxes[$0]?.term.pause() } } }
+            pending = nil
+        }
+        active = t
+        let content = build(t)
+        content.frame = stage.bounds
+        let ids = panes(of: t, visibleOnly: true)
+        let fresh = ids.contains { id in boxes[id].map { b in b.term.screen.lock(); defer { b.term.screen.unlock() }; return b.term.screen.frames == 0 } ?? true }
+        // Waiting under the tab in front needs one, and another tab.
+        let canWait = fresh && !wait && shownTab !== t && shown?.superview === stage
+        if !canWait {
+            stage.addSubview(content)
+            swapTo(t, content)
+            for id in ids { boxes[id]?.term.resume(wait: wait) }
+            report(t, ids, t0, hadRows: !fresh)
+        } else {
+            // Under the tab in front until its first frames came.
+            stage.addSubview(content, positioned: .below, relativeTo: shown)
+            content.layoutSubtreeIfNeeded()
+            var left = Set(ids)
+            let timer = DispatchWorkItem { [weak self] in self?.finishPending(t) }
+            pending = (t, content, timer)
+            for id in ids {
+                guard let v = boxes[id]?.term else { continue }
+                v.onFrame = { [weak self, weak v] in
+                    DispatchQueue.main.async {
+                        guard let self, let v, let p = self.pending, p.tab === t else { return }
+                        v.onFrame = nil
+                        left.remove(id)
+                        if left.isEmpty { self.finishPending(t) }
+                    }
+                }
+                v.resume()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
+            report(t, ids, t0, hadRows: false)
+        }
+        refresh()
+        save()
+    }
+
+    private func finishPending(_ t: Tab) {
+        guard let p = pending, p.tab === t else { return }
+        p.timer.cancel()
+        pending = nil
+        swapTo(t, p.view)
+    }
+
+    /// The tab's content in place of the one shown: the old tab's panes
+    /// stop their streams, the keyboard goes to the pane that has it.
+    private func swapTo(_ t: Tab, _ content: NSView) {
+        if let old = shown, old !== content {
+            let keep = Set(panes(of: t, visibleOnly: true))
+            if let ot = shownTab { for id in panes(of: ot) where !keep.contains(id) { boxes[id]?.term.pause() } }
+            // (A pane of the old content may be in the new one: a split
+            // made from it.)
+            if old.superview === stage { old.removeFromSuperview() }
+        }
+        shown = content
+        shownTab = t
+        updateBoxes(t)
+        if let v = boxes[t.focusedPane]?.term { window.makeFirstResponder(v) }
+        updateMinSize()
+    }
+
+    private func report(_ t: Tab, _ ids: [String], _ t0: CFTimeInterval, hadRows: Bool) {
+        guard let cb = onSwitch else { return }
+        // The first draw, and the first frame of the new streams.
+        var drawn = 0.0, framed = 0.0
+        let views = ids.compactMap { boxes[$0]?.term }
+        for v in views {
+            let old = v.onDraw
+            v.onDraw = { seq, cpu in
+                old?(seq, cpu)
+                if drawn == 0 { drawn = (CACurrentMediaTime() - t0) * 1000 }
+                if seq != 0 && framed == 0 {
+                    framed = (CACurrentMediaTime() - t0) * 1000
+                    v.onDraw = old
+                    cb(t.id, drawn, framed, hadRows)
+                }
+            }
+        }
+    }
+
+    /// The panes of a tab; visibleOnly: without the one a zoom hides.
+    func panes(of t: Tab, visibleOnly: Bool = false) -> [String] {
+        guard let g = t.guest else { return [t.host] }
+        if visibleOnly && t.zoom { return [t.focusedPane] }
+        return [t.host, g]
+    }
+
+    /// The view that shows a tab: its pane, or its split.
+    private func build(_ t: Tab) -> NSView {
+        guard let g = t.guest, !t.zoom, let hb = box(t.host), let gb = box(g) else {
+            return box(t.zoom ? t.focusedPane : t.host) ?? NSView()
+        }
+        hb.removeFromSuperview()
+        gb.removeFromSuperview()
+        let guestFirst = t.side == "left" || t.side == "up"
+        let f = CGFloat(guestFirst ? 100 - t.size : t.size) / 100
+        let sv = PaneSplitView(vertical: t.side == "right" || t.side == "left", first: guestFirst ? gb : hb, second: guestFirst ? hb : gb, fraction: f)
+        sv.frame = stage.bounds
+        sv.layoutPanes()
+        sv.onFraction = { [weak self, weak t] f in
+            guard let self, let t else { return }
+            t.size = Double(round((guestFirst ? 1 - f : f) * 1000) / 10)
+            self.save()
+        }
+        return sv
+    }
+
+    private func updateBoxes(_ t: Tab) {
+        let split = t.guest != nil && !t.zoom
+        for id in panes(of: t) {
+            guard let b = boxes[id] else { continue }
+            let l = label(id)
+            b.name = l.name
+            b.sub = l.sub
+            b.showsHead = split
+            b.inFocus = id == t.focusedPane
+        }
+    }
+
+    /// The tab strip, the headers and the window's title, from the model.
+    func refresh() {
+        bar.set(tabs.enumerated().map { i, t in
+            let l = label(t.host)
+            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: t === active,
+                            tip: i < 9 ? "\(l.name) (⌘\(i + 1))" : l.name)
+        })
+        if let t = shownTab { updateBoxes(t) }
+        if let t = active { window.title = label(t.focusedPane).name }
+    }
+
+    // MARK: commands
+
+    func select(id: String) {
+        guard let t = tabs.first(where: { $0.id == id }), t !== active else { return }
+        show(t)
+    }
+
+    func select(index i: Int) {
+        guard i >= 0 && i < tabs.count else { return }
+        if tabs[i] !== active { show(tabs[i]) }
+    }
+
+    func step(_ d: Int) {
+        guard !tabs.isEmpty else { return }
+        let i = active.flatMap { a in tabs.firstIndex { $0 === a } } ?? 0
+        select(index: (i + d + tabs.count) % tabs.count)
+    }
+
+    func move(id: String, to: Int) {
+        guard let i = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let t = tabs.remove(at: i)
+        tabs.insert(t, at: min(max(0, to), tabs.count))
+        refresh()
+        save()
+    }
+
+    /// Cmd+T: a shell in the folder of the pane in front, in a new tab
+    /// after the last.
+    func newTab(_ sender: Any?) {
+        let cwd = active.flatMap { info[$0.focusedPane]?.cwd }
+        do {
+            guard let id = try newPane(cwd: cwd, size: stage.bounds.size) else { return }
+            let t = Tab(host: id)
+            tabs.append(t)
+            show(t)
+        } catch {
+            NSLog("RavenryMac: new shell: \(error)")
+        }
+    }
+
+    /// Cmd+D (right), Cmd+Shift+D (down): a shell beside the pane in
+    /// front, with the keyboard; a new tab when the tab is split already.
+    func split(_ side: String) {
+        guard let t = active, t.guest == nil else { newTab(nil); return }
+        let s = stage.bounds.size
+        let half = side == "down" ? NSSize(width: s.width, height: s.height / 2 - Design.headHeight) : NSSize(width: s.width / 2, height: s.height - Design.headHeight)
+        do {
+            guard let id = try newPane(cwd: info[t.host]?.cwd, size: half) else { return }
+            t.guest = id
+            t.side = side
+            t.size = 50
+            t.focus = 1
+            t.zoom = false
+            show(t)
+        } catch {
+            NSLog("RavenryMac: split: \(error)")
+        }
+    }
+
+    /// Cmd+Option+arrows: the other pane of the split, when it lies that
+    /// way.
+    func focusToward(_ dir: String) {
+        guard let t = active, t.guest != nil else { return }
+        let toGuest = dir == t.side
+        let opposite = ["right": "left", "left": "right", "down": "up", "up": "down"]
+        let toHost = opposite[dir] == t.side
+        if toGuest { focusSplit(t, 1) } else if toHost { focusSplit(t, 0) }
+    }
+
+    private func focusSplit(_ t: Tab, _ i: Int) {
+        if t.focus != i {
+            t.focus = i
+            if t.zoom { show(t); return }
+        }
+        if let v = boxes[t.focusedPane]?.term { window.makeFirstResponder(v) }
+        updateBoxes(t)
+        refresh()
+        save()
+    }
+
+    /// A pane took the keyboard (a click in it).
+    private func focused(pane: String) {
+        guard let t = active, t.guest != nil else { return }
+        let i = pane == t.guest ? 1 : 0
+        if t.focus != i {
+            t.focus = i
+            updateBoxes(t)
+            refresh()
+            save()
+        }
+    }
+
+    /// Even: half and half.
+    func equalize() {
+        guard let t = active, t.guest != nil, let sv = shown as? PaneSplitView else { return }
+        sv.equalize()
+        _ = t
+    }
+
+    /// Cmd+Shift+Enter: the pane with the keyboard alone, and back.
+    func toggleZoom() {
+        guard let t = active, t.guest != nil else { return }
+        t.zoom.toggle()
+        show(t)
+    }
+
+    /// Cmd+W: the pane with the keyboard.
+    func closeFocused() {
+        guard let t = active else { return }
+        closePane(t.focusedPane)
+    }
+
+    func closeTab(_ t: Tab) {
+        for id in panes(of: t) { closePane(id) }
+    }
+
+    /// Closes a pane: its process ends (pane.close); its tab goes, or its
+    /// split's other pane is the tab, whole again.
+    func closePane(_ id: String) {
+        removePane(id)
+        conn.request("pane.close", ["pane": id])
+    }
+
+    /// A pane is gone (closed here, or it ended): out of its tab.
+    func removePane(_ id: String) {
+        guard let i = tabs.firstIndex(where: { $0.host == id || $0.guest == id }) else { return }
+        let t = tabs[i]
+        layout?.forget(["s:" + id])
+        let wasActive = t === active
+        boxes[id]?.term.pause()
+        boxes[id]?.removeFromSuperview()
+        boxes.removeValue(forKey: id)
+        info.removeValue(forKey: id)
+        if t.guest == id {
+            t.guest = nil
+            t.focus = 0
+            t.zoom = false
+        } else if let g = t.guest {
+            // The tab's own pane went: its split's pane is the tab.
+            t.host = g
+            t.guest = nil
+            t.focus = 0
+            t.zoom = false
+        } else {
+            tabs.remove(at: i)
+            if wasActive {
+                shown?.removeFromSuperview()
+                shown = nil
+                shownTab = nil
+                active = nil
+                if tabs.isEmpty {
+                    save()
+                    layout?.flush()
+                    window.close()
+                    return
+                }
+                show(tabs[min(i, tabs.count - 1)])
+                return
+            }
+            refresh()
+            save()
+            return
+        }
+        if wasActive {
+            shown?.removeFromSuperview()
+            shown = nil
+            shownTab = nil
+            show(t)
+        } else {
+            refresh()
+            save()
+        }
+    }
+
+    // MARK: text size
+
+    func setFontSize(_ s: CGFloat) {
+        fontSize = s
+        for b in boxes.values { b.term.applyFontSize(s) }
+        updateMinSize()
+    }
+
+    // MARK: size
+
+    /// The window's smallest content: each pane of the tab in front at
+    /// least its smallest grid (40 x 10), or 160 pt in a split, as the
+    /// Electron app's; the strip above.
+    func minContentSize() -> NSSize {
+        guard let t = active, let v = boxes[t.host]?.term else { return NSSize(width: 400, height: 200) }
+        let one = v.minContentSize
+        var m = one
+        if t.guest != nil && !t.zoom {
+            if t.side == "right" || t.side == "left" {
+                m = NSSize(width: 2 * Design.paneMin + Design.gutter, height: one.height + Design.headHeight)
+            } else {
+                m = NSSize(width: one.width, height: 2 * max(Design.paneMin, one.height + Design.headHeight) + Design.gutter)
+            }
+        }
+        return NSSize(width: m.width, height: m.height + Design.stripHeight)
+    }
+
+    func updateMinSize() { focusedView?.updateMinSize() }
+
+    // MARK: the daemon's events
+
+    func event(_ ev: [String: Any]) {
+        let name = ev["event"] as? String ?? ""
+        if name == "stream.end", let ch = (ev["channel"] as? NSNumber)?.uint32Value {
+            // A pane on screen ended.
+            if let (id, _) = boxes.first(where: { $0.value.term.channel == ch }) { ended(id) }
+            return
+        }
+        guard let p = ev["pane"] as? [String: Any], let id = p["id"] as? String else { return }
+        switch name {
+        case "pane.title", "pane.cwd", "pane.updated":
+            info[id]?.update(p)
+            refresh()
+        case "pane.exited", "pane.closed":
+            if info[id] != nil { ended(id) }
+        case "pane.focus":
+            if let t = tabs.first(where: { $0.host == id || $0.guest == id }) {
+                if t.guest == id { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
+                show(t)
+                if !options.offscreen { NSApp.activate(ignoringOtherApps: true) }
+            }
+        default:
+            break
+        }
+    }
+
+    /// A pane's program ended: its tab goes (the pane too, from the daemon).
+    private func ended(_ id: String) {
+        removePane(id)
+        conn.request("pane.close", ["pane": id])
+    }
+
+    // MARK: kept
+
+    func save() {
+        guard let layout else { return }
+        var order: [String] = []
+        var splits: [SavedSplit] = []
+        for t in tabs {
+            order.append(t.id)
+            if let g = t.guest {
+                order.append("s:" + g)
+                splits.append(SavedSplit(host: t.id, guest: "s:" + g, side: t.side, size: t.size, focus: t.focus, zoom: t.zoom))
+            }
+        }
+        layout.save(order: order, splits: splits, active: active?.id)
+    }
+
+    func flush() { layout?.flush() }
+}
+
+/// The window's content: the strip at the top (in the title bar), the
+/// tab in front under it.
+final class RootView: NSView {
+    weak var bar: TabBar?
+    weak var stage: StageView?
+    /// After each layout (the window's buttons are placed again).
+    var onLayout: (() -> Void)?
+    override var isFlipped: Bool { true }
+    override func layout() {
+        super.layout()
+        place()
+    }
+    override func setFrameSize(_ s: NSSize) {
+        super.setFrameSize(s)
+        // At once, so the panes draw their new size in this transaction.
+        place()
+    }
+    private func place() {
+        bar?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Design.stripHeight)
+        stage?.frame = NSRect(x: 0, y: Design.stripHeight, width: bounds.width, height: max(1, bounds.height - Design.stripHeight))
+        onLayout?()
+    }
+}
+
+/// Where the tab in front goes: its content fills it.
+final class StageView: NSView {
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = Design.termBg.cgColor
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func setFrameSize(_ s: NSSize) {
+        super.setFrameSize(s)
+        for v in subviews { v.frame = bounds }
+    }
+}

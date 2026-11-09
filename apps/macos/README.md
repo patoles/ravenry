@@ -8,7 +8,8 @@ mouse for the program. There is no second terminal emulator to drift from
 the daemon's, which is what made the first spike (GhosttyKit fed by
 `ravenryd attach`) blink and leave prompt debris on a resize.
 
-One window, one terminal, attached to a pane of ravenryd.
+One window of tabs and splits, each pane of ravenryd drawn by the app,
+as the Electron app's terminal area has them.
 
 Licence: GPL-3.0-only, like the other apps. No third-party code: the
 renderer, the WebSocket client and the key table are this app's.
@@ -35,7 +36,25 @@ The frame format, the pacing and the client's duties are in
 stream".
 
 - **Connection** (`Connection.swift`): the protocol's WebSocket over the
-  daemon's unix socket, on a plain socket, with a reader thread.
+  daemon's unix socket, on a plain socket, with a reader thread; each
+  render stream's frames go to its own pane.
+- **Tabs and splits** (`Workspace.swift`, `TabBar.swift`, `Panes.swift`):
+  the daemon's shells (`ravenry.kind: shell`) are the tabs, named as the
+  Electron app names them (the pane's name, else its program's title,
+  else the program, with its folder). Cmd+T or the + opens a shell,
+  Cmd+W closes the pane with the keyboard, Cmd+1 to Cmd+9, Cmd+Shift+[
+  and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab, a drag moves it, a
+  middle click closes it. One split per tab: Cmd+D right, Cmd+Shift+D
+  down, Cmd+Option+arrows or a click move the keyboard, the divider is
+  dragged (a double click or Cmd+Ctrl+= evens it), Cmd+Shift+Enter
+  zooms the pane. A tab not in front has no render stream and draws
+  nothing; brought back, its panes draw the rows they had at once and
+  open their streams again (a pane never drawn waits under the tab in
+  front for its first frame). The order, splits and tab in front are
+  kept in the Electron app's `window.json` (`Layout.swift`), so both
+  apps restore the same tabs; closing the window leaves the panes
+  running. The strip is in the title bar, in the Electron app's colours
+  and sizes (`Design.swift`).
 - **Screen** (`Screen.swift`): applies each frame to the rows it holds;
   that is all the terminal state the app has.
 - **Renderer** (`Renderer.swift`): instanced quads for backgrounds,
@@ -196,7 +215,9 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window, one terminal: no tabs, splits, sidebar or settings.
+- One window: no New Window, sidebar, settings, closing a busy shell's
+  question, bells or activity on hidden tabs, or tab dragged to an edge to
+  split.
 - No images (Kitty graphics, sixel); OSC 52 clipboard and notifications
   are not forwarded. Find has no match-case or regular expression
   option (the daemon's search ignores the case of ASCII letters).

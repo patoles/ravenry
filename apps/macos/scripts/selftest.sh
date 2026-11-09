@@ -25,7 +25,7 @@ rm -f "$out/selftest.json"
 mkdir -m 700 "$dir/user" "$dir/run" "$dir/state"
 printf '%s\n' "PROMPT='~ > '" > "$dir/user/.zshrc"
 printf '%s\n' "skip_global_compinit=1" > "$dir/user/.zshenv"
-envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state"
+envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state RAVENRY_DESKTOP_DATA=$dir/desktop"
 # The app's event log goes to the test's folder, never the person's Library.
 appenv="RAVENRY_MAC_EVENTS_LOG=$dir/events.log"
 sock="$dir/run/ravenryd-0.0.0-dev.sock"
@@ -53,12 +53,30 @@ while kill -0 "$apppid" 2>/dev/null; do
   sleep 0.1
 done
 [ -f "$out/selftest.json" ] || { tail -5 "$dir/app.log" >&2; echo "selftest: no result; see $dir/app.log" >&2; exit 1; }
+# The relaunch: the same daemon, the app again; the tabs, splits and
+# tab in front the first run left must come back (window.json in the
+# throwaway RAVENRY_DESKTOP_DATA, the panes from the daemon).
+# shellcheck disable=SC2086
+env -i $envs $appenv "$app/Contents/MacOS/RavenryMac" --offscreen --socket "$sock" --selftest "$out/restore.json" \
+  --restore-check "$out/selftest.json" 2>>"$dir/app.log" &
+apppid=$!
+i=0
+while kill -0 "$apppid" 2>/dev/null; do
+  i=$((i + 1))
+  [ $i -gt 600 ] && { kill "$apppid"; echo "selftest: the relaunch did not finish in 60 s" >&2; exit 1; }
+  sleep 0.1
+done
 echo "selftest: files in $out" >&2
-/usr/bin/python3 -I - "$out/selftest.json" <<'PY'
+/usr/bin/python3 -I - "$out/selftest.json" "$out/restore.json" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
 if "error" in r:
     print("selftest: error:", r["error"][:300]); sys.exit(1)
+try:
+    r2 = json.load(open(sys.argv[2]))
+except Exception as e:
+    r2 = {"checks": [{"name": "restore_ran", "ok": False, "detail": str(e)}]}
+r["checks"] += r2.get("checks", [{"name": "restore_ran", "ok": False, "detail": r2.get("error", "")}])
 failed = 0
 for c in r["checks"]:
     ok = c["ok"]

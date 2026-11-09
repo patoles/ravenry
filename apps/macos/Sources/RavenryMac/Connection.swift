@@ -35,8 +35,12 @@ final class Connection {
     private var inbuf = [UInt8]()
     private var inpos = 0
 
-    /// A binary message (a frame), on the reader thread.
+    /// A binary message (a frame) on a channel no route takes, on the
+    /// reader thread.
     var onBinary: ((UnsafeRawBufferPointer) -> Void)?
+    /// Each render stream's frames go to its own pane (route).
+    private var routes: [UInt32: (UnsafeRawBufferPointer) -> Void] = [:]
+    private let routeLock = NSLock()
     /// An event, on the reader thread.
     var onEvent: (([String: Any]) -> Void)?
     var onClose: (() -> Void)?
@@ -205,8 +209,24 @@ final class Connection {
         shutdown()
     }
 
+    /// Sends a channel's frames to f (nil: drops them from now on).
+    func route(_ channel: UInt32, _ f: ((UnsafeRawBufferPointer) -> Void)?) {
+        routeLock.lock()
+        routes[channel] = f
+        routeLock.unlock()
+    }
+
     private func dispatch(op: UInt8, _ p: UnsafeRawBufferPointer) {
         if op == 2 {
+            // The frame header (PROTOCOL.md section 5): version, kind,
+            // channel (4 bytes), mark.
+            if p.count >= 6 {
+                let ch = UInt32(p[2]) << 24 | UInt32(p[3]) << 16 | UInt32(p[4]) << 8 | UInt32(p[5])
+                routeLock.lock()
+                let f = routes[ch]
+                routeLock.unlock()
+                if let f { f(p); return }
+            }
             onBinary?(p)
             return
         }

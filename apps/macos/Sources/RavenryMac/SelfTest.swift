@@ -21,8 +21,15 @@ final class SelfTest {
     private var opened: [URL] = []
     private let generalChanges = NSPasteboard.general.changeCount
     private var keptSize: Double?
+    /// The layout a relaunch must show (SelfTestTabs.swift).
+    var restore: [String: Any]?
+    /// --restore-check: only check the relaunch against this file.
+    var restoreFrom: String?
 
-    init(view: TerminalView, window: NSWindow, out: String) {
+    let workspace: Workspace
+
+    init(view: TerminalView, window: NSWindow, out: String, workspace: Workspace) {
+        self.workspace = workspace
         self.view = view
         self.window = window
         self.out = out
@@ -39,10 +46,10 @@ final class SelfTest {
 
     // MARK: helpers
 
-    private func main<T>(_ f: () -> T) -> T { Thread.isMainThread ? f() : DispatchQueue.main.sync(execute: f) }
-    private func sleep(_ s: Double) { Thread.sleep(forTimeInterval: s) }
+    func main<T>(_ f: () -> T) -> T { Thread.isMainThread ? f() : DispatchQueue.main.sync(execute: f) }
+    func sleep(_ s: Double) { Thread.sleep(forTimeInterval: s) }
 
-    private func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
+    func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
         var c: [String: Any] = ["name": name, "ok": ok]
         let d = detail()
         if !d.isEmpty { c["detail"] = d }
@@ -50,7 +57,7 @@ final class SelfTest {
         checks.append(c)
     }
 
-    private func waitFor(_ timeout: Double, _ cond: () -> Bool) -> Bool {
+    func waitFor(_ timeout: Double, _ cond: () -> Bool) -> Bool {
         let end = CACurrentMediaTime() + timeout
         while CACurrentMediaTime() < end {
             if cond() { return true }
@@ -66,7 +73,7 @@ final class SelfTest {
         return f(view.screen)
     }
 
-    private func text() -> String { view.screen.text() }
+    func text() -> String { view.screen.text() }
 
     private func keyEvent(_ chars: String, code: UInt16, flags: NSEvent.ModifierFlags = [], type: NSEvent.EventType = .keyDown) -> NSEvent {
         let ign = flags.contains(.shift) ? chars : chars.lowercased()
@@ -132,6 +139,10 @@ final class SelfTest {
 
     private func run() {
         defer { finish() }
+        if let f = restoreFrom {
+            restoreCheck(f)
+            return
+        }
         guard waitFor(20, { self.text().contains("~ >") }) else {
             checks.append(["name": "prompt", "ok": false, "detail": "no prompt: " + text()])
             return
@@ -148,6 +159,8 @@ final class SelfTest {
         titleAndBell()
         menuAndClear()
         accessibility()
+        macKeys()
+        tabsAndSplits()
         check("general_pasteboard_untouched", NSPasteboard.general.changeCount == generalChanges)
     }
 
@@ -174,11 +187,12 @@ final class SelfTest {
         // The window's smallest content size: 40 x 10 cells at the font,
         // larger with a larger font.
         let min12 = main { window.contentMinSize }
-        let grid12 = main { view.renderer.grid(for: min12) }
+        // (The tab strip is above the terminal.)
+        let grid12 = main { view.renderer.grid(for: NSSize(width: min12.width, height: min12.height - Design.stripHeight)) }
         _ = shortcut("=", code: 0x18)
         _ = waitFor(3) { view.renderer.fontSize == 13 }
         let min13 = main { window.contentMinSize }
-        let grid13 = main { view.renderer.grid(for: min13) }
+        let grid13 = main { view.renderer.grid(for: NSSize(width: min13.width, height: min13.height - Design.stripHeight)) }
         _ = shortcut("0", code: 0x1D)
         _ = waitFor(3) { view.renderer.fontSize == 12 }
         check("window_min_size_40x10", grid12 == (40, 10) && grid13 == (40, 10) && min13.width > min12.width && min13.height > min12.height,
@@ -704,7 +718,9 @@ final class SelfTest {
     }
 
     private func finish() {
-        let d = try? JSONSerialization.data(withJSONObject: ["checks": checks], options: [.prettyPrinted, .sortedKeys])
+        var r: [String: Any] = ["checks": checks]
+        if let restore { r["restore"] = restore }
+        let d = try? JSONSerialization.data(withJSONObject: r, options: [.prettyPrinted, .sortedKeys])
         try? d?.write(to: URL(fileURLWithPath: out))
         pasteboard.releaseGlobally()
         DispatchQueue.main.async { NSApp.terminate(nil) }

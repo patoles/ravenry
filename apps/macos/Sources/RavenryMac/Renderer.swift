@@ -389,10 +389,18 @@ final class Renderer {
     /// GPU from start to end.
     var onTiming: ((Double, Double) -> Void)?
 
-    init?(scale: CGFloat, fontName: String = "Menlo", fontSize: CGFloat = 12) {
+    /// The device, its queue and the two pipelines, made once and shared
+    /// by every pane's renderer; and the glyph atlases, one per font,
+    /// size and scale, shared too (they are only touched on the main
+    /// thread, where every pane draws).
+    private struct GPU {
+        let device: MTLDevice
+        let queue: MTLCommandQueue
+        let rect: MTLRenderPipelineState
+        let glyph: MTLRenderPipelineState
+    }
+    private static let gpu: GPU? = {
         guard let dev = MTLCreateSystemDefaultDevice(), let q = dev.makeCommandQueue() else { return nil }
-        device = dev
-        queue = q
         do {
             let lib = try dev.makeLibrary(source: shaderSource, options: nil)
             func pipe(_ v: String, _ f: String) throws -> MTLRenderPipelineState {
@@ -408,27 +416,41 @@ final class Renderer {
                 a.destinationAlphaBlendFactor = .oneMinusSourceAlpha
                 return try dev.makeRenderPipelineState(descriptor: d)
             }
-            rectPipeline = try pipe("rect_vertex", "rect_fragment")
-            glyphPipeline = try pipe("glyph_vertex", "glyph_fragment")
+            return GPU(device: dev, queue: q, rect: try pipe("rect_vertex", "rect_fragment"), glyph: try pipe("glyph_vertex", "glyph_fragment"))
         } catch {
             NSLog("RavenryMac: shaders: \(error)")
             return nil
         }
-        fonts = FontSet(name: fontName, size: fontSize, scale: scale)
-        atlas = Atlas(device: dev, fonts: fonts)
+    }()
+    private static var atlases: [String: (FontSet, Atlas)] = [:]
+
+    private static func fontAndAtlas(_ name: String, _ size: CGFloat, _ scale: CGFloat, _ dev: MTLDevice) -> (FontSet, Atlas) {
+        let key = "\(name)|\(size)|\(scale)"
+        if let had = atlases[key] { return had }
+        let f = FontSet(name: name, size: size, scale: scale)
+        let made = (f, Atlas(device: dev, fonts: f))
+        atlases[key] = made
+        return made
+    }
+
+    init?(scale: CGFloat, fontName: String = "Menlo", fontSize: CGFloat = 12) {
+        guard let g = Renderer.gpu else { return nil }
+        device = g.device
+        queue = g.queue
+        rectPipeline = g.rect
+        glyphPipeline = g.glyph
+        (fonts, atlas) = Renderer.fontAndAtlas(fontName, fontSize, scale, g.device)
     }
 
     func setScale(_ scale: CGFloat) {
         guard scale != fonts.scale else { return }
-        fonts = FontSet(name: fontName, size: fontSize, scale: scale)
-        atlas = Atlas(device: device, fonts: fonts)
+        (fonts, atlas) = Renderer.fontAndAtlas(fontName, fontSize, scale, device)
     }
 
     /// Another font size (points): a new cell and a new atlas.
     func setFontSize(_ size: CGFloat) {
         guard size != fontSize else { return }
-        fonts = FontSet(name: fontName, size: size, scale: fonts.scale)
-        atlas = Atlas(device: device, fonts: fonts)
+        (fonts, atlas) = Renderer.fontAndAtlas(fontName, size, fonts.scale, device)
     }
 
     /// The grid that fits a view of this size in points.

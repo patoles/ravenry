@@ -26,7 +26,7 @@ mkdir -p "$out"
 mkdir -m 700 "$dir/user" "$dir/run" "$dir/state"
 printf '%s\n' "PROMPT='~ > '" "${BENCH_ZSHRC:-}" > "$dir/user/.zshrc"
 printf '%s\n' "skip_global_compinit=1" > "$dir/user/.zshenv"
-envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state"
+envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state RAVENRY_DESKTOP_DATA=$dir/desktop"
 sock="$dir/run/ravenryd-0.0.0-dev.sock"
 daemon=
 cleanup() {

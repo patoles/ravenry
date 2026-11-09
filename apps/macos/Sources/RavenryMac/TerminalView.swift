@@ -12,8 +12,32 @@ final class TerminalView: NSView, NSTextInputClient {
     let renderer: Renderer
     private let metalLayer = CAMetalLayer()
     private(set) var conn: Connection?
-    private(set) var channel: UInt32 = 0
     private(set) var pane = ""
+    private(set) var fps = 60
+    /// The render stream's channel while the view is live, else 0. Set
+    /// on the reader thread when pane.render answers, before the
+    /// stream's first frame.
+    var channel: UInt32 {
+        chLock.lock()
+        defer { chLock.unlock() }
+        return liveChannel
+    }
+    private let chLock = NSLock()
+    private var liveChannel: UInt32 = 0
+    private var wantsStream = false
+    /// On screen: the pane's render stream is open and the view draws.
+    /// Off screen (a tab not in front), no stream and no draws: the rows
+    /// it had stay, and are drawn at once when it shows again, the
+    /// pane's own following from a new stream.
+    private(set) var live = false
+    /// A split's divider is being dragged: draw in the window's
+    /// transaction, as during a live resize.
+    var splitDragging = false {
+        didSet { if !splitDragging && oldValue { metalLayer.presentsWithTransaction = false; requestDraw() } }
+    }
+    private var resizing: Bool { (inLiveResize || splitDragging) && !offscreen }
+    /// The view took the keyboard (a click, or the window's focus).
+    var onFocus: (() -> Void)?
 
     private var grid = (cols: 0, rows: 0)
     private var drawPending = false
@@ -26,7 +50,7 @@ final class TerminalView: NSView, NSTextInputClient {
     private var lastTitle = ""
     private(set) var cursorOn = true
     private var blinkTimer: Timer?
-    private(set) var focused = true
+    private(set) var focused = false
     /// The cursor blinks offscreen too (the self-test; never the bench).
     var blinkOffscreen = false
     var cursorBlinking: Bool { blinkTimer != nil }
@@ -106,17 +130,74 @@ final class TerminalView: NSView, NSTextInputClient {
 
     // MARK: the stream
 
-    /// Starts drawing a pane: its render stream at this view's size.
-    func attach(_ c: Connection, pane id: String, fps: Int) throws {
+    /// The pane this view draws; resume() opens its stream.
+    func attach(_ c: Connection, pane id: String, fps: Int) {
         conn = c
         pane = id
-        c.onBinary = { [weak self] p in self?.binary(p) }
+        self.fps = fps
+    }
+
+    /// Shows the pane: the rows it had are drawn at once, at this size,
+    /// and its render stream opens at this view's grid (pane.render
+    /// resizes the pane first), its frames following. wait: until the
+    /// daemon answered.
+    func resume(wait: Bool = false) {
+        guard let c = conn, !live else { return }
+        live = true
         grid = renderer.grid(for: bounds.size)
-        let r = try c.call("pane.render", ["pane": id, "cols": grid.cols, "rows": grid.rows, "fps": fps, "window": 2,
-                                           // Cmd+Left to the line's start and the rest of a Mac's keys
-                                           // (docs/RENDERING.md, Key bindings): the daemon's table.
-                                           "keybinds": "macos"])
-        channel = (r["channel"] as? NSNumber)?.uint32Value ?? 0
+        screen.lock()
+        // The new stream's frames count from 1: no ack of the old one's.
+        screen.seq = 0
+        screen.unlock()
+        ackedSeq = 0
+        if bounds.width > 0 && bounds.height > 0 { draw(sync: !offscreen && window != nil) }
+        let sent = grid
+        chLock.lock()
+        wantsStream = true
+        chLock.unlock()
+        let sem = wait ? DispatchSemaphore(value: 0) : nil
+        c.request("pane.render", ["pane": pane, "cols": sent.cols, "rows": sent.rows, "fps": fps, "window": 2,
+                                  // Cmd+Left to the line's start and the rest of a Mac's keys
+                                  // (docs/RENDERING.md, Key bindings): the daemon's table.
+                                  "keybinds": "macos"]) { [weak self, weak c] r in
+            defer { sem?.signal() }
+            guard let self, let c, case .success(let res) = r, let ch = (res["channel"] as? NSNumber)?.uint32Value else { return }
+            self.chLock.lock()
+            if self.wantsStream && self.liveChannel == 0 {
+                self.liveChannel = ch
+                c.route(ch) { [weak self] p in self?.binary(p) }
+                self.chLock.unlock()
+                // A size that changed while the daemon answered.
+                DispatchQueue.main.async {
+                    if self.live && self.grid != sent { c.request("pane.resize", ["pane": self.pane, "cols": self.grid.cols, "rows": self.grid.rows]) }
+                }
+            } else {
+                // Hidden again before the answer.
+                self.chLock.unlock()
+                c.request("pane.unsubscribe", ["channel": ch])
+            }
+        }
+        if let sem { _ = sem.wait(timeout: .now() + 10) }
+    }
+
+    /// Hides the pane: its stream ends and the view stops drawing; the
+    /// rows stay for the next resume.
+    func pause() {
+        guard live else { return }
+        live = false
+        chLock.lock()
+        wantsStream = false
+        let ch = liveChannel
+        liveChannel = 0
+        chLock.unlock()
+        if ch != 0, let c = conn {
+            c.route(ch, nil)
+            c.request("pane.unsubscribe", ["channel": ch])
+        }
+        stopAutoscroll()
+        blinkTimer?.invalidate()
+        blinkTimer = nil
+        cursorOn = true
     }
 
     private func binary(_ p: UnsafeRawBufferPointer) {
@@ -124,7 +205,7 @@ final class TerminalView: NSView, NSTextInputClient {
         // channel, mark; then the render frame.
         guard p.count >= 14, p[1] == 4 else { return }
         let ch = UInt32(p[2]) << 24 | UInt32(p[3]) << 16 | UInt32(p[4]) << 8 | UInt32(p[5])
-        guard ch == channel else { return }
+        guard ch != 0, ch == channel else { return }
         screen.lock()
         do {
             try screen.apply(UnsafeRawBufferPointer(rebasing: p[14...]))
@@ -166,18 +247,18 @@ final class TerminalView: NSView, NSTextInputClient {
     /// keystroke's echo goes out at once; otherwise at the next one, so
     /// draws never outrun the display (and never wait on a drawable).
     func requestDraw() {
-        if drawScheduled { return }
+        if drawScheduled || !live { return }
         let now = CACurrentMediaTime()
         let due = lastDraw + refreshInterval * 0.9
         if now >= due {
-            draw(sync: inLiveResize && !offscreen)
+            draw(sync: resizing)
             return
         }
         drawScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + (due - now)) { [weak self] in
             guard let self else { return }
             self.drawScheduled = false
-            self.draw(sync: self.inLiveResize && !self.offscreen)
+            self.draw(sync: self.resizing)
         }
     }
 
@@ -191,7 +272,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// Draws the screen now. sync: present in the window's own
     /// transaction (a live resize), so the content never lags its frame.
     func draw(sync: Bool) {
-        guard bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
+        guard live, bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
         let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range,
                               flash: bellFlashing)
         let t0 = CACurrentMediaTime()
@@ -226,9 +307,10 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     private func afterDraw(_ seq: UInt32) {
-        if seq != ackedSeq, let c = conn {
+        let ch = channel
+        if seq != ackedSeq, seq != 0, ch != 0, let c = conn {
             ackedSeq = seq
-            c.sendJSON(["v": 1, "type": "ack", "channel": channel, "frame": seq])
+            c.sendJSON(["v": 1, "type": "ack", "channel": ch, "frame": seq])
         }
         screen.lock()
         let title = screen.title, bell = screen.bell, blink = screen.cursor.blink
@@ -319,14 +401,15 @@ final class TerminalView: NSView, NSTextInputClient {
         let g = renderer.grid(for: bounds.size)
         if g != grid {
             grid = g
-            if let c = conn, !pane.isEmpty {
+            // A hidden pane is resized when it shows (resume).
+            if let c = conn, !pane.isEmpty, live, channel != 0 {
                 c.request("pane.resize", ["pane": pane, "cols": g.cols, "rows": g.rows])
             }
         }
         // Draw what we have at the new size now, in the window's
         // transaction during a live resize; the reflowed rows follow.
-        guard conn != nil else { return }
-        if inLiveResize && !offscreen { draw(sync: true) } else { requestDraw() }
+        guard conn != nil, live else { return }
+        if resizing { draw(sync: true) } else { requestDraw() }
     }
 
     override func viewDidEndLiveResize() {
@@ -348,13 +431,27 @@ final class TerminalView: NSView, NSTextInputClient {
     func setFontSize(_ size: CGFloat) {
         let s = min(72, max(6, size.rounded()))
         guard s != renderer.fontSize else { return }
-        renderer.setFontSize(s)
         if keepsFontSize {
             UserDefaults.standard.set(Double(s), forKey: TerminalView.fontSizeKey)
         }
+        // Every pane of the window takes it (onFontSize), as the Electron
+        // app's text size is the terminals'.
+        if let f = onFontSize { f(s) } else { applyFontSize(s) }
+    }
+
+    /// The window's panes all follow a new text size.
+    var onFontSize: ((CGFloat) -> Void)?
+
+    func applyFontSize(_ s: CGFloat) {
+        guard s != renderer.fontSize else { return }
+        renderer.setFontSize(s)
         updateMinSize()
         sizeChanged()
     }
+
+    /// The window's smallest content size when the window lays out more
+    /// than this view (tabs, splits).
+    var windowMinSize: (() -> NSSize)?
 
     /// The smallest grid the window may be dragged to, as Rex has one.
     static let minGrid = (cols: 40, rows: 10)
@@ -370,7 +467,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// window that is now smaller than that.
     func updateMinSize() {
         guard let w = window else { return }
-        let m = minContentSize
+        let m = windowMinSize?() ?? minContentSize
         w.contentMinSize = m
         let c = w.contentRect(forFrameRect: w.frame).size
         if c.width < m.width || c.height < m.height {
@@ -392,6 +489,7 @@ final class TerminalView: NSView, NSTextInputClient {
 
     override func becomeFirstResponder() -> Bool {
         setFocus(true)
+        onFocus?()
         return true
     }
 
@@ -540,6 +638,11 @@ final class TerminalView: NSView, NSTextInputClient {
     override func performKeyEquivalent(with e: NSEvent) -> Bool {
         // Control combinations AppKit would take as shortcuts go to the
         // program; Command ones go to the menu.
+        // Ctrl+Tab and Ctrl+Shift+Tab are the window's (the next and the
+        // previous tab), as in the Electron app.
+        if e.keyCode == 0x30 && e.modifierFlags.contains(.control) && !e.modifierFlags.contains(.command) {
+            return super.performKeyEquivalent(with: e)
+        }
         if e.modifierFlags.contains(.control) && !e.modifierFlags.contains(.command) && window?.firstResponder === self {
             keyDown(with: e)
             return true

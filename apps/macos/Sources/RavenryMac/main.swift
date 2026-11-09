@@ -1,16 +1,19 @@
-// Ravenry for macOS, native: one window, one terminal, drawn by the app
-// itself from the daemon's render stream (docs/RENDERING.md). The daemon
-// owns the pane, its terminal state and the encoding of keys; the window
-// draws the rows it is sent and sends what the person does.
+// Ravenry for macOS, native: one window of tabs and splits, each pane
+// drawn by the app itself from the daemon's render stream
+// (docs/RENDERING.md). The daemon owns the panes, their terminal state
+// and the encoding of keys; the window draws the rows it is sent and
+// sends what the person does.
 //
 //   RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both]
 //              [--font NAME] [--font-size POINTS]
 //              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH]]
 //              [--offscreen --selftest OUT.json] [-- COMMAND ARGS...]
 //
-// With no --attach, it starts a new pane (the login shell, or COMMAND) in
-// the newest running daemon that has the render stream, never starting
-// one, and closes the pane when the window closes.
+// It connects to the newest running daemon that has the render stream
+// (never starting one) and shows its shells as tabs (Workspace.swift),
+// a new one (the login shell, or COMMAND) when it has none; --attach
+// brings that pane to the front. Closing the window leaves the panes
+// running, for the next launch (and the Electron app) to show again.
 
 import AppKit
 
@@ -29,6 +32,9 @@ struct Options {
     var font = "Menlo"
     var fontSize: CGFloat?
     var selftest: String?
+    /// With --selftest: only check that the tabs a self-test left came
+    /// back (its selftest.json).
+    var restoreCheck: String?
     var command: [String] = []
 
     static func parse(_ args: [String]) -> Options {
@@ -46,6 +52,7 @@ struct Options {
             case "--option-as-alt": i += 1; o.optionAsAlt = args[safe: i] ?? ""
             case "--font": i += 1; o.font = args[safe: i] ?? "Menlo"
             case "--selftest": i += 1; o.selftest = args[safe: i]
+            case "--restore-check": i += 1; o.restoreCheck = args[safe: i]
             case "--font-size": i += 1; o.fontSize = Double(args[safe: i] ?? "").map { CGFloat($0) }
             case "--": o.command = Array(args[(i + 1)...]); i = args.count
             default: break // AppKit's own (-NSDocumentRevisionsDebugMode ...)
@@ -61,9 +68,27 @@ extension Array {
 }
 
 /// A window that may sit off every screen (the bench's), since AppKit
-/// otherwise moves a titled window back onto one.
+/// otherwise moves a titled window back onto one. Its title bar is the
+/// tab strip: transparent, the title hidden, the window's three buttons
+/// centred in the strip's height, as the Electron window places them.
 final class TerminalWindow: NSWindow {
     var allowOffscreen = false
+
+    func placeButtons() {
+        guard let close = standardWindowButton(.closeButton), let bar = close.superview, let container = bar.superview else { return }
+        if styleMask.contains(.fullScreen) { return }
+        let h = Design.stripHeight
+        var f = container.frame
+        if f.height != h, let parent = container.superview {
+            f.size.height = h
+            f.origin.y = parent.bounds.height - h
+            container.frame = f
+        }
+        for (i, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            guard let b = standardWindowButton(kind) else { continue }
+            b.setFrameOrigin(NSPoint(x: 18 + CGFloat(i) * 20, y: (bar.bounds.height - b.frame.height) / 2))
+        }
+    }
 
     override func sendEvent(_ e: NSEvent) {
         if e.type == .scrollWheel && EventLog.shared.enabled {
@@ -97,12 +122,14 @@ func daemonSockets() -> [String] {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let options: Options
     var window: TerminalWindow?
-    var view: TerminalView?
+    var workspace: Workspace?
     var conn: Connection?
-    var ownPane = false
     var closing = false
 
     init(options: Options) { self.options = options }
+
+    /// The view with the keyboard (the bench and the self-test drive it).
+    var view: TerminalView? { workspace?.focusedView }
 
     /// Connects to the daemon: the one given, or the newest that has the
     /// render stream.
@@ -126,16 +153,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         EventLog.shared.open(offscreen: options.offscreen)
-        buildMenu()
-        let rect = NSRect(x: 0, y: 0, width: 900, height: 560)
-        let w = TerminalWindow(contentRect: rect, styleMask: [.titled, .closable, .resizable, .miniaturizable],
+        let rect = NSRect(x: 0, y: 0, width: 900, height: 560 + Design.stripHeight)
+        let w = TerminalWindow(contentRect: rect, styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
                                backing: .buffered, defer: false)
         w.title = "Ravenry"
+        w.titleVisibility = .hidden
+        w.titlebarAppearsTransparent = true
         w.isReleasedWhenClosed = false
         w.isRestorable = false
+        w.tabbingMode = .disallowed
         w.delegate = self
         w.allowOffscreen = options.offscreen
-        w.backgroundColor = NSColor(red: 0x0B / 255.0, green: 0x0B / 255.0, blue: 0x0C / 255.0, alpha: 1)
+        w.backgroundColor = Design.termBg
         let scale = options.offscreen ? 2 : (NSScreen.main?.backingScaleFactor ?? 2)
         // The size the person picked last, kept in the app's defaults; the
         // bench and the self-test (offscreen) never read or write them.
@@ -145,19 +174,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
            let kept = UserDefaults.standard.object(forKey: TerminalView.fontSizeKey) as? Double {
             size = min(72, max(6, CGFloat(kept)))
         }
-        guard let v = TerminalView(frame: rect, scale: scale, fontName: options.font, fontSize: size) else {
-            fail("Metal is not available")
+        window = w
+        let c: Connection
+        do {
+            c = try connect()
+        } catch {
+            fail("\(error)")
             return
         }
-        v.defaultFontSize = defaultSize
-        v.keepsFontSize = !options.offscreen
-        v.autoresizingMask = [.width, .height]
-        v.offscreen = options.offscreen && !options.benchLayer
-        v.optionAsAlt = options.optionAsAlt
-        v.onTitle = { [weak w] t in w?.title = t.isEmpty ? "Ravenry" : t }
-        w.contentView = v
-        window = w
-        view = v
+        conn = c
+        let ws = Workspace(window: w, options: options, conn: c, scale: scale, fontSize: size)
+        ws.defaultFontSize = defaultSize
+        workspace = ws
+        ws.root.frame = NSRect(origin: .zero, size: rect.size)
+        ws.root.autoresizingMask = [.width, .height]
+        w.contentView = ws.root
+        ws.root.onLayout = { [weak w] in w?.placeButtons() }
+        buildMenu(ws)
+        c.onClose = { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, !self.closing else { return }
+                self.window?.title = "Ravenry (the daemon went away)"
+            }
+        }
+        c.onEvent = { [weak ws] ev in DispatchQueue.main.async { ws?.event(ev) } }
+        c.request("events.subscribe", ["display": true])
         if options.offscreen {
             w.setFrameOrigin(NSPoint(x: -30000, y: -30000))
             w.orderFront(nil)
@@ -166,41 +207,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             w.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
-        w.makeFirstResponder(v)
+        w.placeButtons()
         do {
-            let c = try connect()
-            conn = c
-            c.onClose = { [weak self] in
-                DispatchQueue.main.async {
-                    guard let self, !self.closing else { return }
-                    self.window?.title = "Ravenry (the daemon went away)"
-                }
-            }
-            c.onEvent = { [weak self] ev in
-                guard ev["event"] as? String == "stream.end" else { return }
-                DispatchQueue.main.async { self?.paneEnded() }
-            }
-            var pane = options.attach ?? ""
-            if pane.isEmpty {
-                let g = v.renderer.grid(for: v.bounds.size)
-                var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "labels": ["ravenry.client": "macos"]]
-                if !options.command.isEmpty { params["command"] = options.command }
-                if options.bench != nil || options.selftest != nil, let home = ProcessInfo.processInfo.environment["HOME"] { params["cwd"] = home }
-                let r = try c.call("pane.new", params)
-                pane = ((r["pane"] as? [String: Any])?["id"] as? String) ?? ""
-                ownPane = true
-            }
-            let fps = options.offscreen ? 120 : (NSScreen.main?.maximumFramesPerSecond ?? 60)
-            v.refreshInterval = 1.0 / Double(max(fps, 30))
-            try v.attach(c, pane: pane, fps: fps)
+            try ws.restore()
         } catch {
             fail("\(error)")
             return
         }
+        guard let v = ws.focusedView else {
+            fail("no pane to show")
+            return
+        }
         if let out = options.bench {
-            Bench(view: v, window: w, out: out, dragMin: options.dragMin).start()
+            Bench(view: v, window: w, out: out, dragMin: options.dragMin, workspace: ws).start()
         } else if let out = options.selftest {
-            SelfTest(view: v, window: w, out: out).start()
+            let st = SelfTest(view: v, window: w, out: out, workspace: ws)
+            st.restoreFrom = options.restoreCheck
+            st.start()
         }
     }
 
@@ -220,47 +243,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.terminate(nil)
     }
 
-    private func paneEnded() {
-        if ownPane && !closing { window?.close() }
-    }
-
-    /// Closes the pane this window started.
-    func closePane() {
+    /// The window goes; its panes keep running in the daemon (TERM-001),
+    /// and come back as tabs at the next launch.
+    private func shutdown() {
         guard !closing else { return }
         closing = true
-        if ownPane, let c = conn, let v = view, !v.pane.isEmpty {
-            _ = try? c.call("pane.close", ["pane": v.pane, "grace_ms": 500], timeout: 3)
-        }
+        workspace?.save()
+        workspace?.flush()
         conn?.close()
     }
 
     func windowWillClose(_ note: Notification) {
-        closePane()
+        shutdown()
         NSApp.terminate(nil)
     }
 
-    func applicationWillTerminate(_ note: Notification) { closePane() }
+    func applicationWillTerminate(_ note: Notification) { shutdown() }
 
     func windowDidBecomeKey(_ note: Notification) { view?.setFocus(true) }
     func windowDidResignKey(_ note: Notification) { if !options.offscreen { view?.setFocus(false) } }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
-    private func buildMenu() {
+    private func buildMenu(_ ws: Workspace) {
         let main = NSMenu()
-        let appItem = NSMenuItem()
-        main.addItem(appItem)
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Ravenry", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        appItem.submenu = appMenu
-        let fileItem = NSMenuItem()
-        main.addItem(fileItem)
-        let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        fileItem.submenu = fileMenu
-        let editItem = NSMenuItem()
-        main.addItem(editItem)
-        let editMenu = NSMenu(title: "Edit")
+        func menu(_ title: String) -> NSMenu {
+            let item = NSMenuItem()
+            main.addItem(item)
+            let m = NSMenu(title: title)
+            item.submenu = m
+            return m
+        }
+        @discardableResult
+        func add(_ m: NSMenu, _ title: String, _ action: Selector, _ key: String, _ mods: NSEvent.ModifierFlags = .command,
+                 target: AnyObject? = nil, tag: Int = 0, hidden: Bool = false) -> NSMenuItem {
+            let i = m.addItem(withTitle: title, action: action, keyEquivalent: key)
+            i.keyEquivalentModifierMask = mods
+            i.target = target
+            i.tag = tag
+            if hidden {
+                i.isHidden = true
+                i.allowsKeyEquivalentWhenHidden = true
+            }
+            return i
+        }
+        let appMenu = menu("Ravenry")
+        add(appMenu, "Quit Ravenry", #selector(NSApplication.terminate(_:)), "q")
+
+        // The Electron app's Shell menu (apps/desktop/src/main/main.ts).
+        let shell = menu("Shell")
+        add(shell, "New Shell", #selector(Workspace.menuNewTab(_:)), "t", target: ws)
+        shell.addItem(.separator())
+        add(shell, "Split Right", #selector(Workspace.menuSplitRight(_:)), "d", target: ws)
+        add(shell, "Split Down", #selector(Workspace.menuSplitDown(_:)), "D", [.command, .shift], target: ws)
+        let arrows: [(String, String, Int)] = [("Select Pane Left", String(UnicodeScalar(NSLeftArrowFunctionKey)!), 0),
+                                               ("Select Pane Right", String(UnicodeScalar(NSRightArrowFunctionKey)!), 1),
+                                               ("Select Pane Above", String(UnicodeScalar(NSUpArrowFunctionKey)!), 2),
+                                               ("Select Pane Below", String(UnicodeScalar(NSDownArrowFunctionKey)!), 3)]
+        for (t, k, tag) in arrows { add(shell, t, #selector(Workspace.menuFocusPane(_:)), k, [.command, .option], target: ws, tag: tag) }
+        add(shell, "Zoom Pane", #selector(Workspace.menuZoom(_:)), "\r", [.command, .shift], target: ws)
+        add(shell, "Equalize Splits", #selector(Workspace.menuEqualize(_:)), "=", [.command, .control], target: ws)
+        shell.addItem(.separator())
+        add(shell, "Close", #selector(Workspace.menuClose(_:)), "w", target: ws)
+        add(shell, "Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift])
+
+        let editMenu = menu("Edit")
         editMenu.addItem(withTitle: "Copy", action: #selector(TerminalView.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(TerminalView.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
@@ -273,19 +320,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let previous = findMenu.addItem(withTitle: "Find Previous", action: #selector(TerminalView.findPrevious(_:)), keyEquivalent: "g")
         previous.keyEquivalentModifierMask = [.command, .shift]
         findItem.submenu = findMenu
-        editItem.submenu = editMenu
-        let viewItem = NSMenuItem()
-        main.addItem(viewItem)
-        let viewMenu = NSMenu(title: "View")
+
+        let viewMenu = menu("View")
         viewMenu.addItem(withTitle: "Increase Font Size", action: #selector(TerminalView.increaseFontSize(_:)), keyEquivalent: "=")
         let plus = viewMenu.addItem(withTitle: "Increase Font Size", action: #selector(TerminalView.increaseFontSize(_:)), keyEquivalent: "+")
         plus.isHidden = true
         plus.allowsKeyEquivalentWhenHidden = true
         viewMenu.addItem(withTitle: "Decrease Font Size", action: #selector(TerminalView.decreaseFontSize(_:)), keyEquivalent: "-")
         viewMenu.addItem(withTitle: "Reset Font Size", action: #selector(TerminalView.resetFontSize(_:)), keyEquivalent: "0")
-        viewItem.submenu = viewMenu
+        viewMenu.addItem(.separator())
+        add(viewMenu, "Next Tab", #selector(Workspace.menuNextTab(_:)), "\t", .control, target: ws)
+        add(viewMenu, "Previous Tab", #selector(Workspace.menuPreviousTab(_:)), "\t", [.control, .shift], target: ws)
+        // (Shift+Tab types a back tab, U+0019.)
+        add(viewMenu, "Previous Tab", #selector(Workspace.menuPreviousTab(_:)), "\u{19}", [.control, .shift], target: ws, hidden: true)
+        add(viewMenu, "Next Tab", #selector(Workspace.menuNextTab(_:)), "}", .command, target: ws, hidden: true)
+        add(viewMenu, "Previous Tab", #selector(Workspace.menuPreviousTab(_:)), "{", .command, target: ws, hidden: true)
+        add(viewMenu, "Next Tab", #selector(Workspace.menuNextTab(_:)), "]", [.command, .shift], target: ws, hidden: true)
+        add(viewMenu, "Previous Tab", #selector(Workspace.menuPreviousTab(_:)), "[", [.command, .shift], target: ws, hidden: true)
+        for i in 0..<9 { add(viewMenu, "Tab \(i + 1)", #selector(Workspace.menuSelectTab(_:)), "\(i + 1)", target: ws, tag: i, hidden: true) }
         NSApp.mainMenu = main
     }
+}
+
+extension Workspace {
+    @objc func menuNewTab(_ sender: Any?) { newTab(sender) }
+    @objc func menuSplitRight(_ sender: Any?) { split("right") }
+    @objc func menuSplitDown(_ sender: Any?) { split("down") }
+    @objc func menuFocusPane(_ sender: NSMenuItem) { focusToward(["left", "right", "up", "down"][sender.tag]) }
+    @objc func menuZoom(_ sender: Any?) { toggleZoom() }
+    @objc func menuEqualize(_ sender: Any?) { equalize() }
+    @objc func menuClose(_ sender: Any?) { closeFocused() }
+    @objc func menuNextTab(_ sender: Any?) { step(1) }
+    @objc func menuPreviousTab(_ sender: Any?) { step(-1) }
+    @objc func menuSelectTab(_ sender: NSMenuItem) { select(index: sender.tag) }
 }
 
 // A window started from inside a Ravenry pane must not pass the pane's
