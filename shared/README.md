@@ -11,6 +11,7 @@ at launch.
 | `strings/en.json` | the words, one key each |
 | `tokens/tokens.json` | colours for dark and light, shadows, fonts, type sizes, line heights, radii, spacing |
 | `tokens/css.mjs` | `tokens.json` as CSS variables, for the web clients' builds |
+| `icons/*.svg` | the icons, one file each, written from the desktop's `icons.ts` by `icons/export.mjs` |
 
 ## strings/en.json
 
@@ -101,9 +102,24 @@ is `NSColor(srgbRed: r/255, green: g/255, blue: b/255, alpha: 1)`;
 `rgba(r,g,b,a)` is the same with `alpha: a`. Pick the theme from
 `NSApp.effectiveAppearance` (dark or aqua).
 
+## icons/
+
+One SVG per icon, written from `apps/desktop/src/renderer/icons.ts` (the
+one source) by `node --experimental-strip-types shared/icons/export.mjs`;
+`--check` exits 1 when a file differs from it. A constant is
+`<name>.svg` in kebab case (`RING_YOU`: `ring-you.svg`), a function is
+called with its defaults, the `NAV` object gives `nav-<page>.svg`, and
+`machines.svg` is `MACHINES_ICON` of `machines.ts`. Colours are left as the
+desktop writes them: `currentColor` (the reader puts the colour it draws
+with) and `var(--token)` (the token's colour of `tokens.json` for the
+theme). The native Mac app bundles the folder and draws them with
+`NSImage(data:)` after filling the colours (`apps/macos/.../Shared.swift`).
+
 ## Where they ship
 
-The desktop and phone builds read both files from here at build time. The
+The desktop and phone builds read both files from here at build time; the
+native Mac app bundles `tokens.json`, `en.json` and `icons/` and reads them
+at launch. The
 hub reads `strings/en.json` at run time (`hub/server/strings.mjs`): from
 `hub/shared/` inside the app (`apps/desktop/scripts/pack.mjs` copies this
 folder there), else from `../../shared/` in the repository.
