@@ -16,7 +16,7 @@
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
 import { Pages } from '../../desktop/src/renderer/pages.ts';
 import type { NavRow, PagesHost, PageView } from '../../desktop/src/renderer/pages.ts';
-import { capitaliseField } from '../../desktop/src/renderer/pagefmt.ts';
+import { capitaliseField, valueText } from '../../desktop/src/renderer/pagefmt.ts';
 import type { Item, Section } from '../../desktop/src/renderer/pagefmt.ts';
 import * as I from './icons.ts';
 import { sayPathOn } from '../../../hub/public/homepath.mjs';
@@ -49,12 +49,17 @@ function host(): PagesHost {
       return true;
     },
     lastProject: () => lastProject,
-    openBoard: (hash: string) => {
-      // The board's own screens: a plan opens the Plans page, an idea the Ideas page.
-      const to = /^#\/plan\//.test(hash) ? 'plans' : /#\/ideas/.test(hash) ? 'ideas' : null;
-      const r = to ? navRows().find((x) => x.id === to && x.origin !== 'project') : null;
-      if (r) go(`/p/${encodeURIComponent(r.key)}`);
-      else toast('That opens on the computer.');
+    // The phone has no plan screen and no idea thread of its own (the
+    // computer's are inapp.ts): a plan or an idea opens as a tap on a note
+    // does, its sheet with its buttons, on the page that lists it, else
+    // on the Plans or the Ideas page.
+    openPlan: (project: string, title: string | null) => {
+      if (itemSheet('ravenry:plan', (it) => String(it.project ?? '') === project && (title === null || valueText(it.title) === title))) return;
+      openShipped('plans');
+    },
+    openIdea: (id: string) => {
+      if (id && itemSheet('ravenry:idea-thread', (it) => String((it.$ravenry as { id?: string } | undefined)?.id || it.id || '') === id)) return;
+      openShipped('ideas');
     },
     openPath: (p: string) => showFile(p),
     openExternal: (url: string) => { window.open(url, '_blank', 'noopener'); },
@@ -63,6 +68,28 @@ function host(): PagesHost {
     rerender: () => { if (pages && pages.open) pages.render(); },
     now: () => Date.now(),
   } as PagesHost;
+}
+
+/** The sheet of the first item on the page on screen (its tab as the hub drew it), in a section whose items open as `detail`, that `match` picks; false when none does. */
+function itemSheet(detail: string, match: (it: Item) => boolean): boolean {
+  const key = pages?.open;
+  const v = key ? pages!.cache.get(key)?.view : null;
+  if (!v || !v.model || !v.drawn) return false;
+  const ti = Math.min(v.drawn.tab, v.model.tabs.length - 1);
+  for (const [si, d] of v.drawn.sections.entries()) {
+    const s = v.model.tabs[ti].sections[si];
+    if (!s || s.kind !== 'core' || s.item.detail !== detail) continue;
+    const item = d.rows.find(match);
+    if (item) { pages!.modal = { kind: 'item', item, section: [ti, si] }; pages!.render(); return true; }
+  }
+  return false;
+}
+
+/** A shipped page (plans, ideas), as its row in the switch opens it. */
+function openShipped(id: string): void {
+  const r = navRows().find((x) => x.id === id && x.origin !== 'project');
+  if (r) go(`/p/${encodeURIComponent(r.key)}`);
+  else toast('That opens on the computer.');
 }
 
 /** The pages, kept for the whole visit so a page's cache, tabs and folded lanes survive. */
