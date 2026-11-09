@@ -100,12 +100,29 @@ func cmdAttach(in []string) error {
 	defer term.Restore(fd, old)
 
 	queries := &attach.Queries{}
+	tr := attach.OpenTrace(os.Getenv("RAVENRY_ATTACH_TRACE"))
+	defer tr.Close()
+	// Everything for the window goes through hold, which keeps the window
+	// from drawing a redraw half done while it is resized (internal/attach).
+	hold := &attach.Hold{W: os.Stdout, Quiet: 8 * time.Millisecond, Max: 250 * time.Millisecond, Limit: 4 << 20}
+	if tr != nil {
+		hold.OnSwitch = tr.Hold
+	}
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
 		for f := range st.Frames {
 			queries.Output(f.Data)
-			if _, err := os.Stdout.Write(f.Data); err != nil {
+			tr.Frame(f.Snapshot, f.Mark, f.Data)
+			// The window must not clear a prompt itself on a resize: the
+			// shell's redraw comes later than it expects (NoPromptClear).
+			b := attach.NoPromptClear(f.Data)
+			if f.Snapshot {
+				// A snapshot starts with a full reset: the window shows it
+				// once it is whole, never the empty screen before it.
+				b = append(append([]byte(attach.SyncStart), b...), attach.SyncEnd...)
+			}
+			if _, err := hold.Write(b); err != nil {
 				return
 			}
 		}
@@ -117,6 +134,7 @@ func cmdAttach(in []string) error {
 		for {
 			n, err := os.Stdin.Read(buf)
 			if n > 0 {
+				tr.Input(buf[:n])
 				if b := f.Write(buf[:n]); len(b) > 0 {
 					if st.Input(ctx, b) != nil {
 						return
@@ -130,12 +148,15 @@ func cmdAttach(in []string) error {
 	}()
 
 	// Resizes: the newest size wins. While one pane.resize is on its way,
-	// the window's further changes gather into the next one.
+	// the window's further changes gather into the next one. The pane's
+	// output is held from the first change until the pane has the window's
+	// size and the program's redraw is in.
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	wake := make(chan struct{}, 1)
 	go func() {
 		for range winch {
+			hold.Resize()
 			select {
 			case wake <- struct{}{}:
 			default:
@@ -145,19 +166,27 @@ func cmdAttach(in []string) error {
 	go func() {
 		sent := [2]int{cols, rows}
 		for range wake {
-			w, h, err := term.GetSize(fd)
-			if err != nil {
-				continue
-			}
-			size := [2]int{clampSize(w), clampSize(h)}
-			if size == sent {
-				continue
-			}
-			rctx, rcancel := context.WithTimeout(ctx, 5*time.Second)
-			if c.Call(rctx, "pane.resize", map[string]any{"pane": pane, "cols": size[0], "rows": size[1]}, nil) == nil {
+			for {
+				w, h, err := term.GetSize(fd)
+				if err != nil {
+					hold.Settled()
+					break
+				}
+				size := [2]int{clampSize(w), clampSize(h)}
+				if size == sent {
+					hold.Settled()
+					break
+				}
+				tr.Resize(size[0], size[1])
+				rctx, rcancel := context.WithTimeout(ctx, 5*time.Second)
+				err = c.Call(rctx, "pane.resize", map[string]any{"pane": pane, "cols": size[0], "rows": size[1]}, nil)
+				rcancel()
+				if err != nil {
+					hold.Settled() // nothing more will come for it
+					break
+				}
 				sent = size
 			}
-			rcancel()
 		}
 	}()
 
