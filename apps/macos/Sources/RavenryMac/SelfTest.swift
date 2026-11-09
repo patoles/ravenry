@@ -171,6 +171,18 @@ final class SelfTest {
         _ = shortcut("0", code: 0x1D)
         let back = waitFor(3) { self.scr { $0.cols } == g0.cols }
         check("cmd_0_default", back && view.renderer.fontSize == 12 && main { view.gridSize } == g0, "size \(view.renderer.fontSize)")
+        // The window's smallest content size: 40 x 10 cells at the font,
+        // larger with a larger font.
+        let min12 = main { window.contentMinSize }
+        let grid12 = main { view.renderer.grid(for: min12) }
+        _ = shortcut("=", code: 0x18)
+        _ = waitFor(3) { view.renderer.fontSize == 13 }
+        let min13 = main { window.contentMinSize }
+        let grid13 = main { view.renderer.grid(for: min13) }
+        _ = shortcut("0", code: 0x1D)
+        _ = waitFor(3) { view.renderer.fontSize == 12 }
+        check("window_min_size_40x10", grid12 == (40, 10) && grid13 == (40, 10) && min13.width > min12.width && min13.height > min12.height,
+              "at 12 pt \(min12) is \(grid12), at 13 pt \(min13) is \(grid13)")
         check("font_size_not_kept_offscreen", UserDefaults.standard.object(forKey: TerminalView.fontSizeKey) as? Double == keptSize)
         sleep(0.3)
     }

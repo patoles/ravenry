@@ -349,7 +349,40 @@ final class TerminalView: NSView, NSTextInputClient {
         if keepsFontSize {
             UserDefaults.standard.set(Double(s), forKey: TerminalView.fontSizeKey)
         }
+        updateMinSize()
         sizeChanged()
+    }
+
+    /// The smallest grid the window may be dragged to, as Rex has one.
+    static let minGrid = (cols: 40, rows: 10)
+
+    /// The window's smallest content size: minGrid at the current font.
+    var minContentSize: NSSize {
+        let s = renderer.fonts.scale
+        return NSSize(width: ceil(CGFloat(TerminalView.minGrid.cols) * renderer.fonts.cellWidth / s + 2 * renderer.padding),
+                      height: ceil(CGFloat(TerminalView.minGrid.rows) * renderer.fonts.cellHeight / s + 2 * renderer.padding))
+    }
+
+    /// Sets the window's smallest content size for the font, and grows a
+    /// window that is now smaller than that.
+    func updateMinSize() {
+        guard let w = window else { return }
+        let m = minContentSize
+        w.contentMinSize = m
+        let c = w.contentRect(forFrameRect: w.frame).size
+        if c.width < m.width || c.height < m.height {
+            var f = w.frame
+            let dw = max(0, m.width - c.width), dh = max(0, m.height - c.height)
+            f.size.width += dw
+            f.size.height += dh
+            f.origin.y -= dh
+            w.setFrame(f, display: true)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateMinSize()
     }
 
     // MARK: focus
