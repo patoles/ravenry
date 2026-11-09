@@ -8,7 +8,12 @@
 //    back at 120 steps a second; at each step the screen the window
 //    would show is checked for a blank (the command line gone) and for
 //    debris (a piece of an old prompt), and at the end it must be the
-//    daemon's screen;
+//    daemon's screen, and the pane's whole text (scrollback and screen)
+//    the prompt and the command line once each, nothing else;
+// 2b. the fast drag: a size every 2 ms (500 a second), jumps of up to
+//    400 pt in width and 150 pt in height, as narrow as 160 pt and as
+//    short as 180 pt (the command line far taller than the window), then
+//    wide and taller; checked the same way;
 // 3. `seq 1 2000000`: from Enter to the last number and the prompt drawn;
 // 4. every draw's CPU time (building and encoding) and GPU time.
 //
@@ -94,6 +99,51 @@ final class Bench {
         }
     }
 
+    private func setSize(_ w: CGFloat, _ h: CGFloat) {
+        main {
+            var f = window.frame
+            f.size = NSSize(width: w, height: h)
+            window.setFrame(f, display: false)
+        }
+    }
+
+    /// The daemon's screen, and its whole text: scrollback rows first.
+    private func daemonText() -> (screen: String, all: [String], history: Int) {
+        guard let c = view.conn, let r = try? c.call("pane.capture", ["pane": view.pane, "history": 100000]) else { return ("", [], 0) }
+        let lines = (r["lines"] as? [[String: Any]] ?? []).map { ($0["text"] as? String ?? "").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+        let history = r["history"] as? Int ?? 0
+        return (lines.dropFirst(history).joined(separator: "\n"), lines, history)
+    }
+
+    /// The pane's whole text read row by row against its text before the
+    /// drag (the prompt and the command line) in order: a row that is not
+    /// its next piece is debris; a blank row above the last row of text is
+    /// a cleared prompt row left behind; the first row of text must be
+    /// the same as before (at the same width).
+    private func checkWhole(_ all: [String], history: Int, before: [String]) -> [String: Any] {
+        let flat = { (s: String) in s.filter { !$0.isWhitespace } }
+        let whole = before.map(flat).joined()
+        let first = before.map(flat).first { !$0.isEmpty } ?? ""
+        var pos = whole.startIndex, seen = false, top = false, debris = 0, blank = 0, run = 0
+        var examples: [String] = []
+        for (i, row) in all.enumerated() {
+            let f = flat(row)
+            if f.isEmpty { run += 1; continue }
+            if !seen { top = f == first }
+            seen = true
+            blank += run
+            run = 0
+            if whole[pos...].hasPrefix(f) {
+                pos = whole.index(pos, offsetBy: f.count)
+            } else {
+                debris += 1
+                if examples.count < 3 { examples.append("row \(i) (history \(history)): " + row) }
+            }
+        }
+        return ["debris": debris, "blank_rows": blank, "top_is_prompt": top, "whole": pos == whole.endIndex,
+                "history": history, "debris_examples": examples]
+    }
+
     private func run() {
         defer { finish() }
         guard waitFor(20, { self.text().contains("~ >") }) else {
@@ -163,6 +213,7 @@ final class Bench {
             return !whole.contains(f)
         }
         let inkBefore = flat(text()).count
+        let allBefore = daemonText().all
         var widths: [CGFloat] = []
         var w: CGFloat = 1200
         while w > dragMin { widths.append(w); w -= 7 }
@@ -204,12 +255,8 @@ final class Bench {
         for i in 1..<max(1, dragDraws.count) where !(dragDraws[i].t > pause.0 && dragDraws[i - 1].t < pause.1) {
             gaps.append((dragDraws[i].t - dragDraws[i - 1].t) * 1000)
         }
-        // The window's screen against the daemon's.
-        var daemonText = ""
-        if let c = view.conn, let r = try? c.call("pane.capture", ["pane": view.pane]) {
-            let lines = (r["lines"] as? [[String: Any]] ?? []).map { ($0["text"] as? String ?? "").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
-            daemonText = lines.joined(separator: "\n")
-        }
+        // The window's screen against the daemon's, and the pane's text.
+        let (daemonText, daemonAll, daemonHistory) = self.daemonText()
         let clientText = text()
         result["drag"] = [
             "steps": widths.count, "seconds": dragSecs - (pause.1 - pause.0), "min_width": Double(dragMin),
@@ -219,11 +266,86 @@ final class Bench {
             "draw_gap_ms": Bench.stats(gaps),
             "cpu_ms": Bench.stats(dragGPU.map { $0.cpu }), "gpu_ms": Bench.stats(dragGPU.map { $0.gpu }),
             "frame_ms": Bench.stats(dragGPU.map { $0.cpu + $0.gpu }),
+            "after": checkWhole(daemonAll, history: daemonHistory, before: allBefore),
         ]
         if clientText != daemonText {
             result["drag_client_screen"] = clientText
             result["drag_daemon_screen"] = daemonText
         }
+
+        // 2b. The fast drag.
+        let h0 = main { window.frame.height }
+        var sizes: [CGSize] = []
+        var rng: UInt64 = 7
+        func rand(_ n: Int) -> CGFloat {
+            rng = rng &* 6364136223846793005 &+ 1442695040888963407
+            return CGFloat(Int((rng >> 33) % UInt64(n)))
+        }
+        var fw: CGFloat = 1200, fh = h0
+        for i in 0..<400 {
+            fw += (i / 40 % 2 == 0 ? -1 : 1) * (rand(400) + 8)
+            fh += rand(300) - 150
+            fw = min(max(fw, 160), 1300)
+            fh = min(max(fh, 180), h0 + 300)
+            sizes.append(CGSize(width: fw, height: fh))
+        }
+        var sw: CGFloat = 160
+        while sw <= 1200 { sizes.append(CGSize(width: sw, height: 180)); sw += 16 }
+        sizes.append(CGSize(width: 1200, height: h0))
+        sizes.append(CGSize(width: 1200, height: h0 + 300))
+        lock.lock(); let f0d = draws.count; gpu.removeAll(); lock.unlock()
+        var fblank = 0, fbad = 0, fticks = 0
+        var fshots: [String] = []
+        let fStart = CACurrentMediaTime()
+        var fnext = fStart, ftick = fStart + 1.0 / 120
+        func fsample() {
+            fticks += 1
+            // The screen it has (the last frame's size, which a grid just
+            // resized has not caught up with yet).
+            view.screen.lock()
+            let g = (cols: view.screen.cols, rows: view.screen.rows)
+            view.screen.unlock()
+            let t = text()
+            if flat(t).count < min(inkBefore, g.cols * max(1, g.rows - 1)) * 3 / 10 {
+                fblank += 1
+                if fshots.count < 3 { fshots.append("blank at \(g.cols)x\(g.rows): " + t.split(separator: "\n").prefix(3).joined(separator: " | ")) }
+            }
+            if debris(t) {
+                fbad += 1
+                if fshots.count < 3 { fshots.append("debris at \(g.cols)x\(g.rows): " + t.split(separator: "\n").prefix(4).joined(separator: " | ")) }
+            }
+        }
+        for sz in sizes {
+            setSize(sz.width, sz.height)
+            fnext += 0.002
+            while CACurrentMediaTime() < fnext {
+                if CACurrentMediaTime() >= ftick { fsample(); ftick += 1.0 / 120 }
+                sleep(0.0002)
+            }
+        }
+        let fSecs = CACurrentMediaTime() - fStart
+        let settle = CACurrentMediaTime() + 1.0
+        while CACurrentMediaTime() < settle { fsample(); sleep(1.0 / 120) }
+        savePNG("bench-after-fast-drag.png")
+        lock.lock()
+        let fDraws = Array(draws[f0d...])
+        let fGPU = gpu
+        lock.unlock()
+        let (fDaemon, fAll, fHistory) = self.daemonText()
+        let fClient = text()
+        result["fast_drag"] = [
+            "steps": sizes.count, "seconds": fSecs, "steps_per_s": Double(sizes.count) / fSecs,
+            "ticks": fticks, "blank": fblank, "debris": fbad, "examples": fshots,
+            "ends_on_daemon_screen": fClient == fDaemon, "draws": fDraws.count,
+            "frame_ms": Bench.stats(fGPU.map { $0.cpu + $0.gpu }),
+            "after": checkWhole(fAll, history: fHistory, before: allBefore),
+        ]
+        if fClient != fDaemon {
+            result["fast_drag_client_screen"] = fClient
+            result["fast_drag_daemon_screen"] = fDaemon
+        }
+        setSize(1200, h0)
+        sleep(0.5)
 
         // 3. seq 1 2000000.
         key("\u{3}", code: 0x08, flags: .control) // Ctrl+C: drop the command line

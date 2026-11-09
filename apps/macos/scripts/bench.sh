@@ -69,6 +69,18 @@ print("  frame time (CPU build and encode + GPU): %s" % s(d["frame_ms"]))
 print("  CPU %s; GPU %s" % (s(d["cpu_ms"]), s(d["gpu_ms"])))
 for e in d.get("debris_examples", []):
     print("  debris:", e[:200])
+def after(a):
+    print("  after: debris rows %d, blank rows %d (history %d), first row as before: %s, whole command line: %s" % (a.get("debris", -1), a.get("blank_rows", -1), a.get("history", -1), a.get("top_is_prompt"), a.get("whole")))
+    for e in a.get("debris_examples", []):
+        print("    debris row:", e[:200])
+after(d.get("after", {}))
+f = r.get("fast_drag")
+if f:
+    print("fast drag %d steps in %.2f s (%.0f a second): blank %d, debris %d (of %d ticks), ends on the daemon's screen: %s" % (f["steps"], f["seconds"], f["steps_per_s"], f["blank"], f["debris"], f["ticks"], f["ends_on_daemon_screen"]))
+    print("  frame time (CPU + GPU): %s" % s(f["frame_ms"]))
+    for e in f.get("examples", []):
+        print("  on screen:", e[:200])
+    after(f.get("after", {}))
 q = r["seq"]
 print("seq 1 2000000: %.2f s to the prompt (done %s), draws %d (%.0f a second)" % (q["seconds"], q["done"], q["draws"], q["fps"]))
 print("  gap between draws: %s" % s(q["draw_gap_ms"]))
