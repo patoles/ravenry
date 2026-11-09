@@ -196,7 +196,8 @@ reports), the daemon's own screen answers on the pty, whether or not a
 client is attached. A client that draws the pane must not answer such
 queries itself, or the program gets two answers. (For xterm.js: register
 parser handlers that swallow the queries, or drop what `onData` reports
-for them.)
+for them. A full terminal that runs `ravenry attach` needs nothing: the
+attach command drops its answers to the queries the daemon answers.)
 
 **Name and labels.** A pane's `name` is for people (a tab's title). Its
 `labels` are key-value tags for programs: the app marks its plain shells

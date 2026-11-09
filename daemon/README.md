@@ -129,6 +129,7 @@ Not built yet: a TCP listener for the phone, Windows.
 | `internal/proto` | The protocol's wire types. |
 | `internal/paths` | Where the socket and the logs live, and finding daemons. |
 | `internal/testprog` | Programs the tests run inside panes. |
+| `internal/attach` | What `ravenry attach` puts between a terminal and a pane: it drops the terminal's answers to the queries the daemon answers. |
 
 The Go module is named `ravenryd`. Nothing outside this folder imports its
 packages (they are all internal), so the name does not need to be a
@@ -177,6 +178,8 @@ ravenry process "$id"                     # what runs there: pid, argv, cwd, and
 ravenry restart "$id" --command           # Ctrl-C the shell's command and type it again, in the same pane
 ravenry agents                            # the agent state of every pane
 ravenry close "$id"
+ravenry attach "$id"                      # the pane in this terminal: its screen, then live; keys go to it, and its size follows this terminal
+ravenry attach --new                      # the same for a new pane (the login shell); --close ends it when the terminal goes
 
 ravenry ask --wait "Put on the headset and open the game" --option Done --option "Didn't work"
 ravenry approve 'git push && npm publish' --why "Release 0.4.1"

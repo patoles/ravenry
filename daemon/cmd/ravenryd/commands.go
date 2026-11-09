@@ -119,6 +119,13 @@ func init() {
 			{"unlabel", listFlag, "KEY", "remove a label (repeatable)"},
 		}, run: cmdUpdate},
 		{name: "resize", group: "Panes", args: "PANE COLSxROWS", summary: "change its size", run: cmdResize},
+		{name: "attach", group: "Panes", args: "PANE | --new [-- COMMAND ARGS...]", summary: "put a pane in this terminal: its screen, then live output; your keys go to it and this terminal's size becomes its size (what the native app runs inside each terminal view). Leaves the pane running when the terminal goes away", flags: []flagDoc{
+			{"new", boolFlag, "", "start a new pane at this terminal's size (the login shell when no command is given) and attach to it"},
+			{"cwd", valueFlag, "DIR", "with --new: working directory (default: home)"},
+			{"name", valueFlag, "NAME", "with --new: a name for people"},
+			{"label", listFlag, "KEY=VALUE", "with --new: a label for programs (repeatable)"},
+			{"close", boolFlag, "", "with --new: close the pane when this terminal goes away"},
+		}, run: cmdAttach},
 		{name: "clear", group: "Panes", args: "PANE", summary: "clear its screen and scrollback as Cmd+K does: the prompt stays at the top, everything above it goes (not on a full-screen program's screen)", run: cmdClear},
 		{name: "restart", group: "Panes", args: "PANE", summary: "close it and start its command again (same env, its current folder, name and labels); prints the new id. A pane you did not start waits for the person's yes", flags: []flagDoc{
 			{"no-wait", boolFlag, "", "a pane you did not start: fail at once (exit 125, printing the checkpoint) instead of waiting for the person"},
