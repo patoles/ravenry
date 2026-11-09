@@ -16,7 +16,7 @@
 import { h, replace, svg } from '../../desktop/src/renderer/dom.ts';
 import { Pages } from '../../desktop/src/renderer/pages.ts';
 import type { NavRow, PagesHost, PageView } from '../../desktop/src/renderer/pages.ts';
-import { groupItems, capitaliseField } from '../../desktop/src/renderer/pagefmt.ts';
+import { capitaliseField } from '../../desktop/src/renderer/pagefmt.ts';
 import type { Item, Section } from '../../desktop/src/renderer/pagefmt.ts';
 import * as I from './icons.ts';
 import { sayPathOn } from '../../../hub/public/homepath.mjs';
@@ -95,13 +95,13 @@ function showFile(p: string): void {
 
 // ---------------------------------------------------------------- long press: Move to
 
-/** The core board sections of the tab on screen, in the order the page draws them. */
-function boardSections(v: PageView, tab: number): { s: Section & { kind: 'core' }; ti: number; si: number }[] {
+/** The core board sections of the tab on screen (the one the hub drew), in the order the page draws them. */
+function boardSections(v: PageView): { s: Section & { kind: 'core' }; ti: number; si: number }[] {
   const m = v.model;
-  if (!m) return [];
-  const t = m.tabs[Math.min(tab, m.tabs.length - 1)];
+  if (!m || !v.drawn) return [];
+  const ti = Math.min(v.drawn.tab, m.tabs.length - 1);
   const out: { s: Section & { kind: 'core' }; ti: number; si: number }[] = [];
-  t.sections.forEach((s, si) => { if (s.kind === 'core' && s.view === 'board' && s.groupBy) out.push({ s: s as Section & { kind: 'core' }, ti: m.tabs.indexOf(t), si }); });
+  m.tabs[ti].sections.forEach((s, si) => { if (s.kind === 'core' && s.view === 'board' && s.groupBy) out.push({ s: s as Section & { kind: 'core' }, ti, si }); });
   return out;
 }
 
@@ -114,17 +114,19 @@ function noteAt(target: HTMLElement): { v: PageView; item: Item; field: string; 
   if (!P || !v || !row) return null;
   const gl = row.closest('.gl')!;
   const lists = [...pageEl!.querySelectorAll('.gl')];
-  const secs = boardSections(v, P.tab.get(v.key) || 0);
+  const secs = boardSections(v);
   const sec = secs[lists.indexOf(gl)];
   if (!sec) return null;
   const g = row.closest('.gl-g')!;
   const gi = [...gl.querySelectorAll('.gl-g')].indexOf(g);
   const ri = [...g.querySelectorAll('.gl-r')].indexOf(row);
-  const items = ((v.items.sections[sec.ti] || [])[sec.si] || []);
+  // The lanes as the hub drew them, so the row pressed is the row shown.
+  const d = v.drawn!.sections[sec.si];
   const src = sec.s.source && sec.s.source.kind !== 'provider' ? sec.s.source : null;
   const field = src ? src.fields[sec.s.groupBy!] : null;
-  const groups = groupItems(items, sec.s.groupBy!, field || null);
-  const item = groups[gi]?.items[ri];
+  const groups = (d && d.groups) || [];
+  const at = groups[gi]?.rows[ri];
+  const item = at === undefined ? null : d.rows[at];
   if (!item || !field || !item.$hash) return null;
   const values = field.type === 'enum' && field.values ? field.values.map(String) : groups.map((x) => x.value).filter((x): x is string => x !== null);
   return { v, item, field: sec.s.groupBy!, values, at: [sec.ti, sec.si] };

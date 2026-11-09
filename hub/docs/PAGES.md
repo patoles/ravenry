@@ -49,7 +49,7 @@ for its file as it is now.
 | Endpoint | | |
 | --- | --- | --- |
 | `GET /api/pages` | | the rows (as in the snapshot) |
-| `GET /api/pages/page?key=` | | a page: its typed model (the last good one), its problems, trust and notices, and every section's items |
+| `GET /api/pages/page?key=&tab=` | | a page: its typed model (the last good one), its problems, trust and notices, every section's items as read (`items`), and `drawn`: the tab asked for (0 when none) as a client draws it (below) |
 | `GET /api/pages/img?key=&path=` | | a picture inside the page's folder; nothing outside it, no symlink out, images only |
 | `GET /api/pages/docs?topic=` | | the page docs, or one topic |
 | `POST /api/pages/check` | open | `{ text, path }`: problems by line, and what it draws (`ravenry page check`) |
@@ -66,6 +66,47 @@ for its file as it is now.
 
 Why each one is open or a person's is in `docs/PERSON.md`. A page's key is
 its id, and `<project id>/<id>` for a project's.
+
+## The drawn page
+
+The hub runs the page format's filters, sorts, limits, groups, tab counts
+and stats (`server/pagedraw.mjs`), so a client draws rows and numbers and
+never runs `packages/page-format` itself: the app, the phone and the Mac
+app show the same thing. The tab the person picks is sent as `?tab=` and
+the answer drawn; the tab on screen stays until it comes (on this machine a
+read takes a few milliseconds). `drawn` is:
+
+```
+{
+  tab: number,                 // the tab drawn: the one asked for, kept inside the page's tabs
+  tabs: [{ label, count }],    // every tab; count: its `count:` over the items its
+                               // sections show (each once), null when it has none
+  pageItems: number,           // items of the page's own source ("12 notes in playtest/")
+  sections: [{                 // the drawn tab's sections, in the file's order
+    rows: Item[],              // where, then sort, then limit; each row is the item
+                               // with $actions: the indexes of the section's item
+                               // buttons whose `when` holds (others are not drawn)
+    count: number,             // rows.length
+    groups: [{ value, count, rows: number[] }] | null,
+                               // group_by as the view draws it, rows as indexes into
+                               // rows. board: a lane per enum value, empty ones too,
+                               // then None (value null); list: the groups with rows;
+                               // document: a group per value seen, in that order.
+                               // null without group_by, or for another view
+    stats: [{ label, value, note }] | null,
+                               // a stats view's numbers; min and max of dates give the
+                               // date as text; null for other views
+  }]
+}
+```
+
+An item keeps every field the hub read (`$hash`, `$base`, `$boxes`,
+`$ravenry` and its source's fields); a client reads a field by its dotted
+path and says a value as text (`getField`, `valueText`, `fillText`) to draw
+it, and sends writes with `at: [tab, section]` and the item's `file` and
+`$hash`, as before. `items` is what the hub read, unfiltered, for tools and
+tests; no client draws from it (the browser board's read-only page view
+reads `drawn` too, one request per tab).
 
 ## Writes
 
@@ -165,6 +206,9 @@ code that draws the sidebar; the docs are built into the binary. npm's
 
 ## Tests
 
+- `tools/pagedraw-test.mjs`: the drawn page against what the app drew
+  from the items before, on every shipped page and valid fixture, each tab,
+  with made-up items; lanes, groups, a limit, `when` and the tab asked for.
 - `tools/pages-test.mjs`: every provider against fixtures (the contract's
   fields and types only), the move of a realistic `ideas.json`
   (`tools/fixtures/ideas`) on a copy, and a board on scratch data: the

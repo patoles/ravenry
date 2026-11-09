@@ -247,14 +247,14 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | ID | Behaviour | Logic | Acceptance | macOS | Electron | Android | Phone web |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | PAGE-001 | The sidebar's pages from page files: the shipped five (Ideas, Objectives, Plans, Rules, Ship), then added ones, then a project's with its name | hub `GET /api/pages`, state (pages) | `apps/desktop/tools/pages-test.mjs`, `hub/tools/pages-test.mjs` | missing | done | done | done |
-| PAGE-002 | A page opens in the middle and right columns; its lists, boards and groups use page-format's own filters, sorts and counts | client with `packages/page-format`; hub `GET /api/pages/page` | `apps/desktop/tools/pages-test.mjs` | missing | done | done | done |
+| PAGE-002 | A page opens in the middle and right columns; its lists, boards and groups use page-format's own filters, sorts and counts, run by the hub: a client draws the rows, groups, tab counts, stats and item buttons it is sent, and sends the tab picked | hub `GET /api/pages/page?key=&tab=` (`drawn`, `hub/server/pagedraw.mjs`, `hub/docs/PAGES.md`) | `hub/tools/pagedraw-test.mjs`, `hub/tools/pages-test.mjs`, `apps/desktop/tools/pages-test.mjs` | missing | done | done | done |
 | PAGE-003 | Edits go to the hub field by field, against the hash the screen was drawn from; "changed since your copy" when it moved | hub `POST /api/pages/item/set`, `toggle`, `create` | `hub/tools/pages-test.mjs`, `apps/desktop/test/pages.test.ts` | missing | done | done | done |
 | PAGE-004 | A page file with a mistake shows its last good version under the problem, with Open file and Ask Claude to fix | hub `GET /api/pages/page`, `POST /api/pages/ask` (fix) | `apps/desktop/tools/pages-test.mjs` | missing | done | done | done |
 | PAGE-005 | A project's page's buttons stay off until the person trusts it | hub `POST /api/pages/trust` | `hub/tools/pages-test.mjs` | missing | done | done | done |
 | PAGE-006 | A page's button types into a session only once approved; a run always goes through approve and run | hub `POST /api/pages/ask`, `approve`, `dismiss`, `run` | `hub/tools/pages-test.mjs` | missing | done | done | done |
 | PAGE-007 | Customize a shipped page into your own copy | hub `POST /api/pages/customize` | `hub/tools/pages-test.mjs` | missing | done | done | done |
 | PAGE-008 | A page never runs script or loads a remote picture; its pictures come from the hub | hub `GET /api/pages/img` | `hub/tools/pages-test.mjs` | missing | done | done | done |
-| PAGE-009 | On a phone: a tap opens a note as a sheet, a long press offers Move to, a round button makes a new one | client | manual: `apps/phone/tools/preview.mjs` | n/a | n/a | done | done |
+| PAGE-009 | On a phone: a tap opens a note as a sheet, a long press offers Move to (the note pressed found in the lanes the hub drew), a round button makes a new one | client; hub `GET /api/pages/page` (`drawn` lanes) | manual: `apps/phone/tools/preview.mjs` | n/a | n/a | done | done |
 | PAGE-010 | The Rules page: rules from project memory to save or put off, and repeated asks to make into rules | hub `GET /api/rules`, `/api/rules/repeats`; `POST /api/rules/:id`, `/api/repeats/:id` | `hub/tools/rules-repeats-test.mjs` | missing | done | done | done |
 
 ### Gallery and pictures

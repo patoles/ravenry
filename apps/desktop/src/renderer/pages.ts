@@ -4,20 +4,21 @@
 // the terminal back.
 //
 // What is drawn is the hub's typed model of the page (its last good
-// version when the file has a mistake, under the problem) and its items.
-// Filters, sorts, groups and numbers are page-format's own functions, so
-// the app, the hub and the phone show the same thing. Every write goes to
-// the hub, field by field, against the hash the screen was drawn from.
+// version when the file has a mistake, under the problem) and its drawn
+// tab (hub/server/pagedraw.mjs): each section's rows already filtered,
+// sorted, limited and grouped, the tabs' counts and the stats, so the app,
+// the phone and the Mac app show the same thing and none of them runs the
+// format. The tab the person picks is sent to the hub (?tab=) and its
+// answer drawn. Every write goes to the hub, field by field, against the
+// hash the screen was drawn from.
 //
 // A page never runs script, loads a remote picture, or types into a
 // session without the person seeing it: buttons can only do what the
 // format allows, a run always goes through approve-and-run, and a project
 // page's buttons stay off until the person trusts it.
 
-import {
-  capitaliseField, fillText, getField, groupItems, matches, sortItems, statValue, valueText, countItems,
-} from './pagefmt.ts';
-import type { Action, FieldSpec, Item, ItemSpec, Page, Progress, Section, Source, Stat, Tab } from './pagefmt.ts';
+import { capitaliseField, fillText, getField, valueText } from './pagefmt.ts';
+import type { Action, FieldSpec, Item, ItemSpec, Page, Progress, Section, Source, Tab } from './pagefmt.ts';
 import { h, replace, svg } from './dom.ts';
 import * as I from './icons.ts';
 
@@ -39,7 +40,23 @@ export interface PageView {
   defaultChanged: { from: number; to: number | null } | null;
   text: string; defaultText: string | null; defaultPath: string | null; historyText: string | null;
   items: { page: Item[]; sections: Item[][][] };
+  /** The tab asked for, as the hub drew it (hub/server/pagedraw.mjs); null with no model. */
+  drawn: Drawn | null;
 }
+
+/** One group of a drawn section: its value and its rows (indexes into the section's rows). */
+export interface DrawnGroup { value: string | null; count: number; rows: number[] }
+export interface DrawnSection {
+  /** Filtered, sorted, limited; `$actions` lists the item buttons that apply. */
+  rows: Item[]; count: number;
+  groups: DrawnGroup[] | null;
+  stats: { label: string; value: number | string | null; note: string | null }[] | null;
+}
+export interface Drawn { tab: number; tabs: { label: string | null; count: number | null }[]; pageItems: number; sections: DrawnSection[] }
+
+const NO_SECTION: DrawnSection = { rows: [], count: 0, groups: null, stats: null };
+/** A drawn group's rows as items. */
+const rowsOf = (d: DrawnSection, g: DrawnGroup): Item[] => g.rows.map((i) => d.rows[i]).filter(Boolean);
 
 export interface PagesHost {
   hubUrl(): string;
@@ -287,7 +304,7 @@ export class Pages {
     if (this.open) {
       const r = this.rows.find((x) => x.key === this.open);
       const c = this.cache.get(this.open);
-      if (r && (!c || c.rev !== r.rev)) void this.load(this.open);
+      if (r && (!c || c.rev !== r.rev || this.otherTab(this.open))) void this.load(this.open);
     }
   }
 
@@ -312,26 +329,46 @@ export class Pages {
   /** What the page waits on before the window shows it, or null when it can be drawn now. */
   wait(key: string): Promise<void> | null { return this.cache.has(key) ? null : this.load(key); }
 
+  /** Reads the page again, at the tab the person picked. */
   load(key: string): Promise<void> {
-    const was = this.loading.get(key);
+    const tab = this.tab.get(key) || 0;
+    const lk = `${key}#${tab}`;
+    const was = this.loading.get(lk);
     if (was) return was;
-    const p = this.read(key);
-    this.loading.set(key, p);
+    const p = this.read(key, tab);
+    this.loading.set(lk, p);
     return p;
   }
 
-  private async read(key: string): Promise<void> {
+  private async read(key: string, tab: number): Promise<void> {
     try {
-      const r = await this.host.call('GET', `/api/pages/page?key=${encodeURIComponent(key)}`);
+      const r = await this.host.call('GET', `/api/pages/page?key=${encodeURIComponent(key)}&tab=${tab}`);
       const v = (r.body as { page?: PageView }).page;
-      if (r.status === 200 && v) {
+      // An answer for a tab the person has since left is not drawn over the
+      // one they are on now (its own read is on its way).
+      if (r.status === 200 && v && ((this.tab.get(key) || 0) === tab || !this.cache.has(key))) {
         const row = this.rows.find((x) => x.key === key);
         this.cache.set(key, { rev: row ? row.rev : '', view: v });
+        // A tab past the page's last (the file lost one) is the hub's last.
+        if (v.drawn && v.drawn.tab !== tab) this.tab.set(key, v.drawn.tab);
       }
     } finally {
-      this.loading.delete(key);
+      this.loading.delete(`${key}#${tab}`);
     }
     if (this.open === key) this.render();
+  }
+
+  /** The person picked tab `i`: the hub draws it, and the tab on screen stays until it answers. */
+  pickTab(key: string, i: number): void {
+    if ((this.tab.get(key) || 0) === i && !this.otherTab(key)) return;
+    this.tab.set(key, i);
+    void this.load(key);
+  }
+
+  /** The cached view is of another tab than the one picked. */
+  private otherTab(key: string): boolean {
+    const c = this.cache.get(key);
+    return !!c && !!c.view.drawn && c.view.drawn.tab !== (this.tab.get(key) || 0);
   }
 
   show(key: string): void {
@@ -341,7 +378,7 @@ export class Pages {
     this.render();
     const row = this.rows.find((x) => x.key === key);
     const c = this.cache.get(key);
-    if (!c || (row && c.rev !== row.rev)) void this.load(key);
+    if (!c || (row && c.rev !== row.rev) || this.otherTab(key)) void this.load(key);
   }
 
   close(): void { this.open = null; this.modal = null; }
@@ -550,7 +587,7 @@ export class Pages {
       if (v.origin === 'project' && v.trust && v.trust.state !== 'trusted') src.push(h('span', 'Read-only'));
       src.push(h('span.mono', v.origin === 'project' && v.project ? v.path.replace(v.project.folder + '/', '') : v.path));
       const ps = m && m.source && m.source.kind === 'folder' ? m.source : null;
-      if (ps && !m!.from && v.origin !== 'project') { const n = v.items.page.length; src.push(h('span.pg-n', `${n} ${noun(m!, n)} in ${ps.folder}`)); }
+      if (ps && !m!.from && v.origin !== 'project') { const n = v.drawn ? v.drawn.pageItems : v.items.page.length; src.push(h('span.pg-n', `${n} ${noun(m!, n)} in ${ps.folder}`)); }
     }
     const right: (HTMLElement | null)[] = [];
     if (v.origin === 'default') right.push(h('button.btn.sm.quiet', { on: { click: () => void this.customize(v) } }, 'Customize'));
@@ -633,13 +670,15 @@ export class Pages {
   private page(v: PageView): (HTMLElement | null)[] {
     const m = v.model;
     if (!m) return [h('p.t2.empty-pg', 'This page file has a problem, and there is no version of it that worked to show meanwhile.')];
+    const d = v.drawn;
     const out: (HTMLElement | null)[] = [];
-    let ti = 0;
+    // The tab the hub drew is the one on: a picked tab turns on with its
+    // sections, when the hub answers, never over the last tab's.
+    const ti = d ? Math.min(d.tab, m.tabs.length - 1) : 0;
     if (m.tabbed) {
-      ti = Math.min(this.tab.get(v.key) || 0, m.tabs.length - 1);
       out.push(h('div.ptabs', m.tabs.map((t, i) => {
-        const n = t.count ? countItems(this.tabItems(v, i), t.count) : null;
-        return h(`button.seg${i === ti ? '.on' : ''}`, { on: { click: () => { this.tab.set(v.key, i); this.render(); } } }, t.label || `Tab ${i + 1}`, n ? h('span.num.t3', ` ${n}`) : null);
+        const n = d && d.tabs[i] ? d.tabs[i].count : null;
+        return h(`button.seg${i === ti ? '.on' : ''}`, { on: { click: () => this.pickTab(v.key, i) } }, t.label || `Tab ${i + 1}`, n ? h('span.num.t3', ` ${n}`) : null);
       })));
     }
     let legend = false;
@@ -650,35 +689,24 @@ export class Pages {
     return out;
   }
 
-  private tabItems(v: PageView, ti: number): Item[] {
-    const t = v.model!.tabs[ti];
-    const seen = new Set<Item>();
-    t.sections.forEach((s, si) => { for (const it of (v.items.sections[ti] || [])[si] || []) if (matches(s.where, it)) seen.add(it); });
-    return [...seen];
-  }
-
-  /** A section's items: filtered, sorted, limited. */
-  itemsOf(v: PageView, s: Section, ti: number, si: number): Item[] {
-    const all = (v.items.sections[ti] || [])[si] || [];
-    const fields = s.source ? (s.source.kind === 'provider' ? s.source.fields : s.source.fields) : null;
-    let list = all.filter((it) => matches(s.where, it));
-    list = sortItems(list, s.sort, fields);
-    if (s.limit) list = list.slice(0, s.limit);
-    return list;
+  /** A section as the hub drew it: its rows filtered, sorted and limited, its groups, its stats. */
+  drawnOf(v: PageView, si: number): DrawnSection {
+    return (v.drawn && v.drawn.sections[si]) || NO_SECTION;
   }
 
   private section(v: PageView, s: Section, ti: number, si: number): HTMLElement | null {
-    const items = this.itemsOf(v, s, ti, si);
+    const d = this.drawnOf(v, si);
+    const items = d.rows;
     const sec: [number, number] = [ti, si];
     if (s.kind === 'placeholder') return h('div.ocard.ph-sec', h('div.ocard-h.t2', s.title || s.view), h('div.orow.t2', s.reason));
     if (s.kind === 'plugin') return this.pluginView(v, s, items, sec);
     switch (s.view) {
-      case 'board': return this.board(v, s, items, sec);
+      case 'board': return this.board(v, s, d, sec);
       case 'cards': return this.cards(v, s, items, sec);
       case 'table': return this.table(v, s, items, sec);
-      case 'stats': return this.stats(s, items);
-      case 'document': return this.documentView(v, s, items, sec);
-      default: return this.list(v, s, items, sec);
+      case 'stats': return this.stats(d);
+      case 'document': return this.documentView(v, s, d, sec);
+      default: return this.list(v, s, d, sec);
     }
   }
 
@@ -689,7 +717,8 @@ export class Pages {
   }
 
   private button(v: PageView, a: Action, at: Addr, item: Item | null, sec: [number, number] | null, off: string | null, sm = true): HTMLElement | null {
-    if (a.when && item && !matches(a.when, item)) return null;
+    // The hub says which of an item's buttons apply to it (its `when`).
+    if (item && at.scope === 'item' && Array.isArray(item.$actions) && !(item.$actions as number[]).includes(at.index)) return null;
     if (a.kind === 'off') return h(`button.btn${sm ? '.sm' : ''}.off`, { disabled: true, title: a.reason }, a.label);
     const label = a.label;
     const busy = this.busy.has(`${JSON.stringify(at)}|${item ? item.file || item.id : ''}`);
@@ -815,8 +844,9 @@ export class Pages {
 
   // ------------------------------------------------------------ views
 
-  private list(v: PageView, s: Section & { kind: 'core' }, items: Item[], sec: [number, number]): HTMLElement {
+  private list(v: PageView, s: Section & { kind: 'core' }, d: DrawnSection, sec: [number, number]): HTMLElement {
     const spec = s.item;
+    const items = d.rows;
     const objRows = spec.place === 'ravenry:objective-rows';
     const rowOf = (it: Item) => {
       const st = it.state && ['you', 'work', 'idle'].includes(String(it.state)) && !it.$hash ? String(it.state) : null;
@@ -830,9 +860,8 @@ export class Pages {
     };
     const head = s.title ? h('div.ocard-h.sec-t', s.title, h('span.num.t3', String(items.length))) : null;
     if (!items.length) return h('div.ocard', head, h('div.orow.t2.empty', s.empty || 'Nothing here.'), this.sectionActions(v, s, sec));
-    if (s.groupBy) {
-      const gs = groupItems(items, s.groupBy, s.source && s.source.kind !== 'provider' ? s.source.fields[s.groupBy] || null : null).filter((g) => g.items.length);
-      return h('div.lgroups', head, gs.map((g) => h('div.ocard', h('div.ocard-h.sec-t', g.value === null ? 'None' : String(g.value), h('span.num.t3', String(g.items.length))), g.items.map(rowOf))), this.sectionActions(v, s, sec));
+    if (s.groupBy && d.groups) {
+      return h('div.lgroups', head, d.groups.map((g) => h('div.ocard', h('div.ocard-h.sec-t', g.value === null ? 'None' : String(g.value), h('span.num.t3', String(g.count))), rowsOf(d, g).map(rowOf))), this.sectionActions(v, s, sec));
     }
     return h('div.ocard', head, items.map(rowOf), this.sectionActions(v, s, sec));
   }
@@ -871,10 +900,11 @@ export class Pages {
     this.host.openPlan(project, title);
   }
 
-  private board(v: PageView, s: Section & { kind: 'core' }, items: Item[], sec: [number, number]): HTMLElement {
+  private board(v: PageView, s: Section & { kind: 'core' }, d: DrawnSection, sec: [number, number]): HTMLElement {
     const spec = s.item;
+    const items = d.rows;
     const field = s.source && s.source.kind !== 'provider' ? s.source.fields[s.groupBy!] : null;
-    const groups = groupItems(items, s.groupBy!, field || null);
+    const groups = (d.groups || []).map((g) => ({ value: g.value, items: rowsOf(d, g) }));
     const width = this.el.clientWidth - 44;
     const narrow = width > 0 && width / Math.max(1, groups.length) < 240;
     const label = (g: { value: string | null }) => (g.value === null ? 'None' : capitaliseField(g.value));
@@ -954,16 +984,17 @@ export class Pages {
       this.sectionActions(v, s, sec));
   }
 
-  private stats(s: Section & { kind: 'core' }, items: Item[]): HTMLElement {
-    return h('div.pstats', (s.stats || []).map((st: Stat) => {
-      const val = statValue(items, st);
+  private stats(d: DrawnSection): HTMLElement {
+    return h('div.pstats', (d.stats || []).map((st) => {
+      const val = st.value;
       const shown = val === null ? 'None' : typeof val === 'string' ? timeText(val, this.host.now()) : String(val);
       return h('div.pstat', h('span.t2.l', st.label), h('span.num.v', shown), st.note ? h('span.t3.n', st.note) : null);
     }));
   }
 
-  private documentView(v: PageView, s: Section & { kind: 'core' }, items: Item[], sec: [number, number]): HTMLElement {
+  private documentView(v: PageView, s: Section & { kind: 'core' }, d: DrawnSection, sec: [number, number]): HTMLElement {
     const spec = s.item;
+    const items = d.rows;
     if (!items.length) return h('div.ocard', h('div.orow.t2.empty', s.empty || 'Nothing here.'));
     const doc = (it: Item) => {
       const can = spec.actions.some((a) => a.kind === 'toggle') && !this.off(v);
@@ -978,9 +1009,8 @@ export class Pages {
         h('div.pdoc-b', markdown(valueText(it.body), can ? (k, text, done) => void this.toggle(v, it, sec, boxes[k] ? boxes[k].line : 0, text, done) : undefined)),
         h('div.pc-a', this.itemButtons(v, spec, it, sec)));
     };
-    if (s.groupBy) {
-      const gs = groupItems(items, s.groupBy, null);
-      return h('div.lgroups', gs.map((g) => h('div.dgroup', h('div.sec-title', g.value === null ? 'Other' : String(g.value)), g.items.map(doc))));
+    if (s.groupBy && d.groups) {
+      return h('div.lgroups', d.groups.map((g) => h('div.dgroup', h('div.sec-title', g.value === null ? 'Other' : String(g.value)), rowsOf(d, g).map(doc))));
     }
     return h('div.lgroups', items.map(doc));
   }

@@ -1862,17 +1862,24 @@ function renderViews() {
 }
 
 // A page the board does not draw itself (an added one, a project's): its
-// items as a read-only list, grouped as its board or list groups them.
-const pv = { key: null, rev: null, page: null, error: null, busy: false };
+// rows as a read-only list, every tab one after the other, filtered, sorted
+// and grouped as the hub drew them (`drawn`, docs/PAGES.md).
+const pv = { key: null, rev: null, page: null, drawn: [], error: null, busy: false };
 async function loadPageView(key) {
   pv.busy = true;
-  try {
-    const r = await fetch('/api/pages/page?key=' + encodeURIComponent(key));
+  const one = async (tab) => {
+    const r = await fetch('/api/pages/page?key=' + encodeURIComponent(key) + '&tab=' + tab);
     if (r.status === 401) signedOut();
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
-    pv.page = j.page; pv.error = null;
-  } catch (e) { pv.page = null; pv.error = e.message; }
+    return j.page;
+  };
+  try {
+    const first = await one(0);
+    const n = first.model ? first.model.tabs.length : 1;
+    const rest = await Promise.all(Array.from({ length: n - 1 }, (_, i) => one(i + 1)));
+    pv.page = first; pv.drawn = [first, ...rest].map((x) => x.drawn); pv.error = null;
+  } catch (e) { pv.page = null; pv.drawn = []; pv.error = e.message; }
   pv.busy = false;
   if (ui.view === 'page/' + key) render();
 }
@@ -1896,7 +1903,8 @@ function renderPageView() {
   const out = [];
   m.tabs.forEach((t, ti) => t.sections.forEach((sec, si) => {
     if (sec.kind !== 'core') return;
-    const items = ((P.items.sections[ti] || [])[si] || []).slice(0, 200);
+    const d = (pv.drawn[ti] && pv.drawn[ti].sections[si]) || { rows: [], groups: null };
+    const items = d.rows.slice(0, 200);
     const spec = sec.item;
     const rowHtml = (it) => {
       const img = spec.image && pvField(it, spec.image) && it.$base ? `<img src="/api/pages/img?key=${encodeURIComponent(key)}&path=${encodeURIComponent(it.$base + pvField(it, spec.image))}" alt="" style="width: 76px; height: 46px; object-fit: cover; border-radius: 6px; flex: none">` : '';
@@ -1905,12 +1913,11 @@ function renderPageView() {
       const time = spec.time && pvField(it, spec.time) ? `<span class="t3 num" style="font-size: 11.5px; margin-left: auto">${esc(pvTime(pvField(it, spec.time)))}</span>` : '';
       return `<div class="card-r" style="gap: 12px"><div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">${esc(pvText(pvField(it, spec.title)))}</span>${sub ? `<span class="t2" style="font-size: 12.5px">${esc(sub)}</span>` : ''}<span style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap">${badges}${time}</span></div>${img}</div>`;
     };
-    const group = sec.groupBy;
-    if (group) {
-      const values = sec.source && sec.source.fields && sec.source.fields[group] && sec.source.fields[group].values ? sec.source.fields[group].values : [...new Set(items.map((it) => pvText(pvField(it, group))))];
-      for (const v of values) {
-        const g = items.filter((it) => pvText(pvField(it, group)) === v);
-        out.push(`<div class="card" style="overflow: hidden"><h2 class="card-h" style="font-size: 13px">${esc(String(v).charAt(0).toUpperCase() + String(v).slice(1).replace(/_/g, ' '))}<span class="num t3" style="font-weight: 500">${g.length}</span></h2>${g.map(rowHtml).join('')}</div>`);
+    if (d.groups) {
+      for (const grp of d.groups) {
+        const v = grp.value === null ? 'None' : grp.value;
+        const g = grp.rows.map((i) => d.rows[i]).filter(Boolean).slice(0, 200);
+        out.push(`<div class="card" style="overflow: hidden"><h2 class="card-h" style="font-size: 13px">${esc(String(v).charAt(0).toUpperCase() + String(v).slice(1).replace(/_/g, ' '))}<span class="num t3" style="font-weight: 500">${grp.count}</span></h2>${g.map(rowHtml).join('')}</div>`);
       }
     } else {
       out.push(`<div class="card" style="overflow: hidden">${sec.title ? `<h2 class="card-h" style="font-size: 13px">${esc(sec.title)}</h2>` : ''}${items.length ? items.map(rowHtml).join('') : `<div class="card-r t2">${esc(sec.empty || 'Nothing here.')}</div>`}</div>`);

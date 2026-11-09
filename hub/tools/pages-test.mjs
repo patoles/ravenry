@@ -280,6 +280,13 @@ const board0 = pg.items.sections[0][0];
 check('a page: its model and its items, newest change first, with each one\'s hash', pg.ok && pg.model.title === 'Playtest notes' && board0.length === 9 && board0.every((it) => /^[0-9a-f]{64}$/.test(it.$hash) && it.$base === 'playtest/'), JSON.stringify(pg.problems));
 const groups = pf.groupItems(board0, 'status', pg.model.source.fields.status).map((g) => `${g.value} ${g.items.length}`);
 check('its board: new 4, fixing 2, fixed 3', groups.join(', ') === 'new 4, fixing 2, fixed 3', groups.join(', '));
+// The drawn page (server/pagedraw.mjs): the hub's lanes, which the app and the phone draw.
+const dsec = pg.drawn && pg.drawn.sections[0];
+const dlanes = dsec ? dsec.groups.map((g) => `${g.value} ${g.count}`).join(', ') : '';
+check('the page as drawn: its board\'s lanes as the format groups them, each row with the buttons that apply', pg.drawn.tab === 0 && pg.drawn.tabs.length === 1 && dlanes === groups.join(', ') && dsec.rows.length === 9 && dsec.groups[0].rows.every((i) => dsec.rows[i].status === 'new') && dsec.rows.every((r) => JSON.stringify(r.$actions) === '[0,1]'), dlanes);
+const rules1 = (await get('/api/pages/page?key=rules&tab=1')).body.page;
+const rules9 = (await get('/api/pages/page?key=rules&tab=9')).body.page;
+check('the tab asked for is the one drawn (?tab=), with every tab\'s count; one past the last is the last', rules1.drawn.tab === 1 && rules1.drawn.tabs.map((t) => t.label).join('|') === 'Your rules|Suggested' && rules1.drawn.tabs[1].count === rules1.drawn.sections[0].count && rules1.drawn.sections.length === 2 && rules9.drawn.tab === 1, JSON.stringify(rules1.drawn.tabs));
 const pic = await get('/api/pages/img?key=playtest&path=playtest/shots/dock-clip.png');
 check('its pictures are served from its folder, and nothing else', pic.status === 200 && pic.type === 'image/png' && (await get('/api/pages/img?key=playtest&path=../projects.json')).status === 404 && (await get('/api/pages/img?key=playtest&path=playtest/boat-clips-the-dock.md')).status === 404);
 

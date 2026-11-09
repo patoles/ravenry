@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import * as pf from './vendor/page-format.mjs';
 import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
 import { itemsOf } from './providers.mjs';
+import { drawPage } from './pagedraw.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import { sayFolder } from './homes.mjs';
 
@@ -371,8 +372,9 @@ function explain(e) {
 }
 
 /** The page as the app draws it: its last good model, its problems, its
- * trust, and every section's items. */
-export function view(key) {
+ * trust, every section's items as read, and `drawn` (pagedraw.mjs): the
+ * tab asked for with its rows filtered, sorted, grouped and counted. */
+export function view(key, { tab = 0 } = {}) {
   const e = get(key);
   if (!e) return null;
   const items = itemsFor(e);
@@ -387,6 +389,7 @@ export function view(key) {
     historyText: e.defaultChanged ? readText(path.join(HISTORY_DIR, `${e.id}-r${e.defaultChanged.from}.page.yaml`))?.text || null : null,
     replaces: e.replaces,
     items,
+    drawn: drawPage(e.page, items, tab),
   };
 }
 

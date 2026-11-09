@@ -1,9 +1,8 @@
-// The page file format (packages/page-format), as the window uses it: the
-// same filters, sorts, groups and numbers as the hub and the phone.
+// The page file format's types (packages/page-format), and how a value is
+// read and said as text to draw it. The filters, sorts, groups and numbers
+// run in the hub (hub/server/pagedraw.mjs): the window draws its answer.
 
-export {
-  matches, sortItems, groupItems, countItems, navNumber, statValue, fillText, getField, valueText,
-} from '../../../../packages/page-format/src/index.ts';
+export { fillText, getField, valueText } from '../../../../packages/page-format/src/index.ts';
 export type {
   Action, FieldSpec, Item, ItemSpec, Page, Progress, Section, Source, Stat, Tab,
 } from '../../../../packages/page-format/src/index.ts';

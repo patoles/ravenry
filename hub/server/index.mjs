@@ -3745,7 +3745,7 @@ async function handleRequest(req, res) {
     }
     if (req.method === 'GET' && p === '/api/pages') return sendJson(res, 200, { ok: true, pages: snapshot.pages || [] });
     if (req.method === 'GET' && p === '/api/pages/page') {
-      const v = pages.view(url.searchParams.get('key') || '');
+      const v = pages.view(url.searchParams.get('key') || '', { tab: url.searchParams.get('tab') });
       return v ? sendJson(res, 200, { ok: true, page: v }) : sendJson(res, 404, { error: 'No such page.' });
     }
     if (req.method === 'GET' && p === '/api/pages/img') {

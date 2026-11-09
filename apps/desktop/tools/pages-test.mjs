@@ -304,6 +304,14 @@ const steps = [
   { js: `window.__ravenry.openPage('rules')` },
   { until: `document.querySelector('#page .ptabs') && document.querySelectorAll('#page .pdoc').length >= 1`, timeout: 10000 },
   shot('7-rules.png'),
+  // A tab picked is asked of the hub (?tab=1) and drawn when it answers:
+  // Suggested turns on with its own sections, never over Your rules'.
+  save('rules0', `({ on: document.querySelector('#page .ptabs .seg.on').textContent, tabs: [...document.querySelectorAll('#page .ptabs .seg')].map((x) => x.textContent), docs: document.querySelectorAll('#page .pdoc').length })`),
+  { js: `[...document.querySelectorAll('#page .ptabs .seg')][1].click()` },
+  { until: `document.querySelector('#page .ptabs .seg.on').textContent.startsWith('Suggested') && !document.querySelector('#page .pdoc') && document.querySelector('#page .ocard')`, timeout: 10000 },
+  save('rules1', `({ on: document.querySelector('#page .ptabs .seg.on').textContent, docs: document.querySelectorAll('#page .pdoc').length, cards: [...document.querySelectorAll('#page .ocard-h')].map((x) => x.textContent) })`),
+  { js: `[...document.querySelectorAll('#page .ptabs .seg')][0].click()` },
+  { until: `document.querySelector('#page .ptabs .seg.on').textContent.startsWith('Your rules') && document.querySelectorAll('#page .pdoc').length >= 1`, timeout: 10000 },
   // A slow request that fails after the person moved on: Customize on Ship
   // answers an error 1.5 s later (the hub's answer stood in for, so nothing
   // is written), by which time they are on Rules.
@@ -393,6 +401,7 @@ if (has('run')) check('trusted, its run button shows the command and REGION in a
 if (has('copy')) check('Customize: the copy takes Objectives\' place; the default changed since: one quiet line', /Default page, changed since your copy\./.test(read('copy').bar) && /objectives\.page\.yaml/.test(read('copy').src) && read('copy').rows.startsWith('Objectives|Plans'), JSON.stringify(read('copy')));
 if (has('changed')) check('See what changed: the default\'s change, line by line', /What changed in the default Objectives page/.test(read('changed').text) && read('changed').added.some((x) => /time: updated/.test(x)), JSON.stringify(read('changed').added));
 if (has('ideas')) check('Ideas: its board from the idea files, by stage', read('ideas') === 'Spark2,Mockup1,Greenlit1,Parked0', read('ideas'));
+if (has('rules1')) check('Rules: Suggested picked is drawn by the hub with its own sections and count, and Your rules comes back', read('rules0').on.startsWith('Your rules') && read('rules0').docs >= 1 && read('rules1').on.startsWith('Suggested') && read('rules1').docs === 0 && read('rules1').cards.some((x) => x.startsWith('From project memory')), JSON.stringify([read('rules0'), read('rules1')]));
 if (has('plans')) check('Plans: the running plans from the briefs', /Radar tiles/.test(read('plans')) && /Reminder emails/.test(read('plans')), read('plans'));
 if (has('toast1')) check('a toast stays on the page it was said on: Customize\'s is gone on Ideas', /^Your copy is .*objectives\.page\.yaml/.test(read('toast0').text) && read('toast1').hidden, `${JSON.stringify(read('toast0').text)}, Ideas ${read('toast1').at - read('toast0').at} ms after it, hidden: ${read('toast1').hidden}`);
 if (has('late3')) check('a slow request\'s error said after the person moved: not on Rules, kept on Ship with OK until pressed', read('late1').hidden && read('late2').text === 'Not customized: the file changed under it.OK' && read('late2').ok && read('late3').hidden, JSON.stringify([read('late1'), read('late2'), read('late3')]));
