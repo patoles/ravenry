@@ -29,6 +29,8 @@ final class Board: NSObject {
         case page(String, String)
         case start
         case picture
+        /// A project's brief, beside the session (or project) it was opened from.
+        case brief(String, String)
     }
 
     let ws: Workspace
@@ -41,6 +43,9 @@ final class Board: NSObject {
     let placeholder = PlaceholderView()
     let start = StartView()
     let picture = PictureLarge()
+    let brief = BriefPage()
+    /// Every view the middle shows instead of a tab's terminal.
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, picture, brief] }
     private let toastView = ToastView()
     private(set) var front: Front = .tab
     private(set) var pinned: [String] = []
@@ -85,6 +90,8 @@ final class Board: NSObject {
         for v in [outside, projectPage, placeholder, start] as [MiddleView] { v.isHidden = true }
         outside.hub = hub; projectPage.hub = hub; start.hub = hub
         picture.isHidden = true
+        brief.isHidden = true
+        brief.hub = hub
         wire()
         hub.onState = { [weak self] st in self?.onState(st) }
         hub.onStatus = { [weak self] _ in self?.render() }
@@ -176,6 +183,7 @@ final class Board: NSObject {
         switch front {
         case .session(let k): return k
         case .project(let id): return "project:\(id)"
+        case .brief(_, let k): return k
         case .tab:
             guard let t = ws.active else { return nil }
             let pane = t.focusedPane
@@ -300,11 +308,25 @@ final class Board: NSObject {
     }
 
     func openPage(_ key: String, _ name: String) {
+        if key.hasPrefix("brief:") { openBrief(String(key.dropFirst(6))); return }
         overlay = false
         front = .page(key, name)
         showMiddle(placeholder)
         placeholder.show(name)
         log.append("page \(key)")
+        render()
+    }
+
+    /// The brief as a page, beside what was in front: the panel stays on it.
+    func openBrief(_ pid: String) {
+        overlay = false
+        var k = frontKey ?? "project:\(pid)"
+        if case .brief(_, let was) = front { k = was }
+        if k.hasPrefix("tab:") { k = "project:\(pid)" }
+        front = .brief(pid, k)
+        showMiddle(brief)
+        brief.show(pid, state: hub.state)
+        log.append("brief \(pid)")
         render()
     }
 
@@ -329,7 +351,7 @@ final class Board: NSObject {
     }
 
     private func showMiddle(_ v: NSView) {
-        for m in [outside, projectPage, placeholder, start, picture] as [NSView] where m !== v { m.isHidden = true }
+        for m in middles where m !== v { m.isHidden = true }
         if v !== outside { outside.stop() }
         v.isHidden = false
         root.middle = v
@@ -339,7 +361,7 @@ final class Board: NSObject {
 
     private func hideMiddle() {
         outside.stop()
-        for m in [outside, projectPage, placeholder, start, picture] as [NSView] { m.isHidden = true }
+        for m in middles { m.isHidden = true }
         root.middle = nil
         showingMiddle = false
         if let t = ws.active, let v = ws.boxes[t.focusedPane]?.term { ws.window.makeFirstResponder(v) }
@@ -454,6 +476,7 @@ final class Board: NSObject {
         if case .session(let k) = front, let st, st.find(k) == nil { outside.stop() }
         if case .session(let k) = front, let f = st?.find(k) { outside.show(f.project, f.session, why: f.session.pane != nil ? "it runs in the board's ravenryd" : nil) }
         if case .project(let id) = front, let p = st?.project(id) { projectPage.show(p) }
+        if case .brief(let pid, _) = front { brief.show(pid, state: st) }
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay
@@ -492,6 +515,8 @@ final class Board: NSObject {
         case .page(_, let name): return TabModel(id: "view:page", name: name, sub: nil, split: false, active: true, tip: name, dot: "tx3")
         case .start: return TabModel(id: "view:start", name: t("start.title"), sub: nil, split: false, active: true, tip: t("start.title"), dot: "tx3")
         case .picture: return TabModel(id: "view:picture", name: t("panel.latestPicture"), sub: nil, split: false, active: true, tip: "", dot: "tx3")
+        case .brief(let pid, _):
+            return TabModel(id: "view:brief", name: t("brief.title"), sub: st?.project(pid)?.name, split: false, active: true, tip: t("brief.title"), dot: "tx3")
         case .tab: return nil
         }
     }

@@ -87,6 +87,19 @@ stream".
   after the others, as in the Electron app. A session in a pane of this
   window's daemon becomes or focuses its tab. The highlighted row, the
   panel and the tab in front always name the same thing.
+- **The brief** (`BriefPage.swift`, `BriefDoc.swift`): a project's brief as
+  a page beside the session it was opened from (the panel stays on it),
+  read from `GET /api/brief` when it shows and again at most every 4
+  seconds, drawn again only when its text changed. The Markdown is drawn
+  as text in one text view (TextKit 1), never as HTML: the fields before
+  the first section, headings, paragraphs, nested lists, checklists with
+  their marks, code blocks, inline code, bold, italics, links and bare
+  URLs, the Plan's count and the Next step's dated entries (`nextParts`,
+  the newest open, a press on a row opens or closes it). Links open in the
+  browser (http, https and file only), Edit opens BRIEF.md in the
+  person's editor (`Outside.swift`; off every screen both are recorded,
+  never opened). The place scrolled to, the selection and the entries
+  opened stay through the hub's refreshes and a resize.
 - **The panel** (`Panel.swift`): the head (project, assistant, pin,
   hide), the state since when, the setup lines (`GET /api/setup/skills`),
   a checkpoint's card in its `words` (ask, approve, drive; answers posted
@@ -250,6 +263,17 @@ arrives; posts go to the demo hub only. It leaves pictures at 1440, 1280
 start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
+`node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
+(`SelfTestScreens.swift`, today `brief`) on the demo hub with its plan, its
+idea and a project whose brief has every shape a brief takes, and leaves
+`native-NAME-{1280,900}-{dark,light}.png`.
+
+`node scripts/launchcheck.mjs [APP]` launches the app off every screen on a
+throwaway daemon of three shells and the demo hub, with a saved layout
+that lists one of them, a split whose guest is gone and a tab in front
+that is gone, and passes when it still runs 8 seconds later with the three
+shells in its saved order.
+
 ## Run
 
 ```sh
@@ -280,7 +304,7 @@ every screen (the bench, the self-test) writes only to
 - One window: no New Window, settings, closing a busy shell's question,
   bells or activity on hidden tabs, or tab dragged to an edge to split.
 - Sidebar and panel: the pages (Objectives, Plans, Ideas, Rules, Ship,
-  Decisions), the brief, the plan, the gallery, Settings, the phone,
+  Decisions), the plan, the gallery, Settings, the phone,
   Alerts, Learn and Machines are native placeholders; New session is a
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; the secret

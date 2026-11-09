@@ -14,18 +14,20 @@ final class SelfTestBoard {
     let board: Board
     let window: NSWindow
     let out: String
-    private var checks: [[String: Any]] = []
+    /// One screen's checks only (SelfTestScreens.swift), else the whole run.
+    var screen: String?
+    var checks: [[String: Any]] = []
 
     init(board: Board, window: NSWindow, out: String) { self.board = board; self.window = window; self.out = out }
 
-    private func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
         checks.append(["name": name, "ok": ok, "detail": detail])
     }
 
-    private var dir: URL { URL(fileURLWithPath: out).deletingLastPathComponent() }
+    var dir: URL { URL(fileURLWithPath: out).deletingLastPathComponent() }
 
     /// Waits on the main loop until `cond`, at most `timeout` seconds.
-    private func wait(_ timeout: Double = 8, _ cond: () -> Bool) -> Bool {
+    func wait(_ timeout: Double = 8, _ cond: () -> Bool) -> Bool {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end {
             if cond() { return true }
@@ -33,9 +35,9 @@ final class SelfTestBoard {
         }
         return cond()
     }
-    private func settle(_ s: Double = 0.4) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+    func settle(_ s: Double = 0.4) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
 
-    private func size(_ w: CGFloat, _ h: CGFloat) {
+    func size(_ w: CGFloat, _ h: CGFloat) {
         window.setContentSize(NSSize(width: w, height: h))
         board.resized()
         window.contentView?.layoutSubtreeIfNeeded()
@@ -43,7 +45,7 @@ final class SelfTestBoard {
     }
 
     /// A press and a release at the middle of a view, as the window gets them.
-    private func click(_ v: NSView) {
+    func click(_ v: NSView) {
         window.contentView?.layoutSubtreeIfNeeded()
         // As the person would: scrolled into view first.
         v.scrollToVisible(v.bounds)
@@ -58,7 +60,7 @@ final class SelfTestBoard {
     }
 
     /// A key equivalent, as the menu gets it.
-    private func key(_ chars: String, _ mods: NSEvent.ModifierFlags) -> Bool {
+    func key(_ chars: String, _ mods: NSEvent.ModifierFlags) -> Bool {
         guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: mods, timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: window.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
                                        isARepeat: false, keyCode: 0) else { return false }
@@ -67,7 +69,7 @@ final class SelfTestBoard {
         return done
     }
 
-    private func picture(_ name: String) {
+    func picture(_ name: String) {
         guard let root = window.contentView, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
         root.cacheDisplay(in: root.bounds, to: rep)
         let s: CGFloat = 2
@@ -105,7 +107,7 @@ final class SelfTestBoard {
     }
 
     /// Waits for the driver to add an arrival.
-    private func arrival(_ n: Int) -> Bool {
+    func arrival(_ n: Int) -> Bool {
         let a = URL(fileURLWithPath: out + ".arrive-\(n)"), g = URL(fileURLWithPath: out + ".go-\(n)")
         try? Data().write(to: a)
         return wait(30) { FileManager.default.fileExists(atPath: g.path) }
@@ -114,12 +116,14 @@ final class SelfTestBoard {
     /// From a timer, not the main queue: the waits below run the main
     /// loop, which then also runs what the hub and the daemon queue for it.
     func start() {
+        Outside.record = []
         Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { _ in self.run() }
     }
 
     private func run() {
         NSApp.appearance = NSAppearance(named: .darkAqua)
         size(1440, 900)
+        if let s = screen { runScreen(s); return }
         let hub = board.hub
         check("hub_state", wait(20) { (hub.state?.projects.count ?? 0) >= 5 }, hub.url)
         guard let st0 = hub.state else { finish(); return }
@@ -172,7 +176,7 @@ final class SelfTestBoard {
         check("hand_off_now", hub.sent.contains("POST /api/handoff"), hub.sent.joined(separator: ", "))
         check("brief_card", board.panel.buttons["brief"] != nil)
         board.panel.buttons["brief"]?.performClick(nil)
-        check("open_brief_placeholder", board.front == .page("brief:garden-planner", t("panel.brief")) && board.placeholder.page == t("panel.brief"))
+        check("open_brief_page", board.front == .brief("garden-planner", k1) && board.root.middle === board.brief, "\(board.front)")
         if let r = board.sidebar.rows[k1] { click(r) }
         _ = wait(3) { self.board.panel.pictureView != nil }
         check("picture_thumb", board.panel.pictureView != nil)
@@ -241,7 +245,7 @@ final class SelfTestBoard {
         finish()
     }
 
-    private func finish() {
+    func finish() {
         let failed = checks.filter { !($0["ok"] as? Bool ?? false) }.count
         let res: [String: Any] = ["checks": checks, "failed": failed, "log": board.log, "sent": board.hub.sent]
         if let d = try? JSONSerialization.data(withJSONObject: res, options: [.prettyPrinted]) { try? d.write(to: URL(fileURLWithPath: out)) }

@@ -123,5 +123,13 @@
   "checkpoint.run": "Run",
   "checkpoint.tellElse": "Or tell {who} something else",
   "checkpoint.openPick": "Open it in the Ravenry app to pick side by side.",
-  "checkpoint.failed": "The board did not take the answer: {why}"
+  "checkpoint.failed": "The board did not take the answer: {why}",
+  "brief.title": "Brief",
+  "brief.updated": "Updated {when}",
+  "brief.updatedBy": "Updated {when} by {who}",
+  "brief.edit": "Edit",
+  "brief.editTip": "Open {path} in your Markdown editor",
+  "brief.unreadable": "The brief could not be read.",
+  "brief.entriesSplit": "split into {n} dated entries, newest first",
+  "brief.planCount": "{done} of {n}"
 }

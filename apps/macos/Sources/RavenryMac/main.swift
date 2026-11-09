@@ -37,6 +37,8 @@ struct Options {
     var restoreCheck: String?
     /// The sidebar and panel's self-test (SelfTestBoard.swift), on a test's hub.
     var sidetest: String?
+    /// With --sidetest: one screen's checks only (SelfTestScreens.swift).
+    var screen: String?
     var command: [String] = []
 
     static func parse(_ args: [String]) -> Options {
@@ -56,6 +58,7 @@ struct Options {
             case "--selftest": i += 1; o.selftest = args[safe: i]
             case "--restore-check": i += 1; o.restoreCheck = args[safe: i]
             case "--sidetest": i += 1; o.sidetest = args[safe: i]
+            case "--screen": i += 1; o.screen = args[safe: i]
             case "--font-size": i += 1; o.fontSize = Double(args[safe: i] ?? "").map { CGFloat($0) }
             case "--": o.command = Array(args[(i + 1)...]); i = args.count
             default: break // AppKit's own (-NSDocumentRevisionsDebugMode ...)
@@ -158,6 +161,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         EventLog.shared.open(offscreen: options.offscreen)
+        // Off every screen, nothing is opened outside the window: recorded (Outside.swift).
+        if options.offscreen { Outside.record = [] }
         let rect = NSRect(x: 0, y: 0, width: 900, height: 560 + Design.stripHeight)
         let w = TerminalWindow(contentRect: rect, styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
                                backing: .buffered, defer: false)
@@ -236,7 +241,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let out = options.bench {
             Bench(view: v, window: w, out: out, dragMin: options.dragMin, workspace: ws).start()
         } else if let out = options.sidetest {
-            SelfTestBoard(board: bd, window: w, out: out).start()
+            let st = SelfTestBoard(board: bd, window: w, out: out)
+            st.screen = options.screen
+            st.start()
         } else if let out = options.selftest {
             let st = SelfTest(view: v, window: w, out: out, workspace: ws)
             st.restoreFrom = options.restoreCheck
