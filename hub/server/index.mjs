@@ -67,6 +67,7 @@ import * as sidebar from './sidebar.mjs';
 import * as cpwords from './cpwords.mjs';
 import * as firstlaunch from './firstlaunch.mjs';
 import * as skills from './skills.mjs';
+import * as onboarding from './onboarding.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -3738,6 +3739,8 @@ async function handleRequest(req, res) {
     // The first launch's Start screen (server/firstlaunch.mjs) and the Ravenry skill (server/skills.mjs).
     if (req.method === 'GET' && p === '/api/setup/start') return sendJson(res, 200, { ok: true, ...firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') }) });
     if (req.method === 'GET' && p === '/api/setup/skills') return sendJson(res, 200, { ok: true, skills: skills.skillsView(process.env, HOME) });
+    // What the person has seen of the onboarding, for every client (server/onboarding.mjs).
+    if (req.method === 'GET' && p === '/api/onboarding') return sendJson(res, 200, { ok: true, ...onboarding.view() });
     if (req.method === 'GET' && p === '/api/project/last') {
       const project = findProject(url.searchParams.get('projectId'));
       if (!project) return sendJson(res, 404, { error: 'No such project.' });
@@ -4008,6 +4011,12 @@ async function handleRequest(req, res) {
         const only = body.only === 'claude' || body.only === 'codex' ? body.only : null;
         const r = hookinstall.setupWithRavenryd({ ravenryd: body.ravenryd, dry: !!body.dry, remove: !!body.remove, only, undoFile: path.join(registry.RAVENRY_HOME, 'setup-undo.json') });
         return sendJson(res, r.ok ? 200 : 400, r.ok ? { ...r, claude: r.claude && { ...r.claude, backup: r.claude.backup ? short(r.claude.backup) : null } } : { error: r.error });
+      }
+      if (p === '/api/onboarding') {
+        // Hints dismissed, Learn ticks, step 2 answered: marked, never taken back.
+        let body;
+        try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        return sendJson(res, 200, { ok: true, ...onboarding.mark(body) });
       }
       if (p === '/api/setup/skills') {
         // Install or remove the Ravenry skill (server/skills.mjs): the first-launch step 2 and Settings, Skills.

@@ -428,7 +428,13 @@ ravenry skill is there and whether Ravenry wrote it; `POST
 undo records in `<RAVENRY_HOME>/skills-undo.json`). The first launch's
 Start screen asks `GET /api/setup/start` (server/firstlaunch.mjs) for the
 folders that look like projects, the board's own first, and the assistants
-found and signed in. The shapes are in each module's header.
+found and signed in. What the person has seen of the onboarding (hints
+dismissed, Learn ticks, step 2 answered) is kept by the hub too,
+server/onboarding.mjs in `<RAVENRY_HOME>/onboarding.json`: `GET
+/api/onboarding` answers `{ hints, learn, setup }`, each a map of names to
+true, and `POST /api/onboarding` with the same shape adds marks and never
+takes one back, so a second client does not show any of it again. The
+shapes are in each module's header.
 
 **Remote machines.** server/machines.mjs keeps one connection per machine
 in the registry's `settings.machines` (`[{ name, host, command }]`), with

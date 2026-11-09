@@ -284,7 +284,11 @@ bottom row and Help > Learn Ravenry, never by itself: seven cards, ticked
 once that part was used, each with a "Try it" that opens a session with a
 message ready in its input (not sent). The first pane an agent opens, the
 first Needs-you row and the first pick each get one hint, with Learn more
-and an x; dismissed, it never comes back (window.json, hintsDone).
+and an x; dismissed, it never comes back. The hints dismissed, the Learn
+ticks and step 2 answered are kept by the hub (hub/server/onboarding.mjs,
+`/api/onboarding`), so a second client does not show them again; the app's
+window.json keeps only the ones the board does not have yet (marked while
+it was not up, or kept there before 0.1.23) and sends them when it answers.
 
 ## macOS's privacy question
 

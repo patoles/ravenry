@@ -60,6 +60,7 @@ import { sayPathOn } from '../../../../hub/public/homepath.mjs';
 import { PhoneCard } from './phonecard.ts';
 import { InApp, IN_KINDS } from './inapp.ts';
 import type { InView } from './inapp.ts';
+import * as onb from './onboarding.ts';
 
 // ---------------------------------------------------------------- state
 
@@ -1075,8 +1076,37 @@ function openPage(key: string): void {
 let learnUsed: Partial<Record<LearnKey, boolean>> = {};
 function markUsed(k: LearnKey): void {
   if (learnUsed[k]) return;
-  learnUsed = { ...learnUsed, [k]: true };
-  api().storeSet({ learnUsed });
+  onbMark('learn', k);
+}
+
+// The onboarding marks (Learn ticks, hints dismissed, step 2 answered) are
+// the hub's (onboarding.ts, GET and POST /api/onboarding); the store keeps
+// only those the board does not have yet.
+let onbLocal: onb.Onboarding = { hints: {}, learn: {}, setup: {} };
+const onbNow = (): onb.Onboarding => ({ hints: hintsDone as onb.Marks, learn: learnUsed as onb.Marks, setup: S.setupAsked });
+function onbTake(o: onb.Onboarding): void { hintsDone = o.hints; learnUsed = o.learn; S.setupAsked = o.setup; }
+/** A mark: to the board, else kept in the store until the board answers. */
+function onbMark(g: onb.Group, id: string): void {
+  const one = { [g]: { [id]: true } };
+  onbTake(onb.union(onbNow(), one));
+  const keep = () => { onbLocal = onb.union(onbLocal, one); api().storeSet({ [onb.STORE_KEY[g]]: onbLocal[g] }); };
+  if (!S.hubStatus?.reachable) { keep(); return; }
+  api().hubPost('/api/onboarding', one).catch(keep);
+}
+/** The board's marks, and the ones only this app had sent to it once (then gone from the store). */
+async function onbSync(): Promise<void> {
+  if (!S.hubStatus?.reachable) return;
+  const sent = onbLocal;
+  try {
+    let board = await api().hubGet('/api/onboarding') as Partial<onb.Onboarding>;
+    const add = onb.missing(sent, board);
+    if (add) {
+      board = await api().hubPost('/api/onboarding', add) as Partial<onb.Onboarding>;
+      api().log(`window: onboarding: sent the board ${onb.GROUPS.map((g) => Object.keys(add[g] || {}).length).join('/')} hints/learn/setup it did not have`);
+    }
+    onbTake(onb.union(onbNow(), board));
+    if (onbLocal === sent && onb.GROUPS.some((g) => Object.keys(sent[g]).length)) { onbLocal = { hints: {}, learn: {}, setup: {} }; api().storeSet(onb.cleared()); }
+  } catch { /* kept in the store; sent when the board answers again */ }
 }
 
 function openLearn(lit: LearnKey | null = null): void {
@@ -1169,8 +1199,7 @@ function wantHint(id: HintId, tab?: string): void {
 function dismissHint(learn: boolean): void {
   if (!hintNow) return;
   const id = hintNow.id;
-  hintsDone = { ...hintsDone, [id]: true };
-  api().storeSet({ hintsDone });
+  onbMark('hints', id);
   api().log(`window: hint ${id} dismissed${learn ? ' (Learn more)' : ''}`);
   hintNow = null;
   renderHint();
@@ -2343,8 +2372,7 @@ async function answerSetup(yes: boolean): Promise<void> {
     }
     api().log(`window: step 2 for ${su.kind}: set up ${done.join(' and ') || 'nothing'}`);
   } else api().log(`window: step 2 for ${su.kind}: not now`);
-  S.setupAsked = { ...S.setupAsked, [su.kind]: true };
-  api().storeSet({ setupAsked: S.setupAsked });
+  onbMark('setup', su.kind);
   S.setup = null;
   setupReady = true;
   void loadSetupLines();
@@ -3751,7 +3779,7 @@ async function boot(): Promise<void> {
   onCardChange(() => { renderPanel(); });
   api().onCommand((n, a) => onCommand(String(n), a));
   api().onHubState((s) => onHubState(s as HubState));
-  api().onHubStatus((st) => { const was = !!S.hubStatus?.reachable; S.hubStatus = st as HubStatus; if (!was && (st as HubStatus).reachable) void loadSetupLines(); setBoardLive(!!(st as HubStatus).reachable); if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
+  api().onHubStatus((st) => { const was = !!S.hubStatus?.reachable; S.hubStatus = st as HubStatus; if (!was && (st as HubStatus).reachable) { void loadSetupLines(); void onbSync(); } setBoardLive(!!(st as HubStatus).reachable); if (!(st as HubStatus).reachable) S.hub = S.hub || null; render(); if (firstRun()) void loadStart(); });
   window.addEventListener('resize', () => { if (wide() && S.overlay && !S.panelKey) S.overlay = false; renderPanel(); renderTabs(); renderHint(); });
   // The strip's room changes when the panel shows or hides.
   new ResizeObserver(() => fitTabs($('tabs'))).observe($('tabs'));
@@ -3782,14 +3810,16 @@ async function boot(): Promise<void> {
   }, 20000);
   const saved = await api().storeGet();
   S.panelPref = saved.panelPref === 'closed' || saved.panelPref === 'open' ? saved.panelPref : null;
-  S.setupAsked = saved.setupAsked && typeof saved.setupAsked === 'object' ? saved.setupAsked as Record<string, boolean> : {};
-  learnUsed = saved.learnUsed && typeof saved.learnUsed === 'object' ? saved.learnUsed as Partial<Record<LearnKey, boolean>> : {};
-  hintsDone = saved.hintsDone && typeof saved.hintsDone === 'object' ? saved.hintsDone as Partial<Record<HintId, boolean>> : {};
+  // The onboarding marks the board does not have yet (all of them, the first time after 0.1.23).
+  onbLocal = onb.fromStore(saved);
+  onbTake(onb.union(onbNow(), onbLocal));
   api().skills.onChange((rows) => takeSetupLines(rows as SkillRow[]));
   void loadSetupLines();
   const hs = await api().hubState();
   S.hub = (hs.state as HubState) || null;
   S.hubStatus = hs.status;
+  // The board's onboarding marks before anything draws a hint (a slow board does not hold the window up).
+  await Promise.race([onbSync(), new Promise((r) => setTimeout(r, 1500))]);
   if (S.hub) { S.cps.fromHub(S.hub.checkpoints as HubCheckpoint[] | undefined); pages.update((S.hub as { pages?: NavRow[] }).pages); }
   // A window opened with Cmd+N starts with a shell of its own; the first keeps the tabs.
   if (S.config?.primary !== false) await restoreTabs(saved);
