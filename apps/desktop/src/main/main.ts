@@ -46,12 +46,13 @@ import { dataRoot, ensureService, updateAttempt, launchctlBin, pruneVersions, re
 import type { Staged } from './install.ts';
 import { launchPlan, offerFor, runScript, scriptPath } from './npmswitch.ts';
 import type { NpmDetect, Offer } from './npmswitch.ts';
-import { findAssistants, findProjectFolders, shortPath, Store } from './local.ts';
+import { shortPath, Store } from './local.ts';
+import { startView } from '../../../../hub/server/firstlaunch.mjs';
+import type { SkillRow } from '../shared/skills.ts';
 import { Updates } from './updater.ts';
 import { initSettings, openSettings } from './settings.ts';
 import { postNotification } from './notify.ts';
 import type { NotifyRequest } from './notify.ts';
-import { installSkill, removeSkill, skillStatus, SKILL_ASSISTANTS } from './skills.ts';
 import { helperArgs, MARKER, paneVars, readMarker, relaunchPlan } from './relaunch.ts';
 import { applyGate } from './gate.ts';
 
@@ -369,11 +370,25 @@ function ipc(): void {
   ipcMain.handle('hub:get', (_e, p: string) => hubGet(feed!.url, p));
   ipcMain.handle('hub:post', (_e, p: string, body: unknown) => hubPost(feed!.url, p, body));
   ipcMain.handle('hub:answer', (_e, body: unknown) => hubAnswer(feed!.url, body));
-  ipcMain.handle('local:folders', (_e, root?: string) => findProjectFolders(os.homedir(), 5, root || undefined));
-  ipcMain.handle('local:assistants', () => findAssistants(process.env, os.homedir()));
-  // The Ravenry skill, per assistant (skills.ts): the first-launch step and
-  // Settings, Skills. Each change is said to every window.
-  const skillsUndo = () => path.join(app.getPath('userData'), 'skills-undo.json');
+  // The first launch's Start screen is the hub's (GET /api/setup/start);
+  // while the board is not up yet the window has no hub to ask, so the
+  // same module runs here (hub/server/firstlaunch.mjs), without the board's
+  // own folders.
+  ipcMain.handle('local:start', (_e, want?: string) => startView({ home: os.homedir(), env: process.env, want: want || null }));
+  // The Ravenry skill, per assistant, is the hub's (hub/server/skills.mjs,
+  // /api/setup/skills): the first-launch step and Settings, Skills. Each
+  // change is said to every window.
+  // Before the hub kept them, the app kept the skill's undo records in its
+  // own data folder: handed to the hub once, so Remove still puts the
+  // folder back as it was.
+  const legacyUndo = () => path.join(app.getPath('userData'), 'skills-undo.json');
+  const adoptLegacy = async (url: string) => {
+    let adopt: unknown;
+    try { adopt = JSON.parse(fs.readFileSync(legacyUndo(), 'utf8')); } catch { return; }
+    await hubPost(url, '/api/setup/skills', { adopt });
+    fs.rmSync(legacyUndo(), { force: true });
+    appLog('skills: the skill\'s undo records went to the board');
+  };
   // Its hooks too (the hub writes them: hookinstall.mjs), by a dry run:
   // on when setting them up would change nothing.
   const hooksOf = async (k: 'claude' | 'codex') => {
@@ -386,9 +401,15 @@ function ipc(): void {
       return { hooks: (x.changes && x.changes.length ? 'off' : 'on') as 'on' | 'off', hooksFile: shortPath(x.file, os.homedir()) };
     } catch { return { hooks: 'unavailable' as const, hooksFile: null }; }
   };
-  const skillsView = async () => {
-    const found = findAssistants(process.env, os.homedir());
-    return Promise.all(SKILL_ASSISTANTS.map(async (k) => ({ ...skillStatus(k), dir: shortPath(skillStatus(k).dir, os.homedir()), name: k === 'claude' ? 'Claude Code' : 'Codex', found: !!found.find((x) => x.kind === k)?.found, ...(await hooksOf(k)) })));
+  // No board, no rows: Settings, Skills says it needs the board.
+  const skillsView = async (): Promise<SkillRow[]> => {
+    if (!feed) return [];
+    let rows: Omit<SkillRow, 'hooks' | 'hooksFile'>[];
+    try {
+      await adoptLegacy(feed.url).catch((e) => appLog(`skills: the undo records stay here for now: ${(e as Error).message}`));
+      rows = ((await hubGet(feed.url, '/api/setup/skills')) as { skills?: typeof rows }).skills || [];
+    } catch { return []; }
+    return Promise.all(rows.map(async (r) => ({ ...r, ...(await hooksOf(r.kind)) })));
   };
   const skillsChanged = async () => {
     const v = await skillsView();
@@ -408,12 +429,11 @@ function ipc(): void {
   ipcMain.handle('skills:set', async (_e, kind: unknown, on: unknown) => {
     if (kind !== 'claude' && kind !== 'codex') return { ok: false, error: 'No such assistant.' };
     const bin = hookBin();
+    if (on && !bin) return { ok: false, error: 'Ravenry\'s command is not installed yet.' };
+    if (!feed) return { ok: false, error: 'Ravenry\'s board is not running.' };
     try {
-      if (on) {
-        if (!bin) return { ok: false, error: 'Ravenry\'s command is not installed yet.' };
-        const link = path.join(path.dirname(bin), 'ravenry');
-        installSkill(kind, fs.existsSync(link) ? link : bin, app.getVersion(), skillsUndo());
-      } else removeSkill(kind, skillsUndo());
+      await adoptLegacy(feed.url);
+      await hubPost(feed.url, '/api/setup/skills', on ? { kind, on: true, ravenryd: bin, version: app.getVersion() } : { kind, on: false });
     } catch (e) { appLog(`skills: could not ${on ? 'install' : 'remove'} the ${kind} skill: ${(e as Error).message}`); return { ok: false, error: (e as Error).message }; }
     appLog(`skills: ${on ? 'installed' : 'removed'} the Ravenry skill for ${kind}`);
     return { ok: true, skills: await skillsChanged() };

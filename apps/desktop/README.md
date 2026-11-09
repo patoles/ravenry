@@ -270,8 +270,12 @@ hooks.json) and the Ravenry skill (~/.claude/skills/ravenry or
 ~/.codex/skills/ravenry, one SKILL.md that runs `ravenry skill`), both
 ticked. "Set them up" or "Not now", then the session opens as usual, with
 nothing typed in it; the panel says what is set up. Settings, Skills
-installs or removes either later (src/main/skills.ts; the hooks through
-the hub, hub/server/hookinstall.mjs). Removing puts the files back byte for
+installs or removes either later, both through the hub (the skill:
+hub/server/skills.mjs, `/api/setup/skills`; the hooks:
+hub/server/hookinstall.mjs). The first-session screen's folders and
+assistants are the hub's too (hub/server/firstlaunch.mjs, `GET
+/api/setup/start`); while the board is not up yet the app runs that module
+itself. Removing puts the files back byte for
 byte as they were, unless something else changed them since: then only
 Ravenry's own part goes.
 

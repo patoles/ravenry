@@ -71,7 +71,7 @@ roots.forEach(walk);
 const own = files.filter((f) => !f.endsWith('homepath.mjs') && fs.readFileSync(f, 'utf8').split('\n').some((l) => OWN.test(l) && !/^\s*\/\//.test(l)));
 check(`no code says a folder with ~ its own way (${files.length} files)`, own.length === 0, own.map((f) => path.relative(REPO, f)).join(', '));
 const users = files.filter((f) => /homepath\.mjs['"]/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(REPO, f));
-check('the hub, the desktop app and the phone board use the helper', ['hub/server/index.mjs', 'hub/server/pages.mjs', 'hub/server/homes.mjs', 'apps/desktop/src/renderer/app.ts', 'apps/desktop/src/main/local.ts', 'apps/phone/src/checkpoint.ts'].every((u) => users.includes(u)), users.join(', '));
+check('the hub, the desktop app and the phone board use the helper', ['hub/server/index.mjs', 'hub/server/pages.mjs', 'hub/server/homes.mjs', 'apps/desktop/src/renderer/app.ts', 'apps/desktop/src/main/local.ts', 'hub/server/firstlaunch.mjs', 'apps/phone/src/checkpoint.ts'].every((u) => users.includes(u)), users.join(', '));
 
 console.log(fails ? `\n${fails} failed` : '\nall passed');
 process.exit(fails ? 1 : 0);

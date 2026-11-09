@@ -21,7 +21,7 @@ import './app.css';
 import './phase2.css';
 import type { AgentStatus, Checkpoint, DaemonEvent, InputRecord, Pane, RavenryClient, Source } from '@ravenry/client';
 import { api } from './api.ts';
-import type { AppConfig, AssistantInfo, FolderPick, HubStatus } from './api.ts';
+import type { AppConfig, AssistantInfo, FolderPick, HubStatus, StartView } from './api.ts';
 import type { SkillRow } from '../shared/skills.ts';
 import { cardFor, cardKey, clearHiddenSecrets, focusCard, NotPerson, onCardChange, pruneCards } from './cards.ts';
 import type { CardCtx, Reply } from './cards.ts';
@@ -1115,7 +1115,7 @@ async function tryIt(c: LearnCard): Promise<void> {
   const lastProject = lastSessionProject ? (S.hub?.projects || []).find((p) => p.id === lastSessionProject) : null;
   const saved = await api().storeGet().catch(() => ({} as Record<string, unknown>));
   const folder = (lastProject && !lastProject.machine && lastProject.folder) || (typeof saved.lastCwd === 'string' ? saved.lastCwd : null) || S.config?.home || null;
-  const found = await api().assistants().catch(() => [] as AssistantInfo[]);
+  const found = await startView().then((v) => v.assistants, () => [] as AssistantInfo[]);
   const a = found.find((x) => x.kind === S.start.assistant && x.found) || found.find((x) => x.kind === 'claude' && x.found) || found.find((x) => x.found);
   if (!a) { toast('Try it needs Claude Code or Codex on this Mac.'); return; }
   const proj = folder ? (S.hub?.projects || []).find((p) => p.folder === folder && !p.machine) : null;
@@ -2281,29 +2281,27 @@ function loadStart(): Promise<void> {
   if (!startLoading) startLoading = readStart().finally(() => { startLoading = null; startRead = true; });
   return startLoading;
 }
+/**
+ * The Start screen's folders and assistants, from the hub (GET
+ * /api/setup/start: the folders it knows first, then the ones that look
+ * like projects, and `want` first when asked). While the board is not up
+ * the app runs the same module itself, without the board's folders.
+ */
+async function startView(want?: string | null): Promise<StartView> {
+  if (S.hubStatus?.reachable) {
+    try { return await api().hubGet(`/api/setup/start${want ? `?folder=${encodeURIComponent(want)}` : ''}`) as StartView; } catch { /* the board went: below */ }
+  }
+  return api().startLocal(want || undefined);
+}
 async function readStart(): Promise<void> {
-  const [found, assistants] = await Promise.all([api().folders(), api().assistants()]);
-  let folders = found.folders;
-  // Folders the board already knows come first.
-  try {
-    if (S.hubStatus?.reachable) {
-      const r = await api().hubGet('/api/project/folders') as { folders?: { name?: string; folder?: string; path?: string }[] };
-      const known: FolderPick[] = [];
-      for (const x of r.folders || []) {
-        const p = x.folder || x.path;
-        if (p) known.push({ name: x.name || base(p), path: p, short: await api().shortPath(p) });
-      }
-      folders = [...known, ...folders.filter((f) => !known.some((k) => k.path === f.path))].slice(0, 5);
-    }
-  } catch { /* the board has none to offer */ }
-  if (startIn) {
-    const want = startIn;
-    if (!folders.some((f) => f.path === want)) folders = [{ name: base(want), path: want, short: await api().shortPath(want) }, ...folders].slice(0, 5);
+  const want = startIn;
+  const { root, folders, assistants } = await startView(want);
+  if (want) {
     S.start.folder = want;
     startIn = null;
   }
   S.start.folders = folders;
-  S.start.root = found.root ? await api().shortPath(found.root) : null;
+  S.start.root = root;
   if (!S.start.folder || !folders.some((f) => f.path === S.start.folder)) S.start.folder = folders[0]?.path || S.start.folder;
   S.start.assistants = assistants;
   const ready = assistants.find((a) => a.found && a.signedIn) || assistants.find((a) => a.found);

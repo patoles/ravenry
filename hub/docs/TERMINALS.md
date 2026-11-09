@@ -419,6 +419,17 @@ the trust entries Codex needs in config.toml), beside the two Node
 scripts, which get `--ravenryd`. Each file is backed up first; every
 other hook stays. `GET /api/setup/hooks` reports both.
 
+**The Ravenry skill and the Start screen.** The skill (a SKILL.md that has
+the assistant run `ravenry skill`) is the hub's too, server/skills.mjs:
+`GET /api/setup/skills` says, per assistant, whether it is found, whether a
+ravenry skill is there and whether Ravenry wrote it; `POST
+/api/setup/skills` `{ kind, on: true, ravenryd, version }` installs it and
+`{ kind, on: false }` removes it, putting the folder back as it was (the
+undo records in `<RAVENRY_HOME>/skills-undo.json`). The first launch's
+Start screen asks `GET /api/setup/start` (server/firstlaunch.mjs) for the
+folders that look like projects, the board's own first, and the assistants
+found and signed in. The shapes are in each module's header.
+
 **Remote machines.** server/machines.mjs keeps one connection per machine
 in the registry's `settings.machines` (`[{ name, host, command }]`), with
 `ssh -T -o BatchMode=yes <host> -- <command> proxy`: ssh does the login and

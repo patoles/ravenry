@@ -65,6 +65,8 @@ import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
 import * as sidebar from './sidebar.mjs';
 import * as cpwords from './cpwords.mjs';
+import * as firstlaunch from './firstlaunch.mjs';
+import * as skills from './skills.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -3733,6 +3735,9 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { kinds: create.KINDS, globalRules: rules.globalHeadings(c), globalPath: short(c.globalClaudeMd), projectsRoot: short(c.projectsRoot), launchCommand: c.launchCommand, assistants: assistantsView() });
     }
     if (req.method === 'GET' && p === '/api/project/folders') return sendJson(res, 200, projectFolders());
+    // The first launch's Start screen (server/firstlaunch.mjs) and the Ravenry skill (server/skills.mjs).
+    if (req.method === 'GET' && p === '/api/setup/start') return sendJson(res, 200, { ok: true, ...firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') }) });
+    if (req.method === 'GET' && p === '/api/setup/skills') return sendJson(res, 200, { ok: true, skills: skills.skillsView(process.env, HOME) });
     if (req.method === 'GET' && p === '/api/project/last') {
       const project = findProject(url.searchParams.get('projectId'));
       if (!project) return sendJson(res, 404, { error: 'No such project.' });
@@ -4003,6 +4008,15 @@ async function handleRequest(req, res) {
         const only = body.only === 'claude' || body.only === 'codex' ? body.only : null;
         const r = hookinstall.setupWithRavenryd({ ravenryd: body.ravenryd, dry: !!body.dry, remove: !!body.remove, only, undoFile: path.join(registry.RAVENRY_HOME, 'setup-undo.json') });
         return sendJson(res, r.ok ? 200 : 400, r.ok ? { ...r, claude: r.claude && { ...r.claude, backup: r.claude.backup ? short(r.claude.backup) : null } } : { error: r.error });
+      }
+      if (p === '/api/setup/skills') {
+        // Install or remove the Ravenry skill (server/skills.mjs): the first-launch step 2 and Settings, Skills.
+        if (!req.mcLocal) return sendJson(res, 403, { error: 'Install the skill on the Mac.' });
+        let body;
+        try { body = await jsonBody(req, 1e6); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        let r;
+        try { r = skills.setSkill(body, path.join(registry.RAVENRY_HOME, 'skills-undo.json'), process.env, HOME); } catch (e) { r = { ok: false, error: e.message }; }
+        return sendJson(res, r.ok ? 200 : 400, r.ok ? r : { error: r.error });
       }
       if (p === '/api/sessions/reopen') {
         const r = await reopenSession(await jsonBody(req, 1e5));

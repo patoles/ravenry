@@ -19,6 +19,8 @@ export interface AppConfig {
 export interface HubStatus { reachable: boolean; url: string; error?: string; starting?: { waitingFor: string | null; folder: string | null } }
 export interface FolderPick { name: string; path: string; short: string }
 export interface AssistantInfo { kind: 'claude' | 'codex'; name: string; found: boolean; signedIn: boolean; path: string | null }
+/** The first launch's Start screen: the hub's GET /api/setup/start (hub/server/firstlaunch.mjs). */
+export interface StartView { root: string | null; folders: FolderPick[]; assistants: AssistantInfo[] }
 
 export interface RavenryApi {
   config(): Promise<AppConfig>;
@@ -34,8 +36,8 @@ export interface RavenryApi {
   onHubState(cb: (s: unknown) => void): () => void;
   onHubStatus(cb: (s: HubStatus) => void): () => void;
   onCommand(cb: (name: string, arg?: unknown) => void): () => void;
-  folders(root?: string): Promise<{ root: string | null; folders: FolderPick[] }>;
-  assistants(): Promise<AssistantInfo[]>;
+  /** The Start screen while the board is not up: the hub's module run by the app, without the board's own folders. */
+  startLocal(want?: string): Promise<StartView>;
   shortPath(p: string): Promise<string>;
   chooseFolder(): Promise<string | null>;
   pathForFile(f: File): string;
@@ -64,7 +66,7 @@ export interface RavenryApi {
   termMenu(info: { selection: boolean; link: string | null; cwd: string | null; split: boolean }): Promise<string | null>;
   /** The terminal settings (docs/SETTINGS.md). */
   settings: SettingsApi;
-  /** The Ravenry skill per assistant (src/main/skills.ts). */
+  /** The Ravenry skill per assistant (the hub's /api/setup/skills, through src/main/main.ts). */
   skills: SkillsApi;
 }
 

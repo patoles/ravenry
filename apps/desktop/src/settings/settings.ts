@@ -212,7 +212,8 @@ function behaviorPane(): Node[] {
   return out;
 }
 
-// The Ravenry skill, one line per assistant: Install or Remove (src/main/skills.ts).
+// The Ravenry skill, one line per assistant: Install or Remove (the hub's
+// hub/server/skills.mjs, through src/main/main.ts). No rows: the board is not up.
 let skills: SkillRow[] = [];
 let skillBusy: string | null = null;
 let skillErr: string | null = null;
@@ -242,6 +243,7 @@ function skillsPane(): Node[] {
   };
   return [
     h('div.sec', null, 'Skills', h('span.sec-s', null, mac() ? 'this Mac' : 'this computer')),
+    skills.length ? null : h('p.sk-hint', null, 'Needs Ravenry\u2019s board running.'),
     ...skills.map(line),
     h('p.sk-hint', null, 'Lets the assistant open panes beside it, read their screens, show you pictures to pick from and ask you through the board and your phone. Remove puts the folder back as it was.'),
     h('div.sec', null, 'Tell Ravenry when it needs you'),

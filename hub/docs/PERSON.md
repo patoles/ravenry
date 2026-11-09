@@ -147,6 +147,7 @@ session's review comments and the agent's replies).
 | `/api/machines/install` | person | It runs ssh with the person's keys and puts ravenryd and its hooks in Claude Code's and Codex's settings on another machine. |
 | `/api/machines/uninstall` | person | It stops ravenryd on another machine, which can end the sessions there, and takes its files and hooks off. |
 | `/api/setup/hooks` | person | It changes Claude Code's and Codex's settings. |
+| `/api/setup/skills` | person | It changes Claude Code's and Codex's skills folders. |
 | `/api/settings/handoff` | person | A setting the person chose; an agent could turn its own hand-off off. |
 | `/api/settings/assistant` | person | A setting the person chose. |
 | `/api/settings/projects-root` | person | A setting the person chose. |

@@ -128,6 +128,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/machines/install', c: P, what: 'install Ravenry on a machine', why: 'It runs ssh with the person\'s keys and puts ravenryd and its hooks in Claude Code\'s and Codex\'s settings on another machine.' },
   { m: 'POST', p: '/api/machines/uninstall', c: P, what: 'uninstall Ravenry from a machine', why: 'It stops ravenryd on another machine, which can end the sessions there, and takes its files and hooks off.' },
   { m: 'POST', p: '/api/setup/hooks', c: P, what: 'install the hooks', why: 'It changes Claude Code\'s and Codex\'s settings.' },
+  { m: 'POST', p: '/api/setup/skills', c: P, what: 'install or remove the Ravenry skill', why: 'It changes Claude Code\'s and Codex\'s skills folders.' },
   { m: 'POST', p: '/api/settings/handoff', c: P, what: 'change the hand-off settings', why: 'A setting the person chose; an agent could turn its own hand-off off.' },
   { m: 'POST', p: '/api/settings/assistant', c: P, what: 'change which assistant starts', why: 'A setting the person chose.' },
   { m: 'POST', p: '/api/settings/projects-root', c: P, what: 'change where projects go', why: 'A setting the person chose.' },

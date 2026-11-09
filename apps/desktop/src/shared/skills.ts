@@ -1,4 +1,4 @@
-// The Ravenry skill as the windows see it (src/main/skills.ts does the work).
+// The Ravenry skill as the windows see it (the hub's hub/server/skills.mjs does the work).
 
 export interface SkillRow {
   kind: 'claude' | 'codex';

@@ -11,7 +11,6 @@ import type { HubProject, HubSession, HubState } from '../src/renderer/model.ts'
 import { build, withGroups } from '../../../hub/server/sidebar.mjs';
 import { hubUrl, parseEvent } from '../src/main/hub.ts';
 import { daemonEnv } from '../src/main/spawn.ts';
-import { findAssistants, findProjectFolders, shortPath } from '../src/main/local.ts';
 
 const NOW = Date.parse('2026-11-06T12:00:00Z');
 const at = (min: number) => new Date(NOW - min * 60000).toISOString();
@@ -128,31 +127,6 @@ test('the hub: server-sent events and where the board runs', () => {
 test('a daemon the app starts does not inherit Electron variables', () => {
   const env = daemonEnv({ PATH: '/bin', ELECTRON_RUN_AS_NODE: '1', NODE_OPTIONS: '--x', HOME: '/h' });
   assert.deepEqual(env, { PATH: '/bin', HOME: '/h' });
-});
-
-test('first launch: project folders and assistants from HOME', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rvh-'));
-  try {
-    assert.deepEqual(findProjectFolders(home).folders, []);
-    for (const [n, marker] of [['app', '.git'], ['site', 'package.json'], ['notes', null]] as const) {
-      const d = path.join(home, 'code', n);
-      fs.mkdirSync(d, { recursive: true });
-      if (marker === '.git') fs.mkdirSync(path.join(d, marker));
-      else if (marker) fs.writeFileSync(path.join(d, marker), '{}');
-    }
-    const f = findProjectFolders(home);
-    assert.equal(f.root, path.join(home, 'code'));
-    assert.deepEqual(f.folders.map((x) => x.name).sort(), ['app', 'site']);
-    assert.equal(f.folders[0].short.startsWith('~/code/'), true);
-    assert.equal(shortPath(home, home), '~');
-    assert.deepEqual(findAssistants({ PATH: '' }, home).map((a) => [a.kind, a.found]), [['claude', false], ['codex', false]]);
-    const bin = path.join(home, '.local', 'bin');
-    fs.mkdirSync(bin, { recursive: true });
-    fs.writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\n', { mode: 0o755 });
-    fs.writeFileSync(path.join(home, '.claude.json'), '{"oauthAccount": {}}');
-    const a = findAssistants({ PATH: '' }, home);
-    assert.deepEqual([a[0].found, a[0].signedIn, a[1].found], [true, true, false]);
-  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test('a grey second line never says its title again', () => {
