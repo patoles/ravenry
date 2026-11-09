@@ -235,8 +235,8 @@ final class Workspace: NSObject {
         if !canWait {
             stage.addSubview(content)
             swapTo(t, content)
-            for id in ids { boxes[id]?.term.resume(wait: wait) }
             report(t, ids, t0, hadRows: !fresh)
+            for id in ids { boxes[id]?.term.resume(wait: wait) }
         } else {
             // Under the tab in front until its first frames came.
             stage.addSubview(content, positioned: .below, relativeTo: shown)
@@ -254,10 +254,10 @@ final class Workspace: NSObject {
                         if left.isEmpty { self.finishPending(t) }
                     }
                 }
-                v.resume()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
             report(t, ids, t0, hadRows: false)
+            for id in ids { boxes[id]?.term.resume() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
         }
         refresh()
         save()

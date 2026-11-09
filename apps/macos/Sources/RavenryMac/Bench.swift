@@ -21,8 +21,18 @@
 
 import AppKit
 
+/// A pane the drags check: its command line (prompt and paste) and the
+/// ink it had before.
+private struct Watched {
+    let v: TerminalView
+    let whole: String
+    let fp: String
+    var ink: Int
+    var all: [String]
+}
+
 final class Bench {
-    let view: TerminalView
+    var view: TerminalView
     let window: NSWindow
     let out: String
     let dragMin: CGFloat
@@ -79,12 +89,69 @@ final class Bench {
         }
     }
 
-    private func savePNG(_ name: String) {
-        let img: CGImage? = main { view.snapshotImage() }
+    private func savePNG(_ name: String, window whole: Bool = false) {
+        let img: CGImage? = main { whole ? windowImage() : view.snapshotImage() }
         guard let img else { return }
         let url = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent(name)
         let rep = NSBitmapImageRep(cgImage: img)
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
+    }
+
+    /// The window as it would show: its views (the strip, the headers)
+    /// and each pane's last drawing at its place.
+    private func windowImage() -> CGImage? {
+        guard let root = window.contentView, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return nil }
+        root.cacheDisplay(in: root.bounds, to: rep)
+        let s: CGFloat = 2
+        let w = Int(root.bounds.width * s), h = Int(root.bounds.height * s)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+              let base = rep.cgImage else { return nil }
+        ctx.draw(base, in: CGRect(x: 0, y: 0, width: w, height: h))
+        for (_, b) in workspace.boxes where b.term.window != nil && b.term.live {
+            guard let img = b.term.snapshotImage() else { continue }
+            let r = b.term.convert(b.term.bounds, to: root)
+            // root is flipped: y from the top.
+            ctx.setAlpha(b.term.alphaValue)
+            ctx.draw(img, in: CGRect(x: r.minX * s, y: CGFloat(h) - r.maxY * s, width: r.width * s, height: r.height * s))
+        }
+        return ctx.makeImage()
+    }
+
+    /// The front tab's panes the drag checks.
+    private var panesInFront: [TerminalView] {
+        main { workspace.active.map { t in workspace.panes(of: t, visibleOnly: true).compactMap { workspace.boxes[$0]?.term } } ?? [view] }
+    }
+
+    /// 4 tabs, 2 split: the first split right (in front, the keyboard on
+    /// its left pane), the third split down.
+    private func setUpTabs() {
+        func ready() { _ = waitFor(5) { self.main { self.workspace.focusedView?.screen.text().contains("~ >") ?? false } } }
+        main { workspace.split("right") }; ready()
+        main { workspace.newTab(nil) }; ready()
+        main { workspace.newTab(nil) }; ready()
+        main { workspace.split("down") }; ready()
+        main { workspace.newTab(nil) }; ready()
+        main {
+            workspace.select(index: 0)
+            workspace.focusToward("left")
+        }
+        sleep(0.3)
+        view = main { workspace.focusedView! }
+        let first = view
+        for v in panesInFront where v !== first {
+            let old = v.renderer.onTiming
+            v.renderer.onTiming = { [weak self] cpu, gpu in
+                old?(cpu, gpu)
+                guard let self else { return }
+                self.lock.lock(); self.gpu.append((cpu, gpu)); self.lock.unlock()
+            }
+        }
+        view.onDraw = { [weak self] seq, cpu in
+            guard let self else { return }
+            self.lock.lock(); self.draws.append((CACurrentMediaTime(), seq, cpu)); self.lock.unlock()
+        }
+        result["tabs"] = main { "\(workspace.tabs.count) tabs, \(workspace.tabs.filter { $0.guest != nil }.count) split" }
     }
 
     private static func stats(_ v: [Double]) -> [String: Double] {
@@ -111,8 +178,9 @@ final class Bench {
     }
 
     /// The daemon's screen, and its whole text: scrollback rows first.
-    private func daemonText() -> (screen: String, all: [String], history: Int) {
-        guard let c = view.conn, let r = try? c.call("pane.capture", ["pane": view.pane, "history": 100000]) else { return ("", [], 0) }
+    private func daemonText(_ v: TerminalView? = nil) -> (screen: String, all: [String], history: Int) {
+        let v = v ?? view
+        guard let c = v.conn, let r = try? c.call("pane.capture", ["pane": v.pane, "history": 100000]) else { return ("", [], 0) }
         let lines = (r["lines"] as? [[String: Any]] ?? []).map { ($0["text"] as? String ?? "").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
         let history = r["history"] as? Int ?? 0
         return (lines.dropFirst(history).joined(separator: "\n"), lines, history)
@@ -156,6 +224,7 @@ final class Bench {
         sleep(0.5)
         setWidth(1200)
         sleep(0.5)
+        setUpTabs()
 
         // 0. A picture of styles, colours and wide characters.
         let demo = #"printf '\e[1mbold\e[0m \e[3mitalic\e[0m \e[1;3mboth\e[0m \e[4munder\e[0m \e[4:3mcurly\e[0m \e[4:2mdouble\e[0m \e[9mstrike\e[0m \e[7minverse\e[0m \e[2mfaint\e[0m\n'; for i in 0 1 2 3 4 5 6 7; do printf '\e[4%sm  \e[0m\e[3%sm#\e[0m\e[9%sm#\e[0m ' $i $i $i; done; printf '\n\e[38;2;255;128;0mtruecolor\e[0m \e[48;5;24m 256 \e[0m 日本語 한국어 😀🎉 👩‍💻 café e\xcc\x81 → ✓ ─│┌┐\n'"#
@@ -198,25 +267,70 @@ final class Bench {
         _ = waitFor(2) { !self.text().contains(typed) }
         result["typing_ms"] = Bench.stats(lat)
 
-        // 2. The drag.
+        // 2. The drag, over both panes of the split in front: each has the
+        // pasted command line and is checked on its own.
         sleep(0.3)
-        let promptScreen = text()
         let words = "the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows"
         let pasted = (0..<10).map { "line \($0): " + String(repeating: words + " ", count: $0 % 3 + 1) }.joined(separator: "\n")
-        main { view.pasteText(pasted) }
-        _ = waitFor(5) { self.text().contains("line 9") }
-        sleep(0.8)
-        savePNG("bench-pasted.png")
         let flat = { (s: String) in s.filter { !$0.isWhitespace } }
-        let whole = flat(promptScreen + pasted)
-        let fp = flat(promptScreen)
-        func debris(_ t: String) -> Bool {
-            var f = flat(t)
-            if f.hasPrefix(fp + ">....") { f = String(f.dropFirst(fp.count + 5)) } else if f.hasPrefix(">....") { f = String(f.dropFirst(5)) }
-            return !whole.contains(f)
+        var watched: [Watched] = []
+        for v in panesInFront {
+            // A clean start: no scrollback (the split made the left pane
+            // narrower, and its rows of the styles above went up into it).
+            main { v.clearScreen(nil) }
+            _ = waitFor(3) { self.daemonText(v).history == 0 }
+            sleep(0.3)
+            let promptScreen = v.screen.text()
+            main { v.pasteText(pasted) }
+            _ = waitFor(5) { v.screen.text().contains("line 9") }
+            watched.append(Watched(v: v, whole: flat(promptScreen + pasted), fp: flat(promptScreen), ink: 0, all: []))
         }
-        let inkBefore = flat(text()).count
-        let allBefore = daemonText().all
+        sleep(0.8)
+        for i in watched.indices {
+            watched[i].ink = flat(watched[i].v.screen.text()).count
+            watched[i].all = daemonText(watched[i].v).all
+        }
+        savePNG("bench-pasted.png")
+        savePNG("bench-window.png", window: true)
+        func debris(_ w: Watched, _ t: String) -> Bool {
+            var f = flat(t)
+            if f.hasPrefix(w.fp + ">....") { f = String(f.dropFirst(w.fp.count + 5)) } else if f.hasPrefix(">....") { f = String(f.dropFirst(5)) }
+            return !w.whole.contains(f)
+        }
+        /// Each pane's screen now: blank (its command line gone), debris.
+        func sample(_ label: String, _ blank: inout Int, _ bad: inout Int, _ shots: inout [String], fast: Bool = false) {
+            for w in watched {
+                let t = w.v.screen.text()
+                var limit = w.ink
+                if fast {
+                    w.v.screen.lock()
+                    let g = (cols: w.v.screen.cols, rows: w.v.screen.rows)
+                    w.v.screen.unlock()
+                    limit = min(w.ink, g.cols * max(1, g.rows - 1))
+                }
+                if flat(t).count < limit * 3 / 10 {
+                    blank += 1
+                    if shots.count < 3 { shots.append("blank \(label) pane \(w.v.pane): " + t.split(separator: "\n").prefix(3).joined(separator: " | ")) }
+                }
+                if debris(w, t) {
+                    bad += 1
+                    if shots.count < 3 { shots.append("debris \(label) pane \(w.v.pane): " + t.split(separator: "\n").prefix(4).joined(separator: " | ")) }
+                }
+            }
+        }
+        /// Each pane's last screen against the daemon's, and its whole text.
+        func ends() -> (Bool, [[String: Any]], [String: String]) {
+            var same = true
+            var after: [[String: Any]] = []
+            var diff: [String: String] = [:]
+            for w in watched {
+                let (d, all, h) = daemonText(w.v)
+                let c = w.v.screen.text()
+                if c != d { same = false; diff[w.v.pane] = "client:\n" + c + "\ndaemon:\n" + d }
+                after.append(checkWhole(all, history: h, before: w.all))
+            }
+            return (same, after, diff)
+        }
         var widths: [CGFloat] = []
         var w: CGFloat = 1200
         while w > dragMin { widths.append(w); w -= 7 }
@@ -231,24 +345,19 @@ final class Bench {
             setWidth(width)
             next += 1.0 / 120
             while CACurrentMediaTime() < next { sleep(0.0003) }
-            let t = text()
-            if flat(t).count < inkBefore * 3 / 10 { blank += 1 }
-            if debris(t) {
-                bad += 1
-                if badShots.count < 3 { badShots.append("width \(Int(width)): " + t.split(separator: "\n").prefix(4).joined(separator: " | ")) }
-            }
+            sample("width \(Int(width))", &blank, &bad, &badShots)
             if !narrowShot && i + 1 < widths.count && widths[i + 1] > width {
                 narrowShot = true
                 let p0 = CACurrentMediaTime()
                 sleep(0.1)
-                savePNG("bench-narrow.png")
+                savePNG("bench-narrow.png", window: true)
                 next = CACurrentMediaTime()
                 pause = (p0, next)
             }
         }
         let dragSecs = CACurrentMediaTime() - tStart
         sleep(1.0)
-        savePNG("bench-after-drag.png")
+        savePNG("bench-after-drag.png", window: true)
         lock.lock()
         let dragDraws = Array(draws[d0...])
         let dragGPU = gpu
@@ -258,23 +367,18 @@ final class Bench {
         for i in 1..<max(1, dragDraws.count) where !(dragDraws[i].t > pause.0 && dragDraws[i - 1].t < pause.1) {
             gaps.append((dragDraws[i].t - dragDraws[i - 1].t) * 1000)
         }
-        // The window's screen against the daemon's, and the pane's text.
-        let (daemonText, daemonAll, daemonHistory) = self.daemonText()
-        let clientText = text()
+        let (same, after, diff) = ends()
         result["drag"] = [
-            "steps": widths.count, "seconds": dragSecs - (pause.1 - pause.0), "min_width": Double(dragMin),
+            "panes": watched.count, "steps": widths.count, "seconds": dragSecs - (pause.1 - pause.0), "min_width": Double(dragMin),
             "blank": blank, "debris": bad, "debris_examples": badShots,
-            "ends_on_daemon_screen": clientText == daemonText,
+            "ends_on_daemon_screen": same,
             "draws": dragDraws.count, "fps": Double(dragDraws.count) / dragSecs,
             "draw_gap_ms": Bench.stats(gaps),
             "cpu_ms": Bench.stats(dragGPU.map { $0.cpu }), "gpu_ms": Bench.stats(dragGPU.map { $0.gpu }),
             "frame_ms": Bench.stats(dragGPU.map { $0.cpu + $0.gpu }),
-            "after": checkWhole(daemonAll, history: daemonHistory, before: allBefore),
+            "after": after,
         ]
-        if clientText != daemonText {
-            result["drag_client_screen"] = clientText
-            result["drag_daemon_screen"] = daemonText
-        }
+        if !diff.isEmpty { result["drag_screens"] = diff }
 
         // 2b. The fast drag.
         let h0 = main { window.frame.height }
@@ -284,15 +388,20 @@ final class Bench {
             rng = rng &* 6364136223846793005 &+ 1442695040888963407
             return CGFloat(Int((rng >> 33) % UInt64(n)))
         }
+        // Each pane as narrow as the one pane of a window was (160 pt):
+        // the window wider by the panes side by side.
+        let across = CGFloat(main { workspace.active.map { $0.guest != nil && ($0.side == "right" || $0.side == "left") ? 2 : 1 } ?? 1 })
+        let floor = 160 * across + (across - 1) * Design.gutter
+        result["fast_drag_min_width"] = Double(floor)
         var fw: CGFloat = 1200, fh = h0
         for i in 0..<400 {
             fw += (i / 40 % 2 == 0 ? -1 : 1) * (rand(400) + 8)
             fh += rand(300) - 150
-            fw = min(max(fw, 160), 1300)
+            fw = min(max(fw, floor), 1300)
             fh = min(max(fh, 180), h0 + 300)
             sizes.append(CGSize(width: fw, height: fh))
         }
-        var sw: CGFloat = 160
+        var sw: CGFloat = floor
         while sw <= 1200 { sizes.append(CGSize(width: sw, height: 180)); sw += 16 }
         sizes.append(CGSize(width: 1200, height: h0))
         sizes.append(CGSize(width: 1200, height: h0 + 300))
@@ -301,54 +410,110 @@ final class Bench {
         var fshots: [String] = []
         let fStart = CACurrentMediaTime()
         var fnext = fStart, ftick = fStart + 1.0 / 120
-        func fsample() {
-            fticks += 1
-            // The screen it has (the last frame's size, which a grid just
-            // resized has not caught up with yet).
-            view.screen.lock()
-            let g = (cols: view.screen.cols, rows: view.screen.rows)
-            view.screen.unlock()
-            let t = text()
-            if flat(t).count < min(inkBefore, g.cols * max(1, g.rows - 1)) * 3 / 10 {
-                fblank += 1
-                if fshots.count < 3 { fshots.append("blank at \(g.cols)x\(g.rows): " + t.split(separator: "\n").prefix(3).joined(separator: " | ")) }
-            }
-            if debris(t) {
-                fbad += 1
-                if fshots.count < 3 { fshots.append("debris at \(g.cols)x\(g.rows): " + t.split(separator: "\n").prefix(4).joined(separator: " | ")) }
-            }
-        }
         for sz in sizes {
             setSize(sz.width, sz.height)
             fnext += 0.002
             while CACurrentMediaTime() < fnext {
-                if CACurrentMediaTime() >= ftick { fsample(); ftick += 1.0 / 120 }
+                if CACurrentMediaTime() >= ftick { fticks += 1; sample("fast", &fblank, &fbad, &fshots, fast: true); ftick += 1.0 / 120 }
                 sleep(0.0002)
             }
         }
         let fSecs = CACurrentMediaTime() - fStart
         let settle = CACurrentMediaTime() + 1.0
-        while CACurrentMediaTime() < settle { fsample(); sleep(1.0 / 120) }
-        savePNG("bench-after-fast-drag.png")
+        while CACurrentMediaTime() < settle { fticks += 1; sample("fast", &fblank, &fbad, &fshots, fast: true); sleep(1.0 / 120) }
+        savePNG("bench-after-fast-drag.png", window: true)
         lock.lock()
         let fDraws = Array(draws[f0d...])
         let fGPU = gpu
         lock.unlock()
-        let (fDaemon, fAll, fHistory) = self.daemonText()
-        let fClient = text()
+        let (fsame, fafter, fdiff) = ends()
         result["fast_drag"] = [
             "steps": sizes.count, "seconds": fSecs, "steps_per_s": Double(sizes.count) / fSecs,
             "ticks": fticks, "blank": fblank, "debris": fbad, "examples": fshots,
-            "ends_on_daemon_screen": fClient == fDaemon, "draws": fDraws.count,
+            "ends_on_daemon_screen": fsame, "draws": fDraws.count,
             "frame_ms": Bench.stats(fGPU.map { $0.cpu + $0.gpu }),
-            "after": checkWhole(fAll, history: fHistory, before: allBefore),
+            "after": fafter,
         ]
-        if fClient != fDaemon {
-            result["fast_drag_client_screen"] = fClient
-            result["fast_drag_daemon_screen"] = fDaemon
-        }
+        if !fdiff.isEmpty { result["fast_drag_screens"] = fdiff }
         setSize(1200, h0)
         sleep(0.5)
+
+        // 2c. The divider: from the middle to 20 %, to 80 % and back, a
+        // step of 0.5 % at 120 a second, as AppKit's tracking moves it.
+        if let sv = main({ workspace.focusedView?.superview?.superview as? PaneSplitView }) {
+            var fr: [CGFloat] = []
+            var x: CGFloat = 0.5
+            while x > 0.2 { fr.append(x); x -= 0.005 }
+            while x < 0.8 { fr.append(x); x += 0.005 }
+            while x > 0.5 { fr.append(x); x -= 0.005 }
+            fr.append(0.5)
+            lock.lock(); let dd0 = draws.count; gpu.removeAll(); lock.unlock()
+            var dblank = 0, dbad = 0
+            var dshots: [String] = []
+            main { sv.beginDrag() }
+            let dStart = CACurrentMediaTime()
+            var dnext = dStart
+            for f in fr {
+                main { sv.setFraction(f) }
+                dnext += 1.0 / 120
+                while CACurrentMediaTime() < dnext { sleep(0.0003) }
+                sample(String(format: "divider %.3f", f), &dblank, &dbad, &dshots)
+            }
+            main { sv.endDrag() }
+            let dSecs = CACurrentMediaTime() - dStart
+            sleep(1.0)
+            lock.lock()
+            let dDraws = Array(draws[dd0...])
+            let dGPU = gpu
+            lock.unlock()
+            let (dsame, dafter, ddiff) = ends()
+            result["divider_drag"] = [
+                "steps": fr.count, "seconds": dSecs, "blank": dblank, "debris": dbad, "examples": dshots,
+                "ends_on_daemon_screen": dsame, "draws": dDraws.count,
+                "frame_ms": Bench.stats(dGPU.map { $0.cpu + $0.gpu }), "after": dafter,
+            ]
+            if !ddiff.isEmpty { result["divider_screens"] = ddiff }
+            savePNG("bench-after-divider.png", window: true)
+        }
+
+        // 2d. Switching tabs: each switch's first draw (the rows the
+        // panes had) and the first frame of their new streams; a pane
+        // whose first draw is blank counts.
+        var drawnMs: [Double] = [], frameMs: [Double] = []
+        let swLock = NSLock()
+        main {
+            workspace.onSwitch = { _, d, f, _ in
+                swLock.lock(); drawnMs.append(d); frameMs.append(f); swLock.unlock()
+            }
+        }
+        var swBlank = 0, switches = 0
+        var swShots: [String] = []
+        for round in 0..<6 {
+            for idx in [1, 2, 3, 0] {
+                let blankPanes: [String] = main {
+                    workspace.select(index: idx)
+                    // What the panes drew at the switch, before any frame.
+                    return workspace.panes(of: workspace.active!, visibleOnly: true).compactMap { id in
+                        guard let v = workspace.boxes[id]?.term else { return id }
+                        return v.screen.text().filter { !$0.isWhitespace }.isEmpty ? id : nil
+                    }
+                }
+                switches += 1
+                swBlank += blankPanes.count
+                if !blankPanes.isEmpty && swShots.count < 3 { swShots.append("round \(round) tab \(idx): \(blankPanes)") }
+                sleep(0.15)
+            }
+        }
+        main { workspace.onSwitch = nil }
+        swLock.lock()
+        result["tab_switch"] = [
+            "switches": switches, "blank_panes": swBlank, "examples": swShots,
+            "first_draw_ms": Bench.stats(drawnMs), "first_frame_ms": Bench.stats(frameMs),
+        ]
+        swLock.unlock()
+        main { workspace.select(index: 0) }
+        sleep(0.3)
+        savePNG("bench-tabs.png", window: true)
 
         // 3. seq 1 2000000.
         key("\u{3}", code: 0x08, flags: .control) // Ctrl+C: drop the command line

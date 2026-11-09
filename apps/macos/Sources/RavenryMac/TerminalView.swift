@@ -156,12 +156,35 @@ final class TerminalView: NSView, NSTextInputClient {
         wantsStream = true
         chLock.unlock()
         let sem = wait ? DispatchSemaphore(value: 0) : nil
-        c.request("pane.render", ["pane": pane, "cols": sent.cols, "rows": sent.rows, "fps": fps, "window": 2,
-                                  // Cmd+Left to the line's start and the rest of a Mac's keys
-                                  // (docs/RENDERING.md, Key bindings): the daemon's table.
-                                  "keybinds": "macos"]) { [weak self, weak c] r in
-            defer { sem?.signal() }
-            guard let self, let c, case .success(let res) = r, let ch = (res["channel"] as? NSNumber)?.uint32Value else { return }
+        var params: [String: Any] = ["pane": pane, "cols": sent.cols, "rows": sent.rows, "fps": fps, "window": 2]
+        // Cmd+Left to the line's start and the rest of a Mac's keys
+        // (docs/RENDERING.md, Key bindings): the daemon's table, when the
+        // daemon has them (an older one refuses the field).
+        if TerminalView.keybinds { params["keybinds"] = "macos" }
+        func open(_ params: [String: Any]) {
+            c.request("pane.render", params) { [weak self, weak c] r in
+                if case .failure(.daemon(_, let msg)) = r, msg.contains("keybinds"), params["keybinds"] != nil {
+                    TerminalView.keybinds = false
+                    var p = params
+                    p.removeValue(forKey: "keybinds")
+                    open(p)
+                    return
+                }
+                self?.opened(r, c, sent)
+                sem?.signal()
+            }
+        }
+        open(params)
+        if let sem { _ = sem.wait(timeout: .now() + 10) }
+    }
+
+    /// Whether the daemon takes pane.render's keybinds.
+    static var keybinds = true
+
+    /// pane.render answered (reader thread).
+    private func opened(_ r: Result<[String: Any], ConnectionError>, _ c: Connection?, _ sent: (cols: Int, rows: Int)) {
+        do {
+            guard let c, case .success(let res) = r, let ch = (res["channel"] as? NSNumber)?.uint32Value else { return }
             self.chLock.lock()
             if self.wantsStream && self.liveChannel == 0 {
                 self.liveChannel = ch
@@ -177,7 +200,6 @@ final class TerminalView: NSView, NSTextInputClient {
                 c.request("pane.unsubscribe", ["channel": ch])
             }
         }
-        if let sem { _ = sem.wait(timeout: .now() + 10) }
     }
 
     /// Hides the pane: its stream ends and the view stops drawing; the

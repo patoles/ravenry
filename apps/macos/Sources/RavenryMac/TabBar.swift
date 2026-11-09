@@ -280,7 +280,7 @@ final class TabItem: NSView {
             end = bx - Design.tabInnerGap
         }
         x = text(nameText(), x: x, maxX: end)
-        if showSub, let s = subText(), x + Design.tabInnerGap < end - 12 {
+        if showSub, let s = subText(), x + Design.tabInnerGap < end - 2 {
             _ = text(s, x: x + Design.tabInnerGap, maxX: end)
         }
     }

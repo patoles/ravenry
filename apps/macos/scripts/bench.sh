@@ -61,6 +61,8 @@ if "error" in r:
 def s(d, unit="ms"):
     return "median %.2f, p95 %.2f, max %.2f %s (n %d)" % (d.get("median", 0), d.get("p95", 0), d.get("max", 0), unit, d.get("n", 0))
 print("grid %s, cell %s px" % (r.get("grid"), r.get("cell_px")))
+if r.get("tabs"):
+    print("window: %s; the drags check both panes of the split in front" % r["tabs"])
 w = r.get("window_900x560")
 if w:
     print("a 900 x 560 pt window at scale %g: %s, grid %s, cell %s px (%s pt); Rex's cell (14x28 px) there: %s" % (w["scale"], w["font"], w["grid"], w["cell_px"], w["cell_pt"], w["rex_grid"]))
@@ -73,6 +75,9 @@ print("  CPU %s; GPU %s" % (s(d["cpu_ms"]), s(d["gpu_ms"])))
 for e in d.get("debris_examples", []):
     print("  debris:", e[:200])
 def after(a):
+    if isinstance(a, list):
+        for x in a: after(x)
+        return
     print("  after: debris rows %d, blank rows %d (history %d), first row as before: %s, whole command line: %s" % (a.get("debris", -1), a.get("blank_rows", -1), a.get("history", -1), a.get("top_is_prompt"), a.get("whole")))
     for e in a.get("debris_examples", []):
         print("    debris row:", e[:200])
@@ -84,6 +89,20 @@ if f:
     for e in f.get("examples", []):
         print("  on screen:", e[:200])
     after(f.get("after", {}))
+v = r.get("divider_drag")
+if v:
+    print("divider drag %d steps in %.2f s (20%% to 80%%): blank %d, debris %d, ends on the daemon's screen: %s" % (v["steps"], v["seconds"], v["blank"], v["debris"], v["ends_on_daemon_screen"]))
+    print("  frame time (CPU + GPU): %s" % s(v["frame_ms"]))
+    for e in v.get("examples", []):
+        print("  on screen:", e[:200])
+    after(v.get("after", {}))
+t = r.get("tab_switch")
+if t:
+    print("tab switches %d: blank panes %d" % (t["switches"], t["blank_panes"]))
+    print("  to the first draw (the rows the panes had): %s" % s(t["first_draw_ms"]))
+    print("  to the first frame of the new streams: %s" % s(t["first_frame_ms"]))
+    for e in t.get("examples", []):
+        print("  blank:", e[:200])
 q = r["seq"]
 print("seq 1 2000000: %.2f s to the prompt (done %s), draws %d (%.0f a second)" % (q["seconds"], q["done"], q["draws"], q["fps"]))
 print("  gap between draws: %s" % s(q["draw_gap_ms"]))

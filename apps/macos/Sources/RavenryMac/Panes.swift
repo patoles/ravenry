@@ -288,8 +288,9 @@ final class PaneSplitView: NSSplitView, NSSplitViewDelegate {
     /// Moves the divider to a share of the space (the bench's drag goes
     /// through here, as AppKit's tracking goes through setPosition).
     func setFraction(_ f: CGFloat) {
+        fraction = f
         let avail = (isVertical ? bounds.width : bounds.height) - dividerThickness
-        guard avail > 0 else { fraction = f; return }
+        guard avail > 0 else { return }
         setPosition(round(avail * f), ofDividerAt: 0)
     }
 
@@ -322,10 +323,12 @@ final class PaneSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ n: Notification) {
-        // A divider moved (a drag, setPosition): the share follows.
+        // The divider dragged: the share follows. (AppKit also moves it
+        // when the window is too small for both panes' minimum; the share
+        // stays then, and comes back as the window grows.)
         guard let a = arrangedSubviews.first else { return }
         let avail = (isVertical ? bounds.width : bounds.height) - dividerThickness
-        if avail > 0 && n.userInfo?["NSSplitViewDividerIndex"] != nil {
+        if dragging && avail > 0 && n.userInfo?["NSSplitViewDividerIndex"] != nil {
             fraction = (isVertical ? a.frame.width : a.frame.height) / avail
         }
         updateTrackingAreas()
