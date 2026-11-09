@@ -15,6 +15,10 @@ targets:
     platform: macOS
     sources:
       - path: Sources/RavenryMac
+      # The design tokens every client shares (shared/README.md), read at
+      # launch (Design.swift).
+      - path: ../../shared/tokens/tokens.json
+        buildPhase: resources
     dependencies:
       - sdk: Metal.framework
       - sdk: QuartzCore.framework
