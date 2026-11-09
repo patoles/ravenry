@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,12 +127,55 @@ func TestZshMoreMark(t *testing.T) {
 	if !strings.HasPrefix(v.screen[0], "~ > >....") || count(v.all) != 1 {
 		t.Errorf("made short: want \"~ > >....\" on the first row, once; got %d:\n%s", count(v.all), strings.Join(v.all, "\n"))
 	}
+	// Scrolled up from the prompt, the start of the command line is
+	// there once: the scrollback and the screen read in order are the
+	// prompt and the command line, with zsh's ">...." row only as the
+	// screen's first.
+	if err := oneCopy(v.all, len(v.all)-len(v.screen), "~ > ", pasted); err != nil {
+		t.Errorf("made short: %v\n%s", err, strings.Join(v.all, "\n"))
+	}
 	resize(p, r, tall)
 	v = read(p.ID)
 	if n := count(v.all); n != 0 {
 		t.Errorf("tall again after short: %d \">....\" rows left:\n%s", n, strings.Join(v.all, "\n"))
 	}
+	if err := oneCopy(v.all, len(v.all)-len(v.screen), "~ > ", pasted); err != nil {
+		t.Errorf("tall again: %v\n%s", err, strings.Join(v.all, "\n"))
+	}
 	if got := strings.Join(r.scr.Text(), "\n"); strings.Contains(got, ">....") {
 		t.Errorf("the render client's screen keeps \">....\":\n%s", got)
 	}
+}
+
+// oneCopy checks a pane's rows, scrollback then screen (the screen from
+// row history), against a prompt and its command line: read in order,
+// they are the prompt and the command line once, whitespace aside, with
+// nothing else; zsh's ">...." mark may be on the screen's first row
+// only, where it stands for the rows above it.
+func oneCopy(rows []string, history int, prompt, command string) error {
+	flat := func(s string) string { return strings.Join(strings.Fields(s), "") }
+	whole := flat(prompt + command)
+	var got strings.Builder
+	for i, row := range rows {
+		f := flat(row)
+		if strings.Contains(f, ">....") {
+			if i != history || !strings.HasSuffix(f, ">....") {
+				return fmt.Errorf("a \">....\" row at %d (the screen starts at %d): %q", i, history, row)
+			}
+			f = strings.TrimSuffix(f, ">....")
+			if f != flat(prompt) {
+				return fmt.Errorf("the \">....\" row is not the prompt's: %q", row)
+			}
+			continue
+		}
+		got.WriteString(f)
+	}
+	if g := got.String(); g != whole {
+		i := 0
+		for i < len(g) && i < len(whole) && g[i] == whole[i] {
+			i++
+		}
+		return fmt.Errorf("not the command line once: they differ at %d of %d: %q, want %q", i, len(whole), g[i:min(len(g), i+60)], whole[i:min(len(whole), i+60)])
+	}
+	return nil
 }

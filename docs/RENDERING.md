@@ -145,7 +145,13 @@ theme on the client is never overridden by the daemon's defaults.
   first row. So at any width no row of an old prompt stays on the screen
   or goes into the scrollback (a command line taller than the screen
   used to leave zsh's ">...." rows there), and the output above the
-  prompt stays. Frames are held until the shell has drawn it: its prompt
+  prompt stays. A command line taller than the screen, which zsh then
+  draws as ">...." and its end, keeps its start in the scrollback, once:
+  the command line the shell drew whole is laid out again at each new
+  width (as zsh counts rows: a line that fills the width takes one more),
+  the rows zsh will not draw stay above the screen, and at the next
+  resize they and zsh's end of it are one command line again; when it
+  fits once more, zsh draws it all and nothing of it stays above. Frames are held until the shell has drawn it: its prompt
   mark and 4 ms of quiet, or 30 ms while it is most likely still writing
   (its last read filled the pty's buffer, 1 KiB on macOS, or its output
   stopped at the prompt while the command line has text, which zsh

@@ -195,6 +195,87 @@ func TestRenderDragZsh(t *testing.T) {
 	fast.sizes = append(fast.sizes, size{wide, rows}, size{wide, rows + 20})
 
 	tick := time.Second / 120
+	// After a drag: narrowed and made short one step a display tick, so
+	// the command line is taller than the screen and zsh shows only its
+	// end under ">....", the start must be in the scrollback once: the
+	// pane's rows read in order are the prompt and the command line,
+	// ">...." only as the screen's first row, and the render stream
+	// scrolled to the top shows the prompt's first row. Made wide again,
+	// the text is as before the drag.
+	narrowScroll := func(name string) {
+		t.Helper()
+		short := 12
+		var steps []size
+		for w, h := wide, rows; w > narrow || h > short; {
+			w, h = max(narrow, w-1), max(short, h-1)
+			steps = append(steps, size{w, h})
+		}
+		blank, bad := 0, 0
+		for _, sz := range steps {
+			c.Call(ctx(t), "pane.resize", map[string]any{"pane": p.ID, "cols": sz.cols, "rows": sz.rows}, nil)
+			r.next(tick)
+			text := strings.Join(r.scr.Text(), "\n")
+			if ink() < min(base, r.scr.Cols*(r.scr.Rows-1))*3/10 {
+				blank++
+			}
+			if debris(text) {
+				bad++
+			}
+		}
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			r.next(50 * time.Millisecond)
+		}
+		cap := call[proto.CaptureResult](t, c, "pane.capture", map[string]any{"pane": p.ID, "history": 100000})
+		var all, screen []string
+		for i, l := range cap.Lines {
+			all = append(all, strings.TrimRight(l.Text, " "))
+			if i >= cap.History {
+				screen = append(screen, strings.TrimRight(l.Text, " "))
+			}
+		}
+		once := oneCopy(all, cap.History, "~ > ", pasted)
+		equal := strings.Join(screen, "\n") == strings.Join(r.scr.Text(), "\n")
+		// Scrolled to the top, the client sees the prompt's first row.
+		st.Scroll(ctx(t), cap.History)
+		for i := 0; i < 50 && r.scr.Offset != cap.History; i++ {
+			r.next(100 * time.Millisecond)
+		}
+		topRow := ""
+		if len(r.scr.Text()) > 0 {
+			topRow = r.scr.Text()[0]
+		}
+		st.Scroll(ctx(t), 0)
+		for i := 0; i < 50 && r.scr.Offset != 0; i++ {
+			r.next(100 * time.Millisecond)
+		}
+		// Wide again.
+		c.Call(ctx(t), "pane.resize", map[string]any{"pane": p.ID, "cols": wide, "rows": rows}, nil)
+		deadline = time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			r.next(50 * time.Millisecond)
+		}
+		ck := checkText()
+		msg := fmt.Sprintf("zsh %s drag then narrowed to %dx%d in %d steps: blank %d, debris on screen %d; the start in the scrollback once: %v (history %d), scrolled to the top the first row is the prompt's: %v, client ends on the daemon's screen: %v; wide again: debris rows %d, blank rows %d, whole command line %v",
+			name, narrow, short, len(steps), blank, bad, once == nil, cap.History, strings.HasPrefix(topRow, "~ > line 0"), equal, ck.debris, ck.blank, ck.whole)
+		t.Log(msg)
+		fmt.Println("MEASURE " + msg)
+		if blank > 0 || bad > 0 {
+			t.Errorf("%s narrowed: %d blank frames, %d with debris", name, blank, bad)
+		}
+		if once != nil {
+			t.Errorf("%s narrowed: %v\n%s", name, once, strings.Join(all, "\n"))
+		}
+		if !strings.HasPrefix(topRow, "~ > line 0") {
+			t.Errorf("%s narrowed: scrolled to the top, the first row is %q", name, topRow)
+		}
+		if !equal {
+			t.Errorf("%s narrowed: the client's screen is not the daemon's", name)
+		}
+		if ck.debris > 0 || ck.blank > 0 || !ck.top || !ck.whole {
+			t.Errorf("%s narrowed then wide: %d debris rows, %d blank rows, top row the prompt %v, whole %v:\n%s", name, ck.debris, ck.blank, ck.top, ck.whole, strings.Join(ck.rows, "\n"))
+		}
+	}
 	failed := false
 	for round := range rounds {
 		for _, dr := range []drag{smooth, fast} {
@@ -307,6 +388,7 @@ func TestRenderDragZsh(t *testing.T) {
 					os.WriteFile(filepath.Join(k, "pane"+ext), b, 0o600)
 				}
 			}
+			narrowScroll(dr.name)
 			failed = failed || t.Failed()
 			if failed {
 				return

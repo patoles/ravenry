@@ -1,5 +1,37 @@
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+index af50372..d8da2f2 100644
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -2803,6 +2803,7 @@ const ReflowCursor = struct {
+ 
+     fn copyRowMetadata(self: *ReflowCursor, other: *const Row) void {
+         self.page_row.semantic_prompt = other.semantic_prompt;
++        self.page_row.ravenry_head = other.ravenry_head;
+     }
+ };
+ 
+@@ -6045,6 +6046,19 @@ pub fn eraseRowBounded(
+     page.resetRow(&rows[node.rows() - 1]);
+ }
+ 
++/// Ravenry (daemon/patches/ghostty-prompt-clear-top.patch): remove up to
++/// n blank rows from the end of the list, none that a tracked pin is on,
++/// so the screen's window moves up over the scrollback by that many rows.
++/// The scrollback keeps at least none; the screen keeps its rows.
++pub fn ravenryTrimBottom(self: *PageList, n: usize) usize {
++    const room = self.total_rows -| self.rows;
++    const want = @min(n, room);
++    if (want == 0) return 0;
++    const trimmed = self.trimTrailingBlankRows(@intCast(@min(want, std.math.maxInt(size.CellCountInt))));
++    self.total_rows -= trimmed;
++    return trimmed;
++}
++
+ /// Erase all history rows, optionally up to a bottom-left bound.
+ /// This always starts from the beginning of the history area.
+ pub fn eraseHistory(
 diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
-index 810d6ff..ecbd10e 100644
+index 810d6ff..50ea4ab 100644
 --- a/src/terminal/Screen.zig
 +++ b/src/terminal/Screen.zig
 @@ -2307,6 +2307,14 @@ pub inline fn resize(
@@ -23,7 +55,7 @@ index 810d6ff..ecbd10e 100644
      // same default styling they had with the previous ordering.
 -    self.clearPromptForRedraw(opts.prompt_redraw);
 +    if (prompt_redraw) |pr| {
-+        self.placeCursorForRedraw(pr);
++        if (pr.kept != null) self.placeKeptCommand(pr) else self.placeCursorForRedraw(pr);
 +    } else if (opts.prompt_redraw != .true) {
 +        self.clearPromptForRedraw(opts.prompt_redraw);
 +    }
@@ -47,7 +79,7 @@ index 810d6ff..ecbd10e 100644
      if (comptime build_options.slow_runtime_safety) {
          assert(cursor_node_survived ==
              self.pages.nodeIsValid(cursor_node, cursor_node_serial));
-@@ -2444,6 +2461,123 @@ pub inline fn resize(
+@@ -2444,6 +2461,371 @@ pub inline fn resize(
      }
  }
  
@@ -58,6 +90,15 @@ index 810d6ff..ecbd10e 100644
 +    rows: usize,
 +    /// The cursor's column, which the shell also counts from.
 +    x: size.CellCountInt,
++    /// The command line kept through the reflow (keepCommandForReflow).
++    kept: ?KeptCommand = null,
++};
++
++/// Ravenry: a command line kept through a resize, its first row and its
++/// last tracked.
++const KeptCommand = struct {
++    first: *Pin,
++    last: *Pin,
 +};
 +
 +/// Ravenry (daemon/patches/ghostty-prompt-clear-top.patch): a resize at a
@@ -110,6 +151,8 @@ index 810d6ff..ecbd10e 100644
 +    const cursor_y = self.pages.pointFromPin(.screen, self.cursor.page_pin.*).?.screen.y;
 +    var rows: usize = cursor_y -| self.pages.pointFromPin(.screen, top).?.screen.y;
 +
++    if (self.keepCommandForReflow(top, rows)) |pr| return pr;
++
 +    // A first row the prompt wrapped onto from the row above: that row no
 +    // longer wraps, or the reflow would join the cleared row onto it.
 +    if (top.rowAndCell().row.wrap_continuation) {
@@ -135,6 +178,243 @@ index 810d6ff..ecbd10e 100644
 +    self.cursorAbsolute(0, @intCast(self.pages.pointFromPin(.active, top).?.active.y));
 +    self.cursor.pending_wrap = false;
 +    return .{ .rows = rows, .x = x };
++}
++
++/// Ravenry (daemon/patches/ghostty-prompt-clear-top.patch): a command
++/// line taller than the screen, scrolled up from the prompt, shows its
++/// start once, as one clean copy.
++///
++/// zsh draws a command line taller than the screen as ">...." on the
++/// prompt's row and the end of the command line under it; the start is
++/// never drawn again. Clearing the prompt on each resize (above) left no
++/// row of it in the scrollback, so nothing could be scrolled to, and
++/// leaving it, as Ghostty upstream does, keeps every old layout of it
++/// there, out of order. So the command line, while the shell draws it
++/// whole, is kept through the reflow, which lays it out at the new width
++/// as the shell would; when it no longer fits, its rows above the ones
++/// the shell will draw under ">...." stay in the scrollback, the first
++/// marked (ravenry_head), and the screen is cleared for the shell. At
++/// the next resize those kept rows and the shell's end of the command
++/// line, without the ">...." row, are the whole command line again, laid
++/// out once more; when it fits again, the kept rows are cleared and the
++/// shell draws it all. A command line the shell never drew whole (pasted
++/// into a window already too short) has nothing to keep and is cleared as
++/// before. After the command runs, the kept rows are scrollback like any.
++fn keepCommandForReflow(self: *Screen, top: Pin, rows: usize) ?PromptRedraw {
++    const x = self.cursor.x;
++    var first = top.left(top.x);
++    var more_row: ?Pin = null;
++    if (rowEndsWithMore(top)) {
++        // The shell draws only the end: the kept start must be above.
++        if (self.pages.pointFromPin(.active, top) == null) return null;
++        first = findKeptHead(top) orelse return null;
++        more_row = top.left(top.x);
++    } else if (first.rowAndCell().row.wrap_continuation) {
++        return null;
++    }
++    // The command line's last row: the last row with text from the
++    // cursor's row down.
++    var last = self.cursor.page_pin.left(self.cursor.page_pin.x);
++    var it = last.rowIterator(.right_down, null);
++    while (it.next()) |p| {
++        if (pagepkg.Cell.hasTextAny(p.cells(.all))) last = p;
++    }
++    const f = self.pages.trackPin(first) catch return null;
++    const l = self.pages.trackPin(last) catch {
++        self.pages.untrackPin(f);
++        return null;
++    };
++    // zsh moves to a new row after a line that fills the width, so such a
++    // line has an empty row under it: not part of the command line, and
++    // at another width the line no longer fills it. It goes, so the
++    // reflow lays out only the command line.
++    {
++        var p = f.*;
++        while (p.node != l.node or p.y != l.y) {
++            const next = p.down(1) orelse break;
++            if (next.node == l.node and next.y == l.y) break;
++            const row = p.rowAndCell().row;
++            const cells = p.cells(.all);
++            if (!row.wrap and cells.len > 0 and cells[cells.len - 1].hasText() and
++                !next.rowAndCell().row.wrap and !pagepkg.Cell.hasTextAny(next.cells(.all)) and
++                (more_row == null or next.node != more_row.?.node or next.y != more_row.?.y))
++            {
++                const y = self.pages.pointFromPin(.screen, next).?.screen.y;
++                self.pages.eraseRow(.{ .screen = .{ .y = @intCast(y) } }) catch break;
++                continue;
++            }
++            p = next;
++        }
++    }
++    if (more_row) |m| {
++        // The kept rows and the end the shell drew under ">...." are one
++        // command line again: the last kept row wraps as it did, and the
++        // ">...." row goes.
++        const above = m.up(1).?;
++        above.rowAndCell().row.wrap = above.rowAndCell().row.ravenry_wrap;
++        above.rowAndCell().row.ravenry_wrap = false;
++        const y = self.pages.pointFromPin(.active, m).?.active.y;
++        self.pages.eraseRow(.{ .active = .{ .y = y } }) catch {
++            self.pages.untrackPin(f);
++            self.pages.untrackPin(l);
++            return null;
++        };
++        if (above.down(1)) |next| next.rowAndCell().row.wrap_continuation = above.rowAndCell().row.wrap;
++        self.cursorReload();
++    }
++    // The previous mark goes; placeKeptCommand marks the first row again
++    // when rows stay kept.
++    f.rowAndCell().row.ravenry_head = false;
++    return .{ .rows = rows, .x = x, .kept = .{ .first = f, .last = l } };
++}
++
++/// Ravenry: the row ends with zsh's ">...." mark.
++fn rowEndsWithMore(p: Pin) bool {
++    const cells = p.cells(.all);
++    var end: usize = cells.len;
++    // zsh pads the row with spaces.
++    while (end > 0 and (!cells[end - 1].hasText() or cells[end - 1].codepoint() == ' ')) end -= 1;
++    if (end < 5) return false;
++    const want = [_]u21{ '>', '.', '.', '.', '.' };
++    for (want, 0..) |c, i| {
++        if (cells[end - 5 + i].codepoint() != c) return false;
++    }
++    return true;
++}
++
++/// Ravenry: the first row of the kept start of the command line whose
++/// ">...." row is top: up from it through the command line's rows to the
++/// marked one. Output, or another prompt, on the way: none.
++fn findKeptHead(top: Pin) ?Pin {
++    var p = top.up(1) orelse return null;
++    var n: usize = 0;
++    while (n < 100_000) : (n += 1) {
++        const row = p.rowAndCell().row;
++        if (row.ravenry_head) {
++            // The reflow marks each row of the first line: its first.
++            while (p.rowAndCell().row.wrap_continuation) p = p.up(1) orelse break;
++            return p.left(p.x);
++        }
++        if (!row.wrap_continuation and row.semantic_prompt == .prompt) return null;
++        for (p.cells(.all)) |c| {
++            if (c.hasText() and c.semantic_content == .output) return null;
++        }
++        p = p.up(1) orelse return null;
++    }
++    return null;
++}
++
++/// Ravenry: after the reflow, the kept command line at the new width.
++/// When it fits on the screen, the shell draws it all: it is cleared from
++/// its first row, which comes onto the screen if the reflow left it in
++/// the scrollback. When it does not, the screen starts on the row after
++/// those the shell will not draw (it draws ">...." and the last rows - 1
++/// rows under it), the rows above stay in the scrollback, marked, and the
++/// screen is cleared for the shell.
++fn placeKeptCommand(self: *Screen, pr: PromptRedraw) void {
++    const k = pr.kept.?;
++    var untracked = false;
++    defer if (!untracked) {
++        self.pages.untrackPin(k.first);
++        self.pages.untrackPin(k.last);
++    };
++    if (k.first.garbage or k.last.garbage) return self.placeCursorForRedraw(pr);
++    const first_y = (self.pages.pointFromPin(.screen, k.first.*) orelse return self.placeCursorForRedraw(pr)).screen.y;
++    const last_y = (self.pages.pointFromPin(.screen, k.last.*) orelse return self.placeCursorForRedraw(pr)).screen.y;
++    const rows: usize = self.pages.rows;
++    const active_top = self.pages.pointFromPin(.screen, self.pages.getTopLeft(.active)).?.screen.y;
++
++    // The command line's rows as zsh counts them: a line that fills the
++    // width takes a row more (zsh moves under it). zsh draws it whole
++    // when they fit on the screen; otherwise ">...." and the last rows - 1
++    // of them, and the target, the screen's first row, is the row after
++    // the first n - rows + 1 of them, in the rows the reflow made.
++    const count = last_y - first_y + 1;
++    const n = self.zshRows(k.first.*, count);
++    const fits = n <= rows;
++    const target_y = if (fits) first_y else first_y + self.zshCut(k.first.*, count, n - rows + 1);
++
++    // The last row's pin would stop the trim below.
++    self.pages.untrackPin(k.last);
++    if (target_y < active_top) {
++        // The target is in the scrollback: clear from it down, then bring
++        // it to the screen's top by dropping as many blank rows at the
++        // end.
++        const tp = self.pages.pin(.{ .screen = .{ .y = @intCast(target_y) } }).?;
++        var it = tp.rowIterator(.right_down, null);
++        while (it.next()) |p| self.clearRowWhole(p);
++        self.cursorChangePin(tp);
++        _ = self.pages.ravenryTrimBottom(active_top - target_y);
++        self.cursorReload();
++    } else if (!fits and target_y > active_top) {
++        // Rows of the start still on the screen go up into the scrollback.
++        var d = target_y - active_top;
++        self.cursorAbsolute(0, @intCast(rows - 1));
++        while (d > 0) : (d -= 1) self.cursorDownScroll() catch break;
++    }
++
++    // The screen from the command's first row (it fits) or from the top
++    // (it does not) is the shell's to draw.
++    const start: Pin = if (fits)
++        (if (k.first.garbage) self.pages.getTopLeft(.active) else k.first.*)
++    else
++        self.pages.getTopLeft(.active);
++    var it = start.rowIterator(.right_down, null);
++    while (it.next()) |p| self.clearRowWhole(p);
++    start.rowAndCell().row.semantic_prompt = .prompt;
++    if (!fits and !k.first.garbage) {
++        k.first.rowAndCell().row.ravenry_head = true;
++        // The kept rows' last row: its soft wrap onto the row the shell
++        // draws ">...." on is kept apart, so a copy does not join them.
++        if (start.up(1)) |above| {
++            const row = above.rowAndCell().row;
++            row.ravenry_wrap = row.wrap;
++            row.wrap = false;
++        }
++    }
++    self.pages.untrackPin(k.first);
++    untracked = true;
++    const y = self.pages.pointFromPin(.active, start).?.active.y;
++    self.cursorAbsolute(0, @intCast(y));
++    self.cursor.pending_wrap = false;
++    self.placeCursorForRedraw(.{ .rows = pr.rows, .x = pr.x });
++}
++
++/// Ravenry: the rows zsh counts for a command line laid out over count
++/// rows from first.
++fn zshRows(self: *Screen, first: Pin, count: usize) usize {
++    return self.zshCut(first, count, std.math.maxInt(usize));
++}
++
++/// Ravenry: the rows of one logical line of g rows ending on row last:
++/// as laid out, and one more when its last row is full (zsh moves under
++/// a line that fills the width).
++fn zshLineRows(g: usize, last: Pin) usize {
++    const cells = last.cells(.all);
++    if (cells.len > 0 and cells[cells.len - 1].hasText()) return g + 1;
++    return g;
++}
++
++/// Ravenry: of the rows the reflow made from first (count of them), how
++/// many hold the first k rows zsh counts; with k past the end, the rows
++/// zsh counts for them all.
++fn zshCut(self: *Screen, first: Pin, count: usize, k: usize) usize {
++    _ = self;
++    var zr: usize = 0;
++    var p = first;
++    var i: usize = 0;
++    while (i < count) {
++        // One logical line: rows joined by soft wraps.
++        var g: usize = 1;
++        var q = p;
++        while (q.rowAndCell().row.wrap and i + g < count) : (g += 1) q = q.down(1) orelse break;
++        const z = zshLineRows(g, q);
++        if (k != std.math.maxInt(usize) and zr + z >= k) return i + @min(k - zr, g);
++        zr += z;
++        i += g;
++        p = q.down(1) orelse break;
++    }
++    return if (k == std.math.maxInt(usize)) zr else count;
 +}
 +
 +/// Ravenry: clear a row's cells and reset its flags (soft wrap, semantic
@@ -171,3 +451,23 @@ index 810d6ff..ecbd10e 100644
  fn clearPromptForRedraw(
      self: *Screen,
      redraw: osc.semantic_prompt.Redraw,
+diff --git a/src/terminal/page.zig b/src/terminal/page.zig
+index 4d452fd..f1b2f5a 100644
+--- a/src/terminal/page.zig
++++ b/src/terminal/page.zig
+@@ -2297,7 +2297,14 @@ pub const Row = packed struct(u64) {
+     /// `PageList.trimTrailingBlankRows` don't read them.
+     blank: bool = false,
+ 
+-    _padding: u22 = 0,
++    /// Ravenry (daemon/patches/ghostty-prompt-clear-top.patch): the first
++    /// row of a command line kept above the screen while the shell shows
++    /// only its end (zsh's ">...." row), and, on the kept rows' last row,
++    /// that it soft-wrapped onto the row the shell drew ">...." on.
++    ravenry_head: bool = false,
++    ravenry_wrap: bool = false,
++
++    _padding: u20 = 0,
+ 
+     /// The semantic prompt state of the row. See `semantic_prompt`.
+     pub const SemanticPrompt = enum(u2) {
