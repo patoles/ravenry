@@ -78,6 +78,16 @@ type Screen interface {
 	EncodeKeyEvent(k KeyEvent) ([]byte, error)
 	EncodeMouse(m MouseEvent) ([]byte, error)
 	EncodeFocus(focused bool) ([]byte, error)
+	// Select applies a step of a selection gesture (select.go); Selection
+	// is the selection, SelectionText its text as a copy reads it.
+	Select(e SelectEvent) error
+	Selection() (Range, bool)
+	SelectionText() (string, error)
+	// NewFind starts a search of the screen and its scrollback.
+	NewFind() (*Find, error)
+	// LinkAt is the link on a cell in screen coordinates: a hyperlink
+	// (OSC 8) or a URL in the text.
+	LinkAt(x, y int) (Link, bool)
 	// Close frees the screen.
 	Close()
 }

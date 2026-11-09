@@ -1357,10 +1357,14 @@ comes meanwhile does not move the view, and the frames say where it is.
 | `text` | string | Text an input method committed, written as typed. |
 | `paste` | string | A paste: bracketed when the program asked (mode 2004), otherwise made safe as in section 7. |
 | `focus` | boolean | The client's view gained or lost focus; reported when the program asked (mode 1004). |
+| `wheel` | object | A wheel or trackpad movement: `rows` up (positive) or down, a fraction of a row from a trackpad (the daemon adds them up per stream), and the pointer as for `mouse` (`mods`, `x`, `y`, `cell_width`, `cell_height`). As Ghostty does: to the program as wheel buttons when it asked for the mouse; on the alternate screen, as arrow keys while mode 1007 is on (the default); otherwise it scrolls the stream's view. |
+| `select` | object | A step of a selection gesture: `action` (`press`, `drag`, `release`, `all`, `clear`), the cell under the pointer as `col` and `row` in screen coordinates, the pointer `x`, `y` from the grid's corner with `cell_width` and `cell_height` in the client's units, `extend` (Shift: the press extends the selection) and `rect` (Option or Alt: a block). libghostty-vt decides what is selected: a click selects nothing, two a word, three a line, a drag from the half of the cell it started in. The selection is the pane's; frames carry it. |
+| `paths` | list of strings | Files dropped on the view, pasted as their paths: characters a shell reads specially escaped with a backslash, separated by spaces. |
 
 Result: `{}`. The input is the person's, as binary input frames are: it
 goes through the same checks (section 4, Panes and who drives them) and
-into the pane's input log.
+into the pane's input log. A key, text, paste or paths that writes to the
+program brings a scrolled view back to the live screen.
 
 #### render.text
 
@@ -1369,6 +1373,30 @@ oldest row of the scrollback the pane keeps), `rect` (optional, a block).
 Result: `text`, the cells between the two points, inclusive, as a copy
 reads them: wrapped rows joined, trailing spaces trimmed. Secrets given
 to the pane are masked.
+
+#### render.copy
+
+`channel`. Result: `text`, the pane's selection as `render.text` reads
+it; empty when nothing is selected.
+
+#### render.find
+
+`channel`, `needle` (ASCII letters match in any case; empty ends the
+search), `step` (optional: 1 selects the next match toward older output,
+-1 the one toward newer, 0 keeps the selected one). Result: `count`, the
+matches in the screen and its scrollback, and `selected`, the selected
+one's index from the newest, or -1. The view scrolls to bring the
+selected match to its middle when it is not on screen. While the search
+runs, the stream's frames carry the count and the matches on their rows
+(RENDERING.md, section Find), as output comes too.
+
+#### render.link
+
+`channel`, `at` (a cell in screen coordinates). Result: `uri`, `from`
+and `to` (the link's first and last cells, in screen coordinates), or
+`{}` when there is no link on the cell: a program's hyperlink (OSC 8),
+or a URL written in the text (http, https, file), which may run over
+soft-wrapped rows and does not take the punctuation after it.
 
 ## 5. Streams and binary frames
 

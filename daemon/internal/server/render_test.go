@@ -181,9 +181,10 @@ func TestRenderScrollback(t *testing.T) {
 	if !strings.Contains(text, "line50") || strings.Contains(text, "line100") {
 		t.Errorf("scrolled 50 up:\n%s", text)
 	}
-	// Output while scrolled does not move the view.
+	// Output while scrolled does not move the view (input sent by
+	// another client than this stream's, which would bring it back).
 	top := r.scr.History - r.scr.Offset
-	st.Events(ctx(t), []proto.RenderEvent{{Text: ptr("more\r")}})
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "more\r", "mode": "raw"}}})
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && r.scr.History-r.scr.Offset == top && r.scr.Offset == 50 {
 		r.next(100 * time.Millisecond)

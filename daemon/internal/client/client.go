@@ -466,3 +466,24 @@ func (s *Stream) Text(ctx context.Context, from, to proto.RenderPoint, rect bool
 	err := s.c.Call(ctx, "render.text", map[string]any{"channel": s.Channel, "from": from, "to": to, "rect": rect}, &r)
 	return r.Text, err
 }
+
+// Copy reads the pane's selection as a copy reads it.
+func (s *Stream) Copy(ctx context.Context) (string, error) {
+	var r proto.RenderTextResult
+	err := s.c.Call(ctx, "render.copy", map[string]any{"channel": s.Channel}, &r)
+	return r.Text, err
+}
+
+// Find searches the pane for needle on this stream (render.find).
+func (s *Stream) Find(ctx context.Context, needle string, step int) (proto.RenderFindResult, error) {
+	var r proto.RenderFindResult
+	err := s.c.Call(ctx, "render.find", map[string]any{"channel": s.Channel, "needle": needle, "step": step}, &r)
+	return r, err
+}
+
+// Link reads the link on a cell in screen coordinates.
+func (s *Stream) Link(ctx context.Context, at proto.RenderPoint) (proto.RenderLinkResult, error) {
+	var r proto.RenderLinkResult
+	err := s.c.Call(ctx, "render.link", map[string]any{"channel": s.Channel, "at": at}, &r)
+	return r, err
+}

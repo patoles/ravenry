@@ -141,6 +141,15 @@
         },
         {
           "$ref": "#/$defs/request.render.text"
+        },
+        {
+          "$ref": "#/$defs/request.render.copy"
+        },
+        {
+          "$ref": "#/$defs/request.render.find"
+        },
+        {
+          "$ref": "#/$defs/request.render.link"
         }
       ]
     },
@@ -338,6 +347,15 @@
         },
         {
           "$ref": "#/$defs/result.render.text"
+        },
+        {
+          "$ref": "#/$defs/result.render.copy"
+        },
+        {
+          "$ref": "#/$defs/result.render.find"
+        },
+        {
+          "$ref": "#/$defs/result.render.link"
         }
       ]
     },
@@ -6439,6 +6457,92 @@
         "focus": {
           "type": "boolean",
           "description": "The client's view gained (true) or lost focus; reported when the program asked (mode 1004)."
+        },
+        "wheel": {
+          "type": "object",
+          "description": "A wheel or trackpad movement. The daemon sends it to the program when it asked for the mouse, as arrow keys on the alternate screen (mode 1007), and otherwise scrolls the stream's view.",
+          "properties": {
+            "rows": {
+              "type": "number",
+              "description": "Rows up (positive) or down; a fraction of a row from a trackpad."
+            },
+            "mods": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 63
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "cell_width": {
+              "type": "number"
+            },
+            "cell_height": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "rows"
+          ],
+          "additionalProperties": false
+        },
+        "select": {
+          "type": "object",
+          "description": "A step of a selection gesture; libghostty-vt decides what is selected (a click, two a word, three a line, a drag, a block).",
+          "properties": {
+            "action": {
+              "enum": [
+                "press",
+                "drag",
+                "release",
+                "all",
+                "clear"
+              ]
+            },
+            "col": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "row": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Screen coordinates: row 0 is the oldest scrollback row kept."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "cell_width": {
+              "type": "number"
+            },
+            "cell_height": {
+              "type": "number"
+            },
+            "extend": {
+              "type": "boolean",
+              "description": "Shift: the press extends the selection."
+            },
+            "rect": {
+              "type": "boolean",
+              "description": "Option or Alt: a block."
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files dropped on the view: pasted as their paths, quoted for a shell, separated by spaces."
         }
       },
       "minProperties": 1,
@@ -6719,6 +6823,216 @@
           "required": [
             "text"
           ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.render.copy": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "render.copy"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel"
+      ],
+      "additionalProperties": false,
+      "description": "The pane's selection as a copy reads it: soft-wrapped rows joined, trailing spaces trimmed."
+    },
+    "result.render.copy": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "render.copy"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.render.find": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "render.find"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "needle": {
+          "type": "string",
+          "description": "What to find, ASCII letters in any case; empty ends the search."
+        },
+        "step": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 1,
+          "description": "1 the next match toward older output, -1 toward newer, 0 keeps the selected one."
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel",
+        "needle"
+      ],
+      "additionalProperties": false,
+      "description": "Searches the pane's screen and scrollback for a render stream: its frames carry the matches on their rows, and the view scrolls to the selected one."
+    },
+    "result.render.find": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "render.find"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "selected": {
+              "type": "integer",
+              "minimum": -1
+            }
+          },
+          "required": [
+            "count",
+            "selected"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "method",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "request.render.link": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "render.link"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "at": {
+          "$ref": "#/$defs/RenderPoint"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "channel",
+        "at"
+      ],
+      "additionalProperties": false,
+      "description": "The link on a cell: a hyperlink (OSC 8) or a URL written in the text (http, https, file)."
+    },
+    "result.render.link": {
+      "type": "object",
+      "properties": {
+        "v": {
+          "$ref": "#/$defs/Version"
+        },
+        "type": {
+          "const": "result"
+        },
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "method": {
+          "const": "render.link"
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "uri": {
+              "type": "string"
+            },
+            "from": {
+              "$ref": "#/$defs/RenderPoint"
+            },
+            "to": {
+              "$ref": "#/$defs/RenderPoint"
+            }
+          },
           "additionalProperties": false
         }
       },

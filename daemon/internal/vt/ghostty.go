@@ -46,6 +46,9 @@ type ghostty struct {
 	linkTop int
 	mouse   *gt.MouseEncoder
 	mev     *gt.MouseEvent
+
+	// The selection gesture (select.go).
+	sel selState
 }
 
 // snapshotExtras restores everything except the palette: a client keeps
@@ -678,6 +681,12 @@ func (s *ghostty) EncodePaste(text []byte) ([]byte, error) {
 }
 
 func (s *ghostty) Close() {
+	if s.sel.g != nil {
+		for _, e := range s.sel.ev {
+			e.Close()
+		}
+		s.sel.g.Close(s.t)
+	}
 	if s.hs != nil {
 		s.hs.Close()
 	}

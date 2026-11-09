@@ -289,6 +289,13 @@ type RenderSub struct {
 	histWrap []bool
 	histDue  bool
 
+	// The wheel's rows not scrolled yet (a fraction of a row), a
+	// search on this stream, and the selection and search last sent.
+	wheel    float64
+	find     *vt.Find
+	sentSel  *rframe.Selection
+	sentFind *rframe.Find
+
 	stats RenderStats
 }
 
@@ -363,6 +370,111 @@ func (s *RenderSub) Scroll(offset int) {
 	s.signal()
 }
 
+// ScrollBy scrolls the view rows up into the scrollback (down when
+// negative), within it.
+func (s *RenderSub) ScrollBy(rows int) {
+	p := s.p
+	p.mu.Lock()
+	p.renderUpdate()
+	hist := p.rview.info.History
+	off := 0
+	if s.scrolled {
+		off = max(0, hist-s.top)
+	}
+	p.mu.Unlock()
+	s.Scroll(max(0, min(hist, off+rows)))
+}
+
+// Wheel takes a wheel or trackpad movement of rows (a fraction of a row
+// on a trackpad; up is positive) and returns the whole rows to scroll,
+// keeping the rest for the next movement. A change of direction drops
+// the rest.
+func (s *RenderSub) Wheel(rows float64) int {
+	s.p.mu.Lock()
+	defer s.p.mu.Unlock()
+	if (rows > 0) != (s.wheel > 0) && s.wheel != 0 {
+		s.wheel = 0
+	}
+	s.wheel += rows
+	n := int(s.wheel)
+	s.wheel -= float64(n)
+	return n
+}
+
+// Modes are the program's modes as the stream last read them (the
+// frame header's modes).
+func (s *RenderSub) Modes() uint16 {
+	s.p.mu.Lock()
+	defer s.p.mu.Unlock()
+	return s.p.rview.info.Modes
+}
+
+// Scrolled says whether the view is in the scrollback.
+func (s *RenderSub) Scrolled() bool {
+	s.p.mu.Lock()
+	defer s.p.mu.Unlock()
+	return s.scrolled
+}
+
+// Find searches the screen and its scrollback for needle (ASCII letters
+// in any case); step 1 selects the next match toward older output, -1
+// the one toward newer, 0 keeps the selected one. The view scrolls to
+// show the selected match. An empty needle ends the search. It returns
+// the number of matches and the selected one's index from the newest
+// (-1 for none).
+func (s *RenderSub) Find(needle string, step int) (count, selected int, err error) {
+	p := s.p
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return 0, -1, ErrClosed
+	}
+	if needle == "" {
+		if s.find != nil {
+			s.find.Close()
+			s.find = nil
+		}
+		p.mu.Unlock()
+		s.signal()
+		return 0, -1, nil
+	}
+	if s.find == nil {
+		if s.find, err = p.screen.NewFind(); err != nil {
+			p.mu.Unlock()
+			return 0, -1, err
+		}
+	}
+	if err = s.find.SetNeedle(needle); err == nil {
+		err = s.find.Update()
+	}
+	if err != nil {
+		p.mu.Unlock()
+		return 0, -1, err
+	}
+	var m vt.Range
+	var ok bool
+	if step != 0 {
+		if m, ok, err = s.find.Step(step); err != nil {
+			p.mu.Unlock()
+			return 0, -1, err
+		}
+	}
+	count, selected, _, _, err = s.find.Matches(0, 0)
+	p.renderUpdate()
+	hist, rows := p.rview.info.History, p.rview.rows
+	top := hist
+	if s.scrolled {
+		top = s.top
+	}
+	p.mu.Unlock()
+	if ok && (m.Y0 < top || m.Y1 >= top+rows) {
+		// Bring the match to the middle of the view.
+		s.Scroll(max(0, min(hist, hist-(m.Y0-rows/2))))
+	}
+	s.signal()
+	return count, selected, err
+}
+
 // Redraw makes the next frame carry every row.
 func (s *RenderSub) Redraw() {
 	s.p.mu.Lock()
@@ -383,6 +495,10 @@ func (s *RenderSub) Close() {
 	s.p.mu.Lock()
 	delete(s.p.rsubs, s)
 	s.closed = true
+	if s.find != nil {
+		s.find.Close()
+		s.find = nil
+	}
 	s.p.mu.Unlock()
 	s.signal()
 }
@@ -544,6 +660,36 @@ func (s *RenderSub) frame(now time.Time) []byte {
 		c := info.Colors
 		f.Colors, s.sentColors = &c, &c
 	}
+	// The selection, and the search's matches on the view's rows.
+	var sel rframe.Selection
+	if r, ok := p.screen.Selection(); ok {
+		sel = rframe.Selection{Set: true, Range: r}
+	}
+	if full || s.sentSel == nil || *s.sentSel != sel {
+		f.Selection, s.sentSel = &sel, &sel
+	}
+	if s.find != nil || s.sentFind != nil && s.sentFind.Active {
+		fd := rframe.Find{Selected: -1}
+		if s.find != nil {
+			top := info.History
+			if s.scrolled {
+				top = s.top
+			}
+			if s.find.Update() == nil {
+				count, index, cur, in, err := s.find.Matches(top, v.rows)
+				if err == nil {
+					fd = rframe.Find{Active: true, Count: count, Selected: index, Matches: in}
+					if cur != nil && cur.Y1 >= top && cur.Y0 < top+v.rows {
+						fd.Current = cur
+						fd.Matches = slices.DeleteFunc(fd.Matches, func(r vt.Range) bool { return r == *cur })
+					}
+				}
+			}
+		}
+		if full || s.sentFind == nil || !sameFind(*s.sentFind, fd) {
+			f.Find, s.sentFind = &fd, &fd
+		}
+	}
 	if full {
 		clear(s.sentLinks)
 	}
@@ -555,7 +701,7 @@ func (s *RenderSub) frame(now time.Time) []byte {
 			}
 		}
 	}
-	changed := full || len(rows) > 0 || f.Title != nil || f.Colors != nil ||
+	changed := full || len(rows) > 0 || f.Title != nil || f.Colors != nil || f.Selection != nil || f.Find != nil ||
 		f.Cursor != s.sentInfo.Cursor || f.Modes != s.sentInfo.Modes ||
 		f.History != s.sentInfo.History || f.Offset != s.sentInfo.Offset || f.Bell != s.sentBell
 	if !changed {
@@ -576,6 +722,12 @@ func (s *RenderSub) frame(now time.Time) []byte {
 		s.stats.Full++
 	}
 	return b
+}
+
+func sameFind(a, b rframe.Find) bool {
+	return a.Active == b.Active && a.Count == b.Count && a.Selected == b.Selected &&
+		(a.Current == nil) == (b.Current == nil) && (a.Current == nil || *a.Current == *b.Current) &&
+		slices.Equal(a.Matches, b.Matches)
 }
 
 func sameColors(a, b vt.RenderColors) bool {
@@ -616,6 +768,43 @@ func (p *Pane) TextRange(x0, y0, x1, y1 int, rect bool) (string, error) {
 		return "", ErrClosed
 	}
 	return p.screen.TextRange(x0, y0, x1, y1, rect)
+}
+
+// Select applies a step of a selection gesture to the pane's screen; the
+// render streams send the new selection.
+func (p *Pane) Select(e vt.SelectEvent) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return ErrClosed
+	}
+	if err := p.screen.Select(e); err != nil {
+		return err
+	}
+	for s := range p.rsubs {
+		s.signal()
+	}
+	return nil
+}
+
+// SelectionText is the pane's selection as a copy reads it.
+func (p *Pane) SelectionText() (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return "", ErrClosed
+	}
+	return p.screen.SelectionText()
+}
+
+// LinkAt is the link on a cell, in screen coordinates.
+func (p *Pane) LinkAt(x, y int) (vt.Link, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return vt.Link{}, false
+	}
+	return p.screen.LinkAt(x, y)
 }
 
 // EncodeInput encodes a client's input event with the screen's encoders

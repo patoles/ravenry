@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/coder/websocket"
 
@@ -172,13 +173,14 @@ func (c *conn) renderInput(id uint64, data []byte) {
 	var out []byte
 	for i, ev := range r.Events {
 		n := 0
-		for _, set := range []bool{ev.Key != nil, ev.Mouse != nil, ev.Text != nil, ev.Paste != nil, ev.Focus != nil} {
+		for _, set := range []bool{ev.Key != nil, ev.Mouse != nil, ev.Text != nil, ev.Paste != nil, ev.Focus != nil,
+			ev.Wheel != nil, ev.Select != nil, ev.Paths != nil} {
 			if set {
 				n++
 			}
 		}
 		if n != 1 {
-			c.failErr(id, bad("events[%d]: exactly one of key, mouse, text, paste, focus", i))
+			c.failErr(id, bad("events[%d]: exactly one of key, mouse, text, paste, focus, wheel, select, paths", i))
 			return
 		}
 		var b []byte
@@ -210,10 +212,29 @@ func (c *conn) renderInput(id uint64, data []byte) {
 		case ev.Focus != nil:
 			focused := *ev.Focus
 			b, err = st.p.EncodeInput(func(s vt.Screen) ([]byte, error) { return s.EncodeFocus(focused) })
+		case ev.Wheel != nil:
+			b, err = wheel(st, ev.Wheel)
+		case ev.Select != nil:
+			sl := ev.Select
+			switch sl.Action {
+			case "press", "drag", "release", "all", "clear":
+			default:
+				c.failErr(id, bad("events[%d]: select action must be press, drag, release, all or clear", i))
+				return
+			}
+			err = st.p.Select(vt.SelectEvent{Action: sl.Action, X: sl.Col, Y: sl.Row, PX: sl.X, PY: sl.Y,
+				CellWidth: sl.CellWidth, CellHeight: sl.CellHeight, Extend: sl.Extend, Rect: sl.Rect})
+		case ev.Paths != nil:
+			text := []byte(quotePaths(ev.Paths))
+			b, err = st.p.EncodeInput(func(s vt.Screen) ([]byte, error) { return s.EncodePaste(text) })
 		}
 		if err != nil {
 			c.failErr(id, bad("events[%d]: %v", i, err))
 			return
+		}
+		if len(b) > 0 && (ev.Key != nil || ev.Text != nil || ev.Paste != nil || ev.Paths != nil) && st.rsub.Scrolled() {
+			// Typing or pasting brings the view back to the live screen.
+			st.rsub.Scroll(0)
 		}
 		out = append(out, b...)
 	}
@@ -221,4 +242,142 @@ func (c *conn) renderInput(id uint64, data []byte) {
 	if len(out) > 0 {
 		c.keys(st, out)
 	}
+}
+
+// wheel takes a wheel movement as Ghostty does: to the program when it
+// asked for the mouse, as arrow keys on the alternate screen (mode 1007),
+// otherwise it scrolls the stream's view. It returns the bytes for the
+// program.
+func wheel(st *stream, w *proto.RenderWheel) ([]byte, error) {
+	rows := st.rsub.Wheel(w.Rows)
+	if rows == 0 {
+		return nil, nil
+	}
+	n := min(abs(rows), 20)
+	modes := st.rsub.Modes()
+	var out []byte
+	switch {
+	case modes&vt.ModeMouse != 0:
+		button := "wheel_up"
+		if rows < 0 {
+			button = "wheel_down"
+		}
+		me := vt.MouseEvent{Action: "press", Button: button, Mods: uint8(w.Mods & 15), X: w.X, Y: w.Y,
+			CellWidth: w.CellWidth, CellHeight: w.CellHeight}
+		for range n {
+			b, err := st.p.EncodeInput(func(s vt.Screen) ([]byte, error) { return s.EncodeMouse(me) })
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, b...)
+		}
+	case modes&vt.ModeAltScreen != 0:
+		if modes&vt.ModeAltScroll == 0 {
+			return nil, nil
+		}
+		code := "ArrowUp"
+		if rows < 0 {
+			code = "ArrowDown"
+		}
+		for range n {
+			b, err := st.p.EncodeInput(func(s vt.Screen) ([]byte, error) {
+				return s.EncodeKeyEvent(vt.KeyEvent{Code: code, Action: "press"})
+			})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, b...)
+		}
+	default:
+		st.rsub.ScrollBy(rows)
+	}
+	return out, nil
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// quotePaths joins file paths for a shell, each quoted: characters a
+// shell reads specially get a backslash, as Ghostty and Terminal do.
+func quotePaths(paths []string) string {
+	var b strings.Builder
+	for i, p := range paths {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		for _, r := range p {
+			if r < 0x80 && strings.ContainsRune(" \t\\'\"`$&|;<>()[]{}*?!#~", r) {
+				b.WriteByte('\\')
+			}
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func (c *conn) renderCopy(id uint64, data []byte) {
+	var r proto.RenderChannelRequest
+	if err := decode(data, &r); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	st, err := c.renderChannel(r.Channel)
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	text, err := st.p.SelectionText()
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	text, _ = inputText(st.p, text)
+	c.reply(id, "render.copy", proto.RenderTextResult{Text: text})
+}
+
+func (c *conn) renderFind(id uint64, data []byte) {
+	var r proto.RenderFindRequest
+	if err := decode(data, &r); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	st, err := c.renderChannel(r.Channel)
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	if r.Step < -1 || r.Step > 1 {
+		c.failErr(id, bad("step must be -1, 0 or 1"))
+		return
+	}
+	count, sel, err := st.rsub.Find(r.Needle, r.Step)
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	c.reply(id, "render.find", proto.RenderFindResult{Count: count, Selected: sel})
+}
+
+func (c *conn) renderLink(id uint64, data []byte) {
+	var r proto.RenderLinkRequest
+	if err := decode(data, &r); err != nil {
+		c.failErr(id, err)
+		return
+	}
+	st, err := c.renderChannel(r.Channel)
+	if err != nil {
+		c.failErr(id, err)
+		return
+	}
+	l, ok := st.p.LinkAt(r.At.X, r.At.Y)
+	if !ok {
+		c.reply(id, "render.link", proto.RenderLinkResult{})
+		return
+	}
+	c.reply(id, "render.link", proto.RenderLinkResult{URI: l.URI,
+		From: &proto.RenderPoint{X: l.Span.X0, Y: l.Span.Y0}, To: &proto.RenderPoint{X: l.Span.X1, Y: l.Span.Y1}})
 }

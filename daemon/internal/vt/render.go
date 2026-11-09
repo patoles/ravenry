@@ -66,6 +66,9 @@ const (
 	// ModeAppCursor: application cursor keys (DECCKM), for a client that
 	// wants to know; the daemon encodes keys itself.
 	ModeAppCursor
+	// ModeAltScroll: on the alternate screen, the wheel is arrow keys
+	// (mode 1007, on unless the program turned it off), as in Ghostty.
+	ModeAltScroll
 )
 
 // RenderColors are the colours a program set. A client draws with its own
@@ -111,6 +114,7 @@ var (
 	modeBracketed   = gt.NewMode(2004, false)
 	modeAppCursor   = gt.NewMode(1, false)
 	modeSync        = gt.NewMode(2026, false)
+	modeAltScroll   = gt.NewMode(1007, false)
 )
 
 // onRenderHold is libghostty's render hold callback: synchronized output
@@ -253,6 +257,7 @@ func (s *ghostty) renderInfo(rs *gt.RenderState, offset int) (RenderInfo, error)
 	mode(modeFocus, ModeFocus)
 	mode(modeBracketed, ModeBracketedPaste)
 	mode(modeAppCursor, ModeAppCursor)
+	mode(modeAltScroll, ModeAltScroll)
 	if scr, err := s.t.ActiveScreen(); err == nil && scr == gt.ScreenAlternate {
 		info.Modes |= ModeAltScreen
 	}

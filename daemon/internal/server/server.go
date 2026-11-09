@@ -649,6 +649,9 @@ func init() {
 		"render.scroll":     (*conn).renderScroll,
 		"render.input":      (*conn).renderInput,
 		"render.text":       (*conn).renderText,
+		"render.copy":       (*conn).renderCopy,
+		"render.find":       (*conn).renderFind,
+		"render.link":       (*conn).renderLink,
 	}
 }
 

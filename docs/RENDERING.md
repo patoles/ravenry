@@ -38,8 +38,11 @@ it. The Go reference decoder is `daemon/internal/rframe`.
 | `ack` {channel, frame} | The client drew the frames up to `frame` (a frame's `seq`). |
 | `pane.resize` {pane, cols, rows} | The client's grid size changed. |
 | `render.scroll` {channel, offset} | Show the screen `offset` rows up into the scrollback; 0 is the live screen. |
-| `render.input` {channel, events} | Keys, mouse, committed text, paste, focus (below). |
+| `render.input` {channel, events} | Keys, mouse, committed text, paste, focus, the wheel, selection gestures, dropped files (below). |
 | `render.text` {channel, from, to, rect?} | The text between two cells in screen coordinates, as a copy. |
+| `render.copy` {channel} | The pane's selection, as a copy. |
+| `render.find` {channel, needle, step?} | Find in the screen and scrollback; the frames carry the matches. |
+| `render.link` {channel, at} | The link on a cell: a hyperlink (OSC 8) or a URL in the text. |
 | `pane.unsubscribe` {channel} | Ends the stream. |
 
 ## Frames
@@ -62,7 +65,7 @@ stream. Integers are big-endian.
 | 20 to 21 | cursor y | |
 | 22 | cursor flags | 1 in view (the cursor is on these rows; not when scrolled away), 2 visible (the program shows it), 4 blink, 8 wide tail (it sits on the second half of a wide character), 16 password (the program reads a password; a client shows its secure input). |
 | 23 | cursor style | 0 block, 1 bar, 2 underline, 3 hollow block. |
-| 24 to 25 | modes | 1 mouse (the program reports clicks and the wheel: send them, do not select), 2 mouse drag (motion with a button down), 4 mouse motion (all motion), 8 bracketed paste, 16 alternate screen (no scrollback to scroll), 32 focus reports, 64 application cursor keys. |
+| 24 to 25 | modes | 1 mouse (the program reports clicks and the wheel: send them, do not select), 2 mouse drag (motion with a button down), 4 mouse motion (all motion), 8 bracketed paste, 16 alternate screen (no scrollback to scroll), 32 focus reports, 64 application cursor keys, 128 alternate scroll (mode 1007: on the alternate screen the wheel is arrow keys). |
 | 26 to 29 | bell | How many times the bell rang in this pane; a client rings when it grows. |
 
 ### Sections
@@ -77,6 +80,13 @@ does not know.
 | 2 | colours | 1 byte of flags (1 foreground, 2 background, 4 cursor colour set by the program, OSC 10, 11, 12), the three colours (3 bytes each, RGB, meaningful when set), a count (2 bytes), then that many changed palette entries: index (1), RGB (3). Only what the program changed (OSC 4); the client keeps its own theme for the rest. In a full frame and when they change. |
 | 3 | links | A count (2), then entries: id (2), length (2), URI (UTF-8). The hyperlinks (OSC 8) the rows of this frame use that this stream did not send before. A client keeps them by id for the stream's life. |
 | 4 | rows | A count (2), then rows: y (2), flags (1: bit 1 the row soft-wraps onto the next), length (4), the row's data. |
+| 5 | selection | Flags (1: 1 there is a selection, 2 it is a block), then a range. In a full frame and when it changes. |
+| 6 | find | Flags (1: 1 a search runs, 2 the selected match is on these rows), the count of matches (4), the selected one's index from the newest (4, -1 for none), the selected match's range when flag 2 is set, then a count (2) and the ranges of the other matches on these rows. In a full frame and when it changes, while a search runs and once when it ends. |
+
+A range is two cells in screen coordinates (row 0 is the oldest row of
+the scrollback), inclusive, in reading order: x0 (2), y0 (4), x1 (2), y1
+(4). A block covers columns x0 to x1 of each row; otherwise the range runs
+from x0 on its first row to x1 on its last, whole rows between.
 
 ### A row's data
 
@@ -177,26 +187,46 @@ These are the parts that are the platform's, and nothing else:
    input method (dead keys, Japanese, emoji picker) is sent as `text` when
    committed; the marked text being composed is drawn by the client at the
    cursor and not sent.
-6. **Mouse.** When `modes` has mouse, clicks and wheel steps (and motion,
-   when asked) as `render.input` mouse events with the position and cell
-   size in the client's units; the daemon encodes them (X10, SGR, SGR
-   pixels). Otherwise the wheel scrolls (`render.scroll`) and clicks
-   select.
-7. **Selection and copy.** On the cells the client has. A selection that
-   goes beyond the rows on screen is read with `render.text` (screen
-   coordinates: the frame's `history - offset` is the screen row of the
-   view's first row).
-8. **Paste.** `render.input` paste: the daemon brackets it when the
-   program asked (mode 2004) and makes it safe otherwise.
-9. **Focus.** `render.input` focus true and false; the daemon reports it
+6. **Mouse and wheel.** When `modes` has mouse, clicks (and motion, when
+   asked) as `render.input` mouse events with the position and cell size
+   in the client's units; the daemon encodes them (X10, SGR, SGR pixels).
+   Every wheel or trackpad movement goes as a `wheel` event in rows (a
+   trackpad's points divided by the cell's height, momentum included):
+   the daemon decides, as Ghostty does, whether it goes to the program,
+   becomes arrow keys on the alternate screen, or scrolls the view. The
+   client draws a scrollbar from `history`, `offset` and `rows`.
+7. **Selection and copy.** Without mouse reporting (or with Shift), a
+   press, drags and the release as `select` events with the cell under
+   the pointer in screen coordinates (the frame's `history - offset` is
+   the screen row of the view's first row) and the pointer within the
+   grid; Shift as `extend`, Option as `rect`. The daemon (libghostty-vt's
+   selection gesture) decides what is selected, the frames say what it
+   is (section 5), the client draws it, and `render.copy` reads it.
+   `render.text` reads any other range.
+8. **Find and links.** `render.find` with what the person typed and a
+   step; the client draws the matches the frames carry (section 6).
+   `render.link` on the cell under the pointer while the person holds
+   the platform's link modifier: the client underlines from `from` to
+   `to` and opens `uri` on a click.
+9. **Paste.** `render.input` paste: the daemon brackets it when the
+   program asked (mode 2004) and makes it safe otherwise. Files dropped
+   on the view as `paths`; the daemon quotes them.
+10. **Focus.** `render.input` focus true and false; the daemon reports it
    when the program asked (mode 1004).
 
 A Linux client (GTK4 with a GL area, or a Vulkan surface) and a Windows
 one (Direct3D 11 or 12 with DirectWrite for glyphs) implement the same
-nine parts; none of them needs a VT parser, a key encoder or a mouse
-encoder.
+ten parts; none of them needs a VT parser, a key encoder, a mouse
+encoder, a selection model, a search or a link detector.
+
+The selection is the pane's (libghostty-vt keeps one per screen): two
+clients that draw the same pane see the same selection. A search is the
+stream's.
 
 ## What the daemon does not do yet
+
+- Find ignores the case of ASCII letters and has no match-case or regular
+  expression option (libghostty-vt's search).
 
 - Images (Kitty graphics, sixel) are not in frames.
 - Blink: the cursor's blink flag is sent; text blink is an attribute the

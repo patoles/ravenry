@@ -895,6 +895,39 @@ type RenderEvent struct {
 	Paste *string `json:"paste,omitempty"`
 	// Focus: the client's view gained (true) or lost focus.
 	Focus *bool `json:"focus,omitempty"`
+	// Wheel: a wheel or trackpad movement.
+	Wheel *RenderWheel `json:"wheel,omitempty"`
+	// Select: a step of a selection gesture.
+	Select *RenderSelect `json:"select,omitempty"`
+	// Paths: files dropped on the view, pasted as their paths, quoted.
+	Paths []string `json:"paths,omitempty"`
+}
+
+// RenderWheel is a wheel or trackpad movement: Rows up (positive) or
+// down, a fraction of a row on a trackpad; the pointer as for a mouse
+// event.
+type RenderWheel struct {
+	Rows       float64 `json:"rows"`
+	Mods       int     `json:"mods,omitempty"`
+	X          float64 `json:"x"`
+	Y          float64 `json:"y"`
+	CellWidth  float64 `json:"cell_width"`
+	CellHeight float64 `json:"cell_height"`
+}
+
+// RenderSelect is a step of a selection gesture: the cell under the
+// pointer in screen coordinates (Col, Row), the pointer from the grid's
+// corner and the cell's size in the client's units.
+type RenderSelect struct {
+	Action     string  `json:"action"`
+	Col        int     `json:"col,omitempty"`
+	Row        int     `json:"row,omitempty"`
+	X          float64 `json:"x,omitempty"`
+	Y          float64 `json:"y,omitempty"`
+	CellWidth  float64 `json:"cell_width,omitempty"`
+	CellHeight float64 `json:"cell_height,omitempty"`
+	Extend     bool    `json:"extend,omitempty"`
+	Rect       bool    `json:"rect,omitempty"`
 }
 
 type RenderKey struct {
@@ -936,4 +969,36 @@ type RenderPoint struct {
 
 type RenderTextResult struct {
 	Text string `json:"text"`
+}
+
+type RenderChannelRequest struct {
+	Envelope
+	Channel *uint32 `json:"channel"`
+}
+
+type RenderFindRequest struct {
+	Envelope
+	Channel *uint32 `json:"channel"`
+	Needle  string  `json:"needle"`
+	// Step: 1 the next match toward older output, -1 toward newer, 0
+	// keeps the selected one.
+	Step int `json:"step,omitempty"`
+}
+
+type RenderFindResult struct {
+	Count    int `json:"count"`
+	Selected int `json:"selected"`
+}
+
+type RenderLinkRequest struct {
+	Envelope
+	Channel *uint32     `json:"channel"`
+	At      RenderPoint `json:"at"`
+}
+
+// RenderLinkResult: no uri when there is no link on the cell.
+type RenderLinkResult struct {
+	URI  string       `json:"uri,omitempty"`
+	From *RenderPoint `json:"from,omitempty"`
+	To   *RenderPoint `json:"to,omitempty"`
 }

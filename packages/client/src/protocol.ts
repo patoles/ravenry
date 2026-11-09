@@ -433,7 +433,22 @@ export type RenderEvent =
     }
   | { text: string }
   | { paste: string }
-  | { focus: boolean };
+  | { focus: boolean }
+  | { wheel: { rows: number; mods?: number; x?: number; y?: number; cell_width?: number; cell_height?: number } }
+  | {
+      select: {
+        action: 'press' | 'drag' | 'release' | 'all' | 'clear';
+        col?: number;
+        row?: number;
+        x?: number;
+        y?: number;
+        cell_width?: number;
+        cell_height?: number;
+        extend?: boolean;
+        rect?: boolean;
+      };
+    }
+  | { paths: string[] };
 
 /** A cell in screen coordinates: row 0 is the oldest scrollback row kept. */
 export interface RenderPoint {
@@ -572,6 +587,9 @@ export interface Methods {
   'render.scroll': { params: { channel: number; offset: number }; result: Record<string, never> };
   'render.input': { params: { channel: number; events: RenderEvent[] }; result: Record<string, never> };
   'render.text': { params: { channel: number; from: RenderPoint; to: RenderPoint; rect?: boolean }; result: { text: string } };
+  'render.copy': { params: { channel: number }; result: { text: string } };
+  'render.find': { params: { channel: number; needle: string; step?: -1 | 0 | 1 }; result: { count: number; selected: number } };
+  'render.link': { params: { channel: number; at: RenderPoint }; result: { uri?: string; from?: RenderPoint; to?: RenderPoint } };
   'agent.report': {
     params: {
       pane?: PaneId;

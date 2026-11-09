@@ -44,6 +44,11 @@ const (
 	TagColors = 2
 	TagLinks  = 3
 	TagRows   = 4
+	// TagSelection: the selection, in screen coordinates.
+	TagSelection = 5
+	// TagFind: a search's count, its selected match and the matches on
+	// the frame's rows.
+	TagFind = 6
 )
 
 // Frame is one render frame.
@@ -63,6 +68,30 @@ type Frame struct {
 	Links []Link
 	// Lines are the rows that changed (all of them in a full frame).
 	Lines []Row
+	// Selection is sent in a full frame and when it changes; Set false
+	// is no selection.
+	Selection *Selection
+	// Find is sent in a full frame and when it changes, while a search
+	// runs on the stream; Active false ends it.
+	Find *Find
+}
+
+// Selection is the pane's selection.
+type Selection struct {
+	Set   bool
+	Range vt.Range
+}
+
+// Find is a search's state on a stream.
+type Find struct {
+	Active bool
+	// Count is the number of matches; Selected the index of the one
+	// selected, from the newest, or -1.
+	Count, Selected int
+	// Current is the selected match, when it is on the frame's rows.
+	// Matches are the others on the frame's rows.
+	Current *vt.Range
+	Matches []vt.Range
 }
 
 // Link is a hyperlink id and its URI.
@@ -143,6 +172,47 @@ func (f *Frame) Append(dst []byte) []byte {
 				b = be.AppendUint16(b, l.ID)
 				b = be.AppendUint16(b, uint16(len(uri)))
 				b = append(b, uri...)
+			}
+			return b
+		})
+	}
+	appendRange := func(b []byte, r vt.Range) []byte {
+		b = be.AppendUint16(b, uint16(max(r.X0, 0)))
+		b = be.AppendUint32(b, uint32(max(r.Y0, 0)))
+		b = be.AppendUint16(b, uint16(max(r.X1, 0)))
+		return be.AppendUint32(b, uint32(max(r.Y1, 0)))
+	}
+	if sel := f.Selection; sel != nil {
+		section(TagSelection, func(b []byte) []byte {
+			var fl uint8
+			if sel.Set {
+				fl |= 1
+			}
+			if sel.Range.Rect {
+				fl |= 2
+			}
+			return appendRange(append(b, fl), sel.Range)
+		})
+	}
+	if fd := f.Find; fd != nil {
+		section(TagFind, func(b []byte) []byte {
+			var fl uint8
+			if fd.Active {
+				fl |= 1
+			}
+			if fd.Current != nil {
+				fl |= 2
+			}
+			b = append(b, fl)
+			b = be.AppendUint32(b, uint32(fd.Count))
+			b = be.AppendUint32(b, uint32(int32(fd.Selected)))
+			if fd.Current != nil {
+				b = appendRange(b, *fd.Current)
+			}
+			n := min(len(fd.Matches), 0xffff)
+			b = be.AppendUint16(b, uint16(n))
+			for _, m := range fd.Matches[:n] {
+				b = appendRange(b, m)
 			}
 			return b
 		})
@@ -238,6 +308,39 @@ func Decode(b []byte) (*Frame, error) {
 				f.Links = append(f.Links, Link{ID: id, URI: string(q[4 : 4+l])})
 				q = q[4+l:]
 			}
+		case TagSelection:
+			if len(body) < 13 {
+				return nil, errShort
+			}
+			r := readRange(body[1:])
+			r.Rect = body[0]&2 != 0
+			f.Selection = &Selection{Set: body[0]&1 != 0, Range: r}
+		case TagFind:
+			if len(body) < 11 {
+				return nil, errShort
+			}
+			fd := &Find{Active: body[0]&1 != 0, Count: int(be.Uint32(body[1:])), Selected: int(int32(be.Uint32(body[5:])))}
+			q := body[9:]
+			if body[0]&2 != 0 {
+				if len(q) < 12 {
+					return nil, errShort
+				}
+				r := readRange(q)
+				fd.Current = &r
+				q = q[12:]
+			}
+			if len(q) < 2 {
+				return nil, errShort
+			}
+			n := int(be.Uint16(q))
+			q = q[2:]
+			if len(q) < 12*n {
+				return nil, errShort
+			}
+			for i := range n {
+				fd.Matches = append(fd.Matches, readRange(q[12*i:]))
+			}
+			f.Find = fd
 		case TagRows:
 			if len(body) < 2 {
 				return nil, errShort
@@ -258,6 +361,12 @@ func Decode(b []byte) (*Frame, error) {
 		// Other tags are newer additions: skipped.
 	}
 	return f, nil
+}
+
+// readRange reads a range: x0 (2 bytes), y0 (4), x1 (2), y1 (4).
+func readRange(b []byte) vt.Range {
+	be := binary.BigEndian
+	return vt.Range{X0: int(be.Uint16(b)), Y0: int(be.Uint32(b[2:])), X1: int(be.Uint16(b[6:])), Y1: int(be.Uint32(b[8:]))}
 }
 
 // Color is a cell colour: Kind 0 the default, 1 a palette entry (Index),
@@ -383,6 +492,8 @@ type Screen struct {
 	Lines           [][]Cell
 	Wraps           []bool
 	Seq             uint32
+	Selection       Selection
+	Find            Find
 }
 
 // Apply takes a frame into the screen.
@@ -426,6 +537,12 @@ func (s *Screen) Apply(f *Frame) error {
 	}
 	if f.Colors != nil {
 		s.Colors = *f.Colors
+	}
+	if f.Selection != nil {
+		s.Selection = *f.Selection
+	}
+	if f.Find != nil {
+		s.Find = *f.Find
 	}
 	s.History, s.Offset, s.Cursor, s.Modes, s.Seq = f.History, f.Offset, f.Cursor, f.Modes, f.Seq
 	return nil
