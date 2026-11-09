@@ -256,7 +256,17 @@ func (s *ghostty) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 || cols > 0xffff || rows > 0xffff {
 		return fmt.Errorf("vt: bad size %dx%d", cols, rows)
 	}
-	if err := s.t.Resize(uint16(cols), uint16(rows), 0, 0); err != nil {
+	// A wider screen at a shell prompt does not pull rows back out of the
+	// scrollback. The shell draws its prompt and command line again
+	// itself; what a narrower width had pushed up into the scrollback
+	// are old copies of them (zsh's ">...." rows of a command line taller
+	// than the screen), and pulled back above the new prompt they show
+	// as debris. A taller screen, and any other program's, still pulls.
+	pull := !(cols != s.cols && s.AtPrompt())
+	s.t.SetResizePullScrollback(pull)
+	err := s.t.Resize(uint16(cols), uint16(rows), 0, 0)
+	s.t.SetResizePullScrollback(true)
+	if err != nil {
 		return fmt.Errorf("vt: resize: %w", err)
 	}
 	if cols != s.cols {

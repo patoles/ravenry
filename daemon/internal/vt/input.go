@@ -106,7 +106,9 @@ func codeKey(code string) (gt.Key, error) {
 	}
 	k, err := gt.ParseKey(name)
 	if err != nil {
-		return gt.KeyUnidentified, fmt.Errorf("vt: unknown key code %q", code)
+		// A key this libghostty has no name for (a language key): its
+		// text, if any, still goes through.
+		return gt.KeyUnidentified, nil
 	}
 	return k, nil
 }

@@ -41,10 +41,12 @@ func TestRenderDragZsh(t *testing.T) {
 	os.WriteFile(filepath.Join(d.home, ".zshenv"), []byte(rc), 0o600)
 	os.WriteFile(filepath.Join(d.home, ".zshrc"), []byte("PROMPT='~ > '\n"+os.Getenv("RAVENRY_DRAG_ZSHRC")+"\n"), 0o600)
 	c := d.dial(client.Options{})
-	const wide, rows = 150, 40
-	narrow := 38
+	wide, rows, narrow := 150, 40, 38
 	if v := os.Getenv("RAVENRY_DRAG_MIN"); v != "" {
 		fmt.Sscan(v, &narrow)
+	}
+	if v := os.Getenv("RAVENRY_DRAG_ROWS"); v != "" {
+		fmt.Sscan(v, &rows)
 	}
 	p := newPane(t, c, map[string]any{"cols": wide, "rows": rows, "cwd": d.home})
 	st, err := c.Render(ctx(t), p.ID, client.RenderOptions{FPS: 120})
