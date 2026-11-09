@@ -19,10 +19,24 @@ targets:
       # launch (Design.swift).
       - path: ../../shared/tokens/tokens.json
         buildPhase: resources
+      # The words (Strings.swift) and the icons (Icons.swift), shared too.
+      - path: ../../shared/strings/en.json
+        buildPhase: resources
+      - path: ../../shared/icons
+        buildPhase: resources
+        type: folder
+      # The hub's own code for a hub older than state.sidebar (OlderHub.swift).
+      - path: ../../hub/server/sidebar.mjs
+        buildPhase: resources
+      - path: ../../hub/server/cpwords.mjs
+        buildPhase: resources
+      - path: ../../hub/server/briefnext.mjs
+        buildPhase: resources
     dependencies:
       - sdk: Metal.framework
       - sdk: QuartzCore.framework
       - sdk: CoreText.framework
+      - sdk: JavaScriptCore.framework
     settings:
       base:
         PRODUCT_NAME: RavenryMac

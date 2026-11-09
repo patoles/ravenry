@@ -93,12 +93,13 @@ final class Workspace: NSObject {
         self.conn = conn
         self.scale = scale
         self.fontSize = fontSize
-        layout = LayoutStore(offscreen: options.offscreen)
+        layout = LayoutStore(offscreen: options.offscreen, socket: conn.socketPath)
         super.init()
         root.bar = bar
         root.stage = stage
-        root.addSubview(stage)
-        root.addSubview(bar)
+        root.addSubview(root.sheet)
+        root.sheet.addSubview(stage)
+        root.sheet.addSubview(bar)
         bar.onSelect = { [weak self] id in self?.select(id: id) }
         bar.onClose = { [weak self] id in
             guard let self, let t = self.tabs.first(where: { $0.id == id }) else { return }
@@ -285,6 +286,47 @@ final class Workspace: NSObject {
         updateBoxes(t)
         if let v = boxes[t.focusedPane]?.term { window.makeFirstResponder(v) }
         updateMinSize()
+        onFront?()
+    }
+
+    // MARK: the sidebar's and the panel's (Board.swift)
+
+    /// What the middle shows when it is not a tab's terminal (a session
+    /// outside, a page), as a tab after the others (the Electron app's).
+    var extraTab: TabModel? { didSet { if extraTab != oldValue { refresh() } } }
+    /// After the tab in front or its pane with the keyboard changed.
+    var onFront: (() -> Void)?
+    /// The sessions pinned to the tabs, written with the tabs.
+    var pinned: [String]?
+    /// What was kept: the pinned sessions among them.
+    private(set) lazy var saved: SavedLayout = layout?.read() ?? SavedLayout()
+
+    func paneInfo(_ id: String) -> PaneInfo? { info[id] }
+
+    /// The tab that shows a pane of this daemon, a tab of its own when no
+    /// tab shows it yet (a session's pane: ravenry.session); nil when this
+    /// daemon has no such pane.
+    func tab(showing pane: String) -> Tab? {
+        if let t = tabs.first(where: { $0.host == pane || $0.guest == pane }) {
+            if t.guest == pane { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
+            return t
+        }
+        guard let r = try? conn.call("pane.list", ["hidden": true]),
+              let p = (r["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == pane && ($0["state"] as? String ?? "running") == "running" }) else { return nil }
+        let i = PaneInfo(id: pane)
+        i.update(p)
+        info[pane] = i
+        let t = Tab(host: pane)
+        tabs.append(t)
+        return t
+    }
+
+    /// Shows a tab again (the middle showed something else over it).
+    func showAgain(_ t: Tab) {
+        if t !== active { show(t) } else {
+            if let v = boxes[t.focusedPane]?.term { window.makeFirstResponder(v) }
+            onFront?()
+        }
     }
 
     private func report(_ t: Tab, _ ids: [String], _ t0: CFTimeInterval, hadRows: Bool) {
@@ -347,11 +389,13 @@ final class Workspace: NSObject {
 
     /// The tab strip, the headers and the window's title, from the model.
     func refresh() {
-        bar.set(tabs.enumerated().map { i, t in
+        var models = tabs.enumerated().map { i, t in
             let l = label(t.host)
-            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: t === active,
+            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: t === active && extraTab == nil,
                             tip: i < 9 ? "\(l.name) (⌘\(i + 1))" : l.name)
-        })
+        }
+        if let x = extraTab { models.append(x) }
+        bar.set(models)
         if let t = shownTab { updateBoxes(t) }
         if let t = active { window.title = label(t.focusedPane).name }
     }
@@ -605,7 +649,7 @@ final class Workspace: NSObject {
                 splits.append(SavedSplit(host: t.id, guest: "s:" + g, side: t.side, size: t.size, focus: t.focus, zoom: t.zoom))
             }
         }
-        layout.save(order: order, splits: splits, active: active?.id)
+        layout.save(order: order, splits: splits, active: active?.id, pinned: pinned)
     }
 
     func flush() { layout?.flush() }
@@ -616,6 +660,17 @@ final class Workspace: NSObject {
 final class RootView: NSView {
     weak var bar: TabBar?
     weak var stage: StageView?
+    /// The sidebar, the middle's sheet and the panel (Board.swift); without
+    /// a sidebar (folded, or the bench) the strip is the window's top.
+    weak var sidebar: NSView?
+    weak var panel: NSView?
+    /// What covers the stage when the middle is not a tab's terminal.
+    weak var middle: NSView?
+    let sheet = SheetView()
+    var sideWidth: CGFloat = 0
+    /// The panel beside the middle (docked), over it (overlay), or not shown.
+    var panelMode: PanelMode = .hidden
+    enum PanelMode { case hidden, docked, overlay }
     /// After each layout (the window's buttons are placed again).
     var onLayout: (() -> Void)?
     override var isFlipped: Bool { true }
@@ -628,11 +683,71 @@ final class RootView: NSView {
         // At once, so the panes draw their new size in this transaction.
         place()
     }
-    private func place() {
-        bar?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Design.stripHeight)
-        stage?.frame = NSRect(x: 0, y: Design.stripHeight, width: bounds.width, height: max(1, bounds.height - Design.stripHeight))
+    private var placedFor: (NSSize, CGFloat, PanelMode, Bool)?
+    func place() {
+        let w = bounds.width, h = bounds.height
+        // Nothing moved: nothing to lay out (Board draws at every state).
+        let key = (bounds.size, sideWidth, panelMode, middle != nil)
+        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == stage?.frame { return }
+        placedFor = key
+        let side = sidebar != nil && sideWidth > 0
+        sidebar?.isHidden = !side
+        if side { sidebar?.setIf(NSRect(x: 0, y: 0, width: sideWidth, height: h)) }
+        let pw = PanelView.width
+        panel?.isHidden = panelMode == .hidden
+        // .tsheet and .panel: margin 8 8 8 0, radius 11, beside the sidebar.
+        let m: CGFloat = side ? 8 : 0
+        let right = panelMode == .docked ? pw + 8 : 0
+        if sheet.superview == nil { addSubview(sheet, positioned: .below, relativeTo: nil) }
+        sheet.round = side
+        sheet.setIf(NSRect(x: side ? sideWidth : 0, y: m, width: max(1, w - (side ? sideWidth : 0) - right - m), height: max(1, h - 2 * m)))
+        if let b = bar, b.superview !== sheet { sheet.addSubview(b) }
+        if let s = stage, s.superview !== sheet { sheet.addSubview(s, positioned: .below, relativeTo: bar) }
+        bar?.lead = side ? 8 : Design.stripLead
+        bar?.setIf(NSRect(x: 0, y: 0, width: sheet.bounds.width, height: Design.stripHeight))
+        stage?.setIf(NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight)))
+        if let mv = middle {
+            if mv.superview !== sheet { sheet.addSubview(mv, positioned: .above, relativeTo: stage) }
+            mv.setIf(stage?.frame ?? .zero)
+        }
+        if let p = panel, panelMode != .hidden {
+            if p.superview !== self { addSubview(p) }
+            p.setIf(NSRect(x: w - pw - 8, y: 8, width: pw, height: max(1, h - 16)))
+            (p as? Box)?.dropShadow = panelMode == .overlay
+            p.needsDisplay = true
+            if panelMode == .overlay { addSubview(p, positioned: .above, relativeTo: nil) }
+        }
         onLayout?()
     }
+}
+
+extension NSView {
+    /// A frame set only when it changes: the panes are not resized for nothing.
+    func setIf(_ r: NSRect) { if frame != r { frame = r } }
+}
+
+/// The middle's sheet: the strip and the stage, its corners rounded beside
+/// the sidebar (.tsheet).
+final class SheetView: NSView {
+    override var isFlipped: Bool { true }
+    var round = false { didSet { if round != oldValue { restyle() } } }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        restyle()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    private func restyle() {
+        // A layer only for the rounded corners (beside the sidebar).
+        wantsLayer = round
+        layer?.cornerRadius = round ? 11 : 0
+        layer?.masksToBounds = round
+        layer?.borderWidth = round ? 1 : 0
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = Design.color("sheet-ring").cgColor
+            layer?.backgroundColor = Design.termBg.cgColor
+        }
+    }
+    override func viewDidChangeEffectiveAppearance() { restyle() }
 }
 
 /// Where the tab in front goes: its content fills it.

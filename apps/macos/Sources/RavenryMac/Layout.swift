@@ -21,7 +21,18 @@
 // A window off every screen (the bench, the self-test) uses the file
 // only when RAVENRY_DESKTOP_DATA names a folder (its own), never the
 // person's.
+//
+// The file is kept by daemon: tab ids are pane ids, which mean something
+// only to the daemon that holds the panes. A window on the Electron app's
+// daemon (its socket in the Electron app's runtime folder,
+// ~/Library/Application Support/Ravenry/run) shares window.json with it;
+// a window on any other daemon (a test's, the native spike's own) keeps
+// window-<daemon>.json beside it, <daemon> the first 12 hex digits of the
+// SHA-256 of that daemon's runtime folder (where its sockets live, across
+// its updates). So two clients on different daemons never write over each
+// other's tabs, and two on the same daemon share them.
 
+import CryptoKit
 import Foundation
 
 struct SavedSplit {
@@ -37,6 +48,8 @@ struct SavedLayout {
     var order: [String] = []
     var splits: [SavedSplit] = []
     var active: String?
+    /// The sessions pinned to the tabs (their keys), as the Electron app keeps them.
+    var pinned: [String] = []
 }
 
 final class LayoutStore {
@@ -45,17 +58,33 @@ final class LayoutStore {
     /// The tab ids this window held and closed: gone from the file too.
     private var dropped = Set<String>()
 
-    init?(offscreen: Bool) {
-        let env = ProcessInfo.processInfo.environment
+    init?(offscreen: Bool, socket: String?, env: [String: String] = ProcessInfo.processInfo.environment) {
+        let dir: URL
         if let d = env["RAVENRY_DESKTOP_DATA"], !d.isEmpty {
-            url = URL(fileURLWithPath: d).appendingPathComponent("window.json")
+            dir = URL(fileURLWithPath: d)
         } else if offscreen {
             return nil
         } else {
             let lib = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-            url = lib.appendingPathComponent("Ravenry/window.json")
+            dir = lib.appendingPathComponent("Ravenry")
         }
+        url = dir.appendingPathComponent(LayoutStore.fileName(socket: socket))
+    }
+
+    /// The Electron app's daemons' folder: its window.json is theirs.
+    static var electronRuntime: String {
+        (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/Ravenry/run")
+    }
+
+    /// window.json for the Electron app's daemon, else window-<daemon>.json.
+    static func fileName(socket: String?) -> String {
+        guard let s = socket, !s.isEmpty else { return "window.json" }
+        let folder = URL(fileURLWithPath: s).deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath().path
+        let electron = URL(fileURLWithPath: electronRuntime).standardizedFileURL.resolvingSymlinksInPath().path
+        if folder == electron { return "window.json" }
+        let h = SHA256.hash(data: Data(folder.utf8)).map { String(format: "%02x", $0) }.joined()
+        return "window-\(h.prefix(12)).json"
     }
 
     private func readAll() -> [String: Any] {
@@ -68,6 +97,7 @@ final class LayoutStore {
         var l = SavedLayout()
         l.order = all["order"] as? [String] ?? []
         l.active = all["active"] as? String
+        l.pinned = (all["pinned"] as? [Any] ?? []).compactMap { $0 as? String }
         for s in all["splits"] as? [[String: Any]] ?? [] {
             guard let h = s["host"] as? String, let g = s["guest"] as? String else { continue }
             l.splits.append(SavedSplit(host: h, guest: g, side: s["side"] as? String ?? "right",
@@ -81,9 +111,9 @@ final class LayoutStore {
 
     /// Writes this window's tabs (ids in the strip's order, guests after
     /// their tab), splits and tab in front, 200 ms after the last change.
-    func save(order ours: [String], splits: [SavedSplit], active: String?) {
+    func save(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]? = nil) {
         timer?.cancel()
-        let w = DispatchWorkItem { [weak self] in self?.write(order: ours, splits: splits, active: active) }
+        let w = DispatchWorkItem { [weak self] in self?.write(order: ours, splits: splits, active: active, pinned: pinned) }
         timer = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: w)
     }
@@ -95,7 +125,7 @@ final class LayoutStore {
         t.cancel()
     }
 
-    private func write(order ours: [String], splits: [SavedSplit], active: String?) {
+    private func write(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]?) {
         timer = nil
         var all = readAll()
         let mine = Set(ours).union(dropped)
@@ -118,6 +148,7 @@ final class LayoutStore {
             outSplits.append(["host": s.host, "guest": s.guest, "side": s.side, "size": s.size, "focus": s.focus, "zoom": s.zoom])
         }
         all["order"] = order
+        if let p = pinned { all["pinned"] = p }
         all["splits"] = outSplits
         if let a = active { all["active"] = a } else if let a = all["active"] as? String, mine.contains(a) { all["active"] = NSNull() }
         do {

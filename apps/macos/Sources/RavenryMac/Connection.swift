@@ -47,7 +47,11 @@ final class Connection {
     private(set) var methods: Set<String> = []
     private(set) var daemonVersion = ""
 
+    /// The daemon's socket (the layout file is kept by daemon: Layout.swift).
+    private(set) var socketPath = ""
+
     init(socket path: String) throws {
+        socketPath = path
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         if fd < 0 { throw ConnectionError.connect(String(cString: strerror(errno))) }
         var addr = sockaddr_un()

@@ -35,6 +35,8 @@ struct Options {
     /// With --selftest: only check that the tabs a self-test left came
     /// back (its selftest.json).
     var restoreCheck: String?
+    /// The sidebar and panel's self-test (SelfTestBoard.swift), on a test's hub.
+    var sidetest: String?
     var command: [String] = []
 
     static func parse(_ args: [String]) -> Options {
@@ -53,6 +55,7 @@ struct Options {
             case "--font": i += 1; o.font = args[safe: i] ?? "Menlo"
             case "--selftest": i += 1; o.selftest = args[safe: i]
             case "--restore-check": i += 1; o.restoreCheck = args[safe: i]
+            case "--sidetest": i += 1; o.sidetest = args[safe: i]
             case "--font-size": i += 1; o.fontSize = Double(args[safe: i] ?? "").map { CGFloat($0) }
             case "--": o.command = Array(args[(i + 1)...]); i = args.count
             default: break // AppKit's own (-NSDocumentRevisionsDebugMode ...)
@@ -123,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let options: Options
     var window: TerminalWindow?
     var workspace: Workspace?
+    var board: Board?
+    var hub: HubClient?
     var conn: Connection?
     var closing = false
 
@@ -214,12 +219,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             fail("\(error)")
             return
         }
+        // The sidebar and the panel, from the hub. The bench and the
+        // terminal's self-test measure the terminal: the sidebar starts
+        // folded there (RAVENRY_MAC_SIDEBAR=1 shows it).
+        let hc = HubClient(offscreen: options.offscreen)
+        hub = hc
+        let measuring = options.bench != nil || options.selftest != nil
+        let bd = Board(ws: ws, hub: hc, keep: !options.offscreen,
+                       sidebarOn: !measuring || ProcessInfo.processInfo.environment["RAVENRY_MAC_SIDEBAR"] == "1")
+        board = bd
+        buildBoardMenu(bd)
         guard let v = ws.focusedView else {
             fail("no pane to show")
             return
         }
         if let out = options.bench {
             Bench(view: v, window: w, out: out, dragMin: options.dragMin, workspace: ws).start()
+        } else if let out = options.sidetest {
+            SelfTestBoard(board: bd, window: w, out: out).start()
         } else if let out = options.selftest {
             let st = SelfTest(view: v, window: w, out: out, workspace: ws)
             st.restoreFrom = options.restoreCheck
@@ -250,7 +267,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         closing = true
         workspace?.save()
         workspace?.flush()
+        hub?.stop()
         conn?.close()
+    }
+
+    func windowDidResize(_ note: Notification) { board?.resized() }
+
+    /// The sidebar's and the panel's commands, as the Electron app's menus have them.
+    private func buildBoardMenu(_ b: Board) {
+        guard let main = NSApp.mainMenu else { return }
+        let shell = main.items.first { $0.submenu?.title == "Shell" }?.submenu
+        let ns = NSMenuItem(title: "New Session…", action: #selector(Board.menuNewSession(_:)), keyEquivalent: "N")
+        ns.keyEquivalentModifierMask = [.command, .shift]
+        ns.target = b
+        shell?.insertItem(ns, at: 1)
+        let view = main.items.first { $0.submenu?.title == "View" }?.submenu
+        view?.addItem(.separator())
+        let side = NSMenuItem(title: t("side.hide"), action: #selector(Board.menuToggleSidebar(_:)), keyEquivalent: "s")
+        side.keyEquivalentModifierMask = [.command, .control]
+        side.target = b
+        view?.addItem(side)
+        let panel = NSMenuItem(title: "Session Panel", action: #selector(Board.menuTogglePanel(_:)), keyEquivalent: "b")
+        panel.keyEquivalentModifierMask = [.command, .option]
+        panel.target = b
+        view?.addItem(panel)
     }
 
     func windowWillClose(_ note: Notification) {
@@ -362,6 +402,16 @@ for name in ["RAVENRY_PANE", "RAVENRY_SOCKET", "TERM_PROGRAM", "TERM_PROGRAM_VER
 }
 
 let options = Options.parse(CommandLine.arguments)
+// --older-hub-check IN OUT: a state from an older hub, filled as the window
+// fills it (OlderHub.swift), for its check; no window.
+if let i = CommandLine.arguments.firstIndex(of: "--older-hub-check"), CommandLine.arguments.count > i + 2,
+   let d = try? Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[i + 1])),
+   let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+    let out = OlderHub().fill(j)
+    try? JSONSerialization.data(withJSONObject: out).write(to: URL(fileURLWithPath: CommandLine.arguments[i + 2]))
+    exit(0)
+}
+
 let app = NSApplication.shared
 // The bench runs without a Dock icon and never takes focus.
 app.setActivationPolicy(options.offscreen ? .accessory : .regular)

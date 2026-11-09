@@ -20,12 +20,18 @@ struct TabModel: Equatable {
     var split: Bool
     var active: Bool
     var tip: String
+    /// A session's tab (the middle shows it, Board.swift): its dot in its
+    /// state's colour in the shell icon's place.
+    var dot: String? = nil
 }
 
 final class TabBar: NSView {
     var onSelect: ((String) -> Void)?
     var onClose: ((String) -> Void)?
     var onNew: (() -> Void)?
+    /// Left of the first tab: the window's buttons when the strip is the
+    /// window's top (Design.stripLead), else the .tabs padding (8).
+    var lead: CGFloat = Design.stripLead { didSet { if lead != oldValue { needsLayout = true } } }
     /// A tab dragged to another place: its id and its new index.
     var onMove: ((String, Int) -> Void)?
 
@@ -82,7 +88,7 @@ final class TabBar: NSView {
     /// Each tab's width: its content, at most 240 pt; without the folders
     /// when they do not all fit, then narrower, all alike.
     private func widths() -> [CGFloat] {
-        let avail = bounds.width - Design.stripLead - 8 - 32 - 6
+        let avail = bounds.width - lead - 8 - 32 - 6
         var w = items.map { $0.idealWidth(withSub: true) }
         let gaps = CGFloat(max(0, items.count - 1)) * Design.tabGap
         if w.reduce(0, +) + gaps > avail { w = items.map { $0.idealWidth(withSub: false) } }
@@ -98,7 +104,7 @@ final class TabBar: NSView {
 
     func layoutTabs(animated: Bool) {
         let w = widths()
-        var x = Design.stripLead
+        var x = lead
         let y = bounds.height - Design.tabHeight
         for (i, it) in items.enumerated() {
             let f = NSRect(x: x, y: y, width: w[i], height: Design.tabHeight)
@@ -140,7 +146,7 @@ final class TabBar: NSView {
     func drag(_ it: TabItem, to x: CGFloat) {
         guard dragged === it, let i = items.firstIndex(where: { $0 === it }) else { return }
         var f = it.frame
-        f.origin.x = min(max(Design.stripLead, x - dragOffset), max(Design.stripLead, bounds.width - f.width))
+        f.origin.x = min(max(lead, x - dragOffset), max(lead, bounds.width - f.width))
         it.frame = f
         // It takes the place of a tab whose middle it passed.
         let mid = f.midX
@@ -268,7 +274,12 @@ final class TabItem: NSView {
             p.fill()
         }
         var x = Design.tabPadLeft
-        Icons.shell(NSRect(x: x, y: (bounds.height - 12) / 2, width: 12, height: 12), fg3)
+        if let d = model.dot {
+            Design.color(d).setFill()
+            NSBezierPath(ovalIn: NSRect(x: x + 2.5, y: (bounds.height - 7) / 2, width: 7, height: 7)).fill()
+        } else {
+            Icons.shell(NSRect(x: x, y: (bounds.height - 12) / 2, width: 12, height: 12), fg3)
+        }
         x += 12 + Design.tabInnerGap
         var end = bounds.width - Design.tabPadRight - Design.closeSize - Design.tabInnerGap
         if model.split {

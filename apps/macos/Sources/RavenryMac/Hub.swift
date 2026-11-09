@@ -1,0 +1,362 @@
+// The hub: the board's server, which knows every session and what it needs.
+// The window reads it as the Electron app does (apps/desktop/src/main/hub.ts):
+// the server-sent events of GET /api/events, each `state` event the whole
+// board, read again after a drop (every 250 ms for the first 15 s, then
+// backing off to 10 s). It draws what the hub sends and decides nothing:
+// the sidebar is `state.sidebar` (hub/server/sidebar.mjs), a checkpoint's
+// words its `words` (hub/server/cpwords.mjs), the brief's Next its
+// `brief.nextParts` (hub/server/briefnext.mjs).
+//
+// Where it is: RAVENRY_HUB_URL, else the port the running board wrote to
+// <RAVENRY_HOME or ~/.ravenry>/board.json, else 4600. A window off every
+// screen (the bench, the self-tests) reads a hub only when RAVENRY_HUB_URL
+// names one (a test's), never the person's.
+//
+// It posts only what the person clicked (an answer, Continue, Move here,
+// Hand off now, Start), as the board's own page does (X-Ravenry: 1), and
+// never with RAVENRY_MAC_HUB_READONLY=1. Its stream is not the app's own
+// (no ?app=1): the Mac notifications stay the Electron app's.
+
+import Foundation
+
+// MARK: the state, typed as the window reads it
+
+struct SideMark {
+    let kind: String, text: String, code: Bool, label: String?
+    init(_ d: [String: Any]) {
+        kind = d["kind"] as? String ?? "other"; text = d["text"] as? String ?? ""
+        code = d["code"] as? Bool ?? false; label = d["label"] as? String
+    }
+}
+
+struct SideRow {
+    let key: String, surfaceId: String, name: String
+    let assistant: String?, pct: Int?, pctWarn: Bool
+    let line: String?, mark: SideMark?, group: String, machine: String?
+    init(_ d: [String: Any]) {
+        key = d["key"] as? String ?? ""; surfaceId = d["surfaceId"] as? String ?? ""; name = d["name"] as? String ?? ""
+        assistant = d["assistant"] as? String; pct = (d["pct"] as? NSNumber)?.intValue; pctWarn = d["pctWarn"] as? Bool ?? false
+        line = d["line"] as? String; mark = (d["mark"] as? [String: Any]).map(SideMark.init)
+        group = d["group"] as? String ?? "idle"; machine = d["machine"] as? String
+    }
+}
+
+struct SideProject {
+    let id: String, name: String, machine: String?
+    let timeAt: String?, timeStyle: String
+    let rows: [SideRow]
+    init(_ d: [String: Any]) {
+        id = d["id"] as? String ?? ""; name = d["name"] as? String ?? ""; machine = d["machine"] as? String
+        let t = d["time"] as? [String: Any] ?? [:]
+        timeAt = t["at"] as? String; timeStyle = t["style"] as? String ?? "ago"
+        rows = (d["rows"] as? [[String: Any]] ?? []).map(SideRow.init)
+    }
+}
+
+struct SideSection {
+    let group: String, title: String, count: Int
+    let projects: [SideProject]
+    init(_ d: [String: Any]) {
+        group = d["group"] as? String ?? "idle"; title = d["title"] as? String ?? ""
+        count = (d["count"] as? NSNumber)?.intValue ?? 0
+        projects = (d["projects"] as? [[String: Any]] ?? []).map(SideProject.init)
+    }
+}
+
+/// A page of the sidebar's lower nav (state.pages).
+struct NavPage {
+    let key: String, label: String, icon: String, number: Int?, countLabel: String?, slot: Int?, origin: String, project: String?
+    init(_ d: [String: Any]) {
+        key = d["key"] as? String ?? ""; label = d["label"] as? String ?? ""; icon = d["icon"] as? String ?? "page"
+        number = (d["number"] as? NSNumber)?.intValue; countLabel = d["countLabel"] as? String
+        slot = (d["slot"] as? NSNumber)?.intValue; origin = d["origin"] as? String ?? "default"; project = d["project"] as? String
+    }
+}
+
+final class HubSession {
+    let raw: [String: Any]
+    init(_ d: [String: Any]) { raw = d }
+    func s(_ k: String) -> String? { raw[k] as? String }
+    var surfaceId: String { s("surfaceId") ?? "" }
+    var topic: String? { s("topic") }
+    var assistant: String? { s("assistant") }
+    var state: String { s("state") ?? "" }
+    var since: String? { s("since") }
+    var sessionId: String? { s("sessionId") }
+    var group: String { s("group") ?? "idle" }
+    var machine: String? { s("machine") }
+    var handed: Bool { raw["handed"] as? Bool ?? false }
+    var words: [String: Any] { raw["words"] as? [String: Any] ?? [:] }
+    var ctx: (tokens: Double, window: Double, pct: Double)? {
+        guard let c = raw["ctx"] as? [String: Any], let tk = (c["tokens"] as? NSNumber)?.doubleValue,
+              let w = (c["window"] as? NSNumber)?.doubleValue, let p = (c["pct"] as? NSNumber)?.doubleValue else { return nil }
+        return (tk, w, p)
+    }
+    /// The ravenryd pane it runs in, else nil (hub/server/sidebar.mjs paneOf).
+    var pane: String? {
+        if let p = raw["pane"] as? String { return p }
+        if let p = raw["pane"] as? [String: Any] { return p["id"] as? String }
+        let id = surfaceId
+        if id.hasPrefix("ravenry:") { let p = String(id.dropFirst(8)); if p.range(of: "^p[a-z2-7]{7}$", options: .regularExpression) != nil { return p } }
+        return nil
+    }
+    var alsoOpen: String? { (raw["alsoOpen"] as? [String: Any])?["name"] as? String }
+    var movedOn: String? { (raw["movedOn"] as? [String: Any])?["name"] as? String }
+    var moving: [String: Any]? { raw["moving"] as? [String: Any] }
+    var outside: [String: Any]? { raw["outside"] as? [String: Any] }
+    var term: String? { s("term") }
+    var termName: String? { s("termName") }
+    var cannot: String? { s("cannot") }
+    /// false when the hub cannot read its terminal.
+    var terminal: Bool? { raw["terminal"] as? Bool }
+    var screen: [String] { raw["screen"] as? [String] ?? [] }
+    var conversation: [[String: Any]] { raw["conversation"] as? [[String: Any]] ?? [] }
+}
+
+final class HubProject {
+    let raw: [String: Any]
+    let sessions: [HubSession]
+    init(_ d: [String: Any]) { raw = d; sessions = (d["sessions"] as? [[String: Any]] ?? []).map(HubSession.init) }
+    func s(_ k: String) -> String? { raw[k] as? String }
+    var id: String { s("id") ?? "" }
+    var name: String { s("name") ?? id }
+    var machine: String? { s("machine").flatMap { $0 == "local" ? nil : $0 } }
+    var folder: String? { s("folder") }
+    var folderShort: String? { s("folderShort") }
+    var primary: String? { s("primary") }
+    var since: String? { s("since") }
+    var waitingOn: String? { s("waitingOn") }
+    var brief: [String: Any]? { raw["brief"] as? [String: Any] }
+    var plan: [String: Any]? { raw["plan"] as? [String: Any] }
+    var planGate: Bool { raw["planGate"].map { !($0 is NSNull) && ($0 as? Bool ?? true) } ?? false }
+    var timeline: [[String: Any]] { raw["timeline"] as? [[String: Any]] ?? [] }
+    var handoffRecent: Bool { raw["handoffRecent"] as? Bool ?? false }
+    /// Its main session, else its first that was not handed off.
+    var mainSession: HubSession? {
+        sessions.first { $0.surfaceId == primary && !$0.handed } ?? sessions.first { !$0.handed }
+    }
+}
+
+final class HubState {
+    let raw: [String: Any]
+    let sections: [SideSection]
+    let counts: [String: Int]
+    let projects: [HubProject]
+    let checkpoints: [[String: Any]]
+    let pages: [NavPage]
+    init(_ d: [String: Any]) {
+        raw = d
+        let sb = d["sidebar"] as? [String: Any] ?? [:]
+        sections = (sb["sections"] as? [[String: Any]] ?? []).map(SideSection.init)
+        counts = (sb["counts"] as? [String: Any] ?? [:]).compactMapValues { ($0 as? NSNumber)?.intValue }
+        projects = (d["projects"] as? [[String: Any]] ?? []).map(HubProject.init)
+        checkpoints = d["checkpoints"] as? [[String: Any]] ?? []
+        pages = (d["pages"] as? [[String: Any]] ?? []).map(NavPage.init)
+    }
+    var threshold: Double { ((raw["settings"] as? [String: Any])?["handoffThreshold"] as? NSNumber)?.doubleValue ?? 50 }
+    /// "3.1 GB" of the assistants' memory, else nil (the desktop's memoryLine).
+    var memoryLine: String? {
+        guard let kb = ((raw["sessions"] as? [String: Any])?["totalKb"] as? NSNumber)?.doubleValue, kb > 0 else { return nil }
+        let gb = kb / 1048576
+        return gb >= 1 ? String(format: "%.1f GB", gb) : "\(Int((kb / 1024).rounded())) MB"
+    }
+    func find(_ key: String) -> (project: HubProject, session: HubSession)? {
+        for p in projects { for s in p.sessions where "\(p.id)/\(s.surfaceId)" == key { return (p, s) } }
+        return nil
+    }
+    func project(_ id: String) -> HubProject? { projects.first { $0.id == id } }
+    /// The open checkpoint of a session: by its project and surface, else its pane (hub/server/sidebar.mjs marksOf).
+    func checkpoint(of p: HubProject, _ s: HubSession) -> [String: Any]? {
+        let open = checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }
+            .sorted { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }
+        if let c = open.first(where: { $0["projectId"] as? String == p.id && $0["surfaceId"] as? String == s.surfaceId }) { return c }
+        if let pane = s.pane { return open.first { $0["pane"] as? String == pane && ($0["machine"] as? String) == (s.machine ?? p.machine) } }
+        return nil
+    }
+}
+
+// MARK: times, said against this computer's clock (the desktop's model.ts)
+
+enum When {
+    private static let iso: ISO8601DateFormatter = { let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f }()
+    private static let iso2 = ISO8601DateFormatter()
+    static func date(_ s: String?) -> Date? { s.flatMap { iso.date(from: $0) ?? iso2.date(from: $0) } }
+    static var now: () -> Date = { Date() }
+    /// "now", "4 min", "2 h", "3 d".
+    static func ago(_ s: String?) -> String {
+        guard let d = date(s) else { return "now" }
+        let ms = now().timeIntervalSince(d) * 1000
+        guard ms >= 60000 else { return "now" }
+        let m = Int(ms / 60000)
+        if m < 60 { return "\(m) min" }
+        let h = m / 60
+        return h < 24 ? "\(h) h" : "\(h / 24) d"
+    }
+    /// "10:51" today, else how long ago.
+    static func clock(_ s: String?) -> String {
+        guard let d = date(s) else { return "now" }
+        guard Calendar.current.isDate(d, inSameDayAs: now()) else { return ago(s) }
+        let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+    }
+    /// "Mon 9 Nov, 18:04".
+    static func stopped(_ s: String?) -> String {
+        guard let d = date(s) else { return "" }
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_GB"); f.dateFormat = "EEE d MMM, HH:mm"
+        return f.string(from: d)
+    }
+    /// "312k", "1M", "1.5M".
+    static func tokens(_ n: Double) -> String {
+        if n >= 1e6 { let v = n / 1e6; var s = n >= 1e7 ? String(format: "%.0f", v) : String(format: "%.1f", v); if s.hasSuffix(".0") { s.removeLast(2) }; return s + "M" }
+        if n >= 1000 { return "\(Int((n / 1000).rounded()))k" }
+        return "\(Int(n))"
+    }
+}
+
+// MARK: the client
+
+final class HubClient: NSObject, URLSessionDataDelegate {
+    let base: URL?
+    /// The hub was named for this run (RAVENRY_HUB_URL), not found.
+    let named: Bool
+    private(set) var state: HubState?
+    private(set) var reachable = false
+    var onState: ((HubState) -> Void)?
+    var onStatus: ((Bool) -> Void)?
+    /// Every request the window sent, for the self-test: "POST /api/send".
+    private(set) var sent: [String] = []
+    private var session: URLSession!
+    private var task: URLSessionDataTask?
+    private var buf = Data()
+    private var startedAt = Date()
+    private var retry: TimeInterval = 1
+    private var stopped = false
+    private let readOnly: Bool
+    /// The hub's own code, for a hub older than state.sidebar (OlderHub.swift).
+    private lazy var older = OlderHub()
+
+    init(offscreen: Bool, env: [String: String] = ProcessInfo.processInfo.environment) {
+        if let u = env["RAVENRY_HUB_URL"], !u.isEmpty {
+            base = URL(string: u.hasSuffix("/") ? String(u.dropLast()) : u); named = true
+        } else if offscreen {
+            base = nil; named = false
+        } else {
+            let home = env["RAVENRY_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? (NSHomeDirectory() + "/.ravenry")
+            var port = 4600
+            if let d = try? Data(contentsOf: URL(fileURLWithPath: home + "/board.json")),
+               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let p = (j["port"] as? NSNumber)?.intValue { port = p }
+            base = URL(string: "http://127.0.0.1:\(port)"); named = false
+        }
+        readOnly = env["RAVENRY_MAC_HUB_READONLY"] == "1"
+        super.init()
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 3600 * 24
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
+    }
+
+    var url: String { base?.absoluteString ?? "" }
+
+    func start() {
+        guard base != nil else { return }
+        startedAt = Date()
+        connect()
+    }
+
+    func stop() { stopped = true; task?.cancel() }
+
+    private func connect() {
+        guard !stopped, let b = base else { return }
+        var r = URLRequest(url: b.appendingPathComponent("api/events"))
+        r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        buf = Data()
+        task = session.dataTask(with: r)
+        task?.resume()
+    }
+
+    private func setReachable(_ v: Bool) {
+        guard v != reachable else { return }
+        reachable = v
+        DispatchQueue.main.async { self.onStatus?(v) }
+    }
+
+    func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        let ok = (response as? HTTPURLResponse)?.statusCode == 200
+        if ok { retry = 1; setReachable(true) }
+        completionHandler(ok ? .allow : .cancel)
+    }
+
+    func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard dataTask === task else { return }
+        buf.append(data)
+        let sep = Data("\n\n".utf8)
+        while let r = buf.range(of: sep) {
+            let block = String(decoding: buf[buf.startIndex..<r.lowerBound], as: UTF8.self)
+            buf.removeSubrange(buf.startIndex..<r.upperBound)
+            var event = "message", lines: [String] = []
+            for l in block.split(separator: "\n", omittingEmptySubsequences: false) {
+                if l.isEmpty || l.hasPrefix(":") { continue }
+                let parts = l.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+                let f = String(parts[0])
+                var v = parts.count > 1 ? String(parts[1]) : ""
+                if v.hasPrefix(" ") { v.removeFirst() }
+                if f == "event" { event = v } else if f == "data" { lines.append(v) }
+            }
+            guard event == "state", !lines.isEmpty,
+                  let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] else { continue }
+            let st = HubState(older.fill(j))
+            DispatchQueue.main.async {
+                self.state = st
+                self.onState?(st)
+            }
+        }
+    }
+
+    func urlSession(_ s: URLSession, task t: URLSessionTask, didCompleteWithError error: Error?) {
+        guard t === task, !stopped else { return }
+        setReachable(false)
+        // As the desktop: every 250 ms in the first 15 s, then backing off to 10 s.
+        let early = Date().timeIntervalSince(startedAt) < 15
+        let wait = early ? 0.25 : retry
+        if !early { retry = min(retry * 2, 10) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + wait) { [weak self] in self?.connect() }
+    }
+
+    /// GET a JSON answer; the callback runs on the main thread.
+    func get(_ path: String, _ done: @escaping (Int, [String: Any]) -> Void) {
+        guard let b = base, let u = URL(string: b.absoluteString + path) else { done(0, ["error": "No board."]); return }
+        var r = URLRequest(url: u); r.timeoutInterval = 15
+        session.dataTask(with: r) { d, resp, e in
+            let j = d.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? (e.map { ["error": $0.localizedDescription] } ?? [:])
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            DispatchQueue.main.async { done(code, j) }
+        }.resume()
+    }
+
+    /// GET bytes (a picture).
+    func data(_ path: String, _ done: @escaping (Data?) -> Void) {
+        guard let b = base, let u = URL(string: b.absoluteString + path) else { done(nil); return }
+        session.dataTask(with: u) { d, resp, _ in
+            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async { done(ok ? d : nil) }
+        }.resume()
+    }
+
+    /// POST what the person clicked, as the board's page does.
+    func post(_ path: String, _ body: [String: Any], _ done: @escaping (Int, [String: Any]) -> Void) {
+        sent.append("POST \(path)")
+        guard !readOnly else { done(0, ["error": "This window is read only (RAVENRY_MAC_HUB_READONLY)."]); return }
+        guard let b = base, let u = URL(string: b.absoluteString + path) else { done(0, ["error": "No board."]); return }
+        var r = URLRequest(url: u)
+        r.httpMethod = "POST"
+        r.timeoutInterval = 60
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("1", forHTTPHeaderField: "X-Ravenry")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        session.dataTask(with: r) { d, resp, e in
+            let j = d.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? (e.map { ["error": $0.localizedDescription] } ?? [:])
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            DispatchQueue.main.async { done(code, j) }
+        }.resume()
+    }
+}

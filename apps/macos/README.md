@@ -9,7 +9,8 @@ the daemon's, which is what made the first spike (GhosttyKit fed by
 `ravenryd attach`) blink and leave prompt debris on a resize.
 
 One window of tabs and splits, each pane of ravenryd drawn by the app,
-as the Electron app's terminal area has them.
+as the Electron app's terminal area has them, with the Electron app's
+sidebar and session panel around them, drawn from the hub's state.
 
 Licence: GPL-3.0-only, like the other apps. No third-party code: the
 renderer, the WebSocket client and the key table are this app's.
@@ -50,11 +51,55 @@ stream".
   zooms the pane. A tab not in front has no render stream and draws
   nothing; brought back, its panes draw the rows they had at once and
   open their streams again (a pane never drawn waits under the tab in
-  front for its first frame). The order, splits and tab in front are
-  kept in the Electron app's `window.json` (`Layout.swift`), so both
-  apps restore the same tabs; closing the window leaves the panes
-  running. The strip is in the title bar, in the Electron app's colours
+  front for its first frame). The order, splits, tab in front and pinned
+  sessions are kept by daemon (`Layout.swift`): on the Electron app's
+  daemon in its `window.json`, so both apps restore the same tabs; on any
+  other daemon in `window-<daemon>.json` beside it, so two clients on
+  different daemons never write over each other. Closing the window
+  leaves the panes running. The strip is in the title bar, in the Electron app's colours
   and sizes (`Design.swift`).
+- **The hub** (`Hub.swift`): a small typed client of the board's server,
+  as the Electron app reads it (`apps/desktop/src/main/hub.ts`): the
+  server-sent events of `GET /api/events` (each `state` the whole board,
+  read again after a drop), `GET` for the rest. Where: `RAVENRY_HUB_URL`,
+  else the port in `<RAVENRY_HOME or ~/.ravenry>/board.json`, else 4600; a
+  window off every screen reads a hub only when `RAVENRY_HUB_URL` names one.
+  It posts only what the person clicked (an answer, Continue, Move here,
+  Hand off now, Start), with `X-Ravenry: 1`, and nothing at all with
+  `RAVENRY_MAC_HUB_READONLY=1`. It is not the app's own stream (no
+  `?app=1`): the Mac notifications stay the Electron app's.
+- **The sidebar** (`Sidebar.swift`): `state.sidebar` as it comes (the
+  sections, their colours and counts, the mix bar, a project's header in
+  each section it has a session in, a row a session with its assistant,
+  context percent, pin and its line or mark, an idle project on one line),
+  then the pages of `state.pages` and Decisions, and the foot (Settings,
+  phone, Alerts, Learn, Machines, the memory line). A click on a row opens
+  what it stands for. View > Hide Sidebar (Cmd+Ctrl+S) folds it and its
+  right edge is dragged from 220 to 420 points (both kept), which the
+  Electron app does not have.
+- **What is in front** (`Board.swift`): a tab, else a session this window
+  does not draw (in cmux, iTerm2, Rex, or in a ravenryd this window is not
+  on) read only in the middle with Open in and Move here (`Middle.swift`,
+  its screen from `GET /api/live`), a project's page (Continue this
+  conversation, New session, Open brief), New session (a folder and an
+  assistant, for now), a picture large, or a page this window does not
+  draw yet, named in a native placeholder. The middle's view is a tab
+  after the others, as in the Electron app. A session in a pane of this
+  window's daemon becomes or focuses its tab. The highlighted row, the
+  panel and the tab in front always name the same thing.
+- **The panel** (`Panel.swift`): the head (project, assistant, pin,
+  hide), the state since when, the setup lines (`GET /api/setup/skills`),
+  a checkpoint's card in its `words` (ask, approve, drive; answers posted
+  to `POST /api/checkpoints/answer` as the desktop posts them) or the
+  question with its quick answers (`POST /api/send`), the context with Hand
+  off now, the hand-off, the latest picture, the brief (goal and Next from
+  `brief.nextParts`), the plan, and Typed here (`pane.inputs`) for a pane
+  of this daemon. Under 1180 points of window it folds, and opens over the
+  terminal when a question arrives for what is in front (else a toast with
+  Show); Cmd+Option+B shows and hides it. The words come from
+  `shared/strings/en.json`, the colours and sizes from
+  `shared/tokens/tokens.json`, the icons from `shared/icons/` (`Shared.swift`,
+  `Views.swift`).
 - **Screen** (`Screen.swift`): applies each frame to the rows it holds;
   that is all the terminal state the app has.
 - **Renderer** (`Renderer.swift`): instanced quads for backgrounds,
@@ -140,6 +185,7 @@ cd apps/macos
 scripts/build.sh          # prints build/RavenryMac.app, signed ad hoc
 scripts/bench.sh [DIR]    # the headless bench (below)
 scripts/selftest.sh [DIR] # the headless self-test (below)
+node scripts/sidetest.mjs [DIR] # the sidebar's and the panel's (below)
 ```
 
 `ravenryd` is built from `daemon/` and goes in the app beside its
@@ -188,6 +234,22 @@ underline, the find colours, the cursor's shape. It prints a line a
 check, writes `selftest.json` and pictures, and exits 1 when a check
 failed.
 
+## The sidebar's and the panel's self-test
+
+`node scripts/sidetest.mjs [DIR]` starts a throwaway daemon and the demo
+hub of the desktop's screenshots (`apps/desktop/tools/demo-hub.mjs`, made-up
+projects, a cmux that refuses every write), then the app off every screen
+on both (`--sidetest`, `SelfTestBoard.swift`). It checks every row the hub
+sent is drawn, a press on a row opens it (highlight, panel and middle on
+the same session), the pin, Hand off now, Open brief, the picture large,
+Move here, an idle project's page, a page's placeholder, New session and
+Start, Cmd+Shift+N, Cmd+Ctrl+S, Cmd+Option+B, the sidebar's edge, the
+panel folding at 900 points and opening over the terminal when a question
+arrives; posts go to the demo hub only. It leaves pictures at 1440, 1280
+(dark and light) and 900 points. The bench and the terminal's self-test
+start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
+them).
+
 ## Run
 
 ```sh
@@ -215,9 +277,20 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window: no New Window, sidebar, settings, closing a busy shell's
-  question, bells or activity on hidden tabs, or tab dragged to an edge to
-  split.
+- One window: no New Window, settings, closing a busy shell's question,
+  bells or activity on hidden tabs, or tab dragged to an edge to split.
+- Sidebar and panel: the pages (Objectives, Plans, Ideas, Rules, Ship,
+  Decisions), the brief, the plan, the gallery, Settings, the phone,
+  Alerts, Learn and Machines are native placeholders; New session is a
+  folder and an assistant, without the setup step or the worktree choice;
+  a pinned session that runs outside gets no tab of its own; the secret
+  and pick cards say to answer in the Ravenry app; the approve card has no
+  Edit; no number keys on a card; Typed here has no filters or whole log;
+  no review, files changed, panes it uses or lent-pane strip; no
+  filmstrip; a shell's panel has no "opened by" or who can type here.
+- A session in a ravenryd pane of another daemon (the board's, when the
+  window runs on its own) is shown read only, as one outside: the window
+  draws only its own daemon's panes.
 - No images (Kitty graphics, sixel); OSC 52 clipboard and notifications
   are not forwarded. Find has no match-case or regular expression
   option (the daemon's search ignores the case of ASCII letters).

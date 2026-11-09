@@ -30,7 +30,7 @@ enum Design {
     }
 
     /// A type size of the tokens (size.md is 12.5).
-    private static func size(_ name: String, _ fallback: CGFloat) -> CGFloat {
+    static func size(_ name: String, _ fallback: CGFloat) -> CGFloat {
         ((tokens["size"] as? [String: Any])?[name] as? NSNumber).map { CGFloat($0.doubleValue) } ?? fallback
     }
 
@@ -41,6 +41,28 @@ enum Design {
         return NSColor(name: NSColor.Name(name)) { ap in
             ap.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? d : l
         }
+    }
+
+    /// Any colour of the tokens by its name (app.css's variable without
+    /// the dashes), for dark and light: the sidebar's and the panel's.
+    private static var named: [String: NSColor] = [:]
+    static func color(_ name: String) -> NSColor {
+        if let c = named[name] { return c }
+        let c = pair(name, dark: token("dark", name) ?? .gray, light: token("light", name) ?? .gray)
+        named[name] = c
+        return c
+    }
+    /// A token's colour in one theme, as "#RRGGBB" (the icons are filled with it).
+    static func hex(_ name: String, dark: Bool) -> String {
+        guard let c = token(dark ? "dark" : "light", name)?.usingColorSpace(.sRGB) else { return "#888888" }
+        return String(format: "#%02X%02X%02X", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)), Int(round(c.blueComponent * 255)))
+    }
+    /// The type scale, spacing and radii of the tokens.
+    static func space(_ name: String, _ fallback: CGFloat) -> CGFloat {
+        ((tokens["space"] as? [String: Any])?[name] as? NSNumber).map { CGFloat($0.doubleValue) } ?? fallback
+    }
+    static func radius(_ name: String, _ fallback: CGFloat) -> CGFloat {
+        ((tokens["radius"] as? [String: Any])?[name] as? NSNumber).map { CGFloat($0.doubleValue) } ?? fallback
     }
 
     // :root

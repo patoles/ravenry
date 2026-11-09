@@ -90,7 +90,7 @@ extension SelfTest {
     }
     private func savedLayout() -> [String: Any] {
         guard let d = ProcessInfo.processInfo.environment["RAVENRY_DESKTOP_DATA"],
-              let data = try? Data(contentsOf: URL(fileURLWithPath: d).appendingPathComponent("window.json")) else { return [:] }
+              let data = try? Data(contentsOf: URL(fileURLWithPath: d).appendingPathComponent(LayoutStore.fileName(socket: workspace.conn.socketPath))) else { return [:] }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
     private func prompt(_ v: TerminalView?) -> Bool { waitFor(5) { self.focusedText(v).contains("~ >") } }
