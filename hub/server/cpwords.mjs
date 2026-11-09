@@ -38,6 +38,8 @@
 //   {machine}  a client on the hub's own computer (the desktop app, the Mac
 //              app) puts words.machine.here ("this Mac"); any other (the
 //              phone) puts words.machine.away (the computer's name).
+//   {ranOn}    (after.head) the same, but words.machine.awayAfter ("this
+//              computer") for a client elsewhere.
 //   {where}    (after.text) the client whose answers carry `by` equal to
 //              after.where.by puts after.where.mine ("here"), any other
 //              after.where.other ("on your phone", "from desktop").
@@ -249,13 +251,17 @@ const isRemote = (machine) => !!machine && machine !== 'local';
  * The machine a checkpoint runs on, for people (`{machine}`): `here` for a
  * client on the hub's computer ("this Mac", "this computer"), `away` for any
  * other (the computer's name); a remote machine is its name for both.
- * `line` is `here` at the start of a line.
+ * `line` is `here` at the start of a line. `{ranOn}` (a card's after head)
+ * is `here` on the hub's computer, else `awayAfter`.
  */
 export function machineWords(machine, { platform = process.platform, hubName = null } = {}) {
   const remote = isRemote(machine);
   const here = remote ? machine : platform === 'darwin' ? 'this Mac' : 'this computer';
   const away = remote ? machine : hubName || 'this computer';
-  return { remote, here, away, line: cap(here) };
+  // What a closed card says it ran on: `here` on the hub's computer, else
+  // "this computer" (the phone's done screen said so before the hub worded it).
+  const awayAfter = remote ? machine : 'this computer';
+  return { remote, here, away, awayAfter, line: cap(here) };
 }
 
 /** The pane a daemon's drive title names ('Let Claude close "dev server" (pane pabc)?'), without its id. */
@@ -332,7 +338,7 @@ export function afterOf(cp) {
     const approved = edited ? 'You edited it and approved it {where}' : 'You approved it {where}';
     const runPane = (cp.run && cp.run.pane) || null;
     if (cp.state === 'running') {
-      return { ...base, ok: true, head: 'Running on {machine}', at: (a && a.at) || null, command: ran(), edited, text: `${approved}. ${w} gets the output when it ends${edited ? ', and is told you changed it' : ''}.`, runPane };
+      return { ...base, ok: true, head: 'Running on {ranOn}', at: (a && a.at) || null, command: ran(), edited, text: `${approved}. ${w} gets the output when it ends${edited ? ', and is told you changed it' : ''}.`, runPane };
     }
     const exit = cp.run && cp.run.exit;
     const took = a && a.at && cp.closed_at ? duration(Date.parse(cp.closed_at) - Date.parse(a.at)) : null;
@@ -340,7 +346,7 @@ export function afterOf(cp) {
       : exit.code === 0 ? `Finished${took ? ` in ${took}` : ''} with no errors.`
         : exit.signal ? `Stopped by ${exit.signal}${took ? ` after ${took}` : ''}.`
           : `Ended with exit code ${exit.code}${took ? ` after ${took}` : ''}.`;
-    return { ...base, ok: !!exit && exit.code === 0, head: 'Ran on {machine}', command: ran(), edited, text: `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane };
+    return { ...base, ok: !!exit && exit.code === 0, head: 'Ran on {ranOn}', command: ran(), edited, text: `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane };
   }
   if (k === 'secret') {
     const to = cp.secret && cp.secret.to === 'input' ? 'the program in its pane' : shortCommand(cp.command) || 'its command';

@@ -21,6 +21,7 @@ const hm = (iso) => { const d = new Date(iso); return `${String(d.getHours()).pa
 // answers carry, `onHub` whether it runs on the hub's computer.
 const fill = (s, w, { me = 'desktop', onHub = true, pane = null } = {}) => String(s)
   .replace(/\{machine\}/g, onHub ? w.machine.here : w.machine.away)
+  .replace(/\{ranOn\}/g, onHub ? w.machine.here : w.machine.awayAfter)
   .replace(/\{where\}/g, w.after ? (w.after.where.by === me ? w.after.where.mine : w.after.where.other) : '')
   .replace(/\{time\}/g, w.after && w.after.at ? hm(w.after.at) : '')
   .replace(/\{pane\}/g, pane || (w.drive ? w.drive.pane : ''));
@@ -115,7 +116,7 @@ is('mark labels', ['ask', 'approve', 'secret', 'pick', 'drive', 'review'].map(ma
   const failedRun = said({ ...approve, machine: null, state: 'answered', answer: { approved: true, by: 'desktop', at: at(1) }, closed_at: at(0), run: { pane: 'pd', exit: { code: 2 } } }).a;
   is('a failed run here', [failedRun.ok, failedRun.head], [false, 'Ran on this Mac']);
   check('a failed run says its exit code', /^Ended with exit code 2 after 1 min\./.test(failedRun.text), failedRun.text);
-  is('a run here, said on the phone', said({ ...approve, machine: null, state: 'answered', answer: { approved: true, by: 'desktop', at: at(1) }, closed_at: at(0), run: { exit: { code: 0 } } }, {}, { me: 'phone', onHub: false }).a.head, 'Ran on Studio');
+  is('a run here, said on the phone as before the hub worded it', said({ ...approve, machine: null, state: 'answered', answer: { approved: true, by: 'desktop', at: at(1) }, closed_at: at(0), run: { exit: { code: 0 } } }, {}, { me: 'phone', onHub: false }).a.head, 'Ran on this computer');
   const runningNow = said({ ...approve, state: 'running', answer: { approved: true, by: 'desktop', at: at(0) }, run: { pane: 'pd' } }).a;
   is('running on a machine, since its approval', [runningNow.head, runningNow.at], ['Running on devbox', at(0)]);
   const sent = said({ ...secret, state: 'answered', closed_at: at(0), answer: { delivered: true, by: 'desktop', at: at(0) } }).a;

@@ -32,7 +32,7 @@ export interface CheckpointWords {
   heading: string;
   top: string;
   mark: { kind: CardKind; text: string; code: boolean; label: string };
-  machine: { remote: boolean; here: string; away: string; line: string };
+  machine: { remote: boolean; here: string; away: string; awayAfter?: string; line: string };
   runLabel: string;
   warnings: Warning[];
   guess: { label: string; rules: { pattern: string; flags: string; text: string }[] } | null;
@@ -113,6 +113,7 @@ export interface Reader {
 export function fill(text: string, w: CheckpointWords, r: Reader): string {
   return String(text || '')
     .replace(/\{machine\}/g, r.onHub ? w.machine.here : w.machine.away)
+    .replace(/\{ranOn\}/g, r.onHub ? w.machine.here : (w.machine.awayAfter || w.machine.away))
     .replace(/\{where\}/g, w.after ? (w.after.where.by === r.me ? w.after.where.mine : w.after.where.other) : '')
     .replace(/\{time\}/g, w.after ? r.time(w.after.at) : '')
     .replace(/\{pane\}/g, r.pane || (w.drive ? w.drive.pane : ''));

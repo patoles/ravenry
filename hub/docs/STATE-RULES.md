@@ -313,6 +313,8 @@ draws them as they come:
     app) says `machine.here` ("this Mac", "this computer", or a remote
     machine's name); any other (the phone) says `machine.away` (this
     computer's name, or the remote machine's).
+  - `{ranOn}` (a closed card's head): `machine.here` on the hub's computer,
+    else `machine.awayAfter` ("this computer").
   - `{where}` (in `after.text`): the client whose answers carry
     `by` equal to `after.where.by` ("desktop", "phone") says
     `after.where.mine` ("here"); any other says `after.where.other` ("on
