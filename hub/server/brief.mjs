@@ -82,7 +82,9 @@ export function parseBrief(md) {
     }
     // A plan objective (server/planfmt.mjs) is read from its own lines once
     // the section ends; the lines still go through the checklist rules below.
-    if (section === 'plan' && objective) objective._lines.push(raw);
+    // (A plain checklist's objective has no lines of its own: a line after
+    // its first bullet threw here before.)
+    if (section === 'plan' && objective && objective._lines) objective._lines.push(raw);
     if (!l.trim()) { if (section && text[section]) pushText(section, ''); continue; }
 
     // Key: value lines work at the top and inside Parked and Hand-off.

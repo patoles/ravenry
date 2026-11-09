@@ -47,7 +47,8 @@ import { TerminalMarks } from './marks.ts';
 import type { SettingsSnapshot, TerminalSettings } from '../shared/settings.ts';
 import Split from 'split.js';
 type SplitInstance = ReturnType<typeof Split>;
-import { briefPage, nextItems, plain } from './briefdoc.ts';
+import { briefPage, plain } from './briefdoc.ts';
+import type { NextParts } from './briefdoc.ts';
 import { leaseStrip, leaseWords, openedLine, panesItUses, typedHere, whoCanType } from './panepanel.ts';
 import type { PaneCtx, Who } from './panepanel.ts';
 import { Filmstrip } from './filmstrip.ts';
@@ -2902,8 +2903,9 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
 
   if (p.brief && (p.brief.goal || p.brief.next)) {
     // The brief, short (H1): the goal on one line, Next as at most three
-    // one-line items, and the whole of it a click away (briefdoc.ts).
-    const n = nextItems(p.brief.next);
+    // one-line items as the hub splits them (nextParts), and the whole of it
+    // a click away (briefdoc.ts).
+    const n = p.brief.nextParts || { items: [], older: 0 };
     body.push(h('div.sec.brief-card',
       h('div.sec-h', 'Brief'),
       h('div.bf',
@@ -2948,7 +2950,7 @@ async function renderBrief(project: string): Promise<void> {
     if (!d) { if (briefShown?.project !== project) { briefShown = null; replace(el); } return; }
   }
   const r = d.r;
-  const b = r && r.status === 200 ? r.body as { file: string; path: string; text: string; updatedAt: string; by: string | null } : null;
+  const b = r && r.status === 200 ? r.body as { file: string; path: string; text: string; nextParts?: NextParts; updatedAt: string; by: string | null } : null;
   const p = (S.hub?.projects || []).find((x) => x.id === project);
   if (!b) {
     briefShown = null;
@@ -2964,7 +2966,7 @@ async function renderBrief(project: string): Promise<void> {
     h('div.doc-h', svg(I.DOC), h('b', 'Brief'), h('span.t3', p ? p.name : project), h('span.sp'),
       h('span.t3', { title: b.path }, `Updated ${clock(b.updatedAt, now())}${b.by ? ` by ${b.by}` : ''}`),
       p && p.machine ? null : h('button.btn.sm', { title: `Open ${b.path} in your Markdown editor`, on: { click: () => api().openPath(b.file) } }, 'Edit')),
-    h('div.doc-b', briefPage(b.text, { dir, onLink: (u) => api().openExternal(u) })));
+    h('div.doc-b', briefPage(b.text, { dir, onLink: (u) => api().openExternal(u) }, b.nextParts?.entries || [])));
 }
 
 /** What a session's panel shows of Phase 2 between its card and its context. */

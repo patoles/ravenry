@@ -87,6 +87,7 @@ check('the board answers', !!first, boardLog.slice(-800));
 {
   const b = await get('/api/brief?project=docs');
   check('GET /api/brief: the brief as written, with its file and when it changed', b.status === 200 && b.body.text === BRIEF_TEXT && b.body.file === path.join(T, 'docs', 'BRIEF.md') && !isNaN(Date.parse(b.body.updatedAt)), JSON.stringify(b.body).slice(0, 300));
+  check('GET /api/brief: its Next step split (nextParts)', JSON.stringify(b.body.nextParts) === JSON.stringify({ items: ['Write the intro'], older: 0, entries: [] }), JSON.stringify(b.body.nextParts));
   const none = await get('/api/brief?project=proj');
   const bad = await get('/api/brief?project=nope');
   check('GET /api/brief: 404 for a project with no brief and for no such project', none.status === 404 && bad.status === 404, `${none.status} ${bad.status}`);

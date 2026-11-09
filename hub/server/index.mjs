@@ -20,7 +20,8 @@ import * as access from './access.mjs';
 import * as asst from './assistant.mjs';
 import { markEntries, spansGen } from './codespans.mjs';
 import * as registry from './registry.mjs';
-import { readBrief, appendNote } from './brief.mjs';
+import { readBrief, appendNote, parseBrief } from './brief.mjs';
+import { nextParts } from './briefnext.mjs';
 import { sessionState, eventState, projectState, describe, plain } from './state.mjs';
 import * as handoff from './handoff.mjs';
 import { config } from './config.mjs';
@@ -981,7 +982,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     folder: project.folder, folderShort: homes.sayFolder(project.folder, where), shared,
     waitingOn, flags,
     line: words.line, headline: words.headline, quick: words.quick, question: words.question, dialog: words.dialog || null, draft: words.draft || null,
-    brief: brief ? { path: homes.sayFolder(brief.path, where), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
+    brief: brief ? { path: homes.sayFolder(brief.path, where), file: brief.path, draft: brief.draft, status: brief.status, goal: brief.goal, doneMeans: brief.doneMeans, kind: brief.kind, stage: brief.stage, plan: brief.plan, next: brief.next, nextParts: nextParts(brief.next), notes: brief.notes, pictures: brief.pictures, parked: brief.parked, rules: brief.rules, ship: brief.ship, waitingOn: brief.waitingOn } : null,
     briefExpected: registry.briefPath(project) ? homes.sayFolder(registry.briefPath(project), where) : null,
     plans: project.unowned ? [] : plansFor(project, reg.projects, now),
     timeline: timeline.slice(0, 5),
@@ -3639,7 +3640,9 @@ async function handleRequest(req, res) {
       const view = (snapshot.projects || []).find((x) => x.id === id);
       const writer = (view && view.sessions || []).find((x) => x.assistant && Date.parse(x.startedAt || x.since || 0) <= st.mtimeMs) || (view && view.sessions || [])[0] || null;
       const by = writer ? ({ claude: 'Claude', codex: 'Codex' }[writer.assistant] || null) : null;
-      return sendJson(res, 200, { project: id, file, path: homes.sayLocal(file), text: fs.readFileSync(file, 'utf8'), updatedAt: new Date(st.mtimeMs).toISOString(), by });
+      const text = fs.readFileSync(file, 'utf8');
+      // nextParts: its Next step split into the card's items and the page's dated entries (server/briefnext.mjs).
+      return sendJson(res, 200, { project: id, file, path: homes.sayLocal(file), text, nextParts: nextParts(parseBrief(text).next), updatedAt: new Date(st.mtimeMs).toISOString(), by });
     }
     if (req.method === 'GET' && p === '/api/decisions') {
       // The ledger, newest first (server/decisions.mjs): an open read, so an

@@ -202,8 +202,8 @@ release check (`apps/desktop/tools/release-check.mjs`).
 
 | ID | Behaviour | Logic | Acceptance | macOS | Electron | Android | Phone web |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BRIEF-001 | The panel's Brief card: the goal on one line, Next as at most 3 one-line items from the newest dated entry, "Open brief, N older entries" | hub state (brief); client `briefdoc.ts` | RC-15, `apps/desktop/test/brief.test.ts` | missing | done | missing | missing |
-| BRIEF-002 | The Brief page beside the session: "Updated <time> by <assistant>", Edit, Goal, Rules, Next in dated entries newest first (the newest open), the Plan as a checklist, Hand-off | hub `GET /api/brief` | RC-15 | missing | done | missing | missing |
+| BRIEF-001 | The panel's Brief card: the goal on one line, Next as at most 3 one-line items from the newest dated entry, "Open brief, N older entries" | hub state (each project's `brief.nextParts`: `items`, `older`; `hub/server/briefnext.mjs`) | RC-15, `hub/tools/briefnext-test.mjs` | missing | done | missing | missing |
+| BRIEF-002 | The Brief page beside the session: "Updated <time> by <assistant>", Edit, Goal, Rules, Next in dated entries newest first (the newest open), the Plan as a checklist, Hand-off | hub `GET /api/brief` (the dated entries and their sentences in `nextParts.entries`, `hub/server/briefnext.mjs`); the Markdown drawn by the client | RC-15, `hub/tools/briefnext-test.mjs`, `hub/tools/hub-api-test.mjs` | missing | done | missing | missing |
 | BRIEF-003 | A link in the brief opens in the browser; Edit opens the file in the Markdown editor; closing goes back to the session | client | RC-15 | missing | done | missing | missing |
 | BRIEF-004 | The brief is drawn as text, never as HTML, and asked for when shown, not at every state | client; hub `GET /api/brief` | RC-15, `apps/desktop/test/brief.test.ts` | missing | done | missing | missing |
 | BRIEF-005 | Add a note to a project's brief | hub `POST /api/note` | none yet | missing | missing | missing | missing |

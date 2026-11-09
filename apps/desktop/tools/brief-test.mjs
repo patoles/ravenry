@@ -13,7 +13,7 @@
 // Pictures in dark and light.
 //
 //   node tools/brief-test.mjs [OUT] [--exe APP_EXECUTABLE]
-import { hubState } from './stub-state.mjs';
+import { briefBody, hubState } from './stub-state.mjs';
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -74,7 +74,7 @@ const srv = http.createServer((q, r) => {
   if (q.url.startsWith('/api/brief?project=kite')) {
     briefAsked++;
     r.writeHead(200, { 'Content-Type': 'application/json' });
-    r.end(JSON.stringify({ project: 'kite', file: briefFile, path: briefFile, text: fs.readFileSync(briefFile, 'utf8'), updatedAt: mtime.toISOString(), by: 'Claude' }));
+    r.end(JSON.stringify(briefBody({ project: 'kite', file: briefFile, path: briefFile, text: fs.readFileSync(briefFile, 'utf8'), updatedAt: mtime.toISOString(), by: 'Claude' }, WALL)));
     return;
   }
   r.writeHead(404, { 'Content-Type': 'application/json' }); r.end('{}');

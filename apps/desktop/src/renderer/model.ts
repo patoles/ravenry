@@ -61,6 +61,8 @@ export interface HubProject {
   brief?: {
     goal?: string | null;
     next?: string | null;
+    /** The Next step split by the hub (hub/server/briefnext.mjs): the card's items and the older entries' count. */
+    nextParts?: { items: string[]; older: number; entries: { date: string; text: string; sentences: string[] }[] };
     pictures?: { url?: string; alt?: string; path?: string; auto?: boolean }[];
   } | null;
   plan?: { title?: string; name?: string; steps?: { text?: string; title?: string; state?: string }[] } | null;

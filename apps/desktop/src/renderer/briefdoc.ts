@@ -1,13 +1,8 @@
-// A project's brief in the window: its Next step as at most three short
-// items for the panel's card (H1), and the whole brief as a page in the
-// middle (H2), read from the file as written (the hub's /api/brief).
+// A project's brief in the window: the whole brief as a page in the middle
+// (H2), read from the file as written (the hub's /api/brief). The panel
+// card's Next items (H1) and the page's dated entries are the hub's
+// (`nextParts`, hub/server/briefnext.mjs), split from the Next step there.
 // The design: scratchpad picture ravenry-brief.html, approved 2026-11-07.
-//
-// A brief's Next step should be at most three short bullets
-// (hub/docs/BRIEF-FORMAT.md). An older one is a paragraph that grew a
-// dated entry per session ("2026-11-06: Released 0.3.0. ... Next: the
-// header, then pricing, then ship 0.3.1. 2026-11-05: ..."): it is split at
-// each date, newest first. The card's items come from the newest entry.
 //
 // The Markdown is drawn as DOM nodes, never as HTML: a brief is text an
 // agent wrote.
@@ -18,53 +13,15 @@ const RIGHT = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" strok
 const DOWN = '<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5l4 4 4-4"/></svg>';
 const TICK = '<svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 5.2l2 2 4-4.4" stroke="#FFF" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-/** Where a dated entry starts: a date at a line's start or after a sentence, then ":" or ")". */
-const DATE_AT = /(^|\n|(?<=[.!?]\s))\s*[-*]?\s*(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2})?\s*[:)–-]\s*/g;
+/** A dated entry of an older Next step, as the hub splits it (briefnext.mjs). */
+export interface Entry { date: string; text: string; sentences: string[] }
 
-export interface Entry { date: string; text: string }
-
-/** A Next step split at each date, newest first; none when it has fewer than two. */
-export function datedEntries(next: string): Entry[] {
-  const marks = [...next.matchAll(DATE_AT)];
-  if (marks.length < 2) return [];
-  const out: Entry[] = [];
-  marks.forEach((m, i) => {
-    const start = (m.index || 0) + m[0].length;
-    const end = i + 1 < marks.length ? marks[i + 1].index || next.length : next.length;
-    const text = next.slice(start, end).replace(/\s+/g, ' ').trim();
-    if (text) out.push({ date: m[2], text });
-  });
-  return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-}
+/** A brief's Next step split by the hub: the card's items, the older entries' count, the page's entries. */
+export interface NextParts { items: string[]; older: number; entries: Entry[] }
 
 /** Markdown's marks off a line: what a person reads. */
 export function plain(s: string): string {
   return s.replace(/`([^`]*)`/g, '$1').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/(^|\W)[*_]([^*_]+)[*_](?=\W|$)/g, '$1$2').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/^\[[ xX>?~-]\]\s+/, '').trim();
-}
-
-// A sentence ends at . ! or ? followed by a space ("0.3.0" and "lumen.app" are not ends).
-const sentences = (t: string) => t.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
-const tidy = (s: string) => { const t = plain(s).replace(/[.;,]\s*$/, '').trim(); return t.charAt(0).toUpperCase() + t.slice(1); };
-
-/** The items after "Next:" in a text: "a, then b, then c" is three. */
-function nextList(t: string): string[] | null {
-  const m = /\bNext(?: step)?:\s*(.+)$/i.exec(t);
-  if (!m) return null;
-  return m[1].split(/,?\s+(?:and\s+)?then\s+|;\s+/i).map(tidy).filter(Boolean);
-}
-
-/** The panel card's Next: at most three one-line items, and how many older dated entries the brief holds. */
-export function nextItems(next: string | null | undefined): { items: string[]; older: number } {
-  const text = String(next || '').trim();
-  if (!text) return { items: [], older: 0 };
-  const entries = datedEntries(text);
-  if (entries.length) {
-    const top = entries[0].text;
-    return { items: (nextList(top) || sentences(top).map(tidy)).slice(0, 3), older: entries.length - 1 };
-  }
-  const bullets = text.split('\n').filter((l) => /^[-*+]\s+/.test(l)).map((l) => tidy(l.replace(/^[-*+]\s+/, '')));
-  if (bullets.length) return { items: bullets.slice(0, 3), older: 0 };
-  return { items: (nextList(text.replace(/\s+/g, ' ')) || sentences(text.replace(/\s+/g, ' ')).map(tidy)).slice(0, 3), older: 0 };
 }
 
 // ---------------------------------------------------------------- the page
@@ -176,7 +133,7 @@ const chevron = (open: boolean) => h('span.oe-c', svg(open ? DOWN : RIGHT));
 function entries(list: Entry[], o: DocOpts): HTMLElement {
   const box = h('div.olds');
   const row = (e: Entry, open: boolean): HTMLElement => {
-    const ss = sentences(e.text);
+    const ss = e.sentences;
     const el = h(`div.oe${open ? '.open' : ''}`);
     const head = h('div.oe-r', { role: 'button', tabindex: '0', 'aria-expanded': open ? 'true' : 'false', on: { click: () => el.replaceWith(row(e, !open)) } },
       chevron(open), h('span.dt', e.date), h('span.t', ...inline(open ? ss[0] || e.text : e.text, o)));
@@ -190,8 +147,8 @@ function entries(list: Entry[], o: DocOpts): HTMLElement {
 
 const FIELDS: [RegExp, string][] = [[/^goal:\s*/i, 'Goal'], [/^done means:\s*/i, 'Done means'], [/^kind:\s*/i, 'Kind'], [/^stage:\s*/i, 'Stage'], [/^waiting on:\s*/i, 'Waiting on']];
 
-/** The brief as a page: its sections in order, the Next step's dated entries split, the plan's count. */
-export function briefPage(md: string, o: DocOpts): HTMLElement {
+/** The brief as a page: its sections in order, the Next step's dated entries (the hub's), the plan's count. */
+export function briefPage(md: string, o: DocOpts, entriesOfNext: Entry[] = []): HTMLElement {
   const lines = md.replace(/\r\n?/g, '\n').split('\n');
   const page = h('div.md');
   // Before the first section: the Key: value fields (the title and the status line are the header's).
@@ -208,7 +165,7 @@ export function briefPage(md: string, o: DocOpts): HTMLElement {
     const key = name.toLowerCase();
     const head = h('h2', ...inline(name, o));
     if (key === 'next step' || key === 'next') {
-      const es = datedEntries(body.join('\n'));
+      const es = entriesOfNext;
       if (es.length) { head.append(h('span.c', `split into ${es.length} dated entries, newest first`)); page.append(head, entries(es, o)); continue; }
     }
     if (key === 'plan') {
