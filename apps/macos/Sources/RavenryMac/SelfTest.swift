@@ -17,9 +17,11 @@ final class SelfTest {
     let started = Date()
 
     let drag: Bool
+    let dragMin: CGFloat
 
-    init(view: TerminalView, window: NSWindow, out: String, drag: Bool) {
+    init(view: TerminalView, window: NSWindow, out: String, drag: Bool, dragMin: CGFloat = 300) {
         self.drag = drag
+        self.dragMin = dragMin
         self.view = view
         self.window = window
         self.out = out
@@ -124,21 +126,26 @@ final class SelfTest {
     }
 
     /// The resize drag (--drag): a long multi-line command line pasted at
-    /// the shell's prompt, then the window's width dragged down and back
-    /// at about 120 steps a second, as a person drags its edge. After each
-    /// step it measures how much text Ghostty's last drawn frame shows, so
-    /// a frame that went blank is counted.
+    /// the shell's prompt, then the window's width dragged from 1200 pt
+    /// down to --drag-min (300 by default, where the command line is taller
+    /// than the window and zsh starts it with ">....") and back, at about
+    /// 120 steps a second, as a person drags its edge. After each step it
+    /// measures how much text Ghostty's last drawn frame shows, so a frame
+    /// that went blank is counted, and keeps the terminal's text, so a
+    /// leftover piece of an old prompt (debris) is counted too.
     @MainActor
     private func runDrag() async {
         let prompted = await waitFor({ $0.contains("> ") }, timeout: 15)
         result["prompt"] = prompted
         guard prompted, let surface = view.surface else { return }
+        result["prompt_screen"] = view.screenText()
         let words = "the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows"
         var lines: [String] = []
         for i in 0..<10 {
             lines.append("line \(i): " + String(repeating: words + " ", count: i % 3 + 1))
         }
         let text = lines.joined(separator: "\n")
+        result["pasted"] = text
         text.withCString { p in ghostty_surface_text(surface, p, UInt(text.utf8.count)) }
         try? await Task.sleep(nanoseconds: 800_000_000)
         let base = inkRatio()
@@ -146,7 +153,7 @@ final class SelfTest {
         var steps: [[String: Any]] = []
         var widths: [CGFloat] = []
         var w: CGFloat = 1200
-        while w > 620 { widths.append(w); w -= 7 }
+        while w > dragMin { widths.append(w); w -= 7 }
         while w < 1200 { widths.append(w); w += 7 }
         let t0 = Date()
         var blankShots = 0
@@ -154,7 +161,8 @@ final class SelfTest {
             window.setContentSize(NSSize(width: w, height: 760))
             try? await Task.sleep(nanoseconds: 8_000_000)
             let ink = inkRatio()
-            var step: [String: Any] = ["ms": ms(since: t0), "width": Int(w), "cols": view.gridSize().cols, "ink": ink]
+            var step: [String: Any] = ["ms": ms(since: t0), "width": Int(w), "cols": view.gridSize().cols, "ink": ink,
+                                        "text": view.screenText()]
             if ink < base * 0.3 && blankShots < 3 {
                 // What the terminal holds when the frame looks blank.
                 step["screen"] = view.screenText()

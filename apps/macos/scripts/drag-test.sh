@@ -3,14 +3,22 @@
 #
 #   scripts/drag-test.sh [COMMAND ARGS...]   (DRAG_APP: the .app, default apps/macos/build/RavenryMac.app)
 #
+# DRAG_MIN: the narrowest width of the drag in points (default 300, where
+# the command line is taller than the window and zsh starts it with
+# ">...."; 620 keeps it to wide windows).
+#
 # The pane runs zsh (with the daemon's shell integration, as a login shell
 # does) at a prompt holding a long multi-line command line. The app drags
 # its window's width down and back at about 120 steps a second and
 # measures, after each step, how much text Ghostty's last frame shows
-# (SelfTest.swift, --drag). `ravenryd attach` records everything it sends
-# the window (RAVENRY_ATTACH_TRACE). The script prints the frames that
-# went blank, and the snapshots and screen clears the window was sent
-# during the drag. The target is 0 of each.
+# and what text the terminal holds (SelfTest.swift, --drag). `ravenryd
+# attach` records everything it sends the window (RAVENRY_ATTACH_TRACE).
+# The script prints the frames that went blank, the steps whose screen
+# held debris (text that is not one piece of the prompt and its command
+# line, such as a leftover "~ >...." row of an earlier redraw), whether
+# the window ends on the daemon's screen, and the snapshots and screen
+# clears the window was sent during the drag. The target is 0 blank, 0
+# debris, the daemon's screen.
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -45,7 +53,7 @@ done
 
 # shellcheck disable=SC2086
 env -i $envs RAVENRY_ATTACH_TRACE="$dir/trace.txt" "$app/Contents/MacOS/RavenryMac" \
-  --offscreen --socket "$sock" --selftest "$dir/result.json" --drag ${1:+--} "$@" 2>"$dir/app.log" &
+  --offscreen --socket "$sock" --selftest "$dir/result.json" --drag --drag-min "${DRAG_MIN:-300}" ${1:+--} "$@" 2>"$dir/app.log" &
 apppid=$!
 i=0
 while kill -0 "$apppid" 2>/dev/null; do
@@ -77,6 +85,26 @@ for s in blank[:10]:
 flat = lambda t: "".join(t.split())
 win, dmn = flat(r.get("screen", "")), flat(open(os.path.join(d, "daemon-screen.txt")).read())
 print("the window ends on the daemon's screen: %s (%d and %d characters)" % ("yes" if win == dmn else "NO", len(win), len(dmn)))
+
+# Debris: a screen whose text, without white space, is not one piece of
+# what was on the screen at the prompt followed by the pasted command line.
+# zsh shows a command line taller than the screen from the middle, its
+# top row the prompt and ">....", so that mark is taken off first.
+prompt = flat(r.get("prompt_screen", ""))
+whole = prompt + flat(r.get("pasted", ""))
+def debris(t):
+    f = flat(t)
+    if f.startswith(prompt + ">...."):
+        f = f[len(prompt) + 5:]
+    elif f.startswith(">...."):
+        f = f[5:]
+    return f not in whole
+bad = [s for s in steps if debris(s.get("text", ""))]
+print("steps with debris on the screen: %d of %d%s" % (len(bad), len(steps), "" if steps and "text" in steps[0] else " (no step text: old app)"))
+for s in bad[:3]:
+    rows = [l for l in s["text"].split("\n") if l.strip()][:4]
+    print("  at %4d ms, width %d, cols %d: %s" % (s["ms"], s["width"], s["cols"], " | ".join(x[:40] for x in rows)))
+print("debris on the last screen: %s" % ("YES" if debris(r.get("screen", "")) else "no"))
 
 # The trace: everything attach wrote to the window after the paste.
 ev = []
