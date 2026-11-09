@@ -72,6 +72,7 @@ type resizeHold struct {
 	prompt     bool // the cursor was at a prompt
 	output     bool // output came after the resize
 	inputStart bool // the shell's prompt was drawn again (OSC 133 B)
+	more       bool // the program is most likely still writing (Pane.writing)
 	last       time.Time
 }
 
@@ -82,6 +83,10 @@ const (
 	// holdQuietPrompt: the shell drew its prompt again and has been
 	// quiet this long (the command line follows the prompt).
 	holdQuietPrompt = 4 * time.Millisecond
+	// holdQuietMore: the program is most likely still writing
+	// (Pane.writing); on a busy machine its next write came up to 10 ms
+	// later (zsh drawing a long command line during a fast drag).
+	holdQuietMore = 30 * time.Millisecond
 	// holdNoOutput: no output came at all, at a prompt and elsewhere.
 	holdNoOutputPrompt = 120 * time.Millisecond
 	holdNoOutput       = 30 * time.Millisecond
@@ -103,6 +108,8 @@ func (h *resizeHold) heldUntil(now time.Time) (bool, time.Time) {
 		deadline = minTime(deadline, h.at.Add(holdMaxProgram))
 	}
 	switch {
+	case h.more:
+		deadline = minTime(deadline, h.last.Add(holdQuietMore))
 	case h.inputStart:
 		deadline = minTime(deadline, h.last.Add(holdQuietPrompt))
 	case h.output:
@@ -114,6 +121,10 @@ func (h *resizeHold) heldUntil(now time.Time) (bool, time.Time) {
 	}
 	return now.Before(deadline), deadline
 }
+
+// inputStartMark starts the shell's input start mark (OSC 133 B), ended
+// by BEL or ST.
+var inputStartMark = []byte("\x1b]133;B")
 
 func minTime(a, b time.Time) time.Time {
 	if b.Before(a) {
@@ -130,7 +141,7 @@ func (p *Pane) resized(atPrompt bool) {
 		p.rhold = &resizeHold{start: now}
 	}
 	h := p.rhold
-	h.at, h.prompt, h.output, h.inputStart = now, atPrompt, false, false
+	h.at, h.prompt, h.output, h.inputStart, h.more = now, atPrompt, false, false, false
 	for s := range p.rsubs {
 		s.signal()
 	}
@@ -146,24 +157,57 @@ func (p *Pane) resizeWhenDrawn(cols, rows int) error {
 	if c, r := p.screen.Size(); c == cols && r == rows && p.pendingSize == nil {
 		return nil
 	}
-	if h := p.rhold; h != nil && h.prompt {
-		if held, _ := p.renderHeld(time.Now()); held {
-			p.pendingSize = &[2]int{cols, rows}
-			p.armPendingResize()
-			return nil
-		}
+	if wait, _ := p.resizeWait(time.Now()); wait {
+		p.pendingSize = &[2]int{cols, rows}
+		p.armPendingResize()
+		return nil
 	}
 	p.pendingSize = nil
 	return p.resizeLocked(cols, rows)
 }
 
+// resizeWait says whether a size asked for now waits, and until when at
+// the latest: while the shell at a prompt draws itself after the last
+// resize, and while it is still writing (its last output filled the
+// pty's buffer), even once the hold has ended. A shell's redraw cut in
+// two by a resize leaves its rows where the next one does not look for
+// them: blank rows scrolled into the scrollback, or a copy of the
+// prompt above the next. The pane's lock is held.
+func (p *Pane) resizeWait(now time.Time) (bool, time.Time) {
+	if h := p.rhold; h != nil && h.prompt {
+		if held, until := p.renderHeld(now); held {
+			return true, until
+		}
+	}
+	if p.writing() && p.screen.AtPrompt() {
+		if until := p.lastOutput.Add(holdQuietMore); now.Before(until) {
+			return true, until
+		}
+	}
+	return false, time.Time{}
+}
+
+// writing says whether the program is most likely still writing: its
+// last read filled the pty's buffer (1 KiB on macOS; it is blocked in a
+// write), or it is a shell whose output stopped at its input start (OSC
+// 133 B) while its command line has text: zsh writes the prompt and the
+// command line apart, and on a busy machine the command line came 6 ms
+// after the prompt (measured in TestRenderDragZsh). The pane's lock is
+// held.
+func (p *Pane) writing() bool {
+	return p.lastFull || p.atInput && p.cmdLine
+}
+
 // armPendingResize sets the timer that applies a pending size when the
 // resize hold ends. The pane's lock is held.
 func (p *Pane) armPendingResize() {
-	if p.pendingSize == nil || p.rhold == nil {
+	if p.pendingSize == nil {
 		return
 	}
-	_, until := p.rhold.heldUntil(time.Now())
+	held, until := p.resizeWait(time.Now())
+	if !held {
+		until = time.Now()
+	}
 	wait := max(time.Until(until), 0)
 	if p.pendingT == nil {
 		p.pendingT = time.AfterFunc(wait, p.applyPendingResize)
@@ -178,7 +222,7 @@ func (p *Pane) applyPendingResize() {
 	if p.closed || p.pendingSize == nil {
 		return
 	}
-	if held, _ := p.renderHeld(time.Now()); held && p.rhold != nil && p.rhold.prompt {
+	if wait, _ := p.resizeWait(time.Now()); wait {
 		p.armPendingResize()
 		return
 	}
@@ -195,6 +239,10 @@ func (p *Pane) renderHeld(now time.Time) (bool, time.Time) {
 	if p.rhold != nil {
 		if held, until := p.rhold.heldUntil(now); held {
 			return true, until
+		}
+		if p.rhold.inputStart && p.atInput {
+			// The redraw ended at the prompt: the command line is empty.
+			p.cmdLine = false
 		}
 		p.rhold = nil
 	}

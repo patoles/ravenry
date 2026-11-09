@@ -4,6 +4,7 @@
 package pane
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base32"
 	"errors"
@@ -158,6 +159,13 @@ type Pane struct {
 	exitedAt   time.Time
 	closed     bool
 
+	// Whether the program is most likely still writing (render.go,
+	// writing): lastFull, the last read of output filled the pty's
+	// buffer; atInput, the last output ended at the shell's input start
+	// (OSC 133 B), and cmdLine, its command line has text, which zsh
+	// writes apart from the prompt.
+	lastFull, atInput, cmdLine bool
+
 	// seen is what tracking saw belong to the pane (proctree.go).
 	seen *seen
 
@@ -183,6 +191,7 @@ type Pane struct {
 	ovr                Overrides
 	realCols, realRows int
 	slow               atomic.Int64
+	readFull           atomic.Bool
 	termBefore         string
 	hadTerm            bool
 
@@ -493,6 +502,9 @@ func (p *Pane) readLoop() {
 		}
 		n, err := p.pty.Read(rb)
 		if n > 0 {
+			// A read the pty's buffer cut (1 KiB on macOS) has more
+			// behind it: the program is blocked in its write.
+			p.readFull.Store(n == len(rb) || n%1024 == 0)
 			// Whether to slow it is decided once the bytes are here, not
 			// before the read: a read that started before an override
 			// (the loop waits in Read most of the time) would otherwise
@@ -571,8 +583,23 @@ func (p *Pane) outputLocked(b []byte) {
 	}
 	p.writeEnd = mark + uint64(len(b))
 	p.screen.Write(b)
+	p.lastFull = p.readFull.Load()
+	if i := bytes.LastIndex(b, inputStartMark); i >= 0 {
+		end := i + len(inputStartMark)
+		if t := bytes.IndexAny(b[end:], "\a\x1b"); t >= 0 && b[end+t] == '\a' {
+			end += t + 1
+		} else if t >= 0 {
+			end += t + 2 // ST: ESC \
+		}
+		p.atInput = end >= len(b)
+		if !p.atInput {
+			p.cmdLine = true
+		}
+	} else if p.atInput {
+		p.atInput, p.cmdLine = false, true
+	}
 	if p.rhold != nil {
-		p.rhold.output, p.rhold.last = true, time.Now()
+		p.rhold.output, p.rhold.last, p.rhold.more = true, time.Now(), p.writing()
 		p.armPendingResize()
 	}
 	p.renderChanged()
@@ -697,6 +724,7 @@ func (p *Pane) promptMark(m vt.PromptMark) {
 		sh.ExitCode = nil
 	case vt.CommandEnd:
 		sh.State = "prompt"
+		p.cmdLine = false
 		if m.HasExitCode {
 			c := m.ExitCode
 			sh.ExitCode = &c
