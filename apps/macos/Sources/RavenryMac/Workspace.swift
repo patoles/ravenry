@@ -184,7 +184,7 @@ final class Workspace: NSObject {
         v.offscreen = options.offscreen && !options.benchLayer
         v.apply(look)
         keepScrollback(pane)
-        let fps = options.offscreen ? 120 : (NSScreen.main?.maximumFramesPerSecond ?? 60)
+        let fps = options.offscreen && !options.benchOnscreen ? 120 : (NSScreen.main?.maximumFramesPerSecond ?? 60)
         v.refreshInterval = 1.0 / Double(max(fps, 30))
         v.attach(conn(of: pane), pane: pane, fps: fps)
         v.onTitle = { [weak self] t in

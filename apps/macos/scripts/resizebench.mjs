@@ -9,6 +9,7 @@
 //
 //   node scripts/resizebench.mjs [OUT]      (after scripts/build.sh)
 //   node scripts/resizebench.mjs --daemons OLD_RAVENRYD [--front old|new] [OUT]
+//   node scripts/resizebench.mjs --onscreen [OUT]
 //
 // --daemons: the window on two daemons, as after an update: OLD_RAVENRYD (a
 // release's, 0.1.23 or later) and this tree's ravenryd built as the desktop
@@ -29,6 +30,10 @@ const argv = process.argv.slice(2);
 const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv.splice(i, 2)[1] : null; };
 const OLD = flag('--daemons');
 const FRONT = flag('--front') || 'old';
+// --onscreen: the window on the screen (only with the person's yes: it
+// shows a window), for the drawables as a screen gives them back; off every
+// screen macOS gives them back at once.
+const ONSCREEN = argv.includes('--onscreen') ? argv.splice(argv.indexOf('--onscreen'), 1) && true : false;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
@@ -75,7 +80,7 @@ const port = 47900 + Math.floor(Math.random() * 90);
 const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port });
 const result = path.join(OUT, 'bench.json');
 fs.rmSync(result, { force: true });
-const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(sock ? ['--socket', sock] : []), '--bench', result, '--bench-resize'], {
+const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(sock ? ['--socket', sock] : []), '--bench', result, '--bench-resize', ...(ONSCREEN ? ['--bench-onscreen'] : [])], {
   env: { ...env, RAVENRY_HUB_URL: hub.url },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(OUT, 'app-stderr.log'), 'w')],
 });
@@ -112,6 +117,8 @@ console.log(`  draws ${d.draws} (${d.fps.toFixed(0)} a second), gap between draw
 console.log(`  wait for a drawable: ${s(d.drawable_wait_ms)}`);
 console.log(`  draws of the tabs not in front: ${d.hidden_tab_draws}; drawn at its size after the drag: ${d.after_end_drawn_at_size}`);
 console.log(`  draws put off for want of a free drawable: ${d.draws_put_off_in_drag ?? '-'}`);
+if (d.outstanding_at_step) console.log(`  drawables out at a step: ${s(d.outstanding_at_step, '')}; steps begun with a draw not committed ${d.steps_begun_with_a_draw_uncommitted}; step to drawn at its size: ${s(d.step_to_drawn_ms)}`);
+if (d.present_to_handler_ms) console.log(`  present to its presented handler: ${s(d.present_to_handler_ms)}, ${d.presents_dropped} with no presented time`);
 if (d.burst_4_draws_ms !== undefined) console.log(`four draws in one turn: ${d.burst_4_draws_ms.toFixed(1)} ms on the main thread, ${d.burst_put_off} put off, the owed draw done: ${d.burst_owed_draw_done}`);
 console.log(`  stall log lines: ${d.stall_log_lines}`);
 for (const e of d.stall_log_examples || []) console.log('    ' + e);

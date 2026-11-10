@@ -46,6 +46,8 @@ final class Bench {
     var board: Board?
     /// --bench-resize: only the drag of the whole window (runResize).
     var resizeOnly = false
+    /// The drag's window on the screen (--bench-onscreen), for the drawables as there.
+    var onscreen = false
 
     init(view: TerminalView, window: NSWindow, out: String, dragMin: CGFloat, workspace: Workspace) {
         self.workspace = workspace
@@ -616,38 +618,63 @@ final class Bench {
         var w: CGFloat = 1433
         while w > 700 { widths.append(w); w -= 7 }
         while w <= 1440 { widths.append(w); w += 7 }
-        var stepMs: [Double] = [], perStep: [Double] = []
-        var notDrawn = 0, multi = 0, late = 0
-        var examples: [String] = []
-        main { (window as? TerminalWindow)?.simulatedLiveResize = true }
-        let tStart = CACurrentMediaTime()
-        var next = tStart
-        for width in widths {
-            dl.lock(); let n0 = drawsAt.count; dl.unlock()
-            let t0 = CACurrentMediaTime()
-            let want: CGSize = main {
-                var f = window.frame
-                f.size.width = width
-                window.setFrame(f, display: true)
-                let s = front.renderer.fonts.scale
-                return CGSize(width: max(1, round(front.bounds.width * s)), height: max(1, round(front.bounds.height * s)))
+        var inTransactionAtStep = 0
+        // One drag of the edge: per step its main-thread time, the draws in
+        // it, the drawables out when it began, and when it was drawn at its size.
+        func drag() -> (stepMs: [Double], perStep: [Double], notDrawn: Int, multi: Int, late: Int, examples: [String],
+                        outAtStep: [Double], toDrawn: [Double], tStart: Double, secs: Double) {
+            var stepMs: [Double] = [], perStep: [Double] = [], outAtStep: [Double] = [], toDrawn: [Double] = []
+            var notDrawn = 0, multi = 0, late = 0
+            var examples: [String] = []
+            inTransactionAtStep = 0
+            main { (window as? TerminalWindow)?.simulatedLiveResize = true }
+            let tStart = CACurrentMediaTime()
+            var next = tStart
+            var pending: [(want: CGSize, at: Double, n: Int)] = []
+            for width in widths {
+                dl.lock(); let n0 = drawsAt.count; dl.unlock()
+                let t0 = CACurrentMediaTime()
+                let (want, out): (CGSize, Int) = main {
+                    let out = front.outstanding
+                    if front.inTransaction > 0 { inTransactionAtStep += 1 }
+                    var f = window.frame
+                    f.size.width = width
+                    window.setFrame(f, display: true)
+                    let s = front.renderer.fonts.scale
+                    return (CGSize(width: max(1, round(front.bounds.width * s)), height: max(1, round(front.bounds.height * s))), out)
+                }
+                let t1 = CACurrentMediaTime()
+                stepMs.append((t1 - t0) * 1000)
+                outAtStep.append(Double(out))
+                dl.lock(); let mine = drawsAt[n0...].filter { $0.t <= t1 }; dl.unlock()
+                perStep.append(Double(mine.count))
+                if mine.count > 1 { multi += 1 }
+                if !mine.contains(where: { $0.px == want }) {
+                    notDrawn += 1
+                    pending.append((want, t0, n0))
+                    if examples.count < 3 { examples.append("width \(Int(width)): drew \(mine.map { "\(Int($0.px.width))x\(Int($0.px.height))" }) for \(Int(want.width))x\(Int(want.height))") }
+                } else { toDrawn.append((t1 - t0) * 1000) }
+                if (t1 - t0) > 1.0 / 60 { late += 1 }
+                next += 1.0 / 120
+                while CACurrentMediaTime() < next { sleep(0.0003) }
+                if CACurrentMediaTime() > next + 0.05 { next = CACurrentMediaTime() }
             }
-            let t1 = CACurrentMediaTime()
-            stepMs.append((t1 - t0) * 1000)
-            dl.lock(); let mine = drawsAt[n0...].filter { $0.t <= t1 }; dl.unlock()
-            perStep.append(Double(mine.count))
-            if mine.count > 1 { multi += 1 }
-            if !mine.contains(where: { $0.px == want }) {
-                notDrawn += 1
-                if examples.count < 3 { examples.append("width \(Int(width)): drew \(mine.map { "\(Int($0.px.width))x\(Int($0.px.height))" }) for \(Int(want.width))x\(Int(want.height))") }
+            let secs = CACurrentMediaTime() - tStart
+            sleep(0.1)
+            // A step not drawn in it: when (if ever) it was drawn at its size after.
+            dl.lock(); let all = drawsAt; dl.unlock()
+            for p in pending {
+                if let d = all[p.n...].first(where: { $0.px == p.want }) { toDrawn.append((d.t - p.at) * 1000) } else { toDrawn.append(1000) }
             }
-            if (t1 - t0) > 1.0 / 60 { late += 1 }
-            next += 1.0 / 120
-            while CACurrentMediaTime() < next { sleep(0.0003) }
-            if CACurrentMediaTime() > next + 0.05 { next = CACurrentMediaTime() }
+            return (stepMs, perStep, notDrawn, multi, late, examples, outAtStep, toDrawn, tStart, secs)
         }
-        let secs = CACurrentMediaTime() - tStart
-        let skipsInDrag = main { DrawWatch.shared.skipsTotal }
+        let skips0 = main { front.presents = []; return DrawWatch.shared.skipsTotal }
+        let r = drag()
+        let stepMs = r.stepMs, perStep = r.perStep, notDrawn = r.notDrawn, multi = r.multi, late = r.late, examples = r.examples
+        let tStart = r.tStart
+        let pr0 = main { front.presents ?? [] }
+        let secs = r.secs
+        let skipsInDrag = main { DrawWatch.shared.skipsTotal } - skips0
         // Four draws in one turn of the run loop, as a step's and the
         // stream's can come together: none may wait on the main thread for
         // a drawable, and a draw put off is done once one is shown.
@@ -672,7 +699,7 @@ final class Bench {
         let sideRows = main { board.map { !$0.sideHidden && $0.root.sideWidth > 0 } ?? false }
         let panel = main { "\(board?.root.panelMode ?? .hidden)" }
         result["resize"] = [
-            "hub_rows": rows, "sidebar_shown": sideRows, "panel_at_end": panel,
+            "onscreen": onscreen, "hub_rows": rows, "sidebar_shown": sideRows, "panel_at_end": panel,
             "tabs": main { workspace.tabs.count }, "steps": widths.count, "seconds": secs,
             "step_ms": Bench.stats(stepMs), "steps_over_16ms": late,
             "draws_per_step": Bench.stats(perStep), "steps_not_drawn_at_their_size": notDrawn, "steps_drawn_more_than_once": multi,
@@ -682,6 +709,8 @@ final class Bench {
             "board_resize_ms": Bench.stats(resize),
             "hidden_tab_draws": othersAfter - othersBefore,
             "draws_put_off_in_drag": skipsInDrag,
+            "outstanding_at_step": Bench.stats(r.outAtStep), "steps_begun_with_a_draw_uncommitted": inTransactionAtStep, "step_to_drawn_ms": Bench.stats(r.toDrawn),
+            "present_to_handler_ms": Bench.stats(pr0.map(\.ms)), "presents_dropped": pr0.filter { !$0.shown }.count,
             "burst_4_draws_ms": burst.ms, "burst_put_off": burst.skipped, "burst_owed_draw_done": owedDone,
             "stall_log_lines": logAfter.count - logBefore, "stall_log_examples": Array(logAfter.suffix(3)),
             "after_end_drawn_at_size": main { front.drawnPixels == CGSize(width: max(1, round(front.bounds.width * front.renderer.fonts.scale)), height: max(1, round(front.bounds.height * front.renderer.fonts.scale))) },

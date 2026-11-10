@@ -6,7 +6,7 @@
 //
 //   RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both]
 //              [--font NAME] [--font-size POINTS]
-//              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH] [--bench-resize]]
+//              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH] [--bench-resize [--bench-onscreen]]]
 //              [--offscreen --selftest OUT.json] [-- COMMAND ARGS...]
 //
 // RAVENRY_OFFSCREEN=1 is --offscreen. A packaged app started with a pane's
@@ -33,6 +33,9 @@ struct Options {
     /// The bench's drag of the whole window (the sidebar, the panel, the
     /// tabs) on a test's hub, through the window's Metal layer.
     var benchResize = false
+    /// With --bench-resize: the window on the screen, not off every one,
+    /// for the drawables as the person's screen gives them back.
+    var benchOnscreen = false
     var dragMin: CGFloat = 300
     var optionAsAlt = ""
     /// The font and its size in points for this run (else the settings').
@@ -63,6 +66,7 @@ struct Options {
             case "--bench": i += 1; o.bench = args[safe: i]
             case "--bench-layer": o.benchLayer = true
             case "--bench-resize": o.benchResize = true; o.benchLayer = true
+            case "--bench-onscreen": o.benchOnscreen = true
             case "--drag-min": i += 1; o.dragMin = CGFloat(Double(args[safe: i] ?? "") ?? 300)
             case "--option-as-alt": i += 1; o.optionAsAlt = args[safe: i] ?? ""
             case "--font": i += 1; o.font = args[safe: i]
@@ -243,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.delegate = self
         w.allowOffscreen = options.offscreen
         w.backgroundColor = Design.termBg
-        let scale = options.offscreen ? 2 : (NSScreen.main?.backingScaleFactor ?? 2)
+        let scale = options.offscreen && !options.benchOnscreen ? 2 : (NSScreen.main?.backingScaleFactor ?? 2)
         window = w
         // A packaged app: its ravenryd and hub copied out first, so a daemon
         // it starts runs from that copy (Install.swift).
@@ -276,7 +280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, !self.closing else { return }
             ws?.left(d)
         }
-        if options.offscreen {
+        if options.offscreen && options.benchOnscreen {
+            w.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+            w.orderFront(nil)
+        } else if options.offscreen {
             w.setFrameOrigin(NSPoint(x: -30000, y: -30000))
             w.orderFront(nil)
         } else {
@@ -318,6 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let b = Bench(view: v, window: w, out: out, dragMin: options.dragMin, workspace: ws)
             b.board = bd
             b.resizeOnly = options.benchResize
+            b.onscreen = options.benchOnscreen
             b.start()
         } else if let out = options.sidetest {
             let st = SelfTestBoard(board: bd, window: w, out: out)

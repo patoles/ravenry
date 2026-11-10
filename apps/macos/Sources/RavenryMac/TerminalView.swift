@@ -92,6 +92,12 @@ final class TerminalView: NSView, NSTextInputClient {
     /// drawable (the bench reads them).
     private(set) var drawnPixels = CGSize.zero
     private(set) var lastWaitMs = 0.0
+    /// The bench's record of each drawable's presented handler: ms from
+    /// its present to the handler, and whether it was shown (a time) or
+    /// dropped (none).
+    var presents: [(ms: Double, shown: Bool)]?
+    /// Drawables taken and not shown yet (the stall log and the bench).
+    var outstanding: Int { unshown }
     var onTitle: ((String) -> Void)?
     var onFrame: (() -> Void)?
 
@@ -322,35 +328,45 @@ final class TerminalView: NSView, NSTextInputClient {
             seq = renderer.encode(screen: screen, overlay: overlay, into: offscreenTexture!, commandBuffer: cb)
             cb.commit()
         } else {
-            // Never wait on the main thread for a drawable. The layer has
-            // three: one on screen and, when two more are taken and not
-            // shown yet, none left. A draw in a live resize is shown with
-            // the window's transaction, which only commits after this
-            // turn of the run loop, so nextDrawable would wait for one
-            // until its 1 s timeout, the window frozen meanwhile. The draw
-            // is owed instead and done as soon as one is shown.
-            if unshown >= metalLayer.maximumDrawableCount - 1 {
-                if t0 - unshownSince < 1 {
-                    owed = true
-                    DrawWatch.shared.skipped(self)
-                    return
-                }
-                // Their handlers never came (dropped): count afresh.
-                unshown = 0
+            // The layer has three drawables: one on screen and two that
+            // may wait in the window's uncommitted transaction (a live
+            // resize's draws are shown when it commits, at the end of this
+            // turn of the run loop). A third draw in the same transaction
+            // would wait in nextDrawable for one only the commit frees (its
+            // 1 s timeout, the window frozen): it is put off and done right
+            // after the commit. Never held back by the drawables' presented
+            // handlers: on a screen they come 4 to 30 ms after the present
+            // and now and then never, which held a live resize's draws off
+            // for up to a second (0.1.24); the prototype took a drawable at
+            // every step, and so does this.
+            if inTransaction >= metalLayer.maximumDrawableCount - 1 {
+                owed = true
+                DrawWatch.shared.skipped(self)
+                return
             }
             metalLayer.presentsWithTransaction = sync
             let next = metalLayer.nextDrawable()
             lastWaitMs = (CACurrentMediaTime() - t0) * 1000
             if lastWaitMs > DrawWatch.waitLimitMs { DrawWatch.shared.waited(self, ms: lastWaitMs, got: next != nil) }
             guard let drawable = next else { return }
-            if unshown == 0 { unshownSince = t0 }
             unshown += 1
-            drawable.addPresentedHandler { [weak self] _ in DispatchQueue.main.async { self?.shown() } }
+            let presentAt = CACurrentMediaTime()
+            drawable.addPresentedHandler { [weak self] d in
+                let at = CACurrentMediaTime(), shownAt = d.presentedTime
+                DispatchQueue.main.async {
+                    self?.presents?.append(((at - presentAt) * 1000, shownAt > 0))
+                    self?.shown()
+                }
+            }
             seq = renderer.encode(screen: screen, overlay: overlay, into: drawable.texture, commandBuffer: cb)
             if sync {
+                // Apple's order for presentsWithTransaction: commit, wait
+                // until scheduled, then present on the main thread.
                 cb.commit()
                 cb.waitUntilScheduled()
                 drawable.present()
+                inTransaction += 1
+                if inTransaction == 1 { afterCommit() }
             } else {
                 cb.present(drawable)
                 cb.commit()
@@ -371,18 +387,26 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     /// Drawables taken and not shown yet (their presented handlers have
-    /// not run), since when, and a draw skipped for want of one.
+    /// not run; only said in the stall log), those presented in the
+    /// window's transaction not committed yet, and a draw put off until it is.
     private var unshown = 0
-    private var unshownSince: CFTimeInterval = 0
+    private(set) var inTransaction = 0
     private var owed = false
     /// The live resize's step not drawn yet: its pixel size, and when.
     private var step: (px: CGSize, at: CFTimeInterval)?
 
-    /// A drawable was shown: one is free again; an owed draw is done now.
-    private func shown() {
-        unshown = max(0, unshown - 1)
-        unshownSince = CACurrentMediaTime()
-        if owed { owed = false; requestDraw() }
+    /// A drawable was shown.
+    private func shown() { unshown = max(0, unshown - 1) }
+
+    /// Once the transaction the draws were presented in is committed, its
+    /// drawables go to the screen and an owed draw is done.
+    private func afterCommit() {
+        CommitWatch.shared.after { [weak self] in
+            guard let self else { return }
+            self.inTransaction = 0
+            // In a turn of its own, so the draw has a transaction of its own.
+            if self.owed { DispatchQueue.main.async { [weak self] in guard let self, self.owed else { return }; self.owed = false; self.requestDraw() } }
+        }
     }
 
     private func afterDraw(_ seq: UInt32) {
@@ -1497,6 +1521,30 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 }
 
+/// Runs work right after the main run loop's Core Animation commit: an
+/// observer of the turn's end (before the run loop waits, and when it
+/// exits a mode), both where Core Animation commits, ordered after
+/// Core Animation's own (2000000).
+final class CommitWatch {
+    static let shared = CommitWatch()
+    private var waiting: [() -> Void] = []
+    private var observer: CFRunLoopObserver?
+
+    func after(_ f: @escaping () -> Void) {
+        if observer == nil {
+            let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, true, 2_000_100) { [weak self] _, _ in
+                guard let self, !self.waiting.isEmpty else { return }
+                let w = self.waiting
+                self.waiting.removeAll()
+                w.forEach { $0() }
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
+            observer = o
+        }
+        waiting.append(f)
+    }
+}
+
 /// What a stall on the person's screen leaves in the app's log
 /// (~/Library/Logs/Ravenry/app.log): a draw that waited over 50 ms for its
 /// drawable, a live resize's step not drawn at its size within one
@@ -1529,7 +1577,7 @@ final class DrawWatch {
         more = 0
         skips = 0
         let px = v.drawnPixels
-        let line = "draw: pane \(v.pane) \(what), \(Int(v.bounds.width))x\(Int(v.bounds.height)) pt, last drawn \(Int(px.width))x\(Int(px.height)) px\(since)"
+        let line = "draw: pane \(v.pane) \(what), \(Int(v.bounds.width))x\(Int(v.bounds.height)) pt, last drawn \(Int(px.width))x\(Int(px.height)) px, \(v.outstanding) drawables out (\(v.inTransaction) in the uncommitted transaction)\(since)"
         queue.async { AppInstall.shared.log(line) }
     }
 }

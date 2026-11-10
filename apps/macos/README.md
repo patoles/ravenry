@@ -244,22 +244,32 @@ stream".
   reflowed rows follow from the daemon. A step draws once: the frame set
   again at the same size (AppKit's layout pass after `RootView.place`
   sized the stage) draws nothing, and the stage, a pane's box and a
-  split set their frames only when they change. The main thread never
-  waits for a drawable: with two taken and not shown yet (the layer has
-  three, one on screen), a draw is put off and done as soon as one is
-  shown. In the full app a step drawn twice, plus a busy pane's frame,
-  took the third in one uncommitted transaction, and `nextDrawable`
-  waited out its 1 s timeout with the window frozen and the screen
-  behind showing where it grew. A tab not in front draws nothing and
-  lets its drawables go (the layer's size set to 1 x 1 until it shows).
-  While the edge is dragged the board only lays out (the panel's mode
-  at each width, `Board.panelMode`); the sidebar and the panel render
-  again when the panel comes or goes and when the drag ends.
+  split set their frames only when they change. Each draw takes a
+  drawable as the first window did (`nextDrawable`, which on a screen
+  can wait up to a refresh for the compositor to give one back), in
+  Apple's order: commit, `waitUntilScheduled`, then `present()` on the
+  main thread. The layer has three drawables, one on screen: a third
+  draw in one uncommitted transaction would wait in `nextDrawable` for
+  one only the commit frees (its 1 s timeout, the window frozen and the
+  screen behind showing where it grew), so it is put off and done right
+  after Core Animation's commit (`CommitWatch`, an observer of the run
+  loop ordered after Core Animation's). 0.1.24 held a draw off while two
+  drawables had not been reported shown (their presented handlers); on a
+  screen those come 4 to 30 ms after the present and now and then
+  never, so 18 to 24 steps of a drag went undrawn and one waited up to
+  1.6 s (the on-screen bench below). The rounded sheet (its mask) costs
+  nothing measurable there and stays. A tab not in front draws nothing
+  and lets its drawables go (the layer's size set to 1 x 1 until it
+  shows). While the edge is dragged the board only lays out (the
+  panel's mode at each width, `Board.panelMode`); the sidebar and the
+  panel render again when the panel comes or goes and when the drag
+  ends.
 - **Stalls leave a line** in `~/Library/Logs/Ravenry/app.log`
   (`DrawWatch`, at most one every 10 s, with the count since): a draw
   that waited over 50 ms for its drawable, a live resize's step not
-  drawn at its size within one display refresh, and how many draws were
-  put off for want of a drawable.
+  drawn at its size within one display refresh, the drawables out (taken
+  and not reported shown) and those in the uncommitted transaction, and
+  how many draws were put off.
 - **Resize**: the view's grid size goes to `pane.resize`; the daemon
   resizes the screen and the pty together, and at a shell prompt holds
   frames until the shell has drawn itself again (RENDERING.md).
@@ -543,9 +553,24 @@ step (12 to 18 of 212 steps also had a frame of the busy pane), 8.3 to
 8.4 ms a step (4 to 12 over 16 ms), 1.88 to 1.93 s (the 120 steps a
 second asked take 1.78 s), every step drawn at its size, the longest gap
 between draws 17 to 18 ms, no draw of a tab not in front. Off every screen a
-drawable taken in an uncommitted transaction is still given back, so
-the bench shows the doubled draws and the wait, not the 1 s freeze
-itself.
+drawable taken in an uncommitted transaction is still given back at once
+(its presented handler in under 2 ms), so this bench cannot show what a
+screen does with them.
+
+`node scripts/resizebench.mjs --onscreen` runs the same drag with the
+window on the screen (it shows a window: only with the person's yes),
+and prints the drawables out at each step, the time from a step to its
+draw at its size and from a present to its presented handler. On
+2026-11-10 (a 120 Hz screen, the window 1440 to 700 pt by 744 pt at 2x),
+the hold on presented handlers of 0.1.24: 20 of 212 steps not drawn in
+their step, 22 draws put off, a step drawn 1656 ms after it at worst;
+presented handlers 7.8 ms after the present (median), up to 29 ms. The
+same drag with the sheet's corners square changed nothing that counts
+(18 not drawn, 18 put off). Taking a drawable at every step, as the first
+window did: 0 not drawn, 0 put off, at most 25 to 27 ms from a step to
+its draw. With the commit's gate (now): 0 not drawn, 0 put off, a step
+drawn at its size 4.2 ms after it (median), 20.7 ms at most, waits for a
+drawable 0.8 ms (median), 14.9 ms at most.
 
 ## The headless self-test
 
