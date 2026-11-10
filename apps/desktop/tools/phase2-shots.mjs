@@ -279,7 +279,7 @@ try {
   // 33 A: a new session in a folder where one works already.
   steps.push({ js: `${R}.onCommand('new-session')` }, until(`document.querySelector('.fl-card')`),
     { js: `(() => { const st = ${R}.S.start; st.folder = ${JSON.stringify(PB.folder)}; st.assistant = 'codex'; ${R}.render(); })()` },
-    until(`document.querySelector('.fl-why')`, 20000), { js: `${R}.S.hooks.asked = true; ${R}.S.hooks.offer = null; ${R}.render()` }, { sleep: 300 }, ...shot('33a-new-session'),
+    until(`document.querySelector('.fl-why')`, 20000), { js: `${R}.S.setup = null; ${R}.S.setupAsked = { claude: true, codex: true }; ${R}.render()` }, { sleep: 300 }, ...shot('33a-new-session'),
     { js: `${R}.pickSession(${KEY_CLAUDE})` });
 
   // 31: a decision that replaces one, then a question that checked them.
