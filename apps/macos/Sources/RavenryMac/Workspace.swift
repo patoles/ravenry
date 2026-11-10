@@ -43,8 +43,9 @@ final class PaneInfo {
     /// An agent's lease on it, with who waits (pane.lease).
     var lease: [String: Any]?
     var labels: [String: String] = [:]
-    /// The assistant its agent reported (pane.agent).
+    /// The assistant its agent reported (pane.agent), and its state (needs_you, working, idle).
     var agent: String?
+    var agentState: String?
 
     init(id: String) { self.id = id }
 
@@ -58,7 +59,7 @@ final class PaneInfo {
         if let v = p["scrollback"] as? NSNumber { scrollback = v.intValue }
         if let v = p["creator"] as? [String: Any] { creator = v }
         if let v = p["labels"] as? [String: String] { labels = v }
-        if let v = (p["agent"] as? [String: Any])?["assistant"] as? String { agent = v }
+        if let a = p["agent"] as? [String: Any] { agent = a["assistant"] as? String ?? agent; agentState = a["state"] as? String }
         if p["lease"] != nil { lease = p["lease"] as? [String: Any] }
     }
 }
@@ -198,6 +199,8 @@ final class Workspace: NSObject {
         if !i.cwd.isEmpty {
             folder = i.cwd == home ? "~" : (i.cwd as NSString).lastPathComponent
         }
+        // A pane an agent opened says whose it is ("Claude's"), as its folder would.
+        if i.creator?["kind"] as? String == "agent", let who = whoOf?(i.creator!) { return (name, "\(who)'s") }
         let sub = !folder.isEmpty && folder.lowercased() != name.lowercased() ? folder : nil
         return (name, sub)
     }
@@ -280,6 +283,8 @@ final class Workspace: NSObject {
             pending = nil
         }
         active = t
+        bells.remove(t.id)
+        activity.remove(t.id)
         let content = build(t)
         content.frame = stage.bounds
         let ids = panes(of: t, visibleOnly: true)
@@ -444,8 +449,11 @@ final class Workspace: NSObject {
     func refresh() {
         var models = tabs.enumerated().map { i, t in
             let l = label(t.host)
-            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: t === active && extraTab == nil,
-                            tip: i < 9 ? "\(l.name) (⌘\(i + 1))" : l.name)
+            let m = marksOf?(t.host)
+            let on = t === active && extraTab == nil
+            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: on,
+                            tip: i < 9 ? "\(l.name) (⌘\(i + 1))" : l.name, dot: m?.group,
+                            bell: bells.contains(t.id), activity: activity.contains(t.id), lent: m?.lent?.who, lentCls: m?.lent?.cls ?? "other")
         }
         if let x = extraTab { models.append(x) }
         bar.set(models)
@@ -781,15 +789,29 @@ final class Workspace: NSObject {
                 }
             }
             refresh()
+        case "agent.report":
+            // What the agent in a pane reported: its tab's dot follows.
+            if let i = info[id] { i.update(p); refresh() }
         case "pane.lease":
             if let i = info[id] { i.lease = p["lease"] as? [String: Any]; refresh(); onLease?(id) }
         case "pane.exited", "pane.closed":
             if info[id] != nil { ended(id) }
         case "pane.bell":
             // A bell in a pane not on screen: the sound and the Dock, as
-            // the settings say (one on screen rings in its view).
+            // the settings say (one on screen rings in its view), and a
+            // small bell on its tab until it is opened.
             if info[id] != nil, boxes[id]?.term.window == nil {
                 TerminalView.ring(look, offscreen: options.offscreen) { self.bellsHeard.append($0) }
+            }
+            if let t = tabs.first(where: { $0.host == id || $0.guest == id }), !(t === active && extraTab == nil) || boxes[id]?.term.window == nil {
+                bells.insert(t.id)
+                refresh()
+            }
+        case "pane.activity":
+            // A tab not on screen printed: a quiet dot on it.
+            if let t = tabs.first(where: { $0.host == id || $0.guest == id }), !(t === active && extraTab == nil) {
+                activity.insert(t.id)
+                refresh()
             }
         case "pane.focus":
             if let t = tabs.first(where: { $0.host == id || $0.guest == id }) {
@@ -801,6 +823,14 @@ final class Workspace: NSObject {
             break
         }
     }
+
+    /// Tabs whose pane rang a bell, or printed, while not on screen (cleared when shown).
+    private(set) var bells: Set<String> = []
+    private(set) var activity: Set<String> = []
+    /// Who a Source is, by the board's names ("Claude").
+    var whoOf: (([String: Any]) -> String?)?
+    /// What a tab's pane says to the board (Board.swift): its session's state for the dot, the agent holding its lease.
+    var marksOf: ((String) -> (group: String?, lent: Who?))?
 
     /// Something about a pane's lease changed (the strip and the panel follow).
     var onLease: ((String) -> Void)?

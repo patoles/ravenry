@@ -253,6 +253,20 @@ final class Board: NSObject {
             return self.sourceOf(c).who
         }
         ws.onLease = { [weak self] _ in self?.render(force: true) }
+        ws.whoOf = { [weak self] src in self?.sourceOf(src).who }
+        // A tab's dot: its session's state (amber while it waits on you, a checkpoint open in its pane too); its lease's holder.
+        ws.marksOf = { [weak self] pane in
+            guard let self else { return (nil, nil) }
+            // What the agent in it reported (agent.report), then its session on the board, then a question open in it.
+            let rs = self.ws.paneInfo(pane)?.agentState
+            var group: String? = rs == "needs_you" ? "you" : rs == "working" ? "work" : nil
+            if let st = self.hub.state {
+                for p in st.projects where p.machine == nil { for s in p.sessions where s.pane == pane && s.machine == nil { group = s.group } }
+                if st.checkpoints.contains(where: { ["open", "running"].contains($0["state"] as? String ?? "") && $0["pane"] as? String == pane && ($0["machine"] as? String) == nil }) { group = "you" }
+            }
+            let l = self.leaseOf(pane).map { self.sourceOf($0["holder"] as? [String: Any]) }
+            return (group, l)
+        }
         picker.hub = hub
         picker.onClose = { [weak self] in self?.back() }
         picker.answer = { [weak self] id, reply, done in
@@ -888,6 +902,7 @@ final class Board: NSObject {
             panel.update(state: st, front: fk?.hasPrefix("tab:") == true ? nil : fk, pane: pane, force: force)
         }
         ws.extraTab = middleTab(st)
+        ws.refresh()
         let strip = leaseStrip()
         if strip?.text != root.strip?.text || (strip == nil) != (root.strip == nil) { root.strip = strip }
         root.place()

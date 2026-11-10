@@ -23,6 +23,13 @@ struct TabModel: Equatable {
     /// A session's tab (the middle shows it, Board.swift): its dot in its
     /// state's colour in the shell icon's place.
     var dot: String? = nil
+    /// A bell rang in it while it was not on screen (until it is opened).
+    var bell = false
+    /// It printed while not on screen: a quiet dot.
+    var activity = false
+    /// An agent holds its pane's lease: who ("Claude"), and its colour (claude, codex, other).
+    var lent: String? = nil
+    var lentCls = "other"
 }
 
 final class TabBar: NSView {
@@ -211,11 +218,22 @@ final class TabItem: NSView {
     private func nameText() -> NSAttributedString { NSAttributedString(string: model.name, attributes: [.font: Design.tabFont, .foregroundColor: fg]) }
     private func subText() -> NSAttributedString? { model.sub.map { NSAttributedString(string: $0, attributes: [.font: Design.tabFont, .foregroundColor: fg3]) } }
     private static let badge = NSAttributedString(string: "2", attributes: [.font: Design.tabFont])
+    private static let lentFont = NSFont.systemFont(ofSize: 10.5, weight: Fonts.w650)
+    private static let bellColor = NSColor(srgbRed: 1, green: 0x9F / 255, blue: 0x0A / 255, alpha: 1)
+    /// The marks after the name (.lbadge, .act, .tbell): their width.
+    private var marksWidth: CGFloat {
+        var w: CGFloat = 0
+        if let l = model.lent { w += Design.tabInnerGap + 6 + 12 + 4 + ceil((l as NSString).size(withAttributes: [.font: TabItem.lentFont]).width) + 6 }
+        if model.activity && !model.active { w += Design.tabInnerGap + 5 }
+        if model.bell && !model.active { w += Design.tabInnerGap + 12 }
+        return w
+    }
 
     func idealWidth(withSub: Bool) -> CGFloat {
         var w = Design.tabPadLeft + 12 + Design.tabInnerGap + ceil(nameText().size().width)
         if withSub, let s = subText() { w += Design.tabInnerGap + ceil(s.size().width) }
         if model.split { w += Design.tabInnerGap + 11 + 3 + ceil(TabItem.badge.size().width) }
+        w += marksWidth
         w += Design.tabInnerGap + Design.closeSize + Design.tabPadRight
         return min(Design.tabMaxWidth, w)
     }
@@ -290,10 +308,45 @@ final class TabItem: NSView {
             b.draw(at: NSPoint(x: bx + 14, y: (bounds.height - b.size().height) / 2))
             end = bx - Design.tabInnerGap
         }
+        // Right to left before the split's count: the bell, the activity dot, the lease badge.
+        if model.bell && !model.active, let img = TabItem.tinted("bell-s", TabItem.bellColor) {
+            img.draw(in: NSRect(x: end - 12, y: (bounds.height - 12) / 2, width: 12, height: 12), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            end -= 12 + Design.tabInnerGap
+        }
+        if model.activity && !model.active {
+            Design.tx3.setFill()
+            NSBezierPath(ovalIn: NSRect(x: end - 5, y: (bounds.height - 5) / 2, width: 5, height: 5)).fill()
+            end -= 5 + Design.tabInnerGap
+        }
+        if let l = model.lent {
+            let codex = model.lentCls == "codex"
+            let tc = codex ? NSColor(srgbRed: 0x6B / 255, green: 0xB5 / 255, blue: 1, alpha: 1) : NSColor(srgbRed: 0xDA / 255, green: 0x8F / 255, blue: 1, alpha: 1)
+            let bg = codex ? NSColor(srgbRed: 64 / 255, green: 156 / 255, blue: 1, alpha: 0.2) : NSColor(srgbRed: 191 / 255, green: 90 / 255, blue: 242 / 255, alpha: 0.22)
+            let a = NSAttributedString(string: l, attributes: [.font: TabItem.lentFont, .foregroundColor: tc])
+            let bw = 6 + 12 + 4 + ceil(a.size().width) + 6
+            let r = NSRect(x: end - bw, y: (bounds.height - 18) / 2, width: bw, height: 18)
+            bg.setFill()
+            NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4).fill()
+            TabItem.tinted("holds", tc)?.draw(in: NSRect(x: r.minX + 6, y: r.midY - 6, width: 12, height: 12), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            a.draw(at: NSPoint(x: r.minX + 22, y: r.midY - a.size().height / 2))
+            end -= bw + Design.tabInnerGap
+        }
         x = text(nameText(), x: x, maxX: end)
         if showSub, let s = subText(), x + Design.tabInnerGap < end - 2 {
             _ = text(s, x: x + Design.tabInnerGap, maxX: end)
         }
+    }
+
+    /// An icon of shared/icons in one colour.
+    static func tinted(_ name: String, _ c: NSColor) -> NSImage? {
+        guard let src = SharedIcons.image(name, color: "tx", size: 12, dark: true) else { return nil }
+        let img = NSImage(size: src.size)
+        img.lockFocus()
+        src.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
+        c.set()
+        NSRect(origin: .zero, size: src.size).fill(using: .sourceAtop)
+        img.unlockFocus()
+        return img
     }
 
     private func text(_ a: NSAttributedString, x: CGFloat, maxX: CGFloat) -> CGFloat {

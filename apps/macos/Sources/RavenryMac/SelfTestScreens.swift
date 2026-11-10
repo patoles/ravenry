@@ -28,6 +28,7 @@ extension SelfTestBoard {
         case "terminal": screenTerminal()
         case "cards": screenCards()
         case "panes": screenPanes()
+        case "tabmarks": screenTabMarks()
         default: check("screen_known", false, name)
         }
         finish()

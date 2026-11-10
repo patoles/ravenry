@@ -49,7 +49,11 @@ stream".
   pane with `ravenryd new`) opens as a split beside its owner's tab,
   without the keyboard, else as a tab right after it; while an agent holds
   a pane's lease a strip over it says who has it and who waits, with Hand
-  it to and Take it back (`Lent.swift`). One split per tab: Cmd+D right, Cmd+Shift+D
+  it to and Take it back (`Lent.swift`). A tab not on screen shows a
+  small bell when its pane rang, a quiet dot when it printed (the daemon's
+  `pane.activity` and `pane.bell`), until it is opened; its dot takes the
+  colour of Needs you or Working from what its agent reported or a
+  question open in it; a lent pane's tab carries its holder's badge. One split per tab: Cmd+D right, Cmd+Shift+D
   down, Cmd+Option+arrows or a click move the keyboard, the divider is
   dragged (a double click or Cmd+Ctrl+= evens it), Cmd+Shift+Enter
   zooms the pane. A tab not in front has no render stream and draws
@@ -344,7 +348,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -381,8 +385,8 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window: no New Window, bell marks or activity on hidden tabs, or
-  tab dragged to an edge to split.
+- One window: no New Window, or tab dragged to an edge to split; an
+  agent's own pane's header has no Agent chip.
 - A program's steady block cursor reads as the default, so the
   settings' cursor style shows instead.
 - Sidebar and panel: Learn's ticks come only from the phone card and
@@ -394,8 +398,7 @@ every screen (the bench, the self-test) writes only to
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; an ask card
   has no "Checked your decisions first"; Typed here has no filters or whole log;
-  no review, files changed or panes it uses, no badge on a lent pane's
-  tab; no filmstrip; a shell's panel does not say what its agent reported.
+  no review, files changed or panes it uses; no filmstrip; a shell's panel does not say what its agent reported.
 - A session in a ravenryd pane of another daemon (the board's, when the
   window runs on its own) is shown read only, as one outside: the window
   draws only its own daemon's panes.

@@ -199,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         c.onEvent = { [weak ws] ev in DispatchQueue.main.async { ws?.event(ev) } }
-        c.request("events.subscribe", ["display": true])
+        c.request("events.subscribe", ["display": true, "activity": true])
         if options.offscreen {
             w.setFrameOrigin(NSPoint(x: -30000, y: -30000))
             w.orderFront(nil)
