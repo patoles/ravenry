@@ -177,7 +177,8 @@ exports.switches = async (win, { list, dir, settle = 1200, region = null }) => {
     const pick = new Set();
     pick.add(fr.indexOf(I));
     for (const r of rows.slice(0, Math.min(rows.length, k + 2))) pick.add(r.i);
-    const strip = saveStrip(rec, [...pick].sort((a, b) => a - b).slice(0, 8), dir, s.name.replace(/[^a-z0-9]+/gi, '-'));
+    // And the last: the view it settles on, which the others are compared with.
+    const strip = saveStrip(rec, [...[...pick].sort((a, b) => a - b).slice(0, 8), fr.length - 1], dir, s.name.replace(/[^a-z0-9]+/gi, '-'));
     res.push({ name: s.name, changed, framesAfterClick: rows.length, settledMs: settledAt, fromClickMs: fromClick, halfDrawn: halfway.length, blank: blank.length, flash, resize: !!s.resize,
       frames: rows.slice(0, k + 1).map((r) => `${r.dt}ms dI=${r.dI.toFixed(3)} dF=${r.dF.toFixed(3)} ink=${r.ink.toFixed(3)}`), strip });
     if (s.after) { await js(win, s.after); await sleep(s.afterWait ?? 500); }

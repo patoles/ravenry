@@ -1386,6 +1386,10 @@ function openTab(): HTMLElement | null {
   return null;
 }
 
+/** The strip's filmstrip button hangs on the pane the centre shows: whether the strip drawn last has it. */
+let tabsFilmable = false;
+const filmableNow = (): boolean => !!paneOnScreen() && !$('split').hidden;
+
 function renderTabs(): void {
   const el = $('tabs');
   if (npmTakesCentre() || firstRun() || S.view.kind === 'start' && !S.tabs.length) { el.hidden = true; return; }
@@ -1412,7 +1416,7 @@ function renderTabs(): void {
     h('span.n', pp ? pp.name : pv.id)) : null;
   const extra = [rv, bt, pt].filter((x): x is HTMLElement => !!x);
   const sessTab = (t: Tab) => (t.kind === 'session' && t.key === rk) || (t.kind === 'shell' && !!rk && sessionOfPane(S.hub, t.pane)?.key === rk);
-  const filmable = !!paneOnScreen() && !$('split').hidden;
+  const filmable = tabsFilmable = filmableNow();
   const row = h('div.tabrow', { role: 'presentation' },
     openTab(),
     extra.length && !stripTabs().some(sessTab) ? extra : null,
@@ -1876,8 +1880,9 @@ async function closePane(t: Tab): Promise<void> {
 
 function show(id: 'term' | 'elsewhere' | 'start' | 'none' | 'review' | 'brief'): void {
   // The terminals: the split, laid out even while hidden (app.css #split[hidden]).
+  const was = !!$('split').hidden;
   $('split').hidden = id !== 'term';
-  if (id === 'term') for (const v of [termA, termB]) v?.shown();
+  if (id === 'term') for (const v of [termA, termB]) v?.shown(was);
   for (const k of ['elsewhere', 'start', 'none', 'review', 'brief']) ($(k) as HTMLElement).hidden = k !== id;
   if (id !== 'term') film.close();
   $('centre').classList.toggle('sheet', id === 'start' || id === 'none');
@@ -3342,7 +3347,10 @@ function render(): void {
   if (holdView()) return;
   renderTabs();
   renderPanel();
-  void renderCentre().then(() => { renderStrip(); film?.follow(paneOnScreen()); renderHint(); syncWindowBackground(); });
+  // The strip is drawn before the centre: drawn again when the centre's
+  // pane came or went with it (the filmstrip button, 2026-11-10: it came a
+  // state late, 100 ms after the rest of a split tab).
+  void renderCentre().then(() => { if (!$('tabs').hidden && tabsFilmable !== filmableNow()) renderTabs(); renderStrip(); film?.follow(paneOnScreen()); renderHint(); syncWindowBackground(); });
 }
 
 /**

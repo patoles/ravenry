@@ -175,6 +175,9 @@ export class TerminalView {
   private proposed: { cols: number; rows: number } | null = null;
   /** Hidden (a pooled terminal, or the split hidden), its new size waits for it to show or the window to be idle, as VS Code does. */
   private fitPending = false;
+  /** Shown in this frame or the next (shown()): a resize then is the layout of the view it came with, not a drag, so its columns do not wait. */
+  private justShown = false;
+  private shownSeq = 0;
   private idleFit = 0;
   /** Called when the pane on screen ended (its program exited or it was closed). */
   onEnded: (a: Attached) => void = () => {};
@@ -709,6 +712,10 @@ export class TerminalView {
    */
   private fitNow(now = false): void {
     if (!this.el.offsetWidth || !this.el.offsetHeight) return;
+    // Just shown, the layout that comes with it (the panel back, the split
+    // shown) is applied at once: its columns waiting 100 ms showed the
+    // text cut at the old width for that long (2026-11-10, flash-check).
+    if (this.justShown) now = true;
     // Hidden: no work in the resize's path (VS Code resizes a hidden
     // terminal when it shows or the window is idle). Four kept alive, each
     // reflowing its scrollback and its program writing its screen again,
@@ -783,7 +790,13 @@ export class TerminalView {
   }
 
   /** It shows now (app.ts, as it comes to the front): a size it waited for while hidden is applied before the frame. */
-  shown(): void {
+  shown(fresh = true): void {
+    // Only when it was hidden until now: a view drawn again keeps the wait.
+    if (fresh) {
+      const n = ++this.shownSeq;
+      this.justShown = true;
+      requestAnimationFrame(() => requestAnimationFrame(() => { if (this.shownSeq === n) this.justShown = false; }));
+    }
     if (!this.fitPending) return;
     this.cancelIdleFit();
     this.fitNow(true);
