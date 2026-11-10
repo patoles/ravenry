@@ -169,6 +169,8 @@ export class TerminalView {
   private early: (string | Uint8Array)[] = [];
   private gen = 0;
   private sizeSent = '';
+  /** When the pane's program was last told a new size (performance.now()): what it prints just after is its redraw, not news. */
+  sizedAt = 0;
   private resizeQueued = false;
   /** The width waiting for the size to hold (COLS_WAIT), and the latest size proposed. */
   private colsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -196,7 +198,7 @@ export class TerminalView {
   onWritten: (a: Attached, mark: number, snapshot: boolean) => void = () => {};
   /** The pane on screen changed (or none). */
   onShown: (a: Attached | null) => void = () => {};
-  /** A bell rang in the pane on screen. */
+  /** A bell rang in the pane (on screen, or hidden in its pool). */
   onBell: () => void = () => {};
   /** The selection to copy (copy on select). */
   onCopy: (text: string) => void = () => {};
@@ -523,6 +525,7 @@ export class TerminalView {
     const { cols, rows } = this.term;
     this.sizeSent = '';
     try {
+      this.sizedAt = performance.now();
       await a.client.request('pane.resize', { pane: a.pane, cols, rows });
       this.sizeSent = `${a.pane}:${cols}x${rows}`;
     } catch { /* an exited pane cannot resize; its screen still shows */ }
@@ -823,6 +826,7 @@ export class TerminalView {
     const key = `${a.pane}:${cols}x${rows}`;
     if (key === this.sizeSent) return;
     this.sizeSent = key;
+    this.sizedAt = performance.now();
     void a.client.request('pane.resize', { pane: a.pane, cols, rows }).catch(() => {});
   }
 

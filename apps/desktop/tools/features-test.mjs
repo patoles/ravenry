@@ -72,7 +72,7 @@ const hubUrl = `http://127.0.0.1:${srv.address().port}`;
 const R = 'window.__ravenry';
 const T = `${R}.term()`;
 const SCREEN = `(() => { const b = ${T}.term.buffer.active; const out = []; for (let y = 0; y < b.length; y++) out.push(b.getLine(y).translateToString(true)); return out.join('\\n'); })()`;
-const cellOf = (text) => `(() => { const t = ${T}.term; const b = t.buffer.active; const scr = document.querySelector('#pbox0 .xterm-screen').getBoundingClientRect(); const cw = scr.width / t.cols, ch = scr.height / t.rows;
+const cellOf = (text) => `(() => { const t = ${T}.term; const b = t.buffer.active; const scr = t.element.querySelector('.xterm-screen').getBoundingClientRect(); const cw = scr.width / t.cols, ch = scr.height / t.rows;
   for (let y = 0; y < t.rows; y++) { const l = b.getLine(b.viewportY + y); const x = l ? l.translateToString(true).indexOf(${JSON.stringify(text)}) : -1; if (x >= 0) return { x: Math.round(scr.left + (x + 1.5) * cw), y: Math.round(scr.top + (y + 0.5) * ch) }; } return null; })()`;
 const save = (name, expr) => ({ save: { expr, out: path.join(work, `${name}.json`) } });
 const mainSave = (name, code) => ({ main: code, out: path.join(work, `${name}.json`) });
@@ -155,7 +155,7 @@ try {
     { js: `window.ravenry.settings.set({ fontSize: 15, cursorStyle: 'bar', copyOnSelect: true, optionAsMeta: 'left', scrollback: 50000 })` }, { sleep: 600 },
     { sleep: 600 },
     save('settings-applied', `${T}.attached.client.request('pane.list', {}).then((r) => ({ size: ${T}.term.options.fontSize, cursor: ${T}.term.options.cursorStyle, scrollback: ${T}.term.options.scrollback, daemon: (r.panes.find((p) => p.id === ${T}.attached.pane) || {}).scrollback }))`),
-    { js: `const ta = document.querySelector('#pbox0 .xterm-helper-textarea'); ta.dispatchEvent(new KeyboardEvent('keydown', { code: 'AltLeft', key: 'Alt', altKey: true, bubbles: true })); window.__metaLeft = ${T}.term.options.macOptionIsMeta; ta.dispatchEvent(new KeyboardEvent('keydown', { code: 'AltRight', key: 'Alt', altKey: true, bubbles: true })); window.__metaRight = ${T}.term.options.macOptionIsMeta; true` },
+    { js: `const ta = ${T}.term.textarea; ta.dispatchEvent(new KeyboardEvent('keydown', { code: 'AltLeft', key: 'Alt', altKey: true, bubbles: true })); window.__metaLeft = ${T}.term.options.macOptionIsMeta; ta.dispatchEvent(new KeyboardEvent('keydown', { code: 'AltRight', key: 'Alt', altKey: true, bubbles: true })); window.__metaRight = ${T}.term.options.macOptionIsMeta; true` },
     save('option-meta', `({ left: window.__metaLeft, right: window.__metaRight })`),
     { type: "echo copy-me-please\r" }, { sleep: 500 },
     { js: `const b = ${T}.term.buffer.active; for (let y = 0; y < b.length; y++) { const x = b.getLine(y).translateToString(true).indexOf('copy-me-please'); if (x >= 0 && !b.getLine(y).translateToString(true).includes('echo')) { ${T}.term.select(x, y, 14); break; } } true` }, { sleep: 300 },

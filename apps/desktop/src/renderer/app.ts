@@ -1753,6 +1753,8 @@ interface Pooled { view: TerminalView; marks: TerminalMarks; el: HTMLElement; us
 const pools: [Pooled[], Pooled[]] = [[], []];
 const allViews = (): TerminalView[] => [...pools[0], ...pools[1]].map((p) => p.view);
 const slotOf = (v: TerminalView): 0 | 1 => (pools[1].some((p) => p.view === v) ? 1 : 0);
+/** The terminal in front of its slot (termA, or termB while the split shows), not one hidden in a pool. */
+const inFront = (v: TerminalView): boolean => v === termA || (v === termB && !$('pbox1').hidden);
 
 /** A terminal for slot to attach a pane to: the one already on that pane, else a free one, else a new one (up to POOL), else the least lately shown. */
 function spareFor(slot: 0 | 1, pane: string): Pooled {
@@ -3166,6 +3168,24 @@ function shellTabOf(socket: string, pane: string): ShellTab | undefined {
   return S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.socket === socket && x.pane === pane);
 }
 
+/**
+ * A bell in a pane not on screen: a small bell on its tab, the sound and
+ * the Dock as the settings say. From the daemon's pane.bell, or from a
+ * pooled terminal hidden on its pane (the daemon sends no pane.bell for a
+ * pane the window streams).
+ */
+function paneRang(id: string): void {
+  const t = S.tabs.find((x) => (x.kind === 'shell' && x.pane === id) || (x.kind === 'session' && (x.pane === id || x.key.endsWith(`/ravenry:${id}`))));
+  const shown = allViews().some((v) => inFront(v) && v.attached?.pane === id);
+  if (t && !shown) { bells.add(t.host || t.id); renderTabs(); }
+  if (!shown && termSettings?.bell !== 'off') api().settings.bell();
+}
+
+/** A tab not on screen printed: a quiet dot on it (pane.activity, or a pooled terminal hidden on its pane). */
+function panePrinted(t: ShellTab | undefined): void {
+  if (t && !t.activity && tabOfView() !== t) { t.activity = true; renderTabs(); }
+}
+
 /** Someone asked to show a pane (pane.focus): its tab, or the session it runs. */
 function focusPane(socket: string, pane: string): void {
   const t = shellTabOf(socket, pane) || S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === pane);
@@ -3194,22 +3214,8 @@ function onDaemonEvent(socket: string, e: DaemonEvent): void {
       if (t && e.pane.cwd !== t.cwd) { t.cwd = e.pane.cwd; renderTabs(); if (panelVisible()) renderPanel(); }
       return;
     }
-    case 'pane.bell': {
-      // A bell in a pane not on screen: a small bell on its tab, the sound
-      // and the Dock as the settings say.
-      const id = e.pane.id;
-      const t = S.tabs.find((x) => (x.kind === 'shell' && x.pane === id) || (x.kind === 'session' && (x.pane === id || x.key.endsWith(`/ravenry:${id}`))));
-      const shown = termA.attached?.pane === id || termB?.attached?.pane === id;
-      if (t && !shown) { bells.add(t.host || t.id); renderTabs(); }
-      if (!shown && termSettings?.bell !== 'off') api().settings.bell();
-      return;
-    }
-    case 'pane.activity': {
-      // A tab not on screen printed: a quiet dot on it.
-      const t = shellTabOf(socket, e.pane.id);
-      if (t && !t.activity && tabOfView() !== t) { t.activity = true; renderTabs(); }
-      return;
-    }
+    case 'pane.bell': paneRang(e.pane.id); return;
+    case 'pane.activity': panePrinted(shellTabOf(socket, e.pane.id)); return;
     case 'pane.created': case 'pane.updated': {
       // A plain shell another window or the command line made.
       // (Each window its own: one opened with Cmd+N labels its shells with its id.)
@@ -3437,6 +3443,8 @@ async function restoreTabs(saved: Record<string, unknown>): Promise<void> {
  * tab's own pane, termB its split's (a second xterm.js only while a split
  * shows).
  */
+/** How long after a new size what a hidden terminal's program prints is its redraw (ms). */
+const SIZED_QUIET = 1000;
 function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
   const term = new TerminalView(el);
   let marks: TerminalMarks;
@@ -3456,7 +3464,12 @@ function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
   if (termSettings) term.applySettings(termSettings);
   // A bell: the pane flashes (visual), and the main process plays the sound
   // and bounces the Dock as the settings say.
-  term.onBell = () => { if (termSettings?.bell === 'visual') flashBell(el); api().settings.bell(); };
+  // Hidden in a pool, the tab's bell instead (paneRang).
+  term.onBell = () => {
+    if (!inFront(term)) { if (term.attached) paneRang(term.attached.pane); return; }
+    if (termSettings?.bell === 'visual') flashBell(el);
+    api().settings.bell();
+  };
   // Copy on select (a setting).
   term.onCopy = (text) => api().copyText(text);
   // A right click: the system's own menu.
@@ -3487,7 +3500,12 @@ function makeView(el: HTMLElement): [TerminalView, TerminalMarks] {
     time: (iso) => timeOf(iso, now()),
   });
   term.onShown = (a) => { marks.reset(); if (a) marks.show(store.inputsOf(a.pane)); renderStrip(); };
-  term.onWritten = (_a, mark, snapshot) => marks.written(mark, snapshot);
+  // Hidden in a pool, what the program prints is the tab's quiet dot
+  // (panePrinted), except a snapshot and its redraw just after a new size.
+  term.onWritten = (a, mark, snapshot) => {
+    marks.written(mark, snapshot);
+    if (!snapshot && !inFront(term) && performance.now() - term.sizedAt > SIZED_QUIET) panePrinted(S.tabs.find((x): x is ShellTab => x.kind === 'shell' && x.pane === a.pane));
+  };
 
   // A click in a split's pane gives it the keyboard.
   el.addEventListener('pointerdown', () => { const host = tabOfView(); if (host && host.split) focusSplit(term === termB ? 1 : 0); }, true);
