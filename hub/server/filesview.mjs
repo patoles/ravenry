@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { git, diffBase } from './worktrees.mjs';
+import { withClashes } from './reviewview.mjs';
 
 const GIT_MS = 5000;
 const MAX_UNTRACKED = 200;
@@ -94,5 +95,6 @@ export async function projectFiles({ projectId, folder, sessions, filesOf }) {
     }
   }
   const you = [...mainCounts.values()].filter((c) => !named.has(c.path) && !c.path.startsWith('.inbox/'));
-  return { ok: true, project: projectId, root, sessions: out, you };
+  // Which file another session changed too, and the grid of who changed what (reviewview.mjs).
+  return withClashes({ ok: true, project: projectId, root, sessions: out, you });
 }

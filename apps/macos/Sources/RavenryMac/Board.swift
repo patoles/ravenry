@@ -60,13 +60,18 @@ final class Board: NSObject {
     var grantsAsked: [String: Date] = [:]
     /// What the person did about a lease or a grant, for the self-test.
     var leaseActs: [String] = []
+    /// A worktree session's review in the middle beside the panel ("review:<session key>"),
+    /// the grid of who changed what ("files:<project>"), and what the panel shows of both.
+    let review = ReviewView()
+    let filesGrid = FilesGridPage()
+    lazy var worktrees = WorktreeCards(hub: hub)
     /// A pick side by side, in the middle beside the panel (key "pick:<checkpoint id>").
     let picker = PickerView()
     let notifier: Notifier
     /// The project of the session the person last had open (a page's Ask Claude to fix).
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker, review, filesGrid] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -254,6 +259,22 @@ final class Board: NSObject {
         }
         ws.onLease = { [weak self] _ in self?.render(force: true) }
         ws.whoOf = { [weak self] src in self?.sourceOf(src).who }
+        worktrees.rerender = { [weak self] in
+            guard let self else { return }
+            self.render(force: true)
+            if case .page(let k, let n) = self.front, k.hasPrefix("files:") { self.filesGrid.redraw(name: n) }
+        }
+        worktrees.toast = { [weak self] s in self?.toast(s) }
+        worktrees.openReview = { [weak self] k in self?.openReview(k) }
+        worktrees.openGrid = { [weak self] pid in self?.openFilesGrid(pid) }
+        panel.host?.extras = { [weak self] p, s, card, sec in self?.worktrees.views(p, s, card: card, sec: sec) ?? [] }
+        review.hub = hub
+        review.cards = worktrees
+        review.toast = { [weak self] s in self?.toast(s) }
+        review.back = { [weak self] in self?.back() }
+        filesGrid.hub = hub
+        filesGrid.cards = worktrees
+        filesGrid.onClose = { [weak self] in self?.back() }
         // A tab's dot: its session's state (amber while it waits on you, a checkpoint open in its pane too); its lease's holder.
         ws.marksOf = { [weak self] pane in
             guard let self else { return (nil, nil) }
@@ -310,6 +331,7 @@ final class Board: NSObject {
         case .session(let k): return k
         case .project(let id): return "project:\(id)"
         case .brief(_, let k): return k
+        case .page(let k, _) where k.hasPrefix("review:"): return String(k.dropFirst(7))
         case .page(let k, _) where k.hasPrefix("pick:"):
             // A pick side by side: the panel stays on the session that asked.
             guard let st = hub.state, let cp = st.checkpoints.first(where: { $0["id"] as? String == String(k.dropFirst(5)) }),
@@ -370,6 +392,8 @@ final class Board: NSObject {
 
     var panelVisible: Bool {
         switch front {
+        // A review sits beside its session's panel, as a tab does.
+        case .page(let k, _) where k.hasPrefix("review:"): break
         case .start, .page: return overlay
         default: break
         }
@@ -446,6 +470,8 @@ final class Board: NSObject {
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
         if key.hasPrefix("pick:") { openPicker(String(key.dropFirst(5))); return }
+        if key.hasPrefix("review:") { openReview(String(key.dropFirst(7))); return }
+        if key.hasPrefix("files:") { openFilesGrid(String(key.dropFirst(6))); return }
         if key == "side.alerts" { openAlerts(); return }
         if key == "decisions" { openDecisions(); return }
         if key == "side.learn" { openLearn(); return }
@@ -705,6 +731,30 @@ final class Board: NSObject {
         render()
     }
 
+    /// A worktree session's review in the middle, the panel beside it on the session.
+    func openReview(_ key: String) {
+        guard let f = hub.state?.find(key) else { return }
+        overlay = false
+        notePageBack()
+        front = .page("review:\(key)", t("review.tab"))
+        showMiddle(review)
+        review.show(key, f.project, f.session)
+        log.append("review \(key)")
+        render()
+    }
+
+    /// Who changed what in a project, as a page.
+    func openFilesGrid(_ pid: String) {
+        guard let p = hub.state?.project(pid) else { return }
+        overlay = false
+        notePageBack()
+        front = .page("files:\(pid)", p.name)
+        showMiddle(filesGrid)
+        filesGrid.show(pid, name: p.name)
+        log.append("files \(pid)")
+        render()
+    }
+
     /// A pick side by side in the middle, the panel beside it on its card.
     func openPicker(_ id: String) {
         guard let cp = hub.state?.checkpoints.first(where: { $0["id"] as? String == id }) else { return }
@@ -875,6 +925,7 @@ final class Board: NSObject {
         if case .page(let k, _) = front, k.hasPrefix("plan:") || k.hasPrefix("newplan:") { plan.refresh(st) }
         if case .page(let k, _) = front, k == files.key { files.refresh() }
         if case .page(let k, _) = front, k.hasPrefix("pick:") { picker.refresh(st) }
+        if case .page(let k, _) = front, k.hasPrefix("review:"), let f = st?.find(String(k.dropFirst(7))) { review.show(String(k.dropFirst(7)), f.project, f.session) }
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay

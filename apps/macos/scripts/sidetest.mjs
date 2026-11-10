@@ -18,7 +18,7 @@ import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
@@ -219,8 +219,35 @@ const screenHub = PAGES ? {
   env: { RAVENRY_SSH: '/usr/bin/false' },
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
-  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); },
+  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review') reviewRepo(ROOT); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
+// --screen review: notes-app is a git repository; its session works in a
+// worktree on its own branch (as POST /api/sessions/start with worktree
+// makes one), with two commits of work; the main folder has a change of the
+// person's and one another session made to the same file.
+const GENV = { HOME: user, PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
+const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { env: GENV, encoding: 'utf8' }).trim();
+let REVIEW = null;
+function reviewRepo(ROOT) {
+  const repo = path.join(ROOT, 'notes-app');
+  const put = (dir, f, text) => { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), text); };
+  if (!fs.existsSync(path.join(repo, '.git'))) git(repo, 'init', '-q', '-b', 'main');
+  for (const [k, v] of [['user.name', 'Ravenry Test'], ['user.email', 'test@example.invalid'], ['commit.gpgsign', 'false']]) git(repo, 'config', k, v);
+  put(repo, 'app/sync.js', 'export function sync(settings) {\n  const every = 60;\n  return push(settings, every);\n}\n');
+  put(repo, 'app/settings.js', 'export const defaults = { theme: "light", sync: true };\n');
+  git(repo, 'add', '-A'); git(repo, 'commit', '-q', '-m', 'Notes app');
+  const wt = path.join(ROOT, 'notes-app-sync-settings');
+  git(repo, 'worktree', 'add', '-q', '-b', 'ravenry/sync-settings', wt, 'HEAD');
+  const base = git(repo, 'rev-parse', 'HEAD');
+  put(wt, 'app/sync.js', 'export function sync(settings) {\n  const every = 30;\n  if (!settings.sync) return null;\n  return push(settings, every);\n}\n');
+  git(wt, 'commit', '-q', '-am', 'Sync every 30 s, and not at all when it is off');
+  put(wt, 'app/settings-screen.js', 'export function settingsScreen(s) {\n  return [toggle("Sync", s.sync), choice("Theme", s.theme)];\n}\n');
+  git(wt, 'add', '-A'); git(wt, 'commit', '-q', '-m', 'The settings screen');
+  // In the main folder: another session's change to the same file, and the person's own.
+  put(repo, 'app/sync.js', 'export function sync(settings) {\n  const every = 60;\n  log("sync");\n  return push(settings, every);\n}\n');
+  put(repo, 'NOTES.md', 'Ask the testers about offline.\n');
+  REVIEW = { repo, wt, base };
+}
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 const result = path.join(OUT, 'sidetest.json');
 // --screen machines: every shape the page draws, with the hub's own cards.
@@ -228,10 +255,35 @@ const FIXTURE = path.join(OUT, 'machines-fixture.json');
 // --screen cards: one checkpoint of each kind with the hub's words, on the demo's sessions.
 const CARDS = path.join(OUT, 'cards-fixture.json');
 if (SCREEN === 'cards') fs.writeFileSync(CARDS, JSON.stringify(cardFixtures(await hub.state(), path.join(hub.home, '.ravenry'))));
+// --screen review: the worktree's record, as the hub keeps it, and the project's files as the hub works them out.
+const FILES = path.join(OUT, 'review-files.json');
+if (SCREEN === 'review') {
+  const st = await hub.state();
+  const p = st.projects.find((x) => x.id === 'notes-app');
+  const s = p.sessions[0];
+  const MC = path.join(hub.home, '.ravenry');
+  const rec = { surfaceId: s.surfaceId, pane: null, machine: null, projectId: 'notes-app', repo: REVIEW.repo, folder: REVIEW.wt, cwd: REVIEW.wt, branch: 'ravenry/sync-settings', base: REVIEW.base, baseBranch: 'main', name: 'sync-settings', created_at: new Date(Date.now() - 40 * 60000).toISOString(), state: 'open' };
+  fs.writeFileSync(path.join(MC, 'worktrees.json'), JSON.stringify({ version: 1, worktrees: [rec] }, null, 2));
+  process.env.RAVENRY_HOME = MC;
+  const { projectFiles } = await import('../../../hub/server/filesview.mjs');
+  const at = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const touches = { pwork001: [['app/sync.js', 12], ['app/settings-screen.js', 8], ['app/settings.js', 20, true]], pmain001: [['app/sync.js', 3]] };
+  const answer = await projectFiles({
+    projectId: 'notes-app', folder: REVIEW.repo,
+    sessions: [{ surfaceId: s.surfaceId, topic: s.topic, assistant: 'claude', pane: 'pwork001', machine: null, worktree: rec }, { surfaceId: 'offline-mode', topic: 'Offline mode', assistant: 'codex', pane: 'pmain001', machine: null, worktree: null }],
+    filesOf: async (pane) => touches[pane].map(([f, m, read]) => ({ path: path.join(pane === 'pwork001' ? REVIEW.wt : REVIEW.repo, f), sources: read ? ['git'] : ['hook'], at: at(m) })),
+  });
+  // A file it only read: the hub's files say so (read), as the panel shows it.
+  answer.sessions[0].files.push({ path: 'app/settings.js', added: 0, removed: 0, read: true });
+  const { withClashes } = await import('../../../hub/server/reviewview.mjs');
+  fs.writeFileSync(FILES, JSON.stringify({ path: '/api/projects/notes-app/files', answer: withClashes(answer) }));
+  // That other session's change was saved elsewhere since: the main folder's sync.js is back, so the merge goes through.
+  git(REVIEW.repo, 'checkout', '--', 'app/sync.js');
+}
 if (SCREEN === 'machines') fs.writeFileSync(FIXTURE, JSON.stringify({ ok: true, machines: SHAPES.map((m) => ({ ...m, card: machineCard(m) })), hosts: HOSTS, builds: BUILDS }));
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
 const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', '--socket', sock, '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf') } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf') } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;

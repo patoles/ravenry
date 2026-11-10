@@ -57,6 +57,7 @@ import * as sessionstart from './sessionstart.mjs';
 import * as decisions from './decisions.mjs';
 import * as worktrees from './worktrees.mjs';
 import { projectFiles } from './filesview.mjs';
+import * as reviewview from './reviewview.mjs';
 import * as reviews from './reviews.mjs';
 import { paneRequest, paneInfo } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
@@ -3740,7 +3741,8 @@ async function handleRequest(req, res) {
         if (!w) return sendJson(res, 404, { error: 'That session has no worktree.' });
         if (m[2] === 'worktree') return sendJson(res, 200, { ok: true, worktree: w });
         const d = await worktrees.diff(w);
-        return sendJson(res, d.ok ? 200 : d.status, d.ok ? { ...d, worktree: w } : { error: d.error });
+        // Each file's lines and how Merge goes, worked out here for every client (server/reviewview.mjs).
+        return sendJson(res, d.ok ? 200 : d.status, d.ok ? { ...d, worktree: w, lines: reviewview.parseDiff(d.diff), mergeMode: reviewview.mergeMode(d.check) } : { error: d.error });
       }
     }
     if (req.method === 'GET' && p === '/api/machines') {

@@ -185,6 +185,16 @@ stream".
   `shared/strings/en.json`, the colours and sizes from
   `shared/tokens/tokens.json`, the icons from `shared/icons/` (`Shared.swift`,
   `Views.swift`).
+- **A worktree session** (`Review.swift`): in its panel, when it is done,
+  the card that asks for a review (Review, Merge without reviewing), Its
+  copy, after a merge what landed with Undo the merge and Delete the
+  branch, and Files it changed (a file another session changed too in
+  orange, with who, when and what that means; See all of the project opens
+  the grid of who changed what). The review sits in the middle beside the
+  panel: its files, the diff (the hub's `lines`), a comment on a line that
+  waits until Send N comments, Take back, Merge into main (the hub's
+  `mergeMode`). The hub does the git, the clashes and the grid
+  (`hub/server/reviewview.mjs`).
 - **Screen** (`Screen.swift`): applies each frame to the rows it holds;
   that is all the terminal state the app has.
 - **Renderer** (`Renderer.swift`): instanced quads for backgrounds,
@@ -348,7 +358,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -398,7 +408,7 @@ every screen (the bench, the self-test) writes only to
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; an ask card
   has no "Checked your decisions first"; Typed here has no filters or whole log;
-  no review, files changed or panes it uses; no filmstrip; a shell's panel does not say what its agent reported.
+  no panes it uses; no filmstrip; a shell's panel does not say what its agent reported.
 - A session in a ravenryd pane of another daemon (the board's, when the
   window runs on its own) is shown read only, as one outside: the window
   draws only its own daemon's panes.

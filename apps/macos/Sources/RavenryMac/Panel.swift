@@ -36,6 +36,8 @@ final class PanelView: Box {
         var opened: (String) -> String? = { _ in nil }
         /// The agent whose own pane it is ("Claude"), else nil.
         var ownerOf: (String) -> String? = { _ in nil }
+        /// A local session in a pane: its worktree's cards and the files it changed (Review.swift).
+        var extras: (HubProject, HubSession, (([NSView?]) -> NSView), ((String?, NSView?, [NSView?]) -> NSView)) -> [NSView] = { _, _, _, _ in [] }
     }
 
     var host: Host?
@@ -251,6 +253,9 @@ final class PanelView: Box {
                 rows.append(flow(bs))
             }
             out.append(sec(nil, rows, ring: "you"))
+        }
+        if s.pane != nil, s.machine == nil, p.machine == nil, let h = host {
+            out += h.extras(p, s, { [weak self] rows in self?.sec(nil, rows, ring: "you") ?? NSView() }, { [weak self] t0, r, rows in self?.sec(t0, right: r, rows) ?? NSView() })
         }
         if let c = s.ctx {
             let th = st.threshold

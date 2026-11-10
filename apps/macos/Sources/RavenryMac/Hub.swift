@@ -103,6 +103,8 @@ final class HubSession {
         if id.hasPrefix("ravenry:") { let p = String(id.dropFirst(8)); if p.range(of: "^p[a-z2-7]{7}$", options: .regularExpression) != nil { return p } }
         return nil
     }
+    /// Its worktree (hub/docs/SESSIONS.md, Worktrees): branch, folder, baseBranch, state, merged.
+    var worktree: [String: Any]? { raw["worktree"] as? [String: Any] }
     var alsoOpen: String? { (raw["alsoOpen"] as? [String: Any])?["name"] as? String }
     var movedOn: String? { (raw["movedOn"] as? [String: Any])?["name"] as? String }
     var moving: [String: Any]? { raw["moving"] as? [String: Any] }
@@ -237,11 +239,15 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     /// Each POST's body as sent, for the self-test; a secret is kept as its length only.
     private(set) var sentBodies: [(path: String, body: [String: Any])] = []
     /// The self-test's checkpoints (sidetest.mjs --screen cards): the state's own replaced by them.
+    /// The self-test's changes to each state (sidetest.mjs --screen review), and its answers to some GETs.
+    var testPatch: (([String: Any]) -> [String: Any])?
+    var testAnswers: [String: [String: Any]] = [:]
     var testCheckpoints: [[String: Any]]? {
         didSet {
             guard let s = state else { return }
             var r = s.raw
             r["checkpoints"] = testCheckpoints ?? []
+            if let f = testPatch { r = f(r) }
             state = HubState(r)
             onState?(state!)
         }
@@ -337,6 +343,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
                   let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] else { continue }
             var full = older.fill(j)
             if let fx = testCheckpoints { full["checkpoints"] = fx }
+            if let f = testPatch { full = f(full) }
             let st = HubState(full)
             DispatchQueue.main.async {
                 self.state = st
@@ -357,6 +364,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
 
     /// GET a JSON answer; the callback runs on the main thread.
     func get(_ path: String, _ done: @escaping (Int, [String: Any]) -> Void) {
+        if let a = testAnswers[path] { DispatchQueue.main.async { done(200, a) }; return }
         guard let b = base, let u = URL(string: b.absoluteString + path) else { done(0, ["error": "No board."]); return }
         var r = URLRequest(url: u); r.timeoutInterval = 15
         session.dataTask(with: r) { d, resp, e in
