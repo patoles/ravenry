@@ -994,6 +994,8 @@ final class RootView: NSView {
     /// The panel beside the middle (docked), over it (overlay), or not shown.
     var panelMode: PanelMode = .hidden
     enum PanelMode { case hidden, docked, overlay }
+    /// The panel's mode at a width (Board.panelMode), asked at each layout.
+    var panelModeFor: ((CGFloat) -> PanelMode)?
     /// After each layout (the window's buttons are placed again).
     var onLayout: (() -> Void)?
     override var isFlipped: Bool { true }
@@ -1009,6 +1011,7 @@ final class RootView: NSView {
     private var placedFor: (NSSize, CGFloat, PanelMode, Int)?
     func place() {
         let w = bounds.width, h = bounds.height
+        if let f = panelModeFor { panelMode = f(w) }
         // Nothing moved: nothing to lay out (Board draws at every state).
         let key = (bounds.size, sideWidth, panelMode, middle != nil && !wideMiddle ? 1 : middle != nil ? 2 : 0)
         if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight))) { return }
@@ -1090,6 +1093,6 @@ final class StageView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override func setFrameSize(_ s: NSSize) {
         super.setFrameSize(s)
-        for v in subviews { v.frame = bounds }
+        for v in subviews { v.setIf(bounds) }
     }
 }

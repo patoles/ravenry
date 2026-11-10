@@ -42,6 +42,10 @@ final class Bench {
     private var gpu: [(cpu: Double, gpu: Double)] = []
 
     let workspace: Workspace
+    /// The sidebar and the panel (the workspace drag reads the hub's rows).
+    var board: Board?
+    /// --bench-resize: only the drag of the whole window (runResize).
+    var resizeOnly = false
 
     init(view: TerminalView, window: NSWindow, out: String, dragMin: CGFloat, workspace: Workspace) {
         self.workspace = workspace
@@ -64,7 +68,7 @@ final class Bench {
             self.gpu.append((cpu, gpu))
             self.lock.unlock()
         }
-        Thread { self.run() }.start()
+        Thread { self.resizeOnly ? self.runResize() : self.run() }.start()
     }
 
     private func main<T>(_ f: () -> T) -> T { DispatchQueue.main.sync(execute: f) }
@@ -560,6 +564,135 @@ final class Bench {
             "cell_pt": "\(Double(r.fonts.cellWidth / s))x\(Double(r.fonts.cellHeight / s))",
             "rex_grid": "\(rex.0)x\(rex.1)",
         ]
+    }
+
+    // MARK: the whole window's drag (--bench-resize)
+
+    /// The window as the person has it: the hub's sidebar, the panel
+    /// docked, four tabs, the one in front busy (a loop printing about 30
+    /// lines a second), drawn through the window's Metal layer. Its width
+    /// is dragged from 1440 pt to 700 and back at 120 steps a second, the
+    /// window in a live resize, as when the person drags its edge; each
+    /// step is a setFrame with display, as AppKit's own. For each step:
+    /// its main-thread time, whether the pane in front drew at the step's
+    /// size within it and how many times; the draws a second, the longest
+    /// gap between draws, the waits for a drawable, the draws of the panes
+    /// not in front (none expected) and the lines the stall log wrote.
+    private func runResize() {
+        defer { finish() }
+        guard waitFor(20, { self.text().contains("~ >") }) else {
+            result["error"] = "no prompt: " + text()
+            return
+        }
+        // The hub's rows in the sidebar.
+        let rows = waitFor(15) { self.main { self.board?.hub.state != nil } }
+        sleep(0.5)
+        setSize(1440, 800)
+        sleep(0.5)
+        func ready() { _ = waitFor(5) { self.main { self.workspace.focusedView?.screen.text().contains("~ >") ?? false } } }
+        for _ in 0..<3 { main { workspace.newTab(nil) }; ready() }
+        main { workspace.select(index: 0) }
+        sleep(0.3)
+        view = main { workspace.focusedView! }
+        let busy = "i=0; while :; do i=$((i+1)); echo \"busy $i the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows\"; sleep 0.033; done"
+        main { view.sendEvents([["text": busy]]) }
+        key("\r", code: 0x24)
+        _ = waitFor(3) { self.text().contains("busy 20") }
+        sleep(0.5)
+        let front = view
+        let others: [TerminalView] = main { workspace.boxes.values.map(\.term).filter { $0 !== front } }
+        let othersBefore = main { others.map(\.drawCount).reduce(0, +) }
+        let logFile = (ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()) + "/Library/Logs/Ravenry/app.log"
+        let logBefore = (try? String(contentsOfFile: logFile, encoding: .utf8))?.components(separatedBy: "\n").filter { $0.contains("draw:") }.count ?? 0
+        var drawsAt: [(t: Double, px: CGSize, wait: Double)] = []
+        let dl = NSLock()
+        main {
+            front.onDraw = { _, _ in
+                dl.lock(); drawsAt.append((CACurrentMediaTime(), front.drawnPixels, front.lastWaitMs)); dl.unlock()
+            }
+            board?.resizeMs.removeAll()
+        }
+        var widths: [CGFloat] = []
+        var w: CGFloat = 1433
+        while w > 700 { widths.append(w); w -= 7 }
+        while w <= 1440 { widths.append(w); w += 7 }
+        var stepMs: [Double] = [], perStep: [Double] = []
+        var notDrawn = 0, multi = 0, late = 0
+        var examples: [String] = []
+        main { (window as? TerminalWindow)?.simulatedLiveResize = true }
+        let tStart = CACurrentMediaTime()
+        var next = tStart
+        for width in widths {
+            dl.lock(); let n0 = drawsAt.count; dl.unlock()
+            let t0 = CACurrentMediaTime()
+            let want: CGSize = main {
+                var f = window.frame
+                f.size.width = width
+                window.setFrame(f, display: true)
+                let s = front.renderer.fonts.scale
+                return CGSize(width: max(1, round(front.bounds.width * s)), height: max(1, round(front.bounds.height * s)))
+            }
+            let t1 = CACurrentMediaTime()
+            stepMs.append((t1 - t0) * 1000)
+            dl.lock(); let mine = drawsAt[n0...].filter { $0.t <= t1 }; dl.unlock()
+            perStep.append(Double(mine.count))
+            if mine.count > 1 { multi += 1 }
+            if !mine.contains(where: { $0.px == want }) {
+                notDrawn += 1
+                if examples.count < 3 { examples.append("width \(Int(width)): drew \(mine.map { "\(Int($0.px.width))x\(Int($0.px.height))" }) for \(Int(want.width))x\(Int(want.height))") }
+            }
+            if (t1 - t0) > 1.0 / 60 { late += 1 }
+            next += 1.0 / 120
+            while CACurrentMediaTime() < next { sleep(0.0003) }
+            if CACurrentMediaTime() > next + 0.05 { next = CACurrentMediaTime() }
+        }
+        let secs = CACurrentMediaTime() - tStart
+        let skipsInDrag = main { DrawWatch.shared.skipsTotal }
+        // Four draws in one turn of the run loop, as a step's and the
+        // stream's can come together: none may wait on the main thread for
+        // a drawable, and a draw put off is done once one is shown.
+        sleep(0.2)
+        dl.lock(); let b0 = drawsAt.count; dl.unlock()
+        let burst: (ms: Double, skipped: Int) = main {
+            let k0 = DrawWatch.shared.skipsTotal
+            let t = CACurrentMediaTime()
+            for _ in 0..<4 { front.draw(sync: true) }
+            return ((CACurrentMediaTime() - t) * 1000, DrawWatch.shared.skipsTotal - k0)
+        }
+        let owedDone = waitFor(0.2) { dl.lock(); defer { dl.unlock() }; return drawsAt.count >= b0 + 4 - burst.skipped + (burst.skipped > 0 ? 1 : 0) }
+        main { (window as? TerminalWindow)?.endSimulatedLiveResize() }
+        sleep(1.0)
+        dl.lock(); let all = drawsAt; dl.unlock()
+        let during = all.filter { $0.t >= tStart && $0.t <= tStart + secs }
+        var gaps: [Double] = []
+        for i in 1..<max(1, during.count) { gaps.append((during[i].t - during[i - 1].t) * 1000) }
+        let othersAfter = main { others.map(\.drawCount).reduce(0, +) }
+        let logAfter = (try? String(contentsOfFile: logFile, encoding: .utf8))?.components(separatedBy: "\n").filter { $0.contains("draw:") } ?? []
+        let resize = main { board?.resizeMs ?? [] }
+        let sideRows = main { board.map { !$0.sideHidden && $0.root.sideWidth > 0 } ?? false }
+        let panel = main { "\(board?.root.panelMode ?? .hidden)" }
+        result["resize"] = [
+            "hub_rows": rows, "sidebar_shown": sideRows, "panel_at_end": panel,
+            "tabs": main { workspace.tabs.count }, "steps": widths.count, "seconds": secs,
+            "step_ms": Bench.stats(stepMs), "steps_over_16ms": late,
+            "draws_per_step": Bench.stats(perStep), "steps_not_drawn_at_their_size": notDrawn, "steps_drawn_more_than_once": multi,
+            "examples": examples,
+            "draws": during.count, "fps": Double(during.count) / secs, "draw_gap_ms": Bench.stats(gaps),
+            "drawable_wait_ms": Bench.stats(during.map(\.wait)),
+            "board_resize_ms": Bench.stats(resize),
+            "hidden_tab_draws": othersAfter - othersBefore,
+            "draws_put_off_in_drag": skipsInDrag,
+            "burst_4_draws_ms": burst.ms, "burst_put_off": burst.skipped, "burst_owed_draw_done": owedDone,
+            "stall_log_lines": logAfter.count - logBefore, "stall_log_examples": Array(logAfter.suffix(3)),
+            "after_end_drawn_at_size": main { front.drawnPixels == CGSize(width: max(1, round(front.bounds.width * front.renderer.fonts.scale)), height: max(1, round(front.bounds.height * front.renderer.fonts.scale))) },
+        ]
+        // The stall log writes its line (a made-up stall, after the counts above).
+        main { DrawWatch.shared.missed(front, ms: 99) }
+        result["stall_log_written"] = waitFor(2) {
+            ((try? String(contentsOfFile: logFile, encoding: .utf8)) ?? "").contains("a resize step not drawn at its size (99 ms after it)")
+        }
+        savePNG("bench-resize-window.png", window: true)
+        key("\u{3}", code: 0x08, flags: .control)
     }
 
     private func lastLineHas(_ s: String) -> Bool {

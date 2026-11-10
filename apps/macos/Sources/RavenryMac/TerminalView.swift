@@ -35,7 +35,7 @@ final class TerminalView: NSView, NSTextInputClient {
     var splitDragging = false {
         didSet { if !splitDragging && oldValue { metalLayer.presentsWithTransaction = false; requestDraw() } }
     }
-    private var resizing: Bool { (inLiveResize || splitDragging) && !offscreen }
+    private var resizing: Bool { (((window as? TerminalWindow)?.liveResizing ?? inLiveResize) || splitDragging) && !offscreen }
     /// The view took the keyboard (a click, or the window's focus).
     var onFocus: (() -> Void)?
 
@@ -88,6 +88,10 @@ final class TerminalView: NSView, NSTextInputClient {
     var onDraw: ((_ seq: UInt32, _ cpuMs: Double) -> Void)?
     /// How many times it drew (the install check's report).
     private(set) var drawCount = 0
+    /// The pixel size of the last draw, and how long it waited for its
+    /// drawable (the bench reads them).
+    private(set) var drawnPixels = CGSize.zero
+    private(set) var lastWaitMs = 0.0
     var onTitle: ((String) -> Void)?
     var onFrame: (() -> Void)?
 
@@ -146,6 +150,8 @@ final class TerminalView: NSView, NSTextInputClient {
         guard let c = conn, !live else { return }
         live = true
         grid = renderer.grid(for: bounds.size)
+        appliedSize = bounds.size
+        if metalLayer.drawableSize != pixelSize { metalLayer.drawableSize = pixelSize }
         screen.lock()
         // The new stream's frames count from 1: no ack of the old one's.
         screen.seq = 0
@@ -221,6 +227,11 @@ final class TerminalView: NSView, NSTextInputClient {
         blinkTimer?.invalidate()
         blinkTimer = nil
         cursorOn = true
+        // A tab not in front keeps no drawables: the layer's are let go
+        // (a smallest size), and made again at its size when it shows.
+        owed = false
+        step = nil
+        if !offscreen { metalLayer.drawableSize = CGSize(width: 1, height: 1) }
     }
 
     private func binary(_ p: UnsafeRawBufferPointer) {
@@ -311,8 +322,30 @@ final class TerminalView: NSView, NSTextInputClient {
             seq = renderer.encode(screen: screen, overlay: overlay, into: offscreenTexture!, commandBuffer: cb)
             cb.commit()
         } else {
+            // Never wait on the main thread for a drawable. The layer has
+            // three: one on screen and, when two more are taken and not
+            // shown yet, none left. A draw in a live resize is shown with
+            // the window's transaction, which only commits after this
+            // turn of the run loop, so nextDrawable would wait for one
+            // until its 1 s timeout, the window frozen meanwhile. The draw
+            // is owed instead and done as soon as one is shown.
+            if unshown >= metalLayer.maximumDrawableCount - 1 {
+                if t0 - unshownSince < 1 {
+                    owed = true
+                    DrawWatch.shared.skipped(self)
+                    return
+                }
+                // Their handlers never came (dropped): count afresh.
+                unshown = 0
+            }
             metalLayer.presentsWithTransaction = sync
-            guard let drawable = metalLayer.nextDrawable() else { return }
+            let next = metalLayer.nextDrawable()
+            lastWaitMs = (CACurrentMediaTime() - t0) * 1000
+            if lastWaitMs > DrawWatch.waitLimitMs { DrawWatch.shared.waited(self, ms: lastWaitMs, got: next != nil) }
+            guard let drawable = next else { return }
+            if unshown == 0 { unshownSince = t0 }
+            unshown += 1
+            drawable.addPresentedHandler { [weak self] _ in DispatchQueue.main.async { self?.shown() } }
             seq = renderer.encode(screen: screen, overlay: overlay, into: drawable.texture, commandBuffer: cb)
             if sync {
                 cb.commit()
@@ -324,10 +357,32 @@ final class TerminalView: NSView, NSTextInputClient {
             }
         }
         lastDraw = CACurrentMediaTime()
+        drawnPixels = offscreen ? pixelSize : metalLayer.drawableSize
+        owed = false
+        if let st = step, drawnPixels == st.px {
+            step = nil
+            let ms = (lastDraw - st.at) * 1000
+            if ms > refreshInterval * 1000 * 1.5 { DrawWatch.shared.late(self, ms: ms) }
+        }
         let cpu = (lastDraw - t0) * 1000
         afterDraw(seq)
         drawCount += 1
         onDraw?(seq, cpu)
+    }
+
+    /// Drawables taken and not shown yet (their presented handlers have
+    /// not run), since when, and a draw skipped for want of one.
+    private var unshown = 0
+    private var unshownSince: CFTimeInterval = 0
+    private var owed = false
+    /// The live resize's step not drawn yet: its pixel size, and when.
+    private var step: (px: CGSize, at: CFTimeInterval)?
+
+    /// A drawable was shown: one is free again; an owed draw is done now.
+    private func shown() {
+        unshown = max(0, unshown - 1)
+        unshownSince = CACurrentMediaTime()
+        if owed { owed = false; requestDraw() }
     }
 
     private func afterDraw(_ seq: UInt32) {
@@ -465,11 +520,21 @@ final class TerminalView: NSView, NSTextInputClient {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        // AppKit sets the frame again at the same size (its layout pass
+        // after the one that sized the view, in the same step of a live
+        // resize): nothing changed, nothing is drawn again. A second draw
+        // would take a second drawable in the same transaction.
+        if newSize == appliedSize && (!live || metalLayer.drawableSize == pixelSize) { return }
         sizeChanged()
     }
 
+    /// The size the view last laid itself out at.
+    private var appliedSize = NSSize.zero
+
     private func sizeChanged() {
-        metalLayer.drawableSize = pixelSize
+        appliedSize = bounds.size
+        // A tab not in front gets its drawables when it shows (resume).
+        if live && metalLayer.drawableSize != pixelSize { metalLayer.drawableSize = pixelSize }
         placeFindBar()
         let g = renderer.grid(for: bounds.size)
         if g != grid {
@@ -482,12 +547,19 @@ final class TerminalView: NSView, NSTextInputClient {
         // Draw what we have at the new size now, in the window's
         // transaction during a live resize; the reflowed rows follow.
         guard conn != nil, live else { return }
-        if resizing { draw(sync: true) } else { requestDraw() }
+        if resizing {
+            let at = CACurrentMediaTime()
+            if let st = step, at - st.at > refreshInterval * 1.5 { DrawWatch.shared.missed(self, ms: (at - st.at) * 1000) }
+            step = (pixelSize, at)
+            draw(sync: true)
+        } else { requestDraw() }
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
         metalLayer.presentsWithTransaction = false
+        if let st = step, CACurrentMediaTime() - st.at > refreshInterval * 1.5 { DrawWatch.shared.missed(self, ms: (CACurrentMediaTime() - st.at) * 1000) }
+        step = nil
         requestDraw()
     }
 
@@ -1422,5 +1494,42 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         RunLoop.main.add(t, forMode: .common)
         scrollbarTimer = t
+    }
+}
+
+/// What a stall on the person's screen leaves in the app's log
+/// (~/Library/Logs/Ravenry/app.log): a draw that waited over 50 ms for its
+/// drawable, a live resize's step not drawn at its size within one
+/// display refresh. At most a line every 10 seconds, with how many more
+/// there were since the last one and the draws put off for want of a
+/// drawable.
+final class DrawWatch {
+    static let shared = DrawWatch()
+    static let waitLimitMs = 50.0
+    private var lastAt: CFTimeInterval = -100
+    private var more = 0
+    private let queue = DispatchQueue(label: "ravenry.drawwatch", qos: .utility)
+
+    func waited(_ v: TerminalView, ms: Double, got: Bool) {
+        note(v, String(format: "waited %.0f ms for a drawable%@", ms, got ? "" : ", none came (not drawn)"))
+    }
+    /// A skip alone is back pressure, not a stall: counted, and said with the next line.
+    func skipped(_ v: TerminalView) { skips += 1; skipsTotal += 1 }
+    private(set) var skipsTotal = 0
+    private var skips = 0
+    func late(_ v: TerminalView, ms: Double) { note(v, String(format: "a resize step drawn %.0f ms after it", ms)) }
+    func missed(_ v: TerminalView, ms: Double) { note(v, String(format: "a resize step not drawn at its size (%.0f ms after it)", ms)) }
+
+    private func note(_ v: TerminalView, _ what: String) {
+        let now = CACurrentMediaTime()
+        if now - lastAt < 10 { more += 1; return }
+        lastAt = now
+        var since = more > 0 ? " (+\(more) since the last line)" : ""
+        if skips > 0 { since += " (\(skips) draws put off for want of a free drawable)" }
+        more = 0
+        skips = 0
+        let px = v.drawnPixels
+        let line = "draw: pane \(v.pane) \(what), \(Int(v.bounds.width))x\(Int(v.bounds.height)) pt, last drawn \(Int(px.width))x\(Int(px.height)) px\(since)"
+        queue.async { AppInstall.shared.log(line) }
     }
 }

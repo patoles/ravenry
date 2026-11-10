@@ -240,7 +240,25 @@ stream".
   (120 Hz on ProMotion). During a live resize each step is drawn in the
   window's own transaction (`presentsWithTransaction`) with the rows it
   has, at the new size, so the content never lags the frame; the
-  reflowed rows follow from the daemon.
+  reflowed rows follow from the daemon. A step draws once: the frame set
+  again at the same size (AppKit's layout pass after `RootView.place`
+  sized the stage) draws nothing, and the stage, a pane's box and a
+  split set their frames only when they change. The main thread never
+  waits for a drawable: with two taken and not shown yet (the layer has
+  three, one on screen), a draw is put off and done as soon as one is
+  shown. In the full app a step drawn twice, plus a busy pane's frame,
+  took the third in one uncommitted transaction, and `nextDrawable`
+  waited out its 1 s timeout with the window frozen and the screen
+  behind showing where it grew. A tab not in front draws nothing and
+  lets its drawables go (the layer's size set to 1 x 1 until it shows).
+  While the edge is dragged the board only lays out (the panel's mode
+  at each width, `Board.panelMode`); the sidebar and the panel render
+  again when the panel comes or goes and when the drag ends.
+- **Stalls leave a line** in `~/Library/Logs/Ravenry/app.log`
+  (`DrawWatch`, at most one every 10 s, with the count since): a draw
+  that waited over 50 ms for its drawable, a live resize's step not
+  drawn at its size within one display refresh, and how many draws were
+  put off for want of a drawable.
 - **Resize**: the view's grid size goes to `pane.resize`; the daemon
   resizes the screen and the pty together, and at a shell prompt holds
   frames until the shell has drawn itself again (RENDERING.md).
@@ -488,6 +506,29 @@ prints:
 
 The daemon's own drag test (`daemon/internal/server/drag_test.go`) does
 the same through the protocol with a Go client.
+
+`node scripts/resizebench.mjs [DIR]` drags the whole window as the person
+has it: a throwaway daemon and the demo hub (`apps/desktop/tools/demo-hub.mjs`),
+the sidebar and the docked panel shown, four tabs, the one in front
+printing about 30 lines a second, drawn through the window's Metal layer
+with the window in a live resize (`--bench-resize`; AppKit's flag cannot
+be set, so `TerminalWindow.simulatedLiveResize` stands for it). The width
+goes from 1440 pt to 700 and back at 120 steps a second, each step a
+`setFrame` with display. It prints each step's main-thread time, the
+draws in each step and the steps not drawn at their size, the draws a
+second and the longest gap, the waits for a drawable, the draws of the
+tabs not in front, four draws asked in one turn (none may wait, the one
+put off is done after), the lines the stall log wrote and whether it
+writes one (a made-up stall at the end). On 2026-11-10,
+before the fix: 2 to 4 draws a step, 17.7 ms a step (median, 149 of 213
+steps over 16 ms), 4.29 s for the drag; after, in three runs: 1 draw a
+step (12 to 18 of 212 steps also had a frame of the busy pane), 8.3 to
+8.4 ms a step (4 to 12 over 16 ms), 1.88 to 1.93 s (the 120 steps a
+second asked take 1.78 s), every step drawn at its size, the longest gap
+between draws 17 to 18 ms, no draw of a tab not in front. Off every screen a
+drawable taken in an uncommitted transaction is still given back, so
+the bench shows the doubled draws and the wait, not the 1 s freeze
+itself.
 
 ## The headless self-test
 

@@ -140,9 +140,11 @@ final class PaneBox: NSView {
     override func layout() {
         super.layout()
         let h = showsHead ? Design.headHeight : 0
-        head.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
-        term.frame = NSRect(x: 0, y: h, width: bounds.width, height: max(1, bounds.height - h))
-        ring.frame = bounds
+        // Only frames that changed: AppKit lays the box out again after
+        // setFrameSize did, and the terminal must draw once a step.
+        head.setIf(NSRect(x: 0, y: 0, width: bounds.width, height: h))
+        term.setIf(NSRect(x: 0, y: h, width: bounds.width, height: max(1, bounds.height - h)))
+        ring.setIf(bounds)
         update()
     }
 
@@ -329,13 +331,13 @@ final class PaneSplitView: NSSplitView, NSSplitViewDelegate {
         if isVertical {
             let avail = max(0, bounds.width - d)
             let a = round(avail * fraction)
-            views[0].frame = NSRect(x: 0, y: 0, width: a, height: bounds.height)
-            views[1].frame = NSRect(x: a + d, y: 0, width: max(0, avail - a), height: bounds.height)
+            views[0].setIf(NSRect(x: 0, y: 0, width: a, height: bounds.height))
+            views[1].setIf(NSRect(x: a + d, y: 0, width: max(0, avail - a), height: bounds.height))
         } else {
             let avail = max(0, bounds.height - d)
             let a = round(avail * fraction)
-            views[0].frame = NSRect(x: 0, y: 0, width: bounds.width, height: a)
-            views[1].frame = NSRect(x: 0, y: a + d, width: bounds.width, height: max(0, avail - a))
+            views[0].setIf(NSRect(x: 0, y: 0, width: bounds.width, height: a))
+            views[1].setIf(NSRect(x: 0, y: a + d, width: bounds.width, height: max(0, avail - a)))
         }
     }
 

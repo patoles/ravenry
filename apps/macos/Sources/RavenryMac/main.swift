@@ -6,7 +6,7 @@
 //
 //   RavenryMac [--socket PATH] [--attach PANE] [--option-as-alt left|right|both]
 //              [--font NAME] [--font-size POINTS]
-//              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH]]
+//              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH] [--bench-resize]]
 //              [--offscreen --selftest OUT.json] [-- COMMAND ARGS...]
 //
 // RAVENRY_OFFSCREEN=1 is --offscreen. A packaged app started with a pane's
@@ -29,6 +29,9 @@ struct Options {
     /// The bench draws through the window's Metal layer, as on screen,
     /// instead of into an offscreen texture.
     var benchLayer = false
+    /// The bench's drag of the whole window (the sidebar, the panel, the
+    /// tabs) on a test's hub, through the window's Metal layer.
+    var benchResize = false
     var dragMin: CGFloat = 300
     var optionAsAlt = ""
     /// The font and its size in points for this run (else the settings').
@@ -58,6 +61,7 @@ struct Options {
             case "--offscreen": o.offscreen = true
             case "--bench": i += 1; o.bench = args[safe: i]
             case "--bench-layer": o.benchLayer = true
+            case "--bench-resize": o.benchResize = true; o.benchLayer = true
             case "--drag-min": i += 1; o.dragMin = CGFloat(Double(args[safe: i] ?? "") ?? 300)
             case "--option-as-alt": i += 1; o.optionAsAlt = args[safe: i] ?? ""
             case "--font": i += 1; o.font = args[safe: i]
@@ -85,6 +89,19 @@ extension Array {
 /// centred in the strip's height, as the Electron window places them.
 final class TerminalWindow: NSWindow {
     var allowOffscreen = false
+    /// The bench's drag: the window counts as in a live resize, as while
+    /// the person drags its edge (AppKit's own flag cannot be set).
+    var simulatedLiveResize = false
+    var liveResizing: Bool { inLiveResize || simulatedLiveResize }
+
+    /// The end of the bench's drag: what AppKit tells each view and the
+    /// delegate when the person lets go of the edge.
+    func endSimulatedLiveResize() {
+        simulatedLiveResize = false
+        func walk(_ v: NSView) { v.viewDidEndLiveResize(); v.subviews.forEach(walk) }
+        if let c = contentView { walk(c) }
+        (delegate as? NSWindowDelegate)?.windowDidEndLiveResize?(Notification(name: NSWindow.didEndLiveResizeNotification, object: self))
+    }
 
     func placeButtons() {
         guard let close = standardWindowButton(.closeButton), let bar = close.superview, let container = bar.superview else { return }
@@ -284,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hub = hc
         let measuring = options.bench != nil || options.selftest != nil
         let bd = Board(ws: ws, hub: hc, keep: !options.offscreen,
-                       sidebarOn: !measuring || ProcessInfo.processInfo.environment["RAVENRY_MAC_SIDEBAR"] == "1")
+                       sidebarOn: !measuring || options.benchResize || ProcessInfo.processInfo.environment["RAVENRY_MAC_SIDEBAR"] == "1")
         board = bd
         buildBoardMenu(bd)
         guard let v = ws.focusedView else {
@@ -292,7 +309,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         if let out = options.bench {
-            Bench(view: v, window: w, out: out, dragMin: options.dragMin, workspace: ws).start()
+            let b = Bench(view: v, window: w, out: out, dragMin: options.dragMin, workspace: ws)
+            b.board = bd
+            b.resizeOnly = options.benchResize
+            b.start()
         } else if let out = options.sidetest {
             let st = SelfTestBoard(board: bd, window: w, out: out)
             st.screen = options.screen
@@ -350,6 +370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowDidResize(_ note: Notification) { board?.resized() }
+    func windowDidEndLiveResize(_ note: Notification) { board?.resizeEnded() }
 
     /// The sidebar's and the panel's commands, as the Electron app's menus have them.
     private func buildBoardMenu(_ b: Board) {

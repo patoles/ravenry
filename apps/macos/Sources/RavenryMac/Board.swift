@@ -116,6 +116,7 @@ final class Board: NSObject {
         ws.pinned = pinned
         root.sidebar = sidebar
         root.panel = panel
+        root.panelModeFor = { [weak self] w in self?.panelMode(width: w) ?? .hidden }
         root.addSubview(sidebar)
         root.addSubview(panel)
         root.sideWidth = sideHidden ? 0 : sideWidth
@@ -411,7 +412,9 @@ final class Board: NSObject {
 
     var wide: Bool { root.bounds.width >= Board.foldWidth }
 
-    var panelVisible: Bool {
+    var panelVisible: Bool { panelVisible(wide: wide, overlay: overlay) }
+
+    private func panelVisible(wide: Bool, overlay: Bool) -> Bool {
         switch front {
         // A review sits beside its session's panel, as a tab does.
         case .page(let k, _) where k.hasPrefix("review:"): break
@@ -420,6 +423,15 @@ final class Board: NSObject {
         }
         if overlay { return true }
         return wide && !panelClosed
+    }
+
+    /// The panel at a width of the window (a wide one docks it again):
+    /// the root asks at each layout (RootView.place), so a window dragged
+    /// across the fold width lays the middle out once a step.
+    func panelMode(width: CGFloat) -> RootView.PanelMode {
+        let wide = width >= Board.foldWidth
+        let ov = overlay && !wide
+        return panelVisible(wide: wide, overlay: ov) ? (ov || !wide ? .overlay : .docked) : .hidden
     }
 
     func togglePanel() {
@@ -437,9 +449,30 @@ final class Board: NSObject {
 
     /// The window was resized: a wide window docks the panel again.
     func resized() {
+        let t0 = CACurrentMediaTime()
+        defer { if ws.options.bench != nil { resizeMs.append((CACurrentMediaTime() - t0) * 1000) } }
         if wide && overlay { overlay = false }
+        // While the person drags the window's edge only the layout follows
+        // each step (RootView.place, the panel's mode with it) and the
+        // toast keeps its place; the rest of the board when the panel
+        // comes or goes, and once the drag ends (resizeEnded).
+        if ws.window.liveResizing && root.panelMode == renderedPanelMode {
+            renderAfterResize = true
+            toastView.place(in: root)
+            if phoneCard.isOpen { phoneCard.place() }
+            return
+        }
         render()
     }
+
+    /// The person let go of the window's edge.
+    func resizeEnded() {
+        if renderAfterResize { renderAfterResize = false; render() }
+    }
+    private var renderAfterResize = false
+    private var renderedPanelMode: RootView.PanelMode?
+    /// What each resize cost on the main thread (the bench reads it).
+    var resizeMs: [Double] = []
 
     // MARK: opening
 
@@ -972,7 +1005,8 @@ final class Board: NSObject {
         if case .page(let k, _) = front, k.hasPrefix("pick:") { picker.refresh(st) }
         if case .page(let k, _) = front, k.hasPrefix("review:"), let f = st?.find(String(k.dropFirst(7))) { review.show(String(k.dropFirst(7)), f.project, f.session) }
         root.sideWidth = sideHidden ? 0 : sideWidth
-        root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
+        root.panelMode = panelMode(width: root.bounds.width)
+        renderedPanelMode = root.panelMode
         panel.isOverlay = root.panelMode == .overlay
         let bg = sideHidden ? Design.tbg : Design.color("win")
         if ws.window.backgroundColor != bg { ws.window.backgroundColor = bg }
