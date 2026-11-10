@@ -76,14 +76,74 @@ final class SettingsStore {
         changed()
     }
 
+    /// What was wrong with the file when it was last read (as the
+    /// Electron app's store says it): not JSON, from an older or a newer app.
+    private(set) var problems: [String] = []
+
     private func load() {
         var raw: [String: Any] = [:]
-        if let f = file, let d = try? Data(contentsOf: f), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { raw = j }
+        problems = []
+        var migrated = false
+        if let f = file, let d = try? Data(contentsOf: f) {
+            if let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+                raw = j
+            } else {
+                // Kept beside, never lost: the person may have been editing it.
+                let keep = f.appendingPathExtension("broken")
+                try? FileManager.default.removeItem(at: keep)
+                try? FileManager.default.copyItem(at: f, to: keep)
+                problems.append("settings.json is not JSON; kept as \(keep.lastPathComponent), using the defaults")
+            }
+            let now = Self.spec["version"] as? Int ?? 1
+            let v = raw.isEmpty ? now : (raw["version"] == nil ? 0 : (raw["version"] as? NSNumber).map { $0.intValue } ?? now)
+            let keep = f.deletingLastPathComponent().appendingPathComponent("settings.v\(v).json")
+            if v > now {
+                // A newer app wrote it: a copy is kept before this one writes over it.
+                if !FileManager.default.fileExists(atPath: keep.path) { try? FileManager.default.copyItem(at: f, to: keep) }
+                problems.append("settings.json is from a newer Ravenry (version \(v)); read what this version knows, the file kept as \(keep.lastPathComponent)")
+            } else if v < now {
+                try? FileManager.default.removeItem(at: keep)
+                try? FileManager.default.copyItem(at: f, to: keep)
+                for i in v..<now { raw = Self.migrate(i, raw) }
+                migrated = true
+            }
+        }
         stamp = modified()
         userThemes = readThemes()
         values = [:]
         other = raw.filter { Self.keys[$0.key] == nil }
         for (k, f) in Self.keys { values[k] = Self.ok(k, raw[k], themes: nil) ? raw[k] : f["default"] }
+        if migrated { write() }
+        for p in problems { NSLog("settings: \(p)") }
+    }
+
+    /// A file of version i made version i + 1, as the Electron app's
+    /// MIGRATIONS (apps/desktop/src/shared/settings.ts). Version 0 is a
+    /// file without a version, the first hand-written ones with xterm.js's
+    /// own names (macOptionIsMeta, bellStyle, theme, a CSS font list).
+    static func migrate(_ i: Int, _ o: [String: Any]) -> [String: Any] {
+        var n = o
+        guard i == 0 else { return n }
+        if let m = n.removeValue(forKey: "macOptionIsMeta"), n["optionAsMeta"] == nil {
+            n["optionAsMeta"] = (m as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue } == true ? "both" : "off"
+        }
+        if let b = n.removeValue(forKey: "bellStyle"), n["bell"] == nil {
+            let s = b as? String
+            n["bell"] = s == "none" ? "off" : s == "sound" ? "sound" : "visual"
+        }
+        if let t = n["theme"] as? String {
+            if n["themeAlways"] == nil { n["themeAlways"] = t; n["themeFollowsSystem"] = false }
+            n["theme"] = nil
+        }
+        if let f = n["fontFamily"] as? String {
+            // A CSS font list: its first family.
+            var first = (f.split(separator: ",", omittingEmptySubsequences: false).first.map(String.init) ?? f).trimmingCharacters(in: .whitespaces)
+            if let c = first.first, c == "\"" || c == "'" { first.removeFirst() }
+            if let c = first.last, c == "\"" || c == "'" { first.removeLast() }
+            n["fontFamily"] = first
+        }
+        n["version"] = 1
+        return n
     }
 
     /// The shipped themes in the window's order, then the imported ones.

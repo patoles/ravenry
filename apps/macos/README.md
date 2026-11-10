@@ -144,6 +144,10 @@ stream".
   data folder (`RAVENRY_DESKTOP_DATA`, else the Electron app's), its keys
   from `shared/settings/settings.json`, the themes from `shared/themes/`;
   the window follows the file when the other app writes it.
+  A file that is not JSON is kept beside as settings.json.broken and the
+  defaults read; an older app's file is migrated (the old one kept as
+  settings.v0.json), a newer app's read for what this one knows (kept as
+  settings.v<N>.json).
 - **Decisions** (`DecisionsPage.swift`): the sidebar's fixed row opens
   what the hub sends for the page (`GET /api/decisions?page=1&show=&only=
   &search=`, `hub/server/decisions.mjs` page()): the person's words in
@@ -369,9 +373,8 @@ every screen (the bench, the self-test) writes only to
 
 - One window: no New Window, bell marks or activity on hidden tabs, or
   tab dragged to an edge to split.
-- Settings: a broken file is not kept aside and an old one is not
-  migrated. A program's steady block cursor
-  reads as the default, so the settings' style shows instead.
+- A program's steady block cursor reads as the default, so the
+  settings' cursor style shows instead.
 - Sidebar and panel: Learn's ticks come only from the phone card and
   Decisions (no hints, no filmstrip to tick), and its filmstrip card shows
   the busiest terminal; no session on another machine (MACH-005 to

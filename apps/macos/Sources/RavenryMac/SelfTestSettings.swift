@@ -92,6 +92,34 @@ extension SelfTestBoard {
         check("set_bell_bounce_close_saved", saved()["bell"] as? String == "sound" && saved()["bellBounceDock"] as? Bool == false && saved()["confirmCloseBusy"] as? Bool == false)
 
         // Skills: the hub's rows with their hooks; Install posts to it.
+        // The file as a person or an older app left it (the poll reads it again).
+        if let f = file {
+            let dir = f.deletingLastPathComponent()
+            func put(_ text: String, _ k: Double) {
+                try? text.write(to: f, atomically: true, encoding: .utf8)
+                try? FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(k)], ofItemAtPath: f.path)
+            }
+            // Broken: kept beside as settings.json.broken, the defaults read.
+            put("{ \"fontSize\": 15,\n", 10)
+            let broken = wait(5) { FileManager.default.fileExists(atPath: dir.appendingPathComponent("settings.json.broken").path) && store.problems.first?.contains("not JSON") == true }
+            check("set_broken_kept_aside", broken && (try? String(contentsOf: dir.appendingPathComponent("settings.json.broken"), encoding: .utf8)) == "{ \"fontSize\": 15,\n" && store.int("fontSize") == 13,
+                  store.problems.joined(separator: "; "))
+            // Version 0, xterm.js's names: migrated, the old file kept as settings.v0.json, an unknown key kept.
+            put(#"{ "fontFamily": "'Monaco', Menlo, monospace", "fontSize": 14, "macOptionIsMeta": true, "bellStyle": "none", "theme": "nord", "myOwn": 7 }"#, 20)
+            let migrated = wait(5) { saved()["version"] as? Int == 1 }
+            let j = saved()
+            check("set_migrated_v0", migrated && j["fontFamily"] as? String == "Monaco" && j["optionAsMeta"] as? String == "both" && j["bell"] as? String == "off"
+                  && j["themeAlways"] as? String == "nord" && j["themeFollowsSystem"] as? Bool == false && j["macOptionIsMeta"] == nil && j["bellStyle"] == nil && j["theme"] == nil
+                  && j["myOwn"] as? Int == 7 && store.string("fontFamily") == "Monaco" && store.string("bell") == "off", "\(j)")
+            check("set_migrated_old_kept", FileManager.default.fileExists(atPath: dir.appendingPathComponent("settings.v0.json").path))
+            // From a newer app: read what this one knows, a copy kept once.
+            put(#"{ "version": 9, "fontSize": 16, "futureKey": "x" }"#, 30)
+            check("set_newer_kept", wait(5) { store.int("fontSize") == 16 && FileManager.default.fileExists(atPath: dir.appendingPathComponent("settings.v9.json").path) } && store.problems.first?.contains("newer") == true,
+                  store.problems.joined(separator: "; "))
+            put(#"{ "version": 1 }"#, 40)
+            _ = wait(5) { store.int("fontSize") == 13 && store.string("bell") == "visual" }
+            settle(0.3)
+        }
         // Import: the file (RAVENRY_SETTINGS_IMPORT, as the Electron app's
         // tests) made a theme by the hub, saved in the data folder's themes/.
         press(sw.tabButtons["appearance"])
