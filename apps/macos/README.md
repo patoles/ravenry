@@ -454,6 +454,16 @@ stand-ins for ps, lsof, cmux, open and osascript, about two minutes:
 - access: while the hub waits for macOS's answer about ~/Documents, the
   sidebar says so.
 
+Both checks run copies of the app, and macOS lists every bundle it has run
+as an app of its own, which asks for the screen or the files under its own
+name (2026-11-10: "Ravenry-electron-0.1.23 would like to record this
+computer's screen and audio", from a copy in /private/tmp). So they take
+their copies out of LaunchServices' list with `tools/launchservices.mjs`
+before removing them, on exit, Ctrl+C and SIGTERM too, and fail at the end
+naming any copy still listed ("The release check" in
+apps/desktop/README.md). A copy made by hand: `node
+tools/launchservices.mjs --clean` when done.
+
 ## The headless bench
 
 `scripts/bench.sh` starts the app's own ravenryd as a throwaway daemon

@@ -39,6 +39,7 @@
 //    spare port: it must answer, open no inspector on SIGUSR1, stop
 //    cleanly on SIGTERM, and leave every daemon running.
 import { guardSpawns, isTestPath, withStubMachine } from '../../../tools/test-env.mjs';
+import { track, release, removeTree, checkLeft } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
@@ -57,7 +58,8 @@ const pos = argv.filter((a) => !a.startsWith('--'));
 if (!pos[0]) { console.error('usage: package-check.mjs APP [OUT] [--old-ravenryd BIN] [--contents-only]'); process.exit(2); }
 const APP_PATH = path.resolve(pos[0]);
 const OUT = path.resolve(pos[1] || path.join(os.tmpdir(), 'ravenry-package-check'));
-fs.rmSync(OUT, { recursive: true, force: true });
+// (The app copy a run before left in it out of LaunchServices' list first.)
+removeTree(OUT);
 fs.mkdirSync(OUT, { recursive: true });
 
 guardSpawns();
@@ -77,6 +79,10 @@ const preEnv = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: path.join(PRE, 'ho
 
 const results = [];
 const cleanups = [];
+// The copy this check makes of a .dmg's or .zip's app (it runs it), taken
+// out of LaunchServices' list before it is unmounted or removed, whatever
+// happens (tools/launchservices.mjs).
+let copied = null;
 const ok = (what) => { results.push(`ok    ${what}`); console.log(`check: ok    ${what}`); };
 const fail = (what) => { throw new Error(what); };
 // A failure outside the app run (the contents) still unmounts and says why.
@@ -92,11 +98,13 @@ let target = APP_PATH;
 if (APP_PATH.endsWith('.dmg')) {
   const mnt = path.join(OUT, '.mnt');
   fs.mkdirSync(mnt, { recursive: true });
+  copied = track(mnt);
   execFileSync('hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mnt, APP_PATH], { stdio: 'ignore' });
   cleanups.push(() => spawnSync('hdiutil', ['detach', mnt, '-quiet']));
   target = path.join(mnt, 'Ravenry.app');
   ok(`${path.basename(APP_PATH)} mounted (hdiutil, no Finder window)`);
 } else if (APP_PATH.endsWith('.zip')) {
+  copied = track(X);
   execFileSync('ditto', ['-x', '-k', APP_PATH, X]);
   target = path.join(X, 'Ravenry.app');
 } else if (APP_PATH.endsWith('.deb')) {
@@ -512,7 +520,10 @@ try {
 finish(failed ? 1 : 0);
 
 function finish(code) {
+  if (copied) release(copied);
   for (const c of cleanups.reverse()) { try { c(); } catch { /* best effort */ } }
+  // The guard: the copy is not left in LaunchServices' list.
+  if (copied && checkLeft('check').length && !code) code = 1;
   fs.writeFileSync(path.join(OUT, 'results.txt'), results.join('\n') + '\n');
   if (!code) console.log(`check: all ${results.length} checks passed (${OUT}/results.txt)`);
   process.exit(code);

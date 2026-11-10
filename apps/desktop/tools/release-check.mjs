@@ -155,6 +155,7 @@
 // Writes OUT/release-check.json (each step, pass or fail, its times) and
 // pictures of each step.
 import { guardSpawns, withStubMachine, reapStarted } from '../../../tools/test-env.mjs';
+import { track, removeTree, checkLeft } from '../../../tools/launchservices.mjs';
 import { localIdentity, LOCAL_TEAM } from '../scripts/local-identity.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -208,14 +209,16 @@ function retire(acct) {
   try { for (const line of execFileSync('/bin/ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' }).split('\n')) { const m = line.trim().match(/^(\d+) (.*)$/); if (m && m[2].includes(acct.root)) { try { process.kill(Number(m[1]), 'SIGTERM'); } catch { /* gone */ } } } } catch { /* none */ }
   // RC_KEEP_LOGS=1: its logs kept in OUT/logs/<name>, to read a failure after.
   if (process.env.RC_KEEP_LOGS) { try { const to = path.join(OUT, 'logs', acct.name); fs.mkdirSync(to, { recursive: true }); for (const d of [acct.data, acct.work, path.join(acct.home, 'Library', 'Logs')].filter((x) => fs.existsSync(x))) { for (const f of fs.readdirSync(d, { recursive: true })) { const src = path.join(d, String(f)); if (/\.(log|txt|jsonl)$/.test(src) && fs.statSync(src).isFile() && fs.statSync(src).size < 20e6) fs.copyFileSync(src, path.join(to, String(f).replace(/[\/]/g, '_'))); } } } catch { /* best effort */ } }
-  try { fs.rmSync(acct.root, { recursive: true, force: true }); } catch { /* left */ }
+  // Its app copies out of LaunchServices' list first: lsregister -u cannot
+  // name a copy once it is gone (tools/launchservices.mjs).
+  try { removeTree(acct.root); } catch { /* left */ }
 }
 async function account(name, source = DRIVEN) {
   for (const old of accountsMade) retire(old);
   // A short folder name: a daemon's socket path has 103 bytes at most on
   // macOS, and "<tmp>/rvrc-update-XXXXXX/App Support/run/ravenryd-0.1.10.sock"
   // was 105.
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `rvc${name[0]}-`));
+  const root = track(fs.mkdtempSync(path.join(os.tmpdir(), `rvc${name[0]}-`)));
   const home = path.join(root, 'h');
   const data = path.join(home, 'Library', 'Application Support', 'Ravenry');
   const rt = path.join(root, 'App Support', 'run');
@@ -815,25 +818,27 @@ try {
   // ------------------------------------------------------------ 11, keys
   await guarded('11 keys', async () => {
     // The test twin, copied out as it sits in /Applications.
-    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvck-'));
-    const app = path.join(k, 'Ravenry.app');
-    execFileSync('/usr/bin/ditto', [DRIVEN, app]);
-    const r = spawnSync(process.execPath, [path.join(HERE, 'keys-test.mjs'), path.join(OUT, 'keys'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
-    const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
-    step(`11 keys: every row of the keys table arrives as its exact bytes in a pane (${lines.filter((l) => l.startsWith('PASS')).length} of ${lines.length}), tools/keys-test.mjs`, r.status === 0 && lines.length > 20 && !lines.some((l) => l.startsWith('FAIL')), { fails: lines.filter((l) => l.startsWith('FAIL')).slice(0, 5), tail: (r.stderr || '').trim().split('\n').slice(-2) });
-    fs.rmSync(k, { recursive: true, force: true });
+    const k = track(fs.mkdtempSync(path.join(os.tmpdir(), 'rvck-')));
+    try {
+      const app = path.join(k, 'Ravenry.app');
+      execFileSync('/usr/bin/ditto', [DRIVEN, app]);
+      const r = spawnSync(process.execPath, [path.join(HERE, 'keys-test.mjs'), path.join(OUT, 'keys'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
+      const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+      step(`11 keys: every row of the keys table arrives as its exact bytes in a pane (${lines.filter((l) => l.startsWith('PASS')).length} of ${lines.length}), tools/keys-test.mjs`, r.status === 0 && lines.length > 20 && !lines.some((l) => l.startsWith('FAIL')), { fails: lines.filter((l) => l.startsWith('FAIL')).slice(0, 5), tail: (r.stderr || '').trim().split('\n').slice(-2) });
+    } finally { removeTree(k); }
   });
   // ------------------------------------------------------------ 12, a big set of projects
   await guarded('12 startup', async () => {
-    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcs-'));
-    const app = path.join(k, 'Ravenry.app');
-    execFileSync('/usr/bin/ditto', [APP_PATH, app]);
-    const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub'), '--ravenryd', path.join(app, 'Contents', 'Resources', 'ravenryd')], { encoding: 'utf8', timeout: 600000 });
-    const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
-    const ss = (r.stdout || '').match(/slowestStallMs=(\d+) slowestOwnStallMs=(\d+)/);
-    const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
-    step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms by the wall clock (the gate; the hub\'s own CPU part is reported beside it), and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, slowestStallMs: ss ? Number(ss[1]) : null, slowestOwnStallMs: ss ? Number(ss[2]) : null, fails: fails.slice(0, 3) });
-    fs.rmSync(k, { recursive: true, force: true });
+    const k = track(fs.mkdtempSync(path.join(os.tmpdir(), 'rvcs-')));
+    try {
+      const app = path.join(k, 'Ravenry.app');
+      execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+      const r = spawnSync(process.execPath, [path.join(HUB, 'tools', 'startup-load-test.mjs'), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry'), '--hub', path.join(app, 'Contents', 'Resources', 'hub'), '--ravenryd', path.join(app, 'Contents', 'Resources', 'ravenryd')], { encoding: 'utf8', timeout: 600000 });
+      const m = (r.stdout || '').match(/MEASURE startup-load firstAnswerMs=(\d+) slowestMs=(\d+) stateReadyMs=(\d+|null)/);
+      const ss = (r.stdout || '').match(/slowestStallMs=(\d+) slowestOwnStallMs=(\d+)/);
+      const fails = (r.stdout || '').split('\n').filter((l) => l.startsWith('FAIL'));
+      step('12 startup: on 23 projects of 240,000 files, 1,840 plan files and 20 sessions of 20 MB, beside 4 busy panes and a daemon whose report ring is full, with a 70 MB session of 200 task launches and 761 hook reports for it in that ring, the packaged hub answers within 1 s of its listen line, never takes over 1 s to answer in its first 30 s, has its first state within 3 s, never holds its main thread over 200 ms by the wall clock (the gate; the hub\'s own CPU part is reported beside it), and counts that session\'s running tasks right', r.status === 0 && !fails.length, { firstAnswerMs: m ? Number(m[1]) : null, slowestMs: m ? Number(m[2]) : null, stateReadyMs: m ? Number(m[3]) : null, slowestStallMs: ss ? Number(ss[1]) : null, slowestOwnStallMs: ss ? Number(ss[2]) : null, fails: fails.slice(0, 3) });
+    } finally { removeTree(k); }
   });
   // ------------------------------------------------------------ 13, opened from a pane
   // On 2026-11-07 the app, opened with `open -a` by an agent in a Ravenry
@@ -842,35 +847,35 @@ try {
   // clean (src/main/relaunch.ts); tools/relaunch-check.mjs proves it on a
   // copy, last in the foreground (open -n -a, no -g) as the person's start.
   await guarded('13 opened from a pane', async () => {
-    const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcr-'));
-    const app = path.join(k, 'Ravenry.app');
-    execFileSync('/usr/bin/ditto', [APP_PATH, app]);
-    const r = spawnSync(process.execPath, [path.join(HERE, 'relaunch-check.mjs'), app, path.join(OUT, 'relaunch')], { encoding: 'utf8', timeout: 180000 });
-    let j = null;
-    try { j = JSON.parse(fs.readFileSync(path.join(OUT, 'relaunch', 'relaunch-check.json'), 'utf8')); } catch { /* below */ }
-    const rows = j ? j.steps : [];
-    const fg = rows.filter((x) => x.name.startsWith('3 '));
-    step(`13 opened from a pane: started with RAVENRY_PANE and RAVENRY_SOCKET, it relaunches clean (${rows.filter((x) => x.ok).length} of ${rows.length} rows, tools/relaunch-check.mjs)`, r.status === 0 && rows.length > 0 && rows.every((x) => x.ok), { failed: rows.filter((x) => !x.ok), out: (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-500) });
-    step('13 opened from a pane in the foreground (open -n -a, no -g): once it settles, exactly one instance runs, with none of RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM', fg.length >= 3 && fg.every((x) => x.ok), { rows: fg });
-    spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
-    fs.rmSync(k, { recursive: true, force: true });
+    const k = track(fs.mkdtempSync(path.join(os.tmpdir(), 'rvcr-')));
+    try {
+      const app = path.join(k, 'Ravenry.app');
+      execFileSync('/usr/bin/ditto', [APP_PATH, app]);
+      const r = spawnSync(process.execPath, [path.join(HERE, 'relaunch-check.mjs'), app, path.join(OUT, 'relaunch')], { encoding: 'utf8', timeout: 180000 });
+      let j = null;
+      try { j = JSON.parse(fs.readFileSync(path.join(OUT, 'relaunch', 'relaunch-check.json'), 'utf8')); } catch { /* below */ }
+      const rows = j ? j.steps : [];
+      const fg = rows.filter((x) => x.name.startsWith('3 '));
+      step(`13 opened from a pane: started with RAVENRY_PANE and RAVENRY_SOCKET, it relaunches clean (${rows.filter((x) => x.ok).length} of ${rows.length} rows, tools/relaunch-check.mjs)`, r.status === 0 && rows.length > 0 && rows.every((x) => x.ok), { failed: rows.filter((x) => !x.ok), out: (r.stdout || '').slice(-1500) + (r.stderr || '').slice(-500) });
+      step('13 opened from a pane in the foreground (open -n -a, no -g): once it settles, exactly one instance runs, with none of RAVENRY_PANE, RAVENRY_SOCKET, TERM_PROGRAM', fg.length >= 3 && fg.every((x) => x.ok), { rows: fg });
+    } finally { removeTree(k); }
   });
   // ------------------------------------------------------------ 14 and 15: the window's own tests, on the twin
   for (const [n, label, tool] of [[14, 'basics', 'basics-test.mjs'], [15, 'brief', 'brief-test.mjs'], [16, 'splits', 'split-test.mjs'], [17, 'features', 'features-test.mjs'], [18, 'sidebar', 'sidebar-click-test.mjs'], [19, 'colours', 'colors-test.mjs'], [20, 'links', 'links-test.mjs'], [24, 'controls', 'controls-sweep.mjs'], [25, 'in-app', 'inapp-shots.mjs'], [26, 'flash', 'flash-check.mjs'], [27, 'notify', 'notify-check.mjs']]) {
     await guarded(`${n} ${label}`, async () => {
-      const k = fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-'));
-      const app = path.join(k, 'Ravenry.app');
-      execFileSync('/usr/bin/ditto', [DRIVEN, app]);
-      const r = spawnSync(process.execPath, [path.join(HERE, tool), path.join(OUT, label), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: n === 24 ? 2400000 : 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
-      const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
-      if (!lines.length) step(`${n} ${label}: tools/${tool} ran`, false, { status: r.status, tail: ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-8) });
-      for (const l of lines) {
-        const ok = l.startsWith('PASS');
-        const [name, ...rest] = l.slice(6).split('  ');
-        step(`${n} ${label}: ${name.trim()}`, ok, ok ? {} : { detail: rest.join('  ').slice(0, 1500) });
-      }
-      spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
-      fs.rmSync(k, { recursive: true, force: true });
+      const k = track(fs.mkdtempSync(path.join(os.tmpdir(), 'rvcb-')));
+      try {
+        const app = path.join(k, 'Ravenry.app');
+        execFileSync('/usr/bin/ditto', [DRIVEN, app]);
+        const r = spawnSync(process.execPath, [path.join(HERE, tool), path.join(OUT, label), '--exe', path.join(app, 'Contents', 'MacOS', 'Ravenry')], { encoding: 'utf8', timeout: n === 24 ? 2400000 : 300000, env: { ...process.env, RAVENRYD: path.join(app, 'Contents', 'Resources', 'ravenryd') } });
+        const lines = (r.stdout || '').split('\n').filter((l) => /^(PASS|FAIL)/.test(l));
+        if (!lines.length) step(`${n} ${label}: tools/${tool} ran`, false, { status: r.status, tail: ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-8) });
+        for (const l of lines) {
+          const ok = l.startsWith('PASS');
+          const [name, ...rest] = l.slice(6).split('  ');
+          step(`${n} ${label}: ${name.trim()}`, ok, ok ? {} : { detail: rest.join('  ').slice(0, 1500) });
+        }
+      } finally { removeTree(k); }
     });
   }
   // ------------------------------------------------------------ 21: the first launch's onboarding (0.1.21)
@@ -1166,9 +1171,12 @@ try {
   for (const acct of accountsMade) retire(acct);
   results.labelsLeft = labels.filter(loaded);
   reapStarted();
+  // The guard: none of this run's app copies left in LaunchServices' list.
+  results.launchServicesLeft = checkLeft('release-check');
   fs.writeFileSync(path.join(OUT, 'release-check.json'), JSON.stringify(results, null, 2) + '\n');
 }
 const failed = results.steps.filter((s) => !s.ok);
 if (results.labelsLeft.length) console.log(`release-check: test launchd label(s) still loaded: ${results.labelsLeft.join(', ')}`);
+if (results.launchServicesLeft.length) console.log(`release-check: app copies left in LaunchServices' list: ${results.launchServicesLeft.join(', ')}`);
 console.log(failed.length ? `\nrelease-check: ${failed.length} step(s) FAILED (${OUT}/release-check.json)` : `\nrelease-check: every step passed for ${BUILD.id} (${OUT}/release-check.json)`);
-process.exit(failed.length || results.labelsLeft.length ? 1 : 0);
+process.exit(failed.length || results.labelsLeft.length || results.launchServicesLeft.length ? 1 : 0);

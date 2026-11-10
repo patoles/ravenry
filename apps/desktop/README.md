@@ -465,6 +465,21 @@ newer daemon already running and the old one draining, is one row within
 3 s of the new hub answering, and opens in the middle on a click. It
 writes OUT/release-check.json with each step's result and times.
 
+A check that puts a copy of a Ravenry app on disk (an account's
+Applications/Ravenry.app, a twin copied for a step, a mounted .dmg, an
+unzipped release) runs it, and macOS lists every bundle it has run as an
+app of its own: a copy left listed asks for the screen or the files under
+its own name (2026-11-10: "Ravenry-electron-0.1.23 would like to record
+this computer's screen and audio", from a copy in /private/tmp, with 245
+copies listed). So every such check (release-check, relaunch-check,
+package-check and first-run here; installcheck and relaunchcheck in
+apps/macos) takes its copies out of LaunchServices' list with
+`tools/launchservices.mjs`: `track()` on each folder it makes,
+`removeTree()` instead of `fs.rmSync` (`lsregister -u` fails on a bundle
+already removed), the same on exit, Ctrl+C and SIGTERM, and `checkLeft()`
+at the end, which fails naming any copy of the run still listed. A copy
+made by hand goes the same way: `node tools/launchservices.mjs --clean`.
+
 A launch always ends with a working shell in front: the shells that were
 open come back, else one opens in the last folder used, else the home
 folder. The first-session screen is New session.

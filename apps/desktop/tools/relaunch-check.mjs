@@ -27,6 +27,7 @@
 // Whatever it started is stopped at the end, and the copy is taken out of
 // LaunchServices' list. macOS only. Writes OUT/relaunch-check.json.
 import { guardSpawns, allowPaneLaunch } from '../../../tools/test-env.mjs';
+import { track, release, removeTree, checkLeft } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,7 +41,7 @@ if (process.platform !== 'darwin') { console.log('relaunch-check: macOS only'); 
 const APP = process.argv[2] && path.resolve(process.argv[2]);
 if (!APP || !fs.existsSync(path.join(APP, 'Contents', 'MacOS', 'Ravenry'))) { console.error('usage: node tools/relaunch-check.mjs APP [OUT]'); process.exit(2); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rv-relaunch-')));
+const root = track(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rv-relaunch-'))));
 const OUT = path.resolve(process.argv[3] || path.join(root, 'out'));
 fs.mkdirSync(OUT, { recursive: true });
 const app = path.join(root, 'Applications', 'Ravenry.app');
@@ -160,10 +161,14 @@ try {
     const bin = path.join(app, 'Contents', 'Resources', 'ravenryd');
     for (const d of JSON.parse(execFileSync(bin, ['daemons', '--json', '--no-start'], { env: { PATH: '/usr/bin:/bin', HOME: home, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: state }, encoding: 'utf8' }) || '[]')) { try { process.kill(d.pid, 'SIGTERM'); } catch { /* gone */ } }
   } catch { /* none */ }
-  spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
+  // The copy out of LaunchServices' list while it is still on disk
+  // (tools/launchservices.mjs).
+  release(root);
   fs.writeFileSync(path.join(OUT, 'relaunch-check.json'), JSON.stringify({ app: APP, root, failed, steps: results }, null, 2));
   try { fs.copyFileSync(appLog, path.join(OUT, 'app.log')); } catch { /* none */ }
-  if (!process.argv[3]) console.log(`relaunch-check: ${root} kept for its output`); else fs.rmSync(root, { recursive: true, force: true });
+  if (!process.argv[3]) console.log(`relaunch-check: ${root} kept for its output`); else removeTree(root);
 }
+// The guard: the copy is not left in LaunchServices' list.
+const left = checkLeft('relaunch-check');
 console.log(failed ? `relaunch-check: ${failed} step(s) failed` : 'relaunch-check: every step passed');
-process.exit(failed ? 1 : 0);
+process.exit(failed || left.length ? 1 : 0);

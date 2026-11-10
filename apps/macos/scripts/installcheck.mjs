@@ -36,6 +36,7 @@
 // access  while the hub waits for macOS's answer about ~/Documents (its
 //         503 on every route, hub/server/access.mjs), the sidebar says so.
 import { guardSpawns, withStubMachine } from '../../../tools/test-env.mjs';
+import { track, removeTree, checkLeft } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -83,7 +84,7 @@ async function until(fn, ms = 20000, every = 200) {
 // folder, runtime folder (with a space, as the real one has), ports,
 // launchd label and the hub's stand-ins.
 async function account(name) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), `rvn${name[0]}-`));
+  const root = track(fs.mkdtempSync(path.join(os.tmpdir(), `rvn${name[0]}-`)));
   const home = path.join(root, 'h');
   const data = path.join(home, 'Library', 'Application Support', 'Ravenry');
   const rt = path.join(root, 'App Support', 'run');
@@ -125,8 +126,11 @@ function retire(a) {
       if (m && m[2].includes(a.root)) { try { process.kill(Number(m[1]), 'SIGTERM'); } catch { /* gone */ } }
     }
   } catch { /* none */ }
+  // (Kept, its copy still leaves LaunchServices' list at the end.)
   if (process.env.IC_KEEP) return;
-  try { fs.rmSync(a.root, { recursive: true, force: true }); } catch { /* left */ }
+  // Its app copy out of LaunchServices' list first: lsregister -u cannot
+  // name a copy once it is gone (tools/launchservices.mjs).
+  try { removeTree(a.root); } catch { /* left */ }
 }
 
 const rvd = (a, args, bin = path.join(a.data, 'bin', 'ravenryd')) => execFileSync(bin, args, { env: a.env, encoding: 'utf8', cwd: a.home }).trim();
@@ -236,7 +240,7 @@ try {
     const id = crypto.createHash('sha256').update(fs.realpathSync(a.rt).replace(/^\/private(?=\/(var|tmp|etc)\/)/, '')).digest('hex').slice(0, 12);
     fs.writeFileSync(path.join(a.data, `window-${id}.json`), JSON.stringify({ order: [`s:${panes[1]}`, `s:${panes[2]}`, `s:${panes[0]}`], splits: [], active: `s:${panes[1]}`, pinned: [] }, null, 2));
     // The native app replaces the Electron app at the same path.
-    fs.rmSync(a.app, { recursive: true, force: true });
+    removeTree(a.app);
     execFileSync('/usr/bin/ditto', [NATIVE, a.app]);
     const h0 = runHook(a, electronHook(a), 'updhook0001');
     step('update: right after the swap, before the native app runs, the Electron app\'s hooks run on the native executable', h0.wrote && h0.status === 0, h0);
@@ -282,9 +286,12 @@ try {
   for (let i = 0; i < 50 && labels.some(loaded); i++) await sleep(200);
   for (const a of accounts) retire(a);
   results.labelsLeft = labels.filter(loaded);
+  // The guard: none of this run's app copies left in LaunchServices' list.
+  results.launchServicesLeft = checkLeft('installcheck');
   fs.writeFileSync(path.join(OUT, 'installcheck.json'), JSON.stringify(results, null, 2) + '\n');
 }
 const failed = results.steps.filter((s) => !s.ok);
 if (results.labelsLeft.length) console.log(`installcheck: test launchd label(s) still loaded: ${results.labelsLeft.join(', ')}`);
+if (results.launchServicesLeft.length) console.log(`installcheck: app copies left in LaunchServices' list: ${results.launchServicesLeft.join(', ')}`);
 console.log(failed.length ? `\ninstallcheck: ${failed.length} step(s) FAILED (${OUT}/installcheck.json)` : `\ninstallcheck: every step passed for ${BUILD.id} (${OUT}/installcheck.json)`);
-process.exit(failed.length || results.labelsLeft.length ? 1 : 0);
+process.exit(failed.length || results.labelsLeft.length || results.launchServicesLeft.length ? 1 : 0);

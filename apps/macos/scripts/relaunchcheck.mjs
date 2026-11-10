@@ -31,6 +31,7 @@
 // the copy is taken out of LaunchServices' list. Writes
 // OUT/relaunchcheck.json.
 import { guardSpawns, allowPaneLaunch } from '../../../tools/test-env.mjs';
+import { track, release, removeTree, checkLeft } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -48,7 +49,7 @@ if (!fs.existsSync(path.join(APP, 'Contents', 'MacOS', 'Ravenry')) || !fs.exists
   process.exit(2);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rv-mac-relaunch-')));
+const root = track(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rv-mac-relaunch-'))));
 const OUT = path.resolve(process.argv[3] || path.join(root, 'out'));
 fs.mkdirSync(OUT, { recursive: true });
 const app = path.join(root, 'Applications', 'Ravenry.app');
@@ -167,10 +168,14 @@ try {
     const bin = path.join(app, 'Contents', 'MacOS', 'ravenryd');
     for (const d of JSON.parse(execFileSync(bin, ['daemons', '--json', '--no-start'], { env: { PATH: '/usr/bin:/bin', HOME: home, RAVENRY_RUNTIME_DIR: rt, RAVENRY_STATE_DIR: state }, encoding: 'utf8' }) || '[]')) { try { process.kill(d.pid, 'SIGTERM'); } catch { /* gone */ } }
   } catch { /* none */ }
-  spawnSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-u', app]);
+  // The copy out of LaunchServices' list while it is still on disk
+  // (tools/launchservices.mjs).
+  release(root);
   fs.writeFileSync(path.join(OUT, 'relaunchcheck.json'), JSON.stringify({ app: APP, root, failed, steps: results }, null, 2));
   try { fs.copyFileSync(appLog, path.join(OUT, 'app.log')); } catch { /* none */ }
-  if (!process.argv[3]) console.log(`relaunchcheck: ${root} kept for its output`); else fs.rmSync(root, { recursive: true, force: true });
+  if (!process.argv[3]) console.log(`relaunchcheck: ${root} kept for its output`); else removeTree(root);
 }
+// The guard: the copy is not left in LaunchServices' list.
+const left = checkLeft('relaunchcheck');
 console.log(failed ? `relaunchcheck: ${failed} step(s) failed` : 'relaunchcheck: every step passed');
-process.exit(failed ? 1 : 0);
+process.exit(failed || left.length ? 1 : 0);

@@ -27,6 +27,7 @@
 // on a spare port (never :4600). Each milestone is the time since the app
 // was started, in ms. Results go to OUT/first-run.json.
 import { guardSpawns, isTestPath, withStubMachine } from '../../../tools/test-env.mjs';
+import { track, release, checkLeft } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -54,9 +55,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const cleanups = [];
 
 let target = APP_PATH;
+// The .dmg's app this check runs, taken out of LaunchServices' list before
+// it is unmounted, whatever happens (tools/launchservices.mjs).
+let mounted = null;
 if (APP_PATH.endsWith('.dmg')) {
   const mnt = path.join(SCRATCH, '.mnt');
   fs.mkdirSync(mnt, { recursive: true });
+  mounted = track(mnt);
   execFileSync('hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mnt, APP_PATH], { stdio: 'ignore' });
   cleanups.push(() => spawnSync('hdiutil', ['detach', mnt, '-quiet']));
   target = path.join(mnt, 'Ravenry.app');
@@ -196,9 +201,12 @@ try {
     }
   }
 } finally {
+  if (mounted) release(mounted);
   for (const c of cleanups.reverse()) { try { c(); } catch { /* best effort */ } }
   fs.writeFileSync(path.join(OUT, 'first-run.json'), JSON.stringify(results, null, 2) + '\n');
 }
+// The guard: the .dmg's app is not left in LaunchServices' list.
+if (mounted && checkLeft('first-run').length) process.exit(1);
 const over = results.runs.filter((r) => (r.kind === 'shell' ? r.prompt : r.sidebar) > BUDGET);
 if (over.length) { console.error(`first-run: over the ${BUDGET} ms budget: ${JSON.stringify(over)}`); process.exit(1); }
 console.log(`first-run: every run reached a working session within ${BUDGET} ms (${OUT}/first-run.json)`);
