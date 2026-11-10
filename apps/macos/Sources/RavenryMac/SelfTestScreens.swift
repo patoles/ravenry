@@ -26,6 +26,7 @@ extension SelfTestBoard {
         case "machines": screenMachines()
         case "phone": screenPhone()
         case "terminal": screenTerminal()
+        case "cards": screenCards()
         default: check("screen_known", false, name)
         }
         finish()

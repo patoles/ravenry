@@ -25,14 +25,21 @@ final class PanelView: Box {
         var setup: (String) -> (hooks: Bool, skill: Bool)?
         var toast: (String) -> Void
         var answered: () -> Void
+        /// A pane's name as the tabs say it, when this window has it.
+        var paneName: (String) -> String? = { _ in nil }
+        /// A pick opens side by side in the middle.
+        var openPicker: (String) -> Void = { _ in }
     }
 
     var host: Host?
     private let head = Flipped()
     private let body = StackScroll(spacing: 12, insets: NSEdgeInsets(top: 14, left: 14, bottom: 16, right: 14))
     private var signature = ""
-    /// Each card's own state: busy, its error, a draft.
-    private var cards: [String: (busy: Bool, error: String?, draft: String)] = [:]
+    /// Each card's own state (busy, its error, a draft, editing) and the card built for it.
+    private var cardUI: [String: CardUI] = [:]
+    private var cardViews: [String: CheckpointCard] = [:]
+    /// The card on show, for the self-test and the number keys.
+    private(set) var shownCard: CheckpointCard?
     /// What it shows, for the self-test: session, project, shell, none.
     private(set) var shows = "none"
     private(set) var key = ""
@@ -105,7 +112,7 @@ final class PanelView: Box {
             }
         }
         if let id = pane?.id { parts.append(host?.inputs(id)?.count ?? -1) }
-        parts.append(cards.map { "\($0.key)\($0.value.busy)\($0.value.error ?? "")" }.sorted())
+        parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
         let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
         if !force, sig == signature { return }
@@ -117,6 +124,7 @@ final class PanelView: Box {
         key = front ?? ""
         buttons = [:]
         pictureView = nil
+        shownCard = nil
         var rows: [NSView] = []
         if let st = state, let k = front, let f = st.find(k) {
             shows = "session"
@@ -367,121 +375,54 @@ final class PanelView: Box {
 
     // MARK: a checkpoint's card, in the hub's words
 
-    private func fill(_ s: String, _ w: [String: Any], _ cp: [String: Any]) -> String {
-        let m = w["machine"] as? [String: Any] ?? [:]
-        let a = w["after"] as? [String: Any] ?? [:]
-        let wh = a["where"] as? [String: Any] ?? [:]
-        let mine = (wh["by"] as? String) == "desktop"
-        return s.replacingOccurrences(of: "{machine}", with: m["here"] as? String ?? "this Mac")
-            .replacingOccurrences(of: "{ranOn}", with: m["here"] as? String ?? "this Mac")
-            .replacingOccurrences(of: "{where}", with: (mine ? wh["mine"] : wh["other"]) as? String ?? "here")
-            .replacingOccurrences(of: "{time}", with: When.clock(a["at"] as? String))
-            .replacingOccurrences(of: "{pane}", with: (w["drive"] as? [String: Any])?["pane"] as? String ?? "a pane")
-    }
-
-    private func waiting(_ cp: [String: Any]) -> String {
-        guard let d = When.date(cp["created_at"] as? String) else { return "" }
-        let ms = When.now().timeIntervalSince(d) * 1000
-        if ms < 60000 { return "just now" }
-        let m = Int(ms / 60000)
-        return m < 60 ? "waiting \(m) min" : "waiting \(m / 60) h"
-    }
-
+    /// The card for a checkpoint, built once per state and what the person did on it, and kept.
     private func card(_ cp: [String: Any]) -> NSView {
         let id = cp["id"] as? String ?? ""
+        let u = cardUI[id] ?? CardUI()
+        cardUI[id] = u
         let w = cp["words"] as? [String: Any] ?? [:]
-        let u = cards[id] ?? (false, nil, "")
-        let kind = w["kind"] as? String ?? "other"
-        let open = ["open", "running"].contains(cp["state"] as? String ?? "")
-        if !open || w["after"] is [String: Any] && !open {
-            let a = w["after"] as? [String: Any] ?? [:]
-            let ok = a["ok"] as? Bool ?? false
-            return sec(nil, [hstack([Icon(ok ? "done" : "ended", ok ? "ok" : "tx3", size: 14), label(fill(a["head"] as? String ?? "", w, cp), Fonts.pt(12.5, .semibold), ok ? "ok" : "tx2"), spring(),
-                                     label(When.clock(a["at"] as? String), Fonts.pt(12), "tx3")], spacing: 7),
-                             (a["big"] as? String).map { para($0, size: 13) }, (a["command"] as? String).map { label($0, Fonts.mono(12), "tx3", lines: 4) },
-                             para(fill(a["text"] as? String ?? "", w, cp), "tx2")])
-        }
-        let icon = ["ask": "ask", "approve": "run", "secret": "key", "drive": "keyboard", "pick": "pick"][kind] ?? "ask"
-        let heading = kind == "drive" ? "\((w["who"] as? String) ?? "The agent") \(((w["drive"] as? [String: Any])?["wants"] as? String) ?? "")" : (w["heading"] as? String ?? "")
-        var rows: [NSView?] = [hstack([Icon(icon, "you", size: 14), label(heading, Fonts.pt(12, Fonts.w650), "you"), spring(), label(waiting(cp), Fonts.pt(12).withTabularDigits, "tx3")], spacing: 6)]
-        let headText = kind == "drive" ? fill(((w["drive"] as? [String: Any])?["title"] as? String) ?? "", w, cp) : (w["head"] as? String ?? "")
-        rows.append(para(headText, size: 13))
-        if let b = (w["checks"] as? [String: Any])?["text"] as? String ?? w["body"] as? String, kind != "drive" { rows.append(para(b, "tx2")) }
-        let off = u.busy
-        func opt(_ n: Int, _ text: String, _ reply: [String: Any], no: Bool = false) -> NSView {
-            let b = RButton("\(n)  \(text)", no ? .no : .normal, small: false) { [weak self] in self?.answer(id, reply) }
-            b.isEnabled = !off
-            buttons["cp:\(n)"] = b
-            return hstack([b, spring()], spacing: 0)
-        }
-        switch kind {
-        case "ask":
-            for (i, o) in (cp["options"] as? [String] ?? []).enumerated() { rows.append(opt(i + 1, o, ["choice": i])) }
-            if cp["free_text"] as? Bool ?? false { rows.append(field(id, placeholder: t("checkpoint.ownWords")) { [weak self] s in self?.answer(id, ["text": s]) }) }
-        case "approve":
-            rows.append(boxed(label(cp["command"] as? String ?? "", Fonts.mono(12), "tx", lines: 8), fill: "card2", radius: 7, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)))
-            if let cwd = cp["cwd"] as? String { rows.append(hstack([label("Folder", Fonts.pt(12), "tx3"), label(cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"), Fonts.mono(12))], spacing: 8)) }
-            for wn in w["warnings"] as? [[String: Any]] ?? [] {
-                rows.append(para("\(wn["label"] as? String ?? ""): \(wn["text"] as? String ?? "")", "you", size: 12))
-            }
-            let run = RButton(fill(w["runLabel"] as? String ?? t("checkpoint.run"), w, cp), .primary, small: true) { [weak self] in self?.answer(id, ["approve": true]) }
-            run.isEnabled = !off
-            buttons["cp:run"] = run
-            let refuse = RButton(t("checkpoint.refuse"), .ghost, small: true) { [weak self] in self?.answer(id, ["decline": true]) }
-            refuse.isEnabled = !off
-            buttons["cp:refuse"] = refuse
-            rows.append(hstack([run, refuse, spring()], spacing: 8))
-        case "drive":
-            let d = w["drive"] as? [String: Any] ?? [:]
-            var n = 1
-            rows.append(opt(n, d["once"] as? String ?? "Allow once", ["approve": true, "allow": "once"]))
-            if let s = d["session"] as? String { n += 1; rows.append(opt(n, s, ["approve": true, "allow": "session"])) }
-            n += 1
-            rows.append(opt(n, t("checkpoint.refuse"), ["decline": true], no: true))
-            rows.append(field(id, placeholder: t("checkpoint.tellElse", ["who": (w["who"] as? String) ?? "the agent"])) { [weak self] s in self?.answer(id, ["decline": true, "reason": s]) })
-        case "secret":
-            rows.append(para(t("checkpoint.answerHere"), "tx3", size: 12))
-        case "pick":
-            for v in w["variants"] as? [[String: Any]] ?? [] { rows.append(label("\(v["letter"] as? String ?? "")  \(v["name"] as? String ?? "")", Fonts.pt(12.5))) }
-            rows.append(para(t("checkpoint.openPick"), "tx3", size: 12))
-        default:
-            let refuse = RButton(t("checkpoint.refuse"), .ghost, small: true) { [weak self] in self?.answer(id, ["decline": true]) }
-            rows.append(hstack([refuse, spring()], spacing: 0))
-        }
-        if let e = u.error { rows.append(para(e, "bad", size: 12)) }
-        if let exp = When.date(cp["expires_at"] as? String) {
-            let c = Calendar.current.dateComponents([.hour, .minute], from: exp)
-            rows.append(hstack([spring(), label(String(format: "Gives up at %02d:%02d", c.hour ?? 0, c.minute ?? 0), Fonts.pt(11.5).withTabularDigits, "tx3")], spacing: 0))
-        }
-        let v = sec(nil, rows, ring: "you")
-        v.setAccessibilityLabel("\(heading): \(headText)")
+        let alerts = host?.hub.state?.raw["alerts"] as? [String: Any] ?? [:]
+        let phoneToo = (alerts["enabled"] as? Bool ?? false) && (alerts["configured"] as? Bool ?? false)
+        let key = "\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(u.stamp)|\(phoneToo)"
+        if let had = cardViews[id], had.key == key { had.refresh(); shownCard = had; return had }
+        guard let h = host else { return NSView() }
+        let ctx = CardCtx(hub: h.hub,
+                          answer: { [weak self] id, reply in self?.answer(id, reply) },
+                          changed: { [weak self] id in self?.cardChanged(id) },
+                          openPicker: { id in h.openPicker(id) },
+                          phoneToo: phoneToo,
+                          paneName: { h.paneName($0) })
+        let v = CheckpointCard(cp, ui: u, ctx: ctx, key: key)
+        cardViews[id] = v
+        shownCard = v
         return v
     }
 
-    private func field(_ id: String, placeholder: String, send: @escaping (String) -> Void) -> NSView {
-        let f = NSTextField(string: cards[id]?.draft ?? "")
-        f.placeholderString = placeholder
-        f.font = Fonts.pt(12.5)
-        f.bezelStyle = .roundedBezel
-        f.focusRingType = .default
-        let go = RButton(t("checkpoint.send"), .primary, small: true)
-        let fire = { [weak self, weak f] in
-            guard let s = f?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return }
-            self?.cards[id] = (false, nil, s)
-            send(s)
-        }
-        go.run = fire
-        f.target = go
-        f.action = #selector(RButton.performClick(_:))
-        buttons["cp:send"] = go
-        return hstack([f, go], spacing: 6)
+    /// Editing, refusing: the card is built again and the keyboard put in it.
+    private func cardChanged(_ id: String) {
+        signature = ""
+        host?.answered()
+        DispatchQueue.main.async { [weak self] in self?.focusCard() }
+    }
+
+    /// Puts the keyboard in the card on show: its field, else the card (number keys answer).
+    func focusCard() { shownCard?.focus() }
+
+    /// A number key with the keyboard in the panel (not in a field): the card's answer.
+    override func keyDown(with e: NSEvent) {
+        if let c = shownCard, c.numberKey(e.charactersIgnoringModifiers ?? "", e.modifierFlags) { return }
+        super.keyDown(with: e)
     }
 
     // MARK: what the person clicked, posted as the desktop posts it
 
     private func answer(_ id: String, _ reply: [String: Any]) {
         guard let h = host else { return }
-        cards[id] = (true, nil, cards[id]?.draft ?? "")
+        let u = cardUI[id] ?? CardUI()
+        cardUI[id] = u
+        if u.busy { return }
+        u.busy = true
+        u.error = nil
         signature = ""
         h.answered()
         var body = reply
@@ -489,11 +430,12 @@ final class PanelView: Box {
         body["by"] = "desktop"
         h.hub.post("/api/checkpoints/answer", body) { [weak self] code, j in
             guard let self else { return }
+            u.busy = false
             if code == 200 {
-                self.cards[id] = nil
+                u.editing = false; u.refusing = false; u.reason = ""; u.draft = ""
             } else {
                 let why = j["error"] as? String ?? "the board answered \(code)"
-                self.cards[id] = (false, t("checkpoint.failed", ["why": why]), self.cards[id]?.draft ?? "")
+                u.error = t("checkpoint.failed", ["why": why])
             }
             self.signature = ""
             h.answered()

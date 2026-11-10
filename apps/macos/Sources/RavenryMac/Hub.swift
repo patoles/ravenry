@@ -234,6 +234,18 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     let client = UUID().uuidString.lowercased()
     /// Every request the window sent, for the self-test: "POST /api/send".
     private(set) var sent: [String] = []
+    /// Each POST's body as sent, for the self-test; a secret is kept as its length only.
+    private(set) var sentBodies: [(path: String, body: [String: Any])] = []
+    /// The self-test's checkpoints (sidetest.mjs --screen cards): the state's own replaced by them.
+    var testCheckpoints: [[String: Any]]? {
+        didSet {
+            guard let s = state else { return }
+            var r = s.raw
+            r["checkpoints"] = testCheckpoints ?? []
+            state = HubState(r)
+            onState?(state!)
+        }
+    }
     private var session: URLSession!
     private var task: URLSessionDataTask?
     private var buf = Data()
@@ -323,7 +335,9 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             }
             guard event == "state", !lines.isEmpty,
                   let j = (try? JSONSerialization.jsonObject(with: Data(lines.joined(separator: "\n").utf8))) as? [String: Any] else { continue }
-            let st = HubState(older.fill(j))
+            var full = older.fill(j)
+            if let fx = testCheckpoints { full["checkpoints"] = fx }
+            let st = HubState(full)
             DispatchQueue.main.async {
                 self.state = st
                 self.onState?(st)
@@ -364,6 +378,9 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     /// POST what the person clicked, as the board's page does.
     func post(_ path: String, _ body: [String: Any], _ done: @escaping (Int, [String: Any]) -> Void) {
         sent.append("POST \(path)")
+        var kept = body
+        if let sec = kept["secret"] as? String { kept["secret"] = "(\(sec.count) characters)" }
+        sentBodies.append((path, kept))
         guard !readOnly else { done(0, ["error": "This window is read only (RAVENRY_MAC_HUB_READONLY)."]); return }
         guard let b = base, let u = URL(string: b.absoluteString + path) else { done(0, ["error": "No board."]); return }
         var r = URLRequest(url: u)

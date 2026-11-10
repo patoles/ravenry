@@ -55,11 +55,13 @@ final class Board: NSObject {
     let learn = LearnPage()
     let machines = MachinesPage()
     let phoneCard = PhoneCard()
+    /// A pick side by side, in the middle beside the panel (key "pick:<checkpoint id>").
+    let picker = PickerView()
     let notifier: Notifier
     /// The project of the session the person last had open (a page's Ask Claude to fix).
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker] }
     /// What a page's Close goes back to.
     private var pageBack: Front = .tab
     private let toastView = ToastView()
@@ -236,6 +238,20 @@ final class Board: NSObject {
                 if self.overlay { self.overlay = false }
                 self.render(force: true)
             })
+        panel.host?.paneName = { [weak self] id in self.flatMap { $0.ws.paneInfo(id) != nil ? $0.ws.label(id).name : nil } }
+        panel.host?.openPicker = { [weak self] id in self?.openPicker(id) }
+        picker.hub = hub
+        picker.onClose = { [weak self] in self?.back() }
+        picker.answer = { [weak self] id, reply, done in
+            self?.hub.post("/api/checkpoints/answer", reply.merging(["id": id, "by": "desktop"]) { a, _ in a }) { code, j in
+                done(code == 200, code == 200 ? nil : t("checkpoint.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]))
+                self?.render(force: true)
+            }
+        }
+        picker.whereOf = { [weak self] cp in
+            guard let st = self?.hub.state, let p = st.project(cp["projectId"] as? String ?? ""), let s = p.sessions.first(where: { $0.surfaceId == cp["surfaceId"] as? String }) else { return nil }
+            return [s.topic, p.name].compactMap { $0 }.joined(separator: ", ")
+        }
         panel.onMove = { [weak self] p, s, keep in self?.move(p, s, keep: keep) }
         outside.onOpen = { [weak self] p, s in
             self?.hub.post("/api/open", ["projectId": p.id, "surfaceId": s.surfaceId]) { code, j in if code != 200 { self?.toast(j["error"] as? String ?? "\(code)") } }
@@ -267,6 +283,11 @@ final class Board: NSObject {
         case .session(let k): return k
         case .project(let id): return "project:\(id)"
         case .brief(_, let k): return k
+        case .page(let k, _) where k.hasPrefix("pick:"):
+            // A pick side by side: the panel stays on the session that asked.
+            guard let st = hub.state, let cp = st.checkpoints.first(where: { $0["id"] as? String == String(k.dropFirst(5)) }),
+                  let p = st.project(cp["projectId"] as? String ?? ""), let s = p.sessions.first(where: { $0.surfaceId == cp["surfaceId"] as? String }) else { return nil }
+            return "\(p.id)/\(s.surfaceId)"
         case .tab:
             guard let t = ws.active else { return nil }
             let pane = t.focusedPane
@@ -397,6 +418,7 @@ final class Board: NSObject {
         if key.hasPrefix("plan:") { openPlan(String(key.dropFirst(5)), title: nil); return }
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
         if key.hasPrefix("idea:") { openIdea(String(key.dropFirst(5))); return }
+        if key.hasPrefix("pick:") { openPicker(String(key.dropFirst(5))); return }
         if key == "side.alerts" { openAlerts(); return }
         if key == "decisions" { openDecisions(); return }
         if key == "side.learn" { openLearn(); return }
@@ -656,6 +678,19 @@ final class Board: NSObject {
         render()
     }
 
+    /// A pick side by side in the middle, the panel beside it on its card.
+    func openPicker(_ id: String) {
+        guard let cp = hub.state?.checkpoints.first(where: { $0["id"] as? String == id }) else { return }
+        overlay = false
+        notePageBack()
+        front = .page("pick:\(id)", t("pick.tab"))
+        showMiddle(picker)
+        picker.show(cp)
+        ws.window.makeFirstResponder(picker)
+        log.append("pick \(id)")
+        render()
+    }
+
     /// Where a page's Close goes: what was in front before the first page.
     private func notePageBack() {
         if case .page = front { return }
@@ -685,7 +720,7 @@ final class Board: NSObject {
         if v !== outside { outside.stop() }
         v.isHidden = false
         root.middle = v
-        root.wideMiddle = v is InAppPage
+        root.wideMiddle = v is InAppPage || v === picker
         showingMiddle = true
         root.place()
     }
@@ -812,6 +847,7 @@ final class Board: NSObject {
         if case .page(let k, _) = front, k.hasPrefix("gallery:") { gallery.refresh(st) }
         if case .page(let k, _) = front, k.hasPrefix("plan:") || k.hasPrefix("newplan:") { plan.refresh(st) }
         if case .page(let k, _) = front, k == files.key { files.refresh() }
+        if case .page(let k, _) = front, k.hasPrefix("pick:") { picker.refresh(st) }
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay

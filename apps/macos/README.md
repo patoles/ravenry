@@ -160,8 +160,14 @@ stream".
   `decision` event) is a toast with Undo and Show.
 - **The panel** (`Panel.swift`): the head (project, assistant, pin,
   hide), the state since when, the setup lines (`GET /api/setup/skills`),
-  a checkpoint's card in its `words` (ask, approve, drive; answers posted
-  to `POST /api/checkpoints/answer` as the desktop posts them) or the
+  a checkpoint's card in its `words` (`Cards.swift`: ask with its number
+  keys, approve with Edit, the change tinted and the hub's guess rules at
+  each keystroke, Refuse with a reason, a secret typed into a secure
+  field in the card that is cleared when it loses the keyboard, drive, a
+  pick's pictures small; answers posted to `POST /api/checkpoints/answer`
+  as the desktop posts them; a pick opens side by side in the middle,
+  `Picker.swift`, with Pick, a ring dragged on a picture with its note,
+  and None of these) or the
   question with its quick answers (`POST /api/send`), the context with Hand
   off now, the hand-off, the latest picture, the brief (goal and Next from
   `brief.nextParts`), the plan, and Typed here (`pane.inputs`) for a pane
@@ -334,7 +340,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -382,9 +388,8 @@ every screen (the bench, the self-test) writes only to
   (the panel has no card of its own for a page's run yet), a page's form
   takes a date as text, and a sheet taller than the window is cut; New session is a
   folder and an assistant, without the setup step or the worktree choice;
-  a pinned session that runs outside gets no tab of its own; the secret
-  and pick cards say to answer in the Ravenry app; the approve card has no
-  Edit; no number keys on a card; Typed here has no filters or whole log;
+  a pinned session that runs outside gets no tab of its own; an ask card
+  has no "Checked your decisions first"; Typed here has no filters or whole log;
   no review, files changed, panes it uses or lent-pane strip; no
   filmstrip; a shell's panel has no "opened by" or who can type here.
 - A session in a ravenryd pane of another daemon (the board's, when the

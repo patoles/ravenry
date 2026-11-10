@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
+import { cardFixtures } from './cards-fixture.mjs';
 import { machineCard } from '../../../hub/server/machineview.mjs';
 import { SHAPES, HOSTS, BUILDS } from '../../../hub/tools/machine-shapes.mjs';
 
@@ -224,10 +225,13 @@ const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(t
 const result = path.join(OUT, 'sidetest.json');
 // --screen machines: every shape the page draws, with the hub's own cards.
 const FIXTURE = path.join(OUT, 'machines-fixture.json');
+// --screen cards: one checkpoint of each kind with the hub's words, on the demo's sessions.
+const CARDS = path.join(OUT, 'cards-fixture.json');
+if (SCREEN === 'cards') fs.writeFileSync(CARDS, JSON.stringify(cardFixtures(await hub.state(), path.join(hub.home, '.ravenry'))));
 if (SCREEN === 'machines') fs.writeFileSync(FIXTURE, JSON.stringify({ ok: true, machines: SHAPES.map((m) => ({ ...m, card: machineCard(m) })), hosts: HOSTS, builds: BUILDS }));
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
 const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', '--socket', sock, '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf') } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf') } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
