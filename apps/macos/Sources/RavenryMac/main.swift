@@ -9,6 +9,10 @@
 //              [--offscreen --bench OUT.json [--bench-layer] [--drag-min WIDTH]]
 //              [--offscreen --selftest OUT.json] [-- COMMAND ARGS...]
 //
+// RAVENRY_OFFSCREEN=1 is --offscreen. A packaged app started with a pane's
+// variables (RAVENRY_PANE, RAVENRY_SOCKET) relaunches itself clean through
+// LaunchServices and exits (Relaunch.swift).
+//
 // It connects to the newest running daemon that has the render stream
 // (never starting one) and shows its shells as tabs (Workspace.swift),
 // a new one (the login shell, or COMMAND) when it has none; --attach
@@ -42,6 +46,9 @@ struct Options {
 
     static func parse(_ args: [String]) -> Options {
         var o = Options()
+        // As the Electron app reads it: what a relaunch from a pane keeps
+        // for a test (Relaunch.swift), since LaunchServices passes no argument.
+        o.offscreen = ProcessInfo.processInfo.environment["RAVENRY_OFFSCREEN"] == "1"
         var i = 1
         while i < args.count {
             let a = args[i]
@@ -479,8 +486,15 @@ extension Workspace {
 // environment as it came (NodeRunner.swift).
 if ProcessInfo.processInfo.environment["ELECTRON_RUN_AS_NODE"] == "1" { NodeRunner.run() }
 
-// A window started from inside a Ravenry pane must not pass the pane's
-// variables on: the daemon would take the window for that pane's program.
+// The environment as launched: the relaunch from a pane (Relaunch.swift)
+// judges the launch as it came.
+let launchEnv = ProcessInfo.processInfo.environment
+
+// A start that stays with a pane's variables (a development build, a test
+// run, the self-tests, the loop guard below) must not pass them on to what
+// it starts (its daemon, the setup's Node, a link it opens). This does not
+// change what the daemon reads of this process (the kernel's copy of its
+// first environment): that is what the relaunch below is for.
 for name in ["RAVENRY_PANE", "RAVENRY_SOCKET", "TERM_PROGRAM", "TERM_PROGRAM_VERSION"] {
     unsetenv(name)
 }
@@ -495,6 +509,11 @@ if let i = CommandLine.arguments.firstIndex(of: "--older-hub-check"), CommandLin
     try? JSONSerialization.data(withJSONObject: out).write(to: URL(fileURLWithPath: CommandLine.arguments[i + 2]))
     exit(0)
 }
+
+// Started with a pane's variables (an agent in a pane opened the app):
+// relaunched clean, as the Dock starts it, before any window, daemon or
+// hub (Relaunch.swift, the Electron app's relaunch.ts). Such a start exits here.
+Relaunch.atLaunch(env: launchEnv, offscreen: options.offscreen)
 
 let app = NSApplication.shared
 // The bench runs without a Dock icon and never takes focus.

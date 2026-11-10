@@ -359,6 +359,31 @@ Windows. What it takes over, and how:
   STUB_*...) are dropped, unless `RAVENRY_SERVICE_LABEL` is a test's
   launchd label (`dev.ravenry.hub.test-<random>`), which the install check
   uses.
+- **A start from a pane** (`Relaunch.swift`, the Electron app's
+  relaunch.ts). macOS's `open` hands the caller's environment to the app,
+  so an agent in a pane that runs `open -a Ravenry` starts it with
+  `RAVENRY_PANE` and `RAVENRY_SOCKET`, and the daemon, which reads a
+  process's first environment, takes the window for that pane's program:
+  the person's typing and pastes went to the agent as its own ("Claude
+  wants to type"), and the hub refused Move here, Focus and the alerts'
+  answers (2026-11-10). Such a start of the packaged app, after
+  ELECTRON_RUN_AS_NODE and `--older-hub-check` and before any window,
+  daemon or hub, leaves the marker `relaunched-from-pane.json` in its data
+  folder, starts a detached helper that waits for it to exit and runs
+  `/usr/bin/open -n -a` on the bundle with the Electron app's clean
+  environment (HOME, USER, LOGNAME, SHELL, TMPDIR, LANG, LANGUAGE, TZ,
+  SSH_AUTH_SOCK, LC_*, __CF_USER_TEXT_ENCODING, PATH
+  `/usr/bin:/bin:/usr/sbin:/sbin`) and no arguments, and exits 0. The
+  relaunched app writes `launch: relaunched clean ... dropped: ...` to
+  app.log; one that still has a pane's variables with a fresh marker (under
+  a minute old) stays and says so (the loop guard). A development build, a
+  window off every screen (`--offscreen` or `RAVENRY_OFFSCREEN=1`: the
+  bench and the self-tests) and a test run (`RAVENRY_DESKTOP_DATA` or
+  `RAVENRY_SERVICE_LABEL` set) never relaunch, unless
+  `RAVENRY_RELAUNCH_TEST` asks with test folders, as in
+  `scripts/relaunchcheck.mjs`. The app still removes `RAVENRY_PANE`,
+  `RAVENRY_SOCKET` and `TERM_PROGRAM*` from its own environment, so a start
+  that stays never passes them to what it starts.
 - **Updates.** The local path: a newer Ravenry.app put in place of this
   one copies its version out at its next launch, rewrites the service and
   starts its daemon beside the old one; nothing running stops. Downloads
@@ -395,6 +420,18 @@ remote/ and build.json as the Electron package does
 (`apps/desktop/scripts/pack.mjs --stage-only`), builds the app
 (`build.sh`) unless one is given, fetches and checks Node, and makes
 build/package/Ravenry.app and its zip (above, "The same app to macOS").
+
+```sh
+node scripts/relaunchcheck.mjs [build/package/Ravenry.app] [OUT]
+```
+
+`relaunchcheck.mjs` starts a copy of the packaged app off every screen in
+a throwaway HOME, data, runtime and state folder (no service, a hub nobody
+answers) as an agent in a pane would, and checks it exits, a clean one
+started by launchd runs with none of the pane's variables or the caller's
+arguments (`ps eww`), app.log's lines, the loop guard, that a clean start
+and `--older-hub-check` do not relaunch, about 20 seconds ("A start from
+a pane" above).
 
 `installcheck.mjs` runs the packaged app off every screen in throwaway
 HOMEs, its hub service loaded into the real launchd under a test label
@@ -499,9 +536,9 @@ render stream (protocol method `pane.render`); the packaged app starts its
 own when none runs, or beside an older one ("The daemon" above), a
 development build never does. Its shells are the tabs, a new one (the
 login shell, or COMMAND) when it has none; the panes keep running when
-the window closes. Launch it with `open`, from outside a Ravenry pane or with the
-pane's variables removed (the app removes `RAVENRY_PANE` and
-`RAVENRY_SOCKET` from its own environment too).
+the window closes. The packaged app started from a Ravenry pane relaunches
+itself clean ("A start from a pane" above); a development build does not,
+so launch it from outside a pane, or with `--offscreen`.
 
 ## The event log
 
