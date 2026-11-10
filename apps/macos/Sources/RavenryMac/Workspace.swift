@@ -360,6 +360,8 @@ final class Workspace: NSObject {
     private(set) lazy var saved: SavedLayout = layout?.read() ?? SavedLayout()
 
     func paneInfo(_ id: String) -> PaneInfo? { info[id] }
+    /// Every pane the window knows of in its daemon.
+    func paneIDs() -> [String] { info.keys.sorted() }
 
     /// The tab that shows a pane of this daemon, a tab of its own when no
     /// tab shows it yet (a session's pane: ravenry.session); nil when this

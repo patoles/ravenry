@@ -54,5 +54,40 @@ extension SelfTestBoard {
         ws.save()
         ws.flush()
         check("panes_split_saved", ws.tabs.contains { $0.host == owner && $0.guest == own })
+
+        // Panes it uses, in the panel of the session whose agent runs in the owner's shell:
+        // its own (the dev server) and a shell of the person's lent to it, which another agent waits for
+        // (the lease as the daemon's pane.list says it).
+        let tabs0 = ws.tabs.count
+        ws.newTab(in: nil)
+        guard wait(5, { ws.tabs.count > tabs0 }), let other = ws.tabs.last?.host else { check("panes_uses_second_shell", false); return }
+        let soon = ISO8601DateFormatter().string(from: Date().addingTimeInterval(600)), ago = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-60))
+        ws.paneInfo(other)?.lease = ["holder": ["kind": "agent", "pane": owner], "acquired_at": ago, "expires_at": soon, "waiting": [["kind": "agent", "pane": own]]]
+        let hub = board.hub
+        hub.testPatch = { st in
+            var st = st
+            var ps = st["projects"] as? [[String: Any]] ?? []
+            for i in ps.indices where ps[i]["id"] as? String == "notes-app" {
+                var ss = ps[i]["sessions"] as? [[String: Any]] ?? []
+                if !ss.isEmpty { ss[0]["pane"] = owner }
+                ps[i]["sessions"] = ss
+            }
+            st["projects"] = ps
+            return st
+        }
+        hub.testCheckpoints = []
+        guard let s0 = hub.state?.project("notes-app")?.sessions.first else { check("panes_uses_session", false); return }
+        board.pickSession("notes-app/\(s0.surfaceId)", why: "test")
+        let otherName = ws.label(other).name
+        check("panes_uses_section", wait(5) { self.shows(self.board.panel, "Panes it uses") } && shows(board.panel, "dev server") && shows(board.panel, "Its own") && shows(board.panel, "Yours, lent") && shows(board.panel, otherName),
+              texts(board.panel).joined(separator: " | "))
+        check("panes_uses_waiting", shows(board.panel, "An agent is waiting for the \(otherName).") && board.usesButtons["handOver:\(other)"] != nil, texts(board.panel).joined(separator: " | "))
+        pictures("panes-uses")
+        board.pickSession("notes-app/\(s0.surfaceId)", why: "test")
+        let m = board.leaseActs.count
+        if let b = board.usesButtons["handOver:\(other)"] { click(b) }
+        check("panes_uses_hand_over", wait(5) { self.board.leaseActs.count > m && self.board.leaseActs.last == "hand \(other)" }, board.leaseActs.joined(separator: ","))
+        hub.testPatch = nil
+        hub.testCheckpoints = nil
     }
 }

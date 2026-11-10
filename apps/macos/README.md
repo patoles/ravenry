@@ -408,7 +408,7 @@ every screen (the bench, the self-test) writes only to
   (the panel has no card of its own for a page's run yet), a page's form
   takes a date as text, and a sheet taller than the window is cut;
   a pinned session that runs outside gets no tab of its own; Typed here has no filters or whole log;
-  no panes it uses; no filmstrip; a shell's panel does not say what its agent reported.
+  no filmstrip; a shell's panel does not say what its agent reported.
 - A session in a ravenryd pane of another daemon (the board's, when the
   window runs on its own) is shown read only, as one outside: the window
   draws only its own daemon's panes.

@@ -186,6 +186,55 @@ extension Board {
         return rows
     }
 
+    /// The panes a session's agent uses (19 A, panepanel.ts panesItUses): the
+    /// ones it opened, still running, then the person's lent to it (it holds
+    /// their lease); a lent one somebody waits for says so, with Hand it over.
+    func panesItUses(_ agentPane: String) -> [(pane: String, how: String)] {
+        let ids = ws.paneIDs()
+        let own = ids.filter { id in
+            guard let c = ws.paneInfo(id)?.creator else { return false }
+            return c["kind"] as? String == "agent" && c["pane"] as? String == agentPane
+        }
+        let lent = ids.filter { id in id != agentPane && !own.contains(id) && (leaseOf(id)?["holder"] as? [String: Any])?["pane"] as? String == agentPane }
+        return own.map { ($0, "own") } + lent.map { ($0, "lent") }
+    }
+
+    func panesItUsesSection(_ agentPane: String, sec: (String?, NSView?, [NSView?]) -> NSView) -> NSView? {
+        let used = panesItUses(agentPane)
+        guard !used.isEmpty else { return nil }
+        usesButtons = [:]
+        var rows: [NSView?] = []
+        var waits: [NSView?] = []
+        for (pane, how) in used {
+            let name = ws.label(pane).name
+            let n = hstack([Icon("shell", "tx2", size: 13), label(name, Fonts.pt(12.5)), spring()], spacing: 7)
+            let v: NSView
+            if how == "own" { v = label(t("panes.itsOwn"), Fonts.pt(12), "tx3") }
+            else { v = boxed(label(t("panes.yoursLent"), Fonts.pt(12), "claude"), fill: nil, ring: "claude", radius: 6, insets: NSEdgeInsets(top: 2, left: 7, bottom: 2, right: 7)) }
+            v.setContentHuggingPriority(.required, for: .horizontal)
+            let row = hstack([n, v], spacing: 8)
+            row.setAccessibilityElement(true)
+            row.setAccessibilityLabel("\(name): \(how == "own" ? t("panes.itsOwn") : t("panes.yoursLent"))")
+            rows.append(row)
+            if how == "lent", let w = (leaseOf(pane)?["waiting"] as? [[String: Any]])?.first {
+                let next = sourceOf(w)
+                let b = RButton(t("panes.handOver"), small: true) { [weak self] in
+                    guard let self else { return }
+                    self.leaseActs.append("hand \(pane)")
+                    self.ws.conn.request("pane.lease", ["pane": pane, "release": true]) { [weak self] r in
+                        DispatchQueue.main.async {
+                            if case .failure(let e) = r { self?.toast(t("panes.handFailed", ["why": "\(e)"])); return }
+                            self?.toast(t("panes.handedOver", ["who": next.who, "pane": name]))
+                        }
+                    }
+                }
+                usesButtons["handOver:\(pane)"] = b
+                waits.append(hstack([wrap(t("panes.waitingFor", ["who": next.who, "pane": name]), Fonts.pt(11.5), "tx3"), b], spacing: 10))
+            }
+        }
+        return sec(t("panes.uses"), nil, [vstack(rows, spacing: 8)] + waits)
+    }
+
     /// Takes back what the person let an agent do (pane.revoke): it asks each time again.
     func revokeGrant(_ pane: String, _ grant: String) {
         leaseActs.append("revoke \(grant)")

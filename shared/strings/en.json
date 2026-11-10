@@ -743,5 +743,12 @@
   "setup.steps": "Step 2 of 2",
   "setup.hooksFailed": "Could not set up the hooks: {why}",
   "setup.skillFailed": "Could not install the skill: {why}",
-  "checkpoint.checkedFirst": "Checked your decisions first"
+  "checkpoint.checkedFirst": "Checked your decisions first",
+  "panes.uses": "Panes it uses",
+  "panes.itsOwn": "Its own",
+  "panes.yoursLent": "Yours, lent",
+  "panes.waitingFor": "{who} is waiting for the {pane}.",
+  "panes.handOver": "Hand it over",
+  "panes.handedOver": "{who} has the {pane} now.",
+  "panes.handFailed": "Could not hand it over: {why}"
 }

@@ -33,6 +33,8 @@ final class Board: NSObject {
     }
 
     let ws: Workspace
+    /// Panes it uses' Hand it over buttons by pane, for the self-test.
+    var usesButtons: [String: RButton] = [:]
     let hub: HubClient
     let root: RootView
     let sidebar = SidebarView()
@@ -267,7 +269,13 @@ final class Board: NSObject {
         worktrees.toast = { [weak self] s in self?.toast(s) }
         worktrees.openReview = { [weak self] k in self?.openReview(k) }
         worktrees.openGrid = { [weak self] pid in self?.openFilesGrid(pid) }
-        panel.host?.extras = { [weak self] p, s, card, sec in self?.worktrees.views(p, s, card: card, sec: sec) ?? [] }
+        panel.host?.extras = { [weak self] p, s, card, sec in
+            guard let self else { return [] }
+            var out = self.worktrees.views(p, s, card: card, sec: sec)
+            // The panes its agent uses, when it runs in this window's daemon.
+            if let pane = s.pane, self.ws.paneInfo(pane) != nil, let v = self.panesItUsesSection(pane, sec: sec) { out.append(v) }
+            return out
+        }
         review.hub = hub
         review.cards = worktrees
         review.toast = { [weak self] s in self?.toast(s) }
