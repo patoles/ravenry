@@ -191,7 +191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             do {
                 let c = try Connection(socket: s)
                 c.start()
-                try c.hello(client: "ravenry-macos")
+                // The Electron app's name: the daemon takes the Ravenry app's own
+                // process (pane.DesktopApp: an app bundle's executable, not run as
+                // Node) for the person wherever it was started from, and cancels
+                // the drive cards its keys made while it was not (2026-11-10: this
+                // app, opened from an agent's pane, turned the person's focus-out
+                // into "Claude wants to type <Esc>[O"). Under its own name it was
+                // judged by its environment like any program.
+                try c.hello(client: "ravenry-desktop")
                 if c.methods.contains("pane.render") { return c }
                 why = "the daemon at \(s) (\(c.daemonVersion)) is older than the render stream"
                 c.close()

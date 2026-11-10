@@ -33,6 +33,8 @@ final class Board: NSObject {
     }
 
     let ws: Workspace
+    /// A pane Move here or Continue started that this window had no tab for yet (showStarted).
+    private var awaitTab: (pane: String, from: Front, until: Date)?
     /// Panes it uses' Hand it over buttons by pane, for the self-test.
     var usesButtons: [String: RButton] = [:]
     let hub: HubClient
@@ -849,9 +851,27 @@ final class Board: NSObject {
             guard let self else { return }
             self.outside.moving.remove(sid)
             if code != 200 || !(j["ok"] as? Bool ?? false) { self.toast(t("move.notDone", ["why": j["error"] as? String ?? "the board answered \(code)"])) }
-            else if let sf = j["surfaceId"] as? String { self.pickSession("\(p.id)/\(sf)", why: "move") }
+            else { self.showStarted(p, j, why: "move") }
             self.render(force: true)
         }
+    }
+
+    /// After Move here or Continue, the hub's answer: the new pane's tab in
+    /// front at once when this window's daemon has it; else the session's
+    /// view, and its tab as soon as it comes (render, within 10 s, unless
+    /// the person opened something else meanwhile). The board's state
+    /// names the new session a moment after the hub answers, so the
+    /// session alone could not be found yet and its read-only view stayed.
+    private func showStarted(_ p: HubProject, _ j: [String: Any], why: String) {
+        let pane = (j["pane"] as? [String: Any])?["id"] as? String
+        if let pane, let tb = ws.tab(showing: pane) {
+            awaitTab = nil
+            front = .tab; hideMiddle(); ws.showAgain(tb); render()
+            log.append("session \(why): its new pane \(pane) in front")
+            return
+        }
+        if let sf = j["surfaceId"] as? String { pickSession("\(j["projectId"] as? String ?? p.id)/\(sf)", why: why) }
+        if let pane, front != .tab { awaitTab = (pane, front, Date().addingTimeInterval(10)) }
     }
 
     private func continueLast(_ p: HubProject, _ l: [String: Any]) {
@@ -862,10 +882,7 @@ final class Board: NSObject {
             guard let self else { return }
             self.projectPage.busy = false
             if code != 200 { self.projectPage.error = j["error"] as? String ?? "It could not be continued."; self.projectPage.draw(p); return }
-            if let pane = (j["pane"] as? [String: Any])?["id"] as? String, let tb = self.ws.tab(showing: pane) {
-                self.front = .tab; self.hideMiddle(); self.ws.showAgain(tb); self.render(); return
-            }
-            if let pid = j["projectId"] as? String, let sf = j["surfaceId"] as? String { self.pickSession("\(pid)/\(sf)", why: "continue") }
+            self.showStarted(p, j, why: "continue")
         }
     }
 
@@ -878,7 +895,7 @@ final class Board: NSObject {
             self.projectPage.busy = false
             if code != 200 { self.projectPage.error = j["error"] as? String ?? "It could not be moved."; self.projectPage.draw(p); return }
             if j["waiting"] as? Bool ?? false { self.toast("It moves here once Claude finishes its turn in \(j["name"] as? String ?? "the other terminal")."); return }
-            if let sf = j["surfaceId"] as? String { self.pickSession("\(p.id)/\(sf)", why: "move") }
+            self.showStarted(p, j, why: "move")
         }
     }
 
@@ -935,6 +952,15 @@ final class Board: NSObject {
 
     func render(force: Bool = false) {
         let st = hub.state
+        // A pane a move or Continue started, once this window has it.
+        if let a = awaitTab {
+            if front != a.from || Date() > a.until { awaitTab = nil }
+            else if let tb = ws.tab(showing: a.pane) {
+                awaitTab = nil
+                front = .tab; hideMiddle(); ws.showAgain(tb)
+                log.append("session: its new pane \(a.pane) in front once it came")
+            }
+        }
         // A session in front that left the board: its view says so.
         if case .session(let k) = front, let st, st.find(k) == nil { outside.stop() }
         if case .session(let k) = front, let f = st?.find(k) { outside.show(f.project, f.session, why: f.session.pane != nil ? "it runs in the board's ravenryd" : nil) }

@@ -220,10 +220,16 @@ final class SelfTestBoard {
             let mb = board.outside.buttons["move"]
             check("other_daemon_move_here", board.root.middle === board.outside && mb?.isEnabled == true, board.outside.buttons.keys.sorted().joined(separator: ","))
             picture("native-other-daemon-1440.png")
+            // The hub answers with the new pane (one of this window's daemon)
+            // before its state names the new session: the pane's tab comes
+            // to the front, never the read-only view.
+            let newPane = board.ws.tabs.first?.host ?? ""
+            hub.testPostAnswers["/api/sessions/move"] = (200, ["ok": true, "projectId": "notes-app", "surfaceId": "ravenry:pnotyet1", "pane": ["id": newPane]])
             mb?.performClick(nil)
             check("other_daemon_move_posted", wait(5) { hub.sent.filter { $0 == "POST /api/sessions/move" }.count > moves0 })
-            // The demo hub knows no such session: its answer (a toast) lands before the next check reads the log.
-            _ = wait(5) { self.board.outside.moving.isEmpty }
+            check("move_shows_new_tab", wait(5) { self.board.front == .tab && self.board.ws.active?.host == newPane && self.board.root.middle !== self.board.outside },
+                  "\(board.front) active \(board.ws.active?.host ?? "-") want \(newPane); \(board.log.suffix(2).joined(separator: " | "))")
+            hub.testPostAnswers.removeValue(forKey: "/api/sessions/move")
             settle(0.3)
         } else { check("other_daemon_session", false) }
         hub.testPatch = nil
