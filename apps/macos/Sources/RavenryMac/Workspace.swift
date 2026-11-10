@@ -34,6 +34,8 @@ final class PaneInfo {
     var cwd = ""
     var command: [String] = []
     var createdAt = ""
+    /// The lines the daemon keeps of it (0: not said).
+    var scrollback = 0
     /// When it last printed (the daemon's last_output_at): Learn's filmstrip card picks the busiest.
     var lastOutput = ""
 
@@ -46,6 +48,7 @@ final class PaneInfo {
         if let v = p["command"] as? [String] { command = v }
         if let v = p["created_at"] as? String { createdAt = v }
         if let v = p["last_output_at"] as? String { lastOutput = v }
+        if let v = p["scrollback"] as? NSNumber { scrollback = v.intValue }
     }
 }
 
@@ -82,22 +85,45 @@ final class Workspace: NSObject {
     private var pending: (tab: Tab, view: NSView, timer: DispatchWorkItem)?
     private let layout: LayoutStore?
     let scale: CGFloat
-    var fontSize: CGFloat
-    var defaultFontSize: CGFloat = 12
     var closing = false
+    /// The terminal settings both apps share (Settings.swift), and what
+    /// they make of a terminal now (TermLook.swift).
+    let settings: SettingsStore
+    private(set) var look: TermLook
+    /// The command line's --font, --font-size and --option-as-alt: for
+    /// this run, until the setting changes.
+    private var pins: [String: Any] = [:]
+    private var lastValues: [String: Any] = [:]
+    private var appearanceWatch: NSKeyValueObservation?
+    /// Offscreen: what closing a busy shell asked (the self-test answers
+    /// with closeAnswer instead of a sheet).
+    private(set) var closeAsked: [String] = []
+    var closeAnswer: (close: Bool, dont: Bool) = (true, false)
+    /// The bells of panes not on screen that rang a sound or the Dock (offscreen).
+    private(set) var bellsHeard: [String] = []
     /// Each switch's times: to the first draw of the tab in front, and to
     /// the first frame of its new streams (the bench reads them).
     var onSwitch: ((_ tab: String, _ drawnMs: Double, _ frameMs: Double, _ hadRows: Bool) -> Void)?
     let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
 
-    init(window: TerminalWindow, options: Options, conn: Connection, scale: CGFloat, fontSize: CGFloat) {
+    init(window: TerminalWindow, options: Options, conn: Connection, scale: CGFloat) {
         self.window = window
         self.options = options
         self.conn = conn
         self.scale = scale
-        self.fontSize = fontSize
+        settings = SettingsStore(offscreen: options.offscreen)
+        if let f = options.font { pins["fontFamily"] = f }
+        if let z = options.fontSize { pins["fontSize"] = Int(min(TerminalView.fontSizeRange.upperBound, max(TerminalView.fontSizeRange.lowerBound, z.rounded()))) }
+        if !options.optionAsAlt.isEmpty { pins["optionAsMeta"] = options.optionAsAlt }
+        look = TermLook(settings, dark: Workspace.dark, pins: pins)
+        lastValues = settings.values
         layout = LayoutStore(offscreen: options.offscreen, socket: conn.socketPath)
         super.init()
+        settings.observe { [weak self] in self?.settingsChanged() }
+        appearanceWatch = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.applyLook() }
+        }
+        Design.terminal = look.theme
         root.bar = bar
         root.stage = stage
         root.addSubview(root.sheet)
@@ -118,11 +144,10 @@ final class Workspace: NSObject {
 
     private func box(_ pane: String) -> PaneBox? {
         if let b = boxes[pane] { return b }
-        guard let v = TerminalView(frame: stage.bounds, scale: scale, fontName: options.font, fontSize: fontSize) else { return nil }
-        v.defaultFontSize = defaultFontSize
-        v.keepsFontSize = !options.offscreen
+        guard let v = TerminalView(frame: stage.bounds, scale: scale, fontName: look.font, fontSize: look.size) else { return nil }
         v.offscreen = options.offscreen && !options.benchLayer
-        v.optionAsAlt = options.optionAsAlt
+        v.apply(look)
+        keepScrollback(pane)
         let fps = options.offscreen ? 120 : (NSScreen.main?.maximumFramesPerSecond ?? 60)
         v.refreshInterval = 1.0 / Double(max(fps, 30))
         v.attach(conn, pane: pane, fps: fps)
@@ -135,7 +160,7 @@ final class Workspace: NSObject {
         v.onFontSize = { [weak self] s in self?.setFontSize(s) }
         v.windowMinSize = { [weak self] in self?.minContentSize() ?? .zero }
         let b = PaneBox(term: v)
-        b.onClose = { [weak self] in self?.closePane(pane) }
+        b.onClose = { [weak self] in self?.askClose(pane) { self?.closePane(pane) } }
         b.onClickHead = { [weak self, weak v] in if let v { self?.window.makeFirstResponder(v) } }
         boxes[pane] = b
         return b
@@ -207,9 +232,9 @@ final class Workspace: NSObject {
     /// A new shell in the daemon (pane.new), labelled as the app's shells.
     @discardableResult
     func newPane(cwd: String?, size: NSSize) throws -> String? {
-        let r = Renderer(scale: scale, fontName: options.font, fontSize: fontSize)
+        let r = Renderer(scale: scale, fontName: look.font, fontSize: look.size)
         let g = r?.grid(for: NSSize(width: max(size.width, 160), height: max(size.height, 80))) ?? (cols: 80, rows: 24)
-        var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": "Shell", "labels": ["ravenry.kind": "shell"]]
+        var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": "Shell", "labels": ["ravenry.kind": "shell"], "scrollback": look.scrollback]
         if !options.command.isEmpty { params["command"] = options.command }
         if options.bench != nil || options.selftest != nil { params["cwd"] = home } else if let c = cwd, !c.isEmpty { params["cwd"] = c }
         let res = try conn.call("pane.new", params)
@@ -515,11 +540,68 @@ final class Workspace: NSObject {
     /// Cmd+W: the pane with the keyboard.
     func closeFocused() {
         guard let t = active else { return }
-        closePane(t.focusedPane)
+        let id = t.focusedPane
+        askClose(id) { [weak self] in self?.closePane(id) }
     }
 
     func closeTab(_ t: Tab) {
-        for id in panes(of: t) { closePane(id) }
+        askClose(t.host) { [weak self] in
+            guard let self else { return }
+            for id in self.panes(of: t) { self.closePane(id) }
+        }
+    }
+
+    /// Closing a shell whose program is still running asks first, as the
+    /// settings say (confirmCloseBusy; the Electron app's askClose): busy
+    /// when the terminal's foreground process is not the pane's first one.
+    func askClose(_ pane: String, then close: @escaping () -> Void) {
+        guard look.confirmClose else { return close() }
+        let what = tabs.contains { $0.guest != nil && ($0.host == pane || $0.guest == pane) } ? "pane" : "tab"
+        conn.request("pane.process", ["pane": pane]) { [weak self] r in
+            guard let self else { return }
+            guard case .success(let v) = r, let fg = v["foreground"] as? [String: Any], let fpid = (fg["pid"] as? NSNumber)?.intValue else {
+                return DispatchQueue.main.async(execute: close)
+            }
+            self.conn.request("pane.list") { [weak self] r2 in
+                var first: Int?
+                if case .success(let l) = r2, let ps = l["panes"] as? [[String: Any]] {
+                    first = (ps.first { $0["id"] as? String == pane }?["pid"] as? NSNumber)?.intValue
+                }
+                DispatchQueue.main.async {
+                    guard let self, let first, first != fpid else { return close() }
+                    var argv = fg["argv"] as? [String] ?? []
+                    if let a = argv.first { argv[0] = (a as NSString).lastPathComponent }
+                    let cmd = argv.isEmpty ? t("close.aprogram") : argv.joined(separator: " ")
+                    let sh = self.info[pane]?.command.first.map { String(($0 as NSString).lastPathComponent.drop { $0 == "-" }) } ?? ""
+                    self.confirmClose(what: what, shell: sh.isEmpty ? t("close.theshell") : sh, cmd: cmd, then: close)
+                }
+            }
+        }
+    }
+
+    private func confirmClose(what: String, shell: String, cmd: String, then close: @escaping () -> Void) {
+        let title = t("close.title.\(what)"), body = t("close.body", ["shell": shell, "cmd": cmd])
+        let answer: (Bool, Bool) -> Void = { [weak self] yes, dont in
+            if yes && dont { self?.settings.set(["confirmCloseBusy": false]) }
+            if yes { close() } else if let v = self?.focusedView { self?.window.makeFirstResponder(v) }
+        }
+        if options.offscreen {
+            closeAsked.append("\(title) \(body)")
+            return answer(closeAnswer.close, closeAnswer.dont)
+        }
+        let a = NSAlert()
+        a.alertStyle = .warning
+        a.messageText = title
+        a.informativeText = body + "\n\n" + t("close.note")
+        let yes = a.addButton(withTitle: t("close.close"))
+        yes.hasDestructiveAction = true
+        yes.keyEquivalent = ""
+        a.addButton(withTitle: t("close.cancel")).keyEquivalent = "\r"
+        a.showsSuppressionButton = true
+        a.suppressionButton?.title = t("close.dont")
+        a.beginSheetModal(for: window) { r in
+            answer(r == .alertFirstButtonReturn, a.suppressionButton?.state == .on)
+        }
     }
 
     /// Closes a pane: its process ends (pane.close); its tab goes, or its
@@ -582,10 +664,53 @@ final class Workspace: NSObject {
 
     // MARK: text size
 
+    /// Cmd+= / Cmd+- / Cmd+0: written to the settings, which every pane
+    /// (and the Electron app) follows.
     func setFontSize(_ s: CGFloat) {
-        fontSize = s
-        for b in boxes.values { b.term.applyFontSize(s) }
+        pins["fontSize"] = nil
+        if settings.set(["fontSize": Int(s)]) != nil { return }
+        applyLook()
+    }
+
+    static var dark: Bool { (NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) ?? .darkAqua) == .darkAqua }
+
+    /// The settings file changed (here, in Settings or the other app): a
+    /// pin from the command line gives way to its setting once that
+    /// setting changes.
+    private func settingsChanged() {
+        for (k, v) in settings.values where !((lastValues[k] as AnyObject?)?.isEqual(v) ?? false) { pins[k] = nil }
+        lastValues = settings.values
+        applyLook()
+    }
+
+    /// Every pane takes what the settings make of a terminal now, and so
+    /// does what draws beside them (the tab in front, the panes' heads).
+    func applyLook() {
+        let l = TermLook(settings, dark: Workspace.dark, pins: pins)
+        guard l != look else { return }
+        let was = look
+        look = l
+        for b in boxes.values { b.term.apply(l); b.needsDisplay = true }
+        if l.scrollback != was.scrollback { for id in boxes.keys { keepScrollback(id) } }
+        Design.terminal = l.theme
+        root.sheet.restyle()
+        stage.layer?.backgroundColor = Design.tbg.cgColor
+        bar.needsDisplay = true
+        for v in bar.subviews { v.needsDisplay = true }
         updateMinSize()
+        onLook?()
+    }
+
+    /// After the look changed (Board redraws what follows the terminal's colours).
+    var onLook: (() -> Void)?
+
+    /// The daemon keeps as many lines of a pane as the Scrollback setting
+    /// says (pane.update), so a snapshot brings them all back.
+    private func keepScrollback(_ id: String) {
+        let want = look.scrollback
+        guard let i = info[id], i.scrollback != want else { return }
+        i.scrollback = want
+        conn.request("pane.update", ["pane": id, "scrollback": want])
     }
 
     // MARK: size
@@ -625,6 +750,12 @@ final class Workspace: NSObject {
             refresh()
         case "pane.exited", "pane.closed":
             if info[id] != nil { ended(id) }
+        case "pane.bell":
+            // A bell in a pane not on screen: the sound and the Dock, as
+            // the settings say (one on screen rings in its view).
+            if info[id] != nil, boxes[id]?.term.window == nil {
+                TerminalView.ring(look, offscreen: options.offscreen) { self.bellsHeard.append($0) }
+            }
         case "pane.focus":
             if let t = tabs.first(where: { $0.host == id || $0.guest == id }) {
                 if t.guest == id { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
@@ -745,7 +876,7 @@ final class SheetView: NSView {
         restyle()
     }
     required init?(coder: NSCoder) { fatalError() }
-    private func restyle() {
+    func restyle() {
         // A layer only for the rounded corners (beside the sidebar).
         wantsLayer = round
         layer?.cornerRadius = round ? 11 : 0
@@ -753,7 +884,7 @@ final class SheetView: NSView {
         layer?.borderWidth = round ? 1 : 0
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.borderColor = Design.color("sheet-ring").cgColor
-            layer?.backgroundColor = Design.termBg.cgColor
+            layer?.backgroundColor = Design.tbg.cgColor
         }
     }
     override func viewDidChangeEffectiveAppearance() { restyle() }
@@ -765,7 +896,7 @@ final class StageView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = Design.termBg.cgColor
+        layer?.backgroundColor = Design.tbg.cgColor
     }
     required init?(coder: NSCoder) { fatalError() }
     override func setFrameSize(_ s: NSSize) {

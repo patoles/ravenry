@@ -178,11 +178,23 @@ stream".
 - **Fonts**: the cell is the font's own, as Ghostty (and so Rex)
   computes it: the advance of "M" wide, ascent, descent and line gap
   high, each rounded to a pixel, no extra line spacing; the baseline
-  leaves the descent at the cell's bottom. The default is Menlo 12, 14 x
-  28 px at 2x, Rex's cell. Cmd+= (or Cmd++), Cmd+- and Cmd+0 change the
-  size from 6 to 72 points, in the View menu too; the size is kept for
-  the next launch (never by the bench or the self-test). `--font` and
-  `--font-size` pick another.
+  leaves the descent at the cell's bottom. The font and its size are the
+  shared settings' (Menlo 13 by default, 16 x 30 px at 2x; Rex's Menlo 12
+  is 14 x 28), a family that is not here falling back to the settings'
+  list. Cmd+= (or Cmd++), Cmd+- and Cmd+0 change the size from 8 to 32
+  points, in the View menu too, written to the shared settings file as
+  the Electron app's. `--font` and `--font-size` pick another for one run,
+  until the setting changes.
+- **The shared settings** (`TermLook.swift`): every terminal applies the
+  settings file both apps share, at once on each change (Settings, the
+  other app, or a hand edit) and on the system's appearance: the font
+  and size, the theme (the tab in front, the panes' heads and the sheet
+  take its colours), the cursor style and blink while the program leaves
+  a block, Option as Meta, copy on select, links on a plain click, the
+  scrollback the daemon keeps (`pane.update`), the bell (a flash, a sound
+  or off, the Dock bouncing while the app is not in front, for a pane not
+  on screen too) and closing a busy shell (a sheet: Close, Cancel, Don't
+  ask again).
 - **Characters drawn, not taken from the font** (`Sprites.swift`): box
   drawing (light, heavy, double, dashed, rounded corners, diagonals),
   block elements (halves, eighths, quadrants, shades), braille and the
@@ -202,8 +214,8 @@ stream".
   and release as the physical key (a W3C code), the modifiers, the text
   and the unshifted character; the daemon encodes them (legacy, Kitty
   keyboard protocol). An input method's marked text is drawn at the
-  cursor and only its committed text is sent. `--option-as-alt` makes
-  Option act as Alt.
+  cursor and only its committed text is sent. Option acts as Alt as the
+  settings' Option as Meta says (`--option-as-alt` for one run).
 - **Scrolling**: every wheel and trackpad movement goes to the daemon in
   rows (`wheel`: a trackpad's points over the cell's height, momentum
   included; a wheel's notch three rows), and the daemon decides, as
@@ -352,14 +364,11 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window: no New Window, closing a busy shell's question,
-  bells or activity on hidden tabs, or tab dragged to an edge to split.
-- Settings: the window reads and writes the shared settings file, but
-  the terminals do not apply its settings yet (font, size, theme, cursor,
-  Option as Meta, copy on select, links, scrollback, bell, closing a
-  busy tab: Cmd+= still keeps its size in the app's own defaults); no
-  theme import (iTerm2, Ghostty); a broken file is not kept aside and
-  an old one is not migrated.
+- One window: no New Window, bell marks or activity on hidden tabs, or
+  tab dragged to an edge to split.
+- Settings: no theme import (iTerm2, Ghostty); a broken file is not kept
+  aside and an old one is not migrated. A program's steady block cursor
+  reads as the default, so the settings' style shows instead.
 - Sidebar and panel: Learn's ticks come only from the phone card and
   Decisions (no hints, no filmstrip to tick), and its filmstrip card shows
   the busiest terminal; no session on another machine (MACH-005 to

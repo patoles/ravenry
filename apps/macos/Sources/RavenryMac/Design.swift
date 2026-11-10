@@ -81,11 +81,18 @@ enum Design {
     /// its terminal: .tab.on).
     static let termBg = token("dark", "term-bg") ?? rgb(0x0B0B0C)
     static let termFg = rgb(0xF2F2F4)
+    /// The terminals' theme now (the settings'): the tab in front, the
+    /// sheet and the panes' heads take its colours, as the Electron app's
+    /// --tbg and --tfg.
+    static var terminal = Theme.ravenry
+    static var tbg: NSColor { terminal == Theme.ravenry ? termBg : terminal.nsBackground }
+    static var tfg: NSColor { terminal == Theme.ravenry ? termFg : terminal.nsForeground }
     /// The header's text (.phead: --tfg at 55%, the name at 75%, the
     /// focused pane's name whole) and its line (12%).
-    static let headFg = rgb(0xD1D1D6, 0.55)
-    static let headName = rgb(0xD1D1D6, 0.75)
-    static let headLine = rgb(0xD1D1D6, 0.12)
+    static var headFg: NSColor { headTint(0.55) }
+    static var headName: NSColor { headTint(0.75) }
+    static var headLine: NSColor { headTint(0.12) }
+    private static func headTint(_ a: CGFloat) -> NSColor { terminal == Theme.ravenry ? rgb(0xD1D1D6, a) : terminal.nsForeground.withAlphaComponent(a) }
 
     // .tabs and .tab
     static let stripHeight: CGFloat = 40

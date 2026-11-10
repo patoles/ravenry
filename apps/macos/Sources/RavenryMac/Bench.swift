@@ -301,13 +301,13 @@ final class Bench {
         func sample(_ label: String, _ blank: inout Int, _ bad: inout Int, _ shots: inout [String], fast: Bool = false) {
             for w in watched {
                 let t = w.v.screen.text()
-                var limit = w.ink
-                if fast {
-                    w.v.screen.lock()
-                    let g = (cols: w.v.screen.cols, rows: w.v.screen.rows)
-                    w.v.screen.unlock()
-                    limit = min(w.ink, g.cols * max(1, g.rows - 1))
-                }
+                // At most what the grid holds: a narrow pane at a larger
+                // font shows less of the command line without losing it.
+                _ = fast
+                w.v.screen.lock()
+                let g = (cols: w.v.screen.cols, rows: w.v.screen.rows)
+                w.v.screen.unlock()
+                let limit = min(w.ink, g.cols * max(1, g.rows - 1))
                 if flat(t).count < limit * 3 / 10 {
                     blank += 1
                     if shots.count < 3 { shots.append("blank \(label) pane \(w.v.pane): " + t.split(separator: "\n").prefix(3).joined(separator: " | ")) }

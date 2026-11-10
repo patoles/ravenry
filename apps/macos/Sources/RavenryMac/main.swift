@@ -27,9 +27,8 @@ struct Options {
     var benchLayer = false
     var dragMin: CGFloat = 300
     var optionAsAlt = ""
-    /// The font, and its size in points; Menlo 12 (Rex's, Ghostty's
-    /// default on a Mac) when not given.
-    var font = "Menlo"
+    /// The font and its size in points for this run (else the settings').
+    var font: String?
     var fontSize: CGFloat?
     var selftest: String?
     /// With --selftest: only check that the tabs a self-test left came
@@ -54,7 +53,7 @@ struct Options {
             case "--bench-layer": o.benchLayer = true
             case "--drag-min": i += 1; o.dragMin = CGFloat(Double(args[safe: i] ?? "") ?? 300)
             case "--option-as-alt": i += 1; o.optionAsAlt = args[safe: i] ?? ""
-            case "--font": i += 1; o.font = args[safe: i] ?? "Menlo"
+            case "--font": i += 1; o.font = args[safe: i]
             case "--selftest": i += 1; o.selftest = args[safe: i]
             case "--restore-check": i += 1; o.restoreCheck = args[safe: i]
             case "--sidetest": i += 1; o.sidetest = args[safe: i]
@@ -176,14 +175,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.allowOffscreen = options.offscreen
         w.backgroundColor = Design.termBg
         let scale = options.offscreen ? 2 : (NSScreen.main?.backingScaleFactor ?? 2)
-        // The size the person picked last, kept in the app's defaults; the
-        // bench and the self-test (offscreen) never read or write them.
-        let defaultSize = min(72, max(6, options.fontSize ?? 12))
-        var size = defaultSize
-        if !options.offscreen && options.fontSize == nil,
-           let kept = UserDefaults.standard.object(forKey: TerminalView.fontSizeKey) as? Double {
-            size = min(72, max(6, CGFloat(kept)))
-        }
         window = w
         let c: Connection
         do {
@@ -193,8 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         conn = c
-        let ws = Workspace(window: w, options: options, conn: c, scale: scale, fontSize: size)
-        ws.defaultFontSize = defaultSize
+        let ws = Workspace(window: w, options: options, conn: c, scale: scale)
+        w.backgroundColor = Design.tbg
         workspace = ws
         ws.root.frame = NSRect(origin: .zero, size: rect.size)
         ws.root.autoresizingMask = [.width, .height]

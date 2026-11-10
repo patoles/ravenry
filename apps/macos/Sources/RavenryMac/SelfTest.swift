@@ -20,7 +20,6 @@ final class SelfTest {
     private let pasteboard: NSPasteboard
     private var opened: [URL] = []
     private let generalChanges = NSPasteboard.general.changeCount
-    private var keptSize: Double?
     /// The layout a relaunch must show (SelfTestTabs.swift).
     var restore: [String: Any]?
     /// --restore-check: only check the relaunch against this file.
@@ -40,7 +39,6 @@ final class SelfTest {
         view.pasteboard = pasteboard
         view.openURL = { [weak self] u in self?.opened.append(u) }
         view.blinkOffscreen = true
-        keptSize = UserDefaults.standard.object(forKey: TerminalView.fontSizeKey) as? Double
         Thread { self.run() }.start()
     }
 
@@ -160,44 +158,47 @@ final class SelfTest {
         menuAndClear()
         accessibility()
         macKeys()
+        settingsApplied()
         tabsAndSplits()
         check("general_pasteboard_untouched", NSPasteboard.general.changeCount == generalChanges)
     }
 
     private func fonts() {
         let f = view.renderer.fonts
-        check("font_default_menlo_12", view.renderer.fontName == "Menlo" && view.renderer.fontSize == 12,
+        // The shared settings' default (shared/settings/settings.json): Menlo 13.
+        check("font_default_menlo_13", view.renderer.fontName == "Menlo" && view.renderer.fontSize == 13,
               "\(view.renderer.fontName) \(view.renderer.fontSize)")
-        check("cell_14x28_px_at_2x", f.scale == 2 && f.cellWidth == 14 && f.cellHeight == 28, "\(f.cellWidth)x\(f.cellHeight) at \(f.scale)")
+        check("cell_16x30_px_at_2x", f.scale == 2 && f.cellWidth == 16 && f.cellHeight == 30, "\(f.cellWidth)x\(f.cellHeight) at \(f.scale)")
         let g0 = main { view.gridSize }
         check("grid_fills_view", scr { $0.cols == g0.cols && $0.rows == g0.rows }, "view \(g0), frames \(scr { ($0.cols, $0.rows) })")
         // Cmd+= through keyDown, Cmd+- and Cmd+0 through the shortcut path.
         key("=", code: 0x18, flags: .command)
         let bigger = waitFor(3) { self.scr { $0.cols } < g0.cols }
         let g1 = main { view.gridSize }
-        check("cmd_plus_bigger", bigger && view.renderer.fontSize == 13 && view.renderer.fonts.cellHeight == 30,
+        check("cmd_plus_bigger", bigger && view.renderer.fontSize == 14 && view.renderer.fonts.cellHeight > 30,
               "size \(view.renderer.fontSize), grid \(g1), frames \(scr { ($0.cols, $0.rows) })")
+        check("cmd_plus_writes_settings", fileValue("fontSize") as? Int == 14, "\(fileValue("fontSize") ?? "none")")
         _ = shortcut("-", code: 0x1B)
         _ = shortcut("-", code: 0x1B)
         let smaller = waitFor(3) { self.scr { $0.cols } > g0.cols }
-        check("cmd_minus_smaller", smaller && view.renderer.fontSize == 11, "size \(view.renderer.fontSize)")
+        check("cmd_minus_smaller", smaller && view.renderer.fontSize == 12 && fileValue("fontSize") as? Int == 12, "size \(view.renderer.fontSize)")
         _ = shortcut("0", code: 0x1D)
         let back = waitFor(3) { self.scr { $0.cols } == g0.cols }
-        check("cmd_0_default", back && view.renderer.fontSize == 12 && main { view.gridSize } == g0, "size \(view.renderer.fontSize)")
+        check("cmd_0_default", back && view.renderer.fontSize == 13 && main { view.gridSize } == g0 && fileValue("fontSize") as? Int == 13,
+              "size \(view.renderer.fontSize)")
         // The window's smallest content size: 40 x 10 cells at the font,
         // larger with a larger font.
         let min12 = main { window.contentMinSize }
         // (The tab strip is above the terminal.)
         let grid12 = main { view.renderer.grid(for: NSSize(width: min12.width, height: min12.height - Design.stripHeight)) }
         _ = shortcut("=", code: 0x18)
-        _ = waitFor(3) { view.renderer.fontSize == 13 }
+        _ = waitFor(3) { view.renderer.fontSize == 14 }
         let min13 = main { window.contentMinSize }
         let grid13 = main { view.renderer.grid(for: NSSize(width: min13.width, height: min13.height - Design.stripHeight)) }
         _ = shortcut("0", code: 0x1D)
-        _ = waitFor(3) { view.renderer.fontSize == 12 }
+        _ = waitFor(3) { view.renderer.fontSize == 13 }
         check("window_min_size_40x10", grid12 == (40, 10) && grid13 == (40, 10) && min13.width > min12.width && min13.height > min12.height,
-              "at 12 pt \(min12) is \(grid12), at 13 pt \(min13) is \(grid13)")
-        check("font_size_not_kept_offscreen", UserDefaults.standard.object(forKey: TerminalView.fontSizeKey) as? Double == keptSize)
+              "at 13 pt \(min12) is \(grid12), at 14 pt \(min13) is \(grid13)")
         sleep(0.3)
     }
 
@@ -715,6 +716,129 @@ final class SelfTest {
 
     private func lastLines() -> String {
         text().split(separator: "\n").suffix(3).joined(separator: " | ")
+    }
+
+    // MARK: the shared settings applied
+
+    /// The settings file the app reads (the test's RAVENRY_DESKTOP_DATA).
+    private var settingsFile: URL? { workspace.settings.file }
+
+    private func fileValue(_ k: String) -> Any? {
+        guard let f = settingsFile, let d = try? Data(contentsOf: f),
+              let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
+        return j[k]
+    }
+
+    /// Writes the file as the other app (or a person) would: the app
+    /// follows within its poll (1.5 s).
+    private func writeSettings(_ patch: [String: Any]) {
+        guard let f = settingsFile else { return }
+        var j = ((try? Data(contentsOf: f)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? ["version": 1]
+        for (k, v) in patch { j[k] = v }
+        try? FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys]).write(to: f)
+        // A new modification time even within the same second.
+        try? FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(Double(checks.count) + 1)], ofItemAtPath: f.path)
+    }
+
+    private func settingsApplied() {
+        guard settingsFile != nil else { return check("settings_file", false, "no RAVENRY_DESKTOP_DATA") }
+        _ = run(#"printf '\e[2 q'"#, until: { _ in self.scr { $0.cursor.style == 0 && !$0.cursor.blink } })
+        let cols0 = scr { $0.cols }
+        // Another app writes the file: the font and size, a light theme,
+        // a bar cursor that blinks, the scrollback, Option as Meta.
+        writeSettings(["fontFamily": "Monaco", "fontSize": 15, "themeFollowsSystem": false, "themeAlways": "paper",
+                       "cursorStyle": "bar", "cursorBlink": true, "scrollback": 2000, "optionAsMeta": "left"])
+        let applied = waitFor(5) { self.main { self.view.renderer.fontName == "Monaco" && self.view.renderer.fontSize == 15 } }
+        let refit = waitFor(3) { self.scr { $0.cols } < cols0 }
+        check("settings_font_live", applied && refit, "\(view.renderer.fontName) \(view.renderer.fontSize), cols \(cols0) to \(scr { $0.cols })")
+        _ = waitFor(2) { self.main { self.view.cursorOn } }
+        sleep(0.2)
+        var p = picture()
+        let bg = cellColor(p, col: scr { $0.cols } - 2, row: scr { $0.rows } - 2)
+        check("settings_theme_paper", abs(bg.r - 0xF2) < 3 && abs(bg.g - 0xEE) < 3 && abs(bg.b - 0xDE) < 3, "background \(bg)")
+        let paper = main { Design.tbg.usingColorSpace(.sRGB) }
+        check("settings_theme_chrome", main { workspace.look.theme.light } && abs((paper?.redComponent ?? 0) - 0xF2 / 255.0) < 0.01,
+              "tab in front \(String(describing: paper))")
+        savePNG("selftest-settings-paper.png")
+        // The bar from the settings while the program leaves a block; it blinks.
+        _ = waitFor(2) { self.main { self.view.cursorOn } }
+        p = picture()
+        let c = scr { $0.cursor }
+        let f = view.renderer.fonts
+        let pad = Int((view.renderer.padding * f.scale).rounded())
+        let cw = Int(f.cellWidth), ch = Int(f.cellHeight)
+        let cx = pad + c.x * cw, cy = pad + c.y * ch
+        // On paper the bar is dark: the left of the cell dark, the right as the background.
+        check("settings_cursor_bar", bright(p, cx + 1, cy + ch / 2) < 120 && bright(p, cx + cw - 2, cy + ch / 2) > 200,
+              "left \(bright(p, cx + 1, cy + ch / 2)), right \(bright(p, cx + cw - 2, cy + ch / 2))")
+        check("settings_cursor_blinks", main { view.cursorBlinking })
+        check("settings_option_as_meta", main { view.optionAsAlt } == "left")
+        let sb = (try? workspace.conn.call("pane.list", [:]))?["panes"] as? [[String: Any]] ?? []
+        let mine = sb.first { $0["id"] as? String == view.pane }?["scrollback"] as? Int
+        check("settings_scrollback_to_daemon", mine == 2000, "pane scrollback \(mine.map(String.init) ?? "none")")
+        // A family that is not here: the settings' first fallback.
+        writeSettings(["fontFamily": "No Such Mono"])
+        check("settings_font_fallback", waitFor(5) { self.main { self.view.renderer.askedFont == "No Such Mono" } } && view.renderer.fontName == "Menlo",
+              view.renderer.fontName)
+        // Copy on select: a drag copies; a click opens a link.
+        writeSettings(["copyOnSelect": true, "openLinksSingleClick": true, "fontFamily": "Menlo", "fontSize": 13])
+        _ = waitFor(5) { self.main { self.view.look.copyOnSelect && self.view.renderer.fontSize == 13 } }
+        guard run(#"printf 'see https://ravenry.dev/setting\163 now\n'"#, until: { $0.contains("see https://ravenry.dev/settings now") }) else {
+            return check("settings_link_text", false, lastLines())
+        }
+        sleep(0.3)
+        let r = CGFloat(scr { sc in (0..<sc.rows).first { sc.rowText($0) == "see https://ravenry.dev/settings now" } ?? 0 }) + 0.5
+        main { pasteboard.clearContents() }
+        drag(from: (0.2, r), to: (2.8, r))
+        var got = ""
+        _ = waitFor(3) { got = self.main { self.pasteboard.string(forType: .string) } ?? ""; return !got.isEmpty }
+        check("settings_copy_on_select", got == "see", "copied \(got)")
+        opened.removeAll()
+        main { view.mouseMoved(with: mouse(.mouseMoved, col: 10.5, row: r)) }
+        let live = waitFor(3) { self.main { self.view.link } != nil }
+        click(col: 10.5, row: r)
+        let one = waitFor(3) { self.main { self.opened.last?.absoluteString } == "https://ravenry.dev/settings" }
+        check("settings_link_one_click", live && one, "underlined \(live), opened \(opened)")
+        // The bell: a sound and the Dock (recorded here), no flash; off: nothing.
+        writeSettings(["bell": "sound", "copyOnSelect": false, "openLinksSingleClick": false])
+        _ = waitFor(5) { self.main { self.view.look.bell == "sound" } }
+        let heard = main { view.bellsHeard.count }
+        _ = run(#"printf '\a'"#, until: { _ in self.main { self.view.bellsHeard.contains("sound") } })
+        check("settings_bell_sound", Array(main { view.bellsHeard }.dropFirst(heard)) == ["sound", "bounce"] && !main { view.bellFlashing }, "\(main { view.bellsHeard })")
+        writeSettings(["bell": "off"])
+        _ = waitFor(5) { self.main { self.view.look.bell == "off" } }
+        _ = run(#"printf '\a'; echo rung"#, until: { $0.contains("rung\n~ >") })
+        sleep(0.2)
+        check("settings_bell_off", main { view.bellsHeard }.count == heard + 2 && !main { view.bellFlashing })
+        // Closing a busy shell asks first; Don't ask again writes the setting.
+        main { view.sendEvents([["text": "sleep 30"]]) }
+        _ = waitFor(2) { self.text().contains("sleep 30") }
+        key("\r", code: 0x24)
+        sleep(0.5)
+        var closed = false
+        main { workspace.closeAnswer = (false, false) }
+        main { workspace.askClose(view.pane) { closed = true } }
+        let asked = waitFor(3) { self.main { self.workspace.closeAsked.count } == 1 }
+        sleep(0.2)
+        check("settings_close_busy_asks", asked && !closed && main { workspace.closeAsked.first ?? "" } == "Close this tab? zsh is running sleep 30. Close it anyway?",
+              main { workspace.closeAsked.first ?? "" })
+        main { workspace.closeAnswer = (true, true) }
+        main { workspace.askClose(view.pane) { closed = true } }
+        _ = waitFor(3) { closed }
+        check("settings_close_dont_ask_again", closed && waitFor(2) { self.fileValue("confirmCloseBusy") as? Bool == false })
+        key("\u{03}", code: 0x08, flags: .control) // Ctrl+C
+        _ = waitFor(3) { self.lastLines().hasSuffix("~ >") }
+        // An idle shell closes at once, asked or not.
+        writeSettings(["confirmCloseBusy": true])
+        _ = waitFor(5) { self.main { self.workspace.look.confirmClose } }
+        closed = false
+        main { workspace.askClose(view.pane) { closed = true } }
+        check("settings_close_idle_at_once", waitFor(3) { closed } && main { workspace.closeAsked.count } == 2)
+        // The defaults back for the relaunch.
+        if let f = settingsFile { try? FileManager.default.removeItem(at: f) }
+        writeSettings([:])
+        _ = waitFor(5) { self.main { self.view.renderer.fontSize == 13 && !self.workspace.look.theme.light } }
     }
 
     private func finish() {

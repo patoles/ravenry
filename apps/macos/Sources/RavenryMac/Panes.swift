@@ -179,14 +179,14 @@ final class PaneHead: NSView {
     override func mouseDown(with e: NSEvent) { onClick?() }
 
     override func draw(_ dirty: NSRect) {
-        Design.termBg.setFill()
+        Design.tbg.setFill()
         bounds.fill()
         Design.headLine.setFill()
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
         Icons.shell(NSRect(x: 12, y: (bounds.height - 12) / 2, width: 12, height: 12), Design.headFg)
         var x: CGFloat = 12 + 12 + 7
         let maxX = bounds.width - 8 - 18 - 7
-        let nameAttrs: [NSAttributedString.Key: Any] = [.font: Design.headNameFont, .foregroundColor: focused ? Design.termFg : Design.headName]
+        let nameAttrs: [NSAttributedString.Key: Any] = [.font: Design.headNameFont, .foregroundColor: focused ? Design.tfg : Design.headName]
         x = drawText(name, nameAttrs, x: x, maxX: maxX)
         if let s = sub, x < maxX - 20 {
             _ = drawText(s, [.font: Design.headFont, .foregroundColor: Design.headFg], x: x + 7, maxX: maxX)

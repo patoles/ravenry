@@ -7,7 +7,8 @@
 # rather than into an offscreen texture (no pictures then).
 # BENCH_MIN: the narrowest width of the drag in points (default 300, where
 # the command line is taller than the window). BENCH_ZSHRC: more lines for
-# the zsh startup file.
+# the zsh startup file. BENCH_FONT_SIZE: another size than the settings'
+# default (13), for this run only.
 #
 # A daemon of the app's own ravenryd runs with a HOME, runtime and state
 # folder of its own (never the person's), its pane a zsh at a prompt
@@ -44,7 +45,7 @@ while [ ! -S "$sock" ]; do
 done
 # shellcheck disable=SC2086
 env -i $envs "$app/Contents/MacOS/RavenryMac" --offscreen --socket "$sock" --bench "$out/bench.json" \
-  --drag-min "${BENCH_MIN:-300}" ${BENCH_LAYER:+--bench-layer} 2>"$dir/app.log" &
+  --drag-min "${BENCH_MIN:-300}" ${BENCH_LAYER:+--bench-layer} ${BENCH_FONT_SIZE:+--font-size "$BENCH_FONT_SIZE"} 2>"$dir/app.log" &
 apppid=$!
 i=0
 while kill -0 "$apppid" 2>/dev/null; do
@@ -65,7 +66,7 @@ if r.get("tabs"):
     print("window: %s; the drags check both panes of the split in front" % r["tabs"])
 w = r.get("window_900x560")
 if w:
-    print("a 900 x 560 pt window at scale %g: %s, grid %s, cell %s px (%s pt); Rex's cell (14x28 px) there: %s" % (w["scale"], w["font"], w["grid"], w["cell_px"], w["cell_pt"], w["rex_grid"]))
+    print("a 900 x 560 pt window at scale %g in the settings' font (Menlo 13 by default): %s, grid %s, cell %s px (%s pt); Rex's cell (Menlo 12, 14x28 px) there: %s" % (w["scale"], w["font"], w["grid"], w["cell_px"], w["cell_pt"], w["rex_grid"]))
 print("typing, key to drawn echo:", s(r["typing_ms"]))
 d = r["drag"]
 print("drag %d steps in %.2f s down to %d pt: blank %d, debris %d, ends on the daemon's screen: %s" % (d["steps"], d["seconds"], d["min_width"], d["blank"], d["debris"], d["ends_on_daemon_screen"]))

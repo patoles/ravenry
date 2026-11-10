@@ -42,8 +42,15 @@ final class SettingsStore {
     private(set) var userThemes: [ThemeInfo] = []
     private var stamp: Date?
     private var timer: Timer?
-    /// After any change: this app's or the file's.
+    /// After any change: this app's or the file's (the Settings window).
     var onChange: (() -> Void)?
+    private var observers: [() -> Void] = []
+    /// Another listener for every change (the terminals).
+    func observe(_ f: @escaping () -> Void) { observers.append(f) }
+    private func changed() {
+        onChange?()
+        for f in observers { f() }
+    }
 
     init(offscreen: Bool, env: [String: String] = ProcessInfo.processInfo.environment) {
         var dir: URL?
@@ -66,7 +73,7 @@ final class SettingsStore {
     private func readIfChanged() {
         guard file != nil, modified() != stamp else { return }
         load()
-        onChange?()
+        changed()
     }
 
     private func load() {
@@ -132,7 +139,7 @@ final class SettingsStore {
         }
         for (k, v) in patch { values[k] = (k == "fontFamily" ? (v as? String)?.trimmingCharacters(in: .whitespaces) : nil) ?? v }
         write()
-        onChange?()
+        changed()
         return nil
     }
 

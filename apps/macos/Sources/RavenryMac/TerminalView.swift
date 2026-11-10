@@ -89,12 +89,11 @@ final class TerminalView: NSView, NSTextInputClient {
     var onTitle: ((String) -> Void)?
     var onFrame: (() -> Void)?
 
-    /// The font size Cmd+0 goes back to, and whether a size the person
-    /// picks is kept for the next launch (never for the bench and the
-    /// self-test).
-    var defaultFontSize: CGFloat = 12
-    var keepsFontSize = false
-    static let fontSizeKey = "fontSize"
+    /// What the settings make of the terminal (TermLook.swift).
+    private(set) var look = TermLook()
+    /// The bells that rang a sound or bounced the Dock (offscreen: only
+    /// recorded, the self-test reads them).
+    private(set) var bellsHeard: [String] = []
 
     init?(frame: NSRect, scale: CGFloat, fontName: String = "Menlo", fontSize: CGFloat = 12) {
         guard let r = Renderer(scale: scale, fontName: fontName, fontSize: fontSize) else { return nil }
@@ -335,7 +334,7 @@ final class TerminalView: NSView, NSTextInputClient {
             c.sendJSON(["v": 1, "type": "ack", "channel": ch, "frame": seq])
         }
         screen.lock()
-        let title = screen.title, bell = screen.bell, blink = screen.cursor.blink
+        let title = screen.title, bell = screen.bell, blink = screen.cursor.blink, blockCursor = screen.cursor.style == 0
         let offset = screen.offset, history = screen.history, find = screen.find, rowsVersion = screen.rowsVersion
         screen.unlock()
         if find != lastFind {
@@ -353,17 +352,66 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         // The bell: a flash over the view (the count the first frame
         // brings is the pane's past, not a ring).
-        if let last = lastBell, bell > last {
-            bellAt = CACurrentMediaTime()
-            requestDraw()
-            DispatchQueue.main.asyncAfter(deadline: .now() + TerminalView.bellFlash + 0.01) { [weak self] in self?.requestDraw() }
-        }
+        if let last = lastBell, bell > last { rang() }
         lastBell = bell
         if rowsVersion != a11yVersion {
             a11yVersion = rowsVersion
             announceValue()
         }
-        updateBlink(blink)
+        // The settings' blink while the program leaves the cursor a block.
+        updateBlink(blink || (blockCursor && look.blink))
+    }
+
+    /// The settings, now and on each change: the font and its size (the
+    /// grid follows), the theme, the cursor, Option, copy on select, links,
+    /// the bell.
+    func apply(_ l: TermLook) {
+        let was = look
+        look = l
+        optionAsAlt = l.optionAsAlt
+        renderer.defaultCursor = l.cursor
+        if l.theme != was.theme || renderer.theme != l.theme {
+            renderer.theme = l.theme
+            let bg = l.theme.background
+            metalLayer.backgroundColor = CGColor(red: CGFloat(bg.x), green: CGFloat(bg.y), blue: CGFloat(bg.z), alpha: 1)
+        }
+        if l.oneClickLinks != was.oneClickLinks && !linkLive { clearLink() }
+        if l.font != renderer.askedFont || l.size != renderer.fontSize {
+            renderer.setFont(name: l.font, size: l.size)
+            updateMinSize()
+            sizeChanged()
+        }
+        screen.lock()
+        let blink = screen.cursor.blink, block = screen.cursor.style == 0
+        screen.unlock()
+        updateBlink(blink || (block && l.blink))
+        requestDraw()
+    }
+
+    /// A bell in this pane: the flash, the sound and the Dock as the
+    /// settings say (the Electron app's).
+    private func rang() {
+        if look.bell == "off" { return }
+        if look.bell == "visual" {
+            bellAt = CACurrentMediaTime()
+            requestDraw()
+            DispatchQueue.main.asyncAfter(deadline: .now() + TerminalView.bellFlash + 0.01) { [weak self] in self?.requestDraw() }
+        }
+        TerminalView.ring(look, offscreen: offscreen) { self.bellsHeard.append($0) }
+    }
+
+    /// The sound and the Dock's bounce of a bell (a pane on screen or
+    /// not); off every screen they are only recorded.
+    static func ring(_ l: TermLook, offscreen: Bool, record: (String) -> Void) {
+        guard l.bell != "off" else { return }
+        let bounce = l.bounce && !NSApp.isActive
+        if offscreen {
+            if l.bell == "sound" { record("sound") }
+            if l.bounce { record("bounce") }
+            return
+        }
+        if l.bell == "sound" { NSSound.beep() }
+        if bounce { NSApp.requestUserAttention(.informationalRequest) }
     }
 
     /// What the last offscreen draw made (the bench's pictures).
@@ -446,30 +494,27 @@ final class TerminalView: NSView, NSTextInputClient {
 
     @objc func increaseFontSize(_ sender: Any?) { setFontSize(renderer.fontSize + 1) }
     @objc func decreaseFontSize(_ sender: Any?) { setFontSize(renderer.fontSize - 1) }
-    @objc func resetFontSize(_ sender: Any?) { setFontSize(defaultFontSize) }
+    @objc func resetFontSize(_ sender: Any?) { setFontSize(TerminalView.baseFontSize) }
 
-    /// A new size, 6 to 72 points: the cell, the grid and the pane's size
-    /// follow.
+    /// The settings' default size and range (shared/settings/settings.json fontSize).
+    static var baseFontSize: CGFloat { CGFloat(SettingsStore.keys["fontSize"]?["default"] as? Int ?? 13) }
+    static var fontSizeRange: ClosedRange<CGFloat> {
+        let r = SettingsStore.range("fontSize")
+        return r.max > r.min ? CGFloat(r.min)...CGFloat(r.max) : 8...32
+    }
+
+    /// A new size in the settings' range: written to the settings file
+    /// (onFontSize), which every pane follows, as the Electron app's
+    /// Cmd+= and Cmd+-.
     func setFontSize(_ size: CGFloat) {
-        let s = min(72, max(6, size.rounded()))
+        let r = TerminalView.fontSizeRange
+        let s = min(r.upperBound, max(r.lowerBound, size.rounded()))
         guard s != renderer.fontSize else { return }
-        if keepsFontSize {
-            UserDefaults.standard.set(Double(s), forKey: TerminalView.fontSizeKey)
-        }
-        // Every pane of the window takes it (onFontSize), as the Electron
-        // app's text size is the terminals'.
-        if let f = onFontSize { f(s) } else { applyFontSize(s) }
+        if let f = onFontSize { f(s) } else { var l = look; l.size = s; apply(l) }
     }
 
-    /// The window's panes all follow a new text size.
+    /// Writes a new text size to the settings.
     var onFontSize: ((CGFloat) -> Void)?
-
-    func applyFontSize(_ s: CGFloat) {
-        guard s != renderer.fontSize else { return }
-        renderer.setFontSize(s)
-        updateMinSize()
-        sizeChanged()
-    }
 
     /// The window's smallest content size when the window lays out more
     /// than this view (tabs, splits).
@@ -639,7 +684,7 @@ final class TerminalView: NSView, NSTextInputClient {
         let cmd = e.modifierFlags.contains(.command)
         if cmd != commandDown {
             commandDown = cmd
-            if cmd, let p = pointer ?? window?.mouseLocationOutsideOfEventStream {
+            if linkLive, let p = pointer ?? window?.mouseLocationOutsideOfEventStream {
                 hoverLink(cell(at: p))
             } else {
                 clearLink()
@@ -855,8 +900,17 @@ final class TerminalView: NSView, NSTextInputClient {
             return
         }
         selecting = true
+        pressedAt = cell(e)
         sendEvents([selectEvent(e, action: "press")])
     }
+
+    /// Where a selection gesture started: a click that did not move opens
+    /// the link there when a click opens links.
+    private var pressedAt: CellHit?
+
+    /// Links look like links and a click opens them: with Cmd held, or
+    /// always when the settings say so (openLinksSingleClick).
+    private var linkLive: Bool { commandDown || look.oneClickLinks }
 
     override func mouseDragged(with e: NSEvent) {
         if !selecting {
@@ -919,8 +973,18 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         selecting = false
         stopAutoscroll()
+        let dragged = lastDrag != nil
         lastDrag = nil
         sendEvents([selectEvent(e, action: "release")])
+        let up = cell(e)
+        if look.oneClickLinks, !dragged, e.clickCount == 1, let p = pressedAt, p.x == up.x, p.y == up.y {
+            openLink(at: up)
+        } else if look.copyOnSelect {
+            // What the gesture selected goes to the clipboard (render.copy
+            // answers nothing when it selected nothing).
+            copy(nil)
+        }
+        pressedAt = nil
     }
 
     override func rightMouseDown(with e: NSEvent) {
@@ -942,7 +1006,7 @@ final class TerminalView: NSView, NSTextInputClient {
     override func mouseMoved(with e: NSEvent) {
         pointer = e.locationInWindow
         commandDown = e.modifierFlags.contains(.command)
-        if commandDown { hoverLink(cell(e)) } else { clearLink() }
+        if linkLive { hoverLink(cell(e)) } else { clearLink() }
         screen.lock()
         let motion = screen.modes & Screen.modeMouseMotion != 0
         screen.unlock()
@@ -1199,7 +1263,7 @@ final class TerminalView: NSView, NSTextInputClient {
         if let a = linkAsked, a.x == c.x, a.y == c.y { return }
         linkAsked = (c.x, c.y)
         askLink(c) { [weak self] found in
-            guard let self, self.commandDown, let a = self.linkAsked, a.x == c.x, a.y == c.y else { return }
+            guard let self, self.linkLive, let a = self.linkAsked, a.x == c.x, a.y == c.y else { return }
             if let found { self.setLink(found) } else { self.clearLink(keepAsked: true) }
         }
     }

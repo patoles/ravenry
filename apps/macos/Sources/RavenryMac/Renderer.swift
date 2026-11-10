@@ -9,7 +9,7 @@ import Metal
 import QuartzCore
 import simd
 
-struct Theme {
+struct Theme: Equatable {
     var background: SIMD4<Float>
     var foreground: SIMD4<Float>
     var cursor: SIMD4<Float>
@@ -18,6 +18,8 @@ struct Theme {
     var findMatch: SIMD4<Float>
     var findCurrent: SIMD4<Float>
     var ansi: [SIMD4<Float>] // 16
+    /// A light theme: the scrollbar and the bell's flash are dark.
+    var light = false
 
     static func hex(_ v: UInt32, _ a: Float = 1) -> SIMD4<Float> {
         SIMD4(Float((v >> 16) & 0xff) / 255, Float((v >> 8) & 0xff) / 255, Float(v & 0xff) / 255, a)
@@ -166,11 +168,15 @@ final class FontSet {
         self.scale = scale
         self.size = size
         let px = size * scale
+        // CoreText gives Helvetica for a name it does not know: then the
+        // settings' fallbacks in turn (shared/settings/settings.json), as
+        // the Electron app's font list.
         var base = CTFontCreateWithName(name as CFString, px, nil)
         if !CTFontGetSymbolicTraits(base).contains(.traitMonoSpace) {
-            // CoreText gives Helvetica for a name it does not know.
-            NSLog("RavenryMac: \(name) is not a monospaced font here; using Menlo")
-            base = CTFontCreateWithName("Menlo" as CFString, px, nil)
+            let next = SettingsStore.fallback.lazy.map { CTFontCreateWithName($0 as CFString, px, nil) }
+                .first { CTFontGetSymbolicTraits($0).contains(.traitMonoSpace) }
+            NSLog("RavenryMac: \(name) is not a monospaced font here; using the fallback")
+            base = next ?? CTFontCreateWithName("Menlo" as CFString, px, nil)
         }
         self.name = CTFontCopyFamilyName(base) as String
         regular = base
@@ -439,19 +445,34 @@ final class Renderer {
         queue = g.queue
         rectPipeline = g.rect
         glyphPipeline = g.glyph
+        askedFont = fontName
         (fonts, atlas) = Renderer.fontAndAtlas(fontName, fontSize, scale, g.device)
     }
 
     func setScale(_ scale: CGFloat) {
         guard scale != fonts.scale else { return }
-        (fonts, atlas) = Renderer.fontAndAtlas(fontName, fontSize, scale, device)
+        (fonts, atlas) = Renderer.fontAndAtlas(askedFont, fontSize, scale, device)
     }
 
     /// Another font size (points): a new cell and a new atlas.
     func setFontSize(_ size: CGFloat) {
-        guard size != fontSize else { return }
-        (fonts, atlas) = Renderer.fontAndAtlas(fontName, size, fonts.scale, device)
+        setFont(name: askedFont, size: size)
     }
+
+    /// The family the settings asked for (fontName is the one drawn,
+    /// which is a fallback when that one is not here).
+    private(set) var askedFont: String
+
+    /// Another font: a new cell and a new atlas.
+    func setFont(name: String, size: CGFloat) {
+        guard name != askedFont || size != fontSize else { return }
+        askedFont = name
+        (fonts, atlas) = Renderer.fontAndAtlas(name, size, fonts.scale, device)
+    }
+
+    /// The cursor drawn while the frame says a block (the program left it
+    /// so): the settings' style (1 bar, 2 underline).
+    var defaultCursor: UInt8 = 0
 
     /// The grid that fits a view of this size in points.
     func grid(for size: CGSize) -> (cols: Int, rows: Int) {
@@ -596,14 +617,15 @@ final class Renderer {
             var w = cw
             if cur.y < screen.lines.count, cur.x < screen.lines[cur.y].count, screen.lines[cur.y][cur.x].flags & Cell.wide != 0 { w = 2 * cw }
             let t = max(1, Float(round(fonts.scale)))
-            if !o.focused || cur.style == 3 {
+            let style = cur.style == 0 ? defaultCursor : cur.style
+            if !o.focused || style == 3 {
                 rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(w, t), color: cc, kind: 0))
                 rects.append(RectInst(pos: SIMD2(ox, oy + ch - t), size: SIMD2(w, t), color: cc, kind: 0))
                 rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(t, ch), color: cc, kind: 0))
                 rects.append(RectInst(pos: SIMD2(ox + w - t, oy), size: SIMD2(t, ch), color: cc, kind: 0))
-            } else if cur.style == 1 {
+            } else if style == 1 {
                 rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(2 * t, ch), color: cc, kind: 0))
-            } else if cur.style == 2 {
+            } else if style == 2 {
                 rects.append(RectInst(pos: SIMD2(ox, oy + ch - 2 * t), size: SIMD2(w, 2 * t), color: cc, kind: 0))
             } else {
                 rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(w, ch), color: cc, kind: 0))
@@ -638,7 +660,7 @@ final class Renderer {
             }
         }
         if o.flash {
-            topRects.append(RectInst(pos: .zero, size: viewport, color: SIMD4(1, 1, 1, 0.14), kind: 0))
+            topRects.append(RectInst(pos: .zero, size: viewport, color: theme.light ? SIMD4(0, 0, 0, 0.08) : SIMD4(1, 1, 1, 0.14), kind: 0))
         }
         // The overlay scrollbar, macOS style: a thin pill at the right
         // edge, its length the screen's share of the scrollback.
@@ -651,7 +673,7 @@ final class Renderer {
             let frac = Float(screen.history - min(screen.offset, screen.history)) / Float(screen.history)
             let y = inset + (trackH - thumbH) * frac
             topRects.append(RectInst(pos: SIMD2(viewport.x - inset - width, y), size: SIMD2(width, thumbH),
-                                color: SIMD4(1, 1, 1, 0.45 * o.scrollbar), kind: 4))
+                                color: theme.light ? SIMD4(0, 0, 0, 0.35 * o.scrollbar) : SIMD4(1, 1, 1, 0.45 * o.scrollbar), kind: 4))
         }
     }
 

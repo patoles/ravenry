@@ -121,6 +121,7 @@ final class Board: NSObject {
         learn.tryIt = { [weak self] c in self?.tryIt(c) }
         machines.copy = { Outside.copy($0) }
         machines.onList = { [weak self] in self?.render() }
+        ws.onLook = { [weak self] in self?.render() }
         phoneCard.hub = hub
         phoneCard.anchorOf = { [weak self] in self?.sidebar.footButtons["side.phone"] }
         phoneCard.toast = { [weak self] s in self?.toast(s) }
@@ -488,7 +489,7 @@ final class Board: NSObject {
     }
 
     /// The Settings window (SettingsWindow.swift), on the shared settings file (offscreen: in memory, or RAVENRY_DESKTOP_DATA's).
-    private(set) lazy var settings = SettingsWindow(store: SettingsStore(offscreen: !keep), hub: hub, offscreen: !keep)
+    private(set) lazy var settings = SettingsWindow(store: ws.settings, hub: hub, offscreen: !keep)
     func openSettings(_ tab: String? = nil) {
         settings.show(tab)
         log.append("settings \(settings.tab)")
@@ -814,7 +815,7 @@ final class Board: NSObject {
         root.sideWidth = sideHidden ? 0 : sideWidth
         root.panelMode = panelVisible ? (overlay || !wide ? .overlay : .docked) : .hidden
         panel.isOverlay = root.panelMode == .overlay
-        let bg = sideHidden ? Design.termBg : Design.color("win")
+        let bg = sideHidden ? Design.tbg : Design.color("win")
         if ws.window.backgroundColor != bg { ws.window.backgroundColor = bg }
         let fk = frontKey
         var page: String? = nil

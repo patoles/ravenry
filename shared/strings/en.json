@@ -574,5 +574,14 @@
   "phone.accessFailed": "Phone access did not change.",
   "phone.renameFailed": "The name did not change.",
   "phone.revokeFailed": "It was not signed out.",
-  "phone.newKeyFailed": "No new key."
+  "phone.newKeyFailed": "No new key.",
+  "close.title.tab": "Close this tab?",
+  "close.title.pane": "Close this pane?",
+  "close.body": "{shell} is running {cmd}. Close it anyway?",
+  "close.note": "Closing ends it and everything it started.",
+  "close.dont": "Don't ask again",
+  "close.cancel": "Cancel",
+  "close.close": "Close",
+  "close.aprogram": "a program",
+  "close.theshell": "The shell"
 }

@@ -206,8 +206,8 @@ final class TabItem: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    private var fg: NSColor { model.active ? Design.termFg : (hover ? Design.tx : Design.tx2) }
-    private var fg3: NSColor { model.active ? Design.termFg.withAlphaComponent(0.55) : Design.tx3 }
+    private var fg: NSColor { model.active ? Design.tfg : (hover ? Design.tx : Design.tx2) }
+    private var fg3: NSColor { model.active ? Design.tfg.withAlphaComponent(0.55) : Design.tx3 }
     private func nameText() -> NSAttributedString { NSAttributedString(string: model.name, attributes: [.font: Design.tabFont, .foregroundColor: fg]) }
     private func subText() -> NSAttributedString? { model.sub.map { NSAttributedString(string: $0, attributes: [.font: Design.tabFont, .foregroundColor: fg3]) } }
     private static let badge = NSAttributedString(string: "2", attributes: [.font: Design.tabFont])
@@ -260,7 +260,7 @@ final class TabItem: NSView {
 
     override func draw(_ dirty: NSRect) {
         if model.active {
-            Design.termBg.setFill()
+            Design.tbg.setFill()
             let r = Design.tabRadius
             let p = NSBezierPath()
             let b = bounds
