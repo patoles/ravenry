@@ -55,10 +55,37 @@ extension SelfTestBoard {
         check("review_clean", shows(rv, "No clashes with main") && shows(rv, "2 files, +5 −1") && shows(rv, "Sync settings, ready to merge"), texts(rv).prefix(10).joined(separator: " | "))
         rv.select("app/sync.js")
         check("review_file_picked", rv.sel == "app/sync.js" && rv.lines["new:3"] != nil && rv.lines["old:2"] != nil, rv.lines.keys.sorted().joined(separator: ","))
-        // Pressed (as VoiceOver and a click on its number do): a comment on that line.
-        _ = rv.lines["new:3"]?.accessibilityPerformPress()
-        settle(0.2)
-        check("review_compose_on_line", rv.composing?.line == 3 && rv.composing?.side == "new" && rv.composer != nil)
+        // Left alone, it is not drawn again (the board's states and the comments read every 3 s change nothing).
+        let d0 = rv.draws
+        settle(7)
+        check("review_not_redrawn_idle", rv.draws == d0, "drawn \(rv.draws - d0) times in 7 s")
+        // A single click on a line's words reaches it (docked beside the panel) but is not a comment,
+        // as in the Electron app, where the number is the button; a double click there is.
+        if let ln = rv.lines["new:2"] {
+            let p0 = ln.presses
+            ln.scrollToVisible(ln.bounds)
+            click(ln, at: NSPoint(x: ln.bounds.midX, y: ln.bounds.midY))
+            check("review_click_words_reaches_line", ln.presses == p0 + 1 && rv.composing == nil, "presses \(ln.presses - p0)")
+            click(ln, at: NSPoint(x: ln.bounds.midX, y: ln.bounds.midY), count: 2)
+            check("review_double_click_words", wait(2) { rv.composing?.line == 2 }, "\(String(describing: rv.composing))")
+            rv.buttons["cancelComment"]?.performClick(nil)
+            settle(0.2)
+        } else { check("review_click_words_reaches_line", false, rv.lines.keys.sorted().joined(separator: ",")) }
+        // A click on its number, by the mouse: a comment on that line.
+        var hitName = "none"
+        if let ln = rv.lines["new:3"] {
+            ln.scrollToVisible(ln.bounds)
+            window.contentView?.layoutSubtreeIfNeeded()
+            let at = NSPoint(x: 17, y: ln.bounds.midY)
+            let w = ln.convert(at, to: nil)
+            if let root = window.contentView?.superview, let hv = root.hitTest(root.convert(w, from: nil)) {
+                var chain: [String] = []; var x: NSView? = hv
+                while let c = x { chain.append("\(type(of: c))\(c.isHidden ? "(hidden)" : "")"); x = c.superview }
+                hitName = "\(type(of: hv)) \(hv === ln ? "(the line)" : "") chain \(chain.joined(separator: "<")) front \(board.front) middle \(board.root.middle.map { "\(type(of: $0))" } ?? "nil") line in window \(ln.window != nil) at \(w) composing \(String(describing: rv.composing))"
+            }
+            click(ln, at: at)
+        }
+        check("review_compose_on_line", wait(2) { rv.composing?.line == 3 && rv.composing?.side == "new" && rv.composer != nil }, "hit \(hitName)")
         var n = hub.sentBodies.count
         rv.composer?.string = "Keep the check, but log when sync is off"
         rv.buttons["addComment"]?.performClick(nil)

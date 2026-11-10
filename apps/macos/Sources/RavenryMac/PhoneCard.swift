@@ -165,7 +165,7 @@ final class PhoneCard: Box, NSTextFieldDelegate {
     func paint() {
         let d = data
         let on = d?["access"] as? Bool ?? false
-        let sig = "\(busy)|\(editing ?? "")|\(d.map { NSDictionary(dictionary: $0).description.hashValue } ?? 0)"
+        let sig = "\(busy)|\(editing ?? "")|\(d.map { stableText($0).hashValue } ?? 0)"
         if sig == drawn { return }
         drawn = sig
         for v in stack.arrangedSubviews { stack.removeArrangedSubview(v); v.removeFromSuperview() }

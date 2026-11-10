@@ -66,7 +66,7 @@ final class AlertsPage: FormPage {
     override func redraw() {
         setHead(title: t("alerts.title"), src: t("alerts.src"))
         guard let a = setup else { draw("reading") { [wrap(t("alerts.reading"), Fonts.pt(13), "tx3")] }; return }
-        let sig = "\(busy)|\(open ?? "-")|\(NSDictionary(dictionary: a).description.hashValue)"
+        let sig = "\(busy)|\(open ?? "-")|\(stableText(a).hashValue)"
         draw(sig) { self.rows(a) }
     }
 

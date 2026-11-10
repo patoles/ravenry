@@ -237,8 +237,17 @@ final class DiffLine: Box {
     /// The press is the line's, not its words' (a label would keep it).
     override func hitTest(_ p: NSPoint) -> NSView? { frame.contains(p) ? self : nil }
     override func accessibilityPerformPress() -> Bool { onComment?(); return true }
-    override func mouseDown(with e: NSEvent) { if e.clickCount >= 2 || convert(e.locationInWindow, from: nil).x < 62 { onComment?() } }
+    /// The presses it got, for the self-test (a press on its words is not a comment: it takes a double click there).
+    private(set) var presses = 0
+    override func mouseDown(with e: NSEvent) { presses += 1; if e.clickCount >= 2 || convert(e.locationInWindow, from: nil).x < 62 { onComment?() } }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+}
+
+/// JSON with sorted keys: the same for equal values, whatever order their dictionaries keep.
+func stableText(_ v: Any?) -> String {
+    guard let v, !(v is NSNull) else { return "" }
+    if JSONSerialization.isValidJSONObject(v), let d = try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys]) { return String(decoding: d, as: UTF8.self) }
+    return String(describing: v)
 }
 
 /// The review in the middle (33 A): its files on the left, the diff on the right.
@@ -266,6 +275,8 @@ final class ReviewView: Box {
     /// What the self-test presses.
     private(set) var buttons: [String: RButton] = [:]
     private(set) var lines: [String: DiffLine] = [:]
+    /// How many times it was drawn again, for the self-test.
+    private(set) var draws = 0
     private(set) var composer: KeyTextView?
     private var timer: Timer?
 
@@ -337,11 +348,15 @@ final class ReviewView: Box {
     func draw() {
         guard let p = project, let s = session else { return }
         // Drawn again only when what it shows changed (the board draws at every state; a comment being typed stays).
-        let sig = [String(describing: diff?["diff"] ?? ""), String(describing: diff?["check"] ?? ""), String(describing: comments), sel ?? "",
-                   composing.map { "\($0.file):\($0.line):\($0.side)" } ?? "", "\(busy)", String(describing: s.worktree ?? [:]), s.state, s.topic ?? "", p.name,
+        // Said with sorted keys: a dictionary's description lists its keys in no fixed order, so two
+        // equal answers read apart said different things and the review was built again every few
+        // seconds, the line or button under the pointer swapped for a new one mid-press.
+        let sig = [diff?["diff"] as? String ?? "", stableText(diff?["check"]), stableText(comments), sel ?? "",
+                   composing.map { "\($0.file):\($0.line):\($0.side)" } ?? "", "\(busy)", stableText(s.worktree), s.state, s.topic ?? "", p.name,
                    effectiveAppearance.name.rawValue].joined(separator: "|")
         if sig == drawn { return }
         drawn = sig
+        draws += 1
         buttons = [:]
         let d = diff
         let wt = s.worktree

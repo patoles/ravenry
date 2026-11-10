@@ -200,7 +200,7 @@ final class MachinesPage: FormPage {
         let addB: RButton? = adding ? nil : RButton(t("mach.add"), .primary, small: true) { [weak self] in self?.openAdd() }
         buttons["add"] = addB
         setHead(title: t("mach.title"), src: t("mach.src"), extra: [addB].compactMap { $0 }, closable: false)
-        let sig = "\(adding)|\(addError ?? "")|\(confirm ?? "")|\(folded.sorted())|\(errors)|\(working.sorted())|\(loaded)|\((list as NSArray).description.hashValue)|\(hosts)|\(typed("m-host"))"
+        let sig = "\(adding)|\(addError ?? "")|\(confirm ?? "")|\(folded.sorted())|\(errors)|\(working.sorted())|\(loaded)|\(stableText(list).hashValue)|\(hosts)|\(typed("m-host"))"
         draw(sig) { self.rows() }
     }
 

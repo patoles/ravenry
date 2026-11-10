@@ -128,7 +128,7 @@ final class PlanPage: FormPage {
         else if running && st == "paused" { let b = RButton(t("plan.resume")) { [weak self] in self?.post("resume") }; b.isEnabled = busy.isEmpty; buttons["resume"] = b; extra.append(b) }
         else { buttons["pause"] = nil; buttons["resume"] = nil }
         let ttl = plan["title"] as? String ?? t("panel.plan")
-        let sig = "\(project)|\(ttl)|\(st)|\(busy)|\(running)|\(gate.map { "\($0)" } ?? "")|" + steps.map { "\($0["state"] ?? "")\($0["text"] ?? "")\($0["proofs"] ?? "")" }.joined(separator: ",") + "|\(plan["goal"] ?? "")|\(p.sessions.count)"
+        let sig = "\(project)|\(ttl)|\(st)|\(busy)|\(running)|\(stableText(gate))|" + steps.map { "\($0["state"] ?? "")\($0["text"] ?? "")\(stableText($0["proofs"]))" }.joined(separator: ",") + "|\(stableText(plan["goal"]))|\(p.sessions.count)"
         setHeadPill(ttl, pillV, extra)
         draw(sig) {
             var rows: [NSView] = []
@@ -203,7 +203,7 @@ final class PlanPage: FormPage {
         let d = draftFor == project ? draft : nil
         let steps = d?["steps"] as? [[String: Any]] ?? []
         let busyD = d?["busy"] as? [String: Any]
-        let sig = "new|\(project)|\(busy)|\(d.map { "\($0)" } ?? "-")|\(p?.brief.map { "\($0["plan"] ?? "")\($0["goal"] ?? "")" } ?? "")"
+        let sig = "new|\(project)|\(busy)|\(d.map { stableText($0) } ?? "-")|\(p?.brief.map { stableText($0["plan"]) + stableText($0["goal"]) } ?? "")"
         draw(sig) {
             if let bz = busyD {
                 let who = bz["who"] as? String == "codex" ? "Codex" : "Claude"
