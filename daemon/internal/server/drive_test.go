@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -420,5 +421,158 @@ func TestGatheredKeysAreSentAgainGrown(t *testing.T) {
 	ins := inputs(t, person, p.ID)
 	if len(ins) != 1 || ins[0].Text != "sleep 600<Enter>" {
 		t.Fatalf("the input log: %+v", ins)
+	}
+}
+
+// A display's reports to the program are not typing (2026-11-10: the
+// panel's "Typed here" showed "You <Esc>[I", the focus report a window
+// sends when it gains focus). The program gets every byte; the log only
+// what was typed.
+func TestDisplayReportsAreNotTyping(t *testing.T) {
+	d := startDaemon(t)
+	person := d.dial(client.Options{Name: "app"})
+	argv, env := testprog.Command("rawecho")
+	p := newPane(t, person, map[string]any{"command": argv, "env": env})
+	waitFor(t, person, p.ID, `ready`, 0)
+	sub := call[proto.SubscribeResult](t, person, "pane.subscribe", map[string]any{"pane": p.ID})
+	sent := []string{"\x1b[I", "\x1b[12;40R", "\x1b[?62;22c", "l", "s", "\r"}
+	for _, k := range sent {
+		frame := proto.AppendFrame(nil, proto.FrameInput, sub.Channel, 0)
+		if err := person.WriteBinary(ctx(t), append(frame, k...)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	waitFor(t, person, p.ID, `read "[^"]*\\r"`, 0)
+	// The program read every byte, in order.
+	rd := call[proto.ReadResult](t, person, "pane.read", map[string]any{"pane": p.ID, "since": 0})
+	got := ""
+	for _, m := range regexp.MustCompile(`read ("(?:[^"\\]|\\.)*")`).FindAllStringSubmatch(*rd.Text, -1) {
+		u, err := strconv.Unquote(m[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		got += u
+	}
+	if want := strings.Join(sent, ""); got != want {
+		t.Fatalf("the program read %q, want %q", got, want)
+	}
+	// The log: one record, the typing.
+	var ins []proto.InputRecord
+	for range 50 {
+		if ins = inputs(t, person, p.ID); len(ins) == 1 && ins[0].Text == "ls<Enter>" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(ins) != 1 || ins[0].Text != "ls<Enter>" || ins[0].Shown != "ls" || ins[0].Source.Kind != "person" {
+		t.Fatalf("the input log: %+v", ins)
+	}
+
+	// What Typed here shows: the line entered, edited; nothing for a lone
+	// Esc or a menu answered with arrows. Text keeps every key.
+	typeKeys := func(keys ...string) proto.InputRecord {
+		t.Helper()
+		before := len(inputs(t, person, p.ID))
+		for _, k := range keys {
+			frame := proto.AppendFrame(nil, proto.FrameInput, sub.Channel, 0)
+			if err := person.WriteBinary(ctx(t), append(frame, k...)); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		for range 100 {
+			if ins := inputs(t, person, p.ID); len(ins) > before && ins[len(ins)-1].Bytes == len(strings.Join(keys, "")) {
+				return ins[len(ins)-1]
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("no record for %q: %+v", keys, inputs(t, person, p.ID))
+		return proto.InputRecord{}
+	}
+	for _, c := range []struct {
+		keys        []string
+		text, shown string
+	}{
+		{[]string{"l", "s", "x", "\x7f", "\r"}, "lsx<Backspace><Enter>", "ls"},
+		{[]string{"\x1b"}, "<Esc>", ""},
+		{[]string{"\x1b[B", "\x1b[B", "\r"}, "<Down><Down><Enter>", ""},
+	} {
+		time.Sleep(2100 * time.Millisecond) // a new record, not gathered into the last
+		if r := typeKeys(c.keys...); r.Text != c.text || r.Shown != c.shown {
+			t.Errorf("typed %q: text %q shown %q, want %q and %q", c.keys, r.Text, r.Shown, c.text, c.shown)
+		}
+	}
+
+	// A display that may not drive: its focus reports are dropped, with no
+	// error and no question; its typing still asks.
+	target := newPane(t, person, map[string]any{"command": argv, "env": env, "name": "target"})
+	waitFor(t, person, target.ID, `ready`, 0)
+	agent := agentPane(t, person,
+		fmt.Sprintf(`pane.subscribe {"pane":%q}`, target.ID),
+		fmt.Sprintf(`INPUT 1 %q`, "\x1b[I"),
+		fmt.Sprintf(`INPUT 1 %q`, "\x1b[O\x1b[?1;2c"),
+		`pane.list {}`,
+		fmt.Sprintf(`INPUT 1 %q`, "x"),
+		`pane.list {}`,
+	)
+	waitFor(t, person, agent.ID, `steps done`, 0)
+	out := *call[proto.ReadResult](t, person, "pane.read", map[string]any{"pane": agent.ID, "since": 0}).Text
+	if strings.Count(out, "async ") != 1 || !regexp.MustCompile(`step 4 ok\s+async forbidden`).MatchString(out) {
+		t.Fatalf("the agent's display: only its typing is refused:\n%s", out)
+	}
+	cp := openDrive(t, person, target.ID, agent.ID)
+	if cp.Drive.Input != "x" {
+		t.Fatalf("the question: %+v", cp.Drive)
+	}
+	if ins := inputs(t, person, target.ID); len(ins) != 0 {
+		t.Fatalf("the target's input log: %+v", ins)
+	}
+	if rd := call[proto.ReadResult](t, person, "pane.read", map[string]any{"pane": target.ID, "since": 0}); strings.Contains(*rd.Text, "read ") {
+		t.Fatalf("the target read input from a display that may not drive:\n%s", *rd.Text)
+	}
+	cps := call[proto.CheckpointListResult](t, person, "checkpoint.list", map[string]any{}).Checkpoints
+	if n := len(cps); n != 1 {
+		t.Fatalf("checkpoints: %+v", cps)
+	}
+}
+
+func TestTermReports(t *testing.T) {
+	for _, c := range []struct {
+		in, want string
+	}{
+		{"\x1b[I\x1b[O", ""},
+		{"\x1b[12;40R\x1b[?62;22c\x1b[>1;10;0c\x1b[?2004;1$y\x1b[?1u\x1b[0n\x1b[8;24;80t", ""},
+		{"\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\\x1b]10;rgb:ffff/ffff/ffff\x07", ""},
+		{"\x1bP>|xterm(390)\x1b\\\x1bP1$r0m\x1b\\\x1b_Gi=1;OK\x1b\\", ""},
+		{"\x1b[<0;10;5M\x1b[<0;10;5m\x1b[M !!\x1b[32;10;5M", ""},
+		{"\x1b[Ils\r", "ls<Enter>"},
+		{"\x1b[A\x1b[Z\x1b[97;5u\x1b", "<Up><Shift+Tab><Esc>[97;5u<Esc>"},
+		{"\x1b]", "<Esc>]"},
+		{"\x1bPa", "<Esc>Pa"},
+	} {
+		if got := visible([]byte(c.in)); got != c.want {
+			t.Errorf("visible(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	for _, c := range []struct{ in, want string }{
+		{"lsx\x7f\r", "ls"},
+		{"\x1b", ""},
+		{"\x1b[B\x1b[B\r", ""},
+		{"git commit -m wip\x17fix\r", "git commit -m fix"},
+		{"rm -rf /\x15echo hi\recho\x03\r", "echo hi"},
+		{"\x1b[200~one\rtwo\x1b[201~\r", "one\ntwo"},
+		{"\x1b[27u\x1b[97;5uab\x1b[127u\x1b[13u", "a"},
+		{"\x1bbcd\x1bOA\t\x1b[3~", "cd"},
+		{"\x1b[I\x1b[<0;3;4Mhalf", "half"},
+	} {
+		var e lineEditor
+		e.feed([]byte(c.in))
+		if got := e.String(); got != c.want {
+			t.Errorf("shown of %q = %q, want %q", c.in, got, c.want)
+		}
+	}
+	if !onlyAnswers([]byte("\x1b[I\x1b[1;1R")) || onlyAnswers([]byte("\x1b[<0;1;1M")) || onlyAnswers([]byte("\x1b[Ia")) || onlyAnswers(nil) {
+		t.Error("onlyAnswers")
 	}
 }

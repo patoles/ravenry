@@ -4875,6 +4875,11 @@
           "maxLength": 8192,
           "description": "What was typed, for people: text as it was, keys as <Name>. Absent for a secret, and when masked."
         },
+        "shown": {
+          "type": "string",
+          "maxLength": 8192,
+          "description": "What a window shows of it: the lines entered after line editing (Backspace, Ctrl+U, Ctrl+W), without keys that type nothing (arrows, Esc, Tab, focus and other terminal reports). Empty when there is nothing to show (a menu answered with arrows and Enter, a lone Esc) and for a secret; masked as text is."
+        },
         "masked": {
           "type": "boolean"
         },

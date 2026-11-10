@@ -1108,7 +1108,16 @@ less than 2 s apart; `secret` for a secret a person gave through a
 checkpoint; `restart` for `pane.restart` with `shell_command`), `mark`
 (the output position just before it), `bytes`, `text` (what it typed,
 for people: text as it was, control keys as `<Enter>`, `<Ctrl+C>`,
-`<Up>`), `masked` (true when text was left out or masked: always for a
+`<Up>`; a display's reports to the program, such as focus in and out,
+the cursor's position, the mouse and answers to its queries, are not
+typing and are left out, and an input that is only those is not logged),
+`shown` (what a window shows of it: the lines entered, after line editing
+(Backspace and Ctrl+H take back a character, Ctrl+U and Ctrl+C the line,
+Ctrl+W a word), a paste as its text, and nothing for keys that type
+nothing (arrows, Home, End, Tab, Esc, Alt keys); empty when nothing is
+left, as for a menu answered with arrows and Enter or a lone Esc, and for
+a secret; a window does not list a record whose `shown` is empty and
+which is not masked), `masked` (true when text was left out or masked: always for a
 secret, everything typed while the program reads a line without echo,
 which is a password prompt, and the pane's secrets wherever they
 appear), `truncated` (text cut at 4 KiB), `until` (a gathered `keys`

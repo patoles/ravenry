@@ -715,7 +715,7 @@ func (c *conn) checkpointAnswer(id uint64, data []byte) {
 		n := len(in)
 		clear(in)
 		if err == nil {
-			s.logInput(p, who{person: true, src: proto.Source{Kind: srcPerson, By: r.By}}, "secret", mark, n, "", true)
+			s.logInput(p, who{person: true, src: proto.Source{Kind: srcPerson, By: r.By}}, "secret", mark, n, "", true, nil)
 		}
 		if err != nil {
 			s.closeCheckpoint(cp.ID, stAnswered, stAnswered, nil, "the pane closed before the secret was typed")
@@ -781,7 +781,7 @@ func (s *Server) startRun(cp proto.Checkpoint, ans *proto.CheckpointAnswer, secr
 		p.AddSecret(bytes.TrimRight(typed, "\r"))
 		go func() {
 			if mark, n := typeWhenWaiting(p, typed); n > 0 {
-				s.logInput(p, who{person: true, src: proto.Source{Kind: srcPerson, By: ans.By}}, "secret", mark, n, "", true)
+				s.logInput(p, who{person: true, src: proto.Source{Kind: srcPerson, By: ans.By}}, "secret", mark, n, "", true, nil)
 			}
 		}()
 	}

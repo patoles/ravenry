@@ -384,18 +384,31 @@ final class PanelView: Box {
 
     private func typedHere(_ pane: String) -> NSView? {
         guard let recs = host?.inputs(pane) else { return nil }
-        let last = recs.suffix(4).reversed()
+        let last = recs.compactMap { r in PanelView.shown(r).map { (r, $0) } }.suffix(4).reversed()
         var rows: [NSView?] = []
         if last.isEmpty { rows.append(label(t("page.nothingTyped"), Fonts.pt(12), "tx3")) }
-        for r in last {
+        for (r, text) in last {
             let src = r["source"] as? [String: Any] ?? [:]
             let person = src["kind"] as? String == "person"
             let who = person ? "You" : (src["name"] as? String ?? (src["agent"] as? String) ?? "An agent")
-            let text = (r["masked"] as? Bool ?? false) && (r["text"] as? String ?? "").isEmpty ? "Hidden: a password or a secret" : (r["text"] as? String ?? "")
             rows.append(hstack([label(When.clock(r["at"] as? String), Fonts.pt(11.5).withTabularDigits, "tx3"), label(who, Fonts.pt(12, .semibold), person ? "tx" : "work"),
                                 label(text.replacingOccurrences(of: "\r", with: " ⏎ ").replacingOccurrences(of: "\n", with: " ⏎ "), Fonts.mono(11.5), "tx2")], spacing: 6))
         }
         return sec(t("panel.typedHere"), rows)
+    }
+
+    /// What Typed here shows of a record: the daemon's `shown`, the lines
+    /// entered with no keys that type nothing; nil when there is nothing
+    /// to show (a menu answered with arrows, a lone Esc). An older daemon
+    /// sends no `shown`: its text, without the focus reports it logged.
+    static func shown(_ r: [String: Any]) -> String? {
+        let text = r["text"] as? String ?? "", masked = r["masked"] as? Bool ?? false
+        if masked && text.isEmpty && (r["shown"] as? String ?? "").isEmpty { return "Hidden: a password or a secret" }
+        guard let s = r["shown"] as? String else {
+            let t = text.replacingOccurrences(of: "<Esc>[I", with: "").replacingOccurrences(of: "<Esc>[O", with: "")
+            return t.isEmpty ? nil : t
+        }
+        return s.isEmpty ? nil : s
     }
 
     // MARK: a project, a shell

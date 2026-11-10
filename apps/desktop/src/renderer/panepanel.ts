@@ -93,7 +93,7 @@ function choice(pane: string, g: Grant | null, ctx: PaneCtx): HTMLElement {
 /** 6 C: what was typed here, newest first. */
 export function typedHere(pane: string, ctx: PaneCtx): HTMLElement {
   const u = ui(pane);
-  const all = ctx.store.inputsOf(pane);
+  const all = ctx.store.inputsOf(pane).filter((r) => shownParts(r) !== null);
   const list = all.filter((r) => (u.filter === 'all' ? true : u.filter === 'you' ? r.source.kind === 'person' : r.source.kind !== 'person')).slice().reverse();
   const shown = u.whole ? list.slice(0, 200) : list.slice(0, 4);
   const seg = (f: UI['filter'], label: string) => h(`button${u.filter === f ? '.on' : ''}`, { on: { click: () => { u.filter = f; ctx.rerender(); } } }, label);
@@ -103,11 +103,27 @@ export function typedHere(pane: string, ctx: PaneCtx): HTMLElement {
     list.length > 4 ? h('button.lk.self', { on: { click: () => { u.whole = !u.whole; ctx.rerender(); } } }, u.whole ? 'Show the last few' : 'Open the whole log') : null);
 }
 
+/**
+ * What "Typed here" shows of a record: the daemon's `shown`, the lines
+ * entered with no keys that type nothing; null when there is nothing to
+ * show (a menu answered with arrows, a lone Esc). An older daemon sends no
+ * `shown`: its text, without the focus reports it logged.
+ */
+function shownParts(r: InputRecord): { kind: 'text' | 'key'; text: string }[] | null {
+  if (r.masked && !r.text && !r.shown) return [{ kind: 'text', text: 'Hidden: a password or a secret' }];
+  if (r.shown === undefined) {
+    const t = (r.text || '').replace(/<Esc>\[[IO]/g, '');
+    return t ? inputParts(t) : null;
+  }
+  if (!r.shown) return null;
+  return r.shown.split('\n').flatMap((l, i) => (i ? [{ kind: 'key' as const, text: 'Enter' }, { kind: 'text' as const, text: l }] : [{ kind: 'text' as const, text: l }]));
+}
+
 function record(pane: string, r: InputRecord, ctx: PaneCtx): HTMLElement {
   const person = r.source.kind === 'person';
   const w = person ? { who: 'You', where: null, cls: 'you' } : ctx.source(r.source);
   const note = person ? (r.lease_holder ? `While ${ctx.source(r.lease_holder).who} had it` : null) : ctx.letNote(pane, r);
-  const parts = r.masked && !r.text ? [{ kind: 'text' as const, text: 'Hidden: a password or a secret' }] : inputParts(r.text);
+  const parts = shownParts(r) || [];
   return h('div.tl',
     h('span.tl-t.num', ctx.time(r.at)),
     h('div.wh', h(`span.${w.cls}`, w.who), w.where ? h('span.as-tag', w.where) : null),

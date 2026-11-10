@@ -30,7 +30,9 @@
 //	          lines of $RAVENRY_TESTPROG_STEPS, one call each
 //	          ("METHOD JSON"), printing "step <n> ok <result JSON>" or
 //	          "step <n> <error code> <checkpoint>"; $PANE in a line is the
-//	          pane the previous pane.new made; then sleeps
+//	          pane the previous pane.new made; a line "INPUT <channel>
+//	          <Go-quoted bytes>" sends an input frame as a display does; an
+//	          error with no request's id prints "async <code>"; then sleeps
 package testprog
 
 import (
@@ -41,6 +43,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -48,6 +51,7 @@ import (
 	"golang.org/x/term"
 
 	"ravenryd/internal/client"
+	"ravenryd/internal/proto"
 )
 
 // Env is the variable that selects a program.
@@ -206,7 +210,19 @@ func agentSteps() {
 	if name == "" {
 		name = "agent"
 	}
-	c, err := client.Dial(ctx, os.Getenv("RAVENRY_SOCKET"), client.Options{Name: name})
+	// An error the daemon sends with no request's id (a refused input
+	// frame) is printed as "async <code>".
+	tap := func(dir string, text bool, data []byte) {
+		var m struct {
+			Type  string                 `json:"type"`
+			ID    *uint64                `json:"id"`
+			Error *struct{ Code string } `json:"error"`
+		}
+		if dir == "recv" && text && json.Unmarshal(data, &m) == nil && m.Type == "error" && m.ID == nil && m.Error != nil {
+			fmt.Printf("async %s\n", m.Error.Code)
+		}
+	}
+	c, err := client.Dial(ctx, os.Getenv("RAVENRY_SOCKET"), client.Options{Name: name, OnMessage: tap})
 	if err != nil {
 		fmt.Println("error", err)
 		os.Exit(1)
@@ -220,6 +236,22 @@ func agentSteps() {
 		}
 		method, params, _ := strings.Cut(line, " ")
 		params = strings.ReplaceAll(params, "$PANE", made)
+		if method == "INPUT" {
+			// "INPUT <channel> <Go-quoted bytes>": an input frame, as a display sends.
+			chs, q, _ := strings.Cut(params, " ")
+			ch, err1 := strconv.ParseUint(chs, 10, 32)
+			b, err2 := strconv.Unquote(q)
+			if err := errors.Join(err1, err2); err != nil {
+				fmt.Printf("step %d error %v\n", i, err)
+				continue
+			}
+			if err := c.WriteBinary(ctx, append(proto.AppendFrame(nil, proto.FrameInput, uint32(ch), 0), b...)); err != nil {
+				fmt.Printf("step %d error %v\n", i, err)
+				continue
+			}
+			fmt.Printf("step %d ok\n", i)
+			continue
+		}
 		var out map[string]any
 		err := c.Call(ctx, method, json.RawMessage(params), &out)
 		var ce *client.Error

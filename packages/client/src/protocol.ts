@@ -169,6 +169,8 @@ export interface InputRecord {
   bytes: number;
   /** Absent for a secret and when masked (a password prompt). */
   text?: string;
+  /** What a window shows: the lines entered after line editing, no keys that type nothing; '' when nothing (a menu answered with arrows, a lone Esc). Absent from an older daemon. */
+  shown?: string;
   masked?: boolean;
   truncated?: boolean;
   until?: string;

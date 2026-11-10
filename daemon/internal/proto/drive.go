@@ -34,7 +34,13 @@ type InputRecord struct {
 	// <Name>. Left out for a secret, and masked (Masked) where the
 	// terminal did not echo (a password prompt) or a secret of the pane
 	// appears.
-	Text      string `json:"text,omitempty"`
+	Text string `json:"text,omitempty"`
+	// Shown is what "Typed here" shows: the lines entered, after the
+	// line editing (Backspace, Ctrl+U, Ctrl+W), with no keys that type
+	// nothing (arrows, Esc, Tab, focus and other reports); "" when there
+	// is nothing to show (a menu answered with arrows and Enter, a lone
+	// Esc), and for a secret. Masked as Text is.
+	Shown     string `json:"shown"`
 	Masked    bool   `json:"masked,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
 	// LeaseHolder: the person typed while this other driver held the

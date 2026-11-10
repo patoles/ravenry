@@ -516,7 +516,7 @@ func (c *conn) paneRestart(id uint64, data []byte) {
 				return
 			}
 			text, masked := inputText(p, "<Ctrl+C> "+visible([]byte(rr.Command))+"<Enter>")
-			c.s.logInput(p, w, "restart", mark, len(rr.Command)+2, text, masked)
+			c.s.logInput(p, w, "restart", mark, len(rr.Command)+2, text, masked, feedBytes(p, []byte("\x03"+rr.Command+"\r")))
 			pi := c.s.paneInfo(p.Info())
 			c.reply(id, "pane.restart", proto.RestartResult{Pane: pi, Replaced: pi, Command: rr.Command, Mark: &rr.Mark, StoppedBy: rr.StoppedBy})
 		})

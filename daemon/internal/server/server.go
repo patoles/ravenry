@@ -518,12 +518,24 @@ func (c *conn) binary(data []byte) {
 func (c *conn) keys(st *stream, b []byte) {
 	w := c.whoKeys()
 	if ok, lease := c.s.mayDrive(w, st.p.ID()); !ok {
+		if onlyAnswers(b) {
+			// A display's answers to the program (its focus, the cursor's
+			// position, its attributes) are nobody acting: from a display
+			// that may not drive they are dropped, with no refusal and no
+			// question to the person, so it does not tell the program
+			// anything the drivers' displays did not.
+			return
+		}
 		// Keystrokes cannot wait: refused, and the person is asked.
+		preview := visible(b)
+		if preview == "" {
+			preview = "<Mouse>"
+		}
 		var err error
 		if lease != nil {
 			err = leaseError(st.p.ID(), *lease)
 		} else {
-			err = c.allowInput(c.ctx, st.p, w, visible(b), true)
+			err = c.allowInput(c.ctx, st.p, w, preview, true)
 		}
 		var de driveErr
 		var le leasedErr
@@ -541,10 +553,14 @@ func (c *conn) keys(st *stream, b []byte) {
 		}
 	}
 	c.queueInput(func() {
-		text, masked := inputText(st.p, visible(b))
+		// The program gets every byte; the log only what was typed (no
+		// focus, cursor, mouse or answer reports), and nothing when that
+		// is nothing.
+		typed := visible(b)
+		text, masked := inputText(st.p, typed)
 		mark := st.p.Mark()
-		if st.p.Input(b) == nil {
-			c.s.logInput(st.p, w, "keys", mark, len(b), text, masked)
+		if st.p.Input(b) == nil && typed != "" {
+			c.s.logInput(st.p, w, "keys", mark, len(b), text, masked, feedBytes(st.p, b))
 		}
 	})
 }
@@ -1433,9 +1449,10 @@ func (c *conn) sendLogged(ctx context.Context, p *pane.Pane, w who, items []pane
 		}
 	}
 	logged, masked := inputText(p, text)
+	feed := feedItems(p, items)
 	res, err := p.Send(ctx, items)
-	if res.Bytes > 0 {
-		c.s.logInput(p, w, "send", res.Mark, res.Bytes, logged, masked)
+	if res.Bytes > 0 && text != "" {
+		c.s.logInput(p, w, "send", res.Mark, res.Bytes, logged, masked, feed)
 	}
 	return res, err
 }

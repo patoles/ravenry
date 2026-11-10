@@ -93,6 +93,9 @@ type paneMeta struct {
 	inputBytes int
 	keysConn   *conn
 	keysAt     time.Time
+	// keysEdit replays the gathered keys record's keystrokes for its
+	// Shown (shown.go).
+	keysEdit *lineEditor
 	// keysTell sends a gathered keys record again once it stops growing.
 	keysTell *time.Timer
 
@@ -474,10 +477,16 @@ func newGrantID() string {
 // ------------------------------------------------------------ the input log
 
 // visible writes typed bytes for people: text as it is, newlines and
-// tabs kept, control keys as <Name>.
+// tabs kept, control keys as <Name>. A display's reports to the program
+// (focus, cursor position, mouse, answers to its queries) are not typing
+// and are left out.
 func visible(b []byte) string {
 	var o strings.Builder
 	for len(b) > 0 {
+		if n, _ := termReport(b); n > 0 {
+			b = b[n:]
+			continue
+		}
 		if b[0] == 0x1b {
 			matched := false
 			for _, k := range escNames {
@@ -528,6 +537,126 @@ var escNames = []struct{ seq, name string }{
 	{"\x1b[Z", "Shift+Tab"},
 }
 
+// termReport reports whether b starts with what a terminal sends back to
+// the program rather than what a person types: focus in and out (CSI I,
+// CSI O, mode 1004), a cursor position (CSI row;col R), device attributes
+// (CSI ? ... c, CSI > ... c, CSI = ... c), a status or colour scheme
+// (CSI ... n), window reports (CSI ... t), mode reports (CSI ... $ y),
+// Kitty keyboard flags (CSI ? flags u), mouse reports (SGR CSI < ... M or
+// m, urxvt CSI b;x;y M, X10 CSI M and 3 bytes), and the OSC (colours,
+// clipboard), DCS (XTVERSION, DECRQSS, XTGETTCAP) and APC (Kitty graphics)
+// answers, each with its terminator in b. It returns its length (0: not
+// one) and whether it is a mouse report, which is the person acting (a
+// click) where the others only answer.
+// An OSC, DCS or APC needs its terminator in the same input and starts as
+// an answer does, so Alt+], Alt+Shift+P or Alt+_ typed alone stay keys.
+func termReport(b []byte) (n int, mouse bool) {
+	if len(b) < 3 || b[0] != 0x1b {
+		return 0, false
+	}
+	switch b[1] {
+	case '[':
+		return csiReport(b)
+	case ']':
+		if isDigit(b[2]) {
+			return stringReport(b)
+		}
+	case 'P':
+		if isDigit(b[2]) || strings.IndexByte(">!=$+", b[2]) >= 0 {
+			return stringReport(b)
+		}
+	case '_':
+		if b[2] == 'G' {
+			return stringReport(b)
+		}
+	}
+	return 0, false
+}
+
+func csiReport(b []byte) (int, bool) {
+	i := 2
+	for i < len(b) && b[i] >= 0x30 && b[i] <= 0x3f {
+		i++
+	}
+	params := string(b[2:i])
+	j := i
+	for j < len(b) && b[j] >= 0x20 && b[j] <= 0x2f {
+		j++
+	}
+	inter := string(b[i:j])
+	if j >= len(b) || b[j] < 0x40 || b[j] > 0x7e {
+		return 0, false
+	}
+	final, n := b[j], j+1
+	lead := byte(0)
+	if params != "" && strings.IndexByte("<=>?", params[0]) >= 0 {
+		lead = params[0]
+	}
+	switch {
+	case inter == "$" && final == 'y':
+		return n, false
+	case inter != "":
+		return 0, false
+	case params == "" && (final == 'I' || final == 'O'):
+		return n, false
+	case params == "" && final == 'M':
+		if len(b) >= n+3 && b[n] >= 0x20 && b[n+1] >= 0x20 && b[n+2] >= 0x20 {
+			return n + 3, true
+		}
+		return 0, false
+	case lead == '<' && (final == 'M' || final == 'm'):
+		return n, true
+	case lead == 0 && final == 'M' && strings.Count(params, ";") == 2:
+		return n, true
+	case final == 'R' && (lead == 0 || lead == '?') && strings.Contains(params, ";"):
+		return n, false
+	case final == 'c' && (lead == '?' || lead == '>' || lead == '='):
+		return n, false
+	case final == 'u' && lead == '?':
+		return n, false
+	case final == 'n' || final == 't':
+		return n, false
+	}
+	return 0, false
+}
+
+// stringReport is an OSC, DCS or APC up to its terminator (BEL, or ESC \),
+// all printable between.
+func stringReport(b []byte) (int, bool) {
+	for i := 2; i < len(b); i++ {
+		switch c := b[i]; {
+		case c == 0x07 && b[1] == ']':
+			return i + 1, false
+		case c == 0x1b:
+			if i+1 < len(b) && b[i+1] == '\\' {
+				return i + 2, false
+			}
+			return 0, false
+		case c < 0x20 || c == 0x7f:
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+// onlyAnswers reports whether b is nothing but a display's answers to the
+// program (reports other than the mouse's).
+func onlyAnswers(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for len(b) > 0 {
+		n, mouse := termReport(b)
+		if n == 0 || mouse {
+			return false
+		}
+		b = b[n:]
+	}
+	return true
+}
+
 // itemsText is what a list of input items types, for people.
 func itemsText(items []pane.InputItem) string {
 	var o strings.Builder
@@ -553,8 +682,9 @@ func inputText(p *pane.Pane, text string) (string, bool) {
 
 // logInput adds a record to a pane's input log and tells the event
 // subscribers. Keystrokes from one display within keysGather of each
-// other gather into one record.
-func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, text string, masked bool) {
+// other gather into one record. feed gives what is shown (Shown) its
+// input, already masked; nil: nothing of it is shown.
+func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, text string, masked bool, feed func(*lineEditor)) {
 	d := s.drive
 	now := time.Now()
 	d.mu.Lock()
@@ -566,6 +696,13 @@ func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, 
 			last.Text += text
 			last.Masked = last.Masked || masked
 			last.Until = stamp(now)
+			if m.keysEdit == nil {
+				m.keysEdit = &lineEditor{}
+			}
+			if feed != nil {
+				feed(m.keysEdit)
+			}
+			last.Shown = m.keysEdit.String()
 			m.keysAt = now
 			m.inputBytes += len(text)
 			// The record grew: sent again (same seq) once the keys pause,
@@ -581,6 +718,11 @@ func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, 
 	}
 	d.inputSeq++
 	rec := proto.InputRecord{Seq: d.inputSeq, At: stamp(now), Source: w.src, Kind: kind, Mark: mark, Bytes: n, Text: text, Masked: masked}
+	edit := &lineEditor{}
+	if feed != nil {
+		feed(edit)
+	}
+	rec.Shown = edit.String()
 	if m.lease != nil && m.lease.key != w.key && now.Before(m.lease.expires) {
 		h := m.lease.l.Holder
 		rec.LeaseHolder = &h
@@ -590,9 +732,9 @@ func (s *Server) logInput(p *pane.Pane, w who, kind string, mark uint64, n int, 
 		rec.Truncated = true
 	}
 	if kind == "keys" {
-		m.keysConn, m.keysAt = w.conn, now
+		m.keysConn, m.keysAt, m.keysEdit = w.conn, now, edit
 	} else {
-		m.keysConn = nil
+		m.keysConn, m.keysEdit = nil, nil
 	}
 	m.inputs = append(m.inputs, rec)
 	m.inputBytes += len(rec.Text) + 128
