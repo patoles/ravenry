@@ -15,7 +15,7 @@ import type { HubProject, HubSession } from './model.ts';
 
 export interface Worktree { branch: string; folder: string; base?: string; baseBranch?: string | null; state: 'open' | 'merged' | 'discarded'; merged?: { mode: string; commit: string; before?: string; tip?: string; at: string } | null; branch_deleted_at?: string | null }
 export interface DiffFile { path: string; added: number; removed: number; status: string; binary?: boolean }
-export interface Diff { ok: boolean; files: DiffFile[]; diff: string; truncated?: boolean; uncommitted?: string[]; check?: { clean: boolean; conflicts: string[]; moved: number; ahead: number }; error?: string }
+export interface Diff { ok: boolean; files: DiffFile[]; diff: string; truncated?: boolean; uncommitted?: string[]; check?: { clean: boolean; conflicts: string[]; moved: number; ahead: number }; error?: string; lines?: Record<string, Line[]>; mergeMode?: 'ff' | 'merge' }
 
 export interface ReviewHost {
   call(method: 'GET' | 'POST', p: string, body?: unknown): Promise<{ status: number; body: unknown }>;
@@ -34,7 +34,7 @@ interface Line { kind: 'hunk' | 'add' | 'del' | 'ctx'; text: string; oldNo: numb
 const enc = (s: string) => encodeURIComponent(s);
 const hm = (iso: string) => { const d = new Date(iso); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 
-/** Splits a unified diff into its files' lines. */
+/** Splits a unified diff into its files' lines: an older hub's answer only (the hub sends `lines`, hub/server/reviewview.mjs). */
 export function parseDiff(text: string): Map<string, Line[]> {
   const out = new Map<string, Line[]>();
   let cur: Line[] | null = null;
@@ -102,7 +102,8 @@ export class Review {
     const r = await this.host.call('GET', `/api/sessions/${enc(this.surfaceId)}/diff`);
     this.loadedAt = this.host.now();
     this.diff = r.status === 200 ? r.body as Diff : { ok: false, files: [], diff: '', error: (r.body as { error?: string }).error || 'The board could not read its work.' };
-    this.files = parseDiff(this.diff.diff || '');
+    // Each file's lines as the hub split them (GET .../diff `lines`), else split here.
+    this.files = this.diff.lines ? new Map(Object.entries(this.diff.lines)) : parseDiff(this.diff.diff || '');
     this.known.set(this.surfaceId, { at: this.loadedAt, diff: this.diff, loading: false });
     if (!this.sel || !this.diff.files.some((f) => f.path === this.sel)) this.sel = this.diff.files[0]?.path || null;
     this.host.rerender();
@@ -128,7 +129,8 @@ export class Review {
     this.busy = true;
     this.host.rerender();
     try {
-      const mode = this.diff?.check && this.diff.check.moved > 0 ? 'merge' : 'ff';
+      // How it merges, as the hub says it (mergeMode), else from how far the base moved.
+      const mode = this.diff?.mergeMode || (this.diff?.check && this.diff.check.moved > 0 ? 'merge' : 'ff');
       const r = await this.host.call('POST', `/api/sessions/${enc(this.surfaceId)}/merge`, { mode });
       if (r.status !== 200) throw new Error((r.body as { error?: string }).error || `the board answered ${r.status}`);
       this.host.back();
