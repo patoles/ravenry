@@ -91,8 +91,9 @@ stream".
   does not draw (in cmux, iTerm2, Rex, or in a ravenryd this window is not
   on) read only in the middle with Open in and Move here (`Middle.swift`,
   its screen from `GET /api/live`), a project's page (Continue this
-  conversation, New session, Open brief), New session (a folder and an
-  assistant, for now), a page of the Electron app's own (the brief, the
+  conversation, New session, Open brief), New session (`StartView.swift`:
+  a folder and an assistant, its own copy of the code when another session
+  works there, and step 2 once per assistant), a page of the Electron app's own (the brief, the
   gallery, a plan, an idea, Alerts, the pages from files), or a page this
   window does not draw yet, named in a native placeholder. The middle's view is a tab
   after the others, as in the Electron app. A session in a pane of this
@@ -406,8 +407,7 @@ every screen (the bench, the self-test) writes only to
   the busiest terminal; no session on another machine (MACH-005 to
   MACH-007); Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
   (the panel has no card of its own for a page's run yet), a page's form
-  takes a date as text, and a sheet taller than the window is cut; New session is a
-  folder and an assistant, without the setup step or the worktree choice;
+  takes a date as text, and a sheet taller than the window is cut;
   a pinned session that runs outside gets no tab of its own; an ask card
   has no "Checked your decisions first"; Typed here has no filters or whole log;
   no panes it uses; no filmstrip; a shell's panel does not say what its agent reported.

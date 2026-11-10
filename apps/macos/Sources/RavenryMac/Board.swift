@@ -315,6 +315,16 @@ final class Board: NSObject {
             if let p = pane, let tb = self.ws.tab(showing: p) { self.front = .tab; self.hideMiddle(); self.ws.showAgain(tb); self.render(); return }
             if let k = key { self.pickSession(k, why: "start") } else { self.render() }
         }
+        start.onShell = { [weak self] folder in
+            guard let self else { return }
+            self.front = .tab; self.hideMiddle()
+            self.ws.newTab(in: folder)
+            self.render()
+        }
+        start.onCancel = { [weak self] in
+            guard let self else { return }
+            self.front = .tab; self.hideMiddle(); self.render()
+        }
         start.grid = { [weak self] in
             guard let v = self?.ws.focusedView else { return (100, 30) }
             return (v.screen.cols, v.screen.rows)
@@ -458,7 +468,7 @@ final class Board: NSObject {
         overlay = false
         front = .start
         showMiddle(start)
-        start.show(folder: folder ?? hub.state?.projects.first?.folder)
+        start.show(folder: folder)
         log.append("start")
         render()
     }

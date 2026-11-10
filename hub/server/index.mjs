@@ -3773,7 +3773,13 @@ async function handleRequest(req, res) {
     }
     if (req.method === 'GET' && p === '/api/project/folders') return sendJson(res, 200, projectFolders());
     // The first launch's Start screen (server/firstlaunch.mjs) and the Ravenry skill (server/skills.mjs).
-    if (req.method === 'GET' && p === '/api/setup/start') return sendJson(res, 200, { ok: true, ...firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') }) });
+    if (req.method === 'GET' && p === '/api/setup/start') {
+      // Each folder says whether a session already works in its project
+      // (`busy`: a new one there gets its own copy unless told otherwise).
+      const v = firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') });
+      for (const f of v.folders) { const b = sidebar.busyIn(snapshot.projects, f.path); if (b) f.busy = b; }
+      return sendJson(res, 200, { ok: true, ...v });
+    }
     if (req.method === 'GET' && p === '/api/setup/skills') {
       // ravenryd=<path> (on the Mac only): each row adds its hooks, on, off
       // or unavailable (skills.withHooks, a dry run of setting them up).

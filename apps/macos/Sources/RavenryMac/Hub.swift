@@ -242,6 +242,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     /// The self-test's changes to each state (sidetest.mjs --screen review), and its answers to some GETs.
     var testPatch: (([String: Any]) -> [String: Any])?
     var testAnswers: [String: [String: Any]] = [:]
+    /// The self-test's answers to some POSTs (sidetest.mjs --screen start): kept in sentBodies, never sent.
+    var testPostAnswers: [String: (Int, [String: Any])] = [:]
     var testCheckpoints: [[String: Any]]? {
         didSet {
             guard let s = state else { return }
@@ -389,6 +391,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         var kept = body
         if let sec = kept["secret"] as? String { kept["secret"] = "(\(sec.count) characters)" }
         sentBodies.append((path, kept))
+        if let a = testPostAnswers[path] { DispatchQueue.main.async { done(a.0, a.1) }; return }
         guard !readOnly else { done(0, ["error": "This window is read only (RAVENRY_MAC_HUB_READONLY)."]); return }
         guard let b = base, let u = URL(string: b.absoluteString + path) else { done(0, ["error": "No board."]); return }
         var r = URLRequest(url: u)

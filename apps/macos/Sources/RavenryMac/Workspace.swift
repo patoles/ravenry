@@ -489,8 +489,10 @@ final class Workspace: NSObject {
 
     /// Cmd+T: a shell in the folder of the pane in front, in a new tab
     /// after the last.
-    func newTab(_ sender: Any?) {
-        let cwd = active.flatMap { info[$0.focusedPane]?.cwd }
+    func newTab(_ sender: Any?) { newTab(in: active.flatMap { info[$0.focusedPane]?.cwd }) }
+
+    /// A shell in a folder, in a new tab after the last (New session with no assistant here).
+    func newTab(in cwd: String?) {
         do {
             guard let id = try newPane(cwd: cwd, size: stage.bounds.size) else { return }
             let t = Tab(host: id)

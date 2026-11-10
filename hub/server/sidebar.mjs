@@ -68,6 +68,23 @@ export function machineOf(p, s) {
   return m && m !== 'local' ? m : null;
 }
 
+/**
+ * A session already working in a folder's project on this machine, if any:
+ * not handed, not idle, not in a worktree still open. A new session there
+ * gets its own copy of the code (a worktree) unless asked to work in the
+ * folder. Moved from the desktop's busyIn (app.ts) so both apps say the same;
+ * GET /api/setup/start puts it on each folder as `busy`.
+ */
+export function busyIn(projects, folder) {
+  if (typeof folder !== 'string' || !folder) return null;
+  for (const p of projects || []) {
+    if (!p.folder || (folder !== p.folder && !folder.startsWith(p.folder + '/')) || p.machine) continue;
+    const s = (p.sessions || []).find((x) => !x.handed && !machineOf(p, x) && sessionGroup(x) !== 'idle' && !(x.worktree && x.worktree.state === 'open'));
+    if (s) return { projectId: p.id, project: p.name, topic: s.topic || p.name };
+  }
+  return null;
+}
+
 const OPEN = new Set(['open', 'running']);
 
 /** Each session's group, on the session itself (state.projects[].sessions[].group). */

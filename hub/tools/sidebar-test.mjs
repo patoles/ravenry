@@ -3,7 +3,7 @@
 // sections, rows, order and counts, and the marks open checkpoints and
 // worktree reviews put on rows. Pure functions on crafted state; no hub.
 import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
-import { build, marksOf, sessionGroup, withGroups, paneOf } from '../server/sidebar.mjs';
+import { build, marksOf, sessionGroup, withGroups, paneOf, busyIn } from '../server/sidebar.mjs';
 
 let failed = 0;
 const check = (name, ok, extra = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  ' + extra : ''}`); if (!ok) failed++; };
@@ -78,6 +78,16 @@ const PROJECTS = [
 check('session groups', sessionGroup(sess('a', 'handback')) === 'you' && sessionGroup(sess('a', 'working')) === 'work' && sessionGroup(sess('a', 'handed')) === 'idle' && sessionGroup(sess('a', 'x', { words: { state: 'wait' } })) === 'wait');
 check('each session carries its group', withGroups([proj('a', 'work', [sess('x', 'working')])])[0].sessions[0].group === 'work');
 check('panes', paneOf(sess('ravenry:pk3m7q2x', 'working')) === 'pk3m7q2x' && paneOf(sess('ravenry:nope', 'working')) === null && paneOf(sess('a', 'w', { pane: { id: 'pq' } })) === 'pq');
+{
+  const F = '/srv/code/kite';
+  const at = (sessions, extra = {}) => [proj('kite', 'work', sessions, { folder: F, ...extra })];
+  check('busyIn: a working session in the folder\'s project', eq(busyIn(at([sess('s1', 'working', { topic: 'Fix the login' })]), F), { projectId: 'kite', project: 'kite', topic: 'Fix the login' }));
+  check('busyIn: a subfolder counts, a sibling does not', busyIn(at([sess('s1', 'asked')]), F + '/web')?.topic === 's1' && busyIn(at([sess('s1', 'asked')]), F + '-old') === null);
+  check('busyIn: no topic says the project', busyIn(at([sess('s1', 'working', { topic: '' })]), F).topic === 'kite');
+  check('busyIn: idle, handed, in an open worktree or on another machine is not busy', busyIn(at([sess('a', 'idle'), sess('b', 'working', { handed: true }), sess('c', 'working', { worktree: { state: 'open' } }), sess('d', 'working', { machine: 'devbox' })]), F) === null && busyIn(at([sess('s1', 'working')], { machine: 'devbox' }), F) === null);
+  check('busyIn: a merged worktree session counts again', busyIn(at([sess('c', 'working', { worktree: { state: 'merged' } })]), F)?.topic === 'c');
+  check('busyIn: no folder', busyIn(at([sess('s1', 'working')]), null) === null && busyIn(at([sess('s1', 'working')]), '') === null);
+}
 check('an empty board', eq(build([], {}), { sections: [], counts: { you: 0, work: 0, wait: 0, idle: 0 } }));
 
 console.log(failed ? `\n${failed} failed` : '\nall passed');

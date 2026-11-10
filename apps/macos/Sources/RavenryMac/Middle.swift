@@ -8,8 +8,7 @@
 // - a project no session runs in: its last conversation (GET
 //   /api/project/last) with Continue this conversation (or Move here when it
 //   is still open elsewhere), New session and Open brief;
-// - New session: a folder and an assistant, started by the hub
-//   (POST /api/sessions/start);
+// - New session: StartView.swift;
 // - a page this window does not draw yet: a native placeholder naming it.
 
 import AppKit
@@ -293,80 +292,5 @@ final class PlaceholderView: MiddleView {
                                      s.topAnchor.constraint(equalTo: wrap.topAnchor, constant: max(40, bounds.height / 2 - 40)), s.bottomAnchor.constraint(equalTo: wrap.bottomAnchor)])
         content.set([wrap])
         setAccessibilityLabel(name)
-    }
-}
-
-/// New session, for now a folder and an assistant: the hub starts it.
-final class StartView: MiddleView {
-    var hub: HubClient?
-    var onStarted: ((String?, String?) -> Void)?
-    var grid: () -> (cols: Int, rows: Int) = { (100, 30) }
-    private let folders = NSPopUpButton()
-    private let assistants = NSPopUpButton()
-    private(set) var go = RButton(t("start.go"), .primary)
-    private let note = label("", Fonts.pt(12.5), "bad", lines: 3)
-    private var paths: [String] = []
-
-    init() { super.init(sheet: true) }
-    required init?(coder: NSCoder) { fatalError() }
-
-    func show(folder: String?) {
-        let title = label(t("start.title"), Fonts.pt(20, .bold))
-        folders.removeAllItems()
-        paths = []
-        if let f = folder { add(f) }
-        let choose = RButton(t("start.choose"), small: true) { [weak self] in self?.choose() }
-        assistants.removeAllItems()
-        assistants.addItems(withTitles: ["Claude Code", "Codex"])
-        go = RButton(t("start.go"), .primary) { [weak self] in self?.start() }
-        note.stringValue = ""
-        let rows = vstack([title,
-                           hstack([label(t("start.folder"), Fonts.pt(12.5), "tx3"), folders, choose, spring()], spacing: 8),
-                           hstack([label(t("start.assistant"), Fonts.pt(12.5), "tx3"), assistants, spring()], spacing: 8),
-                           hstack([go, spring()], spacing: 0), note], spacing: 14)
-        let wrap = Flipped()
-        wrap.addSubview(rows)
-        rows.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([rows.centerXAnchor.constraint(equalTo: wrap.centerXAnchor), rows.widthAnchor.constraint(equalToConstant: 460),
-                                     rows.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 80), rows.bottomAnchor.constraint(equalTo: wrap.bottomAnchor)])
-        content.set([wrap])
-        hub?.get("/api/project/folders") { [weak self] _, j in
-            for f in j["folders"] as? [[String: Any]] ?? [] { if let p = f["folder"] as? String { self?.add(p) } }
-        }
-    }
-
-    private func add(_ path: String) {
-        guard !paths.contains(path) else { return }
-        paths.append(path)
-        let home = NSHomeDirectory()
-        folders.addItem(withTitle: path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path)
-    }
-
-    private func choose() {
-        let p = NSOpenPanel()
-        p.canChooseDirectories = true
-        p.canChooseFiles = false
-        guard let w = window else { return }
-        p.beginSheetModal(for: w) { [weak self] r in
-            guard r == .OK, let u = p.url, let self else { return }
-            self.add(u.path)
-            self.folders.selectItem(at: self.paths.firstIndex(of: u.path) ?? 0)
-        }
-    }
-
-    private func start() {
-        let i = folders.indexOfSelectedItem
-        guard i >= 0, i < paths.count else { return }
-        go.isEnabled = false
-        go.setTitle(t("start.starting"))
-        let g = grid()
-        hub?.post("/api/sessions/start", ["folder": paths[i], "assistant": assistants.indexOfSelectedItem == 1 ? "codex" : "claude", "cols": g.cols, "rows": g.rows]) { [weak self] code, j in
-            guard let self else { return }
-            self.go.isEnabled = true
-            self.go.setTitle(t("start.go"))
-            if code != 200 { self.note.stringValue = t("start.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]); return }
-            let key = (j["projectId"] as? String).flatMap { pid in (j["surfaceId"] as? String).map { "\(pid)/\($0)" } }
-            self.onStarted?(key, (j["pane"] as? [String: Any])?["id"] as? String)
-        }
     }
 }

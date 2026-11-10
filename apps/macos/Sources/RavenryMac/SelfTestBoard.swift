@@ -208,9 +208,17 @@ final class SelfTestBoard {
         check("nav_plans", board.front == .page("plans", "Plans") && board.root.middle === board.files && board.files.key == "plans" && board.sidebar.rows["page:plans"]?.selected == true)
         board.sidebar.newButton.performClick(nil)
         check("new_session", board.front == .start && !board.start.isHidden)
+        // Answered here, never sent: no assistant runs (step 2 and more: --screen start).
+        hub.testAnswers["/api/onboarding"] = ["ok": true, "setup": ["claude": true, "codex": true]]
+        hub.testPostAnswers["/api/sessions/start"] = (409, ["error": "Not started by the self-test."])
+        _ = wait(5) { self.board.start.controls["go"] != nil && self.board.start.folder != nil }
+        let tabs0 = board.ws.tabs.count
         board.start.go.performClick(nil)
-        _ = wait(5) { hub.sent.contains("POST /api/sessions/start") }
-        check("start_posted", hub.sent.contains("POST /api/sessions/start"))
+        // The board's start, or a shell in the folder when the board finds no assistant.
+        _ = wait(5) { hub.sent.contains("POST /api/sessions/start") || self.board.ws.tabs.count > tabs0 }
+        check("start_posted", hub.sent.contains("POST /api/sessions/start") || board.ws.tabs.count > tabs0)
+        hub.testAnswers["/api/onboarding"] = nil
+        hub.testPostAnswers = [:]
 
         // The shortcuts.
         if let t = board.ws.tabs.first { board.ws.bar.onSelect?(t.id) }

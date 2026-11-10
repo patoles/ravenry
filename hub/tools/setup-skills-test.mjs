@@ -168,6 +168,7 @@ try {
   check('GET /api/setup/start: the board\'s folder first, then ~/code\'s, claude found off the PATH', s.status === 200 && s.j.ok && s.j.root === '~/code' && s.j.folders[0].path === proj && s.j.folders[0].short === '~/Elsewhere/kite' && s.j.folders.some((f) => f.name === 'app') && s.j.assistants[0].kind === 'claude' && s.j.assistants[0].found && !s.j.assistants[1].found, JSON.stringify(s.j) + log.slice(-400));
   const w = await get(`/api/setup/start?folder=${encodeURIComponent(path.join(bhome, 'other'))}`);
   check('GET /api/setup/start?folder=: that folder first', w.j.folders[0].path === path.join(bhome, 'other'), JSON.stringify(w.j.folders));
+  check('GET /api/setup/start: no folder busy with no session working (sidebar.busyIn, sidebar-test.mjs)', s.j.folders.every((f) => !('busy' in f)), JSON.stringify(s.j.folders));
   const g = await get('/api/setup/skills');
   check('GET /api/setup/skills: both assistants, said with ~, none installed', g.status === 200 && g.j.skills.length === 2 && g.j.skills[0].dir === '~/.claude/skills/ravenry' && g.j.skills[0].name === 'Claude Code' && g.j.skills[0].found && !g.j.skills[0].installed && !g.j.skills[1].found, JSON.stringify(g.j));
   const gh = await get(`/api/setup/skills?ravenryd=${encodeURIComponent(ravenryd)}`);
