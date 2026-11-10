@@ -437,7 +437,7 @@ final class PanelView: Box {
         let w = cp["words"] as? [String: Any] ?? [:]
         let alerts = host?.hub.state?.raw["alerts"] as? [String: Any] ?? [:]
         let phoneToo = (alerts["enabled"] as? Bool ?? false) && (alerts["configured"] as? Bool ?? false)
-        let key = "\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(u.stamp)|\(phoneToo)"
+        let key = "\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(u.stamp)|\(phoneToo)|\((cp["checked"] as? [[String: Any]])?.compactMap { $0["id"] as? String }.joined(separator: ",") ?? "")"
         if let had = cardViews[id], had.key == key { had.refresh(); shownCard = had; return had }
         guard let h = host else { return NSView() }
         let ctx = CardCtx(hub: h.hub,

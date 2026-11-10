@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { withWords } from '../../../hub/server/cpwords.mjs';
+import { checkedBefore } from '../../../hub/server/decisions.mjs';
 
 const MIN = 60000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -62,6 +63,11 @@ export function cardFixtures(state, home, now = Date.now()) {
   const cps = [
     base('cpask1', 'ask', 'paper-boat', 'Tilt the hull with the slope too, or keep it level?\nThe slope is 8 degrees on the test pond.', {
       options: ['Tilt it with the slope', 'Keep it level', 'Try both and show me'], free_text: true,
+      // The decisions it read just before it asked, as the hub says them (decisions.checkedBefore).
+      checked: checkedBefore('paper-boat', iso(now - 3 * MIN), { now: new Date(now), list: [
+        { id: 'dk2m4p6q', quote: 'The hull stays level on every slope under 10 degrees, the sail takes the tilt', project: 'paper-boat', at: iso(now - 26 * 60 * MIN), by: 'person', last_read_at: iso(now - 5 * MIN) },
+        { id: 'dr3t5v7w', quote: 'Test on the pond before the bath', project: 'paper-boat', at: iso(now - 50 * MIN), by: 'person', last_read_at: iso(now - 4 * MIN) },
+      ] }),
     }),
     base('cpapprove1', 'approve', 'notes-app', 'Run npm publish --tag beta', {
       command: 'npm publish --tag beta', warning: 'This publishes 0.9.0-beta.2 to the registry for the testers.',

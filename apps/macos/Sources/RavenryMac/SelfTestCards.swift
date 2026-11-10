@@ -65,6 +65,8 @@ extension SelfTestBoard {
         // Ask: one answer per line with its number key, or your own words.
         board.pickSession(keyOf("ask"), why: "test")
         check("ask_card_shown", wait(4) { self.card?.kind == "ask" }, board.panel.key)
+        check("ask_checked_decisions", card?.checked != nil && card.map { self.shows($0, "Checked your decisions first") && self.shows($0, "\"Test on the pond before the bath\" today") && self.shows($0, "\"The hull stays level on every slope under 10...\"") } ?? false,
+              card.map { texts($0).joined(separator: " | ") } ?? "")
         check("ask_options_with_keys", card?.opts.count == 3 && card?.opts["2"]?.text == "Keep it level", card?.opts.keys.sorted().joined(separator: ",") ?? "")
         var n = board.hub.sentBodies.count
         if let c = card { keyDown(c, "2") }

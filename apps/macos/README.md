@@ -408,8 +408,7 @@ every screen (the bench, the self-test) writes only to
   MACH-007); Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
   (the panel has no card of its own for a page's run yet), a page's form
   takes a date as text, and a sheet taller than the window is cut;
-  a pinned session that runs outside gets no tab of its own; an ask card
-  has no "Checked your decisions first"; Typed here has no filters or whole log;
+  a pinned session that runs outside gets no tab of its own; Typed here has no filters or whole log;
   no panes it uses; no filmstrip; a shell's panel does not say what its agent reported.
 - A session in a ravenryd pane of another daemon (the board's, when the
   window runs on its own) is shown read only, as one outside: the window

@@ -451,7 +451,7 @@ final class CheckpointCard: Box {
     }
 
     private func askRows() -> [NSView?] {
-        var rows: [NSView?] = [header("ask"), question(), body()]
+        var rows: [NSView?] = [header("ask"), question(), body(), checkedBox()]
         let options = cp["options"] as? [String] ?? []
         if !options.isEmpty {
             rows.append(vstack(options.enumerated().map { i, o -> NSView in
@@ -472,6 +472,30 @@ final class CheckpointCard: Box {
         }
         rows += [errorLine(), footer()]
         return rows
+    }
+
+    /// "Checked your decisions first" (.chkd): the decisions the agent read just
+    /// before it asked, quoted with when each was said (the hub's `checked`,
+    /// decisions.checkedBefore). Nothing when it read none.
+    private(set) var checked: Box?
+    private func checkedBox() -> NSView? {
+        guard let list = cp["checked"] as? [[String: Any]], !list.isEmpty else { return nil }
+        let head = hstack([Icon("check-c", "ok", size: 13), label(t("checkpoint.checkedFirst"), Fonts.pt(12.5, Fonts.w650)), spring()], spacing: 7)
+        let quotes = list.prefix(3).map { d -> NSView in
+            let a = NSMutableAttributedString(string: "\"\(d["quote"] as? String ?? "")\"", attributes: [.font: Fonts.pt(12.5), .foregroundColor: Design.color("tx2")])
+            a.append(NSAttributedString(string: " \(d["when"] as? String ?? "")", attributes: [.font: Fonts.pt(12.5), .foregroundColor: Design.color("tx3")]))
+            let p = NSMutableParagraphStyle(); p.minimumLineHeight = 17.5; p.maximumLineHeight = 17.5
+            a.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: a.length))
+            let l = cardText("", Fonts.pt(12.5), "tx2")
+            l.attributedStringValue = a
+            l.preferredMaxLayoutWidth = PanelView.width - 56 - 24 - 20
+            return hstack([l], spacing: 0, insets: NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 0))
+        }
+        let b = boxed(vstack([head] + quotes, spacing: 6), fill: "card2", radius: 8, insets: NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
+        b.setAccessibilityElement(true)
+        b.setAccessibilityLabel(t("checkpoint.checkedFirst"))
+        checked = b
+        return b
     }
 
     /// Refuse, with a reason if the person types one: Enter or Refuse sends, Escape or Back closes it.

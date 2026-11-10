@@ -2406,7 +2406,16 @@ function withPageRun(cp) {
 }
 
 function checkpointsView(projects) {
-  return checkpoints.list().map((cp) => {
+  const open = checkpoints.list();
+  // An ask's "Checked your decisions first" (decisions.checkedBefore): the ledger read once.
+  let ledger = null;
+  const checked = (cp, projectId) => {
+    if (cp.kind !== 'ask') return null;
+    try { ledger = ledger || decisions.load(); } catch { ledger = []; }
+    const list = decisions.checkedBefore(projectId, cp.created_at, { list: ledger });
+    return list.length ? list : null;
+  };
+  return open.map((cp) => {
     const tab = cp.pane ? term.tabIdFor('ravenry', cp.pane) : null;
     const p = tab ? projects.find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
     const { daemon: _d, ...rest } = cp;
@@ -2414,7 +2423,8 @@ function checkpointsView(projects) {
     const kept = cp.kind === 'pick' ? picks.record(cp.id) : null;
     const dn = cp.kind === 'drive' && rest.drive ? driveNames.get(cp.id) : null;
     if (dn) rest.drive = { ...rest.drive, name: dn.name || null, session: dn.session || null };
-    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) }, projects);
+    const ck = checked(cp, p ? p.id : null);
+    return cpWords({ ...rest, projectId: p ? p.id : null, project: p ? p.name : run && run.project ? run.project : null, surfaceId: tab, ...(ck ? { checked: ck } : {}), ...(run ? { page: { title: run.page, label: run.label } } : {}), ...(kept ? { pick_record: { file: path.join(kept.dir, 'pick.json'), variants: kept.variants.map((v, n) => ({ label: v.label, type: v.type, ...(v.description ? { description: v.description } : {}), url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${n}`, kept: !!v.file })) } } : {}) }, projects);
   });
 }
 

@@ -107,6 +107,25 @@ const { decisionMessage } = await import('../server/push.mjs');
 const dm = decisionMessage(D.load(F).find((x) => x.id === e1.entry.id), { project: { id: 'proj', name: 'Proj' } });
 check('the phone\'s alert: "Saved your decision", the quote, Undo', dm.id === `dec:${e1.entry.id}` && dm.kind === 'decision' && dm.title === 'Saved your decision' && dm.body.endsWith('390 px.') && dm.actions.length === 1 && dm.actions[0].id === 'undo' && !!dm.decision.undo_until, JSON.stringify(dm));
 
+// ------------------------------------------------------------ checked before an ask
+{
+  const now = new Date(2026, 10, 7, 15, 0);
+  const asked = new Date(2026, 10, 7, 14, 40).toISOString();
+  const e = (id, quote, project, at, read) => ({ id, quote, project, at: at.toISOString(), by: 'person', ...(read ? { last_read_at: read.toISOString() } : {}) });
+  const list = [
+    e('daaaaaaa', 'Keep the old import format working until the beta ends', 'kite', new Date(2026, 10, 7, 9, 5), new Date(2026, 10, 7, 14, 31)),
+    e('dbbbbbbb', 'Use metric units', null, new Date(2026, 10, 5, 10, 0), new Date(2026, 10, 7, 14, 38)),
+    e('dccccccc', 'Never ship on Fridays', 'other', new Date(2026, 10, 6, 10, 0), new Date(2026, 10, 7, 14, 39)),
+    e('ddddddda', 'Read long ago', 'kite', new Date(2026, 10, 6, 11, 0), new Date(2026, 10, 7, 14, 0)),
+    e('deeeeeee', 'Read after it asked', 'kite', new Date(2026, 10, 6, 12, 0), new Date(2026, 10, 7, 14, 41)),
+    e('dfffffff', 'Never read', 'kite', new Date(2026, 10, 6, 13, 0), null),
+  ];
+  const c = D.checkedBefore('kite', asked, { list, now });
+  check('checkedBefore: the project\'s and every project\'s read in the 15 minutes before, newest said first', JSON.stringify(c.map((x) => x.id)) === JSON.stringify(['daaaaaaa', 'dbbbbbbb']), JSON.stringify(c));
+  check('checkedBefore: a long quote cut at a word, when said today with its time, else the date', c[0].quote === 'Keep the old import format working until the beta...' && c[0].when === 'today 09:05' && c[1].when === 'Nov 5', JSON.stringify(c));
+  check('checkedBefore: no project counts every read; a bad time none', D.checkedBefore(null, asked, { list, now }).length === 3 && D.checkedBefore('kite', 'nope', { list, now }).length === 0);
+}
+
 // ------------------------------------------------------------ prompts read it
 const block = D.promptBlock('proj', { file: F });
 check('the hand-off block: the project\'s active decisions, newest first, verbatim, with the global ones', block.includes('"Use the phone width for every test shot, 390 px."') && block.includes('"The tabs stay on the left. Always."') && block.includes('No em dashes') && !block.includes('Fridays') && block.indexOf('phone width') < block.indexOf('tabs stay'), block);

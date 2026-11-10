@@ -742,5 +742,6 @@
   "setup.foot": "Each file is backed up first, and your other hooks and skills stay as they are.",
   "setup.steps": "Step 2 of 2",
   "setup.hooksFailed": "Could not set up the hooks: {why}",
-  "setup.skillFailed": "Could not install the skill: {why}"
+  "setup.skillFailed": "Could not install the skill: {why}",
+  "checkpoint.checkedFirst": "Checked your decisions first"
 }

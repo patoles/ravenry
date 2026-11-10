@@ -234,6 +234,30 @@ export function countReads(ids, { file = FILE, now = new Date() } = {}) {
   save(list, file);
 }
 
+// "Checked your decisions first" on a question an agent asks (an ask
+// checkpoint): the decisions it read from 15 minutes before it asked to 5 s
+// after, of its project or of every project, newest first, at most `max`,
+// each quoted short with when it was said ("today 14:32", else "Nov 9").
+// Worked out here for every client (moved from the desktop's app.ts
+// checkedFor() and cards.ts checkedBox(), which still work it out
+// themselves). `list`: the ledger already read.
+export function checkedBefore(projectId, at, { list = null, file = FILE, now = new Date(), max = 3 } = {}) {
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return [];
+  const all = (list || load(file)).slice().sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  return all.filter((d) => d.last_read_at && (d.project == null || !projectId || d.project === projectId)
+    && Date.parse(d.last_read_at) <= t + 5000 && Date.parse(d.last_read_at) >= t - 15 * 60000)
+    .slice(0, max)
+    .map((d) => ({ id: d.id, quote: d.quote.length > 52 ? d.quote.slice(0, 50).replace(/[\s,;.]+\S*$/, '') + '...' : d.quote, when: whenSaid(d.at, now) }));
+}
+
+function whenSaid(iso, now) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  if (d.toDateString() === now.toDateString()) return `today ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // An entry as GET /api/decisions gives it: with reads_today and
 // reads_total (over the days kept), and undo_until while Undo lasts.
 export function view(d, { now = new Date() } = {}) {
