@@ -549,6 +549,10 @@ type ProcessRequest struct {
 type ProcessResult struct {
 	Pane       string  `json:"pane"`
 	Foreground Process `json:"foreground"`
+	// Busy: the foreground is not the pane's first process (a command runs
+	// in the shell, or the program it started is still going), which is
+	// when a window asks before closing it.
+	Busy bool `json:"busy"`
 }
 
 type RestartRequest struct {

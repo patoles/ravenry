@@ -449,7 +449,7 @@ func (c *conn) paneProcess(id uint64, data []byte) {
 			c.failErr(id, err)
 			return
 		}
-		c.reply(id, "pane.process", proto.ProcessResult{Pane: r.Pane, Foreground: processOf(pr)})
+		c.reply(id, "pane.process", proto.ProcessResult{Pane: r.Pane, Foreground: processOf(pr), Busy: pr.PID != p.Info().PID})
 	})
 }
 

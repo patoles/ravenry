@@ -592,6 +592,14 @@ final class Workspace: NSObject {
             guard case .success(let v) = r, let fg = v["foreground"] as? [String: Any], let fpid = (fg["pid"] as? NSNumber)?.intValue else {
                 return DispatchQueue.main.async(execute: close)
             }
+            // Busy, as the daemon says it (pane.process `busy`); an older daemon's answer has none: its first process compared below.
+            if let b = v["busy"] as? Bool {
+                DispatchQueue.main.async {
+                    guard b else { return close() }
+                    self.confirmBusy(pane, fg, what: what, then: close)
+                }
+                return
+            }
             self.conn.request("pane.list") { [weak self] r2 in
                 var first: Int?
                 if case .success(let l) = r2, let ps = l["panes"] as? [[String: Any]] {
@@ -599,14 +607,19 @@ final class Workspace: NSObject {
                 }
                 DispatchQueue.main.async {
                     guard let self, let first, first != fpid else { return close() }
-                    var argv = fg["argv"] as? [String] ?? []
-                    if let a = argv.first { argv[0] = (a as NSString).lastPathComponent }
-                    let cmd = argv.isEmpty ? t("close.aprogram") : argv.joined(separator: " ")
-                    let sh = self.info[pane]?.command.first.map { String(($0 as NSString).lastPathComponent.drop { $0 == "-" }) } ?? ""
-                    self.confirmClose(what: what, shell: sh.isEmpty ? t("close.theshell") : sh, cmd: cmd, then: close)
+                    self.confirmBusy(pane, fg, what: what, then: close)
                 }
             }
         }
+    }
+
+    /// "Close this tab?" with what runs there.
+    private func confirmBusy(_ pane: String, _ fg: [String: Any], what: String, then close: @escaping () -> Void) {
+        var argv = fg["argv"] as? [String] ?? []
+        if let a = argv.first { argv[0] = (a as NSString).lastPathComponent }
+        let cmd = argv.isEmpty ? t("close.aprogram") : argv.joined(separator: " ")
+        let sh = info[pane]?.command.first.map { String(($0 as NSString).lastPathComponent.drop { $0 == "-" }) } ?? ""
+        confirmClose(what: what, shell: sh.isEmpty ? t("close.theshell") : sh, cmd: cmd, then: close)
     }
 
     private func confirmClose(what: String, shell: String, cmd: String, then close: @escaping () -> Void) {

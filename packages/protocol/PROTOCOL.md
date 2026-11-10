@@ -578,10 +578,12 @@ Result: `pane` and `channel`. The stream's frames follow the result
 
 ### pane.process
 
-`pane`. What runs in the pane's foreground now. Result: `pane` and
+`pane`. What runs in the pane's foreground now. Result: `pane`,
 `foreground`, a Process: the leader of the terminal's foreground process
 group, which is the shell at its prompt or the command it runs (when the
-leader has exited and others of its group run on, the oldest of them).
+leader has exited and others of its group run on, the oldest of them),
+and `busy`: true when that is not the pane's first process (a command
+runs in the shell), which is when a window asks before closing the pane.
 
 **The Process object:** `pid`, `argv` (its arguments, `argv[0]` first),
 and when the system tells them, `exe` (its executable's path), `cwd` (its

@@ -3,7 +3,8 @@
 // daemon's pane.activity and pane.bell), a question waits in its pane (an
 // open checkpoint there, as the hub lists it), and an agent's own pane
 // holds its lease (ravenryd new and lease, typed in the first shell). Each
-// shows on its tab until the tab is opened.
+// shows on its tab until the tab is opened. Then `ravenryd focus` brings
+// the second to the front.
 
 import AppKit
 
@@ -52,5 +53,9 @@ extension SelfTestBoard {
         board.hub.testCheckpoints = nil
         board.render(force: true)
         check("marks_waiting_dot_goes", wait(3) { self.model(second.id)?.dot == "work" })
+        // A pane asked to show (ravenryd focus, from a program in the first shell) comes to the front.
+        ws.show(first)
+        send(first.host, "'\(bin)' focus \(second.host)")
+        check("focus_brings_pane_to_front", wait(6) { ws.active === second }, "active \(ws.active?.host ?? "")")
     }
 }

@@ -3628,14 +3628,15 @@ async function askClose(t: Tab): Promise<void> {
   let busy: { cmd: string; shell: string } | null = null;
   try {
     const c = await daemons.get(t.socket);
-    // Busy: the terminal's foreground is not the pane's first process (the shell).
+    // Busy, as the daemon says it (pane.process `busy`); an older daemon's
+    // answer has none: the terminal's foreground is not the pane's first process (the shell).
     const [r, list] = await Promise.all([
-      c.request('pane.process', { pane: t.pane }) as Promise<{ foreground?: { pid: number; argv?: string[] } }>,
+      c.request('pane.process', { pane: t.pane }) as Promise<{ foreground?: { pid: number; argv?: string[] }; busy?: boolean }>,
       c.request('pane.list', {}) as Promise<{ panes: { id: string; pid?: number }[] }>,
     ]);
     const fg = r.foreground;
     const first = list.panes.find((x) => x.id === t.pane)?.pid;
-    if (fg && first && fg.pid !== first) {
+    if (fg && (typeof r.busy === 'boolean' ? r.busy : !!first && fg.pid !== first)) {
       const argv = (fg.argv || []).slice();
       if (argv[0]) argv[0] = argv[0].split('/').pop() || argv[0];
       busy = { cmd: argv.join(' ') || 'a program', shell: ((t.command || [])[0] || 'The shell').split('/').pop()!.replace(/^-/, '') };

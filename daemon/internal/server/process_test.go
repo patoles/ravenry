@@ -186,3 +186,56 @@ func copyFile(t *testing.T, from, to string) {
 		t.Fatal(err)
 	}
 }
+
+// pane.process says busy while a command runs in the shell (the foreground
+// is not the pane's first process), and not at the prompt, so a window asks
+// before closing a busy shell without working it out itself.
+func TestProcessBusy(t *testing.T) {
+	shell := ""
+	for _, sh := range []string{"zsh", "bash"} {
+		if p, err := exec.LookPath(sh); err == nil {
+			shell = p
+			break
+		}
+	}
+	if shell == "" {
+		t.Skip("no zsh or bash")
+	}
+	t.Setenv("HOME", t.TempDir())
+	shells := filepath.Join(t.TempDir(), "shell")
+	testenv.CheckDirs(t, shells)
+	d := startDaemon(t, func(o *pane.ManagerOptions) { o.ShellDir = shells })
+	for name, body := range map[string]string{".zshenv": "skip_global_compinit=1\n", ".zshrc": "PS1='$ '\n", ".bashrc": "PS1='$ '\n"} {
+		os.WriteFile(filepath.Join(d.home, name), []byte(body), 0o600)
+	}
+	c := d.dial(client.Options{})
+	p := newPane(t, c, map[string]any{"command": []string{shell}, "cols": 120, "rows": 24})
+	call[proto.WaitResult](t, c, "pane.wait", map[string]any{"pane": p.ID, "prompt": true, "since": 0, "timeout_ms": 10000})
+	busy := func(want bool) proto.ProcessResult {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			r := call[proto.ProcessResult](t, c, "pane.process", map[string]any{"pane": p.ID})
+			if r.Busy == want {
+				return r
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("busy %v, want %v: %+v", r.Busy, want, r.Foreground)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if r := busy(false); r.Foreground.PID != p.PID {
+		t.Fatalf("at the prompt the foreground is the shell: %d, pane %d", r.Foreground.PID, p.PID)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "RAVENRY_TESTPROG=sleep " + self, "mode": "paste"}, {"key": "Enter"}}})
+	if r := busy(true); r.Foreground.PID == p.PID {
+		t.Fatalf("busy with the shell in front: %+v", r.Foreground)
+	}
+	call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"key": "Ctrl+C"}}})
+	busy(false)
+}

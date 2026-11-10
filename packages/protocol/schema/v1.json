@@ -3796,6 +3796,10 @@
             "foreground": {
               "$ref": "#/$defs/Process",
               "description": "The leader of the terminal's foreground process group: the shell at its prompt, or the command it runs."
+            },
+            "busy": {
+              "type": "boolean",
+              "description": "The foreground is not the pane's first process: a command runs in the shell, so a window asks before closing it."
             }
           },
           "required": [
