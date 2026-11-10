@@ -887,6 +887,61 @@ final class Workspace: NSObject {
     }
 
     func flush() { layout?.flush() }
+
+    // MARK: the window's size and place (TERM-043)
+
+    /// A frame from saved bounds (the Electron app's: from the top left of
+    /// the main screen), when at least 160 x 80 of it lies on a screen that
+    /// is still there and it is at least 720 x 480; else nil.
+    static func frame(fromBounds b: [String: Any], screens: [NSRect], mainHeight: CGFloat) -> NSRect? {
+        guard let x = (b["x"] as? NSNumber)?.doubleValue, let y = (b["y"] as? NSNumber)?.doubleValue,
+              let w = (b["width"] as? NSNumber)?.doubleValue, let h = (b["height"] as? NSNumber)?.doubleValue,
+              [x, y, w, h].allSatisfy({ $0.isFinite }), w >= 720, h >= 480 else { return nil }
+        let r = NSRect(x: x, y: Double(mainHeight) - y - h, width: w, height: h)
+        let seen = screens.contains { a in let i = a.intersection(r); return i.width >= 160 && i.height >= 80 }
+        return seen ? r : nil
+    }
+
+    /// The bounds of a frame, as the Electron app writes them.
+    static func bounds(fromFrame f: NSRect, mainHeight: CGFloat, maximized: Bool) -> [String: Any] {
+        ["x": Int(f.minX.rounded()), "y": Int((mainHeight - f.maxY).rounded()), "width": Int(f.width.rounded()), "height": Int(f.height.rounded()), "maximized": maximized]
+    }
+
+    private static var mainHeight: CGFloat { NSScreen.screens.first?.frame.height ?? 900 }
+    private var boundsTimer: DispatchWorkItem?
+    private var boundsWatch: [NSObjectProtocol] = []
+
+    /// Puts the window where it was left; false when nothing usable was kept.
+    func placeWindow() -> Bool {
+        guard let b = layout?.readBounds(),
+              let f = Workspace.frame(fromBounds: b, screens: NSScreen.screens.map(\.visibleFrame), mainHeight: Workspace.mainHeight) else { return false }
+        window.setFrame(f, display: false)
+        if b["maximized"] as? Bool ?? false, !window.isZoomed { window.zoom(nil) }
+        return true
+    }
+
+    /// Keeps the window's size and place as it moves and resizes, and when it closes.
+    func keepBounds() {
+        let save = { [weak self] in
+            guard let self else { return }
+            self.boundsTimer?.cancel()
+            let w = DispatchWorkItem { [weak self] in self?.saveBoundsNow() }
+            self.boundsTimer = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: w)
+        }
+        for n in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            boundsWatch.append(NotificationCenter.default.addObserver(forName: n, object: window, queue: .main) { _ in save() })
+        }
+        boundsWatch.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in self?.saveBoundsNow() })
+    }
+
+    /// Writes the window's bounds (not while full screen; zoomed, the frame it had before).
+    func saveBoundsNow() {
+        boundsTimer?.cancel()
+        guard !window.styleMask.contains(.fullScreen), window.frame.minX > -20000 else { return }
+        let zoomed = window.isZoomed
+        layout?.saveBounds(Workspace.bounds(fromFrame: window.frame, mainHeight: Workspace.mainHeight, maximized: zoomed))
+    }
 }
 
 /// The window's content: the strip at the top (in the title bar), the

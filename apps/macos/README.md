@@ -63,8 +63,10 @@ stream".
   sessions are kept by daemon (`Layout.swift`): on the Electron app's
   daemon in its `window.json`, so both apps restore the same tabs; on any
   other daemon in `window-<daemon>.json` beside it, so two clients on
-  different daemons never write over each other. Closing the window
-  leaves the panes running. The strip is in the title bar, in the Electron app's colours
+  different daemons never write over each other. The window's size and
+  place are kept in the same file as the Electron app keeps them
+  (`bounds`), and come back on a screen that is still there, else the
+  default size, centred. Closing the window leaves the panes running. The strip is in the title bar, in the Electron app's colours
   and sizes (`Design.swift`).
 - **The hub** (`Hub.swift`): a small typed client of the board's server,
   as the Electron app reads it (`apps/desktop/src/main/hub.ts`): the
@@ -358,7 +360,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 

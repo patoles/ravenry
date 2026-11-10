@@ -92,6 +92,24 @@ final class LayoutStore {
         return (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
     }
 
+    /// The window's size and place as the Electron app keeps them (`bounds`:
+    /// x, y from the top left of the main screen, width, height, maximized).
+    func readBounds() -> [String: Any]? { readAll()["bounds"] as? [String: Any] }
+
+    /// Writes the window's bounds now, the other keys as they are.
+    func saveBounds(_ b: [String: Any]) {
+        var all = readAll()
+        all["bounds"] = b
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var d = try JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys])
+            d.append(0x0A)
+            let tmp = url.appendingPathExtension("tmp")
+            try d.write(to: tmp)
+            _ = rename(tmp.path, url.path)
+        } catch { NSLog("RavenryMac: window.json: \(error)") }
+    }
+
     func read() -> SavedLayout {
         let all = readAll()
         var l = SavedLayout()

@@ -30,6 +30,7 @@ extension SelfTestBoard {
         case "panes": screenPanes()
         case "tabmarks": screenTabMarks()
         case "review": screenReview()
+        case "window": screenWindow()
         default: check("screen_known", false, name)
         }
         finish()

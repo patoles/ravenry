@@ -204,7 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             w.setFrameOrigin(NSPoint(x: -30000, y: -30000))
             w.orderFront(nil)
         } else {
-            w.center()
+            // Where it was left, on a screen that is still there; else the default size, centred.
+            if !ws.placeWindow() { w.center() }
+            ws.keepBounds()
             w.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
