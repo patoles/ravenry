@@ -11,7 +11,11 @@ import path from 'node:path';
 const GARDEN = 'a1a1a1a1-0000-4000-8000-000000000001';
 const BOAT = 'b2b2b2b2-0000-4000-8000-000000000002';
 
-/** The ledger's entries, with times counted back from `now`. */
+/**
+ * The ledger's entries, with times counted back from `now`. Today's are at
+ * fixed times just after the start of today (00:01, 00:02), so they stay
+ * today's whenever the test runs, just after midnight too.
+ */
 export function ledger(now = new Date()) {
   const at = (days, h, m) => { const d = new Date(now); d.setDate(d.getDate() - days); d.setHours(h, m, 0, 0); return d.toISOString(); };
   const ago = (min) => new Date(now.getTime() - min * 60000).toISOString();
@@ -21,8 +25,8 @@ export function ledger(now = new Date()) {
     { id: 'dnew2345', quote: 'Send the reminder on the first warm day instead, not a week before sowing. A week is too early in a cold spring.', at: at(1, 16, 40), project: 'garden-planner', scope: 'reminders', overrides: ['dold2345'], by: 'agent', recorded_by: { pane: 'pgarden2', session: GARDEN, assistant: 'claude' }, reads: { [day(0)]: 7, [day(1)]: 5 }, last_read_at: ago(12) },
     { id: 'drecipe2', quote: 'Keep the old import format working until March.', at: at(2, 11, 5), project: 'recipe-box', overrides: [], by: 'agent', recorded_by: { pane: 'precipe2', assistant: 'claude' }, edited_at: at(2, 11, 30), reads: { [day(2)]: 2 } },
     { id: 'dnotes23', quote: 'Every test shot is at the phone width, 390 points.', at: at(1, 10, 20), project: 'notes-app', scope: 'tests', overrides: [], by: 'agent', recorded_by: { pane: 'pnotes23', assistant: 'codex' }, reads: { [day(0)]: 23, [day(1)]: 25 }, last_read_at: ago(3) },
-    { id: 'dhull234', quote: 'The hull tilts with the slope as well as the waves.', at: ago(95), project: 'paper-boat', scope: 'hull', overrides: [], by: 'agent', recorded_by: { pane: 'pboat234', session: BOAT, assistant: 'claude' }, reads: { [day(0)]: 1 } },
-    { id: 'devery23', quote: 'No em dashes anywhere: not in code, comments or copy.', at: ago(40), project: null, overrides: [], by: 'person' },
+    { id: 'dhull234', quote: 'The hull tilts with the slope as well as the waves.', at: at(0, 0, 1), project: 'paper-boat', scope: 'hull', overrides: [], by: 'agent', recorded_by: { pane: 'pboat234', session: BOAT, assistant: 'claude' }, reads: { [day(0)]: 1 } },
+    { id: 'devery23', quote: 'No em dashes anywhere: not in code, comments or copy.', at: at(0, 0, 2), project: null, overrides: [], by: 'person' },
   ];
 }
 
