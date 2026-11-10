@@ -2,9 +2,12 @@
 // them (apps/desktop/src/renderer/app.ts: newShell, splitNew, closeTab,
 // removeTab, stepTab, focus-pane, layoutSplit, restoreTabs, save):
 //
-// - A tab per pane: the daemon's panes labelled ravenry.kind: shell, each
-//   named as the Electron app names it (shellLabel: the pane's own name,
-//   else the program's title, else the program; its folder after it).
+// - A tab per pane: the daemon's panes labelled ravenry.kind: shell, its
+//   agents' own panes, and a session's pane once opened (the hub's New
+//   session, Continue, Move here, a click in the sidebar), each named as
+//   the Electron app names it (shellLabel: the pane's own name, else the
+//   program's title, else the program; its folder after it). After a
+//   relaunch every running pane that was a tab is one again (restore).
 // - Cmd+T or the + opens a shell in the folder of the pane in front;
 //   Cmd+W closes the pane with the keyboard (its tab, or its split's
 //   pane, the tab whole again) and ends its process; the last tab gone,
@@ -224,15 +227,17 @@ final class Workspace: NSObject {
 
     // MARK: the start
 
-    /// The tabs the daemon has (its shells), in the saved order with the
-    /// saved splits, the saved one in front; a new shell when none.
+    /// The tabs the daemons have (their shells, their agents' own panes and
+    /// every running pane the window kept as a tab), in the saved order with
+    /// the saved splits, the saved one in front; a new shell when none.
     func restore() throws {
+        let saved = layout?.read() ?? SavedLayout()
         // Every daemon's, the newest first (a pane id names one pane across daemons).
         var panes: [[String: Any]] = []
         for (k, d) in daemons.all.enumerated() {
             let mine: [[String: Any]]
             do {
-                mine = try shells(of: d)
+                mine = try shells(of: d, kept: saved.order)
             } catch {
                 // The newest must answer; an older one that does not is left out.
                 if k == 0 { throw error }
@@ -251,7 +256,6 @@ final class Workspace: NSObject {
             i.update(p)
             info[id] = i
         }
-        let saved = layout?.read() ?? SavedLayout()
         var ids = panes.compactMap { $0["id"] as? String }
         ids.sort { (info[$0]?.createdAt ?? "") < (info[$1]?.createdAt ?? "") }
         // A copy: the closure must not read `ids` while `ids.sort` mutates it
@@ -279,28 +283,33 @@ final class Workspace: NSObject {
         show(front ?? tabs[0], wait: true)
     }
 
-    /// A daemon's tabs: its shells, the pane --attach names, its agents' own panes.
-    private func shells(of d: DaemonLink) throws -> [[String: Any]] {
+    /// A daemon's tabs: its shells, the pane --attach names, its agents' own
+    /// panes, and every running pane the window kept as a tab (`kept`, the
+    /// saved order: "s:<pane>"), whoever started it. A session the hub
+    /// started (New session, Continue, Move here) is a tab only once opened
+    /// (tab(showing:), replace), labelled ravenry.session, not shell: kept by
+    /// its id, it comes back after a relaunch as a shell does, so an update
+    /// never leaves one running with no tab. A pane never a tab (a session
+    /// not opened yet, an agent's hidden pane) stays as it was: the sidebar
+    /// opens it.
+    private func shells(of d: DaemonLink, kept: [String]) throws -> [[String: Any]] {
         let c = d.conn
-        let r = try c.call("pane.list", ["labels": ["ravenry.kind": "shell"]])
-        var panes = (r["panes"] as? [[String: Any]] ?? []).filter { ($0["state"] as? String ?? "running") == "running" }
-        if let a = options.attach, !panes.contains(where: { $0["id"] as? String == a }) {
-            let all = try c.call("pane.list", ["hidden": true])
-            panes += (all["panes"] as? [[String: Any]] ?? []).filter { $0["id"] as? String == a }
+        let r = try c.call("pane.list", ["hidden": true])
+        let kept = Set(kept)
+        let running = (r["panes"] as? [[String: Any]] ?? []).filter { ($0["state"] as? String ?? "running") == "running" }
+        return running.filter { p in
+            let id = p["id"] as? String ?? ""
+            return (p["labels"] as? [String: String])?["ravenry.kind"] == "shell" && !(p["hidden"] as? Bool ?? false)
+                || id == options.attach || kept.contains("s:" + id) || isAgentPane(p)
         }
-        // The agents' own panes: tabs too, beside their sessions'.
-        if let all = try? c.call("pane.list", [:]) {
-            for p in all["panes"] as? [[String: Any]] ?? [] where isAgentPane(p) && !panes.contains(where: { $0["id"] as? String == p["id"] as? String }) { panes.append(p) }
-        }
-        return panes
     }
 
     /// A daemon that started after the window (a newer app's, an update):
-    /// its shells and its agents' own panes are tabs at the end, in the
-    /// saved order, the tab in front stays.
+    /// its shells, its agents' own panes and the panes kept as tabs are tabs
+    /// at the end, in the saved order, the tab in front stays.
     func joined(_ d: DaemonLink) {
-        guard let mine = try? shells(of: d) else { return }
         let saved = layout?.read() ?? SavedLayout()
+        guard let mine = try? shells(of: d, kept: saved.order) else { return }
         var added: [Tab] = []
         for p in mine.sorted(by: { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }) {
             guard let id = p["id"] as? String, homes[id] == nil, !tabs.contains(where: { $0.host == id || $0.guest == id }) else { continue }

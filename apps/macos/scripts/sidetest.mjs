@@ -310,6 +310,9 @@ const STAND = path.join(tmp, 'stand');
 const RESUMED = path.join(STAND, 'resumed.log');
 const NEW_CLAUDE = path.join(STAND, 'claude-resumed');
 const NEW_PID = path.join(STAND, 'new-claude.pid');
+// Each resume's session id and pane (the move's, the Continue's).
+const PANES = path.join(STAND, 'resumed-panes.log');
+const CONTINUED = '1a9b0001-0000-4000-8000-0000000000aa';
 // The resumed stand-in's process, listed as ps would once it started.
 let newListed = false;
 function listResumed() {
@@ -335,7 +338,9 @@ if (DAEMONS) {
   fs.writeFileSync(old, [`echo $$ > ${sq(pidFile)}`, hookLine(OLD, S, 'SessionStart'), hookLine(OLD, S, 'UserPromptSubmit'),
     `printf '\\033]0;Old recipe import\\007'`, `printf 'Claude Code (a stand-in) on the older ravenryd\\n\\n> Import the old recipes\\n\\n  Working...\\n'`, 'exec sleep 100000'].join('\n') + '\n');
   // The resume: logged, then it says it runs in its new pane.
-  fs.writeFileSync(NEW_CLAUDE, ['#!/bin/sh', `echo "$PWD|$*" >> ${sq(RESUMED)}`, `echo "$$ $RAVENRY_PANE" > ${sq(NEW_PID)}`, hookLine(NEW, S, 'SessionStart').replace(`"session_id":"${S.sid}"`, `"session_id":"'"$2"'"`),
+  // The moved one says it started (its folder's hook, its process listed); a continued one only runs.
+  fs.writeFileSync(NEW_CLAUDE, ['#!/bin/sh', `echo "$PWD|$*" >> ${sq(RESUMED)}`, `echo "$2 $RAVENRY_PANE" >> ${sq(PANES)}`,
+    `if [ "$2" = ${sq(S.sid)} ]; then`, `echo "$$ $RAVENRY_PANE" > ${sq(NEW_PID)}`, hookLine(NEW, S, 'SessionStart').replace(`"session_id":"${S.sid}"`, `"session_id":"'"$2"'"`), 'fi',
     `printf 'Claude Code (a stand-in), resumed on the newer ravenryd\\n\\n> '`, 'exec sleep 100000'].join('\n') + '\n', { mode: 0o755 });
   const out = execFileSync(OLD, ['new', '--socket', sock, '--cwd', S.folder, '--name', 'Old recipe import', '--label', 'ravenry.session=claude', '--json', '--',
     '/bin/sh', '-c', `/bin/sh ${sq(old)}; exec /bin/zsh -f -i`], { env, encoding: 'utf8' });
@@ -405,7 +410,8 @@ while (!exited && Date.now() - t0 < (PAGES ? 420000 : 240000)) {
 }
 if (!exited) app.kill();
 // --screen daemons: the app again on both daemons (a launch after the
-// update): its report lists every shell of both as a tab, in the saved order.
+// update): its report lists every tab of both, in the saved order: the
+// shells, the session moved here and the one continued.
 let again = null;
 if (DAEMONS) {
   const report = path.join(OUT, 'report.json');
@@ -443,11 +449,21 @@ if (DAEMONS) {
   add('daemons_again_tabs_of_both', new Set(Object.values(by)).size === 2 && tabs.length === order.length, tabs.map((h) => `${h}@${by[h]}`).join(', '));
   add('daemons_again_saved_order', tabs.join(',') === order.join(','), `saved ${order.join(',')}; restored ${tabs.join(',')}; one layout file: ${files.join(', ')}`);
   add('daemons_again_front_drawn', (again?.focused?.frames || 0) > 0, `front ${again?.front} frames ${again?.focused?.frames}`);
+  // The moved session and the continued one: tabs again, each in its saved place.
+  const resumedPanes = Object.fromEntries((fs.existsSync(PANES) ? fs.readFileSync(PANES, 'utf8').trim().split('\n') : []).map((l) => l.split(' ')));
+  for (const [what, sid] of [['moved', OLDER.sid], ['continued', CONTINUED]]) {
+    const p = resumedPanes[sid];
+    add(`daemons_again_${what}_session_tab`, !!p && tabs.includes(p) && tabs.indexOf(p) === order.indexOf(p) && by[p] === versionOf(NEW),
+      `pane ${p || 'none'} at ${p ? tabs.indexOf(p) : -1} (saved at ${p ? order.indexOf(p) : -1}) on ${p ? by[p] : '?'}`);
+  }
   // The move: the stand-in on the older daemon ended, the conversation resumed by id in its folder.
   let alive = true; try { process.kill(OLDER.pid, 0); } catch { alive = false; }
   add('older_move_old_process_ended', !alive, `pid ${OLDER.pid}`);
   const resumed = fs.existsSync(RESUMED) ? fs.readFileSync(RESUMED, 'utf8').trim().split('\n') : [];
-  add('older_move_resumed_once', resumed.length === 1 && resumed[0].endsWith(`|--resume ${OLDER.sid}`) && fs.realpathSync(resumed[0].split('|')[0]) === fs.realpathSync(OLDER.folder), resumed.join(' / '));
+  const moves = resumed.filter((l) => l.endsWith(`|--resume ${OLDER.sid}`));
+  add('older_move_resumed_once', moves.length === 1 && fs.realpathSync(moves[0].split('|')[0]) === fs.realpathSync(OLDER.folder), resumed.join(' / '));
+  const conts = resumed.filter((l) => l.endsWith(`|--resume ${CONTINUED}`));
+  add('continue_resumed_once', conts.length === 1 && conts[0].split('|')[0].endsWith(`${path.sep}lighthouse`), conts.join(' / '));
 }
 for (const c of r.checks) console.log(`${c.ok ? 'pass' : 'FAIL'} ${c.name}${c.detail ? ': ' + String(c.detail).replace(/\n/g, '\\n') : ''}`);
 console.log(`sidetest: ${r.checks.length} checks, ${r.failed} failed; pictures in ${OUT}`);

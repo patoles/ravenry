@@ -4,8 +4,9 @@
 // Support/Ravenry), with its keys and their meaning
 // (apps/desktop/src/renderer/app.ts save() and restoreTabs()):
 //
-//   order   every tab's id, "s:<pane>" for a shell, in the strip's order
-//           (a split's second pane is listed after its tab);
+//   order   every tab's id, "s:<pane>" for a shell (here for any pane
+//           shown as a tab: a session's too), in the strip's order (a
+//           split's second pane is listed after its tab);
 //   splits  {host, guest, side, size, focus, zoom}: the tab "host" shows
 //           the tab "guest" beside it, on side right, left, down or up;
 //           size is the host's share in percent; focus 1 when the guest
@@ -13,7 +14,8 @@
 //   active  the tab in front.
 //
 // So the two apps agree: which panes are tabs is the daemon's (the panes
-// labelled ravenry.kind: shell), and their order and splits are this
+// labelled ravenry.kind: shell; here also its agents' own panes and any
+// running pane this file lists), and their order and splits are this
 // file's, whichever app wrote it last. Writing, this app changes only
 // those three keys, and in them only the ids of its own tabs; the rest
 // (pinned sessions, the window's place, another daemon's tabs) stays.

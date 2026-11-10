@@ -43,7 +43,11 @@ stream".
 - **Tabs and splits** (`Workspace.swift`, `TabBar.swift`, `Panes.swift`):
   the daemon's shells (`ravenry.kind: shell`) are the tabs, named as the
   Electron app names them (the pane's name, else its program's title,
-  else the program, with its folder). Cmd+T or the + opens a shell,
+  else the program, with its folder); a session's pane (`ravenry.session`,
+  the hub's New session, Continue, Move here, or a click in the sidebar)
+  is a tab once opened. After a relaunch (every update) each running pane
+  that was a tab is one again, in the saved order (`window.json`'s
+  `s:<pane>`); a session never opened stays in the sidebar. Cmd+T or the + opens a shell,
   Cmd+W closes the pane with the keyboard, Cmd+1 to Cmd+9, Cmd+Shift+[
   and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab, a drag moves it, a
   middle click closes it. An agent's own pane (one it made from its
@@ -633,8 +637,10 @@ shell of both must be a live tab on its own daemon's stream, take typed
 keys as the person (its own input log says `person`, no drive question
 on either daemon, the other shell gets none), take a resize on its own
 daemon, a session in the older one opens as its tab, a new tab goes to
-the newer, a closed pane ends in its own daemon, and the app started
-again on both restores every tab in the saved order. `node
+the newer, a session continued from a project's page (Continue this
+conversation) is a tab of its own on the newer, a closed pane ends in its
+own daemon, and the app started again on both restores every tab in the
+saved order: the shells, the session moved here and the continued one. `node
 scripts/resizebench.mjs --daemons PATH [--front old|new]` drags the
 whole window as the resize bench does with the busy tab in front in the
 older daemon or the newer.

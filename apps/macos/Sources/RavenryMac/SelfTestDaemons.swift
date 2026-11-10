@@ -6,7 +6,9 @@
 // which drains the older. Every pane of both is a live tab: drawn from its
 // own daemon's render stream, typed into as the person (no drive question),
 // resized (each grid goes to the pane's own daemon), a session of the older
-// one opens as its tab, and a new tab goes to the newer. The draws a resize
+// one opens as its tab, a session moved from it and one continued are tabs
+// on the newer (sidetest.mjs starts the app again and checks they come back
+// as tabs, in their places), and a new tab goes to the newer. The draws a resize
 // step takes on two daemons are resizebench.mjs --daemons's.
 
 import AppKit
@@ -142,6 +144,7 @@ extension SelfTestBoard {
         }
 
         olderMove(oldV: oldV, newV: newV)
+        continueHere(newV: newV)
 
         // A new tab goes to the newer daemon, and draws.
         let before = Set(ws.tabs.map(\.host))
@@ -254,9 +257,27 @@ extension SelfTestBoard {
         settle(1.5)
         picture("native-older-moved-1280.png")
         panelPicture("native-older-moved-panel.png")
-        // Its tab goes again, so the launch after keeps to the shells.
-        ws.closePane(fresh)
-        settle(0.5)
+        // Its tab stays: the launch after brings it back where it is (sidetest.mjs).
+    }
+
+    /// Continue this conversation (lighthouse's page, a conversation of its
+    /// folder no process holds): the hub resumes it in a new pane of the
+    /// newer daemon, a tab of its own at the end, in front, drawing. It stays
+    /// for the launch after (sidetest.mjs: back as a tab, in its place).
+    func continueHere(newV: String) {
+        let ws = board.ws
+        guard let p = board.hub.state?.project("lighthouse") else { check("continue_new_tab_on_newer", false, "no lighthouse"); return }
+        let before = Set(ws.tabs.map(\.host))
+        board.projectPage.onContinue?(p, ["sessionId": "1a9b0001-0000-4000-8000-0000000000aa"])
+        var pane = ""
+        let ok = wait(30) {
+            guard self.board.front == .tab, let a = ws.active, !before.contains(a.host) else { return false }
+            pane = a.host
+            return true
+        }
+        check("continue_new_tab_on_newer", ok && ws.daemon(of: pane)?.version == newV && ws.tabs.last?.host == pane && board.root.middle == nil,
+              "active \(ws.active?.host ?? "-") on \(ws.active.flatMap { ws.daemon(of: $0.host)?.version } ?? "?"), last tab \(ws.tabs.last?.host ?? "-"); \(board.log.suffix(2).joined(separator: " | "))")
+        check("continue_draws", ok && wait(8) { (ws.boxes[pane]?.term.screen.frames ?? 0) > 0 && ws.boxes[pane]?.term.live == true })
     }
 
     /// Every text the panel shows.
