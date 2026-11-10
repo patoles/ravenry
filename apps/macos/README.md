@@ -76,8 +76,8 @@ stream".
   window off every screen reads a hub only when `RAVENRY_HUB_URL` names one.
   It posts only what the person clicked (an answer, Continue, Move here,
   Hand off now, Start), with `X-Ravenry: 1`, and nothing at all with
-  `RAVENRY_MAC_HUB_READONLY=1`. It is not the app's own stream (no
-  `?app=1`): the Mac notifications stay the Electron app's.
+  `RAVENRY_MAC_HUB_READONLY=1`. It is the app's own stream (`?app=1`),
+  which the hub sends Mac notifications to (`Notifier.swift`).
 - **The sidebar** (`Sidebar.swift`): `state.sidebar` as it comes (the
   sections, their colours and counts, the mix bar, a project's header in
   each section it has a session in, a row a session with its assistant,
@@ -285,6 +285,88 @@ stream".
   the view; Clear (Cmd+K) is `pane.clear`; for VoiceOver the view is a
   text area whose value is the visible rows.
 
+## The app on its own: Ravenry on the Mac
+
+On the Mac this app is Ravenry: it replaces the Electron app at
+/Applications/Ravenry.app and does on its own what the Electron app's
+main process did there (`apps/desktop/src/main`: main.ts, install.ts,
+daemon.ts, npmswitch.ts). The Electron app stays the app for Linux and
+Windows. What it takes over, and how:
+
+- **The same app to macOS.** `scripts/package.mjs` makes Ravenry.app with
+  the Electron app's bundle id (`dev.ravenry.app`), name, version and
+  executable name (`Contents/MacOS/Ravenry`), signed with the same Apple
+  Development identity (`apps/desktop/scripts/local-identity.mjs`, the
+  keychain only read), the hardened runtime and the Electron app's
+  entitlements, the words macOS shows when a pane asks for a guarded
+  folder, the camera... (read from `electron-builder.config.mjs`). Its
+  designated requirement is the Electron app's, word for word, so what
+  the person allowed Ravenry (Documents, notifications, automation) still
+  holds.
+- **The version folders** (UPD-001). At launch, before it looks for a
+  daemon, the app copies its ravenryd, hub and remote/ builds to
+  `<data>/versions/<version>` unless that build is there, and links
+  `<data>/bin/ravenryd` and `<data>/bin/ravenry` to it. `<data>` is
+  `RAVENRY_DESKTOP_DATA`, else ~/Library/Application Support/Ravenry, the
+  Electron app's folder: window.json, settings.json, themes/ and the
+  version folders are shared as they are; the onboarding marks are the
+  hub's (`/api/onboarding`).
+- **The hub service** (HUB-001, UPD-005). Then, in the background, the
+  launchd agent `dev.ravenry.hub` (~/Library/LaunchAgents) is installed or
+  brought to this build, the new hub must answer before the old folder can
+  go, a failed update is tried again at the next launch and stops after
+  three (`<data>/update.json`), and a minute later the version folders
+  nothing runs from are removed, their hook scripts left as stubs. Beside
+  an npm board it installs nothing, and finishes a switch whose traces are
+  left, as the Electron app does; the switch's screen itself is the
+  Electron app's only.
+- **One copy of that logic.** All of the above is the Electron app's own
+  code (install.ts, npmswitch.ts), run on the app's Node:
+  `install/setup.ts`, bundled by esbuild into `Resources/setup.mjs`, run
+  by `Install.swift` (`stage`, `hub`, `prune`), each answering one line of
+  JSON and writing what it did to ~/Library/Logs/Ravenry/app.log as the
+  Electron app did.
+- **Node** (Contents/MacOS/node): Node.js 24.22.2 for macOS arm64, the
+  version Electron 45 carries, the official build from nodejs.org, its
+  SHA-256 checked against the release's SHASUMS256.txt, signed again with
+  the app. The hub, the setup and the hooks run on it; the window does not.
+- **Its executable as Node** (`NodeRunner.swift`). Started with
+  `ELECTRON_RUN_AS_NODE=1`, `Contents/MacOS/Ravenry` runs that Node with
+  the same arguments, as its child, passing signals on and exiting as it
+  exits. So the hub service keeps the program it had (the plist names the
+  app's executable, as the Electron app wrote it), the hooks the Electron
+  app wrote into ~/.claude/settings.json and ~/.codex/hooks.json
+  (`ELECTRON_RUN_AS_NODE=1 .../Contents/MacOS/Ravenry
+  <data>/current/hub/hooks/...`, read once by each running session) run
+  unchanged, and macOS asks about the hub's reads of ~/Documents for the
+  process responsible for it, the app's own executable, as before: the
+  grant holds, and a new prompt would name Ravenry. Hooks the hub writes
+  from now on name `Contents/MacOS/node` directly (no extra process).
+- **The daemon** (HUB-006, UPD-004). With no `--socket`, the newest
+  running daemon that has the render stream and is not draining, as the
+  Electron app's DaemonLink finds it; none, and the app starts its own
+  from the version folder (`ravenryd serve --detach`, its own process
+  session); an older one, and its own starts beside it and the window
+  opens on that, while the old one keeps its panes until they end. The
+  window draws one daemon's panes; another's are shown read only.
+- **macOS asking** (SIGN-005). While macOS asks whether Ravenry may read a
+  protected folder, the hub answers 503 with the folder
+  (hub/server/access.mjs), and the sidebar says the sessions show up once
+  macOS lets Ravenry read it, with where to turn it on.
+- **What it takes from its launch.** As the Electron release (gate.ts),
+  the variables that name a program to run in place of the app's own or
+  the hub's stand-ins (RAVENRYD, RAVENRY_LAUNCHCTL, NODE_OPTIONS, MC_*,
+  STUB_*...) are dropped, unless `RAVENRY_SERVICE_LABEL` is a test's
+  launchd label (`dev.ravenry.hub.test-<random>`), which the install check
+  uses.
+- **Updates.** The local path: a newer Ravenry.app put in place of this
+  one copies its version out at its next launch, rewrites the service and
+  starts its daemon beside the old one; nothing running stops. Downloads
+  from the releases (UPD-002) are the Electron app's only for now.
+
+A development build (`scripts/build.sh`: RavenryMac.app, no build.json,
+no Node) does none of this: it finds a running daemon and starts none.
+
 ## Build
 
 Needs Xcode (27.2 here), Go, XcodeGen and Zig 0.17 (for the daemon's
@@ -300,6 +382,40 @@ node scripts/sidetest.mjs [DIR] # the sidebar's and the panel's (below)
 
 `ravenryd` is built from `daemon/` and goes in the app beside its
 executable: the app asks it which daemons run (`ravenryd daemons`).
+
+## Package and the install check
+
+```sh
+node scripts/package.mjs [--app RavenryMac.app] [--zip OUT.zip]
+node scripts/installcheck.mjs build/package/Ravenry.app ELECTRON_APP OLD_RAVENRYD [OUT]
+```
+
+`package.mjs` stages ravenryd (the desktop app's version), the hub,
+remote/ and build.json as the Electron package does
+(`apps/desktop/scripts/pack.mjs --stage-only`), builds the app
+(`build.sh`) unless one is given, fetches and checks Node, and makes
+build/package/Ravenry.app and its zip (above, "The same app to macOS").
+
+`installcheck.mjs` runs the packaged app off every screen in throwaway
+HOMEs, its hub service loaded into the real launchd under a test label
+(`dev.ravenry.hub.test-<random>`, booted out at the end), with the hub's
+stand-ins for ps, lsof, cmux, open and osascript, about two minutes:
+
+- fresh: the version folder and links, the service run as the app's
+  executable with the hub on its Node as its child, current/ pointed, its
+  own daemon started, a shell opened and drawn, a typed line drawn, the
+  hooks (as the hub writes them, and as the Electron app wrote them) run,
+  app.log, and the window quit leaves the daemon and the hub running;
+- update: over the Electron app's install (ELECTRON_APP, set up with its
+  own resources and executable, its hub service running, its daemon with
+  three shells, an older daemon from OLD_RAVENRYD with one, its hooks),
+  the native app put at the same path: the Electron app's hooks run on it
+  before its first launch; launched, it opens on the running daemon with
+  the three shells as tabs in the saved order, rewrites the service so
+  exactly one hub answers, on its Node, restages the version, starts no
+  daemon, and the older daemon, its shell and its folder stay;
+- access: while the hub waits for macOS's answer about ~/Documents, the
+  sidebar says so.
 
 ## The headless bench
 
@@ -378,10 +494,12 @@ build/RavenryMac.app/Contents/MacOS/RavenryMac [--socket PATH] [--attach PANE] [
     [--font NAME] [--font-size POINTS] [-- COMMAND ARGS...]
 ```
 
-With no `--attach`, it starts a new pane (the login shell, or COMMAND) in
-the newest running daemon that has the render stream (protocol method
-`pane.render`), never starting one, and closes the pane when the window
-closes. Launch it with `open`, from outside a Ravenry pane or with the
+With no `--socket`, it opens on the newest running daemon that has the
+render stream (protocol method `pane.render`); the packaged app starts its
+own when none runs, or beside an older one ("The daemon" above), a
+development build never does. Its shells are the tabs, a new one (the
+login shell, or COMMAND) when it has none; the panes keep running when
+the window closes. Launch it with `open`, from outside a Ravenry pane or with the
 pane's variables removed (the app removes `RAVENRY_PANE` and
 `RAVENRY_SOCKET` from its own environment too).
 
@@ -416,4 +534,14 @@ every screen (the bench, the self-test) writes only to
   are not forwarded. Find has no match-case or regular expression
   option (the daemon's search ignores the case of ASCII letters).
 - The scrollbar shows the position but cannot be dragged.
-- The app is signed ad hoc for local runs, for this Mac's architecture.
+- `build.sh` signs ad hoc for local runs; `package.mjs` signs with this
+  Mac's Apple Development identity, for Apple silicon only, not notarized
+  (SIGN-004), and makes no dmg.
+- Taking over from the Electron app: no update from the releases
+  (UPD-002) and no Check for Updates; a failed update is only in app.log
+  (UPD-003 has no Try again); no screen for the npm board's switch (the
+  app installs no hub beside an npm board, and says so in app.log); the
+  panes of an older daemon (one from before an update, or without the
+  render stream, before 0.1.23) are read only in the window; opened from inside a
+  pane, the app drops the pane's variables but does not relaunch itself
+  (UPD-007).
