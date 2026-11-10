@@ -23,7 +23,13 @@
 // --socket; at arrival 1 this tree's ravenryd, built as the desktop app's
 // version (or SIDETEST_NEW_RAVENRYD), starts beside it with two shells of
 // its own. Then the app is started again on both, and its report must list
-// every shell of both as a tab, in the order the first run saved.
+// every shell of both as a tab, in the order the first run saved. A Claude
+// stand-in runs mid-turn in a pane of the older daemon as recipe-box's
+// session (it reports through that daemon's `ravenryd hook`; the demo hub
+// follows the runtime folder, tells the person by this tree's ravenryd and
+// lists the stand-in as the session's process); the
+// panel's Move here goes to the hub's own move, which ends it and resumes
+// the conversation with a stand-in launch command in a pane of the newer.
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -298,7 +304,52 @@ function reviewRepo(ROOT) {
   put(repo, 'NOTES.md', 'Ask the testers about offline.\n');
   REVIEW = { repo, wt, base };
 }
+// --screen daemons: the stand-ins of Claude, on the older daemon and as the
+// launch command a move resumes with.
+const STAND = path.join(tmp, 'stand');
+const RESUMED = path.join(STAND, 'resumed.log');
+const NEW_CLAUDE = path.join(STAND, 'claude-resumed');
+const NEW_PID = path.join(STAND, 'new-claude.pid');
+// The resumed stand-in's process, listed as ps would once it started.
+let newListed = false;
+function listResumed() {
+  if (newListed || !fs.existsSync(NEW_PID)) return;
+  const [pid, pane] = fs.readFileSync(NEW_PID, 'utf8').trim().split(' ');
+  if (!pid || !pane) return;
+  const ps = JSON.parse(fs.readFileSync(hub.ps, 'utf8'));
+  ps.push({ pid: Number(pid), ppid: 1, rssKb: 280000, startedAt: new Date().toISOString(), command: `claude --resume ${OLDER.sid}`, cwd: OLDER.folder, env: `TERM_PROGRAM=ravenry RAVENRY_PANE=${pane}` });
+  fs.writeFileSync(hub.ps, JSON.stringify(ps));
+  newListed = true;
+}
+if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
+const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
+const hookLine = (bin, S, ev, sid = S.sid) => `printf '%s' ${sq(JSON.stringify({ hook_event_name: ev, session_id: sid, cwd: S.folder, transcript_path: S.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) }))} | ${sq(bin)} hook --assistant claude >/dev/null 2>&1`;
+let OLDER = null;
+if (DAEMONS) {
+  const S = hub.sessions['recipe-box'];
+  fs.mkdirSync(STAND, { recursive: true });
+  const pidFile = path.join(STAND, 'old-claude.pid');
+  // Mid-turn on the older daemon: a prompt with no Stop after it.
+  const old = path.join(STAND, 'claude-old');
+  fs.writeFileSync(old, [`echo $$ > ${sq(pidFile)}`, hookLine(OLD, S, 'SessionStart'), hookLine(OLD, S, 'UserPromptSubmit'),
+    `printf '\\033]0;Old recipe import\\007'`, `printf 'Claude Code (a stand-in) on the older ravenryd\\n\\n> Import the old recipes\\n\\n  Working...\\n'`, 'exec sleep 100000'].join('\n') + '\n');
+  // The resume: logged, then it says it runs in its new pane.
+  fs.writeFileSync(NEW_CLAUDE, ['#!/bin/sh', `echo "$PWD|$*" >> ${sq(RESUMED)}`, `echo "$$ $RAVENRY_PANE" > ${sq(NEW_PID)}`, hookLine(NEW, S, 'SessionStart').replace(`"session_id":"${S.sid}"`, `"session_id":"'"$2"'"`),
+    `printf 'Claude Code (a stand-in), resumed on the newer ravenryd\\n\\n> '`, 'exec sleep 100000'].join('\n') + '\n', { mode: 0o755 });
+  const out = execFileSync(OLD, ['new', '--socket', sock, '--cwd', S.folder, '--name', 'Old recipe import', '--label', 'ravenry.session=claude', '--json', '--',
+    '/bin/sh', '-c', `/bin/sh ${sq(old)}; exec /bin/zsh -f -i`], { env, encoding: 'utf8' });
+  const j = JSON.parse(out);
+  const pane = j.id || j.pane?.id;
+  let pid = 0;
+  for (let i = 0; i < 100 && !pid; i++) { try { pid = Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { await sleep(50); } }
+  if (!pane || !pid) throw new Error(`the older Claude stand-in did not start: ${out}`);
+  // Its process, as ps lists one in a Ravenry pane.
+  const ps = JSON.parse(fs.readFileSync(hub.ps, 'utf8'));
+  ps.push({ pid, ppid: 1, rssKb: 310000, startedAt: new Date(Date.now() - 120000).toISOString(), command: `claude --resume ${S.sid}`, cwd: S.folder, env: `TERM_PROGRAM=ravenry RAVENRY_PANE=${pane}` });
+  fs.writeFileSync(hub.ps, JSON.stringify(ps));
+  OLDER = { pane, pid, sid: S.sid, folder: S.folder };
+}
 const result = path.join(OUT, 'sidetest.json');
 // --screen machines: every shape the page draws, with the hub's own cards.
 const FIXTURE = path.join(OUT, 'machines-fixture.json');
@@ -349,6 +400,7 @@ while (!exited && Date.now() - t0 < (PAGES ? 420000 : 240000)) {
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }
+  if (DAEMONS) listResumed();
   await sleep(50);
 }
 if (!exited) app.kill();
@@ -391,6 +443,11 @@ if (DAEMONS) {
   add('daemons_again_tabs_of_both', new Set(Object.values(by)).size === 2 && tabs.length === order.length, tabs.map((h) => `${h}@${by[h]}`).join(', '));
   add('daemons_again_saved_order', tabs.join(',') === order.join(','), `saved ${order.join(',')}; restored ${tabs.join(',')}; one layout file: ${files.join(', ')}`);
   add('daemons_again_front_drawn', (again?.focused?.frames || 0) > 0, `front ${again?.front} frames ${again?.focused?.frames}`);
+  // The move: the stand-in on the older daemon ended, the conversation resumed by id in its folder.
+  let alive = true; try { process.kill(OLDER.pid, 0); } catch { alive = false; }
+  add('older_move_old_process_ended', !alive, `pid ${OLDER.pid}`);
+  const resumed = fs.existsSync(RESUMED) ? fs.readFileSync(RESUMED, 'utf8').trim().split('\n') : [];
+  add('older_move_resumed_once', resumed.length === 1 && resumed[0].endsWith(`|--resume ${OLDER.sid}`) && fs.realpathSync(resumed[0].split('|')[0]) === fs.realpathSync(OLDER.folder), resumed.join(' / '));
 }
 for (const c of r.checks) console.log(`${c.ok ? 'pass' : 'FAIL'} ${c.name}${c.detail ? ': ' + String(c.detail).replace(/\n/g, '\\n') : ''}`);
 console.log(`sidetest: ${r.checks.length} checks, ${r.failed} failed; pictures in ${OUT}`);

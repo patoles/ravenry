@@ -394,6 +394,18 @@ Windows. What it takes over, and how:
   folder (its daemons share it), as before. Read only in the middle, with
   Move here: sessions in a daemon without the render stream (0.1.22,
   0.1.10 and older) and sessions in other terminals (cmux, iTerm2, Rex).
+  A Claude or Codex session whose pane is on a daemon that drains for a
+  newer one is a normal tab, and a daemon fix reaches it only once it runs
+  on the newest, so its panel starts with "This session runs on an older
+  Ravenry (0.1.23)." and Move here (`Panel.swift`; working, the line adds
+  "Moving it stops what Claude is doing."). The click posts the hub's
+  move with `now: true` (at once, mid-turn too): the hub ends it in the
+  old pane, continues the conversation in a new pane of the newest daemon
+  and closes the old pane; the new pane takes the old one's place in its
+  tab, at the same position in the strip, in front (`Workspace.replace`,
+  from the answer's `replaced`; the old tab stays, showing its last
+  picture, while its pane ends). A shell of an older daemon gets no
+  button: its state cannot move, and it runs until it is closed.
 - **macOS asking** (SIGN-005). While macOS asks whether Ravenry may read a
   protected folder, the hub answers 503 with the folder
   (hub/server/access.mjs), and the sidebar says the sessions show up once

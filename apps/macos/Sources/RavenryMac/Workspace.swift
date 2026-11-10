@@ -323,7 +323,11 @@ final class Workspace: NSObject {
         let gone = homes.filter { $0.value === d }.map(\.key)
         // Never an empty window: a shell in the newest first when every tab was that daemon's.
         if tabs.allSatisfy({ panes(of: $0).allSatisfy(gone.contains) }) { newTab(in: nil) }
-        for id in gone { removePane(id) }
+        for id in gone {
+            // One a move replaces waits for its new pane (release, else replace).
+            if held.contains(id) { endedHeld.insert(id); continue }
+            removePane(id)
+        }
     }
 
     /// A new shell in the newest daemon (pane.new), labelled as the app's shells.
@@ -445,21 +449,77 @@ final class Workspace: NSObject {
             if t.guest == pane { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
             return t
         }
-        // In any daemon the window draws (the newest first).
-        var found: (DaemonLink, [String: Any])?
+        guard adopt(pane) else { return nil }
+        let t = Tab(host: pane)
+        tabs.append(t)
+        return t
+    }
+
+    /// A running pane of any daemon the window draws (the newest first),
+    /// known here from now on: its daemon and what pane.list says of it.
+    private func adopt(_ pane: String) -> Bool {
+        if info[pane] != nil { return true }
         for d in daemons.all {
             guard let r = try? d.conn.call("pane.list", ["hidden": true], timeout: 3),
                   let p = (r["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == pane && ($0["state"] as? String ?? "running") == "running" }) else { continue }
-            found = (d, p)
-            break
+            homes[pane] = d
+            let i = PaneInfo(id: pane)
+            i.update(p)
+            info[pane] = i
+            return true
         }
-        guard let (d, p) = found else { return nil }
-        homes[pane] = d
-        let i = PaneInfo(id: pane)
-        i.update(p)
-        info[pane] = i
-        let t = Tab(host: pane)
-        tabs.append(t)
+        return false
+    }
+
+    // MARK: a move's new pane in the old one's place
+
+    /// Panes a move is replacing (Board.move): when one ends, or its daemon
+    /// goes, its tab stays, showing what it last drew, until the new pane
+    /// takes its place or the move is over.
+    private var held: Set<String> = []
+    private var endedHeld: Set<String> = []
+    func hold(_ pane: String) { held.insert(pane) }
+    /// The move is over: a held pane that ended meanwhile, and was not
+    /// replaced, goes now.
+    func release(_ pane: String) {
+        held.remove(pane)
+        if endedHeld.remove(pane) != nil, info[pane] != nil { closePane(pane) }
+    }
+
+    /// The hub's move resumed a session in a new pane (`new`, on the newest
+    /// daemon) and names the old one it replaces: the new pane takes the
+    /// old one's place in its tab, at the same position in the strip, split
+    /// or not; the old one is forgotten here (the hub closes it). The old
+    /// pane's last picture stays until the new one drew (at most 300 ms).
+    /// nil when no tab shows the old pane or the new one is not running.
+    func replace(_ old: String, with new: String) -> Tab? {
+        guard old != new, let t = tabs.first(where: { $0.host == old || $0.guest == old }), adopt(new) else { return nil }
+        // A tab of its own already (one came first): it goes, the old place stays.
+        var front = t === active
+        if let o = tabs.firstIndex(where: { $0 !== t && ($0.host == new || $0.guest == new) }) {
+            guard tabs[o].guest == nil else { return nil }
+            front = front || tabs[o] === active
+            layout?.forget([tabs[o].id])
+            tabs.remove(at: o)
+        }
+        if t.host == old { t.host = new } else { t.guest = new }
+        layout?.forget(["s:" + old])
+        let ob = boxes.removeValue(forKey: old)
+        ob?.term.pause()
+        info.removeValue(forKey: old)
+        homes.removeValue(forKey: old)
+        held.remove(old)
+        endedHeld.remove(old)
+        if front {
+            // Built again with the new pane, under the old picture until it drew.
+            if shown?.superview !== stage { ob?.removeFromSuperview() }
+            shownTab = nil
+            show(t)
+        } else {
+            ob?.removeFromSuperview()
+            refresh()
+            save()
+        }
         return t
     }
 
@@ -972,6 +1032,7 @@ final class Workspace: NSObject {
 
     /// A pane's program ended: its tab goes (the pane too, from the daemon).
     private func ended(_ id: String) {
+        if held.contains(id) { endedHeld.insert(id); return }
         closePane(id)
     }
 

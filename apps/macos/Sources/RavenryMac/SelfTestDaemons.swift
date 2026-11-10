@@ -141,6 +141,8 @@ extension SelfTestBoard {
             hub.testCheckpoints = nil
         }
 
+        olderMove(oldV: oldV, newV: newV)
+
         // A new tab goes to the newer daemon, and draws.
         let before = Set(ws.tabs.map(\.host))
         ws.newTab(nil)
@@ -161,6 +163,114 @@ extension SelfTestBoard {
         size(1280, 820)
         settle(0.5)
         picture("native-daemons-1280.png")
+    }
+
+    /// A Claude session on the older daemon (sidetest's stand-in in
+    /// recipe-box, mid-turn, which reports through that daemon's `ravenryd
+    /// hook`): its panel says so with Move here, a shell of that daemon and
+    /// a session on the newer one get none. The click goes to the hub's own
+    /// move: the old pane's process ends, the conversation continues in a
+    /// new pane of the newer daemon (sidetest's stand-in launch command),
+    /// in the old tab's place in the strip, in front; the old pane closes.
+    func olderMove(oldV: String, newV: String) {
+        let ws = board.ws
+        let hub = board.hub
+        var key = "", old = ""
+        let found = wait(30) {
+            guard let p = hub.state?.project("recipe-box"), let s = p.sessions.first(where: { $0.pane != nil && $0.assistant == "claude" }), let pane = s.pane else { return false }
+            key = "recipe-box/\(s.surfaceId)"; old = pane
+            return s.group == "work"
+        }
+        check("older_session_working_on_old", found, "\(key) pane \(old) group \(hub.state?.project("recipe-box")?.sessions.first?.group ?? "-")")
+        guard found else { return }
+        board.pickSession(key, why: "test")
+        _ = wait(5) { board.front == .tab && ws.active?.focusedPane == old }
+        // Its tab second in the strip, so its place shows.
+        if let t = ws.active, t.host == old { ws.move(id: t.id, to: 1) }
+        board.render(force: true)
+        check("older_session_tab", board.front == .tab && ws.active?.host == old && ws.tabs.firstIndex { $0.host == old } == 1 && ws.daemon(of: old)?.version == oldV,
+              "front \(board.front), active \(ws.active?.host ?? "-"), at \(ws.tabs.firstIndex { $0.host == old } ?? -1), on \(ws.daemon(of: old)?.version ?? "?")")
+        let busyLine = t("panel.olderRavenryBusy", ["version": oldV, "who": "Claude"])
+        let idleLine = t("panel.olderRavenry", ["version": oldV])
+        let mb = { self.board.panel.buttons["moveNewer"] }
+        check("older_section_working", wait(8) { self.panelTexts().contains(busyLine) && mb()?.isEnabled == true && mb()?.title == t("move.here") },
+              "shows \(board.panel.shows); \(panelTexts().prefix(4).joined(separator: " | "))")
+        size(1280, 820)
+        settle(0.5)
+        picture("native-older-move-working-1280.png")
+        panelPicture("native-older-move-working-panel.png")
+        // Idle: the line without the clause.
+        hub.testPatch = { st in
+            var st = st
+            var ps = st["projects"] as? [[String: Any]] ?? []
+            for i in ps.indices where ps[i]["id"] as? String == "recipe-box" {
+                var ss = ps[i]["sessions"] as? [[String: Any]] ?? []
+                for j in ss.indices where ss[j]["surfaceId"] as? String == "ravenry:\(old)" { ss[j]["group"] = "idle"; ss[j]["state"] = "idle" }
+                ps[i]["sessions"] = ss
+            }
+            st["projects"] = ps
+            return st
+        }
+        board.render(force: true)
+        check("older_section_idle", wait(5) { self.board.render(force: true); return self.panelTexts().contains(idleLine) && !self.panelTexts().contains(busyLine) && mb() != nil },
+              panelTexts().prefix(4).joined(separator: " | "))
+        settle(0.3)
+        panelPicture("native-older-move-idle-panel.png")
+        hub.testPatch = nil
+        board.render(force: true)
+        // A shell of the older daemon: no Move here (its state cannot move).
+        if let sh = ws.tabs.map(\.host).first(where: { ws.label($0).name == "old-busy" }), let t = ws.tab(showing: sh) {
+            ws.show(t); board.render(force: true)
+            check("older_shell_no_move", wait(5) { self.board.panel.shows == "shell" } && mb() == nil && ws.daemon(of: sh)?.version == oldV,
+                  "shows \(board.panel.shows), button \(mb() != nil)")
+        } else { check("older_shell_no_move", false, "no old-busy tab") }
+        // Back to the session, and Move here.
+        board.pickSession(key, why: "test")
+        _ = wait(5) { mb()?.isEnabled == true }
+        let tabsBefore = ws.tabs.count
+        mb()?.performClick(nil)
+        check("older_move_busy_while_moving", mb()?.isEnabled == false && mb()?.title == t("move.moving"), mb()?.title ?? "no button")
+        var fresh = ""
+        let moved = wait(40) {
+            guard self.board.front == .tab, let a = ws.active, a.host != old else { return false }
+            fresh = a.host
+            return ws.daemon(of: a.host)?.version == newV
+        }
+        check("older_move_new_pane_on_newer", moved, "active \(ws.active?.host ?? "-") on \(ws.active.flatMap { ws.daemon(of: $0.host)?.version } ?? "?"); \(board.log.suffix(3).joined(separator: " | "))")
+        check("older_move_same_place_in_front", moved && ws.tabs.firstIndex { $0.host == fresh } == 1 && ws.tabs.count == tabsBefore && !ws.tabs.contains { $0.host == old || $0.guest == old } && board.root.middle == nil,
+              "at \(ws.tabs.firstIndex { $0.host == fresh } ?? -1), tabs \(tabsBefore) then \(ws.tabs.count): \(ws.tabs.map { "\(ws.label($0.host).name)@\(ws.daemon(of: $0.host)?.version ?? "?")" }.joined(separator: ", "))")
+        check("older_move_new_pane_draws", wait(8) { (ws.boxes[fresh]?.term.screen.frames ?? 0) > 0 && ws.boxes[fresh]?.term.live == true })
+        // The old pane ended and closed on the older daemon.
+        let oldLink = ws.daemons.all.first { $0.version == oldV }
+        check("older_move_old_pane_closed", wait(15) {
+            let l = ((try? oldLink?.conn.call("pane.list", ["hidden": true]))?["panes"] as? [[String: Any]] ?? [])
+            return !l.contains { $0["id"] as? String == old && ($0["state"] as? String ?? "running") == "running" }
+        }, oldLink == nil ? "the older daemon went away" : "")
+        // The board names the session in its new pane: no Move here there.
+        let named = wait(20) { hub.state?.project("recipe-box")?.sessions.contains { $0.pane == fresh } ?? false }
+        board.render(force: true)
+        check("older_moved_session_no_move", named && wait(5) { self.board.panel.shows == "session" } && mb() == nil,
+              "named \(named), shows \(board.panel.shows), button \(mb() != nil)")
+        settle(1.5)
+        picture("native-older-moved-1280.png")
+        panelPicture("native-older-moved-panel.png")
+        // Its tab goes again, so the launch after keeps to the shells.
+        ws.closePane(fresh)
+        settle(0.5)
+    }
+
+    /// Every text the panel shows.
+    func panelTexts() -> [String] {
+        func walk(_ v: NSView) -> [String] { ((v as? NSTextField).map { [$0.stringValue] } ?? []) + v.subviews.flatMap(walk) }
+        return walk(board.panel)
+    }
+
+    /// The panel alone, as it draws, at 2x.
+    func panelPicture(_ name: String) {
+        let v = board.panel
+        guard v.window != nil, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return }
+        v.cacheDisplay(in: v.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent(name))
     }
 
     /// Keys as the keyboard sends them, through the view's own keyDown and keyUp.

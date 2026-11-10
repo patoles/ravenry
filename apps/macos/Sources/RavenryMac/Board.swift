@@ -34,7 +34,7 @@ final class Board: NSObject {
 
     let ws: Workspace
     /// A pane Move here or Continue started that this window had no tab for yet (showStarted).
-    private var awaitTab: (pane: String, from: Front, until: Date)?
+    private var awaitTab: (pane: String, from: Front, until: Date, olds: [String])?
     /// Panes it uses' Hand it over buttons by pane, for the self-test.
     var usesButtons: [String: RButton] = [:]
     let hub: HubClient
@@ -313,6 +313,12 @@ final class Board: NSObject {
             return [s.topic, p.name].compactMap { $0 }.joined(separator: ", ")
         }
         panel.onMove = { [weak self] p, s, keep in self?.move(p, s, keep: keep) }
+        panel.onMoveNewer = { [weak self] p, s in self?.move(p, s, keep: "ravenry", now: true) }
+        panel.host?.olderDaemon = { [weak self] pane in
+            guard let self, self.ws.paneInfo(pane) != nil, let d = self.ws.daemon(of: pane), !d.draining.isEmpty else { return nil }
+            return d.version
+        }
+        panel.host?.moving = { [weak self] sid in self?.outside.moving.contains(sid) ?? false }
         outside.onOpen = { [weak self] p, s in
             self?.hub.post("/api/open", ["projectId": p.id, "surfaceId": s.surfaceId]) { code, j in if code != 200 { self?.toast(j["error"] as? String ?? "\(code)") } }
         }
@@ -875,36 +881,55 @@ final class Board: NSObject {
 
     // MARK: moves and Continue, as the person clicked them
 
-    private func move(_ p: HubProject, _ s: HubSession, keep: String) {
+    /// Move here (`keep` ravenry) or Keep it in (outside). `now`: the
+    /// panel's Move here for a session on an older daemon, which goes at
+    /// once even mid-turn (its line said it stops what it is doing).
+    private func move(_ p: HubProject, _ s: HubSession, keep: String, now: Bool = false) {
         guard let sid = s.sessionId else { return }
         outside.moving.insert(sid)
+        // Its pane here keeps its tab while it ends, until the new one takes its place.
+        let old = keep == "ravenry" ? s.pane.flatMap { ws.paneInfo($0) != nil ? $0 : nil } : nil
+        if let old { ws.hold(old) }
         render(force: true)
         let g = start.grid()
-        hub.post("/api/sessions/move", ["projectId": p.id, "sessionId": sid, "keep": keep, "cols": g.cols, "rows": g.rows]) { [weak self] code, j in
+        var body: [String: Any] = ["projectId": p.id, "sessionId": sid, "keep": keep, "cols": g.cols, "rows": g.rows]
+        if now { body["now"] = true }
+        log.append("session move \(sid)\(now ? " (now)" : ""): from \(old.map { "\($0) on \(ws.daemon(of: $0)?.version ?? "?")" } ?? "elsewhere")")
+        hub.post("/api/sessions/move", body) { [weak self] code, j in
             guard let self else { return }
             self.outside.moving.remove(sid)
             if code != 200 || !(j["ok"] as? Bool ?? false) { self.toast(t("move.notDone", ["why": j["error"] as? String ?? "the board answered \(code)"])) }
             else { self.showStarted(p, j, why: "move") }
+            if let old { self.ws.release(old) }
             self.render(force: true)
         }
     }
 
-    /// After Move here or Continue, the hub's answer: the new pane's tab in
-    /// front at once when this window's daemon has it; else the session's
-    /// view, and its tab as soon as it comes (render, within 10 s, unless
-    /// the person opened something else meanwhile). The board's state
-    /// names the new session a moment after the hub answers, so the
-    /// session alone could not be found yet and its read-only view stayed.
+    /// After Move here or Continue, the hub's answer: the new pane in the
+    /// place of the old one it replaces (`replaced`: the same tab, at the
+    /// same position), else in a tab of its own, in front at once when this
+    /// window has it; else the session's view, and its tab as soon as it
+    /// comes (render, within 10 s, unless the person opened something else
+    /// meanwhile). The board's state names the new session a moment after
+    /// the hub answers, so the session alone could not be found yet and its
+    /// read-only view stayed.
     private func showStarted(_ p: HubProject, _ j: [String: Any], why: String) {
         let pane = (j["pane"] as? [String: Any])?["id"] as? String
-        if let pane, let tb = ws.tab(showing: pane) {
+        let olds = j["replaced"] as? [String] ?? []
+        if let pane, let tb = placeTab(pane, olds) {
             awaitTab = nil
             front = .tab; hideMiddle(); ws.showAgain(tb); render()
-            log.append("session \(why): its new pane \(pane) in front")
+            log.append("session \(why): its new pane \(pane) in front, tab \((ws.tabs.firstIndex { $0 === tb } ?? -1) + 1)\(olds.isEmpty ? "" : " (it replaces \(olds.joined(separator: ", ")))")")
             return
         }
-        if let sf = j["surfaceId"] as? String { pickSession("\(j["projectId"] as? String ?? p.id)/\(sf)", why: why) }
-        if let pane, front != .tab { awaitTab = (pane, front, Date().addingTimeInterval(10)) }
+        if let sf = j["surfaceId"] as? String, front != .tab || olds.isEmpty { pickSession("\(j["projectId"] as? String ?? p.id)/\(sf)", why: why) }
+        if let pane, front != .tab || !olds.isEmpty { awaitTab = (pane, front, Date().addingTimeInterval(10), olds) }
+    }
+
+    /// The new pane's tab: in the place of an old pane's it replaces, else its own.
+    private func placeTab(_ pane: String, _ olds: [String]) -> Tab? {
+        for o in olds { if let tb = ws.replace(o, with: pane) { return tb } }
+        return ws.tab(showing: pane)
     }
 
     private func continueLast(_ p: HubProject, _ l: [String: Any]) {
@@ -988,7 +1013,7 @@ final class Board: NSObject {
         // A pane a move or Continue started, once this window has it.
         if let a = awaitTab {
             if front != a.from || Date() > a.until { awaitTab = nil }
-            else if let tb = ws.tab(showing: a.pane) {
+            else if let tb = placeTab(a.pane, a.olds) {
                 awaitTab = nil
                 front = .tab; hideMiddle(); ws.showAgain(tb)
                 log.append("session: its new pane \(a.pane) in front once it came")

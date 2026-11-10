@@ -367,7 +367,7 @@ in a Ravenry pane is answered with that pane, as is a second ask for one it
 resumed. This endpoint never ends the outside process; Move here does.
 
 **Move here.** One click puts a conversation in one place. `POST
-/api/sessions/move { projectId, sessionId, keep, cols, rows }`, keep
+/api/sessions/move { projectId, sessionId, keep, cols, rows, now }`, keep
 `ravenry` (Move here) or `outside` (Keep it in cmux):
 - `ravenry`: every process on that session id ends, in the other terminal
   and a stale copy in Ravenry, then it resumes in a new pane of the current
@@ -382,7 +382,11 @@ resumed. This endpoint never ends the outside process; Move here does.
 - A process ends only when the session is not mid-turn by its hook state
   (the last event a UserPromptSubmit with no Stop after it). Mid-turn the
   answer is `{ waiting: true, name }`, the session carries `moving`, and
-  the tick does the move once the turn ends.
+  the tick does the move once the turn ends. With `now: true` (keep
+  `ravenry` only) it goes at once, mid-turn too: the Mac app's Move here
+  for a session in a pane of an older, draining ravenryd sends it, and its
+  line says moving stops what the assistant is doing. The pane may be any
+  daemon's of the runtime folder; the new one is the newest daemon's.
 - Each process is checked again just before it is signalled (alive, the
   same start time, still on this session id; else it is left alone), gets
   SIGTERM, and SIGKILL after 5 s only if it is still there. The hub logs

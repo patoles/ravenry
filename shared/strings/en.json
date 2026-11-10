@@ -45,6 +45,8 @@
   "panel.idleFor": "Idle for {ago}",
   "panel.alsoOpen": "Also open in {other}.",
   "panel.wentOn": "This conversation went on in {other}.",
+  "panel.olderRavenry": "This session runs on an older Ravenry ({version}).",
+  "panel.olderRavenryBusy": "This session runs on an older Ravenry ({version}). Moving it stops what {who} is doing.",
   "panel.thisSession": "This session",
   "panel.alertsOn": "Alerts turned on",
   "panel.alertsOff": "Alerts turned off",

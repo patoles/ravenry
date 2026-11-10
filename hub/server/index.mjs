@@ -1946,7 +1946,7 @@ async function resumeSession(body, { fresh = false } = {}) {
 //
 // One click puts a conversation in one place (2026-11-07: "So the user
 // needs to understand all this by himself?"). POST /api/sessions/move
-// { projectId, sessionId, keep: 'ravenry' | 'outside', cols, rows }:
+// { projectId, sessionId, keep: 'ravenry' | 'outside', cols, rows, now }:
 //   keep 'ravenry' (Move here): every process on that session id ends, in
 //     the other terminal and in Ravenry, then it resumes in a Ravenry pane:
 //     the one it was in when its shell is still there, else a new one. The
@@ -1955,7 +1955,9 @@ async function resumeSession(body, { fresh = false } = {}) {
 //     terminal's goes on.
 // A process ends only when the session is not mid-turn (its hook state:
 // the last event a prompt with no Stop after it); mid-turn, the move waits
-// and the tick does it once the turn ends. Each process is checked again
+// and the tick does it once the turn ends. With `now` (keep 'ravenry'
+// only: the app's Move here for a session on an older ravenryd, whose
+// line said it stops what the assistant is doing) it goes at once. Each process is checked again
 // just before it is signalled: still alive, same start time, and still on
 // this session id. SIGTERM, then SIGKILL after 5 s only if it is still
 // there. Two processes never run on one session id after it.
@@ -2020,7 +2022,7 @@ async function moveSession(body) {
   if (elsewhere) return { ok: false, status: 409, error: elsewhere };
   const outside = holders0.find((h) => !h.ravenryId);
   const name = outside ? outside.where : termOf(e) ? term.nameOf(termOf(e)) : 'the other terminal';
-  if (busyOn(sid)) {
+  if (busyOn(sid) && !(b.now === true && keep === 'ravenry')) {
     moves.set(sid, { body: { ...b, keep }, since: Date.now(), name: (holders0.find((h) => (keep === 'ravenry' ? !h.ravenryId : h.ravenryId)) || holders0[0] || { where: name }).where });
     console.log(`sessions: move ${sid} (keep ${keep}): waiting for the turn to end`);
     wantTick = true;

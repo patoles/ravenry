@@ -38,6 +38,11 @@ final class PanelView: Box {
         var report: (String) -> [String: Any]? = { _ in nil }
         /// The agent whose own pane it is ("Claude"), else nil.
         var ownerOf: (String) -> String? = { _ in nil }
+        /// The version of the older daemon a pane of this window runs on, when
+        /// it drains for a newer one (Daemons.swift), else nil.
+        var olderDaemon: (String) -> String? = { _ in nil }
+        /// A move of this session id is under way.
+        var moving: (String) -> Bool = { _ in false }
         /// A local session in a pane: its worktree's cards and the files it changed (Review.swift).
         var extras: (HubProject, HubSession, (([NSView?]) -> NSView), ((String?, NSView?, [NSView?]) -> NSView)) -> [NSView] = { _, _, _, _ in [] }
     }
@@ -116,7 +121,8 @@ final class PanelView: Box {
                 var p = f.project.raw
                 p["sessions"] = nil
                 parts += [s, p, st.checkpoint(of: f.project, f.session) ?? [:], st.threshold, host?.pinned(k) ?? false,
-                          host?.setup(f.session.assistant ?? "").map { "\($0.hooks)\($0.skill)" } ?? ""]
+                          host?.setup(f.session.assistant ?? "").map { "\($0.hooks)\($0.skill)" } ?? "",
+                          f.session.pane.flatMap { host?.olderDaemon($0) } ?? "", f.session.sessionId.map { host?.moving($0) ?? false } ?? false]
             } else if k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
                 var pr = p.raw; pr["sessions"] = nil
                 parts.append(pr)
@@ -264,6 +270,19 @@ final class PanelView: Box {
             if s.alsoOpen != nil { acts.append(RButton(t("move.keep", ["other": other]), small: true) { [weak self] in self?.move(p, s, keep: "outside") }) }
             acts.append(spring())
             out.append(sec(nil, [para(s.alsoOpen != nil ? t("panel.alsoOpen", ["other": other]) : t("panel.wentOn", ["other": other])), hstack(acts, spacing: 8)]))
+        } else if s.machine == nil, p.machine == nil, let sid = s.sessionId, let a = s.assistant, a.hasPrefix("claude") || a.hasPrefix("codex"),
+                  let pid = s.pane, let version = host?.olderDaemon(pid) {
+            // On an older daemon that drains for a newer one (an update): its
+            // fixes reach the session once it runs on the newest, so one click
+            // ends it there and continues the conversation in a new pane of the
+            // newest, in this tab's place. Working, it stops what it is doing.
+            let busy = host?.moving(sid) ?? false
+            let move = RButton(busy ? t("move.moving") : t("move.here"), .primary, small: true) { [weak self] in self?.onMoveNewer?(p, s) }
+            move.isEnabled = !busy
+            buttons["moveNewer"] = move
+            let line = s.group == "work" ? t("panel.olderRavenryBusy", ["version": version, "who": assistantName(a.hasPrefix("codex") ? "codex" : "claude")])
+                : t("panel.olderRavenry", ["version": version])
+            out.append(sec(nil, [para(line), hstack([move, spring()], spacing: 8)]))
         }
         // What the first-launch step set up for its assistant, on this machine.
         if cp == nil, s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a) {
@@ -568,6 +587,8 @@ final class PanelView: Box {
     }
 
     var onMove: ((HubProject, HubSession, String) -> Void)?
+    /// Move here for a session on an older daemon: to the newest, at once.
+    var onMoveNewer: ((HubProject, HubSession) -> Void)?
     private func move(_ p: HubProject, _ s: HubSession, keep: String) { onMove?(p, s, keep) }
 }
 
