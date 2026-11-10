@@ -194,6 +194,40 @@ final class SelfTestBoard {
         _ = wait(5) { hub.sent.contains("POST /api/sessions/move") }
         check("move_here_posted", hub.sent.contains("POST /api/sessions/move"), board.outside.buttons.keys.sorted().joined(separator: ","))
 
+        // A Claude session in a pane of a ravenryd this window does not draw
+        // (an older one after an update): read only here, so Move here, as for
+        // one outside Ravenry.
+        let moves0 = hub.sent.filter { $0 == "POST /api/sessions/move" }.count
+        hub.testPatch = { st in
+            var st = st
+            var ps = st["projects"] as? [[String: Any]] ?? []
+            for i in ps.indices where ps[i]["id"] as? String == "notes-app" {
+                var ss = ps[i]["sessions"] as? [[String: Any]] ?? []
+                if !ss.isEmpty {
+                    ss[0]["pane"] = "pnotdrawn"; ss[0]["state"] = "idle"; ss[0]["assistant"] = "claude"
+                    ss[0]["sessionId"] = "0f6c1d0e-7a1b-4c2d-9e3f-5a6b7c8d9e0f"
+                    ss[0].removeValue(forKey: "outside"); ss[0].removeValue(forKey: "machine")
+                }
+                ps[i]["sessions"] = ss
+            }
+            st["projects"] = ps
+            return st
+        }
+        let cps = hub.testCheckpoints; hub.testCheckpoints = cps
+        if let s3 = hub.state?.project("notes-app")?.sessions.first {
+            board.pickSession("notes-app/\(s3.surfaceId)", why: "test")
+            settle(0.3)
+            let mb = board.outside.buttons["move"]
+            check("other_daemon_move_here", board.root.middle === board.outside && mb?.isEnabled == true, board.outside.buttons.keys.sorted().joined(separator: ","))
+            picture("native-other-daemon-1440.png")
+            mb?.performClick(nil)
+            check("other_daemon_move_posted", wait(5) { hub.sent.filter { $0 == "POST /api/sessions/move" }.count > moves0 })
+            // The demo hub knows no such session: its answer (a toast) lands before the next check reads the log.
+            _ = wait(5) { self.board.outside.moving.isEmpty }
+            settle(0.3)
+        } else { check("other_daemon_session", false) }
+        hub.testPatch = nil
+
         // An idle project: its page, Continue this conversation or New session.
         let idle = st0.sections.first { $0.group == "idle" }?.projects.first { $0.rows.isEmpty && st0.project($0.id)?.mainSession == nil }
         if let p = idle, let r = board.sidebar.rows["project:\(p.id)"] { click(r) }

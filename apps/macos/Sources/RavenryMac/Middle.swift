@@ -69,6 +69,7 @@ final class OutsideView: MiddleView {
         buttons = [:]
         let m = s.machine ?? p.machine
         let whereName = m.map { "a terminal on \($0)" } ?? s.termName ?? "another terminal"
+        let fromName = why != nil ? "the other ravenryd" : whereName
         let out = s.outside
         let open = (out?["open"] as? Bool) ?? true
         let folder = p.folderShort.map { ", in \($0)" } ?? ""
@@ -83,11 +84,15 @@ final class OutsideView: MiddleView {
             acts.append(b)
         }
         let kindOk = (s.assistant ?? "claude").hasPrefix("claude") || (s.assistant ?? "").hasPrefix("codex")
-        let canResume = out != nil && s.sessionId != nil && kindOk
-        if out != nil {
+        // In a terminal outside Ravenry, or in a pane of a ravenryd this window
+        // does not draw (an older one after an update): Move here ends it there
+        // and resumes it in a pane of this window's daemon (POST /api/sessions/move).
+        let movable = out != nil || (why != nil && m == nil)
+        let canResume = movable && s.sessionId != nil && kindOk
+        if movable {
             let busy = moving.contains(s.sessionId ?? "")
             let w = s.moving?["waiting"] as? Bool ?? false
-            let b = RButton(w ? t("move.waiting", ["who": s.assistant == "codex" ? "Codex" : "Claude", "other": whereName]) : busy ? t("move.moving") : t("move.here"),
+            let b = RButton(w ? t("move.waiting", ["who": s.assistant == "codex" ? "Codex" : "Claude", "other": fromName]) : busy ? t("move.moving") : t("move.here"),
                             canResume && !w ? .primary : .normal) { [weak self] in self?.onMove?(p, s) }
             b.isEnabled = canResume && !busy && !w
             buttons["move"] = b
@@ -98,8 +103,8 @@ final class OutsideView: MiddleView {
         let head = hstack([words] + acts, spacing: 16)
         head.alignment = .top
         var rows: [NSView] = [head]
-        if out != nil && canResume {
-            let n = label(t("else.moveNote", ["where": whereName]), Fonts.pt(12.5, .medium), "tx2", lines: 2); n.textColor = termTx2
+        if canResume {
+            let n = label(t("else.moveNote", ["where": fromName]), Fonts.pt(12.5, .medium), "tx2", lines: 2); n.textColor = termTx2
             rows.append(hstack([Icon("done", "tx2", size: 14), n], spacing: 7))
         }
         if let w = why { let l = label(t("else.otherDaemon", ["why": w]), Fonts.pt(12.5), "you", lines: 3); rows.append(l) }
