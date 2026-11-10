@@ -14,6 +14,16 @@
 // With --screen, one screen's checks only (SelfTestScreens.swift), on the
 // demo hub with its running plan, its idea and the lighthouse project, whose
 // brief has every shape a brief takes (LIGHTHOUSE_BRIEF below).
+//
+//   SIDETEST_OLD_RAVENRYD=PATH node scripts/sidetest.mjs --screen daemons [OUT]
+//
+// --screen daemons (SelfTestDaemons.swift): the window on two daemons, as
+// after an update. An older ravenryd (PATH: a release's, 0.1.23 or later)
+// runs with two shells, one busy, and the app starts on it with no
+// --socket; at arrival 1 this tree's ravenryd, built as the desktop app's
+// version (or SIDETEST_NEW_RAVENRYD), starts beside it with two shells of
+// its own. Then the app is started again on both, and its report must list
+// every shell of both as a tab, in the order the first run saved.
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -44,9 +54,49 @@ fs.writeFileSync(path.join(user, '.zshrc'), "PROMPT='~ > '\n");
 fs.writeFileSync(path.join(user, '.zshenv'), 'skip_global_compinit=1\n');
 const env = { HOME: user, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: run, RAVENRY_STATE_DIR: state, RAVENRY_DESKTOP_DATA: path.join(tmp, 'desktop') };
 
-const daemon = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon.log'), 'w')] });
-const sock = path.join(run, 'ravenryd-0.0.0-dev.sock');
-for (let i = 0; !fs.existsSync(sock); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
+// --screen daemons: an older daemon first, a newer one at arrival 1 (below).
+const DAEMONS = SCREEN === 'daemons';
+const OLD = process.env.SIDETEST_OLD_RAVENRYD;
+if (DAEMONS && !OLD) throw new Error('sidetest --screen daemons: SIDETEST_OLD_RAVENRYD names an older release\'s ravenryd');
+const versionOf = (bin) => JSON.parse(execFileSync(bin, ['version', '--json'], { env, encoding: 'utf8' })).version;
+const daemonsUp = [];
+async function serve(bin, log) {
+  const v = versionOf(bin);
+  const d = spawn(bin, ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, log), 'w')] });
+  daemonsUp.push(d);
+  const s = path.join(run, `ravenryd-${v.replace(/[^A-Za-z0-9._-]/g, '_')}.sock`);
+  for (let i = 0; !fs.existsSync(s); i++) { if (i > 200) throw new Error(`the daemon ${v} did not start`); await sleep(50); }
+  return { v, s, bin };
+}
+// Two shells in a daemon, as its tabs: one prints 30 lines a second.
+const BUSY = 'i=0; while :; do i=$((i+1)); echo "busy $i the quick brown fox jumps over the lazy dog"; sleep 0.033; done';
+function shells(d, tag) {
+  const opt = ['--socket', d.s, '--label', 'ravenry.kind=shell', '--cwd', user, '--json'];
+  execFileSync(d.bin, ['new', ...opt, '--name', `${tag}-busy`, '--', '/bin/sh', '-c', BUSY], { env });
+  execFileSync(d.bin, ['new', ...opt, '--name', `${tag}-shell`, '--', '/bin/zsh', '-l'], { env });
+}
+const goEnv = () => Object.fromEntries(['GOCACHE', 'GOPATH', 'GOMODCACHE', 'GOROOT'].map((k, i) => [k, execFileSync('go', ['env', k], { encoding: 'utf8' }).trim()]));
+// This tree's ravenryd as the next version (build.sh's way, with the version).
+function buildNew() {
+  if (process.env.SIDETEST_NEW_RAVENRYD) return process.env.SIDETEST_NEW_RAVENRYD;
+  const ver = JSON.parse(fs.readFileSync(path.join(REPO, 'apps', 'desktop', 'package.json'), 'utf8')).version;
+  const out = path.join(tmp, 'new-ravenryd');
+  execFileSync('/bin/sh', ['-c', 'pc=$(scripts/libghostty.sh) && PKG_CONFIG_PATH=$pc CGO_CPPFLAGS="-DRAVENRY_LIBGHOSTTY=$(basename "$(dirname "$(dirname "$pc")")")" go build -ldflags "-X main.version=$VER" -o "$OUT" ./cmd/ravenryd'],
+    // The test's folders (the spawn guard's rule), Go's own caches as they are.
+    { cwd: path.join(REPO, 'daemon'), env: { ...env, PATH: process.env.PATH, ...goEnv(), VER: ver, OUT: out }, stdio: ['ignore', 'ignore', 'inherit'] });
+  return out;
+}
+let sock, daemon, NEW;
+if (DAEMONS) {
+  NEW = buildNew();
+  const old = await serve(OLD, 'daemon-old.log');
+  shells(old, 'old');
+  sock = old.s;
+} else {
+  daemon = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon.log'), 'w')] });
+  sock = path.join(run, 'ravenryd-0.0.0-dev.sock');
+  for (let i = 0; !fs.existsSync(sock); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
+}
 
 const port = 47700 + Math.floor(Math.random() * 200);
 // A brief with every shape: fields, headings, nested lists, a checklist of
@@ -282,7 +332,8 @@ if (SCREEN === 'review') {
 }
 if (SCREEN === 'machines') fs.writeFileSync(FIXTURE, JSON.stringify({ ok: true, machines: SHAPES.map((m) => ({ ...m, card: machineCard(m) })), hosts: HOSTS, builds: BUILDS }));
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
-const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', '--socket', sock, '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
+// --screen daemons: no --socket (every daemon of the runtime folder).
+const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
   env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf') } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
@@ -294,15 +345,33 @@ let n = 1;
 while (!exited && Date.now() - t0 < (PAGES ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute).
-    if (PAGES) await writeFixtures(); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else await hub.arrive(...arrivals[n - 1]);
+    if (PAGES) await writeFixtures(); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else await hub.arrive(...arrivals[n - 1]);
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }
   await sleep(50);
 }
 if (!exited) app.kill();
+// --screen daemons: the app again on both daemons (a launch after the
+// update): its report lists every shell of both as a tab, in the saved order.
+let again = null;
+if (DAEMONS) {
+  const report = path.join(OUT, 'report.json');
+  fs.rmSync(report, { force: true });
+  const a2 = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen'], {
+    env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_REPORT: report }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-again.log'), 'w')],
+  });
+  for (let i = 0; i < 200 && !again; i++) {
+    await sleep(100);
+    try { const j = JSON.parse(fs.readFileSync(report, 'utf8')); if (j.daemons?.length === 2 && j.tabs?.length >= 4) again = j; } catch {}
+  }
+  await sleep(1500);
+  try { again = JSON.parse(fs.readFileSync(report, 'utf8')); } catch {}
+  a2.kill();
+}
 hub.stop();
-daemon.kill();
+daemon?.kill();
+for (const d of daemonsUp) d.kill();
 if (PD) fs.rmSync(PD, { recursive: true, force: true });
 let r;
 try { r = JSON.parse(fs.readFileSync(result, 'utf8')); } catch { console.log(`sidetest: no result; see ${path.join(tmp, 'app.log')}`); process.exit(1); }
@@ -311,6 +380,18 @@ try { r = JSON.parse(fs.readFileSync(result, 'utf8')); } catch { console.log(`si
 const files = fs.existsSync(env.RAVENRY_DESKTOP_DATA) ? fs.readdirSync(env.RAVENRY_DESKTOP_DATA) : [];
 if (!SCREEN) r.checks.push({ name: 'layout_file_by_daemon', ok: files.some((f) => /^window-[0-9a-f]{12}\.json$/.test(f)) && !files.includes('window.json'), detail: files.join(', ') });
 if (!SCREEN) r.failed += r.checks[r.checks.length - 1].ok ? 0 : 1;
+if (DAEMONS) {
+  const files = fs.existsSync(env.RAVENRY_DESKTOP_DATA) ? fs.readdirSync(env.RAVENRY_DESKTOP_DATA).filter((f) => /^window.*\.json$/.test(f)) : [];
+  const saved = files.length === 1 ? JSON.parse(fs.readFileSync(path.join(env.RAVENRY_DESKTOP_DATA, files[0]), 'utf8')) : {};
+  const order = (saved.order || []).map((s) => s.replace(/^s:/, ''));
+  const tabs = (again?.tabs || []).map((t) => t.host);
+  const by = Object.fromEntries((again?.tabs || []).map((t) => [t.host, t.daemon]));
+  const add = (name, ok, detail) => { r.checks.push({ name, ok, detail }); if (!ok) r.failed++; };
+  add('daemons_again_both', again?.daemons?.length === 2, JSON.stringify(again?.daemons || []));
+  add('daemons_again_tabs_of_both', new Set(Object.values(by)).size === 2 && tabs.length === order.length, tabs.map((h) => `${h}@${by[h]}`).join(', '));
+  add('daemons_again_saved_order', tabs.join(',') === order.join(','), `saved ${order.join(',')}; restored ${tabs.join(',')}; one layout file: ${files.join(', ')}`);
+  add('daemons_again_front_drawn', (again?.focused?.frames || 0) > 0, `front ${again?.front} frames ${again?.focused?.frames}`);
+}
 for (const c of r.checks) console.log(`${c.ok ? 'pass' : 'FAIL'} ${c.name}${c.detail ? ': ' + String(c.detail).replace(/\n/g, '\\n') : ''}`);
 console.log(`sidetest: ${r.checks.length} checks, ${r.failed} failed; pictures in ${OUT}`);
 process.exit(r.failed ? 1 : 0);

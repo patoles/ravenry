@@ -46,6 +46,8 @@ final class Connection {
     var onClose: (() -> Void)?
     private(set) var methods: Set<String> = []
     private(set) var daemonVersion = ""
+    /// The newer daemon this one drains for (hello's daemon.draining), else "".
+    private(set) var daemonDraining = ""
 
     /// The daemon's socket (the layout file is kept by daemon: Layout.swift).
     private(set) var socketPath = ""
@@ -341,10 +343,12 @@ final class Connection {
     }
 
     /// hello, which must come first.
-    func hello(client: String) throws {
-        let r = try call("hello", ["client": ["name": client, "version": "0.0.1"]])
+    func hello(client: String, timeout: TimeInterval = 10) throws {
+        let r = try call("hello", ["client": ["name": client, "version": "0.0.1"]], timeout: timeout)
         methods = Set(r["methods"] as? [String] ?? [])
-        daemonVersion = (r["daemon"] as? [String: Any])?["version"] as? String ?? ""
+        let d = r["daemon"] as? [String: Any]
+        daemonVersion = d?["version"] as? String ?? ""
+        daemonDraining = d?["draining"] as? String ?? ""
     }
 
     func close() {

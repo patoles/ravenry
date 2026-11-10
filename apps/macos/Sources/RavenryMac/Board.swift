@@ -938,7 +938,7 @@ final class Board: NSObject {
         guard ws.paneInfo(pane) != nil || ws.tabs.contains(where: { $0.host == pane || $0.guest == pane }) else { return nil }
         if Date().timeIntervalSince(inputsAsked[pane] ?? .distantPast) > 3 {
             inputsAsked[pane] = Date()
-            ws.conn.request("pane.inputs", ["pane": pane, "limit": 50]) { [weak self] r in
+            ws.conn(of: pane).request("pane.inputs", ["pane": pane, "limit": 50]) { [weak self] r in
                 guard case .success(let j) = r, let recs = j["inputs"] as? [[String: Any]] else { return }
                 DispatchQueue.main.async {
                     guard let self else { return }

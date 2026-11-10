@@ -14,7 +14,8 @@
 // LaunchServices and exits (Relaunch.swift).
 //
 // It connects to the newest running daemon that has the render stream
-// (never starting one) and shows its shells as tabs (Workspace.swift),
+// (a packaged app starts its own) and to every other running daemon that
+// has it (Daemons.swift), and shows their shells as tabs (Workspace.swift),
 // a new one (the login shell, or COMMAND) when it has none; --attach
 // brings that pane to the front. Closing the window leaves the panes
 // running, for the next launch (and the Electron app) to show again.
@@ -154,7 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var workspace: Workspace?
     var board: Board?
     var hub: HubClient?
-    var conn: Connection?
+    var daemons: Daemons?
     var closing = false
 
     init(options: Options) { self.options = options }
@@ -256,8 +257,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             fail("\(error)")
             return
         }
-        conn = c
-        let ws = Workspace(window: w, options: options, conn: c, scale: scale)
+        // Every other daemon beside it with the render stream: their panes
+        // are tabs too, each over its own connection (Daemons.swift). With
+        // --socket, that daemon only.
+        let ds = Daemons(first: c, watch: options.socket == nil, log: installing ? { inst.log($0) } : { NSLog("RavenryMac: \($0)") })
+        ds.joinNow()
+        daemons = ds
+        let ws = Workspace(window: w, options: options, daemons: ds, scale: scale)
         w.backgroundColor = Design.tbg
         workspace = ws
         ws.root.frame = NSRect(origin: .zero, size: rect.size)
@@ -265,14 +271,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.contentView = ws.root
         ws.root.onLayout = { [weak w] in w?.placeButtons() }
         buildMenu(ws)
-        c.onClose = { [weak self] in
-            DispatchQueue.main.async {
-                guard let self, !self.closing else { return }
-                self.window?.title = "Ravenry (the daemon went away)"
-            }
+        ds.onEvent = { [weak ws] d, ev in ws?.event(ev, from: d) }
+        ds.onLeave = { [weak self, weak ws] d in
+            guard let self, !self.closing else { return }
+            ws?.left(d)
         }
-        c.onEvent = { [weak ws] ev in DispatchQueue.main.async { ws?.event(ev) } }
-        c.request("events.subscribe", ["display": true, "activity": true])
         if options.offscreen {
             w.setFrameOrigin(NSPoint(x: -30000, y: -30000))
             w.orderFront(nil)
@@ -290,6 +293,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             fail("\(error)")
             return
         }
+        // Daemons that start later (a newer app's after an update) join as they come.
+        ds.onJoin = { [weak ws] d in ws?.joined(d) }
+        ds.watch()
         // The hub service, in the background (Install.swift); the window
         // reads the hub as soon as it answers.
         if installing { inst.setUpHub() }
@@ -329,11 +335,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// front and what its pane drew.
     private func report(to path: String) {
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self, let ws = self.workspace, let c = self.conn else { return }
+            guard let self, let ws = self.workspace else { return }
+            let c = ws.conn
             let v = ws.focusedView
             let j: [String: Any] = [
                 "daemon": c.daemonVersion, "socket": c.socketPath,
-                "tabs": ws.tabs.map { ["host": $0.host, "guest": $0.guest ?? ""] },
+                "daemons": ws.daemons.all.map { ["version": $0.version, "socket": $0.socket, "draining": $0.draining] },
+                "tabs": ws.tabs.map { t in
+                    ["host": t.host, "guest": t.guest ?? "", "daemon": ws.daemon(of: t.host)?.version ?? "",
+                     "frames": ws.boxes[t.host]?.term.screen.frames ?? 0]
+                },
                 "front": ws.active?.host ?? "",
                 "sidebarEmpty": self.board?.sidebar.emptyText ?? "",
                 "focused": ["pane": v?.pane ?? "", "frames": v?.screen.frames ?? 0, "draws": v?.drawCount ?? 0, "text": v?.screen.text() ?? ""],
@@ -366,7 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         workspace?.save()
         workspace?.flush()
         hub?.stop()
-        conn?.close()
+        daemons?.close()
     }
 
     func windowDidResize(_ note: Notification) { board?.resized() }

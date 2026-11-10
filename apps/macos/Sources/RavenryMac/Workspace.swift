@@ -22,6 +22,9 @@
 //   frame came (at most 300 ms), so a switch never shows a blank pane.
 // - The order, the splits and the tab in front are kept in the Electron
 //   app's window.json (Layout.swift), so both apps agree.
+// - The panes of every daemon the window draws (Daemons.swift) are tabs
+//   alike: each pane talks to its own daemon (conn(of:)), new ones go to
+//   the newest.
 
 import AppKit
 
@@ -93,7 +96,17 @@ func isAgentPane(_ p: [String: Any]) -> Bool {
 final class Workspace: NSObject {
     let window: TerminalWindow
     let options: Options
-    let conn: Connection
+    /// Every daemon the window draws (Daemons.swift).
+    let daemons: Daemons
+    /// The newest daemon's connection: where new panes go.
+    var conn: Connection { daemons.newest?.conn ?? firstConn }
+    private let firstConn: Connection
+    /// Whose each pane is: the daemon it runs in.
+    private var homes: [String: DaemonLink] = [:]
+    /// The connection of a pane's own daemon (its keys, its close, its panel).
+    func conn(of pane: String) -> Connection { homes[pane]?.conn ?? conn }
+    /// The daemon a pane runs in.
+    func daemon(of pane: String) -> DaemonLink? { homes[pane] }
     let root = RootView()
     let bar = TabBar()
     let stage = StageView()
@@ -127,10 +140,12 @@ final class Workspace: NSObject {
     var onSwitch: ((_ tab: String, _ drawnMs: Double, _ frameMs: Double, _ hadRows: Bool) -> Void)?
     let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
 
-    init(window: TerminalWindow, options: Options, conn: Connection, scale: CGFloat) {
+    init(window: TerminalWindow, options: Options, daemons: Daemons, scale: CGFloat) {
         self.window = window
         self.options = options
-        self.conn = conn
+        self.daemons = daemons
+        let conn = daemons.newest!.conn
+        firstConn = conn
         self.scale = scale
         settings = SettingsStore(offscreen: options.offscreen)
         if let f = options.font { pins["fontFamily"] = f }
@@ -171,7 +186,7 @@ final class Workspace: NSObject {
         keepScrollback(pane)
         let fps = options.offscreen ? 120 : (NSScreen.main?.maximumFramesPerSecond ?? 60)
         v.refreshInterval = 1.0 / Double(max(fps, 30))
-        v.attach(conn, pane: pane, fps: fps)
+        v.attach(conn(of: pane), pane: pane, fps: fps)
         v.onTitle = { [weak self] t in
             guard let self else { return }
             if let i = self.info[pane], !t.isEmpty || !i.title.isEmpty { i.title = t }
@@ -212,15 +227,23 @@ final class Workspace: NSObject {
     /// The tabs the daemon has (its shells), in the saved order with the
     /// saved splits, the saved one in front; a new shell when none.
     func restore() throws {
-        let r = try conn.call("pane.list", ["labels": ["ravenry.kind": "shell"]])
-        var panes = (r["panes"] as? [[String: Any]] ?? []).filter { ($0["state"] as? String ?? "running") == "running" }
-        if let a = options.attach, !panes.contains(where: { $0["id"] as? String == a }) {
-            let all = try conn.call("pane.list", ["hidden": true])
-            panes += (all["panes"] as? [[String: Any]] ?? []).filter { $0["id"] as? String == a }
-        }
-        // The agents' own panes: tabs too, beside their sessions'.
-        if let all = try? conn.call("pane.list", [:]) {
-            for p in all["panes"] as? [[String: Any]] ?? [] where isAgentPane(p) && !panes.contains(where: { $0["id"] as? String == p["id"] as? String }) { panes.append(p) }
+        // Every daemon's, the newest first (a pane id names one pane across daemons).
+        var panes: [[String: Any]] = []
+        for (k, d) in daemons.all.enumerated() {
+            let mine: [[String: Any]]
+            do {
+                mine = try shells(of: d)
+            } catch {
+                // The newest must answer; an older one that does not is left out.
+                if k == 0 { throw error }
+                NSLog("RavenryMac: \(d.version) at \(d.socket): \(error)")
+                continue
+            }
+            for p in mine {
+                guard let id = p["id"] as? String, homes[id] == nil else { continue }
+                homes[id] = d
+                panes.append(p)
+            }
         }
         for p in panes {
             guard let id = p["id"] as? String else { continue }
@@ -256,7 +279,54 @@ final class Workspace: NSObject {
         show(front ?? tabs[0], wait: true)
     }
 
-    /// A new shell in the daemon (pane.new), labelled as the app's shells.
+    /// A daemon's tabs: its shells, the pane --attach names, its agents' own panes.
+    private func shells(of d: DaemonLink) throws -> [[String: Any]] {
+        let c = d.conn
+        let r = try c.call("pane.list", ["labels": ["ravenry.kind": "shell"]])
+        var panes = (r["panes"] as? [[String: Any]] ?? []).filter { ($0["state"] as? String ?? "running") == "running" }
+        if let a = options.attach, !panes.contains(where: { $0["id"] as? String == a }) {
+            let all = try c.call("pane.list", ["hidden": true])
+            panes += (all["panes"] as? [[String: Any]] ?? []).filter { $0["id"] as? String == a }
+        }
+        // The agents' own panes: tabs too, beside their sessions'.
+        if let all = try? c.call("pane.list", [:]) {
+            for p in all["panes"] as? [[String: Any]] ?? [] where isAgentPane(p) && !panes.contains(where: { $0["id"] as? String == p["id"] as? String }) { panes.append(p) }
+        }
+        return panes
+    }
+
+    /// A daemon that started after the window (a newer app's, an update):
+    /// its shells and its agents' own panes are tabs at the end, in the
+    /// saved order, the tab in front stays.
+    func joined(_ d: DaemonLink) {
+        guard let mine = try? shells(of: d) else { return }
+        let saved = layout?.read() ?? SavedLayout()
+        var added: [Tab] = []
+        for p in mine.sorted(by: { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }) {
+            guard let id = p["id"] as? String, homes[id] == nil, !tabs.contains(where: { $0.host == id || $0.guest == id }) else { continue }
+            homes[id] = d
+            let i = PaneInfo(id: id)
+            i.update(p)
+            info[id] = i
+            added.append(Tab(host: id))
+        }
+        let rank: (Tab) -> Int = { t in saved.order.firstIndex(of: t.id) ?? Int.max }
+        tabs += added.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
+        refresh()
+        save()
+    }
+
+    /// A daemon went away: its panes' tabs go (their processes went with it).
+    func left(_ d: DaemonLink) {
+        // The last one gone: the window stays as it was, and says so.
+        if daemons.all.isEmpty { window.title = "Ravenry (the daemon went away)"; return }
+        let gone = homes.filter { $0.value === d }.map(\.key)
+        // Never an empty window: a shell in the newest first when every tab was that daemon's.
+        if tabs.allSatisfy({ panes(of: $0).allSatisfy(gone.contains) }) { newTab(in: nil) }
+        for id in gone { removePane(id) }
+    }
+
+    /// A new shell in the newest daemon (pane.new), labelled as the app's shells.
     @discardableResult
     func newPane(cwd: String?, size: NSSize) throws -> String? {
         let r = Renderer(scale: scale, fontName: look.font, fontSize: look.size)
@@ -264,8 +334,10 @@ final class Workspace: NSObject {
         var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": "Shell", "labels": ["ravenry.kind": "shell"], "scrollback": look.scrollback]
         if !options.command.isEmpty { params["command"] = options.command }
         if options.bench != nil || options.selftest != nil { params["cwd"] = home } else if let c = cwd, !c.isEmpty { params["cwd"] = c }
+        let d = daemons.newest
         let res = try conn.call("pane.new", params)
         guard let p = res["pane"] as? [String: Any], let id = p["id"] as? String else { return nil }
+        homes[id] = d
         let i = PaneInfo(id: id)
         i.update(p)
         info[id] = i
@@ -373,8 +445,16 @@ final class Workspace: NSObject {
             if t.guest == pane { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
             return t
         }
-        guard let r = try? conn.call("pane.list", ["hidden": true]),
-              let p = (r["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == pane && ($0["state"] as? String ?? "running") == "running" }) else { return nil }
+        // In any daemon the window draws (the newest first).
+        var found: (DaemonLink, [String: Any])?
+        for d in daemons.all {
+            guard let r = try? d.conn.call("pane.list", ["hidden": true], timeout: 3),
+                  let p = (r["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == pane && ($0["state"] as? String ?? "running") == "running" }) else { continue }
+            found = (d, p)
+            break
+        }
+        guard let (d, p) = found else { return nil }
+        homes[pane] = d
         let i = PaneInfo(id: pane)
         i.update(p)
         info[pane] = i
@@ -596,7 +676,8 @@ final class Workspace: NSObject {
     func askClose(_ pane: String, then close: @escaping () -> Void) {
         guard look.confirmClose else { return close() }
         let what = tabs.contains { $0.guest != nil && ($0.host == pane || $0.guest == pane) } ? "pane" : "tab"
-        conn.request("pane.process", ["pane": pane]) { [weak self] r in
+        let c = conn(of: pane)
+        c.request("pane.process", ["pane": pane]) { [weak self] r in
             guard let self else { return }
             guard case .success(let v) = r, let fg = v["foreground"] as? [String: Any], let fpid = (fg["pid"] as? NSNumber)?.intValue else {
                 return DispatchQueue.main.async(execute: close)
@@ -609,7 +690,7 @@ final class Workspace: NSObject {
                 }
                 return
             }
-            self.conn.request("pane.list") { [weak self] r2 in
+            c.request("pane.list") { [weak self] r2 in
                 var first: Int?
                 if case .success(let l) = r2, let ps = l["panes"] as? [[String: Any]] {
                     first = (ps.first { $0["id"] as? String == pane }?["pid"] as? NSNumber)?.intValue
@@ -659,8 +740,9 @@ final class Workspace: NSObject {
     /// Closes a pane: its process ends (pane.close); its tab goes, or its
     /// split's other pane is the tab, whole again.
     func closePane(_ id: String) {
+        let c = conn(of: id)
         removePane(id)
-        conn.request("pane.close", ["pane": id])
+        c.request("pane.close", ["pane": id])
     }
 
     /// A pane is gone (closed here, or it ended): out of its tab.
@@ -673,6 +755,7 @@ final class Workspace: NSObject {
         boxes[id]?.removeFromSuperview()
         boxes.removeValue(forKey: id)
         info.removeValue(forKey: id)
+        homes.removeValue(forKey: id)
         if t.guest == id {
             t.guest = nil
             t.focus = 0
@@ -762,7 +845,7 @@ final class Workspace: NSObject {
         let want = look.scrollback
         guard let i = info[id], i.scrollback != want else { return }
         i.scrollback = want
-        conn.request("pane.update", ["pane": id, "scrollback": want])
+        conn(of: id).request("pane.update", ["pane": id, "scrollback": want])
     }
 
     // MARK: size
@@ -788,24 +871,25 @@ final class Workspace: NSObject {
 
     // MARK: the daemon's events
 
-    func event(_ ev: [String: Any]) {
+    func event(_ ev: [String: Any], from d: DaemonLink) {
         let name = ev["event"] as? String ?? ""
         if name == "stream.end", let ch = (ev["channel"] as? NSNumber)?.uint32Value {
-            // A pane on screen ended.
-            if let (id, _) = boxes.first(where: { $0.value.term.channel == ch }) { ended(id) }
+            // A pane on screen ended (a channel is its daemon's connection's).
+            if let (id, _) = boxes.first(where: { $0.value.term.channel == ch && $0.value.term.conn === d.conn }) { ended(id) }
             return
         }
         guard let p = ev["pane"] as? [String: Any], let id = p["id"] as? String else { return }
         switch name {
         case "pane.title", "pane.cwd", "pane.updated", "pane.created":
             info[id]?.update(p)
-            if isAgentPane(p), !tabs.contains(where: { $0.host == id || $0.guest == id }) { addAgentPane(p) }
+            if isAgentPane(p), !tabs.contains(where: { $0.host == id || $0.guest == id }) { homes[id] = homes[id] ?? d; addAgentPane(p) }
             else if name == "pane.created", p["creator"] == nil, (p["labels"] as? [String: String])?["ravenry.kind"] != "shell" {
                 // pane.created can come before the daemon recorded who made it: asked once more.
-                conn.request("pane.list", [:]) { [weak self] r in
+                d.conn.request("pane.list", [:]) { [weak self] r in
                     guard case .success(let j) = r, let q = (j["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == id }) else { return }
                     DispatchQueue.main.async {
                         guard let self, isAgentPane(q), !self.tabs.contains(where: { $0.host == id || $0.guest == id }) else { return }
+                        self.homes[id] = self.homes[id] ?? d
                         self.addAgentPane(q)
                     }
                 }
@@ -888,8 +972,7 @@ final class Workspace: NSObject {
 
     /// A pane's program ended: its tab goes (the pane too, from the daemon).
     private func ended(_ id: String) {
-        removePane(id)
-        conn.request("pane.close", ["pane": id])
+        closePane(id)
     }
 
     // MARK: kept

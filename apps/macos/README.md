@@ -38,7 +38,8 @@ stream".
 
 - **Connection** (`Connection.swift`): the protocol's WebSocket over the
   daemon's unix socket, on a plain socket, with a reader thread; each
-  render stream's frames go to its own pane.
+  render stream's frames go to its own pane. One per daemon the window
+  draws (`Daemons.swift`, "The daemon" below): each pane talks to its own.
 - **Tabs and splits** (`Workspace.swift`, `TabBar.swift`, `Panes.swift`):
   the daemon's shells (`ravenry.kind: shell`) are the tabs, named as the
   Electron app names them (the pane's name, else its program's title,
@@ -88,16 +89,16 @@ stream".
   right edge is dragged from 220 to 420 points (both kept), which the
   Electron app does not have.
 - **What is in front** (`Board.swift`): a tab, else a session this window
-  does not draw (in cmux, iTerm2, Rex, or in a ravenryd this window is not
-  on) read only in the middle with Open in and Move here (`Middle.swift`,
+  does not draw (in cmux, iTerm2, Rex, or in a ravenryd without the render
+  stream, before 0.1.23) read only in the middle with Open in and Move here (`Middle.swift`,
   its screen from `GET /api/live`), a project's page (Continue this
   conversation, New session, Open brief), New session (`StartView.swift`:
   a folder and an assistant, its own copy of the code when another session
   works there, and step 2 once per assistant), a page of the Electron app's own (the brief, the
   gallery, a plan, an idea, Alerts, the pages from files), or a page this
   window does not draw yet, named in a native placeholder. The middle's view is a tab
-  after the others, as in the Electron app. A session in a pane of this
-  window's daemon becomes or focuses its tab. The highlighted row, the
+  after the others, as in the Electron app. A session in a pane of a
+  daemon this window draws becomes or focuses its tab. The highlighted row, the
   panel and the tab in front always name the same thing.
 - **The brief** (`BriefPage.swift`, `BriefDoc.swift`): a project's brief as
   a page beside the session it was opened from (the panel stays on it),
@@ -365,8 +366,24 @@ Windows. What it takes over, and how:
   Electron app's DaemonLink finds it; none, and the app starts its own
   from the version folder (`ravenryd serve --detach`, its own process
   session); an older one, and its own starts beside it and the window
-  opens on that, while the old one keeps its panes until they end. The
-  window draws one daemon's panes; another's are shown read only.
+  opens on that, while the old one keeps its panes until they end.
+  The window draws every running daemon that has the render stream
+  (`Daemons.swift`): one connection each, the daemons in the runtime
+  folder at the start and every 2 seconds after (a newer app's daemon
+  that starts later joins), each with the hello as `ravenry-desktop`, so
+  the daemon takes the app for the person on every one (the 0.1.23 daemon
+  does as this one: its peer check is the same). Every pane of each is a
+  normal tab over its own daemon's connection: keys, mouse, paste,
+  resize, selection, links, bell, activity, titles, closing, its lease,
+  Typed here (`pane.inputs`) and the panel go to the pane's own daemon.
+  New panes (a new tab, a split, New session, Continue, Move here) go to
+  the newest daemon that does not drain, as the hub's; a draining one's
+  panes stay live tabs until they end, and a daemon that goes away takes
+  its tabs. Pane ids are unique across daemons, so the tabs' order,
+  splits and tab in front stay in the one layout file of the runtime
+  folder (its daemons share it), as before. Read only in the middle, with
+  Move here: sessions in a daemon without the render stream (0.1.22,
+  0.1.10 and older) and sessions in other terminals (cmux, iTerm2, Rex).
 - **macOS asking** (SIGN-005). While macOS asks whether Ravenry may read a
   protected folder, the hub answers 503 with the folder
   (hub/server/access.mjs), and the sidebar says the sessions show up once
@@ -565,9 +582,25 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
+
+`SIDETEST_OLD_RAVENRYD=PATH node scripts/sidetest.mjs --screen daemons [DIR]`
+(`SelfTestDaemons.swift`) is the window on two daemons, as after an
+update: an older release's ravenryd (PATH, 0.1.23 or later) with two
+shells, one printing 30 lines a second, and the app on it with no
+`--socket`; then this tree's ravenryd, built as the desktop app's version,
+starts beside it with two shells of its own and drains the older. Every
+shell of both must be a live tab on its own daemon's stream, take typed
+keys as the person (its own input log says `person`, no drive question
+on either daemon, the other shell gets none), take a resize on its own
+daemon, a session in the older one opens as its tab, a new tab goes to
+the newer, a closed pane ends in its own daemon, and the app started
+again on both restores every tab in the saved order. `node
+scripts/resizebench.mjs --daemons PATH [--front old|new]` drags the
+whole window as the resize bench does with the busy tab in front in the
+older daemon or the newer.
 
 `node scripts/launchcheck.mjs [APP]` launches the app off every screen on a
 throwaway daemon of three shells and the demo hub, with a saved layout
@@ -583,9 +616,10 @@ build/RavenryMac.app/Contents/MacOS/RavenryMac [--socket PATH] [--attach PANE] [
 ```
 
 With no `--socket`, it opens on the newest running daemon that has the
-render stream (protocol method `pane.render`); the packaged app starts its
+render stream (protocol method `pane.render`) and draws every other one
+that has it, those that start later too; the packaged app starts its
 own when none runs, or beside an older one ("The daemon" above), a
-development build never does. Its shells are the tabs, a new one (the
+development build never does. With `--socket`, that daemon only. Its shells are the tabs, a new one (the
 login shell, or COMMAND) when it has none; the panes keep running when
 the window closes. The packaged app started from a Ravenry pane relaunches
 itself clean ("A start from a pane" above); a development build does not,
@@ -615,9 +649,8 @@ every screen (the bench, the self-test) writes only to
   takes a date as text, and a sheet taller than the window is cut;
   a pinned session that runs outside gets no tab of its own; Typed here has no filters or whole log;
   no filmstrip.
-- A session in a ravenryd pane of another daemon (the board's, when the
-  window runs on its own) is shown read only, as one outside: the window
-  draws only its own daemon's panes.
+- A session in a pane of a daemon without the render stream (before
+  0.1.23) is shown read only, with Move here, as one outside.
 - No images (Kitty graphics, sixel); OSC 52 clipboard and notifications
   are not forwarded. Find has no match-case or regular expression
   option (the daemon's search ignores the case of ASCII letters).
@@ -629,7 +662,7 @@ every screen (the bench, the self-test) writes only to
   (UPD-002) and no Check for Updates; a failed update is only in app.log
   (UPD-003 has no Try again); no screen for the npm board's switch (the
   app installs no hub beside an npm board, and says so in app.log); the
-  panes of an older daemon (one from before an update, or without the
-  render stream, before 0.1.23) are read only in the window; opened from inside a
+  panes of a daemon without the render stream (before 0.1.23) are read
+  only in the window; opened from inside a
   pane, the app drops the pane's variables but does not relaunch itself
   (UPD-007).

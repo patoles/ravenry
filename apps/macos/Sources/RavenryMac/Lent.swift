@@ -127,7 +127,7 @@ extension Board {
             var p: [String: Any] = ["pane": pane, "release": true]
             if takeBack { p["refuse_waiting"] = true }
             self.leaseActs.append(takeBack ? "take back \(pane)" : "hand \(pane)")
-            self.ws.conn.request("pane.lease", p) { [weak self] r in
+            self.ws.conn(of: pane).request("pane.lease", p) { [weak self] r in
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if case .failure(let e) = r { self.toast(t("lease.failed", ["why": "\(e)"])); return }
@@ -143,7 +143,7 @@ extension Board {
     func grantsOf(_ pane: String) -> [[String: Any]] {
         if Date().timeIntervalSince(grantsAsked[pane] ?? .distantPast) > 3 {
             grantsAsked[pane] = Date()
-            ws.conn.request("pane.grants", ["pane": pane]) { [weak self] r in
+            ws.conn(of: pane).request("pane.grants", ["pane": pane]) { [weak self] r in
                 guard case .success(let j) = r else { return }
                 let list = j["grants"] as? [[String: Any]] ?? []
                 DispatchQueue.main.async {
@@ -221,7 +221,7 @@ extension Board {
                 let b = RButton(t("panes.handOver"), small: true) { [weak self] in
                     guard let self else { return }
                     self.leaseActs.append("hand \(pane)")
-                    self.ws.conn.request("pane.lease", ["pane": pane, "release": true]) { [weak self] r in
+                    self.ws.conn(of: pane).request("pane.lease", ["pane": pane, "release": true]) { [weak self] r in
                         DispatchQueue.main.async {
                             if case .failure(let e) = r { self?.toast(t("panes.handFailed", ["why": "\(e)"])); return }
                             self?.toast(t("panes.handedOver", ["who": next.who, "pane": name]))
@@ -238,7 +238,7 @@ extension Board {
     /// Takes back what the person let an agent do (pane.revoke): it asks each time again.
     func revokeGrant(_ pane: String, _ grant: String) {
         leaseActs.append("revoke \(grant)")
-        ws.conn.request("pane.revoke", ["grant": grant]) { [weak self] r in
+        ws.conn(of: pane).request("pane.revoke", ["grant": grant]) { [weak self] r in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if case .failure(let e) = r { self.toast(t("lease.revokeFailed", ["why": "\(e)"])); return }

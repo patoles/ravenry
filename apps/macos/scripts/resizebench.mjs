@@ -8,23 +8,34 @@
 // in front busy. Prints a summary; bench.json and the app's log in OUT.
 //
 //   node scripts/resizebench.mjs [OUT]      (after scripts/build.sh)
+//   node scripts/resizebench.mjs --daemons OLD_RAVENRYD [--front old|new] [OUT]
+//
+// --daemons: the window on two daemons, as after an update: OLD_RAVENRYD (a
+// release's, 0.1.23 or later) and this tree's ravenryd built as the desktop
+// app's version, two shells each, and the app with no --socket; the busy tab
+// in front is the older daemon's shell (--front old, the default) or the
+// newer's (--front new).
 //
 // BENCH_APP: another build of the app (default apps/macos/build/RavenryMac.app).
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 
 guardSpawns();
+const argv = process.argv.slice(2);
+const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv.splice(i, 2)[1] : null; };
+const OLD = flag('--daemons');
+const FRONT = flag('--front') || 'old';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
 const APP = process.env.BENCH_APP || path.join(MAC, 'build', 'RavenryMac.app');
 fs.mkdirSync(path.join(REPO, '.tmp'), { recursive: true });
 const tmp = fs.mkdtempSync(path.join(REPO, '.tmp', 'mrb.'));
-const OUT = path.resolve(process.argv[2] || tmp);
+const OUT = path.resolve(argv[0] || tmp);
 fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const user = path.join(tmp, 'user'), run = path.join(tmp, 'run'), state = path.join(tmp, 'state');
@@ -33,14 +44,38 @@ fs.writeFileSync(path.join(user, '.zshrc'), "PROMPT='~ > '\n");
 fs.writeFileSync(path.join(user, '.zshenv'), 'skip_global_compinit=1\n');
 const env = { HOME: user, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: run, RAVENRY_STATE_DIR: state, RAVENRY_DESKTOP_DATA: path.join(tmp, 'desktop') };
 
-const daemon = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon.log'), 'w')] });
-const sock = path.join(run, 'ravenryd-0.0.0-dev.sock');
-for (let i = 0; !fs.existsSync(sock); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
+const daemons = [];
+async function serve(bin) {
+  const v = JSON.parse(execFileSync(bin, ['version', '--json'], { env, encoding: 'utf8' })).version;
+  daemons.push(spawn(bin, ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, `daemon-${v}.log`), 'w')] }));
+  const s = path.join(run, `ravenryd-${v.replace(/[^A-Za-z0-9._-]/g, '_')}.sock`);
+  for (let i = 0; !fs.existsSync(s); i++) { if (i > 200) throw new Error(`the daemon ${v} did not start`); await sleep(50); }
+  return { bin, s, v };
+}
+let sock = null, two = null;
+if (OLD) {
+  // This tree's ravenryd as the next version (build.sh's way), in the test's folders with Go's own caches.
+  const ver = JSON.parse(fs.readFileSync(path.join(REPO, 'apps', 'desktop', 'package.json'), 'utf8')).version;
+  const NEW = path.join(tmp, 'new-ravenryd');
+  const go = Object.fromEntries(['GOCACHE', 'GOPATH', 'GOMODCACHE', 'GOROOT'].map((k) => [k, execFileSync('go', ['env', k], { encoding: 'utf8' }).trim()]));
+  execFileSync('/bin/sh', ['-c', 'pc=$(scripts/libghostty.sh) && PKG_CONFIG_PATH=$pc CGO_CPPFLAGS="-DRAVENRY_LIBGHOSTTY=$(basename "$(dirname "$(dirname "$pc")")")" go build -ldflags "-X main.version=$VER" -o "$OUT" ./cmd/ravenryd'],
+    { cwd: path.join(REPO, 'daemon'), env: { ...env, PATH: process.env.PATH, ...go, VER: ver, OUT: NEW }, stdio: ['ignore', 'ignore', 'inherit'] });
+  const o = await serve(OLD), n = await serve(NEW);
+  two = { o, n };
+  // The tabs by age: the front daemon's shell first (the bench types its busy loop in the first tab).
+  const order = FRONT === 'new' ? [n, o, n, o] : [o, n, o, n];
+  for (const [i, d] of order.entries()) {
+    execFileSync(d.bin, ['new', '--socket', d.s, '--label', 'ravenry.kind=shell', '--cwd', user, '--name', `shell-${i + 1}`, '--json', '--', '/bin/zsh', '-l'], { env });
+    await sleep(30);
+  }
+} else {
+  sock = (await serve(path.join(APP, 'Contents', 'MacOS', 'ravenryd'))).s;
+}
 const port = 47900 + Math.floor(Math.random() * 90);
 const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port });
 const result = path.join(OUT, 'bench.json');
 fs.rmSync(result, { force: true });
-const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', '--socket', sock, '--bench', result, '--bench-resize'], {
+const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(sock ? ['--socket', sock] : []), '--bench', result, '--bench-resize'], {
   env: { ...env, RAVENRY_HUB_URL: hub.url },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(OUT, 'app-stderr.log'), 'w')],
 });
@@ -49,8 +84,16 @@ app.on('exit', () => { exited = true; });
 const t0 = Date.now();
 while (!exited && Date.now() - t0 < 120000) await sleep(100);
 if (!exited) app.kill();
+// --daemons: which daemon's pane the busy loop ran in (its screen).
+let busyIn = '';
+if (two) {
+  for (const d of [two.o, two.n]) {
+    const l = JSON.parse(execFileSync(d.bin, ['ls', '--socket', d.s, '--json'], { env, encoding: 'utf8' }));
+    for (const p of l.panes || l) if (execFileSync(d.bin, ['capture', p.id, '--socket', d.s], { env, encoding: 'utf8' }).includes('busy ')) busyIn = d.v;
+  }
+}
 hub.stop();
-daemon.kill();
+for (const d of daemons) d.kill();
 const log = path.join(user, 'Library', 'Logs', 'Ravenry', 'app.log');
 if (fs.existsSync(log)) fs.copyFileSync(log, path.join(OUT, 'app.log'));
 let r;
@@ -58,6 +101,7 @@ try { r = JSON.parse(fs.readFileSync(result, 'utf8')); } catch { console.log(`re
 if (r.error) { console.log('resizebench: error:', r.error.slice(0, 300)); process.exit(1); }
 const d = r.resize;
 const s = (x, u = 'ms') => `median ${(x.median ?? 0).toFixed(2)}, p95 ${(x.p95 ?? 0).toFixed(2)}, max ${(x.max ?? 0).toFixed(2)} ${u} (n ${x.n ?? 0})`;
+if (two) console.log(`two daemons: ${two.o.v} and ${two.n.v}; the busy tab in front is ${busyIn || 'in neither'}'s`);
 console.log(`window: ${d.tabs} tabs, sidebar ${d.sidebar_shown ? 'shown' : 'folded'} (hub rows ${d.hub_rows}), panel at the end ${d.panel_at_end}`);
 console.log(`drag ${d.steps} steps in ${d.seconds.toFixed(2)} s (1440 to 700 pt and back, 120 a second asked)`);
 console.log(`  main thread a step: ${s(d.step_ms)}; steps over 16 ms ${d.steps_over_16ms}`);

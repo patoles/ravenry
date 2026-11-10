@@ -32,6 +32,7 @@ extension SelfTestBoard {
         case "review": screenReview()
         case "window": screenWindow()
         case "start": screenStart()
+        case "daemons": screenDaemons()
         default: check("screen_known", false, name)
         }
         finish()
