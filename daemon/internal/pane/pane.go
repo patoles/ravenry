@@ -173,7 +173,10 @@ type Pane struct {
 	// hold after a resize, the streams, and the bells rung.
 	rview renderView
 	rhold *resizeHold
-	rsubs map[*RenderSub]struct{}
+	// resizedAt is when the screen was last resized: a resize soon after
+	// it is a step of a drag (render.go, resized).
+	resizedAt time.Time
+	rsubs     map[*RenderSub]struct{}
 	// pendingSize is a size asked for while the shell redraws its prompt
 	// after the last resize; pendingT applies it once the redraw is done.
 	pendingSize *[2]int

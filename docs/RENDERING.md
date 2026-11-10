@@ -159,9 +159,21 @@ theme on the client is never overridden by the daemon's defaults.
   while the shell is still writing, waits for its end: a shell resized
   in the middle of its redraw counts its prompt's rows on a screen that
   changed under it and leaves pieces of the old prompt behind. Any other
-  program's redraw after a resize is held until it has been quiet 6 ms,
-  at most 100 ms. The client meanwhile draws the frame it has at the new
-  size; it never sees a cleared prompt or half a redraw.
+  program's redraw after a resize on its own is held until it has been
+  quiet 6 ms, at most 100 ms. During a drag (a resize within 50 ms of
+  the last one) such a program is not held: it cannot redraw between
+  steps that come every 8 to 17 ms, and a hold that started again at
+  every step let a pane with a big scrollback or a busy line (a working
+  Claude) out only when its 500 ms cap ran out, 2 to 6 frames a second.
+  Each step's reflowed screen goes out at once, as Ghostty draws it, and
+  the program's redraw follows as ordinary output
+  (`TestRenderDragBusy`: 8000 rows of scrollback and a line redrawn 10
+  times a second, 120 steps at 120 Hz: nearly every step drawn at its
+  size, 4 ms after `pane.resize` median). The reflow itself is
+  libghostty-vt's, over the whole scrollback: about 2.5 ms a step for
+  7800 rows. The client meanwhile draws the frame it has at the new
+  size; it never sees a cleared prompt, nor half a redraw outside a
+  drag.
 
 ## Key bindings
 

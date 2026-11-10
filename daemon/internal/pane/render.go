@@ -97,6 +97,9 @@ const (
 	// holdMaxProgram: a program that is not a shell at a prompt redraws
 	// on its own schedule (a spinner may never be quiet).
 	holdMaxProgram = 100 * time.Millisecond
+	// dragGap: a resize this soon after the last one is a step of a drag
+	// (a window's edge dragged gives one a display refresh, 8 to 17 ms).
+	dragGap = 50 * time.Millisecond
 )
 
 // heldUntil says whether the resize hold still holds at now, and if so
@@ -135,8 +138,28 @@ func minTime(a, b time.Time) time.Time {
 
 // resized starts or extends the resize hold. The pane's lock is held;
 // atPrompt is read before the screen was resized.
+//
+// A program that is not a shell at a prompt is held for its redraw only
+// at a resize on its own, never during a drag: each step of a drag would
+// push the hold on again (its deadlines count from the last resize, and
+// a step comes every 8 ms at 120 Hz), so a pane with a big scrollback or
+// a busy line got a frame only when the hold's 500 ms cap ran out. Such
+// a program cannot redraw between steps anyway, so during a drag each
+// step's reflowed screen goes out at once, as Ghostty draws it, and the
+// program's redraw follows as ordinary output. A shell at a prompt keeps
+// its hold at every step: the resize cleared its prompt, and it redraws
+// within milliseconds.
 func (p *Pane) resized(atPrompt bool) {
 	now := time.Now()
+	drag := !p.resizedAt.IsZero() && now.Sub(p.resizedAt) < dragGap
+	p.resizedAt = now
+	if drag && !atPrompt {
+		p.rhold = nil
+		for s := range p.rsubs {
+			s.signal()
+		}
+		return
+	}
 	if p.rhold == nil {
 		p.rhold = &resizeHold{start: now}
 	}
