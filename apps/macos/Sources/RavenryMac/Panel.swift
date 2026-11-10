@@ -29,6 +29,13 @@ final class PanelView: Box {
         var paneName: (String) -> String? = { _ in nil }
         /// A pick opens side by side in the middle.
         var openPicker: (String) -> Void = { _ in }
+        /// "Who can type here" for a pane of this daemon, and taking a grant back (Lent.swift).
+        var whoCanType: (String) -> [WhoRow] = { _ in [] }
+        var revoke: (String, String) -> Void = { _, _ in }
+        /// "Opened by you, 16:58, in paper-boat".
+        var opened: (String) -> String? = { _ in nil }
+        /// The agent whose own pane it is ("Claude"), else nil.
+        var ownerOf: (String) -> String? = { _ in nil }
     }
 
     var host: Host?
@@ -136,7 +143,7 @@ final class PanelView: Box {
             rows = projectBody(p)
         } else if let pn = pane {
             shows = "shell"
-            setHead(pn.name, tag: "Shell", machine: nil, pinKey: nil)
+            setHead(pn.name, tag: host?.ownerOf(pn.id).map { t("lease.ownPane", ["who": $0]) } ?? "Shell", machine: nil, pinKey: nil)
             rows = shellBody(pn)
         } else {
             shows = "none"
@@ -362,15 +369,57 @@ final class PanelView: Box {
 
     private func shellBody(_ pn: (id: String, name: String, cwd: String, command: [String])) -> [NSView] {
         var out: [NSView] = []
-        let home = NSHomeDirectory()
-        let cwd = pn.cwd.hasPrefix(home) ? "~" + pn.cwd.dropFirst(home.count) : pn.cwd
-        let kv = NSGridView(views: [[label("Folder", Fonts.pt(12), "tx3"), label(cwd, Fonts.mono(12))],
-                                    [label("Runs", Fonts.pt(12), "tx3"), label(pn.command.isEmpty ? "your login shell" : pn.command.joined(separator: " "), Fonts.mono(12))]])
-        kv.column(at: 0).width = 52
-        kv.rowSpacing = 5
-        out.append(sec(nil, [kv]))
+        if let o = host?.opened(pn.id) { out.append(hstack([Icon("shell", "tx3", size: 13), label(o, Fonts.pt(12), "tx3", lines: 2)], spacing: 7)) }
+        if let h = host { out.append(whoCanType(pn.id, h.whoCanType(pn.id))) }
         if let typed = typedHere(pn.id) { out.append(typed) }
         return out
+    }
+
+    /// 6 C: who can type here; an agent let for its session can be taken back.
+    private(set) var whoRows: [String: NSPopUpButton] = [:]
+    private func whoCanType(_ pane: String, _ rows: [WhoRow]) -> NSView {
+        var grid: [[NSView]] = []
+        whoRows = [:]
+        for r in rows {
+            var name: [NSView?] = []
+            if r.value != "always" { name.append(Box(fill: r.who.cls == "claude" || r.who.cls == "codex" ? "work" : "idle", radius: 3.5)) }
+            let col = vstack([label(r.who.who, Fonts.pt(12.5)), r.who.place.map { label($0, Fonts.pt(11.5), "tx3") }], spacing: 1)
+            name.append(col)
+            if let dot = name.first as? Box { dot.translatesAutoresizingMaskIntoConstraints = false; dot.widthAnchor.constraint(equalToConstant: 7).isActive = true; dot.heightAnchor.constraint(equalToConstant: 7).isActive = true }
+            let left = hstack(name, spacing: 7)
+            left.alignment = .top
+            let right: NSView
+            switch r.value {
+            case "always": right = label(t("lease.always"), Fonts.pt(12), "tx3")
+            case "own": right = label(t("lease.itsOwn"), Fonts.pt(12), "tx3")
+            default:
+                let pop = NSPopUpButton(frame: .zero, pullsDown: false)
+                pop.controlSize = .small
+                pop.font = Fonts.pt(12)
+                pop.addItems(withTitles: [t("lease.asksEachTime"), r.grant != nil ? t("lease.canTypeSession") : t("lease.canTypeAsks")])
+                pop.selectItem(at: r.grant != nil ? 1 : 0)
+                pop.item(at: 1)?.isEnabled = r.grant != nil
+                pop.autoenablesItems = false
+                pop.setAccessibilityLabel(t("lease.whoCanType"))
+                let g = r.grant
+                pop.target = PopTarget.shared
+                pop.action = #selector(PopTarget.changed(_:))
+                PopTarget.shared.run[ObjectIdentifier(pop)] = { [weak self, weak pop] in
+                    if pop?.indexOfSelectedItem == 0, let g { self?.host?.revoke(pane, g) }
+                }
+                whoRows[r.who.who] = pop
+                right = pop
+            }
+            grid.append([left, right])
+        }
+        let g = NSGridView(views: grid)
+        g.rowSpacing = 10
+        g.columnSpacing = 8
+        g.yPlacement = .center
+        g.column(at: 1).xPlacement = .leading
+        let note = label(t("lease.ownNote"), Fonts.pt(11.5), "tx3", lines: 0)
+        note.preferredMaxLayoutWidth = PanelView.width - 56
+        return sec(t("lease.whoCanType"), [g, note])
     }
 
     // MARK: a checkpoint's card, in the hub's words
@@ -458,6 +507,13 @@ final class PanelView: Box {
 
     var onMove: ((HubProject, HubSession, String) -> Void)?
     private func move(_ p: HubProject, _ s: HubSession, keep: String) { onMove?(p, s, keep) }
+}
+
+/// A pop-up's change, run by its closure.
+final class PopTarget: NSObject {
+    static let shared = PopTarget()
+    var run: [ObjectIdentifier: () -> Void] = [:]
+    @objc func changed(_ p: NSPopUpButton) { run[ObjectIdentifier(p)]?() }
 }
 
 /// The latest picture, 16:10, its corners rounded; a click opens it large.

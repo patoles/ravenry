@@ -55,6 +55,11 @@ final class Board: NSObject {
     let learn = LearnPage()
     let machines = MachinesPage()
     let phoneCard = PhoneCard()
+    /// The grants on each pane (pane.grants) and when they were asked (Lent.swift).
+    var grants: [String: [[String: Any]]] = [:]
+    var grantsAsked: [String: Date] = [:]
+    /// What the person did about a lease or a grant, for the self-test.
+    var leaseActs: [String] = []
     /// A pick side by side, in the middle beside the panel (key "pick:<checkpoint id>").
     let picker = PickerView()
     let notifier: Notifier
@@ -240,6 +245,14 @@ final class Board: NSObject {
             })
         panel.host?.paneName = { [weak self] id in self.flatMap { $0.ws.paneInfo(id) != nil ? $0.ws.label(id).name : nil } }
         panel.host?.openPicker = { [weak self] id in self?.openPicker(id) }
+        panel.host?.whoCanType = { [weak self] pane in self?.whoCanType(pane) ?? [] }
+        panel.host?.revoke = { [weak self] pane, g in self?.revokeGrant(pane, g) }
+        panel.host?.opened = { [weak self] pane in self?.openedLine(pane) }
+        panel.host?.ownerOf = { [weak self] pane in
+            guard let self, let c = self.ws.paneInfo(pane)?.creator, c["kind"] as? String == "agent" else { return nil }
+            return self.sourceOf(c).who
+        }
+        ws.onLease = { [weak self] _ in self?.render(force: true) }
         picker.hub = hub
         picker.onClose = { [weak self] in self?.back() }
         picker.answer = { [weak self] id, reply, done in
@@ -875,6 +888,8 @@ final class Board: NSObject {
             panel.update(state: st, front: fk?.hasPrefix("tab:") == true ? nil : fk, pane: pane, force: force)
         }
         ws.extraTab = middleTab(st)
+        let strip = leaseStrip()
+        if strip?.text != root.strip?.text || (strip == nil) != (root.strip == nil) { root.strip = strip }
         root.place()
         toastView.place(in: root)
     }

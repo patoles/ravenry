@@ -45,7 +45,11 @@ stream".
   else the program, with its folder). Cmd+T or the + opens a shell,
   Cmd+W closes the pane with the keyboard, Cmd+1 to Cmd+9, Cmd+Shift+[
   and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab, a drag moves it, a
-  middle click closes it. One split per tab: Cmd+D right, Cmd+Shift+D
+  middle click closes it. An agent's own pane (one it made from its
+  pane with `ravenryd new`) opens as a split beside its owner's tab,
+  without the keyboard, else as a tab right after it; while an agent holds
+  a pane's lease a strip over it says who has it and who waits, with Hand
+  it to and Take it back (`Lent.swift`). One split per tab: Cmd+D right, Cmd+Shift+D
   down, Cmd+Option+arrows or a click move the keyboard, the divider is
   dragged (a double click or Cmd+Ctrl+= evens it), Cmd+Shift+Enter
   zooms the pane. A tab not in front has no render stream and draws
@@ -340,7 +344,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
@@ -390,8 +394,8 @@ every screen (the bench, the self-test) writes only to
   folder and an assistant, without the setup step or the worktree choice;
   a pinned session that runs outside gets no tab of its own; an ask card
   has no "Checked your decisions first"; Typed here has no filters or whole log;
-  no review, files changed, panes it uses or lent-pane strip; no
-  filmstrip; a shell's panel has no "opened by" or who can type here.
+  no review, files changed or panes it uses, no badge on a lent pane's
+  tab; no filmstrip; a shell's panel does not say what its agent reported.
 - A session in a ravenryd pane of another daemon (the board's, when the
   window runs on its own) is shown read only, as one outside: the window
   draws only its own daemon's panes.

@@ -38,6 +38,13 @@ final class PaneInfo {
     var scrollback = 0
     /// When it last printed (the daemon's last_output_at): Learn's filmstrip card picks the busiest.
     var lastOutput = ""
+    /// Who made it (a Source: the person, an agent in its pane, a program).
+    var creator: [String: Any]?
+    /// An agent's lease on it, with who waits (pane.lease).
+    var lease: [String: Any]?
+    var labels: [String: String] = [:]
+    /// The assistant its agent reported (pane.agent).
+    var agent: String?
 
     init(id: String) { self.id = id }
 
@@ -49,6 +56,10 @@ final class PaneInfo {
         if let v = p["created_at"] as? String { createdAt = v }
         if let v = p["last_output_at"] as? String { lastOutput = v }
         if let v = p["scrollback"] as? NSNumber { scrollback = v.intValue }
+        if let v = p["creator"] as? [String: Any] { creator = v }
+        if let v = p["labels"] as? [String: String] { labels = v }
+        if let v = (p["agent"] as? [String: Any])?["assistant"] as? String { agent = v }
+        if p["lease"] != nil { lease = p["lease"] as? [String: Any] }
     }
 }
 
@@ -67,6 +78,13 @@ final class Tab {
     init(host: String) { self.host = host }
     var id: String { "s:" + host }
     var focusedPane: String { focus == 1 ? (guest ?? host) : host }
+}
+
+/// An agent's own pane: made by an agent in a pane, shown, running, not a shell (the Electron app's agentPane).
+func isAgentPane(_ p: [String: Any]) -> Bool {
+    let c = p["creator"] as? [String: Any]
+    return c?["kind"] as? String == "agent" && (c?["pane"] as? String) != nil && !(p["hidden"] as? Bool ?? false)
+        && (p["state"] as? String ?? "running") == "running" && (p["labels"] as? [String: String])?["ravenry.kind"] != "shell"
 }
 
 final class Workspace: NSObject {
@@ -194,6 +212,10 @@ final class Workspace: NSObject {
         if let a = options.attach, !panes.contains(where: { $0["id"] as? String == a }) {
             let all = try conn.call("pane.list", ["hidden": true])
             panes += (all["panes"] as? [[String: Any]] ?? []).filter { $0["id"] as? String == a }
+        }
+        // The agents' own panes: tabs too, beside their sessions'.
+        if let all = try? conn.call("pane.list", [:]) {
+            for p in all["panes"] as? [[String: Any]] ?? [] where isAgentPane(p) && !panes.contains(where: { $0["id"] as? String == p["id"] as? String }) { panes.append(p) }
         }
         for p in panes {
             guard let id = p["id"] as? String else { continue }
@@ -745,9 +767,22 @@ final class Workspace: NSObject {
         }
         guard let p = ev["pane"] as? [String: Any], let id = p["id"] as? String else { return }
         switch name {
-        case "pane.title", "pane.cwd", "pane.updated":
+        case "pane.title", "pane.cwd", "pane.updated", "pane.created":
             info[id]?.update(p)
+            if isAgentPane(p), !tabs.contains(where: { $0.host == id || $0.guest == id }) { addAgentPane(p) }
+            else if name == "pane.created", p["creator"] == nil, (p["labels"] as? [String: String])?["ravenry.kind"] != "shell" {
+                // pane.created can come before the daemon recorded who made it: asked once more.
+                conn.request("pane.list", [:]) { [weak self] r in
+                    guard case .success(let j) = r, let q = (j["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == id }) else { return }
+                    DispatchQueue.main.async {
+                        guard let self, isAgentPane(q), !self.tabs.contains(where: { $0.host == id || $0.guest == id }) else { return }
+                        self.addAgentPane(q)
+                    }
+                }
+            }
             refresh()
+        case "pane.lease":
+            if let i = info[id] { i.lease = p["lease"] as? [String: Any]; refresh(); onLease?(id) }
         case "pane.exited", "pane.closed":
             if info[id] != nil { ended(id) }
         case "pane.bell":
@@ -765,6 +800,38 @@ final class Workspace: NSObject {
         default:
             break
         }
+    }
+
+    /// Something about a pane's lease changed (the strip and the panel follow).
+    var onLease: ((String) -> Void)?
+
+    /// An agent's own pane: beside its session's (or shell's) tab, without
+    /// the keyboard, when that tab is not split yet; else a tab right after
+    /// it (and its other panes), else at the end. The tab in front stays.
+    func addAgentPane(_ p: [String: Any]) {
+        guard let id = p["id"] as? String, let owner = (p["creator"] as? [String: Any])?["pane"] as? String else { return }
+        let i = info[id] ?? PaneInfo(id: id)
+        i.update(p)
+        info[id] = i
+        if let host = tabs.first(where: { $0.host == owner && $0.guest == nil }) {
+            host.guest = id
+            host.side = "right"
+            host.size = 50
+            host.focus = 0
+            host.zoom = false
+            if host === active {
+                shown?.removeFromSuperview()
+                shown = nil
+                shownTab = nil
+                show(host)
+            }
+        } else {
+            var at = -1
+            for (k, x) in tabs.enumerated() where x.host == owner || x.guest == owner || [x.host, x.guest].contains(where: { $0.flatMap { self.info[$0]?.creator?["pane"] as? String } == owner }) { at = k }
+            tabs.insert(Tab(host: id), at: at < 0 ? tabs.count : at + 1)
+        }
+        refresh()
+        save()
     }
 
     /// A pane's program ended: its tab goes (the pane too, from the daemon).
@@ -803,6 +870,15 @@ final class RootView: NSView {
     weak var panel: NSView?
     /// What covers the stage when the middle is not a tab's terminal.
     weak var middle: NSView?
+    /// The strip across the top of a lent pane (Lent.swift), over the stage.
+    var strip: LeaseStrip? {
+        didSet {
+            if oldValue !== strip { oldValue?.removeFromSuperview() }
+            placedFor = nil
+            needsLayout = true
+            place()
+        }
+    }
     /// The middle over the whole sheet, the strip too (the Electron app's
     /// own pages: the gallery, a plan, an idea, Alerts, the pages).
     var wideMiddle = false
@@ -828,7 +904,7 @@ final class RootView: NSView {
         let w = bounds.width, h = bounds.height
         // Nothing moved: nothing to lay out (Board draws at every state).
         let key = (bounds.size, sideWidth, panelMode, middle != nil && !wideMiddle ? 1 : middle != nil ? 2 : 0)
-        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : stage?.frame) { return }
+        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight))) { return }
         placedFor = key
         let side = sidebar != nil && sideWidth > 0
         sidebar?.isHidden = !side
@@ -845,10 +921,16 @@ final class RootView: NSView {
         if let s = stage, s.superview !== sheet { sheet.addSubview(s, positioned: .below, relativeTo: bar) }
         bar?.lead = side ? 8 : Design.stripLead
         bar?.setIf(NSRect(x: 0, y: 0, width: sheet.bounds.width, height: Design.stripHeight))
-        stage?.setIf(NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight)))
+        var sh: CGFloat = 0
+        if let st = strip {
+            if st.superview !== sheet { sheet.addSubview(st) }
+            sh = st.height(for: sheet.bounds.width)
+            st.setIf(NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: sh))
+        }
+        stage?.setIf(NSRect(x: 0, y: Design.stripHeight + sh, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight - sh)))
         if let mv = middle {
             if mv.superview !== sheet || wideMiddle { sheet.addSubview(mv, positioned: .above, relativeTo: wideMiddle ? bar : stage) }
-            mv.setIf(wideMiddle ? sheet.bounds : stage?.frame ?? .zero)
+            mv.setIf(wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight)))
         }
         if let p = panel, panelMode != .hidden {
             if p.superview !== self { addSubview(p) }
