@@ -172,6 +172,8 @@ const HUB = path.resolve(HERE, '..', '..', '..', 'hub');
 const argv = process.argv.slice(2);
 const flag = (k) => { const i = argv.indexOf(k); if (i < 0) return null; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const PREV = flag('--prev');
+// The daemon of the pane on screen, as the window holds it.
+const DAEMON_OF = `(() => { const d = window.__ravenry.term().attached.client.hello.daemon; return { version: d.version, draining: d.draining || null }; })()`;
 const DRIVEN_ARG = flag('--driven');
 const NO_NPM = argv.includes('--no-npm') ? (argv.splice(argv.indexOf('--no-npm'), 1), true) : false;
 // --only 9,5: just those steps (a quick run while working on them; never the release gate).
@@ -530,6 +532,9 @@ try {
     const oc = await connectSocket(oldSock, { name: 'release-check' });
     // A long session: 5000 lines of scrollback before its prompt.
     const { pane: oldPane } = await oc.request('pane.new', { cols: 100, rows: 30, cwd: path.join(b.home, 'Projects', 'kite'), command: ['/bin/sh', '-c', `seq 1 5000; exec '${path.join(b.home, '.local', 'bin', 'claude')}' --resume ${SID}`], labels: { 'ravenry.session': 'claude', 'ravenry.project': 'kite' } });
+    // A second pane of the build before that nobody moves: it must run on
+    // in that daemon through the update, as the person's other sessions do.
+    const { pane: keepPane } = await oc.request('pane.new', { cols: 100, rows: 30, cwd: b.home, command: ['/bin/sh', '-c', 'echo kept on the old daemon; exec /bin/sleep 900'] });
     oc.close();
     // The live order of 2026-11-07: a newer daemon starts beside the old
     // one, and the old one logs that it is draining, all before the click.
@@ -549,15 +554,33 @@ try {
       { until: `${rowsOf}.length === 1 && ${rowsOf}[0].dataset.key.endsWith('/ravenry:${oldPane.id}')`, timeout: 30000 }, mark('oneRow'),
       { click: `${rowsOf}[0]`, clickJs: true, hold: 300 }, mark('click'),
       { until: `document.getElementById('elsewhere').hidden && ${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane === '${oldPane.id}' && ${R}.text().includes('fake claude ready (args: --resume ${SID})') && document.querySelector('#tabs .tab.on') && ${NO_FAIL_TOAST}`, timeout: 20000 }, mark('opened'), shot('7-old-pane-open.png'),
+      save('oldDaemon', `${DAEMON_OF}`),
       { until: `document.querySelector('#panel .sec.twin') && /Also open in cmux/.test(document.querySelector('#panel .sec.twin').textContent)`, timeout: 20000 }, mark('twin'), shot('7-old-pane-also-cmux.png'), ...agree('oldPane'),
       // Move here on that old pane: it resumes in a new pane of the new
       // daemon, never in the old pane's shell with what it inherited.
       { until: `!document.getElementById('movebar').hidden`, timeout: 20000 },
       { click: '#movebar .btn.pri' }, mark('moveOld'),
       { until: `${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane !== '${oldPane.id}' && ${R}.text().includes('fake claude ready (args: --resume ${SID})')`, timeout: 30000 }, mark('movedOld'),
-      save('newPane', `${R}.term().attached.pane`), shot('7-old-pane-moved.png'),
+      save('newPane', `${R}.term().attached.pane`), save('movedDaemon', `${DAEMON_OF}`), shot('7-old-pane-moved.png'),
+      // A new shell after the update: in the new daemon.
+      { js: `window.__movedPane = ${R}.term().attached.pane; ${R}.onCommand('new-shell')` },
+      { until: `${R}.term().ready && ${R}.term().attached && ${R}.term().attached.pane !== window.__movedPane && /[%$#] *$/m.test(${R}.text())`, timeout: 20000 },
+      save('shellPane', `${R}.term().attached.pane`), save('shellDaemon', `${DAEMON_OF}`), shot('7-new-shell.png'),
       { sleep: 3000 },
     ]);
+    {
+      // Through the update: the build before's daemon still up and draining,
+      // its unmoved pane still running in it; the moved session and the new
+      // shell in the new daemon.
+      const pinned = (sock, args) => { try { return JSON.parse(execFileSync(path.join(oldDir, 'ravenryd'), [...args, '--json', '--no-start'], { env: { ...oldEnv, RAVENRY_SOCKET: sock }, encoding: 'utf8' })); } catch { return null; } };
+      const ds = (() => { try { return JSON.parse(execFileSync(path.join(oldDir, 'ravenryd'), ['daemons', '--json', '--no-start'], { env: oldEnv, encoding: 'utf8' })); } catch { return []; } })();
+      const oldD = ds.find((d) => d.version === prevBuild.version) || null;
+      const kept = (pinned(oldSock, ['ls']) || []).find((p) => p.id === keepPane.id) || null;
+      const newSock = path.join(b.rt, `ravenryd-${BUILD.version}.sock`);
+      const inNew = (pinned(newSock, ['ls']) || []).map((p) => p.id);
+      step(`7 update: a pane of the build before keeps running in its own daemon after the update: its session's pane opens from ${prevBuild.version}'s daemon, and the pane nobody moved is still running there, that daemon up and draining for ${BUILD.version}`, !!m.oldDaemon && m.oldDaemon.version === prevBuild.version && !!kept && kept.state === 'running' && !!oldD && oldD.draining === BUILD.version, { opened: m.oldDaemon, kept: kept && { id: kept.id, state: kept.state }, oldDaemon: oldD });
+      step(`7 update: new panes go to the new daemon (${BUILD.version}): the pane Move here made and a new shell`, !!m.movedDaemon && m.movedDaemon.version === BUILD.version && !!m.shellDaemon && m.shellDaemon.version === BUILD.version && inNew.includes(m.newPane) && inNew.includes(m.shellPane), { moved: m.movedDaemon, shell: m.shellDaemon, newPane: m.newPane, shellPane: m.shellPane, inNew });
+    }
     step(`7 update: a session in a pane of the build before's daemon (${prevBuild.version}) is listed after the update, as one row`, m.oneRow > 0, { msFromStart: m.oneRow });
     step('7 update: clicking that row opens its pane in the middle', m.opened > 0, { msFromClick: m.opened - m.click });
     step('7 update: with its process in cmux too, the session says "Also open in cmux"', m.twin > 0);

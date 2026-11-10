@@ -57,8 +57,11 @@ export async function runApp(opts) {
   }
   // Linux CI has no setuid sandbox helper.
   const noSandbox = process.platform === 'linux' ? ['--no-sandbox'] : [];
-  const child = opts.exe
-    ? spawn(opts.exe, noSandbox, { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  // RAVENRY_CHECK_EXE: a packaged app's executable (a test twin) for the
+  // runs of a tool that names none, so any tool here checks a packed build.
+  const exe = opts.exe || process.env.RAVENRY_CHECK_EXE || null;
+  const child = exe
+    ? spawn(exe, noSandbox, { env, stdio: ['ignore', 'pipe', 'pipe'] })
     : spawn(electron(), [APP, ...noSandbox], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += d; if (process.env.RAVENRY_DRIVE_LOG) process.stdout.write(d); });

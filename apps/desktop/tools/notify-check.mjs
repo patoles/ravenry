@@ -64,6 +64,15 @@ async function run(name, standIn) {
     steps.push({ main: `await globalThis.__ravenryNotify({ id: 'n-click', title: 'garden-planner needs you', body: 'Asked you a question', kind: 'question', projectId: 'garden-planner', surfaceId: 'sf-1' }); const n = globalThis.__ravenryNotes; n[n.length - 1].emit('click'); return n.length;` });
     steps.push({ until: `${R}.S.view.kind === 'tab' && /garden-planner/.test(JSON.stringify(${R}.S.tabs.find((t) => t.id === ${R}.S.view.id) || {}))`, timeout: 8000, soft: true });
     steps.push({ save: { expr: `JSON.stringify(${R}.S.tabs.find((t) => t.id === ${R}.S.view.id) || ${R}.S.view)`, out: path.join(work, 'opened.json') } });
+    // The one-app rule (the native Mac app beside this one): a second app's
+    // stream, a stand-in, connects last; each notification then reaches one
+    // app only, the one focused last. This window's focus is its own
+    // handler's report (main.ts), the stand-in's a POST as the native app's.
+    steps.push({ main: ONE_APP_OPEN(hub.url) });
+    for (const [k, focus] of [['window', 'win.emit(\'focus\')'], ['other', `await post('/api/alerts/desktop/focus', { client: 'stand-in-app' })`], ['window-again', 'win.emit(\'focus\')']]) {
+      steps.push({ main: `${ONE_APP_HELPERS(hub.url)} ${focus}; await new Promise((r) => setTimeout(r, 400)); const a = globalThis.__ravenryNotes.length, b = globalThis.__otherApp.got.length; const t = await post('/api/alerts/desktop/test', {}); await new Promise((r) => setTimeout(r, 400)); return { test: t, window: globalThis.__ravenryNotes.length - a, other: globalThis.__otherApp.got.length - b };`, out: path.join(work, `one-${k}.json`) });
+    }
+    steps.push({ main: `globalThis.__otherApp.ac.abort(); return true;` });
   }
   fs.mkdirSync(path.join(root, name + '-home'), { recursive: true });
   try {
@@ -71,8 +80,19 @@ async function run(name, standIn) {
       env: { RAVENRY_SERVICE: 'off', RAVENRY_UPDATES: '0', RAVENRY_NOTIFY_LOG: notes, RAVENRY_OPEN_LOG: opens, ...(standIn ? { RAVENRY_NOTIFY_STANDIN: standIn } : {}) }, width: 1280, height: 820, steps });
   } finally { hub.stop(); stopDaemons(BIN, rt); }
   const read = (f) => { try { return JSON.parse(fs.readFileSync(path.join(work, f), 'utf8')); } catch { return null; } };
-  return { notes: lines(notes), opens: lines(opens), line: read('line.json'), row: read('row.json'), opened: read('opened.json') };
+  return { notes: lines(notes), opens: lines(opens), line: read('line.json'), row: read('row.json'), opened: read('opened.json'), one: Object.fromEntries(['window', 'other', 'window-again'].map((k) => [k, read(`one-${k}.json`)])) };
 }
+
+// In the app's main process: a POST to the hub as an app sends it, and a
+// second app's notification stream (?app=1&client=stand-in-app) that
+// answers each notification shown, as the native Mac app does.
+const ONE_APP_HELPERS = (url) => `const post = async (p, body) => { const r = await fetch(${JSON.stringify(url)} + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body) }); return { status: r.status, ...(await r.json().catch(() => ({}))) }; };`;
+const ONE_APP_OPEN = (url) => `${ONE_APP_HELPERS(url)}
+  const g = globalThis.__otherApp = { got: [], ac: new AbortController() };
+  const res = await fetch(${JSON.stringify(url)} + '/api/events?app=1&client=stand-in-app', { signal: g.ac.signal, headers: { Accept: 'text/event-stream' } });
+  (async () => { const rd = res.body.getReader(); const dec = new TextDecoder(); let buf = ''; try { for (;;) { const { value, done } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true }); let i; while ((i = buf.indexOf('\\n\\n')) >= 0) { const blk = buf.slice(0, i); buf = buf.slice(i + 2); if (!/^event: notify$/m.test(blk)) continue; const d = JSON.parse(blk.split('\\n').find((l) => l.startsWith('data: ')).slice(6)); g.got.push(d); void post('/api/alerts/desktop/result', { id: d.id, ok: true }); } } } catch { /* closed */ } })();
+  await new Promise((r) => setTimeout(r, 600));
+  return true;`;
 
 try {
   const a = await run('shown', null);
@@ -80,6 +100,10 @@ try {
   check('Send a test: the app posted one notification, titled "Ravenry", with the test\'s text and a click handler', a.notes.length >= 1 && t.title === 'Ravenry' && t.body === 'A test: Mac notifications reach you.' && t.clickable === true, a.notes);
   check('Alerts then says it was shown (alerts-shown-1280-dark.png)', /^On\. Last shown/.test(a.line || ''), a.line);
   check('a click on one about a session opens that session', /garden-planner\/sf-1|garden-planner/.test(a.opened || ''), a.opened);
+  const one = a.one || {};
+  const only = (r, who) => !!r && r.test && r.test.ok === true && r.window === (who === 'window' ? 1 : 0) && r.other === (who === 'other' ? 1 : 0);
+  check('one app only: with a second app connected after it, a test goes to this window once it was focused, never to both', only(one.window, 'window'), one.window);
+  check('one app only: the other app focused, the next goes to it alone; this window focused again, to this window alone', only(one.other, 'other') && only(one['window-again'], 'window'), { other: one.other, again: one['window-again'] });
   const b = await run('denied', 'denied');
   check('macOS not allowing them: Alerts says so, never "shown" (alerts-denied-1280-dark.png)', /has not allowed Ravenry's notifications/.test(b.line || '') && !/shown/i.test(b.line || ''), b.line);
   check('with a button that opens System Settings > Notifications', /Open Notifications settings/.test(b.row || '') && b.opens.some((o) => o.kind === 'settings' && o.what === 'notifications'), { row: b.row, opens: b.opens });
