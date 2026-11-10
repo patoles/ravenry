@@ -23,6 +23,7 @@
   "side.newSession": "New session",
   "side.empty": "Your sessions show up here, the ones that need you on top.",
   "side.emptyNoBoard": "Your sessions show up here, the ones that need you on top, once the board is running.",
+  "side.emptyAccess": "Your sessions show up here once macOS lets Ravenry read {folder}. Click Allow in its dialog; closed it? System Settings > Privacy & Security > Files & Folders > Ravenry.",
   "side.pin": "Pin to the tabs",
   "side.unpin": "Unpin from the tabs",
   "side.decisions": "Decisions",

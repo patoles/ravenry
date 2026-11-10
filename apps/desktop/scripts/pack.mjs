@@ -4,6 +4,7 @@
 //   node scripts/pack.mjs [--mac | --linux] [--arch arm64,x64] [--dir]
 //                         [--ravenryd DIR] [--skip-build]
 //                         [--test-twin | --no-test-twin]
+//   node scripts/pack.mjs --stage-only
 //
 // Defaults: this machine's platform and architecture. --dir makes the
 // unpacked app only (no DMG, zip, AppImage or .deb). --ravenryd DIR takes
@@ -19,6 +20,10 @@
 // (tools/release-check.mjs runs its window steps on it, CI's first-run.mjs
 // too). The twin is never published and never installed. Made by default
 // outside CI; --test-twin makes it in CI, --no-test-twin skips it.
+//
+// --stage-only makes .stage/ and stops: the native Mac app
+// (apps/macos/scripts/package.mjs) carries the same ravenryd, hub, remote/
+// and build.json.
 //
 // What goes inside the app, staged in .stage/ first:
 //   resources/ravenryd     the daemon, this app's version
@@ -259,6 +264,7 @@ function checkBuild(kind) {
 function size(n) { return n > 1048576 ? `${(n / 1048576).toFixed(1)} MiB` : `${(n / 1024).toFixed(0)} KiB`; }
 
 async function main() {
+  if (flag('--stage-only')) { stage(); return; }
   if (!flag('--skip-build')) execFileSync(process.execPath, [path.join(APP, 'build.mjs'), '--release'], { cwd: APP, stdio: 'inherit' });
   checkBuild('release');
   stage();

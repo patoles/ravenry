@@ -960,6 +960,7 @@ final class Board: NSObject {
         if case .page(let k, _) = front, k == "side.learn" || k == "side.machines" { on.insert(k) }
         sidebar.footOn = on
         if phoneCard.isOpen { phoneCard.place() }
+        sidebar.waitingFor = hub.waitingFor
         if !sideHidden { sidebar.update(state: st, reachable: hub.reachable, front: fk, pinned: Set(pinned), page: page, alerts: (st?.counts["you"] ?? 0) > 0) }
         if panelVisible {
             var pane: (id: String, name: String, cwd: String, command: [String])? = nil

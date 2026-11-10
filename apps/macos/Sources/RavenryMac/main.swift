@@ -138,10 +138,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// The view with the keyboard (the bench and the self-test drive it).
     var view: TerminalView? { workspace?.focusedView }
 
-    /// Connects to the daemon: the one given, or the newest that has the
-    /// render stream.
+    /// Connects to the daemon: the one given; else the newest running
+    /// that has the render stream; a packaged app starts its own when none
+    /// runs, or beside an older one after an update (Install.swift), as
+    /// the Electron app's DaemonLink.ensure does.
     func connect() throws -> Connection {
-        let sockets = options.socket.map { [$0] } ?? daemonSockets()
+        if let s = options.socket { return try open([s]) }
+        let inst = AppInstall.shared
+        let own = inst.active(offscreen: options.offscreen) ? inst.staged : nil
+        let lister = own?.ravenryd ?? Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("ravenryd").path
+        // Newest first, one that drains (an older version's, after an update) last.
+        let live = liveDaemons(lister, env: inst.env)
+        let found: Connection? = try? open((live.filter { !$0.draining } + live.filter { $0.draining }).map(\.socket))
+        guard let own else {
+            if let found { return found }
+            return try open(daemonSockets())
+        }
+        if let f = found, compareVersions(own.version, f.daemonVersion) <= 0 {
+            inst.log("daemon: using \(f.daemonVersion) at \(f.socketPath)")
+            return f
+        }
+        let was = found.map { "beside \($0.daemonVersion)" } ?? "none ran"
+        found?.close()
+        inst.log("daemon: starting this app's \(own.version) (\(was))")
+        _ = startDaemon(own.ravenryd, env: inst.env)
+        var why = "the daemon it started did not answer"
+        for _ in 0..<100 {
+            let mine = liveDaemons(own.ravenryd, env: inst.env).filter { $0.version == own.version && !$0.draining }.map(\.socket)
+            if !mine.isEmpty {
+                do {
+                    let c = try open(mine)
+                    inst.log("daemon: using \(c.daemonVersion) at \(c.socketPath)")
+                    return c
+                } catch { why = "\(error)" }
+            }
+            usleep(50_000)
+        }
+        throw ConnectionError.connect(why)
+    }
+
+    /// The first of these daemons that answers with the render stream.
+    private func open(_ sockets: [String]) throws -> Connection {
         var why = "no daemon is running"
         for s in sockets {
             do {
@@ -176,6 +213,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         w.backgroundColor = Design.termBg
         let scale = options.offscreen ? 2 : (NSScreen.main?.backingScaleFactor ?? 2)
         window = w
+        // A packaged app: its ravenryd and hub copied out first, so a daemon
+        // it starts runs from that copy (Install.swift).
+        let inst = AppInstall.shared
+        let installing = inst.active(offscreen: options.offscreen)
+        if installing { inst.stage() }
         let c: Connection
         do {
             c = try connect()
@@ -217,6 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             fail("\(error)")
             return
         }
+        // The hub service, in the background (Install.swift); the window
+        // reads the hub as soon as it answers.
+        if installing { inst.setUpHub() }
+        if options.offscreen, let rp = ProcessInfo.processInfo.environment["RAVENRY_MAC_REPORT"], !rp.isEmpty { report(to: rp) }
         // The sidebar and the panel, from the hub. The bench and the
         // terminal's self-test measure the terminal: the sidebar starts
         // folded there (RAVENRY_MAC_SIDEBAR=1 shows it).
@@ -241,6 +287,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let st = SelfTest(view: v, window: w, out: out, workspace: ws)
             st.restoreFrom = options.restoreCheck
             st.start()
+        }
+    }
+
+    /// Off every screen, for the install check (scripts/installcheck.mjs):
+    /// each second, the daemon the window is on, its tabs, the tab in
+    /// front and what its pane drew.
+    private func report(to path: String) {
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, let ws = self.workspace, let c = self.conn else { return }
+            let v = ws.focusedView
+            let j: [String: Any] = [
+                "daemon": c.daemonVersion, "socket": c.socketPath,
+                "tabs": ws.tabs.map { ["host": $0.host, "guest": $0.guest ?? ""] },
+                "front": ws.active?.host ?? "",
+                "sidebarEmpty": self.board?.sidebar.emptyText ?? "",
+                "focused": ["pane": v?.pane ?? "", "frames": v?.screen.frames ?? 0, "draws": v?.drawCount ?? 0, "text": v?.screen.text() ?? ""],
+            ]
+            if let d = try? JSONSerialization.data(withJSONObject: j) { try? d.write(to: URL(fileURLWithPath: path), options: .atomic) }
         }
     }
 
@@ -410,6 +474,10 @@ extension Workspace {
     @objc func menuPreviousTab(_ sender: Any?) { step(-1) }
     @objc func menuSelectTab(_ sender: NSMenuItem) { select(index: sender.tag) }
 }
+
+// Run as Node (the hub service, the hooks): before anything else, with the
+// environment as it came (NodeRunner.swift).
+if ProcessInfo.processInfo.environment["ELECTRON_RUN_AS_NODE"] == "1" { NodeRunner.run() }
 
 // A window started from inside a Ravenry pane must not pass the pane's
 // variables on: the daemon would take the window for that pane's program.

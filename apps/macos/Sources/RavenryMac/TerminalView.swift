@@ -86,6 +86,8 @@ final class TerminalView: NSView, NSTextInputClient {
     var offscreen = false
     private var offscreenTexture: MTLTexture?
     var onDraw: ((_ seq: UInt32, _ cpuMs: Double) -> Void)?
+    /// How many times it drew (the install check's report).
+    private(set) var drawCount = 0
     var onTitle: ((String) -> Void)?
     var onFrame: (() -> Void)?
 
@@ -324,6 +326,7 @@ final class TerminalView: NSView, NSTextInputClient {
         lastDraw = CACurrentMediaTime()
         let cpu = (lastDraw - t0) * 1000
         afterDraw(seq)
+        drawCount += 1
         onDraw?(seq, cpu)
     }
 

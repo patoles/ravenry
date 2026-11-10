@@ -31,6 +31,8 @@ final class SidebarView: Flipped {
     private let nav = Flipped()
     private let foot = Flipped()
     private let empty = label("", Fonts.pt(12.5), "tx3", lines: 6)
+    /// What the list says when it has no row (the install check's report).
+    var emptyText: String? { empty.isHidden ? nil : empty.stringValue }
     private let handle = ResizeHandle()
     let newButton = RButton(t("side.newSession"), .icon, small: true, icon: "plus")
     private var navStack: NSStackView?
@@ -114,11 +116,14 @@ final class SidebarView: Flipped {
     /// The foot's buttons by key (the phone card sits over its own).
     private(set) var footButtons: [String: RButton] = [:]
 
+    /// The folder macOS is asking about while the hub waits (HubClient.waitingFor).
+    var waitingFor: String?
+
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
         let times = state?.sections.flatMap { $0.projects.map { timeText($0) } }.joined(separator: ",") ?? ""
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String($0.hashValue) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
-                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())"].joined(separator: "|")
+                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", waitingFor ?? ""].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
         rows = [:]
@@ -130,7 +135,8 @@ final class SidebarView: Flipped {
         for (g, _) in mixCounts { let b = Box(fill: g, radius: 0); mix.addSubview(b) }
         mix.isHidden = mixCounts.isEmpty
         if sections.isEmpty {
-            empty.stringValue = state == nil && !reachable ? t("side.emptyNoBoard") : t("side.empty")
+            empty.stringValue = state == nil && !reachable
+                ? (waitingFor.map { t("side.emptyAccess", ["folder": $0]) } ?? t("side.emptyNoBoard")) : t("side.empty")
             empty.isHidden = false
             list.set([])
         } else {
