@@ -46,6 +46,8 @@ final class PaneInfo {
     /// The assistant its agent reported (pane.agent), and its state (needs_you, working, idle).
     var agent: String?
     var agentState: String?
+    /// What its agent last reported, whole (pane.agent: state, since, assistant, need).
+    var report: [String: Any]?
 
     init(id: String) { self.id = id }
 
@@ -59,7 +61,7 @@ final class PaneInfo {
         if let v = p["scrollback"] as? NSNumber { scrollback = v.intValue }
         if let v = p["creator"] as? [String: Any] { creator = v }
         if let v = p["labels"] as? [String: String] { labels = v }
-        if let a = p["agent"] as? [String: Any] { agent = a["assistant"] as? String ?? agent; agentState = a["state"] as? String }
+        if let a = p["agent"] as? [String: Any] { agent = a["assistant"] as? String ?? agent; agentState = a["state"] as? String; report = a }
         if p["lease"] != nil { lease = p["lease"] as? [String: Any] }
     }
 }

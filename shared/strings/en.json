@@ -750,5 +750,13 @@
   "panes.waitingFor": "{who} is waiting for the {pane}.",
   "panes.handOver": "Hand it over",
   "panes.handedOver": "{who} has the {pane} now.",
-  "panes.handFailed": "Could not hand it over: {why}"
+  "panes.handFailed": "Could not hand it over: {why}",
+  "report.theAgent": "The agent",
+  "report.need.permission": "is asking for permission",
+  "report.need.question": "has a question",
+  "report.need.auth": "needs you to sign in",
+  "report.need.other": "needs you",
+  "report.since": " since {time}",
+  "report.working": "{who} is working",
+  "report.idle": "{who} is done with its turn"
 }

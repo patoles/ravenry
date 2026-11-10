@@ -255,6 +255,7 @@ final class Board: NSObject {
         panel.host?.whoCanType = { [weak self] pane in self?.whoCanType(pane) ?? [] }
         panel.host?.revoke = { [weak self] pane, g in self?.revokeGrant(pane, g) }
         panel.host?.opened = { [weak self] pane in self?.openedLine(pane) }
+        panel.host?.report = { [weak self] pane in self?.ws.paneInfo(pane)?.report }
         panel.host?.ownerOf = { [weak self] pane in
             guard let self, let c = self.ws.paneInfo(pane)?.creator, c["kind"] as? String == "agent" else { return nil }
             return self.sourceOf(c).who

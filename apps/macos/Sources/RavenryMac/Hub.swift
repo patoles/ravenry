@@ -171,6 +171,12 @@ final class HubState {
     }
     func project(_ id: String) -> HubProject? { projects.first { $0.id == id } }
     /// The open checkpoint of a session: by its project and surface, else its pane (hub/server/sidebar.mjs marksOf).
+    /// An open checkpoint from a pane of this computer's daemon (a shell's), the oldest first.
+    func checkpoint(pane: String) -> [String: Any]? {
+        checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") && $0["pane"] as? String == pane && $0["machine"] as? String == nil }
+            .sorted { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }.first
+    }
+
     func checkpoint(of p: HubProject, _ s: HubSession) -> [String: Any]? {
         let open = checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }
             .sorted { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }

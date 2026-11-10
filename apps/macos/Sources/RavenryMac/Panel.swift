@@ -34,6 +34,8 @@ final class PanelView: Box {
         var revoke: (String, String) -> Void = { _, _ in }
         /// "Opened by you, 16:58, in paper-boat".
         var opened: (String) -> String? = { _ in nil }
+        /// What the agent in a pane last reported (the daemon's pane.agent), else nil.
+        var report: (String) -> [String: Any]? = { _ in nil }
         /// The agent whose own pane it is ("Claude"), else nil.
         var ownerOf: (String) -> String? = { _ in nil }
         /// A local session in a pane: its worktree's cards and the files it changed (Review.swift).
@@ -120,7 +122,10 @@ final class PanelView: Box {
                 parts.append(pr)
             }
         }
-        if let id = pane?.id { parts.append(host?.inputs(id)?.count ?? -1) }
+        if let id = pane?.id {
+            parts.append(host?.inputs(id)?.count ?? -1)
+            if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], state?.checkpoint(pane: id) ?? [:]] }
+        }
         parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
         let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
@@ -176,6 +181,36 @@ final class PanelView: Box {
         let l = label(s, Fonts.pt(size), color, lines: 0, select: true)
         l.preferredMaxLayoutWidth = PanelView.width - 56
         return l
+    }
+
+    /// A shell's state line from what its agent reported: Needs you since a
+    /// question's time, else "Claude has a question since 14:02", "Claude is
+    /// working", "Claude is done with its turn".
+    private func reportLine(_ r: [String: Any]?, cp: [String: Any]?) -> NSView? {
+        let g: String, text: String
+        if let c = cp { g = "you"; text = t("panel.needsSince", ["time": When.clock(c["created_at"] as? String)]) }
+        else {
+            guard let r, let state = r["state"] as? String else { return nil }
+            let who = (r["assistant"] as? String).map(assistantName) ?? t("report.theAgent")
+            switch state {
+            case "needs_you":
+                let kind = (r["need"] as? [String: Any])?["kind"] as? String ?? "other"
+                let need = t("report.need.\(["permission", "question", "auth"].contains(kind) ? kind : "other")")
+                let since = (r["since"] as? String).map { t("report.since", ["time": When.clock($0)]) } ?? ""
+                g = "you"; text = "\(who) \(need)\(since)"
+            case "working": g = "work"; text = t("report.working", ["who": who])
+            case "idle": g = "idle"; text = t("report.idle", ["who": who])
+            default: return nil
+            }
+        }
+        let c = g == "idle" ? "tx2" : g
+        let l = label(text, Fonts.pt(12.5, .semibold), c, lines: 3)
+        l.preferredMaxLayoutWidth = PanelView.width - 56 - 21
+        let v = hstack([Icon("ring-\(g)", c, size: 14), l, spring()], spacing: 7)
+        v.alignment = .top
+        v.setAccessibilityElement(true)
+        v.setAccessibilityLabel(text)
+        return v
     }
 
     /// .st: the state in words and since when.
@@ -375,6 +410,15 @@ final class PanelView: Box {
     private func shellBody(_ pn: (id: String, name: String, cwd: String, command: [String])) -> [NSView] {
         var out: [NSView] = []
         if let o = host?.opened(pn.id) { out.append(hstack([Icon("shell", "tx3", size: 13), label(o, Fonts.pt(12), "tx3", lines: 2)], spacing: 7)) }
+        // What the agent in it reported through the daemon (app.ts shellPanel): its state, or a question's card.
+        let cp = host?.hub.state?.checkpoint(pane: pn.id)
+        if let line = reportLine(host?.report(pn.id), cp: cp) { out.append(line) }
+        if let c = cp { out.append(card(c)) }
+        else if let m = (host?.report(pn.id)?["need"] as? [String: Any])?["message"] as? String, !m.isEmpty {
+            let q = boxed(para(m, size: 13), fill: "card", ring: "you", radius: 10, insets: NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14))
+            q.setAccessibilityLabel(m)
+            out.append(q)
+        }
         if let h = host { out.append(whoCanType(pn.id, h.whoCanType(pn.id))) }
         if let typed = typedHere(pn.id) { out.append(typed) }
         return out

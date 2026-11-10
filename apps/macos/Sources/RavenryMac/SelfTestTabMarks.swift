@@ -57,5 +57,26 @@ extension SelfTestBoard {
         ws.show(first)
         send(first.host, "'\(bin)' focus \(second.host)")
         check("focus_brings_pane_to_front", wait(6) { ws.active === second }, "active \(ws.active?.host ?? "")")
+
+        // The shell's panel says what its agent reported (app.ts shellPanel), from Claude Code's own hooks.
+        ws.show(second)
+        board.render(force: true)
+        let pn = board.panel
+        let hook = { (json: String) in self.send(second.host, "echo '\(json)' | '\(bin)' hook --assistant claude") }
+        hook(#"{"session_id":"s-tiles-1","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}"#)
+        check("report_needs_you", wait(8) { self.board.render(force: true); return pn.shows == "shell" && self.shows(pn, "Claude is asking for permission since") && self.shows(pn, "Claude needs your permission to use Bash") },
+              texts(pn).prefix(8).joined(separator: " | "))
+        pictures("shell-report")
+        hook(#"{"session_id":"s-tiles-1","hook_event_name":"PreToolUse","tool_name":"Bash"}"#)
+        check("report_working", wait(8) { self.board.render(force: true); return self.shows(pn, "Claude is working") && !self.shows(pn, "is asking for permission") }, texts(pn).prefix(6).joined(separator: " | "))
+        hook(#"{"session_id":"s-tiles-1","hook_event_name":"Stop","last_assistant_message":"Done.","stop_hook_active":false}"#)
+        check("report_idle", wait(8) { self.board.render(force: true); return self.shows(pn, "Claude is done with its turn") }, texts(pn).prefix(6).joined(separator: " | "))
+        // A question waiting in its pane: Needs you since then, and its card.
+        board.hub.testCheckpoints = [["id": "cprep1", "kind": "ask", "state": "open", "title": "Ship the tiles?", "pane": second.host, "created_at": ISO8601DateFormatter().string(from: Date()),
+                                      "options": ["Ship them", "Not yet"], "words": ["kind": "ask", "heading": "Claude asks", "head": "Ship the tiles?", "state": "open"]]]
+        board.render(force: true)
+        check("report_question_card", wait(4) { self.shows(pn, "Needs you since") && pn.shownCard?.kind == "ask" && !self.shows(pn, "is done with its turn") }, texts(pn).prefix(8).joined(separator: " | "))
+        board.hub.testCheckpoints = nil
+        board.render(force: true)
     }
 }
