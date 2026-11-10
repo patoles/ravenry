@@ -95,8 +95,12 @@ final class SettingsStore {
     }
 
     private static func theme(_ u: URL, id: String, builtIn: Bool) -> ThemeInfo? {
-        guard let d = try? Data(contentsOf: u), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
-              let name = j["name"] as? String, let ap = j["appearance"] as? String, ap == "dark" || ap == "light",
+        guard let d = try? Data(contentsOf: u), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
+        return theme(j, id: id, builtIn: builtIn)
+    }
+
+    private static func theme(_ j: [String: Any], id: String, builtIn: Bool) -> ThemeInfo? {
+        guard let name = j["name"] as? String, let ap = j["appearance"] as? String, ap == "dark" || ap == "light",
               let c = j["theme"] as? [String: String], c["background"] != nil, c["foreground"] != nil else { return nil }
         return ThemeInfo(id: id, name: name, appearance: ap, credit: j["credit"] as? String, builtIn: builtIn, colors: c)
     }
@@ -154,6 +158,31 @@ final class SettingsStore {
         guard (try? (d + Data("\n".utf8)).write(to: tmp)) != nil else { return }
         if rename(tmp.path, f.path) != 0 { try? FileManager.default.removeItem(at: tmp) }
         stamp = modified()
+    }
+
+    /// A theme the hub made of a file (POST /api/settings/theme-import:
+    /// `theme` and `slug`) saved in the data folder's themes/ as the
+    /// Electron app's store does: the same name and colours already there
+    /// are that one; else a free id from the slug ("<slug>-2" ...).
+    @discardableResult
+    func importTheme(_ file: [String: Any], slug: String) -> ThemeInfo? {
+        guard let name = file["name"] as? String, let colors = file["theme"] as? [String: String] else { return nil }
+        if let same = userThemes.first(where: { $0.name == name && $0.colors == colors }) { return same }
+        var id = slug
+        var n = 2
+        func taken(_ i: String) -> Bool {
+            userThemes.contains { $0.id == "user:\(i)" } || (themesDir.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("\(i).json").path) } ?? false)
+        }
+        while taken(id) { id = "\(slug.prefix(56))-\(n)"; n += 1 }
+        guard let info = Self.theme(file, id: "user:\(id)", builtIn: false) else { return nil }
+        if let dir = themesDir, let d = try? JSONSerialization.data(withJSONObject: file, options: [.prettyPrinted, .sortedKeys]) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let f = dir.appendingPathComponent("\(id).json"), tmp = dir.appendingPathComponent(".\(id).json.tmp")
+            if (try? (d + Data("\n".utf8)).write(to: tmp)) != nil, rename(tmp.path, f.path) != 0 { try? FileManager.default.removeItem(at: tmp) }
+        }
+        userThemes.append(info)
+        changed()
+        return info
     }
 
     /// The theme the settings pick for the system's appearance (shared/settings.ts pickTheme).

@@ -200,8 +200,50 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         let blink = CheckRow(t("set.blink"), on: s.bool("cursorBlink")) { [weak self] on in self?.set(["cursorBlink": on]) }
         controls["blink"] = blink
+        let imp = RButton(t("set.import"), .normal, small: true) { [weak self] in self?.importTheme() }
+        controls["import"] = imp
+        let impNote = label(importNote?.text ?? t("set.importHint"), Fonts.pt(12), importNote == nil ? "tx3" : importNote!.bad ? "bad" : "tx2")
+        controls["importNote"] = impNote
+        out.append(row("", [imp, impNote], join: true))
         out.append(row(t("set.cursor"), [segm("cursor", s.string("cursorStyle"), [("block", "set.block"), ("bar", "set.bar"), ("underline", "set.underline")], key: "cursorStyle"), blink], hint: t("set.cursorHint")))
         return out
+    }
+
+    /// What the last import said (Electron's note beside the button).
+    private(set) var importNote: (text: String, bad: Bool)?
+
+    /// Import: a file picked (off every screen, RAVENRY_SETTINGS_IMPORT's,
+    /// as the Electron app's tests), made a theme by the hub, saved here.
+    func importTheme() {
+        if offscreen {
+            guard let f = ProcessInfo.processInfo.environment["RAVENRY_SETTINGS_IMPORT"], !f.isEmpty else { return }
+            importFile(URL(fileURLWithPath: f))
+            return
+        }
+        let p = NSOpenPanel()
+        p.title = t("set.importTitle")
+        p.prompt = t("set.importButton")
+        p.canChooseFiles = true
+        p.canChooseDirectories = false
+        p.allowsMultipleSelection = false
+        p.beginSheetModal(for: window) { [weak self] r in
+            if r == .OK, let u = p.url { self?.importFile(u) }
+        }
+    }
+
+    private func importFile(_ u: URL) {
+        let bad = { [weak self] (s: String) in self?.importNote = (s, true); self?.draw() }
+        if let n = (try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? Int, n > 1024 * 1024 { return bad(t("set.importBig")) }
+        let text: String
+        do { text = try String(contentsOf: u, encoding: .utf8) } catch { return bad(t("set.importUnread", ["file": u.lastPathComponent, "why": error.localizedDescription])) }
+        guard let hub else { return bad(t("set.importNot")) }
+        hub.post("/api/settings/theme-import", ["text": text, "fileName": u.lastPathComponent]) { [weak self] code, j in
+            guard let self else { return }
+            guard code == 200, let th = j["theme"] as? [String: Any], let slug = j["slug"] as? String,
+                  let info = self.store.importTheme(th, slug: slug) else { return bad(j["error"] as? String ?? t("set.importNot")) }
+            self.importNote = (t("set.imported", ["name": info.name, "appearance": info.appearance]), false)
+            self.draw()
+        }
     }
 
     private func fontMenu() -> NSMenu {

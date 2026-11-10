@@ -8,7 +8,10 @@
 //      skill that was there back, folders the install made gone); a
 //      client's old undo records adopted, and bad ones refused;
 //   2. a test board (fake cmux, no daemon): GET /api/setup/start, GET and
-//      POST /api/setup/skills, with the undo records in its data folder.
+//      POST /api/setup/skills, with the undo records in its data folder;
+//      POST /api/settings/theme-import (server/themeimport.mjs, moved from
+//      the desktop's themeimport.ts): a Ghostty and an iTerm2 file made
+//      into themes, a broken one refused with why, nothing written.
 // Touches only .tmp/.
 // Usage: node tools/setup-skills-test.mjs
 import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
@@ -177,6 +180,20 @@ try {
   check('POST /api/setup/skills off: the folders the install made go', o.status === 200 && !o.j.skills[0].installed && !fs.existsSync(path.join(bhome, '.claude')), JSON.stringify(o.j));
   const nob = await post('/api/setup/skills', { kind: 'claude', on: true, version: '0.1.23' });
   check('POST /api/setup/skills: no command, refused with the app\'s words', nob.status === 400 && /not installed yet/.test(nob.j.error), JSON.stringify(nob));
+  const pal = Array.from({ length: 16 }, (_, n) => `palette = ${n}=#${(0x101010 * (n % 15) + 0x0f0f0f).toString(16).padStart(6, '0')}`).join('\n');
+  const ghostty = `# Harbour Night\nbackground = #1a1b26\nforeground = #c0caf5\ncursor-color = #c0caf5\n${pal}\n`;
+  const before = JSON.stringify(tree(mc));
+  const tg = await post('/api/settings/theme-import', { text: ghostty, fileName: 'Harbour_Night.conf' });
+  check('POST /api/settings/theme-import: a Ghostty file made a dark theme with its 16 colours, named from the file, its slug', tg.status === 200 && tg.j.theme.name === 'Harbour Night' && tg.j.theme.appearance === 'dark' && tg.j.theme.theme.background === '#1A1B26' && tg.j.theme.theme.brightWhite && tg.j.slug === 'harbour-night', JSON.stringify(tg.j).slice(0, 300));
+  const comp = (r, g, b) => `<dict><key>Red Component</key><real>${r}</real><key>Green Component</key><real>${g}</real><key>Blue Component</key><real>${b}</real><key>Color Space</key><string>sRGB</string></dict>`;
+  const iterm = `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>${Array.from({ length: 16 }, (_, n) => `<key>Ansi ${n} Color</key>${comp(n / 15, 0.5, 1 - n / 15)}`).join('')}<key>Background Color</key>${comp(0.98, 0.97, 0.94)}<key>Foreground Color</key>${comp(0.2, 0.2, 0.2)}</dict></plist>`;
+  const ti = await post('/api/settings/theme-import', { text: iterm, fileName: '/Users/x/Downloads/Linen Day.itermcolors' });
+  check('POST /api/settings/theme-import: an .itermcolors file made a light theme', ti.status === 200 && ti.j.theme.name === 'Linen Day' && ti.j.theme.appearance === 'light' && ti.j.slug === 'linen-day', JSON.stringify(ti.j).slice(0, 300));
+  const tb = await post('/api/settings/theme-import', { text: 'background = #000000\nforeground = #ffffff\n', fileName: 'half.conf' });
+  check('POST /api/settings/theme-import: a theme without its palette refused, saying which colour', tb.status === 400 && /no palette = 0/.test(tb.j.error), JSON.stringify(tb.j));
+  const tn = await post('/api/settings/theme-import', { fileName: 'x.conf' });
+  check('POST /api/settings/theme-import: no text refused', tn.status === 400, JSON.stringify(tn.j));
+  check('POST /api/settings/theme-import writes nothing in the board\'s data', JSON.stringify(tree(mc)) === before);
 } finally {
   srv.kill('SIGTERM');
 }

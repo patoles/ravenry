@@ -133,7 +133,10 @@ stream".
   sidebar's foot open a 720-wide window with the Electron app's three
   tabs. Appearance: the font (the installed monospace families) and its
   size, a preview in the theme in use, Follow the system with the dark
-  and light themes (or one), the cursor and Blink; Behavior: Option as
+  and light themes (or one), Import iTerm2 or Ghostty theme (the hub
+  reads the file, `POST /api/settings/theme-import`, and the theme is
+  saved in the data folder's `themes/`, as the Electron app's), the cursor
+  and Blink; Behavior: Option as
   Meta, copy on select, links, the scrollback (red when not a number in
   its range), the bell and the Dock, closing a busy tab; Skills: the
   hub's rows with their hooks (`GET /api/setup/skills?ravenryd=`),
@@ -366,8 +369,8 @@ every screen (the bench, the self-test) writes only to
 
 - One window: no New Window, bell marks or activity on hidden tabs, or
   tab dragged to an edge to split.
-- Settings: no theme import (iTerm2, Ghostty); a broken file is not kept
-  aside and an old one is not migrated. A program's steady block cursor
+- Settings: a broken file is not kept aside and an old one is not
+  migrated. A program's steady block cursor
   reads as the default, so the settings' style shows instead.
 - Sidebar and panel: Learn's ticks come only from the phone card and
   Decisions (no hints, no filmstrip to tick), and its filmstrip card shows

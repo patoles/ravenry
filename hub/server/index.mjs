@@ -67,6 +67,7 @@ import * as sidebar from './sidebar.mjs';
 import * as cpwords from './cpwords.mjs';
 import * as firstlaunch from './firstlaunch.mjs';
 import * as skills from './skills.mjs';
+import * as themeImport from './themeimport.mjs';
 import * as onboarding from './onboarding.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -4104,6 +4105,16 @@ async function handleRequest(req, res) {
         if (!r.ok) return sendJson(res, r.status, { error: r.error });
         afterRegistry(r.reg);
         return sendJson(res, 200, { ok: true, ...assistantsView(), backup: r.backup ? short(r.backup) : null });
+      }
+      if (p === '/api/settings/theme-import') {
+        // A theme file's text (.itermcolors or Ghostty) made into a Ravenry
+        // theme (server/themeimport.mjs); the client saves it in its own
+        // data folder's themes/ under \`slug\`. Nothing is written here.
+        let body;
+        try { body = await jsonBody(req, 3 * 1024 * 1024); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        if (typeof body.text !== 'string' || typeof body.fileName !== 'string') return sendJson(res, 400, { error: 'Send the file\'s text and its name.' });
+        const r = themeImport.importTheme(body.text, body.fileName);
+        return sendJson(res, r.ok ? 200 : 400, r.ok ? { ok: true, theme: r.theme, slug: themeImport.slug(r.theme.name) } : { error: r.error });
       }
       if (p === '/api/handoff') {
         const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');

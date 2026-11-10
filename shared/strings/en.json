@@ -583,5 +583,10 @@
   "close.cancel": "Cancel",
   "close.close": "Close",
   "close.aprogram": "a program",
-  "close.theshell": "The shell"
+  "close.theshell": "The shell",
+  "set.importNot": "That file is not a theme Ravenry can read.",
+  "set.importBig": "The file is too big for a theme (over 1 MB).",
+  "set.importUnread": "Ravenry could not read {file}: {why}",
+  "set.importTitle": "Import a Theme",
+  "set.importButton": "Import"
 }

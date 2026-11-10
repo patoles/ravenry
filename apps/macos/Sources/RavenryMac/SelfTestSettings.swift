@@ -92,6 +92,39 @@ extension SelfTestBoard {
         check("set_bell_bounce_close_saved", saved()["bell"] as? String == "sound" && saved()["bellBounceDock"] as? Bool == false && saved()["confirmCloseBusy"] as? Bool == false)
 
         // Skills: the hub's rows with their hooks; Install posts to it.
+        // Import: the file (RAVENRY_SETTINGS_IMPORT, as the Electron app's
+        // tests) made a theme by the hub, saved in the data folder's themes/.
+        press(sw.tabButtons["appearance"])
+        if let imp = ProcessInfo.processInfo.environment["RAVENRY_SETTINGS_IMPORT"] {
+            let pal = (0..<16).map { "palette = \($0)=#\(String(format: "%06X", 0x0F0F0F + 0x101010 * ($0 % 15)))" }.joined(separator: "\n")
+            try? "# Harbour Night\nbackground = #1a1b26\nforeground = #c0caf5\n\(pal)\n".write(toFile: imp, atomically: true, encoding: .utf8)
+            check("set_import_row", shows(root, t("set.import")) && shows(root, t("set.importHint")), texts(root).joined(separator: " | "))
+            var s0 = board.hub.sent.count
+            press(sw.controls["import"])
+            let dir = store.themesDir
+            let fileSaved = wait(8) { dir.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("harbour-night.json").path) } ?? false }
+            check("set_import_saves", sentSince(s0).contains("POST /api/settings/theme-import") && fileSaved && store.themes.contains { $0.id == "user:harbour-night" && $0.appearance == "dark" },
+                  sentSince(s0).joined(separator: ","))
+            check("set_import_note", wait(3) { self.shows(root, t("set.imported", ["name": "Harbour Night", "appearance": "dark"])) } && sw.controls["theme:themeDark:user:harbour-night"] != nil,
+                  texts(root).joined(separator: " | "))
+            settingsPictures("settings-imported")
+            // The same file again: the same theme, no second copy.
+            press(sw.controls["import"])
+            _ = wait(3) { self.sentSince(s0).filter { $0 == "POST /api/settings/theme-import" }.count == 2 }
+            settle(0.5)
+            check("set_import_same_once", store.userThemes.filter { $0.name == "Harbour Night" }.count == 1)
+            // A broken file: the hub's reason, in red, nothing saved.
+            try? "background = #000000\nforeground = #ffffff\n".write(toFile: imp, atomically: true, encoding: .utf8)
+            s0 = board.hub.sent.count
+            press(sw.controls["import"])
+            check("set_import_refused", wait(5) { self.shows(root, "This Ghostty theme has no palette = 0.") } && store.userThemes.count == 1, texts(root).joined(separator: " | "))
+            // Pick it: the terminals take it.
+            press(sw.controls["theme:themeDark:user:harbour-night"])
+            check("set_import_used", wait(3) { saved()["themeDark"] as? String == "user:harbour-night" && self.board.ws.look.theme.background == Theme.css("#1A1B26") })
+            store.set(["themeDark": "ravenry-dark"])
+        } else {
+            check("set_import_env", false, "no RAVENRY_SETTINGS_IMPORT")
+        }
         press(sw.tabButtons["skills"])
         // Read with ?ravenryd= (GETs are not in hub.sent): each row then says its hooks.
         check("set_skills_read", wait(8) { sw.skillsRead && !sw.skills.isEmpty && sw.skills.allSatisfy { ["on", "off", "unavailable"].contains($0["hooks"] as? String ?? "") } }, "\(sw.skills)")
