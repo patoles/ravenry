@@ -107,6 +107,8 @@ final class PaneBox: NSView {
     var inFocus = false { didSet { update() } }
     var name = "" { didSet { head.name = name } }
     var sub: String? { didSet { head.sub = sub } }
+    var badge: String? { didSet { head.badge = badge } }
+    var headView: PaneHead { head }
     var onClose: (() -> Void)? { didSet { head.close.action = onClose } }
     var onClickHead: (() -> Void)?
 
@@ -152,11 +154,16 @@ final class PaneBox: NSView {
     }
 }
 
-/// A split pane's header (.phead): the shell icon, the name, its folder,
-/// and the close x on the right.
+/// A split pane's header (.phead): the shell icon, the name, its folder
+/// (or, for an agent's own pane, the agent's chip: .phead .ag), and the
+/// close x on the right.
 final class PaneHead: NSView {
     var name = "" { didSet { needsDisplay = true } }
     var sub: String? { didSet { needsDisplay = true } }
+    /// An agent's own pane: its assistant ("Claude"), else "Agent", in a chip after the name.
+    var badge: String? { didSet { needsDisplay = true; setAccessibilityValue(badge) } }
+    /// Where the chip was drawn, for the self-test.
+    private(set) var badgeRect: NSRect?
     var focused = false { didSet { needsDisplay = true } }
     var onClick: (() -> Void)?
     let close = IconButton(size: 18, iconSize: 10, color: Design.headFg, hoverColor: Design.termFg,
@@ -188,7 +195,17 @@ final class PaneHead: NSView {
         let maxX = bounds.width - 8 - 18 - 7
         let nameAttrs: [NSAttributedString.Key: Any] = [.font: Design.headNameFont, .foregroundColor: focused ? Design.tfg : Design.headName]
         x = drawText(name, nameAttrs, x: x, maxX: maxX)
-        if let s = sub, x < maxX - 20 {
+        badgeRect = nil
+        if let b = badge, x < maxX - 30 {
+            // .ag: 10.5 semibold, 1 by 6 padding, radius 4, on rgba(191,90,242,.22) in #DA8FFF.
+            let a: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10.5, weight: .semibold), .foregroundColor: NSColor(srgbRed: 0xDA / 255, green: 0x8F / 255, blue: 0xFF / 255, alpha: 1)]
+            let sz = NSAttributedString(string: b, attributes: a).size()
+            let r = NSRect(x: x + 7, y: floor((bounds.height - sz.height - 2) / 2), width: min(ceil(sz.width) + 12, maxX - x - 7), height: ceil(sz.height) + 2)
+            NSColor(srgbRed: 191 / 255, green: 90 / 255, blue: 242 / 255, alpha: 0.22).setFill()
+            NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4).fill()
+            _ = drawText(b, a, x: r.minX + 6, maxX: r.maxX - 6)
+            badgeRect = r
+        } else if let s = sub, x < maxX - 20 {
             _ = drawText(s, [.font: Design.headFont, .foregroundColor: Design.headFg], x: x + 7, maxX: maxX)
         }
     }

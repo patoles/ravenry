@@ -440,6 +440,9 @@ final class Workspace: NSObject {
             let l = label(id)
             b.name = l.name
             b.sub = l.sub
+            // An agent's own pane: the chip with its assistant (app.ts renderPaneHead), not "Claude's" under it.
+            let c = info[id]?.creator
+            b.badge = c?["kind"] as? String == "agent" && c?["pane"] != nil ? (whoOf?(c!).map { $0 == "An agent" ? "Agent" : $0 } ?? "Agent") : nil
             b.showsHead = split
             b.inFocus = id == t.focusedPane
         }

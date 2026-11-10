@@ -23,6 +23,12 @@ extension SelfTestBoard {
         guard let tab = ws.active, let own = tab.guest else { return }
         check("panes_split_no_keyboard", tab.focus == 0 && board.front == .tab && ws.tabs.count == before)
         check("panes_split_named", ws.label(own).name == "dev server", ws.label(own).name)
+        // Its header: the name, then the agent's chip (no session runs in the owner's shell here: "Agent").
+        board.render(force: true)
+        settle(0.3)
+        let head = ws.boxes[own]?.headView
+        head?.display()
+        check("panes_agent_chip", head?.badge == "Agent" && head?.badgeRect != nil && !(head?.isHidden ?? true), "\(head?.badge ?? "none") \(head?.badgeRect ?? .zero)")
         check("panes_creator_agent", ws.paneInfo(own)?.creator?["kind"] as? String == "agent" && ws.paneInfo(own)?.creator?["pane"] as? String == owner)
         check("panes_lease_seen", wait(10) { self.board.leaseOf(own) != nil })
         // The owner's pane in front: no strip (the lease is on the other one).

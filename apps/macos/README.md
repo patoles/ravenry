@@ -398,8 +398,7 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window: no New Window, or tab dragged to an edge to split; an
-  agent's own pane's header has no Agent chip.
+- One window: no New Window, or tab dragged to an edge to split.
 - A program's steady block cursor reads as the default, so the
   settings' cursor style shows instead.
 - Sidebar and panel: Learn's ticks come only from the phone card and
