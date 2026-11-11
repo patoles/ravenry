@@ -1112,7 +1112,7 @@
   "start.machineDown": "Not answering",
   "start.folderOn": "Folder on {machine}",
   "start.folderOnPh": "Its full path on {machine}, like /home/you/project",
-  "start.onMachine": "Started on {machine}",
+  "start.onMachine": "Runs on {machine}",
   "start.goAssistantOn": "Start {assistant} in {folder} on {machine}",
   "start.goAssistantOnly": "Start {assistant} on {machine}",
   "start.ownCopyB": "It gets its own copy of the code",
