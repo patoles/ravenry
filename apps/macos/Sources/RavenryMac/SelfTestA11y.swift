@@ -60,6 +60,20 @@ extension SelfTestBoard {
         check("motion_film_plays_at_its_pace", !gf.isEmpty && gf.count > gr.count, "gaps \(gf.map { String(format: "%.2f", $0) }.joined(separator: ",")) (\(gf.count) in 1.8 s; reduced \(gr.count))")
         (ws.film.controls["close"] as? RButton)?.run?()
         settle(0.3)
+        startingPicture()
+    }
+
+    /// HUB-004's words where the sidebar says them, for the look: the board answers but is starting.
+    func startingPicture() {
+        let sb = board.sidebar
+        sb.starting = true
+        sb.update(state: nil, reachable: false, front: nil, pinned: [], page: nil, alerts: false)
+        settle(0.3)
+        check("sidebar_says_starting", sb.emptyText == t("side.emptyStarting"), sb.emptyText ?? "none")
+        picture("native-sidebar-starting-1280.png")
+        sb.starting = false
+        board.render(force: true)
+        settle(0.3)
     }
 }
 
