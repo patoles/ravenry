@@ -656,6 +656,8 @@
   "pg.archived": "Archived {title}.",
   "pg.undo": "Undo",
   "pg.copied": "Copied.",
+  "pg.bsThinking": "{who} is thinking up 3 directions for \"{seed}\". {secs} s so far; it stops at 3 minutes.",
+  "pg.bsClear": "Clear",
   "pg.notStarted": "It did not start.",
   "pg.runWaits": "It waits for your approval: {title}.",
   "pg.notAllowed": "Not allowed.",
