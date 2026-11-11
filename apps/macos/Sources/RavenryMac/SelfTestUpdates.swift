@@ -113,6 +113,8 @@ extension SelfTestBoard {
         check("update_stopped_toast", board.toastTexts.contains("The update to 0.1.29 did not start after 3 tries (the new hub did not answer), so Ravenry keeps the hub that runs now.")
               && board.toastButtons.contains { $0.title == "Try again" }, board.toastTexts.joined(separator: " | "))
         pictures("update-stopped")
+        // Try again pressed: the hub's setup runs again with --retry (SelfTestSessFns.swift).
+        updTryAgainPressed()
         board.toastStack.clear()
 
         screenNpm(menu)

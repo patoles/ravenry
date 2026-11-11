@@ -108,8 +108,12 @@ final class AppInstall {
         }
     }
 
+    /// A self-test's stand-in for the setup (UPD-003's Try again): what it was asked, its answer.
+    static var testSetup: (([String]) -> [String: Any])?
+
     /// Runs one setup command on the app's Node; its JSON answer.
     func runSetup(_ args: [String]) -> [String: Any] {
+        if let f = AppInstall.testSetup { return f(args) }
         let p = Process()
         p.executableURL = node
         p.arguments = ["--disable-sigusr1", setup.path] + args

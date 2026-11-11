@@ -360,5 +360,7 @@ extension SelfTestBoard {
             check("sess_menu_close_closed", wait(30) { !(hub.state?.sessionProcs.contains { $0.sessionId == rid } ?? true) } && wait(5) { self.toasts(since: n1).contains { $0.hasPrefix("Closed \(rname)") } },
                   toasts(since: n1).joined(separator: " | "))
         } else { check("sess_menu_close_posts", false, "no enabled Close on recipe-box: " + ((keyOf("recipe-box").flatMap { sb.rows[$0]?.menuItems?() })?.items.map { $0.title }.joined(separator: " | ") ?? "no row")) }
+        // The sidebar against the hub, Open in, a toast, a project's page, Also open in (SelfTestSessFns.swift).
+        sessFunctionChecks()
     }
 }

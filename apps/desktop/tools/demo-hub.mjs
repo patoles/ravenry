@@ -242,8 +242,9 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
       fs.appendFileSync(f.TR, f.rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: f.p.turn[1] + '\n\n' + question }], usage: { input_tokens: 8, cache_creation_input_tokens: 3000, cache_read_input_tokens: f.p.ctx, output_tokens: 300 } } }, ago(0)) + '\n' + f.rec('system', { subtype: 'turn_duration' }, ago(0)) + '\n');
       const s = JSON.parse(fs.readFileSync(FAKE, 'utf8'));
       s.screens[f.sf] = banner(id) + `❯ ${f.p.turn[0]}\n\n⏺ ${f.p.turn[1]}\n\n  ${question}\n\n` + prompt();
-      const sf = s.workspaces.find((w) => w.surfaces[0].id === f.sf).surfaces[0];
-      sf.title = sf.title.replace(/^\S+/, '✳');
+      // Its cmux tab, unless it was closed (Close idle sessions): the question is in its events all the same.
+      const sf = s.workspaces.find((w) => w.surfaces[0]?.id === f.sf)?.surfaces[0];
+      if (sf) sf.title = sf.title.replace(/^\S+/, '✳');
       fs.writeFileSync(FAKE, JSON.stringify(s));
     },
     stop() { child.kill(); },

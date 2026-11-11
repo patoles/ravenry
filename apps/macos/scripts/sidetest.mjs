@@ -349,9 +349,12 @@ const STAND_IN = path.join(tmp, 'claude-continued');
 // The whole run (no --screen): Move here really moves (the hub follows this
 // test's daemon and resumes with a stand-in of Claude), so move_here_posted
 // gets the hub's 200, not "a test board does not reach the real ravenryd".
-if (!SCREEN) {
-  fs.writeFileSync(STAND_IN, "#!/bin/sh\nprintf 'Claude Code (a stand-in), moved here\\n\\n> '\nexec sleep 100000\n", { mode: 0o755 });
-  Object.assign(screenHub, { runtime: run, settings: { launchCommand: STAND_IN }, env: { RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
+// --screen sessions too (SelfTestSessFns.swift: Move here and Keep it in for
+// real); each stand-in says its pid, pane, session and folder in STAND_IN.log,
+// so the driver can list it as ps would (doRequests below).
+if (!SCREEN || SESSIONS_SCREEN) {
+  fs.writeFileSync(STAND_IN, `#!/bin/sh\necho "$$ $RAVENRY_PANE $2 $PWD" >> '${STAND_IN}.log'\nprintf 'Claude Code (a stand-in), moved here\\n\\n> '\nexec sleep 100000\n`, { mode: 0o755 });
+  Object.assign(screenHub, { runtime: run, settings: { ...(screenHub.settings || {}), launchCommand: STAND_IN }, env: { ...(screenHub.env || {}), RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
 }
 if (LINKS) {
   fs.writeFileSync(STAND_IN, "#!/bin/sh\nprintf 'Claude Code (a stand-in), continued\\n\\n> '\nexec sleep 100000\n", { mode: 0o755 });
@@ -495,7 +498,50 @@ const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.js
 // message the board types there (a plan paused or resumed, a page's ask) is taken
 // (fake-cmux "prompts", what was sent kept in its "sent"), not refused.
 if (SCREEN === 'plan' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '' }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
-if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
+if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true, ...(SESSIONS_SCREEN ? { focusLog: true } : {}) })); }
+// --screen sessions: a project with a brief and no earlier conversation (the project page's New session here and Open brief).
+if (SESSIONS_SCREEN) { fs.mkdirSync(path.join(hub.root, 'old-notes'), { recursive: true }); fs.writeFileSync(path.join(hub.root, 'old-notes', 'BRIEF.md'), '# Old notes\n\nGoal: Keep the notes from before the app.\n'); }
+// --screen sessions: what the app asks the driver for (<result>.do-N, answered in <result>.done-N):
+// "cmux" a process of session `sid` in cmux (a sleep of ours, listed as ps would list it) and every
+// stand-in that started, listed with its pane; then a pane the hub has not seen, so it reads the
+// processes again at once. "read" the fake cmux's focus log. "arrive" a question on a session.
+const ours = new Set(), sleeps = [];
+let doSeen = 0;
+async function doRequests() {
+  const f = `${result}.do-${doSeen + 1}`;
+  if (!fs.existsSync(f)) return;
+  doSeen++;
+  let req = {};
+  try { req = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { /* empty */ }
+  let ans = { ok: true };
+  // "arrive": a question arrives on the first of these projects whose session still reports (the screen closed some).
+  if (req.do === 'arrive') for (const id of req.projects || []) { try { await hub.arrive(id, req.question); ans.project = id; break; } catch (e) { (ans.errors ||= []).push(`${id}: ${e.message}`); } }
+  if (req.do === 'read') ans.text = (() => { try { return fs.readFileSync(hub.fake + '.focus.log', 'utf8'); } catch { return ''; } })();
+  if (req.do === 'cmux') {
+    const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    // A stand-in a move just started: its shell may take a moment to say so.
+    const fresh = () => (fs.existsSync(STAND_IN + '.log') ? fs.readFileSync(STAND_IN + '.log', 'utf8').trim().split('\n') : []).some((l) => { const pid = Number(l.split(' ')[0]); return pid && !ours.has(pid) && alive(pid); });
+    for (let i = 0; req.standin && i < 100 && !fresh(); i++) await sleep(100);
+    let ps = JSON.parse(fs.readFileSync(hub.ps, 'utf8')).filter((p) => !ours.has(p.pid) || alive(p.pid));
+    const s = spawn('/bin/sleep', ['900'], { stdio: 'ignore' });
+    sleeps.push(s);
+    ours.add(s.pid);
+    ps.push({ pid: s.pid, ppid: 1, rssKb: 250000, startedAt: new Date().toISOString(), command: `claude --resume ${req.sid}`, cwd: path.join(hub.root, req.project), env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=3A000000-0000-4000-8000-00000000AAAA CMUX_SURFACE_ID=5F000000-0000-4000-8000-${String(s.pid).padStart(12, '0')}` }); // ids as cmux gives them (36 characters)
+    for (const l of (fs.existsSync(STAND_IN + '.log') ? fs.readFileSync(STAND_IN + '.log', 'utf8').trim().split('\n') : [])) {
+      const [pid, pane, sid, cwd] = l.split(' ');
+      (ans.standins ||= []).push(`${pid} ${pane} ${ours.has(Number(pid)) ? 'listed' : alive(Number(pid)) ? 'alive' : 'gone'}`);
+      if (!pid || ours.has(Number(pid)) || !alive(Number(pid))) continue;
+      ours.add(Number(pid));
+      ps.push({ pid: Number(pid), ppid: 1, rssKb: 280000, startedAt: new Date().toISOString(), command: `claude --resume ${sid}`, cwd, env: `TERM_PROGRAM=ravenry RAVENRY_PANE=${pane}` });
+      // Its hook's SessionStart, as Claude's would say it: the session is this process's now.
+      fs.appendFileSync(path.join(hub.home, '.ravenry', 'events', `${sid}.jsonl`), JSON.stringify({ at: new Date().toISOString(), event: 'SessionStart', session_id: sid, cwd, source: 'resume', claude_pid: Number(pid), terminal: 'ravenry', terminal_id: pane }) + '\n');
+    }
+    fs.writeFileSync(hub.ps, JSON.stringify(ps));
+    execFileSync(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['new', '--socket', sock, '--json', '--', '/bin/sleep', '20'], { env });
+    ans.pid = s.pid;
+  }
+  fs.writeFileSync(`${result}.done-${doSeen}`, JSON.stringify(ans));
+}
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
 const hookLine = (bin, S, ev, sid = S.sid) => `printf '%s' ${sq(JSON.stringify({ hook_event_name: ev, session_id: sid, cwd: S.folder, transcript_path: S.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) }))} | ${sq(bin)} hook --assistant claude >/dev/null 2>&1`;
 let OLDER = null;
@@ -619,6 +665,7 @@ if (PROOFS) {
   for (let i = 0; i < 100; i++) { const j = await (await fetch(hub.url + '/api/rules/repeats')).json(); if (j.seeded && j.count > 0) break; await sleep(100); }
 }
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
+for (const f of fs.readdirSync(path.dirname(result))) if (/^sidetest\.json\.(do|done)-\d+$/.test(f)) fs.rmSync(path.join(path.dirname(result), f), { force: true });
 // --screen settings: the folder the Hand-off tab's Change picks for new projects (in the demo board's HOME).
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
@@ -639,8 +686,10 @@ while (!exited && Date.now() - t0 < (PAGES || WRITE ? 420000 : 240000)) {
     n++;
   }
   if (DAEMONS) listResumed();
+  if (SESSIONS_SCREEN) await doRequests();
   await sleep(50);
 }
+for (const s of sleeps) { try { s.kill(); } catch { /* gone */ } }
 if (!exited) app.kill();
 // --screen daemons: the app again on both daemons (a launch after the
 // update): its report lists every tab of both, in the saved order: the

@@ -332,7 +332,7 @@ final class PanelView: Box {
             let move = RButton(t("move.here"), .primary, small: true) { [weak self] in self?.move(p, s, keep: "ravenry") }
             buttons["move"] = move
             var acts: [NSView?] = [move]
-            if s.alsoOpen != nil { acts.append(RButton(t("move.keep", ["other": other]), small: true) { [weak self] in self?.move(p, s, keep: "outside") }) }
+            if s.alsoOpen != nil { let keep = RButton(t("move.keep", ["other": other]), small: true) { [weak self] in self?.move(p, s, keep: "outside") }; buttons["keep"] = keep; acts.append(keep) }
             acts.append(spring())
             out.append(sec(nil, [para(s.alsoOpen != nil ? t("panel.alsoOpen", ["other": other]) : t("panel.wentOn", ["other": other])), hstack(acts, spacing: 8)]))
         } else if s.machine == nil, p.machine == nil, let sid = s.sessionId, let a = s.assistant, a.hasPrefix("claude") || a.hasPrefix("codex"),
