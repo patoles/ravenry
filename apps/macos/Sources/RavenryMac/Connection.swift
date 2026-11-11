@@ -48,6 +48,10 @@ final class Connection {
     private(set) var daemonVersion = ""
     /// The newer daemon this one drains for (hello's daemon.draining), else "".
     private(set) var daemonDraining = ""
+    /// Whether render.find takes case_sensitive and regex here: nil until
+    /// asked (TerminalView.askFindOptions), false on an older daemon,
+    /// which refuses them. Main thread.
+    var findOptions: Bool?
 
     /// The daemon's socket (the layout file is kept by daemon: Layout.swift).
     private(set) var socketPath = ""

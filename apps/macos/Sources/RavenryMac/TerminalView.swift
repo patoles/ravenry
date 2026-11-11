@@ -1146,6 +1146,11 @@ final class TerminalView: NSView, NSTextInputClient {
     /// The count and selected match from the last render.find, or the
     /// frames' find section since.
     private(set) var findCount = 0, findSelected = -1
+    /// Match case and Regular expression (the bar's Aa and .*).
+    private(set) var findCase = false, findRegex = false
+    /// What a press on a toggle this tab's daemon lacks said, until the
+    /// text changes (the line under the bar).
+    private var findNotice: String?
 
     var findBarVisible: Bool { findBar.map { !$0.isHidden } ?? false }
 
@@ -1187,15 +1192,79 @@ final class TerminalView: NSView, NSTextInputClient {
         bar.onNext = { [weak self] in self?.findNext(nil) }
         bar.onPrevious = { [weak self] in self?.findPrevious(nil) }
         bar.onClose = { [weak self] in self?.closeFindBar() }
+        bar.onToggle = { [weak self] b in self?.findToggled(b) }
         addSubview(bar)
         findBar = bar
+        askFindOptions()
         return bar
     }
 
     private func placeFindBar() {
         guard let bar = findBar else { return }
         let sz = FindBar.size
-        bar.frame = NSRect(x: max(0, bounds.width - sz.width - 12), y: 8, width: sz.width, height: sz.height)
+        bar.frame = NSRect(x: max(0, bounds.width - sz.width - 12), y: 8, width: sz.width, height: bar.frame.height)
+    }
+
+    /// Whether this tab's daemon has match case and regular expressions:
+    /// an older one refuses the options (bad_request), so they are asked
+    /// with an empty needle, which only ends a search not started yet
+    /// (PROTOCOL.md, render.find). Once per daemon.
+    private func askFindOptions() {
+        guard let c = conn else { return }
+        if let has = c.findOptions { return findOptionsKnown(has) }
+        guard channel != 0 else { return }
+        c.request("render.find", ["channel": channel, "needle": "", "case_sensitive": false]) { [weak self] r in
+            var has: Bool?
+            switch r {
+            case .success: has = true
+            case .failure(.daemon(let code, let message)) where TerminalView.unknownField(code, message): has = false
+            default: break
+            }
+            DispatchQueue.main.async {
+                guard let has else { return }
+                c.findOptions = has
+                self?.findOptionsKnown(has)
+            }
+        }
+    }
+
+    /// The daemon refused a field it does not know (an older daemon).
+    static func unknownField(_ code: String, _ message: String) -> Bool {
+        code == "bad_request" && message.contains("unknown field")
+    }
+
+    /// An older daemon: the toggles dimmed, their tips saying why.
+    func findOptionsKnown(_ has: Bool) {
+        guard let bar = findBar else { return }
+        bar.matchCase.unavailableTip = t("find.caseOld")
+        bar.regex.unavailableTip = t("find.regexOld")
+        bar.matchCase.unavailable = !has
+        bar.regex.unavailable = !has
+        if !has, findCase || findRegex {
+            findCase = false
+            findRegex = false
+            bar.matchCase.on = false
+            bar.regex.on = false
+            if !findNeedle.isEmpty { find(step: 0) }
+        }
+    }
+
+    /// Aa or .* pressed: the matches counted again from scratch, the
+    /// newest selected (as the Electron app's toggles). On an older
+    /// daemon it stays off and the line under the bar says why.
+    private func findToggled(_ b: FindToggle) {
+        guard let bar = findBar else { return }
+        if b.unavailable {
+            findNotice = b === bar.matchCase ? t("find.caseOld") : t("find.regexOld")
+            bar.show(problem: findNotice)
+            return
+        }
+        if b === bar.matchCase { findCase.toggle() } else { findRegex.toggle() }
+        bar.matchCase.on = findCase
+        bar.regex.on = findRegex
+        window?.makeFirstResponder(bar.field)
+        bar.field.currentEditor()?.moveToEndOfDocument(nil)
+        if !findNeedle.isEmpty { find(step: 1) } else { bar.show(problem: nil) }
     }
 
     /// What to find changed: the first character selects the newest
@@ -1203,6 +1272,7 @@ final class TerminalView: NSView, NSTextInputClient {
     func findChanged(_ s: String) {
         let first = findNeedle.isEmpty
         findNeedle = s
+        findNotice = nil
         find(step: first && !s.isEmpty ? 1 : 0)
     }
 
@@ -1219,15 +1289,30 @@ final class TerminalView: NSView, NSTextInputClient {
 
     private func find(step: Int) {
         guard let c = conn else { return }
-        let needle = findNeedle
-        c.request("render.find", ["channel": channel, "needle": needle, "step": step]) { [weak self] r in
-            guard case .success(let v) = r else { return }
-            let n = (v["count"] as? NSNumber)?.intValue ?? 0, sel = (v["selected"] as? NSNumber)?.intValue ?? -1
-            DispatchQueue.main.async {
-                guard let self, needle == self.findNeedle else { return }
-                self.findCount = n
-                self.findSelected = sel
-                self.findBar?.show(count: n, selected: sel, needle: needle)
+        let needle = findNeedle, matchCase = findCase, regex = findRegex
+        // The options go only when on, so an older daemon still finds.
+        var req: [String: Any] = ["channel": channel, "needle": needle, "step": step]
+        if matchCase && !needle.isEmpty { req["case_sensitive"] = true }
+        if regex && !needle.isEmpty { req["regex"] = true }
+        c.request("render.find", req) { [weak self] r in
+            switch r {
+            case .success(let v):
+                let n = (v["count"] as? NSNumber)?.intValue ?? 0, sel = (v["selected"] as? NSNumber)?.intValue ?? -1
+                let bad = v["pattern_error"] as? String
+                DispatchQueue.main.async {
+                    guard let self, needle == self.findNeedle, matchCase == self.findCase, regex == self.findRegex else { return }
+                    self.findCount = n
+                    self.findSelected = sel
+                    self.findBar?.show(count: bad == nil ? n : 0, selected: sel, needle: bad == nil ? needle : "")
+                    self.findBar?.show(problem: bad.map { t("find.badPattern", ["why": $0]) } ?? self.findNotice, bad: bad != nil)
+                }
+            case .failure(.daemon(let code, let message)) where (matchCase || regex) && TerminalView.unknownField(code, message):
+                // A daemon older than the options: without them, and the toggles say why.
+                DispatchQueue.main.async {
+                    c.findOptions = false
+                    self?.findOptionsKnown(false)
+                }
+            default: break
             }
         }
     }
@@ -1244,6 +1329,8 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         bar.field.stringValue = ""
         bar.show(count: 0, selected: -1, needle: "")
+        bar.show(problem: nil)
+        findNotice = nil
         findCount = 0
         findSelected = -1
         window?.makeFirstResponder(self)

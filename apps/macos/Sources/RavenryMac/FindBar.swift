@@ -2,10 +2,11 @@
 // the top right of the terminal in the app's own colours (light or dark),
 // with the search icon, the text to find (a one-line selection fills it,
 // TerminalView.showFindBar), the count ("3 of 11"), previous and next with
-// their keys in their tips, and close. It only takes what the person
-// types; the search is the daemon's (render.find, ASCII letters in any
-// case: the daemon has no case or pattern option yet) and the matches come
-// in the frames.
+// their keys in their tips, Match case (Aa) and Regular expression (.*),
+// and close. It only takes what the person types; the search is the
+// daemon's (render.find) and the matches come in the frames. A line under
+// the bar says what is wrong when something is: a pattern that does not
+// parse, or a toggle a tab's older daemon does not have.
 
 import AppKit
 
@@ -53,10 +54,17 @@ final class FindBar: NSView, NSTextFieldDelegate {
     private(set) var previous: NSButton!
     private(set) var next: NSButton!
     private(set) var close: NSButton!
+    /// Match case (Aa) and Regular expression (.*), as .fb-t.
+    private(set) var matchCase: FindToggle!
+    private(set) var regex: FindToggle!
+    /// The line under the bar: a pattern that does not parse, or a toggle
+    /// this tab's daemon does not have. Empty: no line.
+    let problem = NSTextField(labelWithString: "")
     /// The field's well (.findbar input): the input colour, ringed, the accent while typing.
     private let well = NSView()
     private let icon = NSImageView()
     private let rule = NSView()
+    private let rule2 = NSView()
 
     /// The arrow over the bar and its buttons; the text field sets its
     /// own I-beam.
@@ -68,10 +76,14 @@ final class FindBar: NSView, NSTextFieldDelegate {
     var onNext: (() -> Void)?
     var onPrevious: (() -> Void)?
     var onClose: (() -> Void)?
+    /// A toggle was pressed (it says which: matchCase or regex).
+    var onToggle: ((FindToggle) -> Void)?
 
     /// .findbar: 10 pt radius on the card's colour, ringed and shadowed;
-    /// the search icon, the field, the count, previous, next, and close.
-    static let size = NSSize(width: 390, height: 34)
+    /// the search icon, the field, the count, previous, next, Aa, .*, and
+    /// close; 20 pt taller with the line under it.
+    static let size = NSSize(width: 448, height: 34)
+    static let problemHeight: CGFloat = 20
 
     var editor: FindFieldEditor { (field.cell as! FindFieldCell).editor }
 
@@ -133,7 +145,24 @@ final class FindBar: NSView, NSTextFieldDelegate {
         rule.wantsLayer = true
         rule.frame = NSRect(x: 355, y: 9, width: 1, height: 16)
         addSubview(rule)
-        close = button("xmark", t("find.closeTip"), t("find.closeA"), 360, #selector(closeClicked))
+        matchCase = FindToggle("Aa", tip: t("find.caseTip"))
+        matchCase.frame = NSRect(x: 360, y: 5, width: 24, height: 24)
+        regex = FindToggle(".*", tip: t("find.regexTip"))
+        regex.frame = NSRect(x: 386, y: 5, width: 24, height: 24)
+        for b in [matchCase!, regex!] {
+            b.target = self
+            b.action = #selector(toggleClicked(_:))
+            addSubview(b)
+        }
+        rule2.wantsLayer = true
+        rule2.frame = NSRect(x: 413, y: 9, width: 1, height: 16)
+        addSubview(rule2)
+        close = button("xmark", t("find.closeTip"), t("find.closeA"), 418, #selector(closeClicked))
+        problem.font = NSFont.systemFont(ofSize: 11.5)
+        problem.lineBreakMode = .byTruncatingTail
+        problem.frame = NSRect(x: 38, y: 32, width: FindBar.size.width - 48, height: 15)
+        problem.isHidden = true
+        addSubview(problem)
         restyle()
     }
 
@@ -149,9 +178,13 @@ final class FindBar: NSView, NSTextFieldDelegate {
             well.layer?.borderWidth = typing ? 1.5 : 1
             well.layer?.borderColor = (typing ? Design.work : Design.sep).cgColor
             rule.layer?.backgroundColor = Design.sep.cgColor
+            rule2.layer?.backgroundColor = Design.sep.cgColor
         }
+        matchCase?.restyle()
+        regex?.restyle()
         field.textColor = Design.tx
         count.textColor = Design.color("tx3")
+        problem.textColor = problemBad ? Design.color("bad") : Design.color("tx2")
         for b in [previous, next, close] { b?.contentTintColor = Design.tx2 }
         icon.image = SharedIcons.image("search", color: "tx3", size: 13)
     }
@@ -168,6 +201,23 @@ final class FindBar: NSView, NSTextFieldDelegate {
     @objc private func previousClicked() { onPrevious?() }
     @objc private func nextClicked() { onNext?() }
     @objc private func closeClicked() { onClose?() }
+    @objc private func toggleClicked(_ b: FindToggle) { onToggle?(b) }
+
+    /// The line under the bar: text, or nil for none; bad: the pattern's
+    /// problem, in the bad colour. The bar grows to hold it.
+    private var problemBad = false
+    func show(problem text: String?, bad: Bool = false) {
+        problemBad = bad
+        problem.stringValue = text ?? ""
+        problem.isHidden = text == nil
+        restyle()
+        var f = frame
+        let h = FindBar.size.height + (text == nil ? 0 : FindBar.problemHeight)
+        if f.height != h {
+            f.size.height = h
+            frame = f
+        }
+    }
 
     func controlTextDidChange(_ note: Notification) {
         onChange?(field.stringValue)
@@ -184,5 +234,51 @@ final class FindBar: NSView, NSTextFieldDelegate {
         } else {
             count.stringValue = "\(selected + 1) of \(n)"
         }
+    }
+}
+
+/// Match case (Aa) or Regular expression (.*): .fb-t, a 24 pt square with
+/// its letters in the monospaced face, ringed in the accent when on. A
+/// toggle the tab's daemon does not have is dimmed (unavailable) and says
+/// so in its tip.
+final class FindToggle: NSButton {
+    var on = false { didSet { restyle() } }
+    var unavailable = false { didSet { restyle() } }
+    private let label: String
+    private let tip: String
+    var unavailableTip = ""
+
+    init(_ label: String, tip: String) {
+        self.label = label
+        self.tip = tip
+        super.init(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryChange)
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        setAccessibilityLabel(tip)
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func restyle() {
+        let color = unavailable ? Design.color("tx3").withAlphaComponent(0.5) : on ? Design.work : Design.tx2
+        attributedTitle = NSAttributedString(string: label, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold),
+            .foregroundColor: color,
+        ])
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderWidth = on && !unavailable ? 1.5 : 0
+            layer?.borderColor = Design.work.cgColor
+        }
+        toolTip = unavailable ? unavailableTip : tip
+        setAccessibilityValue(on ? "on" : "off")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
     }
 }

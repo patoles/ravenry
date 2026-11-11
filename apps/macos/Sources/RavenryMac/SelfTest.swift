@@ -565,6 +565,7 @@ final class SelfTest {
         check("find_cmd_shift_g_previous", waitFor(3) { self.findLabel() == "1 of 3" }, findLabel())
         _ = waitFor(3) { self.scr { $0.find.selected } == 0 }
         savePNG("selftest-find.png")
+        findToggles(bar)
         main { bar.editor.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0)) }
         check("find_no_matches", waitFor(3) { self.findLabel() == "No matches" }, findLabel())
         // Esc: the search ends and the terminal has the keyboard again.
@@ -576,6 +577,72 @@ final class SelfTest {
             return edit?.items.first { $0.title == "Find" }?.submenu?.items.map { $0.title } ?? []
         }
         check("find_menu_items", items == ["Find…", "Find Next", "Find Previous"], "\(items)")
+    }
+
+    /// Match case (Aa) and Regular expression (.*), as the Electron app's
+    /// toggles: a needle in another case, a pattern, one that does not
+    /// parse (the line under the bar, no dialog), and a tab of an older
+    /// daemon (its refusal of the options is the daemon's, TestRenderFind
+    /// and the 0.1.28 release's ravenryd: bad_request, unknown field).
+    private func findToggles(_ bar: FindBar) {
+        let set = { (s: String) in self.main { bar.field.stringValue = s; self.view.findChanged(s) } }
+        check("find_toggles_there", main { bar.matchCase.toolTip == "Match case" && bar.regex.toolTip == "Regular expression" && !bar.matchCase.unavailable && !bar.regex.unavailable && !bar.matchCase.on && !bar.regex.on },
+              main { "\(bar.matchCase.toolTip ?? "") \(bar.regex.toolTip ?? "") \(bar.matchCase.unavailable)" })
+        set("NEEDLE")
+        check("find_any_case", waitFor(3) { self.findLabel() == "3 matches" }, findLabel())
+        main { bar.matchCase.performClick(nil) }
+        check("find_match_case", waitFor(3) { self.findLabel() == "No matches" && self.scr { $0.find.count } == 0 } && main { bar.matchCase.on && bar.matchCase.layer?.borderWidth == 1.5 },
+              "\(findLabel()), frames \(scr { $0.find.count })")
+        set("needle")
+        check("find_match_case_counts", waitFor(3) { self.findLabel() == "3 matches" }, findLabel())
+        main { bar.matchCase.performClick(nil) }
+        set("needle[23]$")
+        check("find_regex_off_literal", waitFor(3) { self.findLabel() == "No matches" }, findLabel())
+        main { bar.regex.performClick(nil) }
+        check("find_regex", waitFor(3) { self.findLabel() == "1 of 2" && self.scr { $0.find.count } == 2 } && main { bar.regex.on && !bar.matchCase.on },
+              "\(findLabel()), frames \(scr { $0.find.count })")
+        // A pattern that does not parse: the line under the bar, in the bad colour; no dialog.
+        set("needle(")
+        let said = waitFor(3) { self.main { !bar.problem.isHidden && bar.problem.stringValue == "Not a valid pattern: missing closing )" } }
+        check("find_bad_pattern_inline", said && findLabel() == "" && main { bar.frame.height == FindBar.size.height + FindBar.problemHeight && window.attachedSheet == nil && NSApp.modalWindow == nil },
+              main { "\"\(bar.problem.stringValue)\" count \"\(bar.count.stringValue)\" height \(bar.frame.height)" })
+        main {
+            if let rep = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
+                bar.cacheDisplay(in: bar.bounds, to: rep)
+                let url = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent("selftest-findbar-badpattern.png")
+                try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
+        set("needle[0-9]")
+        check("find_pattern_fixed", waitFor(3) { self.findLabel() == "3 matches" } && main { bar.problem.isHidden && bar.frame.height == FindBar.size.height }, findLabel())
+        main {
+            bar.matchCase.performClick(nil)
+            if let rep = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
+                bar.cacheDisplay(in: bar.bounds, to: rep)
+                let url = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent("selftest-findbar-toggles.png")
+                try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
+        // A tab of an older daemon: the toggles off and dimmed, their tips
+        // and a press say why, and the find goes on in any case.
+        main { view.findOptionsKnown(false) }
+        let dimmed = main { bar.matchCase.unavailable && bar.regex.unavailable && !bar.matchCase.on && !bar.regex.on && view.findCase == false && view.findRegex == false }
+        check("find_old_daemon_toggles", dimmed && main { bar.matchCase.toolTip == "Match case needs a newer daemon. New tabs have it." && bar.regex.toolTip == "Regular expressions need a newer daemon. New tabs have them." },
+              main { bar.matchCase.toolTip ?? "" })
+        main { bar.regex.performClick(nil) }
+        check("find_old_daemon_says", main { !bar.regex.on && !bar.problem.isHidden && bar.problem.stringValue == "Regular expressions need a newer daemon. New tabs have them." }, main { bar.problem.stringValue })
+        main {
+            if let rep = bar.bitmapImageRepForCachingDisplay(in: bar.bounds) {
+                bar.cacheDisplay(in: bar.bounds, to: rep)
+                let url = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent("selftest-findbar-olddaemon.png")
+                try? rep.representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
+        set("NEEDLE")
+        check("find_old_daemon_finds", waitFor(3) { self.findLabel() == "3 matches" } && main { bar.problem.isHidden }, findLabel())
+        main { view.findOptionsKnown(true) }
+        set("needle")
+        _ = waitFor(3) { self.findLabel() == "3 matches" }
     }
 
     private func savePNG(_ name: String) {
