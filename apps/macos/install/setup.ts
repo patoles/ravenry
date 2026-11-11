@@ -36,6 +36,23 @@
 //       on standard output. The person's choice (Not now, back, switched)
 //       is kept in <data>/npm-choice.json (the Electron app keeps it in
 //       window.json, read when this file is not there).
+//   node setup.mjs command --state | --on | --off
+//       the `ravenry` a terminal runs (the person's login shell's PATH): the
+//       app's (<data>/bin/ravenry, the one agents use) or another (the npm
+//       board's launcher, ravenry-app). --on links ~/.local/bin/ravenry to
+//       <data>/bin/ravenry and, only when ~/.local/bin does not come before
+//       the other one on that PATH, adds two marked lines at the end of the
+//       shell's startup file (~/.zshrc, ~/.bash_profile), backed up first;
+//       never over a ~/.local/bin/ravenry that is not the app's. --off takes
+//       out exactly what --on made. The window asks the person first.
+//   node setup.mjs uninstall [--purge]
+//       Ravenry taken off this Mac (HUB-016): its hooks out of Claude Code's
+//       and Codex's files and its skill out of their skills folders (each put
+//       back as it was, else only Ravenry's entries out, backed up), the hub
+//       service stopped and its file removed, the ravenry command (--off),
+//       bin/, current and the version folders; --purge deletes the data too
+//       (<data> and RAVENRY_HOME, ~/.ravenry). The terminals open now keep
+//       running until they end. Answers what it did, line by line.
 //
 // Bundled into one file by apps/macos/scripts/package.mjs (esbuild): it
 // needs nothing but Node.
@@ -52,6 +69,9 @@ import type { Staged } from '../../desktop/src/main/install.ts';
 import { launchPlan, offerFor, runScript, scriptPath } from '../../desktop/src/main/npmswitch.ts';
 import type { NpmDetect } from '../../desktop/src/main/npmswitch.ts';
 import { hubUrl } from '../../desktop/src/main/hub.ts';
+import { setupWithRavenryd } from '../../../hub/server/hookinstall.mjs';
+import { setSkill, skillStatus, SKILL_ASSISTANTS } from '../../../hub/server/skills.mjs';
+import { sayPath } from '../../../hub/public/homepath.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -279,6 +299,165 @@ function prune(keep: string): object {
   return { ok: true, removed: gone };
 }
 
+// ------------------------------------------------------------ the ravenry command
+
+const MARK = '# Ravenry: its ravenry command first (the Ravenry menu, Remove the ravenry Command, takes these two lines out)';
+const LINE = 'export PATH="$HOME/.local/bin:$PATH"';
+const real = (p: string): string | null => { try { return fs.realpathSync(p); } catch { return null; } };
+const isExe = (f: string): boolean => { try { const st = fs.statSync(f); return st.isFile() && (st.mode & 0o111) !== 0; } catch { return false; } };
+
+/** The PATH of a new terminal: the person's login shell, interactive, as Terminal starts it. */
+function loginPath(): { path: string; shell: string } {
+  const shell = process.env.SHELL && path.isAbsolute(process.env.SHELL) ? process.env.SHELL : '/bin/zsh';
+  const r = spawnSync(shell, ['-l', '-i', '-c', 'printf "\\n__RAVENRY_PATH__%s\\n" "$PATH"'], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'], cwd: os.homedir() });
+  const m = /__RAVENRY_PATH__(.*)/.exec(r.stdout || '');
+  return { path: m ? m[1].trim() : (process.env.PATH || ''), shell };
+}
+
+/** The startup file a new terminal of this shell reads last. */
+function rcFile(shell: string): string {
+  const b = path.basename(shell);
+  if (b === 'zsh') return path.join(process.env.ZDOTDIR || os.homedir(), '.zshrc');
+  if (b === 'bash') return path.join(os.homedir(), '.bash_profile');
+  return path.join(os.homedir(), '.profile');
+}
+
+/** What another `ravenry` is, in words: the npm board's launcher with its version, else its path. */
+function describe(f: string): string {
+  const r = real(f) || f;
+  const m = /^(.*\/node_modules\/ravenry-app)\//.exec(r);
+  if (m) {
+    let v = '';
+    try { v = JSON.parse(fs.readFileSync(path.join(m[1], 'package.json'), 'utf8')).version || ''; } catch { /* none */ }
+    return `the npm board's ravenry (ravenry-app${v ? ` ${v}` : ''})`;
+  }
+  return sayPath(f, os.homedir());
+}
+
+function commandState() {
+  const target = path.join(dataRoot(), 'bin', 'ravenry');
+  const linkDir = path.join(os.homedir(), '.local', 'bin');
+  const link = path.join(linkDir, 'ravenry');
+  const { path: PATH, shell } = loginPath();
+  const dirs = PATH.split(':').filter(Boolean);
+  const ours = (f: string) => { const a = real(f), b = real(target); return !!a && !!b && a === b; };
+  let first: string | null = null;
+  for (const d of dirs) { const f = path.join(d, 'ravenry'); if (isExe(f)) { first = f; break; } }
+  const firstOurs = !!first && ours(first);
+  let other: string | null = null;
+  for (const d of dirs) { const f = path.join(d, 'ravenry'); if (isExe(f) && !ours(f)) { other = f; break; } }
+  let linkOurs = false, blocked = false;
+  try { fs.lstatSync(link); linkOurs = ours(link) || (() => { try { return fs.readlinkSync(link) === target; } catch { return false; } })(); blocked = !linkOurs; } catch { /* none */ }
+  const iLink = dirs.indexOf(linkDir);
+  const iOther = other ? dirs.indexOf(path.dirname(other)) : -1;
+  const rc = rcFile(shell);
+  let rcText = '';
+  try { rcText = fs.readFileSync(rc, 'utf8'); } catch { /* none */ }
+  return {
+    ok: true, installed: isExe(target), target, link, linkOurs, blocked, first, firstOurs, other, otherWhat: other ? describe(other) : null,
+    needsLine: iLink < 0 || (iOther >= 0 && iOther < iLink), rc, lineOurs: rcText.includes(MARK), shell,
+  };
+}
+
+function commandOn() {
+  const st = commandState();
+  if (!st.installed) return { ...st, ok: false, error: `Ravenry's command is not installed yet (${sayPath(st.target, os.homedir())}).` };
+  if (st.blocked) return { ...st, ok: false, error: `${sayPath(st.link, os.homedir())} is another program; Ravenry leaves it alone.` };
+  const did: string[] = [];
+  if (!st.linkOurs) {
+    fs.mkdirSync(path.dirname(st.link), { recursive: true });
+    fs.symlinkSync(st.target, st.link);
+    did.push(`linked ${sayPath(st.link, os.homedir())} to ${sayPath(st.target, os.homedir())}`);
+  }
+  if (st.needsLine && !st.lineOurs) {
+    let before: string | null = null;
+    try { before = fs.readFileSync(st.rc, 'utf8'); } catch { /* a new file */ }
+    if (before != null) {
+      const backup = `${st.rc}.ravenry-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+      fs.writeFileSync(backup, before);
+      did.push(`backed up ${sayPath(st.rc, os.homedir())} to ${sayPath(backup, os.homedir())}`);
+    }
+    const sep = before && !before.endsWith('\n') ? '\n' : '';
+    fs.appendFileSync(st.rc, `${sep}\n${MARK}\n${LINE}\n`);
+    did.push(`added two lines at the end of ${sayPath(st.rc, os.homedir())}`);
+  }
+  for (const d of did) appLog(`command: ${d}`);
+  const after = commandState();
+  return { ...after, ok: after.firstOurs, did, ...(after.firstOurs ? {} : { error: `A new terminal still runs ${after.first ? describe(after.first) : 'no ravenry'}.` }) };
+}
+
+function commandOff() {
+  const st = commandState();
+  const did: string[] = [];
+  if (st.linkOurs) { fs.rmSync(st.link, { force: true }); did.push(`removed ${sayPath(st.link, os.homedir())}`); }
+  if (st.lineOurs) {
+    const text = fs.readFileSync(st.rc, 'utf8');
+    const next = text.replace(`\n${MARK}\n${LINE}\n`, '').replace(`${MARK}\n${LINE}\n`, '');
+    fs.writeFileSync(st.rc, next);
+    did.push(`took Ravenry's two lines out of ${sayPath(st.rc, os.homedir())}`);
+  }
+  for (const d of did) appLog(`command: ${d}`);
+  return { ...commandState(), ok: true, did };
+}
+
+// ------------------------------------------------------------ uninstall
+
+function uninstall(purge: boolean): object {
+  const did: string[] = [];
+  const left: string[] = [];
+  const mcHome = process.env.RAVENRY_HOME || process.env.MC_HOME || path.join(os.homedir(), '.ravenry');
+  const tilde = (p: string) => sayPath(p, os.homedir());
+  // The hooks, Claude Code's and Codex's: put back as they were, else only ours out (backed up).
+  try {
+    const r = setupWithRavenryd({ remove: true, undoFile: path.join(mcHome, 'setup-undo.json') }) as { ok: boolean; error?: string; claude?: { file: string; changes: string[]; restored?: boolean; backup?: string | null } | null; codex?: { file: string; changes: string[]; restored?: boolean; backups?: string[] } | null };
+    if (!r.ok) left.push(`the hooks: ${r.error}`);
+    for (const [name, x] of [['Claude Code', r.claude], ['Codex', r.codex]] as const) {
+      if (!x) continue;
+      if (x.restored) did.push(`${name}'s hooks: ${tilde(x.file)} put back as it was before Ravenry`);
+      else if (x.changes.length) did.push(`${name}'s hooks: Ravenry's ${x.changes.length} entr${x.changes.length === 1 ? 'y' : 'ies'} taken out of ${tilde(x.file)}${'backup' in x && x.backup ? ` (backup ${tilde(x.backup)})` : 'backups' in x && x.backups && x.backups.length ? ` (backup ${x.backups.map(tilde).join(', ')})` : ''}`);
+    }
+  } catch (e) { left.push(`the hooks: ${(e as Error).message}`); }
+  // The skill, for each assistant, when it is Ravenry's.
+  for (const k of SKILL_ASSISTANTS) {
+    try {
+      const st = skillStatus(k);
+      if (!st.ours) continue;
+      const r = setSkill({ kind: k, on: false }, path.join(mcHome, 'skills-undo.json')) as { ok: boolean; error?: string };
+      if (r.ok) did.push(`the Ravenry skill taken out of ${tilde(st.dir)}`);
+      else left.push(`the skill in ${tilde(st.dir)}: ${r.error}`);
+    } catch (e) { left.push(`the ${k} skill: ${(e as Error).message}`); }
+  }
+  // The ravenry command, when the app put it there.
+  try { const c = commandOff(); for (const d of c.did) did.push(`the ravenry command: ${d}`); } catch (e) { left.push(`the ravenry command: ${(e as Error).message}`); }
+  // The hub service.
+  const mode = serviceMode(process.env, true);
+  let svc = false;
+  try { svc = fs.existsSync(serviceFile()); } catch { /* none */ }
+  if (svc) {
+    const r = removeService({ mode, run: serviceRun });
+    if (r.state === 'failed') left.push(`the hub service: ${r.why || 'it did not stop'}`);
+    else did.push(`the hub service stopped and ${tilde(serviceFile())} removed`);
+  }
+  // The program's own folders in <data>.
+  const data = dataRoot();
+  for (const n of ['bin', 'current', 'versions']) {
+    const f = path.join(data, n);
+    let there = false;
+    try { fs.lstatSync(f); there = true; } catch { /* none */ }
+    if (!there) continue;
+    try { fs.rmSync(f, { recursive: true, force: true }); did.push(`removed ${tilde(f)}`); } catch (e) { left.push(`${tilde(f)}: ${(e as Error).message}`); }
+  }
+  if (purge) {
+    for (const f of [mcHome, data]) {
+      if (!fs.existsSync(f)) continue;
+      try { fs.rmSync(f, { recursive: true, force: true }); did.push(`deleted ${tilde(f)}`); } catch (e) { left.push(`${tilde(f)}: ${(e as Error).message}`); }
+    }
+  }
+  const kept = purge ? [] : [mcHome, data].filter((f) => fs.existsSync(f)).map(tilde);
+  appLog(`uninstall: ${did.length ? did.join('; ') : 'nothing of Ravenry was there'}${left.length ? `; not done: ${left.join('; ')}` : ''}${kept.length ? `; kept ${kept.join(' and ')}` : ''}`);
+  return { ok: !left.length, did, left, kept, purge };
+}
+
 try {
   if (cmd === 'stage') {
     const st = stage(opt('--resources') || '');
@@ -300,8 +479,12 @@ try {
     out(await npmBack(opt('--resources') || ''));
   } else if (cmd === 'prune') {
     out(prune(opt('--keep') || ''));
+  } else if (cmd === 'command') {
+    out(argv.includes('--on') ? commandOn() : argv.includes('--off') ? commandOff() : commandState());
+  } else if (cmd === 'uninstall') {
+    out(uninstall(argv.includes('--purge')));
   } else {
-    out({ ok: false, error: `usage: setup.mjs stage|hub|prune|npm-detect|npm-choice|npm-switch|npm-back (got ${cmd || 'nothing'})` });
+    out({ ok: false, error: `usage: setup.mjs stage|hub|prune|command|uninstall|npm-detect|npm-choice|npm-switch|npm-back (got ${cmd || 'nothing'})` });
   }
 } catch (e) {
   appLog(`install: ${(e as Error).message || e}`);

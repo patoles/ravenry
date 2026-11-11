@@ -304,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ds.watch()
         // The hub service, in the background (Install.swift); the window
         // reads the hub as soon as it answers.
-        if installing { inst.setUpHub() }
+        if installing { inst.setUpHub { _ in DispatchQueue.main.async { MachineMenu.shared.atLaunch() } } }
         // Updates: a check a little after launch, then every few hours (Updater.swift).
         Updater.shared.start(offscreen: options.offscreen)
         // A wake reads the hub and the daemons again (Wake.swift); a second start brings this one forward.
@@ -353,10 +353,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "focused": ["pane": v?.pane ?? "", "frames": v?.screen.frames ?? 0, "draws": v?.drawCount ?? 0, "text": v?.screen.text() ?? ""],
             ]
             if let d = try? JSONSerialization.data(withJSONObject: j) { try? d.write(to: URL(fileURLWithPath: path), options: .atomic) }
-            // A check's command (Wake.swift): "wake" as macOS's didWake would.
+            // A check's command (ReportDriver.swift): a wake, a menu item, a dialog's button.
             if let cmd = try? String(contentsOfFile: path + ".do", encoding: .utf8) {
                 try? FileManager.default.removeItem(atPath: path + ".do")
-                if cmd.trimmingCharacters(in: .whitespacesAndNewlines) == "wake" { self.woke() }
+                self.reportCommand(cmd.trimmingCharacters(in: .whitespacesAndNewlines), report: path)
             }
         }
     }
@@ -439,6 +439,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Updater.shared.addMenuItems(to: appMenu)
         appMenu.addItem(.separator())
         add(appMenu, "Settings\u{2026}", #selector(menuSettings(_:)), ",", target: self)
+        // Install the ravenry Command..., Uninstall Ravenry... (MachineMenu.swift).
+        MachineMenu.shared.addMenuItems(to: appMenu)
         appMenu.addItem(.separator())
         let services = NSMenu(title: "Services")
         appMenu.addItem(withTitle: "Services", action: nil, keyEquivalent: "").submenu = services
