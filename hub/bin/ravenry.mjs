@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { sayPath } from '../public/homepath.mjs';
 
@@ -519,7 +519,9 @@ async function phoneCmd() {
 
 async function main() {
   if (flags.has('--version') || flags.has('-v') || cmd === 'version') { console.log(PKG.version); return 0; }
-  if (cmd === 'help' || flags.has('--help') || flags.has('-h')) { console.log(HELP); return 0; }
+  // An app command's own help is the app's (ravenry pick --help).
+  const mine = ['', 'start', 'setup', 'doctor', 'uninstall', 'serve', 'page', 'phone', 'help'].includes(cmd);
+  if (cmd === 'help' || (mine && (flags.has('--help') || flags.has('-h')))) { console.log(HELP); return 0; }
   switch (cmd) {
     case '': return start();
     case 'start': return start();
@@ -529,8 +531,31 @@ async function main() {
     case 'serve': return serve();
     case 'page': return page();
     case 'phone': return phoneCmd();
-    default: console.log(`Unknown command "${cmd}".\n\n${HELP}`); return 2;
+    default: return appCommand();
   }
+}
+
+// An agent's command (ravenry pick, ask, approve, capture...) is the Ravenry
+// app's ravenry, not this launcher's: when this ravenry comes first on the
+// PATH, it hands the command to the app's (in the app's data folder, else
+// beside a ravenryd on the PATH) as it was typed, and exits with its status.
+// With no app, it says where the command comes from.
+function appCommand() {
+  const data = env.RAVENRY_DESKTOP_DATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support', 'Ravenry')
+    : process.platform === 'win32' ? path.join(env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Ravenry')
+      : path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'Ravenry'));
+  const exe = process.platform === 'win32' ? 'ravenry.exe' : 'ravenry';
+  // A script (this launcher, or another npm copy of it) is never the app's binary.
+  const script = (f) => { const b = Buffer.alloc(2); const fd = fs.openSync(f, 'r'); try { fs.readSync(fd, b, 0, 2, 0); } finally { fs.closeSync(fd); } return b.toString() === '#!'; };
+  const here = (() => { try { return fs.realpathSync(process.argv[1]); } catch { return process.argv[1]; } })();
+  const found = [path.join(data, 'bin', exe), ...String(env.PATH || '').split(path.delimiter).filter((d) => d && path.isAbsolute(d) && fs.existsSync(path.join(d, 'ravenryd'))).map((d) => path.join(d, exe))]
+    .find((f) => { try { return fs.statSync(f).isFile() && fs.realpathSync(f) !== here && !script(f); } catch { return false; } });
+  if (found) {
+    const r = spawnSync(found, argv, { stdio: 'inherit' });
+    return r.status ?? 1;
+  }
+  console.error(`Unknown command "${cmd}". "ravenry ${cmd}" is a command of the Ravenry app's ravenry, and the app is not installed here; this ravenry is the npm board's (${PKG.version}).\n\n${HELP}`);
+  return 2;
 }
 
 main().then((code) => { if (code != null) process.exit(code); }, (e) => { console.error(e.stack || e.message); process.exit(1); });
