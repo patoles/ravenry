@@ -1123,14 +1123,35 @@ final class TerminalView: NSView, NSTextInputClient {
 
     var findBarVisible: Bool { findBar.map { !$0.isHidden } ?? false }
 
+    /// Cmd+F: the bar, with the keyboard; a selection on one line is what
+    /// it looks for (as the Electron app's openFind), else the last words.
     @objc func showFindBar(_ sender: Any?) {
         let bar = findBar ?? makeFindBar()
         bar.isHidden = false
         placeFindBar()
         window?.invalidateCursorRects(for: self)
         window?.makeFirstResponder(bar.field)
+        if let s = selectedLine(), s != findNeedle {
+            bar.field.stringValue = s
+            findNeedle = s
+            bar.field.currentEditor()?.selectAll(nil)
+            find(step: 1)
+            return
+        }
         bar.field.currentEditor()?.selectAll(nil)
         if !findNeedle.isEmpty { find(step: 0) }
+    }
+
+    /// The selection's text when it lies on one row (at most 200
+    /// characters), asked of the daemon at once (render.copy, 300 ms at most).
+    private func selectedLine() -> String? {
+        screen.lock()
+        let sel = screen.selection
+        screen.unlock()
+        guard let r = sel, r.y0 == r.y1, let conn, channel != 0,
+              let v = try? conn.call("render.copy", ["channel": channel], timeout: 0.3), let s = v["text"] as? String else { return nil }
+        let line = s.trimmingCharacters(in: .newlines)
+        return line.isEmpty || line.count > 200 || line.contains("\n") ? nil : line
     }
 
     private func makeFindBar() -> FindBar {
@@ -1218,20 +1239,69 @@ final class TerminalView: NSView, NSTextInputClient {
 
     // MARK: the context menu and Clear
 
-    /// Right click, when the program does not take the mouse.
+    /// The window's commands the menu offers (Workspace.box sets them): a
+    /// split beside this pane, whether its tab can split (one split per
+    /// tab), and the pane's folder (Copy Path).
+    var onSplit: ((String) -> Void)?
+    var canSplit: () -> Bool = { false }
+    var folderPath: () -> String? = { nil }
+    /// The last menu made (the self-test reads its items).
+    private(set) var lastMenu: NSMenu?
+
+    /// Right click, when the program does not take the mouse (the Electron
+    /// app's term:menu): Open Link and Copy Link over a link, Copy (only
+    /// with a selection), Paste, Select All, Copy Path (the pane's folder),
+    /// Find, Clear, Split Right and Split Down (not in a split tab).
     override func menu(for event: NSEvent) -> NSMenu? {
         if mouseReporting { return nil }
+        return contextMenu(at: event.locationInWindow)
+    }
+
+    func contextMenu(at windowPoint: NSPoint) -> NSMenu {
         let m = NSMenu(title: "Terminal")
-        for (title, action) in [("Copy", #selector(copy(_:))), ("Paste", #selector(paste(_:))),
-                                ("Select All", #selector(selectAll(_:))), ("", nil), ("Clear", #selector(clearScreen(_:))),
-                                ("Find…", #selector(showFindBar(_:)))] as [(String, Selector?)] {
-            if action == nil {
-                m.addItem(.separator())
-                continue
-            }
-            m.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        m.autoenablesItems = false
+        func add(_ title: String, _ on: Bool = true, _ run: @escaping () -> Void) {
+            let i = TermMenuItem.item(title, run)
+            i.isEnabled = on
+            m.addItem(i)
         }
+        if let uri = linkAt(cell(at: windowPoint)) {
+            add(t("term.openLink")) { [weak self] in self?.open(uri) }
+            add(t("term.copyLink")) { [weak self] in self?.pasteboard.clearContents(); self?.pasteboard.setString(uri, forType: .string) }
+            m.addItem(.separator())
+        }
+        screen.lock()
+        let selected = screen.selection != nil
+        screen.unlock()
+        add(t("term.copy"), selected) { [weak self] in self?.copy(nil) }
+        add(t("term.paste")) { [weak self] in self?.paste(nil) }
+        add(t("term.selectAll")) { [weak self] in self?.selectAll(nil) }
+        m.addItem(.separator())
+        let folder = folderPath()
+        add(t("term.copyPath"), folder != nil) { [weak self] in
+            guard let self, let f = folder else { return }
+            self.pasteboard.clearContents()
+            self.pasteboard.setString(f, forType: .string)
+        }
+        add(t("term.find")) { [weak self] in self?.showFindBar(nil) }
+        add(t("term.clear")) { [weak self] in self?.clearScreen(nil) }
+        m.addItem(.separator())
+        let split = canSplit() && onSplit != nil
+        add(t("term.splitRight"), split) { [weak self] in self?.onSplit?("right") }
+        add(t("term.splitDown"), split) { [weak self] in self?.onSplit?("down") }
+        lastMenu = m
         return m
+    }
+
+    /// The link on a cell, asked of the daemon at once (a right click's menu
+    /// waits for it, at most 300 ms): the one underlined, else render.link's.
+    private func linkAt(_ c: CellHit) -> String? {
+        if let l = link, l.range.contains(x: c.x, y: c.y) { return l.uri }
+        guard let conn, channel != 0,
+              let v = try? conn.call("render.link", ["channel": channel, "at": ["x": c.x, "y": c.y]], timeout: 0.3),
+              let uri = v["uri"] as? String, !uri.isEmpty,
+              let u = URL(string: uri), let scheme = u.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) else { return nil }
+        return uri
     }
 
     /// Clears the screen and the scrollback, the prompt kept at the top
@@ -1579,5 +1649,19 @@ final class DrawWatch {
         let px = v.drawnPixels
         let line = "draw: pane \(v.pane) \(what), \(Int(v.bounds.width))x\(Int(v.bounds.height)) pt, last drawn \(Int(px.width))x\(Int(px.height)) px, \(v.outstanding) drawables out (\(v.inTransaction) in the uncommitted transaction)\(since)"
         queue.async { AppInstall.shared.log(line) }
+    }
+}
+
+/// A context menu item that runs a closure (the terminal's menu).
+final class TermMenuItem: NSObject {
+    private let run: () -> Void
+    private init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func fire(_ sender: Any?) { run() }
+    static func item(_ title: String, _ run: @escaping () -> Void) -> NSMenuItem {
+        let i = NSMenuItem(title: title, action: #selector(fire(_:)), keyEquivalent: "")
+        let a = TermMenuItem(run)
+        i.target = a
+        i.representedObject = a
+        return i
     }
 }

@@ -41,16 +41,32 @@ stream".
   render stream's frames go to its own pane. One per daemon the window
   draws (`Daemons.swift`, "The daemon" below): each pane talks to its own.
 - **Tabs and splits** (`Workspace.swift`, `TabBar.swift`, `Panes.swift`):
-  the daemon's shells (`ravenry.kind: shell`) are the tabs, named as the
-  Electron app names them (the pane's name, else its program's title,
-  else the program, with its folder); a session's pane (`ravenry.session`,
+  the daemon's shells (`ravenry.kind: shell`, a shell another client
+  makes appearing at once; one labelled with another window's
+  `ravenry.window` is not this window's) are the tabs, named as the
+  Electron app names them (a pane the board follows as a session reads as
+  that session: its topic, its project in grey, its state's dot; else the
+  pane's name, else its program's title, else the program, with its
+  folder); a session's pane (`ravenry.session`,
   the hub's New session, Continue, Move here, or a click in the sidebar)
   is a tab once opened. After a relaunch (every update) each running pane
   that was a tab is one again, in the saved order (`window.json`'s
   `s:<pane>`); a session never opened stays in the sidebar. Cmd+T or the + opens a shell,
-  Cmd+W closes the pane with the keyboard, Cmd+1 to Cmd+9, Cmd+Shift+[
-  and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab, a drag moves it, a
-  middle click closes it. An agent's own pane (one it made from its
+  Cmd+W closes the pane with the keyboard (a session's tab only goes, the
+  session goes on; the last tab gone, "No shell is open" with New shell),
+  Cmd+1 to Cmd+9, Cmd+Shift+[ and ], Ctrl+Tab and Ctrl+Shift+Tab pick a
+  tab, a drag moves it (down onto an edge of the pane in front: a split
+  with it, "Split right"), a middle click closes it. Crowded, the strip
+  scrolls (names are never cut), the tab in front kept in sight; its left
+  button folds the sidebar and its right one the session panel
+  (`TabBar.swift`); the film button before it opens the pane's last 20
+  seconds in a sheet under it (`Filmstrip.swift`: the daemon's
+  `pane.frames`, bad frames marked, step and play, a frame over the pane,
+  Send to its agent, Save as GIF). The first pane an agent opens shows a
+  one-time hint under its head. Extra tabs (a read-only or pinned session,
+  a page in front) sit right after their session's tab
+  (`Workspace.extraTabs`); a tab moves whole to another window's
+  workspace, its panes running on (`Workspace.move(_:to:)`). An agent's own pane (one it made from its
   pane with `ravenryd new`) opens as a split beside its owner's tab,
   without the keyboard, else as a tab right after it; while an agent holds
   a pane's lease a strip over it says who has it and who waits, with Hand
@@ -107,7 +123,10 @@ stream".
   its screen from `GET /api/live`), a project's page (Continue this
   conversation, New session, Open brief), New session (`StartView.swift`:
   a folder and an assistant, its own copy of the code when another session
-  works there, and step 2 once per assistant), a page of the Electron app's own (the brief, the
+  works there, and step 2 once per assistant; with the board down the
+  folders and assistants read here and the assistant started in a pane of
+  this window; while macOS asks to read a folder, a card says where to
+  allow it), a page of the Electron app's own (the brief, the
   gallery, a plan, an idea, Alerts, the pages from files), or a page this
   window does not draw yet, named in a native placeholder. The middle's view is a tab
   after the others, as in the Electron app. A session in a pane of a
@@ -307,8 +326,9 @@ stream".
   makes a block, and the frames carry the selection the app draws. A
   drag past the top or the bottom scrolls and selects on. Cmd+A selects
   everything, Cmd+C copies with `render.copy`, so it reaches beyond the
-  rows on screen. A right click has Copy, Paste, Select All, Clear and
-  Find.
+  rows on screen. A right click has Open Link and Copy Link over a link,
+  Copy (with a selection), Paste, Select All, Copy Path, Find, Clear, Split
+  Right and Split Down.
 - **Paste and drop**: Cmd+V pastes (bracketed by the daemon when the
   program asked); files dropped on the view are pasted as their paths,
   which the daemon quotes, and dropped text as a paste.
@@ -316,7 +336,8 @@ stream".
   under the pointer (`render.link`: a program's hyperlink or a URL in
   the text), underlines it and shows the pointing hand; Cmd+click opens
   it (http, https and file only). A plain click never opens.
-- **Find** (`FindBar.swift`): Cmd+F opens a small bar at the top right;
+- **Find** (`FindBar.swift`): Cmd+F opens a small bar at the top right,
+  in the app's colours, with a one-line selection as what it looks for;
   the search is the daemon's (`render.find`), and the frames carry the
   matches, drawn soft yellow, the selected one orange. Enter or Cmd+G is
   the next older match, Shift+Enter or Cmd+Shift+G the newer one, Esc

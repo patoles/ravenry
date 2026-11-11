@@ -2,17 +2,26 @@
 // them (apps/desktop/src/renderer/app.ts: newShell, splitNew, closeTab,
 // removeTab, stepTab, focus-pane, layoutSplit, restoreTabs, save):
 //
-// - A tab per pane: the daemon's panes labelled ravenry.kind: shell, its
-//   agents' own panes, and a session's pane once opened (the hub's New
-//   session, Continue, Move here, a click in the sidebar), each named as
-//   the Electron app names it (shellLabel: the pane's own name, else the
+// - A tab per pane: the daemon's panes labelled ravenry.kind: shell (this
+//   window's: a second window's carry its id, ravenry.window, as the
+//   Electron app's do), its agents' own panes, and a session's pane once
+//   opened (the hub's New session, Continue, Move here, a click in the
+//   sidebar). A shell another client makes for this window is a tab at
+//   once. Each is named as the Electron app names it (tabLabel): a pane
+//   the board follows as a session reads as that session (its topic, its
+//   project in grey, its state's dot), an assistant the app started as
+//   that assistant, else shellLabel (the pane's own name, else the
 //   program's title, else the program; its folder after it). After a
 //   relaunch every running pane that was a tab is one again (restore).
 // - Cmd+T or the + opens a shell in the folder of the pane in front;
 //   Cmd+W closes the pane with the keyboard (its tab, or its split's
-//   pane, the tab whole again) and ends its process; the last tab gone,
-//   the window closes. Cmd+1 to Cmd+9, Cmd+Shift+[ and ], Ctrl+Tab and
-//   Ctrl+Shift+Tab pick a tab; a tab is dragged along the strip.
+//   pane, the tab whole again) and ends its process, a shell's or an
+//   agent's own pane's: a session's tab only goes, the session goes on
+//   (the sidebar opens it again). The last tab gone, the window says
+//   "No shell is open" with New shell, as the Electron app's. Cmd+1 to
+//   Cmd+9, Cmd+Shift+[ and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab; a
+//   tab is dragged along the strip, or down onto an edge of the pane in
+//   front to split it with that tab.
 // - One split per tab: Cmd+D a new shell on the right, Cmd+Shift+D
 //   below, with the keyboard (a new tab when the tab is split already);
 //   Cmd+Option+arrows or a click move the keyboard; the divider is
@@ -143,9 +152,14 @@ final class Workspace: NSObject {
     var onSwitch: ((_ tab: String, _ drawnMs: Double, _ frameMs: Double, _ hadRows: Bool) -> Void)?
     let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
 
-    init(window: TerminalWindow, options: Options, daemons: Daemons, scale: CGFloat) {
+    /// This window's id on its shells (ravenry.window); nil for the first
+    /// window, whose shells carry none (the Electron app's thisWindow).
+    let windowId: String?
+
+    init(window: TerminalWindow, options: Options, daemons: Daemons, scale: CGFloat, windowId: String? = nil) {
         self.window = window
         self.options = options
+        self.windowId = windowId
         self.daemons = daemons
         let conn = daemons.newest!.conn
         firstConn = conn
@@ -175,6 +189,40 @@ final class Workspace: NSObject {
         }
         bar.onNew = { [weak self] in self?.newTab(nil) }
         bar.onMove = { [weak self] id, to in self?.move(id: id, to: to) }
+        bar.onToggleSidebar = { [weak self] in
+            guard let self else { return }
+            if let f = self.onToggleSidebar { f() } else { self.menuCommand("menuToggleSidebar:") }
+        }
+        bar.onTogglePanel = { [weak self] in
+            guard let self else { return }
+            if let f = self.onTogglePanel { f() } else { self.menuCommand("menuTogglePanel:") }
+        }
+        bar.onFilm = { [weak self] in self?.toggleFilm() }
+        setUpFilm()
+        bar.onDragOut = { [weak self] id, p in self?.dragOver(id, p) }
+        bar.onDropOut = { [weak self] id, p in self?.dropTab(id, p) ?? false }
+        root.workspace = self
+    }
+
+    // MARK: the strip's fold buttons
+
+    /// The sidebar's and the panel's fold (Board sets them); unset, the
+    /// strip's buttons run the View menu's items, the same commands.
+    var onToggleSidebar: (() -> Void)?
+    var onTogglePanel: (() -> Void)?
+
+    /// Runs the main menu's item with this action, as a click on it would.
+    func menuCommand(_ action: String) {
+        guard let i = Workspace.menuItem(NSApp.mainMenu, action: action), let a = i.action else { return }
+        NSApp.sendAction(a, to: i.target, from: i)
+    }
+
+    static func menuItem(_ m: NSMenu?, action: String) -> NSMenuItem? {
+        for i in m?.items ?? [] {
+            if let a = i.action, NSStringFromSelector(a) == action { return i }
+            if let f = menuItem(i.submenu, action: action) { return f }
+        }
+        return nil
     }
 
     // MARK: panes and their views
@@ -198,6 +246,14 @@ final class Workspace: NSObject {
         v.onFocus = { [weak self] in self?.focused(pane: pane) }
         v.onFontSize = { [weak self] s in self?.setFontSize(s) }
         v.windowMinSize = { [weak self] in self?.minContentSize() ?? .zero }
+        // Its menu's Split Right, Split Down (its own tab, not split yet) and Copy Path.
+        v.onSplit = { [weak self] side in
+            guard let self, let t = self.tabs.first(where: { $0.host == pane || $0.guest == pane }), t.guest == nil else { return }
+            if t !== self.active { self.show(t) }
+            self.split(side)
+        }
+        v.canSplit = { [weak self] in self?.tabs.first(where: { $0.host == pane || $0.guest == pane })?.guest == nil }
+        v.folderPath = { [weak self] in self?.info[pane].flatMap { $0.cwd.isEmpty ? nil : $0.cwd } }
         let b = PaneBox(term: v)
         b.onClose = { [weak self] in self?.askClose(pane) { self?.closePane(pane) } }
         b.onClickHead = { [weak self, weak v] in if let v { self?.window.makeFirstResponder(v) } }
@@ -205,11 +261,23 @@ final class Workspace: NSObject {
         return b
     }
 
-    /// A pane as the tabs name it (app.ts shellLabel): its own name (not
-    /// the default "Shell"), else the title its program set, else the
-    /// program; and its folder (~ for home) when that is not the name.
+    /// A pane as the tabs name it (app.ts tabLabel): the session the board
+    /// follows in it (its topic, else its project; the project in grey
+    /// when that says more); else shellLabel: the assistant the app started
+    /// in it (ravenry.agent), its own name (not the default "Shell"), else
+    /// the title its program set, else the program; and its folder (~ for
+    /// home) when that is not the name.
     func label(_ pane: String) -> (name: String, sub: String?) {
+        if let f = session(of: pane) {
+            let name = f.session.topic.flatMap { $0.isEmpty ? nil : $0 } ?? f.project.name
+            return (name, name.lowercased() == f.project.name.lowercased() ? nil : f.project.name)
+        }
         let i = info[pane] ?? PaneInfo(id: pane)
+        if let a = i.labels["ravenry.agent"], !a.isEmpty {
+            let name = Workspace.assistantName(a)
+            let folder = i.cwd.isEmpty ? "" : i.cwd == home ? "~" : (i.cwd as NSString).lastPathComponent
+            return (name, folder.isEmpty ? nil : folder)
+        }
         let title = i.title.trimmingCharacters(in: .whitespaces)
         let first = i.command.first.map { ($0 as NSString).lastPathComponent } ?? ""
         let prog = first.isEmpty ? "Shell" : first
@@ -223,6 +291,34 @@ final class Workspace: NSObject {
         if i.creator?["kind"] as? String == "agent", let who = whoOf?(i.creator!) { return (name, "\(who)'s") }
         let sub = !folder.isEmpty && folder.lowercased() != name.lowercased() ? folder : nil
         return (name, sub)
+    }
+
+    /// An assistant as people say it (app.ts assistantName).
+    static func assistantName(_ kind: String) -> String {
+        kind == "claude" ? "Claude" : kind == "codex" ? "Codex" : kind.prefix(1).uppercased() + kind.dropFirst()
+    }
+
+    /// The board (Board sets it; else the app's): which session a pane runs.
+    weak var hub: HubClient?
+    private var hubState: HubState? { (hub ?? (NSApp.delegate as? AppDelegate)?.hub)?.state }
+
+    /// The session the board follows in a pane of this Mac (sessionOfPane).
+    func session(of pane: String) -> (project: HubProject, session: HubSession)? {
+        guard let st = hubState else { return nil }
+        for p in st.projects where p.machine == nil {
+            for s in p.sessions where s.pane == pane && s.machine == nil { return (p, s) }
+        }
+        return nil
+    }
+
+    /// A session's own pane (the hub started it: ravenry.session, or it is
+    /// neither a shell nor an agent's own pane): closing its tab leaves it
+    /// running, as the Electron app's session tabs ("the session goes on").
+    func keepsRunning(_ pane: String) -> Bool {
+        guard let i = info[pane] else { return false }
+        if i.labels["ravenry.kind"] == "shell" { return false }
+        if i.creator?["kind"] as? String == "agent", i.creator?["pane"] != nil { return false }
+        return true
     }
 
     // MARK: the start
@@ -299,9 +395,16 @@ final class Workspace: NSObject {
         let running = (r["panes"] as? [[String: Any]] ?? []).filter { ($0["state"] as? String ?? "running") == "running" }
         return running.filter { p in
             let id = p["id"] as? String ?? ""
-            return (p["labels"] as? [String: String])?["ravenry.kind"] == "shell" && !(p["hidden"] as? Bool ?? false)
-                || id == options.attach || kept.contains("s:" + id) || isAgentPane(p)
+            return isOwnShell(p) || id == options.attach || kept.contains("s:" + id) || isAgentPane(p)
         }
+    }
+
+    /// A shell of this window: labelled ravenry.kind: shell, shown, and
+    /// carrying this window's id (none for the first window), as the
+    /// Electron app's windows tell their shells apart.
+    func isOwnShell(_ p: [String: Any]) -> Bool {
+        let l = p["labels"] as? [String: String] ?? [:]
+        return l["ravenry.kind"] == "shell" && !(p["hidden"] as? Bool ?? false) && l["ravenry.window"].flatMap { $0.isEmpty ? nil : $0 } == windowId
     }
 
     /// A daemon that started after the window (a newer app's, an update):
@@ -339,13 +442,19 @@ final class Workspace: NSObject {
         }
     }
 
-    /// A new shell in the newest daemon (pane.new), labelled as the app's shells.
+    /// A new shell in the newest daemon (pane.new), labelled as the app's
+    /// shells (with this window's id when it is not the first); or a
+    /// program in its place (Start with the board down: the assistant,
+    /// named and labelled ravenry.agent, as the Electron app's).
     @discardableResult
-    func newPane(cwd: String?, size: NSSize) throws -> String? {
+    func newPane(cwd: String?, size: NSSize, program: Program? = nil) throws -> String? {
         let r = Renderer(scale: scale, fontName: look.font, fontSize: look.size)
         let g = r?.grid(for: NSSize(width: max(size.width, 160), height: max(size.height, 80))) ?? (cols: 80, rows: 24)
-        var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": "Shell", "labels": ["ravenry.kind": "shell"], "scrollback": look.scrollback]
-        if !options.command.isEmpty { params["command"] = options.command }
+        var labels = ["ravenry.kind": "shell"]
+        if let w = windowId { labels["ravenry.window"] = w }
+        if let a = program?.agent { labels["ravenry.agent"] = a }
+        var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": program?.name ?? "Shell", "labels": labels, "scrollback": look.scrollback]
+        if let c = program?.command, !c.isEmpty { params["command"] = c } else if !options.command.isEmpty { params["command"] = options.command }
         if options.bench != nil || options.selftest != nil { params["cwd"] = home } else if let c = cwd, !c.isEmpty { params["cwd"] = c }
         let d = daemons.newest
         let res = try conn.call("pane.new", params)
@@ -372,6 +481,7 @@ final class Workspace: NSObject {
         active = t
         bells.remove(t.id)
         activity.remove(t.id)
+        empty.isHidden = true
         let content = build(t)
         content.frame = stage.bounds
         let ids = panes(of: t, visibleOnly: true)
@@ -406,6 +516,7 @@ final class Workspace: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: timer)
         }
         refresh()
+        bar.keepFrontInSight()
         save()
     }
 
@@ -431,14 +542,24 @@ final class Workspace: NSObject {
         updateBoxes(t)
         if let v = boxes[t.focusedPane]?.term { window.makeFirstResponder(v) }
         updateMinSize()
+        film.follow(t.focusedPane)
         onFront?()
     }
 
     // MARK: the sidebar's and the panel's (Board.swift)
 
     /// What the middle shows when it is not a tab's terminal (a session
-    /// outside, a page), as a tab after the others (the Electron app's).
-    var extraTab: TabModel? { didSet { if extraTab != oldValue { refresh() } } }
+    /// outside, a page): the extra tab in front (the Electron app's view tab).
+    var extraTab: TabModel? {
+        get { extraTabs.first { $0.active } }
+        set { extraTabs = newValue.map { [$0] } ?? [] }
+    }
+    /// Every tab that is not a pane's (a read-only session, a pinned one,
+    /// a page in front), each right after the tab its `after` names (a
+    /// session's own tab, "s:<pane>"), else after the others; the one
+    /// `active` is in front (extraTab). Board keeps them, and lists the
+    /// ones to keep across a relaunch in `pinned`.
+    var extraTabs: [TabModel] = [] { didSet { if extraTabs != oldValue { refresh() } } }
     /// After the tab in front or its pane with the keyboard changed.
     var onFront: (() -> Void)?
     /// The sessions pinned to the tabs, written with the tabs.
@@ -598,22 +719,33 @@ final class Workspace: NSObject {
             b.badge = c?["kind"] as? String == "agent" && c?["pane"] != nil ? (whoOf?(c!).map { $0 == "An agent" ? "Agent" : $0 } ?? "Agent") : nil
             b.showsHead = split
             b.inFocus = id == t.focusedPane
+            // A session's pane: its state's dot in the head (marksOf: the board's group).
+            b.dot = b.badge == nil && session(of: id) != nil ? (marksOf?(id).group ?? "idle") : nil
         }
     }
 
     /// The tab strip, the headers and the window's title, from the model.
     func refresh() {
+        // The film button while a pane is on screen (not a page, not Start).
+        bar.filmable = active != nil && extraTab == nil
         var models = tabs.enumerated().map { i, t in
             let l = label(t.host)
             let m = marksOf?(t.host)
             let on = t === active && extraTab == nil
             return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: on,
                             tip: i < 9 ? "\(l.name) (⌘\(i + 1))" : l.name, dot: m?.group,
-                            bell: bells.contains(t.id), activity: activity.contains(t.id), lent: m?.lent?.who, lentCls: m?.lent?.cls ?? "other")
+                            bell: bells.contains(t.id), activity: activity.contains(t.id), lent: m?.lent?.who, lentCls: m?.lent?.cls ?? "other",
+                            closeTip: t.guest == nil && keepsRunning(t.host) ? Words.t("strip.closeSession") : nil)
         }
-        if let x = extraTab { models.append(x) }
+        // Each extra tab right after its session's, in the order given; the rest at the end.
+        for x in extraTabs {
+            let at = x.after.flatMap { a in models.lastIndex { $0.id == a || $0.id == "s:" + a || ($0.after == a && $0.id.hasPrefix("view:")) } }
+            models.insert(x, at: at.map { $0 + 1 } ?? models.count)
+        }
         bar.set(models)
+        empty.isHidden = !tabs.isEmpty
         if let t = shownTab { updateBoxes(t) }
+        if hintPane != nil { placeHint() }
         if let t = active { window.title = label(t.focusedPane).name }
     }
 
@@ -635,10 +767,16 @@ final class Workspace: NSObject {
         select(index: (i + d + tabs.count) % tabs.count)
     }
 
+    /// A tab moved along the strip: `to` is its place among the panes'
+    /// tabs; after a drag (the strip already shows it there), its place
+    /// among every tab drawn, the extra ones not counted.
     func move(id: String, to: Int) {
-        guard let i = tabs.firstIndex(where: { $0.id == id }) else { return }
+        guard let i = tabs.firstIndex(where: { $0.id == id }) else { refresh(); return }
+        let drawn = bar.items.map(\.model.id)
+        var at = to
+        if drawn.indices.contains(to), drawn[to] == id { at = drawn[..<to].filter { !$0.hasPrefix("view:") }.count }
         let t = tabs.remove(at: i)
-        tabs.insert(t, at: min(max(0, to), tabs.count))
+        tabs.insert(t, at: min(max(0, at), tabs.count))
         refresh()
         save()
     }
@@ -647,10 +785,18 @@ final class Workspace: NSObject {
     /// after the last.
     func newTab(_ sender: Any?) { newTab(in: active.flatMap { info[$0.focusedPane]?.cwd }) }
 
-    /// A shell in a folder, in a new tab after the last (New session with no assistant here).
-    func newTab(in cwd: String?) {
+    /// What a new pane runs instead of a shell: its command, its name, the assistant it is.
+    struct Program {
+        var command: [String]
+        var name: String
+        var agent: String?
+    }
+
+    /// A shell in a folder (or a program: Start's assistant with the board
+    /// down), in a new tab after the last, in front.
+    func newTab(in cwd: String?, program: Program? = nil) {
         do {
-            guard let id = try newPane(cwd: cwd, size: stage.bounds.size) else { return }
+            guard let id = try newPane(cwd: cwd, size: stage.bounds.size, program: program) else { return }
             let t = Tab(host: id)
             tabs.append(t)
             show(t)
@@ -725,18 +871,25 @@ final class Workspace: NSObject {
         show(t)
     }
 
-    /// Cmd+W: the pane with the keyboard.
+    /// Cmd+W: the pane with the keyboard (a session's only leaves the tab).
     func closeFocused() {
         guard let t = active else { return }
         let id = t.focusedPane
+        if keepsRunning(id) { removePane(id); return }
         askClose(id) { [weak self] in self?.closePane(id) }
     }
 
+    /// The tab's x, a middle click: its shells end (asked first when busy);
+    /// a session's pane only leaves the strip, the session goes on.
     func closeTab(_ t: Tab) {
-        askClose(t.host) { [weak self] in
+        let ids = panes(of: t)
+        let ending = ids.filter { !keepsRunning($0) }
+        let close = { [weak self] in
             guard let self else { return }
-            for id in self.panes(of: t) { self.closePane(id) }
+            for id in ids { if ending.contains(id) { self.closePane(id) } else { self.removePane(id) } }
         }
+        guard let ask = ending.first else { return close() }
+        askClose(ask, then: close)
     }
 
     /// Closing a shell whose program is still running asks first, as the
@@ -810,6 +963,7 @@ final class Workspace: NSObject {
     /// split's other pane is the tab, whole again.
     func closePane(_ id: String) {
         let c = conn(of: id)
+        closedHere.insert(id)
         removePane(id)
         c.request("pane.close", ["pane": id])
     }
@@ -845,7 +999,7 @@ final class Workspace: NSObject {
                 if tabs.isEmpty {
                     save()
                     layout?.flush()
-                    window.close()
+                    emptied()
                     return
                 }
                 show(tabs[min(i, tabs.count - 1)])
@@ -902,6 +1056,8 @@ final class Workspace: NSObject {
         bar.needsDisplay = true
         for v in bar.subviews { v.needsDisplay = true }
         updateMinSize()
+        // The filmstrip's frames are drawn in the terminal's colours: again in the new ones.
+        if let p = film.pane, l.theme != was.theme || l.size != was.size { film.load(p) }
         onLook?()
     }
 
@@ -951,7 +1107,18 @@ final class Workspace: NSObject {
         switch name {
         case "pane.title", "pane.cwd", "pane.updated", "pane.created":
             info[id]?.update(p)
-            if isAgentPane(p), !tabs.contains(where: { $0.host == id || $0.guest == id }) { homes[id] = homes[id] ?? d; addAgentPane(p) }
+            let shown = tabs.contains(where: { $0.host == id || $0.guest == id })
+            if isAgentPane(p), !shown { homes[id] = homes[id] ?? d; addAgentPane(p) }
+            else if !shown, isOwnShell(p), (p["state"] as? String ?? "running") == "running", !closedHere.contains(id), !held.contains(id), !gaveAway.contains(id) {
+                // A shell another client made for this window (the command
+                // line, the Electron app's first window): a tab at the end, the front left alone.
+                homes[id] = homes[id] ?? d
+                let i = info[id] ?? PaneInfo(id: id)
+                i.update(p)
+                info[id] = i
+                tabs.append(Tab(host: id))
+                if tabs.count == 1 { show(tabs[0]) } else { save() }
+            }
             else if name == "pane.created", p["creator"] == nil, (p["labels"] as? [String: String])?["ravenry.kind"] != "shell" {
                 // pane.created can come before the daemon recorded who made it: asked once more.
                 d.conn.request("pane.list", [:]) { [weak self] r in
@@ -999,6 +1166,11 @@ final class Workspace: NSObject {
         }
     }
 
+    /// Panes this window closed (their last events may still come), and
+    /// panes it gave to another window (move(_:to:)): never a tab again here.
+    private var closedHere: Set<String> = []
+    private var gaveAway: Set<String> = []
+
     /// Tabs whose pane rang a bell, or printed, while not on screen (cleared when shown).
     private(set) var bells: Set<String> = []
     private(set) var activity: Set<String> = []
@@ -1037,12 +1209,278 @@ final class Workspace: NSObject {
         }
         refresh()
         save()
+        wantHint(id)
     }
 
     /// A pane's program ended: its tab goes (the pane too, from the daemon).
     private func ended(_ id: String) {
         if held.contains(id) { endedHeld.insert(id); return }
         closePane(id)
+    }
+
+    // MARK: the filmstrip
+
+    /// The sheet under the pane with its last 20 seconds, and a frame of it over the pane.
+    let film = FilmSheet()
+    let filmView = FilmFrameView()
+
+    private func setUpFilm() {
+        root.film = film
+        film.conn = { [weak self] p in self?.info[p] != nil ? self?.conn(of: p) : nil }
+        film.look = { [weak self] in
+            guard let self else { return (Theme.ravenry, 13, 2) }
+            return (self.look.theme, self.look.size, self.scale)
+        }
+        film.paneName = { [weak self] p in self?.label(p).name ?? p }
+        film.sendTo = { [weak self] p in
+            guard let self else { return nil }
+            // The session of the agent that opened it, else the pane's own (app.ts sendTo).
+            let c = self.info[p]?.creator
+            let owner = c?["kind"] as? String == "agent" ? c?["pane"] as? String : nil
+            guard let f = owner.flatMap({ self.session(of: $0) }) ?? self.session(of: p), let hub = self.hub ?? (NSApp.delegate as? AppDelegate)?.hub else { return nil }
+            let who = f.session.assistant.map(Workspace.assistantName) ?? Words.t("film.theAgent")
+            let sid = f.session.surfaceId.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? f.session.surfaceId
+            return (who, { done in
+                hub.post("/api/sessions/\(sid)/filmstrip", ["pane": p, "last_ms": Film.lastMs]) { code, j in
+                    done(code == 200 ? nil : j["error"] as? String ?? Words.t("film.boardSaid", ["code": "\(code)"]))
+                }
+            })
+        }
+        film.changed = { [weak self] in self?.filmChanged() }
+        filmView.onBack = { [weak self] in self?.film.live() }
+    }
+
+    /// The strip's film button: the filmstrip of the pane with the keyboard, or closed.
+    func toggleFilm() {
+        guard let t = active, extraTab == nil else { return }
+        film.toggle(t.focusedPane)
+    }
+
+    /// Opens the filmstrip of a pane (Learn's card), its tab in front.
+    func openFilm(_ pane: String) {
+        guard let t = tabs.first(where: { $0.host == pane || $0.guest == pane }) else { return }
+        if t !== active { show(t) }
+        if film.pane != pane { film.load(pane) }
+    }
+
+    private func filmChanged() {
+        bar.filmOn = film.isOpen
+        root.filmHeight = film.isOpen ? FilmSheet.height : 0
+        root.place()
+        let cw = focusedView.map { $0.renderer.fonts.cellWidth / $0.renderer.fonts.scale } ?? 0
+        if let x = film.overlayImage(cellWidth: cw) {
+            if filmView.superview !== stage { stage.addSubview(filmView) }
+            filmView.frame = stage.bounds
+            filmView.show(x)
+        } else {
+            filmView.removeFromSuperview()
+        }
+    }
+
+    // MARK: the one-time hint
+
+    /// "Claude opened “dev server” beside it.": the first time an agent
+    /// opens a pane of its own (app.ts hintAt agent-pane), under its pane's
+    /// head in a split, else under its tab. Learn more opens Learn at its
+    /// card; either way it is never shown again.
+    let hint = HintView()
+    private(set) var hintPane: String?
+    private var hintsDone: [String: Bool]?
+
+    private func wantHint(_ pane: String) {
+        guard hintPane == nil, let hub = hub ?? (NSApp.delegate as? AppDelegate)?.hub else { return }
+        let show = { [weak self] in
+            guard let self, self.hintsDone?["agent-pane"] != true, self.hintPane == nil, self.info[pane] != nil else { return }
+            self.hintPane = pane
+            self.placeHint()
+        }
+        if hintsDone != nil { return show() }
+        hub.get("/api/onboarding") { [weak self] code, j in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.hintsDone = code == 200 ? (j["hints"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Bool } : nil
+                if self.hintsDone != nil { show() }
+            }
+        }
+    }
+
+    /// Dismissed (or Learn more): marked on the board, never again.
+    func dismissHint(learn: Bool) {
+        guard hintPane != nil else { return }
+        hintPane = nil
+        hintsDone?["agent-pane"] = true
+        hint.removeFromSuperview()
+        (hub ?? (NSApp.delegate as? AppDelegate)?.hub)?.post("/api/onboarding", ["hints": ["agent-pane": true]]) { _, _ in }
+        if learn { menuCommand("menuLearn:") }
+    }
+
+    /// Under the agent's pane head when it shows split, else under its tab;
+    /// hidden while a page is in front or its pane is not on screen.
+    func placeHint() {
+        guard let p = hintPane else { return }
+        guard info[p] != nil else { hintPane = nil; hint.removeFromSuperview(); return }
+        let c = info[p]?.creator
+        let who = c.flatMap { whoOf?($0) } ?? Words.t("hint.anAgent")
+        let name = info[p]?.name ?? ""
+        hint.set(bold: !name.isEmpty && name != "Shell" ? Words.t("hint.agentOpenedNamed", ["who": who, "name": name]) : Words.t("hint.agentOpened", ["who": who]),
+                 rest: Words.t("hint.agentRest"))
+        hint.onDismiss = { [weak self] in self?.dismissHint(learn: false) }
+        hint.onLearn = { [weak self] in self?.dismissHint(learn: true) }
+        let onScreen = extraTab == nil && active.map { panes(of: $0, visibleOnly: true).contains(p) } ?? false
+        var region = stage.bounds
+        var anchorX: CGFloat = 24
+        if onScreen, let b = boxes[p], b.showsHead {
+            let r = b.convert(b.bounds, to: stage)
+            region = NSRect(x: r.minX, y: r.minY + Design.headHeight, width: r.width, height: r.height - Design.headHeight)
+            anchorX = r.minX + 40
+        } else if let it = bar.items.first(where: { $0.model.id == "s:" + p || $0.model.id == tabs.first(where: { $0.guest == p })?.id }), extraTab == nil, it.superview != nil {
+            anchorX = it.convert(NSPoint(x: it.bounds.midX, y: 0), to: stage).x
+        } else {
+            hint.removeFromSuperview()
+            return
+        }
+        guard region.width >= 220 else { hint.removeFromSuperview(); return }
+        let w = min(560, region.width - 20)
+        let x = max(region.minX + 10, min(anchorX - 24, region.maxX - 10 - w))
+        let h = hint.height(for: w)
+        if hint.superview !== stage { stage.addSubview(hint, positioned: .above, relativeTo: nil) }
+        hint.frame = NSRect(x: x, y: region.minY + 6, width: w, height: h)
+        hint.arrowX = anchorX - x
+        hint.needsLayout = true
+    }
+
+    // MARK: no tab left
+
+    /// "No shell is open." with New shell (the Electron app's renderNone),
+    /// over the stage while no tab is left; the sidebar and the panel stay.
+    let empty = EmptyStage()
+    /// The last tab went (Board or the window manager may close a second
+    /// window then); unset, the window stays and says so.
+    var onEmpty: (() -> Void)?
+
+    private func emptied() {
+        refresh()
+        if let f = onEmpty { f(); return }
+        if empty.superview !== stage { stage.addSubview(empty) }
+        empty.frame = stage.bounds
+        empty.isHidden = false
+        empty.onNew = { [weak self] in self?.newTab(in: nil) }
+        window.makeFirstResponder(empty.button)
+        window.title = "Ravenry"
+        onFront?()
+    }
+
+    // MARK: a tab dragged onto the pane in front
+
+    /// What a drop there does, lit on the stage while a tab is dragged.
+    let dropZone = SplitDropView()
+
+    /// The edge of the stage a point is near (within 30% of it), or nil in the middle (app.ts edgeAt).
+    func edge(at p: NSPoint) -> String? {
+        let b = stage.bounds
+        guard b.width > 0, b.height > 0, b.contains(p) else { return nil }
+        let fx = p.x / b.width, fy = p.y / b.height
+        let d: [(String, CGFloat)] = [("left", fx), ("right", 1 - fx), ("up", fy), ("down", 1 - fy)]
+        let m = d.min { $0.1 < $1.1 }!
+        return m.1 < 0.3 ? m.0 : nil
+    }
+
+    /// Why a tab cannot split the tab in front (nil: it can).
+    private func refusal(_ t: Tab) -> String? {
+        guard let host = active else { return "" }
+        if host.guest != nil { return Words.t("strip.dropSplit") }
+        if t.guest != nil { return Words.t("strip.dropSplitTab") }
+        return nil
+    }
+
+    /// A tab dragged over the window (nil: out of it, or let go): the edge
+    /// it would split lit, with what it would do or why it cannot.
+    func dragOver(_ id: String, _ wp: NSPoint?) {
+        guard let wp, let t = tabs.first(where: { $0.id == id }), t !== active, extraTab == nil, root.middle == nil,
+              let side = edge(at: stage.convert(wp, from: nil)) else {
+            dropZone.removeFromSuperview()
+            return
+        }
+        if dropZone.superview !== stage { stage.addSubview(dropZone) }
+        dropZone.frame = stage.bounds
+        let why = refusal(t)
+        dropZone.show(side: side, words: why ?? Words.t("strip.drop.\(side)"), refused: why != nil)
+    }
+
+    /// The drop: the tab's pane beside the tab in front, on that side,
+    /// with the keyboard (linkSplit); its own tab goes.
+    @discardableResult
+    func dropTab(_ id: String, _ wp: NSPoint) -> Bool {
+        dropZone.removeFromSuperview()
+        guard let t = tabs.first(where: { $0.id == id }), let host = active, t !== host, extraTab == nil, root.middle == nil,
+              refusal(t) == nil, let side = edge(at: stage.convert(wp, from: nil)) else { return false }
+        tabs.removeAll { $0 === t }
+        host.guest = t.host
+        host.side = side
+        host.size = 50
+        host.focus = 1
+        host.zoom = false
+        shown?.removeFromSuperview()
+        shown = nil
+        shownTab = nil
+        show(host)
+        return true
+    }
+
+    // MARK: a tab to another window
+
+    /// Moves a tab whole (its split too) to another window's workspace, its
+    /// panes running on: out of this strip (the next tab in front here, or
+    /// "No shell is open"), its shells labelled with that window's id
+    /// (ravenry.window: none for the first window), a tab at the end there,
+    /// in front.
+    func move(_ t: Tab, to other: Workspace) {
+        guard other !== self, let i = tabs.firstIndex(where: { $0 === t }) else { return }
+        let ids = panes(of: t)
+        let wasActive = t === active
+        var moved: [(String, PaneInfo?, DaemonLink?)] = []
+        if let p = film.pane, ids.contains(p) { film.close() }
+        if let h = hintPane, ids.contains(h) { hintPane = nil; hint.removeFromSuperview() }
+        for id in ids {
+            boxes[id]?.term.pause()
+            boxes[id]?.removeFromSuperview()
+            boxes.removeValue(forKey: id)
+            moved.append((id, info.removeValue(forKey: id), homes.removeValue(forKey: id)))
+            gaveAway.insert(id)
+        }
+        bells.remove(t.id)
+        activity.remove(t.id)
+        layout?.forget(ids.map { "s:" + $0 })
+        tabs.remove(at: i)
+        if wasActive {
+            shown?.removeFromSuperview()
+            shown = nil
+            shownTab = nil
+            active = nil
+            if tabs.isEmpty { save(); emptied() } else { show(tabs[min(i, tabs.count - 1)]) }
+        } else {
+            refresh()
+            save()
+        }
+        other.receive(t, moved)
+    }
+
+    /// A tab from another window (move(_:to:)): its panes known here, its
+    /// shells labelled as this window's, in front.
+    func receive(_ t: Tab, _ moved: [(String, PaneInfo?, DaemonLink?)]) {
+        for (id, i, d) in moved {
+            gaveAway.remove(id)
+            closedHere.remove(id)
+            let pi = i ?? PaneInfo(id: id)
+            info[id] = pi
+            if let d { homes[id] = d }
+            if pi.labels["ravenry.kind"] == "shell" && pi.labels["ravenry.window"].flatMap({ $0.isEmpty ? nil : $0 }) != windowId {
+                pi.labels["ravenry.window"] = windowId
+                conn(of: id).request("pane.update", ["pane": id, "labels": ["ravenry.window": windowId ?? NSNull()] as [String: Any]])
+            }
+        }
+        tabs.append(t)
+        show(t)
     }
 
     // MARK: kept
@@ -1123,6 +1561,11 @@ final class Workspace: NSObject {
 /// tab in front under it.
 final class RootView: NSView {
     weak var bar: TabBar?
+    /// The workspace it shows (Start's local run reaches it here).
+    weak var workspace: Workspace?
+    /// The filmstrip's sheet under the stage, and its height (0: closed).
+    weak var film: NSView?
+    var filmHeight: CGFloat = 0
     weak var stage: StageView?
     /// The sidebar, the middle's sheet and the panel (Board.swift); without
     /// a sidebar (folded, or the bench) the strip is the window's top.
@@ -1161,13 +1604,18 @@ final class RootView: NSView {
         // At once, so the panes draw their new size in this transaction.
         place()
     }
-    private var placedFor: (NSSize, CGFloat, PanelMode, Int)?
+    private var placedFor: (NSSize, CGFloat, PanelMode, Int, Bool, CGFloat)?
+    /// Full screen: no window buttons left of the strip to make room for.
+    var fullScreen: Bool { window?.styleMask.contains(.fullScreen) ?? false }
     func place() {
         let w = bounds.width, h = bounds.height
         if let f = panelModeFor { panelMode = f(w) }
+        // The strip's fold buttons say what shows.
+        bar?.sidebarShown = sidebar != nil && sideWidth > 0
+        bar?.panelShown = panelMode != .hidden
         // Nothing moved: nothing to lay out (Board draws at every state).
-        let key = (bounds.size, sideWidth, panelMode, middle != nil && !wideMiddle ? 1 : middle != nil ? 2 : 0)
-        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight))) { return }
+        let key = (bounds.size, sideWidth, panelMode, middle != nil && !wideMiddle ? 1 : middle != nil ? 2 : 0, fullScreen, filmHeight)
+        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, k.4 == key.4, k.5 == key.5, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight))) { return }
         placedFor = key
         let side = sidebar != nil && sideWidth > 0
         sidebar?.isHidden = !side
@@ -1182,7 +1630,7 @@ final class RootView: NSView {
         sheet.setIf(NSRect(x: side ? sideWidth : 0, y: m, width: max(1, w - (side ? sideWidth : 0) - right - m), height: max(1, h - 2 * m)))
         if let b = bar, b.superview !== sheet { sheet.addSubview(b) }
         if let s = stage, s.superview !== sheet { sheet.addSubview(s, positioned: .below, relativeTo: bar) }
-        bar?.lead = side ? 8 : Design.stripLead
+        bar?.lead = side || key.4 ? 8 : Design.stripLead
         bar?.setIf(NSRect(x: 0, y: 0, width: sheet.bounds.width, height: Design.stripHeight))
         var sh: CGFloat = 0
         if let st = strip {
@@ -1190,7 +1638,13 @@ final class RootView: NSView {
             sh = st.height(for: sheet.bounds.width)
             st.setIf(NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: sh))
         }
-        stage?.setIf(NSRect(x: 0, y: Design.stripHeight + sh, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight - sh)))
+        let fh = film != nil ? filmHeight : 0
+        stage?.setIf(NSRect(x: 0, y: Design.stripHeight + sh, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight - sh - fh)))
+        if let f = film {
+            if f.superview !== sheet { sheet.addSubview(f) }
+            f.isHidden = fh == 0
+            if fh > 0 { f.setIf(NSRect(x: 0, y: sheet.bounds.height - fh, width: sheet.bounds.width, height: fh)) }
+        }
         if let mv = middle {
             if mv.superview !== sheet || wideMiddle { sheet.addSubview(mv, positioned: .above, relativeTo: wideMiddle ? bar : stage) }
             mv.setIf(wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight)))
@@ -1246,6 +1700,42 @@ final class StageView: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override func setFrameSize(_ s: NSSize) {
         super.setFrameSize(s)
-        for v in subviews { v.setIf(bounds) }
+        // (A hint keeps its own place: Workspace.placeHint.)
+        for v in subviews where !(v is HintView) { v.setIf(bounds) }
     }
+}
+
+/// The stage with no tab (app.ts renderNone): "No shell is open." and New
+/// shell with its key, in the middle.
+final class EmptyStage: NSView {
+    let button = RButton(t("strip.emptyNew"), .primary)
+    private let words = NSTextField(labelWithString: t("strip.empty"))
+    private let key = NSTextField(labelWithString: "⌘T")
+    var onNew: (() -> Void)?
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        words.font = Fonts.pt(14)
+        key.font = Fonts.pt(12)
+        button.run = { [weak self] in self?.onNew?() }
+        for v in [words, button, key] as [NSView] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
+        NSLayoutConstraint.activate([
+            words.centerXAnchor.constraint(equalTo: centerXAnchor), words.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -22),
+            button.topAnchor.constraint(equalTo: words.bottomAnchor, constant: 14), button.centerXAnchor.constraint(equalTo: centerXAnchor, constant: -18),
+            key.leadingAnchor.constraint(equalTo: button.trailingAnchor, constant: 10), key.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+        ])
+        autoresizingMask = [.width, .height]
+        restyle()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    private func restyle() {
+        words.textColor = Design.tfg.withAlphaComponent(0.75)
+        key.textColor = Design.tfg.withAlphaComponent(0.45)
+    }
+    override func draw(_ dirty: NSRect) {
+        Design.tbg.setFill()
+        bounds.fill()
+        restyle()
+    }
+    override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
 }

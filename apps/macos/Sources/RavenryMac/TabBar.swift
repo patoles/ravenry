@@ -1,15 +1,23 @@
 // The tab strip, as the Electron app draws it (app.css .tabs, .tab;
-// app.ts renderTabs): 40 pt high on the sheet's colour with a line under
-// it, each tab 32 pt high with its top corners rounded, the tab in front
-// in the terminal's colours so it joins its terminal. A tab shows the
-// shell icon, its name, its folder in grey when that says more, "2" with
-// the split icon when split, and a close x (on hover, and always on the
-// tab in front). The + after the last tab opens a shell. A click brings a
-// tab to the front, a middle click closes it, a drag moves it along the
-// strip (the others make room as it passes them). When the tabs crowd,
-// the folders go first, then the tabs narrow. The strip sits in the
-// window's title bar, after its buttons; its empty part moves the window
-// and a double click there zooms it, as a title bar does.
+// app.ts renderTabs, fitTabs): 40 pt high on the sheet's colour with a
+// line under it, each tab 32 pt high with its top corners rounded, the tab
+// in front in the terminal's colours so it joins its terminal. A tab shows
+// the shell icon (a session's: its state's dot), its name, its folder or
+// project in grey when that says more, "2" with the split icon when split,
+// and a close x (on hover, and always on the tab in front). The + after
+// the last tab opens a shell. A click brings a tab to the front, a middle
+// click closes it, a drag moves it along the strip (the others make room
+// as it passes them), and a drag down onto the pane in front splits it
+// with that tab (Workspace.dropTab). When the tabs crowd, the grey second
+// lines go first, then the strip scrolls (the wheel or a trackpad), the tab
+// in front kept in sight; a tab never narrows below its name.
+//
+// Two buttons hold the window's folds: at the left the sidebar's, at the
+// right end the session panel's (the Electron app's .icon-btn), lit while
+// what they fold is shown; before the panel's, while a pane is on screen,
+// the filmstrip's (its last 20 seconds, Filmstrip.swift). The strip sits in the window's title bar, after
+// its buttons; its empty part moves the window and a double click there
+// zooms it, as a title bar does.
 
 import AppKit
 
@@ -30,30 +38,72 @@ struct TabModel: Equatable {
     /// An agent holds its pane's lease: who ("Claude"), and its colour (claude, codex, other).
     var lent: String? = nil
     var lentCls = "other"
+    /// What its x says (nil: by its kind, TabBar.closeTip).
+    var closeTip: String? = nil
+    /// An extra tab (Workspace.extraTabs): the tab it comes right after
+    /// (its session's own tab, "s:<pane>", or a pane id), nil at the end.
+    var after: String? = nil
 }
 
 final class TabBar: NSView {
     var onSelect: ((String) -> Void)?
     var onClose: ((String) -> Void)?
     var onNew: (() -> Void)?
-    /// Left of the first tab: the window's buttons when the strip is the
+    /// The fold buttons (Workspace: the View menu's Hide Sidebar and Session Panel).
+    var onToggleSidebar: (() -> Void)?
+    var onTogglePanel: (() -> Void)?
+    /// A tab dragged down out of the strip, over the window (nil: back in
+    /// the strip, or let go): what dropping it there would do, said on the
+    /// pane (Workspace.dragOver). And the drop: true when it was taken.
+    var onDragOut: ((String, NSPoint?) -> Void)?
+    var onDropOut: ((String, NSPoint) -> Bool)?
+    /// Left of the first button: the window's buttons when the strip is the
     /// window's top (Design.stripLead), else the .tabs padding (8).
     var lead: CGFloat = Design.stripLead { didSet { if lead != oldValue { needsLayout = true } } }
     /// A tab dragged to another place: its id and its new index.
     var onMove: ((String, Int) -> Void)?
+    /// What the fold buttons show (RootView.place sets them).
+    var sidebarShown = true { didSet { if sidebarShown != oldValue { updateFolds() } } }
+    var panelShown = false { didSet { if panelShown != oldValue { updateFolds() } } }
 
     private(set) var items: [TabItem] = []
     let plus = IconButton(size: 32, iconSize: 12, color: Design.tx2, hoverColor: Design.tx, hoverFill: .clear, draw: Icons.plus)
+    let sideButton = IconButton(size: 28, iconSize: 16, color: Design.tx2, hoverColor: Design.tx, hoverFill: NSColor(white: 0.5, alpha: 0.16), draw: Icons.sidebar)
+    let panelButton = IconButton(size: 28, iconSize: 16, color: Design.tx2, hoverColor: Design.tx, hoverFill: NSColor(white: 0.5, alpha: 0.16), draw: Icons.panel)
+    /// The filmstrip's (the pane's last 20 seconds), while a pane is on screen.
+    let filmButton = IconButton(size: 28, iconSize: 15, color: Design.tx2, hoverColor: Design.tx, hoverFill: NSColor(white: 0.5, alpha: 0.16)) { r, c in
+        TabItem.tinted("film", c)?.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+    var onFilm: (() -> Void)?
+    /// A pane is on screen (the button shows), and its filmstrip is open (lit).
+    var filmable = true { didSet { if filmable != oldValue { filmButton.isHidden = !filmable; needsLayout = true } } }
+    var filmOn = false { didSet { if filmOn != oldValue { updateFolds() } } }
+    /// The tabs' window: they scroll inside it when they do not all fit.
+    let clip = TabClip()
+    /// How far the tabs are scrolled (0: the first at the left).
+    private(set) var offset: CGFloat = 0
     private var models: [TabModel] = []
     private var dragged: TabItem?
     private var dragOffset: CGFloat = 0
+    private var draggedOut = false
+    /// The tab in front is kept in sight (not after a scroll by hand).
+    private var followFront = true
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        addSubview(clip)
+        clip.bar = self
         addSubview(plus)
-        plus.toolTip = "New shell (⌘T)"
-        plus.setAccessibilityLabel("New shell")
+        addSubview(sideButton)
+        addSubview(panelButton)
+        addSubview(filmButton)
+        filmButton.action = { [weak self] in self?.onFilm?() }
+        plus.toolTip = t("strip.newShell")
+        plus.setAccessibilityLabel(t("strip.newShellA"))
         plus.action = { [weak self] in self?.onNew?() }
+        sideButton.action = { [weak self] in self?.onToggleSidebar?() }
+        panelButton.action = { [weak self] in self?.onTogglePanel?() }
+        updateFolds()
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel("Tabs")
@@ -63,8 +113,28 @@ final class TabBar: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { true }
 
+    /// The fold buttons' words and colour: lit (the accent) while what they fold shows.
+    private func updateFolds() {
+        sideButton.toolTip = sidebarShown ? t("strip.hideSidebar") : t("strip.showSidebar")
+        sideButton.setAccessibilityLabel(t("strip.sidebarA"))
+        sideButton.setAccessibilityValue(sidebarShown)
+        panelButton.toolTip = panelShown ? t("strip.hidePanel") : t("strip.showPanel")
+        panelButton.setAccessibilityLabel(t("strip.panelA"))
+        panelButton.setAccessibilityValue(panelShown)
+        sideButton.color = sidebarShown ? Design.work : Design.tx2
+        panelButton.color = panelShown ? Design.work : Design.tx2
+        filmButton.toolTip = t("strip.film")
+        filmButton.setAccessibilityLabel(t("strip.filmA"))
+        filmButton.setAccessibilityValue(filmOn)
+        filmButton.color = filmOn ? Design.work : Design.tx2
+        sideButton.needsDisplay = true
+        panelButton.needsDisplay = true
+        filmButton.needsDisplay = true
+    }
+
     func set(_ tabs: [TabModel]) {
         guard tabs != models || items.count != tabs.count else { return }
+        let wasFront = models.first { $0.active }?.id
         models = tabs
         // Reuse the items by id, so a hover or a drag survives.
         var byId = Dictionary(items.map { ($0.model.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -76,9 +146,11 @@ final class TabBar: NSView {
         }
         for (_, gone) in byId { gone.removeFromSuperview() }
         items = next
-        for it in items where it.superview == nil { addSubview(it, positioned: .below, relativeTo: plus) }
-        setAccessibilityChildren(items + [plus])
+        for it in items where it.superview == nil { clip.addSubview(it) }
+        setAccessibilityChildren([sideButton] + items + [plus, filmButton, panelButton])
         layoutTabs(animated: false)
+        // Another tab in front: in sight (and kept so as the strip changes, until the strip is scrolled by hand).
+        if let f = tabs.first(where: { $0.active })?.id, f != wasFront { followFront = true; layoutTabs(animated: false) }
     }
 
     private func makeItem() -> TabItem {
@@ -92,29 +164,51 @@ final class TabBar: NSView {
         layoutTabs(animated: false)
     }
 
-    /// Each tab's width: its content, at most 240 pt; without the folders
-    /// when they do not all fit, then narrower, all alike.
-    private func widths() -> [CGFloat] {
-        let avail = bounds.width - lead - 8 - 32 - 6
-        var w = items.map { $0.idealWidth(withSub: true) }
+    /// Where the tabs go: after the sidebar's button, before the panel's.
+    private var tabsRect: NSRect {
+        let y = bounds.height - Design.tabHeight
+        let x0 = lead + 28 + 6
+        let x1 = bounds.width - 8 - 28 - 6 - (filmable ? 28 + 4 : 0)
+        return NSRect(x: x0, y: y, width: max(0, x1 - x0), height: Design.tabHeight)
+    }
+
+    /// Each tab's width: its content, at most 240 pt (320 with a lease
+    /// badge); every tab without its grey second line when they do not all
+    /// fit. Never narrower: the strip scrolls instead.
+    private func widths(avail: CGFloat) -> [CGFloat] {
         let gaps = CGFloat(max(0, items.count - 1)) * Design.tabGap
-        if w.reduce(0, +) + gaps > avail { w = items.map { $0.idealWidth(withSub: false) } }
-        let total = w.reduce(0, +) + gaps
-        if total > avail && !w.isEmpty {
-            let each = max(72, (avail - gaps) / CGFloat(w.count))
-            w = w.map { min($0, each) }
-        }
-        items.forEach { $0.showSub = true }
-        for (i, it) in items.enumerated() where w[i] < it.idealWidth(withSub: true) { it.showSub = false }
+        var w = items.map { $0.idealWidth(withSub: true) }
+        let sub = w.reduce(0, +) + gaps + 32 <= avail
+        if !sub { w = items.map { $0.idealWidth(withSub: false) } }
+        items.forEach { $0.showSub = sub }
         return w
     }
 
+    /// The tabs' whole width with the + after them.
+    private(set) var contentWidth: CGFloat = 0
+    /// More tabs than room: the strip scrolls.
+    var overflows: Bool { clip.overflow }
+
     func layoutTabs(animated: Bool) {
-        let w = widths()
-        var x = lead
-        let y = bounds.height - Design.tabHeight
+        let r = tabsRect
+        sideButton.setIf(NSRect(x: lead, y: r.minY + (Design.tabHeight - 28) / 2, width: 28, height: 28))
+        panelButton.setIf(NSRect(x: bounds.width - 8 - 28, y: r.minY + (Design.tabHeight - 28) / 2, width: 28, height: 28))
+        filmButton.setIf(NSRect(x: bounds.width - 8 - 28 - 4 - 28, y: r.minY + (Design.tabHeight - 28) / 2, width: 28, height: 28))
+        let w = widths(avail: r.width)
+        let tabsWidth = w.reduce(0, +) + CGFloat(max(0, items.count - 1)) * Design.tabGap
+        contentWidth = tabsWidth + 32
+        // Crowded: the tabs scroll in the room left of the +, which stays at the end.
+        let over = contentWidth > r.width + 0.5
+        let room = over ? max(0, r.width - 32) : r.width
+        clip.setIf(NSRect(x: r.minX, y: r.minY, width: room, height: r.height))
+        if over, followFront, dragged == nil, let i = items.firstIndex(where: { $0.model.active }) {
+            let left = w[..<i].reduce(0, +) + CGFloat(i) * Design.tabGap, right = left + w[i]
+            if left < offset { offset = left } else if right > offset + room { offset = right - room }
+        }
+        offset = over ? min(max(0, offset), max(0, tabsWidth - room)) : 0
+        var x = -offset
         for (i, it) in items.enumerated() {
-            let f = NSRect(x: x, y: y, width: w[i], height: Design.tabHeight)
+            let f = NSRect(x: x, y: 0, width: w[i], height: Design.tabHeight)
             if it !== dragged {
                 if animated {
                     NSAnimationContext.runAnimationGroup { c in c.duration = 0.15; it.animator().frame = f }
@@ -125,7 +219,25 @@ final class TabBar: NSView {
             it.slot = f
             x += w[i] + Design.tabGap
         }
-        plus.frame = NSRect(x: x, y: y, width: 32, height: Design.tabHeight)
+        plus.setIf(NSRect(x: over ? r.maxX - 32 : r.minX + x, y: r.minY, width: 32, height: Design.tabHeight))
+        clip.overflow = over
+        // More tabs beyond an edge: that edge fades out.
+        clip.fade(left: over && offset > 0.5, right: over && offset < tabsWidth - room - 0.5)
+    }
+
+    /// A tab brought to the front (a click, a key, a command): in sight again.
+    func keepFrontInSight() {
+        followFront = true
+        layoutTabs(animated: false)
+    }
+
+    /// The wheel or a trackpad over the strip: it scrolls across.
+    func scroll(by dx: CGFloat) {
+        let was = offset
+        followFront = false
+        offset += dx
+        layoutTabs(animated: false)
+        if offset != was { needsDisplay = true }
     }
 
     override func draw(_ dirty: NSRect) {
@@ -140,20 +252,46 @@ final class TabBar: NSView {
         if e.clickCount == 2 { window?.performZoom(nil) }
     }
 
-    // MARK: dragging a tab along the strip
+    override func scrollWheel(with e: NSEvent) { clip.scrollWheel(with: e) }
+
+    /// The tab x's words by its kind: a page's, the brief's, a shell's.
+    static func closeTip(_ m: TabModel) -> String {
+        if let c = m.closeTip { return c }
+        if m.id == "view:brief" { return t("strip.closeBrief") }
+        if m.id.hasPrefix("view:") { return t("strip.closeView") }
+        return t("strip.closeShell")
+    }
+
+    // MARK: dragging a tab along the strip, or down onto the pane
+
+    /// A point of the window in the tabs' own coordinates.
+    func stripPoint(_ windowPoint: NSPoint) -> NSPoint { clip.convert(windowPoint, from: nil) }
 
     func beginDrag(_ it: TabItem, at x: CGFloat) {
         dragged = it
+        draggedOut = false
         dragOffset = x - it.frame.minX
         it.removeFromSuperview()
-        addSubview(it, positioned: .below, relativeTo: plus) // over the others
-        addSubview(plus)
+        clip.addSubview(it) // over the others
     }
 
-    func drag(_ it: TabItem, to x: CGFloat) {
+    func drag(_ it: TabItem, to p: NSPoint, window wp: NSPoint) {
         guard dragged === it, let i = items.firstIndex(where: { $0 === it }) else { return }
+        // Down out of the strip: over the pane in front, to split it.
+        let below = convert(wp, from: nil).y > bounds.height + 6
+        if below {
+            draggedOut = true
+            it.alphaValue = 0.45
+            onDragOut?(it.model.id, wp)
+            return
+        }
+        if draggedOut {
+            draggedOut = false
+            it.alphaValue = 1
+            onDragOut?(it.model.id, nil)
+        }
         var f = it.frame
-        f.origin.x = min(max(lead, x - dragOffset), max(lead, bounds.width - f.width))
+        f.origin.x = min(max(0, p.x - dragOffset), max(0, clip.bounds.width - f.width))
         it.frame = f
         // It takes the place of a tab whose middle it passed.
         let mid = f.midX
@@ -167,13 +305,67 @@ final class TabBar: NSView {
         }
     }
 
-    func endDrag(_ it: TabItem) {
+    func endDrag(_ it: TabItem, window wp: NSPoint) {
         guard dragged === it else { return }
         dragged = nil
+        it.alphaValue = 1
+        if draggedOut {
+            draggedOut = false
+            onDragOut?(it.model.id, nil)
+            // Back to its place whatever the drop did (the tab goes when it was taken).
+            it.frame = it.slot
+            _ = onDropOut?(it.model.id, wp)
+            return
+        }
         let to = items.firstIndex(where: { $0 === it }) ?? 0
         it.frame = it.slot
         models = items.map { $0.model }
         onMove?(it.model.id, to)
+    }
+}
+
+/// The tabs' window in the strip: it clips them and scrolls them across
+/// with the wheel or a trackpad.
+final class TabClip: NSView {
+    weak var bar: TabBar?
+    var overflow = false
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func scrollWheel(with e: NSEvent) {
+        guard overflow, let bar else { return super.scrollWheel(with: e) }
+        // Across: a trackpad's sideways move, else the wheel's turn.
+        let d = abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY) ? -e.scrollingDeltaX : -e.scrollingDeltaY
+        bar.scroll(by: e.hasPreciseScrollingDeltas ? d : d * 12)
+    }
+    override func mouseUp(with e: NSEvent) { bar?.mouseUp(with: e) }
+
+    /// The edges where more tabs lie fade over 18 pt.
+    private(set) var faded = (left: false, right: false)
+    func fade(left: Bool, right: Bool) {
+        guard left || right else {
+            if layer?.mask != nil { layer?.mask = nil }
+            faded = (false, false)
+            return
+        }
+        let g = (layer?.mask as? CAGradientLayer) ?? CAGradientLayer()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        g.frame = bounds
+        g.startPoint = CGPoint(x: 0, y: 0.5)
+        g.endPoint = CGPoint(x: 1, y: 0.5)
+        let e = bounds.width > 0 ? min(0.3, 18 / bounds.width) : 0
+        let a = NSColor.black.cgColor, c = NSColor.clear.cgColor
+        g.colors = [left ? c : a, a, a, right ? c : a]
+        g.locations = [0, NSNumber(value: Double(e)), NSNumber(value: Double(1 - e)), 1]
+        if layer?.mask !== g { layer?.mask = g }
+        CATransaction.commit()
+        faded = (left, right)
     }
 }
 
@@ -182,6 +374,7 @@ final class TabItem: NSView {
     var model = TabModel(id: "", name: "", sub: nil, split: false, active: false, tip: "") {
         didSet {
             toolTip = model.tip
+            close.toolTip = TabBar.closeTip(model)
             setAccessibilityLabel(model.name)
             setAccessibilityValue(model.active)
             close.isHidden = !(model.active || hover)
@@ -194,13 +387,13 @@ final class TabItem: NSView {
     let close = IconButton(size: Design.closeSize, iconSize: 10, color: Design.tx3, hoverColor: Design.tx, hoverFill: NSColor(white: 1, alpha: 0.12), draw: Icons.close)
     private var hover = false
     private var downX: CGFloat?
+    private var downY: CGFloat?
     private var moving = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         addSubview(close)
-        close.toolTip = "Close (⌘W)"
-        close.setAccessibilityLabel("Close")
+        close.setAccessibilityLabel(t("strip.closeA"))
         close.action = { [weak self] in
             guard let self else { return }
             self.bar?.onClose?(self.model.id)
@@ -235,7 +428,8 @@ final class TabItem: NSView {
         if model.split { w += Design.tabInnerGap + 11 + 3 + ceil(TabItem.badge.size().width) }
         w += marksWidth
         w += Design.tabInnerGap + Design.closeSize + Design.tabPadRight
-        return min(Design.tabMaxWidth, w)
+        // A lease badge takes room of its own (phase2.css .tab:has(.lbadge)).
+        return min(model.lent == nil ? Design.tabMaxWidth : 320, w)
     }
 
     override func layout() {
@@ -253,21 +447,22 @@ final class TabItem: NSView {
     override func mouseExited(with e: NSEvent) { hover = false; close.isHidden = !model.active; needsDisplay = true }
 
     override func mouseDown(with e: NSEvent) {
-        downX = superview?.convert(e.locationInWindow, from: nil).x
+        downX = bar?.stripPoint(e.locationInWindow).x
+        downY = e.locationInWindow.y
         moving = false
         bar?.onSelect?(model.id)
     }
     override func mouseDragged(with e: NSEvent) {
         guard let bar, let x0 = downX else { return }
-        let x = bar.convert(e.locationInWindow, from: nil).x
-        if !moving && abs(x - x0) > 3 {
+        let p = bar.stripPoint(e.locationInWindow)
+        if !moving && (abs(p.x - x0) > 3 || abs(e.locationInWindow.y - (downY ?? 0)) > 6) {
             moving = true
             bar.beginDrag(self, at: x0)
         }
-        if moving { bar.drag(self, to: x) }
+        if moving { bar.drag(self, to: p, window: e.locationInWindow) }
     }
     override func mouseUp(with e: NSEvent) {
-        if moving { bar?.endDrag(self) }
+        if moving { bar?.endDrag(self, window: e.locationInWindow) }
         moving = false
         downX = nil
     }

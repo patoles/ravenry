@@ -16,6 +16,17 @@
 //   Set them up (the routes Settings' Skills uses) or Not now, then it
 //   starts.
 // With no assistant found it opens a shell in the folder, in this window.
+//
+// With the board down (not running, or not answering) Start still works,
+// as the Electron app's (startLocal, startSession's own pane): the folders
+// and assistants are read here by the hub's own rules (LocalStart, from
+// hub/server/firstlaunch.mjs), and Start runs the assistant in a pane of
+// this window's (labelled ravenry.agent: the board follows it once it is
+// up). While macOS asks whether Ravenry may read a folder (the hub waits
+// on the answer, hub/server/access.mjs), the access card says so above
+// the card, with Open Files & Folders; folders macOS refused are named.
+// Start looks again each second and a half while it shows, so the board
+// coming up, or the answer, is seen at once.
 
 import AppKit
 import UniformTypeIdentifiers
@@ -42,6 +53,12 @@ final class StartView: MiddleView {
     var onStarted: ((String?, String?) -> Void)?
     /// No assistant here: a shell in the folder, in this window.
     var onShell: ((String?) -> Void)?
+    /// The board down: the assistant in a pane of this window (Board shows
+    /// it in front). Unset, the window's workspace runs it and Start closes.
+    var onRun: ((String?, Workspace.Program) -> Void)?
+    /// The self-test's home and environment for the board-down reading.
+    var localHome = NSHomeDirectory()
+    var localEnv = ProcessInfo.processInfo.environment
     var onCancel: (() -> Void)?
     var grid: () -> (cols: Int, rows: Int) = { (100, 30) }
     /// The folder Choose another folder picks, for the self-test (no panel then).
@@ -67,6 +84,17 @@ final class StartView: MiddleView {
     private(set) var setup: Setup?
     private var setupReady = false
     private var read = false
+    /// The folders and assistants were read here: the board is down.
+    private(set) var local = false
+    /// What macOS is asking about, as the hub last said (the access card).
+    private(set) var asking: String?
+    private var watch: Timer?
+    /// The self-test's macOS question and refused folders, in place of the hub's.
+    var testWaiting: String?
+    /// The self-test's board down (the demo hub stays up for the rest).
+    var testBoardDown = false
+    var testDenied: [String]?
+    private var hubWaiting: String? { testWaiting ?? hub?.waitingFor }
     /// The controls by name, for the self-test: "folder:<path>", "assistant:<kind>", "choose", "go", "cancel",
     /// "inFolder", "ownCopy", "tick:hooks", "tick:skill", "setUp", "notNow".
     private(set) var controls: [String: NSView] = [:]
@@ -111,22 +139,48 @@ final class StartView: MiddleView {
         load(want)
     }
 
-    /// The hub's folders and assistants, the one asked for first.
+    /// The hub's folders and assistants, the one asked for first; with the
+    /// board down, the same read here.
     private func load(_ want: String?) {
+        asking = hubWaiting
+        watchHub()
+        guard let hub, hub.reachable, !testBoardDown else { return answer(LocalStart.view(home: localHome, env: localEnv, want: want), want, local: true) }
         let q = want.map { "/api/setup/start?folder=\($0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")" } ?? "/api/setup/start"
-        hub?.get(q) { [weak self] code, j in
-            guard let self, code == 200 else { return }
-            self.folders = j["folders"] as? [[String: Any]] ?? []
-            self.root = j["root"] as? String
-            self.assistants = j["assistants"] as? [[String: Any]] ?? []
-            if let w = want { self.folder = w }
-            if self.folder == nil || !self.folders.contains(where: { $0["path"] as? String == self.folder }) { self.folder = self.folders.first?["path"] as? String ?? self.folder }
-            let found = self.assistants.filter { $0["found"] as? Bool == true }
-            let ready = found.first { $0["signedIn"] as? Bool == true } ?? found.first
-            if self.assistant == nil || !found.contains(where: { $0["kind"] as? String == self.assistant }) { self.assistant = ready?["kind"] as? String }
-            self.read = true
-            self.draw()
+        hub.get(q) { [weak self] code, j in
+            guard let self else { return }
+            guard code == 200 else { return self.answer(LocalStart.view(home: self.localHome, env: self.localEnv, want: want), want, local: true) }
+            self.answer(j, want, local: false)
         }
+    }
+
+    /// Each second and a half while it shows: the board came up (its
+    /// folders), went down, or macOS's question changed.
+    private func watchHub() {
+        guard watch == nil else { return }
+        watch = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] tm in
+            guard let self, self.window != nil, !self.isHidden, self.setup == nil else { tm.invalidate(); self?.watch = nil; return }
+            guard let hub = self.hub, !self.busy else { return }
+            let up = hub.reachable && !self.testBoardDown
+            if self.hubWaiting != self.asking || up == self.local { self.load(self.folder) }
+        }
+    }
+
+    /// What Start offers (the hub's answer, or the same read here): the
+    /// folder asked for, else the one picked when still offered, else the
+    /// first; the assistant picked when still found, else the first signed in.
+    private func answer(_ j: [String: Any], _ want: String?, local: Bool) {
+        self.local = local
+        asking = hubWaiting
+        folders = j["folders"] as? [[String: Any]] ?? []
+        root = j["root"] as? String
+        assistants = j["assistants"] as? [[String: Any]] ?? []
+        if let w = want { folder = w }
+        if folder == nil || !folders.contains(where: { $0["path"] as? String == folder }) && want == nil { folder = folders.first?["path"] as? String ?? folder }
+        let found = assistants.filter { $0["found"] as? Bool == true }
+        let ready = found.first { $0["signedIn"] as? Bool == true } ?? found.first
+        if assistant == nil || !found.contains(where: { $0["kind"] as? String == assistant }) { assistant = ready?["kind"] as? String }
+        read = true
+        draw()
     }
 
     /// The folder's own words from the hub, else said from its path.
@@ -161,8 +215,10 @@ final class StartView: MiddleView {
             items.append(gap(8))
             items.append(lead(t("start.lead")))
             items.append(gap(26))
+            if let a = accessCard() { items.append(a); items.append(gap(12)) }
             items.append(card())
             if let e = error { items.append(gap(10)); items.append(centred(wrap(e, Fonts.pt(12.5), "bad"))) }
+            if local && read { items.append(gap(12)); items.append(lead(t("start.local"), size: 12.5, color: "tx2")) }
             items.append(gap(18))
             items.append(lead(t("start.foot"), size: 12.5, color: "tx3"))
         }
@@ -373,6 +429,47 @@ final class StartView: MiddleView {
         return c
     }
 
+    // MARK: macOS's question
+
+    /// The folders macOS refused (the hub's state.access.denied), as "~/Documents".
+    var denied: [String] {
+        if let d = testDenied { return d }
+        let a = hub?.state?.raw["access"] as? [String: Any]
+        return (a?["denied"] as? [[String: Any]] ?? []).compactMap { $0["folder"] as? String }
+    }
+
+    static let privacyPane = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!
+    /// Opens the Privacy pane (the self-test records it instead).
+    var openPrivacy: () -> Void = { NSWorkspace.shared.open(StartView.privacyPane) }
+
+    /// The access card (app.ts accessCard, deniedNote): what macOS asks and
+    /// where to answer it, or the folders it refused; nil when neither.
+    private func accessCard() -> NSView? {
+        let refused = denied
+        guard asking != nil || !refused.isEmpty else { return nil }
+        var col: [NSView] = []
+        if let w = asking {
+            col.append(wrap(t("start.askingT", ["folder": w]), Fonts.pt(13.5, Fonts.w650), "tx"))
+            col.append(wrap(t("start.askingS", ["folder": w]), Fonts.pt(12.5), "tx2"))
+        } else {
+            col.append(wrap(t("start.denied", ["folders": refused.joined(separator: ", ")]), Fonts.pt(12.5), "tx2"))
+        }
+        let open = RButton(t("start.openPrivacy"), .normal) { [weak self] in self?.openPrivacy() }
+        controls["openPrivacy"] = open
+        col.append(hstack([open, spring()], spacing: 0))
+        let icon = Icon("lock", "you", size: 15)
+        let row = step(icon, col, gap: 8)
+        let c = Box(fill: "card", ring: "you", radius: 14)
+        c.ringWidth = 1
+        c.layer?.masksToBounds = true
+        row.translatesAutoresizingMaskIntoConstraints = false
+        c.addSubview(row)
+        NSLayoutConstraint.activate([row.leadingAnchor.constraint(equalTo: c.leadingAnchor), row.trailingAnchor.constraint(equalTo: c.trailingAnchor),
+                                     row.topAnchor.constraint(equalTo: c.topAnchor), row.bottomAnchor.constraint(equalTo: c.bottomAnchor)])
+        controls["access"] = c
+        return c
+    }
+
     // MARK: step 2
 
     private func setupCard(_ su: Setup) -> [NSView] {
@@ -492,6 +589,10 @@ final class StartView: MiddleView {
         let p = NSOpenPanel()
         p.canChooseDirectories = true
         p.canChooseFiles = false
+        // A new folder can be made there; it opens on the folder picked, else home (main.ts chooseFolder).
+        p.canCreateDirectories = true
+        p.prompt = t("start.choosePrompt")
+        p.directoryURL = URL(fileURLWithPath: folder.map { ($0 as NSString).deletingLastPathComponent } ?? localHome, isDirectory: true)
         guard let w = window else { return }
         p.beginSheetModal(for: w) { [weak self] r in
             guard r == .OK, let u = p.url else { return }
@@ -573,6 +674,18 @@ final class StartView: MiddleView {
         error = nil
         draw()
         let a = assistantPicked
+        // The board down: the assistant in a pane of this window, as the Electron app's.
+        if local {
+            busy = false
+            draw()
+            guard let kind = a?["kind"] as? String else { onShell?(folder); return }
+            let path = a?["path"] as? String ?? kind
+            let prog = Workspace.Program(command: [path], name: a?["name"] as? String ?? name(kind), agent: kind)
+            if let run = onRun { run(folder, prog); return }
+            (window?.contentView as? RootView)?.workspace?.newTab(in: folder ?? localHome, program: prog)
+            onCancel?()
+            return
+        }
         if let kind = a?["kind"] as? String, !setupReady {
             setupStep(kind) { [weak self] su in
                 guard let self else { return }
@@ -630,5 +743,81 @@ final class CenteredWrap: Flipped {
         let w = max(40, min(maxW, bounds.width))
         if abs(text.preferredMaxLayoutWidth - w) > 0.5 { text.preferredMaxLayoutWidth = w; text.invalidateIntrinsicContentSize() }
         super.layout()
+    }
+}
+
+/// What Start offers with the board down, read here by the hub's own rules
+/// (hub/server/firstlaunch.mjs startView, findProjectFolders,
+/// findAssistants): at most five folders that look like projects, newest
+/// first, from the first of the usual project roots that has any; Claude
+/// Code and Codex, found on the PATH or in the usual folders, and signed in
+/// when their own login files say so.
+enum LocalStart {
+    static let roots = ["code", "Code", "Projects", "projects", "Developer", "dev", "src", "repos", "git", "work"]
+    static let markers = [".git", "package.json", "go.mod", "Cargo.toml", "pyproject.toml", "README.md"]
+
+    /// A folder as people read it (public/homepath.mjs sayPath).
+    static func say(_ p: String, home: String) -> String {
+        let h = home.hasSuffix("/") ? String(home.dropLast()) : home
+        if p.isEmpty || h.isEmpty { return p }
+        if p == h { return "~" }
+        if p.hasPrefix(h + "/") { return "~" + p.dropFirst(h.count) }
+        return p
+    }
+
+    static func projectFolders(home: String, max: Int = 5) -> (root: String?, folders: [[String: Any]]) {
+        let fm = FileManager.default
+        for r in roots.map({ (home as NSString).appendingPathComponent($0) }) {
+            guard let names = try? fm.contentsOfDirectory(atPath: r) else { continue }
+            var found: [(String, Date)] = []
+            for n in names where !n.hasPrefix(".") {
+                let p = (r as NSString).appendingPathComponent(n)
+                var dir: ObjCBool = false
+                guard fm.fileExists(atPath: p, isDirectory: &dir), dir.boolValue,
+                      markers.contains(where: { fm.fileExists(atPath: (p as NSString).appendingPathComponent($0)) }) else { continue }
+                let t = (try? fm.attributesOfItem(atPath: p)[.modificationDate] as? Date) ?? .distantPast
+                found.append((p, t))
+            }
+            if found.isEmpty { continue }
+            found.sort { $0.1 > $1.1 }
+            return (r, found.prefix(max).map { pick($0.0, home: home) })
+        }
+        return (nil, [])
+    }
+
+    static func pick(_ p: String, home: String) -> [String: Any] {
+        ["name": (p as NSString).lastPathComponent, "path": p, "short": say(p, home: home)]
+    }
+
+    static func onPath(_ bin: String, env: [String: String], home: String) -> String? {
+        let dirs = (env["PATH"] ?? "").split(separator: ":").map(String.init) + [
+            "\(home)/.local/bin", "\(home)/.claude/local", "/opt/homebrew/bin", "/usr/local/bin", "\(home)/.npm-global/bin", "\(home)/.volta/bin"]
+        for d in dirs where !d.isEmpty {
+            let p = (d as NSString).appendingPathComponent(bin)
+            if FileManager.default.isExecutableFile(atPath: p) { return p }
+        }
+        return nil
+    }
+
+    static func assistants(env: [String: String], home: String) -> [[String: Any]] {
+        let claude = onPath("claude", env: env, home: home), codex = onPath("codex", env: env, home: home)
+        var claudeIn = !(env["ANTHROPIC_API_KEY"] ?? "").isEmpty
+        if !claudeIn, let s = try? String(contentsOfFile: "\(home)/.claude.json", encoding: .utf8) {
+            claudeIn = s.range(of: #""oauthAccount"\s*:\s*\{"#, options: .regularExpression) != nil
+        }
+        let codexHome = env["CODEX_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "\(home)/.codex"
+        let codexIn = !(env["OPENAI_API_KEY"] ?? "").isEmpty || FileManager.default.fileExists(atPath: "\(codexHome)/auth.json")
+        return [
+            ["kind": "claude", "name": "Claude Code", "found": claude != nil, "signedIn": claude != nil && claudeIn, "path": claude ?? NSNull()],
+            ["kind": "codex", "name": "Codex", "found": codex != nil, "signedIn": codex != nil && codexIn, "path": codex ?? NSNull()],
+        ]
+    }
+
+    /// The Start screen's answer, as GET /api/setup/start gives it (without the board's own folders).
+    static func view(home: String, env: [String: String], want: String?, max: Int = 5) -> [String: Any] {
+        let found = projectFolders(home: home, max: max)
+        var folders = found.folders
+        if let w = want, w.hasPrefix("/"), !folders.contains(where: { $0["path"] as? String == w }) { folders = Array(([pick(w, home: home)] + folders).prefix(max)) }
+        return ["root": found.root.map { say($0, home: home) } as Any, "folders": folders, "assistants": assistants(env: env, home: home)]
     }
 }

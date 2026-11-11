@@ -28,6 +28,8 @@ extension SelfTestBoard {
         case "terminal": screenTerminal()
         case "cards": screenCards()
         case "panes": screenPanes()
+        case "strip": screenStrip()
+        case "startlocal": screenStartLocal()
         case "tabmarks": screenTabMarks()
         case "review": screenReview()
         case "window": screenWindow()

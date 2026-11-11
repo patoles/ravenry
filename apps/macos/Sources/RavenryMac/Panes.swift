@@ -34,6 +34,20 @@ enum Icons {
             p.move(to: NSPoint(x: 7, y: 2)); p.line(to: NSPoint(x: 7, y: 12))
         }
     }
+    /// The session panel's fold (icons.ts PANEL): a window with its right part ruled off.
+    static func panel(_ r: NSRect, _ c: NSColor) {
+        stroke(r, c, 1.5, box: 16) { p in
+            p.appendRoundedRect(NSRect(x: 1, y: 2, width: 14, height: 12), xRadius: 2.5, yRadius: 2.5)
+            p.move(to: NSPoint(x: 10.5, y: 2)); p.line(to: NSPoint(x: 10.5, y: 14))
+        }
+    }
+    /// The sidebar's fold: the same window, its left part ruled off.
+    static func sidebar(_ r: NSRect, _ c: NSColor) {
+        stroke(r, c, 1.5, box: 16) { p in
+            p.appendRoundedRect(NSRect(x: 1, y: 2, width: 14, height: 12), xRadius: 2.5, yRadius: 2.5)
+            p.move(to: NSPoint(x: 5.5, y: 2)); p.line(to: NSPoint(x: 5.5, y: 14))
+        }
+    }
     /// Draws a path given in a box x box space (y down) into r.
     private static func stroke(_ r: NSRect, _ c: NSColor, _ w: CGFloat, box: CGFloat = 14, _ build: (NSBezierPath) -> Void) {
         let p = NSBezierPath()
@@ -108,6 +122,8 @@ final class PaneBox: NSView {
     var name = "" { didSet { head.name = name } }
     var sub: String? { didSet { head.sub = sub } }
     var badge: String? { didSet { head.badge = badge } }
+    /// A session's pane: its state's colour, a dot in the shell icon's place.
+    var dot: String? { didSet { head.dot = dot } }
     var headView: PaneHead { head }
     var onClose: (() -> Void)? { didSet { head.close.action = onClose } }
     var onClickHead: (() -> Void)?
@@ -166,6 +182,8 @@ final class PaneHead: NSView {
     var badge: String? { didSet { needsDisplay = true; setAccessibilityValue(badge) } }
     /// Where the chip was drawn, for the self-test.
     private(set) var badgeRect: NSRect?
+    /// A session's pane (its state's colour): a dot instead of the shell icon (app.ts renderPaneHead).
+    var dot: String? { didSet { if dot != oldValue { needsDisplay = true } } }
     var focused = false { didSet { needsDisplay = true } }
     var onClick: (() -> Void)?
     let close = IconButton(size: 18, iconSize: 10, color: Design.headFg, hoverColor: Design.termFg,
@@ -192,7 +210,12 @@ final class PaneHead: NSView {
         bounds.fill()
         Design.headLine.setFill()
         NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
-        Icons.shell(NSRect(x: 12, y: (bounds.height - 12) / 2, width: 12, height: 12), Design.headFg)
+        if let d = dot {
+            Design.color(d).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 14.5, y: (bounds.height - 7) / 2, width: 7, height: 7)).fill()
+        } else {
+            Icons.shell(NSRect(x: 12, y: (bounds.height - 12) / 2, width: 12, height: 12), Design.headFg)
+        }
         var x: CGFloat = 12 + 12 + 7
         let maxX = bounds.width - 8 - 18 - 7
         let nameAttrs: [NSAttributedString.Key: Any] = [.font: Design.headNameFont, .foregroundColor: focused ? Design.tfg : Design.headName]
@@ -266,9 +289,13 @@ final class PaneSplitView: NSSplitView, NSSplitViewDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.filter { $0.userInfo?["divider"] != nil }.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: dividerRect.insetBy(dx: isVertical ? -2 : 0, dy: isVertical ? 0 : -2),
-                                       options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self, userInfo: ["divider": true]))
+        let r = dividerRect.insetBy(dx: isVertical ? -2 : 0, dy: isVertical ? 0 : -2)
+        addTrackingArea(NSTrackingArea(rect: r, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self, userInfo: ["divider": true]))
+        // What the divider does, as the Electron app's gutter says it.
+        removeAllToolTips()
+        addToolTip(r, owner: PaneSplitView.dividerTip as NSString, userData: nil)
     }
+    static let dividerTip = t("split.dividerTip")
     override func mouseEntered(with e: NSEvent) { hover = true; setNeedsDisplay(dividerRect) }
     override func mouseExited(with e: NSEvent) { hover = false; setNeedsDisplay(dividerRect) }
 
@@ -351,5 +378,128 @@ final class PaneSplitView: NSSplitView, NSSplitViewDelegate {
             fraction = (isVertical ? a.frame.width : a.frame.height) / avail
         }
         updateTrackingAreas()
+    }
+}
+
+/// A tab dragged over the pane in front (Workspace.dragOver, the Electron
+/// app's .dropzone): the half it would take lit in the accent, with "Split
+/// right" and the split icon in a pill; grey with the reason when the tab
+/// in front cannot take it.
+final class SplitDropView: NSView {
+    private(set) var side = "right"
+    private(set) var words = ""
+    private(set) var refused = false
+    override var isFlipped: Bool { true }
+    override func hitTest(_ p: NSPoint) -> NSView? { nil }
+
+    func show(side: String, words: String, refused: Bool) {
+        guard side != self.side || words != self.words || refused != self.refused else { return }
+        self.side = side
+        self.words = words
+        self.refused = refused
+        setAccessibilityLabel(words)
+        needsDisplay = true
+    }
+
+    /// The half of the stage it lights, 4 pt in from its edges.
+    var zone: NSRect {
+        let b = bounds
+        var r: NSRect
+        switch side {
+        case "left": r = NSRect(x: 0, y: 0, width: b.width / 2 - 8, height: b.height)
+        case "up": r = NSRect(x: 0, y: 0, width: b.width, height: b.height / 2 - 8)
+        case "down": r = NSRect(x: 0, y: b.height / 2 + 8, width: b.width, height: b.height / 2 - 8)
+        default: r = NSRect(x: b.width / 2 + 8, y: 0, width: b.width / 2 - 8, height: b.height)
+        }
+        return r.insetBy(dx: 4, dy: 4)
+    }
+
+    override func draw(_ dirty: NSRect) {
+        let z = zone
+        let p = NSBezierPath(roundedRect: z, xRadius: 8, yRadius: 8)
+        (refused ? NSColor(white: 0.5, alpha: 0.12) : NSColor(srgbRed: 10 / 255, green: 132 / 255, blue: 1, alpha: 0.16)).setFill()
+        p.fill()
+        let ring = NSBezierPath(roundedRect: z.insetBy(dx: 1, dy: 1), xRadius: 7, yRadius: 7)
+        ring.lineWidth = 2
+        (refused ? Design.color("tx3") : Design.work).setStroke()
+        ring.stroke()
+        // The pill: the split icon (not when refused) and the words.
+        let a = NSAttributedString(string: words, attributes: [.font: NSFont.systemFont(ofSize: 12.5, weight: .semibold),
+                                                               .foregroundColor: refused ? Design.tx2 : NSColor.white])
+        let ts = a.size()
+        let iw: CGFloat = refused ? 0 : 12 + 6
+        let pill = NSRect(x: z.midX - (ts.width + iw + 20) / 2, y: z.midY - 13, width: ts.width + iw + 20, height: 26)
+        (refused ? Design.color("card2") : Design.work).setFill()
+        NSBezierPath(roundedRect: pill, xRadius: 6, yRadius: 6).fill()
+        if !refused { Icons.split(NSRect(x: pill.minX + 10, y: pill.midY - 6, width: 12, height: 12), .white) }
+        a.draw(at: NSPoint(x: pill.minX + 10 + iw, y: pill.midY - ts.height / 2))
+    }
+}
+
+/// A one-time hint (the Electron app's .hint): a blue card under the thing
+/// itself the first time it happens, its words, Learn more and an x, an
+/// arrow pointing at the thing. Dismissed either way, never again (the
+/// hub's onboarding marks, hints).
+final class HintView: NSView {
+    let text = NSTextField(wrappingLabelWithString: "")
+    let learn = NSButton(title: t("hint.learnMore"), target: nil, action: nil)
+    let close = IconButton(size: 18, iconSize: 9, color: .white, hoverColor: .white, hoverFill: NSColor(white: 1, alpha: 0.2), draw: Icons.close)
+    var onLearn: (() -> Void)?
+    var onDismiss: (() -> Void)?
+    /// Where the arrow sits from the left, pointing up at the thing.
+    var arrowX: CGFloat = 24 { didSet { needsDisplay = true } }
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        text.font = Fonts.pt(12.5)
+        text.textColor = .white
+        text.maximumNumberOfLines = 0
+        learn.isBordered = false
+        learn.attributedTitle = NSAttributedString(string: t("hint.learnMore"), attributes: [.font: Fonts.pt(12.5, .semibold), .foregroundColor: NSColor.white, .underlineStyle: NSUnderlineStyle.single.rawValue])
+        learn.target = self
+        learn.action = #selector(learnClicked)
+        close.toolTip = t("hint.dismiss")
+        close.setAccessibilityLabel(t("hint.dismiss"))
+        close.action = { [weak self] in self?.onDismiss?() }
+        for v in [text, learn, close] as [NSView] { addSubview(v) }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    @objc private func learnClicked() { onLearn?() }
+
+    func set(bold: String, rest: String) {
+        let a = NSMutableAttributedString(string: bold, attributes: [.font: Fonts.pt(12.5, .semibold), .foregroundColor: NSColor.white])
+        a.append(NSAttributedString(string: rest, attributes: [.font: Fonts.pt(12.5), .foregroundColor: NSColor.white]))
+        text.attributedStringValue = a
+        setAccessibilityLabel(bold + rest)
+    }
+
+    /// Its height at a width (the words wrap).
+    func height(for w: CGFloat) -> CGFloat {
+        let lw = learn.fittingSize.width
+        let tw = max(60, w - 12 - 12 - lw - 12 - 18 - 10)
+        let th = text.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: tw, height: 1000)).height ?? 18
+        return max(36, ceil(th) + 18) + 5
+    }
+
+    override func layout() {
+        super.layout()
+        let lw = learn.fittingSize.width
+        let body = NSRect(x: 0, y: 5, width: bounds.width, height: bounds.height - 5)
+        close.frame = NSRect(x: body.maxX - 10 - 18, y: body.midY - 9, width: 18, height: 18)
+        learn.frame = NSRect(x: close.frame.minX - 12 - lw, y: body.midY - 10, width: lw, height: 20)
+        let tw = max(60, learn.frame.minX - 12 - 12)
+        let th = text.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: tw, height: 1000)).height ?? 18
+        text.frame = NSRect(x: 12, y: body.midY - ceil(th) / 2, width: tw, height: ceil(th))
+    }
+
+    override func draw(_ dirty: NSRect) {
+        Design.work.setFill()
+        NSBezierPath(roundedRect: NSRect(x: 0, y: 5, width: bounds.width, height: bounds.height - 5), xRadius: 9, yRadius: 9).fill()
+        let a = NSBezierPath()
+        let x = min(max(14, arrowX), bounds.width - 14)
+        a.move(to: NSPoint(x: x - 6, y: 6)); a.line(to: NSPoint(x: x, y: 0)); a.line(to: NSPoint(x: x + 6, y: 6)); a.close()
+        a.fill()
     }
 }
