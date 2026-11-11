@@ -20,9 +20,8 @@
 //   the closed card and a portrait picture.
 import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
+import https from 'node:https';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -231,12 +230,6 @@ child.stderr.on('data', (d) => { log += d; });
 const base = `http://localhost:${PORT}`;
 const opens = () => { try { return fs.readFileSync(OPEN_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 const post = async (p, body, headers = { 'X-Ravenry': '1' }) => { const r = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body || {}) }); return { status: r.status, j: await r.json().catch(() => ({})) }; };
-const LAN = (() => {
-  const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) out.push({ name, address: a.address });
-  out.sort((a, b) => (b.name === 'en0') - (a.name === 'en0'));
-  return out[0] && out[0].address;
-})();
 
 try {
   let gal = null;
@@ -275,24 +268,26 @@ try {
   check('reveal: an unknown project is 404', r.status === 404 && opens().length === 1);
   r = await post('/api/project/reveal-picture', { projectId: 'sketchbook', key: shapes.key }, {});
   check('reveal: the write guard holds (no board header is 403)', r.status === 403 && opens().length === 1, String(r.status));
-  if (!LAN) check('phone: needs a private LAN address to arrive as one', false, 'no LAN address on this Mac');
-  else {
-    const ph = (q, cookie) => new Promise((resolve, reject) => {
-      const rq = http.request({ host: LAN, port: PORT, path: q.path, method: q.method || 'GET', headers: { Host: `${LAN}:${PORT}`, ...(cookie ? { Cookie: cookie } : {}), ...(q.headers || {}) } }, (res) => { const b = []; res.on('data', (d) => b.push(d)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(b) })); });
+  {
+    // A phone: the paired app on the phone port (TLS, a Bearer token), where every
+    // request is a phone's, loopback included (server/index.mjs gate). A test board
+    // listens on this Mac only (home.mjs hubBind), so no phone arrives from the Wi-Fi.
+    const PPORT = PORT + 1000;
+    const ph = (q, token) => new Promise((resolve, reject) => {
+      const rq = https.request({ host: '127.0.0.1', port: PPORT, rejectUnauthorized: false, agent: false, path: q.path, method: q.method || 'GET', headers: { Host: `10.0.2.2:${PPORT}`, ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(q.headers || {}) } }, (res) => { const b = []; res.on('data', (d) => b.push(d)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(b) })); });
       rq.on('error', reject);
       rq.end(q.body || undefined);
     });
-    // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
-    await fetch(base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: base }, body: JSON.stringify({ on: true }) });
-    let x = await ph({ path: shapes.url });
-    check('phone: a picture with no sign-in is 401', x.status === 401, String(x.status));
-    await fetch(base + '/api/phone');
-    const KEY = JSON.parse(fs.readFileSync(path.join(MC, 'phone.json'), 'utf8')).key;
-    const si = await ph({ path: '/?k=' + encodeURIComponent(KEY) });
-    const COOKIE = [].concat(si.headers['set-cookie'] || []).find((c) => c.startsWith('mc_phone=')).split(';')[0];
-    x = await ph({ path: shapes.url }, COOKIE);
-    check('phone: a signed-in phone gets the picture', x.status === 200 && x.headers['content-type'] === 'image/png');
-    x = await ph({ method: 'POST', path: '/api/project/reveal-picture', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: 'sketchbook', key: shapes.key }) }, COOKIE);
+    // The phone port opens only while phone access is on (docs/PHONE.md).
+    const on = await (await fetch(base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: base }, body: JSON.stringify({ on: true }) })).json();
+    let x = null;
+    for (let i = 0; i < 50 && !x; i++) { x = await ph({ path: shapes.url }).catch(() => null); if (!x) await sleep(100); }
+    check('phone: a picture with no sign-in is 401', x && x.status === 401, String(x && x.status));
+    const pr = await ph({ method: 'POST', path: '/api/phone/pair', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ code: on.app && on.app.code, name: 'Pixel', platform: 'android', app: '0.1.0' }) });
+    const TOKEN = JSON.parse(String(pr.body || '{}')).token;
+    x = await ph({ path: shapes.url }, TOKEN);
+    check('phone: a signed-in phone gets the picture', pr.status === 200 && x.status === 200 && x.headers['content-type'] === 'image/png', `pair ${pr.status}, picture ${x.status}`);
+    x = await ph({ method: 'POST', path: '/api/project/reveal-picture', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: 'sketchbook', key: shapes.key }) }, TOKEN);
     check('phone: Show in Finder is 403 for a phone, nothing opened', x.status === 403 && opens().length === 1, `${x.status} ${x.body}`);
   }
 
