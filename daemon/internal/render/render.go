@@ -99,6 +99,16 @@ func padding(o Options) int {
 
 func rgba(c vt.RGB) color.RGBA { return color.RGBA{c.R, c.G, c.B, 255} }
 
+// Size is the size of the picture Image draws of a grid, without drawing it.
+func Size(g *vt.Grid, o Options) image.Point {
+	fs, err := facesFor(o)
+	if g == nil || err != nil {
+		return image.Point{1, 1}
+	}
+	pad := padding(o)
+	return image.Point{g.Cols*fs.cellW + 2*pad, g.Rows*fs.cellH + 2*pad}
+}
+
 // Image draws a grid. A nil grid, or fonts that cannot load, give a 1x1
 // image.
 func Image(g *vt.Grid, o Options) *image.RGBA {

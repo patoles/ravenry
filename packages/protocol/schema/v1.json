@@ -5039,6 +5039,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "unpictured": {
+          "type": "integer",
+          "minimum": 0
+        },
         "data": {
           "type": "string",
           "contentEncoding": "base64"

@@ -207,11 +207,15 @@ type FramesResult struct {
 	Frames []FilmFrame `json:"frames"`
 	From   string      `json:"from,omitempty"`
 	To     string      `json:"to,omitempty"`
-	// Skipped: frames of the span left out to keep to max_frames.
-	Skipped int    `json:"skipped,omitempty"`
-	Data    string `json:"data,omitempty"`
-	Width   int    `json:"width,omitempty"`
-	Height  int    `json:"height,omitempty"`
+	// Skipped: frames of the span left out to keep to max_frames, or
+	// (an animation) to keep the answer under about 12 MiB.
+	Skipped int `json:"skipped,omitempty"`
+	// Unpictured: frames listed without a png, whose pictures would
+	// have taken the answer over about 12 MiB.
+	Unpictured int    `json:"unpictured,omitempty"`
+	Data       string `json:"data,omitempty"`
+	Width      int    `json:"width,omitempty"`
+	Height     int    `json:"height,omitempty"`
 }
 
 // Fixture is a recording of a pane's output with its timing: what

@@ -5,12 +5,15 @@ import (
 	"encoding/base64"
 	"image/gif"
 	"image/png"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"ravenryd/internal/client"
 	"ravenryd/internal/proto"
+	"ravenryd/internal/render"
+	"ravenryd/internal/vt"
 )
 
 // Pictures, filmstrips, recordings, replay and test conditions of a pane.
@@ -213,5 +216,137 @@ func TestShotInATheme(t *testing.T) {
 	cw := shot.Width / 20
 	if r, g, bl, _ := img.At(8+cw, 8+cw/2).RGBA(); r>>8 != 0xff || g>>8 != 0x69 || bl>>8 != 0x61 {
 		t.Fatalf("palette red is not the theme's: %x %x %x", r>>8, g>>8, bl>>8)
+	}
+}
+
+// A big pane that draws a new screen of dense text ten times a second:
+// all its frames as PNGs are far over the answer's 12 MiB. pane.frames
+// still answers, every frame listed with its time, the pictures that fit
+// (the screen now and the first among them, the rest spread between)
+// under the budget, the others counted as unpictured.
+func TestFramesFitTheAnswer(t *testing.T) {
+	d := startDaemon(t)
+	c := d.dial(client.Options{})
+	// A screen of dense text, then a line rewritten 20 times a second
+	// at a row that moves, as a working Claude's tab does.
+	script := `od -An -tx1 -N3300 /dev/urandom | tr -d '\n' | fold -w 140; i=0; while [ $i -lt 60 ]; do printf '\033[%d;1H%s %d' $((i % 45 + 1)) "work line $i" $i; i=$((i+1)); sleep 0.05; done; printf '\033[50;1Hdone'; exec sleep 30`
+	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", script}, "cols": 140, "rows": 50})
+	waitFor(t, c, p.ID, `done`, 0)
+	start := time.Now()
+	fr := call[proto.FramesResult](t, c, "pane.frames", map[string]any{"pane": p.ID, "last_ms": 20000, "format": "png", "max_frames": 600, "font_size": 40})
+	took := time.Since(start)
+	pictured, size := 0, 0
+	for i, f := range fr.Frames {
+		if f.At == "" {
+			t.Fatalf("frame %d has no time", i)
+		}
+		if f.PNG == "" {
+			continue
+		}
+		pictured++
+		size += len(f.PNG)
+		if w, h := decodePNG(t, f.PNG); w != fr.Width || h != fr.Height {
+			t.Fatalf("frame %d is %dx%d, the answer says %dx%d", i, w, h, fr.Width, fr.Height)
+		}
+	}
+	n := len(fr.Frames)
+	t.Logf("%d frames, %d pictured, %.1f MiB of pictures, in %v", n, pictured, float64(size)/(1<<20), took)
+	if n < 15 || fr.Unpictured == 0 || pictured+fr.Unpictured != n || pictured < 2 {
+		t.Fatalf("frames %d pictured %d unpictured %d: the pictures should not all fit", n, pictured, fr.Unpictured)
+	}
+	if size > mediaBudget {
+		t.Fatalf("pictures are %d bytes, over the budget %d", size, mediaBudget)
+	}
+	if fr.Frames[0].PNG == "" || fr.Frames[n-1].PNG == "" {
+		t.Fatal("the first frame and the screen now should have their pictures")
+	}
+	// Spread through the stretch: no run of frames without a picture
+	// longer than twice the even spacing.
+	run, longest := 0, 0
+	for _, f := range fr.Frames {
+		if f.PNG == "" {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	if even := n / pictured; longest > 2*even+1 {
+		t.Fatalf("a run of %d frames without a picture; evenly it would be about %d", longest, even)
+	}
+}
+
+// strip under a small budget: PNGs listed with the pictures that fit in
+// pictureOrder, a stall's frame among them; an animation thinned until it
+// fits.
+func TestStripBudget(t *testing.T) {
+	grid := func(k int) *vt.Grid {
+		g := &vt.Grid{Cols: 60, Rows: 20, Fg: vt.RGB{R: 220, G: 220, B: 220}}
+		for y := 0; y < g.Rows; y++ {
+			row := make([]vt.Cell, g.Cols)
+			for x := range row {
+				row[x] = vt.Cell{Text: string(rune('a' + (x*7+y*13+k*31)%26)), FgIndex: -1, BgIndex: -1}
+			}
+			g.Cells = append(g.Cells, row)
+		}
+		return g
+	}
+	t0 := time.Unix(1000, 0)
+	var frames []render.Frame
+	var at []time.Time
+	var marks []uint64
+	for k := 0; k < 30; k++ {
+		at = append(at, t0.Add(time.Duration(k)*100*time.Millisecond))
+		if k >= 12 {
+			at[k] = at[k].Add(3 * time.Second) // frame 11 stayed 3.1 s
+		}
+		frames = append(frames, render.Frame{Grid: grid(k)})
+		marks = append(marks, uint64(k))
+	}
+	for i := range frames {
+		frames[i].Delay = time.Second
+		if i+1 < len(frames) {
+			frames[i].Delay = at[i+1].Sub(at[i])
+		}
+	}
+	o := render.Options{FontSize: 14}
+	one, err := render.PNG(frames[0].Grid, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget := (len(one) + 2) / 3 * 4 * 6
+	res, err := strip(frames, at, marks, "png", o, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int
+	size := 0
+	for i, f := range res.Frames {
+		if f.PNG != "" {
+			got = append(got, i)
+			size += len(f.PNG)
+		}
+	}
+	if len(res.Frames) != 30 || len(got) < 4 || len(got) > 6 || res.Unpictured != 30-len(got) || size > budget {
+		t.Fatalf("png: %d frames, pictured %v, unpictured %d, %d bytes of %d", len(res.Frames), got, res.Unpictured, size, budget)
+	}
+	if got[0] != 0 || got[len(got)-1] != 29 || !slices.Contains(got, 11) {
+		t.Fatalf("pictured %v: the first, the last and the stall's frame (11) first", got)
+	}
+	whole, err := strip(frames, at, marks, "gif", o, 1<<30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	small := len(whole.Data) * 2 / 3
+	g, err := strip(frames, at, marks, "gif", o, small)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Skipped == 0 || len(g.Frames)+g.Skipped != 30 || len(g.Data) > small || g.Frames[0].Mark != 0 || g.Frames[len(g.Frames)-1].Mark != 29 {
+		t.Fatalf("gif under %d: %d frames, skipped %d, %d bytes", small, len(g.Frames), g.Skipped, len(g.Data))
+	}
+	b, _ := base64.StdEncoding.DecodeString(g.Data)
+	if an, err := gif.DecodeAll(bytes.NewReader(b)); err != nil || len(an.Image) < 2 {
+		t.Fatalf("thinned gif: %v", err)
 	}
 }

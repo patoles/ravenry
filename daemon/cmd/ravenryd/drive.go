@@ -455,6 +455,9 @@ func saveFrames(a *args, r proto.FramesResult, out string, dir bool) error {
 			return err
 		}
 		for i, f := range r.Frames {
+			if f.PNG == "" {
+				continue // its picture would have made the answer too big (unpictured)
+			}
 			b, err := base64.StdEncoding.DecodeString(f.PNG)
 			if err != nil {
 				return err
@@ -485,6 +488,9 @@ func saveFrames(a *args, r proto.FramesResult, out string, dir bool) error {
 	fmt.Printf("%s  %d frames from %s to %s", out, len(r.Frames), r.From, r.To)
 	if r.Skipped > 0 {
 		fmt.Printf(" (%d more left out)", r.Skipped)
+	}
+	if r.Unpictured > 0 {
+		fmt.Printf(", %d without a picture: all of them would be over 12 MiB (a smaller --font-size fits more)", r.Unpictured)
 	}
 	fmt.Println()
 	return nil

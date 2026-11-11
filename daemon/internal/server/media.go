@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ravenryd/internal/agent"
@@ -251,48 +253,174 @@ func (c *conn) paneShot(id uint64, data []byte) {
 
 // strip turns frames into the format asked: each a PNG, or one animated
 // GIF or APNG. Delays follow the frames' times divided by speed.
-func strip(frames []render.Frame, at []time.Time, marks []uint64, format string, o render.Options) (proto.FramesResult, error) {
+//
+// It never fails for size. As PNGs every frame is listed with its time
+// and mark, and the pictures go in until the next would take the answer
+// over budget (pictures picks which); the rest are listed without
+// one (unpictured), so a client still has every frame's time to read
+// stalls and flicker from. An animation over the budget keeps fewer
+// frames, evenly through the stretch, until it fits (skipped).
+func strip(frames []render.Frame, at []time.Time, marks []uint64, format string, o render.Options, budget int) (proto.FramesResult, error) {
 	res := proto.FramesResult{Format: format, Frames: []proto.FilmFrame{}}
 	if len(frames) == 0 {
 		return res, errors.New("no frames")
 	}
-	img := render.Image(frames[0].Grid, o).Bounds()
-	res.Width, res.Height = img.Dx(), img.Dy()
+	size := render.Size(frames[0].Grid, o)
+	res.Width, res.Height = size.X, size.Y
 	res.From, res.To = stamp(at[0]), stamp(at[len(at)-1])
-	total := 0
-	for i, f := range frames {
-		fi := proto.FilmFrame{At: stamp(at[i]), Mark: marks[i]}
-		if format == "png" {
-			b, err := render.PNG(f.Grid, o)
-			if err != nil {
-				return res, err
-			}
-			total += len(b) * 4 / 3
-			if total > mediaBudget {
-				return res, fmt.Errorf("these frames are over %d MiB as PNGs: ask for fewer (max_frames) or a gif", mediaBudget>>20)
-			}
-			fi.PNG = base64.StdEncoding.EncodeToString(b)
+	if format == "png" {
+		pngs, err := pictures(frames, o, budget)
+		if err != nil {
+			return res, err
 		}
-		res.Frames = append(res.Frames, fi)
-	}
-	var b []byte
-	var err error
-	switch format {
-	case "gif":
-		b, err = render.GIF(frames, o)
-	case "apng":
-		b, err = render.APNG(frames, o)
-	default:
+		for i := range frames {
+			fi := proto.FilmFrame{At: stamp(at[i]), Mark: marks[i]}
+			if pngs[i] != nil {
+				fi.PNG = base64.StdEncoding.EncodeToString(pngs[i])
+			} else {
+				res.Unpictured++
+			}
+			res.Frames = append(res.Frames, fi)
+		}
 		return res, nil
 	}
-	if err != nil {
-		return res, err
+	for {
+		var b []byte
+		var err error
+		switch format {
+		case "gif":
+			b, err = render.GIF(frames, o)
+		case "apng":
+			b, err = render.APNG(frames, o)
+		default:
+			return res, fmt.Errorf("format is png, gif or apng")
+		}
+		if err != nil {
+			return res, err
+		}
+		if (len(b)+2)/3*4 <= budget {
+			res.Data = base64.StdEncoding.EncodeToString(b)
+			break
+		}
+		if len(frames) == 1 {
+			return res, fmt.Errorf("one frame of this pane is over %d MiB as an animation: ask for a smaller font_size", budget>>20)
+		}
+		// Half the frames, evenly, the first and the last kept; each
+		// shown until the next one kept.
+		keep := thinned(len(frames), max(1, len(frames)/2))
+		res.Skipped += len(frames) - len(keep)
+		kf, ka, km := make([]render.Frame, len(keep)), make([]time.Time, len(keep)), make([]uint64, len(keep))
+		for j, i := range keep {
+			kf[j], ka[j], km[j] = frames[i], at[i], marks[i]
+			if j+1 < len(keep) {
+				kf[j].Delay = at[keep[j+1]].Sub(at[i])
+			}
+		}
+		frames, at, marks = kf, ka, km
 	}
-	if len(b)*4/3 > mediaBudget {
-		return res, fmt.Errorf("this filmstrip is over %d MiB: ask for fewer frames (max_frames) or a shorter stretch", mediaBudget>>20)
+	for i := range frames {
+		res.Frames = append(res.Frames, proto.FilmFrame{At: stamp(at[i]), Mark: marks[i]})
 	}
-	res.Data = base64.StdEncoding.EncodeToString(b)
 	return res, nil
+}
+
+// thinned picks n of count indices evenly, the first and the last kept.
+func thinned(count, n int) []int {
+	if n >= count {
+		out := make([]int, count)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	out := make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, i*(count-1)/max(n-1, 1))
+	}
+	if n == 1 {
+		out[0] = count - 1
+	}
+	return out
+}
+
+// pictureOrder is the order frames get a picture in: the last (the
+// screen now) and the first, the frames that stayed 2 s or more (a
+// stall: one picture covers a long stretch), then halving the gaps
+// between those already in, so however many fit lie evenly through the
+// stretch.
+func pictureOrder(frames []render.Frame) []int {
+	n := len(frames)
+	seen := make([]bool, n)
+	var order []int
+	add := func(i int) {
+		if i >= 0 && i < n && !seen[i] {
+			seen[i] = true
+			order = append(order, i)
+		}
+	}
+	add(n - 1)
+	add(0)
+	for i := 0; i+1 < n; i++ {
+		if frames[i].Delay >= stallPicture {
+			add(i)
+		}
+	}
+	type gap struct{ a, b int }
+	queue := []gap{{0, n - 1}}
+	for len(queue) > 0 {
+		g := queue[0]
+		queue = queue[1:]
+		if g.b-g.a < 2 {
+			continue
+		}
+		m := (g.a + g.b) / 2
+		add(m)
+		queue = append(queue, gap{g.a, m}, gap{m, g.b})
+	}
+	for i := 0; i < n; i++ {
+		add(i)
+	}
+	return order
+}
+
+// stallPicture: a frame that stayed this long gets its picture early.
+const stallPicture = 2 * time.Second
+
+// pictures draws frames as PNGs in pictureOrder, a few at a time, and
+// keeps them while their base64 fits in budget bytes; a frame left out
+// has nil. The first one that would not fit ends it, so the pictures
+// stay spread through the stretch.
+func pictures(frames []render.Frame, o render.Options, budget int) ([][]byte, error) {
+	out := make([][]byte, len(frames))
+	order := pictureOrder(frames)
+	workers := min(4, max(1, runtime.NumCPU()))
+	total := 0
+	for start := 0; start < len(order); start += workers {
+		batch := order[start:min(start+workers, len(order))]
+		got := make([][]byte, len(batch))
+		errs := make([]error, len(batch))
+		var wg sync.WaitGroup
+		for k, i := range batch {
+			wg.Add(1)
+			go func(k, i int) {
+				defer wg.Done()
+				got[k], errs[k] = render.PNG(frames[i].Grid, o)
+			}(k, i)
+		}
+		wg.Wait()
+		for k, i := range batch {
+			if errs[k] != nil {
+				return nil, errs[k]
+			}
+			size := (len(got[k]) + 2) / 3 * 4
+			if total+size > budget {
+				return out, nil
+			}
+			total += size
+			out[i] = got[k]
+		}
+	}
+	return out, nil
 }
 
 func checkFormat(f string) (string, error) {
@@ -368,12 +496,13 @@ func (c *conn) paneFrames(id uint64, data []byte) {
 			}
 			at[i], marks[i] = f.At, f.Mark
 		}
-		res, err := strip(frames, at, marks, format, o)
+		res, err := strip(frames, at, marks, format, o, mediaBudget)
 		if err != nil {
 			c.failErr(id, err)
 			return
 		}
-		res.Pane, res.Skipped = r.Pane, skipped
+		res.Pane = r.Pane
+		res.Skipped += skipped
 		c.reply(id, "pane.frames", res)
 	})
 }
@@ -784,11 +913,11 @@ func headlessReplay(evs []replayEvent, cols, rows int, fixed bool, speed float64
 				frames[i].Delay = ats[i+1].Sub(ats[i])
 			}
 		}
-		fr, err := strip(frames, ats, marks, format, o)
+		fr, err := strip(frames, ats, marks, format, o, mediaBudget)
 		if err != nil {
 			return res, err
 		}
-		fr.Skipped = skipped
+		fr.Skipped += skipped
 		res.Frames = &fr
 	}
 	return res, nil

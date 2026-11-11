@@ -1245,8 +1245,15 @@ The strip ends with the screen now. Result: `pane`, `format`, `frames`
 (each `at`, `mark`, and with `png` its `png`), `from` and `to` (the
 first and last frame's time), `skipped` (frames left out for
 `max_frames`), `width` and `height`, and for `gif` and `apng` the
-animation in `data` (base64), each frame shown until the next came. A
-result over about 12 MiB fails with `failed`: ask for fewer frames.
+animation in `data` (base64), each frame shown until the next came.
+The pictures are kept under about 12 MiB, so a big or busy pane never
+fails for size: with `png` every frame is listed, and the pictures go
+in until the next would pass 12 MiB, the screen now and the first frame
+first, then the frames that stayed 2 s or more, then evenly through the
+stretch; the frames left without a `png` are counted in `unpictured`
+(added in v1, so an older daemon fails with `failed` instead: ask for
+fewer frames). With `gif` and `apng` the animation keeps fewer frames,
+evenly, until it fits, and those are counted in `skipped` too.
 
 ### Recordings and replay
 

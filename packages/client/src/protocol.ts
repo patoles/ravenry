@@ -222,6 +222,8 @@ export interface FramesResult {
   from?: string;
   to?: string;
   skipped?: number;
+  /** png: frames listed without a png, their pictures over the answer's 12 MiB. */
+  unpictured?: number;
   /** gif or apng: the animation, base64. */
   data?: string;
   width?: number;
