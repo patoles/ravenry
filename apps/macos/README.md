@@ -262,6 +262,36 @@ stream".
   or off, the Dock bouncing while the app is not in front, for a pane not
   on screen too) and closing a busy shell (a sheet: Close, Cancel, Don't
   ask again).
+- **Shaders, as Ghostty's** (`Shaders.swift`): shaders in Ghostty's
+  custom-shader format (`mainImage`, `iTime`, `iResolution`, `iChannel0`
+  the picture under it), the GLSL of the mockup ported to MSL by hand
+  behind a small prelude (vec2 is float2, `texture()` samples with GLSL's
+  y-up coordinates) and compiled at launch like the renderer's. Ghostty
+  runs its GLSL through glslang and SPIRV-Cross; this app keeps no
+  third-party code. **Pane effect** (Settings > Appearance: Off, Soft bloom,
+  CRT curve; `paneEffect`, off by default): `Renderer.encode` draws the
+  pane into a texture of its own and the effect from it into the drawable,
+  so it runs only when the pane draws; Off draws exactly as before. On
+  2026-11-11 (M1 Max on mains, off every screen, load average 14 to 28 from
+  other builds), `resizebench.mjs --content busy` with
+  `BENCH_PANE_EFFECT` off, bloom, crt: the drag 2.70 to 2.74 s, 2.67 to
+  2.69 s, 2.69 to 2.74 s, 117 to 120 draws a second in all, every step
+  drawn at its size, a frame shown 4.5 to 5.9 ms after it came off, 4.8
+  to 6.4 ms with an effect (median); `bench.sh`: the frame (CPU and GPU)
+  0.71 ms off, 1.98 ms bloom, 0.77 ms crt (median, the drag at 900 x 560
+  pt at 2x), keys echoed in 0.55 to 0.63 ms and no blank or debris step in
+  any. **Ink** (`Ink.swift`, Simon's pick of the mockup's launches): a
+  launch with no tab to bring back (`Workspace.restoredNone`) opens on New
+  session and plays Ink over the window for 3.4 s, its iChannel0 the
+  window's own picture (its layers rendered, about 60 ms at 1440 x 900 pt:
+  taken at the start, early while the ink is faint, when New session's
+  folders or the hub's state change before 2 s, and at the end) and the
+  mark landing on New session's real icon, read from the views each frame.
+  The overlay takes no click; any click or key ends it at once and goes on
+  to New session (Esc goes back with it); its last frame is the window
+  itself. Not when tabs come back, with Settings > Appearance > Opening off
+  (`launchInk`) or with Reduce motion on; off every screen only for its
+  own check (`RAVENRY_MAC_INK=1`).
 - **Characters drawn, not taken from the font** (`Sprites.swift`): box
   drawing (light, heavy, double, dashed, rounded corners, diagonals),
   block elements (halves, eighths, quadrants, shades), braille and the
@@ -730,6 +760,17 @@ saved order: the shells, the session moved here and the continued one. `node
 scripts/resizebench.mjs --daemons PATH [--front old|new]` drags the
 whole window as the resize bench does with the busy tab in front in the
 older daemon or the newer.
+
+`node scripts/inkcheck.mjs [OUT]` launches the app off every screen four
+times on throwaway daemons and the demo hub (on 127.0.0.1): with no shell
+(Ink plays to its end, its last frame the start screen to the byte; played
+again, a press on a folder row half way ends it and picks the row, a key
+and Esc end it; the mark's eye on the icon's eye at 1280 and 900; the
+Opening switch and the pane effects pressed in Settings and saved; a pane's
+drawn pixels change with bloom and CRT and are the same with Off; an idle
+pane with an effect does not draw), then with its shell brought back, the
+setting off and Reduce motion on (no Ink). It leaves Ink's pictures at 0.5,
+1.4, 2.2, 2.9 s and its end, a pane with each effect and ink.gif in OUT.
 
 `node scripts/launchcheck.mjs [APP]` launches the app off every screen on a
 throwaway daemon of three shells and the demo hub, with a saved layout

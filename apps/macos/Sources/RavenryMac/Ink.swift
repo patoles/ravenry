@@ -107,6 +107,7 @@ final class InkOverlay: NSView {
     private var needSnapshot = true
     /// What the window showed at the last picture (New session's folders, the hub's state).
     private var shownSig = ""
+    private var earlyRefresh = false
     /// Off every screen: the frames go here (the check reads the last one).
     private(set) var target: MTLTexture?
     private var began: CFTimeInterval = 0
@@ -185,6 +186,8 @@ final class InkOverlay: NSView {
         let t = now - began
         let sig = shownSignature()
         if sig != shownSig && t < InkOverlay.refreshBefore { needSnapshot = true }
+        // Once more early on, while the ink is faint, for what the launch drew since.
+        if t >= 0.25 && !earlyRefresh { earlyRefresh = true; needSnapshot = true }
         // The end: the window as it is now, drawn as the last frame, then the window itself.
         if t >= InkOverlay.duration { needSnapshot = true }
         if needSnapshot { takeSnapshot() }
@@ -230,10 +233,13 @@ final class InkOverlay: NSView {
         isHidden = true
         defer { isHidden = was }
         root.layoutSubtreeIfNeeded()
+        // The views' layers drawn first (at launch none has been yet).
+        root.displayIfNeeded()
         let (w, h) = pixelSize
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
         guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        let viaLayer = InkOverlay.pictureByLayer
+        // (Before the window's first display the root may have no layer yet: then drawn by its views.)
+        let viaLayer = InkOverlay.pictureByLayer && root.layer != nil
         var base: CGImage?
         if !viaLayer {
             guard let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return nil }
@@ -269,7 +275,7 @@ final class InkOverlay: NSView {
         needSnapshot = false
         shownSig = shownSignature()
         let t0 = CACurrentMediaTime()
-        guard let p = windowPicture(), let dev = host.device else { return }
+        guard let p = windowPicture(), let dev = host.device else { needSnapshot = true; return }
         if snapshot == nil || snapshot!.width != p.w || snapshot!.height != p.h {
             let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: p.w, height: p.h, mipmapped: false)
             d.usage = [.shaderRead]
