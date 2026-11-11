@@ -16,20 +16,21 @@
 //    transitions end to end, no session text in any request, a hung send
 //    that does not hold the tick, alerts.json at mode 0600, no secret in the
 //    log, the snapshot or /api/alerts, the ntfy QR decoded, and a phone
-//    (the Mac's own Wi-Fi address) refused the secrets with 403 but allowed
-//    the switch and Send a test.
+//    (a caller on the board's stand-in for the Wi-Fi, tools/as-phone.mjs,
+//    over loopback) refused the secrets with 403 but allowed the switch and
+//    Send a test.
 //
 // Usage: node tools/alerts-test.mjs [--real-ntfy]
 //   --real-ntfy also publishes once to a throwaway random ntfy.sh topic
 //   (never a saved one) and reads it back, to prove the request shape.
 import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort, lanAddress, phoneEnv, phoneFetch } from './as-phone.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'alerts-test');
@@ -372,12 +373,18 @@ await hook('alpha', { hook_event_name: 'SessionStart', source: 'startup' });
 for (const id of IDS.slice(1)) await hook(id, { hook_event_name: 'UserPromptSubmit' });
 
 const COPY_LOG = path.join(T, 'copied.txt');
+// A phone addresses the board by the Mac's Wi-Fi address and arrives on the
+// board's stand-in port (127.0.0.1 only), seen as a phone.
+const LAN = lanAddress();
+const STANDIN = await freePort();
+const PB = LAN ? `http://${LAN}:${PORT}` : null;
 const env = {
   ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), RAVENRY_PHONE_PORT: '4628', MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0',
   CMUX_BIN: path.join(ROOT, 'tools', 'fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE, MC_CLAUDE_PROJECTS: CLAUDE,
   MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
   MC_TELEGRAM_API: STUB + '/tg', MC_ALERT_BOARD_URL: 'http://192.168.1.50:4665/', MC_ALERT_PRIME_MS: '1500', MC_ALERT_RETRY_MS: '1500',
   MC_COPY_COMMAND: JSON.stringify(['/bin/sh', '-c', `cat > ${COPY_LOG}`]),
+  ...phoneEnv(STANDIN),
 };
 delete env.MC_ALERT_COOLDOWN_MS;
 const board = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -386,7 +393,7 @@ board.stdout.on('data', (d) => { log += d; });
 board.stderr.on('data', (d) => { log += d; });
 const H = { 'Content-Type': 'application/json', 'X-Ravenry': '1' };
 const api = async (p, body, base = BASE, extra = {}) => {
-  const res = await fetch(base + p, body === undefined ? { headers: extra } : { method: 'POST', headers: { ...H, ...extra }, body: JSON.stringify(body) });
+  const res = await (base === PB ? (u, i) => phoneFetch(STANDIN, u, i) : fetch)(base + p, body === undefined ? { headers: extra } : { method: 'POST', headers: { ...H, ...extra }, body: JSON.stringify(body) });
   let j = null;
   try { j = await res.json(); } catch { /* none */ }
   return { status: res.status, j };
@@ -510,19 +517,17 @@ try {
   x = await api('/api/alerts/telegram', { token: TOKEN }, BASE, { Origin: 'http://evil.example' });
   check('the write guard: another origin, 403', x.status === 403);
 
-  // A phone: the Mac's own Wi-Fi address, signed in with the phone key.
-  const lan = Object.values(os.networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address));
-  if (!lan) check('a phone: this Mac has no private LAN address to test from', false);
+  // A phone, signed in with the phone key.
+  if (!LAN) check('a phone: this Mac has no private LAN address for its Host', false);
   else {
-    const PB = `http://${lan.address}:${PORT}`;
     await fetch(BASE + '/api/phone');
     // The Wi-Fi's browser path opens only while phone access is on.
-    const offx = await fetch(`${PB}/api/alerts`);
+    const offx = await phoneFetch(STANDIN, `${PB}/api/alerts`);
     check('a phone with phone access off: 403', offx.status === 403);
     x = await api('/api/phone/access', { on: true });
     check('phone access turned on from the Mac', x.status === 200 && x.j.access === true, JSON.stringify(x.j).slice(0, 200));
     const key = JSON.parse(fs.readFileSync(path.join(MC, 'phone.json'), 'utf8')).key;
-    const si = await fetch(`${PB}/?k=${encodeURIComponent(key)}`, { redirect: 'manual' });
+    const si = await phoneFetch(STANDIN, `${PB}/?k=${encodeURIComponent(key)}`);
     const cookie = (si.headers.get('set-cookie') || '').split(/,(?=\s*mc_)/).map((c) => c.split(';')[0].trim()).filter((c) => c.startsWith('mc_phone=')).join('; ');
     const PH = { Cookie: cookie };
     x = await api('/api/alerts', undefined, PB, PH);
