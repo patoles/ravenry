@@ -292,18 +292,32 @@ final class TerminalView: NSView, NSTextInputClient {
     /// Draws now when no draw happened in this refresh interval, so a
     /// keystroke's echo goes out at once; otherwise at the next one, so
     /// draws never outrun the display (and never wait on a drawable).
+    ///
+    /// During a live resize or a split's drag each step draws itself
+    /// (sizeChanged) with the rows as they are then, so a frame waits for
+    /// the next step instead of taking a draw of its own: since the daemon
+    /// sends each step's reflowed screen at once (df48b13), a busy pane's
+    /// frames came between the steps, half the steps drew twice and each
+    /// second draw waited about 5 ms for a drawable, so a step took 15 ms
+    /// instead of 8 (resizebench: the drag 2.67 s for the 1.78 s asked,
+    /// 1.9 s before). Only when no step comes for two refreshes (the edge
+    /// held still) does a frame draw on its own.
     func requestDraw() {
         if drawScheduled || !live { return }
         let now = CACurrentMediaTime()
-        let due = lastDraw + refreshInterval * 0.9
+        let due = lastDraw + refreshInterval * (resizing ? 2 : 0.9)
         if now >= due {
             draw(sync: resizing)
             return
         }
         drawScheduled = true
+        let from = lastDraw
         DispatchQueue.main.asyncAfter(deadline: .now() + (due - now)) { [weak self] in
             guard let self else { return }
             self.drawScheduled = false
+            // A step drew since: what came before it is on screen, and
+            // what came after waits for the next step.
+            if self.resizing && self.lastDraw > from { self.requestDraw(); return }
             self.draw(sync: self.resizing)
         }
     }

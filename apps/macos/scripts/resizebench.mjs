@@ -10,6 +10,13 @@
 //   node scripts/resizebench.mjs [OUT]      (after scripts/build.sh)
 //   node scripts/resizebench.mjs --daemons OLD_RAVENRYD [--front old|new] [OUT]
 //   node scripts/resizebench.mjs --onscreen [OUT]
+//   node scripts/resizebench.mjs --content busy|idle|COMMAND [OUT]
+//
+// --content: what the tab in front shows during the drag: busy (the
+// default, a loop printing about 30 lines a second), idle (the shell at
+// its prompt), or a command typed in it, as a replay of a real Claude tab
+// with its history and a spinner line (Simon's feel checks: real content
+// beside an empty shell).
 //
 // --daemons: the window on two daemons, as after an update: OLD_RAVENRYD (a
 // release's, 0.1.23 or later) and this tree's ravenryd built as the desktop
@@ -30,6 +37,7 @@ const argv = process.argv.slice(2);
 const flag = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv.splice(i, 2)[1] : null; };
 const OLD = flag('--daemons');
 const FRONT = flag('--front') || 'old';
+const CONTENT = flag('--content') || 'busy';
 // --onscreen: the window on the screen (only with the person's yes: it
 // shows a window), for the drawables as a screen gives them back; off every
 // screen macOS gives them back at once.
@@ -81,7 +89,7 @@ const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port });
 const result = path.join(OUT, 'bench.json');
 fs.rmSync(result, { force: true });
 const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(sock ? ['--socket', sock] : []), '--bench', result, '--bench-resize', ...(ONSCREEN ? ['--bench-onscreen'] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: hub.url },
+  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_BENCH_CONTENT: CONTENT },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(OUT, 'app-stderr.log'), 'w')],
 });
 let exited = false;
@@ -114,6 +122,8 @@ console.log(`  of which the board's resize: ${s(d.board_resize_ms)}`);
 console.log(`  draws a step (in the step): ${s(d.draws_per_step, '')}; steps not drawn at their size ${d.steps_not_drawn_at_their_size}, drawn more than once ${d.steps_drawn_more_than_once}`);
 for (const e of d.examples || []) console.log('    ' + e);
 console.log(`  draws ${d.draws} (${d.fps.toFixed(0)} a second), gap between draws: ${s(d.draw_gap_ms)}`);
+for (const l of d.front_text_tail || []) console.log(`    | ${l.slice(0, 100)}`);
+if (d.frame_to_draw_ms) console.log(`  the pane's frames in the drag ${d.frames_in_drag} (content: ${d.content}), a frame to the draw that shows it: ${s(d.frame_to_draw_ms)}`);
 console.log(`  wait for a drawable: ${s(d.drawable_wait_ms)}`);
 console.log(`  draws of the tabs not in front: ${d.hidden_tab_draws}; drawn at its size after the drag: ${d.after_end_drawn_at_size}`);
 console.log(`  draws put off for want of a free drawable: ${d.draws_put_off_in_drag ?? '-'}`);

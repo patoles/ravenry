@@ -603,6 +603,29 @@ drawable taken in an uncommitted transaction is still given back at once
 (its presented handler in under 2 ms), so this bench cannot show what a
 screen does with them.
 
+Those numbers held until the daemon sent each step's reflowed screen at
+once (df48b13, 2026-11-10 15:37): from then the busy pane's frames came
+between the steps, half the steps drew twice (the step's draw, then the
+frame's, each waiting about 5 ms for a drawable), and the drag took 2.61
+to 2.72 s, a step 9 to 15 ms (median); an idle shell's prompt redraws did
+the same. The app built at 5d67c4c with df48b13's daemon took 2.67 s, the
+app at 860e6b9 with 5d67c4c's daemon 1.88 s: the daemon's change alone.
+Since 2026-11-11 a frame during a live resize or a split's drag waits for
+the next step, which draws it, and draws on its own only when no step
+comes for two refreshes (`TerminalView.requestDraw`). `--content busy`
+(the default), `idle` (the shell at its prompt) or a command typed in the
+tab in front (a replay of a real Claude tab with its history and a
+spinner line, `zsh claude-tab.sh` from the resize ladder) sets what it
+shows; the bench prints its last lines and the time from each of its
+frames to the draw that shows it. On 2026-11-11, an M1 Max on mains power,
+the window 1440 to 700 pt by 800 pt at 2x, off every screen, load average
+8 to 19 (other builds running), two runs each, before and after: busy
+2.68 to 2.70 s and 1.79 s, idle 2.61 to 2.68 s and 1.77 s, the Claude tab
+2.63 to 2.65 s and 1.77 to 1.78 s; a step 9.3 to 14.1 ms and 3.6 to 6.6 ms
+(median); 104 to 109 steps drawn twice and 0 to 1; every step drawn at
+its size; a frame shown 1.5 to 4.5 ms after it came (median), 20 ms at
+most.
+
 `node scripts/resizebench.mjs --onscreen` runs the same drag with the
 window on the screen (it shows a window: only with the person's yes),
 and prints the drawables out at each step, the time from a step to its
@@ -653,7 +676,7 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`, `links`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 

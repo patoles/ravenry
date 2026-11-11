@@ -596,10 +596,21 @@ final class Bench {
         main { workspace.select(index: 0) }
         sleep(0.3)
         view = main { workspace.focusedView! }
-        let busy = "i=0; while :; do i=$((i+1)); echo \"busy $i the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows\"; sleep 0.033; done"
-        main { view.sendEvents([["text": busy]]) }
-        key("\r", code: 0x24)
-        _ = waitFor(3) { self.text().contains("busy 20") }
+        // What the pane in front shows (RAVENRY_BENCH_CONTENT, resizebench
+        // --content): "busy" (the default, the loop), "idle" (the shell at
+        // its prompt), or a command typed in it (a replayed Claude tab and
+        // its spinner), given 3 s to draw its screen.
+        let content = ProcessInfo.processInfo.environment["RAVENRY_BENCH_CONTENT"].flatMap { $0.isEmpty ? nil : $0 } ?? "busy"
+        if content == "busy" {
+            let busy = "i=0; while :; do i=$((i+1)); echo \"busy $i the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows\"; sleep 0.033; done"
+            main { view.sendEvents([["text": busy]]) }
+            key("\r", code: 0x24)
+            _ = waitFor(3) { self.text().contains("busy 20") }
+        } else if content != "idle" {
+            main { view.sendEvents([["text": content]]) }
+            key("\r", code: 0x24)
+            sleep(3)
+        }
         sleep(0.5)
         let front = view
         let others: [TerminalView] = main { workspace.boxes.values.map(\.term).filter { $0 !== front } }
@@ -607,11 +618,16 @@ final class Bench {
         let logFile = (ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()) + "/Library/Logs/Ravenry/app.log"
         let logBefore = (try? String(contentsOfFile: logFile, encoding: .utf8))?.components(separatedBy: "\n").filter { $0.contains("draw:") }.count ?? 0
         var drawsAt: [(t: Double, px: CGSize, wait: Double)] = []
+        // When each of the pane's frames came (the reader thread), for the
+        // time from a frame to the draw that showed it.
+        var framesAt: [Double] = []
         let dl = NSLock()
         main {
             front.onDraw = { _, _ in
                 dl.lock(); drawsAt.append((CACurrentMediaTime(), front.drawnPixels, front.lastWaitMs)); dl.unlock()
             }
+            let before = front.onFrame
+            front.onFrame = { before?(); dl.lock(); framesAt.append(CACurrentMediaTime()); dl.unlock() }
             board?.resizeMs.removeAll()
         }
         var widths: [CGFloat] = []
@@ -693,6 +709,17 @@ final class Bench {
         let during = all.filter { $0.t >= tStart && $0.t <= tStart + secs }
         var gaps: [Double] = []
         for i in 1..<max(1, during.count) { gaps.append((during[i].t - during[i - 1].t) * 1000) }
+        // A frame that came in the drag: the time until the next draw (the one that showed it).
+        dl.lock(); let frames = framesAt.filter { $0 >= tStart && $0 <= tStart + secs }; dl.unlock()
+        var frameToDraw: [Double] = []
+        var di = 0
+        for f in frames {
+            while di < all.count && all[di].t < f { di += 1 }
+            if di < all.count { frameToDraw.append((all[di].t - f) * 1000) }
+        }
+        // The last lines the pane in front shows: its content was what was asked.
+        let lines: [String] = text().components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let tail: [String] = Array(lines.suffix(4))
         let othersAfter = main { others.map(\.drawCount).reduce(0, +) }
         let logAfter = (try? String(contentsOfFile: logFile, encoding: .utf8))?.components(separatedBy: "\n").filter { $0.contains("draw:") } ?? []
         let resize = main { board?.resizeMs ?? [] }
@@ -705,6 +732,8 @@ final class Bench {
             "draws_per_step": Bench.stats(perStep), "steps_not_drawn_at_their_size": notDrawn, "steps_drawn_more_than_once": multi,
             "examples": examples,
             "draws": during.count, "fps": Double(during.count) / secs, "draw_gap_ms": Bench.stats(gaps),
+            "content": content, "frames_in_drag": frames.count, "frame_to_draw_ms": Bench.stats(frameToDraw),
+            "front_text_tail": tail,
             "drawable_wait_ms": Bench.stats(during.map(\.wait)),
             "board_resize_ms": Bench.stats(resize),
             "hidden_tab_draws": othersAfter - othersBefore,
