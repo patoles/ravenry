@@ -40,6 +40,10 @@ struct HandoffState {
     var rootWaiting = false
     var rootErr = ""
     var modelBad = false
+    /// Rule suggestions (GET /api/settings/repeats): on, locked, the last run; a change on its way; why it failed.
+    var repeats: [String: Any]?
+    var repeatsBusy = false
+    var repeatsErr = ""
 
     var on: Bool { cur?["handoffEnabled"] as? Bool ?? true }
     var line: Int { (cur?["handoffThreshold"] as? NSNumber)?.intValue ?? 50 }
@@ -66,6 +70,12 @@ extension SettingsWindow {
             // The state's copy first, so the tab is not empty while the GET is on its way.
             let st = Dictionary(uniqueKeysWithValues: HandoffState.keys.compactMap { k in s[k].map { (k, $0) } })
             if st.count == HandoffState.keys.count { ho.stored = st; ho.cur = st }
+        }
+        hub.get("/api/settings/repeats") { [weak self] code, j in
+            guard let self, code == 200, !self.ho.repeatsBusy else { return }
+            let same = self.ho.repeats.map { ($0 as NSDictionary).isEqual(to: j) } ?? false
+            self.ho.repeats = j
+            if !same && self.tab == "handoff" { self.draw() }
         }
         hub.get("/api/settings/handoff") { [weak self] code, j in
             guard let self else { return }
@@ -252,6 +262,7 @@ extension SettingsWindow {
         controls["ho:model"] = model
         out.append(row(t("ho.codexModel"), [model], hint: t("ho.codexModelHint")))
         out.append(rootRow())
+        out += repeatsRows()
 
         // The foot: what the last change did.
         let foot: NSView
@@ -265,6 +276,35 @@ extension SettingsWindow {
         controls["ho:foot"] = foot
         out.append(hstack([foot, spring()], spacing: 0, insets: NSEdgeInsets(top: 14, left: 184, bottom: 0, right: 0)))
         return out
+    }
+
+    /// Rule suggestions (PAGE-018): the daily run, off until turned on here, never by a phone or an agent.
+    private func repeatsRows() -> [NSView] {
+        var out: [NSView] = [sec(t("rep.title"), sub: t("set.thisMac"), after: true)]
+        let rp = ho.repeats
+        let on = rp?["on"] as? Bool ?? false, locked = rp?["locked"] as? Bool ?? false
+        let box = CheckRow(t("rep.box"), on: on, enabled: rp != nil && !locked && !ho.repeatsBusy) { [weak self] v in self?.repeatsChange(v) }
+        controls["rep:on"] = box
+        var hint = locked ? t("rep.locked") : on ? t("rep.onHint") : t("rep.offHint")
+        if let last = rp?["lastRun"] as? [String: Any], let at = last["at"] as? String {
+            let when = When.day(at) ?? at
+            hint += " " + (last["ok"] as? Bool == false ? t("rep.ranFailed", ["when": when]) : t("rep.ranOk", ["when": when]))
+        }
+        if !ho.repeatsErr.isEmpty { hint = t("rep.failed", ["why": ho.repeatsErr]) }
+        out.append(row(t("rep.label"), [box], hint: hint, first: true))
+        return out
+    }
+
+    private func repeatsChange(_ on: Bool) {
+        guard let hub, !ho.repeatsBusy else { return }
+        ho.repeatsBusy = true; ho.repeatsErr = ""
+        draw()
+        hub.post("/api/settings/repeats", ["on": on]) { [weak self] code, j in
+            guard let self else { return }
+            self.ho.repeatsBusy = false
+            if code == 200 { self.ho.repeats = j } else { self.ho.repeatsErr = j["error"] as? String ?? "\(code)" }
+            self.draw()
+        }
     }
 
     /// A dot, the words, the tokens it stands for, and the stepper (− 50% +).

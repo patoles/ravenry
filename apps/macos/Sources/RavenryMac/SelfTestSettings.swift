@@ -44,6 +44,15 @@ extension SelfTestBoard {
         check("set_cursor_saved", saved()["cursorStyle"] as? String == "bar" && saved()["cursorBlink"] as? Bool == true && sw.controls["cursor:bar"]?.accessibilityValue() as? Bool == true)
         settingsPictures("settings-follow-off", widths: false)
         press(sw.controls["follow"]); press(sw.controls["cursor:block"]); press(sw.controls["blink"])
+        // The previews whole: each card as wide as the others, its "src  README.md" not cut (Nord and Paper were, 4th in their rows).
+        sw.window.contentView?.layoutSubtreeIfNeeded()
+        let cards = sw.controls.filter { $0.key.hasPrefix("theme:") }.map(\.value)
+        var cut: [String] = []
+        for c in cards {
+            func walk(_ v: NSView) { if let f = v as? NSTextField, f.stringValue.contains("README"), f.attributedStringValue.size().width > f.frame.width + 0.5 || f.convert(f.bounds, to: c).maxX > c.bounds.maxX { cut.append("\(c.accessibilityLabel() ?? "") \(Int(f.attributedStringValue.size().width)) in \(Int(f.frame.width))") }; v.subviews.forEach(walk) }
+            walk(c)
+        }
+        check("set_theme_previews_whole", !cards.isEmpty && cut.isEmpty && Set(cards.map { Int($0.frame.width) }).count == 1, "\(cut) widths \(Set(cards.map { Int($0.frame.width) }))")
         check("set_kept_other_keys", saved()["version"] as? Int == 1 && saved()["scrollback"] as? Int == 10000)
 
         // The file written by the other app: drawn again.
@@ -170,6 +179,7 @@ extension SelfTestBoard {
             check("set_import_env", false, "no RAVENRY_SETTINGS_IMPORT")
         }
         screenSettingsHandoff()
+        settingsRepeats()
         press(sw.tabButtons["skills"])
         // Read with ?ravenryd= (GETs are not in hub.sent): each row then says its hooks.
         check("set_skills_read", wait(8) { sw.skillsRead && !sw.skills.isEmpty && sw.skills.allSatisfy { ["on", "off", "unavailable"].contains($0["hooks"] as? String ?? "") } }, "\(sw.skills)")
@@ -360,6 +370,38 @@ extension SelfTestBoard {
         check("set_root_locked_hub_refuses", wait(6) { code != 0 } && code != 200 && wait(4) { pathShown() == want }, "hub \(code)")
         settingsPictures("settings-root-locked")
         sw.window.orderOut(nil)
+    }
+
+    /// PAGE-018: the rule suggestions switch on the Hand-off tab. Off on a new board; pressed, the hub's
+    /// 200, projects.json's repeatsAuto true and the first run started (its lastRun, failed here: the
+    /// test board's model command is /usr/bin/false); pressed again, off.
+    private func settingsRepeats() {
+        let sw = board.settings
+        press(sw.tabButtons["handoff"])
+        let root = sw.window.contentView!
+        guard let home = ProcessInfo.processInfo.environment["RAVENRY_MAC_HUB_HOME"] else { check("rep_hub_home", false); return }
+        let reg = URL(fileURLWithPath: home).appendingPathComponent(".ravenry/projects.json")
+        let saved = { (((try? Data(contentsOf: reg)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["settings"] as? [String: Any])?["repeatsAuto"] as? Bool }
+        check("rep_off_drawn", wait(8) { sw.ho.repeats != nil && (sw.controls["rep:on"] as? CheckRow)?.on == false && (sw.controls["rep:on"] as? CheckRow)?.enabled == true } && shows(root, t("rep.box")) && saved() != true,
+              "\(sw.ho.repeats ?? [:])")
+        let n = board.hub.sent.count
+        press(sw.controls["rep:on"])
+        check("rep_on_saved", wait(8) { self.board.hub.answers.contains { $0.seq >= n && $0.path == "/api/settings/repeats" && $0.code == 200 } } && saved() == true
+              && wait(4) { (sw.controls["rep:on"] as? CheckRow)?.on == true && self.shows(root, t("rep.onHint")) }, "saved \(String(describing: saved())) \(sw.ho.repeats ?? [:]) \(sw.ho.repeatsErr)")
+        var run: [String: Any]?
+        let hub = board.hub
+        let ran = wait(30) {
+            var got = false
+            hub.get("/api/settings/repeats") { c, j in if c == 200 { run = j["lastRun"] as? [String: Any] }; got = true }
+            _ = self.wait(3) { got }
+            return run != nil
+        }
+        check("rep_on_first_run_started", ran && run?["at"] != nil, "\(run ?? [:])")
+        settingsPictures("settings-repeats-on")
+        let n2 = board.hub.sent.count
+        press(sw.controls["rep:on"])
+        check("rep_off_saved", wait(8) { self.board.hub.answers.contains { $0.seq >= n2 && $0.path == "/api/settings/repeats" && $0.code == 200 } } && saved() == false
+              && wait(4) { (sw.controls["rep:on"] as? CheckRow)?.on == false })
     }
 
     /// The foot's Settings button.

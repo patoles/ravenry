@@ -432,6 +432,14 @@ export function saveHandoffSettings(patch) {
 // one per burst, above), then only the patched keys written through
 // update(), so hand edits made meanwhile survive. Keys set to undefined are
 // removed. Returns { ok, reg, backup } or { ok: false, status, error }.
+// Rule suggestions (server/repeats.mjs): the daily run that reads what the
+// person typed for corrections they repeat, on or off (PAGE-018).
+export function saveRepeatsAuto(on) {
+  const w = writeSettings({ repeatsAuto: !!on });
+  if (!w.ok) return w;
+  return { ok: true, on: !!(w.reg && w.reg.settings && w.reg.settings.repeatsAuto), backup: w.backup, reg: w.reg };
+}
+
 export function writeSettings(patch) {
   let backup = null;
   let r;

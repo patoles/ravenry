@@ -151,6 +151,7 @@ session's review comments and the agent's replies).
 | `/api/onboarding` | person | Judged (ambiguous): it hides the person's one-time hints, Learn ticks and the assistant's setup step for good, on every client. |
 | `/api/setup/skills` | person | It changes Claude Code's and Codex's skills folders. |
 | `/api/settings/handoff` | person | A setting the person chose; an agent could turn its own hand-off off. |
+| `/api/settings/repeats` | person | They spend the person's quota reading what they typed; the person decides. |
 | `/api/settings/assistant` | person | A setting the person chose. |
 | `/api/settings/projects-root` | person | A setting the person chose. |
 | `/api/settings/theme-import` | open | It makes a theme of the text the caller sends (`server/themeimport.mjs`) and answers with it; nothing is written, the client saves it. |

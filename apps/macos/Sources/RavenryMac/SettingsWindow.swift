@@ -375,7 +375,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     /// .thg: four a line, each the theme's colours over its name; the one picked ringed in --work.
     private func grid(_ list: [ThemeInfo], _ current: String, _ key: String) -> NSView {
         var lines: [NSView] = []
-        let cw: CGFloat = (720 - 56 - 170 - 14 - 3 * 8) / 4
+        // Four to a row in what the row leaves them (the window's 720 less its margins, the label and the room the row keeps on the right),
+        // each wide enough for "src  README.md" whole.
+        let cw: CGFloat = 108
         for i in stride(from: 0, to: list.count, by: 4) {
             let cards = list[i..<min(i + 4, list.count)].map { th -> NSView in
                 let on = th.id == current

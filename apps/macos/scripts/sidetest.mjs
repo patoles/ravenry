@@ -288,7 +288,7 @@ const screenHub = PAGES ? {
   // --screen machines: ssh never reaches anything from this board.
   // --screen settings: the projects' folder is the registry's setting (not
   // MC_PROJECTS_ROOT), so the Hand-off tab's Change can change it.
-  env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '', PATH: `${stubCodex()}:${process.env.PATH}` } : {}), ...(SCREEN === 'settingsroot' ? { MC_PROJECTS_ROOT: lockedRoot() } : {}), ...(SCREEN === 'phone' ? { RAVENRY_PHONE_HOSTS: '100.101.102.103' } : {}) },
+  env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '', PATH: `${stubCodex()}:${process.env.PATH}`, MC_REPEATS_AUTO: '' } : {}), ...(SCREEN === 'settingsroot' ? { MC_PROJECTS_ROOT: lockedRoot() } : {}), ...(SCREEN === 'phone' ? { RAVENRY_PHONE_HOSTS: '100.101.102.103' } : {}) },
   // --screen sessions: each session's process in its cmux tab (closable), quiet for 36 s is idle.
   ...(SESSIONS_SCREEN ? { cmuxIds: true, settings: { idleHours: 0.01 } } : {}),
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],

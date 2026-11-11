@@ -3130,6 +3130,13 @@ async function pagesWrite(req, res, p) {
   }
 }
 
+const repeatsLocked = () => process.env.MC_REPEATS_AUTO != null && process.env.MC_REPEATS_AUTO !== '';
+function repeatsSetting() {
+  let lastRun = null;
+  try { lastRun = repeats.load().state.lastRun || null; } catch { /* none yet */ }
+  return { ok: true, on: !!cfg().repeatsAuto, locked: repeatsLocked(), lastRun };
+}
+
 function afterRegistry(r) {
   if (r) reg = r;
   wantTick = true;
@@ -3818,6 +3825,8 @@ async function handleRequest(req, res) {
       return sendJson(res, r.status, r.body);
     }
     if (req.method === 'GET' && p === '/api/settings/projects-root') return sendJson(res, 200, { ok: true, local: !!req.mcLocal, ...projectsRoot.view(registry.load() || reg) });
+    // Rule suggestions: on or off, whether MC_REPEATS_AUTO decides it, the last daily run (PAGE-018).
+    if (req.method === 'GET' && p === '/api/settings/repeats') return sendJson(res, 200, repeatsSetting());
     if (req.method === 'GET' && p === '/api/settings/handoff') return sendJson(res, 200, { ok: true, settings: registry.handoffSettings(registry.load()?.settings) });
     if (req.method === 'GET' && p === '/api/settings/assistant') return sendJson(res, 200, { ok: true, ...assistantsView() });
     if (req.method === 'GET' && p === '/api/alerts') return sendJson(res, 200, { ok: true, local: !!req.mcLocal, ...alerts.status() });
@@ -4185,6 +4194,23 @@ async function handleRequest(req, res) {
         if (!r.ok) return sendJson(res, r.status, { error: r.error });
         afterRegistry(r.reg);
         return sendJson(res, 200, { ok: true, settings: r.settings, backup: r.backup ? short(r.backup) : null });
+      }
+      if (p === '/api/settings/repeats') {
+        // Turned on or off on the Mac only: it spends the person's quota.
+        // On, the first run starts now rather than within the hour.
+        if (!req.mcLocal) return sendJson(res, 403, { error: 'Turn rule suggestions on or off on the Mac.' });
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        if (typeof body.on !== 'boolean') return sendJson(res, 400, { error: 'Send on: true or false.' });
+        if (repeatsLocked()) return sendJson(res, 409, { error: 'MC_REPEATS_AUTO sets this, so it cannot be changed here.' });
+        const r = registry.saveRepeatsAuto(body.on);
+        if (!r.ok) return sendJson(res, r.status, { error: r.error });
+        afterRegistry(r.reg);
+        if (r.on && !repeats.load().state.lastRun) {
+          repeats.ensureSeed(cfg()).then(() => (repeats.load().state.lastRun ? null : repeats.run(cfg(), { reason: 'first' })))
+            .then(() => { wantTick = true; }).catch((e) => console.error('repeats: first run:', e.message));
+        }
+        return sendJson(res, 200, { ...repeatsSetting(), backup: r.backup ? short(r.backup) : null });
       }
       if (p === '/api/settings/assistant') {
         // Start new sessions with: Claude Code or Codex, and the model Codex

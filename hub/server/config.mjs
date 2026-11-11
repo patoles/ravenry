@@ -99,7 +99,7 @@ function configRaw(settings, projects) {
     // Daily runs: on by default only for the real board (no RAVENRY_HOME or
     // MC_HOME override),
     // so a test board never spends tokens unless it asks.
-    repeatsAuto: env.MC_REPEATS_AUTO != null ? env.MC_REPEATS_AUTO === '1' : settings.repeatsAuto != null ? !!settings.repeatsAuto : !HOME_OVERRIDE,
+    repeatsAuto: env.MC_REPEATS_AUTO != null && env.MC_REPEATS_AUTO !== '' ? env.MC_REPEATS_AUTO === '1' : settings.repeatsAuto != null ? !!settings.repeatsAuto : !HOME_OVERRIDE,
     // How the Suggested subtitle names the scope.
     rulesScopeName: settings.rulesScopeName || 'your projects',
   };

@@ -132,6 +132,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/onboarding', c: P, what: 'mark the onboarding as seen', why: 'Ambiguous, so the safer class: it hides the person\'s one-time hints, Learn ticks and the assistant\'s setup step for good, on every client.' },
   { m: 'POST', p: '/api/setup/skills', c: P, what: 'install or remove the Ravenry skill', why: 'It changes Claude Code\'s and Codex\'s skills folders.' },
   { m: 'POST', p: '/api/settings/handoff', c: P, what: 'change the hand-off settings', why: 'A setting the person chose; an agent could turn its own hand-off off.' },
+  { m: 'POST', p: '/api/settings/repeats', c: P, what: 'turn rule suggestions on or off', why: 'They spend the person\'s quota reading what they typed; the person decides.' },
   { m: 'POST', p: '/api/settings/assistant', c: P, what: 'change which assistant starts', why: 'A setting the person chose.' },
   { m: 'POST', p: '/api/settings/projects-root', c: P, what: 'change where projects go', why: 'A setting the person chose.' },
   { m: 'POST', p: '/api/settings/theme-import', c: O, why: 'It makes a theme of the text the caller sends (server/themeimport.mjs) and answers with it; nothing is written, the client saves it.' },
