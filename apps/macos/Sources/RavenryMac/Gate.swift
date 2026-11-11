@@ -20,7 +20,10 @@
 //   (gate.ts's CONTROL_VARS, MC_*, FAKE_*, STUB_*);
 // - run as Node (ELECTRON_RUN_AS_NODE=1, NodeRunner.swift), Node's
 //   inspector is refused and NODE_OPTIONS and NODE_PATH are dropped, as the
-//   Electron app's fuses do.
+//   Electron app's fuses do; and the hub's test switches (hubTestVars) make
+//   it quit before the hub starts, as a test switch does the app: the hub
+//   service is the person's board, where a caller on this Mac must never
+//   pass as a phone (MC_TEST_PHONE_PORT, hub/server/testphone.mjs).
 //
 // What only says where things are (RAVENRY_HOME, RAVENRY_DESKTOP_DATA, the
 // runtime and state folders, a test's launchd label) or how the window looks
@@ -56,6 +59,10 @@ enum Gate {
                                                                         "RAVENRY_RELAUNCH_TEST", "RAVENRY_PRUNE_AFTER"])
     static let controlPrefixes = ["MC_", "FAKE_", "STUB_", "RAVENRY_MAC_", "RAVENRY_TEST_", "RAVENRY_NOTIFY_", "RAVENRY_SETTINGS_", "RAVENRY_BENCH_"]
 
+    /// The hub's test switches, which a release run as Node quits on. The
+    /// hub refuses them itself on a person's data (hub/server/testphone.mjs).
+    static let hubTestVars: Set<String> = ["MC_TEST_PHONE_PORT"]
+
     static func isControlVar(_ k: String) -> Bool { controlVars.contains(k) || controlPrefixes.contains { k.hasPrefix($0) } }
 
     /// The switches in a command line that a release quits on (names, sorted).
@@ -88,9 +95,11 @@ enum Gate {
         let ignored = node ? env.keys.filter { $0 == "NODE_OPTIONS" || $0 == "NODE_PATH" }.sorted() : env.keys.filter(isControlVar).sorted()
         for k in ignored { unsetenv(k) }
         if !ignored.isEmpty && !node { AppInstall.shared.log("launch: a release build ignores \(ignored.joined(separator: ", "))") }
-        let sw = switches(CommandLine.arguments, node: node)
+        // As Node, a hub test switch in the environment is refused like a switch.
+        let sw = switches(CommandLine.arguments, node: node).map { $0 == "-- COMMAND" ? $0 : "--\($0)" }
+            + (node ? env.keys.filter(hubTestVars.contains).sorted() : [])
         if !sw.isEmpty {
-            let line = "launch: a release build does not take \(sw.map { $0 == "-- COMMAND" ? $0 : "--\($0)" }.joined(separator: ", ")): quitting"
+            let line = "launch: a release build does not take \(sw.joined(separator: ", ")): quitting"
             FileHandle.standardError.write("Ravenry: \(line)\n".data(using: .utf8)!)
             if !node { AppInstall.shared.log(line) }
             exit(2)
