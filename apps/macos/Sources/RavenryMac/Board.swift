@@ -958,7 +958,8 @@ final class Board: NSObject {
         readDecisions()
         if case .page("decisions", _) = front { decisions.load() }
         guard j["type"] as? String == "saved", let d = j["decision"] as? [String: Any], d["by"] as? String != "person", let id = d["id"] as? String else { return }
-        let scope = d["scope"] as? String
+        // The words say "the {scope}"; an agent's scope often starts with its own "the" (the guide's "the menus").
+        let scope = (d["scope"] as? String).map { $0.lowercased().hasPrefix("the ") ? String($0.dropFirst(4)) : $0 }
         let replaced = !((d["overrides"] as? [Any]) ?? []).isEmpty
         let quote = d["quote"] as? String ?? ""
         let text = replaced ? (scope.map { t("dec.replacedScope", ["scope": $0]) } ?? t("dec.replacedToast"))
