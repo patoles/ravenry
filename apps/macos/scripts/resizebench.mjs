@@ -53,7 +53,7 @@ const ONSCREEN = argv.includes('--onscreen') ? argv.splice(argv.indexOf('--onscr
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
-const APP = testApp(process.env.BENCH_APP || path.join(MAC, 'build', 'RavenryMac.app')).app;
+const { app: APP, exe: EXE } = testApp(process.env.BENCH_APP || path.join(MAC, 'build', 'RavenryMac.app'));
 fs.mkdirSync(path.join(REPO, '.tmp'), { recursive: true });
 const tmp = fs.mkdtempSync(path.join(REPO, '.tmp', 'mrb.'));
 const OUT = path.resolve(argv[0] || tmp);
@@ -101,7 +101,7 @@ const port = 47900 + Math.floor(Math.random() * 90);
 const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port });
 const result = path.join(OUT, 'bench.json');
 fs.rmSync(result, { force: true });
-const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(sock ? ['--socket', sock] : []), '--bench', result, '--bench-resize', ...(ONSCREEN ? ['--bench-onscreen'] : [])], {
+const app = spawn(EXE, ['--offscreen', ...(sock ? ['--socket', sock] : []), '--bench', result, '--bench-resize', ...(ONSCREEN ? ['--bench-onscreen'] : [])], {
   env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_BENCH_CONTENT: CONTENT },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(OUT, 'app-stderr.log'), 'w')],
 });
