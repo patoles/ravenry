@@ -69,7 +69,17 @@ final class SelfTestBoard {
         return done
     }
 
+    /// A picture view on screen whose image the hub has not sent yet (the
+    /// panel's latest picture is fetched again on each render).
+    func imageLoading(_ v: NSView) -> Bool {
+        if v.isHidden { return false }
+        if let p = v as? PictureThumb, p.image == nil { return true }
+        return v.subviews.contains { imageLoading($0) }
+    }
+
     func picture(_ name: String) {
+        // A render just before the picture starts the images' fetches again: wait for them (2 s at most).
+        if let root = window.contentView, imageLoading(root) { _ = wait(2) { !self.imageLoading(root) }; settle(0.1) }
         guard let root = window.contentView, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
         root.cacheDisplay(in: root.bounds, to: rep)
         let s: CGFloat = 2

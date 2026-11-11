@@ -227,6 +227,7 @@ extension SelfTestBoard {
     // MARK: windows
 
     private func shot(_ rw: RavenryWindow, _ name: String) {
+        if let root = rw.window.contentView, imageLoading(root) { _ = wait(2) { !self.imageLoading(root) }; settle(0.1) }
         guard let root = rw.window.contentView, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
         root.cacheDisplay(in: root.bounds, to: rep)
         let s: CGFloat = 2
