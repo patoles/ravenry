@@ -57,6 +57,8 @@ extension SelfTestBoard {
     func screenPages() {
         let k1 = "garden-planner/sf-1"
         if let r = board.sidebar.rows[k1] { click(r) }
+        // A11Y-004: every pressable card of Ideas, Plans and Ship has a label (SelfTestA11y.swift).
+        a11yLabelChecks()
 
         // MARK: Objectives
         check("objectives_opens", openFile("objectives") && board.front == .page("objectives", "Objectives") && board.root.wideMiddle && board.sidebar.rows["page:objectives"]?.selected == true, "\(board.front)")

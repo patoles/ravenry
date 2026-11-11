@@ -360,6 +360,8 @@ extension SelfTestBoard {
         board.hub.testPostAnswers = [:]
         (ws.film.controls["close"] as? RButton)?.run?()
         check("film_closes", !ws.film.isOpen && abs(ws.stage.frame.height - stageH) < 1 && !bar.filmOn)
+        // Reduced motion (SelfTestMotion.swift).
+        motionChecks()
 
         // A big busy pane, as a long Claude tab in a 1200 x 1000 pt pane at 2x: 153 x 60 of dense
         // text and a line redrawn ten times a second. All its frames as PNGs at 26 px are far over

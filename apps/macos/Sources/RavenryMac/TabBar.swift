@@ -210,7 +210,8 @@ final class TabBar: NSView {
         for (i, it) in items.enumerated() {
             let f = NSRect(x: x, y: 0, width: w[i], height: Design.tabHeight)
             if it !== dragged {
-                if animated {
+                // Reduced motion: at its place at once (Motion.swift).
+                if animated && !Motion.reduced {
                     NSAnimationContext.runAnimationGroup { c in c.duration = 0.15; it.animator().frame = f }
                 } else {
                     it.frame = f

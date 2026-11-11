@@ -425,8 +425,12 @@ final class FilmSheet: NSView {
         showFrame(min(frames.count - 1, max(0, (shown ?? sel) + d)))
     }
 
+    /// How long each frame of the last play was held, for the self-test.
+    private(set) var playGaps: [Double] = []
+
     func play() {
         if playing { stop(); paint(); return }
+        playGaps = []
         guard !frames.isEmpty else { return }
         var i = shown.map { $0 < frames.count - 1 ? $0 : 0 } ?? 0
         playing = true
@@ -434,7 +438,9 @@ final class FilmSheet: NSView {
             guard playing else { return }
             showFrame(i)
             guard i + 1 < frames.count else { playing = false; paint(); return }
-            let gap = min(1.5, max(0.06, frames[i + 1].at.timeIntervalSince(frames[i].at)))
+            // Reduced motion: each frame held at least half a second (Motion.swift).
+            let gap = min(1.5, max(Motion.shortestFrame, frames[i + 1].at.timeIntervalSince(frames[i].at)))
+            playGaps.append(gap)
             i += 1
             playTimer = Timer.scheduledTimer(withTimeInterval: gap, repeats: false) { _ in next() }
         }

@@ -43,8 +43,24 @@ func card(_ content: NSView, fill: String = "card", radius: CGFloat = 10, insets
         content.topAnchor.constraint(equalTo: b.topAnchor, constant: insets.top),
         content.bottomAnchor.constraint(lessThanOrEqualTo: b.bottomAnchor, constant: -insets.bottom), bottom,
     ])
-    if press != nil { b.setAccessibilityElement(true); b.setAccessibilityRole(.button) }
+    // A11Y-004: a card a press opens says what it is (its words, as read), so
+    // VoiceOver names an Ideas lane head, an idea, a Plans row or a Ship card.
+    if press != nil { b.setAccessibilityElement(true); b.setAccessibilityRole(.button); b.setAccessibilityLabel(axWords(content)) }
     return b
+}
+
+/// The words a view shows, in order (its labels' and text views' text), for an accessibility label.
+func axWords(_ v: NSView) -> String {
+    var out: [String] = []
+    func walk(_ v: NSView) {
+        if v.isHidden { return }
+        if let f = v as? NSTextField { let s = f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines); if !s.isEmpty { out.append(s) }; return }
+        if let tv = v as? NSTextView { let s = tv.string.trimmingCharacters(in: .whitespacesAndNewlines); if !s.isEmpty { out.append(s) }; return }
+        if let b = v as? NSButton, !b.title.isEmpty { out.append(b.title); return }
+        v.subviews.forEach(walk)
+    }
+    walk(v)
+    return out.joined(separator: ", ")
 }
 
 /// A line between rows (.orow's border-top).

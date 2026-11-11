@@ -1117,6 +1117,8 @@ final class FilePage: FormPage {
                 nt.acts = actsV
                 nt.key = PageFmt.text(it["file"] ?? it["id"])
                 nt.onPress = { [weak self] in self?.openItem(v, it, sec) }
+                // A11Y-004: a note says what it is to VoiceOver (its words, as read).
+                nt.setAccessibilityElement(true); nt.setAccessibilityRole(.button); nt.setAccessibilityLabel(axWords(bd))
                 nt.draggable = off == nil && it["$hash"] != nil && fieldOK
                 nt.dragMoved = { [weak self, weak nt] p in if let nt { self?.dragMove(nt, p) } }
                 nt.dragEnded = { [weak self] p in self?.drop(v, it, groupBy, p, sec) }
