@@ -103,6 +103,20 @@ extension SelfTestBoard {
         settle(0.5)
         check("links_url_unknown_nothing", board.front == .tab && ws.focusedView?.pane == shellPane, "front \(board.front)")
 
+        // A name the row's end cuts in two: a link on both rows, and a click on its second part opens it.
+        let cols = v.screen.cols
+        let wrapped = String(repeating: "x", count: cols - 6) + " paper-boat-7c is next."
+        v.sendEvents([["text": "clear; printf '%s\\n' \"\(wrapped)\"\r"]])
+        func spans() -> [NameSpan] { v.screen.lock(); defer { v.screen.unlock() }; return v.screen.nameSpans }
+        let two = wait(5) { let sp = spans(); return words() == ["paper-boat-7c"] && sp.count == 2 && sp[0].x0 == cols - 5 && sp[0].x1 == cols - 1 && sp[1].y == sp[0].y + 1 && sp[1].x0 == 0 && sp[1].x1 == 7 }
+        check("links_wrapped_name_both_rows", two, "\(spans())")
+        if let second = spans().last {
+            clickCell(v, col: 3, row: second.y)
+            check("links_wrapped_click_opens", wait(3) { self.board.front == .session(boat) }, "front \(board.front)")
+            ws.bar.onSelect?(shell.id)
+            settle(0.5)
+        }
+
         // The cost of a scan of the shell's rows (on the reader thread, as a frame is applied).
         let n = 2000
         v.screen.lock()

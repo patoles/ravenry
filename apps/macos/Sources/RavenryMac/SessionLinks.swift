@@ -185,8 +185,9 @@ final class SessionLinks {
     private var asking = false
     private var boardIds: Set<String> = []
     private var linked: [String: Target] = [:]
-    /// A ravenry:// link that came before the table: opened once it is here.
-    private var waiting: (word: String, board: Board, at: Date)?
+    /// A ravenry:// link that came before the table (or before the first
+    /// window, the app launched by it): opened once it is here.
+    private var waiting: (word: String, at: Date)?
     /// The words clicked or opened by a link (the self-test reads them).
     private(set) var opened: [String] = []
 
@@ -210,10 +211,10 @@ final class SessionLinks {
                     next[k] = Target(sessionId: sid, projectId: d["projectId"] as? String)
                 }
                 if next != self.names { self.names = next; self.rebuild() }
-                self.openWaiting()
+                self.openWaiting(board)
             }
         } else if r == nil || r == rev {
-            openWaiting()
+            openWaiting(board)
         }
     }
 
@@ -262,30 +263,29 @@ final class SessionLinks {
 
     /// ravenry://session/<name or id>: the board of the window in front
     /// opens it, at once when the names are here, else once they come
-    /// (within 20 s: an app just launched by the link).
+    /// (within 20 s: an app just launched by the link, its first window
+    /// not open yet).
     func openURL(_ u: URL, app: AppDelegate) -> Bool {
         guard u.scheme?.lowercased() == "ravenry", u.host?.lowercased() == "session" else { return false }
         let word = u.pathComponents.filter { $0 != "/" }.first ?? ""
         guard !word.isEmpty, word.count <= 100 else { return false }
         opened.append(word)
-        let rw = app.current ?? app.windows.first ?? app.makeWindow(.restore)
-        guard let rw else { return false }
+        guard app.launched, let rw = app.current ?? app.windows.first ?? app.makeWindow(.restore) else {
+            waiting = (word, Date())
+            return true
+        }
         if !app.options.offscreen {
             NSApp.activate(ignoringOtherApps: true)
             rw.window.makeKeyAndOrderFront(nil)
         }
-        if rev == nil || rw.board.hub.state == nil {
-            waiting = (word, rw.board, Date())
-        } else {
-            rw.board.openSessionLink(word, why: "url")
-        }
+        if rev == nil || rw.board.hub.state == nil { waiting = (word, Date()) } else { rw.board.openSessionLink(word, why: "url") }
         return true
     }
 
-    private func openWaiting() {
-        guard let w = waiting, rev != nil, w.board.hub.state != nil else { return }
+    private func openWaiting(_ board: Board) {
+        guard let w = waiting, rev != nil, board.hub.state != nil else { return }
         waiting = nil
-        if Date().timeIntervalSince(w.at) < 20 { w.board.openSessionLink(w.word, why: "url") }
+        if Date().timeIntervalSince(w.at) < 20 { board.openSessionLink(w.word, why: "url") }
     }
 }
 
