@@ -105,9 +105,14 @@ final class PickerView: Box {
     private(set) var images: [PickImage] = []
     let extra = NSTextField(string: "")
     private let pinField = NSTextField(string: "")
-    private let scroll = StackScroll(spacing: 0, insets: NSEdgeInsetsZero)
+    /// The pick's head and pictures (the self-test reads where they are).
+    let scroll = StackScroll(spacing: 0, insets: NSEdgeInsetsZero)
     private let foot = Box(fill: nil)
     private var pictures: [Int: NSImage] = [:]
+    /// The head's least top room: the system's soft edge (8 pt) under the title bar's band falls in it, never on the words.
+    static let edgeRoom: CGFloat = 10
+    /// How much of the picker's top the window's title bar covers (layout()).
+    private(set) var titleBand: CGFloat = 0
 
     init() {
         super.init(fill: "sheet")
@@ -168,7 +173,14 @@ final class PickerView: Box {
         super.layout()
         let fh: CGFloat = 57
         foot.frame = NSRect(x: 0, y: bounds.height - fh, width: bounds.width, height: fh)
-        scroll.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - fh))
+        // The scroll starts under the title bar's band, never in it: a scroll
+        // view in it gets the system's scroll edge effect (a blur band over
+        // the pick's head, which also drew the whole scroll blank in a
+        // cached drawing). The head's own top room is what the band takes.
+        var band: CGFloat = 0
+        if window != nil { band = max(0, min(bounds.height, safeAreaInsets.top)) }
+        scroll.frame = NSRect(x: 0, y: band, width: bounds.width, height: max(0, bounds.height - fh - band))
+        if abs(band - titleBand) > 0.5 { titleBand = band; if cp["id"] != nil { DispatchQueue.main.async { [weak self] in self?.draw() } } }
     }
 
     func draw() {
@@ -180,7 +192,7 @@ final class PickerView: Box {
         if where_ == nil { where_ = cp["project"] as? String }
         // .pk-h: the kind, the question, its body, how long it waits, Close.
         let kindRow = hstack([Icon("pick", "you", size: 14), label(w["heading"] as? String ?? "", Fonts.pt(12, .bold), "you"), where_.map { label($0, Fonts.pt(12), "tx3") }], spacing: 7)
-        let title = label(w["head"] as? String ?? "", Fonts.pt(20, .bold), "tx", lines: 0)
+        let title = label(md: w["head"] as? String ?? "", Fonts.pt(20, .bold), "tx", lines: 0)
         title.preferredMaxLayoutWidth = 700
         var tt: [NSView?] = [kindRow, title]
         if let b = w["body"] as? String { let l = label(b, Fonts.pt(13), "tx2", lines: 0); l.preferredMaxLayoutWidth = 700; tt.append(l) }
@@ -188,7 +200,7 @@ final class PickerView: Box {
         tcol.setContentHuggingPriority(.init(1), for: .horizontal)
         let close = RButton(t("pick.closeTip"), .icon, small: true, icon: "close") { [weak self] in self?.onClose?() }
         buttons["close"] = close
-        let head = hstack([tcol, spring(), label(cpWaiting(cp), Fonts.pt(12).withTabularDigits, "tx3"), close], spacing: 10, insets: NSEdgeInsets(top: 16, left: 22, bottom: 10, right: 22))
+        let head = hstack([tcol, spring(), label(cpWaiting(cp), Fonts.pt(12).withTabularDigits, "tx3"), close], spacing: 10, insets: NSEdgeInsets(top: max(Self.edgeRoom, 16 - titleBand), left: 22, bottom: 10, right: 22))
         head.alignment = .top
         // .pk-row: the pictures in up to three columns.
         let cols = max(1, min(vs.count, 3))

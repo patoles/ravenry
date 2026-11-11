@@ -202,6 +202,19 @@ extension SelfTestBoard {
         check("pick_note_counts", pk.buttons["send"]?.title == "Send B, with 1 note")
         pk.extra.stringValue = "Make it from the blue paper"
         n = board.hub.sentBodies.count
+        // The head and the pictures are on screen: in the clip's visible part, drawn (not only in the self-test's capture).
+        let shown = { () -> String in
+            self.window.contentView?.layoutSubtreeIfNeeded()
+            let sc = pk.scroll, clip = sc.contentView.bounds, doc = sc.documentView?.frame ?? .zero
+            let head = sc.stack.arrangedSubviews.first.map { $0.convert($0.bounds, to: sc.contentView) } ?? .zero
+            let img = pk.images.first.map { $0.convert($0.bounds, to: sc.contentView) } ?? .zero
+            return "scroll \(sc.frame) clip \(clip) doc \(doc) head \(head) image \(img) hidden \(sc.isHiddenOrHasHiddenAncestor)"
+        }
+        check("pick_picker_content_shown", { let sc = pk.scroll, clip = sc.contentView.bounds
+            guard let h = sc.stack.arrangedSubviews.first, let im = pk.images.first, !sc.isHiddenOrHasHiddenAncestor, sc.frame.height > 100 else { return false }
+            // Out of the title bar's band: no scroll edge effect over the head.
+            let pocket = sc.subviews.contains { "\(Swift.type(of: $0))".contains("Pocket") && !$0.isHidden && $0.frame.height > PickerView.edgeRoom }
+            return !pocket && clip.intersects(h.convert(h.bounds, to: sc.contentView)) && clip.intersects(im.convert(im.bounds, to: sc.contentView)) }(), shown() + " band \(pk.titleBand) subviews \(pk.scroll.subviews.map { "\(Swift.type(of: $0)) \($0.frame)" })")
         pictures("cards-picker")
         board.openPicker(cps.first { $0["kind"] as? String == "pick" }?["id"] as? String ?? "")
         pk.buttons["send"]?.performClick(nil)
