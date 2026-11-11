@@ -107,10 +107,22 @@ extension SelfTestBoard {
         n = hub.sentBodies.count
         rv.buttons["send"]?.performClick(nil)
         check("review_send_posts", wait(6) { hub.sentBodies.dropFirst(n).contains { $0.path.hasSuffix("/review/send") } && !rv.busy })
-        if let id = rv.comments.first?["id"] as? String, rv.comments.first?["state"] as? String == "pending" {
-            rv.buttons["takeBack:\(id)"]?.performClick(nil)
-            check("review_take_back", wait(6) { rv.comments.isEmpty })
-        } else { check("review_take_back", rv.comments.first?["state"] as? String == "sent", "\(rv.comments)") }
+        // Sent: the hub typed it into the session's prompt; the comment reads as sent.
+        check("review_sent_marked", wait(6) { rv.comments.first?["state"] as? String == "sent" }, "\(rv.comments)")
+        // A second one written on the line and taken back before it is sent: it goes, the sent one stays.
+        if let ln = rv.lines["new:3"] {
+            ln.scrollToVisible(ln.bounds)
+            window.contentView?.layoutSubtreeIfNeeded()
+            click(ln, at: NSPoint(x: 17, y: ln.bounds.midY))
+        }
+        _ = wait(2) { rv.composer != nil }
+        rv.composer?.string = "Log it once a day only"
+        rv.buttons["addComment"]?.performClick(nil)
+        let pending = { rv.comments.first { $0["state"] as? String == "pending" }?["id"] as? String }
+        _ = wait(6) { pending() != nil }
+        let taken = pending()
+        if let id = taken { rv.buttons["takeBack:\(id)"]?.performClick(nil) }
+        check("review_take_back", taken != nil && wait(6) { pending() == nil && rv.comments.count == 1 }, "\(rv.comments)")
         n = hub.sentBodies.count
         rv.buttons["merge"]?.performClick(nil)
         check("review_merge_posts", wait(10) { hub.sentBodies.dropFirst(n).contains { $0.path.hasSuffix("/merge") && $0.body["mode"] as? String == "ff" } && self.board.root.middle !== rv }, "\(board.front)")

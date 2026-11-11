@@ -68,16 +68,22 @@ extension SelfTestBoard {
             check("about_panel", false, NSApp.windows.map { "\($0.className) \($0.title) \($0.isVisible)" }.joined(separator: ", "))
         }
 
-        // The updater: a development build says it does not update itself.
+        // The updater: a development build says it does not update itself; a package's
+        // test twin (the checks' app, testapp.mjs) is a package, which does (updatecheck.mjs
+        // drives its update; Check for Updates here would ask the real feed, so it is not pressed).
         let up = Updater.shared
-        check("update_dev_build_says_so", up.whyNot() == "This is a development build. It does not update itself.", up.whyNot() ?? "-")
-        up.checkNow()
-        settle(0.4)
-        if let a = up.shown.last, a.window.isVisible {
-            check("update_dev_dialog", a.messageText == "Updates")
-            picturesOfWindow(a.window, "update-devbuild")
-            window.endSheet(a.window)
-        } else { check("update_dev_dialog", false) }
+        if AppInstall.shared.packaged {
+            check("update_package_updates_itself", up.whyNot() == nil, up.whyNot() ?? "-")
+        } else {
+            check("update_dev_build_says_so", up.whyNot() == "This is a development build. It does not update itself.", up.whyNot() ?? "-")
+            up.checkNow()
+            settle(0.4)
+            if let a = up.shown.last, a.window.isVisible {
+                check("update_dev_dialog", a.messageText == "Updates")
+                picturesOfWindow(a.window, "update-devbuild")
+                window.endSheet(a.window)
+            } else { check("update_dev_dialog", false) }
+        }
         // Downloading, then ready: the menu says Restart to Update to it.
         up.preview(.downloading("0.1.29"))
         settle(0.2)

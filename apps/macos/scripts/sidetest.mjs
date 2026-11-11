@@ -511,10 +511,10 @@ if (PAGES) {
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.jsonl')) : null;
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
-// --screen plan and pages: each session's cmux tab plays Claude's prompt box, so a
-// message the board types there (a plan paused or resumed, a page's ask) is taken
+// --screen plan, review and pages: each session's cmux tab plays Claude's prompt box, so a
+// message the board types there (a plan paused or resumed, review comments sent, a page's ask) is taken
 // (fake-cmux "prompts", what was sent kept in its "sent"), not refused.
-if (SCREEN === 'plan' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '' }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
+if (SCREEN === 'plan' || SCREEN === 'review' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '' }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
 if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true, ...(SESSIONS_SCREEN ? { focusLog: true } : {}) })); }
 // --screen sessions: a project with a brief and no earlier conversation (the project page's New session here and Open brief).
 if (SESSIONS_SCREEN) { fs.mkdirSync(path.join(hub.root, 'old-notes'), { recursive: true }); fs.writeFileSync(path.join(hub.root, 'old-notes', 'BRIEF.md'), '# Old notes\n\nGoal: Keep the notes from before the app.\n'); }

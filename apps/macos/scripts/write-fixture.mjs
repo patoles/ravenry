@@ -25,6 +25,7 @@
 // Hub.post records a request whatever the answer.
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { png } from './pages-fixture.mjs';
 
@@ -49,8 +50,9 @@ export function writeHub({ APP, run, tmp }) {
     plan: false, ideas: true, runtime: run, settings: { launchCommand: stand },
     env: {
       RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd'), RAVENRY_TERMINAL: 'ravenry', MC_PHONE_LAN: 'none', RAVENRY_SSH: '/usr/bin/false',
-      // The mockup rounds' pictures: Playwright's own headless Chromium.
-      ...(process.env.PLAYWRIGHT_BROWSERS_PATH ? { PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH } : {}),
+      // The mockup rounds' pictures: Playwright's own headless Chromium, from where this
+      // Mac keeps it (only read): the hub's HOME is the test's, where Playwright finds none.
+      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright'),
     },
     extra: ['lighthouse', 'harbour', 'quay', 'beacon', 'sandbar', 'old-notes'].map((id) => ({ id, name: id })),
     prepare: ({ ROOT }) => {

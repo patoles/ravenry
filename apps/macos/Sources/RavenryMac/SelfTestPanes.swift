@@ -41,7 +41,7 @@ extension SelfTestBoard {
         check("panes_strip_shown", board.root.strip?.text.contains("has this pane since") == true && board.root.strip?.buttons["takeBack"] != nil, board.root.strip?.text ?? "none")
         check("panes_strip_over_stage", (board.root.strip?.frame.maxY ?? 0) <= (ws.stage.frame.minY + 0.5) && (board.root.strip?.frame.height ?? 0) > 30, "\(board.root.strip?.frame ?? .zero) \(ws.stage.frame)")
         check("panes_panel_tag", board.panel.shows == "shell" && shows(board.panel, "An agent's pane"), texts(board.panel).prefix(6).joined(separator: " | "))
-        check("panes_panel_opened_by", shows(board.panel, "Opened by An agent"), texts(board.panel).prefix(8).joined(separator: " | "))
+        check("panes_panel_opened_by", shows(board.panel, "Opened by an agent"), texts(board.panel).prefix(8).joined(separator: " | "))
         check("panes_who_can_type", shows(board.panel, "Who can type here") && shows(board.panel, "Always") && shows(board.panel, "Its own pane"), texts(board.panel).joined(separator: " | "))
         pictures("panes")
         if let t = ws.tab(showing: own) { ws.show(t) }
