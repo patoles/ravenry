@@ -48,6 +48,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
 const APP = process.env.SIDETEST_APP || path.join(MAC, 'build', 'RavenryMac.app');
+// RavenryMac from build.sh, Ravenry in the packaged app (scripts/package.mjs).
+const EXE = ['RavenryMac', 'Ravenry'].map((n) => path.join(APP, 'Contents', 'MacOS', n)).find((f) => fs.existsSync(f)) || path.join(APP, 'Contents', 'MacOS', 'RavenryMac');
 const argv = process.argv.slice(2);
 const sAt = argv.indexOf('--screen');
 const SCREEN = sAt >= 0 ? argv.splice(sAt, 2)[1] : null;
@@ -101,8 +103,9 @@ if (DAEMONS) {
   sock = old.s;
 } else {
   daemon = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon.log'), 'w')] });
-  sock = path.join(run, 'ravenryd-0.0.0-dev.sock');
-  for (let i = 0; !fs.existsSync(sock); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
+  // Its socket is named after its version: 0.0.0-dev from build.sh, the release's in a packaged app (SIDETEST_APP).
+  const found = () => { const f = fs.readdirSync(run).find((n) => /^ravenryd-.+\.sock$/.test(n)); return f ? path.join(run, f) : null; };
+  for (let i = 0; !(sock = found()); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
 }
 
 const port = 47700 + Math.floor(Math.random() * 200);
@@ -432,7 +435,7 @@ for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${r
 // --screen settings: the folder the Hand-off tab's Change picks for new projects (in the demo board's HOME).
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
-const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
+const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
   env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
@@ -459,7 +462,7 @@ let again = null;
 if (DAEMONS) {
   const report = path.join(OUT, 'report.json');
   fs.rmSync(report, { force: true });
-  const a2 = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen'], {
+  const a2 = spawn(EXE, ['--offscreen'], {
     env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_REPORT: report }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-again.log'), 'w')],
   });
   for (let i = 0; i < 200 && !again; i++) {
