@@ -73,6 +73,20 @@ export const RAVENRY_HOME = pick();
 // The data folder is a test's (inside the repo's .tmp).
 export const SCRATCH_DATA = inRepoTmp(RAVENRY_HOME);
 
+// The address the board and its phone port listen on. A test's board (a test
+// process, data in the repo's .tmp or in a temp folder: the install check's,
+// a tool's throwaway HOME) listens on this Mac only, never on the Wi-Fi's
+// address, unless RAVENRY_HUB_BIND names one; the person's board on every
+// address, as before (phones reach it).
+export function hubBind(env = process.env, home = RAVENRY_HOME) {
+  if (env.RAVENRY_HUB_BIND) return env.RAVENRY_HUB_BIND;
+  // (The checkout's own .tmp too, where the app's harness keeps its boards.)
+  const tmps = [os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders', path.join(path.dirname(path.dirname(REPO_TMP)), '.tmp')].map((d) => [d, realOr(d)]).flat();
+  const abs = realOr(path.resolve(home));
+  const temp = tmps.some((d) => d && inside(abs, d));
+  return isTestEnv(env) || inRepoTmp(home) || temp ? '127.0.0.1' : undefined;
+}
+
 if (isTestEnv() && !SCRATCH_DATA) {
   throw new Error(`Ravenry: a test process must keep its data inside ${REPO_TMP}, not ${RAVENRY_HOME}. Set RAVENRY_HOME to a folder there before anything imports server/home.mjs (tools/test-guard.mjs does).`);
 }

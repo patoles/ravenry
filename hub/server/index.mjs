@@ -46,7 +46,7 @@ import * as projectsRoot from './projectsroot.mjs';
 import { activePlan, planPages, proofKind } from './planfmt.mjs';
 import * as planner from './planner.mjs';
 import * as planrun from './planrun.mjs';
-import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp } from './home.mjs';
+import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp, hubBind } from './home.mjs';
 import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
 import * as remoteinstall from './remoteinstall.mjs';
@@ -4294,8 +4294,8 @@ startlog.watchStalls();
 void startlog.profileStart();
 console.log(`start: modules loaded, ${Math.round(process.uptime() * 1000)} ms after start`);
 startlog.phase('listen');
-// RAVENRY_HUB_BIND: the address to listen on (a test hub's 127.0.0.1); every one by default.
-server.listen(PORT, process.env.RAVENRY_HUB_BIND || undefined, () => {
+// A test's board on this Mac only, the person's on every address (home.mjs hubBind).
+server.listen(PORT, hubBind(), () => {
   try { fs.mkdirSync(registry.RAVENRY_HOME, { recursive: true }); fs.writeFileSync(BOARD_FILE, JSON.stringify({ port: PORT, pid: process.pid, at: new Date().toISOString() }) + '\n'); } catch (e) { console.error('board.json:', e.message); }
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { forgetPort(); process.exit(0); });
   process.once('exit', forgetPort);

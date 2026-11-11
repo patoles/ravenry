@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { RAVENRY_HOME } from './registry.mjs';
+import { hubBind } from './home.mjs';
 
 export const TLS_DIR = path.join(RAVENRY_HOME, 'phone-tls');
 const KEY_FILE = path.join(TLS_DIR, 'key.pem');
@@ -186,8 +187,8 @@ export function start(port, handler, onUpgrade) {
   server.on('upgrade', (req, sock, head) => { req.mcTls = true; onUpgrade(req, sock, head); });
   server.on('tlsClientError', () => {});
   server.on('error', (e) => { console.error(`phone port :${port}: ${e.message}`); listening = false; });
-  // RAVENRY_HUB_BIND (a test's 127.0.0.1): the phone port on that address only, never the Wi-Fi's.
-  const bind = process.env.RAVENRY_HUB_BIND || undefined;
+  // A test's board: the phone port on this Mac only, never the Wi-Fi's (home.mjs hubBind).
+  const bind = hubBind();
   server.listen(port, bind, () => { listening = true; console.log(`phone access on: TLS on ${bind || ''}:${port}`); });
   return server;
 }
