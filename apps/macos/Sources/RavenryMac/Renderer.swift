@@ -378,6 +378,9 @@ struct Overlay {
     var flash = false
     /// What an agent typed, marked in the right gutter (InputMarks.swift): the row on screen and the bar's colour.
     var marks: [(row: Int, color: SIMD4<Float>)] = []
+    /// While a search runs: the rows its matches start on, from the top of
+    /// the scrollback, marked on the scrollbar's track (TERM-030).
+    var findMarks: [Int] = []
 }
 
 final class Renderer {
@@ -703,6 +706,25 @@ final class Renderer {
             let y = inset + (trackH - thumbH) * frac
             topRects.append(RectInst(pos: SIMD2(viewport.x - inset - width, y), size: SIMD2(width, thumbH),
                                 color: theme.light ? SIMD4(0, 0, 0, 0.35 * o.scrollbar) : SIMD4(1, 1, 1, 0.45 * o.scrollbar), kind: 4))
+        }
+        // The search's matches on the scrollbar's track, as the Electron
+        // app's overview ruler (terminal.ts: #C9A227, the selected #FF9F0A):
+        // a 2 point line a match's row, at its place in the scrollback.
+        if !o.findMarks.isEmpty {
+            let s = Float(fonts.scale)
+            let inset = 2 * s, width = 6 * s
+            let trackH = viewport.y - 2 * inset
+            let total = Float(max(1, screen.history + screen.rows))
+            let h = max(2 * s, trackH / total)
+            let x = viewport.x - inset - width
+            let mark = SIMD4<Float>(0xC9 / 255, 0xA2 / 255, 0x27 / 255, 1)
+            for y in o.findMarks where y >= 0 && y < Int(total) {
+                topRects.append(RectInst(pos: SIMD2(x, inset + trackH * Float(y) / total), size: SIMD2(width, h), color: mark, kind: 0))
+            }
+            if let c = screen.find.current {
+                let y = Float(c.y0) // (from the top of the scrollback, as the matches' rows)
+                topRects.append(RectInst(pos: SIMD2(x, inset + trackH * y / total), size: SIMD2(width, h), color: SIMD4(1, 0x9F / 255, 0x0A / 255, 1), kind: 0))
+            }
         }
         // What an agent typed: a 3 point bar 3 points right of the last
         // column, the row's height less 2 points each end (phase2.css .am-gut).

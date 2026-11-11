@@ -1002,7 +1002,16 @@ type RenderFindResult struct {
 	// PatternError: the regular expression does not parse, and why
 	// ("missing closing )"); there are then no matches.
 	PatternError string `json:"pattern_error,omitempty"`
+	// Rows: the rows the matches start on, from the top of the
+	// scrollback, each once (at most FindMarksMax, spread over them all),
+	// and Lines the rows in all (scrollback and screen): where a
+	// scrollbar marks the matches.
+	Rows  []int `json:"rows,omitempty"`
+	Lines int   `json:"lines,omitempty"`
 }
+
+// FindMarksMax is the most rows render.find lists for the scrollbar's marks.
+const FindMarksMax = 1000
 
 type RenderLinkRequest struct {
 	Envelope

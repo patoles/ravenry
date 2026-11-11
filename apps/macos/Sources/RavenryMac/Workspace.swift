@@ -404,7 +404,10 @@ final class Workspace: NSObject {
         var front = tabs.first { $0.id == saved.active || ("s:" + ($0.guest ?? "")) == saved.active }
         if let a = options.attach { front = tabs.first { $0.host == a || $0.guest == a } ?? front }
         if tabs.isEmpty {
-            guard let id = try newPane(cwd: nil, size: stage.bounds.size) else { throw ConnectionError.connect("no pane") }
+            // In the folder of the shell in front last, while it is there (TERM-068).
+            var isDir: ObjCBool = false
+            let last = saved.lastCwd.flatMap { FileManager.default.fileExists(atPath: $0, isDirectory: &isDir) && isDir.boolValue ? $0 : nil }
+            guard let id = try newPane(cwd: last, size: stage.bounds.size) else { throw ConnectionError.connect("no pane") }
             tabs = [Tab(host: id)]
             // No tab to bring back: the launch opens on New session, with Ink (Ink.swift).
             restoredNone = true
@@ -493,7 +496,7 @@ final class Workspace: NSObject {
         if let a = program?.agent { labels["ravenry.agent"] = a }
         var params: [String: Any] = ["cols": g.cols, "rows": g.rows, "name": program?.name ?? "Shell", "labels": labels, "scrollback": look.scrollback]
         if let c = program?.command, !c.isEmpty { params["command"] = c } else if !options.command.isEmpty { params["command"] = options.command }
-        if options.bench != nil || options.selftest != nil { params["cwd"] = home } else if let c = cwd, !c.isEmpty { params["cwd"] = c }
+        if let c = cwd, !c.isEmpty { params["cwd"] = c } else if options.bench != nil || options.selftest != nil { params["cwd"] = home }
         let d = daemons.newest
         let res = try conn.call("pane.new", params)
         guard let p = res["pane"] as? [String: Any], let id = p["id"] as? String else { return nil }
@@ -1173,6 +1176,8 @@ final class Workspace: NSObject {
         switch name {
         case "pane.title", "pane.cwd", "pane.updated", "pane.created":
             info[id]?.update(p)
+            // The shell in front changed folder: kept as the last folder (TERM-068).
+            if name == "pane.cwd", active?.focusedPane == id { save() }
             let shown = tabs.contains(where: { $0.host == id || $0.guest == id })
             if isAgentPane(p), !shown { homes[id] = homes[id] ?? d; addAgentPane(p) }
             else if !shown, isOwnShell(p), (p["state"] as? String ?? "running") == "running", !closedHere.contains(id), !held.contains(id), !gaveAway.contains(id) {
@@ -1589,7 +1594,10 @@ final class Workspace: NSObject {
                 splits.append(SavedSplit(host: t.id, guest: "s:" + g, side: t.side, size: t.size, focus: t.focus, zoom: t.zoom))
             }
         }
-        layout.save(order: order, splits: splits, active: active?.id, pinned: pinned)
+        // The folder of the shell in front (TERM-068), as the Electron app's lastCwd.
+        let front = active.flatMap { info[$0.focusedPane] }
+        let lastCwd = front.flatMap { $0.labels["ravenry.kind"] == "shell" && !$0.cwd.isEmpty ? $0.cwd : nil }
+        layout.save(order: order, splits: splits, active: active?.id, pinned: pinned, lastCwd: lastCwd)
     }
 
     func flush() { layout?.flush() }

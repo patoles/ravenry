@@ -52,6 +52,9 @@ struct SavedLayout {
     var active: String?
     /// The sessions pinned to the tabs (their keys), as the Electron app keeps them.
     var pinned: [String] = []
+    /// The folder of the shell in front last (the Electron app's
+    /// `lastCwd`): the first shell opens there when no tab comes back.
+    var lastCwd: String?
 }
 
 final class LayoutStore {
@@ -118,6 +121,7 @@ final class LayoutStore {
         l.order = all["order"] as? [String] ?? []
         l.active = all["active"] as? String
         l.pinned = (all["pinned"] as? [Any] ?? []).compactMap { $0 as? String }
+        l.lastCwd = (all["lastCwd"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         for s in all["splits"] as? [[String: Any]] ?? [] {
             guard let h = s["host"] as? String, let g = s["guest"] as? String else { continue }
             l.splits.append(SavedSplit(host: h, guest: g, side: s["side"] as? String ?? "right",
@@ -131,9 +135,9 @@ final class LayoutStore {
 
     /// Writes this window's tabs (ids in the strip's order, guests after
     /// their tab), splits and tab in front, 200 ms after the last change.
-    func save(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]? = nil) {
+    func save(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]? = nil, lastCwd: String? = nil) {
         timer?.cancel()
-        let w = DispatchWorkItem { [weak self] in self?.write(order: ours, splits: splits, active: active, pinned: pinned) }
+        let w = DispatchWorkItem { [weak self] in self?.write(order: ours, splits: splits, active: active, pinned: pinned, lastCwd: lastCwd) }
         timer = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: w)
     }
@@ -145,7 +149,7 @@ final class LayoutStore {
         t.cancel()
     }
 
-    private func write(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]?) {
+    private func write(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]?, lastCwd: String? = nil) {
         timer = nil
         var all = readAll()
         let mine = Set(ours).union(dropped)
@@ -169,6 +173,7 @@ final class LayoutStore {
         }
         all["order"] = order
         if let p = pinned { all["pinned"] = p }
+        if let c = lastCwd, !c.isEmpty { all["lastCwd"] = c }
         all["splits"] = outSplits
         if let a = active { all["active"] = a } else if let a = all["active"] as? String, mine.contains(a) { all["active"] = NSNull() }
         do {

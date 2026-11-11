@@ -409,6 +409,9 @@ final class TerminalView: NSView, NSTextInputClient {
         guard live, bounds.width > 0, bounds.height > 0, !holdingForPlace, let cb = renderer.queue.makeCommandBuffer() else { return }
         var overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range,
                               flash: bellFlashing)
+        if findBarVisible && !findNeedle.isEmpty && !findMarks.rows.isEmpty {
+            overlay.findMarks = findMarks.rows
+        }
         drawnMarks = placeMarks()
         overlay.marks = drawnMarks.map { ($0.row, InputMarks.color($0.cls)) }
         let t0 = CACurrentMediaTime()
@@ -928,9 +931,38 @@ final class TerminalView: NSView, NSTextInputClient {
             return true
         }
         if window?.firstResponder === self && shortcut(e) { return true }
+        // Cmd+Z, Cmd+Shift+Z and Cmd+X are the program's keys here, not the
+        // Edit menu's Undo, Redo and Cut (A11Y-011).
+        if window?.firstResponder === self, programsEditKey(e) {
+            sendEvents([keyEvent(e, action: "press", text: "")])
+            return true
+        }
         // The find keys also work while the find bar has the keyboard.
         if findBarVisible, findShortcut(e) == true { return true }
         return super.performKeyEquivalent(with: e)
+    }
+
+    /// Cmd+Z, Cmd+Shift+Z or Cmd+X, with no other modifier.
+    private func programsEditKey(_ e: NSEvent) -> Bool {
+        let f = e.modifierFlags.intersection([.command, .control, .option])
+        return e.type == .keyDown && f == .command && ["z", "x"].contains(e.charactersIgnoringModifiers?.lowercased() ?? "")
+    }
+
+    /// The Edit menu's Undo and Redo, chosen with the mouse while a
+    /// terminal has the keyboard: the program gets Cmd+Z (Cmd+Shift+Z),
+    /// as from the keyboard.
+    @objc func undo(_ sender: Any?) { sendEditKey(shift: false) }
+    @objc func redo(_ sender: Any?) { sendEditKey(shift: true) }
+    private func sendEditKey(shift: Bool) {
+        let mods = 8 | (shift ? 1 : 0)
+        sendEvents([["key": ["code": "KeyZ", "action": "press", "mods": mods, "unshifted": 122] as [String: Any]],
+                    ["key": ["code": "KeyZ", "action": "release", "mods": mods, "unshifted": 122] as [String: Any]]])
+    }
+
+    /// Cut is off in a terminal (the program's screen is not text to cut).
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(NSText.cut(_:)) { return false }
+        return true
     }
 
     override func doCommand(by selector: Selector) {
@@ -1410,6 +1442,11 @@ final class TerminalView: NSView, NSTextInputClient {
     /// The count and selected match from the last render.find, or the
     /// frames' find section since.
     private(set) var findCount = 0, findSelected = -1
+    /// The rows the matches start on (from the top of the scrollback) and
+    /// the rows in all, from the last render.find: the scrollbar's marks
+    /// (TERM-030). findMarksCount: the count they are of.
+    private(set) var findMarks: (rows: [Int], lines: Int) = ([], 0)
+    private var findMarksCount = -1
     /// Match case and Regular expression (the bar's Aa and .*).
     private(set) var findCase = false, findRegex = false
     /// What a press on a toggle this tab's daemon lacks said, until the
@@ -1567,6 +1604,9 @@ final class TerminalView: NSView, NSTextInputClient {
                     guard let self, needle == self.findNeedle, matchCase == self.findCase, regex == self.findRegex else { return }
                     self.findCount = n
                     self.findSelected = sel
+                    self.findMarks = bad == nil ? ((v["rows"] as? [NSNumber] ?? []).map(\.intValue), (v["lines"] as? NSNumber)?.intValue ?? 0) : ([], 0)
+                    self.findMarksCount = bad == nil ? n : -1
+                    self.requestDraw()
                     self.findBar?.show(count: bad == nil ? n : 0, selected: sel, needle: bad == nil ? needle : "")
                     self.findBar?.show(problem: bad.map { t("find.badPattern", ["why": $0]) } ?? self.findNotice, bad: bad != nil)
                 }
@@ -1597,6 +1637,8 @@ final class TerminalView: NSView, NSTextInputClient {
         findNotice = nil
         findCount = 0
         findSelected = -1
+        findMarks = ([], 0)
+        findMarksCount = -1
         window?.makeFirstResponder(self)
     }
 
@@ -1607,6 +1649,11 @@ final class TerminalView: NSView, NSTextInputClient {
             findCount = f.count
             findSelected = f.selected
             findBar?.show(count: f.count, selected: f.selected, needle: findNeedle)
+        }
+        // New matches came (or went): the scrollbar's marks are asked again.
+        if f.count != findMarksCount && findMarksCount >= 0 {
+            findMarksCount = f.count
+            find(step: 0)
         }
     }
 

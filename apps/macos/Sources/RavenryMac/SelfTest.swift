@@ -139,6 +139,11 @@ final class SelfTest {
 
     private func run() {
         defer { finish() }
+        if ProcessInfo.processInfo.environment["RAVENRY_MAC_LASTCWD_CHECK"] == "1" {
+            // selftest.sh's third launch: no tab to bring back (TERM-068, SelfTestTermA.swift).
+            lastFolderCheck()
+            return
+        }
         if let f = restoreFrom {
             restoreCheck(f)
             return
@@ -162,6 +167,7 @@ final class SelfTest {
         macKeys()
         settingsApplied()
         termItems()
+        termA()
         tabsAndSplits()
         check("general_pasteboard_untouched", NSPasteboard.general.changeCount == generalChanges)
     }

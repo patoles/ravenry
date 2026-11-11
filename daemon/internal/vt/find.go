@@ -362,6 +362,28 @@ func (f *Find) Matches(top, rows int) (count, index int, selected *Range, in []R
 	return count, index, selected, in, nil
 }
 
+// Rows returns the rows (from the top of the scrollback) that matches
+// start on, each once, in order: at most limit, spread over all of them
+// when there are more. For the marks on a scrollbar.
+func (f *Find) Rows(limit int) []int {
+	var rows []int
+	last := -1
+	for _, m := range f.matches {
+		if y := f.rowOf(m.Off); y != last {
+			rows = append(rows, y)
+			last = y
+		}
+	}
+	if limit > 0 && len(rows) > limit {
+		out := make([]int, 0, limit)
+		for i := 0; i < limit; i++ {
+			out = append(out, rows[i*len(rows)/limit])
+		}
+		rows = out
+	}
+	return rows
+}
+
 // rowOf is the row of a byte of the text.
 func (f *Find) rowOf(off int32) int {
 	return sort.Search(len(f.rowOff), func(y int) bool { return f.rowOff[y] > off }) - 1

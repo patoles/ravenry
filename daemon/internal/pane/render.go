@@ -509,6 +509,20 @@ func (s *RenderSub) Find(needle string, o vt.FindOptions, step int) (count, sele
 	return count, selected, err
 }
 
+// FindMarks returns the rows the search's matches start on (from the
+// top of the scrollback, at most limit) and the rows in all, the
+// scrollback and the screen: where a scrollbar marks them. Nil while no
+// search runs.
+func (s *RenderSub) FindMarks(limit int) (rows []int, lines int) {
+	p := s.p
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if s.find == nil || p.closed {
+		return nil, 0
+	}
+	return s.find.Rows(limit), p.rview.info.History + p.rview.rows
+}
+
 // Redraw makes the next frame carry every row.
 func (s *RenderSub) Redraw() {
 	s.p.mu.Lock()

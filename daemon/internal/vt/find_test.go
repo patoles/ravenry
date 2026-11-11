@@ -279,3 +279,36 @@ func BenchmarkFind(b *testing.B) {
 		})
 	}
 }
+
+// TestFindRows: the rows the matches start on, each once and in order,
+// for a scrollbar's marks; spread over all of them past the limit.
+func TestFindRows(t *testing.T) {
+	s := newTestScreen(t, 30, 5)
+	for i := 0; i < 40; i++ {
+		if i%4 == 0 {
+			s.Write([]byte(fmt.Sprintf("line %d mark mark\r\n", i)))
+		} else {
+			s.Write([]byte(fmt.Sprintf("line %d\r\n", i)))
+		}
+	}
+	f, err := s.NewFind()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if n, _ := found(t, s, f, "mark", FindOptions{}); n != 20 {
+		t.Fatalf("count %d, want 20", n)
+	}
+	rows := f.Rows(0)
+	if len(rows) != 10 {
+		t.Fatalf("rows %v, want 10 (one a line)", rows)
+	}
+	for i, y := range rows {
+		if y != 4*i {
+			t.Fatalf("rows %v: row %d is %d, want %d", rows, i, y, 4*i)
+		}
+	}
+	if r := f.Rows(4); len(r) != 4 || r[0] != 0 || r[3] != 28 {
+		t.Fatalf("rows at most 4: %v", r)
+	}
+}

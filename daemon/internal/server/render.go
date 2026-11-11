@@ -378,7 +378,8 @@ func (c *conn) renderFind(id uint64, data []byte) {
 		c.failErr(id, err)
 		return
 	}
-	c.reply(id, "render.find", proto.RenderFindResult{Count: count, Selected: sel})
+	marks, lines := st.rsub.FindMarks(proto.FindMarksMax)
+	c.reply(id, "render.find", proto.RenderFindResult{Count: count, Selected: sel, Rows: marks, Lines: lines})
 }
 
 func (c *conn) renderLink(id uint64, data []byte) {

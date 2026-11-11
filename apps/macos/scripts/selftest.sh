@@ -70,8 +70,20 @@ while kill -0 "$apppid" 2>/dev/null; do
   [ $i -gt 600 ] && { kill "$apppid"; echo "selftest: the relaunch did not finish in 60 s" >&2; exit 1; }
   sleep 0.1
 done
+# The third launch: the relaunch closed every tab after its shell went to
+# a folder of its own; with no tab to bring back, the first shell opens
+# there (TERM-068, SelfTestTermA.swift).
+# shellcheck disable=SC2086
+env -i $envs $appenv RAVENRY_MAC_LASTCWD_CHECK=1 "$exe" --offscreen --socket "$sock" --selftest "$out/lastcwd.json" 2>>"$dir/app.log" &
+apppid=$!
+i=0
+while kill -0 "$apppid" 2>/dev/null; do
+  i=$((i + 1))
+  [ $i -gt 600 ] && { kill "$apppid"; echo "selftest: the third launch did not finish in 60 s" >&2; exit 1; }
+  sleep 0.1
+done
 echo "selftest: files in $out" >&2
-/usr/bin/python3 -I - "$out/selftest.json" "$out/restore.json" <<'PY'
+/usr/bin/python3 -I - "$out/selftest.json" "$out/restore.json" "$out/lastcwd.json" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
 if "error" in r:
@@ -81,6 +93,11 @@ try:
 except Exception as e:
     r2 = {"checks": [{"name": "restore_ran", "ok": False, "detail": str(e)}]}
 r["checks"] += r2.get("checks", [{"name": "restore_ran", "ok": False, "detail": r2.get("error", "")}])
+try:
+    r3 = json.load(open(sys.argv[3]))
+except Exception as e:
+    r3 = {"checks": [{"name": "lastcwd_ran", "ok": False, "detail": str(e)}]}
+r["checks"] += r3.get("checks", [{"name": "lastcwd_ran", "ok": False, "detail": r3.get("error", "")}])
 failed = 0
 for c in r["checks"]:
     ok = c["ok"]

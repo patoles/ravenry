@@ -307,5 +307,8 @@ extension SelfTest {
         check("restore_active", got["active"] as? String == want["active"] as? String, "\(got["active"] ?? "")")
         let v = front()
         check("restore_front_draws", prompt(v) && v?.channel != 0)
+        // The colours after the relaunch, then no tab left for the third launch (SelfTestTermA.swift).
+        termAfterRelaunch()
+        _ = lastFolderLeave()
     }
 }

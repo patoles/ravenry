@@ -470,6 +470,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         add(shell, "Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift])
 
         let editMenu = menu("Edit")
+        // Undo, Redo and Cut for every text field (A11Y-011); in a terminal
+        // Cut is off and Undo and Redo are the program's keys (TerminalView).
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(TerminalView.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(TerminalView.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
