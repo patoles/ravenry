@@ -14,6 +14,8 @@ struct Who {
     var place: String?
     /// claude, codex, other, you.
     var cls: String
+    /// As said mid-sentence: "an agent", "a program", "you"; a name stays as it is.
+    var mid: String { ["You", "An agent", "A program"].contains(who) ? who.lowercased() : who }
 }
 
 /// One line of "Who can type here".
@@ -32,7 +34,7 @@ final class LeaseStrip: Box {
     init(holder: Who, since: String, waiting: [Who], handTo: (() -> Void)?, takeBack: @escaping () -> Void) {
         super.init(fill: nil)
         rawFill = NSColor(srgbRed: 191 / 255, green: 90 / 255, blue: 242 / 255, alpha: 0.09)
-        let waits = waiting.isEmpty ? "" : " \(waiting.map(\.who).joined(separator: " and ")) \(waiting.count > 1 ? "are" : "is") waiting for it."
+        let waits = waiting.isEmpty ? "" : " \(waiting.enumerated().map { $0.offset == 0 ? $0.element.who : $0.element.mid }.joined(separator: " and ")) \(waiting.count > 1 ? "are" : "is") waiting for it."
         text = t("lease.has", ["who": holder.who, "where": holder.place.map { t("lease.in", ["where": $0]) } ?? "", "since": since]) + waits + " " + t("lease.stillYours")
         let a = NSMutableAttributedString(string: text, attributes: [.font: Fonts.pt(12.5), .foregroundColor: NSColor(srgbRed: 0xD1 / 255, green: 0xD1 / 255, blue: 0xD6 / 255, alpha: 1)])
         a.addAttributes([.font: Fonts.pt(12.5, Fonts.w650), .foregroundColor: NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF4 / 255, alpha: 1)], range: NSRange(location: 0, length: (holder.who as NSString).length))
@@ -54,7 +56,7 @@ final class LeaseStrip: Box {
             b.attributedTitle = NSAttributedString(string: b.title, attributes: [.font: Fonts.pt(12, .medium), .foregroundColor: NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF4 / 255, alpha: 1)])
         }
         if let h = handTo, let next = waiting.first {
-            let b = RButton(t("lease.handTo", ["who": next.who]), .quiet, small: true, run: h)
+            let b = RButton(t("lease.handTo", ["who": next.mid]), .quiet, small: true, run: h)
             dark(b)
             buttons["handTo"] = b
             items.append(b)
@@ -253,7 +255,7 @@ extension Board {
     func openedLine(_ pane: String) -> String? {
         guard let i = ws.paneInfo(pane) else { return nil }
         let c = i.creator
-        let by = c == nil || c?["kind"] as? String == "person" ? "you" : sourceOf(c).who
+        let by = c == nil || c?["kind"] as? String == "person" ? "you" : sourceOf(c).mid
         let at = i.createdAt.isEmpty ? "" : ", \(When.clock(i.createdAt))"
         let proj = hub.state?.projects.first { p in p.folder.map { !i.cwd.isEmpty && (i.cwd == $0 || i.cwd.hasPrefix($0 + "/")) } ?? false }
         return t("lease.opened", ["by": by]) + at + (proj.map { ", in \($0.name)" } ?? "")

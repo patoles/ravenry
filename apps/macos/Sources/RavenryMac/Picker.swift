@@ -351,7 +351,8 @@ final class PickerView: Box, BackLinked {
         circ.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([circ.leadingAnchor.constraint(equalTo: ring.leadingAnchor, constant: 2), circ.trailingAnchor.constraint(equalTo: ring.trailingAnchor, constant: -2),
                                      circ.topAnchor.constraint(equalTo: ring.topAnchor), circ.bottomAnchor.constraint(equalTo: ring.bottomAnchor)])
-        let who = words["who"] as? String ?? ""
+        // Mid-sentence: the hub's whoMid ("the agent"), never who ("The agent").
+        let who = words["whoMid"] as? String ?? "the agent"
         extra.placeholderAttributedString = NSAttributedString(string: t("pick.anythingElse", ["who": who]), attributes: [.font: Fonts.pt(12.5), .foregroundColor: Design.color("tx3")])
         extra.setAccessibilityLabel(t("pick.anythingElse", ["who": who]))
         extra.textColor = Design.color("tx")

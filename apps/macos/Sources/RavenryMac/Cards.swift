@@ -163,6 +163,9 @@ final class OptRow: Box {
     }
     required init?(coder: NSCoder) { fatalError() }
     func press() { if enabled { run?() } }
+    // The whole row is the button: a press on its words or the space beside them answers, the
+    // window's first click included (the inner views would take it only to bring the window forward).
+    override func hitTest(_ p: NSPoint) -> NSView? { super.hitTest(p) == nil ? nil : self }
     override func mouseDown(with e: NSEvent) { press() }
     override func resetCursorRects() { handCursor() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
@@ -794,7 +797,8 @@ final class CheckpointCard: Box {
         if let s = d["session"] as? String { opt(2, s, d["sessionSub"] as? String, ["approve": true, "allow": "session"], false) }
         opt(d["session"] is String ? 3 : 2, t("checkpoint.refuse"), nil, ["decline": true], true)
         rows.append(vstack(list, spacing: 6))
-        let f = SendField(t("checkpoint.tellElse", ["who": who]), text: u.reason)
+        // Mid-sentence: the hub's whoMid ("the agent"), never who ("The agent").
+        let f = SendField(t("checkpoint.tellElse", ["who": w["whoMid"] as? String ?? "the agent"]), text: u.reason)
         f.onChange = { [weak self] s in self?.u.reason = s }
         f.onSend = { [weak self] s in self.map { $0.ctx.answer($0.id, ["decline": true, "reason": String(s.prefix(1000))]) } }
         sendField = f

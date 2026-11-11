@@ -327,6 +327,12 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     // MARK: the checkpoints this window's daemons hold (LocalCheckpoints.swift)
 
     let daemonCps = DaemonCheckpoints()
+    /// The cards that closed while this window watched (LocalCheckpoints.swift ClosedCards).
+    let closed = ClosedCards()
+    /// The open checkpoints of the last state built, by id: one gone from the next with no word of how is asked of the hub.
+    private var openSeen: [String: [String: Any]] = [:]
+    /// The ids asked of the hub's recent closed ones (GET /api/checkpoints?all), once each.
+    private var askedClosed = Set<String>()
     /// A daemon's checkpoint opened while the hub has sent no state yet (the board down from the start): the ids.
     var onLocal: (([String]) -> Void)?
     /// A daemon's connection by its socket, while the window has it (Workspace).
@@ -343,6 +349,23 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         return daemonCps.items.isEmpty ? nil : worded(daemonCps.merged([]))
     }
     func checkpoint(id: String) -> [String: Any]? { checkpoints?.first { $0["id"] as? String == id } }
+
+    /// The card a session's panel shows: its open checkpoint, else the last
+    /// that closed in its pane while this window watched (app.ts cpOfSession).
+    func card(of p: HubProject, _ s: HubSession) -> [String: Any]? {
+        if let c = state?.checkpoint(of: p, s) { return c }
+        guard let pane = s.pane else { return nil }
+        return closed.forPane(pane, machine: s.machine ?? p.machine)
+    }
+    /// A shell's: its open checkpoint, else the last that closed there (checkpoints.ts forPane).
+    func card(pane: String) -> [String: Any]? { checkpoint(pane: pane) ?? closed.forPane(pane, machine: nil) }
+    /// A loose card's (a page's run): open, else how it ended.
+    func card(id: String) -> [String: Any]? {
+        if let c = checkpoint(id: id), DaemonCheckpoints.isOpen(c) { return c }
+        return closed.get(id) ?? checkpoint(id: id)
+    }
+    /// The agent in a pane reported again: the cards that closed there before go (app.ts agent.report, checkpoints.ts settle).
+    func settle(pane: String, since: Date) { closed.settle(pane: pane, since: since) }
     /// An open checkpoint from a pane of this computer's daemons, the oldest first.
     func checkpoint(pane: String) -> [String: Any]? {
         (checkpoints ?? []).filter { ["open", "running"].contains($0["state"] as? String ?? "") && $0["pane"] as? String == pane && $0["machine"] as? String == nil }
@@ -367,15 +390,64 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             let st = HubState(withLocal(r))
             state = st
             onState?(st)
-        } else { onLocal?(opened.filter { !$0.isEmpty }) }
+        } else {
+            // The board down from the start: the daemons' alone, closed cards noted all the same.
+            _ = noteClosed(worded(daemonCps.merged([])))
+            onLocal?(opened.filter { !$0.isEmpty })
+        }
     }
 
-    /// The hub's state with this window's daemons' checkpoints merged in.
+    /// The hub's state with this window's daemons' checkpoints merged in, and how the ones that closed ended.
     private func withLocal(_ raw: [String: Any]) -> [String: Any] {
-        guard !daemonCps.items.isEmpty else { return raw }
         var r = raw
-        r["checkpoints"] = worded(daemonCps.merged(raw["checkpoints"] as? [[String: Any]] ?? []))
+        let list = raw["checkpoints"] as? [[String: Any]] ?? []
+        r["checkpoints"] = noteClosed(daemonCps.items.isEmpty ? list : worded(daemonCps.merged(list)))
         return r
+    }
+
+    /// Notes the checkpoints that closed (ClosedCards) and keeps them closed:
+    /// a late open copy of one this window saw close is its closed copy (a
+    /// checkpoint only moves on); one that was open and left the list with
+    /// no word of how (answered on the phone, withdrawn, out of time, on a
+    /// machine) is asked of the hub's recent closed ones (app.ts closedOnHub).
+    private func noteClosed(_ list: [[String: Any]]) -> [[String: Any]] {
+        var out: [[String: Any]] = []
+        var openNow: [String: [String: Any]] = [:]
+        var listed = Set<String>()
+        for c in list {
+            guard let id = c["id"] as? String else { out.append(c); continue }
+            listed.insert(id)
+            if DaemonCheckpoints.isOpen(c) {
+                if let done = closed.get(id) { out.append(done); continue }
+                openNow[id] = c
+            } else if openSeen[id] != nil || closed.items[id] != nil {
+                closed.saw(c)
+            }
+            out.append(c)
+        }
+        let gone = openSeen.keys.filter { !listed.contains($0) && closed.items[$0] == nil && !askedClosed.contains($0) }
+        openSeen = openNow
+        if !gone.isEmpty { askClosed(Array(gone)) }
+        return out
+    }
+
+    private func askClosed(_ ids: [String]) {
+        askedClosed.formUnion(ids)
+        guard base != nil else { return }
+        get("/api/checkpoints?all") { [weak self] code, j in
+            guard let self, code == 200 else { return }
+            var any = false
+            for cp in j["checkpoints"] as? [[String: Any]] ?? [] where ids.contains(cp["id"] as? String ?? "") {
+                if self.closed.saw(cp) { any = true }
+            }
+            if any { self.localChanged([]) }
+        }
+    }
+
+    /// A closed copy an answer returned (the hub's, worded): its card says how it ended at once.
+    private func answered(_ cp: [String: Any]?) {
+        guard let cp, closed.saw(cp) else { return }
+        localChanged([])
     }
 
     /// Each checkpoint with words for its state: the hub's, else made here by the hub's own code (cpwords.mjs wordsOf).
@@ -444,7 +516,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         body["id"] = id
         body["by"] = "desktop"
         post("/api/checkpoints/answer", body) { code, j in
-            if code == 200 { done(true, nil); return }
+            if code == 200 { self.answered(j["checkpoint"] as? [String: Any]); done(true, nil); return }
             // The hub takes answers from a person only (refusedAsPerson): this window was started from inside a pane.
             if code == 403, j["notPerson"] as? Bool == true { done(false, t("checkpoint.notPerson")); return }
             done(false, t("checkpoint.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]))

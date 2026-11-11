@@ -284,6 +284,9 @@ extension SelfTestBoard {
         check("cp_loose_answered_board_down", wait(6) { hub.daemonCps.items[looseId].map { !DaemonCheckpoints.isOpen($0.cp) } ?? false }
               && hub.sentBodies.dropFirst(a1).contains { $0.path == "ravenryd checkpoint.answer" && $0.body["checkpoint"] as? String == looseId }
               && !hub.sentBodies.dropFirst(a1).contains { $0.path == "/api/checkpoints/answer" }, hub.sentBodies.dropFirst(a1).map(\.path).joined(separator: ", "))
+        // Answered, it says so (PANEL-024) until something else comes to the front.
+        check("cp_loose_says_answered", wait(4) { self.board.render(force: true); return pn.loose == looseId && self.shows(pn, "Answered") && !self.shows(pn, "Needs you since") }, texts(pn).prefix(6).joined(separator: " | "))
+        ws.show(first)
         check("cp_loose_goes", wait(4) { self.board.render(force: true); return pn.loose == nil && pn.shows != "loose" }, pn.shows)
         // A new question in the shell in front, the board down: its card, answered through the daemon.
         ws.show(second)

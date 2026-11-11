@@ -1199,6 +1199,8 @@ final class Workspace: NSObject {
             refresh()
         case "agent.report":
             // What the agent in a pane reported: its tab's dot follows.
+            // It moved on: a card answered before that leaves the panel (app.ts, checkpoints.ts settle).
+            if let a = p["agent"] as? [String: Any] { hub?.settle(pane: id, since: When.date(a["at"] as? String ?? a["since"] as? String) ?? When.now()) }
             if let i = info[id] { i.update(p); refresh() }
         case "pane.lease":
             if let i = info[id] { i.lease = p["lease"] as? [String: Any]; refresh(); onLease?(id) }

@@ -113,6 +113,13 @@ is('mark labels', ['ask', 'approve', 'secret', 'pick', 'drive', 'review'].map(ma
   is('answered in words, here', [typed.big, typed.text], ['Not yet, after the fix', 'You answered here.']);
   const ran = said({ ...approve, state: 'answered', answer: { approved: true, by: 'desktop', at: at(0.1) }, closed_at: new Date(NOW).toISOString(), run: { pane: 'pdddddddd', exit: { code: 0 } } }).a;
   is('ran on a machine', [ran.head, ran.text, ran.runPane], ['Ran on devbox', 'Finished in 6 s with no errors. You approved it here; Codex has the output.', 'pdddddddd']);
+  // A page's run: the page speaks, never an agent (PAGE-006).
+  const pg = { ...approve, machine: null, page: { title: 'Deploys', label: 'Build' } };
+  const pageRan = said({ ...pg, state: 'answered', answer: { approved: true, by: 'desktop', at: at(1) }, closed_at: at(0), run: { pane: 'pd', exit: { code: 0 } } }).a;
+  is('a page run that ran', [pageRan.head, pageRan.text], ['Ran on this Mac', 'Finished in 1 min with no errors. You approved it here.']);
+  is('a page run running', said({ ...pg, state: 'running', answer: { approved: true, by: 'desktop', at: at(0) }, run: { pane: 'pd' } }).a.text, 'You approved it here. Its output is in its pane.');
+  is('a page run refused', said({ ...pg, state: 'declined', closed_at: at(0), answer: { declined: true, by: 'desktop', at: at(0) } }).a.text, 'You said no here. Nothing ran.');
+  is('a page run withdrawn', said({ ...pg, state: 'cancelled', closed_at: at(0) }).a.text, 'Deploys withdrew it.');
   const failedRun = said({ ...approve, machine: null, state: 'answered', answer: { approved: true, by: 'desktop', at: at(1) }, closed_at: at(0), run: { pane: 'pd', exit: { code: 2 } } }).a;
   is('a failed run here', [failedRun.ok, failedRun.head], [false, 'Ran on this Mac']);
   check('a failed run says its exit code', /^Ended with exit code 2 after 1 min\./.test(failedRun.text), failedRun.text);

@@ -337,8 +337,8 @@ final class Board: NSObject {
             answered: { [weak self] in
                 guard let self else { return }
                 self.markUsed("needs")
-                // Answered on a narrow window: back to the terminal.
-                if self.overlay { self.overlay = false }
+                // Answered on a narrow window: back to the terminal. A page's run stays over the page to say how it ended (PANEL-024).
+                if self.overlay, self.panel.loose == nil { self.overlay = false }
                 self.render(force: true)
             })
         panel.host?.paneName = { [weak self] id in self.flatMap { $0.ws.paneInfo(id) != nil ? $0.ws.label(id).name : nil } }

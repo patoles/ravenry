@@ -133,7 +133,7 @@ final class PanelView: Box {
                 for x in ["screen", "screenAt", "conversation", "reasons", "live"] { s[x] = nil }
                 var p = f.project.raw
                 p["sessions"] = nil
-                parts += [s, p, st.checkpoint(of: f.project, f.session) ?? [:], st.threshold, host?.pinned(k) ?? false,
+                parts += [s, p, host?.hub.card(of: f.project, f.session) ?? [:], st.threshold, host?.pinned(k) ?? false,
                           host?.setup(f.session.assistant ?? "").map { "\($0.hooks)\($0.skill)" } ?? "",
                           f.session.pane.flatMap { host?.olderDaemon($0) } ?? "", f.session.sessionId.map { host?.moving($0) ?? false } ?? false]
             } else if k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
@@ -145,10 +145,10 @@ final class PanelView: Box {
         if let id = pane?.id {
             parts.append(host?.inputs(id)?.count ?? -1)
             parts += [lastKnown[id] != nil, host?.paneLabels(id)?["ravenry.session"] ?? "", typedUI[id].map { "\($0.filter)\($0.whole)" } ?? "", pane.map { folderFree($0.cwd, state) } ?? false]
-            if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], host?.hub.checkpoint(pane: id) ?? [:]] }
+            if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], host?.hub.card(pane: id) ?? [:]] }
         }
         parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
-        if let id = loose { parts += [id, host?.hub.checkpoint(id: id) ?? [:]] }
+        if let id = loose { parts += [id, host?.hub.card(id: id) ?? [:]] }
         let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
         if !force, sig == signature { return }
@@ -163,15 +163,18 @@ final class PanelView: Box {
         shownCard = nil
         var rows: [NSView] = []
         // A loose checkpoint (a page's run button): its card, until it is answered or something else comes to the front.
-        if loose != nil, looseFront == nil { looseFront = front ?? "" }
-        if loose != nil, (front ?? "") != looseFront { loose = nil; looseFront = nil }
-        // From the state, or the daemons' alone while the board has sent nothing (LocalCheckpoints.swift).
-        let looseCp = loose.flatMap { id in host?.hub.checkpoint(id: id).flatMap { ["open", "running"].contains($0["state"] as? String ?? "") ? $0 : nil } }
+        // What is in front: a session or a page, else the tab's pane (a tab's front comes as nil).
+        let here = "\(front ?? "")|\(front == nil ? pane?.id ?? "" : "")"
+        if loose != nil, looseFront == nil { looseFront = here }
+        if loose != nil, here != looseFront { loose = nil; looseFront = nil }
+        // From the state, or the daemons' alone while the board has sent nothing (LocalCheckpoints.swift);
+        // once answered, how it ended (PANEL-024), until something else comes to the front.
+        let looseCp = loose.flatMap { id in host?.hub.card(id: id) }
         if loose != nil, looseCp == nil, host?.hub.checkpoints != nil { loose = nil; looseFront = nil }
         if let c = looseCp {
             shows = "loose"
             setHead(c["project"] as? String ?? t("panel.waitingForYou"), tag: (c["assistant"] as? String).map(assistantName), machine: c["machine"] as? String, pinKey: nil)
-            rows = [stateLine("you", t("panel.needsSince", ["time": When.clock(c["created_at"] as? String)])), card(c)]
+            rows = DaemonCheckpoints.isOpen(c) ? [stateLine("you", t("panel.needsSince", ["time": When.clock(c["created_at"] as? String)])), card(c)] : [card(c)]
         } else if let st = state, let k = front, let f = st.find(k) {
             shows = "session"
             // Kept by its pane: when it leaves the board, its tab's panel still says what it was.
@@ -321,6 +324,8 @@ final class PanelView: Box {
         var out: [NSView] = []
         let cp = st.checkpoint(of: p, s)
         out.append(statusLine(p, s, cp: cp))
+        // Its card: the open one, else how the last one ended (PANEL-024).
+        let shown = cp ?? host?.hub.card(of: p, s)
         // Open in two terminals, or went on in another: one click puts it in one place.
         if let other = s.alsoOpen ?? s.movedOn {
             let move = RButton(t("move.here"), .primary, small: true) { [weak self] in self?.move(p, s, keep: "ravenry") }
@@ -346,15 +351,15 @@ final class PanelView: Box {
         // A session in a cmux workspace no project lists (hub board unCardHtml): Add to a project.
         if p.raw["unowned"] as? Bool ?? false { out.append(notInProject(st, p)) }
         // What the first-launch step set up for its assistant, on this machine.
-        if cp == nil, s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a) {
+        if shown == nil, s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a) {
             out.append(sec(t("panel.thisSession"), [check(sl.hooks, t("panel.alertsOn"), t("panel.alertsOff")), check(sl.skill, t("panel.skillOn"), t("panel.skillOff"))]))
         }
-        if let c = cp { out.append(card(c)) }
+        if let c = shown { out.append(card(c)) }
         let w = s.words
         let q = (w["headline"] as? String) ?? (w["question"] as? String) ?? (w["line"] as? String) ?? ""
         let quick = (w["quick"] as? [[String: Any]] ?? []).prefix(6)
         let dialog = w["dialog"] as? [String] ?? []
-        if cp == nil, s.group == "you", !q.isEmpty || !dialog.isEmpty || !quick.isEmpty {
+        if shown == nil, s.group == "you", !q.isEmpty || !dialog.isEmpty || !quick.isEmpty {
             var rows: [NSView?] = [q.isEmpty ? nil : para(md: q, size: 13)]
             if !dialog.isEmpty { let d = label(dialog.joined(separator: "\n"), Fonts.mono(11.5), "tx2", lines: 0); d.preferredMaxLayoutWidth = PanelView.width - 56; rows.append(d) }
             if !quick.isEmpty {
@@ -814,7 +819,7 @@ final class PanelView: Box {
         // What the agent in it reported through the daemon (app.ts shellPanel): its state, or a question's card.
         let cp = host?.hub.checkpoint(pane: pn.id)
         if let line = reportLine(host?.report(pn.id), cp: cp) { out.append(line) }
-        if let c = cp { out.append(card(c)) }
+        if let c = cp ?? host?.hub.card(pane: pn.id) { out.append(card(c)) }
         else if let m = (host?.report(pn.id)?["need"] as? [String: Any])?["message"] as? String, !m.isEmpty {
             let q = boxed(para(m, size: 13), fill: "card", ring: "you", radius: 10, insets: NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14))
             q.setAccessibilityLabel(m)
@@ -895,7 +900,8 @@ final class PanelView: Box {
         let w = cp["words"] as? [String: Any] ?? [:]
         let alerts = host?.hub.state?.raw["alerts"] as? [String: Any] ?? [:]
         let phoneToo = (alerts["enabled"] as? Bool ?? false) && (alerts["configured"] as? Bool ?? false)
-        let key = "\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(u.stamp)|\(phoneToo)|\((cp["checked"] as? [[String: Any]])?.compactMap { $0["id"] as? String }.joined(separator: ",") ?? "")"
+        // The heading and the after line too: a page's run is worded by the hub after the daemon's copy came (PAGE-006, cards.ts cardFor).
+        let key = "\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(w["heading"] as? String ?? "")|\((w["after"] as? [String: Any])?["head"] as? String ?? "")|\(u.stamp)|\(phoneToo)|\((cp["checked"] as? [[String: Any]])?.compactMap { $0["id"] as? String }.joined(separator: ",") ?? "")"
         if let had = cardViews[id], had.key == key { had.refresh(); shownCard = had; return had }
         guard let h = host else { return NSView() }
         let ctx = CardCtx(hub: h.hub,

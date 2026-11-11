@@ -317,17 +317,19 @@ function whereOf(by) {
  */
 export function afterOf(cp) {
   if (cp.state === 'open') return null;
-  const w = who(cp);
+  const k = kindOf(cp);
+  // A page's run: the person pressed its button and no agent asked, so the page speaks and nobody "has the output".
+  const pg = cp.page && k === 'approve' ? cp.page : null;
+  const w = pg ? pg.title : who(cp);
   const a = cp.answer || null;
   const head0 = splitTitle(cp.title).head;
-  const k = kindOf(cp);
   const base = { ok: false, head: '', at: cp.closed_at || (a && a.at) || null, small: null, big: null, command: null, edited: false, text: '', runPane: null, where: whereOf(a && a.by) };
   const ran = () => (a && a.command) || cp.command || null;
   if (cp.state === 'cancelled') return { ...base, head: 'Withdrawn', text: `${w} withdrew it${cp.reason ? `: ${cp.reason}` : '.'}` };
   if (cp.state === 'expired') return { ...base, at: base.at || cp.expires_at || null, head: 'Nobody answered', text: `${w} gave up waiting at {time}.` };
   if (cp.state === 'declined' || (a && a.declined)) {
     const why = a && a.reason ? `: "${a.reason}"` : '';
-    return { ...base, head: 'Refused', small: k === 'ask' ? head0 : null, command: k === 'approve' ? cp.command || null : null, text: `You said no {where}${why}. ${w} was told.` };
+    return { ...base, head: 'Refused', small: k === 'ask' ? head0 : null, command: k === 'approve' ? cp.command || null : null, text: pg ? `You said no {where}${why}. Nothing ran.` : `You said no {where}${why}. ${w} was told.` };
   }
   if (k === 'ask') {
     const answer = a ? a.option ?? a.text ?? (a.choice != null && cp.options ? cp.options[a.choice] : null) : null;
@@ -338,7 +340,7 @@ export function afterOf(cp) {
     const approved = edited ? 'You edited it and approved it {where}' : 'You approved it {where}';
     const runPane = (cp.run && cp.run.pane) || null;
     if (cp.state === 'running') {
-      return { ...base, ok: true, head: 'Running on {ranOn}', at: (a && a.at) || null, command: ran(), edited, text: `${approved}. ${w} gets the output when it ends${edited ? ', and is told you changed it' : ''}.`, runPane };
+      return { ...base, ok: true, head: 'Running on {ranOn}', at: (a && a.at) || null, command: ran(), edited, text: pg ? `${approved}. Its output is in its pane.` : `${approved}. ${w} gets the output when it ends${edited ? ', and is told you changed it' : ''}.`, runPane };
     }
     const exit = cp.run && cp.run.exit;
     const took = a && a.at && cp.closed_at ? duration(Date.parse(cp.closed_at) - Date.parse(a.at)) : null;
@@ -346,7 +348,7 @@ export function afterOf(cp) {
       : exit.code === 0 ? `Finished${took ? ` in ${took}` : ''} with no errors.`
         : exit.signal ? `Stopped by ${exit.signal}${took ? ` after ${took}` : ''}.`
           : `Ended with exit code ${exit.code}${took ? ` after ${took}` : ''}.`;
-    return { ...base, ok: !!exit && exit.code === 0, head: 'Ran on {ranOn}', command: ran(), edited, text: `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane };
+    return { ...base, ok: !!exit && exit.code === 0, head: 'Ran on {ranOn}', command: ran(), edited, text: pg ? `${how} ${approved}.` : `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane };
   }
   if (k === 'secret') {
     const to = cp.secret && cp.secret.to === 'input' ? 'the program in its pane' : shortCommand(cp.command) || 'its command';

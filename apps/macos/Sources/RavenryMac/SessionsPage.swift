@@ -511,7 +511,7 @@ extension Board {
         } else if byPerson { what = shellish ? t("checkpoint.whatShell") : t("checkpoint.whatYours") }
         else { what = t("checkpoint.whatOwn", ["who": sourceOf(c).who]) }
         if i == nil, pane.isEmpty { what = "" }
-        let opened = i.map { t("checkpoint.openedBy", ["by": byPerson ? t("checkpoint.you") : sourceOf(c).who, "time": When.clock($0.createdAt)]) }
+        let opened = i.map { t("checkpoint.openedBy", ["by": byPerson ? t("checkpoint.you") : sourceOf(c).mid, "time": When.clock($0.createdAt)]) }
         let folder = i.flatMap { $0.cwd.isEmpty ? nil : ($0.cwd.hasPrefix(NSHomeDirectory()) ? "~" + $0.cwd.dropFirst(NSHomeDirectory().count) : $0.cwd) }
         return DriveFacts(what: what, session: asker.place, opened: opened, folder: folder)
     }
@@ -535,7 +535,7 @@ extension Board {
         }
         for id in ws.paneIDs() where id != agent {
             guard let l = leaseOf(id), (l["waiting"] as? [[String: Any]] ?? []).contains(where: { $0["pane"] as? String == agent }) else { continue }
-            return (false, t("side.waitingFor", ["pane": ws.label(id).name, "who": sourceOf(l["holder"] as? [String: Any]).who]))
+            return (false, t("side.waitingFor", ["pane": ws.label(id).name, "who": sourceOf(l["holder"] as? [String: Any]).mid]))
         }
         return nil
     }
