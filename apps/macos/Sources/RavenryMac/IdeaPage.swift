@@ -217,14 +217,14 @@ final class IdeaPage: FormPage {
             let send = RButton(t("idea.send"), .primary) { [weak self] in self?.say() }
             send.isEnabled = busy.isEmpty && !pending && !uploading
             buttons["send"] = send
-            let attach = RButton(t("idea.attach"), icon: nil) { [weak self] in self?.attachRefs() }
+            let attach = RButton(t("idea.attach"), .link) { [weak self] in self?.attachRefs() }
             attach.toolTip = t("idea.attachTip")
             attach.isEnabled = !uploading
             buttons["attach"] = attach
-            let reply = NSStackView(views: [f, vstack([attach, send], spacing: 6)])
-            send.widthAnchor.constraint(equalTo: attach.widthAnchor).isActive = true
+            let reply = NSStackView(views: [f, send])
             reply.orientation = .horizontal; reply.alignment = .bottom; reply.spacing = 10
-            rows.append(reply)
+            // Add a picture under the field: it goes with the message typed there.
+            rows.append(vstack([reply, hstack([attach, spring()], spacing: 0)], spacing: 6))
             var mock: RButton? = nil
             if rounds.isEmpty {
                 mock = RButton(t("idea.mockup")) { [weak self] in self?.post("mockups", [:]) { _ in self?.toast?(t("idea.mockupSent")) } }
