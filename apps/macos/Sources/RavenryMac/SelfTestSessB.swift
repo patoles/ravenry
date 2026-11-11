@@ -103,6 +103,7 @@ extension SelfTestBoard {
         sbLease()
         sbFreshStart()
         sbHandOffMenus()
+        sbWentOn()
         sbRowHover()
         sbListEnd()
         sbDiscard()
@@ -481,6 +482,7 @@ extension SelfTestBoard {
         let started = wait(25) { self.standIns().count > n0 }
         let rec = standIns().dropFirst(n0).first ?? [:]
         let pane = rec["pane"] as? String ?? ""
+        freshRec = rec
         openRow(of: rec["sid"] as? String ?? "")
         check("sb_fresh_resumes", started && (rec["cwd"] as? String).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path == URL(fileURLWithPath: folder).resolvingSymlinksInPath().path } == true
               && wait(10) { self.board.ws.tabs.contains { $0.host == pane || $0.guest == pane } } && wait(15) { self.board.hub.state?.find(key)?.session.handoff?["state"] as? String == "resumed" || self.board.hub.state?.projects.flatMap(\.sessions).contains { $0.sessionId == sid && $0.handoff?["state"] as? String == "resumed" } == true },
@@ -497,9 +499,40 @@ extension SelfTestBoard {
         let auto = wait(30) { self.standIns().count > n1 }
         let r2 = standIns().dropFirst(n1).first ?? [:]
         let p2 = r2["pane"] as? String ?? ""
+        autoRec = r2
         openRow(of: r2["sid"] as? String ?? "")
         check("sb_auto_fresh", auto && wait(10) { self.board.ws.tabs.contains { $0.host == p2 || $0.guest == p2 } } && ((r2["args"] as? [String]) ?? []).joined(separator: " ").contains("BRIEF.md"), "\(r2); tabs \(board.ws.tabs.map { "\($0.host)\($0.guest.map { "+" + $0 } ?? "")" })")
         board.hub.post("/api/settings/handoff", ["handoffAutoStart": false]) { _, _ in }
+    }
+
+    // MARK: SESS-016: a session in a pane here that went on in another terminal: Move here resumes the latest in a new pane
+
+    private func sbWentOn() {
+        // A fresh session still on the board in its pane (closing a project's sessions may have ended one).
+        let listed = { (r: [String: Any]) in self.board.hub.state?.projects.contains { $0.sessions.contains { $0.sessionId == r["sid"] as? String && $0.pane == r["pane"] as? String } } ?? false }
+        let rec = [freshRec, autoRec].first(where: listed) ?? freshRec
+        guard let sid = rec["sid"] as? String, let cwd = rec["cwd"] as? String, let pane = rec["pane"] as? String,
+              wait(15, { self.board.hub.state?.projects.contains { $0.sessions.contains { $0.sessionId == sid && $0.pane == pane } } ?? false }) else {
+            check("sb_went_on_said", false, "no fresh session in a pane: \(freshRec)"); return
+        }
+        _ = ask(["do": "wenton", "sid": sid, "cwd": cwd])
+        func find() -> (key: String, s: HubSession)? {
+            guard let p = board.hub.state?.projects.first(where: { $0.sessions.contains { $0.sessionId == sid && $0.movedOn != nil } }), let s = p.sessions.first(where: { $0.sessionId == sid && $0.movedOn != nil }) else { return nil }
+            return ("\(p.id)/\(s.surfaceId)", s)
+        }
+        guard wait(30, { find() != nil }), let f = find() else {
+            check("sb_went_on_said", false, "\(board.hub.state?.projects.flatMap { $0.sessions.filter { $0.sessionId == sid }.map { "\($0.surfaceId) movedOn \($0.raw["movedOn"] ?? "-") pane \($0.pane ?? "-")" } } ?? [])"); return
+        }
+        board.pickSession(f.key, why: "test")
+        if !board.panelVisible { _ = self.key("b", [.command, .option]) }
+        let said = wait(8) { self.board.render(force: true); return self.board.panel.buttons["move"] != nil && self.shows(self.board.panel, "cmux") }
+        check("sb_went_on_said", said, texts(board.panel).prefix(10).joined(separator: " | "))
+        pictures("sessb-went-on")
+        let n0 = standIns().count
+        if let b = board.panel.buttons["move"] { click(b) }
+        check("sb_went_on_move_posted", wait(15) { self.board.hub.sentBodies.contains { $0.path == "/api/sessions/move" && $0.body["sessionId"] as? String == sid } && self.board.hub.inFlight == 0 })
+        let resumed = wait(25) { self.standIns().dropFirst(n0).contains { (($0["args"] as? [String]) ?? []).contains(sid) && ($0["pane"] as? String) != pane } }
+        check("sb_went_on_resumed_new_pane", resumed, "\(standIns().dropFirst(n0).map { "\($0["pane"] ?? "") \($0["args"] ?? "")" })")
     }
 
     // MARK: SESS-025 Hand off now, SESS-030 a row's and a project row's right-click menus
@@ -732,6 +765,8 @@ extension SelfTestBoard {
     private var reviveKey: String? { get { SBState.reviveKey } set { SBState.reviveKey = newValue } }
     private var revivePane: String? { get { SBState.revivePane } set { SBState.revivePane = newValue } }
     private var codexPane: String? { get { SBState.codexPane } set { SBState.codexPane = newValue } }
+    private var freshRec: [String: Any] { get { SBState.freshRec } set { SBState.freshRec = newValue } }
+    private var autoRec: [String: Any] { get { SBState.autoRec } set { SBState.autoRec = newValue } }
     private var newPane: String? { get { SBState.newPane } set { SBState.newPane = newValue } }
     private var reasonScreenLater: Bool { get { SBState.reasonScreenLater } set { SBState.reasonScreenLater = newValue } }
 }
@@ -742,6 +777,8 @@ private enum SBState {
     static var codexPane: String?
     static var reasonScreenLater = false
     static var newPane: String?
+    static var freshRec: [String: Any] = [:]
+    static var autoRec: [String: Any] = [:]
 }
 
 /// A drop as AppKit hands it to a view: its pasteboard.

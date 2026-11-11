@@ -490,6 +490,20 @@ final class Board: NSObject {
             pinsPlaced = true
             for k in pinned where st.find(k) != nil { pinTab(k) }
         }
+        // A session tab whose key changed while its session id stayed (added to a project, handed over
+        // in its pane): its tab and its pin follow it under the new key, never a second tab (SESS-048).
+        var moved: [(String, String)] = []
+        for (k, sid) in keySids where st.find(k) == nil {
+            if let p = st.projects.first(where: { $0.sessions.contains { $0.sessionId == sid } }), let s = p.sessions.first(where: { $0.sessionId == sid }) { moved.append((k, "\(p.id)/\(s.surfaceId)")) }
+        }
+        for (o, n) in moved where pinned.contains(o) || sessionTabs.contains(o) {
+            if let i = pinned.firstIndex(of: o) { if pinned.contains(n) { pinned.remove(at: i) } else { pinned[i] = n } }
+            if let i = sessionTabs.firstIndex(of: o) { if sessionTabs.contains(n) { sessionTabs.remove(at: i) } else { sessionTabs[i] = n } }
+            ws.pinned = pinned
+            ws.save()
+            log.append("session \(o): its tab follows it to \(n)")
+        }
+        keySids = Dictionary(st.projects.flatMap { p in p.sessions.compactMap { s in s.sessionId.map { ("\(p.id)/\(s.surfaceId)", $0) } } }, uniquingKeysWith: { a, _ in a })
         // A session read only in the middle (cmux, iTerm2, Rex) that was in front at the last quit
         // comes back in front, as the Electron app's `selected` (TERM-069); a tab's comes back with its tab.
         if !frontRestored {
@@ -1585,6 +1599,8 @@ final class Board: NSObject {
     private var pinsPlaced = false
     /// The session in front at the last quit was brought back (once, at the first state).
     private var frontRestored = false
+    /// Each session's key and its session id, as the last state had them (a tab follows its session to a new key).
+    private var keySids: [String: String] = [:]
     /// The conversation of the session whose view is in front (followed when its key changes).
     private var frontSid: String?
     /// The session in front whose end was said.

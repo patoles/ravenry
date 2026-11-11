@@ -192,6 +192,20 @@ export async function sessbDo(req, { hub, sb, sock, APP, env, startHub }) {
     fs.appendFileSync(f, JSON.stringify({ ...last, at: new Date().toISOString(), event: 'SessionEnd', reason: 'prompt_input_exit' }) + '\n');
     ans.ended = true;
   }
+  if (req.do === 'wenton') {
+    // The conversation goes on in another process, in cmux: listed as ps lists it, its hooks after the pane's.
+    const { spawn } = await import('node:child_process');
+    const p = spawn('/bin/sleep', ['600'], { stdio: 'ignore', detached: false });
+    const ps = JSON.parse(fs.readFileSync(hub.current.ps, 'utf8'));
+    const WS = '3A000000-0000-4000-8000-0000000000C1', SF = '5F000000-0000-4000-8000-0000000000C1';
+    ps.push({ pid: p.pid, ppid: 1, rssKb: 200000, startedAt: new Date().toISOString(), command: `claude --resume ${req.sid}`, cwd: req.cwd, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${WS} CMUX_SURFACE_ID=${SF}` });
+    fs.writeFileSync(hub.current.ps, JSON.stringify(ps));
+    const f = path.join(hub.current.home, '.ravenry', 'events', `${req.sid}.jsonl`);
+    const ev = (event, extra = {}) => JSON.stringify({ at: new Date(Date.now() + 1000).toISOString(), event, session_id: req.sid, cwd: req.cwd, terminal: 'cmux', workspace_id: WS, surface_id: SF, claude_pid: p.pid, ...extra });
+    fs.appendFileSync(f, [ev('SessionStart', { source: 'resume' }), ev('UserPromptSubmit', { prompt: 'Go on from here' }), ev('Stop', { ends_on_question: false, background_tasks: 0 })].join('\n') + '\n');
+    if (ctxDaemon.sock) { try { execFileSync(ctxDaemon.bin, ['new', '--socket', ctxDaemon.sock, '--json', '--', '/bin/sleep', '15'], { env: ctxDaemon.env, stdio: 'ignore' }); } catch { /* the next tick */ } }
+    ans.pid = p.pid;
+  }
   if (req.do === 'hubdown') { hub.current.stop(); ans.stopped = true; }
   if (req.do === 'hubup') { await startHub(); ans.url = hub.current.url; }
   return ans;

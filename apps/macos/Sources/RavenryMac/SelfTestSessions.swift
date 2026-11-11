@@ -259,11 +259,19 @@ extension SelfTestBoard {
             board.pickSession(ku, why: "test")
             settle(0.4)
             check("sess_not_in_project_card", board.panel.buttons["addToProject"]?.isEnabled == true && shows(board.panel, "Not in a project"), texts(board.panel).prefix(12).joined(separator: " | "))
+            // Pinned as a tab first: its key changes when it joins a project, its session id stays (SESS-048).
+            if !board.pinned.contains(ku) { board.togglePin(ku) }
             let s3 = hub.sentBodies.count
             if let from = hub.state?.project(uid), let to = hub.state?.project("lighthouse") { board.panel.addToProject(from, to) }
             check("sess_add_to_project_posts", wait(4) { hub.sentBodies.dropFirst(s3).contains { $0.path == "/api/project/add-workspace" && $0.body["from"] as? String == uid && $0.body["projectId"] as? String == "lighthouse" } })
             check("sess_add_to_project_lands", wait(15) { hub.state?.project("lighthouse")?.sessions.contains { $0.surfaceId == usf } == true && hub.state?.project(uid) == nil },
                   "lighthouse: \(hub.state?.project("lighthouse")?.sessions.map(\.surfaceId) ?? [])")
+            // One tab for it, under its new key: the pin and the view in front followed it.
+            let kn = "lighthouse/\(usf)"
+            let tabs = { self.board.sessionTabs.filter { $0.hasSuffix("/\(usf)") } }
+            check("sess_key_change_one_tab", wait(8) { self.board.pinned.contains(kn) && !self.board.pinned.contains(ku) && tabs() == [kn] && self.board.front == .session(kn) },
+                  "pinned \(board.pinned); its tabs \(tabs()); front \(board.front)")
+            if board.pinned.contains(kn) { board.togglePin(kn) }
             // It ends there (its process and its SessionEnd): lighthouse has no session at work again.
             _ = ask(["do": "end", "sid": un?["sid"] as? String ?? ""])
             _ = wait(15) { hub.state?.project("lighthouse")?.sessions.contains { $0.surfaceId == usf && !$0.handed } != true }
