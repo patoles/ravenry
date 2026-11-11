@@ -422,3 +422,20 @@ func TestPaneEnvironmentIsCleanWhoeverStartedTheDaemon(t *testing.T) {
 		t.Errorf("pane env %v", got)
 	}
 }
+
+// The guide says how to run it: as ravenry when that is this program, else
+// by its quoted path (another ravenry on the PATH, or none).
+func TestSkillRunIt(t *testing.T) {
+	if s := runIt("/x/bin/ravenry", "/x/bin/ravenry", true); !strings.Contains(s, "run as written") || strings.Contains(s, "R=") {
+		t.Errorf("same: %q", s)
+	}
+	s := runIt("/Users/a/Library/Application Support/Ravenry/bin/ravenry", "/usr/local/bin/ravenry", false)
+	for _, w := range []string{"another program (/usr/local/bin/ravenry)", `R="/Users/a/Library/Application Support/Ravenry/bin/ravenry"`, `"$R" new`} {
+		if !strings.Contains(s, w) {
+			t.Errorf("other: no %q in %q", w, s)
+		}
+	}
+	if s := runIt("/x/ravenryd", "", false); !strings.Contains(s, "no `ravenry` on your PATH") {
+		t.Errorf("none: %q", s)
+	}
+}

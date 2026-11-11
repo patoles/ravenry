@@ -86,6 +86,14 @@ func cmdNew(in []string) error {
 	if err := c.Call(ctx, "pane.new", params, &r); err != nil {
 		return err
 	}
+	if len(a.pos) == 0 {
+		// A login shell: its id once it is at its first prompt (at most
+		// 3 s), so a command sent next is not typed ahead of the prompt and
+		// a wait --prompt from send's mark holds after the command, not on
+		// that first prompt (the guide's id=$(ravenry new), send, wait).
+		var w proto.WaitResult
+		_ = c.Call(ctx, "pane.wait", map[string]any{"pane": r.Pane.ID, "prompt": true, "since": 0, "timeout_ms": 3000}, &w)
+	}
 	if a.g.json {
 		return printJSON(r)
 	}

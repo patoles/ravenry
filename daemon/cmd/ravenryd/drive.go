@@ -873,11 +873,16 @@ func cmdDecide(in []string) error {
 	if len(a.pos) != 1 || strings.TrimSpace(a.pos[0]) == "" {
 		return errors.New("usage: ravenry decide \"THE PERSON'S WORDS, VERBATIM\" [--project P] [--replaces ID]")
 	}
-	// Without --project, the hub takes the project of this agent's
-	// session.
+	// Without --project: the project of this folder, else (a folder that
+	// is no project's) the project of this agent's session, which the hub
+	// takes when the body names none.
 	body := map[string]any{"quote": a.pos[0]}
+	guessed := false
 	if p := projectArg(a); p != "" {
 		body["project"] = p
+	} else if wd, err := os.Getwd(); err == nil {
+		body["project"] = wd
+		guessed = true
 	}
 	if v := a.values["replaces"]; v != "" {
 		body["replaces"] = v
@@ -888,7 +893,13 @@ func cmdDecide(in []string) error {
 	var r struct {
 		Decision Decision `json:"decision"`
 	}
-	if err := hubCall("POST", "/api/decisions/record", body, &r); err != nil {
+	err = hubCall("POST", "/api/decisions/record", body, &r)
+	var he hubError
+	if guessed && errors.As(err, &he) && he.status == 404 {
+		delete(body, "project")
+		err = hubCall("POST", "/api/decisions/record", body, &r)
+	}
+	if err != nil {
 		return err
 	}
 	if a.g.json {
@@ -935,7 +946,11 @@ func cmdDecisions(in []string) error {
 		return printJSON(r)
 	}
 	if len(r.Decisions) == 0 {
-		fmt.Fprintln(os.Stderr, "no decisions on record for this")
+		if q.Get("project") != "" {
+			fmt.Fprintln(os.Stderr, "no decisions on record for this project")
+		} else {
+			fmt.Fprintln(os.Stderr, "no decisions on record")
+		}
 		return nil
 	}
 	for _, d := range r.Decisions {

@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -189,7 +192,15 @@ F1-F12 or one character, with Ctrl+ Alt+ Shift+ Super+ (or C- M- S-).
 
 func skillText() string {
 	var b strings.Builder
-	b.WriteString(strings.Replace(skillIntro, "VERSION", version, 1))
+	intro := strings.Replace(skillIntro, "VERSION", version, 1)
+	at := strings.Index(intro, "## Where you are")
+	b.WriteString(intro[:at])
+	self, onPath := selfPath(), ""
+	if p, err := exec.LookPath("ravenry"); err == nil {
+		onPath = p
+	}
+	b.WriteString(runIt(self, onPath, sameFile(self, onPath)))
+	b.WriteString(intro[at:])
 	for _, g := range groups {
 		var cs []*command
 		for _, c := range commands {
@@ -225,4 +236,50 @@ func cmdSkill(in []string) error {
 	}
 	fmt.Print(skillText())
 	return nil
+}
+
+// selfPath is the path this program was run by, made absolute: the
+// stable link the skill's stub names (<data>/bin/ravenry), which an update
+// keeps, rather than the version folder it points to.
+func selfPath() string {
+	if a := os.Args[0]; strings.ContainsRune(a, '/') {
+		if p, err := filepath.Abs(a); err == nil {
+			return p
+		}
+	}
+	if p, err := os.Executable(); err == nil {
+		return p
+	}
+	return "ravenry"
+}
+
+func sameFile(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	x, err1 := os.Stat(a)
+	y, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(x, y)
+}
+
+// runIt says how to run the commands of this guide: as ravenry when that
+// is this program, else by this program's path (on a Mac with the old npm
+// ravenry-app, ravenry on the PATH is its board launcher, which knows none
+// of these commands).
+func runIt(self, onPath string, same bool) string {
+	if same {
+		return "`ravenry` on your PATH is this program, so the commands below run as written.\n\n"
+	}
+	q := "\"" + strings.ReplaceAll(self, "\"", "\\\"") + "\""
+	var b strings.Builder
+	b.WriteString("## Run it by its path\n\n")
+	b.WriteString("Every `ravenry` in this guide means this program, " + q + ".\n")
+	if onPath == "" {
+		b.WriteString("There is no `ravenry` on your PATH, so type the path, quoted, in its place:\n\n")
+	} else {
+		b.WriteString("`ravenry` on your PATH is another program (" + onPath + "), so type the\npath, quoted, in its place:\n\n")
+	}
+	b.WriteString("    R=" + q + "\n")
+	b.WriteString("    id=$(\"$R\" new --cwd \"$PWD\")\n\n")
+	return b.String()
 }
