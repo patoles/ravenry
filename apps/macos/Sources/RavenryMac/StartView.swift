@@ -847,6 +847,8 @@ final class StartView: MiddleView {
         let g = grid()
         var body: [String: Any] = ["folder": folder ?? NSHomeDirectory(), "assistant": kind, "cols": g.cols, "rows": g.rows]
         if let b = busyHere, !inFolder, let pid = b["projectId"] as? String { body["worktree"] = true; body["projectId"] = pid }
+        // A project's own folder: the hub opens the session on its brief and the decisions on record (SESS-041).
+        else if let f = folder, let p = hub?.state?.projects.first(where: { $0.folder == f && $0.machine == nil && $0.brief != nil && $0.raw["unowned"] as? Bool != true }) { body["projectId"] = p.id }
         hub?.post("/api/sessions/start", body) { [weak self] code, j in
             guard let self else { return }
             self.busy = false

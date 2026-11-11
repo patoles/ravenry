@@ -47,6 +47,7 @@ import { writeLedger, recordLive } from './decisions-fixture.mjs';
 import { cardFixtures, boatPng } from './cards-fixture.mjs';
 import { testApp } from './testapp.mjs';
 import { pagesPrepare } from './pages-fixture.mjs';
+import { sessbHub, sessbDriver, sessbSecond, sessbThird } from './sessb-fixture.mjs';
 import { writeHub, writeEnv, writeArrive, trafficProxy } from './write-fixture.mjs';
 import { machineCard } from '../../../hub/server/machineview.mjs';
 import { SHAPES, HOSTS, BUILDS } from '../../../hub/tools/machine-shapes.mjs';
@@ -373,6 +374,10 @@ if (!SCREEN || SESSIONS_SCREEN) {
   fs.writeFileSync(STAND_IN, `#!/bin/sh\necho "$$ $RAVENRY_PANE $2 $PWD" >> '${STAND_IN}.log'\nprintf 'Claude Code (a stand-in), moved here\\n\\n> '\nexec sleep 100000\n`, { mode: 0o755 });
   Object.assign(screenHub, { runtime: run, settings: { ...(screenHub.settings || {}), launchCommand: STAND_IN }, env: { ...(screenHub.env || {}), RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
 }
+// --screen sessb (sessb-fixture.mjs): the board in Ravenry mode, its sessions stand-ins in panes of this test's daemon.
+const SESSB = SCREEN === 'sessb';
+const SB = SESSB ? sessbHub({ tmp, APP, run, base: screenHub }) : null;
+if (SB) Object.assign(screenHub, SB.hub);
 if (LINKS) {
   fs.writeFileSync(STAND_IN, "#!/bin/sh\nprintf 'Claude Code (a stand-in), continued\\n\\n> '\nexec sleep 100000\n", { mode: 0o755 });
   const first = screenHub.prepare;
@@ -509,6 +514,8 @@ if (PAGES) {
   fs.writeFileSync(RULES_FILE, JSON.stringify({ memory: path.join(cpdP(path.join(PR, 'paper-boat')), 'memory'), global: path.join(PHP, '.claude', 'CLAUDE.md'), projectClaudeMd: path.join(PR, 'paper-boat', 'CLAUDE.md'), fake: path.join(PD, 'hub', 'fake-cmux.json') }));
 }
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
+const sbDrive = SB ? sessbDriver({ hub: { current: hub }, sb: SB, sock, APP, env }) : null;
+if (SB) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
 const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.jsonl')) : null;
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
 // --screen plan, review and pages: each session's cmux tab plays Claude's prompt box, so a
@@ -736,7 +743,7 @@ app.on('exit', () => { exited = true; });
 const arrivals = [['paper-boat', 'Tilt the hull with the slope too, or keep it level?'], ['notes-app', 'The settings screen is done. Ship the beta to the testers?']];
 const t0 = Date.now();
 let n = 1;
-while (!exited && Date.now() - t0 < (PAGES || WRITE ? 420000 : 240000)) {
+while (!exited && Date.now() - t0 < (PAGES || WRITE || SESSB ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
     if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
@@ -745,6 +752,7 @@ while (!exited && Date.now() - t0 < (PAGES || WRITE ? 420000 : 240000)) {
   }
   if (DAEMONS) listResumed();
   if (SESSIONS_SCREEN) await doRequests();
+  if (sbDrive) await sbDrive(result);
   await sleep(50);
 }
 for (const s of sleeps) { try { s.kill(); } catch { /* gone */ } }
@@ -767,6 +775,8 @@ if (DAEMONS) {
   try { again = JSON.parse(fs.readFileSync(report, 'utf8')); } catch {}
   a2.kill();
 }
+// --screen sessb: the app again with no board, which comes up later (sessb2).
+const sessb2 = SESSB ? [...await sessbThird({ EXE, env, sock, url: hub.url, OUT, tmp, spawn, sleep }), ...await sessbSecond({ EXE, APP, env, tmp, OUT, startDemoHub, spawn, sleep })] : null;
 // --screen proofs: the app again on the same board and daemon (ONB-006), and a second client's read of the marks.
 // --screen termnav (SelfTestTermNav.swift): a session pane's process ends
 // while Ravenry is not running, then the app again on the same board and
@@ -808,6 +818,7 @@ for (const d of daemonsUp) d.kill();
 if (PD) fs.rmSync(PD, { recursive: true, force: true });
 let r;
 try { r = JSON.parse(fs.readFileSync(result, 'utf8')); } catch { console.log(`sidetest: no result; see ${path.join(tmp, 'app.log')}`); process.exit(1); }
+if (sessb2) for (const c of sessb2) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 if (PROOFS) {
   for (const c of proofs2?.checks || [{ name: 'onb_relaunch_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
   const ok = marks2 && marks2.pick === true && marks2['needs-you'] === true;

@@ -490,6 +490,12 @@ final class Board: NSObject {
             pinsPlaced = true
             for k in pinned where st.find(k) != nil { pinTab(k) }
         }
+        // A session read only in the middle (cmux, iTerm2, Rex) that was in front at the last quit
+        // comes back in front, as the Electron app's `selected` (TERM-069); a tab's comes back with its tab.
+        if !frontRestored {
+            frontRestored = true
+            if let k = prefs?.string(forKey: "frontSession"), let f = st.find(k), f.session.pane == nil, front == .tab { pickSession(k, why: "relaunch") }
+        }
         // A checkpoint or a session that came to need you: the panel opens
         // on it when it is in front, else a toast says so, with Show.
         let open = Set(st.checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }.compactMap { $0["id"] as? String })
@@ -499,6 +505,16 @@ final class Board: NSObject {
         let first = lastOpen.isEmpty && lastYou.isEmpty && log.isEmpty
         if you != lastYou || open != lastOpen { log.append("state you: \(you.sorted().joined(separator: ","))") }
         lastOpen = open; lastYou = you
+        // A question's toast stays until it is answered (SESS-019): it goes once its session needs
+        // the person no more, or its tab's pane holds no open checkpoint.
+        let openPanes = Set(st.checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }.compactMap { $0["pane"] as? String })
+        for i in toastView.items where i.key.hasPrefix("needs:") {
+            let k = String(i.key.dropFirst(6))
+            if k.hasPrefix("tab:") {
+                let tb = ws.tabs.first { $0.id == String(k.dropFirst(4)) }
+                if tb == nil || !openPanes.contains(where: { $0 == tb?.host || $0 == tb?.guest }) { toastView.drop(i) }
+            } else if !you.contains(k) { toastView.drop(i) }
+        }
         if !newYou.isEmpty || !newCps.isEmpty { log.append("state: new \((newCps.sorted() + newYou.sorted()).joined(separator: ","))\(first ? " (first)" : "")") }
         if !first {
             var arrived: [String] = []
@@ -533,7 +549,7 @@ final class Board: NSObject {
             let what = InlineMd.plain(((w["head"] as? String) ?? (cp["title"] as? String) ?? "").replacingOccurrences(of: "\n", with: " "))
             let said = what.isEmpty ? "." : ": " + (what.count > 70 ? String(what.prefix(69)) + "..." : what)
             log.append("arrived tab:\(tb.id): a toast")
-            toast("\(ws.label(pane).name) needs you\(said)", actions: [("Show", { [weak self] in self?.showPane(pane) })], key: "needs:tab:\(tb.id)")
+            toast("\(ws.label(pane).name) needs you\(said)", actions: [("Show", { [weak self] in self?.showPane(pane) })], key: "needs:tab:\(tb.id)", seconds: .infinity)
             return
         }
         log.append("checkpoint \(id): no session or tab holds it, its card on its own")
@@ -553,7 +569,7 @@ final class Board: NSObject {
         let said = what.isEmpty ? "." : ": " + (what.count > 70 ? String(what.prefix(69)) + "..." : what)
         let proj = title != f.project.name ? " in \(f.project.name)" : ""
         log.append("arrived \(key): a toast")
-        toast("\(title)\(proj) needs you\(said)", actions: [("Show", { [weak self] in self?.pickSession(key, why: "notification") })], key: "needs:\(key)")
+        toast("\(title)\(proj) needs you\(said)", actions: [("Show", { [weak self] in self?.pickSession(key, why: "notification") })], key: "needs:\(key)", seconds: .infinity)
     }
 
     var wide: Bool { root.bounds.width >= Board.foldWidth }
@@ -1486,6 +1502,11 @@ final class Board: NSObject {
                 log.append("session: its new pane \(a.pane) in front once it came")
             }
         }
+        // The session read only in the middle that is in front, kept for the next launch.
+        if frontRestored {
+            if case .session(let k) = front { if prefs?.string(forKey: "frontSession") != k { prefs?.set(k, forKey: "frontSession") } }
+            else if prefs?.string(forKey: "frontSession") != nil { prefs?.removeObject(forKey: "frontSession") }
+        }
         // A session in front that left the board: followed under its new key
         // (moved, continued: the same conversation), else its view and its tab
         // stay with their last words and say it ended.
@@ -1498,7 +1519,7 @@ final class Board: NSObject {
             }
             if outsideEnded != k {
                 outsideEnded = k
-                outside.stop()
+                outside.ended()
                 toast(t("else.ended"))
             }
         }
@@ -1562,6 +1583,8 @@ final class Board: NSObject {
     private var panesTicked = false
     /// The pinned sessions were made tabs from the first state.
     private var pinsPlaced = false
+    /// The session in front at the last quit was brought back (once, at the first state).
+    private var frontRestored = false
     /// The conversation of the session whose view is in front (followed when its key changes).
     private var frontSid: String?
     /// The session in front whose end was said.

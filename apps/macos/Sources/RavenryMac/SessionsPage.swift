@@ -473,6 +473,7 @@ extension Board {
         sidebar.useLine = { [weak self] k in self?.useLineOf(k) }
         sessionsPage.openSession = { [weak self] k in self?.pickSession(k, why: "sessions page") }
         projectPage.onShowPane = { [weak self] pane in self?.showPane(pane) ?? false }
+        projectPage.say = { [weak self] s in self?.toast(s) }
         panel.host?.showPane = { [weak self] pane in self?.showPane(pane) ?? false }
         panel.host?.paneLabels = { [weak self] pane in self?.ws.paneInfo(pane)?.labels }
         panel.host?.whoOf = { [weak self] src in

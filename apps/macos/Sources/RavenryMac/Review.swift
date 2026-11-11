@@ -38,6 +38,8 @@ final class WorktreeCards {
     /// What the self-test presses.
     private(set) var buttons: [String: RButton] = [:]
     private(set) var busy = false
+    /// The sessions whose Discard asks to be sure (by surface).
+    private var discardAsk = Set<String>()
     init(hub: HubClient) { self.hub = hub }
 
     func diffOf(_ s: HubSession) -> [String: Any]? {
@@ -118,7 +120,24 @@ final class WorktreeCards {
                 kv.column(at: 0).width = 52
                 kv.rowSpacing = 5
                 kv.yPlacement = .top
-                out.append(sec(t("review.itsCopy"), nil, [kv]))
+                // Discard: its copy and its branch removed without merging (SESS-047), sure first.
+                var rows: [NSView?] = [kv]
+                if discardAsk.contains(s.surfaceId) {
+                    let yes = RButton(t("review.discardYes"), small: true) { [weak self] in self?.discard(s, branch: branch) }
+                    yes.titleColor = "bad"
+                    yes.isEnabled = !busy
+                    buttons["discardYes"] = yes
+                    let no = RButton(t("review.discardNo"), .ghost, small: true) { [weak self] in self?.discardAsk.remove(s.surfaceId); self?.rerender() }
+                    buttons["discardNo"] = no
+                    rows += [cardText(t("review.discardAsk", ["branch": branch]), Fonts.pt(12.5), "bad"), hstack([yes, no, spring()], spacing: 6)]
+                } else if s.state != "working" {
+                    let d = RButton(t("review.discard"), .link) { [weak self] in self?.discardAsk.insert(s.surfaceId); self?.rerender() }
+                    d.titleSize = 12
+                    d.titleColor = "tx3"
+                    buttons["discard"] = d
+                    rows.append(hstack([d, spring()], spacing: 0))
+                }
+                out.append(sec(t("review.itsCopy"), nil, rows))
             }
         }
         if let f = filesSection(p, s, sec: sec) { out.append(f) }
@@ -183,6 +202,20 @@ final class WorktreeCards {
             self.forget(s.surfaceId)
             self.rerender()
             done?(code == 200)
+        }
+    }
+
+    func discard(_ s: HubSession, branch: String) {
+        guard !busy else { return }
+        busy = true
+        rerender()
+        hub.post("/api/sessions/\(enc(s.surfaceId))/discard", [:]) { [weak self] code, j in
+            guard let self else { return }
+            self.busy = false
+            self.discardAsk.remove(s.surfaceId)
+            self.toast(code == 200 ? t("review.discarded", ["branch": branch]) : j["error"] as? String ?? "The board answered \(code).")
+            self.forget(s.surfaceId)
+            self.rerender()
         }
     }
 

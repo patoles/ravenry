@@ -130,7 +130,7 @@ final class PanelView: Box {
         if let st = state, let k = front {
             if let f = st.find(k) {
                 var s = f.session.raw
-                for x in ["screen", "screenAt", "conversation", "reasons", "live"] { s[x] = nil }
+                for x in ["screen", "screenAt", "conversation", "live"] { s[x] = nil }
                 var p = f.project.raw
                 p["sessions"] = nil
                 parts += [s, p, host?.hub.card(of: f.project, f.session) ?? [:], st.threshold, host?.pinned(k) ?? false,
@@ -327,6 +327,8 @@ final class PanelView: Box {
         var out: [NSView] = []
         let cp = st.checkpoint(of: p, s)
         out.append(statusLine(p, s, cp: cp))
+        // Where that state came from (SESS-035): its hook events, its screen, or the plan.
+        if let r = reasonLine(p, s, width: PanelView.width - 56) { out.append(r) }
         // Its card: the open one, else how the last one ended (PANEL-024).
         let shown = cp ?? host?.hub.card(of: p, s)
         // Open in two terminals, or went on in another: one click puts it in one place.
@@ -377,6 +379,10 @@ final class PanelView: Box {
             }
             out.append(sec(nil, rows, ring: "you"))
         }
+        // Reply: the person's own words typed into it from here, with files (SESS-026, SESS-045).
+        if s.machine == nil, p.machine == nil, s.raw["live"] as? Bool == true, ReplyBox.canType(st, s), let h = host {
+            out.append(ReplyBox(key: key, project: p, session: s, hub: h.hub, width: PanelView.width - 28) { [weak self] in self?.host?.toast($0) })
+        }
         if s.pane != nil, s.machine == nil, p.machine == nil, let h = host {
             out += h.extras(p, s, { [weak self] rows in self?.sec(nil, rows, ring: "you") ?? NSView() }, { [weak self] t0, r, rows in self?.sec(t0, right: r, rows) ?? NSView() })
         }
@@ -406,6 +412,10 @@ final class PanelView: Box {
             hand.isEnabled = !queued
             if queued { hand.toolTip = t("panel.handOffQueuedTip") }
             buttons["handoff"] = hand
+            // A written hand-off whose fresh session waits for the person, or did not start (SESS-044).
+            let fresh = FreshStart.state(s)
+            let startB: RButton? = fresh.offer ? RButton(t("panel.startFresh"), .primary, small: true) { [weak self] in FreshStart.start(self?.host?.hub, p, s) { self?.host?.toast($0) } } : nil
+            if let b = startB { b.toolTip = t("panel.startFreshTip"); buttons["startFresh"] = b }
             // The line itself is the way to where it is set: Settings, Hand-off.
             let line = RButton(on ? t("panel.handsOffAt", ["pct": "\(Int(th))"]) : t("panel.handOffOff"), .link) { [weak self] in self?.host?.openPage("settings:handoff", t("side.settings")) }
             line.titleSize = 12
@@ -413,7 +423,7 @@ final class PanelView: Box {
             line.setAccessibilityHelp(t("panel.handOffChangeTip"))
             buttons["handoffSettings"] = line
             out.append(sec(t("panel.context"), right: label(t("panel.tokensOf", ["used": When.tokens(c.tokens), "window": When.tokens(c.window)]), Fonts.pt(12, .semibold).withTabularDigits),
-                           [bar, hstack([line, spring(), hand], spacing: 6)]))
+                           [bar, hstack([line, spring(), startB ?? (fresh.line == nil ? hand : nil)], spacing: 6), fresh.line.map { para($0, "tx2", size: 12) }]))
         }
         // Over the terminal on a narrow window, a card keeps the panel short.
         if cp != nil, superview.map({ _ in isOverlay }) ?? false { return out }

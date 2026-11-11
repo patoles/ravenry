@@ -91,12 +91,23 @@ final class OutsideView: MiddleView {
             return
         }
         closeLive()
+        endedHere = false
         if surface != s.surfaceId { entries = nil; surface = s.surfaceId; follow() }
         last = (p, s, why)
         draw()
     }
 
     func stop() { timer?.invalidate(); timer = nil; surface = ""; closeLive() }
+
+    /// It left the board while in front (Board: "That session has ended."): its last words stay,
+    /// with Continue this conversation, which picks it up in a pane here (app.ts renderElsewhere, ended).
+    private(set) var endedHere = false
+    func ended() {
+        timer?.invalidate(); timer = nil
+        closeLive()
+        endedHere = true
+        draw()
+    }
 
     // MARK: a session on a machine, live
 
@@ -195,14 +206,15 @@ final class OutsideView: MiddleView {
         let whereName = m.map { "a terminal on \($0)" } ?? s.termName ?? "another terminal"
         let fromName = why != nil ? "the other ravenryd" : whereName
         let out = s.outside
-        let open = (out?["open"] as? Bool) ?? true
+        let open = !endedHere && ((out?["open"] as? Bool) ?? true)
+        let ended = endedHere || (out != nil && !open)
         let folder = p.folderShort.map { ", in \($0)" } ?? ""
-        let sub = out != nil && !open ? t("else.ran", ["where": whereName, "folder": folder]) : t("else.runs", ["where": whereName, "folder": folder])
+        let sub = ended ? t("else.ran", ["where": whereName, "folder": folder]) : t("else.runs", ["where": whereName, "folder": folder])
         let title = label(s.topic ?? p.name, Fonts.pt(15, Fonts.w650))
         title.textColor = NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF4 / 255, alpha: 1)
-        let subL = label(sub, Fonts.pt(13), "tx2"); subL.textColor = termTx2
+        let subL = label(sub, Fonts.pt(13), "tx2", lines: 2); subL.textColor = termTx2
         var acts: [NSView?] = []
-        if m == nil, let term = s.term, ["cmux", "iterm", "iterm2", "rex"].contains(term.lowercased()) || s.termName != nil, why == nil {
+        if !ended, m == nil, let term = s.term, ["cmux", "iterm", "iterm2", "rex"].contains(term.lowercased()) || s.termName != nil, why == nil {
             let b = RButton(t("else.open", ["where": whereName]), .normal) { [weak self] in self?.onOpen?(p, s) }
             buttons["open"] = b
             acts.append(b)
@@ -211,15 +223,16 @@ final class OutsideView: MiddleView {
         // In a terminal outside Ravenry, or in a pane of a ravenryd this window
         // does not draw (an older one after an update): Move here ends it there
         // and resumes it in a pane of this window's daemon (POST /api/sessions/move).
-        let movable = out != nil || (why != nil && m == nil)
+        let movable = out != nil || (why != nil && m == nil) || endedHere
         // Outside Ravenry it resumes only while open there, when the hub says it can, or once it ended (renderElsewhere's canResume).
-        let resumable = out == nil || open || (out?["resumable"] as? Bool ?? false)
+        let resumable = out == nil || open || endedHere || (out?["resumable"] as? Bool ?? false)
         let canResume = movable && s.sessionId != nil && kindOk && resumable
         let waiting = s.moving?["waiting"] as? Bool ?? false
         if movable {
             let busy = moving.contains(s.sessionId ?? "")
             let w = s.moving?["waiting"] as? Bool ?? false
-            let b = RButton(w ? t("move.waiting", ["who": s.assistant == "codex" ? "Codex" : "Claude", "other": fromName]) : busy ? t("move.moving") : t("move.here"),
+            // Ended there: nothing to move, the conversation goes on here (Continue).
+            let b = RButton(w ? t("move.waiting", ["who": s.assistant == "codex" ? "Codex" : "Claude", "other": fromName]) : busy ? t("move.moving") : ended ? t("project.continue") : t("move.here"),
                             canResume && !w ? .primary : .normal) { [weak self] in self?.onMove?(p, s) }
             b.isEnabled = canResume && !busy && !w
             buttons["move"] = b
@@ -241,7 +254,7 @@ final class OutsideView: MiddleView {
         if canResume {
             // Waiting for its turn to end (amber, a clock), else what Move here does (green, a check).
             let who = s.assistant == "codex" ? "Codex" : "Claude"
-            let text = waiting ? t("else.movesWhen", ["who": who, "where": fromName]) : open || why != nil ? t("else.moveNote", ["where": fromName]) : t("else.moveNoteEnded")
+            let text = waiting ? t("else.movesWhen", ["who": who, "where": fromName]) : ended ? t("else.continueNote") : open || why != nil ? t("else.moveNote", ["where": fromName]) : t("else.moveNoteEnded")
             let n = label(text, Fonts.pt(12.5, .medium), waiting ? "you" : "ok", lines: 2)
             noteText = text
             rows.append(hstack([Icon(waiting ? "clock" : "done", waiting ? "you" : "ok", size: 14), n], spacing: 7))
@@ -251,7 +264,8 @@ final class OutsideView: MiddleView {
         // Its screen when it has something on it; else its transcript.
         let cap: String
         var lines: [(String, String, NSColor)] = []
-        if let e = entries, !e.isEmpty {
+        // Ended: its transcript, never the last screen read as live (app.ts renderElsewhere, readable).
+        if !ended, let e = entries, !e.isEmpty {
             cap = t("else.live", ["term": s.termName ?? "its terminal"])
             for x in e {
                 let text = (x["l"] as? [String] ?? []).joined(separator: "\n")
@@ -273,7 +287,7 @@ final class OutsideView: MiddleView {
                 default: lines.append((" ", text, termTx))
                 }
             }
-        } else if !s.screen.isEmpty {
+        } else if !ended, !s.screen.isEmpty {
             cap = t("else.live", ["term": s.termName ?? "its terminal"])
             lines = [(" ", s.screen.joined(separator: "\n"), termTx)]
         } else {
@@ -355,7 +369,14 @@ final class ProjectPageView: MiddleView {
     var onShowSession: ((String) -> Void)?
     /// Show it: the conversation is open in a pane of this window (its tab in front); false when it has no such pane.
     var onShowPane: ((String) -> Bool)?
+    /// A toast, said on the page (Revive, the folder, the assistant switch).
+    var say: ((String) -> Void)?
     var busy = false
+    /// The assistant switch while a flip waits for the board's state to agree (app.js ui.pas).
+    private var pas: (pid: String, want: String, until: Date)?
+    /// The switch drawn last, for the self-test.
+    private(set) weak var assistantSwitch: NSSegmentedControl?
+    private var reviving = false
     /// A Continue the hub refused: said under the buttons, and the last conversation asked again (it may be open somewhere now).
     var error: String? { didSet { if error != nil { asked = .distantPast } } }
     private var last: [String: Any]?
@@ -408,7 +429,7 @@ final class ProjectPageView: MiddleView {
         buttons = [:]
         let name = label(p.name, Fonts.pt(20, .bold))
         let facts = projectFacts(p)
-        var head: [NSView?] = [name, p.folderShort.map { label($0, Fonts.pt(13), "tx3") }, factLine(facts.group, facts.text)]
+        var head: [NSView?] = [name, folderView(p), factLine(facts.group, facts.text), assistantLine(p)]
         if let s = p.sessions.first(where: { !$0.handed }) {
             head.append(label(t("project.runsIn"), Fonts.pt(13)))
             let b = RButton(t("project.showSession"), .primary) { [weak self] in self?.onShowSession?("\(p.id)/\(s.surfaceId)") }
@@ -431,6 +452,7 @@ final class ProjectPageView: MiddleView {
             if newHere { let b = RButton(t("project.newHere"), .primary) { [weak self] in self?.onNewHere?(p) }; buttons["new"] = b; acts.append(b) }
             if p.brief != nil { let b = RButton(t("panel.openBrief")) { [weak self] in self?.onBrief?(p) }; buttons["brief"] = b; acts.append(b) }
             if canWrite { acts.append(brief) }
+            acts.append(reviveButton(p))
             acts.append(spring())
             content.set(centred(vstack(head + [label(t("project.noEarlier"), Fonts.pt(13)), canWrite ? label(t("project.noBrief"), Fonts.pt(12.5), "tx3") : nil, hstack(acts, spacing: 10)], spacing: 14)))
             return
@@ -464,6 +486,7 @@ final class ProjectPageView: MiddleView {
         buttons["continue"] = main
         var acts: [NSView?] = [main]
         if newHere { let b = RButton(t("project.newSession")) { [weak self] in self?.onNewHere?(p) }; buttons["new"] = b; acts.append(b) }
+        acts.append(reviveButton(p))
         acts.append(spring())
         acts.append(brief)
         rows.append(hstack(acts, spacing: 10))
@@ -471,6 +494,99 @@ final class ProjectPageView: MiddleView {
         let cmd = (outside.map { t("project.movesIn", ["where": $0]) } ?? t("project.continuesIn")) + (l["command"] as? String ?? "") + t("project.inFolder", ["folder": l["folderShort"] as? String ?? ""])
         rows.append(label(cmd, Fonts.pt(11.5), "tx3", lines: 3))
         content.set(centred(vstack(rows, spacing: 14)))
+    }
+
+    // MARK: the folder in Finder (SESS-046), Revive (SESS-042), New sessions: (SESS-043)
+
+    /// Its folder: on this Mac a link that opens it in Finder (app.js open-folder), else plain.
+    private func folderView(_ p: HubProject) -> NSView? {
+        guard let f = p.folderShort ?? p.folder else { return nil }
+        guard p.folder != nil, p.machine == nil else { return label(f, Fonts.pt(13), "tx3") }
+        let b = RButton(f, .link) { [weak self] in self?.openFolder(p) }
+        b.titleSize = 13
+        b.titleColor = "tx3"
+        b.toolTip = t("project.openFolder")
+        b.setAccessibilityHelp(t("project.openFolder"))
+        buttons["folder"] = b
+        return hstack([b, spring()], spacing: 0)
+    }
+
+    func openFolder(_ p: HubProject) {
+        hub?.post("/api/project/open-folder", ["projectId": p.id]) { [weak self] code, j in
+            if code != 200 { self?.say?(j["error"] as? String ?? "The board answered \(code).") }
+        }
+    }
+
+    /// Revive from the brief: a new tab running the project's assistant on its brief; off with the reason.
+    private func reviveButton(_ p: HubProject) -> RButton? {
+        guard p.machine == nil else { return nil }
+        let who = (pasWant(p)) == "codex" ? "Codex" : "Claude"
+        let b = RButton(reviving ? t("project.continuing") : t("project.revive")) { [weak self] in self?.revive(p) }
+        if p.folder == nil { b.isEnabled = false; b.toolTip = t("project.reviveNoFolder", ["name": p.name]) }
+        else if p.brief == nil { b.isEnabled = false; b.toolTip = t("project.reviveNoBrief") }
+        else { b.isEnabled = !reviving; b.toolTip = t("project.reviveTip", ["who": who]) }
+        buttons["revive"] = b
+        return b
+    }
+
+    func revive(_ p: HubProject) {
+        guard !reviving else { return }
+        reviving = true
+        draw(p)
+        hub?.post("/api/project/revive", ["projectId": p.id]) { [weak self] code, j in
+            guard let self else { return }
+            self.reviving = false
+            if self.projectId == p.id { self.draw(p) }
+            guard code == 200 else { self.say?(j["error"] as? String ?? "The board answered \(code)."); return }
+            self.say?(j["message"] as? String ?? t("project.revived", ["name": p.name]))
+            // Its tab in front once the window has its pane.
+            let sf = j["surfaceId"] as? String ?? ""
+            let pane = sf.hasPrefix("ravenry:") ? String(sf.dropFirst(8)) : sf
+            guard !pane.isEmpty else { return }
+            func follow(_ n: Int) {
+                if self.onShowPane?(pane) == true || n == 0 { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { follow(n - 1) }
+            }
+            follow(40)
+        }
+    }
+
+    private func pasWant(_ p: HubProject) -> String {
+        if let a = pas, a.pid == p.id, Date() < a.until { return a.want }
+        return (p.raw["assistantWants"] as? String) ?? (p.raw["assistant"] as? String) ?? "claude"
+    }
+
+    /// "New sessions:" Claude Code or Codex, saved at once (POST /api/project/assistant).
+    private func assistantLine(_ p: HubProject) -> NSView? {
+        guard p.machine == nil, p.raw["unowned"] as? Bool != true else { return nil }
+        let seg = NSSegmentedControl(labels: ["Claude Code", "Codex"], trackingMode: .selectOne, target: PopTarget.shared, action: #selector(PopTarget.segmented(_:)))
+        seg.selectedSegment = pasWant(p) == "codex" ? 1 : 0
+        seg.controlSize = .small
+        seg.setAccessibilityLabel(t("project.newSessions"))
+        PopTarget.shared.run[ObjectIdentifier(seg)] = { [weak self, weak seg] in
+            guard let seg else { return }
+            self?.setAssistant(p, seg.selectedSegment == 1 ? "codex" : "claude")
+        }
+        assistantSwitch = seg
+        let note = (p.raw["assistantNote"] as? String).map { " " + $0 } ?? ""
+        let line = hstack([label(t("project.newSessions"), Fonts.pt(12.5), "tx3"), seg, spring()], spacing: 8)
+        line.toolTip = t("project.assistantTip", ["name": p.name]) + note
+        return line
+    }
+
+    func setAssistant(_ p: HubProject, _ kind: String) {
+        guard pasWant(p) != kind else { return }
+        pas = (p.id, kind, Date().addingTimeInterval(15))
+        hub?.post("/api/project/assistant", ["projectId": p.id, "assistant": kind]) { [weak self] code, j in
+            guard let self else { return }
+            if code == 200 { self.pas = (p.id, kind, Date().addingTimeInterval(4)) }
+            else {
+                self.pas = nil
+                let e = j["error"] as? String ?? "The board answered \(code)."
+                self.say?(t("project.notSaved", ["why": e]))
+            }
+            if self.projectId == p.id { self.draw(p) }
+        }
     }
 
     private func said(_ who: String, _ text: String, _ color: String) -> NSView {

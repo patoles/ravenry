@@ -249,13 +249,18 @@ final class SidebarView: Flipped {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.placeFade()
-            if !self.fade.isHidden { self.list.flashScrollers() }
+            if !self.fade.isHidden { self.list.flashScrollers(); self.flashes += 1 }
         }
     }
 
     private var hintShown = false
     /// The needs-you hint drawn (kept in sight in the list, layout()).
     private weak var needsYouHint: NSView?
+    /// How often the scroller was flashed for rows below the fold, and whether the fade shows now (the self-test).
+    private(set) var flashes = 0
+    var fadeShown: Bool { !fade.isHidden && fade.window != nil }
+    /// The list's scroll view (the self-test reads its scroller).
+    var listView: NSScrollView { list }
     /// A tab is open (the window is not on its first run).
     var hasTabs = true
     private var uses: [String: (holds: Bool, text: String)] = [:]

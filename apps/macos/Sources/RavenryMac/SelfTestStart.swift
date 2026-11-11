@@ -124,7 +124,7 @@ extension SelfTestBoard {
         if let b = st.controls["notNow"] { click(b) }
         check("start_not_now", wait(8) { sent().contains { $0.path == "/api/sessions/start" } } && sent().map(\.path) == ["/api/onboarding", "/api/sessions/start"], sent().map(\.path).joined(separator: ","))
         let b2 = sent().last?.body ?? [:]
-        check("start_in_folder_posted", b2["worktree"] == nil && b2["projectId"] == nil && b2["folder"] as? String == notes, "\(b2)")
+        check("start_in_folder_posted", b2["worktree"] == nil && b2["projectId"] as? String == "notes-app" && b2["folder"] as? String == notes, "\(b2)")
 
         // The board says no: the reason under the card.
         hub.testPostAnswers["/api/sessions/start"] = (409, ["error": "Worktree sessions run on this computer only for now."])
