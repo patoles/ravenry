@@ -48,7 +48,7 @@ final class SidebarView: Flipped {
     private let noteText = label("", Fonts.pt(12), "you", lines: 8)
     private(set) var noteButton: RButton?
     /// What the access note says, for the self-test.
-    var noteShown: String? { note.isHidden ? nil : noteText.stringValue }
+    var noteShown: String? { note.isHidden ? nil : noteText.stringValue.replacingOccurrences(of: "\u{2060}", with: "") }
     /// The list goes on under its bottom edge: a fade says so (the overlay scroller hides).
     private let fade = FadeEdge()
     /// The board as last drawn: the right-click menus read its sessions.
@@ -171,6 +171,10 @@ final class SidebarView: Flipped {
     /// The pane of System Settings the note's button opens.
     static let privacyPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
 
+    /// A folder path that wraps as one word: a word joiner after each
+    /// slash, so a narrow sidebar never breaks "~/Documents" after "~/".
+    static func unbroken(_ path: String) -> String { path.replacingOccurrences(of: "/", with: "/\u{2060}") }
+
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
         lastState = state
         let times = state?.sections.flatMap { $0.projects.map { timeText($0) } }.joined(separator: ",") ?? ""
@@ -193,7 +197,7 @@ final class SidebarView: Flipped {
         noteButton = nil
         if !sections.isEmpty, let w = asking {
             // Electron's words: the question in bold, then where to turn it on.
-            let s = NSMutableAttributedString(string: t("start.askingT", ["folder": w.folder]), attributes: [.font: Fonts.pt(12, Fonts.w650), .foregroundColor: Design.color("you")])
+            let s = NSMutableAttributedString(string: t("start.askingT", ["folder": SidebarView.unbroken(w.folder)]), attributes: [.font: Fonts.pt(12, Fonts.w650), .foregroundColor: Design.color("you")])
             s.append(NSAttributedString(string: " " + t("side.accessClosed", ["folder": w.name ?? w.folder]), attributes: [.font: Fonts.pt(12), .foregroundColor: Design.color("you")]))
             let p = NSMutableParagraphStyle(); p.lineBreakMode = .byWordWrapping; p.lineHeightMultiple = 1.15
             s.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: s.length))
@@ -203,7 +207,7 @@ final class SidebarView: Flipped {
             noteButton = b
             setNote([noteText, hstack([b, spring()], spacing: 0)])
         } else if !sections.isEmpty, !denied.isEmpty {
-            noteText.stringValue = t("side.accessDenied", ["folders": denied.joined(separator: ", ")])
+            noteText.stringValue = t("side.accessDenied", ["folders": denied.map(SidebarView.unbroken).joined(separator: ", ")])
             noteText.textColor = Design.color("you")
             setNote([noteText])
         } else { note.isHidden = true }
