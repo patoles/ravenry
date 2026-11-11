@@ -422,7 +422,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             guard let id = c["id"] as? String else { out.append(c); continue }
             listed.insert(id)
             if DaemonCheckpoints.isOpen(c) {
-                if let done = closed.get(id) { out.append(done); continue }
+                // Lost (its daemon went away) is the one closed state that opens again, when that daemon lists it again.
+                if let done = closed.get(id), done["state"] as? String != "lost" { out.append(done); continue }
                 openNow[id] = c
             } else if openSeen[id] != nil || closed.items[id] != nil {
                 closed.saw(c)

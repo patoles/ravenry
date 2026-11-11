@@ -325,6 +325,7 @@ export function afterOf(cp) {
   const head0 = splitTitle(cp.title).head;
   const base = { ok: false, head: '', at: cp.closed_at || (a && a.at) || null, small: null, big: null, command: null, edited: false, text: '', runPane: null, where: whereOf(a && a.by) };
   const ran = () => (a && a.command) || cp.command || null;
+  if (cp.state === 'lost') return { ...base, head: 'Not reachable', small: head0, text: `${cp.machine ? `ravenryd on ${cp.machine}` : 'The daemon that asked'} is not reachable any more, so this cannot be answered. If it comes back, so does the question.` };
   if (cp.state === 'cancelled') return { ...base, head: 'Withdrawn', text: `${w} withdrew it${cp.reason ? `: ${cp.reason}` : '.'}` };
   if (cp.state === 'expired') return { ...base, at: base.at || cp.expires_at || null, head: 'Nobody answered', text: `${w} gave up waiting at {time}.` };
   if (cp.state === 'declined' || (a && a.declined)) {

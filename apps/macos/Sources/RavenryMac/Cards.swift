@@ -880,10 +880,10 @@ final class CheckpointCard: Box {
                 showRunLink()]
     }
 
-    /// An approved command that ran in a pane of this window: Show in the terminal (afterCard's showRun).
+    /// An approved command that ran in a pane of this window, running or ended: Show in the terminal (afterCard's showRun).
     private func showRunLink() -> NSView? {
         guard let pane = (cp["run"] as? [String: Any])?["pane"] as? String ?? (w["after"] as? [String: Any])?["runPane"] as? String, cp["machine"] == nil || cp["machine"] is NSNull,
-              ctx.paneName(pane) != nil else { return nil }
+              ctx.paneName(pane) != nil || (cp["run"] as? [String: Any])?["exit"] != nil else { return nil }
         let b = button("showRun", t("checkpoint.showRun"), .link) { [weak self] in _ = self?.ctx.showPane(pane) }
         return hstack([b, spring()], spacing: 0)
     }

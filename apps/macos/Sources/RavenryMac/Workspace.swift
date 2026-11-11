@@ -619,12 +619,15 @@ final class Workspace: NSObject {
     /// The tab that shows a pane of this daemon, a tab of its own when no
     /// tab shows it yet (a session's pane: ravenry.session); nil when this
     /// daemon has no such pane.
-    func tab(showing pane: String) -> Tab? {
+    /// `exited`: a pane that has ended is a tab too, showing what it last drew
+    /// (an approved command's pane after its run, Show in the terminal).
+    func tab(showing pane: String, exited: Bool = false) -> Tab? {
         if let t = tabs.first(where: { $0.host == pane || $0.guest == pane }) {
             if t.guest == pane { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
             return t
         }
-        guard adopt(pane) else { return nil }
+        guard adopt(pane, exited: exited) else { return nil }
+        if exited { closedHere.remove(pane); shownEnded.insert(pane) }
         let t = Tab(host: pane)
         tabs.append(t)
         return t
@@ -632,11 +635,11 @@ final class Workspace: NSObject {
 
     /// A running pane of any daemon the window draws (the newest first),
     /// known here from now on: its daemon and what pane.list says of it.
-    private func adopt(_ pane: String) -> Bool {
+    private func adopt(_ pane: String, exited: Bool = false) -> Bool {
         if info[pane] != nil { return true }
         for d in daemons.all {
             guard let r = try? d.conn.call("pane.list", ["hidden": true], timeout: 3),
-                  let p = (r["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == pane && ($0["state"] as? String ?? "running") == "running" }) else { continue }
+                  let p = (r["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == pane && (exited || ($0["state"] as? String ?? "running") == "running") }) else { continue }
             homes[pane] = d
             let i = PaneInfo(id: pane)
             i.update(p)
@@ -1339,8 +1342,14 @@ final class Workspace: NSObject {
     }
 
     /// A pane's program ended: its tab goes (the pane too, from the daemon).
+    /// Ended panes opened again on purpose (tab(showing:exited:)): their exit, said again, leaves them.
+    private var shownEnded: Set<String> = []
     private func ended(_ id: String) {
         if held.contains(id) { endedHeld.insert(id); return }
+        if shownEnded.contains(id) { return }
+        // An approved command's pane: out of the window, but left in its daemon with what it printed, so its card's
+        // Show in the terminal brings it back after the run (the Electron app shows it the same way).
+        if info[id]?.labels["ravenry.checkpoint"] != nil { closedHere.insert(id); removePane(id); return }
         closePane(id)
     }
 

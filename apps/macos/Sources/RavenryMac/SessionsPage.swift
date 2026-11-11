@@ -520,7 +520,8 @@ extension Board {
     /// The tab of a pane of this window in front (a click on its tab); false when this window has no such pane.
     @discardableResult
     func showPane(_ pane: String) -> Bool {
-        guard let tb = ws.tab(showing: pane) else { return false }
+        // A pane that ended (a finished run's) comes back as a tab with what it last drew, as the Electron app shows it.
+        guard let tb = ws.tab(showing: pane) ?? ws.tab(showing: pane, exited: true) else { return false }
         ws.bar.onSelect?(tb.id)
         return true
     }

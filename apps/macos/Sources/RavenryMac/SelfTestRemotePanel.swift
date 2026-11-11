@@ -92,6 +92,25 @@ extension SelfTestBoard {
     /// The daemon's own record of a checkpoint (`ravenry checkpoint ID`).
     private func daemonSays(_ id: String) -> String { ravenry(["checkpoint", id, "--json"]) }
 
+    /// Keys through the window to what has the keyboard, as the person types (letters, digits, space, Enter, - and .).
+    private func typeKeys(_ s: String) {
+        var codes: [String: UInt16] = [:]
+        for (k, name) in KeyCodes.table {
+            if name.hasPrefix("Key") { codes[name.dropFirst(3).lowercased()] = k }
+            if name.hasPrefix("Digit") { codes[String(name.dropFirst(5))] = k }
+        }
+        codes[" "] = 0x31; codes["\r"] = 0x24; codes["."] = 0x2F; codes["-"] = 0x1B
+        for ch in s {
+            let c = String(ch)
+            guard let code = codes[c] else { continue }
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                            context: nil, characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code) { window.sendEvent(e) }
+            }
+        }
+        settle(0.2)
+    }
+
     /// A new shell tab, in front: its pane.
     private func freshTab() -> String? {
         let ws = board.ws, n = ws.tabs.count
@@ -123,7 +142,7 @@ extension SelfTestBoard {
         // MARK: PANEL-017 and PANEL-024: an approve beside its pane, run, Show in the terminal
         guard let ap = freshTab(), let apTab = ws.tab(showing: ap) else { pc("pc_approve_tab", false); return }
         let ranFile = out + "/beside.txt"
-        typeLine(ap, "\(q(bin)) approve --why 'The hull is dry.' -- /bin/sh -c \(q("echo beside-ran > " + q(ranFile) + "; sleep 20")) > \(q(out + "/approve.out")) 2>&1 &")
+        typeLine(ap, "\(q(bin)) approve --why 'The hull is dry.' -- /bin/sh -c \(q("echo beside-ran | tee " + q(ranFile) + "; sleep 8")) > \(q(out + "/approve.out")) 2>&1 &")
         let ac = cardFor("beside-ran")
         pc("pc_approve_beside_pane", ac?.kind == "approve" && ac.map { shows($0, "A new one, beside ") } == true, cardText(ac))
         let apId = ac?.id ?? ""
@@ -148,6 +167,20 @@ extension SelfTestBoard {
         if let b = afterCard?.buttons["showRun"] { pressIt(b) }
         pc("pc_show_in_terminal_fronts_run", before == ap && wait(6) { runPane().map { rp in ws.active?.focusedPane == rp && (ws.active?.host == rp || ws.active?.guest == rp) } ?? false },
            "before \(before) now \(ws.active?.focusedPane ?? "nil") (host \(ws.active?.host ?? "nil") guest \(ws.active?.guest ?? "none")) run \(runPane() ?? "nil")")
+        // The run ended: its pane closes in the window, the card says it ran, and Show in the terminal brings the ended pane back with what it printed.
+        let ranCard = { () -> CheckpointCard? in pn.shownCard?.id == apId ? pn.shownCard : nil }
+        ws.show(apTab)
+        _ = wait(20) { self.board.render(force: true); return ranCard().map { self.shows($0, "Ran on") } == true && ws.active?.guest != runPane() }
+        pc("pc_ran_card_show_in_terminal", ranCard()?.buttons["showRun"] != nil && ws.tabs.allSatisfy { $0.host != runPane() && $0.guest != runPane() },
+           "\(cardText(ranCard()).prefix(200)) | tabs \(ws.tabs.map { "\($0.host)/\($0.guest ?? "-")" })")
+        board.render(force: true); settle(0.3)
+        picture("native-cards-ran-show-1440-dark.png")
+        if let b = ranCard()?.buttons["showRun"] { pressIt(b) }
+        pc("pc_ran_pane_shown_after_end", wait(8) { runPane().map { rp in ws.active?.host == rp || ws.active?.guest == rp } ?? false }
+           && wait(8) { (ws.focusedView?.screen.text() ?? "").contains("beside-ran") },
+           "active \(ws.active?.host ?? "nil") run \(runPane() ?? "nil") known \(runPane().map { ws.paneInfo($0) != nil } ?? false) daemon: \(ravenry(["ls"]).suffix(400))")
+        board.render(force: true); settle(0.3)
+        picture("native-cards-ran-pane-1440-dark.png")
 
         // MARK: PANEL-019: a secret of two lines, or over 4 KiB, is never sent; 4 KiB is
         guard let se = freshTab() else { pc("pc_secret_tab", false); return }
@@ -156,8 +189,10 @@ extension SelfTestBoard {
         let sc0 = cardFor("Paste the long harbour key")
         // The card in the panel now (it is built again when what it shows changes).
         var sc: CheckpointCard? { pn.shownCard?.id == sc0?.id ? pn.shownCard : sc0 }
+        var typedCount = -1
         let typeSecret = { (s: String) in
             guard let box = sc?.secret else { return }
+            defer { typedCount = box.characters }
             // The keyboard out (a secret's field empties when it leaves) and back in, then typed.
             self.window.makeFirstResponder(nil)
             self.settle(0.1)
@@ -174,9 +209,10 @@ extension SelfTestBoard {
         let sentTwo = sentAfter(n)
         n = hub.sentBodies.count
         typeSecret(String(repeating: "k", count: 4097))
+        let over = typedCount
         sc?.buttons["secretSend"].map { pressIt($0) }
         settle(0.5)
-        pc("pc_secret_over_4k_not_sent", sc != nil && !sentAfter(n) && fileText(secFile).isEmpty && sc?.secret?.characters == 4097, "\(sc?.secret?.characters ?? -1) characters, sent \(sentAfter(n))")
+        pc("pc_secret_over_4k_not_sent", sc != nil && !sentAfter(n) && fileText(secFile).isEmpty && over == 4097, "\(over) characters typed, sent \(sentAfter(n))")
         // Typed into the field, a line break ends the edit (and a secret is cleared when its field loses the keyboard);
         // held in the field as a paste leaves it, it is said to be one line and never sent.
         let typedTwo = sc != nil && !sentTwo && fileText(secFile).isEmpty
@@ -240,6 +276,41 @@ extension SelfTestBoard {
         let freeLanded = wait(8) { self.fileText(free).contains("drive-free") }
         pc("pc_drive_session_needs_no_ask", freeLanded && !(hub.checkpoints ?? []).contains { $0["kind"] as? String == "drive" && DaemonCheckpoints.isOpen($0) }, "landed \(freeLanded)")
 
+        // MARK: PANEL-011: Typed here on the shell the agents typed into: who, the filter, the whole log, "While <who> had it"
+        typeLine(other, "\(q(bin)) lease \(shell) --ttl 60s > \(q(out + "/lease.out")) 2>&1 &")
+        let leased = wait(10) { ws.paneInfo(shell)?.lease != nil }
+        // The person types into the shell through the window (render.input, logged as the person), while the agent holds it.
+        if let t = ws.tab(showing: shell) { ws.show(t) }
+        board.toTerminal()
+        settle(0.5)
+        if let v = ws.focusedView { window.makeFirstResponder(v) }
+        for line in ["echo one", "echo two", "echo while-lent"] { typeKeys(line + "\r"); settle(0.4) }
+        settle(1)
+        let typedTexts = { () -> String in self.board.render(force: true); return self.texts(pn).joined(separator: " | ") }
+        pc("pc_typed_while_had_it", leased && wait(10) { typedTexts().contains("echo while-lent") && typedTexts().contains("While Claude had it") }, "leased \(leased) | \(typedTexts().suffix(400))")
+        let pick = { (i: Int) in
+            guard let seg = pn.typedFilter else { return }
+            seg.selectedSegment = i
+            _ = seg.sendAction(seg.action, to: seg.target)
+            self.settle(0.3)
+        }
+        pick(1)
+        pc("pc_typed_filter_agents", wait(4) { typedTexts().contains("echo drive-free") && !typedTexts().contains("echo while-lent") } && pn.typedFilter?.selectedSegment == 1, typedTexts().suffix(300).description)
+        pick(2)
+        pc("pc_typed_filter_you", wait(4) { typedTexts().contains("echo while-lent") && !typedTexts().contains("drive-free") } && pn.typedFilter?.selectedSegment == 2, typedTexts().suffix(300).description)
+        board.render(force: true); settle(0.3)
+        picture("native-panel-typed-you-1440-dark.png")
+        pick(0)
+        // The records shown: each starts with its time (HH:MM) in the Typed here section.
+        let records = { () -> Int in self.board.render(force: true); return self.texts(pn).filter { $0.range(of: "^\\d\\d:\\d\\d$", options: .regularExpression) != nil }.count }
+        let few = records()
+        if let b = pn.buttons["typedWhole"] { pressIt(b) }
+        let whole = records()
+        pc("pc_typed_whole_log", whole > few && pn.buttons["typedWhole"]?.title == t("panel.typedFew"), "\(few) then \(whole) | \(pn.buttons["typedWhole"]?.title ?? "none")")
+        if let b = pn.buttons["typedWhole"] { pressIt(b) }
+        pc("pc_typed_show_last_few", wait(4) { records() == few } && pn.buttons["typedWhole"]?.title == t("panel.typedWhole"), "\(records()) | \(pn.buttons["typedWhole"]?.title ?? "none")")
+        typeLine(other, "\(q(bin)) lease \(shell) --release > /dev/null 2>&1")
+
         // MARK: PANEL-030: a pick answered, the agent's pictures deleted, the closed card still shows the one picked
         guard let pkPane = freshTab(), let pkTab = ws.tab(showing: pkPane) else { pc("pc_pick_tab", false); return }
         // B is an HTML page: the hub draws it to a picture for this app (GET .../variants/1?as=png), which draws no web page.
@@ -302,9 +373,11 @@ extension SelfTestBoard {
         if let t = ws.tab(showing: shell) { ws.show(t) }
     }
 
-    /// On testbox, after the machine's checks: PANEL-026, a kind this version does not know.
+    /// On testbox, after the machine's checks: PANEL-026, a kind this version does not know; PANEL-027, the daemon that asked gone.
     func remotePanelEnd() {
         let hub = board.hub, pn = board.panel
+        // The testbox session in front (MACH-005 left it there), picked again for PANEL-027.
+        let boxKey: String? = { if case .session(let k) = board.front { return k }; return hub.state?.project("remote-lab")?.sessions.first.map { "remote-lab/\($0.surfaceId)" } }()
         let rd = rpEnv["rd"] as? String ?? "", renv = rpEnv["env"] as? [String: String] ?? [:]
         let onBox = { (args: [String]) -> String in
             let p = Process()
@@ -355,5 +428,21 @@ extension SelfTestBoard {
         if let f = pn.shownCard?.reasonField { f.send() }
         pc("pc_unknown_kind_refused", wait(10) { onBox(["checkpoint", fid, "--json"]).contains("\"declined\"") }, onBox(["checkpoint", fid, "--json"]).prefix(300).description)
         hub.testPatch = nil
+
+        // MARK: PANEL-027: the daemon that asked goes away before an answer. The hub keeps the card closed as lost
+        // (checkpoints.mjs dropDaemon), so its card says why it can no longer be answered instead of vanishing.
+        let lid = onBox(["ask", "Haul the boat out?", "--option", "Haul it", "--no-wait"]).components(separatedBy: "\n").last ?? ""
+        let lc = showLoose(lid)
+        let lostCard = { () -> CheckpointCard? in pn.shownCard?.id == lid ? pn.shownCard : nil }
+        pc("pc_lost_card_open", lc?.kind == "ask" && lc?.opts["1"] != nil, "\(lid) | \(texts(pn).prefix(8).joined(separator: " | "))")
+        for d in (try? JSONSerialization.jsonObject(with: Data(onBox(["daemons", "--json"]).utf8)) as? [[String: Any]]) ?? [] {
+            if let pid = d["pid"] as? Int { kill(pid_t(pid), SIGKILL) }
+        }
+        pc("pc_lost_card_says_why", wait(20) { self.board.render(force: true); if lostCard() == nil { self.board.showCheckpoint(lid) }; return lostCard().map { self.shows($0, "Not reachable") && self.shows($0, "ravenryd on testbox is not reachable any more") && $0.opts.isEmpty } ?? false },
+           "\(lid) | \(texts(pn).prefix(10).joined(separator: " | ")) | cps \((hub.checkpoints ?? []).map { "\($0["id"] ?? "")/\($0["state"] ?? "")" })")
+        var got: (Int, String) = (0, "")
+        hub.post("/api/checkpoints/answer", ["id": lid, "choice": 0, "by": "desktop"]) { code, j in got = (code, j["error"] as? String ?? "") }
+        pc("pc_lost_answer_refused_said", wait(5) { got.0 != 0 } && got.0 == 409 && got.1.contains("not reachable"), "\(got)")
+        picture("native-cards-lost-1440-dark.png")
     }
 }

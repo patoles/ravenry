@@ -20,7 +20,8 @@ import { RAVENRY_HOME, assertDataWrite } from './home.mjs';
 
 export const FILE = path.join(RAVENRY_HOME, 'checkpoints.json');
 const KEEP_CLOSED = 100;
-const FINAL = new Set(['answered', 'declined', 'cancelled', 'expired']);
+// lost: the daemon that held it went away while it was open (dropDaemon); it opens again if that daemon lists it again.
+const FINAL = new Set(['answered', 'declined', 'cancelled', 'expired', 'lost']);
 const KINDS = new Set(['ask', 'approve', 'secret', 'drive', 'pick']);
 // How long a drive grant lasts (checkpoint.answer `allow`): this input,
 // or the rest of the asking agent's session.
@@ -115,11 +116,16 @@ export function take(cp, { machine = null, daemon = null } = {}) {
   return fresh;
 }
 
-// Forgets the open checkpoints of a daemon the hub lost: they come back
-// from its list when it connects again.
-export function dropDaemon(daemon) {
+// The open checkpoints of a daemon the hub lost are lost: kept closed, so
+// every client's card says why it can no longer be answered instead of
+// vanishing; they open again from its list when it connects again (take).
+export function dropDaemon(daemon, now = new Date()) {
   load();
-  for (const [id, cp] of byId) if (cp.daemon === daemon && !FINAL.has(cp.state)) byId.delete(id);
+  let any = false;
+  // A machine's link (ssh:<name>) holds its daemons of each version (ssh:<name>@<version>).
+  const ours = (d) => d === daemon || (typeof d === 'string' && d.startsWith(`${daemon}@`));
+  for (const [id, cp] of byId) if (ours(cp.daemon) && !FINAL.has(cp.state)) { byId.set(id, { ...cp, state: 'lost', closed_at: now.toISOString() }); any = true; }
+  if (any) save();
 }
 
 export function get(id) { load(); return byId.get(id) || null; }
@@ -143,6 +149,7 @@ export async function answer(body, send) {
   const b = body && typeof body === 'object' ? body : {};
   const cp = typeof b.id === 'string' ? byId.get(b.id) : null;
   if (!cp) return { ok: false, status: 404, error: 'No such checkpoint. It may have closed already.' };
+  if (cp.state === 'lost') return { ok: false, status: 409, error: `${cp.machine ? `ravenryd on ${cp.machine}` : 'The daemon that asked'} is not reachable any more, so nothing was answered.` };
   if (cp.state !== 'open') return { ok: false, status: 409, error: `It was ${cp.state === 'running' ? 'approved already and is running' : cp.state} already.` };
   const keys = ['choice', 'text', 'approve', 'secret', 'pick', 'decline'].filter((k) => b[k] !== undefined && b[k] !== null && b[k] !== false);
   if (keys.length !== 1) return { ok: false, status: 400, error: 'Answer with exactly one of choice, text, approve, secret, pick or decline.' };
