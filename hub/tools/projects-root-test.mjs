@@ -11,7 +11,8 @@
 //    the stubbed dialog; the guards through the route; a new project made in
 //    the new root; "Change for this one" making one project's folder under
 //    another parent (guarded, its own taken check, the default unchanged);
-//    a phone refused with 403.
+//    a phone refused with 403 (a caller on the board's stand-in for the
+//    Wi-Fi, tools/as-phone.mjs, over loopback).
 // 3. A board on :4669 with MC_PROJECTS_ROOT: locked, saving refused.
 // 4. A board on :4670 with no projects: the first-run question's data, and
 //    its answer saved.
@@ -22,9 +23,9 @@ import { withTestHome } from './test-guard.mjs'; // first: keeps this test off t
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort, lanAddress, phoneEnv, phoneRequest } from './as-phone.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'projects-root');
@@ -94,12 +95,10 @@ x = g(path.join(H, 'Projects'));
 check('guard: the missing ~/Projects suggestion is accepted, to be made on first use', x.ok && x.missing === true);
 
 // ------------------------------------------------------------ boards
-const LAN = (() => {
-  const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) out.push({ name, address: a.address });
-  out.sort((a, b) => (b.name === 'en0') - (a.name === 'en0'));
-  return out[0] && out[0].address;
-})();
+// A phone addresses the board by the Mac's Wi-Fi address; it arrives on the
+// board's stand-in port (127.0.0.1 only), seen as a phone.
+const LAN = lanAddress();
+const STANDIN = await freePort();
 
 const servers = [];
 async function board(name, port, regJson, extraEnv = {}) {
@@ -145,7 +144,7 @@ const base1 = { version: 1, settings: { autoImport: false, ruleSources: [], glob
 
 try {
   // ---- 2. shared folder adopted, then Change
-  const b = await board('b1', 4668, base1);
+  const b = await board('b1', 4668, base1, phoneEnv(STANDIN));
   let rg = b.reg();
   check('board: the shared folder is saved as the setting on the first look', rg.settings.projectsRoot === PROJ && rg.settings.projectsRootFrom === 'shared', JSON.stringify({ root: rg.settings.projectsRoot, from: rg.settings.projectsRootFrom }));
   const baks = fs.readdirSync(b.mc).filter((f) => f.startsWith('projects.json.bak-'));
@@ -207,13 +206,9 @@ try {
   }
   check('this one: nothing was made for the refused ones', !b.reg().projects.some((p) => p.name === 'Guarded'));
 
-  if (!LAN) check('phone: 403 (needs a private LAN address to arrive as one)', false, 'no LAN address on this Mac');
+  if (!LAN) check('phone: 403 (needs a private LAN address for its Host)', false, 'no LAN address on this Mac');
   else {
-    const req = (q) => new Promise((resolve, reject) => {
-      const rq = http.request({ host: LAN, port: 4668, path: q.path, method: q.method || 'GET', headers: { Host: `${LAN}:4668`, ...(q.headers || {}) } }, (res) => { let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: s })); });
-      rq.on('error', reject);
-      rq.end(q.body || undefined);
-    });
+    const req = (q) => phoneRequest(STANDIN, `http://${LAN}:4668${q.path}`, { method: q.method, headers: q.headers, body: q.body });
     // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
     await fetch(b.base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: b.base }, body: JSON.stringify({ on: true }) });
     await fetch(b.base + '/api/phone');
