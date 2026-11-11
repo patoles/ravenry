@@ -5002,6 +5002,10 @@
         "png": {
           "type": "string",
           "contentEncoding": "base64"
+        },
+        "missing_rows": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [

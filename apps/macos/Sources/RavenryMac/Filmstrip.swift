@@ -46,12 +46,16 @@ enum Film {
     static let halfMs = 130.0
     static let stallMs = 2000.0
 
-    /// Marks the frames that look wrong (filmstrip.ts analyse).
-    static func analyse(_ frames: [(at: Double, blank: Bool)], end: Double) -> [(tag: String?, still: Double)] {
+    /// Marks the frames that look wrong (filmstrip.ts analyse). Half drawn:
+    /// rows missing that the screens around it have drawn (the daemon's
+    /// missing_rows), so a spinner redrawn ten times a second is not; from
+    /// an older daemon, which does not count them, replaced within 130 ms.
+    static func analyse(_ frames: [(at: Double, blank: Bool, missing: Int?)], end: Double) -> [(tag: String?, still: Double)] {
         frames.enumerated().map { i, f in
             let next = i + 1 < frames.count ? frames[i + 1].at : nil
             let lasted = (next ?? end) - f.at
-            let tag: String? = f.blank && i > 0 ? "blank" : next != nil && lasted < halfMs ? "half" : nil
+            let half = f.missing.map { $0 > 0 } ?? (next != nil && lasted < halfMs)
+            let tag: String? = f.blank && i > 0 ? "blank" : half ? "half" : nil
             return (tag, next != nil && lasted >= stallMs ? lasted : 0)
         }
     }
@@ -336,20 +340,21 @@ final class FilmSheet: NSView {
             case .success(let v):
                 let end = Date()
                 var prev: (data: [UInt8], w: Int, h: Int)?
-                var raw: [(at: Date, mark: Int, img: CGImage?, box: CGRect?, change: CGRect?, bg: NSColor, thumb: CGImage?)] = []
+                var raw: [(at: Date, mark: Int, missing: Int?, img: CGImage?, box: CGRect?, change: CGRect?, bg: NSColor, thumb: CGImage?)] = []
                 for f in v["frames"] as? [[String: Any]] ?? [] {
                     let at = Film.date(f["at"] as? String) ?? end
                     let mark = (f["mark"] as? NSNumber)?.intValue ?? 0
+                    let missing = (f["missing_rows"] as? NSNumber)?.intValue
                     guard let b = f["png"] as? String, let data = Data(base64Encoded: b), let img = Film.image(data) else {
-                        raw.append((at, mark, nil, nil, nil, .black, nil))
+                        raw.append((at, mark, missing, nil, nil, nil, .black, nil))
                         continue
                     }
                     let lk = Film.look(img, prev: prev)
                     prev = (lk.data, img.width, img.height)
-                    raw.append((at, mark, img, lk.box, lk.change, lk.bg, Film.thumb(lk.drawn ?? img, around: lk.change ?? lk.box, bg: lk.bg, scale: scale)))
+                    raw.append((at, mark, missing, img, lk.box, lk.change, lk.bg, Film.thumb(lk.drawn ?? img, around: lk.change ?? lk.box, bg: lk.bg, scale: scale)))
                 }
                 // A frame with no picture is not known to be blank.
-                let marks = Film.analyse(raw.map { ($0.at.timeIntervalSince1970 * 1000, $0.img != nil && $0.box == nil) }, end: end.timeIntervalSince1970 * 1000)
+                let marks = Film.analyse(raw.map { ($0.at.timeIntervalSince1970 * 1000, $0.img != nil && $0.box == nil, $0.missing) }, end: end.timeIntervalSince1970 * 1000)
                 all = raw.enumerated().map { i, x in (x.at, marks[i].tag, marks[i].still / 1000) }
                 for (i, x) in raw.enumerated() {
                     guard let img = x.img else { continue }

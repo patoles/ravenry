@@ -260,7 +260,10 @@ func (c *conn) paneShot(id uint64, data []byte) {
 // one (unpictured), so a client still has every frame's time to read
 // stalls and flicker from. An animation over the budget keeps fewer
 // frames, evenly through the stretch, until it fits (skipped).
-func strip(frames []render.Frame, at []time.Time, marks []uint64, format string, o render.Options, budget int) (proto.FramesResult, error) {
+//
+// missing is each frame's missing rows (missingRows), counted against
+// the frames around it before any were left out; nil counts them here.
+func strip(frames []render.Frame, at []time.Time, marks []uint64, missing []int, format string, o render.Options, budget int) (proto.FramesResult, error) {
 	res := proto.FramesResult{Format: format, Frames: []proto.FilmFrame{}}
 	if len(frames) == 0 {
 		return res, errors.New("no frames")
@@ -268,13 +271,20 @@ func strip(frames []render.Frame, at []time.Time, marks []uint64, format string,
 	size := render.Size(frames[0].Grid, o)
 	res.Width, res.Height = size.X, size.Y
 	res.From, res.To = stamp(at[0]), stamp(at[len(at)-1])
+	if missing == nil {
+		grids := make([]*vt.Grid, len(frames))
+		for i, f := range frames {
+			grids[i] = f.Grid
+		}
+		missing = missingRows(grids, at)
+	}
 	if format == "png" {
 		pngs, err := pictures(frames, o, budget)
 		if err != nil {
 			return res, err
 		}
 		for i := range frames {
-			fi := proto.FilmFrame{At: stamp(at[i]), Mark: marks[i]}
+			fi := proto.FilmFrame{At: stamp(at[i]), Mark: marks[i], MissingRows: &missing[i]}
 			if pngs[i] != nil {
 				fi.PNG = base64.StdEncoding.EncodeToString(pngs[i])
 			} else {
@@ -309,19 +319,68 @@ func strip(frames []render.Frame, at []time.Time, marks []uint64, format string,
 		// shown until the next one kept.
 		keep := thinned(len(frames), max(1, len(frames)/2))
 		res.Skipped += len(frames) - len(keep)
-		kf, ka, km := make([]render.Frame, len(keep)), make([]time.Time, len(keep)), make([]uint64, len(keep))
+		kf, ka, km, kx := make([]render.Frame, len(keep)), make([]time.Time, len(keep)), make([]uint64, len(keep)), make([]int, len(keep))
 		for j, i := range keep {
-			kf[j], ka[j], km[j] = frames[i], at[i], marks[i]
+			kf[j], ka[j], km[j], kx[j] = frames[i], at[i], marks[i], missing[i]
 			if j+1 < len(keep) {
 				kf[j].Delay = at[keep[j+1]].Sub(at[i])
 			}
 		}
-		frames, at, marks = kf, ka, km
+		frames, at, marks, missing = kf, ka, km, kx
 	}
 	for i := range frames {
-		res.Frames = append(res.Frames, proto.FilmFrame{At: stamp(at[i]), Mark: marks[i]})
+		res.Frames = append(res.Frames, proto.FilmFrame{At: stamp(at[i]), Mark: marks[i], MissingRows: &missing[i]})
 	}
 	return res, nil
+}
+
+// missingRows counts, for each screen, the rows blank in it that were
+// drawn before it and are drawn again after it within missingSpan: a
+// redraw caught half done (rows erased, not yet drawn again), however
+// many screens caught it. A spinner or a line rewritten in place loses no
+// row, output that scrolls in only adds rows, and a row left blank longer
+// was meant to be. A size change starts again.
+func missingRows(grids []*vt.Grid, at []time.Time) []int {
+	out := make([]int, len(grids))
+	if len(grids) == 0 {
+		return out
+	}
+	start := 0 // the first screen of this size
+	last := map[int]int{}
+	for i, g := range grids {
+		if g == nil {
+			continue
+		}
+		if p := grids[start]; p == nil || p.Cols != g.Cols || p.Rows != g.Rows {
+			start, last = i, map[int]int{}
+		}
+		for y := 0; y < g.Rows && y < len(g.Cells); y++ {
+			if blankRow(g.Cells[y]) {
+				continue
+			}
+			if j, ok := last[y]; ok && i-j >= 2 && at[i].Sub(at[j+1]) < missingSpan {
+				for k := j + 1; k < i; k++ {
+					out[k]++
+				}
+			}
+			last[y] = i
+		}
+	}
+	return out
+}
+
+// missingSpan: a row blank for less than this between two screens that
+// have it drawn was a redraw seen half done.
+const missingSpan = 500 * time.Millisecond
+
+// blankRow: nothing drawn in it, no text and no background of its own.
+func blankRow(row []vt.Cell) bool {
+	for _, c := range row {
+		if (c.Text != "" && c.Text != " " && !c.Invisible) || c.HasBg || c.Inverse {
+			return false
+		}
+	}
+	return true
 }
 
 // thinned picks n of count indices evenly, the first and the last kept.
@@ -476,15 +535,23 @@ func (c *conn) paneFrames(id uint64, data []byte) {
 			c.failErr(id, err)
 			return
 		}
+		grids, ats := make([]*vt.Grid, len(fs)), make([]time.Time, len(fs))
+		for i, f := range fs {
+			grids[i], ats[i] = f.Grid, f.At
+		}
+		missing := missingRows(grids, ats)
 		skipped := 0
 		if len(fs) > limit {
 			// Evenly through the stretch, the last one kept.
 			keep := make([]pane.ScreenFrame, 0, limit)
+			km := make([]int, 0, limit)
 			for i := 0; i < limit; i++ {
-				keep = append(keep, fs[i*(len(fs)-1)/max(limit-1, 1)])
+				j := i * (len(fs) - 1) / max(limit-1, 1)
+				keep = append(keep, fs[j])
+				km = append(km, missing[j])
 			}
 			skipped = len(fs) - len(keep)
-			fs = keep
+			fs, missing = keep, km
 		}
 		frames := make([]render.Frame, len(fs))
 		at := make([]time.Time, len(fs))
@@ -496,7 +563,7 @@ func (c *conn) paneFrames(id uint64, data []byte) {
 			}
 			at[i], marks[i] = f.At, f.Mark
 		}
-		res, err := strip(frames, at, marks, format, o, mediaBudget)
+		res, err := strip(frames, at, marks, missing, format, o, mediaBudget)
 		if err != nil {
 			c.failErr(id, err)
 			return
@@ -913,7 +980,7 @@ func headlessReplay(evs []replayEvent, cols, rows int, fixed bool, speed float64
 				frames[i].Delay = ats[i+1].Sub(ats[i])
 			}
 		}
-		fr, err := strip(frames, ats, marks, format, o, mediaBudget)
+		fr, err := strip(frames, ats, marks, nil, format, o, mediaBudget)
 		if err != nil {
 			return res, err
 		}

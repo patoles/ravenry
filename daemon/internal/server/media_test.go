@@ -315,7 +315,7 @@ func TestStripBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	budget := (len(one) + 2) / 3 * 4 * 6
-	res, err := strip(frames, at, marks, "png", o, budget)
+	res, err := strip(frames, at, marks, nil, "png", o, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,12 +333,12 @@ func TestStripBudget(t *testing.T) {
 	if got[0] != 0 || got[len(got)-1] != 29 || !slices.Contains(got, 11) {
 		t.Fatalf("pictured %v: the first, the last and the stall's frame (11) first", got)
 	}
-	whole, err := strip(frames, at, marks, "gif", o, 1<<30)
+	whole, err := strip(frames, at, marks, nil, "gif", o, 1<<30)
 	if err != nil {
 		t.Fatal(err)
 	}
 	small := len(whole.Data) * 2 / 3
-	g, err := strip(frames, at, marks, "gif", o, small)
+	g, err := strip(frames, at, marks, nil, "gif", o, small)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,5 +348,48 @@ func TestStripBudget(t *testing.T) {
 	b, _ := base64.StdEncoding.DecodeString(g.Data)
 	if an, err := gif.DecodeAll(bytes.NewReader(b)); err != nil || len(an.Image) < 2 {
 		t.Fatalf("thinned gif: %v", err)
+	}
+}
+
+// A redraw seen half done: rows erased and drawn again 300 ms later.
+// Without synchronized output the strip holds the screen with the rows
+// missing, and missing_rows counts them; inside a synchronized update
+// (2026) the screen is the last frame the program finished until it
+// ends, as a terminal shows it, so no frame has rows missing. A
+// line rewritten ten times a second misses no row.
+func TestFramesHalfDrawn(t *testing.T) {
+	d := startDaemon(t)
+	c := d.dial(client.Options{})
+	text := `i=1; while [ $i -le 8 ]; do printf 'line %d of the transcript, words words words\n' $i; i=$((i+1)); done`
+	erase := `printf '\033[H'; i=0; while [ $i -lt 8 ]; do printf '\033[2K\033[1B'; i=$((i+1)); done`
+	redraw := `printf '\033[H'; ` + text
+	run := func(begin, end string) []proto.FilmFrame {
+		script := text + `; sleep 0.3; printf '` + begin + `'; ` + erase + `; sleep 0.3; ` + redraw + `; printf '` + end + `'; sleep 0.3; printf 'done'; exec sleep 30`
+		p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", script}, "cols": 60, "rows": 10})
+		waitFor(t, c, p.ID, `done`, 0)
+		return call[proto.FramesResult](t, c, "pane.frames", map[string]any{"pane": p.ID, "format": "png", "font_size": 6}).Frames
+	}
+	count := func(fs []proto.FilmFrame) (n int) {
+		for _, f := range fs {
+			if f.MissingRows == nil {
+				t.Fatal("a frame without missing_rows")
+			}
+			if *f.MissingRows > 0 {
+				n++
+			}
+		}
+		return n
+	}
+	if n := count(run(``, ``)); n == 0 {
+		t.Fatal("the redraw without synchronized output: no frame with rows missing")
+	}
+	if fs := run(`\033[?2026h`, `\033[?2026l`); count(fs) != 0 {
+		t.Fatalf("the redraw in a synchronized update: %d frames with rows missing", count(fs))
+	}
+	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", text + `; i=0; while [ $i -lt 15 ]; do printf '\r* Working (%d)' $i; i=$((i+1)); sleep 0.1; done; printf ' done'; exec sleep 30`}, "cols": 60, "rows": 10})
+	waitFor(t, c, p.ID, ` done`, 0)
+	fs := call[proto.FramesResult](t, c, "pane.frames", map[string]any{"pane": p.ID, "format": "png", "font_size": 6}).Frames
+	if len(fs) < 10 || count(fs) != 0 {
+		t.Fatalf("the spinner: %d frames, %d with rows missing", len(fs), count(fs))
 	}
 }

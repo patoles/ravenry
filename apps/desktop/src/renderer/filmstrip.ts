@@ -39,12 +39,17 @@ const HALF_MS = 130;
 /** The screen not changing this long between changes is a stall. */
 const STALL_MS = 2000;
 
-/** Marks the frames that look wrong (pure, for tests): blank ones, half drawn ones, and stalls between changes. */
-export function analyse(frames: { at: number; blank: boolean }[], end: number): { tag: 'blank' | 'half' | null; still: number }[] {
+/**
+ * Marks the frames that look wrong (pure, for tests): blank ones, half drawn ones, and stalls between changes.
+ * Half drawn: rows missing that the screens around it have drawn (the daemon's missing_rows), so a spinner
+ * redrawn ten times a second is not; from an older daemon, which does not count them, replaced within 130 ms.
+ */
+export function analyse(frames: { at: number; blank: boolean; missing?: number }[], end: number): { tag: 'blank' | 'half' | null; still: number }[] {
   return frames.map((f, i) => {
     const next = i + 1 < frames.length ? frames[i + 1].at : null;
     const lasted = (next ?? end) - f.at;
-    const tag = f.blank && i > 0 ? 'blank' as const : next !== null && lasted < HALF_MS ? 'half' as const : null;
+    const half = f.missing !== undefined ? f.missing > 0 : next !== null && lasted < HALF_MS;
+    const tag = f.blank && i > 0 ? 'blank' as const : half ? 'half' as const : null;
     return { tag, still: next !== null && lasted >= STALL_MS ? lasted : 0 };
   });
 }
@@ -122,7 +127,7 @@ export class Filmstrip {
       const end = this.host.now();
       const raw = (r.frames || []).filter((f): f is FilmFrame & { png: string } => !!f.png);
       const looks = await lookAll(raw.map((f) => f.png));
-      const marks = analyse(raw.map((f, i) => ({ at: Date.parse(f.at), blank: !looks[i].box })), end);
+      const marks = analyse(raw.map((f, i) => ({ at: Date.parse(f.at), blank: !looks[i].box, missing: f.missing_rows })), end);
       this.frames = raw.map((f, i) => ({ at: Date.parse(f.at), png: f.png, mark: f.mark, ...marks[i], ...looks[i] }));
       this.from = end - LAST_MS;
       this.to = end;

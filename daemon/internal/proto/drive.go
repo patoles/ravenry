@@ -199,6 +199,10 @@ type FilmFrame struct {
 	At   string `json:"at"`
 	Mark uint64 `json:"mark"`
 	PNG  string `json:"png,omitempty"`
+	// MissingRows: rows blank in this frame that the frames before and
+	// after it both have drawn (a redraw seen half done); always sent by
+	// a daemon that counts them.
+	MissingRows *int `json:"missing_rows,omitempty"`
 }
 
 type FramesResult struct {

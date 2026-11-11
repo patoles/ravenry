@@ -361,6 +361,9 @@ extension SelfTestBoard {
             settle(0.4)
             let some = (f.controls["some"] as? NSTextField)?.stringValue ?? "-"
             check("film_big_says_some", some == t("film.some", ["n": "\(f.frames.count)", "all": "\(f.total)"]) && f.controls["some"]?.isHiddenOrHasHiddenAncestor == false, some)
+            // A line redrawn ten times a second is no frame half drawn (the daemon's missing_rows).
+            check("film_big_not_half", !f.allMarks.contains { $0.tag == "half" } && f.allMarks.count == f.total,
+                  "\(f.allMarks.filter { $0.tag == "half" }.count) of \(f.total) half drawn")
             check("film_big_thumbs", f.controls.keys.filter { $0.hasPrefix("thumb:") }.count >= 3, f.controls.keys.sorted().joined(separator: ","))
             picture("native-film-big-1280.png")
             if let th = f.controls.keys.sorted().last(where: { $0.hasPrefix("thumb:") }).flatMap({ f.controls[$0] as? FilmThumb }) { th.onPress?() }
@@ -370,6 +373,25 @@ extension SelfTestBoard {
             (f.controls["close"] as? RButton)?.run?()
             ws.closePane(bp)
         } else { check("film_big_pane", false, "no pane") }
+        // A redraw seen half done (the top rows erased, drawn again 150 ms later, no synchronized
+        // output) is marked half drawn; the spinner line between is not.
+        let torn = "draw() { printf '\\033[H'; head -c 1500 /usr/share/dict/words | tr '\\n' ' ' | fold -w 78; }; draw; i=0; while :; do "
+            + "if [ $((i % 8)) = 7 ]; then printf '\\033[H'; k=0; while [ $k -lt 12 ]; do printf '\\033[2K\\033[1B'; k=$((k+1)); done; sleep 0.15; draw; fi; "
+            + "printf '\\033[24;1H\\033[2K* Working (%d)' $i; i=$((i+1)); sleep 0.1; done"
+        if let tp = newPane([:], name: "Torn", command: ["/bin/sh", "-c", torn]), let tt = ws.tab(showing: tp) {
+            ws.show(tt)
+            settle(4)
+            ws.film.load(tp)
+            _ = wait(30) { !ws.film.loading }
+            let f = ws.film
+            let half = f.allMarks.filter { $0.tag == "half" }.count
+            check("film_torn_marked", f.error == nil && half >= 2 && half <= 12 && f.total >= 25, "\(half) of \(f.total) half drawn, err \(f.error ?? "-")")
+            board.render(force: true)
+            settle(0.4)
+            picture("native-film-torn-1280.png")
+            (f.controls["close"] as? RButton)?.run?()
+            ws.closePane(tp)
+        } else { check("film_torn_marked", false, "no pane") }
         // A strip that could not be read says so, with Try again.
         ws.film.load("pzzzzzzz")
         settle(0.3)

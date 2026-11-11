@@ -321,7 +321,9 @@ with it.
 **The filmstrip.** The daemon also keeps each pane's recent screens:
 one when the pane prints, at most every 100 ms (at once when the last is
 older, else at the end of the interval), and none equal to the one
-before. It keeps about the last 20 seconds and at most about 4 MiB a
+before; while the program holds the screen with synchronized output
+(2026, for at most a second) the screen is the last frame it finished,
+as a terminal shows it. It keeps about the last 20 seconds and at most about 4 MiB a
 pane (rows that did not change are shared between screens), dropping the
 oldest first. `pane.frames` returns them.
 
@@ -1242,7 +1244,9 @@ Result: `pane`, `mark` (the output the picture shows), `cols`, `rows`,
 | `theme` | object, optional | As in `pane.shot`. |
 
 The strip ends with the screen now. Result: `pane`, `format`, `frames`
-(each `at`, `mark`, and with `png` its `png`), `from` and `to` (the
+(each `at`, `mark`, `missing_rows` (added in v1: the rows blank in it
+that the frames before and after it both have drawn, a redraw seen half
+done), and with `png` its `png`), `from` and `to` (the
 first and last frame's time), `skipped` (frames left out for
 `max_frames`), `width` and `height`, and for `gif` and `apng` the
 animation in `data` (base64), each frame shown until the next came.

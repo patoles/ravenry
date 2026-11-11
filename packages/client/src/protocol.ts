@@ -213,6 +213,8 @@ export interface FilmFrame {
   mark: Mark;
   /** format png: the frame, base64. */
   png?: string;
+  /** Rows blank here that the frames before and after both have drawn (a redraw seen half done); a newer daemon always sends it. */
+  missing_rows?: number;
 }
 
 export interface FramesResult {

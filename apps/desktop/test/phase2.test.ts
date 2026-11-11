@@ -56,6 +56,14 @@ test('the filmstrip marks blank and half drawn frames and stalls between changes
   assert.equal(pickThumbs(Array(20).fill({ tag: null, still: 0 }), 6, 10).length, 6);
 });
 
+test('with the daemon\'s missing rows, a spinner is not half drawn and a torn redraw is, however long it stayed', () => {
+  const t = 1_000_000;
+  const spin = analyse(Array.from({ length: 10 }, (_, i) => ({ at: t + i * 100, blank: false, missing: 0 })), t + 1000);
+  assert.deepEqual(spin.map((m) => m.tag), Array(10).fill(null));
+  const torn = analyse([{ at: t, blank: false, missing: 0 }, { at: t + 100, blank: false, missing: 40 }, { at: t + 400, blank: false, missing: 0 }], t + 1000);
+  assert.deepEqual(torn.map((m) => m.tag), [null, 'half', null]);
+});
+
 test('a review reads each file of a unified diff with its line numbers', () => {
   const d = parseDiff([
     'diff --git a/src/levels/harbour.ts b/src/levels/harbour.ts',
