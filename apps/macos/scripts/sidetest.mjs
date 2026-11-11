@@ -43,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
 import { cardFixtures } from './cards-fixture.mjs';
+import { testApp } from './testapp.mjs';
 import { pagesPrepare } from './pages-fixture.mjs';
 import { machineCard } from '../../../hub/server/machineview.mjs';
 import { SHAPES, HOSTS, BUILDS } from '../../../hub/tools/machine-shapes.mjs';
@@ -51,9 +52,8 @@ guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
-const APP = process.env.SIDETEST_APP || path.join(MAC, 'build', 'RavenryMac.app');
-// RavenryMac from build.sh, Ravenry in the packaged app (scripts/package.mjs).
-const EXE = ['RavenryMac', 'Ravenry'].map((n) => path.join(APP, 'Contents', 'MacOS', n)).find((f) => fs.existsSync(f)) || path.join(APP, 'Contents', 'MacOS', 'RavenryMac');
+// RavenryMac from build.sh, Ravenry in the packaged app's test twin (scripts/package.mjs; testapp.mjs).
+const { app: APP, exe: EXE } = testApp(process.env.SIDETEST_APP || path.join(MAC, 'build', 'RavenryMac.app'));
 const argv = process.argv.slice(2);
 const sAt = argv.indexOf('--screen');
 const SCREEN = sAt >= 0 ? argv.splice(sAt, 2)[1] : null;

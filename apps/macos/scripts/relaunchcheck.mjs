@@ -40,13 +40,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { testApp } from './testapp.mjs';
 
 guardSpawns();
 // This tool starts the app with a pane's variables on purpose.
 allowPaneLaunch();
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const APP = path.resolve(process.argv[2] || path.join(HERE, '..', 'build', 'package', 'Ravenry.app'));
+// The test twin (testapp.mjs): the release quits on a test's switches.
+const APP = testApp(process.argv[2] || path.join(HERE, '..', 'build', 'package', 'Ravenry.app')).app;
 if (!fs.existsSync(path.join(APP, 'Contents', 'MacOS', 'Ravenry')) || !fs.existsSync(path.join(APP, 'Contents', 'Resources', 'build.json'))) {
   console.error('usage: node scripts/relaunchcheck.mjs [PACKAGED_APP] [OUT] (scripts/package.mjs makes one)');
   process.exit(2);

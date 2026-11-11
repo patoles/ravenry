@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { testApp } from './testapp.mjs';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 
 guardSpawns();
@@ -52,7 +53,7 @@ const ONSCREEN = argv.includes('--onscreen') ? argv.splice(argv.indexOf('--onscr
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
-const APP = process.env.BENCH_APP || path.join(MAC, 'build', 'RavenryMac.app');
+const APP = testApp(process.env.BENCH_APP || path.join(MAC, 'build', 'RavenryMac.app')).app;
 fs.mkdirSync(path.join(REPO, '.tmp'), { recursive: true });
 const tmp = fs.mkdtempSync(path.join(REPO, '.tmp', 'mrb.'));
 const OUT = path.resolve(argv[0] || tmp);

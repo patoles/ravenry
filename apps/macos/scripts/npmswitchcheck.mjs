@@ -26,10 +26,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { testApp } from './testapp.mjs';
 import { NPM_LOGIN_LABEL as LABEL, api, makeNpmUser, stopBoard } from '../../desktop/tools/npm-board-fixture.mjs';
 
 guardSpawns();
-const APP = path.resolve(process.argv[2] || '');
+// The test twin (testapp.mjs): the release quits on --offscreen.
+const APP = process.argv[2] ? testApp(process.argv[2]).app : '';
 const R = path.join(APP, 'Contents', 'Resources');
 const NODE = path.join(APP, 'Contents', 'MacOS', 'node');
 const EXE = path.join(APP, 'Contents', 'MacOS', 'Ravenry');

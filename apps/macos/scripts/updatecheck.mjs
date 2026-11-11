@@ -33,12 +33,14 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { testApp } from './testapp.mjs';
 import { localIdentity } from '../../desktop/scripts/local-identity.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..', '..');
-const APP = path.resolve(process.argv[2] || '');
+// The test twin (testapp.mjs): the release takes no update feed of a test's.
+const APP = process.argv[2] ? testApp(process.argv[2]).app : '';
 if (!fs.existsSync(path.join(APP, 'Contents', 'MacOS', 'node'))) { console.error('usage: node scripts/updatecheck.mjs PACKAGED_APP [OUT]'); process.exit(2); }
 const OUT = path.resolve(process.argv[3] || path.join(REPO, '.tmp', 'updatecheck'));
 fs.mkdirSync(OUT, { recursive: true });

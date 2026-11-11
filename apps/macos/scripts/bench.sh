@@ -18,7 +18,10 @@
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=$(cd "$here/../.." && pwd)
-app=${BENCH_APP:-$here/build/RavenryMac.app}
+# A package's test twin, never the release (scripts/testapp.mjs, Gate.swift).
+app=$(node "$here/scripts/testapp.mjs" "${BENCH_APP:-$here/build/RavenryMac.app}")
+exe="$app/Contents/MacOS/RavenryMac"
+[ -x "$exe" ] || exe="$app/Contents/MacOS/Ravenry"
 bin="$app/Contents/MacOS/ravenryd"
 mkdir -p "$repo/.tmp"
 dir=$(mktemp -d "$repo/.tmp/macos-bench.XXXXXX")
@@ -28,7 +31,8 @@ mkdir -m 700 "$dir/user" "$dir/run" "$dir/state"
 printf '%s\n' "PROMPT='~ > '" "${BENCH_ZSHRC:-}" > "$dir/user/.zshrc"
 printf '%s\n' "skip_global_compinit=1" > "$dir/user/.zshenv"
 envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state RAVENRY_DESKTOP_DATA=$dir/desktop"
-sock="$dir/run/ravenryd-0.0.0-dev.sock"
+# Named after its version: 0.0.0-dev from build.sh, the release's in a package.
+sock=
 daemon=
 cleanup() {
   [ -n "$daemon" ] && kill "$daemon" 2>/dev/null || true
@@ -38,13 +42,13 @@ trap cleanup EXIT INT TERM
 env -i $envs "$bin" serve 2>"$dir/daemon.log" &
 daemon=$!
 i=0
-while [ ! -S "$sock" ]; do
+while sock=$(ls "$dir"/run/ravenryd-*.sock 2>/dev/null | head -1); [ ! -S "$sock" ]; do
   i=$((i + 1))
   [ $i -gt 100 ] && { echo "bench: the daemon did not start" >&2; exit 1; }
   sleep 0.05
 done
 # shellcheck disable=SC2086
-env -i $envs "$app/Contents/MacOS/RavenryMac" --offscreen --socket "$sock" --bench "$out/bench.json" \
+env -i $envs "$exe" --offscreen --socket "$sock" --bench "$out/bench.json" \
   --drag-min "${BENCH_MIN:-300}" ${BENCH_LAYER:+--bench-layer} ${BENCH_FONT_SIZE:+--font-size "$BENCH_FONT_SIZE"} 2>"$dir/app.log" &
 apppid=$!
 i=0

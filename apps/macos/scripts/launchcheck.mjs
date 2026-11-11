@@ -16,13 +16,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { testApp } from './testapp.mjs';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
-const APP = path.resolve(process.argv[2] || path.join(MAC, 'build', 'RavenryMac.app'));
+const APP = testApp(process.argv[2] || path.join(MAC, 'build', 'RavenryMac.app')).app;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(path.join(REPO, '.tmp'), { recursive: true });
 const tmp = fs.mkdtempSync(path.join(REPO, '.tmp', 'macos-launch.'));

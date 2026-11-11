@@ -54,12 +54,13 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { testApp } from './testapp.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..', '..');
 const HUB = path.join(REPO, 'hub');
-const [NATIVE, ELECTRON, OLD] = process.argv.slice(2, 5).map((p) => p && path.resolve(p));
+const [NATIVE, ELECTRON, OLD] = process.argv.slice(2, 5).map((p, i) => p && (i === 0 ? testApp(p).app : path.resolve(p)));
 if (!NATIVE || !ELECTRON || !OLD || !fs.existsSync(path.join(NATIVE, 'Contents', 'MacOS', 'node'))) {
   console.error('usage: node scripts/installcheck.mjs NATIVE_APP ELECTRON_APP OLD_RAVENRYD [OUT]');
   process.exit(2);
