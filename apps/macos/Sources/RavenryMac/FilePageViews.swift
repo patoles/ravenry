@@ -18,7 +18,7 @@ class PressBox: Box {
         guard let v = super.hitTest(p) else { return nil }
         guard onPress != nil else { return v }
         var x: NSView? = v
-        while let c = x, c !== self { if c is NSButton || c is NSTextField && (c as! NSTextField).isEditable || c is TickBox || c is NSPopUpButton { return v }; x = c.superview }
+        while let c = x, c !== self { if c is NSButton || c is NSTextField && (c as! NSTextField).isEditable || c is TickBox || c is NSPopUpButton || c is TaskDot || c is Chevron || c is NSTextView { return v }; x = c.superview }
         return self
     }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
@@ -350,4 +350,261 @@ final class NoteCard: PressBox {
             }
         }
     }
+}
+
+/// A Markdown document as a page draws it (the document view, an item's
+/// text): one selectable text from BriefDoc.document, at most `measure`
+/// wide so a line stays readable at any window width. Each ## section folds
+/// from the chevron in the gutter or a press on its heading; with three
+/// sections or more and room beside the text, a contents column lists them
+/// and a press scrolls the page to one. A box ticks through `onBox` (its
+/// place among the text's boxes, its new state). As tall as its text.
+final class DocView: Flipped, NSTextViewDelegate {
+    /// About 80 characters a line at 14 points.
+    static let measure: CGFloat = 660
+    static let contentsW: CGFloat = 210
+    let text: LinkText
+    private let md: String
+    private let dir: String
+    let canTick: Bool
+    private let size: CGFloat
+    private(set) var folded: Set<Int>
+    var onBox: ((Int, Bool) -> Void)?
+    /// The sections folded changed (the page keeps them through its redraws).
+    var onFold: ((Set<Int>) -> Void)?
+    private(set) var headings: [BriefDoc.Heading] = []
+    /// The boxes drawn, in the text's order.
+    private(set) var boxes: [(text: String, done: Bool)] = []
+    private var chevrons: [Int: Chevron] = [:]
+    private(set) var contents: NSView?
+    private(set) var contentsRows: [Int: PressBox] = [:]
+    private var lastW: CGFloat = -1
+    private var height: CGFloat = 0
+    /// The links pressed (the self-test reads them).
+    private(set) var clicked: [String] = []
+
+    /// The title its card already shows (a first # heading saying it is not drawn).
+    private let skipTitle: String?
+    init(_ md: String, dir: String, canTick: Bool, folded: Set<Int> = [], size: CGFloat = 14, skipTitle: String? = nil) {
+        self.md = md; self.dir = dir; self.canTick = canTick; self.folded = folded; self.size = size; self.skipTitle = skipTitle
+        let storage = NSTextStorage()
+        let lm = NSLayoutManager()
+        storage.addLayoutManager(lm)
+        let tc = NSTextContainer(size: NSSize(width: DocView.measure, height: .greatestFiniteMagnitude))
+        tc.lineFragmentPadding = 0
+        lm.addTextContainer(tc)
+        text = LinkText(frame: .zero, textContainer: tc)
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        text.isEditable = false
+        text.isSelectable = true
+        text.drawsBackground = false
+        text.isVerticallyResizable = false
+        text.isHorizontallyResizable = false
+        text.textContainerInset = .zero
+        text.delegate = self
+        text.linkTextAttributes = [.foregroundColor: Design.color("link"), .underlineStyle: NSUnderlineStyle.single.rawValue, .cursor: NSCursor.pointingHand]
+        addSubview(text)
+        setContentHuggingPriority(.required, for: .vertical)
+        render()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var gutter: CGFloat { headings.contains { $0.section != nil } ? 22 : 0 }
+    private var sections: [BriefDoc.Heading] { headings.filter { $0.section != nil } }
+
+    private func render() {
+        var d = BriefDoc(dir: dir)
+        d.size = size; d.lh = 1.55; d.tick = canTick; d.codeFill = "card2"
+        let r = d.document(md, folded: folded, skipTitle: skipTitle)
+        boxes = d.docBoxes
+        headings = r.text.length == 0 ? [] : r.headings
+        text.textStorage?.setAttributedString(r.text)
+        let secs = sections
+        for (k, c) in chevrons where !secs.contains(where: { $0.section == k }) { c.removeFromSuperview(); chevrons[k] = nil }
+        for h in secs {
+            guard let n = h.section else { continue }
+            let c = chevrons[n] ?? { let c = Chevron(); c.onClick = { [weak self] in self?.toggle(n) }; addSubview(c); chevrons[n] = c; return c }()
+            c.open = !h.folded
+            c.setAccessibilityLabel(h.title)
+        }
+        contents?.removeFromSuperview(); contents = nil; contentsRows = [:]
+        if secs.count >= 3 {
+            var rows: [NSView] = [label(t("pg.onThisPage"), Fonts.pt(11.5, .semibold), "tx3")]
+            for h in secs {
+                guard let n = h.section else { continue }
+                let l = label(h.title, Fonts.pt(12.5), h.folded ? "tx3" : "tx2")
+                l.lineBreakMode = .byTruncatingTail
+                l.toolTip = h.title
+                let row = card(l, fill: "card", radius: 5, insets: NSEdgeInsets(top: 3, left: 8, bottom: 3, right: 8)) { [weak self] in self?.scrollTo(n) }
+                row.fill = nil
+                contentsRows[n] = row
+                rows.append(row)
+            }
+            let col = vstack(rows, spacing: 2)
+            col.translatesAutoresizingMaskIntoConstraints = true
+            contents = col
+            addSubview(col)
+        }
+        lastW = -1
+        needsLayout = true
+    }
+
+    /// The text's width, the contents column's x (nil when it has no room) for a width.
+    private func columns(_ w: CGFloat) -> (text: CGFloat, contents: CGFloat?) {
+        let g = gutter
+        if contents != nil && w >= g + DocView.measure * 0.8 + 40 + DocView.contentsW {
+            let tw = min(DocView.measure, w - g - 40 - DocView.contentsW)
+            return (tw, g + tw + 40)
+        }
+        return (max(80, min(DocView.measure, w - g)), nil)
+    }
+
+    private func measure(_ w: CGFloat) {
+        guard let lm = text.layoutManager, let tc = text.textContainer else { return }
+        let (tw, cx) = columns(w)
+        tc.containerSize = NSSize(width: tw, height: .greatestFiniteMagnitude)
+        lm.ensureLayout(for: tc)
+        let th = ceil(lm.usedRect(for: tc).height)
+        text.frame = NSRect(x: gutter, y: 0, width: tw, height: th)
+        var h = th
+        if let c = contents {
+            c.isHidden = cx == nil
+            if let cx {
+                let ch = c.fittingSize.height
+                c.frame = NSRect(x: cx, y: 0, width: DocView.contentsW, height: ch)
+                h = max(h, ch)
+            }
+        }
+        // Each chevron beside its heading's first line.
+        for hd in sections {
+            guard let n = hd.section, let c = chevrons[n] else { continue }
+            let gr = lm.glyphRange(forCharacterRange: NSRange(location: hd.range.location, length: min(1, hd.range.length)), actualCharacterRange: nil)
+            let r = lm.boundingRect(forGlyphRange: gr, in: tc)
+            c.frame = NSRect(x: 0, y: (r.midY - 8).rounded(), width: 16, height: 16)
+        }
+        if abs(h - height) > 0.5 { height = h; invalidateIntrinsicContentSize() }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        if lastW < 0 { measure(bounds.width > 0 ? bounds.width : DocView.measure + gutter) }
+        return NSSize(width: NSView.noIntrinsicMetric, height: height)
+    }
+
+    override func layout() {
+        super.layout()
+        if abs(bounds.width - lastW) > 0.5 { lastW = bounds.width; measure(bounds.width) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // The boxes are pictures: drawn again in the new colours.
+        if boxes.contains(where: { _ in true }) { render() }
+    }
+
+    func toggle(_ n: Int) {
+        if folded.contains(n) { folded.remove(n) } else { folded.insert(n) }
+        onFold?(folded)
+        render()
+    }
+
+    /// The page scrolled so section `n`'s heading is at the top (unfolded first).
+    func scrollTo(_ n: Int) {
+        if folded.contains(n) { toggle(n) }
+        superview?.layoutSubtreeIfNeeded()
+        window?.contentView?.layoutSubtreeIfNeeded()
+        guard let h = headings.first(where: { $0.section == n }), let lm = text.layoutManager, let tc = text.textContainer,
+              let sv = enclosingScrollView, let docv = sv.documentView else { return }
+        let gr = lm.glyphRange(forCharacterRange: NSRange(location: h.range.location, length: min(1, h.range.length)), actualCharacterRange: nil)
+        let r = text.convert(lm.boundingRect(forGlyphRange: gr, in: tc), to: docv)
+        let maxY = max(0, docv.frame.height - sv.contentView.bounds.height)
+        sv.contentView.scroll(to: NSPoint(x: 0, y: min(maxY, max(0, r.minY - 14))))
+        sv.reflectScrolledClipView(sv.contentView)
+    }
+
+    /// Box `k` pressed: its new state through `onBox`, drawn at once.
+    func tick(_ k: Int) {
+        guard canTick, k < boxes.count else { return }
+        onBox?(k, !boxes[k].done)
+    }
+
+    func textView(_ v: NSTextView, clickedOnLink link: Any, at i: Int) -> Bool {
+        let s = (link as? URL)?.absoluteString ?? (link as? String) ?? ""
+        if s.hasPrefix("rvn-fold:"), let n = Int(s.dropFirst(9)) { toggle(n); return true }
+        if s.hasPrefix("rvn-box:"), let k = Int(s.dropFirst(8)) { tick(k); return true }
+        if s.hasPrefix("rvn-entry:") { return true }
+        clicked.append(s)
+        // The web and files beside the document; any other scheme is never opened.
+        if s.hasPrefix("http://") || s.hasPrefix("https://") || s.hasPrefix("file:") { Outside.open(s) }
+        return true
+    }
+}
+
+/// A section's fold control: a chevron, down while open.
+final class Chevron: NSView {
+    var open = true { didSet { needsDisplay = true; setAccessibilityExpanded(open) } }
+    var onClick: (() -> Void)?
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        setAccessibilityElement(true)
+        setAccessibilityRole(.disclosureTriangle)
+        toolTip = t("pg.foldTip")
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func draw(_ r: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let p = NSBezierPath()
+            p.lineWidth = 1.6; p.lineCapStyle = .round; p.lineJoinStyle = .round
+            if open { p.move(to: NSPoint(x: 4.5, y: 6.5)); p.line(to: NSPoint(x: 8, y: 10)); p.line(to: NSPoint(x: 11.5, y: 6.5)) }
+            else { p.move(to: NSPoint(x: 6.5, y: 4.5)); p.line(to: NSPoint(x: 10, y: 8)); p.line(to: NSPoint(x: 6.5, y: 11.5)) }
+            Design.color("tx3").setStroke(); p.stroke()
+        }
+    }
+    override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
+    override func mouseDown(with e: NSEvent) { onClick?() }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+    override func accessibilityPerformPress() -> Bool { onClick?(); return true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+}
+
+/// A task's dot on an objective's row that ticks it: the task's mark, lit
+/// under the pointer, its words and what a press does in its tooltip.
+final class TaskDot: NSView {
+    let state: String
+    let run: () -> Void
+    private let mark: Mark
+    private var hover = false { didSet { layer?.backgroundColor = hover ? Design.color("card2").cgColor : nil } }
+    init(_ state: String, text: String, run: @escaping () -> Void) {
+        self.state = state; self.run = run
+        mark = Mark.task(state)
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 19).isActive = true
+        heightAnchor.constraint(equalToConstant: 19).isActive = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(mark)
+        NSLayoutConstraint.activate([mark.centerXAnchor.constraint(equalTo: centerXAnchor), mark.centerYAnchor.constraint(equalTo: centerYAnchor)])
+        let done = state == "done"
+        toolTip = t(done ? "pg.untickTask" : "pg.tickTask", ["task": text])
+        setAccessibilityElement(true)
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(text)
+        setAccessibilityValue(done)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for a in trackingAreas { removeTrackingArea(a) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with e: NSEvent) { hover = true }
+    override func mouseExited(with e: NSEvent) { hover = false }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func mouseDown(with e: NSEvent) { run() }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+    override func accessibilityPerformPress() -> Bool { run(); return true }
 }

@@ -26,6 +26,10 @@ final class FilePage: FormPage {
         var openPage: (String) -> Void
         var openPlan: (String, String?) -> Void
         var openIdea: (String) -> Void
+        /// A project's brief, at an objective's heading when one is given.
+        var openBrief: ((String, String?) -> Void)? = nil
+        /// A checkpoint's approval card, by its id (a page's run button).
+        var showCheckpoint: ((String) -> Void)? = nil
         /// The project of the session the person last had open (Ask Claude to fix).
         var lastProject: () -> String?
         var toast: (String, (String, () -> Void)?) -> Void
@@ -90,7 +94,7 @@ final class FilePage: FormPage {
             // An answer for a tab the person has since left is not drawn over the one they are on.
             if code == 200, let v = j["page"] as? [String: Any], (self.tabOf[k] ?? 0) == tab || self.cache[k] == nil {
                 let rev = self.host?.rows().first { $0.key == k }?.rev ?? ""
-                let sig = ((try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys])) ?? Data()).hashValue
+                let sig = FilePage.signature(v)
                 self.cache[k] = (rev, v, sig)
                 if let d = v["drawn"] as? [String: Any], let dt = d["tab"] as? Int, dt != tab { self.tabOf[k] = dt }
             }
@@ -98,11 +102,19 @@ final class FilePage: FormPage {
         }
     }
 
+    /// What a view says, as a number that changes with any of it: its JSON's
+    /// SHA-256 (Data's own hash reads only its first 80 bytes, so a box
+    /// ticked, todo to done, never drew).
+    static func signature(_ v: [String: Any]) -> Int {
+        let d = (try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys])) ?? Data()
+        return SHA256.hash(data: d).prefix(8).reduce(0) { $0 << 8 | Int($1) }
+    }
+
     /// The self-test's: a page view as the hub sends it, drawn as it is (never read again).
     func apply(_ k: String, _ v: [String: Any]) {
         held = true
         key = k
-        cache[k] = ("held", v, ((try? JSONSerialization.data(withJSONObject: v, options: [.sortedKeys])) ?? Data()).hashValue)
+        cache[k] = ("held", v, FilePage.signature(v))
         headSig = ""
         redraw()
     }
@@ -212,8 +224,11 @@ final class FilePage: FormPage {
         case "open": openTarget(v, a, item, sec)
         case "ask": ask(v, at, ref(item))
         case "run":
-            send("/api/pages/run", ["key": k, "at": at.json, "item": ref(item)], fail: t("pg.notStarted"), reload: false) { [weak self] code, _ in
-                if code == 200 { self?.toast?(t("pg.runWaits", ["title": a["label"] as? String ?? ""])) }
+            send("/api/pages/run", ["key": k, "at": at.json, "item": ref(item)], fail: t("pg.notStarted"), reload: false) { [weak self] code, j in
+                guard code == 200 else { return }
+                // Its approval card in front (Electron's showCheckpoint), else said where it waits.
+                if let id = (j["checkpoint"] as? [String: Any])?["id"] as? String, let show = self?.host?.showCheckpoint { show(id) }
+                else { self?.toast?(t("pg.runWaits", ["title": a["label"] as? String ?? ""])) }
             }
         case "plugin": plugin(v, a, item)
         default: break
@@ -304,6 +319,16 @@ final class FilePage: FormPage {
         let project = PageFmt.text(it["project"]).isEmpty ? String(PageFmt.text(it["id"]).split(separator: "/").first ?? "") : PageFmt.text(it["project"])
         let title = it["title"] != nil && it["project"] != nil ? PageFmt.text(it["title"]) : nil
         host?.openPlan(project, title)
+    }
+
+    /// A project's brief at an objective: Ravenry's brief page, else the project.
+    private func openBrief(_ pid: String, _ objective: String?) {
+        if let ob = host?.openBrief { ob(pid, objective) } else if host?.pickProject(pid) != true { toast?(t("pg.noProject", ["name": pid])) }
+    }
+
+    /// A task of a brief's objective ticked or unticked (POST /api/brief/tick); the page read again after.
+    func tickTask(_ pid: String, objective: String, text: String, done: Bool) {
+        send("/api/brief/tick", ["project": pid, "objective": objective, "text": text, "done": done], fail: t("pg.notTicked"))
     }
 
     private func sourceOf(_ v: [String: Any], _ sec: [Int]?) -> [String: Any]? {
@@ -480,6 +505,8 @@ final class FilePage: FormPage {
         case "ask": return "ask"
         case "run": return "run"
         case "create": return "plus"
+        case "set": return "check"
+        case "copy": return "doc"
         default: return nil
         }
     }
@@ -660,17 +687,38 @@ final class FilePage: FormPage {
         }
         return .some(nil)
     }
-    /// A picture as `object-fit: cover`, `h` high, else (h nil) with the width:height of `aspect`.
-    private func picture(_ img: NSImage??, h: CGFloat? = nil, aspect: CGFloat? = nil, w: CGFloat? = nil, radius: CGFloat = 0) -> NSView? {
+    /// A picture shown whole, never cropped (`contain`, on card2 where it
+    /// leaves room). `cap`: as tall as the picture's own shape at its width,
+    /// at most `cap` high; `aspect`: a band of that width:height (cards in a
+    /// grid keep one shape); `w` and `h`: a fixed box. A picture not read yet
+    /// holds a 16:10 place.
+    private func picture(_ img: NSImage??, cap: CGFloat? = nil, aspect: CGFloat? = nil, w: CGFloat? = nil, h: CGFloat? = nil, radius: CGFloat = 0) -> NSView? {
         guard let img else { return nil }
         let c = CoverImage()
-        c.image = img; c.radius = radius; c.fillColor = Design.color("card2")
+        c.image = img; c.radius = radius; c.fit = true; c.fillColor = Design.color("card2")
         c.translatesAutoresizingMaskIntoConstraints = false
-        if let h { c.heightAnchor.constraint(equalToConstant: h).isActive = true }
         if let w { c.widthAnchor.constraint(equalToConstant: w).isActive = true }
-        if let a = aspect { c.heightAnchor.constraint(equalTo: c.widthAnchor, multiplier: 1 / a).isActive = true }
+        if let h { c.heightAnchor.constraint(equalToConstant: h).isActive = true }
+        if let a = aspect {
+            let k = c.heightAnchor.constraint(equalTo: c.widthAnchor, multiplier: 1 / a)
+            if cap != nil { k.priority = .init(750) }
+            k.isActive = true
+        }
+        if let cap, aspect != nil { c.heightAnchor.constraint(lessThanOrEqualToConstant: cap).isActive = true }
+        else if let cap {
+            let sz = img?.size ?? NSSize(width: 16, height: 10)
+            let r = sz.width > 0 && sz.height > 0 ? sz.height / sz.width : 10 / 16
+            let own = c.heightAnchor.constraint(equalTo: c.widthAnchor, multiplier: r); own.priority = .init(740); own.isActive = true
+            c.heightAnchor.constraint(lessThanOrEqualToConstant: cap).isActive = true
+            // Never taller than the picture is at its own size (a small one is not blown up).
+            if let i = img, i.size.height > 0 { c.heightAnchor.constraint(lessThanOrEqualToConstant: max(40, i.size.height)).isActive = true }
+        }
+        c.setAccessibilityElement(true)
+        c.setAccessibilityRole(.image)
         return c
     }
+    /// A narrow board's thumbnail: the whole picture in 76 by 46.
+    private func thumb(_ img: NSImage??) -> NSView? { picture(img, w: 76, h: 46, radius: 6) }
 
     private func isEnum(_ s: [String: Any], _ f: String) -> Bool {
         let fs = (s["source"] as? [String: Any])?["fields"] as? [String: Any]
@@ -785,52 +833,69 @@ final class FilePage: FormPage {
 
     // MARK: Objectives' pieces (the board's objRow, planRow, the legend)
 
+    /// .prow: the steps' dots from the left, the count right-aligned in its
+    /// column, the next step at the right end, so rows line up with each other.
     private func planRow(_ r: [String: Any]) -> NSView {
         let next = r["next"] as? [String: Any] ?? [:]
-        return hstack([hstack((r["dots"] as? [String] ?? []).map { Mark.step($0) }, spacing: 4), fix(label(r["count"] as? String ?? "", Fonts.pt(12, .semibold).withTabularDigits), minW: 76),
-                       soft(wrap(next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String))), spring()], spacing: 12)
+        let cn = label(r["count"] as? String ?? "", Fonts.pt(12, .semibold).withTabularDigits)
+        cn.alignment = .right
+        cn.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        return hstack([hstack((r["dots"] as? [String] ?? []).map { Mark.step($0) }, spacing: 4), spring(), fix(cn, minW: 76),
+                       nextCol(wrap(next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), 260)], spacing: 14)
+    }
+    /// .nx: `w` wide, narrower (its words wrapping) before the steps or the count give way.
+    private func nextCol(_ v: NSView, _ w: CGFloat) -> NSView {
+        v.translatesAutoresizingMaskIntoConstraints = false
+        let c = v.widthAnchor.constraint(equalToConstant: w); c.priority = .init(500); c.isActive = true
+        v.widthAnchor.constraint(lessThanOrEqualToConstant: w).isActive = true
+        v.widthAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
+        v.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        return v
     }
     private func nextColor(_ cls: String?) -> String { cls == "now" ? "work" : cls == "you" ? "you" : "tx2" }
 
-    private func objRow(_ r: [String: Any], openPlan: @escaping () -> Void) -> NSView {
+    /// An objective's row (objRow): its title, its steps or tasks, the count
+    /// and what comes next. A press opens the brief at it (a plan's row, the
+    /// plan); a task's dot ticks it in the brief (`tickTask`, nil when the
+    /// page is off).
+    private func objRow(_ r: [String: Any], key: String, open: @escaping () -> Void, tickTask: ((String, Bool) -> Void)?) -> NSView {
         let kind = r["kind"] as? String ?? "none"
         let title = r["title"] as? String ?? ""
         let plan = kind == "plan" || r["plan"] as? Bool == true
-        let ot = fix(hstack([plan ? boxed(label(t("pg.planLabel").uppercased(), Fonts.pt(10, .bold), "tx2"), fill: "card2", radius: 5, insets: NSEdgeInsets(top: 1, left: 6, bottom: 1, right: 6)) : nil, soft(label(title, Fonts.pt(12.5))), spring()], spacing: 8), w: 240)
+        let tl = wrap(title, Fonts.pt(12.5, .medium))
+        let ot = fix(hstack([plan ? boxed(label(t("pg.planLabel").uppercased(), Fonts.pt(10, .bold), "tx2"), fill: "card2", radius: 5, insets: NSEdgeInsets(top: 1, left: 6, bottom: 1, right: 6)) : nil, soft(tl)], spacing: 8), w: 240)
         let cn = { (s: String) -> NSView in let l = label(s, Fonts.pt(12.5, .semibold).withTabularDigits); l.alignment = .right; l.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal); return fix(l, minW: 76) }
-        // .nx: 220 wide, narrower (its words wrapping) before the steps or the count give way.
-        let nx = { (v: NSView) -> NSView in
-            v.translatesAutoresizingMaskIntoConstraints = false
-            let w = v.widthAnchor.constraint(equalToConstant: 220); w.priority = .init(500); w.isActive = true
-            v.widthAnchor.constraint(lessThanOrEqualToConstant: 220).isActive = true
-            v.widthAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
-            v.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-            return v
-        }
-        let steps = { (marks: [NSView]) -> NSView in let h = hstack(marks + [spring()], spacing: 4); h.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal); return h }
+        // .ds: flex 1, at least 90 wide in every row, so the count and the next step line up from row to row.
+        let steps = { (marks: [NSView]) -> NSView in let h = hstack(marks + [spring()], spacing: 4); h.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal); return fix(h, minW: 90) }
         var parts: [NSView] = [ot]
         switch kind {
         case "plan":
             let next = r["next"] as? [String: Any] ?? [:]
-            let lk = btn("objplan:\(title)", t("pg.openPlan"), .link, run: openPlan)
             parts += [steps((r["dots"] as? [String] ?? []).map { Mark.step($0) }), cn(r["count"] as? String ?? ""),
-                      nx(vstack([wrap(next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), lk], spacing: 2))]
+                      nextCol(wrap(next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), 220)]
         case "tasks":
             let tasks = r["tasks"] as? [[String: Any]] ?? []
-            parts += [steps(tasks.map { x -> NSView in let m = Mark.task(x["state"] as? String ?? "todo"); m.toolTip = x["text"] as? String; return m }), cn(r["count"] as? String ?? ""),
-                      nx(wrap(r["next"] as? String ?? "", Fonts.pt(12), "tx2"))]
+            parts += [steps(tasks.enumerated().map { i, x -> NSView in
+                let st = x["state"] as? String ?? "todo"
+                let text = x["text"] as? String ?? ""
+                guard let tick = tickTask else { let m = Mark.task(st); m.toolTip = text; return m }
+                // A dot that ticks: done unticks, anything else ticks.
+                let d = TaskDot(st, text: text) { tick(text, st != "done") }
+                pb["task:\(key):\(title):\(i)"] = d
+                return d
+            }), cn(r["count"] as? String ?? ""), nextCol(wrap(r["next"] as? String ?? "", Fonts.pt(12), "tx2"), 220)]
         case "file":
             let tot = r["total"] as? Double ?? Double(r["total"] as? Int ?? 0), dn = r["done"] as? Double ?? Double(r["done"] as? Int ?? 0)
             let upd = (r["updated"] as? String).map { t("pg.updated", ["ago": PageFmt.ago($0)]) } ?? (r["source"] as? String ?? "")
-            parts += [soft(fix(Meter(tot > 0 ? dn / tot : 0), h: 5)), cn(r["count"] as? String ?? ""), nx(wrap(upd, Fonts.pt(12), "tx2"))]
+            parts += [soft(fix(Meter(tot > 0 ? dn / tot : 0), h: 5)), cn(r["count"] as? String ?? ""), nextCol(wrap(upd, Fonts.pt(12), "tx2"), 220)]
         default:
             parts += [label(t("pg.notBroken"), Fonts.pt(12), "tx2"), spring()]
         }
-        let row = hstack(parts, spacing: 14, insets: NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16))
-        let b = Box(fill: r["wash"] as? String ?? "" != "" ? "you-t" : nil)
-        b.translatesAutoresizingMaskIntoConstraints = false
-        b.addSubview(row)
-        NSLayoutConstraint.activate([row.leadingAnchor.constraint(equalTo: b.leadingAnchor), row.trailingAnchor.constraint(equalTo: b.trailingAnchor), row.topAnchor.constraint(equalTo: b.topAnchor), row.bottomAnchor.constraint(equalTo: b.bottomAnchor)])
+        let b = card(hstack(parts, spacing: 14), fill: "card", radius: 0, insets: NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16), press: kind == "file" ? nil : open)
+        b.fill = r["wash"] as? String ?? "" != "" ? "you-t" : nil
+        b.toolTip = kind == "plan" ? t("pg.openPlanTip") : kind == "file" ? nil : t("pg.openInBriefTip")
+        b.key = "\(key)/\(title)"
+        pb["obj:\(key):\(title)"] = b
         return vstack([hline(), b])
     }
 
@@ -847,12 +912,12 @@ final class FilePage: FormPage {
     private func ocard(_ rows: [NSView?]) -> NSView { card(vstack(rows, spacing: 0)) }
     /// .ocard-h: a card's title (sec-t: tx2) and count.
     private func cardHead(_ title: String, _ n: Int?, muted: Bool = false, extra: [NSView] = []) -> NSView {
-        hstack([label(title, Fonts.pt(13, Fonts.w650), "tx2"), n.map { label("\($0)", Fonts.pt(13, Fonts.w650).withTabularDigits, "tx3") }].compactMap { $0 } + [spring()] + extra, spacing: 10, insets: NSEdgeInsets(top: 11, left: 16, bottom: 11, right: 16))
+        let parts: [NSView?] = [label(title, Fonts.pt(13, Fonts.w650), "tx2"), n.map { label("\($0)", Fonts.pt(13, Fonts.w650).withTabularDigits, "tx3") }, spring()]
+        return prow(parts + extra.map { Optional($0) }, spacing: 10, insets: NSEdgeInsets(top: 11, left: 16, bottom: 11, right: 16))
     }
     /// .orow: a row under a line.
     private func orow(_ content: NSView, press: (() -> Void)? = nil) -> NSView {
-        let row = hstack([soft(content)], spacing: 14, insets: NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16))
-        let b = card(row, fill: "card", radius: 0, press: press)
+        let b = card(soft(content), fill: "card", radius: 0, insets: NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16), press: press)
         b.fill = nil
         return vstack([hline(), b])
     }
@@ -872,15 +937,14 @@ final class FilePage: FormPage {
         let rowOf = { [unowned self] (it: Item) -> NSView in
             let st = (it["state"] as? String).flatMap { ["you", "work", "idle"].contains($0) && it["$hash"] == nil ? $0 : nil }
             let pg = self.progress(it, sp["progress"] as? [String: Any])
-            let lt = vstack([label(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(13, .medium)), self.subtitle(it, sp), self.excerpt(it, sp["excerpt"] as? String),
+            let lt = vstack([wrap(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(13, .medium)), self.subtitle(it, sp), self.excerpt(it, sp["excerpt"] as? String),
                              pg?.block == true ? pg?.view : nil, self.checklist(v, it, sp, sec), objRows ? nil : self.place(it, sp)], spacing: 3)
             soft(lt)
             let ra = hstack(self.itemButtons(v, sp, it, sec), spacing: 6)
-            var parts: [NSView?] = [st.map { self.ring($0) }, lt, spring()]
-            parts += self.badges(it, sp, s).map { Optional($0) }
-            parts += [pg?.block == false ? pg?.view : nil, self.timeEl(it, sp), ra]
-            let row = hstack(parts, spacing: 14, insets: NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16))
-            let b = card(row, fill: "card", radius: 0) { [weak self] in self?.openItem(v, it, sec) }
+            var right: [NSView?] = self.badges(it, sp, s).map { Optional($0) }
+            right += [pg?.block == false ? pg?.view : nil, self.timeEl(it, sp), ra]
+            let b = card(self.fillRow(st.map { self.ring($0) }, lt, right.compactMap { $0 }.filter { !(($0 as? NSStackView)?.arrangedSubviews.isEmpty ?? false) }),
+                         fill: "card", radius: 0, insets: NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)) { [weak self] in self?.openItem(v, it, sec) }
             b.fill = nil
             b.key = PageFmt.text(it["file"] ?? it["id"])
             self.pb["row:\(b.key)"] = b
@@ -899,19 +963,35 @@ final class FilePage: FormPage {
         let sp = spec(s)
         if items.isEmpty { return ocard([(s["title"] as? String).map { cardHead($0, nil) }, orow(wrap(s["empty"] as? String ?? t("page.empty"), Fonts.pt(12.5), "tx2"))]) }
         if sp["place"] as? String == "ravenry:objective-rows" {
-            // Objectives' cards: one per project, its goal on the line, then its objectives as rows.
+            // Objectives' cards: one per project, its goal on the line, then its
+            // objectives as rows. The name opens the project; a row the brief
+            // at that objective (a plan's row, that plan); a task's dot ticks
+            // it in the brief; Edit the brief opens the file.
             return vstack(items.map { it -> NSView in
                 let r = (it["$ravenry"] as? [String: Any])?["rows"] as? [[String: Any]] ?? []
                 let st = it["state"] as? String ?? "idle"
-                let name = card(label(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "name")), Fonts.pt(13.5, Fonts.w650)), radius: 0) { [weak self] in self?.openItem(v, it, sec) }
-                name.fill = nil
-                name.setContentHuggingPriority(.required, for: .horizontal)
-                pb["project:\(PageFmt.text(it["id"]))"] = name
+                let pid = PageFmt.text(it["id"])
+                let name = btn("project:\(pid)", PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "name")), .link) { [weak self] in self?.openItem(v, it, sec) }
+                name.titleColor = "tx"; name.titleSize = 13.5
+                name.toolTip = t("pg.openProjectTip")
                 let goal = PageFmt.text((sp["subtitle"] as? String).flatMap { PageFmt.field(it, $0) })
-                let hv: [NSView] = [ring(["you", "work", "idle", "wait"].contains(st) ? st : "idle"), name] + badges(it, sp, s) + [soft(label(goal.isEmpty ? t("pg.noGoal") : goal, Fonts.pt(12.5), "tx2"))] + itemButtons(v, sp, it, sec)
-                let head = hstack(hv,
-                                  spacing: 10, insets: NSEdgeInsets(top: 11, left: 16, bottom: 11, right: 16))
-                let rows: [NSView] = r.isEmpty ? [orow(label(t("pg.noPlanYet"), Fonts.pt(12.5), "tx2"))] : r.map { objRow($0) { [weak self] in self?.openPlan(it) } }
+                let briefFile = PageFmt.text((it["brief"] as? [String: Any])?["path"])
+                let edit: NSView? = briefFile.isEmpty || it["machine"] != nil ? nil : btn("editBrief:\(pid)", t("pg.editBrief"), .quiet, lead: "doc") { Outside.openFile(briefFile) }
+                var hv: [NSView?] = [ring(["you", "work", "idle", "wait"].contains(st) ? st : "idle"), name]
+                hv += badges(it, sp, s).map { Optional($0) }
+                let gl = label(goal.isEmpty ? t("pg.noGoal") : goal, Fonts.pt(12.5), "tx2")
+                gl.toolTip = goal.isEmpty ? nil : goal
+                hv += [soft(gl), spring(), edit]
+                hv += itemButtons(v, sp, it, sec).map { Optional($0) }
+                let head = prow(hv, spacing: 10, insets: NSEdgeInsets(top: 11, left: 16, bottom: 11, right: 16))
+                let off = self.off(v) != nil || it["machine"] != nil || briefFile.isEmpty
+                let rows: [NSView] = r.isEmpty ? [orow(label(t("pg.noPlanYet"), Fonts.pt(12.5), "tx2"))] : r.map { row in
+                    let title = row["title"] as? String ?? ""
+                    let isPlan = row["kind"] as? String == "plan"
+                    return objRow(row, key: pid, open: { [weak self] in
+                        if isPlan { self?.host?.openPlan(pid, title) } else { self?.openBrief(pid, title) }
+                    }, tickTask: off ? nil : { [weak self] text, done in self?.tickTask(pid, objective: title, text: text, done: done) })
+                }
                 return ocard([head] + rows)
             }, spacing: 14)
         }
@@ -920,10 +1000,10 @@ final class FilePage: FormPage {
         let cardsV = items.map { it -> NSView in
             let pg = progress(it, sp["progress"] as? [String: Any])
             let mr = badges(it, sp, s)
-            let body = vstack([hstack([soft(label(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(15, .bold))), spring(), timeEl(it, sp)].compactMap { $0 }, spacing: 8),
+            let body = vstack([hstack([soft(wrap(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(15, .bold))), timeEl(it, sp)].compactMap { $0 }, spacing: 8),
                                subtitle(it, sp), mr.isEmpty ? nil : flow(mr, width: cw - 28, gap: 6), pg?.view, excerpt(it, sp["excerpt"] as? String), checklist(v, it, sp, sec), place(it, sp),
                                { let b = itemButtons(v, sp, it, sec); return b.isEmpty ? nil : flow(b, width: cw - 28, gap: 6) }()], spacing: 7, insets: NSEdgeInsets(top: 12, left: 14, bottom: 14, right: 14))
-            let c = card(vstack([picture(image(v, it, sp["image"] as? String), aspect: 2), body])) { [weak self] in self?.openItem(v, it, sec) }
+            let c = card(vstack([picture(image(v, it, sp["image"] as? String), cap: 200, aspect: 1.6), body])) { [weak self] in self?.openItem(v, it, sec) }
             c.key = PageFmt.text(it["file"] ?? it["id"] ?? it["path"])
             pb["card:\(c.key)"] = c
             return c
@@ -980,14 +1060,14 @@ final class FilePage: FormPage {
                 let k = lk(g.value)
                 let isFolded = folded[k] ?? (i == groups.count - 1 && groups.count > 1)
                 let tg: NSView = isFolded ? hstack([label(t("pg.show"), Fonts.pt(12, .medium), "tx2"), Icon("chevron", "tx2", size: 12)], spacing: 4) : Icon("down", "tx2", size: 12)
-                let h = card(hstack([label(name(g.value), Fonts.pt(12.5, Fonts.w650)), countPill(g.items.count), spring(), tg], spacing: 8, insets: NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)), radius: 0) { [weak self] in
+                let h = card(hstack([label(name(g.value), Fonts.pt(12.5, Fonts.w650)), countPill(g.items.count), spring(), tg], spacing: 8), radius: 0, insets: NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)) { [weak self] in
                     self?.folded[k] = !isFolded; self?.redraw()
                 }
                 h.fill = nil
                 pb["lane:\(g.value ?? "null")"] = h
                 let rows: [NSView] = isFolded ? [] : g.items.map { it in
                     let tx = vstack([wrap(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(13, .semibold)), subtitle(it, sp), meta(it)], spacing: 5)
-                    let r = card(hstack([soft(tx), picture(image(v, it, sp["image"] as? String), h: 46, w: 76, radius: 6)].compactMap { $0 }, spacing: 12, insets: NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)), radius: 0) { [weak self] in self?.openItem(v, it, sec) }
+                    let r = card(hstack([soft(tx), thumb(image(v, it, sp["image"] as? String))].compactMap { $0 }, spacing: 12), radius: 0, insets: NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12)) { [weak self] in self?.openItem(v, it, sec) }
                     r.fill = nil
                     r.key = PageFmt.text(it["file"] ?? it["id"])
                     pb["note:\(r.key)"] = r
@@ -1015,7 +1095,7 @@ final class FilePage: FormPage {
                 let nt = NoteCard(fill: "tile", radius: 8)
                 nt.translatesAutoresizingMaskIntoConstraints = false
                 nt.layer?.masksToBounds = true
-                let inner = vstack([picture(image(v, it, sp["image"] as? String), h: 92), bd])
+                let inner = vstack([picture(image(v, it, sp["image"] as? String), cap: 220), bd])
                 nt.addSubview(inner)
                 NSLayoutConstraint.activate([inner.leadingAnchor.constraint(equalTo: nt.leadingAnchor), inner.trailingAnchor.constraint(equalTo: nt.trailingAnchor), inner.topAnchor.constraint(equalTo: nt.topAnchor), inner.bottomAnchor.constraint(equalTo: nt.bottomAnchor)])
                 nt.acts = actsV
@@ -1094,42 +1174,76 @@ final class FilePage: FormPage {
         return true
     }
 
+    /// A table (.ptable): each column as wide as its widest value, the
+    /// first (the title) taking what is left and wrapping when it is short of
+    /// room; numbers to the right; a row opens its item.
     private func table(_ v: [String: Any], _ s: [String: Any], _ items: [Item], _ sec: [Int]) -> NSView {
         let sp = spec(s)
         let cols = (s["columns"] as? [[String: Any]]) ?? [["field": sp["title"] as? String ?? "title", "label": t("pg.titleCol"), "align": "start"]]
         let fields = (s["source"] as? [String: Any])?["fields"] as? [String: Any]
         let ftype = { (f: String) in ((fields?[String(f.split(separator: ".").first ?? "")] as? [String: Any])?["type"] as? String) ?? "" }
         let hasActs = !actions(sp).isEmpty
-        let cell = { (it: Item, c: [String: Any], i: Int) -> NSView in
+        let gap: CGFloat = 28
+        let font = { (i: Int) in Fonts.pt(12.5, i == 0 ? .semibold : .regular).withTabularDigits }
+        /// A cell's words (nil: an enum's tag), as they are shown.
+        let words = { (it: Item, c: [String: Any]) -> (String, Bool)? in
             let f = c["field"] as? String ?? ""
             let val = PageFmt.field(it, f)
-            let end = c["align"] as? String == "end"
-            var view: NSView
-            if val == nil || PageFmt.text(val).isEmpty && !(val is NSNumber) { view = NSView() }
-            else if ftype(f) == "enum" { view = hstack([asTag(PageFmt.text(val), tone: PageFmt.tone(val))], spacing: 0) }
-            else {
-                let s: String
-                if ftype(f) == "date" { s = PageFmt.time(val) } else if let n = val as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { let nf = NumberFormatter(); nf.numberStyle = .decimal; nf.locale = Locale(identifier: "en_US"); s = nf.string(from: n) ?? PageFmt.text(n) } else { s = PageFmt.text(val) }
-                let l = label(s, Fonts.pt(12.5, i == 0 ? .semibold : .regular).withTabularDigits, ftype(f) == "date" ? "tx2" : "tx")
-                l.alignment = end ? .right : .left
-                view = l
+            if val == nil || PageFmt.text(val).isEmpty && !(val is NSNumber) { return ("", false) }
+            if ftype(f) == "enum" { return (PageFmt.text(val), true) }
+            if ftype(f) == "date" { return (PageFmt.time(val), false) }
+            if let n = val as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { let nf = NumberFormatter(); nf.numberStyle = .decimal; nf.locale = Locale(identifier: "en_US"); return (nf.string(from: n) ?? PageFmt.text(n), false) }
+            return (PageFmt.text(val), false)
+        }
+        // Each column's natural width: its header's and its widest value's.
+        var natural: [CGFloat] = cols.enumerated().map { i, c in
+            let head = ((c["label"] as? String ?? "") as NSString).size(withAttributes: [.font: Fonts.pt(11.5, .semibold)]).width
+            let cells = items.map { it -> CGFloat in
+                guard let (w, tag) = words(it, c) else { return 0 }
+                return (w as NSString).size(withAttributes: [.font: tag ? Fonts.pt(11, .semibold) : font(i)]).width + (tag ? 16 : 0)
             }
-            soft(view)
-            return hstack(end ? [spring(), view] : [view, spring()], spacing: 0)
+            return ceil(max(head, cells.max() ?? 0)) + 2
+        }
+        let actsW = hasActs ? (items.map { hstack(itemButtons(v, sp, $0, sec), spacing: 4).fittingSize.width }.max() ?? 0) + 16 : 0
+        let room = width - 32 - actsW - gap * CGFloat(max(0, cols.count - 1))
+        let others = natural.dropFirst().reduce(0, +)
+        // The title takes what the others leave (at least 140, wrapping); the others shrink in turn only past that.
+        if !natural.isEmpty { natural[0] = max(min(natural[0], 600), max(140, room - others)) }
+        if natural.reduce(0, +) > room, natural.count > 1 {
+            let k = max(0.3, (room - natural[0]) / max(1, others))
+            for i in 1..<natural.count { natural[i] = floor(natural[i] * min(1, k)) }
+        }
+        let cell = { (it: Item, c: [String: Any], i: Int) -> NSView in
+            let f = c["field"] as? String ?? ""
+            let end = c["align"] as? String == "end" || (PageFmt.field(it, f) is NSNumber && ftype(f) != "enum")
+            var view: NSView
+            let (w, tag) = words(it, c) ?? ("", false)
+            if w.isEmpty { view = NSView() }
+            else if tag { view = hstack([asTag(w, tone: PageFmt.tone(PageFmt.field(it, f)))], spacing: 0) }
+            else {
+                // The title wraps when its column is short of room; a value keeps one line, cut at its end.
+                if i == 0 { let l = wrap(w, font(i), "tx"); view = l }
+                else { let l = label(w, font(i), ftype(f) == "date" ? "tx2" : "tx"); l.alignment = end ? .right : .left; l.toolTip = w; view = l }
+            }
+            return fix(hstack(end ? [spring(), view] : [view, spring()], spacing: 0), w: natural[i])
         }
         let rowView = { (cells: [NSView], acts: NSView?, press: (() -> Void)?, ins: NSEdgeInsets) -> NSView in
-            let r = NSStackView(views: cells); r.orientation = .horizontal; r.distribution = .fillEqually; r.spacing = 32
-            let line = hstack([soft(r), acts].compactMap { $0 }, spacing: 16, insets: ins)
-            let b = card(line, fill: "card", radius: 0, press: press); b.fill = nil
+            let r = hstack(cells + [spring()], spacing: gap)
+            let line = hstack([soft(r), acts].compactMap { $0 }, spacing: 16)
+            let b = card(line, fill: "card", radius: 0, insets: ins, press: press); b.fill = nil
             return b
         }
         var rows: [NSView] = []
         if let tt = s["title"] as? String { rows.append(cardHead(tt, nil)) }
-        rows.append(rowView(cols.map { c -> NSView in let l = label(c["label"] as? String ?? "", Fonts.pt(11.5, .semibold), "tx3"); l.alignment = c["align"] as? String == "end" ? .right : .left; return c["align"] as? String == "end" ? hstack([spring(), l], spacing: 0) : hstack([l, spring()], spacing: 0) },
-                            hasActs ? fix(NSView(), w: 1) : nil, nil, NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)))
+        rows.append(rowView(cols.enumerated().map { i, c -> NSView in
+            let l = label(c["label"] as? String ?? "", Fonts.pt(11.5, .semibold), "tx3")
+            let end = c["align"] as? String == "end"
+            l.alignment = end ? .right : .left
+            return fix(end ? hstack([spring(), l], spacing: 0) : hstack([l, spring()], spacing: 0), w: natural[i])
+        }, hasActs ? fix(NSView(), w: max(1, actsW - 16)) : nil, nil, NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)))
         if items.isEmpty { rows.append(orow(label(s["empty"] as? String ?? t("page.empty"), Fonts.pt(12.5), "tx2"))) }
         for it in items {
-            let b = rowView(cols.enumerated().map { i, c in cell(it, c, i) }, hasActs ? hstack(itemButtons(v, sp, it, sec), spacing: 4) : nil, { [weak self] in self?.openItem(v, it, sec) }, NSEdgeInsets(top: hasActs ? 6 : 9, left: 16, bottom: hasActs ? 6 : 9, right: 16))
+            let b = rowView(cols.enumerated().map { i, c in cell(it, c, i) }, hasActs ? fix(hstack(itemButtons(v, sp, it, sec) + [spring()], spacing: 4), w: max(1, actsW - 16)) : nil, { [weak self] in self?.openItem(v, it, sec) }, NSEdgeInsets(top: hasActs ? 6 : 9, left: 16, bottom: hasActs ? 6 : 9, right: 16))
             let key = PageFmt.text(it["file"] ?? it["id"])
             pb["trow:\(key)"] = b
             rows.append(hline()); rows.append(b)
@@ -1156,59 +1270,69 @@ final class FilePage: FormPage {
             let boxes = it["$boxes"] as? [[String: Any]] ?? []
             let pg = self.progress(it, sp["progress"] as? [String: Any])
             let open: NSView? = it["$hash"] != nil || it["done"] != nil ? self.btn("open:\(PageFmt.text(it["file"] ?? it["path"]))", t("pg.open"), .quiet, lead: "doc") { [weak self] in guard let self else { return }; Outside.openFile(self.itemPath(v, it, sec)) } : nil
-            var hv: [NSView?] = [label(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(13.5, Fonts.w650))]
+            var hv: [NSView?] = [soft(label(PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title")), Fonts.pt(13.5, Fonts.w650)))]
             hv += self.badges(it, sp, s).map { Optional($0) }
             hv += [pg?.block == false ? pg?.view : nil, spring(), open]
-            let head = hstack(hv, spacing: 10, insets: NSEdgeInsets(top: 11, left: 16, bottom: 11, right: 16))
+            let head = self.prow(hv, spacing: 10, insets: NSEdgeInsets(top: 11, left: 20, bottom: 11, right: 16))
             let file = PageFmt.text(it["file"] ?? it["path"])
-            let body = self.markdown(PageFmt.text(it["body"]), key: file) { [weak self] k, text, done in
-                self?.toggle(v, it, sec, line: k < boxes.count ? boxes[k]["line"] as? Int ?? 0 : 0, text: text, done: done)
+            let body = self.markdown(PageFmt.text(it["body"]), key: file, dir: (self.itemPath(v, it, sec) as NSString).deletingLastPathComponent, can: can, skipTitle: PageFmt.text(PageFmt.field(it, sp["title"] as? String ?? "title"))) { [weak self] k, done in
+                guard k < boxes.count else { return }
+                self?.toggle(v, it, sec, line: boxes[k]["line"] as? Int ?? 0, text: boxes[k]["text"] as? String ?? "", done: done)
             }
             let acts = self.itemButtons(v, sp, it, sec)
-            return card(vstack([head, pg?.block == true ? self.pad(pg!.view, NSEdgeInsets(top: 0, left: 16, bottom: 10, right: 16)) : nil,
-                                self.pad(body(can), NSEdgeInsets(top: 4, left: 16, bottom: 14, right: 16)), acts.isEmpty ? nil : hstack(acts + [spring()], spacing: 6)], spacing: 0))
+            return card(vstack([head, hline(), pg?.block == true ? self.pad(pg!.view, NSEdgeInsets(top: 10, left: 20, bottom: 0, right: 20)) : nil,
+                                self.pad(body.text.string.isEmpty ? label(t("pg.emptyFile"), Fonts.pt(13), "tx3") : body, NSEdgeInsets(top: 16, left: 20, bottom: 20, right: 20)), acts.isEmpty ? nil : self.pad(hstack(acts + [spring()], spacing: 6), NSEdgeInsets(top: 0, left: 20, bottom: 14, right: 20))], spacing: 0))
         }
         if s["groupBy"] as? String != nil, let gs = groupsOf(d) {
-            return vstack(gs.map { g in vstack([pad(label(g.value ?? t("pg.other"), Fonts.pt(12.5, Fonts.w650), "tx2"), NSEdgeInsets(top: 2, left: 2, bottom: 4, right: 2))] + g.items.map(doc), spacing: 0) }, spacing: 12)
+            return vstack(gs.map { g in vstack([pad(label(g.value ?? t("pg.other"), Fonts.pt(12.5, Fonts.w650), "tx2"), NSEdgeInsets(top: 2, left: 2, bottom: 6, right: 2))] + g.items.map(doc), spacing: 12) }, spacing: 18)
         }
         return vstack(items.map(doc), spacing: 12)
     }
 
-    private func pad(_ v: NSView, _ ins: NSEdgeInsets) -> NSView { vstack([v], insets: ins) }
+    private func pad(_ v: NSView, _ ins: NSEdgeInsets) -> NSView { boxed(v, fill: nil, radius: 0, insets: ins) }
 
-    /// A document's Markdown as views; a box ticks through `onBox` (its place among the text's boxes, its text, its new state).
-    private func markdown(_ md: String, key: String, onBox: @escaping (Int, String, Bool) -> Void) -> (Bool) -> NSView {
-        { [unowned self] can in
-            let blocks = PageFmt.blocks(md)
-            return vstack(blocks.map { b -> NSView in
-                switch b {
-                case .heading(let n, let s): return self.pad(self.md(s, Fonts.pt(n == 1 ? 16 : n == 2 ? 14 : 13, n == 3 ? Fonts.w650 : .bold)), NSEdgeInsets(top: n == 1 ? 6 : n == 2 ? 4 : 0, left: 0, bottom: 0, right: 0))
-                case .para(let s): return self.md(s, Fonts.pt(13))
-                case .quote(let s): return hstack([fix(Box(fill: "sep"), w: 2), soft(self.md(s, Fonts.pt(13), "tx2"))], spacing: 10)
-                case .code(let s):
-                    let l = wrap(s, Fonts.mono(12))
-                    l.text.textColor = Design.termFg
-                    return boxed(soft(l), fill: "term-bg", radius: 7, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
-                case .list(let items):
-                    return vstack(items.map { x -> NSView in
-                        if let done = x.box {
-                            let tb = TickBox(done, enabled: can) { onBox(x.k, x.text, !done) }
-                            self.pb["mdbox:\(key):\(x.k)"] = tb
-                            return hstack([tb, soft(self.md(x.text, Fonts.pt(13), done ? "tx2" : "tx"))], spacing: 8)
-                        }
-                        return hstack([fix(label("\u{2022}", Fonts.pt(13), "tx2"), w: 10), soft(self.md(x.text, Fonts.pt(13)))], spacing: 8)
-                    }, spacing: 3)
-                }
-            }, spacing: 6)
-        }
+    /// A row's views left to right with room around them (.orow's padding):
+    /// the room is the box's own, so the row is always that much taller than
+    /// what it holds (a stack's edge insets are not kept in its height).
+    private func prow(_ views: [NSView?], spacing: CGFloat = 14, insets: NSEdgeInsets = NSEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)) -> NSView {
+        boxed(hstack(views, spacing: spacing), fill: nil, radius: 0, insets: insets)
     }
-    private func md(_ s: String, _ font: NSFont, _ color: String = "tx") -> NSView {
-        let a = NSMutableAttributedString(attributedString: PageFmt.inline(s, font, color))
-        let ps = NSMutableParagraphStyle(); ps.minimumLineHeight = ceil(font.pointSize * 1.5)
-        a.addAttribute(.paragraphStyle, value: ps, range: NSRange(location: 0, length: a.length))
-        let c = wrap(s, font, color)
-        c.text.attributedStringValue = a
+
+    /// .orow as flex: a lead (a ring), the main column taking every point the
+    /// rest leaves (flex 1, so a plan's band spans it), then the right-hand
+    /// views at their own widths, 14 apart, each on the row's middle; the row
+    /// as tall as its tallest.
+    private func fillRow(_ lead: NSView?, _ main: NSView, _ right: [NSView]) -> NSView {
+        let c = Flipped()
+        c.translatesAutoresizingMaskIntoConstraints = false
+        let rs = hstack(right, spacing: 14)
+        var cs: [NSLayoutConstraint] = []
+        for v in [lead, main, right.isEmpty ? nil : rs].compactMap({ $0 }) {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            c.addSubview(v)
+            cs += [v.centerYAnchor.constraint(equalTo: c.centerYAnchor), v.topAnchor.constraint(greaterThanOrEqualTo: c.topAnchor), v.bottomAnchor.constraint(lessThanOrEqualTo: c.bottomAnchor)]
+        }
+        cs.append(main.leadingAnchor.constraint(equalTo: lead?.trailingAnchor ?? c.leadingAnchor, constant: lead == nil ? 0 : 14))
+        if let lead { cs.append(lead.leadingAnchor.constraint(equalTo: c.leadingAnchor)) }
+        if right.isEmpty { cs.append(main.trailingAnchor.constraint(equalTo: c.trailingAnchor)) }
+        else { cs += [rs.leadingAnchor.constraint(equalTo: main.trailingAnchor, constant: 14), rs.trailingAnchor.constraint(equalTo: c.trailingAnchor)] }
+        let hug = c.heightAnchor.constraint(equalToConstant: 0); hug.priority = .init(240); cs.append(hug)
+        NSLayoutConstraint.activate(cs)
+        // The right-hand views at their own width (a stack has no hugging of its own to hold it).
+        if !right.isEmpty { let w = rs.widthAnchor.constraint(equalToConstant: ceil(rs.fittingSize.width)); w.priority = .init(900); w.isActive = true }
         return c
+    }
+
+    /// The sections of each document a person folded, by its file.
+    private var docFolds: [String: Set<Int>] = [:]
+
+    /// A document's Markdown (DocView); a box ticks through `onBox` (its place among the text's boxes, its new state).
+    private func markdown(_ md: String, key: String, dir: String, can: Bool, skipTitle: String? = nil, onBox: @escaping (Int, Bool) -> Void) -> DocView {
+        let dv = DocView(md, dir: dir, canTick: can, folded: docFolds[key] ?? [], skipTitle: skipTitle)
+        dv.onBox = onBox
+        dv.onFold = { [weak self] f in self?.docFolds[key] = f }
+        pb["doc:\(key)"] = dv
+        return dv
     }
 
     // MARK: Ravenry's own views
@@ -1312,6 +1436,8 @@ final class FilePage: FormPage {
         layer.autoresizingMask = [.width, .height]
         addSubview(layer)
         sheetView = layer
+        // Esc closes it wherever the keyboard was (the hidden terminal never gets it).
+        window?.makeFirstResponder(layer)
     }
     func closeSheet() {
         sheetView?.removeFromSuperview(); sheetView = nil; sheetKind = ""
@@ -1380,7 +1506,7 @@ final class FilePage: FormPage {
         hl.textColor = Design.termFg
         let hi = Icon("doc", "tx3", size: 13)
         hi.image = SharedIcons.image("doc", color: "tx2", size: 13, dark: true)
-        let headRow = hstack([hi, hl, spring()], spacing: 8, insets: NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14))
+        let headRow = prow([hi, hl, spring()], spacing: 8, insets: NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14))
         let codeBox = card(vstack([headRow, hline(), pad(soft(pre), NSEdgeInsets(top: 10, left: 14, bottom: 12, right: 14))]), fill: "term-bg", radius: 8)
         let ask = { [weak self] in
             guard let self else { return }
@@ -1411,8 +1537,8 @@ final class FilePage: FormPage {
                 return hstack([fix(label(f["label"] as? String ?? "", Fonts.pt(12), "tx3"), w: 110), soft(wrap(val.isEmpty ? "-" : val, Fonts.pt(12.5)))], spacing: 8)
             }, spacing: 5))
         }
-        if let sp { rows.append(picture(image(v, it, sp["image"] as? String), h: 200, radius: 8)) }
-        if !PageFmt.text(it["body"]).isEmpty { let mdv = markdown(PageFmt.text(it["body"]), key: "sheet", onBox: { _, _, _ in }); rows.append(mdv(false)) }
+        if let sp { rows.append(picture(image(v, it, sp["image"] as? String), cap: 260, radius: 8)) }
+        if !PageFmt.text(it["body"]).isEmpty { rows.append(markdown(PageFmt.text(it["body"]), key: "sheet:doc", dir: (itemPath(v, it, sec) as NSString).deletingLastPathComponent, can: false, skipTitle: title) { _, _ in }) }
         let open: NSView? = it["$hash"] != nil ? btn("sheet:openFile", t("pg.openFile"), .link) { [weak self] in guard let self else { return }; Outside.openFile(self.itemPath(v, it, sec)) } : nil
         var bb: [NSView?] = [open, spring()]
         bb += (sp.map { itemButtons(v, $0, it, sec) } ?? []).map { Optional($0) }
@@ -1443,9 +1569,24 @@ final class FilePage: FormPage {
                 if let i = p.itemArray.firstIndex(where: { $0.representedObject as? String == cur }) { p.selectItem(at: i) }
                 popups[k] = p
                 input = p
+            } else if type == "date" {
+                // A day typed as YYYY-MM-DD, or picked on a calendar.
+                let fb = field("form:\(k)", "YYYY-MM-DD")
+                let cal = btn("sheet:cal:\(k)", t("pg.pickDay"), small: false, lead: "clock") {}
+                cal.run = { [weak self, weak cal, weak fb] in
+                    guard let self, let cal, let fb else { return }
+                    self.pickDay(fb, from: cal)
+                }
+                input = hstack([fix(fb, w: 160), cal, spring()], spacing: 6)
             } else {
-                let fb = field("form:\(k)", type == "list" ? t("pg.commaSep") : type == "date" ? "YYYY-MM-DD" : "")
-                input = fb
+                let fb = field("form:\(k)", type == "list" ? t("pg.commaSep") : "")
+                if type == "number" {
+                    // Only a number goes in (the field keeps what parses).
+                    let nf = NumberFormatter(); nf.numberStyle = .decimal; nf.usesGroupingSeparator = false; nf.locale = Locale(identifier: "en_US_POSIX")
+                    fb.field.formatter = nf
+                    fb.field.alignment = .right
+                }
+                input = type == "number" ? hstack([fix(fb, w: 140), spring()], spacing: 0) : fb
             }
             rows.append(vstack([NSTextField(labelWithAttributedString: lbl), input], spacing: 5))
         }
@@ -1455,6 +1596,33 @@ final class FilePage: FormPage {
         save.isEnabled = !fm.busy
         rows.append(sheetButtons([spring(), btn("sheet:cancel", t("pg.cancel"), small: false) { [weak self] in self?.closeSheet() }, save]))
         return vstack(rows, spacing: 12)
+    }
+
+    /// A calendar under the button: the day picked fills the field as YYYY-MM-DD.
+    private func pickDay(_ fb: FieldBox, from anchor: NSView) {
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+        let dp = NSDatePicker()
+        dp.datePickerStyle = .clockAndCalendar
+        dp.datePickerElements = .yearMonthDay
+        dp.dateValue = f.date(from: fb.text) ?? Date()
+        dp.sizeToFit()
+        let vc = NSViewController()
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: dp.frame.width + 16, height: dp.frame.height + 16))
+        dp.frame.origin = NSPoint(x: 8, y: 8)
+        host.addSubview(dp)
+        vc.view = host
+        let pop = NSPopover()
+        pop.contentViewController = vc
+        pop.behavior = .transient
+        dayPicker = (dp, fb, f)
+        dp.target = self
+        dp.action = #selector(dayPicked(_:))
+        pop.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+    }
+    private var dayPicker: (NSDatePicker, FieldBox, DateFormatter)?
+    @objc private func dayPicked(_ dp: NSDatePicker) {
+        guard let (p, fb, f) = dayPicker, p === dp else { return }
+        fb.text = f.string(from: dp.dateValue)
     }
 
     private func saveForm(_ v: [String: Any]) {
@@ -1536,4 +1704,7 @@ final class SheetLayer: Flipped {
     required init?(coder: NSCoder) { fatalError() }
     override func mouseDown(with e: NSEvent) { if !sheet.frame.contains(convert(e.locationInWindow, from: nil)) { onClose() } }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with e: NSEvent) { if e.keyCode == 53 { onClose() } else { super.keyDown(with: e) } }
+    override func cancelOperation(_ sender: Any?) { onClose() }
 }

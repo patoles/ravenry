@@ -95,6 +95,13 @@ final class BriefPage: Box, NSTextViewDelegate {
         if shownText != nil { redraw() }
     }
 
+    /// An objective to show once the brief is drawn: its heading scrolled to the top and flashed.
+    private(set) var pendingFocus: String?
+    /// The objective last brought into view (the self-test reads it).
+    private(set) var focused: String?
+    /// Opens at an objective (Objectives' row): the next draw scrolls to its heading.
+    func focus(_ objective: String?) { pendingFocus = objective; if shownText != nil { applyFocus() } }
+
     /// Shows a project's brief: what the hub gave last at once, asked again after 4 seconds.
     func show(_ pid: String, state: HubState?) {
         if project != pid { project = pid; shownText = nil; doc = BriefDoc(dir: ""); text.string = ""; scroll.contentView.scroll(to: .zero) }
@@ -143,6 +150,7 @@ final class BriefPage: Box, NSTextViewDelegate {
         let y = scroll.contentView.bounds.origin.y
         let sel = text.selectedRanges
         doc.width = min(620, max(100, lastWidth - 40))
+        doc.planTick = !machine && hub != nil
         var d = doc
         let s = d.page(body, entries: entries)
         doc = d
@@ -153,6 +161,46 @@ final class BriefPage: Box, NSTextViewDelegate {
         if !kept.isEmpty { text.selectedRanges = kept.map { NSValue(range: $0) } }
         scroll.contentView.scroll(to: NSPoint(x: 0, y: min(y, max(0, text.frame.height - scroll.contentSize.height))))
         scroll.reflectScrolledClipView(scroll.contentView)
+        if pendingFocus != nil { applyFocus() }
+    }
+
+    /// The objective asked for: its heading at the top of the page, flashed as a find shows a match.
+    private func applyFocus() {
+        guard let want = pendingFocus, !want.isEmpty, let lm = text.layoutManager, let tc = text.textContainer else { pendingFocus = nil; return }
+        let ns = text.string as NSString
+        var r = ns.range(of: "\n" + want + "\n")
+        if r.location != NSNotFound { r = NSRange(location: r.location + 1, length: (want as NSString).length) } else { r = ns.range(of: want) }
+        pendingFocus = nil
+        guard r.location != NSNotFound else { return }
+        layoutSubtreeIfNeeded()
+        lm.ensureLayout(for: tc)
+        let gr = lm.glyphRange(forCharacterRange: r, actualCharacterRange: nil)
+        let rect = lm.boundingRect(forGlyphRange: gr, in: tc)
+        let y = rect.minY + text.textContainerOrigin.y - 16
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, min(y, text.frame.height - scroll.contentSize.height))))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        focused = want
+        if window != nil { text.showFindIndicator(for: r) }
+    }
+
+    /// Why the last tick was not written (said by a beep; the self-test reads it).
+    private(set) var tickError: String?
+    /// The tasks ticked from the page, for the self-test: POST bodies sent.
+    private(set) var ticked: [[String: Any]] = []
+
+    /// A Plan task's box pressed: ticked or unticked in the brief (POST /api/brief/tick), then read again.
+    private func tick(_ n: Int) {
+        guard n < doc.planTasks.count, let hub else { return }
+        let task = doc.planTasks[n]
+        let body: [String: Any] = ["project": project, "objective": task.objective, "text": task.text, "done": !task.done]
+        ticked.append(body)
+        let pid = project
+        hub.post("/api/brief/tick", body) { [weak self] code, j in
+            guard let self else { return }
+            if code != 200 { NSSound.beep(); self.tickError = j["error"] as? String ?? t("pg.notTicked") }
+            self.data[pid] = nil
+            self.fetch(pid)
+        }
     }
 
     private func drawHead(_ j: [String: Any]?) {
@@ -181,6 +229,7 @@ final class BriefPage: Box, NSTextViewDelegate {
     /// A link: an entry opens or closes; http, https and file URLs open outside.
     func textView(_ v: NSTextView, clickedOnLink link: Any, at i: Int) -> Bool {
         let s = (link as? URL)?.absoluteString ?? (link as? String) ?? ""
+        if s.hasPrefix("rvn-task:"), let n = Int(s.dropFirst(9)) { tick(n); return true }
         if s.hasPrefix("rvn-entry:"), let n = Int(s.dropFirst(10)) {
             if doc.open.contains(n) { doc.open.remove(n) } else { doc.open.insert(n) }
             redraw()

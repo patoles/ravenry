@@ -1,9 +1,9 @@
 // How a page's values are said as text (apps/desktop/src/renderer/pages.ts
 // and pagefmt.ts, packages/page-format text.ts): a field read by its path,
 // a value as words, a date as a time, how long ago, a value's tone, what a
-// page's items are called, and a document's Markdown cut into blocks. This
-// is drawing only: the rows, their order, groups, counts and stats come
-// drawn from the hub (`drawn`, hub/server/pagedraw.mjs).
+// page's items are called. A document's Markdown is BriefDoc.document's,
+// drawn by DocView. This is drawing only: the rows, their order, groups,
+// counts and stats come drawn from the hub (`drawn`, hub/server/pagedraw.mjs).
 
 import AppKit
 
@@ -132,75 +132,5 @@ enum PageFmt {
     static func would(_ does: String) -> (cmd: String, where: String)? {
         guard does.hasPrefix("Runs "), let r = does.range(of: " in ", options: [], range: does.index(does.startIndex, offsetBy: 5)..<does.endIndex) else { return nil }
         return (String(does[does.index(does.startIndex, offsetBy: 5)..<r.lowerBound]), String(does[r.upperBound...]))
-    }
-
-    // MARK: a document's Markdown (markdown())
-
-    enum Block {
-        case heading(Int, String)
-        case para(String)
-        case quote(String)
-        case code(String)
-        /// A list's items: text and, for a checkbox, its state and its place among the text's boxes.
-        case list([(text: String, box: Bool?, k: Int)])
-    }
-
-    /// Headings, lists, checkboxes, quotes and code; raw HTML stays text, no picture is ever loaded.
-    static func blocks(_ md: String) -> [Block] {
-        var out: [Block] = []
-        var list: [(text: String, box: Bool?, k: Int)]? = nil
-        var code: [String]? = nil
-        var boxes = 0
-        func endList() { if let l = list { out.append(.list(l)); list = nil } }
-        func m(_ s: String, _ p: String) -> [String]? {
-            guard let re = try? NSRegularExpression(pattern: p), let r = re.firstMatch(in: s, range: NSRange(location: 0, length: s.utf16.count)) else { return nil }
-            return (0..<r.numberOfRanges).map { i in Range(r.range(at: i), in: s).map { String(s[$0]) } ?? "" }
-        }
-        for raw in md.components(separatedBy: "\n") {
-            let l = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
-            if code != nil {
-                if m(l, "^\\s*(```|~~~)") != nil { out.append(.code(code!.joined(separator: "\n"))); code = nil } else { code!.append(l) }
-                continue
-            }
-            if m(l, "^\\s*(```|~~~)") != nil { endList(); code = []; continue }
-            if let h = m(l, "^(#{1,6})\\s+(.+?)\\s*#*$") { endList(); out.append(.heading(min(h[1].count, 3), h[2])); continue }
-            let box = m(l, "^\\s*(?:[-*+]|\\d+[.)])\\s+\\[([ xX])\\]\\s+(.*)$")
-            let li = m(l, "^\\s*(?:[-*+]|\\d+[.)])\\s+(.*)$")
-            if box != nil || li != nil {
-                if list == nil { list = [] }
-                if let b = box { list!.append((b[2].trimmingCharacters(in: .whitespaces), b[1] != " ", boxes)); boxes += 1 } else { list!.append((li![1], nil, -1)) }
-                continue
-            }
-            endList()
-            if l.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            if let q = m(l, "^>\\s?(.*)$") { out.append(.quote(q[1])); continue }
-            out.append(.para(l))
-        }
-        endList()
-        if let c = code { out.append(.code(c.joined(separator: "\n"))) }
-        return out
-    }
-
-    /// Inline `code` and **bold** as attributed text.
-    static func inline(_ s: String, _ font: NSFont, _ color: String) -> NSAttributedString {
-        let out = NSMutableAttributedString()
-        let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Design.color(color)]
-        guard let re = try? NSRegularExpression(pattern: "(`[^`]+`|\\*\\*[^*]+\\*\\*)") else { return NSAttributedString(string: s, attributes: base) }
-        var last = s.startIndex
-        for r in re.matches(in: s, range: NSRange(location: 0, length: s.utf16.count)) {
-            guard let rr = Range(r.range, in: s) else { continue }
-            if rr.lowerBound > last { out.append(NSAttributedString(string: String(s[last..<rr.lowerBound]), attributes: base)) }
-            let m = String(s[rr])
-            if m.hasPrefix("`") {
-                var a = base; a[.font] = Fonts.mono(12); a[.backgroundColor] = Design.color("card2")
-                out.append(NSAttributedString(string: String(m.dropFirst().dropLast()), attributes: a))
-            } else {
-                var a = base; a[.font] = NSFont.systemFont(ofSize: font.pointSize, weight: .bold)
-                out.append(NSAttributedString(string: String(m.dropFirst(2).dropLast(2)), attributes: a))
-            }
-            last = rr.upperBound
-        }
-        if last < s.endIndex { out.append(NSAttributedString(string: String(s[last...]), attributes: base)) }
-        return out
     }
 }

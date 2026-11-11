@@ -14,6 +14,7 @@ extension SelfTestBoard {
             if x.isHidden { return }
             if let b = x as? NSButton, !b.title.isEmpty { out.append(b.title) }
             else if let f = x as? NSTextField, !f.stringValue.isEmpty { out.append(f.stringValue) }
+            else if let tv = x as? NSTextView, !tv.string.isEmpty, !tv.isFieldEditor { out.append(tv.string) }
             for s in x.subviews { walk(s) }
         }
         walk(v)

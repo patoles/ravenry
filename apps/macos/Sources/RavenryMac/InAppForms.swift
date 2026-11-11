@@ -287,3 +287,38 @@ class FormPage: InAppPage {
     /// Each page draws itself again from what it has.
     func redraw() {}
 }
+
+/// Views of fixed sizes left to right, onto the next line when the width is
+/// used (flex-wrap), as tall as its lines (an idea's pictures).
+final class WrapRow: Flipped {
+    let gap: CGFloat
+    private let items: [(view: NSView, size: NSSize)]
+    private var height: CGFloat = 0
+    init(_ items: [(NSView, NSSize)], gap: CGFloat = 8) {
+        self.items = items.map { (view: $0.0, size: $0.1) }
+        self.gap = gap
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        for (v, _) in items { v.translatesAutoresizingMaskIntoConstraints = true; addSubview(v) }
+        height = place(10000, apply: false)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    /// The height for width `w`; `apply`: the views put there.
+    private func place(_ w: CGFloat, apply: Bool) -> CGFloat {
+        var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0
+        for it in items {
+            let s = NSSize(width: min(it.size.width, max(40, w)), height: it.size.width > w && w > 0 ? it.size.height * w / it.size.width : it.size.height)
+            if x > 0 && x + s.width > w { x = 0; y += line + gap; line = 0 }
+            if apply { it.view.frame = NSRect(origin: NSPoint(x: x, y: y), size: s) }
+            x += s.width + gap
+            line = max(line, s.height)
+        }
+        return items.isEmpty ? 0 : y + line
+    }
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: height) }
+    override func layout() {
+        super.layout()
+        let h = place(bounds.width, apply: true)
+        if abs(h - height) > 0.5 { height = h; invalidateIntrinsicContentSize() }
+    }
+}

@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
 import { cardFixtures } from './cards-fixture.mjs';
+import { pagesPrepare } from './pages-fixture.mjs';
 import { machineCard } from '../../../hub/server/machineview.mjs';
 import { SHAPES, HOSTS, BUILDS } from '../../../hub/tools/machine-shapes.mjs';
 
@@ -267,7 +268,7 @@ async function writeFixtures() {
   await sleep(3000);
 }
 const screenHub = PAGES ? {
-  plan: true, ideas: true, env: { RAVENRY_PAGE_DEFAULTS: path.join(PD, 'defaults') },
+  plan: true, ideas: true, env: { RAVENRY_PAGE_DEFAULTS: path.join(PD, 'defaults') }, prepare: pagesPrepare,
   extra: [{ id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
 } : SCREEN ? {
   plan: true, ideas: true,

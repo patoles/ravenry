@@ -21,9 +21,15 @@ class InAppPage: Box {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The page it was opened from, as the head's back link ("‹ Plans") when
+    /// the page gives none of its own: its name and how to go back to it.
+    /// Set by the board as the page comes in front (nil: no link).
+    var backLink: (name: String, run: () -> Void)?
+
     /// The head: a back link, a title (20 bold), the line under it (12, tx3), more, and Close.
     func setHead(title: String?, src: String?, back: (String, () -> Void)? = nil, extra: [NSView] = [], chip: NSView? = nil, srcView: NSView? = nil, closable: Bool = true) {
         head.subviews.forEach { $0.removeFromSuperview() }
+        let back = back ?? backLink.map { ($0.name, $0.run) }
         var col: [NSView?] = []
         if let t0 = title {
             let tl = label(t0, Fonts.pt(20, .bold))
@@ -75,10 +81,12 @@ class InAppPage: Box {
     func layoutBody() {}
 }
 
-/// A view that draws an image as `object-fit: cover` in rounded corners,
-/// and opens on a press.
+/// A view that draws an image as `object-fit: cover` in rounded corners
+/// (`fit`: the whole picture, `contain`, on `fillColor` where it leaves
+/// room), and opens on a press.
 final class CoverImage: NSView {
     var image: NSImage? { didSet { needsDisplay = true } }
+    var fit = false { didSet { needsDisplay = true } }
     var radius: CGFloat = 0
     var fillColor = NSColor.black
     var dim: CGFloat = 1 { didSet { needsDisplay = true } }
@@ -89,7 +97,7 @@ final class CoverImage: NSView {
         fillColor.setFill()
         bounds.fill()
         guard let img = image, img.size.width > 0, img.size.height > 0 else { return }
-        let k = max(bounds.width / img.size.width, bounds.height / img.size.height)
+        let k = fit ? min(bounds.width / img.size.width, bounds.height / img.size.height) : max(bounds.width / img.size.width, bounds.height / img.size.height)
         let w = img.size.width * k, h = img.size.height * k
         img.draw(in: NSRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h), from: .zero, operation: .sourceOver, fraction: dim, respectFlipped: true, hints: nil)
     }

@@ -79,17 +79,17 @@ final class IdeaPage: FormPage {
                 let err = m["error"] as? Bool ?? false
                 let text = m["text"] as? String ?? ""
                 var parts: [NSView?] = [line]
-                parts.append(CappedText(text, Fonts.pt(13), err ? "bad" : who == "you" ? "tx" : "tx2", fill: who == "you" ? "card2" : nil))
-                let pics = (m["images"] as? [String] ?? []).map { u -> NSView in
+                // .ia-msg .bd: line-height 1.55.
+                parts.append(spaced(CappedText(text, Fonts.pt(13), err ? "bad" : who == "you" ? "tx" : "tx2", fill: who == "you" ? "card2" : nil), 1.55))
+                // .ia-imgs: wrapping, each at most 220 wide and never larger than it is.
+                let pics = (m["images"] as? [String] ?? []).map { u -> (NSView, NSSize) in
                     let v = CoverImage()
-                    v.image = image(u); v.radius = 8; v.fillColor = .clear
-                    v.translatesAutoresizingMaskIntoConstraints = false
+                    v.image = image(u); v.radius = 8; v.fit = true; v.fillColor = .clear
                     let sz = image(u)?.size ?? NSSize(width: 220, height: 140)
-                    v.widthAnchor.constraint(equalToConstant: 220).isActive = true
-                    v.heightAnchor.constraint(equalToConstant: (220 * sz.height / max(1, sz.width)).rounded()).isActive = true
-                    return v
+                    let w = min(220, max(1, sz.width))
+                    return (v, NSSize(width: w, height: (w * sz.height / max(1, sz.width)).rounded()))
                 }
-                if !pics.isEmpty { parts.append(hstack(pics + [spring()], spacing: 8)) }
+                if !pics.isEmpty { parts.append(WrapRow(pics, gap: 8)) }
                 th.append(vstack(parts, spacing: 4))
             }
             if pending { th.append(label(t("idea.answering"), Fonts.pt(12), "tx3")) }

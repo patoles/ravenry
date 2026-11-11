@@ -184,6 +184,7 @@ final class Board: NSObject {
             openIdea: { [weak self] id in self?.openIdea(id) },
             lastProject: { [weak self] in self?.lastProject },
             toast: { [weak self] s, a in
+            openBrief: { [weak self] pid, at in self?.openBrief(pid); self?.brief.focus(at) },
                 guard let self else { return }
                 // Said by the page after the person left it: kept for it.
                 if a == nil, self.root.middle !== self.files { self.keep(s, for: self.files); return }

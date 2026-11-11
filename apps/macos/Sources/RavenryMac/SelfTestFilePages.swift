@@ -42,6 +42,18 @@ extension SelfTestBoard {
         size(1280, 820)
     }
 
+    /// A picture of what is in front on a wide window (2560 by 1440, dark).
+    private func widePicture(_ name: String) {
+        size(2560, 1440)
+        settle(0.4); board.render(force: true); settle(0.6)
+        picture("native-\(name)-2560-dark.png")
+        size(1280, 820)
+    }
+    /// The views under `v` of a kind.
+    private func all<T: NSView>(_ v: NSView, _ k: T.Type) -> [T] { ((v as? T).map { [$0] } ?? []) + v.subviews.flatMap { all($0, k) } }
+    /// The field showing exactly `s` under `v`.
+    private func field(_ v: NSView, _ s: String) -> NSTextField? { all(v, NSTextField.self).first { $0.stringValue == s } }
+
     func screenPages() {
         let k1 = "garden-planner/sf-1"
         if let r = board.sidebar.rows[k1] { click(r) }
@@ -52,8 +64,31 @@ extension SelfTestBoard {
               texts(fp).prefix(12).joined(separator: " | "))
         check("objectives_head", shows(fp.head, "Objectives") && shows(fp.head, t("pg.default")) && shows(fp.head, t("pg.shipped")) && fp.buttons["customize"] != nil && fp.buttons["close"]?.window == nil)
         pictures("objectives")
-        press("objplan:Send the first reminders")
-        check("objectives_open_the_plan", board.front == .page("plan:garden-planner", t("panel.plan")), "\(board.front)")
+        widePicture("objectives")
+        // A plan's row opens that plan (its title, not the project's first).
+        press("obj:garden-planner:Send the first reminders")
+        check("objectives_open_the_plan", board.front == .page("plan:garden-planner", t("panel.plan")) && board.plan.title == "Send the first reminders", "\(board.front) \(board.plan.title ?? "-")")
+        // An objective's row opens the brief at it.
+        _ = openFile("objectives")
+        press("obj:paper-boat:Rig the sail")
+        var atBrief = false
+        if case .brief(let p, _) = board.front { atBrief = p == "paper-boat" }
+        check("objectives_row_opens_the_brief_at_it", atBrief && wait(8) { self.board.brief.focused == "Rig the sail" }, "\(board.front) \(board.brief.focused ?? "-")")
+        // A task's dot ticks it in the brief; the page draws it ticked.
+        _ = openFile("objectives")
+        let taskState = { (i: Int) -> String? in
+            let it = ((self.fp.view?["drawn"] as? [String: Any])?["sections"] as? [[String: Any]])?.first?["rows"] as? [[String: Any]]
+            let rows = (it?.first { $0["id"] as? String == "paper-boat" }?["$ravenry"] as? [String: Any])?["rows"] as? [[String: Any]]
+            return ((rows?.first { $0["title"] as? String == "Rig the sail" }?["tasks"] as? [[String: Any]]) ?? []).dropFirst(i).first?["state"] as? String
+        }
+        let n0 = board.hub.sent.count
+        check("objectives_task_dot_shown", wait(5) { self.fp.pb["task:paper-boat:Rig the sail:2"] is TaskDot } && taskState(2) == "todo", "\(taskState(2) ?? "-")")
+        (fp.pb["task:paper-boat:Rig the sail:2"] as? TaskDot)?.run()
+        check("objectives_task_ticks_the_brief", posted(n0, "/api/brief/tick") && wait(10) { taskState(2) == "done" && (self.fp.pb["task:paper-boat:Rig the sail:2"] as? TaskDot)?.state == "done" }, "\(sentSince(n0)) \(taskState(2) ?? "-")")
+        idle()
+        let b0 = Outside.record?.count ?? 0
+        press("editBrief:paper-boat")
+        check("objectives_edit_the_brief", Outside.record?.dropFirst(b0).contains { $0.hasSuffix("/paper-boat/BRIEF.md") } == true, Outside.record?.suffix(1).joined() ?? "")
         _ = openFile("objectives")
         press("project:garden-planner")
         check("objectives_project_opens_its_session", board.frontKey == k1, "\(board.front)")
@@ -64,9 +99,16 @@ extension SelfTestBoard {
 
         // MARK: Plans
         check("plans_opens", openFile("plans"))
-        check("plans_drawn", wait(5) { self.shows(self.fp, "Send the first reminders") } && shows(fp, "garden-planner") && shows(fp, "Step 2 of 3") && shows(fp, "Finished") && shows(fp, t("page.empty")) && shows(fp, "Next: write the reminder text"),
+        check("plans_drawn", wait(5) { self.shows(self.fp, "Send the first reminders") } && shows(fp, "garden-planner") && shows(fp, "Step 2 of 3") && shows(fp, "Finished") && shows(fp, "Find why the hull leaks") && shows(fp, "Next: write the reminder text"),
               texts(fp).prefix(12).joined(separator: " | "))
         pictures("plans")
+        widePicture("plans")
+        // A row keeps its padding (9 above and under) and its badges sit on its middle.
+        if let row = fp.pb["row:paper-boat/Find why the hull leaks"], let title = field(row, "Find why the hull leaks"), let sub = field(row, "paper-boat"), let done = field(row, "done") {
+            let tr = title.convert(title.bounds, to: row), sr = sub.convert(sub.bounds, to: row), dr = done.convert(done.bounds, to: row)
+            check("plans_row_padded", tr.minY >= 8.5 && row.bounds.height - sr.maxY >= 8.5 && row.bounds.height >= 52, "row \(row.bounds.height) title y \(tr.minY) under \(row.bounds.height - sr.maxY)")
+            check("plans_row_badges_centred", abs(dr.midY - row.bounds.midY) <= 1.5, "badge \(dr.midY) row \(row.bounds.midY)")
+        } else { check("plans_row_padded", false, fp.pb.keys.filter { $0.hasPrefix("row:") }.joined(separator: ",")) }
         press("row:garden-planner/Send the first reminders")
         check("plans_row_opens_the_plan", board.front == .page("plan:garden-planner", t("panel.plan")) && board.plan.title == "Send the first reminders", "\(board.front)")
         _ = openFile("plans")
@@ -82,6 +124,18 @@ extension SelfTestBoard {
               texts(fp).prefix(14).joined(separator: " | "))
         check("ideas_narrow_board_as_lanes_list", fp.lanes.count == 4 && fp.pb["note:a-tide-pool-you-look-after.md"] != nil, "\(fp.lanes.count)")
         pictures("ideas")
+        // Wide: the board's lanes, each picture shown whole (fit, as tall as its shape up to 220).
+        size(2560, 1440); settle(0.4); board.render(force: true); settle(0.8)
+        let pic = { (note: String) -> CoverImage? in self.fp.pb["note:\(note)"].flatMap { self.all($0, CoverImage.self).first } }
+        _ = wait(8) { pic("harbour-race.md")?.image != nil && pic("lantern-tower.md")?.image != nil }
+        if let w = pic("harbour-race.md"), let tl = pic("lantern-tower.md") {
+            // As tall as its shape at the lane's width, at most 220: drawn whole inside (fit).
+            let want = { (c: CoverImage, r: CGFloat) in abs(c.bounds.height - min(220, (c.bounds.width * r).rounded())) <= 1.5 }
+            check("ideas_picture_whole", w.fit && tl.fit && want(w, 700.0 / 1600.0) && want(tl, 900.0 / 600.0),
+                  "wide \(w.bounds.size) tall \(tl.bounds.size)")
+        } else { check("ideas_picture_whole", false, fp.pb.keys.filter { $0.hasPrefix("note:") }.joined(separator: ",")) }
+        picture("native-ideas-2560-dark.png")
+        size(1280, 820)
         var L = board.log.count
         press("bs:add")
         check("ideas_add_needs_words", toasts(since: L).last == t("pg.typeSeed"))
@@ -112,6 +166,20 @@ extension SelfTestBoard {
         check("rules_drawn", wait(5) { self.shows(self.fp, "~/.claude/CLAUDE.md") } && shows(fp, "Working rules") && shows(fp, "Every project") && shows(fp, "Your rules") && shows(fp, "Suggested") && fp.pb["tab:1"] != nil,
               texts(fp).prefix(12).joined(separator: " | "))
         pictures("rules")
+        widePicture("rules")
+        // The rules file as a document: its wrapped lines joined, one paragraph each, its link a link.
+        if let dv = fp.pb.values.compactMap({ $0 as? DocView }).first(where: { $0.text.string.contains("Working rules") }) {
+            let paras = dv.text.string.components(separatedBy: "\n")
+            check("rules_paragraphs_joined", paras.count == 15 && paras.contains { $0.contains("A look note changes exactly the element named, in the words used. Leave siblings alone;") } && !paras.contains { $0.hasPrefix(" ") },
+                  "\(paras.count): " + paras.map { String($0.prefix(24)) }.joined(separator: " | "))
+            let at = (dv.text.string as NSString).range(of: "the long notes")
+            check("rules_link", at.location != NSNotFound && dv.text.textStorage?.attribute(.link, at: at.location, effectiveRange: nil) as? String == "https://example.com/rules")
+            check("rules_contents", dv.contentsRows.count == 3 && dv.contents?.isHidden == false, "\(dv.contentsRows.count)")
+            dv.toggle(0)
+            check("rules_section_folds", !dv.text.string.contains("A look note") && dv.text.string.contains("Pictures first"))
+            dv.toggle(0)
+            check("rules_section_unfolds", dv.text.string.contains("A look note"))
+        } else { check("rules_paragraphs_joined", false, fp.pb.keys.filter { $0.hasPrefix("doc:") }.joined(separator: ",")) }
         n = board.hub.sent.count
         press("tab:1")
         check("rules_tab_is_an_intent", wait(5) { self.fp.drawnTab == 1 } && shows(fp, "Nothing you keep saying is waiting") && shows(fp, t("pg.nothingMemory")) && board.hub.sent.count == n, texts(fp).prefix(10).joined(separator: " | "))
@@ -230,11 +298,12 @@ extension SelfTestBoard {
 
         // A document with boxes, grouped.
         check("notes_opens", openFile("notes"))
-        check("notes_document", wait(5) { self.shows(self.fp, "Release 0.4") } && shows(fp, "Write the changelog") && shows(fp, "release") && shows(fp, "npm run release") && fp.pb["mdbox:release-04.md:1"] != nil, texts(fp).prefix(14).joined(separator: " | "))
+        let notesDoc = { self.fp.pb["doc:release-04.md"] as? DocView }
+        check("notes_document", wait(5) { self.shows(self.fp, "Release 0.4") } && shows(fp, "Write the changelog") && shows(fp, "release") && shows(fp, "npm run release") && notesDoc()?.boxes.count == 3, texts(fp).prefix(14).joined(separator: " | "))
         twoPictures("notes")
         n = board.hub.sent.count
-        press("mdbox:release-04.md:1")
-        check("notes_tick_posts", posted(n, "/api/pages/item/toggle") && wait(8) { (self.fp.pb["mdbox:release-04.md:1"] as? TickBox)?.done == true }, sentSince(n).joined(separator: ","))
+        notesDoc()?.tick(1)
+        check("notes_tick_posts", posted(n, "/api/pages/item/toggle") && wait(8) { notesDoc()?.boxes.dropFirst(1).first?.done == true }, sentSince(n).joined(separator: ","))
         idle()
         let before = Outside.record?.count ?? 0
         press("open:release-04.md")
