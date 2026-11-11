@@ -1412,7 +1412,10 @@ is a regular expression, RE2 syntax as Go's regexp, matched within a
 line). A match may run over a soft wrap: wrapped rows are one line, so
 `^` and `$` hold to the line. Result: `count`, the matches in the screen
 and its scrollback, and `selected`, the selected one's index from the
-newest, or -1. A regular expression that does not parse is not an error:
+newest, or -1; `rows`, the rows the matches start on counted from the top
+of the scrollback, each once (at most 1000, spread over them all when there
+are more), and `lines`, the rows in all: where a scrollbar marks the
+matches (both left out when there are none). A regular expression that does not parse is not an error:
 the result has `count` 0, `selected` -1 and `pattern_error`, why
 ("missing closing )"), and the frames show no matches. The view scrolls
 to bring the selected match to its middle when it is not on screen.
