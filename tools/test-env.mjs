@@ -191,7 +191,12 @@ const NODE_NAMES = new Set(['node', 'nodejs']);
 const isNode = (file, env) => file === process.execPath || NODE_NAMES.has(path.basename(file)) || (env && env.ELECTRON_RUN_AS_NODE === '1');
 const HUB_SCRIPT = /(^|[/\\])(server[/\\]index\.mjs|bin[/\\]ravenry\.mjs)$/;
 const DAEMON_NAME = /^ravenryd?(-[\w.+-]+)?$/;
-const isApp = (file) => /[/\\]electron[/\\]dist[/\\]/.test(file) || /\.app[/\\]Contents[/\\]MacOS[/\\]/.test(file) || /\.AppImage$/.test(file) || /[/\\]linux(-[\w]+)?-unpacked[/\\]ravenry$/.test(file);
+// The ravenryd and the Node an app bundle carries beside its executable
+// (Ravenry.app/Contents/MacOS/ravenryd, .../node) are a daemon and a Node,
+// not the app: taken for the app, a test's daemon call there was held to the
+// app's rules and refused, and relaunchcheck's clean-up (ravenryd daemons,
+// in a catch) never stopped the daemon its copy started (2026-11-11).
+const isApp = (file) => !/^(ravenryd|node)$/.test(path.basename(file)) && (/[/\\]electron[/\\]dist[/\\]/.test(file) || /\.app[/\\]Contents[/\\]MacOS[/\\]/.test(file) || /\.AppImage$/.test(file) || /[/\\]linux(-[\w]+)?-unpacked[/\\]ravenry$/.test(file));
 // ravenryd named in a shell command line, as a program (not a folder name).
 const DAEMON_IN_SHELL = /(^|[\s;&|('"/])ravenryd['"]?(\s|$)/;
 
