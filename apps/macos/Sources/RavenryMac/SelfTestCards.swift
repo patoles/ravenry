@@ -82,7 +82,10 @@ extension SelfTestBoard {
         check("ask_key_past_options_ignored", lastAnswer(after: n) == nil)
         n = board.hub.sentBodies.count
         if let c = card { keyDown(c, "1", mods: .command) }
-        check("ask_cmd_number_not_an_answer", lastAnswer(after: n) == nil)
+        check("ask_cmd_number_not_an_answer", lastAnswer(after: n) == nil, "panel on \(board.panel.key)")
+        // Cmd+1 is the tab key: the first tab came to the front (the session is a tab too), so the question is picked again.
+        board.pickSession(keyOf("ask"), why: "test")
+        _ = wait(4) { self.card?.kind == "ask" && self.card?.sendField != nil }
         if let f = card?.sendField { type(f.field, "Tilt it, but only half the slope"); f.send() }
         check("ask_own_words_sent", answered(n) && lastAnswer(after: n)?["text"] as? String == "Tilt it, but only half the slope", json(lastAnswer(after: n)))
         cardPictures("cards-ask", keyOf("ask"))
