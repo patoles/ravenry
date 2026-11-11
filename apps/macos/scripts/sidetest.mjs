@@ -735,7 +735,7 @@ function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursi
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -743,7 +743,7 @@ app.on('exit', () => { exited = true; });
 const arrivals = [['paper-boat', 'Tilt the hull with the slope too, or keep it level?'], ['notes-app', 'The settings screen is done. Ship the beta to the testers?']];
 const t0 = Date.now();
 let n = 1;
-while (!exited && Date.now() - t0 < (PAGES || WRITE || SESSB ? 420000 : 240000)) {
+while (!exited && Date.now() - t0 < (PAGES || WRITE || SESSB || SCREEN === 'controls' ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
     if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);

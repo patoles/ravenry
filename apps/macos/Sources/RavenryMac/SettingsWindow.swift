@@ -734,6 +734,7 @@ final class CheckRow: Flipped {
     init(_ text: String, on: Bool, enabled: Bool = true, run: @escaping (Bool) -> Void) {
         self.on = on; self.enabled = enabled; self.run = run
         super.init(frame: .zero)
+        setAccessibilityEnabled(enabled)
         translatesAutoresizingMaskIntoConstraints = false
         let mark = CheckMark(on)
         let r = hstack([mark, label(text, Fonts.pt(13))], spacing: 8)
