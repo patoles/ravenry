@@ -680,6 +680,23 @@ them).
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
 
+`--screen links` (`SelfTestLinks.swift`, `SessionLinks.swift`): Claude's
+name files for three demo sessions and a named session that ended in
+lighthouse. A shell prints a hand-off line; each known name and id is a link
+in the link colour, underlined, and a word that names nothing, a path, a
+file name or an address is not; a plain click opens the session (its view,
+or the ended one continued in a pane here, the same tab on a second click), a
+drag selects, a name cut by the row's end is a link on both rows, and
+`ravenry://session/<name>` opens it. The rows are scanned on the reader
+thread as each frame is applied (Screen.apply), never in a draw: 8.4 to
+9.3 us for an 84 x 50 screen with 16 linked words. On 2026-11-11, the
+resize bench (above) on 860e6b9 and on the same tree with only the links,
+three runs each, interleaved: the drag 2.64 to 2.67 s before, 2.66 to 2.69 s
+after, 119 draws a second both, steps over 16 ms 44 to 59 before and 42 to 47
+after; with the busy tab's lines carrying two session ids each (drawn as
+links every frame), 2.67 to 2.70 s and 48 to 54. The step medians (9.5 to
+15.6 ms) move as much between runs of one build.
+
 `SIDETEST_OLD_RAVENRYD=PATH node scripts/sidetest.mjs --screen daemons [DIR]`
 (`SelfTestDaemons.swift`) is the window on two daemons, as after an
 update: an older release's ravenryd (PATH, 0.1.23 or later) with two
