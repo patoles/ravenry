@@ -477,12 +477,30 @@ Windows. What it takes over, and how:
   protected folder, the hub answers 503 with the folder
   (hub/server/access.mjs), and the sidebar says the sessions show up once
   macOS lets Ravenry read it, with where to turn it on.
-- **What it takes from its launch.** As the Electron release (gate.ts),
-  the variables that name a program to run in place of the app's own or
-  the hub's stand-ins (RAVENRYD, RAVENRY_LAUNCHCTL, NODE_OPTIONS, MC_*,
-  STUB_*...) are dropped, unless `RAVENRY_SERVICE_LABEL` is a test's
-  launchd label (`dev.ravenry.hub.test-<random>`), which the install check
-  uses.
+- **What it takes from its launch** (SIGN-001, `Gate.swift`). As the
+  Electron release (gate.ts), a release takes no test hook: a test or
+  debugging switch (`--offscreen`, `--sidetest`, `--selftest`, `--bench`,
+  `--socket`, `-- COMMAND`, `--inspect`, `--remote-debugging-port`...) makes
+  it quit before any window with a line in app.log, the test variables
+  (RAVENRY_HUB_URL, RAVENRY_MAC_*, the update feed and its test, the
+  relaunch test, MC_*, STUB_*, RAVENRYD, NODE_OPTIONS...) leave its
+  environment, and run as Node it refuses the inspector and drops
+  NODE_OPTIONS and NODE_PATH. The hardened runtime and library validation
+  keep DYLD_* and libraries of another team out. The test hooks are on in a
+  development build (no build.json) and in the test twin package.mjs makes
+  beside the release, `build/package/release-test/Ravenry.app` (SIGN-003:
+  the same bundle with `RavenryTestHooks` in its Info.plist, signed again),
+  which every check drives (`scripts/testapp.mjs` takes the twin when given
+  the release). package.mjs also makes `Ravenry-<version>-mac-arm64.dmg`
+  beside the zip (UPD-008). Called as `Contents/MacOS/ravenry` (the same
+  file as `Ravenry` on macOS's case-blind disk), the executable is the
+  `ravenry` command, ravenryd's.
+- **app.log** (HUB-008): each row click, move and quit is a line
+  (`window: session click <key>: its tab ...`, `window: move ...`,
+  `quit: ...`), and the hub's log says each move it was asked for.
+- **Reduced motion** (A11Y-010, `Motion.swift`): `Motion.reduced`, macOS's
+  Reduce motion read at each use: tabs take their place at once, the
+  filmstrip's play holds each frame at least half a second.
 - **A start from a pane** (`Relaunch.swift`, the Electron app's
   relaunch.ts). macOS's `open` hands the caller's environment to the app,
   so an agent in a pane that runs `open -a Ravenry` starts it with
