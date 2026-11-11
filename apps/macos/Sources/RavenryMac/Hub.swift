@@ -175,7 +175,8 @@ final class HubProject {
     var plan: [String: Any]? { raw["plan"] as? [String: Any] }
     var planGate: Bool { raw["planGate"].map { !($0 is NSNull) && ($0 as? Bool ?? true) } ?? false }
     var timeline: [[String: Any]] { raw["timeline"] as? [[String: Any]] ?? [] }
-    var handoffRecent: Bool { raw["handoffRecent"] as? Bool ?? false }
+    /// The hub sends the last finished hand-off (an object with resumedAt) or null, never a Bool (PANEL-006).
+    var handoffRecent: Bool { (raw["handoffRecent"] as? [String: Any]).map { !$0.isEmpty } ?? (raw["handoffRecent"] as? Bool ?? false) }
     /// Its main session, else its first that was not handed off.
     var mainSession: HubSession? {
         sessions.first { $0.surfaceId == primary && !$0.handed } ?? sessions.first { !$0.handed }

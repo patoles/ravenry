@@ -46,6 +46,8 @@ extension SelfTestBoard {
         case "updates": screenUpdates()
         case "links": screenLinks()
         case "ink": screenInk()
+        case "proofs": screenProofs()
+        case "proofs2": screenProofs2()
         default: check("screen_known", false, name)
         }
         finish()

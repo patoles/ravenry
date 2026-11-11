@@ -198,36 +198,56 @@ extension SelfTestBoard {
         n = board.hub.sent.count
         press("tab:1")
         check("rules_tab_is_an_intent", wait(5) { self.fp.drawnTab == 1 } && shows(fp, "Nothing you keep saying is waiting") && shows(fp, t("pg.nothingMemory")) && board.hub.sent.count == n, texts(fp).prefix(10).joined(separator: " | "))
-        // A suggested rule and a rule from project memory, as the hub sends them.
-        if var v = fp.view, var d = v["drawn"] as? [String: Any], var secs = d["sections"] as? [[String: Any]] {
-            secs[0]["rows"] = [["id": "rp-1", "kind": "add", "rule": "Run the tests before a commit", "sessions_text": "In 3 sessions", "last": "2026-11-08T10:00:00Z", "quote": ["text": "run the tests first"], "targets": ["~/.claude/CLAUDE.md"],
-                                "$ravenry": ["preview": ["next": "- Run the tests before a commit", "nextLabel": "It will say"]], "$actions": [0, 3]]]
-            secs[0]["count"] = 1
-            d["sections"] = secs; v["drawn"] = d
-            fp.apply("rules", v)
+        // A suggested rule and rules from project memory, as the board holds them (sidetest.mjs):
+        // the repeats seed loads at the first look (GET /api/rules/repeats, as a board loads it at
+        // its start), and three notes go into paper-boat's memory now, after the empty state.
+        let rx: [String: String] = ProcessInfo.processInfo.environment["RAVENRY_MAC_RULES"].flatMap { FileManager.default.contents(atPath: $0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] } ?? [:]
+        let mems = [("n-global", "Use pnpm, not npm"), ("n-local", "Tilt the hull, never the deck"), ("n-dismiss", "Prefer tabs to spaces")]
+        if let dir = rx["memory"] {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            for (id, text) in mems { try? "---\nname: \(id)\ndescription: \(text)\ntype: feedback\n---\n\(text).\n".write(toFile: "\(dir)/\(id).md", atomically: true, encoding: .utf8) }
         }
-        fp.holdMemory([["id": "m-1", "text": "Use pnpm, not npm", "why": "Said in 2 projects", "pending": true, "localLabel": "paper-boat"]])
-        check("rules_suggested_drawn", shows(fp, "Run the tests before a commit") && shows(fp, "Use pnpm, not npm"), texts(fp).prefix(14).joined(separator: " | "))
+        var seeded = false
+        for _ in 0..<50 where !seeded {
+            var done = false
+            board.hub.get("/api/rules/repeats") { _, j in seeded = (j["count"] as? Int ?? 0) >= 2; done = true }
+            _ = wait(3) { done }
+            if !seeded { settle(0.2) }
+        }
+        var memRules: [[String: Any]] = [], gotMem = false
+        board.hub.get("/api/rules?fresh=1") { _, j in memRules = j["rules"] as? [[String: Any]] ?? []; gotMem = true }
+        _ = wait(5) { gotMem }
+        fp.load("rules")
+        _ = wait(8) { self.fp.pb["item:rp-run-tests:Add rule"] != nil }
+        fp.holdMemory(memRules)
+        let landed = { (n: Int, p: String) -> String in
+            var c = 0
+            _ = self.wait(8) { if let a = self.board.hub.answers.first(where: { $0.seq >= n && $0.path == p }) { c = a.code; return true }; return false }
+            return "\(c)"
+        }
+        check("rules_suggested_drawn", seeded && shows(fp, "Run the tests before a commit") && shows(fp, "Use pnpm, not npm") && shows(fp, "Tilt the hull, never the deck"), texts(fp).prefix(14).joined(separator: " | "))
         twoPictures("rules-suggested")
-        press("item:rp-1:Add rule")
+        press("item:rp-run-tests:Add rule")
         check("rules_save_rule_sheet", fp.sheetKind == "rule" && shows(fp.sheetView!, "Run the tests before a commit") && shows(fp.sheetView!, "Into ~/.claude/CLAUDE.md"), texts(fp.sheetView ?? fp).joined(separator: " | "))
         n = board.hub.sent.count
         press("sheet:ok")
-        check("rules_save_rule_posts", posted(n, "/api/repeats/rp-1"))
+        let global = { (try? String(contentsOfFile: rx["global"] ?? "", encoding: .utf8)) ?? "" }
+        check("rules_save_rule_posts", posted(n, "/api/repeats/rp-run-tests") && landed(n, "/api/repeats/rp-run-tests") == "200" && wait(5) { global().contains("Run the tests before a commit") }, "hub \(landed(n, "/api/repeats/rp-run-tests"))")
         idle()
-        if let v = fp.view { fp.apply("rules", v) }
-        let notNow = fp.pb.keys.first { $0.hasPrefix("item:rp-1:") && $0 != "item:rp-1:Add rule" } ?? ""
+        _ = wait(8) { self.fp.pb["item:use-pnpm:Not now"] != nil }
         n = board.hub.sent.count
-        press(notNow)
-        check("rules_not_now_posts", posted(n, "/api/repeats/rp-1"), notNow)
+        press("item:use-pnpm:Not now")
+        check("rules_not_now_posts", posted(n, "/api/repeats/use-pnpm") && landed(n, "/api/repeats/use-pnpm") == "200", "hub \(landed(n, "/api/repeats/use-pnpm"))")
         idle()
-        fp.holdMemory([["id": "m-1", "text": "Use pnpm, not npm", "why": "Said in 2 projects", "pending": true, "localLabel": "paper-boat"]])
-        if let v = fp.view { fp.apply("rules", v) }
-        for (b, what) in [("global", "every project"), ("local", "this project"), ("dismiss", "not a rule")] {
-            fp.holdMemory([["id": "m-1", "text": "Use pnpm, not npm", "why": "Said in 2 projects", "pending": true, "localLabel": "paper-boat"]])
+        for ((b, what), (id, text)) in zip([("global", "every project"), ("local", "this project"), ("dismiss", "not a rule")], mems) {
+            _ = wait(8) { self.fp.pb["mem:\(id):\(b)"] != nil && self.fp.pending == 0 }
             n = board.hub.sent.count
-            press("mem:m-1:\(b)")
-            check("rules_memory_\(b)", posted(n, "/api/rules/m-1"), what)
+            press("mem:\(id):\(b)")
+            let code = landed(n, "/api/rules/\(id)")
+            // Every project: the global CLAUDE.md; this project: paper-boat's CLAUDE.md; not a rule: neither.
+            let local = (try? String(contentsOfFile: rx["projectClaudeMd"] ?? "", encoding: .utf8)) ?? ""
+            let written = b == "global" ? global().contains(text) : b == "local" ? local.contains(text) && !global().contains(text) : !global().contains(text) && !local.contains(text)
+            check("rules_memory_\(b)", posted(n, "/api/rules/\(id)") && code == "200" && written, "\(what): hub \(code)")
             idle()
         }
         press("tab:0")
@@ -279,6 +299,15 @@ extension SelfTestBoard {
         press("sheet:ok")
         check("bugs_approve_posts", posted(n, "/api/pages/approve") && wait(5) { self.sentSince(n).filter { $0 == "POST /api/pages/ask" }.count == 1 }, sentSince(n).joined(separator: ","))
         idle()
+        // Allowed, the ask went to garden-planner's session at its prompt (the fake cmux's box, which keeps
+        // what is sent), and that session came to the front, as in the Electron app.
+        let typedTo = { () -> String in
+            guard let d = FileManager.default.contents(atPath: rx["fake"] ?? ""), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return "" }
+            return ((j["prompts"] as? [String: Any]) ?? [:]).values.compactMap { ($0 as? [String: Any])?["sent"] as? [String] }.flatMap { $0 }.joined(separator: " / ")
+        }
+        check("bugs_ask_lands_in_session", wait(5) { if case .session(let k) = self.board.front { return k.hasPrefix("garden-planner/") }; return false } && wait(5) { typedTo().contains("Look at the bug Rain flickers on the menu") },
+              "\(board.front); sent: \(typedTo().prefix(160))")
+        _ = openFile("bugs")
         press("note:dock-clip.md")
         check("bugs_note_opens_its_sheet", fp.sheetKind == "item" && shows(fp.sheetView!, "Status") && shows(fp.sheetView!, "fixed"), texts(fp.sheetView ?? fp).joined(separator: " | "))
         press("sheet:close")
@@ -355,9 +384,20 @@ extension SelfTestBoard {
         check("trusted_run_posts", posted(n, "/api/pages/run"))
         idle()
         n = board.hub.sent.count
+        // "Ask Claude to fix" (above) typed its words into garden-planner's box without sending; the
+        // person sends them there (Enter in cmux), so the next ask finds the prompt empty, as the hub requires.
+        var fixTyped = ""
+        if let path = rx["fake"], let d = FileManager.default.contents(atPath: path), var j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], var ps = j["prompts"] as? [String: Any] {
+            for (k, v) in ps { if var p = v as? [String: Any], let typed = p["typed"] as? String, !typed.isEmpty { fixTyped += typed; p["sent"] = (p["sent"] as? [String] ?? []) + [typed]; p["typed"] = ""; ps[k] = p } }
+            j["prompts"] = ps
+            if let out = try? JSONSerialization.data(withJSONObject: j) { try? out.write(to: URL(fileURLWithPath: path)) }
+        }
+        check("broken_ask_typed_in_session", fixTyped.contains("broken"), String(fixTyped.prefix(120)))
+        L = board.log.count
         press("item:first.md:Ask")
-        check("trusted_ask_posts", posted(n, "/api/pages/ask"))
+        check("trusted_ask_posts", posted(n, "/api/pages/ask"), "toasts \(toasts(since: L))")
         idle()
+        _ = openFile(dk)
         if let u = untrusted { fp.apply(dk, u) }
         press("bar:keepReadOnly")
         check("untrusted_keep_read_only", !shows(fp, t("pg.trustNew")) && fp.buttons["page:Build"]?.isEnabled == false)

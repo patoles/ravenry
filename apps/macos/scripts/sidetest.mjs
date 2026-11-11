@@ -382,6 +382,87 @@ if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env
 // --screen write (write-fixture.mjs): the board in Ravenry mode on this test's daemon, the app behind a proxy that logs the hub's answers.
 const WRITE = SCREEN === 'write';
 if (WRITE) Object.assign(screenHub, writeHub({ APP, run, tmp }));
+// --screen proofs (SelfTestProofs.swift): the audit's unproven rows on a
+// board that holds what they act on: rules from two projects' memory and
+// a repeated ask in two sessions' transcripts (the repeats seed, as a model
+// run leaves its cluster), a slow plan stub (5 s) to press Stop in, and
+// (after the start) a finished hand-off, a page to change under the
+// screen, recipe-box's session at its prompt (the fake cmux's prompt box).
+// Then --screen proofs2: the app again on the same board (ONB-006).
+const PROOFS = SCREEN === 'proofs';
+const PROOFS_FILE = path.join(OUT, 'proofs.json');
+const PH = path.join(tmp, 'hub', 'home'), PROOT = path.join(PH, 'Projects');
+const cpd = (folder) => path.join(PH, '.claude', 'projects', folder.replace(/[^A-Za-z0-9-]/g, '-'));
+if (PROOFS) {
+  const src = (id) => ({ label: id, folder: path.join(PROOT, id), memory: path.join(cpd(path.join(PROOT, id)), 'memory'), claudeMd: path.join(PROOT, id, 'CLAUDE.md'), agentsMd: path.join(PROOT, id, 'AGENTS.md') });
+  const seedFile = path.join(tmp, 'repeats-seed.json');
+  const first = screenHub.prepare;
+  Object.assign(screenHub, {
+    env: { ...screenHub.env, STUB_PLAN_DELAY_MS: '5000', MC_REPEATS_SEED: seedFile },
+    settings: { ruleSources: [src('paper-boat'), src('garden-planner')] },
+    prepare: (a) => {
+      first(a);
+      // A repeated ask: typed in a paper-boat session and a garden-planner one.
+      const said = [['e1e1e1e1-0000-4000-8000-0000000000e1', 'paper-boat', 'Use pnpm, not npm, for every install here.', 50], ['e2e2e2e2-0000-4000-8000-0000000000e2', 'garden-planner', 'Again: use pnpm, not npm.', 30]];
+      const refs = [];
+      for (const [sid, id, text, h] of said) {
+        const ts = new Date(Date.now() - h * 3600000).toISOString();
+        const dir = cpd(path.join(PROOT, id));
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, `${sid}.jsonl`), JSON.stringify({ type: 'user', uuid: `u-${sid}`, sessionId: sid, timestamp: ts, cwd: path.join(PROOT, id), isSidechain: false, message: { role: 'user', content: text } }) + '\n');
+        refs.push([sid, ts]);
+      }
+      fs.writeFileSync(seedFile, JSON.stringify({ cutoff: null, clusters: [{ id: 'use-pnpm', rule: 'Use pnpm, not npm', line: '- Use pnpm, not npm. (use-pnpm)', match: null, quote: { session: 'e1e1e1e1', excerpt: 'Use pnpm, not npm', name: 'paper-boat' }, refs }] }));
+      // Rules only in paper-boat's memory.
+      const mem = path.join(cpd(path.join(PROOT, 'paper-boat')), 'memory');
+      fs.mkdirSync(mem, { recursive: true });
+      for (const [id, text] of [['short-commits', 'Keep commit titles under 60 characters'], ['tilt-hull', 'Tilt the hull, never the deck']]) fs.writeFileSync(path.join(mem, `${id}.md`), `---\nname: ${id}\ndescription: ${text}\ntype: feedback\n---\n${text}.\n`);
+    },
+  });
+}
+// --screen pages: Rules on what the board really holds (PAGE-010): two
+// repeated asks, each typed in a paper-boat and a garden-planner session (the
+// repeats seed, loaded at the first look as a board loads it at its start),
+// and paper-boat's memory, where the check writes its notes once it saw the
+// empty state. The page's Run starts a real approval in this test's daemon,
+// and its asks type into garden-planner's session at its prompt (the fake
+// cmux's prompt box): every POST the screen makes gets the hub's 2xx.
+const RULES_FILE = path.join(OUT, 'rules-env.json');
+if (PAGES) {
+  const PHP = path.join(PD, 'hub', 'home'), PR = path.join(PHP, 'Projects');
+  const cpdP = (f) => path.join(PHP, '.claude', 'projects', f.replace(/[^A-Za-z0-9-]/g, '-'));
+  const src = (id) => ({ label: id, folder: path.join(PR, id), memory: path.join(cpdP(path.join(PR, id)), 'memory'), claudeMd: path.join(PR, id, 'CLAUDE.md'), agentsMd: path.join(PR, id, 'AGENTS.md') });
+  const seedFile = path.join(PD, 'repeats-seed.json');
+  const first = screenHub.prepare;
+  Object.assign(screenHub, {
+    runtime: run,
+    env: { ...screenHub.env, RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd'), MC_REPEATS_SEED: seedFile },
+    settings: { ruleSources: [src('paper-boat'), src('garden-planner')] },
+    prepare: (a) => {
+      const r = first(a);
+      const said = { 'rp-run-tests': ['Run the tests before a commit, please.', 'Again: run the tests before a commit.'], 'use-pnpm': ['Use pnpm, not npm, here.', 'Use pnpm, not npm, again.'] };
+      const sessions = [['f1f1f1f1-0000-4000-8000-0000000000f1', 'paper-boat', 0], ['f2f2f2f2-0000-4000-8000-0000000000f2', 'garden-planner', 1]];
+      const refs = {};
+      for (const [sid, id, k] of sessions) {
+        const dir = cpdP(path.join(PR, id));
+        fs.mkdirSync(dir, { recursive: true });
+        const lines = [];
+        Object.entries(said).forEach(([cid, texts], j) => {
+          const ts = new Date(Date.now() - (60 - 10 * k - j) * 3600000).toISOString();
+          lines.push(JSON.stringify({ type: 'user', uuid: `u-${sid}-${cid}`, sessionId: sid, timestamp: ts, cwd: path.join(PR, id), isSidechain: false, message: { role: 'user', content: texts[k] } }));
+          (refs[cid] ||= []).push([sid, ts]);
+        });
+        fs.writeFileSync(path.join(dir, `${sid}.jsonl`), lines.join('\n') + '\n');
+      }
+      fs.writeFileSync(seedFile, JSON.stringify({ cutoff: null, clusters: [
+        { id: 'rp-run-tests', rule: 'Run the tests before a commit', line: '- Run the tests before a commit. (run-tests)', match: null, quote: { session: 'f1f1f1f1', excerpt: 'Run the tests before a commit', name: 'paper-boat' }, refs: refs['rp-run-tests'] },
+        { id: 'use-pnpm', rule: 'Use pnpm, not npm', line: '- Use pnpm, not npm. (use-pnpm)', match: null, quote: { session: 'f1f1f1f1', excerpt: 'Use pnpm, not npm', name: 'paper-boat' }, refs: refs['use-pnpm'] },
+      ] }));
+      return r;
+    },
+  });
+  fs.writeFileSync(RULES_FILE, JSON.stringify({ memory: path.join(cpdP(path.join(PR, 'paper-boat')), 'memory'), global: path.join(PHP, '.claude', 'CLAUDE.md'), projectClaudeMd: path.join(PR, 'paper-boat', 'CLAUDE.md'), fake: path.join(PD, 'hub', 'fake-cmux.json') }));
+}
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.jsonl')) : null;
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
@@ -447,12 +528,37 @@ if (SCREEN === 'review') {
   git(REVIEW.repo, 'checkout', '--', 'app/sync.js');
 }
 if (SCREEN === 'machines') fs.writeFileSync(FIXTURE, JSON.stringify({ ok: true, machines: SHAPES.map((m) => ({ ...m, card: machineCard(m) })), hosts: HOSTS, builds: BUILDS }));
+if (PROOFS) {
+  const st = await hub.state();
+  const MC = path.join(hub.home, '.ravenry');
+  // A hand-off finished an hour ago, read by the project's session (hub/server/handoff.mjs markers).
+  const hp = st.projects.find((p) => (p.timeline || []).some((t) => t.from === 'brief') && (p.sessions || []).some((s) => s.sessionId));
+  if (hp) { const sid = hp.sessions.find((s) => s.sessionId).sessionId; fs.mkdirSync(path.join(MC, 'handoffs'), { recursive: true }); fs.writeFileSync(path.join(MC, 'handoffs', `${sid}.json`), JSON.stringify({ sessionId: sid, state: 'resumed', writtenAt: new Date(Date.now() - 3900000).toISOString(), resumedAt: new Date(Date.now() - 3600000).toISOString() })); }
+  // recipe-box's session at its prompt (it stopped on a question): the fake cmux's prompt box, which keeps what is typed.
+  const pb = st.projects.find((p) => p.id === 'recipe-box');
+  const sf = pb && (pb.sessions.find((s) => s.surfaceId === pb.primary) || pb.sessions[0])?.surfaceId;
+  const fk = JSON.parse(fs.readFileSync(hub.fake, 'utf8'));
+  fs.writeFileSync(hub.fake, JSON.stringify({ ...fk, prompts: { ...(fk.prompts || {}), [sf]: { body: '', sent: [] } } }));
+  // A page whose item the check changes under the screen.
+  const P = path.join(MC, 'pages');
+  fs.mkdirSync(path.join(P, 'bugs'), { recursive: true });
+  fs.writeFileSync(path.join(P, 'bugs.page.yaml'), BUGS);
+  fs.writeFileSync(path.join(P, 'bugs', 'dock-clip.md'), md({ title: 'Boat clips through the dock', status: 'new', size: 3, due: '2026-11-12', tags: ['physics'] }, 'Turning left past the dock.'));
+  fs.writeFileSync(CARDS, JSON.stringify(cardFixtures(st, MC)));
+  fs.writeFileSync(PROOFS_FILE, JSON.stringify({
+    handoffProject: hp ? hp.id : '', bugFile: path.join(P, 'bugs', 'dock-clip.md'), globalClaudeMd: path.join(hub.home, '.claude', 'CLAUDE.md'),
+    memGlobal: 'short-commits', memLocal: 'tilt-hull', projectClaudeMd: path.join(hub.root, 'paper-boat', 'CLAUDE.md'),
+    planProject: 'recipe-box', planBrief: path.join(hub.root, 'recipe-box', 'BRIEF.md'), fakeCmux: hub.fake, planSurface: sf || '',
+  }));
+  // The repeats seed loads at the first look, as a real board loads it at its start (repeatsAuto).
+  for (let i = 0; i < 100; i++) { const j = await (await fetch(hub.url + '/api/rules/repeats')).json(); if (j.seeded && j.count > 0) break; await sleep(100); }
+}
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
 // --screen settings: the folder the Hand-off tab's Change picks for new projects (in the demo board's HOME).
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -489,6 +595,19 @@ if (DAEMONS) {
   try { again = JSON.parse(fs.readFileSync(report, 'utf8')); } catch {}
   a2.kill();
 }
+// --screen proofs: the app again on the same board and daemon (ONB-006), and a second client's read of the marks.
+let proofs2 = null, marks2 = null;
+if (PROOFS) {
+  const r2 = path.join(OUT, 'sidetest-proofs2.json');
+  fs.rmSync(r2, { force: true });
+  const a3 = spawn(EXE, ['--offscreen', '--socket', sock, '--sidetest', r2, '--screen', 'proofs2'], { env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events2.log') }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-proofs2.log'), 'w')] });
+  let done2 = false;
+  a3.on('exit', () => { done2 = true; });
+  for (let i = 0; i < 1200 && !done2; i++) await sleep(100);
+  if (!done2) a3.kill();
+  try { proofs2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
+  try { marks2 = (await (await fetch(hub.url + '/api/onboarding')).json()).hints || null; } catch { /* none */ }
+}
 if (WRITE) { try { fs.writeFileSync(path.join(OUT, 'hub.log'), hub.log()); } catch { /* gone */ } proxy.close(); }
 hub.stop();
 daemon?.kill();
@@ -496,6 +615,12 @@ for (const d of daemonsUp) d.kill();
 if (PD) fs.rmSync(PD, { recursive: true, force: true });
 let r;
 try { r = JSON.parse(fs.readFileSync(result, 'utf8')); } catch { console.log(`sidetest: no result; see ${path.join(tmp, 'app.log')}`); process.exit(1); }
+if (PROOFS) {
+  for (const c of proofs2?.checks || [{ name: 'onb_relaunch_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
+  const ok = marks2 && marks2.pick === true && marks2['needs-you'] === true;
+  r.checks.push({ name: 'onb_second_client_reads_marks', ok: !!ok, detail: JSON.stringify(marks2) });
+  if (!ok) r.failed++;
+}
 // The layout file is kept by daemon: this test's daemon is not the Electron
 // app's, so the window writes window-<daemon>.json, never window.json.
 const files = fs.existsSync(env.RAVENRY_DESKTOP_DATA) ? fs.readdirSync(env.RAVENRY_DESKTOP_DATA) : [];
