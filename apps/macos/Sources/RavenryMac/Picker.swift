@@ -188,6 +188,7 @@ final class PickerView: Box, BackLinked {
     }
 
     func draw() {
+        let oldBack = buttons["back"]
         buttons = [:]
         images = []
         let w = words
@@ -205,7 +206,7 @@ final class PickerView: Box, BackLinked {
         let close = RButton(t("pick.closeTip"), .icon, small: true, icon: "close") { [weak self] in self?.onClose?() }
         buttons["close"] = close
         // Where it was opened from ("‹ Paper-boat"), at the head's left; Close goes back there too.
-        let back = backLink.map { l -> RButton in let b = backButton(l.name, l.run); buttons["back"] = b; return b }
+        let back = backLink.map { l -> RButton in let b = backButton(l.name, l.run, reusing: oldBack); buttons["back"] = b; return b }
         let head = hstack([back, tcol, spring(), label(cpWaiting(cp), Fonts.pt(12).withTabularDigits, "tx3"), close], spacing: 10, insets: NSEdgeInsets(top: max(Self.edgeRoom, 16 - titleBand), left: 22, bottom: 10, right: 22))
         head.alignment = .top
         // .pk-row: the pictures in up to three columns.

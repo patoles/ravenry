@@ -244,11 +244,16 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
     private func drawHead(_ j: [String: Any]?) {
         headData = j
         head.subviews.forEach { $0.removeFromSuperview() }
+        let old = buttons
         buttons = [:]
         // Where it was opened from ("‹ Objectives"), and Close: both go back there (Board.back()).
-        let back = backLink.map { l in backButton(l.name, l.run) }
+        // The same buttons through a redraw (the brief read again, every 4 s at most): a press that
+        // began on one before the brief came still lands (NAV-001: the head was rebuilt under it).
+        let back = backLink.map { l -> RButton in
+            backButton(l.name, l.run, reusing: old["back"])
+        }
         if let back { buttons["back"] = back }
-        let close = RButton(t("page.close"), .icon, small: true, icon: "close") { [weak self] in self?.onClose?() }
+        let close = old["close"] ?? RButton(t("page.close"), .icon, small: true, icon: "close") { [weak self] in self?.onClose?() }
         buttons["close"] = close
         var updated: NSTextField? = nil
         edit = nil

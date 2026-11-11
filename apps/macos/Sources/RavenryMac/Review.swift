@@ -396,6 +396,7 @@ final class ReviewView: Box, BackLinked {
         if sig == drawn { return }
         drawn = sig
         draws += 1
+        let oldBack = buttons["back"]
         buttons = [:]
         let d = diff
         let wt = s.worktree
@@ -435,7 +436,7 @@ final class ReviewView: Box, BackLinked {
         // Where it was opened from ("‹ Paper-boat"), back there as its tab's x, Esc and Cmd+W
         // (no Close of its own: at 900 the head has no room for one beside Merge).
         var lead: [NSView?] = []
-        if let l = backLink { let b = backButton(l.name, l.run); buttons["back"] = b; lead.append(b) }
+        if let l = backLink { let b = backButton(l.name, l.run, reusing: oldBack); buttons["back"] = b; lead.append(b) }
         let h = hstack(lead + [tt, spring()] + acts, spacing: 10, insets: NSEdgeInsets(top: 12, left: lead.isEmpty ? 18 : 12, bottom: 12, right: 18))
         h.translatesAutoresizingMaskIntoConstraints = true
         let line = Box(fill: "sep")

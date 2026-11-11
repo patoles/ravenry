@@ -43,9 +43,10 @@ class MiddleView: Box, BackLinked {
     private func placeBack() {
         backBar?.removeFromSuperview()
         backBar = nil
+        let oldBack = backBtn
         backBtn = nil
         if let l = backLink {
-            let b = backButton(l.name, l.run)
+            let b = backButton(l.name, l.run, reusing: oldBack)
             let bar = hstack([b, spring()], spacing: 0, insets: NSEdgeInsets(top: 10, left: 14, bottom: 0, right: 14))
             bar.alignment = .top
             bar.translatesAutoresizingMaskIntoConstraints = true

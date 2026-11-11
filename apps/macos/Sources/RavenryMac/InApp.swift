@@ -14,7 +14,12 @@ protocol BackLinked: AnyObject {
 }
 
 /// The back link every view draws the same way: "‹  Plans", small and quiet.
-func backButton(_ name: String, _ run: @escaping () -> Void) -> RButton {
+/// `reusing`: the head's link before a redraw. The same button is kept when it
+/// names the same place, so a press that began on it before the page was drawn
+/// again (the hub's refresh) still lands (NAV-001: a rebuilt head left the press
+/// on a button no longer in the window).
+func backButton(_ name: String, _ run: @escaping () -> Void, reusing old: RButton? = nil) -> RButton {
+    if let old, old.title == "‹  " + name { old.run = run; old.removeFromSuperview(); return old }
     let b = RButton(name, .ghost, small: true, run: run)
     b.setTitle("‹  " + name)
     b.setAccessibilityLabel(t("page.backTo", ["name": name]))
@@ -68,7 +73,7 @@ class InAppPage: Box, BackLinked {
         tt.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         var row: [NSView?] = []
         if let (name, run) = back {
-            let b = backButton(name, run)
+            let b = backButton(name, run, reusing: buttons["back"])
             buttons["back"] = b
             row.append(b)
         }

@@ -76,7 +76,7 @@ final class LearnPage: FormPage {
             NSLayoutConstraint.activate([x.centerXAnchor.constraint(equalTo: close.centerXAnchor), x.centerYAnchor.constraint(equalTo: close.centerYAnchor)]) }() : ()
         buttons["close"] = close
         // Where it was opened from ("‹ Rules"), before its tab; Close goes back there too.
-        let back = backLink.map { l -> RButton in let b = backButton(l.name, l.run); buttons["back"] = b; return b }
+        let back = backLink.map { l -> RButton in let b = backButton(l.name, l.run, reusing: buttons["back"]); buttons["back"] = b; return b }
         if back == nil { buttons["back"] = nil }
         let tab = hstack([back, Icon("question", "tx", size: 14), label(t("learn.title"), Fonts.pt(12.5)), close], spacing: 7)
         // 40 high: the tab's middle 23 from the top (8 above it), the line at its foot.

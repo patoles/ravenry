@@ -23,8 +23,8 @@ final class SelfTestBoard {
     func check(_ name: String, _ ok: Bool, _ detail: String = "") {
         var ok = ok, detail = detail
         // A check of what was posted (*_posts, *_posted) passes only when
-        // the hub took it: every POST sent since the last such check answered
-        // 2xx (a test's faked answer aside), waited for up to 8 s.
+        // the hub took it: every POST sent since the check before (of any
+        // kind) answered 2xx (a test's faked answer aside), waited for up to 8 s.
         if name.hasSuffix("_posts") || name.hasSuffix("_posted") {
             let hub = board.hub
             let mine = { hub.answers.filter { $0.seq >= self.sentAtLastCheck } }
@@ -34,11 +34,11 @@ final class SelfTestBoard {
             if !refused.isEmpty { ok = false }
             let said = real.map { "\($0.path) \($0.code)" } + mine().filter(\.faked).map { "\($0.path) \($0.code) (faked)" }
             if !said.isEmpty { detail += (detail.isEmpty ? "" : "; ") + "hub: " + said.joined(separator: ", ") }
-            sentAtLastCheck = hub.sent.count
         }
+        sentAtLastCheck = board.hub.sent.count
         checks.append(["name": name, "ok": ok, "detail": detail])
     }
-    /// The hub's `sent` count at the last *_posts check (the posts the next one judges came after it).
+    /// The hub's `sent` count at the last check (the posts a *_posts check judges came after it).
     private var sentAtLastCheck = 0
 
     var dir: URL { URL(fileURLWithPath: out).deletingLastPathComponent() }
@@ -64,6 +64,9 @@ final class SelfTestBoard {
     /// A press and a release at the middle of a view, as the window gets them.
     func click(_ v: NSView) {
         window.contentView?.layoutSubtreeIfNeeded()
+        // A view no longer in the window (a page rebuilt it) is not pressed: its point would be
+        // whatever lies near the window's corner (NAV-001's press on a stale link opened Alerts).
+        guard v.window === window else { NSLog("self-test: click on a view not in the window: \(type(of: v))"); return }
         // As the person would: scrolled into view first.
         v.scrollToVisible(v.bounds)
         let p = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
