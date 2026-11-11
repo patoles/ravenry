@@ -69,6 +69,19 @@ extension SelfTestBoard {
         }
         if let mm = NSApp.mainMenu { walk(mm) }
         check("keys_menu_shortcuts_have_command", NSApp.mainMenu != nil && noCmd.isEmpty, noCmd.joined(separator: ", "))
+        // A11Y-001: the menus, each action with its shortcut, Edit's whole; Cmd+, from the terminal opens Settings.
+        let top = NSApp.mainMenu?.items.compactMap { $0.submenu?.title } ?? []
+        let edit = NSApp.mainMenu?.items.first { $0.submenu?.title == "Edit" }?.submenu
+        let editKeys = ["Undo": "z", "Redo": "Z", "Cut": "x", "Copy": "c", "Paste": "v", "Select All": "a"]
+        let missing = editKeys.filter { k, v in !(edit?.items.contains { $0.title == k && $0.keyEquivalent == v && $0.keyEquivalentModifierMask.contains(.command) } ?? false) }.map(\.key)
+        check("keys_menus_with_shortcuts", ["Shell", "Edit", "View", "Window", "Help"].allSatisfy { top.contains($0) } && missing.isEmpty, "\(top) missing \(missing)")
+        window.makeFirstResponder(v)
+        if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                    context: nil, characters: ",", charactersIgnoringModifiers: ",", isARepeat: false, keyCode: 0x2B) {
+            let took = window.performKeyEquivalent(with: e) || (NSApp.mainMenu?.performKeyEquivalent(with: e) ?? false)
+            check("keys_cmd_comma_from_terminal", window.firstResponder !== nil && took && wait(3) { self.board.settings.window.isVisible }, "took \(took)")
+            board.settings.window.orderOut(nil)
+        }
         ws.closePane(pane)
     }
 }
