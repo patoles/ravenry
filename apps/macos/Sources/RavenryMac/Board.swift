@@ -489,7 +489,7 @@ final class Board: NSObject {
         guard let f = st.find(key) else { return }
         let title = f.session.topic ?? f.project.name
         let w = f.session.words
-        let what = ((w["question"] as? String) ?? (w["headline"] as? String) ?? (w["line"] as? String) ?? "").replacingOccurrences(of: "\n", with: " ")
+        let what = InlineMd.plain(((w["question"] as? String) ?? (w["headline"] as? String) ?? (w["line"] as? String) ?? "").replacingOccurrences(of: "\n", with: " "))
         let said = what.isEmpty ? "." : ": " + (what.count > 70 ? String(what.prefix(69)) + "..." : what)
         let proj = title != f.project.name ? " in \(f.project.name)" : ""
         log.append("arrived \(key): a toast")

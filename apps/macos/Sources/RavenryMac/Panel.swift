@@ -231,6 +231,13 @@ final class PanelView: Box {
         return b
     }
 
+    /// para() for a line of Markdown (a goal, a next step, a question): its marks drawn.
+    private func para(md s: String, _ color: String = "tx", size: CGFloat = 12.5) -> NSTextField {
+        let l = label(md: s, Fonts.pt(size), color, lines: 0, select: true)
+        l.preferredMaxLayoutWidth = PanelView.width - 56
+        return l
+    }
+
     private func para(_ s: String, _ color: String = "tx", size: CGFloat = 12.5) -> NSTextField {
         let l = label(s, Fonts.pt(size), color, lines: 0, select: true)
         l.preferredMaxLayoutWidth = PanelView.width - 56
@@ -344,7 +351,7 @@ final class PanelView: Box {
         let quick = (w["quick"] as? [[String: Any]] ?? []).prefix(6)
         let dialog = w["dialog"] as? [String] ?? []
         if cp == nil, s.group == "you", !q.isEmpty || !dialog.isEmpty || !quick.isEmpty {
-            var rows: [NSView?] = [q.isEmpty ? nil : para(q, size: 13)]
+            var rows: [NSView?] = [q.isEmpty ? nil : para(md: q, size: 13)]
             if !dialog.isEmpty { let d = label(dialog.joined(separator: "\n"), Fonts.mono(11.5), "tx2", lines: 0); d.preferredMaxLayoutWidth = PanelView.width - 56; rows.append(d) }
             if !quick.isEmpty {
                 let bs = quick.map { o -> NSView in
@@ -420,13 +427,13 @@ final class PanelView: Box {
             var rows: [NSView?] = []
             if let g = b["goal"] as? String {
                 rows.append(label(t("panel.goal"), Fonts.pt(11, .semibold), "tx3"))
-                let gl = label(g.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: ""), Fonts.pt(12.5))
-                gl.toolTip = g
+                let gl = label(md: g, Fonts.pt(12.5))
+                gl.toolTip = InlineMd.plain(g)
                 rows.append(gl)
             }
             if !items.isEmpty {
                 rows.append(label(t("panel.next"), Fonts.pt(11, .semibold), "tx3"))
-                for x in items { let l = label("•  " + x, Fonts.pt(12.5)); l.toolTip = x; rows.append(l) }
+                for x in items { let l = label(md: "•  " + x, Fonts.pt(12.5)); l.toolTip = InlineMd.plain(x); rows.append(l) }
             }
             let open = RButton(t("panel.openBrief"), .link) { [weak self] in self?.host?.openPage("brief:\(p.id)", t("panel.brief")) }
             buttons["brief"] = open
@@ -657,7 +664,7 @@ final class PanelView: Box {
 
     /// A small grey caption over its words (.sec p.t3.small then p).
     private func titled(_ title: String, _ text: String) -> [NSView?] {
-        [label(title, Fonts.pt(11, .semibold), "tx3"), para(text)]
+        [label(title, Fonts.pt(11, .semibold), "tx3"), para(md: text)]
     }
 
     /// A project no session runs in (projectPanel): its state, goal, next, last conversation and folder.
@@ -665,8 +672,8 @@ final class PanelView: Box {
         var out: [NSView] = []
         let st = projectFacts(p)
         out.append(stateLine(st.group, st.text))
-        if let g = p.brief?["goal"] as? String { out.append(sec(nil, titled(t("panel.goal"), g.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")))) }
-        if let n = p.brief?["next"] as? String, !n.isEmpty { out.append(sec(nil, titled(t("panel.next"), n.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")))) }
+        if let g = p.brief?["goal"] as? String { out.append(sec(nil, titled(t("panel.goal"), g))) }
+        if let n = p.brief?["next"] as? String, !n.isEmpty { out.append(sec(nil, titled(t("panel.next"), n))) }
         readLast(p.id)
         if let c = lastConv[p.id] {
             if let l = c.last {

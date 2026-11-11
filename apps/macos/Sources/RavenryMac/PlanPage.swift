@@ -134,10 +134,10 @@ final class PlanPage: FormPage {
             var rows: [NSView] = []
             let meta = hstack([label(p.name, Fonts.pt(12.5), "tx2"), (plan["started"] as? String).map { label(t("plan.started", ["when": $0]), Fonts.pt(12.5), "tx2") }, label(t("plan.nDone", ["done": "\(done)", "n": "\(steps.count)"]), Fonts.pt(12.5), "tx2"), spring()], spacing: 12)
             rows.append(meta)
-            if let g = plan["goal"] as? String, !g.isEmpty { rows.append(secBox(t("plan.goal"), [wrap(t("plan.quoted", ["text": g]), Fonts.pt(12.5))])) }
+            if let g = plan["goal"] as? String, !g.isEmpty { rows.append(secBox(t("plan.goal"), [wrap(md: t("plan.quoted", ["text": g]), Fonts.pt(12.5))])) }
             if let g = gate {
                 let choices = g["choices"] as? [String] ?? []
-                var inner: [NSView?] = [wrap(g["question"] as? String ?? "", Fonts.pt(12.5))]
+                var inner: [NSView?] = [wrap(md: g["question"] as? String ?? "", Fonts.pt(12.5))]
                 if !choices.isEmpty {
                     inner.append(acts(choices.enumerated().map { i, c in
                         let b = RButton(c, .primary) { [weak self] in self?.post("answer", ["choice": c]) { _ in self?.toast?(t("plan.sentChoice", ["choice": c])) } }
@@ -214,7 +214,7 @@ final class PlanPage: FormPage {
             if let d, !steps.isEmpty {
                 var rows: [NSView] = []
                 let goal = (d["goal"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                rows.append(secBox(t("newplan.draft"), [label(d["title"] as? String ?? t("panel.plan"), Fonts.pt(12.5, .bold)), goal.map { wrap(t("plan.quoted", ["text": $0]), Fonts.pt(12), "tx2") }]))
+                rows.append(secBox(t("newplan.draft"), [label(d["title"] as? String ?? t("panel.plan"), Fonts.pt(12.5, .bold)), goal.map { wrap(md: t("plan.quoted", ["text": $0]), Fonts.pt(12), "tx2") }]))
                 rows.append(vstack(steps.map { s in
                     let kind = s["kind"] as? String ?? "do"
                     let kw = ["do", "done", "branch", "gate"].contains(kind) ? t("plan.kind.\(kind)") : t("plan.kind.do")
@@ -251,7 +251,7 @@ final class PlanPage: FormPage {
                 from = secBox(nil, [label(o["title"] as? String ?? "", Fonts.pt(12), "tx3")] + (open.isEmpty ? [wrap(t("newplan.allDone"), Fonts.pt(12), "tx2")] : open.map { wrap($0["text"] as? String ?? "", Fonts.pt(12.5)) }), ring: nil)
             } else {
                 let g = p?.brief?["goal"] as? String
-                from = secBox(nil, [wrap(g.map { t("newplan.fromGoal", ["goal": $0]) } ?? t("newplan.noPlan"), Fonts.pt(12), "tx2")])
+                from = secBox(nil, [wrap(md: g.map { t("newplan.fromGoal", ["goal": $0]) } ?? t("newplan.noPlan"), Fonts.pt(12), "tx2")])
             }
             let draftB = RButton(t("newplan.draftIt"), .primary) { [weak self] in
                 guard let self else { return }

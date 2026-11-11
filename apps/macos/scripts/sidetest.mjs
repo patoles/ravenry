@@ -269,8 +269,10 @@ async function writeFixtures() {
   await sleep(3000);
 }
 const screenHub = PAGES ? {
-  plan: true, ideas: true, env: { RAVENRY_PAGE_DEFAULTS: path.join(PD, 'defaults') }, prepare: pagesPrepare,
-  extra: [{ id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
+  plan: true, ideas: true, env: { RAVENRY_PAGE_DEFAULTS: path.join(PD, 'defaults') },
+  // harbour-light has the lighthouse's brief (its goal in Markdown: "whose **lamp** turns"); lighthouse has none (Write the brief).
+  prepare: (a) => { fs.mkdirSync(path.join(a.ROOT, 'harbour-light'), { recursive: true }); fs.writeFileSync(path.join(a.ROOT, 'harbour-light', 'BRIEF.md'), LIGHTHOUSE_BRIEF); return pagesPrepare(a); },
+  extra: [{ id: 'harbour-light', name: 'harbour-light' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
 } : SCREEN ? {
   plan: true, ideas: true,
   // --screen machines: ssh never reaches anything from this board.

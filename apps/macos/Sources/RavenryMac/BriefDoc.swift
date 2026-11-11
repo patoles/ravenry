@@ -607,3 +607,56 @@ struct BriefDoc {
         return out
     }
 }
+
+/// A line of Markdown from a brief, a plan or an agent (a goal, a next step,
+/// an objective, a question) as the person reads it: bold, italic, code and
+/// links drawn (BriefDoc.inline, the one inline renderer), never the marks.
+/// Every label that shows such a line goes through here (label(md:) and
+/// wrap(md:), Views.swift and InAppForms.swift).
+enum InlineMd {
+    private static let marks = try! NSRegularExpression(pattern: "`[^`]+`|\\*\\*[^*]+\\*\\*|\\[[^\\]]+\\]\\([^)\\s]+\\)|(?<![\\w*])[*_][^*_\\s][^*_]*[*_](?![\\w*])")
+    /// Whether the line has a mark to draw (else the plain label stays as it is).
+    static func has(_ s: String) -> Bool { marks.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
+
+    /// The line drawn in `font` and `color`, wrapped or cut at the tail as `lines` says.
+    static func text(_ s: String, _ font: NSFont, _ color: String = "tx", lines: Int = 1, align: NSTextAlignment = .natural, codeFill: String = "card2") -> NSAttributedString {
+        var d = BriefDoc(dir: NSHomeDirectory())
+        d.codeFill = codeFill
+        let a = d.inline(s, font, color)
+        let p = NSMutableParagraphStyle()
+        p.lineBreakMode = lines == 1 ? .byTruncatingTail : .byWordWrapping
+        p.alignment = align
+        let all = NSRange(location: 0, length: a.length)
+        a.addAttribute(.paragraphStyle, value: p, range: all)
+        // A label draws no link style of its own: the link's colour, its URL on hover.
+        a.enumerateAttribute(.link, in: all) { v, r, _ in
+            guard v != nil else { return }
+            a.addAttribute(.foregroundColor, value: Design.color("link"), range: r)
+            a.removeAttribute(.link, range: r)
+        }
+        return a
+    }
+
+    /// The marks off (briefdoc.ts plain): for a tooltip, a sort or an accessibility label.
+    static func plain(_ s: String) -> String {
+        var t = s
+        for (re, to) in [("`([^`]*)`", "$1"), ("\\*\\*([^*]+)\\*\\*", "$1"), ("(^|\\W)[*_]([^*_]+)[*_](?=\\W|$)", "$1$2"), ("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")] {
+            t = t.replacingOccurrences(of: re, with: to, options: .regularExpression)
+        }
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+}
+
+/// label() for a line of Markdown (InlineMd): its marks drawn, the plain words its accessibility label.
+func label(md s: String, _ font: NSFont, _ color: String = "tx", lines: Int = 1, select: Bool = false) -> NSTextField {
+    let l = label(InlineMd.plain(s), font, color, lines: lines, select: select)
+    if InlineMd.has(s) { l.attributedStringValue = InlineMd.text(s, font, color, lines: lines) }
+    return l
+}
+
+/// wrap() for a line of Markdown (InlineMd).
+func wrap(md s: String, _ font: NSFont = Fonts.pt(13), _ color: String = "tx") -> CappedText {
+    let c = wrap(InlineMd.plain(s), font, color)
+    if InlineMd.has(s) { c.text.attributedStringValue = InlineMd.text(s, font, color, lines: 0); c.text.invalidateIntrinsicContentSize() }
+    return c
+}

@@ -58,8 +58,8 @@ struct DriveFacts {
 }
 
 /// Text that wraps in the card's width.
-private func cardText(_ s: String, _ font: NSFont, _ color: String = "tx", select: Bool = true) -> NSTextField {
-    let l = label(s, font, color, lines: 0, select: select)
+private func cardText(_ s: String, _ font: NSFont, _ color: String = "tx", select: Bool = true, md: Bool = false) -> NSTextField {
+    let l = md ? label(md: s, font, color, lines: 0, select: select) : label(s, font, color, lines: 0, select: select)
     l.preferredMaxLayoutWidth = PanelView.width - 56
     return l
 }
@@ -146,7 +146,7 @@ final class OptRow: Box {
                                          kl.centerXAnchor.constraint(equalTo: kb.centerXAnchor), kl.centerYAnchor.constraint(equalTo: kb.centerYAnchor)])
             items.append(kb)
         }
-        let tl = label(text, Fonts.pt(13, .medium), no ? "bad" : "btn-tx", lines: 0)
+        let tl = label(md: text, Fonts.pt(13, .medium), no ? "bad" : "btn-tx", lines: 0)
         tl.preferredMaxLayoutWidth = PanelView.width - 56 - 50
         items.append(sub.map { vstack([tl, label($0, Fonts.pt(11.5), "tx3", lines: 0)], spacing: 2) } ?? tl)
         items.append(spring())
@@ -459,10 +459,10 @@ final class CheckpointCard: Box {
         }
     }
 
-    private func question() -> NSView { cardText(w["head"] as? String ?? "", Fonts.pt(14, .semibold)) }
+    private func question() -> NSView { cardText(w["head"] as? String ?? "", Fonts.pt(14, .semibold), md: true) }
     private func body() -> NSView? {
         guard let b = (w["checks"] as? [String: Any])?["text"] as? String ?? w["body"] as? String else { return nil }
-        return cardText(b, Fonts.pt(12.5), "tx2")
+        return cardText(b, Fonts.pt(12.5), "tx2", md: true)
     }
 
     private func askRows() -> [NSView?] {

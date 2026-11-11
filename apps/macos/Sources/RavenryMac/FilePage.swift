@@ -841,7 +841,7 @@ final class FilePage: FormPage {
         cn.alignment = .right
         cn.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         return hstack([hstack((r["dots"] as? [String] ?? []).map { Mark.step($0) }, spacing: 4), spring(), fix(cn, minW: 76),
-                       nextCol(wrap(next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), 260)], spacing: 14)
+                       nextCol(wrap(md: next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), 260)], spacing: 14)
     }
     /// .nx: `w` wide, narrower (its words wrapping) before the steps or the count give way.
     private func nextCol(_ v: NSView, _ w: CGFloat) -> NSView {
@@ -862,7 +862,7 @@ final class FilePage: FormPage {
         let kind = r["kind"] as? String ?? "none"
         let title = r["title"] as? String ?? ""
         let plan = kind == "plan" || r["plan"] as? Bool == true
-        let tl = wrap(title, Fonts.pt(12.5, .medium))
+        let tl = wrap(md: title, Fonts.pt(12.5, .medium))
         let ot = fix(hstack([plan ? boxed(label(t("pg.planLabel").uppercased(), Fonts.pt(10, .bold), "tx2"), fill: "card2", radius: 5, insets: NSEdgeInsets(top: 1, left: 6, bottom: 1, right: 6)) : nil, soft(tl)], spacing: 8), w: 240)
         let cn = { (s: String) -> NSView in let l = label(s, Fonts.pt(12.5, .semibold).withTabularDigits); l.alignment = .right; l.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal); return fix(l, minW: 76) }
         // .ds: flex 1, at least 90 wide in every row, so the count and the next step line up from row to row.
@@ -872,7 +872,7 @@ final class FilePage: FormPage {
         case "plan":
             let next = r["next"] as? [String: Any] ?? [:]
             parts += [steps((r["dots"] as? [String] ?? []).map { Mark.step($0) }), cn(r["count"] as? String ?? ""),
-                      nextCol(wrap(next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), 220)]
+                      nextCol(wrap(md: next["text"] as? String ?? "", Fonts.pt(12), nextColor(next["cls"] as? String)), 220)]
         case "tasks":
             let tasks = r["tasks"] as? [[String: Any]] ?? []
             parts += [steps(tasks.enumerated().map { i, x -> NSView in
@@ -883,7 +883,7 @@ final class FilePage: FormPage {
                 let d = TaskDot(st, text: text) { tick(text, st != "done") }
                 pb["task:\(key):\(title):\(i)"] = d
                 return d
-            }), cn(r["count"] as? String ?? ""), nextCol(wrap(r["next"] as? String ?? "", Fonts.pt(12), "tx2"), 220)]
+            }), cn(r["count"] as? String ?? ""), nextCol(wrap(md: r["next"] as? String ?? "", Fonts.pt(12), "tx2"), 220)]
         case "file":
             let tot = r["total"] as? Double ?? Double(r["total"] as? Int ?? 0), dn = r["done"] as? Double ?? Double(r["done"] as? Int ?? 0)
             let upd = (r["updated"] as? String).map { t("pg.updated", ["ago": PageFmt.ago($0)]) } ?? (r["source"] as? String ?? "")
@@ -979,8 +979,8 @@ final class FilePage: FormPage {
                 let edit: NSView? = briefFile.isEmpty || it["machine"] != nil ? nil : btn("editBrief:\(pid)", t("pg.editBrief"), .quiet, lead: "doc") { Outside.openFile(briefFile) }
                 var hv: [NSView?] = [ring(["you", "work", "idle", "wait"].contains(st) ? st : "idle"), name]
                 hv += badges(it, sp, s).map { Optional($0) }
-                let gl = label(goal.isEmpty ? t("pg.noGoal") : goal, Fonts.pt(12.5), "tx2")
-                gl.toolTip = goal.isEmpty ? nil : goal
+                let gl = label(md: goal.isEmpty ? t("pg.noGoal") : goal, Fonts.pt(12.5), "tx2")
+                gl.toolTip = goal.isEmpty ? nil : InlineMd.plain(goal)
                 hv += [soft(gl), spring(), edit]
                 hv += itemButtons(v, sp, it, sec).map { Optional($0) }
                 let head = prow(hv, spacing: 10, insets: NSEdgeInsets(top: 11, left: 16, bottom: 11, right: 16))
@@ -1470,7 +1470,7 @@ final class FilePage: FormPage {
             old.text.attributedStringValue = NSAttributedString(string: now, attributes: [.font: Fonts.pt(13), .foregroundColor: Design.color("tx2"), .strikethroughStyle: NSUnderlineStyle.single.rawValue])
             rows.append(vstack([label(p["nowLabel"] as? String ?? t("pg.ruleNow"), Fonts.pt(12), "tx3"), old], spacing: 4))
         }
-        rows.append(vstack([label(p["nextLabel"] as? String ?? t("pg.willSay"), Fonts.pt(12), "tx3"), wrap(p["next"] as? String ?? PageFmt.text(item["rule"]), Fonts.pt(13))], spacing: 4))
+        rows.append(vstack([label(p["nextLabel"] as? String ?? t("pg.willSay"), Fonts.pt(12), "tx3"), wrap(md: p["next"] as? String ?? PageFmt.text(item["rule"]), Fonts.pt(13))], spacing: 4))
         rows.append(wrap(t("pg.into", ["targets": PageFmt.text(item["targets"])]), Fonts.pt(12), "tx2"))
         rows.append(sheetButtons([spring(), btn("sheet:cancel", t("pg.cancel"), small: false) { [weak self] in self?.closeSheet() },
                                   btn("sheet:ok", t("pg.save"), .primary, small: false) { [weak self] in

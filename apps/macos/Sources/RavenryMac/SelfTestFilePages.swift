@@ -63,6 +63,19 @@ extension SelfTestBoard {
         check("objectives_drawn", wait(5) { self.shows(self.fp, "Send the first reminders") } && shows(fp, "Step 2 of 3") && shows(fp, "Waiting on you") && shows(fp, "No brief yet") && shows(fp, "A planting calendar"),
               texts(fp).prefix(12).joined(separator: " | "))
         check("objectives_head", shows(fp.head, "Objectives") && shows(fp.head, t("pg.default")) && shows(fp.head, t("pg.shipped")) && fp.buttons["customize"] != nil && fp.buttons["close"]?.window == nil)
+        // A goal from a brief in Markdown (lighthouse's "whose **lamp** turns"): the words in bold, never the marks.
+        let lamp = { () -> NSTextField? in
+            var hit: NSTextField?
+            func walk(_ x: NSView) { if hit != nil || x.isHidden { return }; if let f = x as? NSTextField, f.stringValue.contains("lamp") && f.stringValue.contains("turns") { hit = f; return }; x.subviews.forEach(walk) }
+            walk(self.fp)
+            return hit
+        }()
+        let lampBold = lamp.map { f -> Bool in
+            let a = f.attributedStringValue, r = (a.string as NSString).range(of: "lamp")
+            return r.location != NSNotFound && (a.attribute(.font, at: r.location, effectiveRange: nil) as? NSFont).map { NSFontManager.shared.traits(of: $0).contains(.boldFontMask) } == true
+        } ?? false
+        let marks = texts(fp).filter { $0.contains("**") || $0.contains("`") }
+        check("objectives_markdown_drawn", lampBold && marks.isEmpty, "\(lamp?.stringValue ?? "no lighthouse goal") marks: \(marks.prefix(3))")
         pictures("objectives")
         widePicture("objectives")
         // A plan's row opens that plan (its title, not the project's first).
