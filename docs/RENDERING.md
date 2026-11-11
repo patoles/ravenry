@@ -141,7 +141,8 @@ theme on the client is never overridden by the daemon's defaults.
   the frame is that last finished one, its rows cut at the new width and
   its last rows kept when the screen got shorter (`TestRenderDragSyncRedraw`).
 - **Resize.** On `pane.resize` the daemon resizes the screen and the pty
-  together. When the shell is at a prompt (OSC 133, which Ravenry's shell
+  together; a shell at its prompt at every step of a drag, any other
+  program once per pause of it (below). When the shell is at a prompt (OSC 133, which Ravenry's shell
   integration marks with `redraw=1`), the resize clears the prompt for the
   shell to draw it again (a libghostty patch,
   `daemon/patches/ghostty-prompt-clear-top.patch`): from the prompt's
@@ -163,22 +164,56 @@ theme on the client is never overridden by the daemon's defaults.
   writes apart), at most 250 ms. A size asked for during that redraw, or
   while the shell is still writing, waits for its end: a shell resized
   in the middle of its redraw counts its prompt's rows on a screen that
-  changed under it and leaves pieces of the old prompt behind. Any other
-  program's redraw after a resize on its own is held until it has been
-  quiet 6 ms, at most 100 ms. During a drag (a resize within 50 ms of
-  the last one) such a program is not held: it cannot redraw between
-  steps that come every 8 to 17 ms, and a hold that started again at
-  every step let a pane with a big scrollback or a busy line (a working
-  Claude) out only when its 500 ms cap ran out, 2 to 6 frames a second.
-  Each step's reflowed screen goes out at once, as Ghostty draws it, and
-  the program's redraw follows as ordinary output
-  (`TestRenderDragBusy`: 8000 rows of scrollback and a line redrawn 10
-  times a second, 120 steps at 120 Hz: nearly every step drawn at its
-  size, 4 ms after `pane.resize` median). The reflow itself is
-  libghostty-vt's, over the whole scrollback: about 2.5 ms a step for
-  7800 rows. The client meanwhile draws the frame it has at the new
-  size; it never sees a cleared prompt, nor half a redraw outside a
-  drag.
+  changed under it and leaves pieces of the old prompt behind.
+- **A program's resize.** Any other program (not a shell at its prompt:
+  Claude Code, an editor, a build) is told its new size once per pause
+  of a drag, not at each step (`daemon/internal/pane/coalesce.go`).
+  Claude Code redraws once for every size it is told, in order, 100 to
+  250 ms after it, and places its words at absolute columns
+  (`ESC[<col>G`). Resized at every step, a redraw laid out for a width
+  the drag had already left landed on a narrower screen: every column
+  past the margin went to the last one, a column of single letters down
+  the right edge and the rest mostly empty (Simon on 0.1.31: "still
+  blanks, and vertical bars of characters too now"; 17 of 180 frames of
+  his recorded drag), and widening showed a narrow layout in a wide pane
+  for 300 to 400 ms. Resizing the screen at each step without telling
+  the program breaks it another way: its cursor moves, relative to rows
+  the reflow moved, land on the wrong rows and leave garbage in the
+  scrollback. Ghostty never parses a program's output against a size
+  the program was not told: it sets the pty's size and the grid's
+  together, under one lock, and coalesces resizes 25 ms apart
+  (`src/termio/Thread.zig`, `Termio.zig` resize); kitty waits for the
+  resizes to stop (about 0.1 s) and then does both. So:
+  - A resize on its own (a split, a font change, a window snapped, a
+    drag's first step) goes at once: the screen and the pty together.
+  - During a drag (a size within 50 ms of the last one asked) the screen
+    and the program's size stay as they are; the frames go out at the
+    size asked, the screen cut or padded to it (its rows cut at a
+    narrower width, padded at a wider one; a shorter view shows the last
+    rows, the cursor moved up with them; a taller one is padded below).
+  - When the drag pauses (no step for 80 ms) and at its end, the screen
+    and the pty are resized once, together, to the latest size asked.
+    A further size goes only once the program has drawn itself at that
+    one: it ended a synchronized update begun after the resize that
+    erased at least half the rows (Claude Code's redraw erases every
+    row; its spinner's updates erase none), or its output has been quiet
+    300 ms, or a second has passed. Always the latest size asked, never
+    one the drag has left.
+  - A program that draws with synchronized output is shown as it was,
+    cut or padded to the new size, until that redraw (the screen's
+    render state frozen, `vt` Freeze), so the reflow of its old layout is
+    never shown either. Any other program's redraw after a resize is
+    held until it has been quiet 6 ms, at most 100 ms.
+
+  `TestRenderDragClaude` (testprog's redraw drawing as Claude Code does,
+  idle and with a spinner line updated 10 times a second, a width drag
+  at 8 to 16 ms steps with a 300 ms pause): on 0.1.31, 15 to 24 of 131
+  to 137 frames with bars and 90 to 98 not a screen the program drew,
+  about 100 scrollback rows of garbage; with this, none. The reflow
+  itself is libghostty-vt's, over the whole scrollback: about 2.5 ms for
+  7800 rows, now once per pause rather than at every step. The client
+  meanwhile draws the frame it has at the new size; it never sees a
+  cleared prompt, nor half a redraw.
 
 ## Key bindings
 

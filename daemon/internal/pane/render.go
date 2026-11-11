@@ -35,6 +35,11 @@ type renderView struct {
 func (p *Pane) renderUpdate() {
 	v := &p.rview
 	cols, rows := p.screen.Size()
+	if p.want != nil {
+		// A program's size asked during a drag (coalesce.go): the
+		// screen is read cut or padded to it.
+		cols, rows = p.want[0], p.want[1]
+	}
 	all := !v.ok || cols != v.cols || rows != v.rows
 	if all {
 		v.cols, v.rows = cols, rows

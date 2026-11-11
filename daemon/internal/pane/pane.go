@@ -181,7 +181,17 @@ type Pane struct {
 	// after the last resize; pendingT applies it once the redraw is done.
 	pendingSize *[2]int
 	pendingT    *time.Timer
-	bells       uint32
+	// A program's resizes (coalesce.go): when a size was last asked;
+	// the size asked during a drag and not applied yet (the frames go
+	// out at it, the grid keeps its own); the program's redraw after the
+	// last size applied; whether it ever used synchronized output; the
+	// timer of what waits.
+	askedAt  time.Time
+	want     *[2]int
+	redraw   redrawWatch
+	syncSeen bool
+	resizeT  *time.Timer
+	bells    uint32
 
 	// times is when its output came (record.go); frames are its recent
 	// screens (frames.go).
@@ -586,6 +596,7 @@ func (p *Pane) outputLocked(b []byte) {
 	}
 	p.writeEnd = mark + uint64(len(b))
 	p.screen.Write(b)
+	p.redrawOutput(b, time.Now())
 	p.lastFull = p.readFull.Load()
 	if i := bytes.LastIndex(b, inputStartMark); i >= 0 {
 		end := i + len(inputStartMark)
@@ -872,7 +883,16 @@ func (p *Pane) Resize(cols, rows int) error {
 		p.realCols, p.realRows = cols, rows
 		return nil
 	}
-	return p.resizeWhenDrawn(cols, rows)
+	now := time.Now()
+	drag := !p.askedAt.IsZero() && now.Sub(p.askedAt) < dragGap
+	p.askedAt = now
+	if p.shellAtPrompt(now) {
+		// A shell at its prompt is resized at each step (render.go),
+		// as before: it redraws its prompt within milliseconds.
+		p.dropWant()
+		return p.resizeWhenDrawn(cols, rows)
+	}
+	return p.resizeProgram(cols, rows, drag, now)
 }
 
 func (p *Pane) resizeLocked(cols, rows int) error {
@@ -883,6 +903,9 @@ func (p *Pane) resizeLocked(cols, rows int) error {
 	if err := p.screen.Resize(cols, rows); err != nil {
 		return err
 	}
+	// The grid is at the size asked last: the frames go out at it.
+	p.want = nil
+	p.screen.SetView(0, 0)
 	p.resized(atPrompt)
 	p.times.resize(p.offset, cols, rows, time.Now())
 	return pty.Setsize(p.pty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
@@ -908,6 +931,9 @@ func (p *Pane) Override(o Overrides) error {
 	case o.Cols > 0:
 		if p.ovr.Cols == 0 {
 			p.realCols, p.realRows = p.screen.Size()
+			if p.want != nil {
+				p.realCols, p.realRows = p.want[0], p.want[1]
+			}
 		}
 		if err := p.resizeLocked(o.Cols, o.Rows); err != nil {
 			return err

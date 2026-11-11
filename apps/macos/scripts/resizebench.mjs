@@ -14,12 +14,16 @@
 //
 // --content: what the tab in front shows during the drag: busy (the
 // default, a loop printing about 30 lines a second that redraws its
-// screen after each resize as Claude Code does), idle (the shell at its
+// screen as Claude Code does, once for every size it is told, in order,
+// 150 ms after it, each word at its column), idle (the shell at its
 // prompt), or a command typed in it, as a replay of a real Claude tab
 // with its history and a spinner line (Simon's feel checks: real content
 // beside an empty shell). The content check counts the frames of the drag
 // short of a tenth or more of the rows of text the screen had before it
-// (a redraw shown half done) and fails the run when there is one.
+// (a redraw shown half done), and the frames of the drag and the 600 ms
+// after it with bars (four rows or more ending in a lone character: a
+// redraw laid out for a wider width on a narrower screen), and fails the
+// run when there is one.
 //
 // --daemons: the window on two daemons, as after an update: OLD_RAVENRYD (a
 // release's, 0.1.23 or later) and this tree's ravenryd built as the desktop
@@ -136,6 +140,12 @@ if (short !== undefined) {
   console.log(`  content check: ${short} of ${d.content_frames_checked} frames in the drag short of a tenth or more of the full screen's ${d.content_full_rows} rows of text (${d.content_frames_held} held)`);
   for (const e of d.content_short_examples || []) console.log('    ' + e);
   if (short > 0) process.exitCode = 1;
+}
+const bars = d.content_frames_bars;
+if (bars !== undefined) {
+  console.log(`  bars check: ${bars} frames in the drag and the 600 ms after it with four rows or more ending in a lone character`);
+  for (const e of d.content_bars_examples || []) console.log('    ' + e);
+  if (bars > 0) process.exitCode = 1;
 }
 console.log(`  wait for a drawable: ${s(d.drawable_wait_ms)}`);
 console.log(`  draws of the tabs not in front: ${d.hidden_tab_draws}; drawn at its size after the drag: ${d.after_end_drawn_at_size}`);

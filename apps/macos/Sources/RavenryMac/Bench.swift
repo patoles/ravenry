@@ -602,33 +602,51 @@ final class Bench {
         // its spinner), given 3 s to draw its screen.
         let content = ProcessInfo.processInfo.environment["RAVENRY_BENCH_CONTENT"].flatMap { $0.isEmpty ? nil : $0 } ?? "busy"
         if content == "busy" {
-            // A line about 30 times a second, and after each resize the
-            // screen drawn again as Claude Code draws it: a synchronized
-            // update (mode 2026), every row erased from the top, the rows
-            // drawn at their places in four writes 20 ms apart (autowrap
-            // off, each cut at the width), the update ended. A frame of
-            // the drag that shows that redraw half done has rows missing
-            // (the content check below). Given until the screen is full.
+            // A line about 30 times a second, of 3 to 19 words, and the
+            // screen drawn again as Claude Code draws it, once for every
+            // size it is told, in order, 150 ms after it: a synchronized
+            // update (mode 2026), every row erased from the top, the last
+            // lines word-wrapped at that size's width with each word
+            // placed at its column (ESC[<col>G), the rows one under the
+            // other from the top (CR LF, autowrap on), in four writes 5 ms
+            // apart, the update ended. A frame of the drag that shows that
+            // redraw half done has rows missing, and one laid out for a
+            // wider width than the screen has bars, a lone letter down the
+            // last column (the content check below). Given until the
+            // screen is full.
             let busy = #"""
             # The redraw's writes go through /usr/bin/printf: zsh's own
             # printf loses a write a SIGWINCH interrupts.
-            P=/usr/bin/printf; w=0; TRAPWINCH() { w=1 }
+            zmodload zsh/datetime
+            P=/usr/bin/printf; Q=(); TRAPWINCH() { Q+=("$EPOCHREALTIME $(stty size)") }
+            W=(the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows)
             L=(); i=0
             while :; do
-              if (( w )); then
-                w=0; sz=$(stty size); r=${sz% *}; n=$((r - 1)); k=$(( (n + 3) / 4 ))
+              while (( $#Q )) && (( EPOCHREALTIME - ${Q[1]%% *} >= 0.15 )); do
+                sz=${Q[1]#* }; shift Q; r=${sz% *}; c=${sz#* }; n=$((r - 1)); k=$(( (n + 3) / 4 ))
+                R=()
+                for l in "${(@)L[-n,-1]}"; do
+                  row=''; x=0
+                  for w in ${=l}; do
+                    if (( x > 0 && x + 1 + $#w > c )); then R+=("$row"); row=''; x=0; fi
+                    if (( x > 0 )); then x=$((x + 1)); row+=$'\e['$((x + 1))'G'; fi
+                    row+=$w; x=$((x + $#w))
+                  done
+                  R+=("$row")
+                done
+                R=("${(@)R[-n,-1]}")
                 e=''; repeat $r e+=$'\e[2K\e[1B'
-                $P '\033[?2026h\033[?7l\033[H%s' "$e"
+                $P '\033[?2026h\033[H%s\033[H' "$e"
                 for p in 0 1 2 3; do
-                  sleep 0.02; s=''
-                  for (( y = p * k + 1; y <= p * k + k && y <= n; y++ )); do
-                    j=$(( $#L - n + y )); (( j >= 1 )) && s+=$'\e['$y';1H'$L[j]
+                  sleep 0.005; s=''
+                  for (( y = p * k + 1; y <= p * k + k && y <= $#R; y++ )); do
+                    (( y > 1 )) && s+=$'\r\n'; s+=$R[y]
                   done
                   $P '%s' "$s"
                 done
-                $P '\033[%d;1H\033[?7h\033[?2026l' $r
-              fi
-              i=$((i + 1)); l="busy $i the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows"
+                $P '\r\n\033[?2026l'
+              done
+              i=$((i + 1)); l="busy $i $W[1,$(( 1 + i % 17 ))]"
               L+=("$l"); (( $#L > 300 )) && shift L
               print -r -- "$l"; sleep 0.033
             done
@@ -659,7 +677,9 @@ final class Bench {
         // (the screen once it is applied), against the full screen's
         // before the drag. A frame with fewer shows a program's redraw
         // half done (rows erased and not drawn again yet).
-        var filledAt: [(t: Double, n: Int, rows: Int, held: Bool)] = []
+        // And its bars: rows ending in a lone character, a redraw laid out
+        // for a wider width on a narrower screen (Screen.barRows).
+        var filledAt: [(t: Double, n: Int, rows: Int, held: Bool, bars: Int)] = []
         front.screen.lock()
         let fullRows = front.screen.filledRows()
         front.screen.unlock()
@@ -672,9 +692,9 @@ final class Bench {
             front.onFrame = {
                 before?()
                 front.screen.lock()
-                let n = front.screen.filledRows(), rows = front.screen.rows, held = front.screen.held
+                let n = front.screen.filledRows(), rows = front.screen.rows, held = front.screen.held, bars = front.screen.barRows()
                 front.screen.unlock()
-                dl.lock(); framesAt.append(CACurrentMediaTime()); filledAt.append((CACurrentMediaTime(), n, rows, held)); dl.unlock()
+                dl.lock(); framesAt.append(CACurrentMediaTime()); filledAt.append((CACurrentMediaTime(), n, rows, held, bars)); dl.unlock()
             }
             board?.resizeMs.removeAll()
         }
@@ -773,6 +793,12 @@ final class Bench {
         dl.lock(); let filled = filledAt.filter { $0.t >= tStart && $0.t <= tStart + secs + 0.1 }; dl.unlock()
         let short = filled.filter { $0.n * 10 < min(fullRows, $0.rows) * 9 }
         let shortExamples = short.prefix(3).map { "\(String(format: "%.0f", ($0.t - tStart) * 1000)) ms: \($0.n) of \($0.rows) rows\($0.held ? " (held)" : "")" }
+        // A frame with bars on four rows or more, in the drag and the
+        // 600 ms after it (a program redraws for each size it was told,
+        // 100 to 250 ms behind).
+        dl.lock(); let barWindow = filledAt.filter { $0.t >= tStart && $0.t <= tStart + secs + 0.6 }; dl.unlock()
+        let barred = barWindow.filter { $0.bars >= 4 }
+        let barExamples = barred.prefix(3).map { "\(String(format: "%.0f", ($0.t - tStart) * 1000)) ms: \($0.bars) of \($0.rows) rows end in a lone character" }
         // The last lines the pane in front shows: its content was what was asked.
         let lines: [String] = text().components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let tail: [String] = Array(lines.suffix(4))
@@ -803,6 +829,7 @@ final class Bench {
         let check: [String: Any] = [
             "content_full_rows": fullRows, "content_frames_checked": filled.count, "content_frames_short": short.count,
             "content_frames_held": filled.filter(\.held).count, "content_short_examples": shortExamples,
+            "content_frames_bars": barred.count, "content_bars_examples": barExamples,
         ]
         if var res = result["resize"] as? [String: Any] {
             res.merge(check) { $1 }

@@ -122,7 +122,7 @@ var (
 // frame the program finished, and the render state takes it then; it is
 // not updated again until the hold ends.
 func (s *ghostty) onRenderHold(held bool) {
-	if held && !s.held {
+	if held && !s.held && !s.frozen {
 		s.rs.Update(s.t)
 		s.heldAt = time.Now()
 	}
@@ -137,7 +137,10 @@ func (s *ghostty) update() (bool, error) {
 		s.t.SetMode(modeSync, false)
 		s.held = false
 	}
-	if s.held {
+	if s.frozen && time.Since(s.frozenAt) >= renderHoldMax {
+		s.frozen = false
+	}
+	if s.held || s.frozen {
 		return true, nil
 	}
 	if err := s.rs.Update(s.t); err != nil {
@@ -145,6 +148,22 @@ func (s *ghostty) update() (bool, error) {
 	}
 	return false, nil
 }
+
+// Freeze keeps the render state as it is (Screen). During a render hold
+// it already holds the last frame the program finished, and keeps it.
+func (s *ghostty) Freeze() {
+	if s.frozen {
+		return
+	}
+	if !s.held {
+		s.rs.Update(s.t)
+	}
+	s.frozen, s.frozenAt = true, time.Now()
+}
+
+// Thaw ends Freeze. A render hold going on keeps the frame until the
+// program ends it.
+func (s *ghostty) Thaw() { s.frozen = false }
 
 // Held reports whether the program holds the screen (synchronized
 // output), and since when.
@@ -224,17 +243,35 @@ func (s *ghostty) RenderAt(offset int, row func(y int, wrap bool, data []byte)) 
 	return info, err
 }
 
+// SetView sets the size the render stream reads the screen at (Screen).
+func (s *ghostty) SetView(cols, rows int) {
+	if cols == s.cols && rows == s.rows {
+		cols, rows = 0, 0
+	}
+	s.vcols, s.vrows = max(cols, 0), max(rows, 0)
+}
+
+// view is the size the render stream reads the screen at: the grid's,
+// or the one SetView set.
+func (s *ghostty) view() (int, int) {
+	if s.vcols > 0 && s.vrows > 0 {
+		return s.vcols, s.vrows
+	}
+	return s.cols, s.rows
+}
+
 // renderInfo reads the cursor, modes, colours and title.
 func (s *ghostty) renderInfo(rs *gt.RenderState, offset int) (RenderInfo, error) {
-	info := RenderInfo{Cols: s.cols, Rows: s.rows, Offset: offset, Title: s.title}
+	vc, vr := s.view()
+	info := RenderInfo{Cols: vc, Rows: vr, Offset: offset, Title: s.title}
 	if sb, err := s.t.Scrollbar(); err == nil {
 		info.History = int(sb.Total) - int(sb.Len)
 	}
 	if cur, err := rs.Cursor(); err == nil {
 		y := int(cur.ViewportY) - s.heldTop(rs)
 		info.Cursor = RenderCursor{
-			X: int(cur.ViewportX), Y: max(y, 0),
-			InView: cur.ViewportHasValue && y >= 0, Visible: cur.Visible, Blink: cur.Blinking,
+			X: min(int(cur.ViewportX), vc-1), Y: max(y, 0),
+			InView: cur.ViewportHasValue && y >= 0 && y < vr && int(cur.ViewportX) < vc, Visible: cur.Visible, Blink: cur.Blinking,
 			WideTail: cur.WideTail, Password: cur.PasswordInput,
 		}
 		switch cur.VisualStyle {
@@ -292,8 +329,9 @@ func (s *ghostty) renderRows(rs *gt.RenderState, all bool, row func(y int, wrap 
 		return fmt.Errorf("vt: render state: %w", err)
 	}
 	// Rows above the screen (overscan) come first: skip them, and the
-	// rows of a held frame taller than the screen (heldTop).
-	skip := max(0, int(nrows)-s.rows)
+	// rows of a held frame, or a grid, taller than the view (heldTop).
+	_, vr := s.view()
+	skip := max(0, int(nrows)-vr)
 	if ov, err := rs.Overscan(); err == nil {
 		skip += int(ov.Above)
 	}
@@ -321,23 +359,25 @@ func (s *ghostty) renderRows(rs *gt.RenderState, all bool, row func(y int, wrap 
 			return err
 		}
 		s.rbuf = b
-		if y-skip < s.rows {
+		if y-skip < vr {
 			row(y-skip, wrap, b)
 		}
 	}
 	return nil
 }
 
-// heldTop is how many of a render state's top rows are above the screen:
+// heldTop is how many of a render state's top rows are above the view:
 // a render hold that goes on across a resize to fewer rows (Resize) keeps
 // the taller frame the program finished, and its last rows are shown, as
-// Text and Grid show them.
+// Text and Grid show them; so are a grid's when the view is shorter
+// (SetView).
 func (s *ghostty) heldTop(rs *gt.RenderState) int {
 	n, err := rs.Rows()
 	if err != nil {
 		return 0
 	}
-	return max(0, int(n)-s.rows)
+	_, vr := s.view()
+	return max(0, int(n)-vr)
 }
 
 // encodeRow encodes the iterator's row: runs of cells that share a
@@ -351,7 +391,8 @@ func (s *ghostty) encodeRow(y int, dst []byte) ([]byte, error) {
 		return nil, fmt.Errorf("vt: row cells: %w", err)
 	}
 	lay := cellLayout()
-	n := min(s.cols, view.Len())
+	vc, _ := s.view()
+	n := min(vc, view.Len())
 	// The row's extent: the last cell that is not empty in the default
 	// style.
 	end := 0

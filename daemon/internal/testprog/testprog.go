@@ -41,6 +41,19 @@
 //	          the update ended. A SIGWINCH during a redraw makes one more
 //	          once it is done. Autowrap is off, so a redraw finished for a
 //	          width the screen has already left still fills every row.
+//	          With $RAVENRY_TESTPROG_REDRAW=claude it draws as Claude Code
+//	          does instead (ClaudeScreen): autowrap on, the transcript's
+//	          lines word-wrapped at the width, each word placed at its
+//	          column (ESC[<col>G), the rows one under the other (CR LF)
+//	          from the top, a footer of a rule, the prompt, a rule and a
+//	          status line. It redraws once for every size it is told, in
+//	          order, 120 to 200 ms after the SIGWINCH, with the size it
+//	          read then: a synchronized update, every row erased, the rows
+//	          in four writes 20 ms apart, the cursor put back at the prompt
+//	          with relative moves. claude-busy adds a spinner line over the
+//	          footer that it updates 10 times a second with relative moves
+//	          from the prompt, each in a synchronized update, as Claude
+//	          Code does while it works.
 package testprog
 
 import (
@@ -171,6 +184,14 @@ func redraw() {
 		os.Exit(1)
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	switch os.Getenv("RAVENRY_TESTPROG_REDRAW") {
+	case "claude":
+		claude(lines, false)
+		return
+	case "claude-busy":
+		claude(lines, true)
+		return
+	}
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	os.Stdout.WriteString("\x1b[?7l")

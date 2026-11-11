@@ -35,17 +35,23 @@ type ghostty struct {
 	// The render stream (render.go): a program's render hold
 	// (synchronized output) and since when; the render state of a
 	// scrolled view; buffers; the hyperlinks seen, by id.
-	held    bool
-	heldAt  time.Time
-	hs      *gt.RenderState
-	rbuf    []byte
-	tbuf    []byte
-	rstyles map[uint64][styleSize]byte
-	links   []string
-	linkIDs map[string]uint16
-	linkTop int
-	mouse   *gt.MouseEncoder
-	mev     *gt.MouseEvent
+	held   bool
+	heldAt time.Time
+	// vcols and vrows are the size the render stream reads the screen
+	// at while the grid keeps another (SetView); 0: the grid's.
+	vcols, vrows int
+	// frozen: Freeze keeps the render state as it was, since frozenAt.
+	frozen   bool
+	frozenAt time.Time
+	hs       *gt.RenderState
+	rbuf     []byte
+	tbuf     []byte
+	rstyles  map[uint64][styleSize]byte
+	links    []string
+	linkIDs  map[string]uint16
+	linkTop  int
+	mouse    *gt.MouseEncoder
+	mev      *gt.MouseEvent
 
 	// The selection gesture (select.go).
 	sel selState

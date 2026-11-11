@@ -61,6 +61,21 @@ type Screen interface {
 	// hold (synchronized output, at most a second) the rows are those of
 	// the last frame it finished, and held is true. all: every row.
 	Render(all bool, row func(y int, wrap bool, data []byte)) (info RenderInfo, held bool, err error)
+	// SetView sets the size Render and RenderAt read the screen at while
+	// the grid keeps its own (0, 0: the grid's): the rows cut at a
+	// narrower width and padded at a wider one, the last rows of a
+	// shorter view shown (the cursor moved up with them), a taller one
+	// padded below. A program told its new size only when a drag of a
+	// window's edge pauses is drawn this way at each step (pane, Resize).
+	SetView(cols, rows int)
+	// Freeze keeps Render on the frame it would read now (or, during a
+	// program's synchronized update, the last one the program finished)
+	// until Thaw, or for renderHoldMax at most, as a render hold does:
+	// a program resized (pane, Resize) is shown as it was until it has
+	// drawn itself at its new size, not reflowed in between.
+	Freeze()
+	// Thaw ends Freeze.
+	Thaw()
 	// RenderAt reads every row of the screen scrolled offset rows up
 	// into the scrollback (clamped to it).
 	RenderAt(offset int, row func(y int, wrap bool, data []byte)) (RenderInfo, error)

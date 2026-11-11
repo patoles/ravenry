@@ -343,6 +343,22 @@ final class Screen {
         return n
     }
 
+    /// How many rows end in a lone character: the last column filled, the
+    /// two before it empty. A program's redraw laid out for a wider width
+    /// (words placed at absolute columns) on a narrower screen puts every
+    /// word past the margin in the last column: a bar of single letters
+    /// down the right edge. The caller holds the lock.
+    func barRows() -> Int {
+        guard cols > 3 else { return 0 }
+        var n = 0
+        for y in 0..<min(rows, lines.count) where lines[y].count >= cols {
+            let l = lines[y]
+            let g = { (x: Int) in l[x].g != 0 && l[x].g != 32 }
+            if g(cols - 1) && !g(cols - 2) && !g(cols - 3) { n += 1 }
+        }
+        return n
+    }
+
     /// The screen's text, one line per row. Takes the lock.
     func text() -> String {
         lock()
