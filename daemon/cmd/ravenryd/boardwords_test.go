@@ -29,18 +29,18 @@ func TestBoardWordsGoToTheNpmBoard(t *testing.T) {
 		}
 	}
 	withPath(appDir + ":" + npm + ":/usr/bin:/bin")
-	out, _, code := runCmd(t, e.ravenry("0.2.0", "doctor", "--yes"))
-	if code != 7 || strings.TrimSpace(out) != "npm board: doctor --yes" {
-		t.Fatalf("ravenry doctor: exit %d, %q", code, out)
+	out, _, code := runCmd(t, e.ravenry("0.2.0", "setup", "--yes"))
+	if code != 7 || strings.TrimSpace(out) != "npm board: setup --yes" {
+		t.Fatalf("ravenry setup: exit %d, %q", code, out)
 	}
 	out, _, code = runCmd(t, e.ravenry("0.2.0", "help"))
 	if code != 0 || !strings.Contains(out, "ravenry pick TITLE") {
 		t.Fatalf("ravenry help went elsewhere: exit %d, %q", code, out)
 	}
 	// ravenryd under its own name never hands anything on.
-	_, errOut, code := runCmd(t, e.cmd("0.2.0", "doctor"))
+	_, errOut, code := runCmd(t, e.cmd("0.2.0", "phone"))
 	if code != 2 || !strings.Contains(errOut, "unknown command") {
-		t.Fatalf("ravenryd doctor: exit %d, %q", code, errOut)
+		t.Fatalf("ravenryd phone: exit %d, %q", code, errOut)
 	}
 	withPath(appDir + ":/usr/bin:/bin")
 	_, errOut, code = runCmd(t, e.ravenry("0.2.0", "setup"))

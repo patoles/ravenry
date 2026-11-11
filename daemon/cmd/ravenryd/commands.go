@@ -268,6 +268,7 @@ func init() {
 		{name: "page", group: "Pages", args: "check FILE | docs [TOPIC]", summary: "check a Ravenry page file (*.page.yaml) the way the sidebar reads it, with each problem's line, or print the page docs (a topic: board, ask, run, fields, ...); exits 1 when the file has errors", run: cmdPage},
 		// Guide
 		{name: "skill", group: "Guide", summary: "print the guide for agents: every command, the traps, the exit codes", run: cmdSkill},
+		{name: "doctor", group: "Guide", summary: "what works and what does not in the Ravenry app's install: its data folder, the hub service, the board, the daemons, the hooks and the skill; exits 1 when something needs fixing", run: cmdDoctor},
 		{name: "help", aliases: []string{"--help", "-h"}, group: "Guide", summary: "this list", run: nil},
 		// Daemon (ravenryd)
 		{name: "serve", service: true, group: "Daemon", summary: "run the daemon for this machine", flags: []flagDoc{

@@ -9,13 +9,14 @@ import (
 )
 
 // The npm board's own commands (hub/bin/ravenry.mjs: ravenry start, setup,
-// doctor, uninstall, phone pair), which this program does not have. Once the
+// uninstall, phone pair), which this program does not have (its doctor is
+// this program's own, doctor.go, which knows the app's install). Once the
 // Ravenry app's ravenry comes first on the PATH (the app's Ravenry menu,
 // Install the ravenry Command), a person who still has the npm board
 // (ravenry-app) and types one of them gets the npm board's, as before: it is
 // run in this one's place, as typed, the next ravenry on the PATH that is
 // not this program. With none, it says where the app does it.
-var boardWords = map[string]bool{"start": true, "setup": true, "doctor": true, "uninstall": true, "phone": true}
+var boardWords = map[string]bool{"start": true, "setup": true, "uninstall": true, "phone": true}
 
 // handBoardWord runs the npm board's ravenry for a board command, or says
 // where the app does it; it returns only when cmd is not one.
