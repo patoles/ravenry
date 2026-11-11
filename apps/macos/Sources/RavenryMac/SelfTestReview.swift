@@ -136,6 +136,8 @@ extension SelfTestBoard {
         n = hub.sentBodies.count
         wc.buttons["unmerge"]?.performClick(nil)
         check("review_unmerge_posts", wait(8) { hub.sentBodies.dropFirst(n).contains { $0.path.hasSuffix("/unmerge") } }, toasts(since: 0).suffix(2).joined(separator: ","))
+        // See both changes, the same-folder words, Merge without reviewing and its commits (SelfTestReviewC.swift).
+        reviewScopeC(key: key, filesPath: path)
         hub.testPatch = nil
         hub.testCheckpoints = nil
     }
