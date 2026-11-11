@@ -301,5 +301,18 @@ extension SelfTestBoard {
         let restored = Set(back.map { w in w.ws.tabs.flatMap { w.ws.panes(of: $0) } } ?? [])
         check("windows_reopen_restores", app.windows.count == 1 && restored.isSuperset(of: all), "restored \(restored.sorted()) of \(all.sorted())")
         if let back { _ = wait(5) { (back.ws.focusedView?.screen.frames ?? 0) > 0 }; shot(back, "native-window-reopened-900.png") }
+        // The console in one window (sidebar and panel folded), the board in another (a page from the sidebar), at 1280.
+        guard let con = back, key("n", .command), wait(5, { app.windows.count == 2 }) else { check("windows_console_and_board", false, "\(app.windows.count) windows"); return }
+        let brd = app.windows[1]
+        for rw in [con, brd] { rw.window.setContentSize(NSSize(width: 1280, height: 820)); rw.board.resized() }
+        if !con.board.sideHidden { con.board.toggleSidebar() }
+        if con.board.panelVisible { con.board.togglePanel() }
+        _ = wait(8) { (brd.hub.state?.projects.count ?? 0) >= 5 }
+        brd.board.openPage("objectives", "Objectives")
+        settle(1.5)
+        for rw in [con, brd] { rw.window.contentView?.layoutSubtreeIfNeeded() }
+        check("windows_console_and_board", con.board.sideHidden && !con.board.panelVisible && brd.board.front == .page("objectives", "Objectives"), "\(brd.board.front)")
+        shot(con, "native-windows-console-1280.png")
+        shot(brd, "native-windows-board-1280.png")
     }
 }
