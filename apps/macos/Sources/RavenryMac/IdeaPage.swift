@@ -60,6 +60,8 @@ final class MockThumb: Flipped {
         pic.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 20))
         line.frame = NSRect(x: 0, y: bounds.height - 17, width: bounds.width, height: 16)
     }
+    /// A press anywhere on it is its own, not its picture's.
+    override func hitTest(_ p: NSPoint) -> NSView? { frame.contains(p) ? self : nil }
     override func mouseDown(with e: NSEvent) { onPress?() }
     override func resetCursorRects() { handCursor(onPress != nil) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
@@ -197,6 +199,9 @@ final class IdeaPage: FormPage {
                     (v as? CoverImage)?.fit = false
                     let x = RButton(t("idea.removeRef", ["n": "\(k + 1)"]), .icon, small: true, icon: "close") { [weak self] in self?.refs.remove(at: k); self?.redraw() }
                     buttons["unref\(k)"] = x
+                    x.wantsLayer = true
+                    x.layer?.backgroundColor = Design.color("card").cgColor
+                    x.layer?.cornerRadius = 11
                     let box = Flipped()
                     v.frame = NSRect(x: 0, y: 6, width: 64, height: 48)
                     v.translatesAutoresizingMaskIntoConstraints = true
@@ -217,6 +222,7 @@ final class IdeaPage: FormPage {
             attach.isEnabled = !uploading
             buttons["attach"] = attach
             let reply = NSStackView(views: [f, vstack([attach, send], spacing: 6)])
+            send.widthAnchor.constraint(equalTo: attach.widthAnchor).isActive = true
             reply.orientation = .horizontal; reply.alignment = .bottom; reply.spacing = 10
             rows.append(reply)
             var mock: RButton? = nil
@@ -295,7 +301,7 @@ final class IdeaPage: FormPage {
             buttons["mkPick"] = pick
             let words = vstack([label(t("idea.variant", ["key": key, "title": v["title"] as? String ?? ""]), Fonts.pt(13, .semibold)), wrap(v["note"] as? String ?? "", Fonts.pt(12.5), "tx2")], spacing: 3)
             words.setContentHuggingPriority(.init(1), for: .horizontal)
-            let line = hstack([words, pick], spacing: 10); line.alignment = .top
+            let line = hstack([words, spring(), pick], spacing: 10); line.alignment = .top
             rows.append(line)
         }
         thumbs = vs.enumerated().map { i, x in

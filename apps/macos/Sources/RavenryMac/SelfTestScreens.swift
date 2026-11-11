@@ -18,6 +18,7 @@ extension SelfTestBoard {
         case "gallery": screenGallery()
         case "plan": screenPlan()
         case "idea": screenIdea()
+        case "write": screenWrite()
         case "alerts": screenAlerts()
         case "pages": screenPages()
         case "decisions": screenDecisions()

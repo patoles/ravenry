@@ -143,14 +143,6 @@ final class PlanPage: FormPage {
         if running && st == "running" { let b = RButton(t("plan.pause")) { [weak self] in self?.post("pause") }; b.isEnabled = busy.isEmpty; buttons["pause"] = b; extra.append(b) }
         else if running && st == "paused" { let b = RButton(t("plan.resume")) { [weak self] in self?.post("resume") }; b.isEnabled = busy.isEmpty; buttons["resume"] = b; extra.append(b) }
         else { buttons["pause"] = nil; buttons["resume"] = nil }
-        if running && ["running", "paused", "gate"].contains(st) {
-            let b = RButton(t("plan.change")) { [weak self] in
-                guard let self else { return }
-                let pid = self.project
-                self.post("change") { _ in self.openNewPlan?(pid) }
-            }
-            b.isEnabled = busy.isEmpty; buttons["change"] = b; extra.insert(b, at: 0)
-        } else { buttons["change"] = nil }
         let ttl = plan["title"] as? String ?? t("panel.plan")
         let sig = "\(project)|\(ttl)|\(st)|\(busy)|\(running)|\(stableText(gate))|" + steps.map { "\($0["state"] ?? "")\($0["text"] ?? "")\(stableText($0["proofs"]))" }.joined(separator: ",") + "|\(stableText(plan["goal"]))|\(p.sessions.count)"
         setHeadPill(ttl, pillV, extra)
@@ -196,7 +188,18 @@ final class PlanPage: FormPage {
                 ss = RButton(t("plan.showSession")) { [weak self] in if self?.showSession?(p.id) == false { self?.toast?(t("plan.noSession")) } }
             }
             buttons["showSession"] = ss
-            rows.append(acts([ob, ss]))
+            // Change the plan (PLAN-006): the running plan as a draft to change; with the actions, so the head keeps the title whole.
+            var ch: RButton? = nil
+            if running && ["running", "paused", "gate"].contains(st) {
+                ch = RButton(t("plan.change")) { [weak self] in
+                    guard let self else { return }
+                    let pid = self.project
+                    self.post("change") { _ in self.openNewPlan?(pid) }
+                }
+                ch?.isEnabled = busy.isEmpty
+            }
+            buttons["change"] = ch
+            rows.append(acts([ob, ss, ch]))
             return rows
         }
     }
@@ -426,9 +429,12 @@ final class PlanPage: FormPage {
         if kind == "gate", let ch = s["choices"] as? [String], !ch.isEmpty, (s["rule"] as? String ?? "").isEmpty { sub.append(t("newplan.choices", ["list": ch.joined(separator: ", or ")])) }
         if locked { sub.append(t("newplan.locked")) }
         let row = stepRow(t("plan.step", ["kind": kw, "text": s["text"] as? String ?? ""]), sub: sub, done: locked, now: false)
+        // The step takes the room; Added or Updated and Comment sit at the right, on its first line.
+        row.setContentHuggingPriority(.init(1), for: .horizontal)
         let id = s["id"] as? String ?? ""
-        var line: [NSView?] = [row]
-        if let m = mark { line.append(pill(t(m == "add" ? "newplan.added" : "newplan.updated"), "work")) }
+        var line: [NSView?] = [row, spring()]
+        let atTop = { (v: NSView) in hstack([v], spacing: 0, insets: NSEdgeInsets(top: 7, left: 0, bottom: 0, right: 0)) }
+        if let m = mark { line.append(atTop(pill(t(m == "add" ? "newplan.added" : "newplan.updated"), "work"))) }
         if !locked {
             let c = RButton(t("newplan.comment"), .link) { [weak self] in
                 guard let self else { return }
@@ -440,7 +446,7 @@ final class PlanPage: FormPage {
             c.setAccessibilityLabel(t("newplan.commentOn", ["n": "\(n)"]))
             c.isEnabled = busy.isEmpty
             buttons["comment:\(id)"] = c
-            line.append(c)
+            line.append(atTop(c))
         }
         let top = hstack(line, spacing: 8)
         top.alignment = .top

@@ -45,6 +45,7 @@ import { writeLedger, recordLive } from './decisions-fixture.mjs';
 import { cardFixtures } from './cards-fixture.mjs';
 import { testApp } from './testapp.mjs';
 import { pagesPrepare } from './pages-fixture.mjs';
+import { writeHub, writeEnv, writeArrive, trafficProxy } from './write-fixture.mjs';
 import { machineCard } from '../../../hub/server/machineview.mjs';
 import { SHAPES, HOSTS, BUILDS } from '../../../hub/tools/machine-shapes.mjs';
 
@@ -378,7 +379,11 @@ function linksPrepare({ HOME, ROOT, MC }) {
     + '## Plan\n### Rock with the waves\n- [x] Tilt the hull\n- [>] Ask **garden-planner-3f** about the wind\n');
 }
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
+// --screen write (write-fixture.mjs): the board in Ravenry mode on this test's daemon, the app behind a proxy that logs the hub's answers.
+const WRITE = SCREEN === 'write';
+if (WRITE) Object.assign(screenHub, writeHub({ APP, run, tmp }));
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
+const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.jsonl')) : null;
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
 if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
@@ -447,7 +452,7 @@ for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${r
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -455,10 +460,10 @@ app.on('exit', () => { exited = true; });
 const arrivals = [['paper-boat', 'Tilt the hull with the slope too, or keep it level?'], ['notes-app', 'The settings screen is done. Ship the beta to the testers?']];
 const t0 = Date.now();
 let n = 1;
-while (!exited && Date.now() - t0 < (PAGES ? 420000 : 240000)) {
+while (!exited && Date.now() - t0 < (PAGES || WRITE ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
-    if (PAGES) await writeFixtures(); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
+    if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }
@@ -484,6 +489,7 @@ if (DAEMONS) {
   try { again = JSON.parse(fs.readFileSync(report, 'utf8')); } catch {}
   a2.kill();
 }
+if (WRITE) { try { fs.writeFileSync(path.join(OUT, 'hub.log'), hub.log()); } catch { /* gone */ } proxy.close(); }
 hub.stop();
 daemon?.kill();
 for (const d of daemonsUp) d.kill();

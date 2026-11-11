@@ -24,11 +24,11 @@ process.stdin.on('end', () => {
       steps.push({ id: 'new', kind: 'do', text: 'Stop at the editor, no install', detail: 'Leave it committed and send you the screenshot', arms: [], choices: [], rule: '' });
       notes.push('Added: stop at the editor, no install, so the install gate is gone.');
     }
-    const ask = input.match(/He asks for these changes:\n- (.*)/);
+    const ask = input.match(/(?:He|The user) asks for these changes:\n- (.*)/);
     if (ask && !/Comment on step/.test(ask[1])) { steps.push({ id: 'new', kind: 'do', text: ask[1].slice(0, 80), detail: '', arms: [], choices: [], rule: '' }); notes.push('Added your change as a step.'); }
     out = { title: 'Long notes on the paths', reply: notes.join(' ') || 'Nothing to change.', steps, questions: [] };
   } else {
-    const own = /His words: "/.test(input);
+    const own = /(?:His|Their) words: "/.test(input);
     out = {
       title: 'Long notes on the paths',
       reply: own ? 'Here are your steps.' : 'Here is a draft plan. Two questions first, because a wrong guess would change the steps:',
