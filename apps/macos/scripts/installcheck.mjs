@@ -148,6 +148,19 @@ const rvd = (a, args, bin = path.join(a.data, 'bin', 'ravenryd')) => execFileSyn
 const hubState = async (a) => { try { const r = await fetch(`http://127.0.0.1:${a.port}/api/state`, { signal: AbortSignal.timeout(2000) }); return r.status === 200 ? await r.json() : null; } catch { return null; } };
 const listeners = (port) => { try { return execFileSync('/usr/sbin/lsof', ['-nP', `-tiTCP:${port}`, '-sTCP:LISTEN'], { encoding: 'utf8' }).split('\n').map(Number).filter(Boolean); } catch { return []; } };
 const commandOf = (pid) => spawnSync('/bin/ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
+// The process macOS holds responsible for another (its privacy prompts and
+// grants, ~/Documents and the rest, go by it): responsibility_get_pid_responsible_for_pid,
+// through a small program built here (UPD-015, the folder grants).
+const RESP = path.join(OUT, 'responsible');
+let respBuilt = false;
+const responsibleFor = (pid) => {
+  if (!respBuilt) {
+    fs.writeFileSync(RESP + '.c', '#include <stdio.h>\n#include <stdlib.h>\n#include <unistd.h>\nextern pid_t responsibility_get_pid_responsible_for_pid(pid_t);\nint main(int c, char **v) { printf("%d\\n", responsibility_get_pid_responsible_for_pid(atoi(v[1]))); return 0; }\n');
+    execFileSync('/usr/bin/clang', ['-o', RESP, RESP + '.c']);
+    respBuilt = true;
+  }
+  return Number(spawnSync(RESP, [String(pid)], { encoding: 'utf8' }).stdout.trim());
+};
 const parentOf = (pid) => Number(spawnSync('/bin/ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim());
 const sockets = (a) => fs.readdirSync(a.rt).filter((f) => /^ravenryd-.*\.sock$/.test(f)).sort();
 const daemonPids = (a) => execFileSync('/bin/ps', ['-A', '-o', 'pid=,command='], { encoding: 'utf8' }).split('\n').map((l) => l.trim().match(/^(\d+) (.*ravenryd serve.*)$/)).filter((m) => m && m[2].includes(a.root)).map((m) => Number(m[1]));
@@ -286,6 +299,9 @@ try {
       return lis.length === 1 && commandOf(lis[0]).startsWith(path.join(a.app, 'Contents', 'MacOS', 'node')) && plist.includes(BUILD.id) && (await hubState(a)) ? { lis, plist } : null;
     }, 120000, 500);
     const lis = listeners(a.port);
+    // The folder grants (UPD-015): macOS holds the app's executable (the service's program, as the Electron app's was) responsible for the hub on its Node.
+    const resp = lis.length ? responsibleFor(lis[0]) : 0;
+    step('update: macOS holds the app\'s executable responsible for the hub on its Node, so a folder grant Ravenry had still covers the hub\'s reads', !!resp && commandOf(resp).startsWith(a.exe) && resp !== lis[0], { hub: lis[0], responsible: resp, its: resp && commandOf(resp) });
     step('update: the service is rewritten for this build and exactly one hub answers, on the app\'s Node; the Electron hub is gone', !!done && lis.length === 1 && !lis.includes(ePid), { hub: lis.map(commandOf), parent: lis.map((p) => commandOf(parentOf(p))), electronHub: ePid });
     const v = path.join(a.data, 'versions', EBUILD.version);
     step('update: versions/<version> holds this build now, bin/ and current/ point at it', json(path.join(v, '.build.json'))?.id === BUILD.id && real(path.join(a.data, 'bin', 'ravenryd')) === real(path.join(v, 'ravenryd')) && real(path.join(a.data, 'current')) === real(v), { marker: json(path.join(v, '.build.json')), current: real(path.join(a.data, 'current')) });
@@ -296,6 +312,21 @@ try {
     const h2 = runHook(a, hubHookCommand(a, node), 'updhook0003');
     step('update: after the update the hooks still run, the Electron app\'s and the ones the hub now writes', h1.wrote && h2.wrote, { h1, h2 });
     n.p.kill('SIGTERM');
+    await until(() => n.p.exitCode !== null, 10000);
+    // A split, as the Electron app's save() writes it (app.ts: {host, guest, side, size, focus, zoom}), and a key of its own (UPD-016):
+    // the native window opens it as one tab of two panes; quitting, it writes the split back in the same words and keeps the key.
+    const wf = path.join(a.data, `window-${id}.json`);
+    const split = { host: `s:${panes[1]}`, guest: `s:${panes[0]}`, side: 'right', size: 60, focus: 0, zoom: 0 };
+    fs.writeFileSync(wf, JSON.stringify({ order: [`s:${panes[1]}`, `s:${panes[0]}`, `s:${panes[2]}`], splits: [split], active: `s:${panes[1]}`, pinned: [], electronOnly: 'kept' }, null, 2));
+    const n2 = launchNative(a, 'update-split');
+    const r2 = await until(() => { const x = n2.report(); return x && x.tabs.length === 2 && x.tabs[0].guest ? x : null; }, 30000);
+    step('update: a split the Electron app saved opens as one tab of its two panes, beside the other tab', !!r2 && r2.tabs[0].host === panes[1] && r2.tabs[0].guest === panes[0] && r2.tabs[1].host === panes[2], { tabs: n2.report()?.tabs });
+    n2.p.kill('SIGTERM');
+    await until(() => n2.p.exitCode !== null, 10000);
+    await sleep(500);
+    const back = json(wf) || {};
+    const sp = (back.splits || [])[0] || {};
+    step('update: quitting, the native app writes the split back as the Electron app reads it, and leaves the Electron app\'s own key', sp.host === split.host && sp.guest === split.guest && sp.side === 'right' && Math.round(sp.size) === 60 && back.electronOnly === 'kept' && (back.order || []).join(',') === [split.host, split.guest, `s:${panes[2]}`].join(','), { back });
     retire(a);
   }
 
