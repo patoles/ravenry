@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ravenryd/internal/client"
+	"ravenryd/internal/pane"
 	"ravenryd/internal/proto"
 	"ravenryd/internal/testprog"
 )
@@ -537,6 +538,51 @@ func TestDisplayReportsAreNotTyping(t *testing.T) {
 	}
 }
 
+// TestTypedLineFollowsTheCursor: Typed here shows the line the shell ran
+// when the cursor moved while it was typed (2026-11-11: `echo one`, Left,
+// Left, X, Enter ran `echo oXne` and showed `echo oneX`), from pane.send's
+// key items (an agent, ravenryd send) and from a display's keystrokes (the
+// person in the app), at a real zsh.
+func TestTypedLineFollowsTheCursor(t *testing.T) {
+	d := startDaemon(t)
+	person := d.dial(client.Options{Name: "app"})
+	p := newPane(t, person, map[string]any{"command": []string{"/bin/zsh", "-f", "-i"}, "env": map[string]string{"PS1": "$ ", "EDITOR": "", "VISUAL": ""}})
+	w := waitFor(t, person, p.ID, `\$ `, 0)
+	last := func(n int) proto.InputRecord {
+		t.Helper()
+		for range 100 {
+			if ins := inputs(t, person, p.ID); len(ins) == n {
+				return ins[n-1]
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("not %d records: %+v", n, inputs(t, person, p.ID))
+		return proto.InputRecord{}
+	}
+	// ravenryd send --typed 'echo one' --key Left --key Left --typed X --key Enter
+	call[proto.SendResult](t, person, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{
+		{"text": "echo one", "mode": "typed"}, {"key": "Left"}, {"key": "Left"}, {"text": "X", "mode": "typed"}, {"key": "Enter"},
+	}})
+	w = waitFor(t, person, p.ID, `(?m)^oXne\s`, w.Mark)
+	if r := last(1); r.Shown != "echo oXne" {
+		t.Fatalf("the shell ran echo oXne; Typed here shows %q (text %q)", r.Shown, r.Text)
+	}
+	// The person's keys: Option+Left (Esc b), Ctrl+K, Left as the terminal
+	// sends it, Ctrl+E, Ctrl+A, Ctrl+F, Ctrl+D.
+	sub := call[proto.SubscribeResult](t, person, "pane.subscribe", map[string]any{"pane": p.ID})
+	for _, k := range []string{"e", "c", "h", "o", " ", "t", "w", "o", " ", "s", "k", "i", "p", "\x1bb", "\x0b", "\x1b[D", "\x1b[D", "\x1b[D", "\x1b[D", "o", "n", "e", " ", "\x05", "e", "n", "d", "\x01", "\x06", "\x04", "c", "\r"} {
+		frame := proto.AppendFrame(nil, proto.FrameInput, sub.Channel, 0)
+		if err := person.WriteBinary(ctx(t), append(frame, k...)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	waitFor(t, person, p.ID, `(?m)^one two end\s`, w.Mark)
+	if r := last(2); r.Shown != "echo one two end" {
+		t.Fatalf("the shell ran echo one two end; Typed here shows %q (text %q)", r.Shown, r.Text)
+	}
+}
+
 func TestTermReports(t *testing.T) {
 	for _, c := range []struct {
 		in, want string
@@ -565,11 +611,50 @@ func TestTermReports(t *testing.T) {
 		{"\x1b[27u\x1b[97;5uab\x1b[127u\x1b[13u", "a"},
 		{"\x1bbcd\x1bOA\t\x1b[3~", "cd"},
 		{"\x1b[I\x1b[<0;3;4Mhalf", "half"},
+		// The cursor moves as the shell's: what is typed after it lands there.
+		{"echo one\x1b[D\x1b[DX\r", "echo oXne"},
+		{"echo one\x1bOD\x1bODX\r", "echo oXne"},
+		{"ech one\x1b[H\x1b[C\x1b[C\x1b[Co\x1b[F!\r", "echo one!"},
+		{"git push\x01sudo \x05 -f\r", "sudo git push -f"},
+		{"cat a b\x02\x02\x7f\r", "cat  b"},
+		{"echo abc\x1b[D\x1b[D\x1b[3~\r", "echo ac"},
+		{"echo abc\x02\x02\x04\x06Z\r", "echo acZ"},
+		{"echo one two\x1bb\x0b\r", "echo one"},
+		{"echo one two\x1b[1;5D\x1b[1;3Dzero \r", "echo zero one two"},
+		{"echo one two\x1bb\x1bb\x1bd\r", "echo  two"},
+		{"echo one two\x1bb\x17\r", "echo two"},
+		{"echo one\x1b[D\x1b[D\x1b\x7f\r", "echo ne"},
+		{"ls\x1b[D\x1b[D\x1b[200~a b\x1b[201~ \r", "a b ls"},
+		{"echo one\x1b[D\x1b[D\x1b[88u\r", "echo oXne"},
+		{"echo one\x1b[97;5uX\x1b[101;5u!\r", "Xecho one!"},
 	} {
 		var e lineEditor
 		e.feed([]byte(c.in))
 		if got := e.String(); got != c.want {
 			t.Errorf("shown of %q = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// pane.send's key items move it too.
+	for _, c := range []struct {
+		items []pane.InputItem
+		want  string
+	}{
+		{[]pane.InputItem{{Text: "echo one"}, {Key: "Left"}, {Key: "Left"}, {Text: "X"}, {Key: "Enter"}}, "echo oXne"},
+		{[]pane.InputItem{{Text: "push"}, {Key: "Home"}, {Text: "git "}, {Key: "End"}, {Key: "Space"}, {Text: "-f"}, {Key: "Return"}}, "git push -f"},
+		{[]pane.InputItem{{Text: "echo one two"}, {Key: "Alt+B"}, {Key: "Ctrl+K"}, {Key: "Ctrl+A"}, {Key: "Delete"}, {Text: "E"}, {Key: "Enter"}}, "Echo one"},
+		{[]pane.InputItem{{Text: "echo one two"}, {Key: "Ctrl+Left"}, {Key: "Backspace"}, {Key: "Right"}, {Key: "C-d"}, {Key: "Enter"}}, "echo oneto"},
+		{[]pane.InputItem{{Text: "ls"}, {Key: "Up"}, {Key: "Tab"}, {Key: "Enter"}}, "ls"},
+	} {
+		var e lineEditor
+		for _, it := range c.items {
+			if it.Key != "" {
+				e.key(it.Key)
+			} else {
+				e.feed([]byte(it.Text))
+			}
+		}
+		if got := e.String(); got != c.want {
+			t.Errorf("shown of %+v = %q, want %q", c.items, got, c.want)
 		}
 	}
 	if !onlyAnswers([]byte("\x1b[I\x1b[1;1R")) || onlyAnswers([]byte("\x1b[<0;1;1M")) || onlyAnswers([]byte("\x1b[Ia")) || onlyAnswers(nil) {
