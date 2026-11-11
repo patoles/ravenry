@@ -361,5 +361,7 @@ extension SelfTestBoard {
         } else { check("sess_menu_close_posts", false, "no enabled Close on recipe-box: " + ((keyOf("recipe-box").flatMap { sb.rows[$0]?.menuItems?() })?.items.map { $0.title }.joined(separator: " | ") ?? "no row")) }
         // The sidebar against the hub, Open in, a toast, a project's page, Also open in (SelfTestSessFns.swift).
         sessFunctionChecks()
+        // PANEL-029: a session that left the board, its last turn and Move here (SelfTestSessC.swift).
+        offBoardMoveHere()
     }
 }
