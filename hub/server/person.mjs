@@ -134,6 +134,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/settings/handoff', c: P, what: 'change the hand-off settings', why: 'A setting the person chose; an agent could turn its own hand-off off.' },
   { m: 'POST', p: '/api/settings/assistant', c: P, what: 'change which assistant starts', why: 'A setting the person chose.' },
   { m: 'POST', p: '/api/settings/projects-root', c: P, what: 'change where projects go', why: 'A setting the person chose.' },
+  { m: 'POST', p: '/api/settings/theme-import', c: O, why: 'It makes a theme of the text the caller sends (server/themeimport.mjs) and answers with it; nothing is written, the client saves it.' },
   // Phone and alerts
   { m: 'GET', p: '/api/phone', c: P, what: 'see the phone\'s pairing code', why: 'The code holds the phone\'s sign-in key: whoever has it acts as the phone.' },
   { m: 'POST', p: '/api/phone/new-key', c: P, what: 'pair the phone again', why: 'A new key signs the phone out.' },
@@ -151,6 +152,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/alerts/test', c: P, what: 'send a test alert', why: 'Ambiguous, so the safer class: it sends to the person\'s phone.' },
   { m: 'POST', p: '/api/alerts/desktop/test', c: P, what: 'send a test Mac notification', why: 'Ambiguous, so the safer class: it shows a notification on the person\'s Mac, as the phone\'s test alert does on the phone.' },
   { m: 'POST', p: '/api/alerts/desktop/result', c: P, what: 'say whether a Mac notification was shown', why: 'Ambiguous, so the safer class: the app says whether macOS showed a notification; an agent could say one reached the person when it never did.' },
+  { m: 'POST', p: '/api/alerts/desktop/focus', c: P, what: 'say which app was focused last', why: 'Ambiguous, so the safer class: the app focused last gets the next Mac notification; an agent could send them to an app the person is not using.' },
   { m: 'POST', p: /^\/api\/alerts\/(telegram|telegram\/find-chat|webhook|ntfy|ntfy\/new-topic|ntfy\/copy|done)$/, eg: '/api/alerts/webhook', doc: '/api/alerts/{telegram,telegram/find-chat,webhook,ntfy,ntfy/new-topic,ntfy/copy,done}', c: P, what: 'change where alerts go', why: 'An agent could send the person\'s alerts to itself.' },
   // Ideas
   { m: 'POST', p: '/api/ideas/add', c: O, why: 'Adding an idea: the person sees it on the Ideas page and decides.' },

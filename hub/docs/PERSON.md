@@ -153,6 +153,7 @@ session's review comments and the agent's replies).
 | `/api/settings/handoff` | person | A setting the person chose; an agent could turn its own hand-off off. |
 | `/api/settings/assistant` | person | A setting the person chose. |
 | `/api/settings/projects-root` | person | A setting the person chose. |
+| `/api/settings/theme-import` | open | It makes a theme of the text the caller sends (`server/themeimport.mjs`) and answers with it; nothing is written, the client saves it. |
 | `GET /api/phone` | person | The code holds the phone's sign-in key: whoever has it acts as the phone. |
 | `/api/phone/new-key` | person | A new key signs the phone out. |
 | `/api/phone/pair` | person | Pairing gives a device the person's power. On the phone port the one-time code from the computer proves it is the person's phone; from this machine it is judged like every person row. |
@@ -168,6 +169,7 @@ session's review comments and the agent's replies).
 | `/api/alerts/test` | person | Judged (ambiguous): it sends to the person's phone. |
 | `/api/alerts/desktop/test` | person | Judged (ambiguous): it shows a notification on the person's Mac, as the phone's test alert does on the phone. |
 | `/api/alerts/desktop/result` | person | Judged (ambiguous): the app says whether macOS showed a notification; an agent could say one reached the person when it never did. |
+| `/api/alerts/desktop/focus` | person | Judged (ambiguous): the app focused last gets the next Mac notification; an agent could send them to an app the person is not using. |
 | `/api/alerts/{telegram,telegram/find-chat,webhook,ntfy,ntfy/new-topic,ntfy/copy,done}` | person | An agent could send the person's alerts to itself. |
 | `/api/ideas/add` | open | Adding an idea: the person sees it on the Ideas page and decides. |
 | `/api/ideas/<id>/ref` | open | Adds a reference picture to an idea; nothing is replaced. |
