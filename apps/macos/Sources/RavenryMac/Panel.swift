@@ -152,8 +152,9 @@ final class PanelView: Box {
         let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
         if !force, sig == signature { return }
+        // (Its signature is not kept: once the field lets go, the change put off is drawn.
+        // Kept, a question that came while the person typed in the card before never showed.)
         if !force, let r = window?.firstResponder as? NSTextView, r.isDescendant(of: self), front == key {
-            signature = sig
             return
         }
         signature = sig

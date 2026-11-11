@@ -73,9 +73,12 @@ extension SelfTestBoard {
         check("ask_number_key_answers", answered(n) && (lastAnswer(after: n)?["choice"] as? Int) == 1 && lastAnswer(after: n)?["by"] as? String == "desktop", json(lastAnswer(after: n)))
         // The demo board refuses it (no such checkpoint, or not a person's: run from inside a pane): either way the card says so.
         check("ask_refused_answer_said", wait(4) { self.card.map { self.shows($0, "did not take the answer") || self.shows($0, "Answers only work from the Ravenry app") } ?? false })
+        // From here a real checkpoint (SelfTestCardsReal.swift): the hub takes it and the agent gets it.
+        useCard("ask", real: 0)
         n = board.hub.sentBodies.count
         card?.opts["3"]?.press()
         check("ask_option_click_answers", answered(n) && (lastAnswer(after: n)?["choice"] as? Int) == 2, json(lastAnswer(after: n)))
+        check("ask_option_click_posted", landed(after: n, "ask"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("ask"))")
         n = board.hub.sentBodies.count
         if let c = card { keyDown(c, "7") }
         settle(0.3)
@@ -84,10 +87,13 @@ extension SelfTestBoard {
         if let c = card { keyDown(c, "1", mods: .command) }
         check("ask_cmd_number_not_an_answer", lastAnswer(after: n) == nil, "panel on \(board.panel.key)")
         // Cmd+1 is the tab key: the first tab came to the front (the session is a tab too), so the question is picked again.
+        useCard("ask", real: 1)
         board.pickSession(keyOf("ask"), why: "test")
         _ = wait(4) { self.card?.kind == "ask" && self.card?.sendField != nil }
         if let f = card?.sendField { type(f.field, "Tilt it, but only half the slope"); f.send() }
         check("ask_own_words_sent", answered(n) && lastAnswer(after: n)?["text"] as? String == "Tilt it, but only half the slope", json(lastAnswer(after: n)))
+        check("ask_own_words_posted", landed(after: n, "ask"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("ask"))")
+        useCard("ask", real: nil)
         cardPictures("cards-ask", keyOf("ask"))
 
         // Approve: the command, its folder, machine and pane, the warnings, Run, Edit, Refuse.
@@ -97,9 +103,12 @@ extension SelfTestBoard {
               card.map { texts($0).joined(separator: " | ") } ?? "")
         check("approve_buttons", card.map { $0.buttons["run"] != nil && $0.buttons["edit"] != nil && $0.buttons["refuse"] != nil } ?? false, card?.buttons.keys.sorted().joined(separator: ",") ?? "")
         cardPictures("cards-approve", keyOf("approve"))
+        useCard("approve", real: 0)
         n = board.hub.sentBodies.count
         card?.buttons["run"]?.performClick(nil)
         check("approve_run_posts", answered(n) && lastAnswer(after: n)?["approve"] as? Bool == true && lastAnswer(after: n)?["command"] == nil, json(lastAnswer(after: n)))
+        // The edited command is refused on the made-up id: the edit stays.
+        useCard("approve", real: nil)
         card?.buttons["edit"]?.performClick(nil)
         check("approve_edit_opens_editor", wait(3) { self.card?.editor != nil && self.card?.editor?.string == "npm publish --tag beta" && self.window.firstResponder === self.card?.editor }, "\(String(describing: window.firstResponder))")
         if let e = card?.editor {
@@ -122,14 +131,23 @@ extension SelfTestBoard {
         cardPictures("cards-edit", keyOf("approve"))
         if let e = card?.editor { keyDown(e, "\u{1b}", code: 53) }
         check("approve_escape_ends_edit", wait(3) { self.card?.editor == nil && self.card?.buttons["edit"] != nil })
+        useCard("approve", real: 1)
         card?.buttons["refuse"]?.performClick(nil)
         check("approve_refuse_asks_why", wait(3) { self.card?.reasonField != nil } && card.map { shows($0, "is told you said no") } ?? false)
         n = board.hub.sentBodies.count
         if let f = card?.reasonField { type(f.field, "Wait for the release notes"); f.send() }
         check("approve_refuse_with_reason", answered(n) && lastAnswer(after: n)?["decline"] as? Bool == true && lastAnswer(after: n)?["reason"] as? String == "Wait for the release notes", json(lastAnswer(after: n)))
+        check("approve_refuse_posted", landed(after: n, "approve"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("approve"))")
+        useCard("approve", real: 2)
+        card?.buttons["refuse"]?.performClick(nil)
+        _ = wait(3) { self.card?.reasonField != nil }
         n = board.hub.sentBodies.count
         if let f = card?.reasonField { f.field.stringValue = ""; f.send() }
         check("approve_refuse_without_reason", answered(n) && lastAnswer(after: n)?["decline"] as? Bool == true && lastAnswer(after: n)?["reason"] == nil, json(lastAnswer(after: n)))
+        check("approve_refuse_without_reason_posted", landed(after: n, "approve"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("approve"))")
+        useCard("approve", real: nil)
+        card?.buttons["refuse"]?.performClick(nil)
+        _ = wait(3) { self.card?.reasonField != nil }
         card?.buttons["back"]?.performClick(nil)
         check("approve_refuse_back", wait(3) { self.card?.reasonField == nil && self.card?.buttons["run"] != nil })
 
@@ -146,6 +164,7 @@ extension SelfTestBoard {
         if let s = card?.secret { s.field.currentEditor()?.insertText("_tiles_9f8e7d") ; settle(0.1) }
         check("secret_counts_characters", card?.secret?.count.stringValue == "16 characters", card?.secret?.count.stringValue ?? "")
         cardPictures("cards-secret", keyOf("secret"))
+        useCard("secret", real: 0)
         if let s = card?.secret { type(s.field, "abc_tiles_9f8e7d") }
         card?.secret?.eye.performClick(nil)
         check("secret_show_keeps_text", card?.secret?.reveal == true && card?.secret?.field.stringValue == "abc_tiles_9f8e7d" && card?.secret?.secure.stringValue == "", card?.secret?.field.stringValue ?? "")
@@ -154,22 +173,30 @@ extension SelfTestBoard {
         n = board.hub.sentBodies.count
         card?.buttons["secretSend"]?.performClick(nil)
         check("secret_sent_and_field_empty", answered(n) && lastAnswer(after: n)?["secret"] as? String == "(16 characters)" && (card?.secret?.field.stringValue ?? "") == "", json(lastAnswer(after: n)))
+        check("secret_sent_posted", landed(after: n, "secret"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("secret"))")
+        useCard("secret", real: nil)
         if let s = card?.secret { type(s.field, "left_behind_123") }
         window.makeFirstResponder(nil)
         settle(0.2)
         check("secret_cleared_on_blur", (card?.secret?.field.stringValue ?? "x") == "" && card?.secret?.count.stringValue == "")
         n = board.hub.sentBodies.count
+        useCard("secret", real: 1)
         if let s = card?.secret { type(s.field, "typed_then_enter") ; keyDown(s.field, "\r", code: 36) }
         check("secret_enter_sends", answered(n) && lastAnswer(after: n)?["secret"] as? String == "(16 characters)", json(lastAnswer(after: n)))
+        check("secret_enter_posted", landed(after: n, "secret"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("secret"))")
+        useCard("secret", real: 2)
         n = board.hub.sentBodies.count
         card?.buttons["notNow"]?.performClick(nil)
         check("secret_not_now_declines", answered(n) && lastAnswer(after: n)?["decline"] as? Bool == true && lastAnswer(after: n)?["secret"] == nil, json(lastAnswer(after: n)))
+        check("secret_not_now_posted", landed(after: n, "secret"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("secret"))")
+        useCard("secret", real: nil)
 
         // Pick: the pictures small, Open side by side (or 1 to 3), then the pick in the middle.
         board.pickSession(keyOf("pick"), why: "test")
         check("pick_card_shown", wait(4) { self.card?.kind == "pick" } && card?.tiles.count == 3 && card.map { shows($0, "or press 1, 2, 3") } ?? false)
         check("pick_card_pictures", wait(6) { self.card?.tiles.allSatisfy { $0.image != nil } ?? false })
         cardPictures("cards-pick", keyOf("pick"))
+        useCard("pick", real: 0)
         if let c = card { keyDown(c, "2") }
         let pk = board.picker
         check("pick_key_opens_picker", wait(3) { if case .page(let k, _) = self.board.front { return k.hasPrefix("pick:") } else { return false } } && board.root.middle === pk && board.root.wideMiddle,
@@ -216,16 +243,34 @@ extension SelfTestBoard {
             let pocket = sc.subviews.contains { "\(Swift.type(of: $0))".contains("Pocket") && !$0.isHidden && $0.frame.height > PickerView.edgeRoom }
             return !pocket && clip.intersects(h.convert(h.bounds, to: sc.contentView)) && clip.intersects(im.convert(im.bounds, to: sc.contentView)) }(), shown() + " band \(pk.titleBand) subviews \(pk.scroll.subviews.map { "\(Swift.type(of: $0)) \($0.frame)" })")
         pictures("cards-picker")
-        board.openPicker(cps.first { $0["kind"] as? String == "pick" }?["id"] as? String ?? "")
+        board.openPicker(cardId("pick"))
         pk.buttons["send"]?.performClick(nil)
         let pb = lastAnswer(after: n)?["pick"] as? [String: Any]
         check("pick_send_posts_pick", wait(4) { self.lastAnswer(after: n) != nil } && (lastAnswer(after: n)?["pick"] as? [String: Any])?["label"] as? String == "V hull"
               && json(pb?["region"] as? [String: Any]) == "{\"h\":0.4,\"w\":0.3,\"x\":0.3,\"y\":0.3}" && (pb?["note"] as? String) == "Keep this bow, but rounder\n\nMake it from the blue paper", json(lastAnswer(after: n)))
+        check("pick_send_posted", landed(after: n, "pick"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("pick"))")
+        // The same pick on the made-up id: refused, and said.
+        useCard("pick", real: nil)
+        board.openPicker(cardId("pick"))
+        _ = wait(4) { pk.images.count == 3 }
+        pk.buttons["pick2"]?.performClick(nil)
+        pk.buttons["send"]?.performClick(nil)
         check("pick_refused_said", wait(4) { pk.error != nil && !pk.busy }, pk.error ?? "")
+        useCard("pick", real: 1)
+        board.openPicker(cardId("pick"))
+        _ = wait(4) { pk.images.count == 3 }
+        pk.extra.stringValue = "Make it from the blue paper"
         n = board.hub.sentBodies.count
         pk.buttons["none"]?.performClick(nil)
         check("pick_none_declines", wait(4) { self.lastAnswer(after: n) != nil } && lastAnswer(after: n)?["decline"] as? Bool == true && lastAnswer(after: n)?["reason"] as? String == "Make it from the blue paper", json(lastAnswer(after: n)))
+        check("pick_none_posted", landed(after: n, "pick"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("pick"))")
         _ = wait(4) { !pk.busy }
+        // Back on the made-up id, opened from its session's card as before, for Esc, Open and the back link.
+        useCard("pick", real: nil)
+        board.pickSession(keyOf("pick"), why: "test")
+        _ = wait(4) { self.card?.kind == "pick" }
+        if let c = card { keyDown(c, "2") }
+        _ = wait(3) { self.board.root.middle === pk }
         keyDown(pk, "\u{1b}", code: 53)
         check("pick_escape_closes", wait(3) { self.board.front == .session(keyOf("pick")) || self.board.front == .tab }, "\(board.front)")
         board.panel.shownCard?.buttons["openPicker"]?.performClick(nil)

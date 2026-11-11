@@ -42,7 +42,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
-import { cardFixtures } from './cards-fixture.mjs';
+import { cardFixtures, boatPng } from './cards-fixture.mjs';
 import { testApp } from './testapp.mjs';
 import { pagesPrepare } from './pages-fixture.mjs';
 import { writeHub, writeEnv, writeArrive, trafficProxy } from './write-fixture.mjs';
@@ -378,6 +378,31 @@ function linksPrepare({ HOME, ROOT, MC }) {
     + '## Hand-off\nWritten by paper-boat-7c for the next session. Not links: /tmp/paper-boat-7c/notes, paper-boat-7c.json, ravenry-99 and garden-planner.\n\n'
     + '## Plan\n### Rock with the waves\n- [x] Tilt the hull\n- [>] Ask **garden-planner-3f** about the wind\n');
 }
+// --screen phone: the two devices the card lists (SelfTestLearn.swift) are the
+// board's own, so Rename and Sign out reach real ones (the hub's 200, not 404).
+if (SCREEN === 'phone') {
+  const first = screenHub.prepare;
+  screenHub.prepare = (a) => {
+    first?.(a);
+    const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
+    fs.writeFileSync(path.join(a.MC, 'phone.json'), JSON.stringify({ key: 'k'.repeat(48), access: false, tokens: [
+      { hash: 'a'.repeat(64), id: 'd1a2', name: 'Pixel 8', platform: 'android', app: '0.4.2', created: at(48), lastSeen: at(0.05) },
+      { hash: 'b'.repeat(64), id: 'd3b4', name: null, platform: 'browser', created: at(72), lastSeen: at(26) },
+    ] }), { mode: 0o600 });
+  };
+}
+// --screen cards: the hub follows a second test daemon, the agents', whose
+// panes hold real checkpoints (realCheckpoints below). The app is on the
+// first only (--socket), so the agents' checkpoints reach it from the hub,
+// as the fixture's cards, never as loose ones of its own daemon.
+const AGENT_RUN = path.join(tmp, 'arun');
+let agentSock = null;
+if (SCREEN === 'cards') {
+  fs.mkdirSync(AGENT_RUN, { recursive: true, mode: 0o700 });
+  daemonsUp.push(spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env: { ...env, RAVENRY_RUNTIME_DIR: AGENT_RUN }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon-agents.log'), 'w')] }));
+  for (let i = 0; !agentSock; i++) { const f = fs.readdirSync(AGENT_RUN).find((n) => /^ravenryd-.+\.sock$/.test(n)); if (f) agentSock = path.join(AGENT_RUN, f); else { if (i > 100) throw new Error('the agents\' daemon did not start'); await sleep(50); } }
+}
+if (SCREEN === 'cards') Object.assign(screenHub, { runtime: AGENT_RUN, env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 // --screen write (write-fixture.mjs): the board in Ravenry mode on this test's daemon, the app behind a proxy that logs the hub's answers.
 const WRITE = SCREEN === 'write';
@@ -466,6 +491,10 @@ if (PAGES) {
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.jsonl')) : null;
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
+// --screen plan and pages: each session's cmux tab plays Claude's prompt box, so a
+// message the board types there (a plan paused or resumed, a page's ask) is taken
+// (fake-cmux "prompts", what was sent kept in its "sent"), not refused.
+if (SCREEN === 'plan' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '' }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
 if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
 const hookLine = (bin, S, ev, sid = S.sid) => `printf '%s' ${sq(JSON.stringify({ hook_event_name: ev, session_id: sid, cwd: S.folder, transcript_path: S.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) }))} | ${sq(bin)} hook --assistant claude >/dev/null 2>&1`;
@@ -501,7 +530,43 @@ const result = path.join(OUT, 'sidetest.json');
 const FIXTURE = path.join(OUT, 'machines-fixture.json');
 // --screen cards: one checkpoint of each kind with the hub's words, on the demo's sessions.
 const CARDS = path.join(OUT, 'cards-fixture.json');
-if (SCREEN === 'cards') fs.writeFileSync(CARDS, JSON.stringify(cardFixtures(await hub.state(), path.join(hub.home, '.ravenry'))));
+// --screen cards: agents in panes of the test daemon ask, propose a command, ask
+// for a secret and show a pick (ravenry ask/approve/secret/pick), each waiting
+// for its answer into a file; the cards' fixture keeps its words and lists
+// these real ids (`real`), which the self-test answers when an answer should
+// land (SelfTestCardsReal.swift); its made-up ids stay for the refusals.
+const CP = path.join(tmp, 'cp');
+const AGENTS = { ask: [], approve: [], secret: [], pick: [] };
+async function realCheckpoints() {
+  fs.mkdirSync(path.join(CP, 'bin'), { recursive: true });
+  const rd = path.join(APP, 'Contents', 'MacOS', 'ravenryd');
+  fs.symlinkSync(rd, path.join(CP, 'bin', 'ravenry'));
+  const pics = [[0, [196, 86, 64]], [0.12, [72, 120, 190]], [-0.08, [90, 160, 96]]].map(([tilt, hull], n) => { const f = path.join(CP, `boat-${n}.png`); fs.writeFileSync(f, boatPng(tilt, hull)); return f; });
+  const make = (kind, n, before, after = '') => {
+    const name = `${kind}-${n}`, id = path.join(CP, `${name}.id`), out = path.join(CP, `${name}.out`);
+    const sh = `export PATH=${sq(path.join(CP, 'bin'))}:/usr/bin:/bin; ${before} --no-wait ${after} > ${sq(id)} 2>&1; ravenry checkpoint "$(cat ${sq(id)})" --wait > ${sq(out)} 2>&1; echo "EXIT $?" >> ${sq(out)}; exec sleep 100000`;
+    execFileSync(rd, ['new', '--socket', agentSock, '--cwd', user, '--name', name, '--json', '--', '/bin/sh', '-c', sh], { env: { ...env, RAVENRY_RUNTIME_DIR: AGENT_RUN } });
+    AGENTS[kind].push({ name, idFile: id, out, file: path.join(CP, `${name}.file`) });
+  };
+  for (let n = 0; n < 2; n++) make('ask', n, `ravenry ask ${sq('Tilt the hull with the slope too, or keep it level?')} --option ${sq('Tilt it with the slope')} --option ${sq('Keep it level')} --option ${sq('Try both and show me')} --text`);
+  for (let n = 0; n < 3; n++) make('approve', n, `ravenry approve --why ${sq('The settings screen is done.')} --warn ${sq('It publishes the beta.')}`, `-- /bin/sh -c ${sq(`echo approved-${n} > ${path.join(CP, `approve-${n}.file`)}`)}`);
+  for (let n = 0; n < 3; n++) make('secret', n, `ravenry secret ${sq('Paste the Cloudflare API token for the map tiles')} --env TILES_TOKEN`, `-- /bin/sh -c ${sq(`printf %s "$TILES_TOKEN" > ${path.join(CP, `secret-${n}.file`)}`)}`);
+  for (let n = 0; n < 2; n++) make('pick', n, `ravenry pick ${sq('Which hull shape for the boat?')} ${['Flat hull', 'V hull', 'Round hull'].map((l, i) => `--variant ${sq(`${l}=${pics[i]}`)}`).join(' ')}`);
+  const ids = () => Object.values(AGENTS).flat().map((a) => { try { return fs.readFileSync(a.idFile, 'utf8').trim(); } catch { return ''; } });
+  for (let i = 0; i < 100 && !ids().every((x) => /^c[a-z0-9]{6,}$/.test(x)); i++) await sleep(100);
+  for (const a of Object.values(AGENTS).flat()) a.id = fs.readFileSync(a.idFile, 'utf8').trim();
+  // The hub lists them (it follows this daemon) before the app starts.
+  let listed = [];
+  for (let i = 0; i < 100; i++) { const st = await hub.state(); listed = (st.checkpoints || []).map((c) => c.id); if (Object.values(AGENTS).flat().every((a) => listed.includes(a.id))) break; await sleep(200); }
+  const missing = Object.values(AGENTS).flat().filter((a) => !listed.includes(a.id));
+  if (missing.length) console.log(`sidetest: the hub does not list ${missing.map((a) => `${a.name} ${a.id}`).join(', ')}; it lists ${listed.join(', ') || 'none'}\n${hub.log().split('\n').filter((l) => /daemon|checkpoint|ravenryd/i.test(l)).slice(-8).join('\n')}`);
+}
+if (SCREEN === 'cards') {
+  await realCheckpoints();
+  const cps = cardFixtures(await hub.state(), path.join(hub.home, '.ravenry'));
+  for (const c of cps) c.real = (AGENTS[c.kind] || []).map((a) => a.id);
+  fs.writeFileSync(CARDS, JSON.stringify(cps));
+}
 // --screen review: the worktree's record, as the hub keeps it, and the project's files as the hub works them out.
 const FILES = path.join(OUT, 'review-files.json');
 if (SCREEN === 'review') {
@@ -609,6 +674,8 @@ if (PROOFS) {
   try { marks2 = (await (await fetch(hub.url + '/api/onboarding')).json()).hints || null; } catch { /* none */ }
 }
 if (WRITE) { try { fs.writeFileSync(path.join(OUT, 'hub.log'), hub.log()); } catch { /* gone */ } proxy.close(); }
+// The demo hub's own log, kept beside the app's.
+try { fs.writeFileSync(path.join(tmp, 'hub.log'), hub.log()); } catch { /* none */ }
 hub.stop();
 daemon?.kill();
 for (const d of daemonsUp) d.kill();
@@ -659,6 +726,24 @@ if (DAEMONS) {
   add('older_move_resumed_once', moves.length === 1 && fs.realpathSync(moves[0].split('|')[0]) === fs.realpathSync(OLDER.folder), resumed.join(' / '));
   const conts = resumed.filter((l) => l.endsWith(`|--resume ${CONTINUED}`));
   add('continue_resumed_once', conts.length === 1 && conts[0].split('|')[0].endsWith(`${path.sep}lighthouse`), conts.join(' / '));
+}
+// --screen cards: what each agent got, where it lands (its command's output, the file its program wrote).
+if (SCREEN === 'cards') {
+  const out = (a) => { try { return fs.readFileSync(a.out, 'utf8').trim(); } catch { return ''; } };
+  const file = (a) => { try { return fs.readFileSync(a.file, 'utf8').trim(); } catch { return null; } };
+  const [ask0, ask1] = AGENTS.ask, [ap0, ap1, ap2] = AGENTS.approve, [se0, se1, se2] = AGENTS.secret, [pk0, pk1] = AGENTS.pick;
+  const add = (name, ok, detail) => { r.checks.push({ name, ok, detail }); if (!ok) r.failed++; };
+  const say = (...as) => as.map((a) => `${a.name}: ${out(a).replace(/\n/g, ' / ').slice(0, 160)}${file(a) != null ? ` [file: ${file(a)}]` : ''}`).join(' | ');
+  add('cards_agent_ask_got_option', /Try both and show me/.test(out(ask0)) && /EXIT 0/.test(out(ask0)), say(ask0));
+  add('cards_agent_ask_got_words', /Tilt it, but only half the slope/.test(out(ask1)) && /EXIT 0/.test(out(ask1)), say(ask1));
+  add('cards_agent_approve_ran', file(ap0) === 'approved-0', say(ap0));
+  add('cards_agent_approve_refused_with_reason', file(ap1) == null && /Wait for the release notes/.test(out(ap1)), say(ap1));
+  add('cards_agent_approve_refused', file(ap2) == null && /declined/.test(out(ap2)), say(ap2));
+  add('cards_agent_secret_got_it', file(se0) === 'abc_tiles_9f8e7d' && !out(se0).includes('abc_tiles_9f8e7d'), say(se0));
+  add('cards_agent_secret_enter_got_it', file(se1) === 'typed_then_enter', say(se1));
+  add('cards_agent_secret_declined', file(se2) == null && /declined/.test(out(se2)), say(se2));
+  add('cards_agent_pick_got_v_hull', /V hull/.test(out(pk0)) && /0\.3/.test(out(pk0)) && /Keep this bow, but rounder/.test(out(pk0)), say(pk0));
+  add('cards_agent_pick_declined', !/V hull|Flat hull|Round hull/.test(out(pk1).split('\n')[0] || '') && /blue paper/.test(out(pk1)), say(pk1));
 }
 for (const c of r.checks) console.log(`${c.ok ? 'pass' : 'FAIL'} ${c.name}${c.detail ? ': ' + String(c.detail).replace(/\n/g, '\\n') : ''}`);
 console.log(`sidetest: ${r.checks.length} checks, ${r.failed} failed; pictures in ${OUT}`);

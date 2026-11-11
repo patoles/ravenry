@@ -165,11 +165,9 @@ extension SelfTestBoard {
         check("phone_code_and_check", realApp == nil || (shows(pc, realApp?["code"] as? String ?? "-") && shows(pc, t("phone.check"))))
         pictures("phone-on")
         _ = wait(4) { !pc.busy }
-        n = board.hub.sent.count
-        pc.buttons["newKey"]?.performClick(nil)
-        check("phone_new_key_posts", wait(4) { self.sentSince(n).contains("POST /api/phone/new-key") })
-        _ = wait(4) { !pc.busy }
-        // Devices as the hub lists them, each with the hub's line.
+        // Devices as the hub lists them, each with the hub's line: the board's own two
+        // (sidetest.mjs seeds them), so Rename and Sign out reach real ones. New key,
+        // which signs every device out, comes after.
         var card = pc.data ?? [:]
         card["devices"] = [
             ["id": "d1a2", "name": "Pixel 8", "platform": "android", "app": "0.4.2", "lastSeen": "2026-11-09T11:58:00Z", "line": ["name": "Pixel 8", "sub": "Android app, seen 2 min ago", "renamable": true]],
@@ -191,6 +189,10 @@ extension SelfTestBoard {
         check("phone_rename_escape_keeps", pc.editing == nil && pc.isOpen && !sentSince(n).contains("POST /api/phone/devices/rename"))
         pc.buttons["signOut-d1a2"]?.performClick(nil)
         check("phone_sign_out_posts", wait(4) { self.sentSince(n).contains("POST /api/phone/devices/revoke") })
+        _ = wait(4) { !pc.busy }
+        n = board.hub.sent.count
+        pc.buttons["newKey"]?.performClick(nil)
+        check("phone_new_key_posts", wait(4) { self.sentSince(n).contains("POST /api/phone/new-key") })
         _ = wait(4) { !pc.busy }
         // Alerts' Pair your phone opens it too; access off again.
         pc.close()
