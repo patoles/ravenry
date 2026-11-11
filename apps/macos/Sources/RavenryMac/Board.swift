@@ -503,7 +503,8 @@ final class Board: NSObject {
     /// across the fold width lays the middle out once a step.
     func panelMode(width: CGFloat) -> RootView.PanelMode {
         let wide = width >= Board.foldWidth
-        let ov = overlay && !wide
+        // A loose checkpoint's card (a page's run button) lies over the page even on a wide window.
+        let ov = overlay && (!wide || panel.loose != nil)
         return panelVisible(wide: wide, overlay: ov) ? (ov || !wide ? .overlay : .docked) : .hidden
     }
 
@@ -734,6 +735,14 @@ final class Board: NSObject {
         machines.show()
         log.append("machines")
         render()
+    }
+
+    /// A checkpoint's card over what is in front (a page's run button: FilePage.Host.showCheckpoint, Electron's showCheckpoint).
+    func showCheckpoint(_ id: String) {
+        panel.loose = id
+        overlay = true
+        log.append("checkpoint \(id): its card over the page")
+        render(force: true)
     }
 
     /// Sessions: the memory the sessions hold, Close the idle ones, Reopen a closed one.

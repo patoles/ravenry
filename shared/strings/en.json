@@ -166,6 +166,7 @@
   "panel.handOffQueued": "Hand-off queued",
   "panel.handOffQueuedTip": "Asked for. It hands off at the next clean point.",
   "panel.project": "Project",
+  "panel.waitingForYou": "Waiting for you",
   "panel.newSession": "New session",
   "panel.readyFirst": "Ready for your first message",
   "panel.folder": "Folder",

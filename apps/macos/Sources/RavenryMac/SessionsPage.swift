@@ -480,6 +480,8 @@ extension Board {
         }
         panel.host?.redraw = { [weak self] in self?.render(force: true) }
         panel.host?.driveFacts = { [weak self] cp in self?.driveFacts(cp) }
+        // A page's run button: its approval card over the page (B18).
+        files.host?.showCheckpoint = { [weak self] id in self?.showCheckpoint(id) }
         // The one-time hints: their marks read once, the window drawn again when one is dismissed.
         sidebar.onLearn = { [weak self] k in self?.openLearn(lit: k) }
         picker.onLearn = { [weak self] k in self?.openLearn(lit: k) }

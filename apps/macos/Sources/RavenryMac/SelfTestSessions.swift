@@ -159,6 +159,18 @@ extension SelfTestBoard {
             let c: NSView = board.panel.shownCard ?? NSView()
             check("sess_drive_card_facts", ok && shows(c, ", a shell") && shows(c, "Opened") && shows(c, "By you, at") && shows(c, "Folder") && shows(c, "npm run dev"), texts(c).joined(separator: " | "))
             pictures("sessions-drive")
+            // A page's run button shows its card over the page, even on a wide window (B18).
+            board.openPage("plans", "Plans")
+            settle(0.4)
+            board.showCheckpoint("cp-drive-test")
+            settle(0.4)
+            check("sess_loose_card_over_page", board.panel.shows == "loose" && board.root.panelMode == .overlay && board.panel.shownCard != nil && shows(board.panel, "Needs you since"),
+                  "\(board.panel.shows) \(board.root.panelMode)")
+            // One picture as it is (a resize closes an overlay).
+            picture("native-sessions-loose-1280-dark.png")
+            board.pickSession(kp, why: "test")
+            settle(0.3)
+            check("sess_loose_goes_with_front", board.panel.loose == nil && board.panel.shows != "loose", "\(board.panel.shows)")
             hub.testCheckpoints = nil
             repatch(nil)
         }

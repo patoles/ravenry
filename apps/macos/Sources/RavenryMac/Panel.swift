@@ -146,6 +146,7 @@ final class PanelView: Box {
             if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], state?.checkpoint(pane: id) ?? [:]] }
         }
         parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
+        if let id = loose { parts += [id, state?.checkpoints.first { $0["id"] as? String == id } ?? [:]] }
         let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
         if !force, sig == signature { return }
@@ -159,7 +160,16 @@ final class PanelView: Box {
         pictureView = nil
         shownCard = nil
         var rows: [NSView] = []
-        if let st = state, let k = front, let f = st.find(k) {
+        // A loose checkpoint (a page's run button): its card, until it is answered or something else comes to the front.
+        if loose != nil, looseFront == nil { looseFront = front ?? "" }
+        if loose != nil, (front ?? "") != looseFront { loose = nil; looseFront = nil }
+        let looseCp = loose.flatMap { id in state?.checkpoints.first { $0["id"] as? String == id && ["open", "running"].contains($0["state"] as? String ?? "") } }
+        if loose != nil, looseCp == nil, state != nil { loose = nil; looseFront = nil }
+        if let c = looseCp {
+            shows = "loose"
+            setHead(c["project"] as? String ?? t("panel.waitingForYou"), tag: (c["assistant"] as? String).map(assistantName), machine: c["machine"] as? String, pinKey: nil)
+            rows = [stateLine("you", t("panel.needsSince", ["time": When.clock(c["created_at"] as? String)])), card(c)]
+        } else if let st = state, let k = front, let f = st.find(k) {
             shows = "session"
             // Kept by its pane: when it leaves the board, its tab's panel still says what it was.
             if let pid = f.session.pane, f.session.machine == nil, f.project.machine == nil {
@@ -436,6 +446,9 @@ final class PanelView: Box {
     }
 
     var isOverlay = false
+    /// A checkpoint shown on its own (a page's run button), by id, and what was in front when it came.
+    var loose: String? { didSet { if loose != oldValue { signature = "" } } }
+    private var looseFront: String?
 
     /// "Not in a project": no brief, plan or notes; Add to a project joins its workspace to the one picked (POST /api/project/add-workspace).
     private func notInProject(_ st: HubState, _ p: HubProject) -> NSView {
