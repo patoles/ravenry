@@ -110,7 +110,18 @@ extension SelfTestBoard {
         _ = openFile("objectives")
         var n = board.hub.sent.count
         press("item:lighthouse:Write the brief")
-        check("objectives_write_the_brief", posted(n, "/api/pages/ask") && wait(5) { self.board.front == .project("lighthouse") }, "\(board.front) \(sentSince(n))")
+        // Write the brief opens the brief's form for the project (BRIEF-006), as the project page and the panel do;
+        // the form writes it: the hub's 2xx, and the brief opens with the words typed.
+        let np = board.newProject
+        check("objectives_write_the_brief", wait(5) { self.board.front == .page("writebrief:lighthouse", t("panel.writeBrief")) && np.briefFor?.id == "lighthouse" } && np.buttons["go"]?.title == t("np.writeBrief"),
+              "\(board.front) \(sentSince(n))")
+        _ = wait(5) { np.fields["goal"]?.window != nil }
+        if let f = np.fields["goal"] { typeIn(f, "Turn the lamp once every ten seconds.") }
+        n = board.hub.sent.count
+        np.buttons["go"]?.performClick(nil)
+        check("objectives_brief_form_posted", posted(n, "/api/project/brief"), sentSince(n).joined(separator: ","))
+        check("objectives_brief_form_written", wait(10) { if case .brief("lighthouse", _) = self.board.front { return self.board.brief.shownText?.contains("Turn the lamp once every ten seconds.") == true }; return false },
+              "\(board.front) \(board.brief.shownText?.prefix(200) ?? "-")")
 
         // MARK: Plans
         check("plans_opens", openFile("plans"))
