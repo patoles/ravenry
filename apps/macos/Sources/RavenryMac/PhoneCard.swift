@@ -53,6 +53,11 @@ final class PhoneCard: Box, NSTextFieldDelegate {
     private(set) var nameField: NSTextField?
     private var timer: Timer?
     private var qr: (String, NSImage?)?
+    /// The board in the phone's browser (PHONE-012): its QR code (`/?k=<key>`) in place of the app's.
+    private(set) var browser = false
+    /// The browser QR drawn, for the self-test.
+    private(set) weak var browserQrView: NSImageView?
+    private var bqr: (String, NSImage?)?
     private var drawn = ""
     private let stack = vstack([], spacing: 0)
     /// Held by the self-test: its shapes are not read again.
@@ -130,6 +135,8 @@ final class PhoneCard: Box, NSTextFieldDelegate {
 
     /// The self-test's: the card as the hub sends it, kept.
     func apply(_ j: [String: Any]) { held = true; timer?.invalidate(); timer = nil; data = j; drawn = ""; paint() }
+    /// The self-test's: the hub's card read again, as when nothing was applied.
+    func release() { held = false; load() }
 
     private func load() {
         guard !held else { return }
@@ -166,7 +173,7 @@ final class PhoneCard: Box, NSTextFieldDelegate {
     func paint() {
         let d = data
         let on = d?["access"] as? Bool ?? false
-        let sig = "\(busy)|\(editing ?? "")|\(d.map { stableText($0).hashValue } ?? 0)"
+        let sig = "\(busy)|\(editing ?? "")|\(browser)|\(d.map { stableText($0).hashValue } ?? 0)"
         if sig == drawn { return }
         drawn = sig
         for v in stack.arrangedSubviews { stack.removeArrangedSubview(v); v.removeFromSuperview() }
@@ -184,8 +191,41 @@ final class PhoneCard: Box, NSTextFieldDelegate {
             let w = wrap(s, Fonts.pt(13), "tx2")
             return self.padded(w, NSEdgeInsets(top: 6, left: 16, bottom: 14, right: 16))
         }
+        let bsvg = on ? d?["svg"] as? String : nil
+        if let s = bsvg, bqr?.0 != s { bqr = (s, Self.qrImage(s)) }
+        let link = { (title: String, key: String, to: Bool) -> NSView in
+            let b = RButton(title, .link) { [weak self] in self?.browser = to; self?.drawn = ""; self?.paint() }
+            b.titleSize = 12.5
+            self.buttons[key] = b
+            return hstack([b, spring()], spacing: 0, insets: NSEdgeInsets(top: 10, left: 16, bottom: 12, right: 16))
+        }
         if d == nil { rows.append(line(t("phone.asking"))) }
-        else if let a = app, svg != nil, let img = qr?.1 {
+        else if browser, bsvg != nil, let img = bqr?.1 {
+            let iv = NSImageView()
+            iv.image = img
+            iv.imageScaling = .scaleProportionallyUpOrDown
+            iv.setAccessibilityLabel(t("phone.browserQr"))
+            iv.translatesAutoresizingMaskIntoConstraints = false
+            iv.widthAnchor.constraint(equalToConstant: 150).isActive = true
+            iv.heightAnchor.constraint(equalToConstant: 150).isActive = true
+            browserQrView = iv
+            let q = boxed(iv, fill: nil, radius: 10, insets: NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8))
+            q.rawFill = .white
+            // The whole address, broken where it must (the key itself never shown).
+            let addr = label(((d?["address"] as? String) ?? "") + "••••••••", NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular), "tx3", lines: 2)
+            addr.lineBreakMode = .byCharWrapping
+            addr.preferredMaxLayoutWidth = 210
+            let info = vstack([label(t("phone.browserScan"), Fonts.pt(13.5, .bold)), wrap(t("phone.browserWhere"), Fonts.pt(12.5), "tx2"), addr], spacing: 8)
+            info.setHuggingPriority(.init(1), for: .horizontal)
+            let r = NSStackView(views: [q, info])
+            r.orientation = .horizontal; r.alignment = .top; r.spacing = 16
+            r.edgeInsets = NSEdgeInsets(top: 6, left: 16, bottom: 14, right: 16)
+            r.translatesAutoresizingMaskIntoConstraints = false
+            rows.append(r)
+            rows.append(link(t("phone.appLink"), "appCode", false))
+        }
+        // An app code with nowhere to reach this computer (no Wi-Fi, no Tailscale address) is not shown: the line says why (PHONE-011).
+        else if let a = app, svg != nil, let img = qr?.1, !((a["hosts"] as? [String])?.isEmpty ?? false) {
             let iv = NSImageView()
             iv.image = img
             iv.imageScaling = .scaleProportionallyUpOrDown
@@ -208,6 +248,7 @@ final class PhoneCard: Box, NSTextFieldDelegate {
             r.edgeInsets = NSEdgeInsets(top: 6, left: 16, bottom: 14, right: 16)
             r.translatesAutoresizingMaskIntoConstraints = false
             rows.append(r)
+            if bsvg != nil { rows.append(link(t("phone.browserLink"), "browser", true)) }
         } else { rows.append(line(on ? t("phone.noAddress") : t("phone.off"))) }
         // .phc-dev
         let devs = d?["devices"] as? [[String: Any]] ?? []

@@ -74,6 +74,7 @@ extension SelfTestBoard {
         // MARK: ONB-003: the pick hint, its x, the hub's mark
         let hintsLoaded = wait(10) { Hints.shared.loaded }
         // The sidebar's needs-you hint goes first (one at a time), as the person would dismiss it.
+        if hintIn(board.sidebar, "needs-you") != nil { hintInRegion("onb_needs_you_hint", hint: { self.hintIn(self.board.sidebar, "needs-you") }, region: { self.board.sidebar }) }
         if Hints.shared.current == "needs-you" || !Hints.shared.done.contains("needs-you") { Hints.shared.dismiss("needs-you") }
         settle(0.4)
         guard let pick = pickFixture(), let pid = pick["id"] as? String else { check("onb_pick_fixture", false); finishProofs(); return }
@@ -85,6 +86,7 @@ extension SelfTestBoard {
         check("onb_pick_hint_shown", hintsLoaded && hint != nil && hint.map { shows($0, t("hint.pickB")) && shows($0, t("hint.learnMore")) } == true,
               "loaded \(Hints.shared.loaded) done \(Hints.shared.done.sorted()) current \(Hints.shared.current ?? "-")")
         if hint != nil { picture("native-proofs-pick-hint-1280.png") }
+        if hint != nil { hintInRegion("onb_pick_hint", hint: { self.hintIn(pk, "pick") }, region: { pk }) }
         let seq = hub.sent.count
         if let h = hint, let x = buttonIn(h, label: t("hint.dismiss")) { x.performClick(nil) }
         let code = hubCode("/api/onboarding", after: seq)
@@ -223,6 +225,7 @@ extension SelfTestBoard {
               "drafted \(drafted) hub \(cs) \(board.hub.answers.last { $0.path == "/api/plan/start" }.map { "\($0.code)" } ?? ""); brief has it \(brief.contains("Long notes on the paths")); typed into \(sf): \(typed.prefix(140)); toasts \(toasts(since: Lp)); page \(texts(pg).suffix(4))")
         // Started: the page shows the plan running in the brief (the hub's state names it a moment after).
         check("plan_page_after_start", wait(10) { self.shows(pg, "Long notes on the paths") && !self.shows(pg, t("plan.gone")) }, texts(pg).prefix(8).joined(separator: " | "))
+        onbStep2Answered()
         finishProofs()
     }
 
@@ -250,6 +253,7 @@ extension SelfTestBoard {
         board.render(force: true)
         settle(0.4)
         check("onb_relaunch_no_needs_you_hint", hintIn(board.sidebar, "needs-you") == nil)
+        onbRelaunchLearnAndStep2()
         if let pick = pickFixture(), let pid = pick["id"] as? String {
             settle(0.5)
             board.openPicker(pid)

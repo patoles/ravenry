@@ -313,7 +313,8 @@ class FormPage: InAppPage {
         scroll.set(rows())
         if let k = had, let f = fields[k], f.window != nil {
             window?.makeFirstResponder(f.field)
-            if let s = sel, let ed = f.field.currentEditor() { ed.selectedRange = NSRange(location: min(s.location, f.text.utf16.count), length: 0) }
+            // The caret and what was selected stay (A11Y-007), clamped to the text kept.
+            if let s = sel, let ed = f.field.currentEditor() { let n = f.text.utf16.count, at = min(s.location, n); ed.selectedRange = NSRange(location: at, length: min(s.length, n - at)) }
         }
         needsLayout = true
     }

@@ -318,6 +318,7 @@ extension SelfTestBoard {
         check("alerts_ntfy_new_topic", wait(5) { self.toasts(since: L).contains(t("alerts.newTopicDone")) })
         pictures("alerts-ntfy")
         alertsOwnNtfy(pg)
+        formKeepsTyping(pg)
         pg.buttons["pair"]?.performClick(nil)
         check("alerts_pair_phone", wait(2) { self.board.phoneCard.isOpen }, "\(board.front)")
         board.phoneCard.close()

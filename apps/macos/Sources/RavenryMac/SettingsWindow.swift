@@ -268,7 +268,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         controls["blink"] = blink
         let imp = RButton(t("set.import"), .normal, small: true) { [weak self] in self?.importTheme() }
         controls["import"] = imp
-        let impNote = label(importNote?.text ?? t("set.importHint"), Fonts.pt(12), importNote == nil ? "tx3" : importNote!.bad ? "bad" : "tx2")
+        let impNote = label(importNote?.text ?? t("set.importHint"), Fonts.pt(12), importNote == nil ? "tx3" : importNote!.bad ? "bad" : "tx2", lines: 0)
+        // A long note (a file's name and why it was refused) wraps under itself, never cut: the room the row leaves beside the button
+        // (720 less the 28 margins, the 170 label, its 14 gap, the button and its 10 gap).
+        impNote.lineBreakMode = .byWordWrapping
+        impNote.cell?.truncatesLastVisibleLine = false
+        let noteW = max(160, 720 - 56 - 170 - 14 - ceil(imp.fittingSize.width) - 10 - 20)
+        impNote.preferredMaxLayoutWidth = noteW
+        impNote.translatesAutoresizingMaskIntoConstraints = false
+        impNote.widthAnchor.constraint(equalToConstant: noteW).isActive = true
+        impNote.setContentCompressionResistancePriority(.required, for: .vertical)
         controls["importNote"] = impNote
         out.append(row("", [imp, impNote], join: true))
         out.append(row(t("set.cursor"), [segm("cursor", s.string("cursorStyle"), [("block", "set.block"), ("bar", "set.bar"), ("underline", "set.underline")], key: "cursorStyle"), blink], hint: t("set.cursorHint")))

@@ -26,6 +26,7 @@ extension SelfTestBoard {
         case "decisions": screenDecisions()
         case "settings": screenSettings(); termThemeImport()
         case "settingsroot": screenSettingsRoot()
+        case "keys": screenKeys()
         case "learn": screenLearn()
         case "machines": screenMachines()
         case "phone": screenPhone()

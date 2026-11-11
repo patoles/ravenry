@@ -440,6 +440,7 @@ extension SelfTestBoard {
             let hr = ws.hint.frame, guest = ws.active?.guest.flatMap { ws.boxes[$0] }
             check("hint_under_pane_head", guest.map { g in let r = g.convert(g.bounds, to: ws.stage); return hr.minY >= r.minY + Design.headHeight && hr.minX >= r.minX } ?? false, "\(hr)")
             pictureOver("native-hint-1280.png", [ws.hint])
+            hintInRegion("onb_agent_pane_hint", hint: { ws.hint.superview == nil ? nil : ws.hint }, region: { ws.active?.guest.flatMap { ws.boxes[$0] }.map { $0.bounds.width >= 320 ? $0 : ws.stage } })
             let n = board.hub.sentBodies.count
             ws.hint.close.action?()
             check("hint_dismissed_marked", ws.hint.superview == nil && board.hub.sentBodies.dropFirst(n).contains { $0.path == "/api/onboarding" && ($0.body["hints"] as? [String: Any])?["agent-pane"] as? Bool == true })
@@ -555,6 +556,7 @@ extension SelfTestBoard {
               "\(i?.command ?? []) \(i?.labels ?? [:]) \(i?.cwd ?? "-") \(board.ws.label(pane).name)")
         check("local_no_board_post", !board.hub.sentBodies.dropFirst(sentBefore).contains { $0.path == "/api/sessions/start" })
         check("local_stand_in_runs", wait(5) { self.board.ws.focusedView?.screen.text().contains("claude stand-in") == true })
+        startLocalDropAndShell(st, home: home)
         st.testBoardDown = false
         try? fm.removeItem(atPath: home)
     }

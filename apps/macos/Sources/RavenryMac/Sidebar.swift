@@ -128,6 +128,12 @@ final class SidebarView: Flipped {
         nav.frame = NSRect(x: pad, y: foot.frame.minY - 12 - navH, width: inner, height: navH)
         let listH = max(0, nav.frame.minY - 12 - y)
         list.frame = NSRect(x: pad - 4, y: y, width: inner + 8, height: listH)
+        // The needs-you hint stays in sight as the window gets smaller (ONB-003: inside its region down to 720 x 480).
+        if let h = needsYouHint, h.window != nil, listH > 0, list.documentView?.frame.height ?? 0 > 0 {
+            list.documentView?.layoutSubtreeIfNeeded()
+            let r = h.convert(h.bounds, to: list.contentView)
+            if !list.contentView.bounds.contains(r) { _ = h.scrollToVisible(h.bounds); list.reflectScrolledClipView(list.contentView) }
+        }
         placeFade()
         empty.frame = NSRect(x: pad + 6, y: y + 4, width: inner - 12, height: min(listH, 120))
         handle.frame = NSRect(x: w - 3, y: 0, width: 6, height: bounds.height)
@@ -248,6 +254,8 @@ final class SidebarView: Flipped {
     }
 
     private var hintShown = false
+    /// The needs-you hint drawn (kept in sight in the list, layout()).
+    private weak var needsYouHint: NSView?
     /// A tab is open (the window is not on its first run).
     var hasTabs = true
     private var uses: [String: (holds: Bool, text: String)] = [:]
@@ -330,6 +338,7 @@ final class SidebarView: Flipped {
             }
         }
         let st = vstack(items, spacing: 1)
+                    needsYouHint = h
         return boxed(st, fill: "\(s.group)-t", radius: 10, insets: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4))
     }
 

@@ -1461,6 +1461,8 @@ final class Workspace: NSObject {
             let r = b.convert(b.bounds, to: stage)
             region = NSRect(x: r.minX, y: r.minY + Design.headHeight, width: r.width, height: r.height - Design.headHeight)
             anchorX = r.minX + 40
+            // A pane too narrow for one: the panes' whole area under it (the Electron app's middleRegion), as at 720 x 480 (ONB-003).
+            if region.width < 320 { region = NSRect(x: stage.bounds.minX, y: region.minY, width: stage.bounds.width, height: region.height) }
         } else if let it = bar.items.first(where: { $0.model.id == "s:" + p || $0.model.id == tabs.first(where: { $0.guest == p })?.id }), extraTab == nil, it.superview != nil {
             anchorX = it.convert(NSPoint(x: it.bounds.midX, y: 0), to: stage).x
         } else {

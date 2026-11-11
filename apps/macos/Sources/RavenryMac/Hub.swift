@@ -312,6 +312,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     private(set) var inFlight = 0
     /// The self-test's answers to some POSTs (sidetest.mjs --screen start): kept in sentBodies, never sent.
     var testPostAnswers: [String: (Int, [String: Any])] = [:]
+    /// The self-test's: the board taken as not running where a click needs it (Try it).
+    var testDown = false
     var testCheckpoints: [[String: Any]]? {
         didSet {
             guard let s = state else { return }

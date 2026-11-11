@@ -47,6 +47,7 @@ extension SelfTestBoard {
         let started = wait(6) { self.sentSince(n).contains("POST /api/sessions/start") || self.toasts(since: L).contains(t("learn.noAssistant")) }
         check("learn_try_starts_or_says", started, "sent \(sentSince(n)) toasts \(toasts(since: L))")
         _ = wait(4) { self.board.log.dropFirst(L).contains { $0.hasPrefix("toast ") || $0.hasPrefix("session ") || $0.hasPrefix("try: message") } }
+        learnTryChecks()
         // The phone's card opens the phone card.
         board.openLearn()
         pg.buttons["try-phone"]?.performClick(nil)
@@ -181,6 +182,7 @@ extension SelfTestBoard {
         let realApp = pc.data?["app"] as? [String: Any]
         check("phone_code_and_check", realApp == nil || (shows(pc, realApp?["code"] as? String ?? "-") && shows(pc, t("phone.check"))))
         pictures("phone-on")
+        phoneQrChecks(pc)
         _ = wait(4) { !pc.busy }
         // Devices as the hub lists them, each with the hub's line: the board's own two
         // (sidetest.mjs seeds them), so Rename and Sign out reach real ones. New key,
@@ -211,6 +213,7 @@ extension SelfTestBoard {
         pc.buttons["newKey"]?.performClick(nil)
         check("phone_new_key_posts", wait(4) { self.sentSince(n).contains("POST /api/phone/new-key") })
         _ = wait(4) { !pc.busy }
+        phoneNewKeyQr(pc)
         // Alerts' Pair your phone opens it too; access off again.
         pc.close()
         board.openAlerts()

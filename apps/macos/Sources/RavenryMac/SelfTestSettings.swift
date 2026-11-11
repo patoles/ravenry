@@ -147,6 +147,21 @@ extension SelfTestBoard {
             s0 = board.hub.sent.count
             press(sw.controls["import"])
             check("set_import_refused", wait(5) { self.shows(root, "This Ghostty theme has no palette = 0.") } && store.userThemes.count == 1, texts(root).joined(separator: " | "))
+            // A long refusal (the file's name and macOS's reason): every word shown, wrapped, nothing cut.
+            try? Data([0x23, 0x20, 0xFF, 0xFE, 0x0A, 0xC3]).write(to: URL(fileURLWithPath: imp))
+            press(sw.controls["import"])
+            let note = { sw.controls["importNote"] as? NSTextField }
+            let long = { (note()?.stringValue ?? "").count > 60 && sw.importNote?.bad == true }
+            _ = wait(5) { long() }
+            sw.window.contentView?.layoutSubtreeIfNeeded()
+            let whole = { () -> Bool in
+                guard let f = note(), let c = f.cell else { return false }
+                let need = c.cellSize(forBounds: NSRect(x: 0, y: 0, width: f.bounds.width, height: .greatestFiniteMagnitude))
+                return need.height <= f.bounds.height + 1 && f.bounds.maxX <= (sw.window.contentView?.bounds.width ?? 0) && f.convert(f.bounds, to: nil).maxX <= 720 - 20
+            }
+            check("set_import_long_note_whole", long() && whole() && note()?.lineBreakMode == .byWordWrapping,
+                  "\(note()?.stringValue ?? "") | frame \(note()?.frame ?? .zero) needs \(note()?.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: note()?.bounds.width ?? 0, height: 10000)) ?? .zero)")
+            settingsPictures("settings-import-long-note")
             // Pick it: the terminals take it.
             press(sw.controls["theme:themeDark:user:harbour-night"])
             check("set_import_used", wait(3) { saved()["themeDark"] as? String == "user:harbour-night" && self.board.ws.look.theme.background == Theme.css("#1A1B26") })

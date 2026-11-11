@@ -905,7 +905,7 @@ final class Board: NSObject {
             render()
             return
         }
-        guard hub.reachable else { toast(t("learn.noBoard")); return }
+        guard hub.reachable, !hub.testDown else { toast(t("learn.noBoard")); return }
         hub.get("/api/setup/start") { [weak self] code, j in
             guard let self else { return }
             // The assistant new sessions start with and the last folder used (LearnPage.tryChoice).

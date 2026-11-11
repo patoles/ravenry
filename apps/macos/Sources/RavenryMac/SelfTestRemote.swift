@@ -243,8 +243,9 @@ extension SelfTestBoard {
 
         // MACH-009: the folder on testbox said against testbox's home, never this Mac's (the hub's folderShort, the panel).
         let rlab = hub.state?.project("remote-lab")
-        rc("rc_machine_folder_their_home", rlab?.folderShort == "~/remote-lab" && wait(6) { self.board.render(force: true); return self.shows(self.board.panel, "~/remote-lab") && !self.shows(self.board.panel, rproj) },
-           "\(rlab?.folderShort ?? "nil") | \(texts(board.panel).prefix(14).joined(separator: " | "))")
+        let win = window.contentView!
+        rc("rc_machine_folder_their_home", rlab?.folderShort == "~/remote-lab" && wait(6) { self.board.render(force: true); return self.texts(win).contains { $0.contains("~/remote-lab") } && !self.texts(win).contains { $0.contains(rproj) } },
+           "\(rlab?.folderShort ?? "nil") | \(texts(win).filter { $0.contains("remote-lab") }.joined(separator: " | "))")
         // MARK: MACH-006, its terminal live, typed into
         guard let live = board.outside.live else { rc("rc_live", false); return }
         rc("rc_live_connected", wait(20) { live.state == "live" && live.view?.channel ?? 0 != 0 }, "\(live.state) \(live.why)")

@@ -159,6 +159,17 @@ func (s *ghostty) EncodeKeyEvent(k KeyEvent) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vt: encode key: %w", err)
 	}
+	// libghostty's legacy encoding gives nothing for Ctrl+[ and Ctrl+-,
+	// which every terminal sends as ESC and ^_ (vim's Escape, Emacs' undo):
+	// the key would be swallowed (A11Y-002).
+	if len(b) == 0 && k.Action != "release" && k.Mods == ModCtrl {
+		switch k.Unshifted {
+		case '[':
+			return []byte{0x1b}, nil
+		case '-':
+			return []byte{0x1f}, nil
+		}
+	}
 	return b, nil
 }
 

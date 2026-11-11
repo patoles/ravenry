@@ -68,6 +68,11 @@ extension SelfTestBoard {
         check("ask_checked_decisions", card?.checked != nil && card.map { self.shows($0, "Checked your decisions first") && self.shows($0, "\"Test on the pond before the bath\" today") && self.shows($0, "\"The hull stays level on every slope under 10...\"") } ?? false,
               card.map { texts($0).joined(separator: " | ") } ?? "")
         check("ask_options_with_keys", card?.opts.count == 3 && card?.opts["2"]?.text == "Keep it level", card?.opts.keys.sorted().joined(separator: ",") ?? "")
+        // A11Y-005: the card is one labelled group for VoiceOver (its heading and what it asks), each answer a labelled button.
+        let axl = card?.accessibilityLabel() ?? ""
+        let asked = axl.components(separatedBy: ": ").dropFirst().joined(separator: ": ")
+        check("ask_card_labelled", card?.isAccessibilityElement() == true && card?.accessibilityRole() == .group && !asked.isEmpty && card.map { self.shows($0, asked) } == true
+              && (card?.opts.values.allSatisfy { $0.isAccessibilityElement() && $0.accessibilityRole() == .button && $0.accessibilityLabel() == $0.text } ?? false), axl)
         var n = board.hub.sentBodies.count
         if let c = card { keyDown(c, "2") }
         check("ask_number_key_answers", answered(n) && (lastAnswer(after: n)?["choice"] as? Int) == 1 && lastAnswer(after: n)?["by"] as? String == "desktop", json(lastAnswer(after: n)))
