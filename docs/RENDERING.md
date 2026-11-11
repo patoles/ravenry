@@ -34,7 +34,7 @@ it. The Go reference decoder is `daemon/internal/rframe`.
 | Message | What |
 | --- | --- |
 | `pane.render` {pane, cols?, rows?, fps?, window?, keybinds?} | Starts a render stream on a new channel, resizing the pane first when cols and rows are given. Result: `channel`, and `format`, the frame format's version (1). `keybinds`: the key bindings for the stream's keys (below, "Key bindings"). |
-| binary frame, kind 4 | One render frame on that channel (below). The header's mark is 0. |
+| binary frame, kind 4 | One render frame on that channel (below). The header's mark is the pane's output position the frame shows (0 from a daemon before 0.1.36). |
 | `ack` {channel, frame} | The client drew the frames up to `frame` (a frame's `seq`). |
 | `pane.resize` {pane, cols, rows} | The client's grid size changed. |
 | `render.scroll` {channel, offset} | Show the screen `offset` rows up into the scrollback; 0 is the live screen. |

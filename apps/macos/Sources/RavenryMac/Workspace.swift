@@ -248,6 +248,8 @@ final class Workspace: NSObject {
             self.refresh()
         }
         v.onFocus = { [weak self] in self?.focused(pane: pane) }
+        // Who typed what the gutter marks (TERM-044): Board's sourceOf.
+        v.marks.whoOf = { [weak self] s in self?.whoOf?(s) }
         v.onFontSize = { [weak self] s in self?.setFontSize(s) }
         v.windowMinSize = { [weak self] in self?.minContentSize() ?? .zero }
         // Its menu's Split Right, Split Down (its own tab, not split yet) and Copy Path.
@@ -1213,6 +1215,9 @@ final class Workspace: NSObject {
                 bells.insert(t.id)
                 refresh()
             }
+        case "pane.input":
+            // What someone typed: its mark in the gutter of the pane on screen (TERM-044).
+            if let r = ev["input"] as? [String: Any], let v = boxes[id]?.term, v.live { v.inputLogged(r) }
         case "pane.activity":
             // A tab not on screen printed: a quiet dot on it.
             if let t = tabs.first(where: { $0.host == id || $0.guest == id }), !(t === active && extraTab == nil) {

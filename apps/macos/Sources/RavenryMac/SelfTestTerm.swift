@@ -11,6 +11,10 @@
 //   Ravenry's glyph font, not as colour emoji.
 // - TERM-007: a tab switch keeps a scrolled pane where it was, rows
 //   printed meanwhile counted, and never shows the live screen between.
+// - TERM-044: what an agent typed (this app's ravenryd run as an agent
+//   in the first pane: `ravenryd new`, then `ravenryd send`) is marked in
+//   the right gutter of its line with who and when on hover; the person's
+//   own typing is not.
 
 import AppKit
 
@@ -55,6 +59,106 @@ extension SelfTest {
         typedLineCursor()
         agentGlyphs()
         scrollKeptAcrossTabs()
+        agentInputMarks()
+    }
+
+    // MARK: TERM-044
+
+    /// Runs this app's ravenryd as an agent in the first pane (RAVENRY_PANE, RAVENRY_SOCKET): its output.
+    private func asAgent(_ args: [String]) -> String {
+        let p = Process()
+        p.executableURL = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("ravenryd")
+        p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["RAVENRY_SOCKET"] = workspace.conn.socketPath
+        env["RAVENRY_PANE"] = view.pane
+        p.environment = env
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = out
+        do { try p.run() } catch { return "" }
+        p.waitUntilExit()
+        return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func agentInputMarks() {
+        // The agent's own pane: a split beside its owner's tab.
+        let id = asAgent(["new", "--name", "marks", "--", "/bin/zsh", "-f"])
+        guard !id.isEmpty, waitFor(5, { self.main { self.workspace.boxes[id]?.term.live ?? false } }), let cv = main({ workspace.boxes[id]?.term }) else {
+            return check("marks_agent_pane", false, "pane \(id)")
+        }
+        _ = waitFor(5) { cv.screen.text().contains("%") }
+        sleep(0.3)
+        _ = asAgent(["send", id, "--typed", "echo from-agent", "--key", "Enter"])
+        func rowOf(_ s: String) -> Int {
+            cv.screen.lock(); defer { cv.screen.unlock() }
+            return (0..<cv.screen.rows).last { cv.screen.rowText($0).contains(s) && !cv.screen.rowText($0).hasPrefix(s) } ?? -1
+        }
+        // The line the agent typed (its echo after the prompt), not the output line.
+        _ = waitFor(5) { rowOf("echo from-agent") >= 0 && self.main { !cv.drawnMarks.isEmpty } }
+        let typedRow = rowOf("echo from-agent")
+        let drawn = main { cv.drawnMarks.map { ($0.row, $0.who) } }
+        check("marks_agent_line_marked", drawn.count == 1 && drawn.first?.0 == typedRow,
+              "marks \(drawn), the typed line on row \(typedRow)")
+        // The person's own typing in the same pane: no mark.
+        main { cv.sendEvents([["text": "echo mine\r"]]) }
+        _ = waitFor(5) { rowOf("echo mine") >= 0 }
+        sleep(0.5)
+        let mineRow = rowOf("echo mine")
+        let after = main { cv.drawnMarks.map { $0.row } }
+        let logged = (try? workspace.conn.call("pane.inputs", ["pane": id], timeout: 3))?["inputs"] as? [[String: Any]] ?? []
+        let kinds = logged.map { ($0["source"] as? [String: Any])?["kind"] as? String ?? "" }
+        check("marks_person_not_marked", after == [typedRow] && mineRow >= 0 && kinds.contains("agent") && kinds.contains("person"),
+              "marks on rows \(after), mine on row \(mineRow), log \(kinds)")
+        // The bar drawn: lit in the gutter on the agent's row, dark on the person's.
+        guard let img: CGImage = main({ cv.draw(sync: false); return cv.snapshotImage() }) else { return check("marks_bar_drawn", false, "no picture") }
+        let w = img.width, h = img.height
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        bytes.withUnsafeMutableBytes { p in
+            CGContext(data: p.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)?
+                .draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        let sc = cv.renderer.fonts.scale
+        func lum(_ r: NSRect) -> Int {
+            let x = Int(r.midX * sc), y = Int(r.midY * sc)
+            guard x >= 0, x < w, y >= 0, y < h else { return -1 }
+            let k = (y * w + x) * 4
+            return (Int(bytes[k + 2]) + Int(bytes[k + 1]) + Int(bytes[k])) / 3
+        }
+        let on = lum(main { cv.markBar(row: typedRow) }), off = lum(main { cv.markBar(row: mineRow) })
+        check("marks_bar_drawn", on > off + 60, "gutter brightness on the agent's row \(on), on the person's \(off)")
+        // Who and when beside the bar while the pointer is on it.
+        let bar = main { cv.markBar(row: typedRow) }
+        let ev = NSEvent.mouseEvent(with: .mouseMoved, location: main { cv.convert(NSPoint(x: bar.midX, y: bar.midY), to: nil) }, modifierFlags: [],
+                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                                    eventNumber: 0, clickCount: 0, pressure: 0)!
+        main { cv.mouseMoved(with: ev) }
+        let label = main { cv.markLabelText } ?? ""
+        let who = drawn.first?.1 ?? "?"
+        check("marks_label_on_hover", label.hasPrefix(who + " ") && label.count > who.count + 3, "label \"\(label)\"")
+        if let img2: CGImage = main({ cv.draw(sync: false); return cv.snapshotImage() }) {
+            // The label is a view over the terminal: drawn into the picture where it lies.
+            let ctx = CGContext(data: nil, width: img2.width, height: img2.height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+            ctx.draw(img2, in: CGRect(x: 0, y: 0, width: img2.width, height: img2.height))
+            main {
+                if let b = cv.markLabel, !b.isHidden, let rep = b.bitmapImageRepForCachingDisplay(in: b.bounds) {
+                    b.cacheDisplay(in: b.bounds, to: rep)
+                    let r = CGRect(x: b.frame.minX * sc, y: CGFloat(img2.height) - b.frame.maxY * sc, width: b.frame.width * sc, height: b.frame.height * sc)
+                    if let f = b.rawFill { ctx.setFillColor(f.cgColor); ctx.addPath(CGPath(roundedRect: r, cornerWidth: 5 * sc, cornerHeight: 5 * sc, transform: nil)); ctx.fillPath() }
+                    if let cg = rep.cgImage { ctx.draw(cg, in: r) }
+                }
+            }
+            if let out2 = ctx.makeImage() {
+                let url = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent("selftest-input-marks.png")
+                try? NSBitmapImageRep(cgImage: out2).representation(using: .png, properties: [:])?.write(to: url)
+            }
+        }
+        // The agent's pane closed; its split goes.
+        _ = try? workspace.conn.call("pane.close", ["pane": id], timeout: 3)
+        _ = waitFor(5) { self.main { self.workspace.boxes[id]?.term.window == nil } }
+        main { window.makeFirstResponder(view) }
     }
 
     // MARK: PANEL-011

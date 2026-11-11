@@ -1460,7 +1460,10 @@ Every binary frame starts with a 14-byte header:
   the primary screen, so the shell's history comes back when the program
   leaves the alternate screen.
 - **Render** (daemon to client): a frame of a render stream
-  (`pane.render`); `mark` is 0, and the payload is laid out in
+  (`pane.render`); `mark` is the pane's output position the frame shows
+  (the bytes it had printed when the frame was made; 0 from a daemon
+  before 0.1.36), so a client can place an input by its `mark` (section
+  4, the input log), and the payload is laid out in
   [docs/RENDERING.md](../../docs/RENDERING.md).
 - **Input** (client to daemon): bytes to write to the pane as they are,
   on a channel this connection subscribed. `mark` is ignored (send 0).

@@ -308,6 +308,8 @@ type RenderSub struct {
 	sentBell   uint32
 	ended      bool
 	closed     bool
+	// The pane's output position the last frame shows (FrameMark).
+	mark uint64
 
 	// A scrolled view (Scroll): its top row in the screen's coordinates
 	// (row 0 the oldest kept), and the rows last sent of it.
@@ -579,6 +581,7 @@ func (s *RenderSub) Next(ctx context.Context) ([]byte, error) {
 			wait = until.Sub(now)
 		default:
 			if b := s.frame(now); b != nil {
+				s.mark = p.offset
 				p.mu.Unlock()
 				return b, nil
 			}
@@ -621,6 +624,13 @@ func (s *RenderSub) Next(ctx context.Context) ([]byte, error) {
 		}
 	}
 }
+
+// FrameMark is the pane's output position the frame Next last returned
+// shows: the bytes the pane had printed when it was made. The render
+// frame's header carries it, so a client can tell where in the output a
+// frame stands (an input's echo after its mark). Only the goroutine that
+// calls Next reads it.
+func (s *RenderSub) FrameMark() uint64 { return s.mark }
 
 // renderHoldMax matches the screen's own timeout for a program's render
 // hold (vt).

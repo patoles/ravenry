@@ -37,6 +37,12 @@ final class TerminalView: NSView, NSTextInputClient {
     /// rows printed meanwhile, and live frames are acked but not drawn
     /// until the scrolled one comes (at most half a second).
     private var keptView: (offset: Int, history: Int)?
+    /// What an agent or the hub typed, marked in the right gutter (TERM-044, InputMarks.swift).
+    let marks = InputMarks()
+    /// The next frame with the cursor on screen is the stream's snapshot for the marks.
+    private var marksDue = false
+    /// The marks the last draw drew: the row on screen, who, when (the label on hover).
+    private(set) var drawnMarks: [(row: Int, rec: [String: Any], who: String, cls: String)] = []
     private var restoreAsk: (offset: Int, history: Int)?
     private var restoring: (target: Int, until: CFTimeInterval)?
     /// A split's divider is being dragged: draw in the window's
@@ -186,6 +192,12 @@ final class TerminalView: NSView, NSTextInputClient {
         restoring = nil
         chLock.unlock()
         keptView = nil
+        marks.reset()
+        marksDue = true
+        c.request("pane.inputs", ["pane": pane, "limit": 50]) { [weak self] r in
+            guard case .success(let j) = r, let recs = j["inputs"] as? [[String: Any]] else { return }
+            DispatchQueue.main.async { self?.marks.show(recs); self?.requestDraw() }
+        }
         let sem = wait ? DispatchSemaphore(value: 0) : nil
         var params: [String: Any] = ["pane": pane, "cols": sent.cols, "rows": sent.rows, "fps": fps, "window": 2]
         // Cmd+Left to the line's start and the rest of a Mac's keys
@@ -269,6 +281,8 @@ final class TerminalView: NSView, NSTextInputClient {
         guard p.count >= 14, p[1] == 4 else { return }
         let ch = UInt32(p[2]) << 24 | UInt32(p[3]) << 16 | UInt32(p[4]) << 8 | UInt32(p[5])
         guard ch != 0, ch == channel else { return }
+        // The output position the frame shows (0 from a daemon before 0.1.36).
+        let frameMark = (6..<14).reduce(UInt64(0)) { $0 << 8 | UInt64(p[$1]) }
         screen.lock()
         do {
             try screen.apply(UnsafeRawBufferPointer(rebasing: p[14...]))
@@ -277,7 +291,16 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         let view = (screen.offset, screen.history)
         let seq = screen.seq
+        let cur = screen.cursor
+        let point: InputMarks.Point? = cur.inView ? InputMarks.Point(mark: frameMark, row: screen.history - screen.offset + cur.y, x: cur.x) : nil
         screen.unlock()
+        if let point {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.live else { return }
+                self.marks.written(point, snapshot: self.marksDue)
+                self.marksDue = false
+            }
+        }
         if EventLog.shared.enabled && CACurrentMediaTime() - lastWheelAt < 2 && view != loggedView {
             loggedView = view
             EventLog.shared.write("frame offset \(view.0) history \(view.1)")
@@ -294,6 +317,15 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         onFrame?()
         scheduleDraw()
+    }
+
+    /// Asked for the kept place and its frame not come yet (at most half a
+    /// second): nothing is drawn, whatever asks (an answer, the cursor's
+    /// blink), so the live rows the stream sent first never show.
+    private var holdingForPlace: Bool {
+        chLock.lock()
+        defer { chLock.unlock() }
+        return restoring.map { CACurrentMediaTime() <= $0.until } ?? false
     }
 
     /// The first frame of a stream asks for the place the view was kept
@@ -374,9 +406,11 @@ final class TerminalView: NSView, NSTextInputClient {
     /// Draws the screen now. sync: present in the window's own
     /// transaction (a live resize), so the content never lags its frame.
     func draw(sync: Bool) {
-        guard live, bounds.width > 0, bounds.height > 0, let cb = renderer.queue.makeCommandBuffer() else { return }
-        let overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range,
+        guard live, bounds.width > 0, bounds.height > 0, !holdingForPlace, let cb = renderer.queue.makeCommandBuffer() else { return }
+        var overlay = Overlay(focused: focused, cursorOn: cursorOn, marked: marked.string, scrollbar: scrollbarAlpha, link: link?.range,
                               flash: bellFlashing)
+        drawnMarks = placeMarks()
+        overlay.marks = drawnMarks.map { ($0.row, InputMarks.color($0.cls)) }
         let t0 = CACurrentMediaTime()
         var seq: UInt32 = 0
         if offscreen {
@@ -688,7 +722,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// The window's smallest content size: minGrid at the current font.
     var minContentSize: NSSize {
         let s = renderer.fonts.scale
-        return NSSize(width: ceil(CGFloat(TerminalView.minGrid.cols) * renderer.fonts.cellWidth / s + 2 * renderer.padding),
+        return NSSize(width: ceil(CGFloat(TerminalView.minGrid.cols) * renderer.fonts.cellWidth / s + 2 * renderer.padding + Renderer.gutter),
                       height: ceil(CGFloat(TerminalView.minGrid.rows) * renderer.fonts.cellHeight / s + 2 * renderer.padding))
     }
 
@@ -1215,6 +1249,7 @@ final class TerminalView: NSView, NSTextInputClient {
         }
         pointer = e.locationInWindow
         commandDown = e.modifierFlags.contains(.command)
+        hoverMark(at: convert(e.locationInWindow, from: nil))
         let c = cell(e)
         if linkLive {
             hoverLink(c)
@@ -1232,6 +1267,78 @@ final class TerminalView: NSView, NSTextInputClient {
 
     override func mouseExited(with e: NSEvent) {
         hideTip()
+        markLabel?.isHidden = true
+    }
+
+    // MARK: what an agent typed (TERM-044)
+
+    /// Places the marks on the rows on screen; the ones to draw.
+    private func placeMarks() -> [(row: Int, rec: [String: Any], who: String, cls: String)] {
+        screen.lock()
+        defer { screen.unlock() }
+        let top = screen.history - screen.offset, rows = screen.rows
+        let sc = screen
+        let v = InputMarks.View(top: top, count: rows, row: { sc.rowText($0) },
+                                cursorRow: top + (screen.cursor.inView ? screen.cursor.y : rows - 1), cursorX: screen.cursor.x,
+                                alt: screen.modes & Screen.modeAltScreen != 0)
+        marks.place(v)
+        return v.alt ? [] : marks.visible(top: top, rows: rows)
+    }
+
+    /// A record from the daemon's pane.input event (Workspace).
+    func inputLogged(_ r: [String: Any]) {
+        marks.add(r)
+        requestDraw()
+    }
+
+    /// The label of a mark: who and when, left of its bar while the pointer is on it.
+    private(set) var markLabel: Box?
+
+    /// The words of the label while it shows, else nil.
+    var markLabelText: String? {
+        guard let b = markLabel, !b.isHidden else { return nil }
+        return (b.subviews.first as? NSTextField)?.stringValue
+    }
+
+    /// The bar's rect in the view, for a row on screen.
+    func markBar(row: Int) -> NSRect {
+        let s = renderer.fonts.scale
+        screen.lock()
+        let cols = screen.cols
+        screen.unlock()
+        let x = renderer.padding + CGFloat(cols) * renderer.fonts.cellWidth / s + 3
+        return NSRect(x: x, y: renderer.padding + CGFloat(row) * renderer.fonts.cellHeight / s + 2, width: 3, height: renderer.fonts.cellHeight / s - 4)
+    }
+
+    private func hoverMark(at p: NSPoint) {
+        let hit = drawnMarks.first { markBar(row: $0.row).insetBy(dx: -4, dy: -2).contains(p) }
+        guard let m = hit else { markLabel?.isHidden = true; return }
+        let b = markLabel ?? {
+            let b = Box(radius: 5)
+            b.addSubview(NSTextField(labelWithString: ""))
+            b.layer?.shadowColor = NSColor.black.cgColor
+            b.layer?.shadowOpacity = 0.35
+            b.layer?.shadowRadius = 6
+            b.layer?.shadowOffset = CGSize(width: 0, height: -4)
+            addSubview(b)
+            markLabel = b
+            return b
+        }()
+        let th = renderer.theme
+        let fg = NSColor(srgbRed: CGFloat(th.foreground.x), green: CGFloat(th.foreground.y), blue: CGFloat(th.foreground.z), alpha: 1)
+        b.rawFill = NSColor(srgbRed: CGFloat(th.background.x), green: CGFloat(th.background.y), blue: CGFloat(th.background.z), alpha: 1)
+        b.layer?.borderColor = fg.withAlphaComponent(0.16).cgColor
+        b.layer?.borderWidth = 1
+        let a = NSMutableAttributedString(string: m.who, attributes: [.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: InputMarks.nameColor(m.cls)])
+        a.append(NSAttributedString(string: " " + When.clock(m.rec["at"] as? String), attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: fg.withAlphaComponent(0.7)]))
+        guard let l = b.subviews.first as? NSTextField else { return }
+        l.attributedStringValue = a
+        let ls = l.fittingSize
+        l.frame = NSRect(x: 7, y: 3, width: ceil(ls.width), height: ceil(ls.height))
+        let bar = markBar(row: m.row)
+        let size = NSSize(width: ceil(ls.width) + 14, height: ceil(ls.height) + 6)
+        b.frame = NSRect(x: max(0, bar.maxX - 8 - size.width), y: bar.midY - size.height / 2, width: size.width, height: size.height)
+        b.isHidden = false
     }
 
     // MARK: the link tip (TERM-022)

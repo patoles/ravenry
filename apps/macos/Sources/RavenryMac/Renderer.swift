@@ -376,6 +376,8 @@ struct Overlay {
     var link: CellRange?
     /// The bell rang: a translucent flash over the view.
     var flash = false
+    /// What an agent typed, marked in the right gutter (InputMarks.swift): the row on screen and the bar's colour.
+    var marks: [(row: Int, color: SIMD4<Float>)] = []
 }
 
 final class Renderer {
@@ -387,6 +389,10 @@ final class Renderer {
     private(set) var atlas: Atlas
     var theme = Theme.ravenry
     var padding: CGFloat = 4 // points
+    /// Room right of the last column for the marks of what an agent typed
+    /// (InputMarks.swift), left out of the columns as the Electron app's
+    /// FitAddon leaves its padding-right.
+    static let gutter: CGFloat = 6 // points
     private var rects: [RectInst] = []
     private var glyphs: [GlyphInst] = []
     /// Drawn over the glyphs: the scrollbar, the bell's flash.
@@ -483,7 +489,7 @@ final class Renderer {
     /// The grid that fits a view of this size in points.
     func grid(for size: CGSize) -> (cols: Int, rows: Int) {
         let s = fonts.scale
-        let w = (size.width - 2 * padding) * s, h = (size.height - 2 * padding) * s
+        let w = (size.width - 2 * padding - Renderer.gutter) * s, h = (size.height - 2 * padding) * s
         return (max(1, Int(w / fonts.cellWidth)), max(1, Int(h / fonts.cellHeight)))
     }
 
@@ -697,6 +703,16 @@ final class Renderer {
             let y = inset + (trackH - thumbH) * frac
             topRects.append(RectInst(pos: SIMD2(viewport.x - inset - width, y), size: SIMD2(width, thumbH),
                                 color: theme.light ? SIMD4(0, 0, 0, 0.35 * o.scrollbar) : SIMD4(1, 1, 1, 0.45 * o.scrollbar), kind: 4))
+        }
+        // What an agent typed: a 3 point bar 3 points right of the last
+        // column, the row's height less 2 points each end (phase2.css .am-gut).
+        if !o.marks.isEmpty, screen.modes & Screen.modeAltScreen == 0 {
+            let s = Float(fonts.scale)
+            let gx = Float(padding) * s + Float(screen.cols) * Float(fonts.cellWidth) + 3 * s
+            for m in o.marks where m.row >= 0 && m.row < screen.rows {
+                let gy = Float(padding) * s + Float(m.row) * Float(fonts.cellHeight) + 2 * s
+                topRects.append(RectInst(pos: SIMD2(gx, gy), size: SIMD2(3 * s, Float(fonts.cellHeight) - 4 * s), color: m.color, kind: 4))
+            }
         }
     }
 

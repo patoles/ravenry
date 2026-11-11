@@ -88,7 +88,8 @@ func (c *conn) renderStream(st *stream) {
 		if err != nil {
 			break
 		}
-		buf := proto.AppendFrame(make([]byte, 0, proto.FrameHeader+len(b)), proto.FrameRender, st.ch, 0)
+		// The header's mark: the output position the frame shows.
+		buf := proto.AppendFrame(make([]byte, 0, proto.FrameHeader+len(b)), proto.FrameRender, st.ch, st.rsub.FrameMark())
 		buf = append(buf, b...)
 		if c.write(websocket.MessageBinary, buf) != nil {
 			c.cancel()

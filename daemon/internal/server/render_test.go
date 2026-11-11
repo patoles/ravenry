@@ -159,6 +159,51 @@ func ptr[T any](v T) *T { return &v }
 
 // TestRenderScrollback scrolls a render stream into the scrollback and
 // reads text beyond the view.
+// TestRenderFrameMark: a render frame's header carries the pane's output
+// position the frame shows (a client places an input's echo by it).
+func TestRenderFrameMark(t *testing.T) {
+	d := startDaemon(t)
+	c := d.dial(client.Options{})
+	p := newPane(t, c, map[string]any{"command": []string{"/bin/sh", "-c", `printf 'hello\n'; exec cat`}})
+	waitFor(t, c, p.ID, `hello`, 0)
+	st, err := c.Render(ctx(t), p.ID, client.RenderOptions{Cols: 40, Rows: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scr rframe.Screen
+	// frameUntil reads frames until the screen shows want: the mark of that frame.
+	frameUntil := func(want string) uint64 {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case f := <-st.Frames:
+				fr, err := rframe.Decode(f.Data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := scr.Apply(fr); err != nil {
+					t.Fatal(err)
+				}
+				st.AckFrame(ctx(t), fr.Seq)
+				if strings.Contains(strings.Join(scr.Text(), "\n"), want) {
+					return f.Mark
+				}
+			case <-deadline:
+				t.Fatalf("no frame showed %q", want)
+			}
+		}
+	}
+	// "hello" and the pty's CR LF: 7 bytes.
+	if m := frameUntil("hello"); m != 7 {
+		t.Fatalf("the first frame's mark %d, want 7", m)
+	}
+	s := call[proto.SendResult](t, c, "pane.send", map[string]any{"pane": p.ID, "input": []map[string]any{{"text": "abc", "mode": "raw"}}})
+	if m := frameUntil("abc"); m < s.Mark+3 {
+		t.Fatalf("the echo's frame mark %d, want at least %d (the mark before the input and its 3 bytes)", m, s.Mark+3)
+	}
+}
+
 func TestRenderScrollback(t *testing.T) {
 	d := startDaemon(t)
 	c := d.dial(client.Options{})
