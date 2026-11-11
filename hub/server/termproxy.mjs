@@ -10,6 +10,15 @@
 // anything else (an answer, a hook decision, a new pane) closes the
 // connection with 1008. Answers go through the HTTP API, where the person
 // check is. Binary frames (input) and control frames pass as they are.
+//
+// The Mac app draws a pane on a machine the same way (MACH-006): its render
+// stream (pane.render and the render.* methods that type, scroll, find and
+// copy in it, and pane.inputs, who typed what there) is let through too. Over ssh the machine's daemon takes a
+// connection for the person only with the hub's answer key (PROTOCOL.md,
+// Who acts as the person), so the hub, which judged the caller the person
+// before the upgrade, adds its key to the caller's hello on a machine's
+// stream: what the person types there is the person's, not a drive
+// question. The key goes to that daemon only, never back to the caller.
 
 import net from 'node:net';
 import { spawn } from 'node:child_process';
@@ -17,8 +26,10 @@ import { Duplex } from 'node:stream';
 
 import * as machines from './machines.mjs';
 import { localSockets, machineOfTab } from './ravenryd.mjs';
+import { answerKey } from './person.mjs';
 
-export const ALLOWED = new Set(['hello', 'cancel', 'pane.list', 'pane.capture', 'pane.read', 'pane.subscribe', 'pane.unsubscribe', 'pane.resize', 'pane.send', 'ack']);
+export const ALLOWED = new Set(['hello', 'cancel', 'pane.list', 'pane.capture', 'pane.read', 'pane.subscribe', 'pane.unsubscribe', 'pane.resize', 'pane.send', 'ack',
+  'pane.render', 'render.input', 'render.scroll', 'render.find', 'render.copy', 'render.link', 'pane.inputs']);
 const PANE_RE = /^p[a-z2-7]{7}$/;
 const KEY_RE = /^[A-Za-z0-9+/]{22}==$/;
 
@@ -67,6 +78,25 @@ export function closeFrame(code, reason = '') {
   p.writeUInt16BE(code, 0);
   r.copy(p, 2);
   return Buffer.concat([Buffer.from([0x88, p.length]), p]);
+}
+
+// A client's frame (masked, text) with this payload.
+export function textFrame(payload) {
+  const p = Buffer.from(payload);
+  const n = p.length;
+  const head = n < 126 ? Buffer.from([0x81, 0x80 | n]) : n < 65536 ? Buffer.from([0x81, 0x80 | 126, n >> 8, n & 0xff]) : (() => { const b = Buffer.alloc(10); b[0] = 0x81; b[1] = 0x80 | 127; b.writeBigUInt64BE(BigInt(n), 2); return b; })();
+  const mask = Buffer.from([Math.random() * 256, Math.random() * 256, Math.random() * 256, Math.random() * 256].map(Math.floor));
+  const body = Buffer.from(p);
+  for (let i = 0; i < n; i++) body[i] ^= mask[i & 3];
+  return Buffer.concat([head, mask, body]);
+}
+
+// The caller's hello with the hub's answer key (a machine's stream): its frame again, else null.
+export function withKey(text, key) {
+  let m;
+  try { m = JSON.parse(text); } catch { return null; }
+  if (!m || m.type !== 'hello') return null;
+  return textFrame(JSON.stringify({ ...m, answer_key: key }));
 }
 
 // Whether a text frame from the phone may reach the daemon: { ok, why }.
@@ -148,8 +178,11 @@ export async function handle(req, sock, head, url) {
     if (!f.masked) { kill(1002, 'client frames are masked'); return false; }
     if (f.op === 0x1) {
       if (!f.fin) { kill(1008, 'fragmented text frames are not taken'); return false; }
-      const a = allowedText(f.payload.toString('utf8'));
+      const text = f.payload.toString('utf8');
+      const a = allowedText(text);
       if (!a.ok) { console.log(`term: closed a phone's stream to ${pane}: ${a.why}`); kill(1008, a.why); return false; }
+      const keyed = home.machine ? withKey(text, answerKey()) : null;
+      if (keyed) { up.write(keyed); return true; }
     }
     up.write(f.raw);
     return true;

@@ -17,6 +17,12 @@
 //   starts.
 // With no assistant found it opens a shell in the folder, in this window.
 //
+// With machines on the board (state.machines, MACH-007), a row above the
+// steps says where it runs: This Mac or a machine. On a machine the folder
+// is one of its projects or a path typed there, the assistant is the one
+// the hub starts there, and Start posts the machine with the rest; the
+// session then shows live from that machine (MachineTerm.swift).
+//
 // With the board down (not running, or not answering) Start still works,
 // as the Electron app's (startLocal, startSession's own pane): the folders
 // and assistants are read here by the hub's own rules (LocalStart, from
@@ -76,6 +82,11 @@ final class StartView: MiddleView {
         var error: String?
     }
 
+    /// Where it runs: nil for this Mac, else a machine's name (MACH-007).
+    private(set) var machine: String?
+    /// The machines on the board (state.machines): name and state.
+    var machines: [[String: Any]] { (hub?.state?.raw["machines"] as? [[String: Any]] ?? []).filter { $0["name"] is String } }
+    private var goButton: RButton?
     private(set) var folders: [[String: Any]] = []
     private(set) var root: String?
     private(set) var assistants: [[String: Any]] = []
@@ -182,10 +193,11 @@ final class StartView: MiddleView {
         root = j["root"] as? String
         assistants = j["assistants"] as? [[String: Any]] ?? []
         if let w = want { folder = w }
-        if folder == nil || !folders.contains(where: { $0["path"] as? String == folder }) && want == nil { folder = folders.first?["path"] as? String ?? folder }
+        // On a machine, the folder and the assistant are that machine's: this Mac's list leaves them alone.
+        if machine == nil, folder == nil || !folders.contains(where: { $0["path"] as? String == folder }) && want == nil { folder = folders.first?["path"] as? String ?? folder }
         let found = assistants.filter { $0["found"] as? Bool == true }
         let ready = found.first { $0["signedIn"] as? Bool == true } ?? found.first
-        if assistant == nil || !found.contains(where: { $0["kind"] as? String == assistant }) { assistant = ready?["kind"] as? String }
+        if machine == nil, assistant == nil || !found.contains(where: { $0["kind"] as? String == assistant }) { assistant = ready?["kind"] as? String }
         read = true
         draw()
     }
@@ -311,7 +323,112 @@ final class StartView: MiddleView {
         return h
     }
 
+    /// Where it runs: This Mac, or a machine the board reaches (a down one dimmed).
+    private func whereRow() -> NSView? {
+        guard !local, !machines.isEmpty else { return nil }
+        if let m = machine, !machines.contains(where: { $0["name"] as? String == m }) { machine = nil }
+        var chips: [NSView] = []
+        let chip = { [self] (key: String, name: String, sub: String, on: Bool, up: Bool, run: @escaping () -> Void) in
+            let b = PickBox(fill: "input", ring: on ? "work" : "sep", radius: 10)
+            b.ringWidth = on ? 2 : 1
+            b.enabled = up
+            b.setAccessibilityLabel(name)
+            b.onPress = run
+            let dot = Box(fill: up ? "ok" : "idle", radius: 3.5)
+            dot.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 7), dot.heightAnchor.constraint(equalToConstant: 7)])
+            let inner = vstack([label(name, Fonts.pt(13.5, Fonts.w650)), hstack([dot, label(sub, Fonts.pt(12), "tx2"), spring()], spacing: 6)], spacing: 4)
+            inner.translatesAutoresizingMaskIntoConstraints = false
+            b.addSubview(inner)
+            NSLayoutConstraint.activate([inner.leadingAnchor.constraint(equalTo: b.leadingAnchor, constant: 12), inner.trailingAnchor.constraint(equalTo: b.trailingAnchor, constant: -12),
+                                         inner.topAnchor.constraint(equalTo: b.topAnchor, constant: 11), inner.bottomAnchor.constraint(equalTo: b.bottomAnchor, constant: -11)])
+            controls[key] = b
+            chips.append(b)
+        }
+        chip("machine:", t("start.thisMac"), t("start.thisMacSub"), machine == nil, true) { [weak self] in self?.pick(machine: nil) }
+        for m in machines.prefix(3) {
+            let name = m["name"] as? String ?? ""
+            let up = m["state"] as? String == "connected"
+            chip("machine:\(name)", name, up ? t("start.machineUp") : t("start.machineDown"), machine == name, up) { [weak self] in self?.pick(machine: name) }
+        }
+        let row = NSStackView(views: chips)
+        row.orientation = .horizontal
+        row.distribution = .fillEqually
+        row.spacing = 10
+        row.translatesAutoresizingMaskIntoConstraints = false
+        return step(Icon("machine", "tx2", size: 15), [label(t("start.where"), Fonts.pt(13.5, Fonts.w650)), row])
+    }
+
+    func pick(machine m: String?) {
+        guard m != machine else { return }
+        machine = m
+        // A folder of this Mac means nothing there, and the other way round.
+        folder = m == nil ? folders.first?["path"] as? String : projectsOn(m!).first?.folder
+        if m != nil, assistant == nil { assistant = "claude" }
+        error = nil
+        draw()
+    }
+
+    /// The board's projects on a machine, with their folders there.
+    private func projectsOn(_ m: String) -> [HubProject] { (hub?.state?.projects ?? []).filter { $0.machine == m && ($0.folder ?? "").hasPrefix("/") } }
+
+    /// The folder step on a machine: its projects, or a path typed there.
+    private func machineFolderCol(_ m: String) -> [NSView] {
+        var col: [NSView] = [label(t("start.folderOn", ["machine": m]), Fonts.pt(13.5, Fonts.w650))]
+        let ps = Array(projectsOn(m).prefix(3))
+        if !ps.isEmpty {
+            let rows = ps.map { p -> NSView in
+                let path = p.folder ?? ""
+                let r = Row(radius: 6)
+                r.key = "folder:\(path)"
+                r.selected = path == folder
+                r.setAccessibilityLabel(p.name)
+                r.onOpen = { [weak self] in self?.folder = path; self?.draw() }
+                let radio = Box(fill: r.selected ? "work" : nil, ring: r.selected ? "work" : "tx3", radius: 7)
+                radio.ringWidth = 1.5
+                radio.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([radio.widthAnchor.constraint(equalToConstant: 14), radio.heightAnchor.constraint(equalToConstant: 14)])
+                let short = label(path, Fonts.mono(11.5), "tx3")
+                short.lineBreakMode = .byTruncatingHead
+                short.setContentCompressionResistancePriority(.init(200), for: .horizontal)
+                let line = hstack([radio, label(p.name, Fonts.pt(13)), spring(), short], spacing: 10, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
+                line.translatesAutoresizingMaskIntoConstraints = false
+                r.addSubview(line)
+                NSLayoutConstraint.activate([line.leadingAnchor.constraint(equalTo: r.leadingAnchor), line.trailingAnchor.constraint(equalTo: r.trailingAnchor),
+                                             line.topAnchor.constraint(equalTo: r.topAnchor), line.bottomAnchor.constraint(equalTo: r.bottomAnchor)])
+                controls[r.key] = r
+                return r
+            }
+            col.append(boxed(vstack(rows, spacing: 2), fill: "input", ring: "sep", radius: 10, insets: NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)))
+        }
+        let f = FieldBox(t("start.folderOnPh", ["machine": m]), area: false)
+        if let cur = folder, !ps.contains(where: { $0.folder == cur }) { f.text = cur }
+        f.onChange = { [weak self, weak f] in
+            guard let self, let f else { return }
+            let typed = f.text.trimmingCharacters(in: .whitespaces)
+            self.folder = typed.isEmpty ? nil : typed
+            self.goButton?.title = self.goTitle
+        }
+        f.onReturn = { [weak self] in self?.startSession() }
+        controls["machineFolder"] = f
+        col.append(f)
+        return col
+    }
+
+    /// Start's words: the assistant (or a shell) in the folder, and on which machine.
+    private var goTitle: String {
+        let fname = folderName
+        if let m = machine {
+            let who = name(assistant ?? "claude")
+            return fname.map { t("start.goAssistantOn", ["assistant": who, "folder": $0, "machine": m]) } ?? t("start.goAssistantOnly", ["assistant": who, "machine": m])
+        }
+        return assistantPicked.flatMap { x in fname.map { t("start.goAssistant", ["assistant": name(x["kind"] as? String ?? ""), "folder": $0]) } }
+            ?? fname.map { t("start.goShell", ["folder": $0]) } ?? t("start.goShellOnly")
+    }
+
     private func card() -> NSView {
+        let row0 = whereRow()
+        if row0 == nil { machine = nil }
         let first = folder != nil
         // 1 Folder: up to three picks, the one picked among them.
         var picks = Array(folders.prefix(3))
@@ -354,13 +471,17 @@ final class StartView: MiddleView {
         controls["choose"] = choose
         let found = root != nil && !picks.isEmpty ? t("start.foundIn", ["root": root!]) + " " : ""
         col1.append(hstack([found.isEmpty ? nil : label(found, Fonts.pt(12), "tx3"), choose, label(t("start.orDrop"), Fonts.pt(12), "tx3"), spring()], spacing: 0))
+        if let m = machine { col1 = machineFolderCol(m) }
         let row1 = step(number("1", first), col1)
 
         // 2 Assistant: a card each, the ones not here dimmed.
         let a = assistantPicked
         var col2: [NSView] = [label(t("start.assistant"), Fonts.pt(13.5, Fonts.w650))]
-        if assistants.contains(where: { $0["found"] as? Bool == true }) {
-            let cards = assistants.map { x -> NSView in
+        // On a machine: the hub starts Claude Code or Codex there, whatever this Mac has.
+        let onMachine = machine != nil
+        let offered: [[String: Any]] = onMachine ? [["kind": "claude", "name": "Claude Code", "found": true, "signedIn": true], ["kind": "codex", "name": "Codex", "found": true, "signedIn": true]] : assistants
+        if offered.contains(where: { $0["found"] as? Bool == true }) {
+            let cards = offered.map { x -> NSView in
                 let kind = x["kind"] as? String ?? ""
                 let isFound = x["found"] as? Bool == true, signed = x["signedIn"] as? Bool == true
                 let on = kind == assistant
@@ -372,7 +493,7 @@ final class StartView: MiddleView {
                 let dot = Box(fill: isFound && signed ? "ok" : isFound ? "you" : "idle", radius: 3.5)
                 dot.translatesAutoresizingMaskIntoConstraints = false
                 NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: 7), dot.heightAnchor.constraint(equalToConstant: 7)])
-                let s = isFound ? (signed ? t("start.signedIn") : t("start.notSignedIn")) : t("start.notHere")
+                let s = onMachine ? t("start.onMachine", ["machine": machine ?? ""]) : isFound ? (signed ? t("start.signedIn") : t("start.notSignedIn")) : t("start.notHere")
                 let inner = vstack([label(x["name"] as? String ?? kind, Fonts.pt(13.5, Fonts.w650)), hstack([dot, label(s, Fonts.pt(12), "tx2"), spring()], spacing: 6)], spacing: 4)
                 inner.translatesAutoresizingMaskIntoConstraints = false
                 b.addSubview(inner)
@@ -390,11 +511,11 @@ final class StartView: MiddleView {
         } else {
             col2.append(wrap(t("start.noAssistant"), Fonts.pt(12), "tx2"))
         }
-        let row2 = step(number("2", a != nil), col2)
+        let row2 = step(number("2", a != nil || (onMachine && assistant != nil)), col2)
 
         // The branch line: its own copy, or right in the folder.
         var why: NSView?
-        if let b = busyHere {
+        if let b = busyHere, machine == nil {
             let topic = b["topic"] as? String ?? "", project = b["project"] as? String ?? ""
             let bold = inFolder ? t("start.inFolderB") : t("start.ownCopyB")
             let rest = inFolder ? t("start.inFolder", ["topic": topic]) : t("start.ownCopy", ["topic": topic, "project": project])
@@ -413,10 +534,8 @@ final class StartView: MiddleView {
         }
 
         // Start <assistant> in <folder>, the key, Cancel.
-        let fname = folderName
-        let title = a.flatMap { x in fname.map { t("start.goAssistant", ["assistant": name(x["kind"] as? String ?? ""), "folder": $0]) } }
-            ?? fname.map { t("start.goShell", ["folder": $0]) } ?? t("start.goShellOnly")
-        let goB = RButton(title, .primary) { [weak self] in self?.startSession() }
+        let goB = RButton(goTitle, .primary) { [weak self] in self?.startSession() }
+        goButton = goB
         goB.titleSize = 14
         goB.heightAnchor.constraint(greaterThanOrEqualToConstant: 38).isActive = true
         goB.isEnabled = !busy
@@ -431,7 +550,7 @@ final class StartView: MiddleView {
         }
         let goLine = hstack(goRow, spacing: 12, insets: NSEdgeInsets(top: 14, left: 18, bottom: 14, right: 18))
 
-        var rows: [NSView] = [row1, rule(), row2]
+        var rows: [NSView] = (row0.map { [$0, rule()] } ?? []) + [row1, rule(), row2]
         if let w = why { rows += [rule(), w] }
         rows += [rule(), goLine]
         let c = DropCard(fill: "card", radius: 14)
@@ -686,12 +805,16 @@ final class StartView: MiddleView {
         }
     }
 
+    fileprivate func failStart(_ why: String) { busy = false; error = why; draw() }
+    fileprivate func doneStart() { busy = false; draw() }
+
     func startSession() {
         guard !busy else { return }
         busy = true
         error = nil
         draw()
         let a = assistantPicked
+        if let m = machine, !local { startOn(m); return }
         // The board down: the assistant in a pane of this window, as the Electron app's.
         if local {
             busy = false
@@ -735,6 +858,37 @@ final class StartView: MiddleView {
             self.draw()
             let key = (j["projectId"] as? String).flatMap { pid in (j["surfaceId"] as? String).map { "\(pid)/\($0)" } }
             self.onStarted?(key, (j["pane"] as? [String: Any])?["id"] as? String)
+        }
+    }
+}
+
+extension StartView {
+    /// Start on a machine (POST /api/sessions/start with machine): the hub
+    /// runs the assistant in a pane of that machine's ravenryd; once the
+    /// board lists the session, it opens, live from there.
+    fileprivate func startOn(_ m: String) {
+        let g = grid()
+        var body: [String: Any] = ["folder": folder ?? "", "machine": m, "assistant": assistant ?? "claude", "cols": g.cols, "rows": g.rows]
+        if let f = folder, let p = (hub?.state?.projects ?? []).first(where: { $0.machine == m && $0.folder == f }) { body["projectId"] = p.id }
+        hub?.post("/api/sessions/start", body) { [weak self] code, j in
+            guard let self else { return }
+            if code != 200 {
+                self.failStart(t("start.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]))
+                return
+            }
+            let sid = j["surfaceId"] as? String ?? ""
+            let pane = (j["pane"] as? [String: Any])?["id"] as? String
+            // The session on the board: its key (the hub may list it a moment later).
+            var tries = 0
+            func open() {
+                let st = self.hub?.state
+                let key = (j["projectId"] as? String).map { "\($0)/\(sid)" } ?? st?.projects.lazy.compactMap { p in p.sessions.first { $0.surfaceId == sid }.map { "\(p.id)/\($0.surfaceId)" } }.first
+                if let k = key, st?.find(k) != nil || tries >= 40 { self.doneStart(); self.onStarted?(k, pane); return }
+                tries += 1
+                if tries > 40 { self.doneStart(); self.onStarted?(nil, pane); return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { open() }
+            }
+            open()
         }
     }
 }

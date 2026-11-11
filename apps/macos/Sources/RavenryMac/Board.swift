@@ -415,6 +415,7 @@ final class Board: NSObject {
             self?.hub.post("/api/open", ["projectId": p.id, "surfaceId": s.surfaceId]) { code, j in if code != 200 { self?.toast(j["error"] as? String ?? "\(code)") } }
         }
         outside.onMove = { [weak self] p, s in self?.move(p, s, keep: "ravenry") }
+        outside.makeTerm = { [weak self] in self?.machineTermView() }
         projectPage.onContinue = { [weak self] p, l in self?.continueLast(p, l) }
         projectPage.onMoveLast = { [weak self] p, l in self?.moveLast(p, l) }
         projectPage.onNewHere = { [weak self] p in self?.openStart(p.folder) }

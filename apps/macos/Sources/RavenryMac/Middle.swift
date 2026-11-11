@@ -5,6 +5,8 @@
 // - a session in cmux, iTerm2 or Rex (or in a ravenryd this window does not
 //   draw): read only, its screen from the hub's Live screen (GET /api/live)
 //   or its transcript, with Open in <terminal> and Move here;
+// - a session in a pane on another machine: live, its terminal drawn and
+//   typed into through the hub's terminal stream (MachineTerm.swift);
 // - a project no session runs in: its last conversation (GET
 //   /api/project/last) with Continue this conversation (or Move here when it
 //   is still open elsewhere), New session and Open brief;
@@ -77,15 +79,99 @@ final class OutsideView: MiddleView {
     var moving = Set<String>()
     /// The note under the head (what Move here does, or that it waits), for the self-test.
     private(set) var noteText: String?
+    /// A session on a machine, live (MACH-006), and how its terminal view is made (Board.machineTermView).
+    private(set) var live: MachineTerm?
+    var makeTerm: (() -> TerminalView?)?
 
     /// Shows the session; `why` says why its pane is not drawn here (another ravenryd).
     func show(_ p: HubProject, _ s: HubSession, why: String?) {
+        // On a machine, in a ravenryd pane, with the board to reach it through: its terminal, live.
+        if let m = s.machine ?? p.machine, let pane = s.pane, let base = hub?.base, let make = makeTerm {
+            showLive(p, s, machine: m, pane: pane, base: base, make: make)
+            return
+        }
+        closeLive()
         if surface != s.surfaceId { entries = nil; surface = s.surfaceId; follow() }
         last = (p, s, why)
         draw()
     }
 
-    func stop() { timer?.invalidate(); timer = nil; surface = "" }
+    func stop() { timer?.invalidate(); timer = nil; surface = ""; closeLive() }
+
+    // MARK: a session on a machine, live
+
+    private func showLive(_ p: HubProject, _ s: HubSession, machine m: String, pane: String, base: URL, make: @escaping () -> TerminalView?) {
+        timer?.invalidate(); timer = nil
+        surface = s.surfaceId
+        last = (p, s, nil)
+        if live?.pane != pane || live?.machine != m {
+            closeLive()
+            let lt = MachineTerm(pane: pane, machine: m)
+            live = lt
+            lt.onChange = { [weak self, weak lt] in
+                guard let self, let lt, self.live === lt else { return }
+                if let v = lt.view, v.superview !== self { self.addSubview(v) }
+                self.drawLive()
+                self.needsLayout = true
+                self.layoutSubtreeIfNeeded()
+                lt.resume()
+                if lt.state == "live", let v = lt.view, !self.isHiddenOrHasHiddenAncestor { self.window?.makeFirstResponder(v) }
+            }
+            lt.open(hub: base, make: make)
+        }
+        drawLive()
+    }
+
+    private func closeLive() {
+        guard let lt = live else { return }
+        live = nil
+        lt.close()
+        needsLayout = true
+    }
+
+    /// Connect again after it failed or ended.
+    func liveAgain() {
+        guard let (p, s, _) = last, let lt = live else { return }
+        live = nil
+        lt.close()
+        show(p, s, why: nil)
+    }
+
+    private func drawLive() {
+        guard let (p, s, _) = last, let lt = live else { return }
+        buttons = [:]
+        let title = label(s.topic ?? p.name, Fonts.pt(15, Fonts.w650))
+        title.textColor = NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF4 / 255, alpha: 1)
+        let folder = p.folderShort.map { ", in \($0)" } ?? ""
+        let sub = label(t("mach.liveSub", ["machine": lt.machine, "folder": folder]), Fonts.pt(13), "tx2"); sub.textColor = termTx2
+        var rows: [NSView] = [vstack([title, sub], spacing: 3)]
+        switch lt.state {
+        case "connecting":
+            let l = label(t("mach.liveConnecting", ["machine": lt.machine]), Fonts.pt(12.5), "tx3"); l.textColor = termTx3
+            rows.append(l)
+        case "failed", "ended":
+            let l = label(lt.why, Fonts.pt(12.5), "you", lines: 3)
+            let again = RButton(t("mach.liveAgain"), .normal) { [weak self] in self?.liveAgain() }
+            buttons["liveAgain"] = again
+            rows.append(hstack([l, again, spring()], spacing: 10))
+        default: break
+        }
+        noteText = nil
+        content.set(rows)
+        lt.view?.isHidden = lt.state != "live"
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard let lt = live, let v = lt.view, v.superview === self else { return }
+        // The head over the terminal, the terminal in the rest (as a tab's pane, its own padding).
+        let top = content.frame.minY
+        let headH = min(140, ceil(content.stack.fittingSize.height) + 28)
+        content.frame = NSRect(x: 0, y: top, width: bounds.width, height: headH)
+        let r = NSRect(x: 8, y: top + headH, width: max(0, bounds.width - 16), height: max(0, bounds.height - top - headH - 8))
+        if v.frame != r { v.frame = r }
+    }
 
     private func follow() {
         timer?.invalidate()

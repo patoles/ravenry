@@ -86,14 +86,35 @@ final class Connection {
         try handshake()
     }
 
+    /// A pane on a machine (MACH-006): the hub's terminal stream (GET
+    /// /api/term?pane=, hub/server/termproxy.mjs), which joins this
+    /// connection to the machine's daemon over ssh. The same protocol from
+    /// the hello on; the hub lets through what draws and types into a pane.
+    init(hub: URL, pane: String) throws {
+        guard let host = hub.host, let port = hub.port ?? (hub.scheme == "http" ? 80 : nil) else { throw ConnectionError.connect("no board address") }
+        socketPath = "\(hub.absoluteString)/api/term?pane=\(pane)"
+        var hints = addrinfo(ai_flags: 0, ai_family: AF_INET, ai_socktype: SOCK_STREAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, String(port), &hints, &res) == 0, let ai = res else { throw ConnectionError.connect("cannot find \(host)") }
+        defer { freeaddrinfo(res) }
+        fd = socket(ai.pointee.ai_family, ai.pointee.ai_socktype, ai.pointee.ai_protocol)
+        if fd < 0 { throw ConnectionError.connect(String(cString: strerror(errno))) }
+        // A throw from here closes fd in deinit (the instance is whole).
+        if Darwin.connect(fd, ai.pointee.ai_addr, ai.pointee.ai_addrlen) != 0 { throw ConnectionError.connect(String(cString: strerror(errno))) }
+        var one: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, socklen_t(MemoryLayout<Int32>.size))
+        try handshake(path: "/api/term?pane=\(pane)", host: "\(host):\(port)")
+    }
+
     deinit { Darwin.close(fd) }
 
     // MARK: handshake
 
-    private func handshake() throws {
+    private func handshake(path: String = "/v1", host: String = "ravenryd") throws {
         var key = [UInt8](repeating: 0, count: 16)
         arc4random_buf(&key, 16)
-        let req = "GET /v1 HTTP/1.1\r\nHost: ravenryd\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+        let req = "GET \(path) HTTP/1.1\r\nHost: \(host)\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
             "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: \(Data(key).base64EncodedString())\r\n" +
             "Sec-WebSocket-Protocol: ravenry.v1\r\n\r\n"
         try writeAll(Array(req.utf8))

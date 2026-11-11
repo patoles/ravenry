@@ -790,6 +790,21 @@ render stream (protocol method `pane.render`) and draws every other one
 that has it, those that start later too; the packaged app starts its
 own when none runs, or beside an older one ("The daemon" above), a
 development build never does. With `--socket`, that daemon only. Its shells are the tabs, a new one (the
+`node scripts/machinetest.mjs [DIR]` (`SelfTestRemote.swift`, `--screen
+remote`) is the cards' and the machines' round on a demo hub that follows the
+test's ravenryd and reaches a second throwaway ravenryd as the machine
+testbox through a fake `ssh` (as `hub/tools/machines-test.mjs` does), never a
+real machine. Each check drives the control (a press through the window,
+keys through the window, a button's own click) and reads the effect where it
+lands: what `ravenry ask` printed, the file a page's run wrote, the
+machine's own pane (`ravenry capture`, `ravenry inputs`: typed as the
+person). It covers a card answered, withdrawn and out of time saying how it
+ended and staying closed against a late copy (PANEL-024), the drive card's
+words, a project page's run headed with its page (PAGE-006), New session on
+testbox (MACH-007), its terminal live and typed into through the hub's
+`/api/term` (MACH-006), and a question asked there answered from the panel
+(MACH-005). `MACHINETEST_APP` names the build.
+
 login shell, or COMMAND) when it has none; the panes keep running when
 the window closes. The packaged app started from a Ravenry pane relaunches
 itself clean ("A start from a pane" above); a development build does not,
