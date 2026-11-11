@@ -64,6 +64,23 @@ extension SelfTestBoard {
         return false
     }
 
+    /// A session in front (its panel), its project's brief, New session, Decisions and each page of the sidebar.
+    private func sessionAndPages(_ clean: @escaping () -> Void) -> [(String, () -> NSView?)] {
+        var out: [(String, () -> NSView?)] = []
+        if let p = board.hub.state?.projects.first(where: { $0.id == "garden-planner" }) ?? board.hub.state?.projects.first(where: { !$0.sessions.isEmpty }), let s = p.sessions.first {
+            let key = "\(p.id)/\(s.surfaceId)"
+            out.append(("session panel", { clean(); self.board.toTerminal(); self.board.pickSession(key, why: "test"); self.settle(0.6); return self.board.panel }))
+            out.append(("session middle", { clean(); self.board.toTerminal(); self.board.pickSession(key, why: "test"); self.settle(0.6); return self.board.root.middle }))
+            out.append(("brief", { clean(); self.board.toTerminal(); self.board.openBrief(p.id); _ = self.wait(4) { self.board.root.middle === self.board.brief }; self.settle(0.5); return self.board.brief }))
+        }
+        out.append(("new session", { clean(); self.board.toTerminal(); self.board.openStart(nil); _ = self.wait(5) { self.board.start.controls["go"] != nil }; return self.board.start }))
+        out.append(("decisions", { clean(); self.board.toTerminal(); self.board.openDecisions(); self.settle(1); return self.board.decisions }))
+        for pg in board.hub.state?.pages ?? [] {
+            out.append(("page \(pg.label)", { clean(); self.board.toTerminal(); self.board.openPage(pg.key, pg.label); self.settle(1.2); return self.board.root.middle }))
+        }
+        return out
+    }
+
     func screenControls() {
         let sw = board.settings
         let hubHost = URL(string: board.hub.url).map { "\($0.host ?? ""):\($0.port ?? 0)" } ?? "-"
@@ -81,7 +98,7 @@ extension SelfTestBoard {
             ("alerts", { clean(); self.board.openAlerts(); _ = self.wait(4) { self.board.alerts.setup != nil }; return self.board.alerts }),
             ("learn", { clean(); self.board.openLearn(); _ = self.wait(3) { self.board.learn.cardViews.count > 0 }; return self.board.learn }),
             ("machines", { clean(); self.board.openMachines(); _ = self.wait(4) { self.board.machines.loaded }; return self.board.machines }),
-        ] + ["appearance", "behavior", "handoff", "skills"].map { tab in
+        ] + sessionAndPages(clean) + ["appearance", "behavior", "handoff", "skills"].map { tab in
             ("settings \(tab)", { clean(); self.board.toTerminal(); self.board.menuSettings(nil); _ = self.wait(3) { sw.window.isVisible }
                 sw.tabButtons[tab]?.press(); self.settle(0.5); return sw.window.contentView })
         }
