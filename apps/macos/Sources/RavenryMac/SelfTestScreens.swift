@@ -188,9 +188,6 @@ extension SelfTestBoard {
         // Back to the session: the tab strip's view closes.
         board.ws.bar.onClose?("view:brief")
         check("brief_closes", board.root.middle == nil && board.front == .tab, "\(board.front)")
-    }
-
-    // MARK: the gallery and one picture large (PIC-001, PIC-002)
 
         // A Plan task's box ticks it in the brief (POST /api/brief/tick), drawn ticked when the hub reads it again.
         board.openPage("brief:lighthouse", t("panel.brief"))
@@ -201,6 +198,9 @@ extension SelfTestBoard {
             check("brief_task_ticks", wait(8) { self.board.hub.sent.dropFirst(sent).contains("POST /api/brief/tick") } && wait(10) { bp.doc.planTasks.first { $0.text == "Test at dusk" }?.done == true },
                   "\(bp.ticked) \(bp.tickError ?? "-") \(bp.doc.planTasks.map { "\($0.text)=\($0.done)" })")
         } else { check("brief_task_ticks", false, "\(bp.doc.planTasks.map { $0.text })") }
+    }
+
+    // MARK: the gallery and one picture large (PIC-001, PIC-002)
 
     func screenGallery() {
         let g = board.gallery

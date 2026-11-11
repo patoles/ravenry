@@ -237,13 +237,13 @@ release check (`apps/desktop/tools/release-check.mjs`).
 | BRIEF-002 | The Brief page beside the session: "Updated <time> by <assistant>", Edit, Goal, Rules, Next in dated entries newest first (the newest open), the Plan as a checklist, Hand-off | hub `GET /api/brief` (the dated entries and their sentences in `nextParts.entries`, `hub/server/briefnext.mjs`); the Markdown drawn by the client | RC-15, `hub/tools/briefnext-test.mjs`, `hub/tools/hub-api-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen brief`) | done | done | missing | missing |
 | BRIEF-003 | A link in the brief opens in the browser; Edit opens the file in the Markdown editor; closing goes back to where it was opened from (the session, the project's page, a plan) | client | RC-15 (macOS: `apps/macos/scripts/sidetest.mjs --screen brief` (brief_link_opens, brief_edit_opens_file, brief_closes), `--screen nav` (nav_brief_back_to_plan, nav_brief_back_to_project)) | done | done | missing | missing |
 | BRIEF-004 | The brief is drawn as text, never as HTML, and asked for when shown, not at every state | client; hub `GET /api/brief` | RC-15, `apps/desktop/test/brief.test.ts` (macOS: `apps/macos/scripts/sidetest.mjs --screen brief`) | done | done | missing | missing |
+| BRIEF-007 | A box of the brief's Plan ticks or unticks that task (a plan's steps excepted) | hub `POST /api/brief/tick` | `hub/tools/brief-tick-test.mjs`, `apps/macos/scripts/sidetest.mjs --screen brief` (brief_task_ticks) | done | missing | missing | missing |
 | BRIEF-005 | Add a note to a project's brief | hub `POST /api/note` | none yet | missing | missing | missing | missing |
 | BRIEF-006 | Write a brief for a project that has none | hub `POST /api/project/brief` | none yet | missing | missing | missing | missing |
 
 ### Plans
 
 | ID | Behaviour | Logic | Acceptance | macOS | Electron | Android | Phone web |
-| BRIEF-007 | A box of the brief's Plan ticks or unticks that task (a plan's steps excepted) | hub `POST /api/brief/tick` | `hub/tools/brief-tick-test.mjs`, `apps/macos/scripts/sidetest.mjs --screen brief` (brief_task_ticks) | done | missing | missing | missing |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | PLAN-001 | A plan's page: its steps with their proofs, how many are done, the current one, Pause and Resume | hub state (plan; the plans a page shows in each project's `planPages`, `hub/server/planfmt.mjs`); `POST /api/plan/pause`, `resume` | RC-25, `hub/tools/plans-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen plan`) | done | done | partial | partial |
 | PLAN-002 | Answer a plan's gate: its choices as buttons, or your own words | hub `POST /api/plan/answer` | `hub/tools/plans-test.mjs`, `hub/tools/person-routes-test.mjs` (macOS: `apps/macos/scripts/sidetest.mjs --screen plan`) | done | done | partial | missing |
