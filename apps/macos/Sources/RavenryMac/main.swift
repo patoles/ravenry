@@ -307,6 +307,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if installing { inst.setUpHub() }
         // Updates: a check a little after launch, then every few hours (Updater.swift).
         Updater.shared.start(offscreen: options.offscreen)
+        // A wake reads the hub and the daemons again (Wake.swift); a second start brings this one forward.
+        watchWake()
+        SingleInstance.listen(self)
         if options.offscreen, let rp = ProcessInfo.processInfo.environment["RAVENRY_MAC_REPORT"], !rp.isEmpty { report(to: rp) }
         guard let v = ws.focusedView else {
             fail("no pane to show")
@@ -346,9 +349,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 "front": ws.active?.host ?? "",
                 "sidebarEmpty": self.board?.sidebar.emptyText ?? "",
+                "hub": ["url": self.hub?.url ?? "", "reachable": self.hub?.reachable ?? false, "generatedAt": self.hub?.hubRaw?["generatedAt"] as? String ?? ""],
                 "focused": ["pane": v?.pane ?? "", "frames": v?.screen.frames ?? 0, "draws": v?.drawCount ?? 0, "text": v?.screen.text() ?? ""],
             ]
             if let d = try? JSONSerialization.data(withJSONObject: j) { try? d.write(to: URL(fileURLWithPath: path), options: .atomic) }
+            // A check's command (Wake.swift): "wake" as macOS's didWake would.
+            if let cmd = try? String(contentsOfFile: path + ".do", encoding: .utf8) {
+                try? FileManager.default.removeItem(atPath: path + ".do")
+                if cmd.trimmingCharacters(in: .whitespacesAndNewlines) == "wake" { self.woke() }
+            }
         }
     }
 
@@ -561,6 +570,8 @@ if let i = CommandLine.arguments.firstIndex(of: "--older-hub-check"), CommandLin
 // relaunched clean, as the Dock starts it, before any window, daemon or
 // hub (Relaunch.swift, the Electron app's relaunch.ts). Such a start exits here.
 Relaunch.atLaunch(env: launchEnv, offscreen: options.offscreen)
+// One Ravenry per data folder: a second start brings the first to the front and quits (SingleInstance.swift).
+SingleInstance.atLaunch(offscreen: options.offscreen)
 
 let app = NSApplication.shared
 // The bench runs without a Dock icon and never takes focus.

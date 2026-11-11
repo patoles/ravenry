@@ -274,7 +274,9 @@ enum When {
 // MARK: the client
 
 final class HubClient: NSObject, URLSessionDataDelegate {
-    let base: URL?
+    /// Where the hub is. Found through board.json (not named), it is read
+    /// again at each reconnect: a hub started again on another port (PORT=4700) is followed (HUB-012).
+    private(set) var base: URL?
     /// The hub was named for this run (RAVENRY_HUB_URL), not found.
     let named: Bool
     private(set) var state: HubState?
@@ -322,7 +324,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         }
     }
     /// The last state as the hub sent it (filled for an older hub, the self-test's changes made), before this window's daemons' checkpoints.
-    private var hubRaw: [String: Any]?
+    private(set) var hubRaw: [String: Any]?
 
     // MARK: the checkpoints this window's daemons hold (LocalCheckpoints.swift)
 
@@ -529,20 +531,24 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     private var retry: TimeInterval = 1
     private var stopped = false
     private let readOnly: Bool
+    /// The board.json to read the port from, when the hub is found, not named.
+    private let boardFile: String?
+    /// Each reconnect scheduled carries the count at its scheduling: a later one (a wake) cancels it.
+    private var gen = 0
     /// The hub's own code, for a hub older than state.sidebar (OlderHub.swift).
     private lazy var older = OlderHub()
 
     init(offscreen: Bool, env: [String: String] = ProcessInfo.processInfo.environment) {
+        let testHome = env["RAVENRY_HOME"].flatMap { $0.isEmpty ? nil : $0 }
         if let u = env["RAVENRY_HUB_URL"], !u.isEmpty {
-            base = URL(string: u.hasSuffix("/") ? String(u.dropLast()) : u); named = true
-        } else if offscreen {
-            base = nil; named = false
+            base = URL(string: u.hasSuffix("/") ? String(u.dropLast()) : u); named = true; boardFile = nil
+        } else if offscreen && testHome == nil {
+            // Off every screen, never the person's hub; a test's RAVENRY_HOME is read (its board.json).
+            base = nil; named = false; boardFile = nil
         } else {
-            let home = env["RAVENRY_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? (NSHomeDirectory() + "/.ravenry")
-            var port = 4600
-            if let d = try? Data(contentsOf: URL(fileURLWithPath: home + "/board.json")),
-               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let p = (j["port"] as? NSNumber)?.intValue { port = p }
-            base = URL(string: "http://127.0.0.1:\(port)"); named = false
+            boardFile = (testHome ?? (NSHomeDirectory() + "/.ravenry")) + "/board.json"
+            named = false
+            base = HubClient.boardURL(boardFile!)
         }
         readOnly = env["RAVENRY_MAC_HUB_READONLY"] == "1"
         super.init()
@@ -554,6 +560,30 @@ final class HubClient: NSObject, URLSessionDataDelegate {
 
     var url: String { base?.absoluteString ?? "" }
 
+    /// The port the running board wrote to board.json, else 4600 (hub/server/index.mjs, hooks/events.mjs).
+    static func boardURL(_ file: String) -> URL? {
+        var port = 4600
+        if let d = try? Data(contentsOf: URL(fileURLWithPath: file)),
+           let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let p = (j["port"] as? NSNumber)?.intValue, p > 0 { port = p }
+        return URL(string: "http://127.0.0.1:\(port)")
+    }
+
+    /// The Mac woke (A11Y-012), or the hub is to be read again at once: the
+    /// stream opened again now, a full state with it, then every 250 ms for
+    /// 15 s while it does not answer.
+    func reconnectNow(_ why: String) {
+        DispatchQueue.main.async { [self] in
+            guard !stopped, base != nil || boardFile != nil else { return }
+            AppLog.write("hub: reading the board again (\(why))")
+            startedAt = Date()
+            retry = 1
+            gen += 1
+            let old = task
+            task = nil
+            old?.cancel()
+            connect()
+        }
+    }
     func start() {
         guard base != nil else { return }
         startedAt = Date()
@@ -563,6 +593,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     func stop() { stopped = true; task?.cancel() }
 
     private func connect() {
+        if let f = boardFile, let u = HubClient.boardURL(f), u != base {
+            AppLog.write("hub: the board is at \(u.absoluteString) now (was \(base?.absoluteString ?? "none"))")
+            base = u
+        }
         guard !stopped, let b = base else { return }
         // ?app=1: the app's own stream, which the hub sends Mac notifications to (hub/server/desktop.mjs pickApp).
         // A read-only window cannot answer, so it never asks for them.
@@ -645,13 +679,24 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ s: URLSession, task t: URLSessionTask, didCompleteWithError error: Error?) {
-        guard t === task, !stopped else { return }
-        setReachable(false)
-        // As the desktop: every 250 ms in the first 15 s, then backing off to 10 s.
-        let early = Date().timeIntervalSince(startedAt) < 15
-        let wait = early ? 0.25 : retry
-        if !early { retry = min(retry * 2, 10) }
-        DispatchQueue.global().asyncAfter(deadline: .now() + wait) { [weak self] in self?.connect() }
+        DispatchQueue.main.async { [self] in
+            guard t === task, !stopped else { return }
+            // A drop after the board answered (its service started again, an
+            // update): read again every 250 ms for 15 s from the drop, as at
+            // launch, so the sidebar is back within a second of the new hub (HUB-010).
+            if reachable { startedAt = Date(); retry = 1 }
+            setReachable(false)
+            // As the desktop: every 250 ms in the first 15 s, then backing off to 10 s.
+            let early = Date().timeIntervalSince(startedAt) < 15
+            let wait = early ? 0.25 : retry
+            if !early { retry = min(retry * 2, 10) }
+            gen += 1
+            let g = gen
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, self.gen == g else { return }
+                self.connect()
+            }
+        }
     }
 
     /// GET a JSON answer; the callback runs on the main thread.

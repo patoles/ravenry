@@ -156,6 +156,9 @@ final class Daemons {
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.scan() }
     }
 
+    /// The folder read now, as the 2-second timer does (a wake, Wake.swift).
+    func scanNow() { scan() }
+
     private func scan() {
         guard !closed else { return }
         for (p, ino) in candidates() {
