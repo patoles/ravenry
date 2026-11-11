@@ -231,16 +231,23 @@ func compareVersions(_ a: String, _ b: String) -> Int {
 }
 
 /// `ravenryd serve --detach`: the daemon in its own process session, so
-/// it outlives the app, the hub and their restarts.
-func startDaemon(_ bin: String, env: [String: String]) -> Bool {
+/// it outlives the app, the hub and their restarts. Nil when it started,
+/// else why not (its last line), for app.log: a daemon that cannot start
+/// (a socket path over 103 bytes, a folder it may not use) said nothing
+/// before, and the app only waited 5 s for it.
+func startDaemon(_ bin: String, env: [String: String]) -> String? {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: bin)
     p.arguments = ["serve", "--detach"]
     p.environment = env
     p.currentDirectoryURL = URL(fileURLWithPath: env["HOME"] ?? NSHomeDirectory())
     p.standardOutput = FileHandle.nullDevice
-    p.standardError = FileHandle.nullDevice
-    do { try p.run() } catch { return false }
+    let err = Pipe()
+    p.standardError = err
+    do { try p.run() } catch { return "\(error)" }
+    let data = err.fileHandleForReading.readDataToEndOfFile()
     p.waitUntilExit()
-    return p.terminationStatus == 0
+    if p.terminationStatus == 0 { return nil }
+    let last = String(decoding: data, as: UTF8.self).split(separator: "\n").last.map(String.init) ?? ""
+    return last.isEmpty ? "ravenryd serve ended with \(p.terminationStatus)" : last
 }

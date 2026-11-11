@@ -202,8 +202,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let was = found.map { "beside \($0.daemonVersion)" } ?? "none ran"
         found?.close()
         inst.log("daemon: starting this app's \(own.version) (\(was))")
-        _ = startDaemon(own.ravenryd, env: inst.env)
         var why = "the daemon it started did not answer"
+        if let e = startDaemon(own.ravenryd, env: inst.env) {
+            inst.log("daemon: could not start this app's \(own.version): \(e)")
+            why = e
+        }
         for _ in 0..<100 {
             let mine = liveDaemons(own.ravenryd, env: inst.env).filter { $0.version == own.version && !$0.draining }.map(\.socket)
             if !mine.isEmpty {
