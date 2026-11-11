@@ -987,10 +987,18 @@ proves each guard, replaying the incident against a fake home outside `.tmp/`.
   Its cmux workspaces are named `mc-test-*`, never focused, and closed at the
   end. `claude -p` is `tools/stub-claude.mjs`, so it spends no quota.
 - `node tools/phone-access-test.mjs [shotsDir]`: phone access end to end on
-  test boards on :4621 and :4622 (no Wi-Fi), reached through the Mac's own
-  LAN address so requests arrive as a phone: 421, 401, wrong and right key,
-  the cookie, live updates, New key, the Mac-only card, the QR decoded with
-  jsQR, and headless shots. Touches only `.tmp/`.
+  test boards on :4621 and :4622 (no Wi-Fi), a phone being a caller on the
+  board's stand-in for the Wi-Fi: 421, 401, wrong and right key, the cookie,
+  live updates, New key, the Mac-only card, the QR decoded with jsQR, and
+  headless shots. Touches only `.tmp/`.
+- A phone in a test, over loopback: a test board never listens on the
+  Wi-Fi (home.mjs hubBind), so `MC_TEST_PHONE_PORT=<port>`
+  (server/testphone.mjs) opens one more listener on 127.0.0.1:<port> where
+  every caller is seen as a phone at 192.0.2.10, through the board's own
+  checks. `tools/as-phone.mjs` gives the tests phoneRequest, phoneFetch and a
+  Playwright proxy (the browser keeps the Wi-Fi address in its bar). A board
+  whose data is not a test's quits with 2 on the switch, and a release of the
+  Mac app run as Node refuses it (Gate.swift, scripts/gatecheck.mjs).
 - `node tools/alerts-test.mjs [--real-ntfy]`: phone alerts (above), with
   every channel pointed at a local stub; `--real-ntfy` adds one publish to a
   throwaway random ntfy.sh topic. Touches only `.tmp/`.
