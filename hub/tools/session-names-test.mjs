@@ -16,6 +16,9 @@ fs.rmSync(TMP, { recursive: true, force: true });
 const DIR = path.join(TMP, 'claude', 'sessions');
 fs.mkdirSync(DIR, { recursive: true });
 const STORE = path.join(process.env.RAVENRY_HOME, 'session-names.json');
+// The guard's home (hub/.tmp/session-names-test/guard-home) is not inside
+// TMP above, so the last run's store is still there: start without it.
+fs.rmSync(STORE, { force: true });
 
 const S1 = 'aaaa0001-0000-4000-8000-000000000001';
 const S2 = 'aaaa0002-0000-4000-8000-000000000002';
