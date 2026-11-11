@@ -191,6 +191,46 @@ func TestRenderFind(t *testing.T) {
 	}
 }
 
+// TestRenderFindOptions: match case and a regular expression on
+// render.find, a pattern that does not parse answered with why (not an
+// error), and a match over a soft wrap.
+func TestRenderFindOptions(t *testing.T) {
+	r, st := basicsStream(t, []string{"/bin/sh", "-c", `printf 'Alpha alpha ALPHA\nid=12 id=7 id=x\n%040dbeta\n' 0; exec cat`})
+	r.until("beta")
+	r.settle()
+	for _, c := range []struct {
+		needle       string
+		caseSens, re bool
+		count        int
+	}{
+		{"alpha", false, false, 3},
+		{"alpha", true, false, 1},
+		{"ALPHA", true, false, 1},
+		{`id=[0-9]+`, false, true, 2},
+		{`^a\w+`, false, true, 1},
+		{`^a\w+`, true, true, 0},
+		{`0beta`, false, false, 1}, // the 41st column runs on to the next row
+	} {
+		res, err := st.FindWith(ctx(t), c.needle, c.caseSens, c.re, 0)
+		if err != nil || res.Count != c.count || res.PatternError != "" {
+			t.Errorf("%q case %v regex %v: %+v %v, want %d", c.needle, c.caseSens, c.re, res, err, c.count)
+		}
+	}
+	res, err := st.FindWith(ctx(t), `0beta`, false, false, 1)
+	r.settle()
+	if err != nil || r.scr.Find.Current == nil || r.scr.Find.Current.Y1 != r.scr.Find.Current.Y0+1 {
+		t.Errorf("over the wrap: %+v %v, frames %+v", res, err, r.scr.Find)
+	}
+	res, err = st.FindWith(ctx(t), `id=(`, false, true, 1)
+	r.settle()
+	if err != nil || res.PatternError != "missing closing )" || res.Count != 0 || res.Selected != -1 {
+		t.Errorf("bad pattern: %+v %v", res, err)
+	}
+	if !r.scr.Find.Active || r.scr.Find.Count != 0 || r.scr.Find.Current != nil {
+		t.Errorf("bad pattern: frames %+v", r.scr.Find)
+	}
+}
+
 // TestRenderLinkAndPaths: the link on a cell, and dropped files pasted
 // as quoted paths.
 func TestRenderLinkAndPaths(t *testing.T) {

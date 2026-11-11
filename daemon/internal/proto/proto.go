@@ -990,11 +990,18 @@ type RenderFindRequest struct {
 	// Step: 1 the next match toward older output, -1 toward newer, 0
 	// keeps the selected one.
 	Step int `json:"step,omitempty"`
+	// CaseSensitive: letters match only in the needle's case (else any
+	// case). Regex: the needle is a regular expression (RE2).
+	CaseSensitive bool `json:"case_sensitive,omitempty"`
+	Regex         bool `json:"regex,omitempty"`
 }
 
 type RenderFindResult struct {
 	Count    int `json:"count"`
 	Selected int `json:"selected"`
+	// PatternError: the regular expression does not parse, and why
+	// ("missing closing )"); there are then no matches.
+	PatternError string `json:"pattern_error,omitempty"`
 }
 
 type RenderLinkRequest struct {

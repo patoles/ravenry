@@ -365,7 +365,14 @@ func (c *conn) renderFind(id uint64, data []byte) {
 		c.failErr(id, bad("step must be -1, 0 or 1"))
 		return
 	}
-	count, sel, err := st.rsub.Find(r.Needle, r.Step)
+	count, sel, err := st.rsub.Find(r.Needle, vt.FindOptions{CaseSensitive: r.CaseSensitive, Regex: r.Regex}, r.Step)
+	var pe *vt.PatternError
+	if errors.As(err, &pe) {
+		// Typing a pattern passes through ones that do not parse yet: an
+		// answer, not an error.
+		c.reply(id, "render.find", proto.RenderFindResult{Count: 0, Selected: -1, PatternError: pe.Reason})
+		return
+	}
 	if err != nil {
 		c.failErr(id, err)
 		return

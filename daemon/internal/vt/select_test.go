@@ -161,7 +161,7 @@ func TestFind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	f.SetNeedle("needle")
+	f.SetNeedle("needle", FindOptions{})
 	if err := f.Update(); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestFind(t *testing.T) {
 	if count, _, _, _, _ := f.Matches(0, 1); count != 5 {
 		t.Errorf("after output: %d matches", count)
 	}
-	f.SetNeedle("")
+	f.SetNeedle("", FindOptions{})
 	if count, _, _, _, _ := f.Matches(0, 50); count != 0 {
 		t.Errorf("cleared: %d matches", count)
 	}

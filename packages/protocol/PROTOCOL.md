@@ -1393,14 +1393,27 @@ it; empty when nothing is selected.
 
 #### render.find
 
-`channel`, `needle` (ASCII letters match in any case; empty ends the
-search), `step` (optional: 1 selects the next match toward older output,
--1 the one toward newer, 0 keeps the selected one). Result: `count`, the
-matches in the screen and its scrollback, and `selected`, the selected
-one's index from the newest, or -1. The view scrolls to bring the
-selected match to its middle when it is not on screen. While the search
-runs, the stream's frames carry the count and the matches on their rows
-(RENDERING.md, section Find), as output comes too.
+`channel`, `needle` (empty ends the search), `step` (optional: 1 selects
+the next match toward older output, -1 the one toward newer, 0 keeps the
+selected one), `case_sensitive` (optional: letters match only in the
+needle's case; without it, in any case) and `regex` (optional: the needle
+is a regular expression, RE2 syntax as Go's regexp, matched within a
+line). A match may run over a soft wrap: wrapped rows are one line, so
+`^` and `$` hold to the line. Result: `count`, the matches in the screen
+and its scrollback, and `selected`, the selected one's index from the
+newest, or -1. A regular expression that does not parse is not an error:
+the result has `count` 0, `selected` -1 and `pattern_error`, why
+("missing closing )"), and the frames show no matches. The view scrolls
+to bring the selected match to its middle when it is not on screen.
+While the search runs, the stream's frames carry the count and the
+matches on their rows (RENDERING.md, section Find), as output comes too.
+
+`case_sensitive` and `regex` came after `render.find` itself: a daemon
+older than them refuses them (`bad_request`, an unknown field). A client
+leaves them out when they are off, so it works with any daemon as
+before, and can learn whether the daemon has them by sending
+`case_sensitive: false` with an empty `needle` before it starts a search
+on the channel (an empty needle ends the channel's search).
 
 #### render.link
 

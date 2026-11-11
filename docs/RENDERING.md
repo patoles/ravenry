@@ -41,7 +41,7 @@ it. The Go reference decoder is `daemon/internal/rframe`.
 | `render.input` {channel, events} | Keys, mouse, committed text, paste, focus, the wheel, selection gestures, dropped files (below). |
 | `render.text` {channel, from, to, rect?} | The text between two cells in screen coordinates, as a copy. |
 | `render.copy` {channel} | The pane's selection, as a copy. |
-| `render.find` {channel, needle, step?} | Find in the screen and scrollback; the frames carry the matches. |
+| `render.find` {channel, needle, step?, case_sensitive?, regex?} | Find in the screen and scrollback, in any case, in the needle's case, or a regular expression; the frames carry the matches. |
 | `render.link` {channel, at} | The link on a cell: a hyperlink (OSC 8) or a URL in the text. |
 | `pane.unsubscribe` {channel} | Ends the stream. |
 
@@ -257,8 +257,9 @@ These are the parts that are the platform's, and nothing else:
    selection gesture) decides what is selected, the frames say what it
    is (section 5), the client draws it, and `render.copy` reads it.
    `render.text` reads any other range.
-8. **Find and links.** `render.find` with what the person typed and a
-   step; the client draws the matches the frames carry (section 6).
+8. **Find and links.** `render.find` with what the person typed, a
+   step, and match case and regular expression when the person turned
+   them on; the client draws the matches the frames carry (section 6).
    `render.link` on the cell under the pointer while the person holds
    the platform's link modifier: the client underlines from `from` to
    `to` and opens `uri` on a click.
@@ -278,9 +279,6 @@ clients that draw the same pane see the same selection. A search is the
 stream's.
 
 ## What the daemon does not do yet
-
-- Find ignores the case of ASCII letters and has no match-case or regular
-  expression option (libghostty-vt's search).
 
 - Images (Kitty graphics, sixel) are not in frames.
 - Blink: the cursor's blink flag is sent; text blink is an attribute the

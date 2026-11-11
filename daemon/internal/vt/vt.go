@@ -83,7 +83,8 @@ type Screen interface {
 	Select(e SelectEvent) error
 	Selection() (Range, bool)
 	SelectionText() (string, error)
-	// NewFind starts a search of the screen and its scrollback.
+	// NewFind starts a search of the screen and its scrollback (find.go):
+	// a literal in any case or in its case, or a regular expression.
 	NewFind() (*Find, error)
 	// LinkAt is the link on a cell in screen coordinates: a hyperlink
 	// (OSC 8) or a URL in the text.

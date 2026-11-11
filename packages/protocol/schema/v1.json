@@ -6930,13 +6930,21 @@
         },
         "needle": {
           "type": "string",
-          "description": "What to find, ASCII letters in any case; empty ends the search."
+          "description": "What to find: text in any case unless case_sensitive, or a regular expression when regex; empty ends the search."
         },
         "step": {
           "type": "integer",
           "minimum": -1,
           "maximum": 1,
           "description": "1 the next match toward older output, -1 toward newer, 0 keeps the selected one."
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "description": "Letters match only in the needle's case. Absent or false: in any case. A daemon older than this option refuses it (bad_request)."
+        },
+        "regex": {
+          "type": "boolean",
+          "description": "The needle is a regular expression (RE2 syntax, Go's regexp), matched within a line, soft-wrapped rows joined. A daemon older than this option refuses it (bad_request)."
         }
       },
       "required": [
@@ -6974,6 +6982,10 @@
             "selected": {
               "type": "integer",
               "minimum": -1
+            },
+            "pattern_error": {
+              "type": "string",
+              "description": "The regular expression does not parse, and why (\"missing closing )\"); count is then 0 and the frames show no matches."
             }
           },
           "required": [

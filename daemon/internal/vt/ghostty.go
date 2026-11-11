@@ -49,6 +49,10 @@ type ghostty struct {
 
 	// The selection gesture (select.go).
 	sel selState
+
+	// gen counts changes to the text (output, a resize, Clear); reflow
+	// counts those that may change the history's rows (find.go).
+	gen, reflow uint64
 }
 
 // snapshotExtras restores everything except the palette: a client keeps
@@ -253,7 +257,10 @@ func newVTFormatter(t *gt.Terminal) (*gt.Formatter, error) {
 	return f, nil
 }
 
-func (s *ghostty) Write(p []byte) { s.t.VTWrite(p) }
+func (s *ghostty) Write(p []byte) {
+	s.gen++
+	s.t.VTWrite(p)
+}
 
 func (s *ghostty) Resize(cols, rows int) error {
 	if cols <= 0 || rows <= 0 || cols > 0xffff || rows > 0xffff {
@@ -265,6 +272,8 @@ func (s *ghostty) Resize(cols, rows int) error {
 	// are old copies of them (zsh's ">...." rows of a command line taller
 	// than the screen), and pulled back above the new prompt they show
 	// as debris. A taller screen, and any other program's, still pulls.
+	s.gen++
+	s.reflow++
 	pull := !(cols != s.cols && s.AtPrompt())
 	s.t.SetResizePullScrollback(pull)
 	err := s.t.Resize(uint16(cols), uint16(rows), 0, 0)
@@ -542,6 +551,8 @@ func (s *ghostty) Clear() (bool, error) {
 	if s.AltScreen() {
 		return false, nil
 	}
+	s.gen++
+	s.reflow++
 	y, err := s.t.CursorY()
 	if err != nil {
 		return false, fmt.Errorf("vt: cursor: %w", err)
@@ -729,6 +740,8 @@ func EngineVersion() string { return gt.Version() }
 // SetScrollback changes how many history lines are kept (pane.update).
 func (s *ghostty) SetScrollback(lines int) error {
 	s.scrollback = max(lines, 0)
+	s.gen++
+	s.reflow++
 	limit := lineLimit(s.scrollback, s.cols)
 	if err := s.t.SetScrollbackMaxLines(&limit); err != nil {
 		return fmt.Errorf("vt: scrollback limit: %w", err)

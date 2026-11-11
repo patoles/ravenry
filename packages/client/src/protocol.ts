@@ -590,7 +590,8 @@ export interface Methods {
   'render.input': { params: { channel: number; events: RenderEvent[] }; result: Record<string, never> };
   'render.text': { params: { channel: number; from: RenderPoint; to: RenderPoint; rect?: boolean }; result: { text: string } };
   'render.copy': { params: { channel: number }; result: { text: string } };
-  'render.find': { params: { channel: number; needle: string; step?: -1 | 0 | 1 }; result: { count: number; selected: number } };
+  /** case_sensitive and regex: a daemon older than them refuses them (bad_request); pattern_error: the regex does not parse, and why. */
+  'render.find': { params: { channel: number; needle: string; step?: -1 | 0 | 1; case_sensitive?: boolean; regex?: boolean }; result: { count: number; selected: number; pattern_error?: string } };
   'render.link': { params: { channel: number; at: RenderPoint }; result: { uri?: string; from?: RenderPoint; to?: RenderPoint } };
   'agent.report': {
     params: {

@@ -439,13 +439,15 @@ func (s *RenderSub) Scrolled() bool {
 	return s.scrolled
 }
 
-// Find searches the screen and its scrollback for needle (ASCII letters
-// in any case); step 1 selects the next match toward older output, -1
-// the one toward newer, 0 keeps the selected one. The view scrolls to
-// show the selected match. An empty needle ends the search. It returns
-// the number of matches and the selected one's index from the newest
-// (-1 for none).
-func (s *RenderSub) Find(needle string, step int) (count, selected int, err error) {
+// Find searches the screen and its scrollback for needle, as o says (a
+// literal in any case, in its case, or a regular expression); step 1
+// selects the next match toward older output, -1 the one toward newer, 0
+// keeps the selected one. The view scrolls to show the selected match.
+// An empty needle ends the search. It returns the number of matches and
+// the selected one's index from the newest (-1 for none). A regular
+// expression that does not parse returns a *vt.PatternError, and the
+// search then shows no matches.
+func (s *RenderSub) Find(needle string, o vt.FindOptions, step int) (count, selected int, err error) {
 	p := s.p
 	p.mu.Lock()
 	if p.closed {
@@ -467,11 +469,13 @@ func (s *RenderSub) Find(needle string, step int) (count, selected int, err erro
 			return 0, -1, err
 		}
 	}
-	if err = s.find.SetNeedle(needle); err == nil {
+	if err = s.find.SetNeedle(needle, o); err == nil {
 		err = s.find.Update()
 	}
 	if err != nil {
+		// A pattern that does not parse: the frames show no matches.
 		p.mu.Unlock()
+		s.signal()
 		return 0, -1, err
 	}
 	var m vt.Range

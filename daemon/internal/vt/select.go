@@ -9,12 +9,11 @@ import (
 	gt "go.mitchellh.com/libghostty"
 )
 
-// Selection, search and links for a client that draws the screen itself
+// Selection and links for a client that draws the screen itself
 // (RENDERING.md): the client says where the pointer is and what the
 // person did; libghostty-vt decides what is selected (its selection
 // gesture: a click, two for a word, three for a line, a drag, a block
-// with Option) and finds text (its search), so every client selects and
-// finds the same way.
+// with Option), so every client selects the same way. Find is find.go.
 
 // Range is a range of cells in screen coordinates (row 0 is the oldest row
 // of the scrollback), from X0, Y0 to X1, Y1 inclusive, in reading order.
@@ -234,121 +233,6 @@ func (s *ghostty) SelectionText() (string, error) {
 	}
 	return s.TextRange(sp.X0, sp.Y0, sp.X1, sp.Y1, sp.Rect)
 }
-
-// Find is a search of the screen and its scrollback, libghostty-vt's.
-// Matching ignores the case of ASCII letters.
-type Find struct {
-	s      *ghostty
-	search *gt.Search
-	needle string
-}
-
-// NewFind starts a search with no needle.
-func (s *ghostty) NewFind() (*Find, error) {
-	sr, err := gt.NewSearch(s.t)
-	if err != nil {
-		return nil, fmt.Errorf("vt: search: %w", err)
-	}
-	sr.SetScrollPolicy(gt.SearchScrollPolicyNever)
-	return &Find{s: s, search: sr}, nil
-}
-
-// SetNeedle sets what to find; empty clears the matches.
-func (f *Find) SetNeedle(needle string) error {
-	if needle == f.needle {
-		return nil
-	}
-	f.needle = needle
-	if err := f.search.SetNeedle([]byte(needle)); err != nil {
-		return fmt.Errorf("vt: search: %w", err)
-	}
-	return nil
-}
-
-// Needle is what the search looks for.
-func (f *Find) Needle() string { return f.needle }
-
-// Update brings the matches up to date with the screen.
-func (f *Find) Update() error {
-	if f.needle == "" {
-		return nil
-	}
-	if err := f.search.Run(); err != nil {
-		return fmt.Errorf("vt: search: %w", err)
-	}
-	return nil
-}
-
-// Step selects the next match toward older output (dir > 0) or newer
-// (dir < 0), and returns it.
-func (f *Find) Step(dir int) (Range, bool, error) {
-	if f.needle == "" {
-		return Range{}, false, nil
-	}
-	var err error
-	if dir < 0 {
-		err = f.search.SelectPrevious()
-	} else {
-		err = f.search.SelectNext()
-	}
-	if err != nil {
-		if e, ok := err.(*gt.Error); ok && e.Result == gt.ResultNoValue {
-			return Range{}, false, nil
-		}
-		return Range{}, false, fmt.Errorf("vt: search: %w", err)
-	}
-	m, err := f.search.SelectedMatch()
-	if err != nil || m == nil {
-		return Range{}, false, err
-	}
-	sp, ok := f.s.span(m)
-	return sp, ok, nil
-}
-
-// Matches returns the count of matches, the selected one's index (from
-// the newest, -1 for none) and span, and the matches on screen rows top
-// to top+rows-1.
-func (f *Find) Matches(top, rows int) (count, index int, selected *Range, in []Range, err error) {
-	index = -1
-	if f.needle == "" {
-		return 0, -1, nil, nil, nil
-	}
-	n, err := f.search.MatchCount()
-	if err != nil {
-		return 0, -1, nil, nil, fmt.Errorf("vt: search: %w", err)
-	}
-	count = int(n)
-	if i, err := f.search.SelectedIndex(); err == nil && i != nil {
-		index = int(*i)
-		if m, err := f.search.SelectedMatch(); err == nil && m != nil {
-			if sp, ok := f.s.span(m); ok {
-				selected = &sp
-			}
-		}
-	}
-	all, err := f.search.Matches()
-	if err != nil {
-		return count, index, selected, nil, fmt.Errorf("vt: search: %w", err)
-	}
-	// Newest first: stop once the matches are above the rows.
-	for i := range all {
-		sp, ok := f.s.span(&all[i])
-		if !ok {
-			continue
-		}
-		if sp.Y0 >= top+rows {
-			continue
-		}
-		if sp.Y1 < top {
-			break
-		}
-		in = append(in, sp)
-	}
-	return count, index, selected, in, nil
-}
-
-// Close frees the search.
-func (f *Find) Close() { f.search.Close() }
 
 // Link is a link on the screen: a hyperlink (OSC 8) or a URL in the text.
 type Link struct {

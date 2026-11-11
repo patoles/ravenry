@@ -479,10 +479,25 @@ func (s *Stream) Copy(ctx context.Context) (string, error) {
 	return r.Text, err
 }
 
-// Find searches the pane for needle on this stream (render.find).
+// Find searches the pane for needle on this stream (render.find), a
+// literal in any case.
 func (s *Stream) Find(ctx context.Context, needle string, step int) (proto.RenderFindResult, error) {
+	return s.FindWith(ctx, needle, false, false, step)
+}
+
+// FindWith searches as Find does, in the needle's case when
+// caseSensitive, and for a regular expression when regex. Options left
+// off are not sent, so a daemon older than them still answers.
+func (s *Stream) FindWith(ctx context.Context, needle string, caseSensitive, regex bool, step int) (proto.RenderFindResult, error) {
 	var r proto.RenderFindResult
-	err := s.c.Call(ctx, "render.find", map[string]any{"channel": s.Channel, "needle": needle, "step": step}, &r)
+	req := map[string]any{"channel": s.Channel, "needle": needle, "step": step}
+	if caseSensitive {
+		req["case_sensitive"] = true
+	}
+	if regex {
+		req["regex"] = true
+	}
+	err := s.c.Call(ctx, "render.find", req, &r)
 	return r, err
 }
 
