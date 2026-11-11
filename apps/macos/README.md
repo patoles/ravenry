@@ -371,7 +371,8 @@ stream".
   the search is the daemon's (`render.find`), and the frames carry the
   matches, drawn soft yellow, the selected one orange. Enter or Cmd+G is
   the next older match, Shift+Enter or Cmd+Shift+G the newer one, Esc
-  closes it.
+  closes it. The matches are marked on the scrollbar's track (the rows
+  render.find answers), the selected one amber.
 - **The rest**: the cursor in the program's style (block, bar,
   underline), blinking when it asks, a hollow block when the window is
   not focused; the window's title is the program's; the bell flashes
