@@ -149,7 +149,7 @@ final class PickerView: Box, BackLinked {
             extra.stringValue = ""; pictures = [:]
             let n = (cp["variants"] as? [Any] ?? []).count
             for i in 0..<n {
-                hub?.data("/api/checkpoints/\(cid ?? "")/variants/\(i)") { [weak self] d in
+                hub?.data("/api/checkpoints/\(cid ?? "")/variants/\(i)?as=png") { [weak self] d in
                     guard let self, self.id == cid, let img = d.flatMap(NSImage.init(data:)) else { return }
                     self.pictures[i] = img
                     if i < self.images.count { self.images[i].image = img }

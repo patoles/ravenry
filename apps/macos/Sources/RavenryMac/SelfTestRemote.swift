@@ -201,6 +201,8 @@ extension SelfTestBoard {
         livePicture("native-cards-drive-1440-dark.png")
         if let r = pn.shownCard?.opts.values.first(where: { $0.text == t("checkpoint.refuse") }) { press(r) }
         settle(0.5)
+        // The panel's cards on real checkpoints (SelfTestRemotePanel.swift).
+        remotePanel(shell: shell, other: second.host)
 
         // MARK: PAGE-006, a project page's run
         let dk = hub.state?.pages.first { $0.project != nil && $0.label == "Deploys" }?.key ?? ""
@@ -272,5 +274,7 @@ extension SelfTestBoard {
         rc("rc_remote_answer_lands", wait(12) { self.file(ansFile).contains("Launch") }, "\(file(ansFile)) \(hub.sent.dropFirst(n1).joined(separator: ","))")
         rc("rc_remote_answered_card", wait(8) { self.board.render(force: true); return self.shows(pn, "Answered") }, texts(pn).prefix(8).joined(separator: " | "))
         livePicture("native-machine-answered-1440-dark.png")
+        // A kind this version does not know (SelfTestRemotePanel.swift).
+        remotePanelEnd()
     }
 }

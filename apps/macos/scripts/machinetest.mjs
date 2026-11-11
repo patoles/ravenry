@@ -107,7 +107,10 @@ const port = 48600 + Math.floor(Math.random() * 300);
 const hub = await startDemoHub({
   dir: path.join(tmp, 'hub'), port, runtime: run,
   settings: { machines: [{ name: 'testbox', host: 'testbox' }] },
-  env: { RAVENRY_DAEMON_BIN: RD, RAVENRY_SSH: path.join(FAKE, 'ssh'), MC_NO_EVENTS: '0', MC_PHONE_LAN: 'none', RAVENRY_MACHINE_RETRY_MS: '500' },
+  // Phone alerts on (ntfy on this Mac, which takes nothing), so a card says On your phone too (PANEL-025).
+  alerts: true,
+  // An HTML variant drawn as a picture (PANEL-030): Playwright's Chromium where this Mac keeps it (the test's HOME has none).
+  env: { RAVENRY_DAEMON_BIN: RD, RAVENRY_SSH: path.join(FAKE, 'ssh'), MC_NO_EVENTS: '0', MC_PHONE_LAN: 'none', RAVENRY_MACHINE_RETRY_MS: '500', PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright') },
   prepare: ({ ROOT, MC }) => {
     const d = path.join(ROOT, 'garden-planner', '.ravenry', 'pages');
     fs.mkdirSync(path.join(d, 'deploys'), { recursive: true });

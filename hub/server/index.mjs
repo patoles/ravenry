@@ -61,6 +61,7 @@ import * as reviewview from './reviewview.mjs';
 import * as reviews from './reviews.mjs';
 import { paneRequest, paneInfo } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
+import { render as mockupsRender } from './mockups.mjs';
 import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
@@ -2507,7 +2508,22 @@ function projectIdOf(name) {
 // checkpoint if it is not kept yet. Only the files the checkpoint names;
 // HTML and SVG come sandboxed, so they never run a script on the hub's
 // origin.
-async function serveVariant(res, id, n) {
+// ?as=png: an HTML variant drawn to a picture (once, kept beside it), for
+// a client that draws pictures and never a web page (the native Mac app),
+// in headless Chromium with JavaScript off and the network refused
+// (server/mockups.mjs render); a picture variant is served as it is.
+const variantShots = new Map();
+async function variantPng(k) {
+  const png = k.file.replace(/\.html?$/, '.png');
+  if (fs.existsSync(png)) return png;
+  if (!variantShots.has(png)) {
+    const src = k.file.endsWith('.html') ? k.file : k.file.replace(/\.htm$/, '.page.html');
+    if (src !== k.file) fs.copyFileSync(k.file, src);
+    variantShots.set(png, mockupsRender([src]).then(([out]) => { if (out !== png) fs.renameSync(out, png); return png; }).finally(() => variantShots.delete(png)));
+  }
+  return variantShots.get(png);
+}
+async function serveVariant(res, id, n, asPng = false) {
   const cp = checkpoints.get(id);
   let k = picks.keptFile(id, n);
   if (!k && cp && cp.kind === 'pick' && Array.isArray(cp.variants) && cp.variants[n]) {
@@ -2518,6 +2534,13 @@ async function serveVariant(res, id, n) {
     const r = picks.record(id);
     const v = (r && r.variants && r.variants[n]) || null;
     return sendJson(res, v ? 502 : 404, { error: v ? `That picture could not be kept: ${v.error || 'unknown'}.` : 'No such pick, or no such variant.' });
+  }
+  if (asPng && k.type === 'html') {
+    let png;
+    try { png = await variantPng(k); } catch (e) { return sendJson(res, 501, { error: `That page could not be drawn as a picture: ${e.message}` }); }
+    const d = fs.readFileSync(png);
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': d.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
+    return res.end(d);
   }
   const type = picks.TYPES[k.ext];
   const sandboxed = k.type === 'html' || k.ext === 'svg';
@@ -3737,7 +3760,7 @@ async function handleRequest(req, res) {
     }
     {
       const m = req.method === 'GET' && /^\/api\/checkpoints\/([a-z0-9]{1,16})\/variants\/(\d)$/.exec(p);
-      if (m) return serveVariant(res, m[1], Number(m[2]));
+      if (m) return serveVariant(res, m[1], Number(m[2]), url.searchParams.get('as') === 'png');
     }
     {
       // A worktree session's review comments (server/reviews.mjs), oldest

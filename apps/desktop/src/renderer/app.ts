@@ -307,7 +307,8 @@ function paneOnScreen(): string | null {
 /** A pick's picture, from the copy the hub keeps (hub/server/picks.mjs). */
 function variantSrc(k: { cp: Checkpoint }, n: number): string | null {
   if (!S.config || !S.hubStatus?.reachable) return null;
-  return `${S.config.hubUrl}/api/checkpoints/${encodeURIComponent(k.cp.id)}/variants/${n}`;
+  // ?as=png: an HTML variant comes drawn as a picture (the hub renders it, scripts off); a picture comes as it is.
+  return `${S.config.hubUrl}/api/checkpoints/${encodeURIComponent(k.cp.id)}/variants/${n}?as=png`;
 }
 
 function openPicker(k: { cp: Checkpoint }): void {

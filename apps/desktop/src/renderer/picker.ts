@@ -96,7 +96,7 @@ export class Picker {
       const on = st.picked === n;
       const src = this.host.src(k, n);
       const img = h(`div.pv-img${st.circling ? '.drawing' : ''}`,
-        src ? (v.type === 'html' ? h('div.t3', { style: { padding: '20px' } }, 'A page: open it from the board to see it.') : h('img', { src, alt: v.label, draggable: 'false' })) : h('div.t3', { style: { padding: '20px' } }, 'This picture is on another machine.'),
+        src ? h('img', { src, alt: v.label, draggable: 'false' }) : h('div.t3', { style: { padding: '20px' } }, 'This picture is on another machine.'),
         h('span.plab', w.variants[n]?.letter || String(n + 1)));
       if (on && st.region) {
         const r = st.region;
