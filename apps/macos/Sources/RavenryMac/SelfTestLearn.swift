@@ -89,6 +89,7 @@ extension SelfTestBoard {
         n = board.hub.sent.count
         pg.post("/api/machines/remove", ["name": "devbox"], "devbox")
         check("machines_removed", wait(4) { self.sentSince(n).contains("POST /api/machines/remove") } && wait(6) { pg.list.isEmpty && self.shows(pg, t("mach.empty")) }, "\(sentSince(n)) \(pg.list.count)")
+        machinesAddInstall(pg)
         // Every shape, as the hub's cards say it.
         guard let fx = ProcessInfo.processInfo.environment["RAVENRY_MAC_FIXTURE"], let d = try? Data(contentsOf: URL(fileURLWithPath: fx)),
               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { check("machines_fixture", false, "no RAVENRY_MAC_FIXTURE"); return }
@@ -130,8 +131,11 @@ extension SelfTestBoard {
               "\(pg.errors)")
         _ = wait(4) { pg.working.isEmpty }
         press("studio:a0", "/api/machines/install", "machines_install_newer_posts")
+        let nLab = (board.hub.sentBodies.count, board.hub.sent.count)
         press("lab:step-hooks-0", "/api/machines/install", "machines_replace_hooks_posts")
+        let nLaptop = (board.hub.sentBodies.count, board.hub.sent.count)
         press("old-laptop:step-sessions-0", "/api/machines/uninstall", "machines_end_sessions_posts")
+        machinesStepBodies(lab: nLab, laptop: nLaptop)
         // Uninstall asks first: its words, the card ringed red, Cancel puts it back.
         pg.buttons["devbox:a0"]?.performClick(nil)
         check("machines_uninstall_asks", pg.confirm == "devbox" && shows(pg, "Uninstall from devbox?") && pg.buttons["devbox:confirmYes"] != nil)
@@ -148,6 +152,7 @@ extension SelfTestBoard {
         pg.buttons["old-laptop:step-sessions-1"]?.performClick(nil)
         check("machines_cancel_folds", pg.folded.contains { $0.hasPrefix("old-laptop|") } && !shows(pg, "End them and uninstall"))
         pg.buttons["render-1:a0"].map { _ in check("machines_running_has_no_buttons", false) } ?? check("machines_running_has_no_buttons", true)
+        machinesSaidToast(j["machines"] as? [[String: Any]] ?? [])
     }
 
     // MARK: the phone card (PHONE-001, PHONE-002, PHONE-006; ALERT-006)

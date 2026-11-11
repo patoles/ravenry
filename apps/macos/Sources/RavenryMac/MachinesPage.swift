@@ -465,3 +465,43 @@ final class FlowRow: Flipped {
         if abs(h - height) > 0.5 { height = h; invalidateIntrinsicContentSize() }
     }
 }
+
+/// MACH-008: a machine whose ravenryd is older than this app's, or that it
+/// cannot talk to, said once per machine and version (the Electron app's
+/// machinesSaid), with Update it opening Machines. What was said is kept in
+/// the data folder's machines-said.json, so a relaunch does not say it again;
+/// off every screen with no data folder, in memory only.
+final class MachinesSaid {
+    private let url: URL?
+    private var keys: Set<String>
+    init(env: [String: String] = ProcessInfo.processInfo.environment, offscreen: Bool) {
+        if let d = env["RAVENRY_DESKTOP_DATA"], !d.isEmpty { url = URL(fileURLWithPath: d).appendingPathComponent("machines-said.json") }
+        else if offscreen { url = nil }
+        else {
+            let lib = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+            url = lib.appendingPathComponent("Ravenry/machines-said.json")
+        }
+        keys = Set((url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String]) ?? [])
+    }
+    /// The words of each machine not said yet in the hub's list (`st.raw["machines"]`); each is then kept as said.
+    func newly(in list: [[String: Any]]?) -> [String] {
+        var out: [String] = []
+        for m in list ?? [] {
+            if (m["job"] as? [String: Any])?["state"] as? String == "running" { continue }
+            let name = m["name"] as? String ?? "", cmp = m["compare"] as? String ?? ""
+            let v = m["version"] as? String, rv = (m["remote"] as? [String: Any])?["version"] as? String
+            let what: String? = cmp == "older" && v != nil ? t("mach.saidOlder", ["name": name, "version": v!])
+                : cmp == "protocol" ? t("mach.saidProtocol", ["name": name, "version": rv.map { " (\($0))" } ?? ""]) : nil
+            let key = "\(name)|\(cmp)|\(v ?? rv ?? "")"
+            guard let what, !keys.contains(key) else { continue }
+            keys.insert(key)
+            out.append(what)
+        }
+        if !out.isEmpty, let url {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? JSONSerialization.data(withJSONObject: keys.sorted()).write(to: url, options: .atomic)
+        }
+        return out
+    }
+}

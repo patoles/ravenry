@@ -112,6 +112,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     func draw() {
         // The keyboard stays on the control it was on (the window is drawn again after each change).
         let keep = window.firstResponder.flatMap { r in controls.first { $0.value === r }?.key }
+        // A field being typed in (its editor is the first responder) keeps the keyboard and the caret too.
+        let ed = window.firstResponder as? NSTextView
+        let typing = ed.flatMap { e in (e.delegate as? NSView).flatMap { f in controls.first { f.isDescendant(of: $0.value) }.map { ($0.key, e.selectedRange()) } } }
         controls = [:]
         titleLabel.stringValue = t("set.\(tab)")
         window.title = titleLabel.stringValue
@@ -166,7 +169,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         root.frame.size = size
         if let k = keep, let v = controls[k], v.window === window { window.makeFirstResponder(v) }
+        if let (k, sel) = typing, let v = controls[k], v.window === window, let f = (v as? NSTextField) ?? firstField(in: v) {
+            window.makeFirstResponder(f)
+            if let e = f.currentEditor() { e.selectedRange = NSRange(location: min(sel.location, f.stringValue.utf16.count), length: min(sel.length, max(0, f.stringValue.utf16.count - sel.location))) }
+        }
         window.recalculateKeyViewLoop()
+    }
+
+    private func firstField(in v: NSView) -> NSTextField? {
+        for s in v.subviews { if let f = s as? NSTextField, f.isEditable { return f }; if let f = firstField(in: s) { return f } }
+        return nil
     }
 
     /// Ctrl+Tab and the arrows on the tabs: the next or the previous tab.
@@ -806,7 +818,8 @@ final class ScrollbackField: Box, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError() }
     static func fmt(_ n: Int) -> String { let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US"); return f.string(from: n as NSNumber) ?? "\(n)" }
     func controlTextDidChange(_ n: Notification) { edited?(field.stringValue) }
-    func controlTextDidEndEditing(_ n: Notification) { commit?(field.stringValue) }
+    // Leaving the field commits; a redraw taking it away does not (the window keeps what was typed).
+    func controlTextDidEndEditing(_ n: Notification) { if field.window != nil, superview != nil { commit?(field.stringValue) } }
     func control(_ c: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
         if sel == #selector(NSResponder.insertNewline(_:)) { commit?(field.stringValue); return true }
         if sel == #selector(NSResponder.cancelOperation(_:)) { field.stringValue = ScrollbackField.fmt(value); bad = false; reverted?(); return true }

@@ -118,6 +118,8 @@ final class Board: NSObject {
     private var lastYou = Set<String>()
     private var timer: Timer?
     private let keep: Bool
+    /// The machines a toast already said were older or would not talk (MACH-008).
+    lazy var machinesSaid = MachinesSaid(offscreen: !keep)
     /// Every open and its outcome, for the self-test: "session k: its tab".
     private(set) var log: [String] = []
 
@@ -1515,6 +1517,8 @@ final class Board: NSObject {
         if case .page(let k, _) = front { page = k }
         // The foot: the Machines mark's dot (the hub's cards less what the page folded), and the marks lit.
         sidebar.machinesDot = machines.attention(in: st)
+        // MACH-008: an older or unreachable ravenryd said once, with Update it (none while Machines is in front).
+        for said in machinesSaid.newly(in: st?.raw["machines"] as? [[String: Any]]) where page != "side.machines" { toast(said, action: (t("mach.updateIt"), { [weak self] in self?.openMachines() })) }
         var on = Set<String>()
         if phoneCard.isOpen { on.insert("side.phone") }
         if case .page(let k, _) = front, k == "side.learn" || k == "side.machines" { on.insert(k) }

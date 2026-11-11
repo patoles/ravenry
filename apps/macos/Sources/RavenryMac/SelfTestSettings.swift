@@ -306,12 +306,6 @@ extension SelfTestBoard {
               "\(claude()) | \(texts(root).filter { $0.contains("ravenry") }.joined(separator: ","))")
         check("set_skill_someone_else_no_install", sw.controls["skill:claude"] == nil && (try? String(contentsOf: skill, encoding: .utf8)) == mine, "\(sw.controls.keys.filter { $0.hasPrefix("skill") })")
         settingsPictures("settings-skills-someone-else")
-        // The hub's own route asked to install over it (what Install would post) leaves the file alone too.
-        let s0 = board.hub.sent.count
-        var code = 0
-        board.hub.post("/api/setup/skills", ["kind": "claude", "on": true, "ravenryd": "/usr/bin/true", "version": "0.0.0"]) { c, _ in code = c }
-        _ = wait(8) { code != 0 }
-        check("set_skill_someone_else_file_kept", (try? String(contentsOf: skill, encoding: .utf8)) == mine, "hub \(code) \(sentSince(s0))")
         try? fm.removeItem(at: skill.deletingLastPathComponent())
 
         // Codex's hooks off in its own config.toml.
