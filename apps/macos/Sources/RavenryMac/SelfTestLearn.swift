@@ -104,6 +104,7 @@ extension SelfTestBoard {
         check("machines_order", order == ["render-1", "bsd-box", "gpu-box", "old-laptop", "old-nas", "pi", "build-server", "devbox", "lab", "studio"], order.joined(separator: ","))
         check("machines_msg_and_facts", shows(pg, "gpu-box runs ravenryd 0.1.21; this app carries 0.1.24") && shows(pg, "Sessions on 0.1.21 until they end") && shows(pg, "Another board takes its answers") && shows(pg, "4.2 of 8.8 MB"))
         pictures("machines-all")
+        screenMachinesWrap()
         // Each button posts its route.
         func press(_ key: String, _ route: String, _ name: String) {
             let n = board.hub.sent.count

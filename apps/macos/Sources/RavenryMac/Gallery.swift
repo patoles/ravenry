@@ -4,18 +4,28 @@
 // first: its session's last ones, then the brief's; pictures.mjs
 // galleryList), the pictures its GET /api/pic routes.
 //
-// - The grid: a card a picture (cover, 16:10) with its name and when, at
-//   least 200 points wide; the one the viewer came from ringed.
+// - The grid: a card a picture (16:10, the picture whole inside it, never
+//   cropped) with its name and when, at least 200 points wide; the whole
+//   card is the button, lit on hover. The first card is ringed when the
+//   grid opens, the one the viewer came from when it comes back; the
+//   arrows move the ring, Return opens it. The pictures are asked for as
+//   their cards scroll into view (a spinner until each arrives, at most
+//   four requests at a time), as small copies decoded off the main thread
+//   (PictureCache); the viewer asks for the whole picture and its
+//   neighbours.
 // - One picture large: fitted to the page (never bigger than its own
 //   size), Previous, Next, Show in Finder (POST /api/project/reveal-picture
 //   for a session's picture), and the strip. A click zooms in (to its own
 //   size when that is bigger than the page, else twice as big) around the
-//   point clicked, and out again; a trackpad pinch zooms around the
-//   pointer and two fingers pan (the scroll view's own magnification). The
-//   zoom and the place stay through the hub's refreshes; a new picture
-//   starts fitted.
+//   point clicked, and out again; a trackpad pinch or Ctrl and the wheel
+//   zooms around the pointer and two fingers pan (the scroll view's own
+//   magnification); + and - zoom, 0 fits. The left and right arrows go to
+//   the previous and the next; Escape fits a zoomed picture, else goes
+//   back to the grid. The zoom and the place stay through the hub's
+//   refreshes; a new picture starts fitted.
 
 import AppKit
+import ImageIO
 
 extension When {
     /// "today, 21:12", else "9 Nov, 21:12".
@@ -75,6 +85,8 @@ final class FlippedImage: NSImageView {
 final class ZoomView: NSScrollView {
     let picture = FlippedImage()
     var onToggle: ((NSPoint) -> Void)?
+    /// Escape while it has the keyboard (the page's escape()).
+    var onEscape: (() -> Bool)?
     private(set) var url = ""
     init() {
         super.init(frame: .zero)
@@ -160,6 +172,30 @@ final class ZoomView: NSScrollView {
         reflectScrolledClipView(contentView)
     }
 
+    /// Ctrl and the wheel: in or out around the pointer (up is in), as the Electron app's ctrlKey wheel.
+    override func scrollWheel(with e: NSEvent) {
+        guard e.modifierFlags.contains(.control), picture.image != nil else { return super.scrollWheel(with: e) }
+        let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * 12
+        zoomAround(picture.convert(e.locationInWindow, from: nil), factor: exp(dy * 0.01))
+    }
+
+    /// + and -: in or out around the middle of what shows.
+    func zoomStep(_ f: CGFloat) {
+        let b = contentView.bounds
+        zoomAround(NSPoint(x: b.midX, y: b.midY), factor: f)
+    }
+
+    /// The magnification times `f`, the picture's point `p` kept where it is on screen; back to fitted below it.
+    func zoomAround(_ p: NSPoint, factor f: CGFloat) {
+        let o = contentView.bounds.origin
+        let v = NSPoint(x: (p.x - o.x) * magnification, y: (p.y - o.y) * magnification)
+        let m = magnification * f
+        if m <= fit * 1.02 { fitAgain(); return }
+        zoom(to: m, keeping: p, at: v)
+    }
+
+    override func cancelOperation(_ sender: Any?) { if onEscape?() != true { super.cancelOperation(sender) } }
+
     private func clicked(_ p: NSPoint) {
         // The point from the visible area's top left, in the view's points.
         let c = contentView.convert(p, from: picture), o = contentView.bounds.origin
@@ -178,29 +214,204 @@ final class ZoomView: NSScrollView {
     override func resetCursorRects() { addCursorRect(bounds, cursor: zoomed ? .arrow : .pointingHand) }
 }
 
+/// A picture of the grid: the whole card is one button (the picture, its
+/// name and when), the picture shown whole on a dark well (never cropped),
+/// a spinner until it arrives, lit on hover, ringed when it is the one the
+/// keyboard is on or the viewer came from.
+final class GalleryCard: Box {
+    var image: NSImage? { didSet { well.needsDisplay = true; spin.isHidden = image != nil || failed; if image != nil { spin.stopAnimation(nil) } } }
+    var failed = false { didSet { spin.isHidden = image != nil || failed; well.needsDisplay = true } }
+    var lit = false { didSet { restyle() } }
+    var onOpen: (() -> Void)?
+    let well = PictureWell()
+    let caption = Flipped()
+    private let spin = NSProgressIndicator()
+    private var hovering = false { didSet { restyle() } }
+    /// Its picture is on its way (the spinner shows).
+    var loading: Bool { image == nil && !failed && !spin.isHidden }
+
+    init(name: String, when: String?) {
+        super.init(fill: "card", ring: "sep", radius: 10)
+        layer?.masksToBounds = true
+        addSubview(well)
+        addSubview(caption)
+        spin.style = .spinning
+        spin.controlSize = .small
+        spin.isDisplayedWhenStopped = false
+        spin.startAnimation(nil)
+        well.addSubview(spin)
+        let nm = label(name, Fonts.pt(12.5, .semibold))
+        let wh = when.map { label($0, Fonts.pt(12), "tx2") }
+        let st = vstack([nm, wh], spacing: 2, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
+        st.translatesAutoresizingMaskIntoConstraints = true
+        st.autoresizingMask = [.width, .height]
+        caption.addSubview(st)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(t("gallery.open", ["name": name]))
+        restyle()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func place(_ r: NSRect, pictureHeight ih: CGFloat) {
+        frame = r
+        well.frame = NSRect(x: 0, y: 0, width: r.width, height: ih)
+        caption.frame = NSRect(x: 0, y: ih, width: r.width, height: r.height - ih)
+        caption.subviews.first?.frame = caption.bounds
+        spin.frame = NSRect(x: (r.width - 16) / 2, y: (ih - 16) / 2, width: 16, height: 16)
+    }
+
+    private func restyle() {
+        ring = lit ? "work" : hovering ? "tx3" : "sep"
+        ringWidth = lit ? 2 : 1
+        well.bright = hovering
+        caption.wantsLayer = true
+        effectiveAppearance.performAsCurrentDrawingAppearance { caption.layer?.backgroundColor = hovering ? Design.color("sel").cgColor : nil }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for t in trackingAreas { removeTrackingArea(t) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with e: NSEvent) { hovering = true; NSCursor.pointingHand.push() }
+    override func mouseExited(with e: NSEvent) { hovering = false; NSCursor.pop() }
+    override func hitTest(_ p: NSPoint) -> NSView? { super.hitTest(p) == nil ? nil : self }
+    override func mouseDown(with e: NSEvent) { onOpen?() }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+    override func accessibilityPerformPress() -> Bool { onOpen?(); return true }
+    func press() { onOpen?() }
+}
+
+/// The picture whole inside its well (aspect fit, centred), on a dark ground.
+final class PictureWell: NSView {
+    var bright = false { didSet { needsDisplay = true } }
+    override var isFlipped: Bool { true }
+    private var card: GalleryCard? { superview as? GalleryCard }
+    override func draw(_ r: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            Design.color("term-bg").setFill()
+            bounds.fill()
+            guard let c = card else { return }
+            if c.failed {
+                let s = NSAttributedString(string: t("gallery.notLoaded"), attributes: [.font: Fonts.pt(12), .foregroundColor: Design.color("tx3")])
+                let z = s.size()
+                s.draw(at: NSPoint(x: (bounds.width - z.width) / 2, y: (bounds.height - z.height) / 2))
+                return
+            }
+            guard let img = c.image, img.size.width > 0, img.size.height > 0 else { return }
+            let k = min(bounds.width / img.size.width, bounds.height / img.size.height)
+            let w = img.size.width * k, h = img.size.height * k
+            let dst = NSRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h).integral
+            NSGraphicsContext.current?.imageInterpolation = .high
+            img.draw(in: dst, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            if bright { NSColor.white.withAlphaComponent(0.06).setFill(); dst.fill(using: .sourceOver) }
+        }
+    }
+}
+
+/// The pictures the gallery has fetched: small copies for the grid and the
+/// strip (decoded off the main thread, at most 640 px), whole ones for the
+/// viewer, each list kept to its size (the oldest used goes first), at most
+/// four requests at a time, the ones on screen first.
+final class PictureCache {
+    weak var hub: HubClient?
+    private(set) var small: [String: NSImage] = [:]
+    private(set) var large: [String: NSImage] = [:]
+    private(set) var failed = Set<String>()
+    private var order: [String] = []
+    private var bigOrder: [String] = []
+    private var inFlight = Set<String>()
+    private var queue: [(url: String, big: Bool)] = []
+    /// Every URL asked of the hub, in order (the self-test reads it).
+    private(set) var fetched: [String] = []
+    var changed: ((String) -> Void)?
+    let keepSmall = 120, keepLarge = 6, atOnce = 4
+
+    func smallImage(_ u: String) -> NSImage? { if let i = small[u] { touch(u, big: false); return i }; return nil }
+    func largeImage(_ u: String) -> NSImage? { if let i = large[u] { touch(u, big: true); return i }; return nil }
+
+    /// Asks for these, first ones first; what is already queued and not wanted any more waits behind them.
+    func want(_ urls: [String], big: Bool) {
+        let fresh = urls.filter { u in (big ? large[u] : small[u]) == nil && !failed.contains(u) && !inFlight.contains(u + (big ? "#L" : "")) }
+        queue.removeAll { q in q.big == big && fresh.contains(q.url) }
+        queue.insert(contentsOf: fresh.map { ($0, big) }, at: 0)
+        pump()
+    }
+
+    private func pump() {
+        while inFlight.count < atOnce, !queue.isEmpty {
+            let (u, big) = queue.removeFirst()
+            let key = u + (big ? "#L" : "")
+            guard !inFlight.contains(key), (big ? large[u] : small[u]) == nil else { continue }
+            // A big one already here makes the small one at once.
+            if !big, let L = large[u] { put(u, Self.thumb(L), big: false); continue }
+            guard let hub else { return }
+            inFlight.insert(key)
+            fetched.append(u)
+            hub.data(u) { [weak self] d in
+                guard let d else { self?.done(key, u, nil, big: big); return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let img = big ? NSImage(data: d) : Self.thumb(d)
+                    DispatchQueue.main.async { self?.done(key, u, img, big: big) }
+                }
+            }
+        }
+    }
+
+    private func done(_ key: String, _ u: String, _ img: NSImage?, big: Bool) {
+        inFlight.remove(key)
+        if let img { put(u, img, big: big) } else { failed.insert(u) }
+        changed?(u)
+        pump()
+    }
+
+    private func put(_ u: String, _ img: NSImage, big: Bool) {
+        if big { large[u] = img } else { small[u] = img }
+        touch(u, big: big)
+        let keep = big ? keepLarge : keepSmall
+        var list = big ? bigOrder : order
+        while list.count > keep { let gone = list.removeFirst(); if big { large[gone] = nil } else { small[gone] = nil } }
+        if big { bigOrder = list } else { order = list }
+    }
+
+    private func touch(_ u: String, big: Bool) {
+        if big { bigOrder.removeAll { $0 == u }; bigOrder.append(u) } else { order.removeAll { $0 == u }; order.append(u) }
+    }
+
+    /// At most 640 px on its longer side, decoded now (not when first drawn).
+    static func thumb(_ d: Data) -> NSImage? {
+        guard let src = CGImageSourceCreateWithData(d as CFData, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 640, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        else { return NSImage(data: d) }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+    static func thumb(_ i: NSImage) -> NSImage { i.tiffRepresentation.flatMap { thumb($0) } ?? i }
+}
+
 final class GalleryPage: InAppPage {
-    var hub: HubClient?
+    var hub: HubClient? { didSet { cache.hub = hub } }
     var toast: ((String) -> Void)?
     private(set) var project = ""
-    /// The picture shown large, else the grid; `lit` the card the viewer came from.
+    /// The picture shown large, else the grid; `lit` the card the keyboard is on (the one the viewer came from).
     private(set) var at: Int?
     private(set) var lit: Int?
     private(set) var pics: [GalleryPic] = []
-    private var images: [String: NSImage] = [:]
-    private var asked = Set<String>()
+    let cache = PictureCache()
     private let grid = NSScrollView()
     private let gridDoc = Flipped()
-    private(set) var cards: [CoverImage] = []
-    private var captions: [NSView] = []
+    private(set) var cards: [GalleryCard] = []
     private var empty: NSTextField?
     let zoom = ZoomView()
     private let vbar = Flipped()
     private let strip = NSScrollView()
     private let stripDoc = Flipped()
-    private(set) var thumbs: [CoverImage] = []
+    private(set) var thumbs: [FitImage] = []
     private var drawn = ""
     private var name = ""
     private var revealing = false
+    /// Columns of the grid as last laid out (the up and down arrows).
+    private(set) var cols = 1
 
     override init() {
         super.init()
@@ -210,6 +421,8 @@ final class GalleryPage: InAppPage {
         grid.scrollerStyle = .overlay
         grid.automaticallyAdjustsContentInsets = false
         grid.documentView = gridDoc
+        grid.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: grid.contentView)
         strip.drawsBackground = false
         strip.hasHorizontalScroller = true
         strip.autohidesScrollers = true
@@ -217,10 +430,13 @@ final class GalleryPage: InAppPage {
         strip.automaticallyAdjustsContentInsets = false
         strip.documentView = stripDoc
         for v in [grid, zoom, vbar, strip] as [NSView] { body.addSubview(v) }
+        cache.changed = { [weak self] u in self?.arrived(u) }
+        zoom.onEscape = { [weak self] in self?.escape() ?? false }
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Shows a project's gallery (at nil) or one of its pictures large.
+    /// Shows a project's gallery (at nil) or one of its pictures large; the
+    /// grid opened afresh rings its first card (the keyboard starts there).
     func show(_ pid: String, at i: Int?, lit l: Int? = nil, state: HubState?) {
         if pid != project { drawn = ""; project = pid }
         let p = state?.project(pid)
@@ -228,29 +444,39 @@ final class GalleryPage: InAppPage {
         pics = GalleryPic.of(p)
         at = i.map { max(0, min(pics.count - 1, $0)) }
         if pics.isEmpty { at = nil }
-        lit = l
+        lit = l ?? (i == nil && !pics.isEmpty ? 0 : nil)
         draw()
+        takeKeys()
     }
 
     /// The hub's state again: drawn again only when the list changed.
-    func refresh(_ state: HubState?) { show(project, at: at, lit: lit, state: state) }
+    func refresh(_ state: HubState?) {
+        pics = GalleryPic.of(state?.project(project))
+        if let a = at { at = pics.isEmpty ? nil : min(a, pics.count - 1) }
+        if let l = lit { lit = pics.isEmpty ? nil : min(l, pics.count - 1) }
+        draw()
+    }
 
-    private func image(_ u: String) -> NSImage? {
-        if let i = images[u] { return i }
-        if !asked.contains(u), let hub {
-            asked.insert(u)
-            hub.data(u) { [weak self] d in
-                guard let self else { return }
-                if let d, let i = NSImage(data: d) { self.images[u] = i } else { self.asked.remove(u) }
-                self.drawn = ""
-                self.draw()
-            }
+    /// The page takes the keyboard when it shows (a page in front, not the terminal behind it).
+    private func takeKeys() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let w = self.window, !self.isHidden else { return }
+            if !(w.firstResponder is NSTextView) { w.makeFirstResponder(self) }
         }
-        return nil
+    }
+
+    private func arrived(_ u: String) {
+        if let i = at, pics.indices.contains(i), pics[i].url == u, let L = cache.largeImage(u) { zoom.show(u, L) }
+        for (k, x) in pics.enumerated() where x.url == u {
+            if k < cards.count { cards[k].image = cache.smallImage(u); cards[k].failed = cache.failed.contains(u) }
+            if k < thumbs.count { thumbs[k].image = cache.smallImage(u) }
+        }
+        // The viewer's picture while its whole copy is still on its way: the small one, never black.
+        if let i = at, pics.indices.contains(i), pics[i].url == u, cache.largeImage(u) == nil, let s = cache.smallImage(u), zoom.picture.image == nil { zoom.show(u, s) }
     }
 
     private func draw() {
-        let sig = "\(project)|\(at ?? -1)|\(lit ?? -1)|\(revealing)|" + pics.map { $0.url + ($0.at ?? "") + $0.name }.joined(separator: ",") + "|\(images.count)"
+        let sig = "\(project)|\(at ?? -1)|\(lit ?? -1)|\(revealing)|" + pics.map { $0.url + ($0.at ?? "") + $0.name }.joined(separator: ",")
         if sig == drawn { return }
         drawn = sig
         let n = pics.count
@@ -267,15 +493,17 @@ final class GalleryPage: InAppPage {
         needsLayout = true
     }
 
-    private func go(_ i: Int?, lit l: Int? = nil) {
+    func go(_ i: Int?, lit l: Int? = nil) {
         at = i
-        lit = l
+        lit = l ?? lit
         draw()
+        takeKeys()
+        if i == nil { DispatchQueue.main.async { [weak self] in self?.revealLit() } }
     }
 
     private func drawGrid() {
         gridDoc.subviews.forEach { $0.removeFromSuperview() }
-        cards = []; captions = []; empty = nil
+        cards = []; empty = nil
         if pics.isEmpty {
             let e = label(t("gallery.none"), Fonts.pt(13), "tx2", lines: 2)
             e.translatesAutoresizingMaskIntoConstraints = true
@@ -284,32 +512,31 @@ final class GalleryPage: InAppPage {
             return
         }
         for (i, x) in pics.enumerated() {
-            let c = CoverImage()
-            c.image = image(x.url)
-            c.fillColor = .black
-            c.onClick = { [weak self] in self?.go(i) }
-            c.setAccessibilityRole(.button)
-            c.setAccessibilityLabel(t("gallery.open", ["name": x.name]))
-            let cap = Box(fill: "card", radius: 0)
-            let nm = label(x.name, Fonts.pt(12.5, .semibold))
-            let wh = x.when.map { label($0, Fonts.pt(12), "tx2") }
-            let st = vstack([nm, wh], spacing: 2, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
-            st.translatesAutoresizingMaskIntoConstraints = true
-            cap.addSubview(st)
-            let card = Box(fill: "card", ring: i == lit ? "work" : "sep", radius: 10)
-            card.ringWidth = i == lit ? 2 : 1
-            card.layer?.masksToBounds = true
-            card.addSubview(c)
-            card.addSubview(cap)
-            gridDoc.addSubview(card)
+            let c = GalleryCard(name: x.name, when: x.when)
+            c.image = cache.smallImage(x.url)
+            c.failed = cache.failed.contains(x.url)
+            c.lit = i == lit
+            c.onOpen = { [weak self] in self?.lit = i; self?.go(i) }
+            gridDoc.addSubview(c)
             cards.append(c)
-            captions.append(cap)
         }
+    }
+
+    /// The cards on screen (and a screen below) asked for first, the rest after.
+    @objc private func scrolled() { loadVisible() }
+    private func loadVisible() {
+        guard at == nil, !cards.isEmpty else { return }
+        let vis = grid.contentView.bounds.insetBy(dx: 0, dy: -grid.contentView.bounds.height * 0.5)
+        let urls = cards.enumerated().filter { $0.element.frame.intersects(vis) }.map { pics[$0.offset].url }
+        cache.want(urls, big: false)
     }
 
     private func drawViewer(_ i: Int) {
         let x = pics[i]
-        zoom.show(x.url, image(x.url))
+        zoom.show(x.url, cache.largeImage(x.url) ?? cache.smallImage(x.url))
+        cache.want([x.url], big: true)
+        // The neighbours next, so Previous and Next show at once.
+        cache.want([i + 1, i - 1].filter { pics.indices.contains($0) }.map { pics[$0].url }, big: true)
         zoom.picture.setAccessibilityLabel(x.name)
         vbar.subviews.forEach { $0.removeFromSuperview() }
         let prev = RButton(t("gallery.previous")) { [weak self] in self?.go(i - 1) }
@@ -331,10 +558,8 @@ final class GalleryPage: InAppPage {
         stripDoc.subviews.forEach { $0.removeFromSuperview() }
         thumbs = []
         for (k, y) in pics.enumerated() {
-            let c = CoverImage()
-            c.image = image(y.url)
-            c.radius = 6
-            c.fillColor = .clear
+            let c = FitImage()
+            c.image = cache.smallImage(y.url)
             c.dim = k == i ? 1 : 0.6
             c.onClick = { [weak self] in self?.go(k) }
             c.setAccessibilityLabel(t("gallery.showOne", ["name": y.name]))
@@ -345,6 +570,7 @@ final class GalleryPage: InAppPage {
             stripDoc.addSubview(ring)
             thumbs.append(c)
         }
+        cache.want(pics.map { $0.url }, big: false)
     }
 
     private func reveal(_ key: String, _ name: String) {
@@ -360,6 +586,60 @@ final class GalleryPage: InAppPage {
         }
     }
 
+    // MARK: the keyboard
+
+    override var acceptsFirstResponder: Bool { true }
+    override func keyDown(with e: NSEvent) {
+        let cmd = e.modifierFlags.contains(.command)
+        if let i = at {
+            switch e.keyCode {
+            case 123: if i > 0 { go(i - 1) }; return
+            case 124: if i < pics.count - 1 { go(i + 1) }; return
+            case 53: if escape() { return }
+            default:
+                let ch = e.charactersIgnoringModifiers ?? ""
+                if ch == "+" || ch == "=" { zoom.zoomStep(1.5); return }
+                if ch == "-" { zoom.zoomStep(1 / 1.5); return }
+                if ch == "0" { zoom.fitAgain(); return }
+            }
+        } else if !pics.isEmpty && !cmd {
+            let l = lit ?? 0
+            switch e.keyCode {
+            case 123: move(to: l - 1); return
+            case 124: move(to: l + 1); return
+            case 126: move(to: l - cols); return
+            case 125: move(to: l + cols); return
+            case 36, 76, 49: go(l, lit: l); return
+            default: break
+            }
+        }
+        super.keyDown(with: e)
+    }
+
+    /// Escape in the viewer: a zoomed picture fitted again, else back to the grid. False when it had nothing to do.
+    @discardableResult func escape() -> Bool {
+        guard let i = at else { return false }
+        if zoom.zoomed { zoom.fitAgain(); return true }
+        go(nil, lit: i)
+        return true
+    }
+    override func cancelOperation(_ sender: Any?) { if !escape() { super.cancelOperation(sender) } }
+
+    private func move(to k: Int) {
+        guard !cards.isEmpty else { return }
+        let n = max(0, min(cards.count - 1, k))
+        lit = n
+        for (i, c) in cards.enumerated() { c.lit = i == n }
+        drawn = ""
+        draw()
+        revealLit()
+    }
+
+    private func revealLit() {
+        guard at == nil, let l = lit, l < cards.count else { return }
+        cards[l].scrollToVisible(cards[l].bounds.insetBy(dx: 0, dy: -14))
+    }
+
     override func layoutBody() {
         let b = body.bounds
         let pad: CGFloat = 22
@@ -369,20 +649,17 @@ final class GalleryPage: InAppPage {
             if let e = empty { e.frame = NSRect(x: pad, y: 0, width: w, height: 40); gridDoc.frame = NSRect(x: 0, y: 0, width: b.width, height: max(b.height, 60)); return }
             // repeat(auto-fill, minmax(200px, 1fr)), gap 14.
             let gap: CGFloat = 14
-            let cols = max(1, Int((w + gap) / (200 + gap)))
+            cols = max(1, Int((w + gap) / (200 + gap)))
             let cw = (w - gap * CGFloat(cols - 1)) / CGFloat(cols)
             let ih = (cw * 10 / 16).rounded()
             let ch = ih + 52
             for (i, c) in cards.enumerated() {
                 let r = i / cols, k = i % cols
-                let card = c.superview!
-                card.frame = NSRect(x: pad + CGFloat(k) * (cw + gap), y: CGFloat(r) * (ch + gap), width: cw, height: ch)
-                c.frame = NSRect(x: 0, y: 0, width: cw, height: ih)
-                captions[i].frame = NSRect(x: 0, y: ih, width: cw, height: ch - ih)
-                captions[i].subviews.first?.frame = captions[i].bounds
+                c.place(NSRect(x: pad + CGFloat(k) * (cw + gap), y: CGFloat(r) * (ch + gap), width: cw, height: ch), pictureHeight: ih)
             }
             let rows = (cards.count + cols - 1) / cols
             gridDoc.frame = NSRect(x: 0, y: 0, width: b.width, height: max(b.height, CGFloat(rows) * (ch + gap) + 6))
+            loadVisible()
             return
         }
         // .ia-view: the picture takes what the bar (32) and the strip (58) leave, gap 14.
@@ -400,4 +677,26 @@ final class GalleryPage: InAppPage {
         }
         stripDoc.frame = NSRect(x: 0, y: 0, width: max(strip.bounds.width, CGFloat(thumbs.count) * 92 + 4), height: stripH)
     }
+}
+
+/// A strip thumbnail: the picture whole on the dark ground, in rounded corners; dimmed unless it is the one shown.
+final class FitImage: NSView {
+    var image: NSImage? { didSet { needsDisplay = true } }
+    var dim: CGFloat = 1 { didSet { needsDisplay = true } }
+    var onClick: (() -> Void)?
+    override var isFlipped: Bool { true }
+    override func draw(_ r: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).addClip()
+            Design.color("term-bg").setFill()
+            bounds.fill()
+            guard let img = image, img.size.width > 0, img.size.height > 0 else { return }
+            let k = min(bounds.width / img.size.width, bounds.height / img.size.height)
+            let w = img.size.width * k, h = img.size.height * k
+            img.draw(in: NSRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h), from: .zero, operation: .sourceOver, fraction: dim, respectFlipped: true, hints: nil)
+        }
+    }
+    override func mouseDown(with e: NSEvent) { onClick?() }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+    override func accessibilityPerformPress() -> Bool { onClick?(); return true }
 }

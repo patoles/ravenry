@@ -239,7 +239,10 @@ export function macOptionIsMetaFor(mode: OptionAsMeta, code: string): boolean {
 
 export type SettingsTab = 'appearance' | 'behavior' | 'skills';
 export const SETTINGS_TABS: Record<SettingsTab, string> = { appearance: 'Appearance', behavior: 'Behavior', skills: 'Skills' };
-if (spec.tabs.join() !== Object.keys(SETTINGS_TABS).join()) throw new Error('shared/settings/settings.json tabs differ from SETTINGS_TABS');
+// Hand-off (the hub's own settings for every project) is a tab of the
+// native Mac app only; this app has no editor for them (FEATURES SET-005).
+const NATIVE_ONLY_TABS = ['handoff'];
+if (spec.tabs.filter((t: string) => !NATIVE_ONLY_TABS.includes(t)).join() !== Object.keys(SETTINGS_TABS).join()) throw new Error('shared/settings/settings.json tabs differ from SETTINGS_TABS');
 
 /** What `settings:get` answers and `settings:changed` sends (docs/SETTINGS.md). */
 export interface SettingsSnapshot {

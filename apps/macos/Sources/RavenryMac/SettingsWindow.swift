@@ -1,12 +1,17 @@
 // The Settings window, as the Electron app draws it (apps/desktop/src/
-// settings/settings.ts and settings.css): 720 wide, the title and the
-// three tabs (Appearance, Behavior, Skills) on the window's colour, then a
-// form of rows (the label at the right of a 170 column, the controls, a
-// hint under them), its height following the tab. Every control writes the
+// settings/settings.ts and settings.css): 720 wide, the title and the tabs
+// (shared/settings/settings.json `tabs`: Appearance, Behavior, Hand-off,
+// Skills) on the window's colour, then a form of rows (the label at the
+// right of a 170 column, the controls, a hint under them), its height
+// following the tab, its top kept where it is. Every control writes the
 // shared settings file (Settings.swift) and the window draws again from
-// what is saved. Skills: the Ravenry skill and its hooks per assistant, as
-// the hub sends them (GET /api/setup/skills?ravenryd=, skills.withHooks),
-// Install, Remove and Set up posted to the hub.
+// what is saved. Hand-off (SettingsHandoff.swift): the hub's own settings
+// for every project. Skills: the Ravenry skill and its hooks per
+// assistant, as the hub sends them (GET /api/setup/skills?ravenryd=,
+// skills.withHooks), read again every 3 s while the tab shows, so a setup
+// made elsewhere shows; Install, Remove and Set up posted to the hub.
+// Every control takes the keyboard: Tab moves through them, Space or
+// Return presses, the arrows move a segment or a slider.
 
 import AppKit
 
@@ -20,7 +25,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private let titleLabel = label("", Fonts.pt(13, Fonts.w650))
     private(set) var tabButtons: [String: TapBox] = [:]
     /// Every control by name, for the self-test ("follow", "theme:nord", "cursor:bar", "skill:claude" ...).
-    private(set) var controls: [String: NSView] = [:]
+    var controls: [String: NSView] = [:]
     private(set) var skills: [[String: Any]] = []
     private(set) var skillsRead = false
     private(set) var busy: String?
@@ -31,7 +36,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         guard !f.hasPrefix("."), let font = NSFont(name: f, size: 12) else { return false }
         return font.isFixedPitch || NSFontManager.shared.traits(of: font).contains(.fixedPitchFontMask)
     }
-    private let offscreen: Bool
+    let offscreen: Bool
+    /// The hand-off tab's state (SettingsHandoff.swift).
+    var ho = HandoffState()
+    private var poll: Timer?
 
     init(store: SettingsStore, hub: HubClient?, offscreen: Bool) {
         self.store = store; self.hub = hub; self.offscreen = offscreen
@@ -47,6 +55,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         root.addSubview(head)
         root.addSubview(body)
         store.onChange = { [weak self] in self?.draw() }
+        poll = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.tick() }
+    }
+
+    /// While the window shows: the skills (a setup made by onboarding, an
+    /// agent or by hand) and the hand-off settings (the board's or another
+    /// client's change) read again.
+    private func tick() {
+        guard window.isVisible else { return }
+        if tab == "skills" && busy == nil { readSkills() }
+        if tab == "handoff" { readHandoff(quiet: true) }
     }
 
     /// Opens it on a tab (Cmd+, and the sidebar's Settings), or brings it to the front.
@@ -61,20 +79,28 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
         }
         if self.tab == "skills" { readSkills() }
+        if self.tab == "handoff" { readHandoff() }
     }
 
     func pick(_ t: String) {
-        guard t != tab else { return }
+        guard t != tab, tabs.contains(where: { $0.0 == t }) else { return }
         tab = t
         draw()
         if t == "skills" { readSkills() }
+        if t == "handoff" { readHandoff() }
     }
 
     // MARK: drawing
 
-    private let tabs: [(String, String)] = [("appearance", "set.appearance"), ("behavior", "set.behavior"), ("skills", "set.skills")]
+    /// The tabs in shared/settings/settings.json's order.
+    let tabs: [(String, String)] = {
+        let ids = SettingsStore.spec["tabs"] as? [String] ?? ["appearance", "behavior", "handoff", "skills"]
+        return ids.map { ($0, "set.\($0)") }
+    }()
 
     func draw() {
+        // The keyboard stays on the control it was on (the window is drawn again after each change).
+        let keep = window.firstResponder.flatMap { r in controls.first { $0.value === r }?.key }
         controls = [:]
         titleLabel.stringValue = t("set.\(tab)")
         window.title = titleLabel.stringValue
@@ -85,6 +111,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         for (id, key) in tabs {
             let on = id == tab
             let b = TapBox(fill: on ? "sel" : nil, radius: 7) { [weak self] in self?.pick(id) }
+            b.arrows = { [weak self] d in self?.step(tab: d) }
             let col = vstackC([Icon("settings-\(id)", on ? "work" : "tx2", size: 22), label(t(key), Fonts.pt(11.5), on ? "work" : "tx2")], spacing: 3)
             b.addSubview(col)
             NSLayoutConstraint.activate([b.widthAnchor.constraint(equalToConstant: 92), col.centerXAnchor.constraint(equalTo: b.centerXAnchor),
@@ -106,7 +133,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
                                      line.bottomAnchor.constraint(equalTo: head.bottomAnchor), line.heightAnchor.constraint(equalToConstant: 1)])
         // .sw-b: 18 above, 28 at the sides, 22 below.
         body.subviews.forEach { $0.removeFromSuperview() }
-        let rows: [NSView] = tab == "appearance" ? appearance() : tab == "behavior" ? behavior() : skillsPane()
+        let rows: [NSView] = tab == "appearance" ? appearance() : tab == "behavior" ? behavior() : tab == "handoff" ? handoffPane() : skillsPane()
         let st = vstack(rows, spacing: 0, insets: NSEdgeInsets(top: 18, left: 28, bottom: 22, right: 28))
         body.addSubview(st)
         let root = window.contentView!
@@ -118,14 +145,30 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         head.frame = NSRect(x: 0, y: 0, width: w, height: hh)
         body.frame = NSRect(x: 0, y: hh, width: w, height: bh)
         // The traffic lights sit at 14, 12 (Electron's trafficLightPosition): the head starts under the title bar's top.
+        // The new height keeps the window's top where it is (setContentSize keeps its bottom).
         let size = NSSize(width: w, height: hh + bh)
-        if root.frame.size != size { window.setContentSize(size) }
+        if root.frame.size != size {
+            let old = window.frame
+            var f = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+            f.origin = NSPoint(x: old.minX, y: old.maxY - f.height)
+            window.setFrame(f, display: true)
+        }
         root.frame.size = size
+        if let k = keep, let v = controls[k], v.window === window { window.makeFirstResponder(v) }
+        window.recalculateKeyViewLoop()
+    }
+
+    /// Ctrl+Tab and the arrows on the tabs: the next or the previous tab.
+    func step(tab d: Int) {
+        guard let i = tabs.firstIndex(where: { $0.0 == tab }) else { return }
+        let n = tabs[(i + d + tabs.count) % tabs.count].0
+        pick(n)
+        if let b = tabButtons[n] { window.makeFirstResponder(b) }
     }
 
     // MARK: rows (.fr2: a 170 column for the label at its right, 14 apart, 10 above and below, a line above)
 
-    private func row(_ text: String, _ ctl: [NSView], line extra: NSView? = nil, hint: String? = nil, join: Bool = false, first: Bool = false) -> NSView {
+    func row(_ text: String, _ ctl: [NSView], line extra: NSView? = nil, hint: String? = nil, join: Bool = false, first: Bool = false) -> NSView {
         let lb = label(text, Fonts.pt(13), "tx")
         lb.alignment = .right
         lb.translatesAutoresizingMaskIntoConstraints = false
@@ -150,7 +193,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     /// .sec: a section's title (12, 650, tx2), 16 above after a row.
-    private func sec(_ text: String, sub: String? = nil, after: Bool) -> NSView {
+    func sec(_ text: String, sub: String? = nil, after: Bool) -> NSView {
         var v: [NSView] = [label(text, Fonts.pt(12, Fonts.w650), "tx2")]
         if let s = sub { v.append(label(s, Fonts.pt(12), "tx3")) }
         return hstack(v + [spring()], spacing: 6, insets: NSEdgeInsets(top: after ? 16 : 0, left: 0, bottom: 8, right: 0))
@@ -334,14 +377,27 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     /// .segm: the choices on --card, the one picked on --btn.
     private func segm(_ name: String, _ value: String, _ items: [(String, String)], key: String) -> NSView {
+        seg(name, value, items.map { ($0.0, t($0.1)) }) { [weak self] v in self?.set([key: v]) }
+    }
+
+    /// A segmented choice of words; `pick` runs for a choice other than the one picked. The arrows move it.
+    func seg(_ name: String, _ value: String, _ items: [(String, String)], enabled: Bool = true, pick: @escaping (String) -> Void) -> NSView {
         let g = Box(fill: "card", radius: 7)
         g.translatesAutoresizingMaskIntoConstraints = false
-        let bs = items.map { v, k -> NSView in
+        let vals = items.map { $0.0 }
+        let bs = items.map { v, word -> NSView in
             let on = v == value
-            let b = TapBox(fill: on ? "btn" : nil, radius: 5) { [weak self] in if !on { self?.set([key: v]) } }
+            let b = TapBox(fill: on ? "btn" : nil, radius: 5) { if !on && enabled { pick(v) } }
+            b.arrows = { [weak self] d in
+                guard enabled, let i = vals.firstIndex(of: value) else { return }
+                let j = i + d
+                guard j >= 0, j < vals.count else { return }
+                pick(vals[j])
+                if let x = self?.controls["\(name):\(vals[j])"] { self?.window.makeFirstResponder(x) }
+            }
             if on { b.ring = "sep"; b.ringWidth = 0.5 }
-            b.put(label(t(k), Fonts.pt(12.5), on ? "tx" : "tx2"), pad: 12, h: 24)
-            b.setAccessibilityRole(.radioButton); b.setAccessibilityLabel(t(k)); b.setAccessibilityValue(on)
+            b.put(label(word, Fonts.pt(12.5), on ? "tx" : "tx2"), pad: 12, h: 24)
+            b.setAccessibilityRole(.radioButton); b.setAccessibilityLabel(word); b.setAccessibilityValue(on)
             controls["\(name):\(v)"] = b
             return b
         }
@@ -349,6 +405,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         g.addSubview(r)
         pinAll(r, g)
         g.setContentHuggingPriority(.required, for: .horizontal)
+        g.alphaValue = enabled ? 1 : 0.45
         return g
     }
 
@@ -397,9 +454,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let q = "/api/setup/skills?ravenryd=\(ravenryd.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"
         hub?.get(q) { [weak self] code, j in
             guard let self else { return }
+            let was = self.skillsRead
             self.skillsRead = true
-            self.skills = code == 200 ? j["skills"] as? [[String: Any]] ?? [] : []
-            if self.tab == "skills" { self.draw() }
+            let got = code == 200 ? j["skills"] as? [[String: Any]] ?? [] : []
+            // Drawn again only when something changed (the 3 s read too).
+            let same = was && (got as NSArray).isEqual(to: self.skills)
+            self.skills = got
+            if self.tab == "skills" && !same { self.draw() }
         }
     }
 
@@ -438,7 +499,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             return hstack([w, spring()], spacing: 0, insets: NSEdgeInsets(top: 8, left: 0, bottom: 0, right: 0))
         }
         var out: [NSView] = [sec(t("set.skills"), sub: t("set.thisMac"), after: false)]
-        if skills.isEmpty { out.append(hint(t("set.needsBoard"))) }
+        if skills.isEmpty { out.append(hint(skillsRead ? t("set.needsBoard") : t("set.reading"))) }
         out += skills.map { line($0, hooks: false) }
         out.append(hint(t("set.skillsHint")))
         out.append(sec(t("set.hooksTitle"), after: true))
@@ -471,12 +532,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     // MARK: writing
 
-    private func set(_ patch: [String: Any]) {
+    func set(_ patch: [String: Any]) {
         if let e = store.set(patch) { NSLog("settings: \(e)") }
         draw()
     }
 
     func windowWillClose(_ n: Notification) {}
+    func windowDidBecomeKey(_ n: Notification) { tick() }
 }
 
 // MARK: small views
@@ -533,9 +595,30 @@ final class TapBox: Box {
         NSLayoutConstraint.activate(cs)
     }
     func press() { run?() }
+    /// The left and right arrows while it has the keyboard (a tab, a segment): -1 or +1.
+    var arrows: ((Int) -> Void)?
     override func mouseDown(with e: NSEvent) { run?() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { run?(); return true }
+    // The keyboard: Tab reaches it, Space or Return presses it, the arrows step.
+    override var acceptsFirstResponder: Bool { run != nil }
+    override var canBecomeKeyView: Bool { run != nil }
+    override func becomeFirstResponder() -> Bool { needsDisplay = true; noteFocusRingMaskChanged(); return true }
+    override func resignFirstResponder() -> Bool { noteFocusRingMaskChanged(); return true }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill() }
+    override func keyDown(with e: NSEvent) { if !keyPress(e, press: { [weak self] in self?.press() }, arrows: arrows) { super.keyDown(with: e) } }
+}
+
+/// Space and Return press; the left and right arrows step (`arrows`). True when the key was taken.
+func keyPress(_ e: NSEvent, press: () -> Void, arrows: ((Int) -> Void)? = nil) -> Bool {
+    switch e.keyCode {
+    case 49, 36, 76: press(); return true
+    case 123, 125: if let a = arrows { a(-1); return true }
+    case 124, 126: if let a = arrows { a(1); return true }
+    default: break
+    }
+    return false
 }
 
 /// .pop: what is picked and the up-down chevron on --btn; a press opens the menu over it.
@@ -555,8 +638,15 @@ final class PopBox: Box {
         setContentHuggingPriority(.required, for: .horizontal)
     }
     required init?(coder: NSCoder) { fatalError() }
-    override func mouseDown(with e: NSEvent) { makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self) }
+    override func mouseDown(with e: NSEvent) { open() }
+    private func open() { makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
+    override func accessibilityPerformPress() -> Bool { open(); return true }
+    override var acceptsFirstResponder: Bool { true }
+    override var canBecomeKeyView: Bool { true }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill() }
+    override func keyDown(with e: NSEvent) { if !keyPress(e, press: { open() }, arrows: { [weak self] _ in self?.open() }) { super.keyDown(with: e) } }
 }
 
 /// The pop-up's chevron (9 by 12, up and down, --tx3), settings.ts I.CHEV.
@@ -602,6 +692,12 @@ final class CheckRow: Flipped {
     override func mouseDown(with e: NSEvent) { press() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { press(); return true }
+    override var acceptsFirstResponder: Bool { enabled }
+    override var canBecomeKeyView: Bool { enabled }
+    // The ring around the box only, as a checkbox's.
+    override var focusRingMaskBounds: NSRect { NSRect(x: 0, y: (bounds.height - 15) / 2, width: 15, height: 15) }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: focusRingMaskBounds, xRadius: 4, yRadius: 4).fill() }
+    override func keyDown(with e: NSEvent) { if !keyPress(e, press: { press() }) { super.keyDown(with: e) } }
 }
 
 final class CheckMark: NSView {

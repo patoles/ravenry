@@ -153,11 +153,13 @@ extension SelfTestBoard {
         } else {
             check("set_import_env", false, "no RAVENRY_SETTINGS_IMPORT")
         }
+        screenSettingsHandoff()
         press(sw.tabButtons["skills"])
         // Read with ?ravenryd= (GETs are not in hub.sent): each row then says its hooks.
         check("set_skills_read", wait(8) { sw.skillsRead && !sw.skills.isEmpty && sw.skills.allSatisfy { ["on", "off", "unavailable"].contains($0["hooks"] as? String ?? "") } }, "\(sw.skills)")
         check("set_skills_rows", (sw.skills.isEmpty && shows(root, t("set.needsBoard"))) || (shows(root, "Claude Code") && sw.skills.allSatisfy { $0["hooks"] != nil } && shows(root, t("set.hooksTitle"))), texts(root).joined(separator: " | "))
         settingsPictures("settings-skills")
+        screenSettingsSkillsFollow()
         if let b = sw.controls["skill:claude"] as? RButton {
             let s = board.hub.sent.count
             b.performClick(nil)
@@ -201,7 +203,7 @@ extension SelfTestBoard {
     }
 
     /// The Settings window in dark and light (`widths`: unused, one size: it is 720 wide).
-    private func settingsPictures(_ name: String, widths: Bool = true) {
+    func settingsPictures(_ name: String, widths: Bool = true) {
         let sw = board.settings
         for dark in [true, false] {
             NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

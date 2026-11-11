@@ -295,19 +295,22 @@ final class MachinesPage: FormPage {
         let st = hstack([dot, label(c["word"] as? String ?? "", Fonts.pt(12, .semibold), tone == "off" ? "tx3" : tone)], spacing: 6)
         st.setContentCompressionResistancePriority(.required, for: .horizontal)
         let hostL = label(m["host"] as? String ?? "", NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), "tx3")
-        var head: [NSView?] = [label(n, Fonts.pt(14, Fonts.w650)), hostL, st, spring()]
+        var head: [NSView?] = [label(n, Fonts.pt(14, Fonts.w650)), hostL, st]
+        var tail: [NSView] = []
         if let j = job, j["canHide"] as? Bool == true, showSteps {
             let hide = RButton(t("mach.hideSteps"), .ghost, small: true) { [weak self] in self?.folded.insert(j["key"] as? String ?? ""); self?.dirty(); self?.redraw() }
             buttons["\(n):hide"] = hide
-            head.append(hide)
+            tail.append(hide)
         }
-        if !confirming { for (i, a) in (c["actions"] as? [[String: Any]] ?? []).enumerated() { head.append(button(a, m, key: "a\(i)")) } }
-        var items: [NSView?] = [hstack(head, spacing: 10)]
+        if !confirming { for (i, a) in (c["actions"] as? [[String: Any]] ?? []).enumerated() { tail.append(button(a, m, key: "a\(i)")) } }
+        // .m-h: flex-wrap; the buttons at the right while there is room, under the name when not.
+        var items: [NSView?] = [FlowRow(head.compactMap { $0 }, right: tail, gap: 10)]
         if let msg = c["msg"] as? [[String: Any]], !showSteps { items.append(wrapRuns(msg, 12.5)) }
         let facts = c["facts"] as? [[[String: Any]]] ?? []
         if !facts.isEmpty && !(showSteps && job?["state"] as? String != "done") {
             let fs = facts.map { f -> NSView in NSTextField(labelWithAttributedString: runsFacts(f)) }
-            items.append(hstack(fs + [spring()], spacing: 18))
+            // .m-facts: flex-wrap, 18 apart.
+            items.append(FlowRow(fs, right: [], gap: 18, lineGap: 4))
         }
         if showSteps, let j = job { items.append(steps(m, j)) }
         if confirming, let cf = c["confirm"] as? [String: Any] {
@@ -400,5 +403,65 @@ final class MachinesPage: FormPage {
         NSLayoutConstraint.activate([v.leadingAnchor.constraint(equalTo: b.leadingAnchor), v.trailingAnchor.constraint(lessThanOrEqualTo: b.trailingAnchor), v.topAnchor.constraint(equalTo: b.topAnchor, constant: top), v.bottomAnchor.constraint(equalTo: b.bottomAnchor)])
         if !(v is Box) { let w = v.widthAnchor.constraint(equalTo: b.widthAnchor); w.priority = .init(700); w.isActive = true }
         return b
+    }
+}
+
+/// A row that wraps (flex-wrap): its views left to right at their own
+/// sizes, onto the next line when the width is used; the `right` ones at the
+/// right end while the whole fits on one line, else on a line of their own.
+final class FlowRow: Flipped {
+    let left: [NSView], right: [NSView]
+    let gap: CGFloat, lineGap: CGFloat
+    private var height: CGFloat = 0
+    init(_ left: [NSView], right: [NSView], gap: CGFloat, lineGap: CGFloat = 8) {
+        self.left = left; self.right = right; self.gap = gap; self.lineGap = lineGap
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        for v in left + right { v.translatesAutoresizingMaskIntoConstraints = true; addSubview(v) }
+        height = place(100000, apply: false)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    private func size(_ v: NSView) -> NSSize { let f = v.fittingSize; return NSSize(width: ceil(f.width), height: ceil(f.height)) }
+    private func place(_ w: CGFloat, apply: Bool) -> CGFloat {
+        let ls = left.map(size), rs = right.map(size)
+        let lw = ls.reduce(0) { $0 + $1.width } + gap * CGFloat(max(0, ls.count - 1))
+        let rw = rs.reduce(0) { $0 + $1.width } + gap * CGFloat(max(0, rs.count - 1))
+        var lines: [[(NSView, NSSize)]] = []
+        func flow(_ vs: [NSView], _ ss: [NSSize]) {
+            var cur: [(NSView, NSSize)] = [], x: CGFloat = 0
+            for (v, s0) in zip(vs, ss) {
+                let s = NSSize(width: min(s0.width, w), height: s0.height)
+                if !cur.isEmpty && x + s.width > w { lines.append(cur); cur = []; x = 0 }
+                cur.append((v, s)); x += s.width + gap
+            }
+            if !cur.isEmpty { lines.append(cur) }
+        }
+        var y: CGFloat = 0
+        if lw + (rs.isEmpty ? 0 : gap + rw) <= w {
+            // One line: the left ones, the right ones at the end, centred on the line.
+            let h = (ls + rs).map { $0.height }.max() ?? 0
+            if apply {
+                var x: CGFloat = 0
+                for (v, s) in zip(left, ls) { v.frame = NSRect(x: x, y: (h - s.height) / 2, width: s.width, height: s.height); x += s.width + gap }
+                x = w - rw
+                for (v, s) in zip(right, rs) { v.frame = NSRect(x: x, y: (h - s.height) / 2, width: s.width, height: s.height); x += s.width + gap }
+            }
+            return h
+        }
+        flow(left, ls)
+        flow(right, rs)
+        for (i, line) in lines.enumerated() {
+            let h = line.map { $0.1.height }.max() ?? 0
+            var x: CGFloat = 0
+            if apply { for (v, s) in line { v.frame = NSRect(x: x, y: y + (h - s.height) / 2, width: s.width, height: s.height); x += s.width + gap } }
+            y += h + (i < lines.count - 1 ? lineGap : 0)
+        }
+        return y
+    }
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: height) }
+    override func layout() {
+        super.layout()
+        let h = place(bounds.width, apply: true)
+        if abs(h - height) > 0.5 { height = h; invalidateIntrinsicContentSize() }
     }
 }

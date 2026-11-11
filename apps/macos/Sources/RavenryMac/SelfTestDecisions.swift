@@ -94,6 +94,7 @@ extension SelfTestBoard {
         board.toastButtons.first?.performClick(nil)
         check("dec_toast_undo_posts", wait(5) { self.sentSince(s).contains("POST /api/decisions/undo") }, sentSince(s).joined(separator: ","))
         check("dec_toast_undo_done", wait(8) { self.toasts(since: n).contains(t("dec.undone")) && !self.shows(pg, "8 in the morning") && pg.cards["dnew2345"] != nil }, toasts(since: n).joined(separator: ","))
+        screenDecisionsMore()
         finishDecisions()
     }
 

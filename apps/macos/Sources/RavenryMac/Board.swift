@@ -684,12 +684,10 @@ final class Board: NSObject {
         guard hub.reachable else { toast(t("learn.noBoard")); return }
         hub.get("/api/setup/start") { [weak self] code, j in
             guard let self else { return }
-            let found = (j["assistants"] as? [[String: Any]] ?? []).filter { $0["found"] as? Bool == true }
-            guard let a = found.first(where: { $0["kind"] as? String == "claude" }) ?? found.first, let kind = a["kind"] as? String else { self.toast(t("learn.noAssistant")); return }
-            // The last folder used: the project of the session last open, else the first folder the hub offers.
+            // The assistant new sessions start with and the last folder used (LearnPage.tryChoice).
+            guard let ch = LearnPage.tryChoice(start: j, state: self.hub.state, lastProject: self.lastProject) else { self.toast(t("learn.noAssistant")); return }
+            let kind = ch.kind, folder = ch.folder
             let lp = self.lastProject.flatMap { self.hub.state?.project($0) }
-            let folders = (j["folders"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
-            let folder = lp?.folder ?? folders.first ?? NSHomeDirectory()
             let g = self.ws.focusedView.map { ($0.screen.cols, $0.screen.rows) } ?? (100, 30)
             var body: [String: Any] = ["folder": folder, "assistant": kind, "cols": g.0, "rows": g.1]
             if c.worktree, let p = lp { body["worktree"] = true; body["projectId"] = p.id }

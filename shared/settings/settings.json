@@ -22,5 +22,5 @@
   "themes": ["ravenry-dark", "solarized-dark", "dracula", "nord", "ravenry-light", "solarized-light", "github-light", "paper"],
   "defaultDarkTheme": "ravenry-dark",
   "defaultLightTheme": "ravenry-light",
-  "tabs": ["appearance", "behavior", "skills"]
+  "tabs": ["appearance", "behavior", "handoff", "skills"]
 }

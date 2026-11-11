@@ -258,5 +258,6 @@ extension SelfTestBoard {
         let ol = GalleryPic.of(old)
         check("gallery_older_hub", ol.map { $0.name } == ["a.png", "B"] && !ol[0].fromBrief && ol[1].fromBrief, ol.map { $0.name }.joined(separator: ","))
         g.closeButton.performClick(nil)
+        screenGalleryMore()
     }
 }

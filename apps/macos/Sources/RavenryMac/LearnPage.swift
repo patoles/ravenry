@@ -24,6 +24,23 @@ final class LearnPage: FormPage {
     ]
     /// What Try it does: Board's (a session started, the phone card, a terminal).
     var tryIt: ((Card) -> Void)?
+
+    /// Try it's assistant and folder (the Electron app's tryIt()): the one
+    /// new sessions start with (Settings, Hand-off: the hub's startWith),
+    /// else Claude Code, else any found; the folder of the session last
+    /// open (one on this Mac), else the first folder the hub offers, else
+    /// home. `start` is GET /api/setup/start's answer.
+    static func tryChoice(start j: [String: Any], state: HubState?, lastProject: String?) -> (kind: String, folder: String)? {
+        let found = (j["assistants"] as? [[String: Any]] ?? []).filter { $0["found"] as? Bool == true }
+        let want = (state?.raw["assistants"] as? [String: Any])?["startWith"] as? String ?? "claude"
+        let kindOf = { (x: [String: Any]) -> String in x["kind"] as? String ?? "" }
+        guard let a = found.first(where: { kindOf($0) == want }) ?? found.first(where: { kindOf($0) == "claude" }) ?? found.first,
+              let kind = a["kind"] as? String else { return nil }
+        var lp = lastProject.flatMap { state?.project($0) }
+        if lp?.machine != nil { lp = nil }
+        let folders = (j["folders"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+        return (kind, lp?.folder ?? folders.first ?? NSHomeDirectory())
+    }
     /// The parts of Ravenry the person used (the hub's marks).
     private(set) var used: [String: Bool] = [:]
     /// The card Learn more points at, ringed.
