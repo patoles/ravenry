@@ -556,6 +556,8 @@
   "idea.refAdded": "Picture added to your next message.",
   "idea.removeRef": "Remove picture {n}",
   "idea.promote": "Promote to project",
+  "idea.kill": "Kill",
+  "idea.killed": "{name} killed. Kept in the archive.",
   "idea.notPicture": "Only pictures can go on an idea (png, jpg, gif, webp).",
   "alerts.title": "Alerts",
   "alerts.src": "When a session needs you and you are not looking",
