@@ -280,6 +280,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The hub service, in the background (Install.swift); the window
         // reads the hub as soon as it answers.
         if installing { inst.setUpHub() }
+        // Updates: a check a little after launch, then every few hours (Updater.swift).
+        Updater.shared.start(offscreen: options.offscreen)
         if options.offscreen, let rp = ProcessInfo.processInfo.environment["RAVENRY_MAC_REPORT"], !rp.isEmpty { report(to: rp) }
         guard let v = ws.focusedView else {
             fail("no pane to show")
@@ -355,7 +357,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         daemons?.close()
     }
 
-    func applicationWillTerminate(_ note: Notification) { shutdown() }
+    func applicationWillTerminate(_ note: Notification) {
+        shutdown()
+        // A downloaded update goes in once this process has ended (Updater.swift).
+        Updater.shared.atQuit()
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         terminating = true
         return .terminateNow
@@ -392,6 +398,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The app menu, as a Mac app's: About, Settings, Services, Hide, Quit.
         let appMenu = menu("Ravenry")
         add(appMenu, "About Ravenry", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), "", target: NSApp)
+        // Check for Updates... (Restart to Update), and Go Back to the npm Board... after a switch (Updater.swift).
+        Updater.shared.addMenuItems(to: appMenu)
         appMenu.addItem(.separator())
         add(appMenu, "Settings\u{2026}", #selector(menuSettings(_:)), ",", target: self)
         appMenu.addItem(.separator())

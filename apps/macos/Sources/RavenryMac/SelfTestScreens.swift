@@ -38,6 +38,7 @@ extension SelfTestBoard {
         case "sessions": screenSessions()
         case "nav": screenNav()
         case "windows": screenWindows()
+        case "updates": screenUpdates()
         case "links": screenLinks()
         default: check("screen_known", false, name)
         }

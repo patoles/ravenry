@@ -1600,6 +1600,20 @@ final class RootView: NSView {
             place()
         }
     }
+    /// A bar across the sheet under the tabs (NpmSwitch.swift's quiet bar).
+    var notice: NSView? {
+        didSet {
+            if oldValue !== notice { oldValue?.removeFromSuperview() }
+            placedFor = nil
+            needsLayout = true
+            place()
+        }
+    }
+    /// Where the middle goes (not wide): under the strip and the notice.
+    private var middleRect: NSRect {
+        let top = Design.stripHeight + (notice != nil ? NpmBar.height : 0)
+        return NSRect(x: 0, y: top, width: sheet.bounds.width, height: max(1, sheet.bounds.height - top))
+    }
     /// The middle over the whole sheet, the strip too (the Electron app's
     /// own pages: the gallery, a plan, an idea, Alerts, the pages).
     var wideMiddle = false
@@ -1633,7 +1647,7 @@ final class RootView: NSView {
         bar?.panelShown = panelMode != .hidden
         // Nothing moved: nothing to lay out (Board draws at every state).
         let key = (bounds.size, sideWidth, panelMode, middle != nil && !wideMiddle ? 1 : middle != nil ? 2 : 0, fullScreen, filmHeight)
-        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, k.4 == key.4, k.5 == key.5, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight))) { return }
+        if let k = placedFor, k.0 == key.0, k.1 == key.1, k.2 == key.2, k.3 == key.3, k.4 == key.4, k.5 == key.5, middle == nil || middle?.frame == (wideMiddle ? sheet.bounds : middleRect) { return }
         placedFor = key
         let side = sidebar != nil && sideWidth > 0
         sidebar?.isHidden = !side
@@ -1656,6 +1670,11 @@ final class RootView: NSView {
             sh = st.height(for: sheet.bounds.width)
             st.setIf(NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: sh))
         }
+        if let n = notice {
+            if n.superview !== sheet { sheet.addSubview(n) }
+            n.setIf(NSRect(x: 0, y: Design.stripHeight + sh, width: sheet.bounds.width, height: NpmBar.height))
+            sh += NpmBar.height
+        }
         let fh = film != nil ? filmHeight : 0
         stage?.setIf(NSRect(x: 0, y: Design.stripHeight + sh, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight - sh - fh)))
         if let f = film {
@@ -1665,7 +1684,7 @@ final class RootView: NSView {
         }
         if let mv = middle {
             if mv.superview !== sheet || wideMiddle { sheet.addSubview(mv, positioned: .above, relativeTo: wideMiddle ? bar : stage) }
-            mv.setIf(wideMiddle ? sheet.bounds : NSRect(x: 0, y: Design.stripHeight, width: sheet.bounds.width, height: max(1, sheet.bounds.height - Design.stripHeight)))
+            mv.setIf(wideMiddle ? sheet.bounds : middleRect)
         }
         if let p = panel, panelMode != .hidden {
             if p.superview !== self { addSubview(p) }

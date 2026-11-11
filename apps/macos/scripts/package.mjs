@@ -20,6 +20,14 @@
 //   Contents/Resources/hub, remote, build.json   as the Electron app has them
 //   Contents/Resources/setup.mjs  install/setup.ts, bundled (Install.swift)
 //   Contents/Resources/AppIcon.icns
+//   Contents/Resources/app-update.json  the GitHub repository its updates
+//                               come from (Updater.swift), as electron-builder
+//                               writes app-update.yml for the Electron app
+// Beside the zip: latest-mac-native.json, the native updater's feed (its
+// version, the zip's name, its SHA-256 and size). Publishing is a person's
+// step: both files uploaded to a published GitHub release of that
+// repository (gh release upload v<version> ZIP FEED), which the updater
+// reads as releases/latest/download/latest-mac-native.json.
 // Info.plist: the Electron app's name, id, version and the words macOS
 // shows when a pane asks for a guarded folder, the camera... (read from
 // apps/desktop/electron-builder.config.mjs, extendInfo), and the ravenry://
@@ -111,6 +119,14 @@ fs.cpSync(path.join(STAGE, 'hub'), path.join(R, 'hub'), { recursive: true });
 fs.cpSync(path.join(STAGE, 'hub-modules'), path.join(R, 'hub', 'node_modules'), { recursive: true });
 fs.cpSync(path.join(STAGE, 'remote'), path.join(R, 'remote'), { recursive: true });
 fs.writeFileSync(path.join(R, 'build.json'), JSON.stringify(build, null, 2) + '\n');
+// Where updates come from: the Electron app's repository (electron-builder.config.mjs githubRepo).
+{
+  const rootPkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
+  const slug = process.env.GITHUB_REPOSITORY || /github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/.exec(String(rootPkg.repository?.url || ''))?.[1];
+  if (!slug) throw new Error('package.mjs: no GitHub repository for updates (set GITHUB_REPOSITORY=owner/repo)');
+  const [owner, repo] = slug.split('/');
+  fs.writeFileSync(path.join(R, 'app-update.json'), JSON.stringify({ provider: 'github', owner, repo, feed: 'latest-mac-native.json' }, null, 2) + '\n');
+}
 await esbuild.build({ entryPoints: [path.join(MAC, 'install', 'setup.ts')], bundle: true, platform: 'node', format: 'esm', target: 'node22', outfile: path.join(R, 'setup.mjs'), logLevel: 'warning', legalComments: 'none' });
 
 // The icon, from the brand's 1024 px picture.
@@ -174,5 +190,13 @@ say(`requirement: ${execFileSync('/bin/sh', ['-c', 'codesign -d -r- "$1" 2>&1 | 
 fs.mkdirSync(path.dirname(ZIP), { recursive: true });
 fs.rmSync(ZIP, { force: true });
 run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, ZIP]);
+// The feed beside the zip (Updater.swift reads it from the release).
+const zipBytes = fs.readFileSync(ZIP);
+const FEED = path.join(path.dirname(ZIP), 'latest-mac-native.json');
+fs.writeFileSync(FEED, JSON.stringify({
+  version: pkg.version, url: path.basename(ZIP), sha256: crypto.createHash('sha256').update(zipBytes).digest('hex'), size: zipBytes.length,
+  minimumSystemVersion: config.mac.minimumSystemVersion, releaseDate: new Date().toISOString(), build: build.id,
+}, null, 2) + '\n');
 say(`${app}`);
 say(`${ZIP} (${(fs.statSync(ZIP).size / 1048576).toFixed(1)} MiB), ${build.id}`);
+say(`${FEED}: the updater's feed; to publish: gh release upload v${pkg.version} ${ZIP} ${FEED} (on a published release)`);

@@ -110,6 +110,43 @@ final class AppInstall {
         return (try? JSONSerialization.jsonObject(with: Data(last.utf8))) as? [String: Any] ?? ["ok": false, "error": "setup \(args.first ?? "") ended with \(p.terminationStatus)"]
     }
 
+    /// Runs one setup command in the background: each line it says on
+    /// standard error (the npm switch's steps and log) and its JSON answer,
+    /// both on the main queue.
+    func runSetupLive(_ args: [String], onLine: @escaping (String) -> Void, done: @escaping ([String: Any]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let p = Process()
+            p.executableURL = node
+            p.arguments = ["--disable-sigusr1", setup.path] + args
+            p.environment = env
+            let out = Pipe(), err = Pipe()
+            p.standardOutput = out
+            p.standardError = err
+            var pending = Data()
+            let lock = NSLock()
+            err.fileHandleForReading.readabilityHandler = { h in
+                let d = h.availableData
+                lock.lock(); defer { lock.unlock() }
+                pending.append(d)
+                while let i = pending.firstIndex(of: 10) {
+                    let line = String(decoding: pending[pending.startIndex..<i], as: UTF8.self)
+                    pending.removeSubrange(pending.startIndex...i)
+                    if !line.trimmingCharacters(in: .whitespaces).isEmpty { DispatchQueue.main.async { onLine(line) } }
+                }
+            }
+            do { try p.run() } catch {
+                err.fileHandleForReading.readabilityHandler = nil
+                return DispatchQueue.main.async { done(["ok": false, "error": "\(error)"]) }
+            }
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            err.fileHandleForReading.readabilityHandler = nil
+            let last = String(decoding: data, as: UTF8.self).split(separator: "\n").last.map(String.init) ?? ""
+            let j = (try? JSONSerialization.jsonObject(with: Data(last.utf8))) as? [String: Any] ?? ["ok": false, "error": "setup \(args.first ?? "") ended with \(p.terminationStatus)"]
+            DispatchQueue.main.async { done(j) }
+        }
+    }
+
     /// This version's ravenryd and hub copied out of the app (fast when
     /// that build is there already). Before the daemon is looked for.
     func stage() {
@@ -122,16 +159,32 @@ final class AppInstall {
     }
 
     /// The hub service, in the background; the prune a minute after it ran.
-    func setUpHub(done: (([String: Any]) -> Void)? = nil) {
+    /// `retry`: the update that stopped is tried again (Try again).
+    func setUpHub(retry: Bool = false, done: (([String: Any]) -> Void)? = nil) {
         guard mode != "off" else { return }
         DispatchQueue.global(qos: .utility).async { [self] in
-            let r = runSetup(["hub", "--resources", resources.path, "--exe", executable])
+            let r = runSetup(["hub", "--resources", resources.path, "--exe", executable] + (retry ? ["--retry"] : []))
+            DispatchQueue.main.async { self.hubAnswered(r) }
             done?(r)
             guard r["ok"] as? Bool == true, r["service"] != nil, let v = staged?.version ?? version else { return }
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + (env["RAVENRY_PRUNE_AFTER"].flatMap(Double.init) ?? 60)) { [self] in
                 _ = runSetup(["prune", "--keep", v])
             }
         }
+    }
+}
+
+extension AppInstall {
+    /// What the window says of the hub's setup (main.ts startHub,
+    /// setUpService): the npm board's offer (NpmSwitch.swift), and an update
+    /// of the hub that stopped after 3 tries, with Try again (UPD-003).
+    func hubAnswered(_ r: [String: Any]) {
+        NpmSwitch.shared.launched(r)
+        let stopped = r["stopped"] as? Bool == true
+            || (r["updating"] as? Bool == true && r["service"] as? String == "failed" && (r["attempt"] as? Int ?? 0) >= 3)
+        guard stopped else { return }
+        let text = t("update.stopped", ["version": r["version"] as? String ?? version ?? "", "why": r["why"] as? String ?? t("update.noAnswer")])
+        Board.lastFront?.toast(text, actions: [(t("update.tryAgain"), { [weak self] in self?.setUpHub(retry: true) })], key: "update-stopped", seconds: .infinity)
     }
 }
 

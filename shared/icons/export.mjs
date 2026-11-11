@@ -32,6 +32,12 @@ for (const [k, f] of [['APPEAR', 'settings-appearance'], ['BEHAV', 'settings-beh
   const x = new RegExp(`\\b${k}: '([^']+)'`).exec(st);
   if (x) out.set(`${f}.svg`, x[1]);
 }
+// The switch from the npm board's marks (npmswitch.ts ICON): npm-board.svg, npm-login.svg.
+const npm = fs.readFileSync(path.join(SRC, 'npmswitch.ts'), 'utf8');
+for (const k of ['board', 'login']) {
+  const x = new RegExp(`\\n  ${k}: '([^']+)'`).exec(npm);
+  if (x) out.set(`npm-${k}.svg`, x[1]);
+}
 // The SVG namespace, so a reader that is not a browser draws them.
 const file = (s) => s.replace(/^<svg(?![^>]*xmlns=)/, '<svg xmlns="http://www.w3.org/2000/svg"') + '\n';
 const check = process.argv.includes('--check');

@@ -237,6 +237,8 @@ final class Board: NSObject {
             return true
         }
         wire()
+        // The switch from the npm board: the centre, the quiet bar (NpmSwitch.swift).
+        followNpm()
         hub.onState = { [weak self] st in self?.onState(st) }
         hub.onStatus = { [weak self] _ in self?.render() }
         ws.onFront = { [weak self] in
@@ -643,6 +645,8 @@ final class Board: NSObject {
     }
 
     func openPage(_ key: String, _ name: String) {
+        // While the npm board keeps the data, what needs the app's hub points there (NpmSwitch.swift).
+        if npmPoints(key) { return }
         if key.hasPrefix("brief:") { openBrief(String(key.dropFirst(6))); return }
         if key.hasPrefix("gallery:") { openGallery(String(key.dropFirst(8)), at: nil); return }
         if key.hasPrefix("plan:") { openPlan(String(key.dropFirst(5)), title: nil); return }

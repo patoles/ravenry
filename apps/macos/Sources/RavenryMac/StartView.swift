@@ -97,7 +97,9 @@ final class StartView: MiddleView {
     private var hubWaiting: String? { testWaiting ?? hub?.waitingFor }
     /// The controls by name, for the self-test: "folder:<path>", "assistant:<kind>", "choose", "go", "cancel",
     /// "inFolder", "ownCopy", "tick:hooks", "tick:skill", "setUp", "notNow".
-    private(set) var controls: [String: NSView] = [:]
+    var controls: [String: NSView] = [:]
+    /// What a control asked for that needs the app's hub while the npm board keeps the data (NpmSwitch.swift).
+    var npmAsked: String?
     var go: RButton { controls["go"] as? RButton ?? RButton(t("start.go"), .primary) }
 
     private let column = Flipped()
@@ -129,6 +131,8 @@ final class StartView: MiddleView {
     // MARK: what it shows
 
     func show(folder want: String?) {
+        npmAsked = NpmSwitch.shared.asked
+        NpmSwitch.shared.asked = nil
         setup = nil
         setupReady = false
         error = nil
@@ -201,6 +205,8 @@ final class StartView: MiddleView {
 
     func draw() {
         controls = [:]
+        // The npm board's switch, or where to go while it keeps the data (NpmSwitch.swift).
+        if let npm = npmItems() { return place(npm) }
         var items: [NSView] = []
         let icon = Icon("app-icon", "tx", size: 64)
         icon.wantsLayer = true
@@ -222,6 +228,11 @@ final class StartView: MiddleView {
             items.append(gap(18))
             items.append(lead(t("start.foot"), size: 12.5, color: "tx3"))
         }
+        place(items)
+    }
+
+    /// The column's items, in the middle of the room.
+    private func place(_ items: [NSView]) {
         for v in column.subviews { v.removeFromSuperview() }
         let s = vstack(items, spacing: 0)
         column.addSubview(s)
@@ -230,13 +241,13 @@ final class StartView: MiddleView {
         needsLayout = true
     }
 
-    private func gap(_ h: CGFloat) -> NSView {
+    func gap(_ h: CGFloat) -> NSView {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.heightAnchor.constraint(equalToConstant: h).isActive = true
         return v
     }
-    private func centred(_ v: NSView) -> NSView {
+    func centred(_ v: NSView) -> NSView {
         let w = Flipped()
         w.translatesAutoresizingMaskIntoConstraints = false
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -246,7 +257,7 @@ final class StartView: MiddleView {
         return w
     }
     /// .lead: centred words, at most 540 wide.
-    private func lead(_ s: String, size: CGFloat = 14.5, color: String = "tx2") -> NSView {
+    func lead(_ s: String, size: CGFloat = 14.5, color: String = "tx2") -> NSView {
         let w = WrapField(wrapping: s)
         w.font = Fonts.pt(size); w.textColor = Design.color(color); w.alignment = .center
         let p = NSMutableParagraphStyle(); p.alignment = .center; p.minimumLineHeight = ceil(size * 1.5); p.maximumLineHeight = ceil(size * 1.5)
@@ -269,7 +280,7 @@ final class StartView: MiddleView {
     }
 
     /// A line between the card's rows (border-top: 1px solid var(--sep)).
-    private func rule() -> NSView {
+    func rule() -> NSView {
         let b = Box(fill: "sep")
         b.translatesAutoresizingMaskIntoConstraints = false
         b.heightAnchor.constraint(equalToConstant: 1).isActive = true
@@ -277,7 +288,7 @@ final class StartView: MiddleView {
     }
 
     /// .fl-r: a number (or a tick) beside its column.
-    private func step(_ lead: NSView, _ col: [NSView], gap g: CGFloat = 9, insets: NSEdgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18)) -> NSView {
+    func step(_ lead: NSView, _ col: [NSView], gap g: CGFloat = 9, insets: NSEdgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18)) -> NSView {
         let c = vstack(col, spacing: g)
         let lw = Flipped()
         lw.translatesAutoresizingMaskIntoConstraints = false
