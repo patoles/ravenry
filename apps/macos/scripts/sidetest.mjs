@@ -437,8 +437,8 @@ const t0 = Date.now();
 let n = 1;
 while (!exited && Date.now() - t0 < (PAGES ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
-    // Decisions: an agent saves one now (inside its undo minute).
-    if (PAGES) await writeFixtures(); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else await hub.arrive(...arrivals[n - 1]);
+    // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
+    if (PAGES) await writeFixtures(); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }

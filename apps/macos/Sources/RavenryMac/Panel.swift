@@ -780,7 +780,7 @@ final class PanelView: Box {
             // A folder no project uses: a project can start from it (SESS-023).
             if folderFree(pn.cwd, host?.hub.state) {
                 let b = RButton(t("panel.newFromFolder"), small: true) { [weak self] in
-                    self?.host?.newProject(NewProjectPage.From(name: pn.name, folder: pn.cwd, folderShort: self?.tilde(pn.cwd) ?? pn.cwd, shell: true))
+                    self?.host?.newProject(NewProjectPage.From(name: (pn.cwd as NSString).lastPathComponent, folder: pn.cwd, folderShort: self?.tilde(pn.cwd) ?? pn.cwd, shell: true))
                 }
                 buttons["newProject"] = b
                 rows += [para(t("panel.folderFree"), "tx3", size: 12), hstack([b, spring()], spacing: 0)]

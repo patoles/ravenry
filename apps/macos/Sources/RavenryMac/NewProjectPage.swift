@@ -352,12 +352,18 @@ final class NewProjectPage: FormPage {
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 13).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 13).isActive = true
-        let col = vstack([label(e["name"] as? String ?? folder, Fonts.pt(13, on ? Fonts.w650 : .regular)),
-                          on ? label(t("np.inParent", ["parent": e["parent"] as? String ?? ""]), Fonts.pt(11.5), "tx3") : nil], spacing: 1)
-        let users = (e["fromFinder"] as? Bool ?? false) ? t("np.fromFinder") : NewProjectPage.joinNames(e["projects"] as? [String] ?? [])
-        let whoL = label(users, Fonts.pt(12), "tx3")
+        // The parent folder gives up its room first (cut in its middle), then the names of who uses it; From Finder stays whole.
+        let nameL = yields(label(e["name"] as? String ?? folder, Fonts.pt(13, on ? Fonts.w650 : .regular)), fill: false)
+        nameL.setContentCompressionResistancePriority(.init(230), for: .horizontal)
+        let parentL = on ? yields(label(t("np.inParent", ["parent": e["parent"] as? String ?? ""]), Fonts.pt(11.5), "tx3"), fill: false) : nil
+        parentL?.lineBreakMode = .byTruncatingMiddle
+        let col = vstack([nameL, parentL], spacing: 1)
+        col.setContentCompressionResistancePriority(.init(200), for: .horizontal)
+        let finderRow = e["fromFinder"] as? Bool ?? false
+        let users = finderRow ? t("np.fromFinder") : NewProjectPage.joinNames(e["projects"] as? [String] ?? [])
+        let whoL = finderRow ? fixedLabel(users, Fonts.pt(12), "tx3") : label(users, Fonts.pt(12), "tx3")
         whoL.lineBreakMode = .byTruncatingTail
-        whoL.setContentCompressionResistancePriority(.init(240), for: .horizontal)
+        if !finderRow { whoL.setContentCompressionResistancePriority(.init(240), for: .horizontal) }
         let row = hstack([dot, col, spring(), whoL], spacing: 9, insets: NSEdgeInsets(top: 7, left: 10, bottom: 7, right: 10))
         let b = PressBox(fill: on ? "sel" : "input", ring: on ? "selring" : "sep", radius: 7)
         b.addSubview(row)
