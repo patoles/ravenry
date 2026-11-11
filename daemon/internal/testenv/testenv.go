@@ -17,11 +17,14 @@
 package testenv
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -206,4 +209,48 @@ func CheckDirs(t testing.TB, dirs ...string) {
 			t.Fatalf("refused: %s is inside the real user's folders; a test keeps the daemon's files in a test root", d)
 		}
 	}
+}
+
+// LibraryProblem says why the libghostty-vt build a test binary was
+// compiled with (vt.LibraryBuild) may not be this tree's: none named (a
+// plain `go test` without scripts/libghostty.sh's flags, which links
+// whatever Go's cache compiled last, perhaps without daemon/patches), or
+// one named without the hash of the patches in daemonDir/patches, as
+// scripts/libghostty.sh computes it. Empty when it is this tree's.
+func LibraryProblem(build, daemonDir string) string {
+	const how = "run `make test` in daemon/, or export PKG_CONFIG_PATH=$(scripts/libghostty.sh) and CGO_CPPFLAGS=-DRAVENRY_LIBGHOSTTY=<that build's folder name> (README, Build)"
+	if build == "" {
+		return "these tests were compiled without RAVENRY_LIBGHOSTTY, so the libghostty-vt linked is whatever Go's cache built last and may lack daemon/patches; " + how
+	}
+	patches, _ := filepath.Glob(filepath.Join(daemonDir, "patches", "*.patch"))
+	if len(patches) == 0 {
+		return ""
+	}
+	sort.Strings(patches)
+	h := sha256.New()
+	for _, p := range patches {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return "reading " + p + ": " + err.Error()
+		}
+		h.Write(b)
+	}
+	want := "-p" + hex.EncodeToString(h.Sum(nil))[:8] + "-"
+	if !strings.Contains(build, want) {
+		return "these tests were compiled against libghostty-vt build " + build + ", not the one with this tree's daemon/patches (" + strings.Trim(want, "-") + "); " + how
+	}
+	return ""
+}
+
+// DaemonDir is the daemon module's folder (where go.mod is), found up
+// from the current directory (a test runs in its package's folder).
+func DaemonDir() string {
+	d, _ := os.Getwd()
+	for i := 0; i < 8 && d != "/"; i++ {
+		if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
+			return d
+		}
+		d = filepath.Dir(d)
+	}
+	return ""
 }
