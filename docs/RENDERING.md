@@ -134,7 +134,12 @@ theme on the client is never overridden by the daemon's defaults.
   dropped it for a newer one).
 - **Whole.** A frame never shows a program's synchronized update half
   done (mode 2026): during one the daemon keeps sending the last frame the
-  program finished, up to a second, as Ghostty does.
+  program finished, up to a second from its start, as Ghostty does. A
+  resize does not end it (libghostty's resize does, and Claude Code,
+  which erases every row after a SIGWINCH and draws them again over 50
+  to 150 ms, showed blank or a few rows through a drag): at the new size
+  the frame is that last finished one, its rows cut at the new width and
+  its last rows kept when the screen got shorter (`TestRenderDragSyncRedraw`).
 - **Resize.** On `pane.resize` the daemon resizes the screen and the pty
   together. When the shell is at a prompt (OSC 133, which Ravenry's shell
   integration marks with `redraw=1`), the resize clears the prompt for the

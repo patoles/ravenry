@@ -231,9 +231,10 @@ func (s *ghostty) renderInfo(rs *gt.RenderState, offset int) (RenderInfo, error)
 		info.History = int(sb.Total) - int(sb.Len)
 	}
 	if cur, err := rs.Cursor(); err == nil {
+		y := int(cur.ViewportY) - s.heldTop(rs)
 		info.Cursor = RenderCursor{
-			X: int(cur.ViewportX), Y: int(cur.ViewportY),
-			InView: cur.ViewportHasValue, Visible: cur.Visible, Blink: cur.Blinking,
+			X: int(cur.ViewportX), Y: max(y, 0),
+			InView: cur.ViewportHasValue && y >= 0, Visible: cur.Visible, Blink: cur.Blinking,
 			WideTail: cur.WideTail, Password: cur.PasswordInput,
 		}
 		switch cur.VisualStyle {
@@ -290,12 +291,12 @@ func (s *ghostty) renderRows(rs *gt.RenderState, all bool, row func(y int, wrap 
 	if err != nil {
 		return fmt.Errorf("vt: render state: %w", err)
 	}
-	// Rows above the screen (overscan) come first: skip them.
-	skip := 0
+	// Rows above the screen (overscan) come first: skip them, and the
+	// rows of a held frame taller than the screen (heldTop).
+	skip := max(0, int(nrows)-s.rows)
 	if ov, err := rs.Overscan(); err == nil {
-		skip = int(ov.Above)
+		skip += int(ov.Above)
 	}
-	_ = nrows
 	y := -1
 	for s.ri.Next() {
 		y++
@@ -325,6 +326,18 @@ func (s *ghostty) renderRows(rs *gt.RenderState, all bool, row func(y int, wrap 
 		}
 	}
 	return nil
+}
+
+// heldTop is how many of a render state's top rows are above the screen:
+// a render hold that goes on across a resize to fewer rows (Resize) keeps
+// the taller frame the program finished, and its last rows are shown, as
+// Text and Grid show them.
+func (s *ghostty) heldTop(rs *gt.RenderState) int {
+	n, err := rs.Rows()
+	if err != nil {
+		return 0
+	}
+	return max(0, int(n)-s.rows)
 }
 
 // encodeRow encodes the iterator's row: runs of cells that share a

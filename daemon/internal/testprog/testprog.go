@@ -33,6 +33,14 @@
 //	          pane the previous pane.new made; a line "INPUT <channel>
 //	          <Go-quoted bytes>" sends an input frame as a display does; an
 //	          error with no request's id prints "async <code>"; then sleeps
+//	redraw    draws the last rows of the lines of $RAVENRY_TESTPROG_FILE
+//	          laid out at the terminal's width, and again after each
+//	          SIGWINCH, the way Claude Code does: a synchronized update
+//	          (mode 2026), every row erased from the top (ESC[2K ESC[1B),
+//	          the rows drawn at their places in four writes 20 ms apart,
+//	          the update ended. A SIGWINCH during a redraw makes one more
+//	          once it is done. Autowrap is off, so a redraw finished for a
+//	          width the screen has already left still fills every row.
 package testprog
 
 import (
@@ -88,6 +96,8 @@ func Run() {
 		answer()
 	case "agent":
 		agentSteps()
+	case "redraw":
+		redraw()
 	default:
 		fmt.Fprintf(os.Stderr, "testprog: unknown program %q\n", prog)
 		os.Exit(2)
@@ -152,6 +162,45 @@ func detach() {
 	}
 	fmt.Printf("detached %s %d\n", strings.TrimSpace(string(out)), sh.Process.Pid)
 	time.Sleep(10 * time.Minute)
+}
+
+func redraw() {
+	data, err := os.ReadFile(os.Getenv("RAVENRY_TESTPROG_FILE"))
+	if err != nil {
+		fmt.Println("error", err)
+		os.Exit(1)
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	os.Stdout.WriteString("\x1b[?7l")
+	for {
+		cols, rows, err := term.GetSize(0)
+		if err != nil {
+			fmt.Println("error", err)
+			os.Exit(1)
+		}
+		var laid []string
+		for _, l := range lines {
+			for len(l) > cols {
+				laid, l = append(laid, l[:cols]), l[cols:]
+			}
+			laid = append(laid, l)
+		}
+		laid = laid[max(0, len(laid)-rows):]
+		os.Stdout.WriteString("\x1b[?2026h\x1b[H" + strings.Repeat("\x1b[2K\x1b[1B", rows))
+		per := (len(laid) + 3) / 4
+		for i := 0; i < len(laid); i += per {
+			time.Sleep(20 * time.Millisecond)
+			var b strings.Builder
+			for y := i; y < min(i+per, len(laid)); y++ {
+				fmt.Fprintf(&b, "\x1b[%d;1H%s", y+1, laid[y])
+			}
+			os.Stdout.WriteString(b.String())
+		}
+		os.Stdout.WriteString("\x1b[?2026l")
+		<-winch
+	}
 }
 
 func rawecho() {

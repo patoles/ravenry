@@ -276,8 +276,23 @@ func (s *ghostty) Resize(cols, rows int) error {
 	s.reflow++
 	pull := !(cols != s.cols && s.AtPrompt())
 	s.t.SetResizePullScrollback(pull)
+	held, heldAt := s.held, s.heldAt
 	err := s.t.Resize(uint16(cols), uint16(rows), 0, 0)
 	s.t.SetResizePullScrollback(true)
+	if held && !s.held {
+		// libghostty ends synchronized output (2026) on every resize, and
+		// its render hold with it. A program caught in the middle of its
+		// redraw then showed what it had drawn so far: Claude Code, on a
+		// SIGWINCH, erases every row and draws them again over 50 to 150
+		// ms, and a drag's steps come every 8 to 17 ms, so during a drag
+		// the pane showed blank or only a few rows (140 of 234 frames of
+		// a recorded drag). The hold goes on until the program ends it
+		// (2026l), showing the last frame it finished, and still ends
+		// renderHoldMax after it began. Setting the mode does not call
+		// onRenderHold, so the render state keeps that frame.
+		s.t.SetMode(modeSync, true)
+		s.held, s.heldAt = true, heldAt
+	}
 	if err != nil {
 		return fmt.Errorf("vt: resize: %w", err)
 	}

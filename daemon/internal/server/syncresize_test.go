@@ -11,10 +11,12 @@ import (
 
 // TestRenderSyncResize: a program that is in the middle of a synchronized
 // update (mode 2026) when the window is resized gets its redraw at the new
-// size shown at once. A resize ends the update, as in Ghostty, so the render
-// stream never waits out the second a program may hold the screen for
-// (Claude Code draws every frame in synchronized output, and a person
-// dragging the window's edge saw it redraw once a second, 2026-11-10).
+// size shown at once: the update it ends after the resize ends the hold,
+// so the render stream never waits out the second a program may hold the
+// screen for (Claude Code draws every frame in synchronized output, and a
+// person dragging the window's edge saw it redraw once a second,
+// 2026-11-10). The resize itself no longer ends the hold
+// (TestRenderDragSyncRedraw).
 func TestRenderSyncResize(t *testing.T) {
 	d := startDaemon(t)
 	c := d.dial(client.Options{})
