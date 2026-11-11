@@ -165,6 +165,8 @@ final class SidebarView: Flipped {
 
     /// The folder macOS is asking about while the hub waits (HubClient.waitingFor), and what Settings calls it (waitingFolder).
     var waitingFor: String?
+    /// The board answers but is still starting (HubClient.starting).
+    var starting = false
     var waitingFolder: String?
     /// The self-test's stand-in for both, as the hub's 503 says them.
     var testWaiting: (folder: String, name: String?)?
@@ -217,8 +219,8 @@ final class SidebarView: Flipped {
         for (g, _) in mixCounts { let b = Box(fill: g, radius: 0); mix.addSubview(b) }
         mix.isHidden = mixCounts.isEmpty
         if sections.isEmpty {
-            empty.stringValue = state == nil && !reachable
-                ? (waitingFor.map { t("side.emptyAccess", ["folder": $0]) } ?? t("side.emptyNoBoard")) : t("side.empty")
+            empty.stringValue = waitingFor.map { t("side.emptyAccess", ["folder": $0]) }
+                ?? (starting ? t("side.emptyStarting") : state == nil && !reachable ? t("side.emptyNoBoard") : t("side.empty"))
             empty.isHidden = false
             // The board answers with no project yet: New project under what the list says.
             if state != nil {

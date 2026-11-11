@@ -281,6 +281,9 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     /// The protected folder macOS is asking about while the hub waits for
     /// the answer (its 503, hub/server/access.mjs), as "~/Documents".
     private(set) var waitingFor: String?
+    /// The hub answers but has not read the board yet (HUB-004): its 503
+    /// "starting" on /api/state, or a first state with no generatedAt.
+    private(set) var starting = false
     /// What macOS calls that folder in System Settings ("Documents"), the hub's `folder`.
     private(set) var waitingFolder: String?
     var onState: ((HubState) -> Void)?
@@ -509,8 +512,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             URLSession.shared.dataTask(with: b.appendingPathComponent("api/state")) { [weak self] d, _, _ in
                 guard let self, let d, let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return }
                 let w = j["waitingFor"] as? String, f = j["folder"] as? String
+                let st = j["starting"] as? Bool == true
                 DispatchQueue.main.async {
-                    guard w != self.waitingFor || f != self.waitingFolder else { return }
+                    guard w != self.waitingFor || f != self.waitingFolder || st != self.starting else { return }
+                    self.starting = st
                     self.waitingFor = w
                     self.waitingFolder = f
                     self.onStatus?(self.reachable)
@@ -549,7 +554,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             var full = older.fill(j)
             if let fx = testCheckpoints { full["checkpoints"] = fx }
             if let f = testPatch { full = f(full) }
+            // The hub's state before its first read of the board: generatedAt null, error "starting".
+            let starting = (j["generatedAt"] == nil || j["generatedAt"] is NSNull) && (j["starting"] as? Bool == true || j["error"] as? String == "starting")
             DispatchQueue.main.async {
+                self.starting = starting
                 self.hubRaw = full
                 let st = HubState(self.withLocal(full))
                 self.state = st

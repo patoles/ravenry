@@ -34,7 +34,17 @@
 //         as tabs in the saved order, the one in front drawn; the older
 //         daemon and its shell keep running and its folder is kept.
 // access  while the hub waits for macOS's answer about ~/Documents (its
-//         503 on every route, hub/server/access.mjs), the sidebar says so.
+//         503 on every route, hub/server/access.mjs), the sidebar says so;
+//         while it answers 503 "starting" (before its first read), the
+//         sidebar says the board is starting (HUB-004).
+// skill   (in fresh) a Ravenry skill a 0.1.33 app wrote, running
+//         <app>/Contents/MacOS/ravenry, is written again by the hub service
+//         at its start to run <data>/bin/ravenry, the old one kept; the
+//         command it names prints the guide; one installed now (Codex's,
+//         POST /api/setup/skills as Settings does) names bin/ravenry too.
+//
+// NATIVE_APP is the test twin (build/package/release-test/Ravenry.app): the
+// release takes no --offscreen or RAVENRY_MAC_REPORT (Gate.swift).
 import { guardSpawns, withStubMachine } from '../../../tools/test-env.mjs';
 import { track, removeTree, checkLeft } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
@@ -165,11 +175,18 @@ function hubHookCommand(a, node) {
 // As the Electron app wrote it: ELECTRON_RUN_AS_NODE=1 <the app's executable> <data>/current/hub/hooks/events.mjs.
 const electronHook = (a) => `ELECTRON_RUN_AS_NODE=1 '${a.exe}' '${path.join(a.data, 'current', 'hub', 'hooks', 'events.mjs')}'`;
 
+// IC_ONLY=fresh,access runs only those scenarios.
+const only = (name) => !process.env.IC_ONLY || process.env.IC_ONLY.split(',').includes(name);
 try {
   // ------------------------------------------------------------ fresh
-  {
+  if (only('fresh')) {
     const a = await account('fresh');
     execFileSync('/usr/bin/ditto', [NATIVE, a.app]);
+    // The skill a 0.1.33 app wrote: its command inside the app.
+    const oldStub = path.join(a.home, '.claude', 'skills', 'ravenry', 'SKILL.md');
+    fs.mkdirSync(path.dirname(oldStub), { recursive: true });
+    const oldText = `---\nname: ravenry\ndescription: Use Ravenry's terminals from the command line.\nmetadata:\n  ravenry-stub: "1"\n  ravenry-version: "0.1.33"\n---\n<!-- Installed by Ravenry. Remove it in Ravenry: Settings, Skills. -->\n\nRun \`"${path.join(a.app, 'Contents', 'MacOS', 'ravenry')}" skill\` and follow the guide it prints.\n`;
+    fs.writeFileSync(oldStub, oldText);
     const t0 = Date.now();
     const n = launchNative(a, 'fresh');
     const r = await until(() => { const x = n.report(); return x && x.focused && x.focused.draws > 0 && /~ >/.test(x.focused.text) ? x : null; }, 30000);
@@ -196,6 +213,21 @@ try {
     const h1 = runHook(a, newHook, 'freshhook001');
     const h2 = runHook(a, electronHook(a), 'freshhook002');
     step('fresh: the hooks run: as the hub writes them on this app (its Node), and as the Electron app wrote them (its executable as Node)', h1.wrote && h1.status === 0 && h2.wrote && h2.status === 0, { newHook, h1, h2 });
+    // The skill: the old stub written again at the hub's start, its command the guide.
+    const binRavenry = path.join(a.data, 'bin', 'ravenry');
+    const stubCmd = (f) => (/^Run `"([^"`]+)" skill`/m.exec(read(f) || '') || [])[1] || null;
+    // (By real folder: the hub names /private/var where the check says /var.)
+    const isBin = (c) => !!c && path.basename(c) === 'ravenry' && real(path.dirname(c)) === real(path.dirname(binRavenry));
+    const fixed = await until(() => isBin(stubCmd(oldStub)), 20000, 250);
+    const guide = fixed ? spawnSync(stubCmd(oldStub), ['skill'], { env: a.env, encoding: 'utf8' }) : null;
+    const backups = fs.existsSync(path.join(a.home, '.ravenry', 'skills-backup')) ? fs.readdirSync(path.join(a.home, '.ravenry', 'skills-backup')) : [];
+    step('skill: a 0.1.33 stub running <app>/Contents/MacOS/ravenry is written again at the hub\'s start to run <data>/bin/ravenry (the old one kept), which prints the guide; its description says it makes pages', !!fixed && guide?.status === 0 && /^# Ravenry/.test(guide.stdout) && /make pages in Ravenry's sidebar/.test(read(oldStub) || '') && backups.some((f) => f.startsWith('claude-SKILL.md.')) && read(path.join(a.home, '.ravenry', 'skills-backup', backups[0])) === oldText, { stub: read(oldStub), backups, guide: guide && guide.stdout.slice(0, 80) });
+    const oldGuide = spawnSync(path.join(a.app, 'Contents', 'MacOS', 'ravenry'), ['skill'], { env: a.env, encoding: 'utf8' });
+    step('skill: <app>/Contents/MacOS/ravenry (the old stub\'s command) is the ravenry command too', oldGuide.status === 0 && /^# Ravenry/.test(oldGuide.stdout), { status: oldGuide.status, out: (oldGuide.stdout || oldGuide.stderr).slice(0, 120) });
+    const inst = await fetch(`http://127.0.0.1:${a.port}/api/setup/skills`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ kind: 'codex', on: true, ravenryd: path.join(a.data, 'bin', 'ravenryd'), version: BUILD.version }) });
+    const codexStub = path.join(a.home, '.codex', 'skills', 'ravenry', 'SKILL.md');
+    const cg = stubCmd(codexStub) ? spawnSync(stubCmd(codexStub), ['skill'], { env: a.env, encoding: 'utf8' }) : null;
+    step('skill: installed now (POST /api/setup/skills, as Settings), it runs <data>/bin/ravenry, and that command prints the guide', inst.status === 200 && isBin(stubCmd(codexStub)) && cg?.status === 0 && /^# Ravenry/.test(cg.stdout), { status: inst.status, cmd: stubCmd(codexStub) });
     const logText = read(path.join(a.home, 'Library', 'Logs', 'Ravenry', 'app.log')) || '';
     step('fresh: app.log says what the app did (staged, daemon started, service installed)', /launch: native app/.test(logText) && /daemon: starting this app's/.test(logText) && /service: installed/.test(logText), { log: logText.split('\n').slice(-8) });
     n.p.kill('SIGTERM');
@@ -205,7 +237,7 @@ try {
   }
 
   // ------------------------------------------------------------ update
-  {
+  if (only('update')) {
     const a = await account('update');
     // The Electron app installed and run: its own setup (install.ts, the same
     // code the native app's setup.mjs runs) with the Electron app's resources
@@ -267,7 +299,7 @@ try {
   }
 
   // ------------------------------------------------------------ access
-  {
+  if (only('access')) {
     const a = await account('access');
     execFileSync('/usr/bin/ditto', [NATIVE, a.app]);
     const srv = http.createServer((req, res) => { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ starting: true, waitingFor: '~/Documents', folder: 'Documents', error: 'macOS is asking' })); });
@@ -278,6 +310,17 @@ try {
     step('access: while macOS asks about ~/Documents, the sidebar says the sessions show up once it lets Ravenry read it', !!r, { sidebar: n.report()?.sidebarEmpty });
     n.p.kill('SIGTERM');
     srv.close();
+    // HUB-004: before its first read the hub answers 503 "starting" (index.mjs /api/state) and a state with no generatedAt.
+    const srv2 = http.createServer((req, res) => {
+      if (req.url.startsWith('/api/events')) { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(`event: state\ndata: ${JSON.stringify({ generatedAt: null, cmuxOk: false, error: 'starting', projects: [] })}\n\n`); return; }
+      res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ generatedAt: null, starting: true, waitingFor: null, folder: null, error: 'Ravenry is starting: reading your projects.' }));
+    });
+    await new Promise((r) => srv2.listen(a.port, '127.0.0.1', r));
+    const n2 = launchNative(a, 'starting');
+    const r2 = await until(() => { const x = n2.report(); return x && /board is starting/.test(x.sidebarEmpty || '') ? x : null; }, 20000);
+    step('starting: while the hub answers 503 "starting", the sidebar says the board is starting', !!r2, { sidebar: n2.report()?.sidebarEmpty });
+    n2.p.kill('SIGTERM');
+    srv2.close();
     retire(a);
   }
 } finally {

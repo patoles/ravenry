@@ -4306,6 +4306,15 @@ server.listen(PORT, () => {
       const r = hookinstall.refreshAppHooks();
       for (const [who, ch] of Object.entries(r)) if (ch.length) console.log(`hooks: ${who}'s moved to this version: ${ch.join('; ')}`);
     });
+    // The Ravenry skill too: a SKILL.md of ours whose command is gone, or
+    // inside the app (an update swaps it), runs <data>/bin/ravenry again.
+    void startlog.step('skills refresh', () => {
+      const cur = hookinstall.appStableRoot();
+      if (!cur) return;
+      const data = path.dirname(path.dirname(cur));
+      const r = skills.refreshSkills({ stable: path.join(data, 'bin', 'ravenry'), version: path.basename(path.dirname(hookinstall.ROOT)), undoFile: path.join(registry.RAVENRY_HOME, 'skills-undo.json'), backups: path.join(registry.RAVENRY_HOME, 'skills-backup'), env: process.env, home: HOME });
+      for (const x of r) console.log(`skills: ${x.kind}'s Ravenry skill runs ${x.to} now (it ran ${x.from || 'nothing'}); the old one is kept in ${x.backup}`);
+    });
   }
 });
 tick();

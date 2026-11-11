@@ -492,7 +492,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // Run as Node (the hub service, the hooks): before anything else, with the
 // environment as it came (NodeRunner.swift).
-if ProcessInfo.processInfo.environment["ELECTRON_RUN_AS_NODE"] == "1" { NodeRunner.run() }
+// Called as Contents/MacOS/ravenry (the same file as Contents/MacOS/Ravenry:
+// macOS's file names ignore case), the executable is the `ravenry` command:
+// ravenryd beside it, as `ravenry`. A Ravenry skill written by 0.1.33 runs
+// "/Applications/Ravenry.app/Contents/MacOS/ravenry" skill.
+if (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent } ?? "") == "ravenry" {
+    let rd = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("ravenryd").path
+    var cargs: [UnsafeMutablePointer<CChar>?] = (["ravenry"] + CommandLine.arguments.dropFirst()).map { strdup($0) } + [nil]
+    execv(rd, &cargs)
+    FileHandle.standardError.write("ravenry: could not run \(rd): \(String(cString: strerror(errno)))\n".data(using: .utf8)!)
+    exit(127)
+}
+
+// A release takes no test hook from its launch (Gate.swift).
+if ProcessInfo.processInfo.environment["ELECTRON_RUN_AS_NODE"] == "1" { Gate.apply(node: true); NodeRunner.run() }
+Gate.apply(node: false)
 
 // The environment as launched: the relaunch from a pane (Relaunch.swift)
 // judges the launch as it came.

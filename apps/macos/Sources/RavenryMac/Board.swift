@@ -1504,6 +1504,7 @@ final class Board: NSObject {
         sidebar.footOn = on
         if phoneCard.isOpen { phoneCard.place() }
         sidebar.waitingFor = hub.waitingFor
+        sidebar.starting = hub.starting
         sidebar.waitingFolder = hub.waitingFolder
         sidebar.newButton.on = front == .start
         sidebar.hasTabs = !ws.tabs.isEmpty

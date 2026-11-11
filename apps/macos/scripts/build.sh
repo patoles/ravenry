@@ -13,6 +13,9 @@
 # The Metal shaders are compiled when the app starts, so the build needs
 # no Metal Toolchain.
 #
+# DERIVED_DATA: Xcode's build folder (default build/DerivedData), so two
+# builds at once (agents in one tree) do not share one.
+#
 # Prints the path of the .app.
 set -eu
 
@@ -40,12 +43,12 @@ echo "build.sh: Xcode project" >&2
 echo "build.sh: xcodebuild" >&2
 xcodebuild -project "$here/RavenryMac.xcodeproj" -scheme RavenryMac \
   -configuration Release -destination 'platform=macOS,arch=arm64' \
-  -derivedDataPath "$here/build/DerivedData" \
+  -derivedDataPath "${DERIVED_DATA:-$here/build/DerivedData}" \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
   RAVENRYD_BIN="$RAVENRYD_BIN" \
   -quiet build >&2
 
-app="$here/build/DerivedData/Build/Products/Release/RavenryMac.app"
+app="${DERIVED_DATA:-$here/build/DerivedData}/Build/Products/Release/RavenryMac.app"
 codesign --verify --deep --strict "$app" >&2
 rm -rf "$out/RavenryMac.app"
 cp -R "$app" "$out/RavenryMac.app"

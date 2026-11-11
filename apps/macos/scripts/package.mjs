@@ -6,7 +6,10 @@
 // service the Electron app wrote (they run Contents/MacOS/Ravenry with
 // ELECTRON_RUN_AS_NODE=1, NodeRunner.swift) carry over. Then a zip of it.
 //
-//   node scripts/package.mjs [--app RavenryMac.app] [--zip OUT.zip]
+//   node scripts/package.mjs [--app RavenryMac.app] [--zip OUT.zip] [--out DIR]
+//
+// DIR (default build/package) is emptied first and gets the app, the zip,
+// the feed, the dmg and the test twin.
 //
 // Inside, beside what scripts/build.sh builds:
 //   Contents/MacOS/ravenryd     the daemon, the desktop app's version, as
@@ -23,8 +26,23 @@
 //   Contents/Resources/app-update.json  the GitHub repository its updates
 //                               come from (Updater.swift), as electron-builder
 //                               writes app-update.yml for the Electron app
+//   Contents/MacOS/ravenry      is Contents/MacOS/Ravenry (macOS's file names
+//                               ignore case), so no link can sit there: the
+//                               executable called by that name runs ravenryd
+//                               as `ravenry` (main.swift), which a skill
+//                               written by 0.1.33 runs (`.../MacOS/ravenry skill`)
 // Beside the zip: latest-mac-native.json, the native updater's feed (its
-// version, the zip's name, its SHA-256 and size). Publishing is a person's
+// version, the zip's name, its SHA-256 and size), and Ravenry-<version>-
+// mac-arm64.dmg, the app and a link to /Applications in a window, for a
+// first install by hand (UPD-008).
+//
+// The test twin (SIGN-003): build/package/release-test/Ravenry.app, the same
+// bundle (the same executable, ravenryd, Node and hub, byte for byte) with
+// RavenryTestHooks in its Info.plist, signed again. Gate.swift: a release
+// takes no test hook from its launch (no --offscreen, --sidetest, --selftest,
+// RAVENRY_HUB_URL, fixture or update feed); the twin takes them all, and the
+// harness (sidetest.mjs SIDETEST_APP, selftest.sh, relaunchcheck, updatecheck,
+// installcheck, npmswitchcheck) runs on it. It is never zipped or shipped. Publishing is a person's
 // step: both files uploaded to a published GitHub release of that
 // repository (gh release upload v<version> ZIP FEED), which the updater
 // reads as releases/latest/download/latest-mac-native.json.
@@ -60,7 +78,7 @@ const opt = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : un
 const say = (s) => console.log(`package: ${s}`);
 const run = (cmd, args, o = {}) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', ...o });
 const pkg = JSON.parse(fs.readFileSync(path.join(DESKTOP, 'package.json'), 'utf8'));
-const OUT = path.join(MAC, 'build', 'package');
+const OUT = path.resolve(opt('--out') || path.join(MAC, 'build', 'package'));
 const ZIP = path.resolve(opt('--zip') || path.join(OUT, `RavenryNative-${pkg.version}.zip`));
 if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('package.mjs: an Apple silicon Mac only (Node and ravenryd are this machine\'s)');
 
@@ -197,6 +215,27 @@ fs.writeFileSync(FEED, JSON.stringify({
   version: pkg.version, url: path.basename(ZIP), sha256: crypto.createHash('sha256').update(zipBytes).digest('hex'), size: zipBytes.length,
   minimumSystemVersion: config.mac.minimumSystemVersion, releaseDate: new Date().toISOString(), build: build.id,
 }, null, 2) + '\n');
+// The dmg: the app and a link to /Applications, as electron-builder's (title "Ravenry <version>").
+const DMG = path.join(path.dirname(ZIP), `Ravenry-${pkg.version}-mac-arm64.dmg`);
+{
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'rvn-dmg-'));
+  run('/usr/bin/ditto', [app, path.join(src, 'Ravenry.app')]);
+  fs.symlinkSync('/Applications', path.join(src, 'Applications'));
+  fs.rmSync(DMG, { force: true });
+  run('/usr/bin/hdiutil', ['create', '-quiet', '-volname', `Ravenry ${pkg.version}`, '-srcfolder', src, '-fs', 'HFS+', '-format', 'UDZO', '-ov', DMG]);
+  fs.rmSync(src, { recursive: true, force: true });
+  if (id) run('/usr/bin/codesign', ['--force', '--sign', id.hash, '--timestamp=none', DMG]);
+  run('/usr/bin/hdiutil', ['verify', '-quiet', DMG]);
+}
+// The test twin: the same bundle with the test hooks on (Gate.swift), signed again.
+const TWIN = path.join(OUT, 'release-test', 'Ravenry.app');
+fs.mkdirSync(path.dirname(TWIN), { recursive: true });
+run('/usr/bin/ditto', [app, TWIN]);
+run('/usr/bin/plutil', ['-replace', 'RavenryTestHooks', '-bool', 'YES', path.join(TWIN, 'Contents', 'Info.plist')]);
+sign(TWIN);
+execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', TWIN], { stdio: 'inherit' });
 say(`${app}`);
+say(`${DMG} (${(fs.statSync(DMG).size / 1048576).toFixed(1)} MiB)`);
+say(`${TWIN}: the test twin (test hooks on; the checks run it, never shipped)`);
 say(`${ZIP} (${(fs.statSync(ZIP).size / 1048576).toFixed(1)} MiB), ${build.id}`);
 say(`${FEED}: the updater's feed; to publish: gh release upload v${pkg.version} ${ZIP} ${FEED} (on a published release)`);

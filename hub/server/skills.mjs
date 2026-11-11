@@ -59,7 +59,7 @@ export function skillText(bin, version) {
   return [
     '---',
     'name: ravenry',
-    'description: Use Ravenry\'s terminals from the command line. Open a pane beside you for a server or a build, read its screen, type into it, wait for its output, show the person pictures to pick from, and ask them through the board and their phone.',
+    'description: Use Ravenry\'s terminals from the command line. Open a pane beside you for a server or a build, read its screen, type into it, wait for its output, show the person pictures to pick from, ask them through the board and their phone, and make pages in Ravenry\'s sidebar (a tracker, a list, a board of notes) for what you work on.',
     'metadata:',
     `  ${MARK}: "1"`,
     `  ravenry-version: "${version}"`,
@@ -73,6 +73,11 @@ export function skillText(bin, version) {
     'say so to the person and do not guess at commands.',
     '',
   ].join('\n');
+}
+
+/** The command a SKILL.md of ours runs (`Run "<bin>" skill`), or null. */
+export function skillBin(text) {
+  return (/^Run `"([^"`]+)" skill`/m.exec(text || '') || [])[1] || null;
 }
 
 export function skillStatus(a, env = process.env, home = os.homedir()) {
@@ -232,4 +237,44 @@ export function setSkill(body, undoFile, env = process.env, home = os.homedir())
     installSkill(b.kind, fs.existsSync(link) ? link : bin, version, undoFile, env, home);
   } else removeSkill(b.kind, undoFile, env, home);
   return { ok: true, skills: skillsView(env, home) };
+}
+
+/**
+ * The app's hub at start (RAVENRY_HUB_SERVICE=1), as refreshAppHooks does
+ * for the hooks: a SKILL.md of ours whose command is gone (a 0.1.33 stub
+ * named /Applications/Ravenry.app/Contents/MacOS/ravenry, which the native
+ * app does not have, so Claude concluded Ravenry was not installed) or lies
+ * inside an app bundle (an update swaps it) is written again with `stable`,
+ * the data folder's bin/ravenry that every update moves along; one still
+ * running a command that is there gets this version's words. The old
+ * SKILL.md is kept in `backups` first. Someone else's skill is never
+ * touched, and a skill never installed is never added. Returns
+ * [{ kind, from, to, backup }] for each rewritten.
+ */
+export function refreshSkills({ stable, version, undoFile, backups, env = process.env, home = os.homedir() }) {
+  const out = [];
+  if (!stable || !path.isAbsolute(stable) || /["`\\\n\r\0]/.test(stable) || !fs.existsSync(stable)) return out;
+  for (const a of SKILL_ASSISTANTS) {
+    const st = skillStatus(a, env, home);
+    if (!st.ours) continue;
+    const file = path.join(st.dir, 'SKILL.md');
+    let text;
+    try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    const from = skillBin(text);
+    const gone = !from || !fs.existsSync(from) || /\.app\/Contents\//.test(from);
+    const bin = gone ? stable : from;
+    const next = skillText(bin, version || st.version || '0');
+    if (next === text) continue;
+    fs.mkdirSync(backups, { recursive: true });
+    const backup = path.join(backups, `${a}-SKILL.md.${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    fs.writeFileSync(backup, text);
+    const tmp = path.join(st.dir, `.SKILL.md.tmp-${process.pid}`);
+    fs.writeFileSync(tmp, next);
+    fs.renameSync(tmp, file);
+    // Remove still finds it ours and puts the folder back as it was.
+    const u = readUndo(undoFile);
+    if (u[st.dir]) { u[st.dir].after = next; writeUndo(undoFile, u); }
+    out.push({ kind: a, from, to: bin, backup });
+  }
+  return out;
 }
