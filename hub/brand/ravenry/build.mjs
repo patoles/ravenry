@@ -4,8 +4,8 @@
 //
 //   node brand/ravenry/build.mjs
 //
-// icon.svg      the 1024 tile (full bleed; the glyph stays inside a centred
-//               circle, so any system mask can round it)
+// icon.svg      the 1024 tile (full bleed; the raven 70% of its width, at
+//               most 452 px from the centre, inside any system mask)
 // favicon.svg   the small cut for 16 and 32 px (bigger glyph, rounded tile)
 // template.svg  the macOS menu-bar template (black on clear)
 import { chromium } from 'playwright';

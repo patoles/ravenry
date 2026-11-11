@@ -14,7 +14,7 @@ node brand/ravenry/build.mjs     # headless Playwright; writes the PNGs here and
 
 | File | What it is for |
 | --- | --- |
-| `icon.svg` | The 1024 app tile: white raven with a blue eye on near-black (#121214), full bleed, the raven inside a centred circle so any system mask (squircle, circle, square) can round it. |
+| `icon.svg` | The 1024 app tile: white raven with a blue eye on near-black (#121214), full bleed. The raven is 70% of the tile's width (56% of its height), its visual weight (area centroid) at the centre (variant C, chosen 2026-11-11); its furthest point is 452 px from the centre, inside the 512 circle and the macOS rounded tile, so a circle, squircle or square mask keeps it whole. Before it the glyph sat inside a circle of radius 337. |
 | `favicon.svg` | The small cut for 16 and 32 px: the same drawing, bigger glyph, tile already rounded. The board's SVG favicon. |
 | `template.svg` | macOS menu-bar template: black on clear, eye cut out; the system tints it. |
 | `icon-1024/512/256/128/64/32/16.png` | The tile from `icon.svg` at each size (app icons, docs). |

@@ -26,8 +26,8 @@ enum GhosttyShader: String, CaseIterable {
 
     /// The raven's body (hub/brand/ravenry/icon.svg, shared/icons/app-icon.svg), the mark Ink draws.
     static let ravenBody = "M95 34 C89 28 82 24 75 23 C66 21 58 24 54 30 C50 36 46 40 40 46 C32 54 24 64 18 74 L6 92 L20 94 L28 84 C36 80 48 78 56 76 C68 72 76 62 76 52 C76 46 74 43 78 40 C84 37 90 36 95 34 Z"
-    /// Where the glyph sits in the 1024 icon: translate(206.29 159.89) scale(6.0514).
-    static let iconGlyph = (x: 206.29, y: 159.89, scale: 6.0514)
+    /// Where the glyph sits in the 1024 icon: translate(89.11 24.00) scale(8.0539).
+    static let iconGlyph = (x: 89.11, y: 24.00, scale: 8.0539)
     /// The glyph's centre, in its own units (the mockup's GLYPH_C).
     static let glyphCentre = SIMD2<Float>(50.5, 58.5)
 
