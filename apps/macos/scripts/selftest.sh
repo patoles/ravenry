@@ -82,6 +82,20 @@ while kill -0 "$apppid" 2>/dev/null; do
   [ $i -gt 600 ] && { kill "$apppid"; echo "selftest: the third launch did not finish in 60 s" >&2; exit 1; }
   sleep 0.1
 done
+# No daemon to reach (WIN-007): the app says why and quits, it never shows
+# an empty window. Off every screen the alert's words are written instead.
+t0=$(date +%s)
+# shellcheck disable=SC2086
+env -i $envs $appenv "$exe" --offscreen --socket "$dir/run/none.sock" --selftest "$out/nodaemon.json" 2>"$dir/nodaemon.log" &
+apppid=$!
+i=0
+while kill -0 "$apppid" 2>/dev/null; do
+  i=$((i + 1))
+  [ $i -gt 300 ] && { kill "$apppid"; break; }
+  sleep 0.1
+done
+echo "$(( $(date +%s) - t0 ))" > "$out/nodaemon.secs"
+grep -c "alert: Ravenry cannot open a terminal" "$dir/nodaemon.log" > "$out/nodaemon.logged" || true
 echo "selftest: files in $out" >&2
 /usr/bin/python3 -I - "$out/selftest.json" "$out/restore.json" "$out/lastcwd.json" <<'PY'
 import json, sys
@@ -98,6 +112,16 @@ try:
 except Exception as e:
     r3 = {"checks": [{"name": "lastcwd_ran", "ok": False, "detail": str(e)}]}
 r["checks"] += r3.get("checks", [{"name": "lastcwd_ran", "ok": False, "detail": r3.get("error", "")}])
+import os
+d = os.path.dirname(sys.argv[1])
+try:
+    nd = json.load(open(os.path.join(d, "nodaemon.json")))
+except Exception as e:
+    nd = {"error": "", "why": str(e)}
+secs = open(os.path.join(d, "nodaemon.secs")).read().strip() if os.path.exists(os.path.join(d, "nodaemon.secs")) else "?"
+logged = open(os.path.join(d, "nodaemon.logged")).read().strip() if os.path.exists(os.path.join(d, "nodaemon.logged")) else "0"
+ok = nd.get("alert") == "Ravenry cannot open a terminal" and "none.sock" in nd.get("error", "") and secs.isdigit() and int(secs) < 15 and logged not in ("", "0")
+r["checks"].append({"name": "no_daemon_says_why_and_quits", "ok": ok, "detail": "quit after %s s; alert %r; why %r; logged %s" % (secs, nd.get("alert"), nd.get("error"), logged)})
 failed = 0
 for c in r["checks"]:
     ok = c["ok"]

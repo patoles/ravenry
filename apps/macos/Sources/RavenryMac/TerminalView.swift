@@ -227,6 +227,13 @@ final class TerminalView: NSView, NSTextInputClient {
     /// pane.render answered (reader thread).
     private func opened(_ r: Result<[String: Any], ConnectionError>, _ c: Connection?, _ sent: (cols: Int, rows: Int)) {
         do {
+            if case .failure(let e) = r {
+                chLock.lock()
+                let wanted = wantsStream && liveChannel == 0
+                chLock.unlock()
+                if wanted { DispatchQueue.main.async { [weak self] in self?.onRenderFailed?(e) } }
+                return
+            }
             guard let c, case .success(let res) = r, let ch = (res["channel"] as? NSNumber)?.uint32Value else { return }
             self.chLock.lock()
             if self.wantsStream && self.liveChannel == 0 {
@@ -1669,6 +1676,8 @@ final class TerminalView: NSView, NSTextInputClient {
     var onSplit: ((String) -> Void)?
     var canSplit: () -> Bool = { false }
     var folderPath: () -> String? = { nil }
+    /// pane.render failed (the pane is gone, the daemon did not answer): the workspace says so (TERM-070).
+    var onRenderFailed: ((ConnectionError) -> Void)?
     /// The last menu made (the self-test reads its items).
     private(set) var lastMenu: NSMenu?
 

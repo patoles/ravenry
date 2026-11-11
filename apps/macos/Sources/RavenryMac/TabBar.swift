@@ -43,6 +43,8 @@ struct TabModel: Equatable {
     /// An extra tab (Workspace.extraTabs): the tab it comes right after
     /// (its session's own tab, "s:<pane>", or a pane id), nil at the end.
     var after: String? = nil
+    /// A session that left the board: the tab dims, its tip says it ended (NAV-005).
+    var ended = false
 }
 
 final class TabBar: NSView {
@@ -250,10 +252,26 @@ final class TabBar: NSView {
 
     override func mouseUp(with e: NSEvent) {
         // The title bar's double click: the window zooms.
-        if e.clickCount == 2 { window?.performZoom(nil) }
+        if e.clickCount == 2 { TabBar.titleBarDoubleClick(window) }
     }
 
     override func scrollWheel(with e: NSEvent) { clip.scrollWheel(with: e) }
+
+    /// The title bar's double click, as the system's setting says (Desktop
+    /// & Dock, "Double-click a window's title bar to": AppleActionOnDoubleClick
+    /// Maximize or Fill zooms, Minimize, None or Do Nothing does nothing) (WIN-005).
+    static func titleBarDoubleClick(_ w: NSWindow?) {
+        let g = UserDefaults.standard // (the global domain is in its search list)
+        let action = TabBar.doubleClickAction ?? g.string(forKey: "AppleActionOnDoubleClick")
+            ?? (g.bool(forKey: "AppleMiniaturizeOnDoubleClick") ? "Minimize" : "Maximize")
+        switch action {
+        case "Minimize": w?.performMiniaturize(nil)
+        case "None", "Do Nothing": break
+        default: w?.performZoom(nil)
+        }
+    }
+    /// For the self-test: the setting it stands for.
+    static var doubleClickAction: String?
 
     /// The tab x's words by its kind: a page's, the brief's, a shell's.
     static func closeTip(_ m: TabModel) -> String {
@@ -407,8 +425,8 @@ final class TabItem: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    private var fg: NSColor { model.active ? Design.tfg : (hover ? Design.tx : Design.tx2) }
-    private var fg3: NSColor { model.active ? Design.tfg.withAlphaComponent(0.55) : Design.tx3 }
+    private var fg: NSColor { let c = model.active ? Design.tfg : (hover ? Design.tx : Design.tx2); return model.ended ? c.withAlphaComponent(0.45) : c }
+    private var fg3: NSColor { let c = model.active ? Design.tfg.withAlphaComponent(0.55) : Design.tx3; return model.ended ? c.withAlphaComponent(0.45) : c }
     private func nameText() -> NSAttributedString { NSAttributedString(string: model.name, attributes: [.font: Design.tabFont, .foregroundColor: fg]) }
     private func subText() -> NSAttributedString? { model.sub.map { NSAttributedString(string: $0, attributes: [.font: Design.tabFont, .foregroundColor: fg3]) } }
     private static let badge = NSAttributedString(string: "2", attributes: [.font: Design.tabFont])
@@ -491,7 +509,7 @@ final class TabItem: NSView {
         }
         var x = Design.tabPadLeft
         if let d = model.dot {
-            Design.color(d).setFill()
+            Design.color(d).withAlphaComponent(model.ended ? 0.45 : 1).setFill()
             NSBezierPath(ovalIn: NSRect(x: x + 2.5, y: (bounds.height - 7) / 2, width: 7, height: 7)).fill()
         } else {
             Icons.shell(NSRect(x: x, y: (bounds.height - 12) / 2, width: 12, height: 12), fg3)

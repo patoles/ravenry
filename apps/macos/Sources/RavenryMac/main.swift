@@ -363,15 +363,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func fail(_ msg: String) {
         NSLog("RavenryMac: \(msg)")
+        let title = "Ravenry cannot open a terminal"
         if options.offscreen {
+            // Off every screen the alert is not shown: what it says is written instead (WIN-007).
+            NSLog("RavenryMac: alert: \(title): \(msg)")
             if let out = options.bench ?? options.selftest {
-                try? JSONSerialization.data(withJSONObject: ["error": msg]).write(to: URL(fileURLWithPath: out))
+                try? JSONSerialization.data(withJSONObject: ["error": msg, "alert": title]).write(to: URL(fileURLWithPath: out))
             }
             NSApp.terminate(nil)
             return
         }
         let a = NSAlert()
-        a.messageText = "Ravenry cannot open a terminal"
+        a.messageText = title
         a.informativeText = msg
         a.runModal()
         NSApp.terminate(nil)

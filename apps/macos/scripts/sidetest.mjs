@@ -768,6 +768,25 @@ if (DAEMONS) {
   a2.kill();
 }
 // --screen proofs: the app again on the same board and daemon (ONB-006), and a second client's read of the marks.
+// --screen termnav (SelfTestTermNav.swift): a session pane's process ends
+// while Ravenry is not running, then the app again on the same board and
+// daemon (--screen termnav2): that tab closes quietly, the one in front
+// comes back in front, the sidebar's width is the one dragged.
+let termnav2 = null;
+if (SCREEN === 'termnav') {
+  let note = {};
+  try { note = JSON.parse(fs.readFileSync(`${result}.termnav`, 'utf8')); } catch { /* none */ }
+  if (note.deadPid) { try { process.kill(note.deadPid, 'SIGKILL'); } catch { /* gone */ } }
+  await sleep(1500);
+  const r2 = path.join(OUT, 'sidetest-termnav2.json');
+  fs.rmSync(r2, { force: true });
+  const a4 = spawn(EXE, ['--offscreen', '--socket', sock, '--sidetest', r2, '--screen', 'termnav2'], { env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events-termnav2.log') }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-termnav2.log'), 'w')] });
+  let done4 = false;
+  a4.on('exit', () => { done4 = true; });
+  for (let i = 0; i < 1200 && !done4; i++) await sleep(100);
+  if (!done4) a4.kill();
+  try { termnav2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
+}
 let proofs2 = null, marks2 = null;
 if (PROOFS) {
   const r2 = path.join(OUT, 'sidetest-proofs2.json');
@@ -795,6 +814,7 @@ if (PROOFS) {
   r.checks.push({ name: 'onb_second_client_reads_marks', ok: !!ok, detail: JSON.stringify(marks2) });
   if (!ok) r.failed++;
 }
+if (SCREEN === 'termnav') for (const c of termnav2?.checks || [{ name: 'termnav2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 // The layout file is kept by daemon: this test's daemon is not the Electron
 // app's, so the window writes window-<daemon>.json, never window.json.
 const files = fs.existsSync(env.RAVENRY_DESKTOP_DATA) ? fs.readdirSync(env.RAVENRY_DESKTOP_DATA) : [];

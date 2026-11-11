@@ -107,6 +107,65 @@ func secBox(_ title: String?, _ rows: [NSView?], ring: String? = nil) -> Box {
 func acts(_ views: [NSView?]) -> NSStackView { hstack(views + [spring()], spacing: 8) }
 
 /// .field (.ta for an area): a text field on --input with a ring, --work while it has the keyboard.
+/// A form's text field with an undo of its own (A11Y-011). A form drawn
+/// again as it is typed in (New project's name makes the folder's name)
+/// puts its fields in new rows, which ends the field editor's editing and
+/// takes the field editor's undo with it; this one stays with the field.
+/// A run of typing is one step, as in any Mac text field.
+final class UndoField: NSTextField {
+    let history = UndoManager()
+    /// What the field's value changing back does besides (the form drawn again).
+    var changed: (() -> Void)?
+    private var last = ""
+    private var lastChange = Date.distantPast
+
+    /// Edit > Undo and Redo while the field has the keyboard: the field
+    /// editor takes neither, so the menu reaches this field before the window.
+    @objc func undo(_ sender: Any?) { history.undo() }
+    @objc func redo(_ sender: Any?) { history.redo() }
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(undo(_:)) { return history.canUndo }
+        if item.action == #selector(redo(_:)) { return history.canRedo }
+        return true
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        // The field editor registers nothing of its own here: this field's steps are the ones.
+        (currentEditor() as? NSTextView)?.allowsUndo = false
+        last = stringValue
+        return ok
+    }
+    override func textDidEndEditing(_ n: Notification) {
+        (n.object as? NSTextView)?.allowsUndo = true
+        super.textDidEndEditing(n)
+    }
+    override func textDidChange(_ n: Notification) {
+        let now = stringValue, before = last
+        if now != before {
+            last = now
+            if Date().timeIntervalSince(lastChange) > 1 || !history.canUndo { register(before) }
+            lastChange = Date()
+        }
+        super.textDidChange(n)
+    }
+    private func register(_ value: String) {
+        history.registerUndo(withTarget: self) { f in f.restore(value) }
+    }
+    /// Undo or Redo: the value back, the other one registered the other way.
+    private func restore(_ value: String) {
+        register(stringValue)
+        stringValue = value
+        if let ed = currentEditor() {
+            ed.string = value
+            ed.selectedRange = NSRange(location: (value as NSString).length, length: 0)
+        }
+        last = value
+        lastChange = .distantPast
+        changed?()
+    }
+}
+
 final class FieldBox: Box, NSTextFieldDelegate {
     let field: NSTextField
     let area: Bool
@@ -116,7 +175,8 @@ final class FieldBox: Box, NSTextFieldDelegate {
     /// `icon`: drawn before the words, in tx3 (.dsearch's search glass).
     init(_ placeholder: String, area: Bool, height: CGFloat? = nil, icon: String? = nil) {
         self.area = area
-        field = area ? NSTextField(wrappingLabelWithString: "") : NSTextField(string: "")
+        let f = area ? UndoField(wrappingLabelWithString: "") : UndoField(string: "")
+        field = f
         super.init(fill: "input", ring: "sep", radius: 7)
         translatesAutoresizingMaskIntoConstraints = false
         field.isEditable = true
@@ -129,6 +189,7 @@ final class FieldBox: Box, NSTextFieldDelegate {
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [.font: Fonts.pt(13), .foregroundColor: Design.color("tx3")])
         field.setAccessibilityLabel(placeholder)
         field.delegate = self
+        f.changed = { [weak self] in self?.onChange?() }
         field.translatesAutoresizingMaskIntoConstraints = false
         if area { field.cell?.wraps = true; field.cell?.isScrollable = false; field.usesSingleLineMode = false }
         else { field.cell?.wraps = false; field.cell?.isScrollable = true; field.usesSingleLineMode = true }

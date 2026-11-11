@@ -260,6 +260,7 @@ final class Workspace: NSObject {
         }
         v.canSplit = { [weak self] in self?.tabs.first(where: { $0.host == pane || $0.guest == pane })?.guest == nil }
         v.folderPath = { [weak self] in self?.info[pane].flatMap { $0.cwd.isEmpty ? nil : $0.cwd } }
+        v.onRenderFailed = { [weak self] e in self?.renderFailed(pane, e) }
         let b = PaneBox(term: v)
         b.onClose = { [weak self] in self?.askClose(pane) { self?.closePane(pane) } }
         b.onClickHead = { [weak self, weak v] in if let v { self?.window.makeFirstResponder(v) } }
@@ -476,11 +477,14 @@ final class Workspace: NSObject {
         let gone = homes.filter { $0.value === d }.map(\.key)
         // Never an empty window: a shell in the newest first when every tab was that daemon's.
         if tabs.allSatisfy({ panes(of: $0).allSatisfy(gone.contains) }) { newTab(in: nil) }
+        let shown = gone.filter { id in tabs.contains { $0.host == id || $0.guest == id } }
         for id in gone {
             // One a move replaces waits for its new pane (release, else replace).
             if held.contains(id) { endedHeld.insert(id); continue }
             removePane(id)
         }
+        // One toast for every tab that went with it (TERM-070).
+        if !shown.isEmpty { say?(t("term.shellGone", ["why": t("term.daemonStopped")])) }
     }
 
     /// A new shell in the newest daemon (pane.new), labelled as the app's
@@ -843,7 +847,17 @@ final class Workspace: NSObject {
             show(t)
         } catch {
             NSLog("RavenryMac: new shell: \(error)")
+            say?(t("term.newShellFailed", ["why": Workspace.words(error)]))
         }
+    }
+
+    /// An error in the words a toast says after "Could not ...: ".
+    static func words(_ e: Error) -> String {
+        if let c = e as? ConnectionError {
+            if case .daemon(_, let message) = c { return message }
+            return Film.why(c)
+        }
+        return e.localizedDescription
     }
 
     /// Cmd+D (right), Cmd+Shift+D (down): a shell beside the pane in
@@ -1305,6 +1319,22 @@ final class Workspace: NSObject {
                 self.homes[run] = self.homes[run] ?? d
                 self.addAgentPane(q, owner: asker)
             }
+        }
+    }
+
+    /// What the window says in a toast (Board sets it): a shell gone, one
+    /// that could not open (TERM-070).
+    var say: ((String) -> Void)?
+
+    /// Showing a pane failed: one its daemon no longer has goes, and says
+    /// so; one that did not answer in time stays a tab (the Electron app's
+    /// showPane), never a blank pane without a word.
+    private func renderFailed(_ pane: String, _ e: ConnectionError) {
+        if case .daemon(let code, let message) = e, code == "not_found" || code == "pane_closed" || message.hasPrefix("no pane") {
+            removePane(pane)
+            say?(t("term.shellGone", ["why": Film.why(e)]))
+        } else {
+            say?(t("term.shellNotShown", ["why": Film.why(e)]))
         }
     }
 

@@ -118,6 +118,11 @@ final class Board: NSObject {
     private var lastYou = Set<String>()
     private var timer: Timer?
     private let keep: Bool
+    /// Where the sidebar's width and fold are kept: the person's defaults;
+    /// off every screen only a test's data folder (RAVENRY_DESKTOP_DATA),
+    /// so a relaunch check reads them back (NAV-007), else nowhere.
+    private lazy var prefs: UserDefaults? = keep ? .standard
+        : ProcessInfo.processInfo.environment["RAVENRY_DESKTOP_DATA"].flatMap { $0.isEmpty ? nil : UserDefaults(suiteName: ($0 as NSString).appendingPathComponent("board")) }
     /// The machines a toast already said were older or would not talk (MACH-008).
     lazy var machinesSaid = MachinesSaid(offscreen: !keep)
     /// Every open and its outcome, for the self-test: "session k: its tab".
@@ -134,8 +139,7 @@ final class Board: NSObject {
         notifier = nt
         super.init()
         Board.lastFront = self
-        let d = UserDefaults.standard
-        if keep {
+        if let d = prefs {
             if let w = d.object(forKey: "sidebarWidth") as? Double { sideWidth = min(SidebarView.maxWidth, max(SidebarView.minWidth, CGFloat(w))) }
             sideHidden = d.bool(forKey: "sidebarHidden")
         }
@@ -319,11 +323,13 @@ final class Board: NSObject {
         sidebar.onPin = { [weak self] k in self?.togglePin(k) }
         sidebar.onNew = { [weak self] in self?.topLevel { $0.openStart(nil) } }
         sidebar.onNav = { [weak self] key, name in self?.note("row click \(key): \(name)"); self?.topLevel { $0.openPage(key, name) } }
+        // A shell gone, one that could not open (TERM-070): a toast.
+        ws.say = { [weak self] s in self?.toast(s) }
         sidebar.onResize = { [weak self] w in
             guard let self else { return }
             self.sideWidth = w
             self.root.sideWidth = w
-            if self.keep { UserDefaults.standard.set(Double(w), forKey: "sidebarWidth") }
+            self.prefs?.set(Double(w), forKey: "sidebarWidth")
             self.root.place()
         }
         panel.host = PanelView.Host(
@@ -583,7 +589,7 @@ final class Board: NSObject {
 
     func toggleSidebar() {
         sideHidden.toggle()
-        if keep { UserDefaults.standard.set(sideHidden, forKey: "sidebarHidden") }
+        prefs?.set(sideHidden, forKey: "sidebarHidden")
         log.append("sidebar \(sideHidden ? "hidden" : "shown")")
         render()
     }
@@ -1589,7 +1595,7 @@ final class Board: NSObject {
             return m
         }
         guard var m = sessionTabCache[k] else { return nil }
-        m.dot = "idle"; m.tip = t("else.ended"); m.active = on
+        m.dot = "idle"; m.tip = t("else.ended"); m.active = on; m.ended = true
         return m
     }
 
@@ -1622,7 +1628,13 @@ final class Board: NSObject {
             if let p = st?.project(id) { out.append(TabModel(id: "view:project", name: p.name, sub: nil, split: false, active: true, tip: p.name, dot: "idle")) }
         case .page(let k, let name):
             var m = TabModel(id: "view:page", name: name, sub: nil, split: false, active: true, tip: name, dot: "tx3")
-            if k.hasPrefix("review:") { m.after = beside(String(k.dropFirst(7))) }
+            if k.hasPrefix("review:") {
+                m.after = beside(String(k.dropFirst(7)))
+                // "Review" over its branch, as the Electron app's tab (NAV-004).
+                if let b = st?.find(String(k.dropFirst(7)))?.session.worktree?["branch"] as? String {
+                    m.sub = b.hasPrefix("ravenry/") ? String(b.dropFirst(8)) : b
+                }
+            }
             out.append(m)
         case .start: out.append(TabModel(id: "view:start", name: t("start.title"), sub: nil, split: false, active: true, tip: t("start.title"), dot: "tx3"))
         case .brief(let pid, let k):
@@ -1644,6 +1656,13 @@ final class Board: NSObject {
     /// session goes on; pinned, it is unpinned), the view in front goes back.
     private func closeViewTab(_ id: String) {
         let k = String(id.dropFirst(5))
+        // The review's x: back to its session (NAV-004), as the Electron app's.
+        if id == "view:page", case .page(let pk, _) = front, pk.hasPrefix("review:") {
+            let sk = String(pk.dropFirst(7))
+            log.append("review \(sk): closed to its session")
+            topLevel { $0.pickSession(sk, why: "review closed") }
+            return
+        }
         guard k.contains("/") else { back(); return }
         sessionTabs.removeAll { $0 == k }
         if pinned.contains(k) { togglePin(k) }

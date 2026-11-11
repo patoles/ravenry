@@ -70,6 +70,13 @@ extension AppDelegate {
         case tab(Tab, from: Workspace)
     }
 
+    /// A window after the first: the size of the one in front, cascaded
+    /// from its top left, so none opens exactly on another (WIN-006).
+    static func cascade(_ w: NSWindow, after b: NSWindow) {
+        w.setFrame(b.frame, display: false)
+        w.setFrameTopLeftPoint(w.cascadeTopLeft(from: NSPoint(x: b.frame.minX, y: b.frame.maxY)))
+    }
+
     /// The window in front: the key window, else the one used last, else the newest.
     var current: RavenryWindow? {
         let live = windows.filter { !$0.closing }
@@ -118,8 +125,7 @@ extension AppDelegate {
             w.orderFront(nil)
         } else {
             if let b = before?.window, !first {
-                w.setFrame(b.frame, display: false)
-                w.setFrameTopLeftPoint(w.cascadeTopLeft(from: NSPoint(x: b.frame.minX, y: b.frame.maxY)))
+                AppDelegate.cascade(w, after: b)
             } else if !ws.placeWindow() { w.center() }
             ws.keepBounds()
             w.makeKeyAndOrderFront(nil)
