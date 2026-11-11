@@ -25,13 +25,14 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { testApp } from './testapp.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
-const APP = path.resolve(process.env.INKCHECK_APP || path.join(MAC, 'build', 'RavenryMac.app'));
-const EXE = path.join(APP, 'Contents', 'MacOS', 'RavenryMac');
+// A development build or a package's test twin, never the release (testapp.mjs, Gate.swift).
+const { app: APP, exe: EXE } = testApp(process.env.INKCHECK_APP || path.join(MAC, 'build', 'RavenryMac.app'));
 const BIN = path.join(APP, 'Contents', 'MacOS', 'ravenryd');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(path.join(REPO, '.tmp'), { recursive: true });

@@ -23,7 +23,7 @@ guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAC = path.resolve(HERE, '..');
 const REPO = path.resolve(MAC, '..', '..');
-const APP = testApp(process.argv[2] || path.join(MAC, 'build', 'RavenryMac.app')).app;
+const { app: APP, exe: EXE } = testApp(process.argv[2] || path.join(MAC, 'build', 'RavenryMac.app'));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(path.join(REPO, '.tmp'), { recursive: true });
 const tmp = fs.mkdtempSync(path.join(REPO, '.tmp', 'macos-launch.'));
@@ -34,7 +34,9 @@ const env = { HOME: user, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh', LANG: 'en_US
 const BIN = path.join(APP, 'Contents', 'MacOS', 'ravenryd');
 
 const daemon = spawn(BIN, ['serve'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon.log'), 'w')] });
-const sock = path.join(run, 'ravenryd-0.0.0-dev.sock');
+// Named after the daemon's version: 0.0.0-dev from build.sh, the release's in a package.
+const version = JSON.parse(execFileSync(BIN, ['version', '--json'], { env, encoding: 'utf8' })).version;
+const sock = path.join(run, `ravenryd-${version.replace(/[^A-Za-z0-9._-]/g, '_')}.sock`);
 for (let i = 0; !fs.existsSync(sock); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
 const panes = ['one', 'two', 'three'].map((n) => execFileSync(BIN, ['new', '--name', n, '--size', '100x30', '--label', 'ravenry.kind=shell', '--', '/bin/zsh', '-f'], { env, encoding: 'utf8' }).trim().split(/\s+/)[0]);
 const folder = fs.realpathSync(run);
@@ -47,7 +49,7 @@ fs.writeFileSync(path.join(data, `window-${id}.json`), JSON.stringify({
 
 const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port: 47900 + Math.floor(Math.random() * 90), extra: [{ id: 'old-notes', name: 'old-notes' }] });
 const log = path.join(tmp, 'app.log');
-const app = spawn(path.join(APP, 'Contents', 'MacOS', 'RavenryMac'), ['--offscreen', '--socket', sock], {
+const app = spawn(EXE, ['--offscreen', '--socket', sock], {
   env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log') },
   stdio: ['ignore', 'ignore', fs.openSync(log, 'w')],
 });
