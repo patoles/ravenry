@@ -28,6 +28,7 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
+	handBoardWord(name, cmd)
 	c := cmdByName(cmd)
 	if c == nil {
 		fmt.Fprintf(os.Stderr, "%s: unknown command %q\n\n%s", name, cmd, usageText(name))
