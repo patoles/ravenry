@@ -329,6 +329,20 @@ final class Screen {
         return s
     }
 
+    /// How many rows have text on them (a cell neither empty nor a space),
+    /// a row that goes on a filled row wrapped into it counted with it (a
+    /// full row reflowed narrower leaves its last cell, maybe a space, on
+    /// the next row). The caller holds the lock.
+    func filledRows() -> Int {
+        var n = 0, above = false
+        for y in 0..<min(rows, lines.count) {
+            let filled = lines[y].contains(where: { $0.g != 0 && $0.g != 32 }) || (above && y > 0 && y - 1 < wraps.count && wraps[y - 1])
+            if filled { n += 1 }
+            above = filled
+        }
+        return n
+    }
+
     /// The screen's text, one line per row. Takes the lock.
     func text() -> String {
         lock()

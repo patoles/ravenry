@@ -602,10 +602,44 @@ final class Bench {
         // its spinner), given 3 s to draw its screen.
         let content = ProcessInfo.processInfo.environment["RAVENRY_BENCH_CONTENT"].flatMap { $0.isEmpty ? nil : $0 } ?? "busy"
         if content == "busy" {
-            let busy = "i=0; while :; do i=$((i+1)); echo \"busy $i the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows\"; sleep 0.033; done"
-            main { view.sendEvents([["text": busy]]) }
+            // A line about 30 times a second, and after each resize the
+            // screen drawn again as Claude Code draws it: a synchronized
+            // update (mode 2026), every row erased from the top, the rows
+            // drawn at their places in four writes 20 ms apart (autowrap
+            // off, each cut at the width), the update ended. A frame of
+            // the drag that shows that redraw half done has rows missing
+            // (the content check below). Given until the screen is full.
+            let busy = #"""
+            # The redraw's writes go through /usr/bin/printf: zsh's own
+            # printf loses a write a SIGWINCH interrupts.
+            P=/usr/bin/printf; w=0; TRAPWINCH() { w=1 }
+            L=(); i=0
+            while :; do
+              if (( w )); then
+                w=0; sz=$(stty size); r=${sz% *}; n=$((r - 1)); k=$(( (n + 3) / 4 ))
+                e=''; repeat $r e+=$'\e[2K\e[1B'
+                $P '\033[?2026h\033[?7l\033[H%s' "$e"
+                for p in 0 1 2 3; do
+                  sleep 0.02; s=''
+                  for (( y = p * k + 1; y <= p * k + k && y <= n; y++ )); do
+                    j=$(( $#L - n + y )); (( j >= 1 )) && s+=$'\e['$y';1H'$L[j]
+                  done
+                  $P '%s' "$s"
+                done
+                $P '\033[%d;1H\033[?7h\033[?2026l' $r
+              fi
+              i=$((i + 1)); l="busy $i the quick brown fox jumps over the lazy dog and keeps running past the river while the wind blows"
+              L+=("$l"); (( $#L > 300 )) && shift L
+              print -r -- "$l"; sleep 0.033
+            done
+            """#
+            let script = (ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()) + "/bench-busy.zsh"
+            try? busy.write(toFile: script, atomically: true, encoding: .utf8)
+            main { view.sendEvents([["text": "zsh \(script)"]]) }
             key("\r", code: 0x24)
             _ = waitFor(3) { self.text().contains("busy 20") }
+            let full = main { view.screen.rows }
+            _ = waitFor(8) { self.text().contains("busy \(full + 20)") }
         } else if content != "idle" {
             main { view.sendEvents([["text": content]]) }
             key("\r", code: 0x24)
@@ -621,13 +655,27 @@ final class Bench {
         // When each of the pane's frames came (the reader thread), for the
         // time from a frame to the draw that showed it.
         var framesAt: [Double] = []
+        // The content check: the rows with text on them of each frame
+        // (the screen once it is applied), against the full screen's
+        // before the drag. A frame with fewer shows a program's redraw
+        // half done (rows erased and not drawn again yet).
+        var filledAt: [(t: Double, n: Int, rows: Int, held: Bool)] = []
+        front.screen.lock()
+        let fullRows = front.screen.filledRows()
+        front.screen.unlock()
         let dl = NSLock()
         main {
             front.onDraw = { _, _ in
                 dl.lock(); drawsAt.append((CACurrentMediaTime(), front.drawnPixels, front.lastWaitMs)); dl.unlock()
             }
             let before = front.onFrame
-            front.onFrame = { before?(); dl.lock(); framesAt.append(CACurrentMediaTime()); dl.unlock() }
+            front.onFrame = {
+                before?()
+                front.screen.lock()
+                let n = front.screen.filledRows(), rows = front.screen.rows, held = front.screen.held
+                front.screen.unlock()
+                dl.lock(); framesAt.append(CACurrentMediaTime()); filledAt.append((CACurrentMediaTime(), n, rows, held)); dl.unlock()
+            }
             board?.resizeMs.removeAll()
         }
         var widths: [CGFloat] = []
@@ -717,6 +765,14 @@ final class Bench {
             while di < all.count && all[di].t < f { di += 1 }
             if di < all.count { frameToDraw.append((all[di].t - f) * 1000) }
         }
+        // The content check, over the frames of the drag and of the 100 ms
+        // after it: a frame short of a tenth or more of the full screen's
+        // rows. Content with blank lines (a Claude transcript) has a row
+        // or two more or fewer of them in view once reflowed; a redraw
+        // shown half done has most rows missing.
+        dl.lock(); let filled = filledAt.filter { $0.t >= tStart && $0.t <= tStart + secs + 0.1 }; dl.unlock()
+        let short = filled.filter { $0.n * 10 < min(fullRows, $0.rows) * 9 }
+        let shortExamples = short.prefix(3).map { "\(String(format: "%.0f", ($0.t - tStart) * 1000)) ms: \($0.n) of \($0.rows) rows\($0.held ? " (held)" : "")" }
         // The last lines the pane in front shows: its content was what was asked.
         let lines: [String] = text().components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let tail: [String] = Array(lines.suffix(4))
@@ -744,6 +800,14 @@ final class Bench {
             "stall_log_lines": logAfter.count - logBefore, "stall_log_examples": Array(logAfter.suffix(3)),
             "after_end_drawn_at_size": main { front.drawnPixels == CGSize(width: max(1, round(front.bounds.width * front.renderer.fonts.scale)), height: max(1, round(front.bounds.height * front.renderer.fonts.scale))) },
         ]
+        let check: [String: Any] = [
+            "content_full_rows": fullRows, "content_frames_checked": filled.count, "content_frames_short": short.count,
+            "content_frames_held": filled.filter(\.held).count, "content_short_examples": shortExamples,
+        ]
+        if var res = result["resize"] as? [String: Any] {
+            res.merge(check) { $1 }
+            result["resize"] = res
+        }
         // The stall log writes its line (a made-up stall, after the counts above).
         main { DrawWatch.shared.missed(front, ms: 99) }
         result["stall_log_written"] = waitFor(2) {

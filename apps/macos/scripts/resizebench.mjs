@@ -13,10 +13,13 @@
 //   node scripts/resizebench.mjs --content busy|idle|COMMAND [OUT]
 //
 // --content: what the tab in front shows during the drag: busy (the
-// default, a loop printing about 30 lines a second), idle (the shell at
-// its prompt), or a command typed in it, as a replay of a real Claude tab
+// default, a loop printing about 30 lines a second that redraws its
+// screen after each resize as Claude Code does), idle (the shell at its
+// prompt), or a command typed in it, as a replay of a real Claude tab
 // with its history and a spinner line (Simon's feel checks: real content
-// beside an empty shell).
+// beside an empty shell). The content check counts the frames of the drag
+// short of a tenth or more of the rows of text the screen had before it
+// (a redraw shown half done) and fails the run when there is one.
 //
 // --daemons: the window on two daemons, as after an update: OLD_RAVENRYD (a
 // release's, 0.1.23 or later) and this tree's ravenryd built as the desktop
@@ -124,6 +127,16 @@ for (const e of d.examples || []) console.log('    ' + e);
 console.log(`  draws ${d.draws} (${d.fps.toFixed(0)} a second), gap between draws: ${s(d.draw_gap_ms)}`);
 for (const l of d.front_text_tail || []) console.log(`    | ${l.slice(0, 100)}`);
 if (d.frame_to_draw_ms) console.log(`  the pane's frames in the drag ${d.frames_in_drag} (content: ${d.content}), a frame to the draw that shows it: ${s(d.frame_to_draw_ms)}`);
+// The content check: a frame of the drag short of a tenth or more of the
+// rows of text the screen had before it shows a program's redraw half
+// done (Claude Code erases every row after a resize, then draws them
+// again).
+const short = d.content_frames_short;
+if (short !== undefined) {
+  console.log(`  content check: ${short} of ${d.content_frames_checked} frames in the drag short of a tenth or more of the full screen's ${d.content_full_rows} rows of text (${d.content_frames_held} held)`);
+  for (const e of d.content_short_examples || []) console.log('    ' + e);
+  if (short > 0) process.exitCode = 1;
+}
 console.log(`  wait for a drawable: ${s(d.drawable_wait_ms)}`);
 console.log(`  draws of the tabs not in front: ${d.hidden_tab_draws}; drawn at its size after the drag: ${d.after_end_drawn_at_size}`);
 console.log(`  draws put off for want of a free drawable: ${d.draws_put_off_in_drag ?? '-'}`);
