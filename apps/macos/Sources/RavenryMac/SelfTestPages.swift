@@ -113,6 +113,22 @@ extension SelfTestBoard {
         // Answered, the step runs again with it (writeAnswer: its mark back to [ ]).
         check("plan_field_in_brief", wait(3) { read().contains("- [ ] Do: Send the second reminder") && read().contains("Answer: \"Next Monday\"") },
               read().components(separatedBy: "\n").filter { $0.contains("second") || $0.contains("Answer") }.joined(separator: " / "))
+        // Stop the plan (PLAN-007): asked first, Cancel posts nothing; Stop the plan is the hub's 200 and the brief reads stopped.
+        _ = wait(10) { self.board.render(); return pg.buttons["stop"] != nil }
+        n = board.hub.sent.count
+        pg.buttons["stop"]?.performClick(nil)
+        check("plan_stop_asks_first", wait(3) { pg.buttons["stopYes"] != nil } && shows(pg, "Its session finishes the step in hand and starts no other.") && sentSince(n).isEmpty, texts(pg).suffix(6).joined(separator: " | "))
+        pictures("plan-stop")
+        pg.buttons["stopNo"]?.performClick(nil)
+        check("plan_stop_cancel_posts_nothing", wait(3) { pg.buttons["stopYes"] == nil } && sentSince(n).isEmpty && !read().contains("State: stopped"))
+        pg.buttons["stop"]?.performClick(nil)
+        _ = wait(3) { pg.buttons["stopYes"] != nil }
+        let L3 = board.log.count
+        pg.buttons["stopYes"]?.performClick(nil)
+        check("plan_stop_posts", wait(5) { self.board.hub.answers.contains { $0.seq >= n && $0.path == "/api/plan/stop" && $0.code == 200 } }, sentSince(n).joined(separator: ","))
+        check("plan_stop_in_brief", wait(5) { read().contains("State: stopped") && read().contains("Stopped at step") }, read().components(separatedBy: "\n").filter { $0.contains("State") || $0.contains("Stopped") }.joined(separator: " / "))
+        check("plan_stopped_shown", wait(10) { self.board.render(); return self.shows(pg, "Stopped") && pg.buttons["stop"] == nil && pg.buttons["pause"] == nil } && toasts(since: L3).contains { $0.hasPrefix(t("plan.stopped")) },
+              texts(pg).prefix(4).joined(separator: " | ") + " toasts " + toasts(since: L3).joined(separator: ","))
         pg.holdState = true
         pg.show("garden-planner", mode: .plan, title: "Old one", state: fake)
         check("plan_of_the_brief_by_title", shows(pg, "Old one") && shows(pg, "Done") && pg.buttons["pause"] == nil && !shows(pg, "It waits for you"), texts(pg).prefix(5).joined(separator: " | "))
@@ -185,6 +201,8 @@ extension SelfTestBoard {
         pg.buttons["mockup"]?.performClick(nil)
         check("idea_mockup_round", wait(3) { self.sentSince(n).contains("POST /api/ideas/demo-tidepool/mockups") } && wait(5) { !self.toasts(since: L2).isEmpty }, toasts(since: L2).joined(separator: ","))
         pictures("idea-after")
+        // Pictures dropped and pasted, and Kill (SelfTestIdeaPics.swift).
+        ideaPicturesAndKill(pg)
         board.openIdea("nowhere")
         check("idea_gone", wait(3) { self.shows(pg, t("idea.gone")) })
         pg.buttons["back"]?.performClick(nil)

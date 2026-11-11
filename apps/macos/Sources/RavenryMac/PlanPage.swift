@@ -88,6 +88,8 @@ final class PlanPage: FormPage {
     private(set) var commentFor: String?
     /// "Write it yourself" pressed over a draft: asked once in the page.
     private(set) var dropAsk = false
+    /// Stop the plan was pressed: the question under the buttons, until Stop or Cancel (PLAN-007).
+    private(set) var askStop = false
     /// A new plan page opened for this project (after Change the plan).
     var openNewPlan: ((String) -> Void)?
 
@@ -144,7 +146,7 @@ final class PlanPage: FormPage {
         else if running && st == "paused" { let b = RButton(t("plan.resume")) { [weak self] in self?.post("resume") }; b.isEnabled = busy.isEmpty; buttons["resume"] = b; extra.append(b) }
         else { buttons["pause"] = nil; buttons["resume"] = nil }
         let ttl = plan["title"] as? String ?? t("panel.plan")
-        let sig = "\(project)|\(ttl)|\(st)|\(busy)|\(running)|\(stableText(gate))|" + steps.map { "\($0["state"] ?? "")\($0["text"] ?? "")\(stableText($0["proofs"]))" }.joined(separator: ",") + "|\(stableText(plan["goal"]))|\(p.sessions.count)"
+        let sig = "\(project)|\(ttl)|\(st)|\(busy)|\(running)|\(stableText(gate))|" + steps.map { "\($0["state"] ?? "")\($0["text"] ?? "")\(stableText($0["proofs"]))" }.joined(separator: ",") + "|\(stableText(plan["goal"]))|\(p.sessions.count)|\(askStop)"
         setHeadPill(ttl, pillV, extra)
         draw(sig) {
             var rows: [NSView] = []
@@ -199,7 +201,25 @@ final class PlanPage: FormPage {
                 ch?.isEnabled = busy.isEmpty
             }
             buttons["change"] = ch
-            rows.append(acts([ob, ss, ch]))
+            // Stop the plan (PLAN-007): asked first; its session finishes the step in hand and starts no other.
+            var sp: RButton? = nil
+            if running && ["running", "paused", "gate"].contains(st) {
+                sp = RButton(t("plan.stop")) { [weak self] in self?.askStop = true; self?.dirty(); self?.redraw() }
+                sp?.isEnabled = busy.isEmpty && !askStop
+            }
+            buttons["stop"] = sp
+            rows.append(acts([ob, ss, ch, sp]))
+            if askStop, sp != nil {
+                let yes = RButton(t("plan.stop"), .no) { [weak self] in
+                    guard let self else { return }
+                    self.askStop = false
+                    self.post("stop") { j in self.toast?(t("plan.stopped") + ((j["via"] as? String) == "brief" ? " " + t("plan.briefOnly") : "")) }
+                }
+                let no = RButton(t("newplan.cancel")) { [weak self] in self?.askStop = false; self?.dirty(); self?.redraw() }
+                yes.isEnabled = busy.isEmpty
+                buttons["stopYes"] = yes; buttons["stopNo"] = no
+                rows.append(secBox(nil, [wrap(t("plan.stopAsk", ["title": ttl]), Fonts.pt(12.5)), acts([yes, no])], ring: "bad"))
+            } else { buttons["stopYes"] = nil; buttons["stopNo"] = nil }
             return rows
         }
     }

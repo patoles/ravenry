@@ -11,7 +11,10 @@
 // with it (Add a picture: POST /api/ideas/:id/ref, a file chosen in
 // Finder's dialog) and Send (say); Mockup round, Greenlight and Park it
 // (mockups, update), Set its picture (image) and, once greenlit, Promote to
-// project (the New project form, from the idea).
+// project (the New project form, from the idea); Kill (POST
+// /api/ideas/:id/kill: off every lane, kept in the archive). A picture
+// dropped or pasted (Cmd+V) on the reply field goes with the next message,
+// anywhere else on the page it is the idea's picture, as on the browser board.
 
 import AppKit
 import UniformTypeIdentifiers
@@ -97,6 +100,12 @@ final class IdeaPage: FormPage {
         else if options.offscreen { done([]) } // never a panel on the screen of a run off every screen
         else { p.begin { r in done(r == .OK ? p.urls : []) } }
     }
+
+    override init() {
+        super.init()
+        registerForDraggedTypes([.fileURL, .png, .tiff])
+    }
+    required init?(coder: NSCoder) { fatalError() }
 
     func show(_ ideaId: String) {
         if ideaId != id { dirty(); scroll.contentView.scroll(to: .zero); mkRound = nil; mkView = nil; refs = []; clear("mkNote") }
@@ -241,8 +250,13 @@ final class IdeaPage: FormPage {
             let setPic = RButton(t("idea.setPicture")) { [weak self] in self?.setPicture() }
             setPic.toolTip = t("idea.setPictureTip")
             setPic.isEnabled = !uploading
-            buttons["greenlight"] = green; buttons["park"] = park; buttons["promote"] = prom; buttons["setPicture"] = setPic
-            rows.append(acts([prom, mock, green, park, setPic]))
+            let name = it["name"] as? String ?? ""
+            let kill = RButton(t("idea.kill"), .no) { [weak self] in
+                self?.post("kill", [:]) { _ in self?.toast?(t("idea.killed", ["name": name])); self?.openIdeas?() }
+            }
+            kill.isEnabled = busy.isEmpty
+            buttons["greenlight"] = green; buttons["park"] = park; buttons["promote"] = prom; buttons["setPicture"] = setPic; buttons["kill"] = kill
+            rows.append(acts([prom, mock, green, park, setPic, kill]))
             return rows
         }
     }
@@ -353,15 +367,63 @@ final class IdeaPage: FormPage {
     }
 
     private func upload(_ urls: [URL], path what: String, _ each: @escaping ([String: Any]) -> Void) {
+        uploadData(urls.map { u in (u.lastPathComponent, { try? Data(contentsOf: u) }) }, path: what, each)
+    }
+
+    // MARK: pictures dropped or pasted
+
+    /// The pasteboard Cmd+V reads (the self-test's own, never the person's clipboard there).
+    var pasteboard = NSPasteboard.general
+
+    /// Pictures on a pasteboard: image files (png, jpg, gif, webp), else an image's own data (a screenshot copied).
+    static func pictures(_ pb: NSPasteboard) -> [(String, () -> Data?)] {
+        let ok = Set(["png", "jpg", "jpeg", "gif", "webp"])
+        let files = (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []).filter { ok.contains($0.pathExtension.lowercased()) }
+        if !files.isEmpty { return files.map { u in (u.lastPathComponent, { try? Data(contentsOf: u) }) } }
+        if let png = pb.data(forType: .png) { return [("pasted.png", { png })] }
+        if let tiff = pb.data(forType: .tiff), let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) { return [("pasted.png", { png })] }
+        return []
+    }
+
+    /// Over the reply field (its box): the pictures go with the next message; anywhere else, the first is the idea's picture.
+    private func took(_ pics: [(String, () -> Data?)], onReply: Bool) -> Bool {
+        guard !pics.isEmpty, !id.isEmpty else { return false }
+        if onReply { uploadData(pics, path: "ref") { [weak self] j in if let f = j["file"] as? String, let u = j["url"] as? String { self?.refs.append((f, u)) } } }
+        else { uploadData([pics[0]], path: "image") { [weak self] _ in self?.toast?(t("idea.pictureSet")) } }
+        return true
+    }
+
+    private func onReply(_ windowPoint: NSPoint) -> Bool {
+        guard let box = fields["say"], box.window != nil else { return false }
+        return box.convert(box.bounds, to: nil).insetBy(dx: -8, dy: -8).contains(windowPoint)
+    }
+
+    override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation { IdeaPage.pictures(s.draggingPasteboard).isEmpty ? [] : .copy }
+    override func draggingUpdated(_ s: NSDraggingInfo) -> NSDragOperation { draggingEntered(s) }
+    override func performDragOperation(_ s: NSDraggingInfo) -> Bool { took(IdeaPage.pictures(s.draggingPasteboard), onReply: onReply(s.draggingLocation)) }
+
+    /// Cmd+V with pictures on the pasteboard and no words: in the reply field they go with the next message, else the first is the idea's picture.
+    override func performKeyEquivalent(with e: NSEvent) -> Bool {
+        if e.type == .keyDown, e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, e.charactersIgnoringModifiers == "v", window != nil, !isHiddenOrHasHiddenAncestor,
+           pasteboard.string(forType: .string) == nil || !(pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) ?? []).isEmpty {
+            let fr = window?.firstResponder as? NSView
+            let inPage = fr.map { $0 === self || $0.isDescendant(of: self) || ((fr as? NSTextView)?.delegate as? NSView)?.isDescendant(of: self) == true } ?? false
+            let inReply = (fr as? NSTextView)?.delegate === fields["say"]?.field
+            if inPage, took(IdeaPage.pictures(pasteboard), onReply: inReply) { return true }
+        }
+        return super.performKeyEquivalent(with: e)
+    }
+
+    private func uploadData(_ items: [(String, () -> Data?)], path what: String, _ each: @escaping ([String: Any]) -> Void) {
         guard let hub, !uploading else { return }
         uploading = true
         dirty(); redraw()
-        var left = urls
+        var left = items
         func next() {
-            guard let u = left.first else { uploading = false; dirty(); redraw(); load(); return }
+            guard let (name, data) = left.first else { uploading = false; dirty(); redraw(); load(); return }
             left.removeFirst()
-            guard let d = try? Data(contentsOf: u) else { toast?(t("idea.notPicture")); next(); return }
-            hub.postBytes("/api/ideas/\(enc)/\(what)", d, filename: u.lastPathComponent) { [weak self] code, j in
+            guard let d = data() else { toast?(t("idea.notPicture")); next(); return }
+            hub.postBytes("/api/ideas/\(enc)/\(what)", d, filename: name) { [weak self] code, j in
                 guard let self else { return }
                 if code == 200 { each(j); if what == "ref" { self.toast?(t("idea.refAdded")) } } else { self.toast?(j["error"] as? String ?? t("page.didNotWork")) }
                 next()
