@@ -131,6 +131,17 @@ final class TerminalWindow: NSWindow {
         }
         super.sendEvent(e)
     }
+    /// Off every screen, Minimize and Zoom are recorded, not done: the Dock's
+    /// thumbnail and a zoomed frame would land on the person's screen.
+    private(set) var offscreenAsked: [String] = []
+    override func miniaturize(_ sender: Any?) {
+        if allowOffscreen { offscreenAsked.append("miniaturize"); return }
+        super.miniaturize(sender)
+    }
+    override func zoom(_ sender: Any?) {
+        if allowOffscreen { offscreenAsked.append("zoom"); return }
+        super.zoom(sender)
+    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         allowOffscreen ? frameRect : super.constrainFrameRect(frameRect, to: screen)
     }

@@ -760,7 +760,7 @@ final class TerminalView: NSView, NSTextInputClient {
         if !text.isEmpty {
             ev["text"] = text
             if flags.contains(.shift) { consumed |= 1 }
-            if flags.contains(.option) && optionAsAlt.isEmpty { consumed |= 4 }
+            if flags.contains(.option) && !optionIsAlt(flags) { consumed |= 4 }
         }
         if consumed != 0 { ev["consumed"] = consumed }
         // A modifier key's flagsChanged event has no characters (AppKit
@@ -769,8 +769,21 @@ final class TerminalView: NSView, NSTextInputClient {
            let u = e.characters(byApplyingModifiers: [])?.unicodeScalars.first, KeyCodes.printable(u) {
             ev["unshifted"] = Int(u.value)
         }
-        if !optionAsAlt.isEmpty { ev["option_as_alt"] = optionAsAlt }
+        // The side decided here (the daemon is not told which Option is held): Alt is "both" for this key, else none.
+        if flags.contains(.option) { if optionIsAlt(flags) { ev["option_as_alt"] = "both" } } else if !optionAsAlt.isEmpty { ev["option_as_alt"] = optionAsAlt }
         return ["key": ev]
+    }
+
+    /// Whether Option in these flags is Alt, as Option as Meta says for the
+    /// key held: left, right (the flags' device bits NX_DEVICELALTKEYMASK
+    /// 0x20 and NX_DEVICERALTKEYMASK 0x40) or both. With no side in the
+    /// flags, either is.
+    func optionIsAlt(_ f: NSEvent.ModifierFlags) -> Bool {
+        guard f.contains(.option), !optionAsAlt.isEmpty else { return false }
+        if optionAsAlt == "both" { return true }
+        let left = f.rawValue & 0x20 != 0, right = f.rawValue & 0x40 != 0
+        if !left && !right { return true }
+        return optionAsAlt == "left" ? left : right
     }
 
     /// The app's shortcuts with Command. They are also in the menus; the
@@ -813,7 +826,7 @@ final class TerminalView: NSView, NSTextInputClient {
         hideTip()
         wakeCursor()
         let hadMarked = hasMarkedText()
-        if !optionAsAlt.isEmpty && e.modifierFlags.contains(.option) && !hadMarked {
+        if optionIsAlt(e.modifierFlags) && !hadMarked {
             // Option is Alt: the key's own text, without Option's.
             let text = e.characters(byApplyingModifiers: e.modifierFlags.intersection(.shift)) ?? ""
             sendEvents([keyEvent(e, action: e.isARepeat ? "repeat" : "press", text: text.unicodeScalars.allSatisfy(KeyCodes.printable) ? text : "")])

@@ -10,6 +10,8 @@ import AppKit
 
 extension SelfTestBoard {
     func runScreen(_ name: String) {
+        // A busy pane closed on the way is closed; the real sheet only where a check asks (screenTermWin).
+        Workspace.testCloseAnswer = (true, false)
         let hub = board.hub
         check("hub_state", wait(20) { (hub.state?.projects.count ?? 0) >= 5 }, hub.url)
         settle(0.6)
@@ -40,6 +42,7 @@ extension SelfTestBoard {
         case "panel": screenPanel()
         case "nav": screenNav()
         case "windows": screenWindows()
+        case "termwin": screenTermWin()
         case "updates": screenUpdates()
         case "links": screenLinks()
         case "ink": screenInk()

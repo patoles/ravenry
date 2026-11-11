@@ -36,6 +36,8 @@ final class SelfTest {
     }
 
     func start() {
+        // A busy pane closed on the way is closed (its sheet only where a check asks for it).
+        Workspace.testCloseAnswer = (true, false)
         view.pasteboard = pasteboard
         view.openURL = { [weak self] u in self?.opened.append(u) }
         view.blinkOffscreen = true

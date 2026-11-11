@@ -141,10 +141,14 @@ final class Workspace: NSObject {
     private var pins: [String: Any] = [:]
     private var lastValues: [String: Any] = [:]
     private var appearanceWatch: NSKeyValueObservation?
-    /// Offscreen: what closing a busy shell asked (the self-test answers
-    /// with closeAnswer instead of a sheet).
+    /// What closing a busy shell asked, when a test answered it (closeAnswer).
     private(set) var closeAsked: [String] = []
-    var closeAnswer: (close: Bool, dont: Bool) = (true, false)
+    /// A test's answer to "Close this tab?" for this window, in place of the
+    /// sheet; nil (the default, off every screen too): the real sheet, on the
+    /// window wherever it is (TERM-016's check presses its buttons).
+    var closeAnswer: (close: Bool, dont: Bool)?
+    /// The same for every window (the self-tests that close busy panes on the way).
+    static var testCloseAnswer: (close: Bool, dont: Bool)?
     /// The bells of panes not on screen that rang a sound or the Dock (offscreen).
     private(set) var bellsHeard: [String] = []
     /// Each switch's times: to the first draw of the tab in front, and to
@@ -972,9 +976,9 @@ final class Workspace: NSObject {
             if yes && dont { self?.settings.set(["confirmCloseBusy": false]) }
             if yes { close() } else if let v = self?.focusedView { self?.window.makeFirstResponder(v) }
         }
-        if options.offscreen {
+        if let a = closeAnswer ?? Workspace.testCloseAnswer {
             closeAsked.append("\(title) \(body)")
-            return answer(closeAnswer.close, closeAnswer.dont)
+            return answer(a.close, a.dont)
         }
         let a = NSAlert()
         a.alertStyle = .warning
@@ -986,9 +990,31 @@ final class Workspace: NSObject {
         a.addButton(withTitle: t("close.cancel")).keyEquivalent = "\r"
         a.showsSuppressionButton = true
         a.suppressionButton?.title = t("close.dont")
+        if options.offscreen {
+            // Off every screen the sheet is not shown: AppKit puts a sheet on a
+            // screen, even over a window off every one (it showed at the person's
+            // screen's corner). The alert is laid out as the sheet's and kept, its
+            // buttons answering as the sheet's do (TERM-016's check presses them,
+            // Return through its key equivalents).
+            a.layout()
+            closeAlert = a
+            closeAlertAnswer = { r in answer(r == .alertFirstButtonReturn, a.suppressionButton?.state == .on) }
+            for (i, b) in a.buttons.enumerated() { b.target = self; b.action = #selector(closeAlertButton(_:)); b.tag = i }
+            return
+        }
         a.beginSheetModal(for: window) { r in
             answer(r == .alertFirstButtonReturn, a.suppressionButton?.state == .on)
         }
+    }
+
+    /// Off every screen: the close alert waiting for a press, and its answer.
+    private(set) var closeAlert: NSAlert?
+    private var closeAlertAnswer: ((NSApplication.ModalResponse) -> Void)?
+    @objc private func closeAlertButton(_ b: NSButton) {
+        let done = closeAlertAnswer
+        closeAlert = nil
+        closeAlertAnswer = nil
+        done?(NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + b.tag))
     }
 
     /// Closes a pane: its process ends (pane.close); its tab goes, or its
