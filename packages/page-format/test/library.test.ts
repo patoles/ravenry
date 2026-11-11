@@ -244,10 +244,35 @@ actions:
   - { label: Ask Claude about tiles, ask: { session: trail-map, prefill: "About the tiles" } }
 `);
   assert.deepEqual(explainActions(p, '~/code/trail-map'), [
-    { label: 'Ask Claude about tiles', does: 'Types a message into a trail-map session\'s box: "About the tiles". You choose whether to send it.' },
+    { label: 'Ask Claude about tiles', does: 'Types a message into the box of a trail-map session: "About the tiles". You choose whether to send it.' },
     { label: 'Rebuild tiles', does: 'Runs npm run build:tiles in ~/code/trail-map, with REGION set to the item\'s region. You approve each run first.' },
     { label: 'Mark checked', does: "Sets status to checked in the item's file." },
   ]);
+});
+
+test('the trust prompt names a session or project taken from the item as named by it, never "a the item\'s project session"', () => {
+  const p = page(`version: 1
+id: tiles
+title: Map tiles
+source:
+  folder: regions/
+  fields:
+    project: { type: string }
+sections:
+  - view: list
+    item:
+      actions:
+        - { label: Ask its project, ask: { session: "{project}", background: "Check the tiles" } }
+        - { label: Tell its project, ask: { session: "{project}", prefill: "About the tiles" } }
+        - { label: Its project, open: { project: "{project}" } }
+`);
+  const does = explainActions(p, '~/code/trail-map').map((a) => a.does);
+  assert.deepEqual(does, [
+    'Asks an agent in the session named by the item\'s project to work on its own: "Check the tiles". You approve it the first time, and again whenever the page changes.',
+    'Types a message into the box of the session named by the item\'s project: "About the tiles". You choose whether to send it.',
+    'Opens the project named by the item\'s project.',
+  ]);
+  assert.ok(does.every((d) => !/\ba the\b/.test(d)));
 });
 
 test('the shipped defaults: five pages, each valid with no warnings, with a revision, under their routes', () => {

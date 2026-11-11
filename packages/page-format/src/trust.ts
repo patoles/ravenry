@@ -47,6 +47,10 @@ export function addTrust(records: TrustRecord[], rec: TrustRecord): TrustRecord[
 
 const shown = (parts: TextPart[]) => parts.map((p) => ('field' in p ? `the item's ${p.field.replace(/\./g, ' ').replace(/_/g, ' ')}` : p.text)).join('');
 const word = (w: string) => (/^[\w@%+=:,./-]+$/.test(w) ? w : JSON.stringify(w));
+/** A project or session a button names: its name as written, or, when the
+ * name comes from the item's fields, "named by the item's X" (never "a the
+ * item's project session"). */
+const named = (noun: string, parts: TextPart[]) => (parts.some((p) => 'field' in p) ? `the ${noun} named by ${shown(parts)}` : `the ${noun} ${shown(parts)}`);
 
 /** What one button would do, in a sentence, for the trust prompt. `root`
  * is the folder its commands run in and its files live in. */
@@ -59,8 +63,8 @@ export function explainAction(a: Action, root: string, folder: string | null = n
         case 'folder': return "Opens the item's folder.";
         case 'page': return `Opens the page ${a.open.page}.`;
         case 'link': return `Opens the address in the item's ${a.open.field}, after showing it to you in full.`;
-        case 'project': return `Opens the project ${shown(a.open.text)}.`;
-        default: return `Opens the session ${shown(a.open.text)}.`;
+        case 'project': return `Opens ${named('project', a.open.text)}.`;
+        default: return `Opens ${named('session', a.open.text)}.`;
       }
     case 'set': return `Sets ${Object.entries(a.set).map(([k, v]) => `${k} to ${v}`).join(' and ')} in the item's file.`;
     case 'create': return `Makes a new file in ${folder ?? 'the page\'s folder'}, from a form you fill in.`;
@@ -68,10 +72,10 @@ export function explainAction(a: Action, root: string, folder: string | null = n
     case 'copy': return `Copies "${shown(a.copy)}" to the clipboard.`;
     case 'archive': return "Moves the item's file into .archive/. Undo moves it back.";
     case 'ask': {
-      const where = a.session ? `a ${shown(a.session)} session` : "the item's project's session";
+      const where = !a.session ? "the item's project's session" : a.session.some((p) => 'field' in p) ? named('session', a.session) : `a ${shown(a.session)} session`;
       return a.background
         ? `Asks an agent in ${where} to work on its own: "${shown(a.text)}". You approve it the first time, and again whenever the page changes.`
-        : `Types a message into ${where}'s box: "${shown(a.text)}". You choose whether to send it.`;
+        : `Types a message into the box of ${where}: "${shown(a.text)}". You choose whether to send it.`;
     }
     case 'run': {
       const env = Object.entries(a.env);
