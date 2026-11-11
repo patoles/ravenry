@@ -20,7 +20,10 @@
 //   3. a clean start (no pane variable) does not relaunch: it stays up,
 //      starts no other copy and leaves no marker;
 //   4. --older-hub-check with pane variables does its check and exits
-//      before the relaunch is looked at: no other copy starts.
+//      before the relaunch is looked at: no other copy starts;
+//   5. opened with `open -n -a` and the pane's variables (LaunchServices
+//      hands them on, the route of 2026-11-10 11:53), it relaunches clean
+//      too; and the starts reuse the daemon the first one started.
 //
 // Everything runs in a throwaway HOME, data, runtime and state folder, off
 // every screen (RAVENRY_OFFSCREEN=1), with no hub service, no updates and
@@ -49,7 +52,11 @@ if (!fs.existsSync(path.join(APP, 'Contents', 'MacOS', 'Ravenry')) || !fs.exists
   process.exit(2);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const root = track(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rv-mac-relaunch-'))));
+// A short name: the daemon's socket (<root>/run/ravenryd-<version>.sock)
+// must stay under the 104 bytes a socket's path may take, and under
+// "rv-mac-relaunch-" it took 104, so the daemon never started and every
+// start of the app logged "starting this app's ... (none ran)".
+const root = track(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rvrl-'))));
 const OUT = path.resolve(process.argv[3] || path.join(root, 'out'));
 fs.mkdirSync(OUT, { recursive: true });
 const app = path.join(root, 'Applications', 'Ravenry.app');
@@ -150,6 +157,24 @@ try {
   const quitsAfter = logText().split('\n').filter((l) => l.includes('relaunching clean through LaunchServices')).length;
   step('3 a clean start leaves no marker and no relaunch line', !fs.existsSync(marker) && relaunchLines() === before && quitsAfter === quitsBefore);
   await stop(plain.pid);
+
+  // The daemon: the relaunched app started one, and the later starts use it.
+  const dLines = logText().split('\n').filter((l) => / daemon: (starting|using) /.test(l));
+  const starts = dLines.filter((l) => l.includes('daemon: starting'));
+  step('3 the first app started a daemon and each later start uses it (one start, a "using" line for each start)', starts.length === 1 && dLines.filter((l) => l.includes('daemon: using')).length >= 3, { lines: dLines });
+
+  // 5. Through LaunchServices, as the agent did on 2026-11-10 at 11:53
+  //    (`open -a Ravenry` in its pane; open hands the caller's environment
+  //    to the app): that app, started by launchd, relaunches clean too.
+  const quits5 = logText().split('\n').filter((l) => l.includes('relaunching clean through LaunchServices')).length;
+  const lines5 = relaunchLines();
+  const op = spawnSync('/usr/bin/open', ['-n', '-g', '-a', app], { env, encoding: 'utf8', timeout: 20000 });
+  const quit5 = await until(() => logText().split('\n').filter((l) => l.includes('relaunching clean through LaunchServices')).length > quits5, 15000);
+  const clean5 = await until(() => relaunchLines() > lines5 && mains().find((p) => !new RegExp(LEAK).test(commandEnv(p))), 15000);
+  const seen5 = clean5 ? commandEnv(clean5) : '';
+  step('5 opened with open -a from a pane: that app quits and a clean one runs, started by launchd', op.status === 0 && !!quit5 && !!clean5 && ppidOf(clean5) === 1 && !new RegExp(LEAK).test(seen5),
+    { open: op.status, quit: !!quit5, pid: clean5, ppid: clean5 ? ppidOf(clean5) : null, apps: mains() });
+  for (const p of mains()) await stop(p);
 
   // 4. --older-hub-check: its check, before the relaunch is looked at.
   const inFile = path.join(root, 'older-in.json');
