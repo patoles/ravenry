@@ -290,13 +290,9 @@ final class FilePage: FormPage {
         case "ravenry:not-now":
             send("/api/repeats/\(enc(id))", ["action": "notnow"], fail: t("pg.notHidden")) { [weak self] code, _ in if code == 200 { self?.toast?(t("pg.hiddenRepeat")) } }
         case "ravenry:write-brief":
-            // The project's session is asked to write it (typed in its box);
-            // with none running, the project's own page.
-            send("/api/pages/ask", ["key": k, "kind": "fix", "text": t("pg.writeBriefText"), "session": id], fail: nil, reload: false) { [weak self] code, j in
-                guard let self else { return }
-                if code == 200, let p = j["projectId"] as? String, let s = j["surfaceId"] as? String { self.host?.pickSession("\(p)/\(s)"); self.toast?(t("pg.typedInBox")); return }
-                if self.host?.pickProject(id) != true { self.toast?(j["error"] as? String ?? t("pg.noSessionAsk")) }
-            }
+            // The brief's form, as the hub's browser board opens it (openModal, mode
+            // brief): the person writes it, POST /api/project/brief (BRIEF-006).
+            host?.openPage("writebrief:\(id)")
         default: toast?(t("pg.notInstalled", ["plugin": a["plugin"] as? String ?? ""]))
         }
     }

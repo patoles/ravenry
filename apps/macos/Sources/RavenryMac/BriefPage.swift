@@ -6,7 +6,9 @@
 // read from the hub when it shows (GET /api/brief), again at most every 4
 // seconds while it shows, and drawn again only when its text changed, so
 // the entries opened, the place scrolled to and the selection stay. Links
-// open in the browser (Outside.swift).
+// open in the browser (Outside.swift). Add a note (BRIEF-005, the hub's
+// browser board's Add note): a line under the brief's Notes, ticked when it
+// is fixed (POST /api/note), from a bar under the head.
 
 import AppKit
 
@@ -38,6 +40,12 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
     private var lastWidth: CGFloat = 0
     private var projectName = ""
     private var machine = false
+    var toast: ((String) -> Void)?
+    /// Add a note: its bar under the head, its field and whether it waits on the hub.
+    private(set) var noteOpen = false
+    let noteField = FieldBox(t("brief.notePh"), area: false)
+    private let noteBar = Box(fill: "sheet")
+    private(set) var noteBusy = false
 
     init() {
         // TextKit 1: the code blocks and the entries' box are text blocks.
@@ -72,6 +80,17 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
         addSubview(head)
         addSubview(headLine)
         addSubview(scroll)
+        addSubview(noteBar)
+        noteBar.isHidden = true
+        noteField.onReturn = { [weak self] in self?.addNote() }
+        let add = RButton(t("brief.noteAdd"), .primary, small: true) { [weak self] in self?.addNote() }
+        let cancel = RButton(t("brief.noteCancel"), small: true) { [weak self] in self?.closeNote() }
+        noteButtons = ["noteAdd": add, "noteCancel": cancel]
+        let bar = hstack([noteField, add, cancel], spacing: 8, insets: NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 14))
+        bar.alignment = .centerY
+        bar.translatesAutoresizingMaskIntoConstraints = true
+        bar.autoresizingMask = [.width, .height]
+        noteBar.addSubview(bar)
         // The session names that are links changed: the brief drawn again with them.
         NotificationCenter.default.addObserver(self, selector: #selector(linksChanged), name: SessionLinks.changed, object: nil)
     }
@@ -85,7 +104,11 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
         head.frame = NSRect(x: 0, y: 0, width: bounds.width, height: hh)
         head.subviews.first?.frame = head.bounds
         headLine.frame = NSRect(x: 0, y: hh, width: bounds.width, height: 1)
-        scroll.frame = NSRect(x: 0, y: hh + 1, width: bounds.width, height: max(0, bounds.height - hh - 1))
+        let nh: CGFloat = noteOpen ? 52 : 0
+        noteBar.isHidden = !noteOpen
+        noteBar.frame = NSRect(x: 0, y: hh + 1, width: bounds.width, height: nh)
+        noteBar.subviews.first?.frame = noteBar.bounds
+        scroll.frame = NSRect(x: 0, y: hh + 1 + nh, width: bounds.width, height: max(0, bounds.height - hh - 1 - nh))
         let w = scroll.contentSize.width
         // A new size keeps the place scrolled to (the clip view would move it by the inset).
         let y = scroll.contentView.bounds.origin.y
@@ -118,6 +141,7 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
     /// Shows a project's brief: what the hub gave last at once, asked again after 4 seconds.
     func show(_ pid: String, state: HubState?) {
         let changed = project != pid
+        if changed { noteOpen = false; noteField.text = ""; needsLayout = true }
         if changed { project = pid; shownText = nil; doc = BriefDoc(dir: ""); text.string = ""; scroll.contentView.scroll(to: .zero) }
         let p = state?.project(pid)
         projectName = p?.name ?? pid
@@ -238,13 +262,54 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
                 b.toolTip = t("brief.editTip", ["path": j["path"] as? String ?? file])
                 edit = b
             }
+            if !machine, hub != nil {
+                let n = RButton(t("brief.addNote"), small: true) { [weak self] in self?.openNote() }
+                n.toolTip = t("brief.addNoteTip")
+                buttons["addNote"] = n
+            }
         }
         let name = label(t("brief.title"), Fonts.pt(13, Fonts.w650))
-        let row = hstack([back, Icon("doc", "tx3", size: 15), name, label(projectName, Fonts.pt(12.5), "tx3"), spring(), updated, edit, close], spacing: 10, insets: NSEdgeInsets(top: 0, left: back == nil ? 20 : 14, bottom: 0, right: 14))
+        let row = hstack([back, Icon("doc", "tx3", size: 15), name, label(projectName, Fonts.pt(12.5), "tx3"), spring(), updated, buttons["addNote"], edit, close], spacing: 10, insets: NSEdgeInsets(top: 0, left: back == nil ? 20 : 14, bottom: 0, right: 14))
         row.translatesAutoresizingMaskIntoConstraints = true
         head.addSubview(row)
         row.frame = head.bounds
         row.autoresizingMask = [.width, .height]
+    }
+
+    /// The note bar's buttons, for the self-test.
+    private(set) var noteButtons: [String: RButton] = [:]
+
+    /// Add a note: the bar under the head, the keyboard in its field.
+    func openNote() {
+        noteOpen = true
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        window?.makeFirstResponder(noteField.field)
+    }
+    func closeNote() {
+        noteOpen = false
+        noteField.text = ""
+        needsLayout = true
+    }
+
+    /// The note sent: a line under Notes in the brief (POST /api/note), then the brief read again.
+    private func addNote() {
+        let text = noteField.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { window?.makeFirstResponder(noteField.field); toast?(t("brief.noteFirst")); return }
+        guard !noteBusy, let hub else { return }
+        noteBusy = true
+        noteButtons.values.forEach { $0.isEnabled = false }
+        let pid = project
+        hub.post("/api/note", ["projectId": pid, "text": text]) { [weak self] code, j in
+            guard let self else { return }
+            self.noteBusy = false
+            self.noteButtons.values.forEach { $0.isEnabled = true }
+            if code != 200 { self.toast?(j["error"] as? String ?? t("page.didNotWork")); return }
+            self.toast?(t("brief.noteTracked"))
+            if self.project == pid { self.closeNote() }
+            self.data[pid] = nil
+            self.fetch(pid)
+        }
     }
 
     /// A link: an entry opens or closes; http, https and file URLs open outside.

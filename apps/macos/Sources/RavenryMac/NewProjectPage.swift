@@ -12,6 +12,14 @@
 // session that is in no project (the panel's Not in a project card, whose
 // cmux workspace then joins the project and nothing new is opened).
 //
+// From an idea (IDEA-006, the idea's Promote to project): its name, pitch
+// as the goal and the Greenlit stage filled in; Start sends its id, and the
+// hub moves the idea to the archive as promoted.
+//
+// Write the brief (BRIEF-006): the same form for a project that has none,
+// without the name, folder and assistant (openModal's mode 'brief'): POST
+// /api/project/brief writes it in the project's folder; nothing is started.
+//
 // Also here: Board.wirePanel, the hooks of the panel's checkpoints from
 // this window's daemons (LocalCheckpoints.swift) and of New project.
 
@@ -28,6 +36,14 @@ final class NewProjectPage: FormPage {
         var shell = false
     }
     private(set) var from: From?
+    /// Write the brief: the project that has none (the form's brief mode).
+    private(set) var briefFor: HubProject?
+    /// From an idea: its id, sent with Start, and the stage its brief starts at.
+    private(set) var ideaId: String?
+    private var ideaName: String?
+    private var stage: String?
+    /// The brief was written: the project's id (its brief opens).
+    var onBrief: ((String) -> Void)?
     private var state: HubState?
     private var meta: [String: Any]?
     /// GET /api/project/folders: folders, ids, taken, projectsRoot.
@@ -68,8 +84,30 @@ final class NewProjectPage: FormPage {
 
     static let kinds = ["Web game", "VR", "Unity", "Unreal", "App", "Website", "Tool or CLI", "Research", "Something else"]
 
+    /// Write the brief for a project that has none.
+    func show(brief p: HubProject, state st: HubState?) {
+        show(from: nil, state: st)
+        briefFor = p
+        kind = nil
+        dirty(); redraw()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let f = self.fields["goal"] else { return }
+            self.window?.makeFirstResponder(f.field)
+        }
+    }
+
+    /// New project from an idea: its name, its pitch as the goal, Greenlit.
+    func show(idea id: String, name: String, pitch: String, state st: HubState?) {
+        show(from: nil, state: st)
+        ideaId = id; ideaName = name; stage = "Greenlit"
+        field("name", t("np.namePh")).text = name
+        field("goal", t("np.goalPh"), area: true, height: 64).text = pitch
+        dirty(); redraw()
+    }
+
     func show(from f: From?, state st: HubState?) {
         from = f
+        briefFor = nil; ideaId = nil; ideaName = nil; stage = nil
         state = st
         let starts = (st?.raw["assistants"] as? [String: Any])?["startWith"] as? String
         asDefault = starts == "codex" ? "codex" : "claude"
@@ -162,11 +200,12 @@ final class NewProjectPage: FormPage {
     // MARK: drawing
 
     override func redraw() {
-        setHead(title: t("np.title"), src: from.map { t($0.shell ? "np.srcShell" : "np.srcFrom", ["name": $0.name]) })
+        if let b = briefFor { setHead(title: t("np.briefTitle", ["name": b.name]), src: b.folderShort) }
+        else { setHead(title: t("np.title"), src: from.map { t($0.shell ? "np.srcShell" : "np.srcFrom", ["name": $0.name]) } ?? ideaName.map { t("np.fromIdea", ["name": $0]) }) }
         let name = typed("name")
         let slug = name.isEmpty ? "" : NewProjectPage.slugify(name)
         let sig = [folderMode, pick ?? "", slug, "\(finder.count)", "\(showAll)", parent?.folder ?? "", kind ?? "", assistant, error ?? "", "\(starting)",
-                   "\(known != nil)", "\(meta != nil)", "\((known?["folders"] as? [Any])?.count ?? 0)", from?.folder ?? ""].joined(separator: "|")
+                   "\(known != nil)", "\(meta != nil)", "\((known?["folders"] as? [Any])?.count ?? 0)", from?.folder ?? "", briefFor?.id ?? "", ideaId ?? ""].joined(separator: "|")
         draw(sig) { rows(name: name, slug: slug) }
     }
 
@@ -183,6 +222,7 @@ final class NewProjectPage: FormPage {
     }
 
     private func rows(name: String, slug: String) -> [NSView] {
+        if briefFor != nil { return briefRows() }
         let nameF = field("name", t("np.namePh"))
         nameF.onChange = { [weak self] in self?.redraw() }
         var out: [NSView] = [titled(t("np.name"), [nameF])]
@@ -207,6 +247,44 @@ final class NewProjectPage: FormPage {
         let asHint = (from != nil && from?.assistant != nil ? t("np.asFrom") : t("np.asDefault")) + " " + t("np.asUses")
         out.append(titled(t("np.assistant"), [hstack([sa, spring()], spacing: 0), wrap(asHint, Fonts.pt(12), "tx3")]))
 
+        out += briefFields()
+        if let e = error { out.append(wrap(e, Fonts.pt(12.5), "bad")) }
+        let fromHere = from != nil && folderMode == "existing"
+        let goTitle = starting ? t("np.starting") : fromHere && from?.workspaceId != nil ? t("np.create") : t("np.start", ["term": boardTerm])
+        let go = RButton(goTitle, .primary) { [weak self] in self?.submit() }
+        go.isEnabled = !starting
+        buttons["go"] = go
+        let foot = wrap(footText(name: name, slug: slug), Fonts.pt(12.5), "tx2")
+        let row = hstack([foot, go], spacing: 12)
+        row.alignment = .centerY
+        out.append(row)
+        return out
+    }
+
+    /// Write the brief: the brief's fields, where it goes, and Write the brief.
+    private func briefRows() -> [NSView] {
+        var out = briefFields()
+        if let e = error { out.append(wrap(e, Fonts.pt(12.5), "bad")) }
+        let go = RButton(starting ? t("np.writing") : t("np.writeBrief"), .primary) { [weak self] in self?.submit() }
+        go.isEnabled = !starting
+        buttons["go"] = go
+        let row = hstack([wrap(t("np.briefFoot", ["path": briefWhere]), Fonts.pt(12.5), "tx2"), go], spacing: 12)
+        row.alignment = .centerY
+        out.append(row)
+        return out
+    }
+
+    /// Where Write the brief puts it, as the board says it (briefExpected, else the folder's BRIEF.md or its own in a shared folder).
+    private var briefWhere: String {
+        guard let p = briefFor else { return "BRIEF.md" }
+        if let w = p.s("briefExpected") { return w }
+        let shared = !(p.raw["shared"] as? [Any] ?? []).isEmpty
+        return "\(p.folderShort ?? p.folder ?? "")/\(shared ? "BRIEF-\(p.id).md" : "BRIEF.md")"
+    }
+
+    /// Kind, Goal, Done means, First milestones and Rules: a new project's brief, and a brief written later.
+    private func briefFields() -> [NSView] {
+        var out: [NSView] = []
         // Kind: one of the hub's, or in the person's own words.
         let kinds = meta?["kinds"] as? [String] ?? NewProjectPage.kinds
         let chips = kinds.map { k -> (NSView, NSSize) in
@@ -236,17 +314,6 @@ final class NewProjectPage: FormPage {
         }
         rulesRows.append(field("rules", t("np.rulesPh"), area: true, height: 52))
         out.append(titled(t("np.rules"), rulesRows))
-
-        if let e = error { out.append(wrap(e, Fonts.pt(12.5), "bad")) }
-        let fromHere = from != nil && folderMode == "existing"
-        let goTitle = starting ? t("np.starting") : fromHere && from?.workspaceId != nil ? t("np.create") : t("np.start", ["term": boardTerm])
-        let go = RButton(goTitle, .primary) { [weak self] in self?.submit() }
-        go.isEnabled = !starting
-        buttons["go"] = go
-        let foot = wrap(footText(name: name, slug: slug), Fonts.pt(12.5), "tx2")
-        let row = hstack([foot, go], spacing: 12)
-        row.alignment = .centerY
-        out.append(row)
         return out
     }
 
@@ -402,6 +469,7 @@ final class NewProjectPage: FormPage {
 
     func submit() {
         guard !starting, let hub else { return }
+        if let b = briefFor { writeBrief(b, hub); return }
         let name = typed("name")
         func say(_ e: String, _ k: String?) {
             error = e
@@ -418,6 +486,8 @@ final class NewProjectPage: FormPage {
         if let k = kind { body["kind"] = k }
         if let e = existing { body["existingFolder"] = e } else if let p = parent { body["parentFolder"] = p.folder }
         if fromHere, let w = from?.workspaceId { body["workspaceId"] = w }
+        if let i = ideaId { body["ideaId"] = i }
+        if let st = stage { body["stage"] = st }
         // From a folder the session's assistant is always sent; otherwise only when changed for this project.
         if from != nil || assistant != asDefault { body["assistant"] = assistant }
         error = nil
@@ -441,6 +511,36 @@ final class NewProjectPage: FormPage {
     }
 }
 
+extension NewProjectPage {
+    /// Write the brief: POST /api/project/brief with the brief's fields; its brief opens once written.
+    private func writeBrief(_ p: HubProject, _ hub: HubClient) {
+        if typed("goal").isEmpty {
+            error = t("np.needGoal"); redraw()
+            if let f = fields["goal"] { window?.makeFirstResponder(f.field) }
+            return
+        }
+        var body: [String: Any] = ["projectId": p.id]
+        for k in ["kindText", "goal", "doneMeans", "milestones", "rules"] { body[k] = fields[k]?.text ?? "" }
+        if let k = kind { body["kind"] = k }
+        error = nil
+        starting = true
+        redraw()
+        hub.post("/api/project/brief", body) { [weak self] code, j in
+            guard let self else { return }
+            self.starting = false
+            guard code == 200 else {
+                self.error = j["error"] as? String ?? t("np.briefFailed", ["code": "\(code)"])
+                self.redraw()
+                return
+            }
+            self.made = j
+            self.toast?(t("np.briefWritten", ["path": j["brief"] as? String ?? self.briefWhere]))
+            self.redraw()
+            self.onBrief?(p.id)
+        }
+    }
+}
+
 extension Board {
     /// The panel's checkpoints from this window's daemons (the board down
     /// from the start: no state to bring them), and New project's ways in.
@@ -457,7 +557,7 @@ extension Board {
 
     /// The project just made, once the board lists it: its session (the first, starting), else its page.
     private func showMade(_ id: String, until: Date) {
-        guard case .page("newproject", _) = front else { return }
+        guard case .page(let k, _) = front, k == "newproject" || k.hasPrefix("promote:") else { return }
         if hub.state?.project(id) != nil { pickProject(id); return }
         guard Date() < until else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.showMade(id, until: until) }

@@ -263,6 +263,8 @@ final class ProjectPageView: MiddleView {
     var onMoveLast: ((HubProject, [String: Any]) -> Void)?
     var onNewHere: ((HubProject) -> Void)?
     var onBrief: ((HubProject) -> Void)?
+    /// Write the brief, for a project that has none (BRIEF-006).
+    var onWriteBrief: ((HubProject) -> Void)?
     var onShowSession: ((String) -> Void)?
     /// Show it: the conversation is open in a pane of this window (its tab in front); false when it has no such pane.
     var onShowPane: ((String) -> Bool)?
@@ -332,14 +334,18 @@ final class ProjectPageView: MiddleView {
             return
         }
         let newHere = p.folder != nil && p.machine == nil
-        let brief = p.brief != nil ? RButton(t("panel.openBrief"), .link) { [weak self] in self?.onBrief?(p) } : nil
+        var brief = p.brief != nil ? RButton(t("panel.openBrief"), .link) { [weak self] in self?.onBrief?(p) } : nil
         if let b = brief { buttons["brief"] = b }
+        // No brief yet, with a folder of this Mac to hold one: Write the brief.
+        let canWrite = p.brief == nil && p.folder != nil && p.machine == nil
+        if canWrite { brief = RButton(t("project.writeBrief")) { [weak self] in self?.onWriteBrief?(p) }; buttons["writeBrief"] = brief }
         guard let l = last else {
             var acts: [NSView?] = []
             if newHere { let b = RButton(t("project.newHere"), .primary) { [weak self] in self?.onNewHere?(p) }; buttons["new"] = b; acts.append(b) }
             if p.brief != nil { let b = RButton(t("panel.openBrief")) { [weak self] in self?.onBrief?(p) }; buttons["brief"] = b; acts.append(b) }
+            if canWrite { acts.append(brief) }
             acts.append(spring())
-            content.set(centred(vstack(head + [label(t("project.noEarlier"), Fonts.pt(13)), hstack(acts, spacing: 10)], spacing: 14)))
+            content.set(centred(vstack(head + [label(t("project.noEarlier"), Fonts.pt(13)), canWrite ? label(t("project.noBrief"), Fonts.pt(12.5), "tx3") : nil, hstack(acts, spacing: 10)], spacing: 14)))
             return
         }
         let who = (l["assistant"] as? String) == "codex" ? "Codex" : "Claude"

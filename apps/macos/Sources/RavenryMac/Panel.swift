@@ -444,14 +444,7 @@ final class PanelView: Box {
             rows.append(hstack([open, older > 0 ? label(t(older == 1 ? "panel.olderEntry" : "panel.olderEntries", ["n": "\(older)"]), Fonts.pt(12), "tx3") : nil, spring()], spacing: 0))
             out.append(sec(t("panel.brief"), rows))
         }
-        let plan = p.plan
-        let planB = RButton(plan != nil ? t("panel.openPlan") : t("panel.newPlan"), small: true) { [weak self] in
-            self?.host?.openPage(plan != nil ? "plan:\(p.id)" : "newplan:\(p.id)", plan != nil ? t("panel.plan") : t("panel.newPlan"))
-        }
-        buttons["plan"] = planB
-        out.append(sec(t("panel.plan"), right: label(plan == nil ? t("panel.planNone") : p.planGate ? t("panel.planGate") : t("panel.planRunning"), Fonts.pt(12, .medium), "tx3"),
-                       [plan.map { para(($0["title"] as? String) ?? ($0["name"] as? String) ?? t("panel.planRunningLine")) } ?? para(t("panel.planBlurb"), "tx2", size: 12),
-                        hstack([planB, spring()], spacing: 0)]))
+        out.append(planCard(p))
         if let pn = pane, let typed = typedHere(pn.id) { out.append(typed) }
         return out
     }
@@ -695,8 +688,60 @@ final class PanelView: Box {
                                                              label(t("panel.stopped", ["who": who, "when": When.stopped(l["stoppedAt"] as? String)]), Fonts.pt(12), "tx3")]))
             } else { out.append(sec(nil, [label(t("panel.noConversation"), Fonts.pt(12), "tx3", lines: 2)])) }
         }
+        // No brief yet: write one here (BRIEF-006); its plan, at a gate too (PANEL-008).
+        if p.brief == nil, p.folder != nil, p.machine == nil {
+            let b = RButton(t("panel.writeBrief"), small: true) { [weak self] in self?.host?.openPage("writebrief:\(p.id)", t("panel.writeBrief")) }
+            buttons["writeBrief"] = b
+            out.append(sec(t("panel.brief"), [para(t("panel.noBrief"), "tx2", size: 12), hstack([b, spring()], spacing: 0)]))
+        }
+        if p.brief != nil || p.plan != nil { out.append(planCard(p)) }
         if let f = p.folderShort { out.append(sec(nil, [label(f, Fonts.pt(12), "tx3")])) }
         return out
+    }
+
+    /// The gate choice the panel waits on the hub for, by project.
+    private var planBusy: String?
+    /// Plan: Running, At a gate or None running, with Open the plan or New
+    /// plan (PANEL-008). At a gate, its question and choices, answered here
+    /// (POST /api/plan/answer); a gate the file alone passed is decided on the plan.
+    private func planCard(_ p: HubProject) -> NSView {
+        let plan = p.plan
+        let planB = RButton(plan != nil ? t("panel.openPlan") : t("panel.newPlan"), small: true) { [weak self] in
+            self?.host?.openPage(plan != nil ? "plan:\(p.id)" : "newplan:\(p.id)", plan != nil ? t("panel.plan") : t("panel.newPlan"))
+        }
+        buttons["plan"] = planB
+        var rows: [NSView?] = [plan.map { para(($0["title"] as? String) ?? ($0["name"] as? String) ?? t("panel.planRunningLine")) } ?? para(t("panel.planBlurb"), "tx2", size: 12)]
+        let gate = plan != nil ? p.raw["planGate"] as? [String: Any] : nil
+        if let g = gate {
+            if g["fileOnly"] is String { rows.append(para(t("panel.gateFile"), "you", size: 12)) }
+            else {
+                rows.append(para(md: g["question"] as? String ?? g["text"] as? String ?? ""))
+                let choices = (g["choices"] as? [String] ?? []).enumerated().map { i, c -> NSView in
+                    let b = RButton(c, i == 0 ? .primary : .normal, small: true) { [weak self] in self?.answerGate(p, c) }
+                    b.isEnabled = planBusy == nil
+                    buttons["gate\(i)"] = b
+                    return b
+                }
+                if !choices.isEmpty { rows.append(flow(choices)) }
+            }
+        }
+        rows.append(hstack([planB, spring()], spacing: 0))
+        return sec(t("panel.plan"), right: label(plan == nil ? t("panel.planNone") : p.planGate ? t("panel.planGate") : t("panel.planRunning"), Fonts.pt(12, .medium), "tx3"), rows, ring: gate != nil ? "you" : nil)
+    }
+
+    /// A gate's choice pressed in the panel: written in the brief by the hub, which tells the session.
+    private func answerGate(_ p: HubProject, _ choice: String) {
+        guard planBusy == nil, let h = host else { return }
+        planBusy = p.id
+        signature = ""
+        h.redraw()
+        h.hub.post("/api/plan/answer", ["projectId": p.id, "choice": choice]) { [weak self] code, j in
+            guard let self else { return }
+            self.planBusy = nil
+            self.signature = ""
+            h.toast(code == 200 ? t("plan.sentChoice", ["choice": choice]) : j["error"] as? String ?? t("page.didNotWork"))
+            h.redraw()
+        }
     }
 
     /// A session that ran in this pane and left the board (offBoardPanel): not running, its topic and folder, its last turn.

@@ -243,6 +243,12 @@ final class Board: NSObject {
         decTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.readDecisions() }
         readDecisions()
         plan.openPlan = { [weak self] pid in self?.openPlan(pid, title: nil) }
+        // Writing from the native app (the hub's browser board's): a changed plan, a brief written, a note, a project from an idea.
+        plan.openNewPlan = { [weak self] pid in self?.openNewPlan(pid) }
+        newProject.onBrief = { [weak self] pid in self?.back(); self?.openBrief(pid) }
+        brief.toast = toaster(brief)
+        idea.promote = { [weak self] id, name, pitch in self?.openPromote(id, name: name, pitch: pitch) }
+        projectPage.onWriteBrief = { [weak self] p in self?.openWriteBrief(p.id) }
         plan.showSession = { [weak self] pid in
             guard let self, let p = self.hub.state?.project(pid), let s = p.mainSession else { return false }
             self.pickSession("\(p.id)/\(s.surfaceId)", why: "plan")
@@ -337,6 +343,7 @@ final class Board: NSObject {
             })
         panel.host?.paneName = { [weak self] id in self.flatMap { $0.ws.paneInfo(id) != nil ? $0.ws.label(id).name : nil } }
         panel.host?.openPicker = { [weak self] id in self?.openPicker(id) }
+        panel.host?.redraw = { [weak self] in self?.render(force: true) }
         panel.host?.whoCanType = { [weak self] pane in self?.whoCanType(pane) ?? [] }
         panel.host?.revoke = { [weak self] pane, g in self?.revokeGrant(pane, g) }
         panel.host?.opened = { [weak self] pane in self?.openedLine(pane) }
@@ -673,6 +680,7 @@ final class Board: NSObject {
         // The foot's Settings, and the panel's way to Settings when the first-launch step was off (its Skills).
         if key == "sessions" { openSessions(); return }
         if key == "newproject" { openNewProject(nil); return }
+        if key.hasPrefix("writebrief:") { openWriteBrief(String(key.dropFirst(11))); return }
         if key.hasPrefix("settings:") { openSettings(String(key.dropFirst(9))); return }
         if key == "side.settings" || key == "settings" { openSettings(key == "settings" ? "skills" : nil); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
@@ -762,6 +770,29 @@ final class Board: NSObject {
         showMiddle(newProject)
         newProject.show(from: from, state: hub.state)
         log.append("new project\(from.map { " from \($0.folderShort)" } ?? "")")
+        render()
+    }
+
+    /// Write the brief for a project that has none (the New project form without its name and folder).
+    func openWriteBrief(_ pid: String) {
+        guard let p = hub.state?.project(pid) else { return }
+        overlay = false
+        enter(.page("writebrief:\(pid)", t("panel.writeBrief"))) { [weak self] in self?.openWriteBrief(pid) }
+        front = .page("writebrief:\(pid)", t("panel.writeBrief"))
+        showMiddle(newProject)
+        newProject.show(brief: p, state: hub.state)
+        log.append("write brief \(pid)")
+        render()
+    }
+
+    /// New project from an idea: its name, pitch and Greenlit filled in.
+    func openPromote(_ id: String, name: String, pitch: String) {
+        overlay = false
+        enter(.page("promote:\(id)", t("np.title"))) { [weak self] in self?.openPromote(id, name: name, pitch: pitch) }
+        front = .page("promote:\(id)", t("np.title"))
+        showMiddle(newProject)
+        newProject.show(idea: id, name: name, pitch: pitch, state: hub.state)
+        log.append("promote \(id)")
         render()
     }
 
