@@ -72,23 +72,48 @@ extension SelfTestBoard {
         check("plan_gate_choices", shows(pg, "It waits for you") && shows(pg, "Which day?") && pg.buttons["choice1"]?.title == "Friday" && shows(pg, "At a gate") && pg.buttons["pause"] == nil, texts(pg).prefix(8).joined(separator: " | "))
         check("plan_no_session_no_button", pg.buttons["showSession"] == nil)
         pictures("plan-gate")
+        pg.holdState = false
+        // A real gate: the session reached it and marked it [?] in the brief, as a session
+        // does; the page draws it from the hub, and a choice pressed is the hub's 200 and
+        // written under the gate.
+        let brief = URL(fileURLWithPath: (board.hub.state?.project("garden-planner")?.folder ?? "/nowhere") + "/BRIEF.md")
+        let read = { (try? String(contentsOf: brief, encoding: .utf8)) ?? "" }
+        let write = { (s: String) in try? s.write(to: brief, atomically: true, encoding: .utf8) }
+        write(read().replacingOccurrences(of: "- [ ] Do: Write the reminder text", with: "- [x] Do: Write the reminder text")
+                    .replacingOccurrences(of: "- [ ] Gate: Pick when the first reminder goes out", with: "- [?] Gate: Pick when the first reminder goes out"))
+        pg.show("garden-planner", mode: .plan, state: board.hub.state)
+        check("plan_real_gate_drawn", wait(10) { self.board.render(); return pg.buttons["choice1"]?.title == "On the first frost-free day" } && shows(pg, "Pick when the first reminder goes out"),
+              texts(pg).prefix(10).joined(separator: " | "))
         n = board.hub.sent.count
         pg.buttons["choice1"]?.performClick(nil)
         check("plan_choice_posts", wait(3) { self.sentSince(n).contains("POST /api/plan/answer") })
         _ = wait(3) { pg.busy.isEmpty }
-        var gp2 = gp; gp2["planGate"] = ["question": "Say when"]
-        pg.show("garden-planner", mode: .plan, state: HubState(["projects": [gp2]]))
+        check("plan_choice_in_brief", wait(3) { read().contains("- [x] Gate: Pick when the first reminder goes out") && read().contains("Answer: On the first frost-free day") },
+              read().components(separatedBy: "\n").filter { $0.contains("Gate") || $0.contains("Answer") }.joined(separator: " / "))
+        // A question with no choices: its own field. The session stops at a step to ask
+        // (a gate with no Choices line gets Go ahead and Not yet from the hub, so a field is a step's
+        // Question). After the plan's last step, before its Log (the hub keeps the log after the steps).
+        let second = "- [?] Do: Send the second reminder\n  - Question: Say when the second reminder goes out\n"
+        let had = read()
+        write(had.contains("\n\nLog:\n") ? had.replacingOccurrences(of: "\n\nLog:\n", with: "\n" + second + "\nLog:\n") : had + (had.hasSuffix("\n") ? "" : "\n") + second)
+        _ = wait(10) { self.board.render(); return pg.buttons["send"] != nil }
         let L = board.log.count
         pg.buttons["send"]?.performClick(nil)
-        check("plan_gate_field_needs_words", toasts(since: L).last == t("plan.typeAnswer") && window.firstResponder === pg.fields["gate"]?.field.currentEditor(), toasts(since: L).joined(separator: ","))
-        if let f = pg.fields["gate"] { typeIn(f, "Next Monday") }
+        let gf = pg.gateField
+        check("plan_gate_field_needs_words", gf.contains("Say when the second reminder goes out") && toasts(since: L).last == t("plan.typeAnswer") && window.firstResponder === pg.fields[gf]?.field.currentEditor(),
+              "field \(gf); " + toasts(since: L).joined(separator: ","))
+        if let f = pg.fields[gf] { typeIn(f, "Next Monday") }
         // What is typed stays through the hub's redraws.
-        pg.refresh(HubState(["projects": [gp2]])); pg.dirty(); pg.redraw()
-        check("plan_typed_kept", pg.fields["gate"]?.text == "Next Monday" && pg.fields["gate"]?.window != nil)
+        pg.refresh(board.hub.state); pg.dirty(); pg.redraw()
+        check("plan_typed_kept", pg.fields[gf]?.text == "Next Monday" && pg.fields[gf]?.window != nil)
         n = board.hub.sent.count
         pg.buttons["send"]?.performClick(nil)
         check("plan_gate_field_posts", wait(3) { self.sentSince(n).contains("POST /api/plan/answer") })
         _ = wait(3) { pg.busy.isEmpty }
+        // Answered, the step runs again with it (writeAnswer: its mark back to [ ]).
+        check("plan_field_in_brief", wait(3) { read().contains("- [ ] Do: Send the second reminder") && read().contains("Answer: \"Next Monday\"") },
+              read().components(separatedBy: "\n").filter { $0.contains("second") || $0.contains("Answer") }.joined(separator: " / "))
+        pg.holdState = true
         pg.show("garden-planner", mode: .plan, title: "Old one", state: fake)
         check("plan_of_the_brief_by_title", shows(pg, "Old one") && shows(pg, "Done") && pg.buttons["pause"] == nil && !shows(pg, "It waits for you"), texts(pg).prefix(5).joined(separator: " | "))
         let older = HubState(["projects": [["id": "garden-planner", "name": "garden-planner", "sessions": [], "plan": ["title": "Older hub", "state": "running", "steps": steps]]]])
