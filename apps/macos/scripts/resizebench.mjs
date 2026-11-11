@@ -38,7 +38,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { testApp } from './testapp.mjs';
-import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { startDemoHub, freePort } from '../../desktop/tools/demo-hub.mjs';
 
 guardSpawns();
 const argv = process.argv.slice(2);
@@ -97,7 +97,7 @@ if (OLD) {
 } else {
   sock = (await serve(path.join(APP, 'Contents', 'MacOS', 'ravenryd'))).s;
 }
-const port = 47900 + Math.floor(Math.random() * 90);
+const port = await freePort();
 const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port });
 const result = path.join(OUT, 'bench.json');
 fs.rmSync(result, { force: true });

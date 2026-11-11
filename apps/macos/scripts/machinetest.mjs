@@ -19,7 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { startDemoHub, freePort } from '../../desktop/tools/demo-hub.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -103,7 +103,7 @@ actions:
   - { label: Build, run: { argv: [/bin/sh, -c, "echo built-by-page > page-run.txt"] } }
 `;
 let RUNFILE = '';
-const port = 48600 + Math.floor(Math.random() * 300);
+const port = await freePort();
 const hub = await startDemoHub({
   dir: path.join(tmp, 'hub'), port, runtime: run,
   settings: { machines: [{ name: 'testbox', host: 'testbox' }] },

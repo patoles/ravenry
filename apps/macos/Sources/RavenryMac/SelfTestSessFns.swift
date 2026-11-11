@@ -20,7 +20,8 @@ extension SelfTestBoard {
         SelfTestBoard.asks += 1
         let n = SelfTestBoard.asks
         let d = URL(fileURLWithPath: out + ".do-\(n)"), a = URL(fileURLWithPath: out + ".done-\(n)")
-        try? JSONSerialization.data(withJSONObject: req).write(to: d)
+        // Atomic: the driver reads the request as soon as the file is there.
+        try? JSONSerialization.data(withJSONObject: req).write(to: d, options: .atomic)
         guard wait(timeout, { FileManager.default.fileExists(atPath: a.path) }) else { return nil }
         settle(0.1)
         let j = (try? Data(contentsOf: a)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }

@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { testApp } from './testapp.mjs';
-import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { startDemoHub, freePort } from '../../desktop/tools/demo-hub.mjs';
 
 guardSpawns();
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +47,7 @@ fs.writeFileSync(path.join(data, `window-${id}.json`), JSON.stringify({
   active: 's:pgonegone', pinned: ['nowhere/sf-9'], hintsDone: { pick: true },
 }, null, 2));
 
-const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port: 47900 + Math.floor(Math.random() * 90), extra: [{ id: 'old-notes', name: 'old-notes' }] });
+const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port: await freePort(), extra: [{ id: 'old-notes', name: 'old-notes' }] });
 const log = path.join(tmp, 'app.log');
 const app = spawn(EXE, ['--offscreen', '--socket', sock], {
   env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log') },

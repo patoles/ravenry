@@ -24,6 +24,7 @@
 // for a board that follows cmux from outside (Ravenry mode).
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawn, execFileSync } from 'node:child_process';
@@ -35,6 +36,19 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUB = path.resolve(HERE, '..', '..', '..', 'hub');
 const MIN = 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** A port nothing on this Mac listens on now (the system picks it), for a board of its own. */
+export const freePort = () => new Promise((resolve, reject) => {
+  const srv = net.createServer();
+  srv.once('error', reject);
+  srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); });
+});
+// Whether something already answers on the port (another check's board).
+const portBusy = (port) => new Promise((resolve) => {
+  const srv = net.createServer();
+  srv.once('error', () => resolve(true));
+  srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(false)));
+});
 const ago = (m) => new Date(Date.now() - m * MIN).toISOString();
 const slug = (cwd) => cwd.replace(/[^A-Za-z0-9-]/g, '-');
 
@@ -102,6 +116,14 @@ const PROJECTS = [
 ];
 
 export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null, cmuxIds = false, plan = false, ideas = false }) {
+  // Never another check's board: with ports picked at random in shared
+  // ranges, a board that could not listen left its caller reading the other
+  // board until that one stopped (inkcheck's hub_state, 2026-11-12).
+  // (A board this check just stopped on it is given 5 s to let it go.)
+  for (let i = 0; await portBusy(port); i++) {
+    if (i >= 50) throw new Error(`the demo board's port ${port} is taken; give it a free one (freePort)`);
+    await sleep(100);
+  }
   fs.rmSync(dir, { recursive: true, force: true });
   const HOME = path.join(dir, 'home');
   const ROOT = path.join(HOME, 'Projects');
@@ -186,7 +208,10 @@ export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, pan
   }
   // An idea with a thread (the Ideas page's card opens it).
   if (ideas) {
-    const at = (m) => new Date(Date.now() - m * MIN).toISOString();
+    // Minutes ago, but never before the start of today: the thread says "today"
+    // just after midnight too (the native sidetest's idea_who_and_when).
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const at = (m) => new Date(Math.max(Date.now() - m * MIN, today.getTime())).toISOString();
     fs.writeFileSync(path.join(MC, 'ideas.json'), JSON.stringify({ ideas: [{ id: 'demo-tidepool', name: 'A tide pool you look after', stage: 'spark', pitch: 'A small screen of rock pool that changes with the tides.', status: 'Added today.', img: null, alt: null,
       thread: [{ who: 'you', text: 'Would this work as a phone widget?', at: at(30) }, { who: 'claude', text: 'Yes: one pool, redrawn at each tide, with a single creature to look after. It stays calm because nothing is urgent.', at: at(29) }],
       created: at(31), updated: at(29) }] }, null, 2));
@@ -224,13 +249,14 @@ export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, pan
   const want = empty ? 0 : PROJECTS.length - panes.length;
   let st = null;
   for (let i = 0; i < 200; i++) {
+    if (child.exitCode !== null || child.signalCode !== null) break;
     try {
       st = await (await fetch(url + '/api/state')).json();
       if (st.generatedAt && (st.projects || []).filter((p) => p.sessions && p.sessions.length).length === want) break;
     } catch { /* starting */ }
     await sleep(100);
   }
-  if (!st || !st.generatedAt) { child.kill(); throw new Error('the demo board did not start:\n' + log.slice(-2000)); }
+  if (!st || !st.generatedAt || child.exitCode !== null || child.signalCode !== null) { child.kill(); throw new Error('the demo board did not start:\n' + log.slice(-2000)); }
 
   return {
     url, home: HOME, root: ROOT, log: () => log, sessions, fake: FAKE, ps: PS,

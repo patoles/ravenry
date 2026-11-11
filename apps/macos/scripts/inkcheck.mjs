@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { startDemoHub, freePort } from '../../desktop/tools/demo-hub.mjs';
 import { testApp } from './testapp.mjs';
 
 guardSpawns();
@@ -49,7 +49,7 @@ net.Server.prototype.listen = function (...a) {
   return listen.apply(this, a);
 };
 `);
-const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port: 47800 + Math.floor(Math.random() * 90), env: { NODE_OPTIONS: `--import ${bindLocal}` } });
+const hub = await startDemoHub({ dir: path.join(tmp, 'hub'), port: await freePort(), env: { NODE_OPTIONS: `--import ${bindLocal}` } });
 
 const daemons = [];
 async function place(name) {

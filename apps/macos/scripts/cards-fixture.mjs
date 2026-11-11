@@ -16,6 +16,8 @@ import { checkedBefore } from '../../../hub/server/decisions.mjs';
 
 const MIN = 60000;
 const iso = (ms) => new Date(ms).toISOString();
+// The start of today here: a time "today" a check reads stays today's just after midnight too.
+const startOfToday = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
 /** A 320 x 200 PNG of a paper boat on water, its hull tilted by `tilt` and in `hull`'s colour. */
 export function boatPng(tilt, hull, sky = [214, 230, 245]) {
@@ -66,7 +68,7 @@ export function cardFixtures(state, home, now = Date.now()) {
       // The decisions it read just before it asked, as the hub says them (decisions.checkedBefore).
       checked: checkedBefore('paper-boat', iso(now - 3 * MIN), { now: new Date(now), list: [
         { id: 'dk2m4p6q', quote: 'The hull stays level on every slope under 10 degrees, the sail takes the tilt', project: 'paper-boat', at: iso(now - 26 * 60 * MIN), by: 'person', last_read_at: iso(now - 5 * MIN) },
-        { id: 'dr3t5v7w', quote: 'Test on the pond before the bath', project: 'paper-boat', at: iso(now - 50 * MIN), by: 'person', last_read_at: iso(now - 4 * MIN) },
+        { id: 'dr3t5v7w', quote: 'Test on the pond before the bath', project: 'paper-boat', at: iso(Math.max(now - 50 * MIN, startOfToday(now))), by: 'person', last_read_at: iso(now - 4 * MIN) },
       ] }),
     }),
     base('cpapprove1', 'approve', 'notes-app', 'Run npm publish --tag beta', {

@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { freePort } from '../../desktop/tools/demo-hub.mjs';
 
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
 
@@ -228,7 +229,11 @@ export function sessbDriver(ctx) {
         for (const id of req.projects || []) { try { await ctx.hub.current.arrive(id, req.question); ans.project = id; break; } catch (e) { (ans.errors ||= []).push(`${id}: ${e.message}`); } }
       } else Object.assign(ans, await sessbDo(req, ctx));
     } catch (e) { ans.ok = false; ans.error = String(e.message || e); }
-    fs.writeFileSync(`${result}.done-${seen}`, JSON.stringify(ans));
+    // Whole or not at all: the app reads the answer as soon as the file is
+    // there, and a long one (the stand-ins' log) was read half written under
+    // load, as no stand-in at all (sb_revive_runs_on_brief took an older one).
+    fs.writeFileSync(`${result}.done-${seen}.part`, JSON.stringify(ans));
+    fs.renameSync(`${result}.done-${seen}.part`, `${result}.done-${seen}`);
   };
 }
 
@@ -244,7 +249,7 @@ export async function sessbSecond({ EXE, APP, env, tmp, OUT, startDemoHub, spawn
   const d2 = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env: env2, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon2.log'), 'w')] });
   let sock2 = null;
   for (let i = 0; i < 100 && !sock2; i++) { const n = fs.readdirSync(run2).find((x) => /^ravenryd-.+\.sock$/.test(x)); if (n) sock2 = path.join(run2, n); else await sleep(50); }
-  const port2 = 47950 + Math.floor(Math.random() * 40);
+  const port2 = await freePort();
   const r2 = path.join(OUT, 'sidetest-sessb2.json');
   fs.rmSync(r2, { force: true });
   const ref = { current: { stop() {} } };

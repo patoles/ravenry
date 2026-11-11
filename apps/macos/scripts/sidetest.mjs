@@ -42,7 +42,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { startDemoHub, freePort } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
 import { cardFixtures, boatPng } from './cards-fixture.mjs';
 import { testApp } from './testapp.mjs';
@@ -116,7 +116,8 @@ if (DAEMONS) {
   for (let i = 0; !(sock = found()); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
 }
 
-const port = 47700 + Math.floor(Math.random() * 200);
+// A port the system gives (never one a check beside it took).
+const port = await freePort();
 // A brief with every shape: fields, headings, nested lists, a checklist of
 // each mark, code, links (the web, a file beside it, a scheme never opened),
 // a bare URL, a long word and a Next step of dated entries.
@@ -591,7 +592,9 @@ async function doRequests() {
     execFileSync(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['new', '--socket', sock, '--json', '--', '/bin/sleep', '20'], { env });
     ans.pid = s.pid;
   }
-  fs.writeFileSync(`${result}.done-${doSeen}`, JSON.stringify(ans));
+  // Whole or not at all (written aside, then renamed): the app reads it as soon as it is there.
+  fs.writeFileSync(`${result}.done-${doSeen}.part`, JSON.stringify(ans));
+  fs.renameSync(`${result}.done-${doSeen}.part`, `${result}.done-${doSeen}`);
 }
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
 const hookLine = (bin, S, ev, sid = S.sid) => `printf '%s' ${sq(JSON.stringify({ hook_event_name: ev, session_id: sid, cwd: S.folder, transcript_path: S.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) }))} | ${sq(bin)} hook --assistant claude >/dev/null 2>&1`;
