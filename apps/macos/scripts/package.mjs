@@ -58,6 +58,18 @@
 // said loudly: macOS then keeps no privacy answer from one build to the
 // next. Checked with codesign --verify --deep --strict and the team of
 // every Mach-O inside.
+//
+// The release signing (SIGN-004), switched on by the environment alone, no
+// code change: RAVENRY_SIGN_IDENTITY names a Developer ID Application
+// identity in the keychain (its SHA-1 or its name, "Developer ID
+// Application: ..."), used in place of the Apple Development one, with a
+// secure timestamp; the team every Mach-O must carry is read from it. Then,
+// with RAVENRY_NOTARY_PROFILE (a profile `xcrun notarytool store-credentials`
+// made) or APPLE_API_KEY (the .p8 file), APPLE_API_KEY_ID and
+// APPLE_API_ISSUER (release.yml's names), the app is notarized (its zip sent,
+// `notarytool submit --wait`) and stapled before the zip and the feed are
+// made, and the dmg is signed, notarized and stapled too.
+// RAVENRY_NOTARY_DRY=1 prints those commands instead of running them.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -177,11 +189,33 @@ for (const [k, v] of Object.entries(config.mac.extendInfo)) set(k, v);
 run('/usr/bin/plutil', ['-replace', 'CFBundleURLTypes', '-json', JSON.stringify([{ CFBundleURLName: 'dev.ravenry.app.session', CFBundleURLSchemes: ['ravenry'] }]), plist]);
 
 // 5. Signing, every binary inside first, then the app.
-const id = localIdentity();
+// The release's Developer ID (RAVENRY_SIGN_IDENTITY), found in the keychain (in CI too), else this Mac's Apple Development one.
+function releaseIdentity(want) {
+  let out = '';
+  try { out = execFileSync('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }); } catch { /* none */ }
+  const line = out.split('\n').find((l) => l.toUpperCase().includes(want.toUpperCase()));
+  if (!line) throw new Error(`RAVENRY_SIGN_IDENTITY: no code-signing identity "${want}" in the keychain (security find-identity -v -p codesigning)`);
+  const [, hash, name] = /([0-9A-F]{40})\s+"([^"]+)"/i.exec(line) || [];
+  return { hash: hash || want, name: name || want, team: null, release: true };
+}
+const id = process.env.RAVENRY_SIGN_IDENTITY ? releaseIdentity(process.env.RAVENRY_SIGN_IDENTITY) : localIdentity();
+const notary = process.env.RAVENRY_NOTARY_PROFILE ? ['--keychain-profile', process.env.RAVENRY_NOTARY_PROFILE]
+  : (process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER) ? ['--key', process.env.APPLE_API_KEY, '--key-id', process.env.APPLE_API_KEY_ID, '--issuer', process.env.APPLE_API_ISSUER] : null;
+if (notary && !id?.release) throw new Error('notarization needs a Developer ID: set RAVENRY_SIGN_IDENTITY too');
+const dry = process.env.RAVENRY_NOTARY_DRY === '1';
+/** notarytool and stapler, or what they would run (RAVENRY_NOTARY_DRY=1). */
+const xcrun = (args) => {
+  if (dry) { say(`would run: xcrun ${args.map((a) => (a === process.env.APPLE_API_KEY_ID || a === process.env.APPLE_API_ISSUER ? '<secret>' : a)).join(' ')}`); return ''; }
+  return run('/usr/bin/xcrun', args, { stdio: ['ignore', 'pipe', 'inherit'] });
+};
+const notarize = (f) => { say(`notarizing ${path.basename(f)} (waits for Apple's answer)`); xcrun(['notarytool', 'submit', f, ...notary, '--wait']); };
+const staple = (f) => { xcrun(['stapler', 'staple', f]); if (!dry) xcrun(['stapler', 'validate', f]); };
 const ents = path.join(DESKTOP, 'build', id ? 'entitlements.mac.plist' : 'entitlements.adhoc.plist');
-if (id) say(`signing with this Mac's ${id.name} (${id.hash.slice(0, 8)}), hardened runtime; not notarized: for this Mac only`);
+if (id?.release) say(`signing with ${id.name} (${id.hash.slice(0, 8)}), hardened runtime, a secure timestamp; ${notary ? 'notarized and stapled below' : 'NOT notarized (no RAVENRY_NOTARY_PROFILE or APPLE_API_KEY*)'}`);
+else if (id) say(`signing with this Mac's ${id.name} (${id.hash.slice(0, 8)}), hardened runtime; not notarized: for this Mac only`);
 else console.log('\n==== UNSIGNED BUILD: signed ad hoc. macOS keeps no privacy answer across builds, and asks again. Never install it as the person\'s Ravenry. ====\n');
-const sign = (f, ident) => run('/usr/bin/codesign', ['--force', '--sign', id ? id.hash : '-', '--options', 'runtime', '--timestamp=none', '--entitlements', ents, ...(ident ? ['--identifier', ident] : []), f]);
+const stamp = id?.release ? '--timestamp' : '--timestamp=none';
+const sign = (f, ident) => run('/usr/bin/codesign', ['--force', '--sign', id ? id.hash : '-', '--options', 'runtime', stamp, '--entitlements', ents, ...(ident ? ['--identifier', ident] : []), f]);
 sign(path.join(C, 'MacOS', 'node'), 'dev.ravenry.app.node');
 sign(path.join(C, 'MacOS', 'ravenryd'), 'dev.ravenry.app.ravenryd');
 sign(app);
@@ -201,12 +235,18 @@ const walk = (d) => {
 };
 walk(app);
 say(`teams: ${Object.entries(teams).map(([t, fs_]) => `${t}: ${fs_.join(', ')}`).join('; ')}`);
-if (id && (Object.keys(teams).length !== 1 || !teams[id.team])) throw new Error(`a binary inside is not signed by team ${id.team}`);
+if (id && (Object.keys(teams).length !== 1 || (id.team && !teams[id.team]) || teams.none)) throw new Error(`a binary inside is not signed by team ${id.team || Object.keys(teams).join(' or ')}`);
 say(`requirement: ${execFileSync('/bin/sh', ['-c', 'codesign -d -r- "$1" 2>&1 | sed -n "s/^designated => //p"', 'sh', app], { encoding: 'utf8' }).trim()}`);
 
-// 6. The zip, as macOS's Archive Utility makes it.
+// 6. The zip, as macOS's Archive Utility makes it; a release notarized and stapled first.
 fs.mkdirSync(path.dirname(ZIP), { recursive: true });
 fs.rmSync(ZIP, { force: true });
+if (notary) {
+  const sub = path.join(os.tmpdir(), `rvn-notary-${process.pid}.zip`);
+  run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, sub]);
+  try { notarize(sub); } finally { fs.rmSync(sub, { force: true }); }
+  staple(app);
+}
 run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', app, ZIP]);
 // The feed beside the zip (Updater.swift reads it from the release).
 const zipBytes = fs.readFileSync(ZIP);
@@ -224,8 +264,9 @@ const DMG = path.join(path.dirname(ZIP), `Ravenry-${pkg.version}-mac-arm64.dmg`)
   fs.rmSync(DMG, { force: true });
   run('/usr/bin/hdiutil', ['create', '-quiet', '-volname', `Ravenry ${pkg.version}`, '-srcfolder', src, '-fs', 'HFS+', '-format', 'UDZO', '-ov', DMG]);
   fs.rmSync(src, { recursive: true, force: true });
-  if (id) run('/usr/bin/codesign', ['--force', '--sign', id.hash, '--timestamp=none', DMG]);
+  if (id) run('/usr/bin/codesign', ['--force', '--sign', id.hash, stamp, DMG]);
   run('/usr/bin/hdiutil', ['verify', '-quiet', DMG]);
+  if (notary) { notarize(DMG); staple(DMG); }
 }
 // The test twin: the same bundle with the test hooks on (Gate.swift), signed again.
 const TWIN = path.join(OUT, 'release-test', 'Ravenry.app');
