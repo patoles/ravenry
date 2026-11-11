@@ -193,6 +193,47 @@ extension SelfTestBoard {
 
     // MARK: Alerts and Mac notifications (ALERT rows)
 
+    /// ALERT-014: ntfy on a server of your own (sidetest's stand-in on 127.0.0.1, RAVENRY_MAC_NTFY_SERVER).
+    /// Save with nothing typed says what goes in; the address typed and Save is the hub's 200, the line
+    /// and the code name it; Use it, then Send a test: the server gets the alert on the topic.
+    private func alertsOwnNtfy(_ pg: AlertsPage) {
+        let env = ProcessInfo.processInfo.environment
+        guard let srv = env["RAVENRY_MAC_NTFY_SERVER"], let logPath = env["RAVENRY_MAC_NTFY_LOG"] else { check("alerts_ntfy_server_env", false, "no stand-in server"); return }
+        _ = wait(5) { pg.busy.isEmpty }
+        if pg.open != "ntfy" { pg.buttons["ntfy-toggle"]?.performClick(nil) }
+        let qr0 = (pg.setup?["ntfy"] as? [String: Any])?["qr"] as? String
+        var L = board.log.count
+        pg.buttons["save-nt"]?.performClick(nil)
+        check("alerts_ntfy_server_needed", toasts(since: L).last == t("alerts.ntfyServerFirst"), toasts(since: L).joined(separator: ","))
+        if let f = pg.fields["nt"] { typeIn(f, srv) }
+        var n = board.hub.sent.count
+        L = board.log.count
+        pg.buttons["save-nt"]?.performClick(nil)
+        let ntfy = { pg.setup?["ntfy"] as? [String: Any] ?? [:] }
+        check("alerts_ntfy_server_saved", wait(5) { self.sentSince(n).contains("POST /api/alerts/ntfy") && self.toasts(since: L).contains(t("alerts.ntfyServerSaved", ["server": srv])) }
+              && wait(6) { ntfy()["server"] as? String == srv && self.texts(pg).contains { $0.contains("on \(srv)") } } && ntfy()["qr"] as? String != qr0,
+              "\(sentSince(n)) \(toasts(since: L)) \(ntfy()["server"] ?? "nil")")
+        pictures("alerts-ntfy-server")
+        _ = wait(5) { pg.busy.isEmpty }
+        n = board.hub.sent.count
+        pg.buttons["ntfy-use"]?.performClick(nil)
+        check("alerts_ntfy_own_in_use", wait(6) { self.sentSince(n).contains("POST /api/alerts/done") && pg.buttons["ntfy-test"] != nil }, "\(sentSince(n))")
+        _ = wait(5) { pg.busy.isEmpty }
+        L = board.log.count
+        n = board.hub.sent.count
+        pg.buttons["ntfy-test"]?.performClick(nil)
+        let got = { () -> [[String: Any]] in
+            ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "").split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        }
+        let body = { () -> [String: Any] in (got().last?["body"] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } ?? [:] }
+        check("alerts_ntfy_test_reaches_own_server", wait(10) { (body()["topic"] as? String ?? "").count >= 8 && got().last?["method"] as? String == "POST" } && wait(5) { self.toasts(since: L).contains(t("alerts.testSent")) },
+              "\(got()) \(toasts(since: L))")
+        // Turned off again, so the rest of the screen starts from no channel.
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["ntfy-use"]?.performClick(nil)
+        _ = wait(6) { pg.buttons["ntfy-use"]?.title == t("alerts.useIt") }
+    }
+
     func screenAlerts() {
         let pg = board.alerts
         board.openPage("side.alerts", t("side.alerts"))
@@ -258,6 +299,7 @@ extension SelfTestBoard {
         pg.buttons["newTopic"]?.performClick(nil)
         check("alerts_ntfy_new_topic", wait(5) { self.toasts(since: L).contains(t("alerts.newTopicDone")) })
         pictures("alerts-ntfy")
+        alertsOwnNtfy(pg)
         pg.buttons["pair"]?.performClick(nil)
         check("alerts_pair_phone", wait(2) { self.board.phoneCard.isOpen }, "\(board.front)")
         board.phoneCard.close()

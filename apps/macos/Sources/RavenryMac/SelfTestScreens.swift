@@ -25,6 +25,7 @@ extension SelfTestBoard {
         case "pages": screenPages()
         case "decisions": screenDecisions()
         case "settings": screenSettings()
+        case "settingsroot": screenSettingsRoot()
         case "learn": screenLearn()
         case "machines": screenMachines()
         case "phone": screenPhone()

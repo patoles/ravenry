@@ -288,7 +288,7 @@ const screenHub = PAGES ? {
   // --screen machines: ssh never reaches anything from this board.
   // --screen settings: the projects' folder is the registry's setting (not
   // MC_PROJECTS_ROOT), so the Hand-off tab's Change can change it.
-  env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '' } : {}) },
+  env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '', PATH: `${stubCodex()}:${process.env.PATH}` } : {}), ...(SCREEN === 'settingsroot' ? { MC_PROJECTS_ROOT: lockedRoot() } : {}) },
   // --screen sessions: each session's process in its cmux tab (closable), quiet for 36 s is idle.
   ...(SESSIONS_SCREEN ? { cmuxIds: true, settings: { idleHours: 0.01 } } : {}),
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
@@ -682,6 +682,16 @@ if (SCREEN === 'review') {
   // That other session's change was saved elsewhere since: the main folder's sync.js is back, so the merge goes through.
   git(REVIEW.repo, 'checkout', '--', 'app/sync.js');
 }
+// --screen alerts: an ntfy server of the person's own on this Mac (ALERT-014); what it is sent goes to ntfy-received.jsonl.
+let NTFY = null;
+if (SCREEN === 'alerts') {
+  const http = await import('node:http');
+  const log = path.join(OUT, 'ntfy-received.jsonl');
+  const srv = http.createServer((req, res) => { let b = ''; req.on('data', (d) => { b += d; }); req.on('end', () => { fs.appendFileSync(log, JSON.stringify({ method: req.method, url: req.url, body: b }) + '\n'); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"id":"stand-in"}'); }); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  srv.unref();
+  NTFY = { url: `http://127.0.0.1:${srv.address().port}`, log };
+}
 if (SCREEN === 'machines') fs.writeFileSync(FIXTURE, JSON.stringify({ ok: true, machines: SHAPES.map((m) => ({ ...m, card: machineCard(m) })), hosts: HOSTS, builds: BUILDS }));
 if (PROOFS) {
   const st = await hub.state();
@@ -711,10 +721,14 @@ if (PROOFS) {
 for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${result}.go-${n}`])]) fs.rmSync(f, { force: true });
 for (const f of fs.readdirSync(path.dirname(result))) if (/^sidetest\.json\.(do|done)-\d+$/.test(f)) fs.rmSync(path.join(path.dirname(result), f), { force: true });
 // --screen settings: the folder the Hand-off tab's Change picks for new projects (in the demo board's HOME).
+// --screen settings: Codex found on the hub's PATH (a stand-in that never runs), so Skills has its row (SET-014).
+function stubCodex() { const d = path.join(tmp, 'stub-bin'); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'codex'), '#!/bin/sh\nexit 0\n', { mode: 0o755 }); return d; }
+// --screen settingsroot: the board started with MC_PROJECTS_ROOT (SET-015).
+function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursive: true }); return d; }
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot(), RAVENRY_MAC_HUB_HOME: hub.home } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;

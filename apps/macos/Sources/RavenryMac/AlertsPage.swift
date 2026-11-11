@@ -9,7 +9,8 @@
 // - Your phone: Pair your phone.
 // - Telegram, a Discord or Slack webhook, ntfy: each's state, Send a test,
 //   Turn off or Use it, and its setup opened under it (the token and Find
-//   the chat, the address, the QR code with Copy the link and New topic).
+//   the chat, the address, the QR code with Copy the link and New topic,
+//   and a server of your own in place of ntfy.sh).
 //   Escape closes the setup.
 
 import AppKit
@@ -135,6 +136,13 @@ final class AlertsPage: FormPage {
             copy.isEnabled = self.busy.isEmpty; topic.isEnabled = self.busy.isEmpty
             self.buttons["copyLink"] = copy; self.buttons["newTopic"] = topic
             v.append(acts([copy, topic]))
+            // A server of your own (ALERT-014): POST /api/alerts/ntfy, then the code subscribes there.
+            v.append(self.saveRow("nt", t("alerts.ntfyServer"), t("alerts.ntfyServerFirst")) { typed in
+                self.post("ntfy", ["server": typed]) { _ in
+                    self.clear("nt")
+                    self.toast?(t("alerts.ntfyServerSaved", ["server": typed.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/+$", with: "", options: .regularExpression)]))
+                }
+            })
             return v
         })
         out.append(wrap(t("alerts.oneWay"), Fonts.pt(12), "tx3"))

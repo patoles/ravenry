@@ -81,6 +81,7 @@ extension SelfTestBoard {
             sw.commitScrollback("50")
             check("set_scrollback_out_of_range", sw.scrollbackBad && saved()["scrollback"] as? Int == 20000)
             sw.commitScrollback("10000")
+            scrollbackKeys(saved)
         } else { check("set_scrollback_shown", false) }
         press(sw.controls["bell:off"])
         let bounce = sw.controls["bounce"] as? CheckRow
@@ -177,6 +178,7 @@ extension SelfTestBoard {
             h.performClick(nil)
             check("set_hooks_posts", wait(8) { self.sentSince(s).contains("POST /api/setup/hooks") && sw.busy == nil }, sentSince(s).joined(separator: ","))
         }
+        skillsLeftAlone(root)
         let sq = squeezed(root)
         check("set_no_squeezed_text", sq.isEmpty, sq.joined(separator: " | "))
         // Cmd+, from the menu, on the tab it was left on.
@@ -245,6 +247,110 @@ extension SelfTestBoard {
         let sent = b.hub.sentBodies.dropFirst(n).filter { $0.path == "/api/setup/hooks" && $0.body["remove"] == nil }.compactMap { $0.body["ravenryd"] as? String }
         check("set_live_hooks_name_stable_ravenryd", !sent.isEmpty && sent.allSatisfy { $0.hasSuffix("/bin/ravenryd") && !$0.contains(".app/Contents/") }, sent.joined(separator: ","))
         settingsPictures("settings-skills-hooks")
+    }
+
+    /// SET-012 as the person types: the keys go to the Settings window's field editor (Return and
+    /// Escape through its doCommandBy). 50 and Return: ringed red, what was typed kept, the range said
+    /// in words beside it, settings.json keeps its value; Escape puts the saved value back; 25,000 and
+    /// Return saves it.
+    private func scrollbackKeys(_ saved: () -> [String: Any]) {
+        let sw = board.settings
+        func keyIn(_ chars: String, _ code: UInt16) {
+            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: sw.window.windowNumber,
+                                        context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) { sw.window.sendEvent(e) }
+            settle(0.2)
+        }
+        func typeAll(_ s: String) {
+            guard let f = (sw.controls["scrollback"] as? ScrollbackField)?.field else { return }
+            if f.currentEditor() == nil { sw.window.makeFirstResponder(f) }
+            f.currentEditor()?.selectAll(nil)
+            for ch in s { f.currentEditor()?.insertText(String(ch)) }
+            settle(0.1)
+        }
+        let before = saved()["scrollback"] as? Int
+        typeAll("50")
+        keyIn("\r", 36)
+        let sb = sw.controls["scrollback"] as? ScrollbackField
+        let range = sw.controls["scrollbackRange"] as? NSTextField
+        check("set_scrollback_enter_out_of_range_kept", sw.scrollbackBad && sb?.ring == "bad" && sb?.field.stringValue == "50" && saved()["scrollback"] as? Int == before,
+              "bad \(sw.scrollbackBad) ring \(sb?.ring ?? "") field \(sb?.field.stringValue ?? "") saved \(saved()["scrollback"] ?? "nil")")
+        check("set_scrollback_range_said", range?.isHidden == false && range?.window != nil && range?.stringValue == "From 100 to 100,000 lines" && sb?.toolTip == "From 100 to 100,000 lines", "\(range?.stringValue ?? "none") hidden \(range?.isHidden ?? true)")
+        settingsPictures("settings-scrollback-range")
+        keyIn("\u{1b}", 53)
+        let sb2 = sw.controls["scrollback"] as? ScrollbackField
+        check("set_scrollback_escape_puts_back", !sw.scrollbackBad && sb2?.field.stringValue == "10,000" && sb2?.ring == "sep" && (sw.controls["scrollbackRange"]?.isHidden ?? false) && saved()["scrollback"] as? Int == before,
+              "field \(sb2?.field.stringValue ?? "") ring \(sb2?.ring ?? "") bad \(sw.scrollbackBad)")
+        typeAll("25000")
+        keyIn("\r", 36)
+        check("set_scrollback_enter_saves", wait(3) { saved()["scrollback"] as? Int == 25000 } && (sw.controls["scrollback"] as? ScrollbackField)?.field.stringValue == "25,000" && !sw.scrollbackBad, "\(saved()["scrollback"] ?? "nil")")
+        sw.commitScrollback("10000")
+        sw.window.makeFirstResponder(nil)
+    }
+
+    /// SET-013 and SET-014 on the hub's own files (its HOME, RAVENRY_MAC_HUB_HOME): a ravenry skill
+    /// of someone else's is said and offers no Install, and the file stays as it was; Codex's hooks
+    /// turned off in its config.toml are said, and Set up (the hub's 200) leaves the line as set.
+    private func skillsLeftAlone(_ root: NSView) {
+        let sw = board.settings
+        guard let home = ProcessInfo.processInfo.environment["RAVENRY_MAC_HUB_HOME"], !home.isEmpty else { check("set_skill_hub_home", false, "no RAVENRY_MAC_HUB_HOME"); return }
+        let fm = FileManager.default
+        // Claude Code's skill folder, someone else's (no Ravenry mark).
+        let skill = URL(fileURLWithPath: home).appendingPathComponent(".claude/skills/ravenry/SKILL.md")
+        if (sw.skills.first { $0["kind"] as? String == "claude" }?["ours"] as? Bool) == true, let r = sw.controls["skill:claude"] as? RButton { r.performClick(nil); _ = wait(8) { sw.busy == nil && sw.skills.first { $0["kind"] as? String == "claude" }?["ours"] as? Bool != true } }
+        try? fm.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let mine = "---\nname: ravenry\ndescription: my own notes, not Ravenry's\n---\n\nMine.\n"
+        try? mine.write(to: skill, atomically: true, encoding: .utf8)
+        sw.readSkills()
+        let claude = { sw.skills.first { $0["kind"] as? String == "claude" } ?? [:] }
+        check("set_skill_someone_else_said", wait(8) { claude()["installed"] as? Bool == true && claude()["ours"] as? Bool != true && self.shows(root, t("set.someoneElse")) },
+              "\(claude()) | \(texts(root).filter { $0.contains("ravenry") }.joined(separator: ","))")
+        check("set_skill_someone_else_no_install", sw.controls["skill:claude"] == nil && (try? String(contentsOf: skill, encoding: .utf8)) == mine, "\(sw.controls.keys.filter { $0.hasPrefix("skill") })")
+        settingsPictures("settings-skills-someone-else")
+        // The hub's own route asked to install over it (what Install would post) leaves the file alone too.
+        let s0 = board.hub.sent.count
+        var code = 0
+        board.hub.post("/api/setup/skills", ["kind": "claude", "on": true, "ravenryd": "/usr/bin/true", "version": "0.0.0"]) { c, _ in code = c }
+        _ = wait(8) { code != 0 }
+        check("set_skill_someone_else_file_kept", (try? String(contentsOf: skill, encoding: .utf8)) == mine, "hub \(code) \(sentSince(s0))")
+        try? fm.removeItem(at: skill.deletingLastPathComponent())
+
+        // Codex's hooks off in its own config.toml.
+        let toml = URL(fileURLWithPath: home).appendingPathComponent(".codex/config.toml")
+        try? fm.createDirectory(at: toml.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? "model = \"gpt-5\"\n\n[features]\nhooks = false\n".write(to: toml, atomically: true, encoding: .utf8)
+        sw.readSkills()
+        let codex = { sw.skills.first { $0["kind"] as? String == "codex" } ?? [:] }
+        check("set_codex_hooks_off_in_config_said", wait(8) { codex()["hooksOff"] as? Bool == true && codex()["hooks"] as? String == "off" && self.shows(root, t("set.hooksOffInConfig")) },
+              "\(codex())")
+        settingsPictures("settings-skills-codex-off")
+        if let b = sw.controls["hooks:codex"] as? RButton {
+            let n = board.hub.sentBodies.count
+            b.performClick(nil)
+            check("set_codex_hooks_setup_posts", wait(10) { self.board.hub.sentBodies.dropFirst(n).contains { $0.path == "/api/setup/hooks" } && sw.busy == nil && sw.skillError == nil }, "\(sw.skillError ?? "")")
+            let after = (try? String(contentsOf: toml, encoding: .utf8)) ?? ""
+            check("set_codex_hooks_line_left_as_set", after.contains("[features]\nhooks = false") && wait(8) { codex()["hooksOff"] as? Bool == true && self.shows(root, t("set.hooksOffInConfig")) }, after)
+        } else { check("set_codex_hooks_setup_posts", false, "no Set up for Codex: \(codex())") }
+    }
+
+    /// SET-015: a board started with MC_PROJECTS_ROOT (sidetest --screen settingsroot): Hand-off
+    /// shows that folder with the lock line and no Change.
+    func screenSettingsRoot() {
+        let sw = board.settings
+        let want = ProcessInfo.processInfo.environment["RAVENRY_MAC_LOCKED_ROOT"] ?? ""
+        board.menuSettings(nil)
+        _ = wait(3) { sw.window.isVisible }
+        press(sw.tabButtons["handoff"])
+        let root = sw.window.contentView!
+        let pathShown = { (sw.controls["ho:root:path"] as? NSTextField)?.stringValue ?? "" }
+        check("set_root_locked_path", !want.isEmpty && wait(8) { pathShown() == want }, "shown \(pathShown()) want \(want)")
+        check("set_root_locked_line", shows(root, t("ho.rootLocked")), texts(root).filter { $0.contains("MC_") || $0.contains("Projects") }.joined(separator: ","))
+        check("set_root_locked_no_change", sw.controls["ho:root:change"] == nil, "\(sw.controls.keys.filter { $0.hasPrefix("ho:root") })")
+        // The hub refuses a change it locked: POST /api/settings/projects-root is not 200.
+        var code = 0
+        board.hub.post("/api/settings/projects-root", ["path": NSTemporaryDirectory()]) { c, _ in code = c }
+        check("set_root_locked_hub_refuses", wait(6) { code != 0 } && code != 200 && wait(4) { pathShown() == want }, "hub \(code)")
+        settingsPictures("settings-root-locked")
+        sw.window.orderOut(nil)
     }
 
     /// The foot's Settings button.

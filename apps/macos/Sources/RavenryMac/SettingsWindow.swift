@@ -37,6 +37,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private(set) var busy: String?
     private(set) var skillError: String?
     private(set) var scrollbackBad = false
+    /// What was typed in the scrollback and not saved (wrong, or not committed yet): kept through a redraw until Escape or a good commit.
+    private(set) var scrollbackTyped: String?
     /// The monospace families installed (NSFontManager), with the one in use.
     private(set) lazy var fonts: [String] = NSFontManager.shared.availableFontFamilies.filter { f in
         guard !f.hasPrefix("."), let font = NSFont(name: f, size: 12) else { return false }
@@ -434,10 +436,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         let bounce = CheckRow(t("set.bounce"), on: s.bool("bellBounceDock"), enabled: s.string("bell") != "off") { [weak self] on in self?.set(["bellBounceDock": on]) }
         let close = CheckRow(t("set.closingBox"), on: s.bool("confirmCloseBusy")) { [weak self] on in self?.set(["confirmCloseBusy": on]) }
         controls["copy"] = copy; controls["links"] = links; controls["bounce"] = bounce; controls["close"] = close
-        let sb = ScrollbackField(s.int("scrollback"))
+        let sb = ScrollbackField(s.int("scrollback"), typed: scrollbackTyped)
         sb.bad = scrollbackBad
         sb.commit = { [weak self] text in self?.commitScrollback(text) }
+        sb.edited = { [weak self] text in self?.scrollbackTyped = text }
+        let r = SettingsStore.range("scrollback")
+        let range = label(t("set.scrollbackRange", ["min": ScrollbackField.fmt(r.min), "max": ScrollbackField.fmt(r.max)]), Fonts.pt(12), "bad")
+        range.isHidden = !scrollbackBad
+        sb.reverted = { [weak self, weak range] in self?.scrollbackTyped = nil; self?.scrollbackBad = false; range?.isHidden = true }
         controls["scrollback"] = sb
+        controls["scrollbackRange"] = range
         let bellRow = vstack([hstack([segm("bell", s.string("bell"), [("visual", "set.visual"), ("sound", "set.sound"), ("off", "set.off")], key: "bell"), spring()], spacing: 0), hstack([bounce, spring()], spacing: 0)], spacing: 10)
         return [
             sec(t("set.keyboard"), after: false),
@@ -445,7 +453,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             row(t("set.copyOnSelect"), [copy]),
             row(t("set.links"), [links], hint: s.bool("openLinksSingleClick") ? t("set.linksOn") : t("set.linksOff")),
             sec(t("set.terminal"), after: true),
-            row(t("set.scrollback"), [sb, label(t("set.lines"), Fonts.pt(13))], hint: t("set.scrollbackHint"), first: true),
+            row(t("set.scrollback"), [sb, label(t("set.lines"), Fonts.pt(13)), range], hint: t("set.scrollbackHint"), first: true),
             row(t("set.bell"), [bellRow]),
             row(t("set.closing"), [close], hint: t("set.closingHint")),
         ]
@@ -455,8 +463,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     func commitScrollback(_ text: String) {
         let r = SettingsStore.range("scrollback")
         let n = Int(text.replacingOccurrences(of: "[\\s,._']", with: "", options: .regularExpression))
-        guard let n, n >= r.min, n <= r.max else { scrollbackBad = true; draw(); return }
-        scrollbackBad = false
+        // Wrong: the field keeps what was typed, ringed red, its tooltip saying the range (as the Electron app's).
+        guard let n, n >= r.min, n <= r.max else {
+            scrollbackBad = true; scrollbackTyped = text
+            if let sb = controls["scrollback"] as? ScrollbackField, sb.window === window { sb.bad = true; controls["scrollbackRange"]?.isHidden = false } else { draw() }
+            return
+        }
+        scrollbackBad = false; scrollbackTyped = nil
         if n != store.int("scrollback") { set(["scrollback": n]) } else { draw() }
     }
 
@@ -485,7 +498,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             let ours = r["ours"] as? Bool ?? false, inst = r["installed"] as? Bool ?? false, hk = r["hooks"] as? String ?? "unavailable"
             let status: String, ok: Bool
             if !found { status = t("set.notHere"); ok = false }
-            else if hooks { status = hk == "on" ? t("set.hooksOn") : hk == "off" ? t("set.hooksOff") : t("set.needsBoard"); ok = hk == "on" }
+            else if hooks { status = hk == "on" ? t("set.hooksOn") : hk == "off" ? (r["hooksOff"] as? Bool == true ? t("set.hooksOffInConfig") : t("set.hooksOff")) : t("set.needsBoard"); ok = hk == "on" }
             else if ours { status = (r["version"] as? String).map { t("set.installedVersion", ["version": $0]) } ?? t("set.installed"); ok = true }
             else { status = inst ? t("set.someoneElse") : t("set.notInstalled"); ok = false }
             let icon = Box(fill: "btn", radius: 6)
@@ -769,11 +782,13 @@ final class CursorMark: NSView {
 final class ScrollbackField: Box, NSTextFieldDelegate {
     let field: NSTextField
     var commit: ((String) -> Void)?
+    var edited: ((String) -> Void)?
+    var reverted: (() -> Void)?
     var bad = false { didSet { ring = bad ? "bad" : "sep" } }
     private let value: Int
-    init(_ n: Int) {
+    init(_ n: Int, typed: String? = nil) {
         value = n
-        field = NSTextField(string: ScrollbackField.fmt(n))
+        field = NSTextField(string: typed ?? ScrollbackField.fmt(n))
         super.init(fill: "input", ring: "sep", radius: 6)
         translatesAutoresizingMaskIntoConstraints = false
         field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
@@ -790,10 +805,11 @@ final class ScrollbackField: Box, NSTextFieldDelegate {
     }
     required init?(coder: NSCoder) { fatalError() }
     static func fmt(_ n: Int) -> String { let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US"); return f.string(from: n as NSNumber) ?? "\(n)" }
+    func controlTextDidChange(_ n: Notification) { edited?(field.stringValue) }
     func controlTextDidEndEditing(_ n: Notification) { commit?(field.stringValue) }
     func control(_ c: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
         if sel == #selector(NSResponder.insertNewline(_:)) { commit?(field.stringValue); return true }
-        if sel == #selector(NSResponder.cancelOperation(_:)) { field.stringValue = ScrollbackField.fmt(value); bad = false; return true }
+        if sel == #selector(NSResponder.cancelOperation(_:)) { field.stringValue = ScrollbackField.fmt(value); bad = false; reverted?(); return true }
         return false
     }
 }
