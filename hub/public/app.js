@@ -51,6 +51,7 @@ const ui = {
   snap: null,
   sel: null,
   selSession: {},  // projectId -> surfaceId
+  wantSession: null, // { pid, key }: a linked session, chosen once the project's sessions come
   drafts: {},      // projectId -> text
   files: {},       // projectId -> [{ name, path, short, pending }]
   sent: {},        // projectId -> { label, at, delivered }
@@ -196,6 +197,12 @@ function mainSession(p) { return (p.sessions || []).find((x) => x.surfaceId === 
 const handedMoved = new Set(); // surfaceIds whose hand-off already moved the choice
 function selectedSession(p) {
   if (!p) return null;
+  // A link to one of its sessions (an alert's #<project>/<session>): chosen once it is on the board.
+  const w = ui.wantSession;
+  if (w && w.pid === p.id) {
+    const x = p.sessions.find((s) => s.sessionId === w.key || s.surfaceId === w.key);
+    if (x) { ui.selSession[p.id] = x.surfaceId; ui.wantSession = null; }
+  }
   let want = ui.selSession[p.id];
   const cur = want && p.sessions.find((s) => s.surfaceId === want);
   if (cur && cur.handed && !handedMoved.has(cur.surfaceId)) {
@@ -4987,6 +4994,16 @@ function connect() {
 const q = new URLSearchParams(location.search);
 applyTheme(q.get('theme') || store.get('theme', 'dark'));
 paintBell();
+// #<project>/<session> (an alert about a session, server/alerts.mjs
+// sessionUrl): the project, with that session chosen by its Claude session
+// id or its tab. Split before decoding: a / in either is %2F.
+function sessionFromHash(raw) {
+  const i = raw.indexOf('/');
+  if (raw.startsWith('/') || i < 0) return null;
+  try { return { pid: decodeURIComponent(raw.slice(0, i)), key: decodeURIComponent(raw.slice(i + 1)) }; } catch { return null; }
+}
+const hs0 = sessionFromHash(location.hash.slice(1));
+if (hs0) { ui.wantSession = hs0; history.replaceState(null, '', '#' + encodeURIComponent(hs0.pid)); }
 const h0 = decodeURIComponent(location.hash.slice(1));
 ui.view = h0.startsWith('/') ? h0.slice(1) : (q.get('view') || (h0 ? 'projects' : store.get('view', 'projects')));
 // #/plan/<project>: the full plan of that project.
@@ -5009,6 +5026,8 @@ if (/(?:^|;\s*)mc_new=1/.test(document.cookie)) {
 
 // A typed or linked #/view or #project switches without a reload.
 window.addEventListener('hashchange', () => {
+  const hs = sessionFromHash(location.hash.slice(1));
+  if (hs) { ui.wantSession = hs; history.replaceState(null, '', '#' + encodeURIComponent(hs.pid)); if (ui.sel === hs.pid && ui.view === 'projects') { render(); return; } }
   const h = decodeURIComponent(location.hash.slice(1));
   if (h.startsWith('/')) setView(h.slice(1), { push: false });
   else if (h) { if (ui.view !== 'projects') { ui.sel = h; setView('projects', { push: false }); } else select(h); }

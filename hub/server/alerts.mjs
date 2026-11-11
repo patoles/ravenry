@@ -16,7 +16,8 @@
 // however soon after the last alert, and never twice. Gates neither wait
 // for the cooldown nor start it.
 // The alert says "<Project> needs you" and the kind, never the session's
-// text, and links to the project on the board over the Wi-Fi address.
+// text, and links to that session on the board over the Wi-Fi address
+// (sessionUrl).
 //
 // Sending never blocks the tick: observe() starts the send and returns. A
 // failed send is shown in the status and the log and tried once more after
@@ -342,6 +343,18 @@ export function kindOf(p) {
   return PERMISSION_WORDS.test([...(w.dialog || []), w.headline || ''].join('\n')) ? 'permission' : 'question';
 }
 
+// The board's address for an alert about a session: the phone page opens
+// the project with that session chosen (#<project>/<session>, public/app.js
+// sessionFromHash), by its Claude session id, which a move or a Continue
+// keeps, else its tab. A ravenry:// link would do nothing on a phone. No
+// session: the project; no project: the board.
+export function sessionUrl(boardUrl, p, s) {
+  if (!boardUrl) return null;
+  if (!p) return boardUrl;
+  const key = s && (s.sessionId || s.surfaceId);
+  return `${boardUrl}#${encodeURIComponent(p.id)}${key ? `/${encodeURIComponent(key)}` : ''}`;
+}
+
 export function isTestProject(p) {
   // A test board that proves alerts on its own mc-test workspace says so.
   if (env.MC_ALERT_ALLOW_TEST === '1') return false;
@@ -390,7 +403,7 @@ function makeTrigger({ on, start }) {
         seen.set(key, moment);
         cooled.set(p.id, now);
       }
-      const alert = { test: false, kind, projectId: p.id, project: p.name, title: `${p.name} needs you`, body: kindText(kind, p), url: boardUrl ? `${boardUrl}#${encodeURIComponent(p.id)}` : null };
+      const alert = { test: false, kind, projectId: p.id, project: p.name, title: `${p.name} needs you`, body: kindText(kind, p), url: sessionUrl(boardUrl, p, (p.sessions || []).find((x) => x.surfaceId === p.primary)) };
       out.push(alert);
       start(alert, p);
     }
@@ -460,10 +473,12 @@ export function checkpointAlert(cp, { project = null, machine = null, boardUrl =
   const who = project ? project.name : machine ? `An agent on ${machine}` : 'An agent';
   const kind = cp.kind === 'drive' ? DRIVE_ACTIONS[(cp.drive && cp.drive.action) || 'input'] || CHECKPOINT_KINDS.drive : CHECKPOINT_KINDS[cp.kind];
   const body = (kind || 'Waits for you') + (machine && project ? ` (on ${machine})` : '');
-  const alert = { test: false, kind: 'checkpoint', projectId: project ? project.id : null, project: project ? project.name : null, title: `${who} needs you`, body, url: boardUrl ? `${boardUrl}#checkpoint=${encodeURIComponent(cp.id)}` : null };
+  // The session that asks, when it is one of the project's (its pane's tab).
+  const s = project && cp.pane ? (project.sessions || []).find((x) => x.surfaceId === `ravenry:${cp.pane}`) || null : null;
+  const alert = { test: false, kind: 'checkpoint', projectId: project ? project.id : null, project: project ? project.name : null, title: `${who} needs you`, body, url: sessionUrl(boardUrl, project, s) };
   const d = load();
   if (d.enabled && ready(d, d.channel)) deliver(alert).catch((e) => console.error('alerts:', e.message));
-  if (d.desktop.enabled !== false) deliverDesktop({ kind: 'checkpoint', projectId: alert.projectId, title: alert.title, body: alert.body }).catch((e) => console.error('desktop:', e.message));
+  if (d.desktop.enabled !== false) deliverDesktop({ kind: 'checkpoint', projectId: alert.projectId, title: alert.title, body: alert.body, surfaceId: s ? s.surfaceId : null }).catch((e) => console.error('desktop:', e.message));
   try { push.fromCheckpoint(cp, { project, machine, paneName, askerName }); } catch (e) { console.error('push:', e.message); }
   return alert;
 }

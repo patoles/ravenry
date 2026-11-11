@@ -62,12 +62,15 @@ function runOsascript(alert) {
 }
 
 // Where a click should go: the workspace holding the session that needs
-// the user, with its tab, else the project's first open workspace.
+// the user, with its tab, else the project's first open workspace. The
+// session's tab goes too when it is in no cmux workspace (a Ravenry pane,
+// iTerm2, Rex), so the app's notification opens that session on a click;
+// cmux takes a surface only when it is one of its own (cmux.notify).
 export function targetFor(p) {
   const s = (p.sessions || []).find((x) => x.surfaceId === p.primary);
   if (s && s.workspaceId) return { workspaceId: s.workspaceId, surfaceId: s.surfaceId || null };
   const w = (p.workspaces || []).find((x) => x && x.open && x.id);
-  return { workspaceId: w ? w.id : null, surfaceId: null };
+  return { workspaceId: w ? w.id : null, surfaceId: (s && s.surfaceId) || null };
 }
 
 // The Ravenry app, when it runs, posts the notification itself (Electron's

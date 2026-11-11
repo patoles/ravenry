@@ -105,6 +105,13 @@ out = obs([tabProj('you')], 36);
 await settle(4, 0);
 const nu = notes().find((x) => x.title === 'U needs you');
 check('a session tab with a cmux surface id: --workspace and --surface both name it', nu && nu.workspace === 'ws-su' && nu.argv.includes('--surface') && nu.argv[nu.argv.indexOf('--surface') + 1] === TAB, JSON.stringify(nu && nu.argv));
+// A session in no cmux workspace (a Ravenry pane, iTerm2, Rex): its tab still goes, so the app's notification opens it on a click.
+{
+  const pane = { ...sess('sp', 'asked', { wsId: null }), surfaceId: 'ravenry:p7' };
+  const tf = desktop.targetFor({ ...proj('rp', 'you', pane), primary: 'ravenry:p7' });
+  const none = desktop.targetFor({ ...proj('rn', 'you', null), primary: null });
+  check('a session in a Ravenry pane: the notification names its tab (ravenry:p7), with the project\'s open workspace for cmux', tf.surfaceId === 'ravenry:p7' && tf.workspaceId === 'ws-rp' && none.surfaceId === null, JSON.stringify([tf, none]));
+}
 
 // Gates: each distinct gate once.
 const G = (n_, q) => ({ plan: { title: 'Long notes', started: '2026-11-03 09:00' }, planGate: { n: n_, question: q, short: q.toLowerCase(), choices: ['Go ahead', 'Not yet'] } });

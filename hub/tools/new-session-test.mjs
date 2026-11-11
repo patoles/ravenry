@@ -309,7 +309,27 @@ try {
     await pg.waitForFunction(() => /Paper Boat/.test(document.querySelector('#d-head').textContent));
     x = await box(pg);
     check('page: the switch is off on every project opened, never kept', k.checked === 'false' && x.checked === 'false' && !x.ring && x.send === 'Send', JSON.stringify({ kite: k.checked, boat: x.checked }));
+    // An alert about a session links #<project>/<session> (server/alerts.mjs sessionUrl): that session, chosen.
+    await pg.evaluate((id) => { location.hash = '#paper-boat/' + encodeURIComponent(id); }, S1);
+    await pg.waitForFunction((id) => (document.querySelector('#d-sessions .sess.sel') || {}).dataset?.surface === id, S1, { timeout: 5000 }).catch(() => {});
+    x = await box(pg);
+    const h1 = await pg.evaluate(() => location.hash);
+    check('page: a linked #<project>/<tab> chooses that session, and the address keeps #<project>', x.sel === S1 && h1 === '#paper-boat', JSON.stringify({ sel: x.sel, hash: h1 }));
     await ctx.close();
+    {
+      // At phone width, opened by the link (an alert tapped): the session by its Claude session id.
+      const { ctx: c3, pg: p3, errs: e3 } = await open({ width: 412, height: 915 }, 'dark', 'paper-boat/11111111-2222-4333-8444-555555555555');
+      await p3.waitForFunction((id) => (document.querySelector('#d-sessions .sess.sel') || {}).dataset?.surface === id, newId, { timeout: 5000 }).catch(() => {});
+      const y3 = await box(p3);
+      const head = await p3.evaluate(() => document.querySelector('#d-head').textContent);
+      await c3.close();
+      // Not the one it opens on anyway: #paper-boat alone opens on another.
+      const { ctx: c4, pg: p4 } = await open({ width: 412, height: 915 }, 'dark', 'paper-boat');
+      await sleep(800);
+      const plain = (await box(p4)).sel;
+      await c4.close();
+      check('page: opened by #<project>/<session id> on a phone, that project with that session chosen (not the one #<project> alone opens on)', y3.sel === newId && plain !== newId && /Paper Boat/.test(head) && !e3.length, JSON.stringify({ sel: y3.sel, newId, plain, errs: e3 }));
+    }
     const { ctx: c2, pg: p2 } = await open({ width: 1440, height: 900 }, 'dark');
     k = await box(p2);
     check('page: a reload starts with the switch off', k.checked === 'false', k.checked);

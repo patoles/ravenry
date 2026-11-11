@@ -181,7 +181,12 @@ n = reqs.length;
 let out = obs([proj('a', 'you', sess('sa', 'handback')), proj('b', 'work', sess('sb', 'working')), proj('t', 'work', sess('st', 'working'), { ws: 'mc-test-alerts' })], 0);
 check('no alert at start for a project already in Needs you', out.length === 0);
 out = obs([proj('a', 'you', sess('sa', 'handback')), proj('b', 'you', sess('sb', 'asked')), proj('t', 'you', sess('st', 'handback'), { ws: 'mc-test-alerts' })], 1);
-check('question: one alert, "<Project> needs you" + "Asked you a question", the project link', out.length === 1 && out[0].title === 'B needs you' && out[0].body === 'Asked you a question' && out[0].url === 'http://192.168.1.50:4600/#b', JSON.stringify(out));
+check('question: one alert, "<Project> needs you" + "Asked you a question", the link to its session', out.length === 1 && out[0].title === 'B needs you' && out[0].body === 'Asked you a question' && out[0].url === 'http://192.168.1.50:4600/#b/sb', JSON.stringify(out));
+// The phone page's link for an alert about a session (#<project>/<session>, public/app.js sessionFromHash).
+const BU = 'http://192.168.1.50:4600/';
+check('session link: the Claude session id, else its tab, encoded; no session: the project; no project: the board; no address: none',
+  al.sessionUrl(BU, { id: 'b' }, { sessionId: 'sb', surfaceId: 'sf-sb' }) === `${BU}#b/sb` && al.sessionUrl(BU, { id: 'p q' }, { surfaceId: 'ravenry:pane/2' }) === `${BU}#p%20q/ravenry%3Apane%2F2`
+  && al.sessionUrl(BU, { id: 'b' }, null) === `${BU}#b` && al.sessionUrl(BU, null, null) === BU && al.sessionUrl(null, { id: 'b' }, null) === null);
 check('no alert for the board\'s own test workspaces (mc-test-*)', !out.some((x) => x.projectId === 't'));
 await waitReqs(n, 1);
 check('the alert went out once, with no session text', sendsSince(n).length === 1 && !sendsSince(n)[0].body.includes(SECRET_TEXT) && sendsSince(n)[0].json.text === '<b>B needs you</b>\nAsked you a question', sendsSince(n).map((x) => x.body).join(' | '));
@@ -307,6 +312,15 @@ out = obs([gateP('po', 'you', G2)], 126);
 check('gate: a gate first seen while alerts were off is not alerted later', out.length === 0);
 out = obs([gateP('mc-test-gates', 'work', null)], 127).concat(obs([gateP('mc-test-gates', 'you', G4)], 128));
 check('gate: no alert for the board\'s own test workspaces', out.length === 0);
+// A checkpoint's alert opens the session that asks (its pane's tab in the project), else the project, else the board.
+n = reqs.length;
+const cpProj = { id: 'cpp', name: 'Cp', sessions: [{ surfaceId: 'ravenry:pq1', sessionId: 'c0ffee00-0000-4000-8000-000000000001' }] };
+const cpa = al.checkpointAlert({ id: 'cp-1', kind: 'ask' }, { project: cpProj, boardUrl: BU });
+const cpb = al.checkpointAlert({ id: 'cp-2', kind: 'ask', pane: 'pq1' }, { project: cpProj, boardUrl: BU });
+const cpc = al.checkpointAlert({ id: 'cp-3', kind: 'ask', pane: 'pq1' }, { machine: 'studio', boardUrl: BU });
+check('checkpoint: the link opens the session that asks, else its project, else the board (never #checkpoint=, which the phone page has no view for)',
+  cpb.url === `${BU}#cpp/c0ffee00-0000-4000-8000-000000000001` && cpa.url === `${BU}#cpp` && cpc.url === BU, JSON.stringify([cpa.url, cpb.url, cpc.url]));
+await waitReqs(n, 3);
 await sleep(100);
 
 // ------------------------------------------------------------ 3. the test board
@@ -425,7 +439,7 @@ try {
   await hook('beta', { hook_event_name: 'Stop', last_assistant_message: `${SECRET_TEXT} I can wire the installer now. Should I go ahead?` });
   let ok = await waitReqs(n, 1);
   q = sendsSince(n)[0];
-  check('board: a question sends "Beta Game needs you / Asked you a question" with the project link', ok && q && q.json.text === '<b>Beta Game needs you</b>\nAsked you a question' && q.json.reply_markup.inline_keyboard[0][0].url === 'http://192.168.1.50:4665/#beta', q && q.body);
+  check('board: a question sends "Beta Game needs you / Asked you a question" with the link to its session', ok && q && q.json.text === '<b>Beta Game needs you</b>\nAsked you a question' && q.json.reply_markup.inline_keyboard[0][0].url === `http://192.168.1.50:4665/#beta/${SID.beta}`, q && q.body);
   n = reqs.length;
   await hook('delta', { hook_event_name: 'Stop', last_assistant_message: `${SECRET_TEXT} The installer is in.` });
   ok = await waitReqs(n, 1);
