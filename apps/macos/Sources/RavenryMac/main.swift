@@ -265,7 +265,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EventLog.shared.open(offscreen: options.offscreen)
         signal(SIGTERM, SIG_IGN)
         let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        term.setEventHandler { [weak self] in self?.quitWhy = "a SIGTERM"; NSApp.terminate(nil) }
+        term.setEventHandler { [weak self] in
+            self?.quitWhy = "a SIGTERM"
+            // AppKit does not quit while a dialog with a choice is up (Check
+            // for Updates' Open the Releases Page or OK, as a sheet): the
+            // SIGTERM was dropped and the app ran on. It ends them first.
+            if NSApp.modalWindow != nil { NSApp.abortModal() }
+            for w in NSApp.windows { if let s = w.attachedSheet { w.endSheet(s, returnCode: .abort) } }
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
         term.resume()
         sigterm = term
         // Off every screen, nothing is opened outside the window: recorded (Outside.swift).

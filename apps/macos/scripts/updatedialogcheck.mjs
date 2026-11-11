@@ -21,6 +21,8 @@
 // nosource  a copy with no app-update.json (signed again with this Mac's
 //           identity) and no feed named: the dialog says the build does not
 //           say where its updates come from (UPD-010)
+// each      the app quits within 5 s of a SIGTERM, a dialog up or not
+//           (<name>_quits_on_sigterm); one that does not is killed
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import { track, removeTree } from '../../../tools/launchservices.mjs';
 import fs from 'node:fs';
@@ -61,6 +63,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const FEED = `http://127.0.0.1:${server.address().port}/latest-mac-native.json`;
 
 let n = 0;
+const apps = [];
 function launch(app, name, extra) {
   const root = path.join(tmp, name);
   const home = path.join(root, 'home');
@@ -70,6 +73,7 @@ function launch(app, name, extra) {
   const env = { HOME: home, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh', LANG: 'en_US.UTF-8', RAVENRY_SERVICE: 'off', RAVENRY_DESKTOP_DATA: path.join(root, 'data'),
     RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'state'), RAVENRY_HOME: path.join(home, '.ravenry'), RAVENRY_MAC_REPORT: report, ...extra };
   const p = spawn(path.join(app, 'Contents', 'MacOS', 'Ravenry'), ['--offscreen'], { env, stdio: ['ignore', 'ignore', fs.openSync(path.join(root, 'app.err'), 'w')] });
+  apps.push(p);
   let k = 0;
   return {
     p, at: Date.now(), home,
@@ -81,7 +85,17 @@ function launch(app, name, extra) {
       return r;
     },
     async dialog(title) { return until(10000, async () => { const s = await this.cmd('state'); return s.dialog && s.dialog.title === title ? s : null; }); },
-    async stop() { if (p.exitCode === null) { p.kill('SIGTERM'); await until(5000, () => p.exitCode !== null); } },
+    // A SIGTERM must end the app whatever dialog is up (main.swift); one that
+    // ran on was left behind by every run, so it is a check, then killed.
+    async stop() {
+      const gone = () => p.exitCode !== null || p.signalCode !== null;
+      if (gone()) return;
+      p.kill('SIGTERM');
+      const ok = await until(5000, gone);
+      const s = ok ? null : await this.cmd('state').catch(() => null);
+      check(`${name}_quits_on_sigterm`, ok, ok ? '' : `still running 5 s after a SIGTERM${s && s.dialog ? `, the dialog "${s.dialog.title}" up` : ''}`);
+      if (!ok) { p.kill('SIGKILL'); await until(3000, gone); }
+    },
   };
 }
 const shot = async (a, file) => { const r = await a.cmd(`shot ${path.join(OUT, file)}`); return r.ok; };
@@ -153,6 +167,8 @@ try {
   }
 } finally {
   server.close();
+  // None of the check's apps outlives it, whatever failed on the way.
+  for (const p of apps) if (p.exitCode === null && p.signalCode === null) p.kill('SIGKILL');
   fs.writeFileSync(path.join(OUT, 'updatedialogcheck.json'), JSON.stringify({ app: TWIN, version: VERSION, at: new Date().toISOString(), results }, null, 2));
   for (const d of ['adhoc', 'nosource']) removeTree(path.join(tmp, d));
 }
