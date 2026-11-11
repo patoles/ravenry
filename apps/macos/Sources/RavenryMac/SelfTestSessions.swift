@@ -250,24 +250,23 @@ extension SelfTestBoard {
             repatch(nil)
         }
         // MARK: a session in no project: Add to a project (A15)
-        // The board's next state brings notes-app's session back (the patch above emptied it).
-        _ = wait(10) { self.keyOf("notes-app") != nil }
-        if keyOf("notes-app") == nil { check("sess_not_in_project_card", false, "notes-app has no session in the state") }
-        if let kn = keyOf("notes-app") {
-            repatch { st in
-                var st = st
-                var ps = st["projects"] as? [[String: Any]] ?? []
-                for i in ps.indices where ps[i]["id"] as? String == "notes-app" { ps[i]["unowned"] = true }
-                st["projects"] = ps
-                return st
-            }
-            board.pickSession(kn, why: "test")
+        // A real one (the driver's): a cmux workspace in a folder no project holds, a session at work in it.
+        let un = ask(["do": "unowned"])
+        let uid = un?["project"] as? String ?? "", usf = un?["surface"] as? String ?? ""
+        let ku = "\(uid)/\(usf)"
+        if !wait(30, { hub.state?.project(uid)?.raw["unowned"] as? Bool == true && hub.state?.find(ku) != nil }) { check("sess_not_in_project_card", false, "no session in a workspace of no project: \(SelfTestBoard.lastAnswer)") }
+        else {
+            board.pickSession(ku, why: "test")
             settle(0.4)
             check("sess_not_in_project_card", board.panel.buttons["addToProject"]?.isEnabled == true && shows(board.panel, "Not in a project"), texts(board.panel).prefix(12).joined(separator: " | "))
             let s3 = hub.sentBodies.count
-            if let from = hub.state?.project("notes-app"), let to = hub.state?.project("lighthouse") { board.panel.addToProject(from, to) }
-            check("sess_add_to_project_posts", wait(4) { hub.sentBodies.dropFirst(s3).contains { $0.path == "/api/project/add-workspace" && $0.body["from"] as? String == "notes-app" && $0.body["projectId"] as? String == "lighthouse" } })
-            repatch(nil)
+            if let from = hub.state?.project(uid), let to = hub.state?.project("lighthouse") { board.panel.addToProject(from, to) }
+            check("sess_add_to_project_posts", wait(4) { hub.sentBodies.dropFirst(s3).contains { $0.path == "/api/project/add-workspace" && $0.body["from"] as? String == uid && $0.body["projectId"] as? String == "lighthouse" } })
+            check("sess_add_to_project_lands", wait(15) { hub.state?.project("lighthouse")?.sessions.contains { $0.surfaceId == usf } == true && hub.state?.project(uid) == nil },
+                  "lighthouse: \(hub.state?.project("lighthouse")?.sessions.map(\.surfaceId) ?? [])")
+            // It ends there (its process and its SessionEnd): lighthouse has no session at work again.
+            _ = ask(["do": "end", "sid": un?["sid"] as? String ?? ""])
+            _ = wait(15) { hub.state?.project("lighthouse")?.sessions.contains { $0.surfaceId == usf && !$0.handed } != true }
         }
 
         // MARK: the sidebar: the lease line (A4), the access note (A5), a row by the keyboard (A7), New session lit (A8)
@@ -342,10 +341,10 @@ extension SelfTestBoard {
         check("sess_closed_gone_others_kept", gone, (hub.state?.sessionProcs ?? []).map { "\($0.label):\($0.group)" }.joined(separator: ", "))
         check("sess_page_says_closed", wait(4) { self.shows(sp, "Closed 2 sessions") && !self.shows(sp, "Closing...") && sp.buttons["reopen:\(ww)"] != nil }, texts(sp).prefix(12).joined(separator: " | "))
         pictures("sessions-closed")
-        let s1 = hub.sentBodies.count
+        // The toast's place in the log before the press (the *_posts check waits for the answer, which says it).
+        let s1 = hub.sentBodies.count, n3 = board.log.count
         sp.buttons["reopen:\(ww)"]?.performClick(nil)
         check("sess_reopen_posts", wait(5) { hub.sentBodies.dropFirst(s1).contains { $0.path == "/api/sessions/reopen" && $0.body["id"] as? String == ww } })
-        let n3 = board.log.count
         check("sess_reopen_done", wait(20) { !sp.reopening.contains(ww) && self.toasts(since: n3).contains { $0.hasPrefix("Reopened") } }
               && wait(20) { !((hub.state?.sessionsView?["closed"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == ww }) },
               toasts(since: n3).joined(separator: " | "))

@@ -516,6 +516,33 @@ async function doRequests() {
   let ans = { ok: true };
   // "arrive": a question arrives on the first of these projects whose session still reports (the screen closed some).
   if (req.do === 'arrive') for (const id of req.projects || []) { try { await hub.arrive(id, req.question); ans.project = id; break; } catch (e) { (ans.errors ||= []).push(`${id}: ${e.message}`); } }
+  // "unowned": a session at work in a cmux workspace whose folder no project holds (Not in a project, Add to a project);
+  // "end": that session ends (its process gone, its SessionEnd), its tab closed.
+  const UW = '3A000000-0000-4000-8000-0000000000B1', US = '5F000000-0000-4000-8000-0000000000B1', USID = 'f6f6f6f6-0000-4000-8000-000000000006';
+  const evOf = (sid) => path.join(hub.home, '.ravenry', 'events', `${sid}.jsonl`);
+  if (req.do === 'unowned') {
+    const folder = path.join(hub.home, 'Scratch', 'tide-notes');
+    fs.mkdirSync(folder, { recursive: true });
+    const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8'));
+    f.workspaces.push({ id: UW, ref: 'workspace:9', title: 'tide-notes', cwd: folder, surfaces: [{ id: US, ref: 'surface:9', title: '✳ Sort the tide notes' }] });
+    f.screens[US] = 'Claude Code\n\n> Sort the tide notes by harbour\n\n  Working...\n';
+    fs.writeFileSync(hub.fake, JSON.stringify(f));
+    const s = spawn('/bin/sleep', ['900'], { stdio: 'ignore' });
+    sleeps.push(s); ours.add(s.pid);
+    const ps = JSON.parse(fs.readFileSync(hub.ps, 'utf8'));
+    ps.push({ pid: s.pid, ppid: 1, rssKb: 300000, startedAt: new Date().toISOString(), command: `claude --resume ${USID}`, cwd: folder, env: `TERM_PROGRAM=ghostty CMUX_WORKSPACE_ID=${UW} CMUX_SURFACE_ID=${US}` });
+    fs.writeFileSync(hub.ps, JSON.stringify(ps));
+    const ev = (event, extra = {}) => JSON.stringify({ at: new Date().toISOString(), event, session_id: USID, cwd: folder, workspace_id: UW, surface_id: US, terminal: 'cmux', claude_pid: s.pid, ...extra });
+    fs.writeFileSync(evOf(USID), [ev('SessionStart', { source: 'startup', model: 'claude-opus-5-5' }), ev('UserPromptSubmit', { prompt: 'Sort the tide notes by harbour' })].join('\n') + '\n');
+    Object.assign(ans, { project: `ws:${UW}`, surface: US, sid: USID, pid: s.pid });
+  }
+  if (req.do === 'end') {
+    for (const s of sleeps) if (s.pid && JSON.parse(fs.readFileSync(hub.ps, 'utf8')).some((p) => p.pid === s.pid && p.cwd.endsWith('tide-notes'))) { try { s.kill(); } catch { /* gone */ } }
+    fs.appendFileSync(evOf(req.sid), JSON.stringify({ at: new Date().toISOString(), event: 'SessionEnd', session_id: req.sid, reason: 'prompt_input_exit', terminal: 'cmux', workspace_id: UW, surface_id: US }) + '\n');
+    const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8'));
+    f.workspaces = f.workspaces.filter((w) => w.id !== UW);
+    fs.writeFileSync(hub.fake, JSON.stringify(f));
+  }
   if (req.do === 'read') ans.text = (() => { try { return fs.readFileSync(hub.fake + '.focus.log', 'utf8'); } catch { return ''; } })();
   if (req.do === 'cmux') {
     const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
