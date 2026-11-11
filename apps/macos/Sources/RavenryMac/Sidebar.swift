@@ -338,12 +338,12 @@ final class SidebarView: Flipped {
                 if s.group == "you", !hintShown, Hints.shared.wants("needs-you") {
                     hintShown = true
                     let h = hintView("needs-you", bold: t("hint.needsYouB"), text: t("hint.needsYou"), width: bounds.width - 28) { [weak self] k in self?.onLearn?(k) }
+                    needsYouHint = h
                     items.append(vstack([h], insets: NSEdgeInsets(top: 4, left: 6, bottom: 6, right: 6)))
                 }
             }
         }
         let st = vstack(items, spacing: 1)
-                    needsYouHint = h
         return boxed(st, fill: "\(s.group)-t", radius: 10, insets: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4))
     }
 
