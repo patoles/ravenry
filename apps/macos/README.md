@@ -381,8 +381,11 @@ Windows. What it takes over, and how:
   three (`<data>/update.json`), and a minute later the version folders
   nothing runs from are removed, their hook scripts left as stubs. Beside
   an npm board it installs nothing, and finishes a switch whose traces are
-  left, as the Electron app does; the switch's screen itself is the
-  Electron app's only.
+  left, as the Electron app does. The switch itself (ONB-008,
+  `NpmSwitch.swift`): the offer in Start's place, its steps, the quiet bar
+  after Not now, Start's pointer while the npm board keeps the data, and
+  Go Back to the npm Board... in the Ravenry menu, run by `setup.ts`
+  npm-detect, npm-choice, npm-switch and npm-back.
 - **One copy of that logic.** All of the above is the Electron app's own
   code (install.ts, npmswitch.ts), run on the app's Node:
   `install/setup.ts`, bundled by esbuild into `Resources/setup.mjs`, run
@@ -477,8 +480,21 @@ Windows. What it takes over, and how:
   that stays never passes them to what it starts.
 - **Updates.** The local path: a newer Ravenry.app put in place of this
   one copies its version out at its next launch, rewrites the service and
-  starts its daemon beside the old one; nothing running stops. Downloads
-  from the releases (UPD-002) are the Electron app's only for now.
+  starts its daemon beside the old one; nothing running stops. The
+  updater (UPD-002, `Updater.swift`) does the same from the releases:
+  Check for Updates... in the Ravenry menu, a check 15 s after launch and
+  every 4 hours, latest-mac-native.json (written by `package.mjs` beside
+  the zip) on the repository's latest release, the zip's SHA-256,
+  `codesign --verify --deep --strict` and this app's Team ID checked, the
+  new bundle swapped in once the app has quit, and Restart to Update
+  starting it again through LaunchServices with the clean environment.
+  A build signed ad hoc never updates itself. Nothing is published yet:
+  `gh release upload v<version> build/package/RavenryNative-<version>.zip
+  build/package/latest-mac-native.json` on a published release does it;
+  while the repository is private the check needs RAVENRY_UPDATE_TOKEN,
+  as the Electron app's does. `scripts/updatecheck.mjs APP` checks it on a
+  local feed, `scripts/npmswitchcheck.mjs APP` the switch on the npm
+  board 0.4.0.
 
 A development build (`scripts/build.sh`: RavenryMac.app, no build.json,
 no Node) does none of this: it finds a running daemon and starts none.
@@ -772,10 +788,10 @@ every screen (the bench, the self-test) writes only to
 - `build.sh` signs ad hoc for local runs; `package.mjs` signs with this
   Mac's Apple Development identity, for Apple silicon only, not notarized
   (SIGN-004), and makes no dmg.
-- Taking over from the Electron app: no update from the releases
-  (UPD-002) and no Check for Updates; a failed update is only in app.log
-  (UPD-003 has no Try again); no screen for the npm board's switch (the
-  app installs no hub beside an npm board, and says so in app.log); the
+- Taking over from the Electron app: no native build is on the releases
+  yet, so the updater finds nothing until one is published (and the
+  repository is private: RAVENRY_UPDATE_TOKEN); the swap into
+  /Applications is checked on a copy in a throwaway folder only; the
   panes of a daemon without the render stream (before 0.1.23) are read
   only in the window; opened from inside a
   pane, the app drops the pane's variables but does not relaunch itself

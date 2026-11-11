@@ -405,7 +405,8 @@ final class Updater: NSObject, NSMenuItemValidation {
     /// removes the old one and, for a restart, opens the app again.
     static func helperArgs(pid: Int32, app: String, new: String, old: String, log: String, version: String, relaunch: Bool, background: Bool) -> [String] {
         let script = [
-            "say() { echo \"$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) update: $1\" >> \"$5\"; }",
+            "log=$5",
+            "say() { echo \"$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ) update: $1\" >> \"$log\"; }",
             "i=0",
             "while [ \"$i\" -lt 600 ]; do",
             "  s=$(/bin/ps -o stat= -p \"$1\" 2>/dev/null) || break",

@@ -348,16 +348,19 @@ extension StartView {
         }
         let hubDone = got["hub"]?["done"] as? Bool == true
         want.append(("hub", t(hubDone ? "npm.stepHubDone" : "npm.stepHub", ["port": port]), nil))
+        // Steps run in order: one with a later step done is done too (a board
+        // started at login stops with its login start, and says no step of its own).
+        let lastDone = want.lastIndex { $0.id != "hub" && got[$0.id] != nil } ?? -1
         var next = true
-        return want.map { w in
-            let s = got[w.id]
-            let done = s != nil && (w.id != "hub" || hubDone)
+        return want.enumerated().map { i, w in
+            let s = got[w.id] ?? [:]
+            let done = w.id == "hub" ? hubDone : (got[w.id] != nil || i < lastDone)
             var kind = done ? "ok" : "", icon: String? = done ? "check" : nil
             if !done && next {
                 next = false
                 if n.phase == .error { kind = "bad"; icon = "close" } else if n.phase == .switching { kind = "run" }
             }
-            return npmRow(icon, kind, w.title, done ? w.sub?(s!) : nil)
+            return npmRow(icon, kind, w.title, done ? w.sub?(s) : nil)
         }
     }
 

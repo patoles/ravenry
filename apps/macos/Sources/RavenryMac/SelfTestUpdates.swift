@@ -106,6 +106,15 @@ extension SelfTestBoard {
         check("update_helper_args", Updater.helperArgs(pid: 42, app: "/A/Ravenry.app", new: "/C/new/Ravenry.app", old: "/C/previous.app", log: "/L/app.log", version: "0.1.29", relaunch: true, background: false).suffix(7)
               == ["42", "/A/Ravenry.app", "/C/new/Ravenry.app", "/C/previous.app", "/L/app.log", "0.1.29", "1"])
 
+        // The hub's update that stopped after 3 tries (setup.ts hub: stopped): said until pressed, with Try again (UPD-003).
+        board.toTerminal()
+        AppInstall.shared.hubAnswered(["ok": false, "plan": "hub", "stopped": true, "version": "0.1.29", "why": "the new hub did not answer"])
+        settle(0.3)
+        check("update_stopped_toast", board.toastTexts.contains("The update to 0.1.29 did not start after 3 tries (the new hub did not answer), so Ravenry keeps the hub that runs now.")
+              && board.toastButtons.contains { $0.title == "Try again" }, board.toastTexts.joined(separator: " | "))
+        pictures("update-stopped")
+        board.toastStack.clear()
+
         screenNpm(menu)
     }
 
@@ -120,11 +129,10 @@ extension SelfTestBoard {
             switch args.first {
             case "npm-switch":
                 at(0.2) { line("@step {\"id\":\"login\"}") }
-                at(0.4) { line("@step {\"id\":\"stopped\"}") }
                 at(0.6) { line("@step {\"id\":\"backup\",\"dir\":\"backups/switch-2026-11-11\",\"files\":214}") }
                 at(0.8) { line("@step {\"id\":\"hooks\"}") }
                 at(1.0) { line("@step {\"id\":\"hub\",\"port\":4600,\"done\":false}") }
-                at(3.0) {
+                at(8.0) {
                     line("@step {\"id\":\"hub\",\"port\":4600,\"done\":true}")
                     done(["ok": true, "phase": "switched", "counts": ["projects": 5, "sessions": 9, "ideas": 12, "plans": 2, "rules": 7],
                           "detect": SelfTestBoard.npmDetect(running: false, record: "switched"), "offer": "none"])
@@ -179,7 +187,7 @@ extension SelfTestBoard {
         _ = wait(2) { n.steps.contains { $0["id"] as? String == "hub" } }
         settle(0.2)
         pictures("npm-steps")
-        check("npm_switched", wait(6) { n.phase == .switched } && shows(st, "Everything is here") && shows(st, "plans running") && shows(st, "12"), texts(st).prefix(14).joined(separator: " | "))
+        check("npm_switched", wait(12) { n.phase == .switched } && shows(st, "Everything is here") && shows(st, "plans running") && shows(st, "12"), texts(st).prefix(14).joined(separator: " | "))
         check("npm_bar_gone", board.root.notice == nil)
         pictures("npm-done")
         check("npm_menu_back_shown", menu.items.first { $0.title == "Go Back to the npm Board\u{2026}" }?.isHidden == false)
