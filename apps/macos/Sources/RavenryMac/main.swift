@@ -208,7 +208,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let found: Connection? = try? open((live.filter { !$0.draining } + live.filter { $0.draining }).map(\.socket))
         guard let own else {
             if let found { return found }
-            return try open(daemonSockets())
+            do { return try open(daemonSockets()) } catch {
+                // None runs and none can start: the alert says why (WIN-007), not only that none runs.
+                if let e = inst.stageError, inst.active(offscreen: options.offscreen) { throw ConnectionError.connect("no daemon is running, and this app's ravenryd could not be copied out of it: \(e)") }
+                if !FileManager.default.isExecutableFile(atPath: lister) { throw ConnectionError.connect("no daemon is running, and this app's ravenryd cannot be run: \(lister)") }
+                throw error
+            }
         }
         if let f = found, compareVersions(own.version, f.daemonVersion) <= 0 {
             inst.log("daemon: using \(f.daemonVersion) at \(f.socketPath)")

@@ -37,6 +37,8 @@ final class AppInstall {
     let mode: String
     /// This version's ravenryd, once staged.
     private(set) var staged: (ravenryd: String, version: String)?
+    /// Why ravenryd could not be copied out of the app (the launch's alert names it, WIN-007).
+    private(set) var stageError: String?
 
     static let testLabel = try! NSRegularExpression(pattern: "^dev\\.ravenry\\.hub\\.test-[a-z0-9]{4,32}$")
     static let controlVars: Set<String> = ["RAVENRY_DRIVER", "RAVENRY_DRIVE", "RAVENRY_DRIVE_LOG", "RAVENRYD", "RAVENRY_LAUNCHCTL", "RAVENRY_NEW_SHELL",
@@ -180,6 +182,7 @@ final class AppInstall {
         if r["ok"] as? Bool == true, let bin = r["ravenryd"] as? String, let v = r["version"] as? String {
             staged = (bin, v)
         } else {
+            stageError = "\(r["error"] ?? "the setup did not say why")"
             log("install: could not copy ravenryd and the hub out of the app: \(r["error"] ?? "")")
         }
     }
