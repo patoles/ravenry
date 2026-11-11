@@ -39,7 +39,10 @@
 //                              state folders: checks off every screen too,
 //                              a second after launch, and once the update
 //                              is ready restarts to it (restart) or quits
-//                              (quit: installed on quit, not started again)
+//                              (quit: installed on quit, not started again);
+//                              launch: off every screen too, at the real
+//                              times (15 s, then every 4 hours), nothing else
+//                              (scripts/updatedialogcheck.mjs)
 
 import AppKit
 import CryptoKit
@@ -92,7 +95,7 @@ final class Updater: NSObject, NSMenuItemValidation {
         current = b.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? AppInstall.shared.version ?? "0"
         let e = ProcessInfo.processInfo.environment
         let folders = !(e["RAVENRY_DESKTOP_DATA"] ?? "").isEmpty && !(e["RAVENRY_RUNTIME_DIR"] ?? "").isEmpty && !(e["RAVENRY_STATE_DIR"] ?? "").isEmpty
-        test = folders ? ["restart", "quit", "check"].first { $0 == e["RAVENRY_UPDATE_TEST"] } : nil
+        test = folders ? ["restart", "quit", "check", "launch"].first { $0 == e["RAVENRY_UPDATE_TEST"] } : nil
         super.init()
     }
 
@@ -146,7 +149,7 @@ final class Updater: NSObject, NSMenuItemValidation {
         self.offscreen = offscreen
         guard !started, env["RAVENRY_UPDATES"] != "0", whyNot() == nil, !offscreen || test != nil else { return }
         started = true
-        let first: TimeInterval = test != nil ? 1 : 15
+        let first: TimeInterval = test != nil && test != "launch" ? 1 : 15
         timer = Timer.scheduledTimer(withTimeInterval: first, repeats: false) { [weak self] _ in
             self?.check { _ in }
             self?.timer = Timer.scheduledTimer(withTimeInterval: 4 * 3600, repeats: true) { [weak self] _ in self?.check { _ in } }

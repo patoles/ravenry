@@ -544,6 +544,44 @@ Windows. What it takes over, and how:
   local feed, `scripts/npmswitchcheck.mjs APP` the switch on the npm
   board 0.4.0.
 
+- **One Ravenry per data folder** (`SingleInstance.swift`, as the Electron
+  app's requestSingleInstanceLock): a second start finds `<data>/app.lock`
+  held, asks the first to come to the front (a distributed notification)
+  and quits, with a line in app.log.
+- **Sleep and wake** (A11Y-012, `Wake.swift`): at a wake the hub's stream is
+  opened again at once (a full state), the runtime folder is read for
+  daemons, and each pane on show opens its render stream again. A drop of
+  the hub after it answered is read again every 250 ms for 15 s from the
+  drop, and board.json's port is read at each reconnect (HUB-010, HUB-012).
+- **The ravenry command** (`MachineMenu.swift`, `setup.ts command`): on a Mac
+  with the npm board, `ravenry` in a terminal is its launcher, which knows
+  none of the agents' commands. Install the ravenry Command... in the
+  Ravenry menu (offered by a toast at launch when another `ravenry`
+  answers) links ~/.local/bin/ravenry to `<data>/bin/ravenry` and, only when
+  that folder is not first on the login shell's PATH, adds two marked lines
+  at the end of ~/.zshrc (backed up); Remove takes out exactly that. The
+  app's `ravenry` hands the npm board's own commands (start, setup, doctor,
+  uninstall, phone) to the next `ravenry` on the PATH (ravenryd
+  boardwords.go).
+- **Uninstall Ravenry...** (HUB-016, `setup.ts uninstall`): the hooks and the
+  skill put back as they were for Claude Code and Codex (else only Ravenry's
+  entries out, backed up), the hub service stopped and removed, the ravenry
+  command, bin/, current and versions/, and the data when its box is
+  ticked; it says what it did and quits, the app shown in Finder.
+- **Release signing** (SIGN-004, `package.mjs`): RAVENRY_SIGN_IDENTITY (a
+  Developer ID Application identity) in place of the Apple Development one,
+  with a secure timestamp; RAVENRY_NOTARY_PROFILE, or APPLE_API_KEY,
+  APPLE_API_KEY_ID and APPLE_API_ISSUER, notarize and staple the app and the
+  dmg; RAVENRY_NOTARY_DRY=1 prints those commands.
+
+The checks of these, each on a package's twin off every screen in throwaway
+HOMEs: `scripts/hubfollowcheck.mjs` (the hub across a restart, another port,
+a wake; a second start), `scripts/setupmenucheck.mjs` (the command and
+Uninstall, the prune after launch, a quit 1 s after a first launch),
+`scripts/updatedialogcheck.mjs` (the update dialogs and times),
+`scripts/prunecheck.mjs` (the version folders), `scripts/gatecheck.mjs`
+(what a release takes from its launch, on the release and its twin).
+
 A development build (`scripts/build.sh`: RavenryMac.app, no build.json,
 no Node) does none of this: it finds a running daemon and starts none.
 

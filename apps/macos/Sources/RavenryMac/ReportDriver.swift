@@ -2,7 +2,7 @@
 // command file (<RAVENRY_MAC_REPORT>.do, main.swift report): one line, run
 // on the main thread, its answer appended to <report>.done as a JSON line.
 //
-//   wake                 as NSWorkspace.didWakeNotification (Wake.swift)
+//   wake                 NSWorkspace.didWakeNotification posted, as macOS does after a sleep (Wake.swift)
 //   menu TITLE           the app menu's item of that title, pressed as a click does (NSMenu performActionForItem)
 //   press TITLE          the button of that title on the dialog in front, pressed through Accessibility
 //   box on|off           the dialog's checkbox, clicked to that state
@@ -20,7 +20,10 @@ extension AppDelegate {
         var ans: [String: Any] = ["cmd": line]
         let dialog = Updater.shared.shown.last { $0.window.isVisible }
         switch cmd {
-        case "wake": woke(); ans["ok"] = true
+        case "wake":
+            // As macOS says it after a sleep, through the observer Wake.swift set.
+            NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: NSWorkspace.shared)
+            ans["ok"] = true
         case "menu":
             let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
             if let i = items.firstIndex(where: { $0.title == arg }), let m = NSApp.mainMenu?.items.first?.submenu {
@@ -60,6 +63,7 @@ extension AppDelegate {
         }
         ans["menu"] = NSApp.mainMenu?.items.first?.submenu?.items.map(\.title) ?? []
         ans["toasts"] = board?.toastTexts ?? []
+        ans["outside"] = Outside.record ?? []
         if let d = try? JSONSerialization.data(withJSONObject: ans), let h = FileHandle(forWritingAtPath: report + ".done") ?? {
             FileManager.default.createFile(atPath: report + ".done", contents: nil); return FileHandle(forWritingAtPath: report + ".done") }() {
             h.seekToEndOfFile(); h.write(d); h.write(Data("\n".utf8)); try? h.close()

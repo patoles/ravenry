@@ -53,6 +53,7 @@ const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return 
 const json = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 const exists = (f) => { try { fs.lstatSync(f); return true; } catch { return false; } };
 const results = [];
+const holders = [];
 const check = (name, ok, detail = '') => { results.push({ name, ok: !!ok, detail }); console.log(`${ok ? 'pass' : 'FAIL'} ${name}${detail ? `: ${String(detail).slice(0, 400)}` : ''}`); };
 async function until(ms, f) { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; }
 
@@ -79,10 +80,17 @@ async function makeHome(name, zshrc) {
   const env = {
     ...testEnv(home, port, { RAVENRY_LAUNCHCTL: path.join(REPO, 'apps', 'desktop', 'tools', 'fake-launchctl.mjs'), RAVENRY_FAKE_LAUNCHD: launchd }),
     SHELL: '/bin/zsh', RAVENRY_HUB_BIND: '127.0.0.1', RAVENRY_HUB_URL: `http://127.0.0.1:${port}`, MC_PHONE_LAN: 'none', RAVENRY_SERVICE: 'install', RAVENRY_SERVICE_LABEL: label,
-    RAVENRY_DESKTOP_DATA: path.join(root, 'data'), RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'state'), RAVENRY_TEST_SINGLE: '1',
+    RAVENRY_DESKTOP_DATA: path.join(root, 'data'), RAVENRY_RUNTIME_DIR: path.join(root, 'run'), RAVENRY_STATE_DIR: path.join(root, 'state'), RAVENRY_TEST_SINGLE: '1', RAVENRY_PRUNE_AFTER: '3',
   };
   fs.mkdirSync(env.RAVENRY_RUNTIME_DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(launchd, 'env.json'), JSON.stringify(env));
+  // Two old version folders: one nothing names, one a running process names (UPD-013).
+  for (const v of ['0.1.25', '0.1.22']) {
+    fs.mkdirSync(path.join(env.RAVENRY_DESKTOP_DATA, 'versions', v, 'hub', 'hooks'), { recursive: true });
+    fs.writeFileSync(path.join(env.RAVENRY_DESKTOP_DATA, 'versions', v, 'hub', 'hooks', 'events.mjs'), '// the hook\n');
+    fs.writeFileSync(path.join(env.RAVENRY_DESKTOP_DATA, 'versions', v, 'ravenryd'), 'binary\n');
+  }
+  holders.push(spawn('/bin/sh', ['-c', 'sleep 300; :', path.join(env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.22', 'ravenryd')], { stdio: 'ignore' }));
   const before = { settings: read(path.join(home, '.claude', 'settings.json')), config: read(path.join(home, '.codex', 'config.toml')), zshrc: read(path.join(home, '.zshrc')) };
   return { root, home, env, port, label, launchd, before, url: `http://127.0.0.1:${port}` };
 }
@@ -125,10 +133,23 @@ async function runCase(name, zshrc, purge) {
     const codexSkill = read(path.join(h.home, '.codex', 'skills', 'ravenry', 'SKILL.md'));
     check(`${name}_set_up_like_settings`, hk.code === 200 && sk1.code === 200 && sk2.code === 200 && set.includes('bin/ravenryd') && !!codexSkill && exists(path.join(h.home, '.codex', 'hooks.json')),
       `hooks ${hk.code}, skills ${sk1.code} ${sk2.code}`);
-    // The Codex skill's command runs and prints the guide.
-    const skillCmd = (/^Run `"([^"`]+)" skill`/m.exec(codexSkill || '') || [])[1];
-    const guide = skillCmd ? spawnSync(skillCmd, ['skill'], { env: { HOME: h.home, PATH: '/usr/bin:/bin' }, encoding: 'utf8' }) : null;
-    check(`${name}_codex_skill_runs`, guide && guide.status === 0 && /ravenry new/.test(guide.stdout), skillCmd ? `${skillCmd} skill: exit ${guide.status}, ${guide.stdout.split('\n')[0]}` : 'no command in the SKILL.md');
+    // Each skill's command (Claude Code's and Codex's SKILL.md) runs and prints the guide.
+    for (const [who, f] of [['claude', path.join(h.home, '.claude', 'skills', 'ravenry', 'SKILL.md')], ['codex', path.join(h.home, '.codex', 'skills', 'ravenry', 'SKILL.md')]]) {
+      const skillCmd = (/^Run `"([^"`]+)" skill`/m.exec(read(f) || '') || [])[1];
+      const guide = skillCmd ? spawnSync(skillCmd, ['skill'], { env: { HOME: h.home, PATH: '/usr/bin:/bin' }, encoding: 'utf8' }) : null;
+      check(`${name}_${who}_skill_runs`, guide && guide.status === 0 && /ravenry new/.test(guide.stdout) && skillCmd === bin, skillCmd ? `${skillCmd} skill: exit ${guide.status}, ${guide.stdout.split('\n')[0]}` : 'no command in the SKILL.md');
+    }
+    // Codex itself lists the skill it finds in its home (codex debug prompt-input: no model call), when Codex is on this Mac.
+    const codexBin = spawnSync('/bin/sh', ['-c', 'command -v codex'], { env: { PATH: process.env.PATH }, encoding: 'utf8' }).stdout.trim();
+    if (codexBin) {
+      const pi = spawnSync(codexBin, ['debug', 'prompt-input', 'hi'], { env: { HOME: h.home, CODEX_HOME: path.join(h.home, '.codex'), PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 });
+      const line = ((pi.stdout || '').match(/- ravenry: [^\\]*\(file: [^)]*ravenry\/SKILL\.md\)/) || [])[0];
+      check(`${name}_codex_lists_skill`, !!line, line || `codex debug prompt-input: exit ${pi.status}`);
+    }
+    // The prune a few seconds after the service is set up (RAVENRY_PRUNE_AFTER=3 for the minute): the folder nothing names goes, the one a process names stays.
+    const pruned = await until(15000, () => exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.25', 'REMOVED')));
+    check(`${name}_prune_after_launch`, pruned && exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.22', 'ravenryd')) && /install: removed versions nothing runs from: 0\.1\.25/.test(appLog(h)),
+      `0.1.25 left as hook stubs: ${!!pruned}; 0.1.22 (a process names it) whole: ${exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.22', 'ravenryd'))}`);
 
     // The launch's offer, when another ravenry answers in a terminal.
     const offered = await until(15000, async () => { const r = await a.cmd('state'); return (r.toasts || []).find((x) => x.includes('ravenry in your terminals runs')) || null; });
@@ -182,7 +203,7 @@ async function runCase(name, zshrc, purge) {
     check(`${name}_uninstall_service_gone`, bootout && !exists(plist) && boardGone, `bootout called: ${bootout}; plist there: ${exists(plist)}; the board stopped: ${!!boardGone}`);
     check(`${name}_uninstall_program_gone`, ['bin', 'current', 'versions'].every((n) => !exists(path.join(data, n))), fs.existsSync(data) ? fs.readdirSync(data).join(',') : '(data gone)');
     check(`${name}_uninstall_data_${purge ? 'deleted' : 'kept'}`, purge ? !exists(mc) && !exists(data) : exists(mc) && exists(data), `~/.ravenry there: ${exists(mc)}; data there: ${exists(data)}`);
-    check(`${name}_uninstall_logged`, /uninstall: asked from the Ravenry menu/.test(appLog(h)) && /uninstall: .*hub service stopped/.test(appLog(h)), (appLog(h).match(/uninstall: .*/g) || []).join(' / ').slice(0, 300));
+    check(`${name}_uninstall_logged`, /uninstall: asked from the Ravenry menu/.test(appLog(h)) && /uninstall: .*background service stopped/.test(appLog(h)), (appLog(h).match(/uninstall: .*/g) || []).join(' / ').slice(0, 300));
     // Quit ends the app before it can answer.
     fs.writeFileSync(a.report + '.do', 'press Quit');
     const ended = await until(10000, () => a.p.exitCode !== null);
@@ -195,10 +216,31 @@ async function runCase(name, zshrc, purge) {
   }
 }
 
+/** UPD-014: quit 1 s after a first launch: the service's file is whole and the service loads. */
+async function quitCase() {
+  const h = await makeHome('quit', 'PROMPT="~ > "\n');
+  const a = launch(h);
+  await sleep(1000);
+  a.p.kill('SIGTERM');
+  await until(10000, () => a.p.exitCode !== null);
+  const plist = path.join(h.home, 'Library', 'LaunchAgents', `${h.label}.plist`);
+  const up = await until(40000, async () => { try { return (await fetch(h.url + '/api/state')).ok; } catch { return false; } });
+  const lint = spawnSync('/usr/bin/plutil', ['-lint', plist], { encoding: 'utf8' });
+  const calls = read(path.join(h.launchd, 'calls.log')) || '';
+  check('quit_soon_service_whole', a.p.exitCode !== null && lint.status === 0 && calls.includes('"bootstrap"') && up, `the app ended (${a.p.exitCode}) at 1 s; plutil -lint: ${lint.stdout.trim()}; bootstrap called: ${calls.includes('"bootstrap"')}; the board answers: ${!!up}`);
+  const penv = (() => { try { return JSON.parse(spawnSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' }).stdout).EnvironmentVariables || {}; } catch { return null; } })();
+  const bad = penv ? Object.keys(penv).filter((k) => ['RAVENRY_PANE', 'RAVENRY_SOCKET', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'].includes(k)) : ['(no plist)'];
+  check('service_env_clean', penv && bad.length === 0, `the service's variables: ${penv ? Object.keys(penv).join(', ') : 'none'}${bad.length ? `; not its own: ${bad.join(', ')}` : ''}`);
+  const j = json(path.join(h.launchd, 'jobs.json')) || {};
+  for (const v of Object.values(j)) { try { if (v.pid) process.kill(v.pid, 'SIGTERM'); } catch { /* gone */ } }
+}
+
 try {
+  await quitCase();
   await runCase('line', 'export PATH="$HOME/npm/bin:$PATH"\nPROMPT="~ > "\n', false);
   await runCase('link', 'export PATH="$HOME/.local/bin:$HOME/npm/bin:$PATH"\nPROMPT="~ > "\n', true);
 } finally {
+  for (const p of holders) p.kill();
   fs.writeFileSync(path.join(OUT, 'setupmenucheck.json'), JSON.stringify({ app: APP, at: new Date().toISOString(), results }, null, 2));
 }
 const failed = results.filter((r) => !r.ok);

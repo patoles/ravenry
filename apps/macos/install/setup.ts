@@ -436,17 +436,19 @@ function uninstall(purge: boolean): object {
   if (svc) {
     const r = removeService({ mode, run: serviceRun });
     if (r.state === 'failed') left.push(`the hub service: ${r.why || 'it did not stop'}`);
-    else did.push(`the hub service stopped and ${tilde(serviceFile())} removed`);
+    else did.push(`the board's background service stopped (${tilde(serviceFile())} removed)`);
   }
   // The program's own folders in <data>.
   const data = dataRoot();
+  const gone: string[] = [];
   for (const n of ['bin', 'current', 'versions']) {
     const f = path.join(data, n);
     let there = false;
     try { fs.lstatSync(f); there = true; } catch { /* none */ }
     if (!there) continue;
-    try { fs.rmSync(f, { recursive: true, force: true }); did.push(`removed ${tilde(f)}`); } catch (e) { left.push(`${tilde(f)}: ${(e as Error).message}`); }
+    try { fs.rmSync(f, { recursive: true, force: true }); gone.push(n); } catch (e) { left.push(`${tilde(f)}: ${(e as Error).message}`); }
   }
+  if (gone.length) did.push(`Ravenry's program files removed from ${tilde(data)} (${gone.join(', ')})`);
   if (purge) {
     for (const f of [mcHome, data]) {
       if (!fs.existsSync(f)) continue;
