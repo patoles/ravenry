@@ -128,6 +128,11 @@ final class Screen {
     var find = FindState()
     /// Rows changed: bumped by each frame that carried rows.
     var rowsVersion = 0
+    /// The session names and ids in the rows (SessionLinks.swift): their
+    /// cells on the view's rows, their words, and the links they were found with.
+    var nameSpans: [NameSpan] = []
+    var nameWords: [String] = []
+    var nameGen = -1
     /// The newest frame applied, not yet drawn when > drawnSeq.
     var seq: UInt32 = 0
     var frames = 0
@@ -147,6 +152,7 @@ final class Screen {
         let flags = b[1]
         let full = flags & 1 != 0
         let fcols = u16(6), frows = u16(8)
+        let rowsBefore = rowsVersion, sized = full || fcols != cols || frows != rows
         if full || fcols != cols || frows != rows {
             var nl = [[Cell]](repeating: [Cell](repeating: Cell(), count: fcols), count: frows)
             if !full {
@@ -240,6 +246,9 @@ final class Screen {
             }
             i = s + n
         }
+        // The session links in the rows it brought, found here on the
+        // reader thread, never in a draw.
+        if sized || rowsVersion != rowsBefore { findNames(SessionLinks.shared.matcher) }
         frames += 1
     }
 

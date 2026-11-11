@@ -69,6 +69,8 @@ final class TerminalView: NSView, NSTextInputClient {
     private var pointer: NSPoint?
     /// The pointing hand shows over the link.
     private(set) var linkCursor = false
+    /// The pointer is over a session link (SessionLinks.swift): the pointing hand too.
+    private(set) var nameHover = false
 
     private var marked = NSMutableAttributedString()
     private var keyTexts: [String]?
@@ -129,7 +131,11 @@ final class TerminalView: NSView, NSTextInputClient {
         metalLayer.needsDisplayOnBoundsChange = false
         registerForDraggedTypes([.fileURL, .string])
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+        // The words that are session links changed: drawn again.
+        NotificationCenter.default.addObserver(self, selector: #selector(sessionLinksChanged), name: SessionLinks.changed, object: nil)
     }
+
+    @objc private func sessionLinksChanged() { requestDraw() }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
@@ -991,27 +997,38 @@ final class TerminalView: NSView, NSTextInputClient {
         window?.makeFirstResponder(self)
         if e.modifierFlags.contains(.command) {
             // Cmd+click opens the link there; it never selects.
-            openLink(at: cell(e))
+            let c = cell(e)
+            if let w = nameWord(at: c) { SessionLinks.shared.open(w, from: self) } else { openLink(at: c) }
             return
         }
+        pressedAt = cell(e)
+        pressMoved = false
         if mouseReporting && !e.modifierFlags.contains(.shift) {
             sendEvents([mouseEvent(e, action: "press", button: "left")])
             return
         }
         selecting = true
-        pressedAt = cell(e)
         sendEvents([selectEvent(e, action: "press")])
     }
 
     /// Where a selection gesture started: a click that did not move opens
-    /// the link there when a click opens links.
+    /// the link there when a click opens links, and a session link always.
     private var pressedAt: CellHit?
+    /// The button went to another cell since it went down: a drag, never a click.
+    private var pressMoved = false
+
+    /// A press and release on one cell, as one click, with no drag off it.
+    private func stillClick(_ e: NSEvent, _ up: CellHit) -> Bool {
+        guard !pressMoved, e.clickCount == 1, let p = pressedAt else { return false }
+        return p.x == up.x && p.y == up.y
+    }
 
     /// Links look like links and a click opens them: with Cmd held, or
     /// always when the settings say so (openLinksSingleClick).
     private var linkLive: Bool { commandDown || look.oneClickLinks }
 
     override func mouseDragged(with e: NSEvent) {
+        if let p = pressedAt, !pressMoved { let c = cell(e); if c.x != p.x || c.y != p.y { pressMoved = true } }
         if !selecting {
             screen.lock()
             let drag = screen.modes & (Screen.modeMouseDrag | Screen.modeMouseMotion) != 0
@@ -1068,6 +1085,10 @@ final class TerminalView: NSView, NSTextInputClient {
     override func mouseUp(with e: NSEvent) {
         if !selecting {
             if mouseReporting { sendEvents([mouseEvent(e, action: "release", button: "left")]) }
+            // A session link opens on a plain click, the program's mouse on or not.
+            let up = cell(e)
+            if stillClick(e, up), !e.modifierFlags.contains(.shift), let w = nameWord(at: up) { SessionLinks.shared.open(w, from: self) }
+            pressedAt = nil
             return
         }
         selecting = false
@@ -1076,7 +1097,10 @@ final class TerminalView: NSView, NSTextInputClient {
         lastDrag = nil
         sendEvents([selectEvent(e, action: "release")])
         let up = cell(e)
-        if look.oneClickLinks, !dragged, e.clickCount == 1, let p = pressedAt, p.x == up.x, p.y == up.y {
+        if stillClick(e, up), !e.modifierFlags.contains(.shift), let w = nameWord(at: up) {
+            // A session link: its tab, at once (a drag selects as ever).
+            SessionLinks.shared.open(w, from: self)
+        } else if look.oneClickLinks, !dragged, e.clickCount == 1, let p = pressedAt, p.x == up.x, p.y == up.y {
             openLink(at: up)
         } else if look.copyOnSelect {
             // What the gesture selected goes to the clipboard (render.copy
@@ -1105,7 +1129,9 @@ final class TerminalView: NSView, NSTextInputClient {
     override func mouseMoved(with e: NSEvent) {
         pointer = e.locationInWindow
         commandDown = e.modifierFlags.contains(.command)
-        if linkLive { hoverLink(cell(e)) } else { clearLink() }
+        let c = cell(e)
+        if linkLive { hoverLink(c) } else { clearLink() }
+        setNameHover(nameWord(at: c) != nil)
         screen.lock()
         let motion = screen.modes & Screen.modeMouseMotion != 0
         screen.unlock()
@@ -1416,7 +1442,7 @@ final class TerminalView: NSView, NSTextInputClient {
                     .filter { $0.width > 0 && $0.height > 0 }
             }
         }
-        let c: NSCursor = linkCursor ? .pointingHand : .iBeam
+        let c: NSCursor = linkCursor || nameHover ? .pointingHand : .iBeam
         return text.map { ($0, c) } + overlays.map { ($0, NSCursor.arrow) }
     }
 
@@ -1483,6 +1509,24 @@ final class TerminalView: NSView, NSTextInputClient {
         askLink(c) { [weak self] found in
             if let found { self?.open(found.uri) }
         }
+    }
+
+    /// The session link on a cell (SessionLinks.swift): its word, or nil.
+    func nameWord(at c: CellHit) -> String? {
+        screen.lock()
+        defer { screen.unlock() }
+        guard !screen.nameSpans.isEmpty else { return nil }
+        for sp in screen.nameSpans where sp.y == c.row && c.x >= sp.x0 && c.x <= sp.x1 {
+            return sp.word < screen.nameWords.count ? screen.nameWords[sp.word] : nil
+        }
+        return nil
+    }
+
+    private func setNameHover(_ on: Bool) {
+        guard on != nameHover else { return }
+        nameHover = on
+        window?.invalidateCursorRects(for: self)
+        if !offscreen && !linkCursor { (on ? NSCursor.pointingHand : NSCursor.iBeam).set() }
     }
 
     /// Opens a link's URI: only the web and files.

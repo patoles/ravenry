@@ -22,7 +22,8 @@
 //   Contents/Resources/AppIcon.icns
 // Info.plist: the Electron app's name, id, version and the words macOS
 // shows when a pane asks for a guarded folder, the camera... (read from
-// apps/desktop/electron-builder.config.mjs, extendInfo).
+// apps/desktop/electron-builder.config.mjs, extendInfo), and the ravenry://
+// scheme: ravenry://session/<name> opens that session's tab.
 //
 // Signing: this Mac's Apple Development identity when the keychain has it
 // (apps/desktop/scripts/local-identity.mjs; the keychain is only read),
@@ -138,6 +139,8 @@ set('LSMinimumSystemVersion', config.mac.minimumSystemVersion);
 set('LSApplicationCategoryType', config.mac.category);
 set('NSHumanReadableCopyright', config.copyright);
 for (const [k, v] of Object.entries(config.mac.extendInfo)) set(k, v);
+// ravenry://session/<name> opens that session's tab (SessionLinks.swift).
+run('/usr/bin/plutil', ['-replace', 'CFBundleURLTypes', '-json', JSON.stringify([{ CFBundleURLName: 'dev.ravenry.app.session', CFBundleURLSchemes: ['ravenry'] }]), plist]);
 
 // 5. Signing, every binary inside first, then the app.
 const id = localIdentity();

@@ -20,6 +20,8 @@ struct Theme: Equatable {
     var ansi: [SIMD4<Float>] // 16
     /// A light theme: the scrollbar and the bell's flash are dark.
     var light = false
+    /// A session link's colour (SessionLinks.swift): the board's link blue.
+    var link: SIMD4<Float> { light ? Theme.hex(0x1F5FD6) : Theme.hex(0x409CFF) }
 
     static func hex(_ v: UInt32, _ a: Float = 1) -> SIMD4<Float> {
         SIMD4(Float((v >> 16) & 0xff) / 255, Float((v >> 8) & 0xff) / 255, Float(v & 0xff) / 255, a)
@@ -511,9 +513,19 @@ final class Renderer {
         let defBg = background(screen)
         let top = screen.history - screen.offset
         let ulY = Float(fonts.baseline + fonts.underlineY), ulT = Float(fonts.underlineThickness)
+        // The session links (SessionLinks.swift): found when the rows came,
+        // again here only when the words that are links changed.
+        let names = SessionLinks.shared.matcher
+        if screen.nameGen != names.gen { screen.findNames(names) }
+        let spans = screen.nameSpans
+        let linkColor = theme.link
+        var si = 0
         for y in 0..<min(screen.rows, screen.lines.count) {
             let row = screen.lines[y]
             let oy = py + Float(y) * ch
+            while si < spans.count && spans[si].y < y { si += 1 }
+            var se = si
+            while se < spans.count && spans[se].y == y { se += 1 }
             // The find section's matches on this row, the selected one first.
             var findSpans: [(cols: ClosedRange<Int>, color: SIMD4<Float>)] = []
             if screen.find.active {
@@ -572,6 +584,7 @@ final class Renderer {
                 var fg = st.attrs & CellStyle.inverse != 0 ? resolve(st.bg, screen, fg: false) : resolve(st.fg, screen, fg: true)
                 if st.attrs & CellStyle.inverse != 0 && st.bg == 0 { fg = defBg }
                 if st.attrs & CellStyle.faint != 0 { fg.w *= 0.6 }
+                if se > si && spans[si..<se].contains(where: { x >= $0.x0 && x <= $0.x1 }) { fg = linkColor }
                 let wide = c.flags & Cell.wide != 0
                 let ox = px + Float(x) * cw
                 if c.g != 0 && c.g != 32 {
@@ -599,6 +612,12 @@ final class Renderer {
                 if st.attrs & CellStyle.overline != 0 {
                     rects.append(RectInst(pos: SIMD2(ox, oy), size: SIMD2(w, ulT), color: fg, kind: 0))
                 }
+            }
+            // A session link's underline, the length of its word on this row.
+            for k in si..<se {
+                let sp = spans[k], x1 = min(sp.x1, row.count - 1)
+                guard x1 >= sp.x0 else { continue }
+                rects.append(RectInst(pos: SIMD2(px + Float(sp.x0) * cw, oy + ulY), size: SIMD2(Float(x1 - sp.x0 + 1) * cw, ulT), color: linkColor, kind: 0))
             }
         }
         // The link under the pointer, underlined; it may run over rows.

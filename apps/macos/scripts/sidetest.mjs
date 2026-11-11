@@ -332,6 +332,31 @@ function listResumed() {
   fs.writeFileSync(hub.ps, JSON.stringify(ps));
   newListed = true;
 }
+// --screen links (SelfTestLinks.swift): Claude's name files for three of the
+// demo's sessions (the pids its ps lists), and lighthouse's conversation as a
+// named session that ended (its events, and the name the board kept), which a
+// click continues in a pane of this test's daemon with a stand-in of Claude.
+const LINKS = SCREEN === 'links';
+const STAND_IN = path.join(tmp, 'claude-continued');
+if (LINKS) {
+  fs.writeFileSync(STAND_IN, "#!/bin/sh\nprintf 'Claude Code (a stand-in), continued\\n\\n> '\nexec sleep 100000\n", { mode: 0o755 });
+  const first = screenHub.prepare;
+  Object.assign(screenHub, {
+    runtime: run, settings: { launchCommand: STAND_IN },
+    env: { ...screenHub.env, RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') },
+    prepare: (a) => { first(a); linksPrepare(a); },
+  });
+}
+function linksPrepare({ HOME, ROOT, MC }) {
+  const dir = path.join(HOME, '.claude', 'sessions');
+  fs.mkdirSync(dir, { recursive: true });
+  const named = [[4107, 'a1a1a1a1-0000-4000-8000-000000000001', 'garden-planner', 'garden-planner-3f'], [4121, 'b2b2b2b2-0000-4000-8000-000000000002', 'paper-boat', 'paper-boat-7c'], [4128, 'c3c3c3c3-0000-4000-8000-000000000003', 'notes-app', 'notes-app-b2']];
+  for (const [pid, sessionId, id, name] of named) fs.writeFileSync(path.join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId, cwd: path.join(ROOT, id), startedAt: Date.now() - 3600000, kind: 'interactive', name, nameSource: 'derived' }));
+  const at = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const cwd = path.join(ROOT, 'lighthouse');
+  fs.writeFileSync(path.join(MC, 'events', `${CONTINUED}.jsonl`), [{ at: at(620), event: 'SessionStart', session_id: CONTINUED, cwd, source: 'startup', claude_pid: 4999 }, { at: at(600), event: 'SessionEnd', session_id: CONTINUED, cwd, reason: 'prompt_input_exit', claude_pid: 4999 }].map((e) => JSON.stringify(e)).join('\n') + '\n');
+  fs.writeFileSync(path.join(MC, 'session-names.json'), JSON.stringify({ version: 1, records: [{ name: 'lighthouse-4d', sessionId: CONTINUED, pid: 4999, firstAt: Date.now() - 620 * 60000, lastAt: Date.now() - 600 * 60000 }] }));
+}
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.

@@ -457,6 +457,7 @@ final class Board: NSObject {
     }
 
     private func onState(_ st: HubState) {
+        SessionLinks.shared.stateArrived(st, hub: hub, board: self)
         if !pinsPlaced {
             pinsPlaced = true
             for k in pinned where st.find(k) != nil { pinTab(k) }
@@ -1298,6 +1299,25 @@ final class Board: NSObject {
             // Still open in another terminal: the last conversation asked again, so the page says where, with Move here (app.ts continueLast).
             if code != 200, j["open"] as? Bool == true { self.projectPage.error = nil; self.projectPage.reload(p); return }
             if code != 200 { self.projectPage.error = j["error"] as? String ?? "It could not be continued."; self.projectPage.draw(p); return }
+            self.showStarted(p, j, why: "continue")
+        }
+    }
+
+    /// A session link (SessionLinks.swift): a click on a session's name or
+    /// id in terminal text, or ravenry://session/<name>, opens its tab at
+    /// once. On the board, as its row does; ended, continued in a pane
+    /// here, as the project page's Continue does.
+    func openSessionLink(_ word: String, why: String) {
+        guard let st = hub.state, let target = SessionLinks.shared.target(word) else { log.append("session link \(why): no session"); return }
+        for p in st.projects {
+            if let s = p.sessions.first(where: { $0.sessionId?.lowercased() == target.sessionId }) { return pickSession("\(p.id)/\(s.surfaceId)", why: "link \(why)") }
+        }
+        guard let pid = target.projectId, let p = st.project(pid) else { log.append("session link \(why): \(target.sessionId.prefix(8)) not on the board, no project"); return }
+        log.append("session link \(why): continue \(target.sessionId.prefix(8)) in \(p.id)")
+        let g = start.grid()
+        hub.post("/api/sessions/resume", ["projectId": p.id, "sessionId": target.sessionId, "cols": g.cols, "rows": g.rows]) { [weak self] code, j in
+            guard let self else { return }
+            if code != 200 { self.toast(j["error"] as? String ?? t("link.notOpened")); return }
             self.showStarted(p, j, why: "continue")
         }
     }
