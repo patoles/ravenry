@@ -3,6 +3,7 @@
 // same machine (the words, the colour, the buttons and the steps).
 //
 // Usage: node tools/machineview-test.mjs
+import './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import { machineCard, words } from '../server/machineview.mjs';
 import { SHAPES } from './machine-shapes.mjs';
 
