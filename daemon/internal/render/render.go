@@ -251,29 +251,41 @@ func PNG(g *vt.Grid, o Options) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// frameImages draws every frame on a canvas of the largest frame's size
-// (a pane may have been resized between frames), the rest of it in that
-// frame's background.
-func frameImages(frames []Frame, o Options) []*image.RGBA {
-	imgs := make([]*image.RGBA, len(frames))
+// canvasSize is the largest frame's size: an animation's canvas (a pane
+// may have been resized between frames).
+func canvasSize(frames []Frame, o Options) image.Point {
 	var size image.Point
-	for i, f := range frames {
-		imgs[i] = Image(f.Grid, o)
-		size.X = max(size.X, imgs[i].Bounds().Dx())
-		size.Y = max(size.Y, imgs[i].Bounds().Dy())
+	for _, f := range frames {
+		sz := Size(f.Grid, o)
+		size.X, size.Y = max(size.X, sz.X), max(size.Y, sz.Y)
 	}
-	for i, img := range imgs {
-		if img.Bounds().Size() == size {
-			continue
-		}
-		bg := color.RGBA{0, 0, 0, 255}
-		if frames[i].Grid != nil {
-			bg = rgba(frames[i].Grid.Bg)
-		}
-		c := image.NewRGBA(image.Rectangle{Max: size})
-		draw.Draw(c, c.Bounds(), image.NewUniform(bg), image.Point{}, draw.Src)
-		draw.Draw(c, img.Bounds(), img, image.Point{}, draw.Src)
-		imgs[i] = c
+	return size
+}
+
+// frameImage draws a frame on a canvas of size, the rest of it in that
+// frame's background.
+func frameImage(f Frame, size image.Point, o Options) *image.RGBA {
+	img := Image(f.Grid, o)
+	if img.Bounds().Size() == size {
+		return img
+	}
+	bg := color.RGBA{0, 0, 0, 255}
+	if f.Grid != nil {
+		bg = rgba(f.Grid.Bg)
+	}
+	c := image.NewRGBA(image.Rectangle{Max: size})
+	draw.Draw(c, c.Bounds(), image.NewUniform(bg), image.Point{}, draw.Src)
+	draw.Draw(c, img.Bounds(), img, image.Point{}, draw.Src)
+	return c
+}
+
+// frameImages draws every frame on the canvas (for tests: an animation
+// draws one at a time).
+func frameImages(frames []Frame, o Options) []*image.RGBA {
+	size := canvasSize(frames, o)
+	imgs := make([]*image.RGBA, len(frames))
+	for i, f := range frames {
+		imgs[i] = frameImage(f, size, o)
 	}
 	return imgs
 }
