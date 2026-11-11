@@ -57,6 +57,8 @@ final class SidebarView: Flipped {
     let newButton = RButton(t("side.newSession"), .icon, small: true, icon: "plus")
     private var navStack: NSStackView?
     private var footStack: NSStackView?
+    /// The foot on two lines (the memory line over the buttons), in a narrow sidebar.
+    private var footTall = false { didSet { if footTall != oldValue { needsLayout = true } } }
     private var signature = ""
     /// The rows drawn, by their key ("<project>/<surface>", "project:<id>", "page:<key>").
     private(set) var rows: [String: Row] = [:]
@@ -116,7 +118,7 @@ final class SidebarView: Flipped {
             note.frame = NSRect(x: pad, y: y, width: inner, height: nh)
             y += nh + 10
         }
-        let footH: CGFloat = 34
+        let footH: CGFloat = footTall ? 54 : 34
         foot.frame = NSRect(x: pad, y: bounds.height - 10 - footH, width: inner, height: footH)
         let navH = navStack?.fittingSize.height ?? 0
         nav.frame = NSRect(x: pad, y: foot.frame.minY - 12 - navH, width: inner, height: navH)
@@ -352,10 +354,10 @@ final class SidebarView: Flipped {
         var second: NSView?
         if let m = r.mark {
             let icon: String = ["ask": "ask", "approve": "run", "secret": "key", "drive": "keyboard", "pick": "pick", "review": "review"][m.kind] ?? "ask"
-            second = hstack([Icon(icon, "you", size: 13), yields(label(m.text, m.code ? Fonts.mono(11.5) : Fonts.pt(12), m.code ? "tx" : "tx2"))],
+            second = hstack([Icon(icon, "you", size: 13), yields(m.code ? label(m.text, Fonts.mono(11.5), "tx") : label(md: m.text, Fonts.pt(12), "tx2"))],
                             spacing: 6, insets: NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 0))
         } else if let l = r.line {
-            second = hstack([yields(label(l, Fonts.pt(12), "tx2"))], spacing: 0, insets: NSEdgeInsets(top: 0, left: 15, bottom: 0, right: 0))
+            second = hstack([yields(label(md: l, Fonts.pt(12), "tx2"))], spacing: 0, insets: NSEdgeInsets(top: 0, left: 15, bottom: 0, right: 0))
         } else if let u = uses[r.key] {
             // An agent holding a pane, or waiting for one (useLine).
             second = hstack([Icon(u.holds ? "holds" : "clock", u.holds ? "claude" : "tx3", size: 13), yields(label(u.text, Fonts.pt(12), u.holds ? "tx2" : "tx3"))],
@@ -509,8 +511,8 @@ final class SidebarView: Flipped {
         if alerts { bell.iconView?.tint = "you" }
         // The memory the sessions hold: it opens Sessions (close the idle ones, reopen a closed one).
         let mem = state?.memoryLine.map { line -> RButton in
-            // Narrow (a sidebar under 260 pt), the figure alone, so it is never cut.
-            let x = RButton(bounds.width > 0 && bounds.width < 260 ? line : t("side.memory", ["mem": line]), .link) { [weak self] in self?.onNav?("sessions", t("sess.title")) }
+            // Always "Claude 2.8 GB": narrow (a sidebar under 260 pt) it has a line of its own over the buttons, so it is never cut.
+            let x = RButton(t("side.memory", ["mem": line]), .link) { [weak self] in self?.onNav?("sessions", t("sess.title")) }
             x.titleColor = page == "sessions" ? "tx" : "tx3"
             x.titleSize = 11.5
             x.on = page == "sessions"
@@ -533,8 +535,12 @@ final class SidebarView: Flipped {
             mach.addSubview(d)
             mach.setAccessibilityValue("needs you")
         }
-        let s = hstack([b("side.settings", "settings"), firstRun ? nil : b("side.phone", "phone"), firstRun ? nil : bell, b("side.learn", "question"), mach, spring(), firstRun ? nil : mem],
-                       spacing: 2, insets: NSEdgeInsets(top: 4, left: 2, bottom: 0, right: 6))
+        // Five buttons take 162 of a 220 pt sidebar's 192: the memory line goes on a line of its own over them.
+        let narrow = bounds.width > 0 && bounds.width < 260
+        footTall = narrow && !firstRun && mem != nil
+        let icons = hstack([b("side.settings", "settings"), firstRun ? nil : b("side.phone", "phone"), firstRun ? nil : bell, b("side.learn", "question"), mach, spring(), footTall ? nil : firstRun ? nil : mem],
+                           spacing: 2, insets: NSEdgeInsets(top: 4, left: 2, bottom: 0, right: 6))
+        let s = footTall ? vstack([hstack([mem, spring()], spacing: 0, insets: NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 6)), icons], spacing: 4) : icons
         foot.addSubview(s)
         pinEdges(s, foot)
         footStack = s

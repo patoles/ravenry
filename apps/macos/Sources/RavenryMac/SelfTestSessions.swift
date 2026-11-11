@@ -96,7 +96,7 @@ extension SelfTestBoard {
             return st
         }
         check("sess_long_name_drawn", wait(4) { self.board.sidebar.names[k1]?.stringValue == long }, sb.names[k1]?.stringValue ?? "none")
-        for (w, h, side) in [(CGFloat(1280), CGFloat(820), CGFloat(284)), (900, 760, 284), (1280, 820, 220)] {
+        for (w, h, side) in [(CGFloat(1280), CGFloat(820), CGFloat(284)), (900, 760, 284), (1280, 820, 220), (1280, 820, SidebarView.maxWidth)] {
             size(w, h)
             sb.onResize?(side)
             settle(0.4)
@@ -109,7 +109,13 @@ extension SelfTestBoard {
             check("sess_chip_whole_\(Int(w))_side\(Int(side))", ok && cut, "\(d); the name \(Int(name?.frame.width ?? 0)) pt, cut \(cut)")
             let edges = Set(pctEdges())
             check("sess_percent_column_\(Int(w))_side\(Int(side))", edges.count == 1, "percent right edges \(edges.sorted())")
-            if side == 220 { picture("native-sessions-chip-\(Int(w))-side220-dark.png") }
+            // The foot's memory line says what it is ("Claude 2.8 GB") and is never cut, at every width.
+            if let m = sb.footButtons["sessions"] {
+                let whole = m.frame.width >= ceil(m.attributedTitle.size().width) - 0.5 && m.window != nil && !m.isHiddenOrHasHiddenAncestor
+                let inside = sb.convert(m.bounds, from: m).maxX <= sb.bounds.maxX
+                check("sess_memory_line_whole_\(Int(w))_side\(Int(side))", whole && inside && m.title.hasPrefix("Claude "), "\"\(m.title)\" \(Int(m.frame.width)) of \(Int(ceil(m.attributedTitle.size().width))) pt")
+            } else { check("sess_memory_line_whole_\(Int(w))_side\(Int(side))", false, "no memory line") }
+            if side != 284 { picture("native-sessions-chip-\(Int(w))-side\(Int(side))-dark.png") }
         }
         sb.onResize?(SidebarView.defaultWidth)
         size(1280, 820)
