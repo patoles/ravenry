@@ -83,6 +83,8 @@ class Row: Box {
         guard let v = super.hitTest(p) else { return nil }
         var x: NSView? = v
         while let c = x, c !== self { if c is NSButton { return v }; x = c.superview }
+        // A session's name in its words opens that session.
+        if LinkField.takes(v, p, from: superview) { return v }
         return self
     }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
@@ -143,7 +145,8 @@ func assistantChip(_ s: String, color: String = "tx2", ring: String = "sep") -> 
 }
 
 func label(_ s: String, _ font: NSFont, _ color: String = "tx", lines: Int = 1, select: Bool = false) -> NSTextField {
-    let f = lines == 1 ? NSTextField(labelWithString: s) : NSTextField(wrappingLabelWithString: s)
+    // A LinkField: a session's name in a Markdown line (label(md:)) opens it on a press.
+    let f = lines == 1 ? LinkField(labelWithString: s) : LinkField(wrappingLabelWithString: s)
     f.font = font
     f.textColor = Design.color(color)
     f.isSelectable = select

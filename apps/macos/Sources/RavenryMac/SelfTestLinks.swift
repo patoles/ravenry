@@ -117,6 +117,8 @@ extension SelfTestBoard {
             settle(0.5)
         }
 
+        screenLinksInText(garden: garden, boat: boat)
+
         // The cost of a scan of the shell's rows (on the reader thread, as a frame is applied).
         let n = 2000
         v.screen.lock()
@@ -127,6 +129,143 @@ extension SelfTestBoard {
         let grid = "\(v.screen.cols)x\(v.screen.rows)"
         v.screen.unlock()
         check("links_scan_cost", us < 200, String(format: "%.1f us a scan of %@ rows with %d words that are links", us, grid, m.words.count))
+    }
+
+    /// Session names in a brief, a plan, a hand-off, the panel's lines and a
+    /// document (BriefDoc, InlineMd, DocView): links the same way, with the
+    /// terminal's words and rules, and a plain press opens the session.
+    /// paper-boat's brief (sidetest.mjs linksPrepare) names three.
+    private func screenLinksInText(garden: String, boat: String) {
+        let L = SessionLinks.shared
+        let ws = board.ws
+        let shell = ws.tabs.first
+        let bp = board.brief
+        func words(_ st: NSAttributedString?) -> [String] {
+            guard let st else { return [] }
+            var out: [String] = []
+            st.enumerateAttribute(SessionLinks.wordKey, in: NSRange(location: 0, length: st.length)) { v, _, _ in if let w = v as? String { out.append(w) } }
+            return out
+        }
+        func links(_ st: NSAttributedString?) -> [String] {
+            guard let st else { return [] }
+            var out: [String] = []
+            st.enumerateAttribute(.link, in: NSRange(location: 0, length: st.length)) { v, _, _ in if let w = v as? String, w.hasPrefix("ravenry:") { out.append(w) } }
+            return out
+        }
+        board.openPage("brief:paper-boat", t("panel.brief"))
+        let drawn = wait(8) { words(bp.text.textStorage).contains("lighthouse-4d") }
+        let bw = words(bp.text.textStorage)
+        check("links_brief_names_are_links", drawn && Set(bw) == ["garden-planner-3f", "lighthouse-4d", "paper-boat-7c"] && links(bp.text.textStorage).allSatisfy { $0.hasPrefix("ravenry://session/") }, "\(bw)")
+        // Goal, Next step, Plan (bold) for garden-planner-3f; the code span; the hand-off's one of three paper-boat-7c.
+        let text = bp.text.string
+        check("links_brief_paths_and_plain_words_not_links", bw.filter { $0 == "paper-boat-7c" }.count == 1 && text.components(separatedBy: "paper-boat-7c").count - 1 == 3 && bw.filter { $0 == "garden-planner-3f" }.count == 3 && !bw.contains("ravenry-99") && !bw.contains("garden-planner"),
+              "\(bw), paper-boat-7c drawn \(text.components(separatedBy: "paper-boat-7c").count - 1) times")
+        size(1280, 820)
+        for dark in [true, false] {
+            NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            settle(0.5)
+            board.render(force: true)
+            settle(0.4)
+            picture("native-links2-brief-1280-\(dark ? "dark" : "light").png")
+        }
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        settle(0.4)
+        // A plain press on the hand-off's name: its session, at once.
+        if let p = point(of: "paper-boat-7c for", in: bp.text) { click(bp.text, at: p) }
+        check("links_brief_click_opens_session", wait(3) { self.board.front == .session(boat) }, "front \(board.front), opened \(L.opened.suffix(1))")
+        // A press on the code span's ended session: continued here (the tab Continue made before).
+        board.openPage("brief:paper-boat", t("panel.brief"))
+        _ = wait(5) { self.board.front != .session(boat) && bp.shownText != nil }
+        settle(0.3)
+        if let p = point(of: "lighthouse-4d", in: bp.text) { click(bp.text, at: p) }
+        check("links_brief_code_span_opens_ended_session", wait(5) { self.board.front == .tab && L.opened.last == "lighthouse-4d" }, "front \(board.front), opened \(L.opened.suffix(1))")
+
+        // The panel's brief lines (InlineMd labels in a row that takes every press): the name a link drawn in the link colour, a press on it opens it.
+        board.pickSession(boat, why: "test")
+        size(1280, 820)
+        settle(0.6)
+        board.render(force: true)
+        func fields(_ v: NSView) -> [LinkField] { (v as? LinkField).map { [$0] } ?? v.subviews.flatMap(fields) }
+        var goal: LinkField?
+        _ = wait(5) { goal = fields(self.board.panel).first { $0.stringValue.contains("as garden-planner-3f planned") && $0.hasLinks }; return goal != nil }
+        let next = fields(board.panel).first { $0.stringValue.contains("lighthouse-4d") && $0.hasLinks }
+        let rects = goal?.linkRects() ?? []
+        let ink = goal.map { linkInk($0, rects) } ?? (inside: 0, outside: 0)
+        check("links_panel_lines_are_links", goal != nil && next != nil && rects.count == 1 && words(goal?.attributedStringValue) == ["garden-planner-3f"], "goal \(goal?.stringValue ?? "none"), next \(next?.stringValue ?? "none"), rects \(rects)")
+        check("links_panel_link_drawn_where_it_presses", ink.inside > 20 && ink.outside == 0, "link-colour pixels inside its press area \(ink.inside), outside \(ink.outside)")
+        for dark in [true, false] {
+            NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            settle(0.5)
+            board.render(force: true)
+            settle(0.4)
+            picture("native-links2-panel-1280-\(dark ? "dark" : "light").png")
+        }
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        settle(0.4)
+        goal = fields(board.panel).first { $0.stringValue.contains("as garden-planner-3f planned") && $0.hasLinks }
+        if let g = goal, let r = g.linkRects().first {
+            let pt = NSPoint(x: r.midX, y: r.midY)
+            let root = window.contentView!
+            let hit = root.hitTest(root.superview!.convert(g.convert(pt, to: nil), from: nil))
+            check("links_panel_press_reaches_the_link", hit === g && g.sessionWord(at: pt) == "garden-planner-3f", "\(hit.map { String(describing: type(of: $0)) } ?? "nil"), word at \(pt): \(g.sessionWord(at: pt) ?? "none"), field \(g.bounds), selectable \(g.isSelectable)")
+            click(g, at: pt)
+        }
+        check("links_panel_click_opens_session", wait(3) { self.board.front == .session(garden) }, "front \(board.front), opened \(L.opened.suffix(1))")
+        // Off the name, the line is the row's as before: nothing opens.
+        board.pickSession(boat, why: "test")
+        settle(0.6)
+        goal = fields(board.panel).first { $0.stringValue.contains("as garden-planner-3f planned") && $0.hasLinks }
+        let n0 = L.opened.count
+        if let g = goal { click(g, at: NSPoint(x: g.bounds.minX + 8, y: g.bounds.midY)) }
+        check("links_panel_plain_words_not_a_link", L.opened.count == n0 && board.front == .session(boat), "opened \(L.opened.count - n0), front \(board.front)")
+
+        // Every Markdown line and document: a label, a wrapped line (objectives, a plan's goal), a document.
+        let lab = label(md: "Ask garden-planner-3f, not ravenry-99", Fonts.pt(12.5)) as? LinkField
+        let wr = wrap(md: "Then paper-boat-7c.", Fonts.pt(12.5)).text as? LinkField
+        let plain = label("Ask garden-planner-3f", Fonts.pt(12.5)) as? LinkField
+        check("links_markdown_lines_carry_words", lab?.hasLinks == true && words(lab?.attributedStringValue) == ["garden-planner-3f"] && wr?.hasLinks == true && plain?.hasLinks == false,
+              "label \(words(lab?.attributedStringValue)), wrap \(words(wr?.attributedStringValue)), a plain label (not Markdown) \(plain?.hasLinks ?? true)")
+        let dv = DocView("## Hand-off\n\nHanded to paper-boat-7c. See /tmp/paper-boat-7c/x and ravenry-99.", dir: "/tmp", canTick: false)
+        check("links_document_names_are_links", links(dv.text.textStorage) == ["ravenry://session/paper-boat-7c"], "\(links(dv.text.textStorage))")
+        if let sh = shell { ws.bar.onSelect?(sh.id); settle(0.4) }
+        _ = dv.textView(dv.text, clickedOnLink: "ravenry://session/paper-boat-7c", at: 0)
+        check("links_document_click_opens_session", wait(3) { self.board.front == .session(boat) } && !dv.clicked.isEmpty && (Outside.record?.last ?? "").contains("ravenry://") == false, "front \(board.front)")
+        if let sh = shell { ws.bar.onSelect?(sh.id); settle(0.4) }
+    }
+
+    /// In a label's drawing (in the window, over what lies behind it): the
+    /// pixels in the link colour inside its link rects and outside them.
+    private func linkInk(_ f: NSTextField, _ rects: [NSRect]) -> (inside: Int, outside: Int) {
+        guard let root = window.contentView, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return (0, 0) }
+        root.cacheDisplay(in: root.bounds, to: rep)
+        guard let img = rep.cgImage else { return (0, 0) }
+        let w = img.width, h = img.height
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        px.withUnsafeMutableBytes { p in
+            CGContext(data: p.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)?.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        var c = (r: CGFloat(0), g: CGFloat(0), b: CGFloat(0))
+        f.effectiveAppearance.performAsCurrentDrawingAppearance {
+            let k = Design.color("link").usingColorSpace(.sRGB) ?? .systemBlue
+            c = (k.redComponent, k.greenComponent, k.blueComponent)
+        }
+        let s = CGFloat(w) / root.bounds.width
+        let fr = f.convert(f.bounds, to: root)
+        let top = root.isFlipped ? fr.minY : root.bounds.height - fr.maxY
+        var inside = 0, outside = 0
+        for py in Int(top * s)..<min(h, Int((top + fr.height) * s)) {
+            for pxx in Int(fr.minX * s)..<min(w, Int(fr.maxX * s)) {
+                let i = (py * w + pxx) * 4
+                let b = CGFloat(px[i]) / 255, g = CGFloat(px[i + 1]) / 255, r = CGFloat(px[i + 2]) / 255
+                guard abs(r - c.r) < 0.12, abs(g - c.g) < 0.12, abs(b - c.b) < 0.12 else { continue }
+                // In the field's coordinates.
+                let x = CGFloat(pxx) / s - fr.minX, yTop = CGFloat(py) / s - top
+                let pt = NSPoint(x: x, y: f.isFlipped ? yTop : f.bounds.height - yTop)
+                if rects.contains(where: { $0.insetBy(dx: -1, dy: -1).contains(pt) }) { inside += 1 } else { outside += 1 }
+            }
+        }
+        return (inside, outside)
     }
 
     /// An event at the middle of a cell of a terminal view.

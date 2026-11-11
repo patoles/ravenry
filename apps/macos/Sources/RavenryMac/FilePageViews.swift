@@ -19,6 +19,7 @@ class PressBox: Box {
         guard onPress != nil else { return v }
         var x: NSView? = v
         while let c = x, c !== self { if c is NSButton || c is NSTextField && (c as! NSTextField).isEditable || c is TickBox || c is NSPopUpButton || c is TaskDot || c is Chevron || c is NSTextView { return v }; x = c.superview }
+        if LinkField.takes(v, p, from: superview) { return v }
         return self
     }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
@@ -407,7 +408,10 @@ final class DocView: Flipped, NSTextViewDelegate {
         addSubview(text)
         setContentHuggingPriority(.required, for: .vertical)
         render()
+        // The session names that are links changed: drawn again with them.
+        NotificationCenter.default.addObserver(self, selector: #selector(linksChanged), name: SessionLinks.changed, object: nil)
     }
+    @objc private func linksChanged() { render(); needsLayout = true }
     required init?(coder: NSCoder) { fatalError() }
 
     private var gutter: CGFloat { headings.contains { $0.section != nil } ? 22 : 0 }
@@ -534,6 +538,8 @@ final class DocView: Flipped, NSTextViewDelegate {
         if s.hasPrefix("rvn-box:"), let k = Int(s.dropFirst(8)) { tick(k); return true }
         if s.hasPrefix("rvn-entry:") { return true }
         clicked.append(s)
+        // A session's name: its session, at once (SessionLinks).
+        if SessionLinks.shared.openLink(s, from: v) { return true }
         // The web and files beside the document; any other scheme is never opened.
         if s.hasPrefix("http://") || s.hasPrefix("https://") || s.hasPrefix("file:") { Outside.open(s) }
         return true

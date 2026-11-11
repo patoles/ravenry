@@ -62,8 +62,11 @@ final class BriefPage: Box, NSTextViewDelegate {
         addSubview(head)
         addSubview(headLine)
         addSubview(scroll)
+        // The session names that are links changed: the brief drawn again with them.
+        NotificationCenter.default.addObserver(self, selector: #selector(linksChanged), name: SessionLinks.changed, object: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
+    @objc private func linksChanged() { if shownText != nil { redraw() } }
 
     override func layout() {
         super.layout()
@@ -230,6 +233,8 @@ final class BriefPage: Box, NSTextViewDelegate {
     func textView(_ v: NSTextView, clickedOnLink link: Any, at i: Int) -> Bool {
         let s = (link as? URL)?.absoluteString ?? (link as? String) ?? ""
         if s.hasPrefix("rvn-task:"), let n = Int(s.dropFirst(9)) { tick(n); return true }
+        // A session's name: its session, at once (SessionLinks).
+        if SessionLinks.shared.openLink(s, from: v) { clicked.append(s); return true }
         if s.hasPrefix("rvn-entry:"), let n = Int(s.dropFirst(10)) {
             if doc.open.contains(n) { doc.open.remove(n) } else { doc.open.insert(n) }
             redraw()

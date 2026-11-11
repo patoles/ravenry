@@ -168,19 +168,37 @@ struct BriefDoc {
         return URL(fileURLWithPath: p).absoluteString
     }
 
-    /// One line's inline Markdown, in the font and colour given.
+    /// One line's inline Markdown, in the font and colour given. A session's
+    /// name or id in its words (not in a link) is a link to that session
+    /// (SessionLinks: the terminal's words and rules), "ravenry://session/<word>".
     func inline(_ s: String, _ font: NSFont, _ color: String = "tx", _ p: NSParagraphStyle? = nil) -> NSMutableAttributedString {
         let out = NSMutableAttributedString()
         let base = attrs(font, color, p)
         let ns = s as NSString
+        let names = SessionLinks.shared.matcher
+        func words(_ t: String, _ a: [NSAttributedString.Key: Any]) {
+            let found = names.find(in: t)
+            if found.isEmpty { if !t.isEmpty { out.append(NSAttributedString(string: t, attributes: a)) }; return }
+            let tn = t as NSString
+            var at = 0
+            for f in found {
+                if f.range.location > at { out.append(NSAttributedString(string: tn.substring(with: NSRange(location: at, length: f.range.location - at)), attributes: a)) }
+                var la = a
+                la[.link] = SessionLinks.url(f.word)
+                la[SessionLinks.wordKey] = f.word
+                out.append(NSAttributedString(string: tn.substring(with: f.range), attributes: la))
+                at = NSMaxRange(f.range)
+            }
+            if at < tn.length { out.append(NSAttributedString(string: tn.substring(from: at), attributes: a)) }
+        }
         func text(_ t: String) {
             var rest = t as NSString
             while true {
                 guard let m = BriefDoc.urlRe.firstMatch(in: rest as String, range: NSRange(location: 0, length: rest.length)) else {
-                    if rest.length > 0 { out.append(NSAttributedString(string: rest as String, attributes: base)) }
+                    if rest.length > 0 { words(rest as String, base) }
                     break
                 }
-                if m.range.location > 0 { out.append(NSAttributedString(string: rest.substring(to: m.range.location), attributes: base)) }
+                if m.range.location > 0 { words(rest.substring(to: m.range.location), base) }
                 let u = rest.substring(with: m.range(at: 1))
                 out.append(link(u, u, base))
                 rest = rest.substring(from: m.range.location + m.range.length) as NSString
@@ -194,17 +212,17 @@ struct BriefDoc {
                 var a = base
                 a[.font] = NSFont.monospacedSystemFont(ofSize: font.pointSize - 2, weight: .regular)
                 a[.backgroundColor] = Design.color(codeFill)
-                out.append(NSAttributedString(string: "\u{2009}" + c + "\u{2009}", attributes: a))
+                words("\u{2009}" + c + "\u{2009}", a)
             } else if let b = g(2) {
                 var a = base
                 a[.font] = NSFont.systemFont(ofSize: font.pointSize, weight: .bold)
-                out.append(NSAttributedString(string: b, attributes: a))
+                words(b, a)
             } else if let l = g(3), let h = g(4) {
                 out.append(link(l, h, base))
             } else if let e = g(5) {
                 var a = base
                 a[.font] = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-                out.append(NSAttributedString(string: e, attributes: a))
+                words(e, a)
             }
             at = m.range.location + m.range.length
         }
@@ -615,8 +633,10 @@ struct BriefDoc {
 /// wrap(md:), Views.swift and InAppForms.swift).
 enum InlineMd {
     private static let marks = try! NSRegularExpression(pattern: "`[^`]+`|\\*\\*[^*]+\\*\\*|\\[[^\\]]+\\]\\([^)\\s]+\\)|(?<![\\w*])[*_][^*_\\s][^*_]*[*_](?![\\w*])")
-    /// Whether the line has a mark to draw (else the plain label stays as it is).
-    static func has(_ s: String) -> Bool { marks.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
+    /// Whether the line has a mark to draw or a session's name (else the plain label stays as it is).
+    static func has(_ s: String) -> Bool {
+        marks.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil || !SessionLinks.shared.matcher.find(in: s).isEmpty
+    }
 
     /// The line drawn in `font` and `color`, wrapped or cut at the tail as `lines` says.
     static func text(_ s: String, _ font: NSFont, _ color: String = "tx", lines: Int = 1, align: NSTextAlignment = .natural, codeFill: String = "card2") -> NSAttributedString {
@@ -629,6 +649,7 @@ enum InlineMd {
         let all = NSRange(location: 0, length: a.length)
         a.addAttribute(.paragraphStyle, value: p, range: all)
         // A label draws no link style of its own: the link's colour, its URL on hover.
+        // A session's name keeps its word (SessionLinks.wordKey): a press on it opens it (LinkField).
         a.enumerateAttribute(.link, in: all) { v, r, _ in
             guard v != nil else { return }
             a.addAttribute(.foregroundColor, value: Design.color("link"), range: r)

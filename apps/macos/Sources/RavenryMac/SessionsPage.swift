@@ -385,6 +385,7 @@ final class PressRow: Box {
         guard let v = super.hitTest(p) else { return nil }
         var x: NSView? = v
         while let c = x, c !== self { if c is NSButton { return v }; x = c.superview }
+        if LinkField.takes(v, p, from: superview) { return v }
         return run == nil ? v : self
     }
     override func accessibilityPerformPress() -> Bool { if enabled { run?() }; return run != nil }

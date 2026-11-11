@@ -212,6 +212,11 @@ final class Board: NSObject {
                 b.ws.window.makeKeyAndOrderFront(nil)
             }
         }
+        // The session names that are links changed: the labels that show them drawn again (the brief and documents redraw themselves).
+        NotificationCenter.default.addObserver(forName: SessionLinks.changed, object: nil, queue: .main) { [weak self] _ in
+            guard let self, !self.closed else { return }
+            self.render(force: true)
+        }
         // In front: the hub sends the next Mac notification here, not to another app beside it.
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: ws.window, queue: .main) { [weak self] _ in
             guard let self, !self.closed else { return }

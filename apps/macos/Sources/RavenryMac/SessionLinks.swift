@@ -101,6 +101,22 @@ extension Screen {
     }
 }
 
+extension NameMatcher {
+    /// The session names and ids in a line of text (a brief's, a plan's, a
+    /// label's), by the terminal's rules (NameScan): each one's range and word.
+    func find(in s: String) -> [(range: NSRange, word: String)] {
+        if isEmpty { return [] }
+        let u = Array(s.utf16)
+        if u.count < minLen { return [] }
+        return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: maxLen + 1) { buf in
+            var sc = NameScan(m: self, buf: buf.baseAddress!, cols: u.count + 1)
+            for (i, c) in u.enumerated() { sc.feed(UInt32(c), 0, i) }
+            sc.feed(10, 0, u.count)
+            return sc.spans.map { (NSRange(location: $0.x0, length: $0.x1 - $0.x0 + 1), sc.found[$0.word]) }
+        }
+    }
+}
+
 /// The scan of a screen's rows, one character at a time, in reading order.
 /// A word is a link when the matcher has it, unless it is part of a path,
 /// an address or a file name: right after / \ . @, or right before / \ @,
@@ -253,6 +269,24 @@ final class SessionLinks {
         linked[word] ?? linked[word.lowercased()]
     }
 
+    /// A session link in drawn text (BriefDoc, InlineMd): its word under
+    /// this key, and its `link` this URL in a text view.
+    static let wordKey = NSAttributedString.Key("ravenrySessionLink")
+    static func url(_ word: String) -> String { "ravenry://session/" + word }
+    /// The word of a ravenry://session/<word> link, else nil.
+    static func word(ofLink s: String) -> String? {
+        guard s.hasPrefix("ravenry://session/") else { return nil }
+        let w = String(s.dropFirst(18))
+        return w.isEmpty ? nil : (w.removingPercentEncoding ?? w)
+    }
+
+    /// A text view's link: a session's opens it in this window (true); any other is the caller's.
+    func openLink(_ s: String, from view: NSView) -> Bool {
+        guard let w = SessionLinks.word(ofLink: s) else { return false }
+        open(w, from: view)
+        return true
+    }
+
     /// A click on a link in a terminal: its window's board opens it.
     func open(_ word: String, from view: NSView) {
         opened.append(word)
@@ -293,5 +327,90 @@ extension AppDelegate {
     /// ravenry://session/<name> (CFBundleURLTypes, scripts/package.mjs).
     @objc func application(_ application: NSApplication, open urls: [URL]) {
         for u in urls { _ = SessionLinks.shared.openURL(u, app: self) }
+    }
+}
+
+/// A label whose session names are links (InlineMd draws them in the link
+/// colour, SessionLinks.wordKey their word): a press on one opens its
+/// session at once, as a link in the brief's text does (LinkText); any other
+/// press is the label's own (or its row's: the rows let a press on a link
+/// through, LinkField.takes). Every label() and wrap() is one; one with no
+/// session name in its text behaves as a plain NSTextField.
+class LinkField: NSTextField {
+    override var attributedStringValue: NSAttributedString {
+        didSet { if hasLinks { window?.invalidateCursorRects(for: self) } }
+    }
+
+    var hasLinks: Bool {
+        let s = attributedStringValue
+        var any = false
+        s.enumerateAttribute(SessionLinks.wordKey, in: NSRange(location: 0, length: s.length)) { v, _, stop in if v != nil { any = true; stop.pointee = true } }
+        return any
+    }
+
+    /// The text laid out as the cell draws it: its storage, layout and where its first line starts.
+    private func layout() -> (NSTextStorage, NSLayoutManager, NSTextContainer, NSRect)? {
+        guard let c = cell else { return nil }
+        let s = attributedStringValue
+        guard s.length > 0 else { return nil }
+        let r = c.titleRect(forBounds: bounds)
+        let st = NSTextStorage(attributedString: s)
+        let lm = NSLayoutManager()
+        st.addLayoutManager(lm)
+        let tc = NSTextContainer(size: NSSize(width: r.width, height: .greatestFiniteMagnitude))
+        tc.lineFragmentPadding = 2
+        if maximumNumberOfLines > 0 { tc.maximumNumberOfLines = maximumNumberOfLines }
+        lm.addTextContainer(tc)
+        lm.ensureLayout(for: tc)
+        return (st, lm, tc, r)
+    }
+
+    /// The session word under a point of the field, if a link is drawn there.
+    func sessionWord(at p: NSPoint) -> String? {
+        guard hasLinks, let (st, lm, tc, r) = layout() else { return nil }
+        let q = NSPoint(x: p.x - r.minX, y: isFlipped ? p.y - r.minY : r.maxY - p.y)
+        let g = lm.glyphIndex(for: q, in: tc)
+        guard g < lm.numberOfGlyphs, lm.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: tc).insetBy(dx: -1, dy: -1).contains(q) else { return nil }
+        let c = lm.characterIndexForGlyph(at: g)
+        guard c < st.length else { return nil }
+        return st.attribute(SessionLinks.wordKey, at: c, effectiveRange: nil) as? String
+    }
+
+    /// The rects of its session links, in its coordinates.
+    func linkRects() -> [NSRect] {
+        guard hasLinks, let (st, lm, tc, r) = layout() else { return [] }
+        var out: [NSRect] = []
+        st.enumerateAttribute(SessionLinks.wordKey, in: NSRange(location: 0, length: st.length)) { v, cr, _ in
+            guard v != nil else { return }
+            let gr = lm.glyphRange(forCharacterRange: cr, actualCharacterRange: nil)
+            lm.enumerateEnclosingRects(forGlyphRange: gr, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: tc) { b, _ in
+                let y = self.isFlipped ? r.minY + b.minY : r.maxY - b.maxY
+                out.append(NSRect(x: r.minX + b.minX, y: y, width: b.width, height: b.height))
+            }
+        }
+        return out
+    }
+
+    /// Whether a row that takes every press should let this one through: a
+    /// session link is under the point (`p` in the coordinates of `from`).
+    static func takes(_ v: NSView, _ p: NSPoint, from: NSView?) -> Bool {
+        guard let l = v as? LinkField else { return false }
+        return l.sessionWord(at: l.convert(p, from: from)) != nil
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for r in linkRects() { addCursorRect(r, cursor: .pointingHand) }
+    }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool {
+        if let e, sessionWord(at: convert(e.locationInWindow, from: nil)) != nil { return true }
+        return super.acceptsFirstMouse(for: e)
+    }
+    override func mouseDown(with e: NSEvent) {
+        if e.clickCount == 1, !e.modifierFlags.contains(.shift), let w = sessionWord(at: convert(e.locationInWindow, from: nil)) {
+            SessionLinks.shared.open(w, from: self)
+            return
+        }
+        super.mouseDown(with: e)
     }
 }

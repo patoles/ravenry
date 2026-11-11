@@ -356,6 +356,12 @@ function linksPrepare({ HOME, ROOT, MC }) {
   const cwd = path.join(ROOT, 'lighthouse');
   fs.writeFileSync(path.join(MC, 'events', `${CONTINUED}.jsonl`), [{ at: at(620), event: 'SessionStart', session_id: CONTINUED, cwd, source: 'startup', claude_pid: 4999 }, { at: at(600), event: 'SessionEnd', session_id: CONTINUED, cwd, reason: 'prompt_input_exit', claude_pid: 4999 }].map((e) => JSON.stringify(e)).join('\n') + '\n');
   fs.writeFileSync(path.join(MC, 'session-names.json'), JSON.stringify({ version: 1, records: [{ name: 'lighthouse-4d', sessionId: CONTINUED, pid: 4999, firstAt: Date.now() - 620 * 60000, lastAt: Date.now() - 600 * 60000 }] }));
+  // paper-boat's brief names sessions in its goal, its next step, a hand-off,
+  // a code span, bold and the Plan (paper-boat-7c three times, a link once).
+  fs.writeFileSync(path.join(ROOT, 'paper-boat', 'BRIEF.md'), '# Paper Boat\n\nGoal: A calm little game, steered as garden-planner-3f planned it.\n\n'
+    + '## Next step\n2026-11-11: Handed the sail to garden-planner-3f. Next: ask `lighthouse-4d` about the tide.\n\n'
+    + '## Hand-off\nWritten by paper-boat-7c for the next session. Not links: /tmp/paper-boat-7c/notes, paper-boat-7c.json, ravenry-99 and garden-planner.\n\n'
+    + '## Plan\n### Rock with the waves\n- [x] Tilt the hull\n- [>] Ask **garden-planner-3f** about the wind\n');
 }
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });

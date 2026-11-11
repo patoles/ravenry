@@ -14,7 +14,7 @@ import AppKit
 /// kept one word a line. Its height is the words wrapped at its preferred
 /// width (CappedText sets it from its own width). It gives way below its
 /// natural width just before a plain label does (740).
-final class WrapField: NSTextField {
+final class WrapField: LinkField {
     convenience init(wrapping s: String) {
         self.init(frame: .zero)
         stringValue = s
