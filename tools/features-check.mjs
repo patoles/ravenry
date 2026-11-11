@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const FEATURES = path.join(ROOT, 'docs', 'FEATURES.md');
 const RC = path.join(ROOT, 'apps', 'desktop', 'tools', 'release-check.mjs');
-const STATUS = new Set(['done', 'partial', 'missing', 'n/a']);
+const STATUS = new Set(['done', 'partial', 'missing', 'n/a', '?']);
 
 // The release check's steps: the number each step(...) name starts with
 // ("5/7 update", "1-3: ...", "21 F/A2" give each number), the sub-tool
@@ -47,7 +47,7 @@ for (const [i, line] of doc.split('\n').entries()) {
   ids.set(id, i + 1);
   const cells = line.split(' | ').map((c) => c.replace(/^\| ?| ?\|$/g, '').trim());
   if (cells.length !== 8) { problems.push(`${at}: ${id} has ${cells.length} cells, not 8`); continue; }
-  for (const s of cells.slice(4)) if (!STATUS.has(s)) problems.push(`${at}: ${id} has the status "${s}" (done, partial, missing or n/a)`);
+  for (const s of cells.slice(4)) if (!STATUS.has(s)) problems.push(`${at}: ${id} has the status "${s}" (done, partial, missing, n/a or ?)`);
   for (const r of cells[3].matchAll(/\bRC-(\d+|env)\b/g)) {
     cited.add(r[1]);
     if (!steps.has(r[1])) problems.push(`${at}: ${id} cites RC-${r[1]}, which the release check does not have`);
