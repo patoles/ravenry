@@ -64,6 +64,11 @@ for (const d of [user, run, state]) fs.mkdirSync(d, { recursive: true, mode: 0o7
 fs.writeFileSync(path.join(user, '.zshrc'), "PROMPT='~ > '\n");
 fs.writeFileSync(path.join(user, '.zshenv'), 'skip_global_compinit=1\n');
 const env = { HOME: user, PATH: '/usr/bin:/bin', SHELL: '/bin/zsh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: run, RAVENRY_STATE_DIR: state, RAVENRY_DESKTOP_DATA: path.join(tmp, 'desktop') };
+// BENCH_PANE_EFFECT=bloom|crt: the drag with that pane effect on (Settings > Appearance > Pane effect).
+if (process.env.BENCH_PANE_EFFECT) {
+  fs.mkdirSync(env.RAVENRY_DESKTOP_DATA, { recursive: true });
+  fs.writeFileSync(path.join(env.RAVENRY_DESKTOP_DATA, 'settings.json'), JSON.stringify({ version: 1, paneEffect: process.env.BENCH_PANE_EFFECT }));
+}
 
 const daemons = [];
 async function serve(bin) {

@@ -41,6 +41,7 @@ extension SelfTestBoard {
         case "windows": screenWindows()
         case "updates": screenUpdates()
         case "links": screenLinks()
+        case "ink": screenInk()
         default: check("screen_known", false, name)
         }
         finish()

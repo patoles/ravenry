@@ -16,7 +16,9 @@
     "scrollback": { "kind": "int", "min": 100, "max": 100000, "default": 10000 },
     "bell": { "kind": "oneOf", "values": ["visual", "sound", "off"], "default": "visual" },
     "bellBounceDock": { "kind": "bool", "default": true },
-    "confirmCloseBusy": { "kind": "bool", "default": true }
+    "confirmCloseBusy": { "kind": "bool", "default": true },
+    "launchInk": { "kind": "bool", "default": true },
+    "paneEffect": { "kind": "oneOf", "values": ["off", "bloom", "crt"], "default": "off" }
   },
   "fontFallback": ["Menlo", "SF Mono", "DejaVu Sans Mono", "Liberation Mono"],
   "themes": ["ravenry-dark", "solarized-dark", "dracula", "nord", "ravenry-light", "solarized-light", "github-light", "paper"],

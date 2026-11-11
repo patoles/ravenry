@@ -389,9 +389,14 @@ final class Workspace: NSObject {
         if tabs.isEmpty {
             guard let id = try newPane(cwd: nil, size: stage.bounds.size) else { throw ConnectionError.connect("no pane") }
             tabs = [Tab(host: id)]
+            // No tab to bring back: the launch opens on New session, with Ink (Ink.swift).
+            restoredNone = true
         }
         show(front ?? tabs[0], wait: true)
     }
+
+    /// The launch had no tab to bring back (restore made a new shell).
+    private(set) var restoredNone = false
 
     /// A daemon's tabs: its shells, the pane --attach names, its agents' own
     /// panes, and every running pane the window kept as a tab (`kept`, the

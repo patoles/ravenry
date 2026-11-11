@@ -255,6 +255,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         controls["importNote"] = impNote
         out.append(row("", [imp, impNote], join: true))
         out.append(row(t("set.cursor"), [segm("cursor", s.string("cursorStyle"), [("block", "set.block"), ("bar", "set.bar"), ("underline", "set.underline")], key: "cursorStyle"), blink], hint: t("set.cursorHint")))
+        // The pane effect and the launch's Ink (Shaders.swift, Ink.swift).
+        out.append(row(t("set.paneEffect"), [segm("fx", s.string("paneEffect"), [("off", "set.off"), ("bloom", "set.fxBloom"), ("crt", "set.fxCrt")], key: "paneEffect")], hint: t("set.fxHint")))
+        let ink = CheckRow(t("set.launchInk"), on: s.bool("launchInk")) { [weak self] on in self?.set(["launchInk": on]) }
+        controls["launchInk"] = ink
+        out.append(row(t("set.opening"), [ink], hint: t("set.launchInkHint")))
         return out
     }
 

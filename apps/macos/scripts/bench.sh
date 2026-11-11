@@ -30,6 +30,11 @@ mkdir -p "$out"
 mkdir -m 700 "$dir/user" "$dir/run" "$dir/state"
 printf '%s\n' "PROMPT='~ > '" "${BENCH_ZSHRC:-}" > "$dir/user/.zshrc"
 printf '%s\n' "skip_global_compinit=1" > "$dir/user/.zshenv"
+# BENCH_PANE_EFFECT=bloom|crt: the bench with that pane effect on (Settings > Appearance > Pane effect).
+if [ -n "${BENCH_PANE_EFFECT:-}" ]; then
+  mkdir -p "$dir/desktop"
+  printf '{"version":1,"paneEffect":"%s"}\n' "$BENCH_PANE_EFFECT" > "$dir/desktop/settings.json"
+fi
 envs="HOME=$dir/user PATH=/usr/bin:/bin SHELL=/bin/zsh LANG=en_US.UTF-8 RAVENRY_RUNTIME_DIR=$dir/run RAVENRY_STATE_DIR=$dir/state RAVENRY_DESKTOP_DATA=$dir/desktop"
 # Named after its version: 0.0.0-dev from build.sh, the release's in a package.
 sock=

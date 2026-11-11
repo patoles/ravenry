@@ -1,8 +1,8 @@
 // What the shared settings make of a terminal, as the Electron app's
 // terminalSettings (apps/desktop/src/shared/settings.ts): the font and
 // its size, the theme the settings pick for the system's appearance, the
-// cursor, Option as Meta, copy on select, links, the scrollback, the bell
-// and closing a busy tab. Workspace works it out from the SettingsStore
+// cursor, Option as Meta, copy on select, links, the scrollback, the bell,
+// closing a busy tab and the pane effect. Workspace works it out from the SettingsStore
 // and gives it to every pane, again on each change of the file or of the
 // system's appearance.
 
@@ -26,6 +26,8 @@ struct TermLook: Equatable {
     var bell = "visual"
     var bounce = true
     var confirmClose = true
+    /// The pane effect drawn over every terminal (Shaders.swift), nil: off.
+    var effect: GhosttyShader?
 
     init() {}
 
@@ -46,6 +48,7 @@ struct TermLook: Equatable {
         bell = s.string("bell")
         bounce = s.bool("bellBounceDock")
         confirmClose = s.bool("confirmCloseBusy")
+        effect = ["bloom": GhosttyShader.bloom, "crt": .crt][s.string("paneEffect")]
     }
 }
 

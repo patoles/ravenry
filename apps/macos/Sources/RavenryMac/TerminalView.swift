@@ -463,6 +463,7 @@ final class TerminalView: NSView, NSTextInputClient {
         look = l
         optionAsAlt = l.optionAsAlt
         renderer.defaultCursor = l.cursor
+        renderer.effect = l.effect
         if l.theme != was.theme || renderer.theme != l.theme {
             renderer.theme = l.theme
             let bg = l.theme.background

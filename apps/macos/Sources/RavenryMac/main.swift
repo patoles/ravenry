@@ -277,6 +277,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The first window: every tab as the last launch left it.
         guard let first = makeWindow(.restore) else { return }
         let ws = first.ws, w = first.window, bd = first.board!
+        // No tab came back: New session in front, and Ink over it (Ink.swift).
+        InkLaunch.atLaunch(first, offscreen: options.offscreen)
         // Daemons that start later (a newer app's after an update) join as they come, in the first window open.
         ds.onJoin = { [weak self] d in self?.windows.first { !$0.closing }?.ws.joined(d) }
         ds.watch()

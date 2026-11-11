@@ -707,11 +707,36 @@ final class Renderer {
         return device.makeBuffer(length: max(len, 64 << 10) * 2, options: .storageModeShared)!
     }
 
-    /// Draws the screen into texture (a drawable's, or an offscreen one).
-    /// It holds the screen's lock only while it builds the instances. It
-    /// returns the frame number it drew.
+    /// The pane effect (Settings > Appearance > Pane effect, TermLook):
+    /// the screen is drawn into a texture of its own and the effect's
+    /// shader (Shaders.swift) from it into the target, so it runs only when
+    /// the pane draws. Off (nil): drawn straight into the target, as before.
+    var effect: GhosttyShader?
+    private var fxSource: MTLTexture?
+
+    /// Draws the screen into texture (a drawable's, or an offscreen one),
+    /// through the pane effect when one is on. It returns the frame number it drew.
     @discardableResult
     func encode(screen: Screen, overlay: Overlay, into texture: MTLTexture, commandBuffer cb: MTLCommandBuffer) -> UInt32 {
+        guard let fx = effect, ShaderHost.shared.pipeline(fx) != nil else {
+            fxSource = nil
+            return encodeScreen(screen: screen, overlay: overlay, into: texture, commandBuffer: cb)
+        }
+        if fxSource == nil || fxSource!.width != texture.width || fxSource!.height != texture.height {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: texture.width, height: texture.height, mipmapped: false)
+            d.usage = [.renderTarget, .shaderRead]
+            d.storageMode = .private
+            fxSource = device.makeTexture(descriptor: d)
+        }
+        guard let src = fxSource else { return encodeScreen(screen: screen, overlay: overlay, into: texture, commandBuffer: cb) }
+        let seq = encodeScreen(screen: screen, overlay: overlay, into: src, commandBuffer: cb)
+        ShaderHost.shared.encode(fx, source: src, into: texture, commandBuffer: cb)
+        return seq
+    }
+
+    /// Draws the screen into texture. It holds the screen's lock only
+    /// while it builds the instances. It returns the frame number it drew.
+    private func encodeScreen(screen: Screen, overlay: Overlay, into texture: MTLTexture, commandBuffer cb: MTLCommandBuffer) -> UInt32 {
         let t0 = CACurrentMediaTime()
         let viewport = SIMD2(Float(texture.width), Float(texture.height))
         screen.lock()

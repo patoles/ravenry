@@ -64,6 +64,8 @@ final class StartView: MiddleView {
     var grid: () -> (cols: Int, rows: Int) = { (100, 30) }
     /// The folder Choose another folder picks, for the self-test (no panel then).
     var testChoice: String?
+    /// The app's icon at the top, where the launch's Ink lands (Ink.swift).
+    private(set) weak var iconView: NSView?
 
     struct Setup {
         var kind: String
@@ -210,6 +212,7 @@ final class StartView: MiddleView {
         if let npm = npmItems() { return place(npm) }
         var items: [NSView] = []
         let icon = Icon("app-icon", "tx", size: 64)
+        iconView = icon
         icon.wantsLayer = true
         icon.layer?.cornerRadius = 15
         icon.layer?.masksToBounds = true
