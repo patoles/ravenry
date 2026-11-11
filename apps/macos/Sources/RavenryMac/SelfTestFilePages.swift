@@ -236,6 +236,10 @@ extension SelfTestBoard {
             _ = self.wait(8) { if let a = self.board.hub.answers.first(where: { $0.seq >= n && $0.path == p }) { c = a.code; return true }; return false }
             return "\(c)"
         }
+        // PAGE-010: the rules from project memory wait behind "3 more from project memory"; Show unfolds them, Hide folds them.
+        check("rules_memory_folded", wait(5) { self.texts(self.fp).contains { $0.hasSuffix("more from project memory") } } && (fp.pb["mem:n-global:global"].map { ($0 as NSView).window == nil } ?? true) && fp.pb["mem:more"] != nil,
+              texts(fp).filter { $0.contains("memory") || $0.contains("Show") }.joined(separator: " | ") + " keys \(fp.pb.keys.filter { $0.hasPrefix("mem") })")
+        press("mem:more")
         check("rules_suggested_drawn", seeded && shows(fp, "Run the tests before a commit") && shows(fp, "Use pnpm, not npm") && shows(fp, "Tilt the hull, never the deck"), texts(fp).prefix(14).joined(separator: " | "))
         twoPictures("rules-suggested")
         press("item:rp-run-tests:Add rule")

@@ -44,6 +44,8 @@ final class FilePage: FormPage {
     private var shown = Set<String>()
     private var dismissed = Set<String>()
     private var memory: (at: Date, rules: [[String: Any]])?
+    /// The rules from project memory shown (Show), else folded behind their count.
+    private(set) var memoryShown = false
     /// GET /api/ideas's brainstorm and brainstormError, for the brainstorm view's line (IDEA-009).
     private(set) var brainstormState: (at: Date, running: [String: Any]?, error: String?)?
     private var images: [String: NSImage] = [:]
@@ -1450,7 +1452,14 @@ final class FilePage: FormPage {
                                 btn("mem:\(id):local", (r["localLabel"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? t("pg.thisProject")) { decide(id, "local") },
                                 btn("mem:\(id):dismiss", t("pg.notARule")) { decide(id, "dismiss") }], spacing: 6))
         }
-        return ocard([cardHead(s["title"] as? String ?? t("pg.fromMemory"), rules.count)] + rows)
+        // Behind "N more from project memory" with Show, as the browser board keeps them (PAGE-010); with none, the line that says so.
+        if rules.isEmpty { return ocard([cardHead(s["title"] as? String ?? t("pg.fromMemory"), rules.count)] + rows) }
+        let more = btn("mem:more", memoryShown ? t("pg.hideMemory") : t("pg.show"), .link) { [weak self] in
+            guard let self else { return }
+            self.memoryShown.toggle(); self.dirty(); self.redraw()
+        }
+        let line = hstack([label(t("pg.moreFromMemory", ["n": "\(rules.count)"]), Fonts.pt(12.5), "tx2"), more, spring()], spacing: 8)
+        return memoryShown ? vstack([line, ocard([cardHead(s["title"] as? String ?? t("pg.fromMemory"), rules.count)] + rows)], spacing: 8) : line
     }
 
     private func sessions(_ v: [String: Any], _ items: [Item]) -> NSView {
