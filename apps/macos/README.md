@@ -8,7 +8,7 @@ mouse for the program. There is no second terminal emulator to drift from
 the daemon's, which is what made the first spike (GhosttyKit fed by
 `ravenryd attach`) blink and leave prompt debris on a resize.
 
-One window of tabs and splits, each pane of ravenryd drawn by the app,
+Windows of tabs and splits, each pane of ravenryd drawn by the app,
 as the Electron app's terminal area has them, with the Electron app's
 sidebar and session panel around them, drawn from the hub's state.
 
@@ -71,7 +71,16 @@ stream".
   different daemons never write over each other. The window's size and
   place are kept in the same file as the Electron app keeps them
   (`bounds`), and come back on a screen that is still there, else the
-  default size, centred. Closing the window leaves the panes running. The strip is in the title bar, in the Electron app's colours
+  default size, centred. Closing a window leaves the panes running: its
+  tabs join the window in front, and with the last one closed Ravenry
+  keeps running (the Dock, Cmd+N or Help opens a window again with every
+  tab). New Window (Cmd+N), the Window menu, Move Tab to New Window (also
+  on a tab's right click) and Merge All Windows: `Windows.swift`; each
+  window has its own tabs, sidebar, panel, pages and hub stream, the menus
+  act on the window in front. Every page keeps where it was opened from
+  (Board's back stack): its Close, Esc and Cmd+W go back one step, the
+  terminal last; a tab key with a page in front brings the terminal
+  first. The strip is in the title bar, in the Electron app's colours
   and sizes (`Design.swift`).
 - **The hub** (`Hub.swift`): a small typed client of the board's server,
   as the Electron app reads it (`apps/desktop/src/main/hub.ts`): the
@@ -681,11 +690,13 @@ every screen (the bench, the self-test) writes only to
 
 ## Not done yet
 
-- One window: no New Window, or tab dragged to an edge to split.
+- A tab dragged to an edge to split.
+- Move Tab to New Window takes a split tab as two tabs (its panes, unsplit).
 - A program's steady block cursor reads as the default, so the
   settings' cursor style shows instead.
-- Sidebar and panel: Learn's ticks come only from the phone card and
-  Decisions (no hints, no filmstrip to tick), and its filmstrip card shows
+- Sidebar and panel: Learn's ticks come from the phone card, Decisions,
+  an answered question, a pick, a review and an agent's own pane (no
+  hints, no filmstrip to tick), and its filmstrip card shows
   the busiest terminal; no session on another machine (MACH-005 to
   MACH-007); Decisions has no add, edit or remove (DEC-004, no client has them); a page's run button says its approval waits
   (the panel has no card of its own for a page's run yet), a page's form

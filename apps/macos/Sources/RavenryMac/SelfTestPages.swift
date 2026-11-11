@@ -121,7 +121,8 @@ extension SelfTestBoard {
         pg.buttons["discard"]?.performClick(nil)
         check("newplan_discard", wait(3) { self.sentSince(n).contains("POST /api/plan/discard") } && wait(5) { pg.buttons["draft"]?.window != nil && pg.buttons["start"]?.window == nil })
         pg.buttons["cancel"]?.performClick(nil)
-        check("newplan_cancel_goes_back", board.root.middle !== pg, "\(board.front)")
+        // Back where it was opened from (the plan in front before it; Board's back stack).
+        check("newplan_cancel_goes_back", board.front != .page("newplan:paper-boat", t("panel.newPlan")) && pg.mode != .new, "\(board.front)")
     }
 
     // MARK: an idea's thread (IDEA-003)

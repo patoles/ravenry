@@ -76,9 +76,28 @@ final class Board: NSObject {
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
     private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker, review, filesGrid] }
-    /// What a page's Close goes back to.
-    private var pageBack: Front = .tab
+    /// Something the middle showed, and how to show it again as it was.
+    private struct Step {
+        let front: Front
+        var again: () -> Void
+    }
+    /// Where Close, Esc and a page's "‹ Plans" link go back to, the last on
+    /// top (the Electron app's backFrom, more than one level deep). Empty:
+    /// the terminal. Coming to the terminal empties it.
+    private var backStack: [Step] = []
+    /// What the middle shows now (nil: a tab's terminal).
+    private var here: Step?
+    /// Going back or up: the step shown again is not pushed.
+    private var goingBack = false
     private let toastView = ToastView()
+    /// The window is closed: the board does nothing more.
+    private(set) var closed = false
+    private var monitors: [Any] = []
+    /// One Settings window and one notifier for every window of the app.
+    private static var sharedSettings: SettingsWindow?
+    private static var sharedNotifier: Notifier?
+    /// The board of the window the person used last (a notification's click opens there).
+    static weak var lastFront: Board?
     private(set) var front: Front = .tab
     private(set) var pinned: [String] = []
     private(set) var sideWidth: CGFloat = SidebarView.defaultWidth
@@ -103,8 +122,12 @@ final class Board: NSObject {
         self.hub = hub
         self.root = ws.root
         self.keep = keep
-        notifier = Notifier(standIn: !keep)
+        let firstBoard = Board.sharedNotifier == nil
+        let nt = Board.sharedNotifier ?? Notifier(standIn: !keep)
+        Board.sharedNotifier = nt
+        notifier = nt
         super.init()
+        Board.lastFront = self
         let d = UserDefaults.standard
         if keep {
             if let w = d.object(forKey: "sidebarWidth") as? Double { sideWidth = min(SidebarView.maxWidth, max(SidebarView.minWidth, CGFloat(w))) }
@@ -127,11 +150,11 @@ final class Board: NSObject {
         brief.hub = hub
         gallery.isHidden = true
         gallery.hub = hub
-        gallery.toast = { [weak self] s in self?.toast(s) }
+        gallery.toast = toaster(gallery)
         for f in [plan, idea, alerts, files, decisions, learn, machines] as [FormPage] {
             f.isHidden = true
             f.hub = hub
-            f.toast = { [weak self] s in self?.toast(s) }
+            f.toast = toaster(f)
             f.onClose = { [weak self] in self?.back() }
         }
         alerts.pairPhone = { [weak self] in self?.openPhone() }
@@ -160,7 +183,12 @@ final class Board: NSObject {
             openPlan: { [weak self] pid, title in self?.openPlan(pid, title: title) },
             openIdea: { [weak self] id in self?.openIdea(id) },
             lastProject: { [weak self] in self?.lastProject },
-            toast: { [weak self] s, a in self?.toast(s, action: a) })
+            toast: { [weak self] s, a in
+                guard let self else { return }
+                // Said by the page after the person left it: kept for it.
+                if a == nil, self.root.middle !== self.files { self.keep(s, for: self.files); return }
+                self.toast(s, action: a)
+            })
         // Mac notifications the hub sends this app (Notifier.swift): posted, and macOS's answer sent back.
         hub.onNotify = { [weak self] j in
             guard let self, let q = Notifier.request(j) else { return }
@@ -169,15 +197,24 @@ final class Board: NSObject {
                 self.hub.post("/api/alerts/desktop/result", r) { _, _ in }
             }
         }
-        notifier.onOpen = { [weak self] q in
-            guard let self, let pid = q.projectId else { return }
-            if let sf = q.surfaceId, self.hub.state?.find("\(pid)/\(sf)") != nil { self.pickSession("\(pid)/\(sf)", why: "notification") } else if self.hub.state?.project(pid) != nil { self.pickProject(pid) }
+        // One notifier for the app: its click opens in the window used last.
+        if firstBoard {
+            notifier.onOpen = { q in
+                guard let b = Board.lastFront, let pid = q.projectId else { return }
+                if let sf = q.surfaceId, b.hub.state?.find("\(pid)/\(sf)") != nil { b.pickSession("\(pid)/\(sf)", why: "notification") } else if b.hub.state?.project(pid) != nil { b.pickProject(pid) }
+                b.ws.window.makeKeyAndOrderFront(nil)
+            }
         }
         // In front: the hub sends the next Mac notification here, not to another app beside it.
-        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: ws.window, queue: .main) { [weak self] _ in self?.reportFocus() }
+        NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: ws.window, queue: .main) { [weak self] _ in
+            guard let self, !self.closed else { return }
+            Board.lastFront = self
+            self.reportFocus()
+        }
+        // The idea's "‹ Ideas": up to the Ideas page, as it was when it was opened from there.
         idea.openIdeas = { [weak self] in
             guard let self else { return }
-            if let p = self.hub.state?.pages.first(where: { $0.icon == "idea" }) { self.openPage(p.key, p.label) } else { self.back() }
+            if let p = self.hub.state?.pages.first(where: { $0.icon == "idea" }) { self.up(toPage: p.key, p.label) } else { self.back() }
         }
         plan.openBrief = { [weak self] pid in self?.openBrief(pid) }
         // The ledger: the sidebar's count read every 3 s (as the Electron app
@@ -204,6 +241,12 @@ final class Board: NSObject {
         }
         let prevSelect = ws.bar.onSelect
         let prevClose = ws.bar.onClose
+        let prevNew = ws.bar.onNew
+        // The strip's +: a new shell, in front even when a view was (the view's tab is the strip's last).
+        ws.bar.onNew = { [weak self] in
+            guard let self else { return }
+            self.tabCommand("new shell (+)") { _ in prevNew?() }
+        }
         ws.bar.onClose = { [weak self] id in
             guard let self else { return }
             if id.hasPrefix("view:") { self.back(); return }
@@ -218,8 +261,23 @@ final class Board: NSObject {
             self.render()
         }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.render() }
+        watchKeysAndPresses()
         hub.start()
         render()
+    }
+
+    /// The window closed: its timers, its hub stream and its key watch stop.
+    func close() {
+        guard !closed else { return }
+        closed = true
+        timer?.invalidate(); decTimer?.invalidate()
+        for m in monitors { NSEvent.removeMonitor(m) }
+        monitors = []
+        toastView.clear()
+        if phoneCard.isOpen { phoneCard.close() }
+        outside.stop()
+        hub.stop()
+        if Board.lastFront === self { Board.lastFront = nil }
     }
 
     private var showingMiddle = false
@@ -249,6 +307,7 @@ final class Board: NSObject {
             toast: { [weak self] s in self?.toast(s) },
             answered: { [weak self] in
                 guard let self else { return }
+                self.markUsed("needs")
                 // Answered on a narrow window: back to the terminal.
                 if self.overlay { self.overlay = false }
                 self.render(force: true)
@@ -282,7 +341,7 @@ final class Board: NSObject {
         }
         review.hub = hub
         review.cards = worktrees
-        review.toast = { [weak self] s in self?.toast(s) }
+        review.toast = toaster(review)
         review.back = { [weak self] in self?.back() }
         filesGrid.hub = hub
         filesGrid.cards = worktrees
@@ -303,6 +362,7 @@ final class Board: NSObject {
         picker.hub = hub
         picker.onClose = { [weak self] in self?.back() }
         picker.answer = { [weak self] id, reply, done in
+            self?.markUsed("needs")
             self?.hub.post("/api/checkpoints/answer", reply.merging(["id": id, "by": "desktop"]) { a, _ in a }) { code, j in
                 done(code == 200, code == 200 ? nil : t("checkpoint.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]))
                 self?.render(force: true)
@@ -348,6 +408,7 @@ final class Board: NSObject {
             return (v.screen.cols, v.screen.rows)
         }
         gallery.onClose = { [weak self] in self?.back() }
+        // Group A's sidebar, panel and page hooks, once the panel's host is set.
     }
 
     // MARK: what is in front
@@ -413,7 +474,7 @@ final class Board: NSObject {
         let said = what.isEmpty ? "." : ": " + (what.count > 70 ? String(what.prefix(69)) + "..." : what)
         let proj = title != f.project.name ? " in \(f.project.name)" : ""
         log.append("arrived \(key): a toast")
-        toast("\(title)\(proj) needs you\(said)", action: ("Show", { [weak self] in self?.pickSession(key, why: "notification") }))
+        toast("\(title)\(proj) needs you\(said)", actions: [("Show", { [weak self] in self?.pickSession(key, why: "notification") })], key: "needs:\(key)")
     }
 
     var wide: Bool { root.bounds.width >= Board.foldWidth }
@@ -494,7 +555,10 @@ final class Board: NSObject {
             ws.showAgain(t)
             log.append("session \(why) \(key): its tab \(t.id)")
         } else {
+            enter(.session(key)) { [weak self] in self?.pickSession(key, why: "back") }
             front = .session(key)
+            frontSid = f.session.sessionId
+            outsideEnded = nil
             let why2: String? = f.session.pane != nil ? "it runs in the board's ravenryd, \(f.session.machine ?? f.project.machine ?? "not this window's")" : nil
             showMiddle(outside)
             outside.show(f.project, f.session, why: why2)
@@ -507,6 +571,7 @@ final class Board: NSObject {
         guard let p = hub.state?.project(id) else { return }
         if let s = p.mainSession { pickSession("\(p.id)/\(s.surfaceId)", why: "project"); return }
         overlay = false
+        enter(.project(id)) { [weak self] in self?.pickProject(id) }
         front = .project(id)
         showMiddle(projectPage)
         projectPage.show(p)
@@ -516,6 +581,7 @@ final class Board: NSObject {
 
     func openStart(_ folder: String?) {
         overlay = false
+        enter(.start) { [weak self] in self?.openStart(folder) }
         front = .start
         showMiddle(start)
         start.show(folder: folder)
@@ -538,10 +604,11 @@ final class Board: NSObject {
         if key == "side.machines" { openMachines(); return }
         if key == "side.phone" { if phoneCard.isOpen { phoneCard.close() } else { openPhone() }; return }
         // The foot's Settings, and the panel's way to Settings when the first-launch step was off (its Skills).
+        if key.hasPrefix("settings:") { openSettings(String(key.dropFirst(9))); return }
         if key == "side.settings" || key == "settings" { openSettings(key == "settings" ? "skills" : nil); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
         overlay = false
-        notePageBack()
+        enter(.page(key, name)) { [weak self] in self?.openPage(key, name) }
         front = .page(key, name)
         showMiddle(placeholder)
         placeholder.show(name)
@@ -552,7 +619,7 @@ final class Board: NSObject {
     /// A page from a page file, as the hub draws it.
     func openFilePage(_ key: String, _ name: String) {
         overlay = false
-        notePageBack()
+        enter(.page(key, name)) { [weak self] in self?.openFilePage(key, name) }
         front = .page(key, name)
         showMiddle(files)
         files.show(key)
@@ -561,11 +628,13 @@ final class Board: NSObject {
     }
 
     /// The brief as a page, beside what was in front: the panel stays on it.
-    func openBrief(_ pid: String) {
+    func openBrief(_ pid: String, from: String? = nil) {
         overlay = false
         var k = frontKey ?? "project:\(pid)"
         if case .brief(_, let was) = front { k = was }
         if k.hasPrefix("tab:") { k = "project:\(pid)" }
+        if let from { k = from }
+        enter(.brief(pid, k)) { [weak self] in self?.openBrief(pid, from: k) }
         front = .brief(pid, k)
         showMiddle(brief)
         brief.show(pid, state: hub.state)
@@ -582,7 +651,7 @@ final class Board: NSObject {
     /// A project's gallery, or one of its pictures large.
     func openGallery(_ pid: String, at: Int?) {
         overlay = false
-        notePageBack()
+        enter(.page("gallery:\(pid)", t("gallery.title"))) { [weak self] in self?.openGallery(pid, at: at) }
         front = .page("gallery:\(pid)", t("gallery.title"))
         showMiddle(gallery)
         gallery.show(pid, at: at, state: hub.state)
@@ -593,7 +662,7 @@ final class Board: NSObject {
     /// A project's plan: the one with this title, else the one its page shows first.
     func openPlan(_ pid: String, title: String?) {
         overlay = false
-        notePageBack()
+        enter(.page("plan:\(pid)", t("panel.plan"))) { [weak self] in self?.openPlan(pid, title: title) }
         front = .page("plan:\(pid)", t("panel.plan"))
         showMiddle(plan)
         plan.show(pid, mode: .plan, title: title, state: hub.state)
@@ -604,7 +673,7 @@ final class Board: NSObject {
     /// A new plan drafted from a project's brief.
     func openNewPlan(_ pid: String) {
         overlay = false
-        notePageBack()
+        enter(.page("newplan:\(pid)", t("panel.newPlan"))) { [weak self] in self?.openNewPlan(pid) }
         front = .page("newplan:\(pid)", t("panel.newPlan"))
         showMiddle(plan)
         plan.show(pid, mode: .new, state: hub.state)
@@ -615,7 +684,7 @@ final class Board: NSObject {
     /// Alerts: Mac notifications, the phone and one other way.
     func openAlerts() {
         overlay = false
-        notePageBack()
+        enter(.page("side.alerts", t("alerts.title"))) { [weak self] in self?.openAlerts() }
         front = .page("side.alerts", t("alerts.title"))
         showMiddle(alerts)
         alerts.show()
@@ -624,7 +693,13 @@ final class Board: NSObject {
     }
 
     /// The Settings window (SettingsWindow.swift), on the shared settings file (offscreen: in memory, or RAVENRY_DESKTOP_DATA's).
-    private(set) lazy var settings = SettingsWindow(store: ws.settings, hub: hub, offscreen: !keep)
+    /// One Settings window for every window of the app.
+    var settings: SettingsWindow {
+        if let s = Board.sharedSettings { return s }
+        let s = SettingsWindow(store: ws.settings, hub: hub, offscreen: !keep)
+        Board.sharedSettings = s
+        return s
+    }
     func openSettings(_ tab: String? = nil) {
         settings.show(tab)
         log.append("settings \(settings.tab)")
@@ -634,7 +709,7 @@ final class Board: NSObject {
     /// Learn Ravenry; `lit`: the card a hint's Learn more points at.
     func openLearn(lit: String? = nil) {
         overlay = false
-        notePageBack()
+        enter(.page("side.learn", t("learn.title"))) { [weak self] in self?.openLearn() }
         front = .page("side.learn", t("learn.title"))
         showMiddle(learn)
         learn.show(lit: lit)
@@ -646,7 +721,7 @@ final class Board: NSObject {
     /// Machines: the computers the hub reaches over ssh.
     func openMachines() {
         overlay = false
-        notePageBack()
+        enter(.page("side.machines", t("mach.title"))) { [weak self] in self?.openMachines() }
         front = .page("side.machines", t("mach.title"))
         showMiddle(machines)
         machines.show()
@@ -724,7 +799,7 @@ final class Board: NSObject {
     func openDecisions(lit: String? = nil) {
         markUsed("decisions")
         overlay = false
-        notePageBack()
+        enter(.page("decisions", t("side.decisions"))) { [weak self] in self?.openDecisions() }
         front = .page("decisions", t("side.decisions"))
         showMiddle(decisions)
         decisions.show(lit: lit)
@@ -762,7 +837,8 @@ final class Board: NSObject {
             }))
         }
         acts.append((t("dec.show"), { [weak self] in self?.openDecisions(lit: id) }))
-        toast(text, actions: acts)
+        // A newer one replaces it; with Undo it stays the undo's minute.
+        toast(text, actions: acts, key: "decision", seconds: acts.count > 1 ? 60 : nil)
     }
 
     /// The quote cut at a word near `n` characters (decisions.ts short()).
@@ -781,7 +857,7 @@ final class Board: NSObject {
     /// An idea's thread.
     func openIdea(_ id: String) {
         overlay = false
-        notePageBack()
+        enter(.page("idea:\(id)", t("idea.ideas"))) { [weak self] in self?.openIdea(id) }
         front = .page("idea:\(id)", t("idea.ideas"))
         showMiddle(idea)
         idea.show(id)
@@ -792,8 +868,9 @@ final class Board: NSObject {
     /// A worktree session's review in the middle, the panel beside it on the session.
     func openReview(_ key: String) {
         guard let f = hub.state?.find(key) else { return }
+        markUsed("review")
         overlay = false
-        notePageBack()
+        enter(.page("review:\(key)", t("review.tab"))) { [weak self] in self?.openReview(key) }
         front = .page("review:\(key)", t("review.tab"))
         showMiddle(review)
         review.show(key, f.project, f.session)
@@ -805,7 +882,7 @@ final class Board: NSObject {
     func openFilesGrid(_ pid: String) {
         guard let p = hub.state?.project(pid) else { return }
         overlay = false
-        notePageBack()
+        enter(.page("files:\(pid)", p.name)) { [weak self] in self?.openFilesGrid(pid) }
         front = .page("files:\(pid)", p.name)
         showMiddle(filesGrid)
         filesGrid.show(pid, name: p.name)
@@ -816,8 +893,9 @@ final class Board: NSObject {
     /// A pick side by side in the middle, the panel beside it on its card.
     func openPicker(_ id: String) {
         guard let cp = hub.state?.checkpoints.first(where: { $0["id"] as? String == id }) else { return }
+        markUsed("pick")
         overlay = false
-        notePageBack()
+        enter(.page("pick:\(id)", t("pick.tab"))) { [weak self] in self?.openPicker(id) }
         front = .page("pick:\(id)", t("pick.tab"))
         showMiddle(picker)
         picker.show(cp)
@@ -826,28 +904,88 @@ final class Board: NSObject {
         render()
     }
 
-    /// Where a page's Close goes: what was in front before the first page.
-    private func notePageBack() {
-        if case .page = front { return }
-        pageBack = front
+    // MARK: going back (every page keeps where it was opened from)
+
+    /// Something comes to the middle: what was there goes on the back
+    /// stack, unless this is a step back, the same view again, or a view
+    /// already deeper in the stack (Plans from the sidebar while on a plan
+    /// opened from Plans), which goes back to that level instead of looping.
+    private func enter(_ f: Front, _ again: @escaping () -> Void) {
+        defer { here = Step(front: f, again: again) }
+        if goingBack { return }
+        if let i = backStack.lastIndex(where: { $0.front == f }) { backStack.removeSubrange(i...); return }
+        guard var h = here, h.front != f else { return }
+        // The gallery comes back on the picture it showed when it was left.
+        if case .page(let k, _) = h.front, k.hasPrefix("gallery:") {
+            let pid = String(k.dropFirst(8)), at = gallery.at
+            h.again = { [weak self] in self?.openGallery(pid, at: at) }
+        }
+        backStack.append(h)
+        if backStack.count > 40 { backStack.removeFirst() }
     }
 
-    /// Back from a page: what was in front before it, else the tab.
-    private func back() {
-        let to = pageBack
-        pageBack = .tab
-        if case .page = front {
-            switch to {
-            case .session(let k) where hub.state?.find(k) != nil: pickSession(k, why: "back"); return
-            case .project(let id) where hub.state?.project(id) != nil: pickProject(id); return
-            case .brief(let pid, _): front = to; showMiddle(brief); brief.show(pid, state: hub.state); render(); return
-            default: break
-            }
+    /// A step that can still be shown (its session, project or question is still on the board).
+    private func stillThere(_ f: Front) -> Bool {
+        let st = hub.state
+        switch f {
+        case .session(let k): return st?.find(k) != nil
+        case .project(let id): return st?.project(id) != nil
+        case .brief(let pid, _): return st?.project(pid) != nil
+        case .page(let k, _) where k.hasPrefix("review:"): return st?.find(String(k.dropFirst(7))) != nil
+        case .page(let k, _) where k.hasPrefix("pick:"): return st?.checkpoints.contains { $0["id"] as? String == String(k.dropFirst(5)) } ?? false
+        case .page(let k, _) where k.hasPrefix("files:"): return st?.project(String(k.dropFirst(6))) != nil
+        default: return true
         }
+    }
+
+    /// A step's name, as a page's back link says it ("‹ Plans").
+    private func name(of f: Front) -> String? {
+        switch f {
+        case .page(_, let n): return n
+        case .session(let k): return hub.state?.find(k).map { $0.session.topic ?? $0.project.name }
+        case .project(let id): return hub.state?.project(id)?.name
+        case .brief: return t("brief.title")
+        case .start: return t("start.title")
+        case .tab: return nil
+        }
+    }
+
+    /// Where Close and Esc go from what is in front, named; nil: the terminal.
+    var backName: String? { backStack.last { stillThere($0.front) }.flatMap { name(of: $0.front) } }
+    /// What the back stack holds, oldest first, for the self-test.
+    var backTrail: [Front] { backStack.map(\.front) }
+
+    /// Back one step: what was in front before (a page, a session's view,
+    /// a project, the brief, Start), else the terminal. A page's Close,
+    /// Esc, Cmd+W and the x on the view's tab all come here.
+    func back() {
+        while let s = backStack.popLast() {
+            guard stillThere(s.front) else { continue }
+            log.append("back to \(s.front)")
+            goingBack = true
+            s.again()
+            goingBack = false
+            return
+        }
+        log.append("back to the terminal")
         front = .tab
         hideMiddle()
         if let t = ws.active { ws.showAgain(t) }
         render()
+    }
+
+    /// Up to a page (the idea's "‹ Ideas"): back to it when it is in the
+    /// stack, else it opens in the place of the view in front, so its Close
+    /// goes where that view came from.
+    func up(toPage key: String, _ name: String) {
+        if let i = backStack.lastIndex(where: { if case .page(key, _) = $0.front { return true }; return false }) {
+            let s = backStack[i]
+            backStack.removeSubrange(i...)
+            goingBack = true; s.again(); goingBack = false
+        } else {
+            goingBack = true; openPage(key, name); goingBack = false
+        }
+        log.append("up to \(key)")
     }
 
     private func showMiddle(_ v: NSView) {
@@ -857,17 +995,120 @@ final class Board: NSObject {
         root.middle = v
         root.wideMiddle = v is InAppPage || v === picker
         showingMiddle = true
+        // The keyboard leaves the terminal the view covers: keys never act on a tab no one sees.
+        if let r = ws.window.firstResponder as? NSView, r === ws.root || r.isDescendant(of: ws.stage) {
+            ws.window.makeFirstResponder(v.acceptsFirstResponder ? v : nil)
+        }
         root.place()
+        showKept(for: v)
     }
 
+    /// A tab's terminal in front: the back stack starts again from it.
     private func hideMiddle() {
         outside.stop()
         for m in middles { m.isHidden = true }
         root.middle = nil
         root.wideMiddle = false
         showingMiddle = false
+        backStack.removeAll()
+        here = nil
         if let t = ws.active, let v = ws.boxes[t.focusedPane]?.term { ws.window.makeFirstResponder(v) }
     }
+
+    // MARK: Esc, a press outside the phone card
+
+    private func watchKeysAndPresses() {
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+            guard let self, !self.closed, e.window === self.ws.window, e.keyCode == 53,
+                  e.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return e }
+            return self.escape() ? nil : e
+        }) { monitors.append(m) }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] e in
+            guard let self, !self.closed, self.phoneCard.isOpen, e.window === self.ws.window else { return e }
+            // A press outside the phone card closes it (its mark in the foot toggles it itself).
+            if !self.phoneCard.bounds.contains(self.phoneCard.convert(e.locationInWindow, from: nil)) && !self.onPhoneMark(e.locationInWindow) {
+                self.log.append("phone card: a press outside closes it")
+                self.phoneCard.close()
+            }
+            return e
+        }) { monitors.append(m) }
+    }
+
+    private func onPhoneMark(_ p: NSPoint) -> Bool {
+        guard let m = sidebar.footButtons["side.phone"] else { return false }
+        return m.bounds.contains(m.convert(p, from: nil))
+    }
+
+    /// A press in the window at a point (the self-test's), through the outside-press watch.
+    func pressOutsideCheck(at p: NSPoint) {
+        guard phoneCard.isOpen, !phoneCard.bounds.contains(phoneCard.convert(p, from: nil)), !onPhoneMark(p) else { return }
+        log.append("phone card: a press outside closes it")
+        phoneCard.close()
+    }
+
+    /// Esc in the window: the phone card, a page's sheet, a channel's
+    /// setup, a zoomed picture, the panel over the terminal, else what is
+    /// in front goes back one step. A field being typed in keeps its Esc,
+    /// and on a terminal Esc is the program's.
+    @discardableResult
+    func escape() -> Bool {
+        let w = ws.window
+        if w.attachedSheet != nil { return false }
+        if let tv = w.firstResponder as? NSTextView, tv.isEditable { return false }
+        if phoneCard.isOpen { phoneCard.cancelOperation(nil); log.append("esc: phone card"); render(); return true }
+        if case .page(let k, _) = front {
+            if k == files.key, files.sheetView != nil { files.closeSheet(); log.append("esc: page sheet"); return true }
+            if k == "side.alerts", alerts.open != nil { alerts.cancelOperation(nil); log.append("esc: channel setup"); return true }
+            // A zoomed picture fitted, then the grid (Gallery.escape), then back.
+            if k.hasPrefix("gallery:"), gallery.escape() { log.append("esc: gallery"); return true }
+        }
+        if overlay {
+            overlay = false
+            log.append("esc: panel")
+            render(force: true)
+            if case .tab = front, let v = ws.focusedView { w.makeFirstResponder(v) }
+            return true
+        }
+        guard showingMiddle else { return false }
+        log.append("esc: back")
+        back()
+        return true
+    }
+
+    // MARK: the keyboard's tab commands
+
+    /// A tab command (New Shell, Tab 1 to 9, Split): with a page, a
+    /// session's view, a project or Start in front, the terminal comes to
+    /// the front first, so the command is seen (the Electron app's setView).
+    func tabCommand(_ what: String, _ run: (Workspace) -> Void) {
+        let was = showingMiddle
+        if was { front = .tab; hideMiddle() }
+        run(ws)
+        if was, let t = ws.active { ws.showAgain(t) }
+        log.append("command \(what)\(was ? ": the terminal in front" : "")")
+        render()
+    }
+
+    /// Ctrl+Tab and back: from the view's tab (the strip's last), the first tab or the last.
+    func stepTab(_ d: Int) {
+        if showingMiddle { tabCommand(d > 0 ? "next tab" : "previous tab") { $0.select(index: d > 0 ? 0 : $0.tabs.count - 1) } } else { ws.step(d) }
+    }
+
+    /// Cmd+W: what is in front closes. A page, a session's view, a
+    /// project or Start goes back where it was opened from; on a terminal,
+    /// the pane with the keyboard (never a shell hidden behind a page).
+    func closeCommand() {
+        if showingMiddle { log.append("command close: back"); back(); return }
+        ws.closeFocused()
+    }
+
+    /// ravenryd focus (pane.focus): the terminal comes to the front for the pane the daemon names.
+    func toTerminal() {
+        guard showingMiddle else { return }
+        front = .tab
+        hideMiddle()
+    }
+
 
     func togglePin(_ key: String) {
         if let i = pinned.firstIndex(of: key) { pinned.remove(at: i) } else { pinned.append(key) }
@@ -1017,8 +1258,22 @@ final class Board: NSObject {
                 log.append("session: its new pane \(a.pane) in front once it came")
             }
         }
-        // A session in front that left the board: its view says so.
-        if case .session(let k) = front, let st, st.find(k) == nil { outside.stop() }
+        // A session in front that left the board: followed under its new key
+        // (moved, continued: the same conversation), else its view and its tab
+        // stay with their last words and say it ended.
+        if case .session(let k) = front, let st, st.find(k) == nil {
+            if let sid = frontSid, let p = st.projects.first(where: { $0.sessions.contains { $0.sessionId == sid } }),
+               let s = p.sessions.first(where: { $0.sessionId == sid }) {
+                log.append("session \(k): followed to \(p.id)/\(s.surfaceId)")
+                pickSession("\(p.id)/\(s.surfaceId)", why: "followed")
+                return
+            }
+            if outsideEnded != k {
+                outsideEnded = k
+                outside.stop()
+                toast(t("else.ended"))
+            }
+        }
         if case .session(let k) = front, let f = st?.find(k) { outside.show(f.project, f.session, why: f.session.pane != nil ? "it runs in the board's ravenryd" : nil) }
         if case .project(let id) = front, let p = st?.project(id) { projectPage.show(p) }
         if case .brief(let pid, _) = front { brief.show(pid, state: st) }
@@ -1060,17 +1315,37 @@ final class Board: NSObject {
         let strip = leaseStrip()
         if strip?.text != root.strip?.text || (strip == nil) != (root.strip == nil) { root.strip = strip }
         root.place()
+        toastsFollow()
         toastView.place(in: root)
+        // Learn's "An agent's own pane" ticks once one is a tab here (app.ts addAgentPaneTab).
+        if learn.used["panes"] != true, !panesTicked, ws.tabs.contains(where: { t in ws.panes(of: t).contains { ws.paneInfo($0)?.creator?["kind"] as? String == "agent" } }) {
+            panesTicked = true
+            markUsed("panes")
+        }
     }
+    private var panesTicked = false
+    /// The conversation of the session whose view is in front (followed when its key changes).
+    private var frontSid: String?
+    /// The session in front whose end was said.
+    private var outsideEnded: String?
+    /// The view's tab of the last session shown, kept when it leaves the board.
+    private var lastSessionTab: TabModel?
 
     /// The middle's tab: a session's name and its project, a page's name.
     private func middleTab(_ st: HubState?) -> TabModel? {
         switch front {
         case .session(let k):
-            guard let f = st?.find(k) else { return nil }
+            guard let f = st?.find(k) else {
+                // Gone from the board: its tab stays, ended, until the person moves on.
+                guard var m = lastSessionTab, m.id == "view:\(k)" else { return nil }
+                m.dot = "idle"; m.tip = t("else.ended")
+                return m
+            }
             let name = f.session.topic ?? f.project.name
             let g = st?.sections.first { $0.projects.contains { $0.rows.contains { $0.key == k } } }?.group ?? f.session.group
-            return TabModel(id: "view:\(k)", name: name, sub: name == f.project.name ? nil : f.project.name, split: false, active: true, tip: name, dot: g)
+            let m = TabModel(id: "view:\(k)", name: name, sub: name == f.project.name ? nil : f.project.name, split: false, active: true, tip: name, dot: g)
+            lastSessionTab = m
+            return m
         case .project(let id):
             guard let p = st?.project(id) else { return nil }
             return TabModel(id: "view:project", name: p.name, sub: nil, split: false, active: true, tip: p.name, dot: "idle")
@@ -1102,48 +1377,199 @@ final class Board: NSObject {
     func toast(_ text: String, action: (String, () -> Void)? = nil) {
         toast(text, actions: action.map { [$0] } ?? [])
     }
-    func toast(_ text: String, actions: [(String, () -> Void)]) {
+    /// A toast, said on the view in front. `key` names what it is about (a
+    /// newer one with the same key replaces it); `seconds` with actions: at
+    /// least 12 (infinity: until pressed).
+    func toast(_ text: String, actions: [(String, () -> Void)], key: String? = nil, seconds: Double? = nil) {
+        guard !closed else { return }
         log.append("toast \(text)")
-        toastView.show(text, actions: actions, in: root)
+        toastView.show(text, actions: actions, key: key, seconds: seconds, at: viewKey, in: root)
+    }
+
+    /// The toasts on screen now, oldest first, for the self-test.
+    var toastTexts: [String] { toastView.items.map(\.text) }
+    /// The toasts' stack itself, for the self-test.
+    var toastStack: ToastView { toastView }
+
+    /// The view in front as one key: a toast belongs to the view it was said on.
+    private var viewKey: String {
+        if case .tab = front { return "tab:\(ws.active?.id ?? "")" }
+        return "\(front)"
+    }
+    private var lastViewKey = ""
+    /// What a page said after the person left it, kept for when they come back (with OK).
+    private var kept: [ObjectIdentifier: [String]] = [:]
+
+    /// A page's toast: said when the page is in front, else kept for it.
+    private func toaster(_ v: NSView) -> (String) -> Void {
+        { [weak self, weak v] s in
+            guard let self, let v else { return }
+            if self.root.middle !== v || v.isHidden { self.keep(s, for: v) } else { self.toast(s) }
+        }
+    }
+    private func keep(_ s: String, for v: NSView) {
+        var l = kept[ObjectIdentifier(v)] ?? []
+        if !l.contains(s) { l.append(s) }
+        kept[ObjectIdentifier(v)] = l
+        log.append("toast kept for later: \(s)")
+    }
+    private func showKept(for v: NSView) {
+        guard let l = kept.removeValue(forKey: ObjectIdentifier(v)), !l.isEmpty else { return }
+        toast(l.joined(separator: " "), actions: [(t("toast.ok"), {})], key: "kept")
+    }
+
+    /// The view in front changed: plain toasts said elsewhere go, and the
+    /// question of the session now in front (the person is looking at it).
+    private func toastsFollow() {
+        let k = viewKey
+        if k != lastViewKey {
+            lastViewKey = k
+            toastView.dropSaidElsewhere(k)
+        }
+        if let fk = frontKey { toastView.drop(key: "needs:\(fk)") }
     }
 }
 
-/// A toast at the bottom of the window (.toast): 5 s, 12 s with an action.
-final class ToastView: Box {
-    private var timer: Timer?
-    private(set) var text = ""
-    private(set) var buttons: [RButton] = []
+/// The toasts at the bottom of the window (app.ts showToast, app.css
+/// .toast): up to three, the newest last. A plain one goes after 5 s and
+/// when the person moves to another view; one with an action (Show, Undo)
+/// stays at least 12 s (Undo a minute), with an x. The pointer over them
+/// pauses their time, and they get 2 s more once it leaves (2026-11-07,
+/// "Didnt have time to click it"). A newer one with the same key (a
+/// session's question, the decisions) replaces the older.
+final class ToastView: Flipped {
+    final class Item: Box {
+        let key: String
+        let text: String
+        let plain: Bool
+        /// The view it was said on (Board.viewKey).
+        let at: String
+        let seconds: Double
+        var left: Double
+        var since = Date()
+        var timer: Timer?
+        var buttons: [RButton] = []
+        init(key: String, text: String, plain: Bool, at: String, seconds: Double) {
+            self.key = key; self.text = text; self.plain = plain; self.at = at; self.seconds = seconds; left = seconds
+            super.init(fill: "card2", radius: 9)
+        }
+        required init?(coder: NSCoder) { fatalError() }
+        override func updateLayer() {
+            super.updateLayer()
+            // box-shadow: 0 10px 30px rgba(0,0,0,.35)
+            guard let l = layer else { return }
+            l.shadowColor = NSColor.black.cgColor
+            l.shadowOpacity = 0.35
+            l.shadowRadius = 15
+            l.shadowOffset = CGSize(width: 0, height: -10)
+            l.masksToBounds = false
+        }
+    }
+
+    private(set) var items: [Item] = []
+    private var hovering = false
+    /// The newest toast's words.
+    var text: String { items.last?.text ?? "" }
+    /// The buttons of the newest toast that has any (Undo, Show), for the self-test.
+    var buttons: [RButton] { items.last { !$0.buttons.isEmpty }?.buttons ?? [] }
     var button: RButton? { buttons.first }
-    init() { super.init(fill: "card2", radius: 9) }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        isHidden = true
+    }
     required init?(coder: NSCoder) { fatalError() }
-    func show(_ s: String, actions: [(String, () -> Void)], in root: NSView) {
-        subviews.forEach { $0.removeFromSuperview() }
-        text = s
+
+    func show(_ s: String, actions: [(String, () -> Void)], key: String?, seconds: Double?, at: String, in root: NSView) {
+        let plain = actions.isEmpty
+        let k = key ?? (plain ? "plain" : "say:\(s)")
+        for i in items where i.key == k { drop(i) }
+        let secs = plain ? (seconds ?? 5) : max(seconds ?? 12, 12)
+        let item = Item(key: k, text: s, plain: plain, at: at, seconds: secs)
         let l = label(s, Fonts.pt(12.5), "tx", lines: 2)
         l.preferredMaxLayoutWidth = 520
-        var items: [NSView] = [l]
-        buttons = actions.map { name, run in RButton(name, .link) { [weak self] in self?.hide(); run() } }
-        items += buttons as [NSView]
-        let x = RButton("Dismiss", .icon, small: true, icon: "close")
-        x.removeConstraints(x.constraints.filter { $0.firstAttribute == .width || $0.firstAttribute == .height })
-        x.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        x.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        x.run = { [weak self] in self?.hide() }
-        items.append(x)
-        let st = hstack(items, spacing: 12, insets: NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14))
-        addSubview(st)
+        var parts: [NSView] = [l]
+        item.buttons = actions.map { name, run in RButton(name, .link) { [weak self, weak item] in if let item { self?.drop(item) }; run() } }
+        parts += item.buttons as [NSView]
+        // An x on a toast with an action only (a plain one goes by itself).
+        if !plain {
+            let x = RButton(t("toast.dismiss"), .icon, small: true, icon: "close")
+            x.removeConstraints(x.constraints.filter { $0.firstAttribute == .width || $0.firstAttribute == .height })
+            x.widthAnchor.constraint(equalToConstant: 20).isActive = true
+            x.heightAnchor.constraint(equalToConstant: 20).isActive = true
+            x.run = { [weak self, weak item] in if let item { self?.drop(item) } }
+            parts.append(x)
+        }
+        let st = hstack(parts, spacing: 12, insets: NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14))
+        item.addSubview(st)
         st.frame.size = st.fittingSize
-        frame.size = st.fittingSize
+        item.frame.size = st.fittingSize
+        item.setAccessibilityElement(true)
+        item.setAccessibilityRole(.group)
+        item.setAccessibilityLabel(s)
+        items.append(item)
+        addSubview(item)
+        // At most three at once: the oldest goes.
+        while items.count > 3 { drop(items[0]) }
         if superview !== root { root.addSubview(self, positioned: .above, relativeTo: nil) }
         isHidden = false
         place(in: root)
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: actions.isEmpty ? 5 : 12, repeats: false) { [weak self] _ in self?.hide() }
+        run(item)
+        NSAccessibility.post(element: item, notification: .announcementRequested, userInfo: [.announcement: s, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
     }
-    func hide() { isHidden = true; text = "" }
+
+    private func run(_ i: Item) {
+        guard i.seconds.isFinite, !hovering, i.timer == nil else { return }
+        i.since = Date()
+        i.timer = Timer.scheduledTimer(withTimeInterval: i.left, repeats: false) { [weak self, weak i] _ in if let i { self?.drop(i) } }
+    }
+    private func pause(_ i: Item) {
+        guard let tm = i.timer else { return }
+        tm.invalidate()
+        i.timer = nil
+        i.left = max(0, i.left - Date().timeIntervalSince(i.since))
+    }
+
+    func drop(_ i: Item) {
+        i.timer?.invalidate()
+        i.timer = nil
+        items.removeAll { $0 === i }
+        i.removeFromSuperview()
+        if items.isEmpty { isHidden = true; hovering = false } else if let r = superview { place(in: r) }
+    }
+    func drop(key: String) { for i in items where i.key == key { drop(i) } }
+    /// Plain toasts and kept ones said on another view than `here`.
+    func dropSaidElsewhere(_ here: String) { for i in items where (i.plain || i.key == "kept") && i.at != here { drop(i) } }
+    func clear() { for i in items { drop(i) } }
+
+    /// The stack at the bottom, centred, 20 pt up, the newest last.
     func place(in root: NSView) {
         guard superview === root, !isHidden else { return }
         root.addSubview(self, positioned: .above, relativeTo: nil)
-        frame.origin = NSPoint(x: (root.bounds.width - frame.width) / 2, y: root.bounds.height - frame.height - 20)
+        let w = items.map(\.frame.width).max() ?? 0
+        var y: CGFloat = 0
+        for i in items {
+            i.setFrameOrigin(NSPoint(x: (w - i.frame.width) / 2, y: y))
+            y += i.frame.height + 8
+        }
+        let h = max(0, y - 8)
+        frame = NSRect(x: (root.bounds.width - w) / 2, y: root.bounds.height - h - 20, width: w, height: h)
+    }
+
+    // The pointer over the toasts pauses them; once it leaves, at least 2 s more.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with e: NSEvent) { hover(true) }
+    override func mouseExited(with e: NSEvent) { hover(false) }
+    /// The pointer came over the toasts or left them (the self-test calls it too).
+    func hover(_ on: Bool) {
+        hovering = on
+        if on { items.forEach(pause) } else { for i in items { i.left = max(i.left, 2); run(i) } }
     }
 }
+
