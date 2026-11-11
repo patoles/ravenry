@@ -562,6 +562,7 @@ final class ModelField: Box, NSTextFieldDelegate {
         value = s
         field = NSTextField(string: s)
         super.init(fill: "input", ring: "sep", radius: 6)
+        ringsOnFocus = true
         translatesAutoresizingMaskIntoConstraints = false
         field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
         field.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)

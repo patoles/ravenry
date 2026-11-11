@@ -199,6 +199,7 @@ final class SendField: Box, NSTextFieldDelegate {
     init(_ placeholder: String, text: String, button: Bool = true) {
         go = RButton(t("checkpoint.send"), .icon, small: true, icon: "send")
         super.init(fill: "input", ring: "sep", radius: 7)
+        ringsOnFocus = true
         translatesAutoresizingMaskIntoConstraints = false
         field.stringValue = text
         field.isBordered = false
@@ -253,6 +254,7 @@ final class SecretBox: Box, NSTextFieldDelegate {
         self.reveal = reveal
         eye = RButton(reveal ? t("checkpoint.secretHide") : t("checkpoint.secretShow"), .icon, small: true, icon: reveal ? "eye-off" : "eye")
         super.init(fill: "input", ring: "sep", radius: 7)
+        ringsOnFocus = true
         translatesAutoresizingMaskIntoConstraints = false
         for f in [secure, shown] as [NSTextField] {
             f.isBordered = false

@@ -813,6 +813,7 @@ final class ScrollbackField: Box, NSTextFieldDelegate {
         value = n
         field = NSTextField(string: typed ?? ScrollbackField.fmt(n))
         super.init(fill: "input", ring: "sep", radius: 6)
+        ringsOnFocus = true
         translatesAutoresizingMaskIntoConstraints = false
         field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
         field.font = Fonts.pt(13).withTabularDigits

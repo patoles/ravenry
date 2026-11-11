@@ -83,5 +83,93 @@ extension SelfTestBoard {
             board.settings.window.orderOut(nil)
         }
         ws.closePane(pane)
+        focusRingSweep()
+    }
+}
+
+// A11Y-004, the keyboard's ring on every control that takes it
+// (sidetest --screen keys, after the keys): the main window with Alerts open
+// (its fields and buttons, the sidebar, the tabs, the panel) and each tab of
+// Settings. Each text field is given the keyboard and its ring must show at
+// once (its box's ring turned --work, or AppKit's own); every other control
+// must have a ring AppKit draws (focusRingType not none and a mask that
+// paints).
+extension SelfTestBoard {
+    private func maskPixels(_ v: NSView) -> Int {
+        let w = Int(ceil(v.bounds.width)), h = Int(ceil(v.bounds.height))
+        guard w > 0, h > 0, v.focusRingMaskBounds.width >= 1,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0), let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return 0 }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        NSColor.black.setFill()
+        v.drawFocusRingMask()
+        NSGraphicsContext.restoreGraphicsState()
+        var n = 0
+        for y in stride(from: 0, to: h, by: 2) { for x in stride(from: 0, to: w, by: 2) where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 { n += 1 } }
+        return n
+    }
+
+    private func drawsOwnRing(_ win: NSWindow, _ v: NSView) -> Bool {
+        func shot() -> Data? { guard let r = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return nil }; v.cacheDisplay(in: v.bounds, to: r); return r.tiffRepresentation }
+        win.makeFirstResponder(nil); v.needsDisplay = true
+        let a = shot()
+        guard win.makeFirstResponder(v) else { return false }
+        v.needsDisplay = true
+        let b = shot()
+        win.makeFirstResponder(nil)
+        return a != nil && b != nil && a != b
+    }
+
+    private func ringFailures(_ win: NSWindow, _ root: NSView, _ place: String) -> (checked: Int, bad: [String]) {
+        var bad: [String] = [], checked = 0
+        func name(_ v: NSView) -> String { "\(place): \(type(of: v)) \((v.accessibilityLabel() ?? (v as? NSButton)?.title ?? (v as? NSTextField)?.placeholderString ?? "").prefix(30))" }
+        func walk(_ v: NSView) {
+            if v.isHiddenOrHasHiddenAncestor || v.alphaValue == 0 || v.visibleRect.isEmpty { return }
+            if v is TerminalView { return } // its cursor is where the keyboard is
+            if let f = v as? NSTextField, f.isEditable, f.isEnabled {
+                checked += 1
+                win.makeFirstResponder(f)
+                settle(0.05)
+                var lit = f.focusRingType != .none
+                var p = f.superview
+                while let s = p, !lit { if let b = s as? Box, b.ring == "work" { lit = true }; p = s.superview }
+                if !lit { bad.append(name(f)) }
+                return
+            }
+            let takes = v.canBecomeKeyView || (v is NSButton && (v as? NSButton)?.isEnabled == true)
+            if takes && !(v is NSScrollView) && !(v is NSClipView) && !(v is NSTextView) {
+                checked += 1
+                // AppKit's ring, else one the control draws itself (the hand-off track's thumb): it looks different with the keyboard.
+                if v.focusRingType == .none || maskPixels(v) == 0, !drawsOwnRing(win, v) { bad.append(name(v)) }
+            }
+            v.subviews.forEach(walk)
+        }
+        walk(root)
+        win.makeFirstResponder(nil)
+        return (checked, bad)
+    }
+
+    func focusRingSweep() {
+        board.openPage("side.alerts", t("side.alerts"))
+        let pg = board.alerts
+        _ = wait(5) { pg.setup != nil }
+        pg.buttons["telegram-toggle"]?.performClick(nil)
+        settle(0.4)
+        if let f = pg.fields["tg"] { window.makeFirstResponder(f.field); settle(0.3); picture("native-focus-field-1280-dark.png") }
+        let main = ringFailures(window, window.contentView!, "main")
+        let sw = board.settings
+        board.menuSettings(nil)
+        _ = wait(3) { sw.window.isVisible }
+        var set = (checked: 0, bad: [String]())
+        for tab in ["appearance", "behavior", "handoff", "skills"] {
+            (sw.tabButtons[tab] as TapBox?)?.press()
+            settle(0.6)
+            let r = ringFailures(sw.window, sw.window.contentView!, "settings \(tab)")
+            set.checked += r.checked; set.bad += r.bad
+        }
+        sw.window.orderOut(nil)
+        check("a11y_focus_ring_every_control", main.checked > 20 && set.checked > 20 && main.bad.isEmpty && set.bad.isEmpty,
+              "main \(main.checked) checked, settings \(set.checked); no ring: \((main.bad + set.bad).joined(separator: "; "))")
     }
 }

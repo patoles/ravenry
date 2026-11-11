@@ -20,6 +20,16 @@ class Box: Flipped {
     var ringWidth: CGFloat = 1
     var radius: CGFloat = 0 { didSet { needsDisplay = true } }
     var dropShadow = false
+    /// A box around a borderless text field: its ring turns --work while the
+    /// field has the keyboard, from the moment it gets it (Tab, a click), not
+    /// only once something is typed (.field:focus; A11Y-004). FocusRings.
+    var ringsOnFocus = false { didSet { if ringsOnFocus, let w = window { FocusRings.watch(w) } } }
+    /// The ring and width before the keyboard came (put back when it goes).
+    fileprivate var beforeFocus: (String?, CGFloat)?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if ringsOnFocus, let w = window { FocusRings.watch(w) }
+    }
 
     init(fill: String? = nil, ring: String? = nil, radius: CGFloat = 0) {
         self.fill = fill; self.ring = ring; self.radius = radius
@@ -45,6 +55,37 @@ class Box: Flipped {
         }
     }
     override func viewDidChangeEffectiveAppearance() { needsDisplay = true }
+}
+
+/// The keyboard's place on a text field drawn as its box's ring: each
+/// window's first responder watched (key-value observed); a field editor
+/// working for a field inside a box with ringsOnFocus lights that box.
+enum FocusRings {
+    private static var watching: [ObjectIdentifier: NSKeyValueObservation] = [:]
+    private static var lit: [ObjectIdentifier: Box] = [:]
+    static func watch(_ w: NSWindow) {
+        let id = ObjectIdentifier(w)
+        guard watching[id] == nil else { return }
+        watching[id] = w.observe(\.firstResponder, options: [.new]) { w, _ in DispatchQueue.main.async { update(w) } }
+        update(w)
+    }
+    static func update(_ w: NSWindow) {
+        let id = ObjectIdentifier(w)
+        var box: Box? = nil
+        if let ed = w.firstResponder as? NSTextView, ed.isFieldEditor, var v = ed.delegate as? NSView {
+            while let s = v.superview { if let b = s as? Box, b.ringsOnFocus { box = b; break }; v = s }
+        }
+        if let old = lit[id], old !== box {
+            if let (r, wd) = old.beforeFocus, old.ring == "work" { old.ring = r; old.ringWidth = wd }
+            old.beforeFocus = nil
+            lit[id] = nil
+        }
+        if let b = box {
+            if lit[id] !== b { b.beforeFocus = (b.ring == "work" ? "sep" : b.ring, b.ring == "work" ? 1 : b.ringWidth); lit[id] = b }
+            // A field given the keyboard again ends its editing first, which a box may answer by putting its ring back.
+            if b.ring != "work" { b.ring = "work"; b.ringWidth = 1.5 }
+        }
+    }
 }
 
 /// A row that opens what it stands for: lit on hover (--sel), and when
@@ -268,6 +309,9 @@ final class RButton: NSButton {
         return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil ? 0 : 20), height: small ? 28 : 32)
     }
     @objc private func fire() { run?() }
+    // The keyboard's ring (A11Y-004): the button's own rounded shape, whatever its kind draws.
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { let r = layer?.cornerRadius ?? 6; NSBezierPath(roundedRect: bounds, xRadius: r, yRadius: r).fill() }
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {
         guard let l = layer else { return }
@@ -539,5 +583,8 @@ final class PlainButton: NSButton {
     required init?(coder: NSCoder) { fatalError() }
     @objc private func fire() { run() }
     override func resetCursorRects() { handCursor() }
+    // The keyboard's ring (A11Y-004) around what it draws (a hint's Learn more, its x).
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }

@@ -303,7 +303,7 @@ extension SelfTestBoard {
         settingsPictures("settings-scrollback-range")
         keyIn("\u{1b}", 53)
         let sb2 = sw.controls["scrollback"] as? ScrollbackField
-        check("set_scrollback_escape_puts_back", !sw.scrollbackBad && sb2?.field.stringValue == "10,000" && sb2?.ring == "sep" && (sw.controls["scrollbackRange"]?.isHidden ?? false) && saved()["scrollback"] as? Int == before,
+        check("set_scrollback_escape_puts_back", !sw.scrollbackBad && sb2?.field.stringValue == "10,000" && sb2?.ring != "bad" && (sw.controls["scrollbackRange"]?.isHidden ?? false) && saved()["scrollback"] as? Int == before,
               "field \(sb2?.field.stringValue ?? "") ring \(sb2?.ring ?? "") bad \(sw.scrollbackBad)")
         typeAll("25000")
         keyIn("\r", 36)

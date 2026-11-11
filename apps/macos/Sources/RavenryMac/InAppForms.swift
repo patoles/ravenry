@@ -171,13 +171,14 @@ final class FieldBox: Box, NSTextFieldDelegate {
     let area: Bool
     var onChange: (() -> Void)?
     /// Its ring turns --work while it has the keyboard (.field:focus); off for .dsearch.
-    var ringOnFocus = true
+    var ringOnFocus = true { didSet { ringsOnFocus = ringOnFocus } }
     /// `icon`: drawn before the words, in tx3 (.dsearch's search glass).
     init(_ placeholder: String, area: Bool, height: CGFloat? = nil, icon: String? = nil) {
         self.area = area
         let f = area ? UndoField(wrappingLabelWithString: "") : UndoField(string: "")
         field = f
         super.init(fill: "input", ring: "sep", radius: 7)
+        ringsOnFocus = true
         translatesAutoresizingMaskIntoConstraints = false
         field.isEditable = true
         field.isSelectable = true
