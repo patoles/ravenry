@@ -193,6 +193,7 @@ session's review comments and the agent's replies).
 | `/api/pages/ask` | person | It types into a session, and a background ask sends it: what the composer does. |
 | `/api/pages/run` | person | Judged (ambiguous): it puts a command in front of the person to approve as if they pressed the button (an agent asks with `ravenry approve` instead). |
 | `/api/decisions/record` | open | An agent records the person's words verbatim (`ravenry decide`): it counts at once, marked with the pane and session that recorded it, and the person is told at once and can undo it for a minute, or edit or remove it any time. |
+| `/api/brief/tick` | person | Ticking a task says it is done: the person's call, as a page's box is. |
 | `/api/review/reply` | open | An agent answers a review comment (`ravenry review reply`): its words join the comment's thread for the person to read, and nothing runs. Only the pane of the session the comment is on may reply (403 otherwise). |
 | `/api/note` | open | Adds a line under Notes in the brief. |
 | `/api/inbox/<project>` | open | Puts a file in the project's inbox folder; nothing is sent or run. |

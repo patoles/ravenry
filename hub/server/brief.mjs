@@ -227,6 +227,45 @@ export function appendNote(file, note) {
   return line;
 }
 
+// ------------------------------------------------------------ ticking a task
+
+// Ticks (done) or unticks one task of the brief's Plan: the bullet under the
+// objective `objective` (its ### heading; empty or "Plan" for the tasks
+// before any heading, or any when it is empty) whose words are `text`, read
+// as the parser reads them (its mark and a trailing state tag apart). Done
+// is "[x]", not done "[ ]". Returns the new text, or null when there is no
+// such task or more than one: nothing is guessed.
+export function tickTask(md, objective, text, done) {
+  const lines = String(md || '').split('\n');
+  const want = String(text || '').trim();
+  const wantParsed = parseTask(want).text;
+  const obj = String(objective || '').trim();
+  let section = null, current = null, fenced = false;
+  const hits = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].replace(/\r$/, '');
+    if (/^\s*(```|~~~)/.test(l)) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    let m;
+    if ((m = l.match(/^##\s+(.+)$/))) { section = key(m[1]) || 'other'; current = null; continue; }
+    if ((m = l.match(/^###\s+(.+)$/))) { if (section === 'plan') current = m[1].trim(); continue; }
+    if (section !== 'plan') continue;
+    const b = bullet(l);
+    if (b == null) continue;
+    if (obj && !(obj === current || (current === null && obj === 'Plan'))) continue;
+    const plain = b.replace(/^\[[^\]]{0,8}\]\s*/, '').trim();
+    // A plan's steps (planfmt.mjs) move as it runs: never ticked by hand.
+    if (/^(Do|Done when|Branch|Gate)\s*:/i.test(plain)) continue;
+    if (want === plain || wantParsed === parseTask(b).text) hits.push(i);
+  }
+  if (hits.length !== 1) return null;
+  const i = hits[0];
+  const cr = lines[i].endsWith('\r') ? '\r' : '';
+  const m = lines[i].replace(/\r$/, '').match(/^(\s*(?:[-*+]|\d+[.)])\s+)(?:\[[^\]]{0,8}\]\s*)?(.*)$/);
+  lines[i] = `${m[1]}[${done ? 'x' : ' '}] ${m[2]}${cr}`;
+  return lines.join('\n');
+}
+
 // ------------------------------------------------------------ safe writes
 
 // Every board write to a brief's plan goes through here: read, change, a

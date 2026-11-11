@@ -20,7 +20,7 @@ import * as access from './access.mjs';
 import * as asst from './assistant.mjs';
 import { markEntries, spansGen } from './codespans.mjs';
 import * as registry from './registry.mjs';
-import { readBrief, appendNote, parseBrief } from './brief.mjs';
+import { readBrief, appendNote, parseBrief, tickTask, writeBriefSafe } from './brief.mjs';
 import { nextParts } from './briefnext.mjs';
 import { sessionState, eventState, projectState, describe, plain } from './state.mjs';
 import * as handoff from './handoff.mjs';
@@ -3935,6 +3935,24 @@ async function handleRequest(req, res) {
         const line = appendNote(bp, text);
         wantTick = true; setTimeout(tick, 30);
         return sendJson(res, 200, { ok: true, line });
+      }
+      if (p === '/api/brief/tick') {
+        // A task of a brief's Plan ticked or unticked from the app (its
+        // Objectives' dots, the brief page's boxes): { project, objective,
+        // text, done }. The task is found by its objective and words, never
+        // guessed (brief.mjs tickTask); written with a backup (writeBriefSafe).
+        let body;
+        try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const project = findProject(projectIdOf(String(body.project || '')) || String(body.project || ''));
+        if (!project) return sendJson(res, 404, { error: 'No such project.' });
+        const bp = registry.briefPath(project);
+        if (!bp || !fs.existsSync(bp)) return sendJson(res, 409, { error: `${project.name} has no BRIEF.md.` });
+        if (typeof body.done !== 'boolean' || !String(body.text || '').trim()) return sendJson(res, 400, { error: 'Say which task and whether it is done.' });
+        if (tickTask(fs.readFileSync(bp, 'utf8'), body.objective, body.text, body.done) == null) return sendJson(res, 409, { error: 'That task changed since you saw it, or is in the plan more than once. Nothing was written.' });
+        let r;
+        try { r = writeBriefSafe(bp, (md) => tickTask(md, body.objective, body.text, body.done)); } catch (e) { return sendJson(res, 409, { error: e.message }); }
+        wantTick = true; setTimeout(tick, 30);
+        return sendJson(res, 200, { ok: true, changed: r.changed });
       }
       if (p === '/api/sessions/close') {
         const r = await closeSessions(await jsonBody(req, 1e5));

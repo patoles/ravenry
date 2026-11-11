@@ -179,6 +179,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/pages/run', c: P, what: 'press a page\'s run button', why: 'Ambiguous, so the safer class: it puts a command in front of the person to approve as if they pressed the button (an agent asks with `ravenry approve` instead).' },
   // Notes, files, hooks
   { m: 'POST', p: '/api/review/reply', c: O, why: 'An agent answers a review comment (`ravenry review reply`): its words join the comment\'s thread for the person to read, and nothing runs. Only the pane of the session the comment is on may reply (403 otherwise).' },
+  { m: 'POST', p: '/api/brief/tick', c: P, what: 'tick a task in a brief', why: 'Ticking a task says it is done: the person\'s call, as a page\'s box is.' },
   { m: 'POST', p: '/api/note', c: O, why: 'Adds a line under Notes in the brief.' },
   { m: 'POST', p: /^\/api\/inbox\/.+$/, eg: '/api/inbox/x', doc: '/api/inbox/<project>', c: O, why: 'Puts a file in the project\'s inbox folder; nothing is sent or run.' },
   { m: 'POST', p: '/api/hook-event', c: O, why: 'The hooks inside every session post it: it only makes the board look at events already on disk.' },
