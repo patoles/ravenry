@@ -55,6 +55,14 @@ extension SelfTestBoard {
         check("review_clean", shows(rv, "No clashes with main") && shows(rv, "2 files, +5 −1") && shows(rv, "Sync settings, ready to merge"), texts(rv).prefix(10).joined(separator: " | "))
         rv.select("app/sync.js")
         check("review_file_picked", rv.sel == "app/sync.js" && rv.lines["new:3"] != nil && rv.lines["old:2"] != nil, rv.lines.keys.sorted().joined(separator: ","))
+        // A line longer than the view scrolls sideways, whole; the line under the pointer shows its + (group A 29, 30).
+        let ds = rv.diffScroll
+        let need = ds.minWidth
+        ds.minWidth = 3000
+        ds.layoutSubtreeIfNeeded()
+        check("review_long_lines_scroll", ds.hasHorizontalScroller && (ds.documentView?.frame.width ?? 0) >= 3000 && need > 62, "doc \(Int(ds.documentView?.frame.width ?? 0)), longest line \(Int(need))")
+        ds.minWidth = need
+        if let ln = rv.lines["new:3"] { ln.hovering = true; check("review_hover_plus", ln.plusMark?.isHidden == false); ln.hovering = false }
         // Left alone, it is not drawn again (the board's states and the comments read every 3 s change nothing).
         let d0 = rv.draws
         settle(7)

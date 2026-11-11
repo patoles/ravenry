@@ -116,6 +116,46 @@ final class HubSession {
     var terminal: Bool? { raw["terminal"] as? Bool }
     var screen: [String] { raw["screen"] as? [String] ?? [] }
     var conversation: [[String: Any]] { raw["conversation"] as? [[String: Any]] ?? [] }
+    /// Its hand-off (hub/server/handoff.mjs): Hand off now was asked and waits for a clean point.
+    var handoff: [String: Any]? { raw["handoff"] as? [String: Any] }
+    var handoffQueued: Bool { (handoff?["manual"] as? Bool ?? false) && !["written", "resumed"].contains(handoff?["state"] as? String ?? "") }
+}
+
+/// One process of state.sessions (the hub's Sessions view, server/index.mjs
+/// buildSessions): a running Claude or Codex, its memory, the group it is
+/// in (use, handed, idle, left, unmapped) and whether Close may end it.
+struct SessionProc {
+    let raw: [String: Any]
+    init(_ d: [String: Any]) { raw = d }
+    var sessionId: String? { raw["sessionId"] as? String }
+    var surfaceId: String? { raw["surfaceId"] as? String }
+    var projectId: String? { raw["projectId"] as? String }
+    var pid: Int { (raw["pid"] as? NSNumber)?.intValue ?? 0 }
+    var label: String { raw["label"] as? String ?? "" }
+    var line: String { raw["line"] as? String ?? "" }
+    var group: String { raw["group"] as? String ?? "use" }
+    var mix: String { raw["mix"] as? String ?? "idle" }
+    var tag: String? { raw["tag"] as? String }
+    var since: String? { raw["since"] as? String }
+    var memKb: Double { (raw["memKb"] as? NSNumber)?.doubleValue ?? 0 }
+    var assistant: String? { raw["assistant"] as? String }
+    var folder: String? { raw["folder"] as? String }
+    var unowned: Bool { raw["unowned"] as? Bool ?? false }
+    var isFolder: Bool { raw["isFolder"] as? Bool ?? false }
+    var closable: Bool { raw["closable"] as? Bool ?? false }
+    var blocked: String? { raw["blocked"] as? String }
+    /// The hub closes it: quiet long enough (or handed off, or left for you), and nothing stops it.
+    var canClose: Bool { closable && sessionId != nil && ["handed", "idle", "left"].contains(group) }
+    /// Why Close is not offered.
+    var whyNot: String {
+        if group == "use" { return t("sess.inUse") }
+        return blocked ?? t("sess.cannotClose")
+    }
+    /// RSS in KB as "849 MB" or "10.0 GB" (1024-based, like Activity Monitor; the hub's fmtMem).
+    static func mem(_ kb: Double) -> String {
+        let mb = kb / 1024
+        return mb < 1000 ? "\(Int(mb.rounded())) MB" : String(format: "%.1f GB", mb / 1024)
+    }
 }
 
 final class HubProject {
@@ -159,6 +199,12 @@ final class HubState {
         pages = (d["pages"] as? [[String: Any]] ?? []).map(NavPage.init)
     }
     var threshold: Double { ((raw["settings"] as? [String: Any])?["handoffThreshold"] as? NSNumber)?.doubleValue ?? 50 }
+    /// Hand off automatically (the Settings' Hand-off tab): off, no line is drawn.
+    var handoffEnabled: Bool { (raw["settings"] as? [String: Any])?["handoffEnabled"] as? Bool ?? true }
+    /// state.sessions: every running assistant process, and the ones closed in the last 14 days.
+    var sessionsView: [String: Any]? { raw["sessions"] as? [String: Any] }
+    var sessionProcs: [SessionProc] { (sessionsView?["rows"] as? [[String: Any]] ?? []).map(SessionProc.init) }
+    var sessionsIdle: Int { (sessionsView?["idleCount"] as? NSNumber)?.intValue ?? 0 }
     /// "3.1 GB" of the assistants' memory, else nil (the desktop's memoryLine).
     var memoryLine: String? {
         guard let kb = ((raw["sessions"] as? [String: Any])?["totalKb"] as? NSNumber)?.doubleValue, kb > 0 else { return nil }

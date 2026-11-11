@@ -71,11 +71,13 @@ final class Board: NSObject {
     lazy var worktrees = WorktreeCards(hub: hub)
     /// A pick side by side, in the middle beside the panel (key "pick:<checkpoint id>").
     let picker = PickerView()
+    /// Sessions: memory, Close the idle ones, Reopen (SessionsPage.swift).
+    let sessionsPage = SessionsPage()
     let notifier: Notifier
     /// The project of the session the person last had open (a page's Ask Claude to fix).
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker, review, filesGrid] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker, review, filesGrid, sessionsPage] }
     /// Something the middle showed, and how to show it again as it was.
     private struct Step {
         let front: Front
@@ -151,7 +153,7 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = toaster(gallery)
-        for f in [plan, idea, alerts, files, decisions, learn, machines] as [FormPage] {
+        for f in [plan, idea, alerts, files, decisions, learn, machines, sessionsPage] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = toaster(f)
@@ -412,6 +414,7 @@ final class Board: NSObject {
         }
         gallery.onClose = { [weak self] in self?.back() }
         // Group A's sidebar, panel and page hooks, once the panel's host is set.
+        wireSessions()
     }
 
     // MARK: what is in front
@@ -607,6 +610,7 @@ final class Board: NSObject {
         if key == "side.machines" { openMachines(); return }
         if key == "side.phone" { if phoneCard.isOpen { phoneCard.close() } else { openPhone() }; return }
         // The foot's Settings, and the panel's way to Settings when the first-launch step was off (its Skills).
+        if key == "sessions" { openSessions(); return }
         if key.hasPrefix("settings:") { openSettings(String(key.dropFirst(9))); return }
         if key == "side.settings" || key == "settings" { openSettings(key == "settings" ? "skills" : nil); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
@@ -729,6 +733,17 @@ final class Board: NSObject {
         showMiddle(machines)
         machines.show()
         log.append("machines")
+        render()
+    }
+
+    /// Sessions: the memory the sessions hold, Close the idle ones, Reopen a closed one.
+    func openSessions() {
+        overlay = false
+        enter(.page("sessions", t("sess.title"))) { [weak self] in self?.openSessions() }
+        front = .page("sessions", t("sess.title"))
+        showMiddle(sessionsPage)
+        sessionsPage.show()
+        log.append("sessions")
         render()
     }
 
@@ -1286,6 +1301,8 @@ final class Board: NSObject {
         }
         if case .session(let k) = front, let f = st?.find(k) { outside.show(f.project, f.session, why: f.session.pane != nil ? "it runs in the board's ravenryd" : nil) }
         if case .project(let id) = front, let p = st?.project(id) { projectPage.show(p) }
+        if case .project(let id) = front, st != nil, st?.project(id) == nil { projectPage.gone(id) }
+        if case .page(let k, _) = front, k == "sessions" { sessionsPage.redraw() }
         if case .brief(let pid, _) = front { brief.show(pid, state: st) }
         if case .page(let k, _) = front, k.hasPrefix("gallery:") { gallery.refresh(st) }
         if case .page(let k, _) = front, k.hasPrefix("plan:") || k.hasPrefix("newplan:") { plan.refresh(st) }
@@ -1309,6 +1326,8 @@ final class Board: NSObject {
         sidebar.footOn = on
         if phoneCard.isOpen { phoneCard.place() }
         sidebar.waitingFor = hub.waitingFor
+        sidebar.newButton.on = front == .start
+        sidebar.hasTabs = !ws.tabs.isEmpty
         if !sideHidden { sidebar.update(state: st, reachable: hub.reachable, front: fk, pinned: Set(pinned), page: page, alerts: (st?.counts["you"] ?? 0) > 0) }
         if panelVisible {
             var pane: (id: String, name: String, cwd: String, command: [String])? = nil

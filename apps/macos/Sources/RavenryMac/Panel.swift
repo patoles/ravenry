@@ -45,6 +45,16 @@ final class PanelView: Box {
         var moving: (String) -> Bool = { _ in false }
         /// A local session in a pane: its worktree's cards and the files it changed (Review.swift).
         var extras: (HubProject, HubSession, (([NSView?]) -> NSView), ((String?, NSView?, [NSView?]) -> NSView)) -> [NSView] = { _, _, _, _ in [] }
+        /// A pane of this window in front (its tab); false when the window has no such pane.
+        var showPane: (String) -> Bool = { _ in false }
+        /// A pane's labels (ravenry.session: the hub started it as a session).
+        var paneLabels: (String) -> [String: String]? = { _ in nil }
+        /// Who a Source is (an agent by its session, the person as You), and where it works.
+        var whoOf: ([String: Any]?) -> (who: String, place: String?) = { s in (s?["kind"] as? String == "person" || s == nil ? "You" : "An agent", nil) }
+        /// Draw the window again (an answer the panel waited for came).
+        var redraw: () -> Void = {}
+        /// What a drive card says of its pane and who asks (cardCtx.drive).
+        var driveFacts: ([String: Any]) -> DriveFacts? = { _ in nil }
     }
 
     var host: Host?
@@ -85,8 +95,9 @@ final class PanelView: Box {
         let line = Box(fill: "sep")
         line.frame = NSRect(x: 0, y: 39, width: 4000, height: 1)
         head.addSubview(line)
-        var items: [NSView?] = [label(name, Fonts.pt(13.5, Fonts.w650))]
-        if let m = machine { items.append(hstack([SharedIconsView.machine(), label(m, Fonts.pt(11.5, .medium), "tx2")], spacing: 4)) }
+        // The name gives up its room first; the machine and the chip stay whole (.p-h .n flex 1).
+        var items: [NSView?] = [yields(label(name, Fonts.pt(13.5, Fonts.w650)), fill: false)]
+        if let m = machine { items.append(hstack([SharedIconsView.machine(), fixedLabel(m, Fonts.pt(11.5, .medium), "tx2")], spacing: 4)) }
         if let tg = tag { items.append(tagView(tg)) }
         items.append(spring())
         if let k = pinKey, let h = host {
@@ -126,10 +137,12 @@ final class PanelView: Box {
             } else if k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
                 var pr = p.raw; pr["sessions"] = nil
                 parts.append(pr)
+                parts.append(lastConv[p.id].map { ($0.last ?? [:]) as Any } ?? "asking")
             }
         }
         if let id = pane?.id {
             parts.append(host?.inputs(id)?.count ?? -1)
+            parts += [lastKnown[id] != nil, host?.paneLabels(id)?["ravenry.session"] ?? "", typedUI[id].map { "\($0.filter)\($0.whole)" } ?? ""]
             if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], state?.checkpoint(pane: id) ?? [:]] }
         }
         parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
@@ -148,12 +161,35 @@ final class PanelView: Box {
         var rows: [NSView] = []
         if let st = state, let k = front, let f = st.find(k) {
             shows = "session"
+            // Kept by its pane: when it leaves the board, its tab's panel still says what it was.
+            if let pid = f.session.pane, f.session.machine == nil, f.project.machine == nil {
+                var pr = f.project.raw; pr["sessions"] = nil
+                lastKnown[pid] = (pr, f.session.raw)
+            }
             setHead(f.project.name, tag: f.session.assistant.map(assistantName), machine: f.session.machine ?? f.project.machine, pinKey: k)
             rows = sessionBody(st, f.project, f.session, key: k, pane: pane)
         } else if let st = state, let k = front, k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
             shows = "project"
             setHead(p.name, tag: nil, machine: p.machine, pinKey: nil)
             rows = projectBody(p)
+        } else if let k = front, k.hasPrefix("project:"), state != nil {
+            // It left the board while in front (renderProject, projectPanel).
+            shows = "gone"
+            setHead(t("panel.project"), tag: nil, machine: nil, pinKey: nil)
+            rows = [para(t("project.gone"), "tx2")]
+        } else if let pn = pane, let known = lastKnown[pn.id] {
+            // The session that ran in this pane left the board (offBoardPanel).
+            shows = "offboard"
+            let p = HubProject(known.project), s = HubSession(known.session)
+            setHead(p.name, tag: s.assistant.map(assistantName), machine: s.machine ?? p.machine, pinKey: nil)
+            rows = offBoardBody(p, s)
+            if let h = host { rows.append(whoCanType(pn.id, h.whoCanType(pn.id))) }
+            if let typed = typedHere(pn.id) { rows.append(typed) }
+        } else if let pn = pane, let kind = newSessionKind(pn) {
+            // Started as a session (ravenry.session), before the board lists it (newSessionPanel).
+            shows = "new"
+            setHead(t("panel.newSession"), tag: kind.isEmpty ? nil : assistantName(kind), machine: nil, pinKey: nil)
+            rows = newSessionBody(pn, kind: kind)
         } else if let pn = pane {
             shows = "shell"
             setHead(pn.name, tag: host?.ownerOf(pn.id).map { t("lease.ownPane", ["who": $0]) } ?? "Shell", machine: nil, pinKey: nil)
@@ -169,10 +205,12 @@ final class PanelView: Box {
     private func assistantName(_ a: String) -> String { a == "claude" ? "Claude" : a == "codex" ? "Codex" : a.prefix(1).uppercased() + a.dropFirst() }
 
     private func tagView(_ s: String) -> NSView {
-        let b = boxed(label(s, Fonts.pt(11, .semibold), "tx2"), fill: nil, ring: "sep", radius: 5, insets: NSEdgeInsets(top: 3, left: 7, bottom: 3, right: 7))
-        b.setContentHuggingPriority(.required, for: .horizontal)
+        let b = assistantChip(s)
+        headChip = b
         return b
     }
+    /// The head's chip, for the self-test.
+    private(set) weak var headChip: NSView?
 
     /// .sec: a card, its head line and its rows.
     private func sec(_ title: String?, right: NSView? = nil, _ rows: [NSView?], ring: String? = nil) -> NSView {
@@ -284,6 +322,8 @@ final class PanelView: Box {
                 : t("panel.olderRavenry", ["version": version])
             out.append(sec(nil, [para(line), hstack([move, spring()], spacing: 8)]))
         }
+        // A session in a cmux workspace no project lists (hub board unCardHtml): Add to a project.
+        if p.raw["unowned"] as? Bool ?? false { out.append(notInProject(st, p)) }
         // What the first-launch step set up for its assistant, on this machine.
         if cp == nil, s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a) {
             out.append(sec(t("panel.thisSession"), [check(sl.hooks, t("panel.alertsOn"), t("panel.alertsOff")), check(sl.skill, t("panel.skillOn"), t("panel.skillOff"))]))
@@ -313,14 +353,17 @@ final class PanelView: Box {
         }
         if let c = s.ctx {
             let th = st.threshold
+            let on = st.handoffEnabled
             let pct = max(0, min(100, c.pct))
             let bar = Box(fill: "card2", radius: 2.5)
             bar.translatesAutoresizingMaskIntoConstraints = false
             bar.heightAnchor.constraint(equalToConstant: 5).isActive = true
-            let f = Box(fill: pct >= th ? "you" : "tx2", radius: 2.5)
-            let mk = Box(fill: "you", radius: 1)
-            mk.toolTip = t("panel.handOffLine", ["pct": "\(Int(th))"])
-            bar.addSubview(f); bar.addSubview(mk)
+            let f = Box(fill: on && pct >= th ? "you" : "tx2", radius: 2.5)
+            bar.addSubview(f)
+            // The orange tick follows the Hand-off setting's line, and goes when hand-off is off (hub board app.js renderSheet).
+            let mk: Box? = on ? Box(fill: "you", radius: 1) : nil
+            if let mk { mk.toolTip = t("panel.handOffLine", ["pct": "\(Int(th))"]); bar.addSubview(mk) }
+            handOffTick = mk
             bar.postsFrameChangedNotifications = true
             let place = { [weak bar, weak f, weak mk] in
                 guard let b = bar else { return }
@@ -328,10 +371,20 @@ final class PanelView: Box {
                 mk?.frame = NSRect(x: b.bounds.width * th / 100 - 1, y: -3, width: 2, height: 11)
             }
             NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: bar, queue: .main) { _ in place() }
-            let hand = RButton(t("session.handOffNow"), small: true) { [weak self] in self?.handOff(p, s) }
+            // Asked for: it waits for a clean point (the hub board's "Hand-off queued").
+            let queued = s.handoffQueued
+            let hand = RButton(queued ? t("panel.handOffQueued") : t("session.handOffNow"), small: true) { [weak self] in self?.handOff(p, s) }
+            hand.isEnabled = !queued
+            if queued { hand.toolTip = t("panel.handOffQueuedTip") }
             buttons["handoff"] = hand
+            // The line itself is the way to where it is set: Settings, Hand-off.
+            let line = RButton(on ? t("panel.handsOffAt", ["pct": "\(Int(th))"]) : t("panel.handOffOff"), .link) { [weak self] in self?.host?.openPage("settings:handoff", t("side.settings")) }
+            line.titleSize = 12
+            line.toolTip = t("panel.handOffChangeTip")
+            line.setAccessibilityHelp(t("panel.handOffChangeTip"))
+            buttons["handoffSettings"] = line
             out.append(sec(t("panel.context"), right: label(t("panel.tokensOf", ["used": When.tokens(c.tokens), "window": When.tokens(c.window)]), Fonts.pt(12, .semibold).withTabularDigits),
-                           [bar, hstack([label(t("panel.handsOffAt", ["pct": "\(Int(th))"]), Fonts.pt(12), "tx3"), spring(), hand], spacing: 8)]))
+                           [bar, hstack([line, spring(), hand], spacing: 6)]))
         }
         // Over the terminal on a narrow window, a card keeps the panel short.
         if cp != nil, superview.map({ _ in isOverlay }) ?? false { return out }
@@ -384,6 +437,36 @@ final class PanelView: Box {
 
     var isOverlay = false
 
+    /// "Not in a project": no brief, plan or notes; Add to a project joins its workspace to the one picked (POST /api/project/add-workspace).
+    private func notInProject(_ st: HubState, _ p: HubProject) -> NSView {
+        let list = st.projects.filter { !($0.raw["unowned"] as? Bool ?? false) && !($0.raw["loose"] as? Bool ?? false) }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        let add = RButton(t("panel.addToProject"), .primary, small: true)
+        add.isEnabled = !list.isEmpty
+        if list.isEmpty { add.toolTip = t("panel.noProjectYet") }
+        add.run = { [weak self, weak add] in
+            guard let self, let add else { return }
+            let m = NSMenu()
+            m.autoenablesItems = false
+            let head = NSMenuItem(title: t("panel.addTo", ["name": p.name]), action: nil, keyEquivalent: "")
+            head.isEnabled = false
+            m.addItem(head)
+            for x in list {
+                m.addItem(MenuAction.item(x.name) { [weak self] in self?.addToProject(p, x) })
+            }
+            m.popUp(positioning: nil, at: NSPoint(x: 0, y: add.bounds.height + 4), in: add)
+        }
+        buttons["addToProject"] = add
+        return sec(t("panel.notInProject"), [para(t("panel.notInProjectText"), "tx2", size: 12), hstack([add, spring()], spacing: 0)])
+    }
+
+    func addToProject(_ from: HubProject, _ to: HubProject) {
+        host?.hub.post("/api/project/add-workspace", ["from": from.id, "projectId": to.id]) { [weak self] code, j in
+            self?.host?.toast(code == 200 ? t("panel.addedTo", ["name": from.name, "project": j["project"] as? String ?? to.name]) : (j["error"] as? String ?? "\(code)"))
+        }
+    }
+    /// The context bar's hand-off tick, nil when hand-off is off (for the self-test).
+    private(set) weak var handOffTick: NSView?
+
     /// Buttons that wrap to the next line when the row is full (.qa).
     private func flow(_ views: [NSView]) -> NSView {
         var lines: [NSView] = []
@@ -401,19 +484,120 @@ final class PanelView: Box {
 
     // MARK: Typed here (pane.inputs)
 
+    /// Typed here's filter (All, Agents, You) and whether the whole log shows, by pane.
+    private var typedUI: [String: (filter: Int, whole: Bool)] = [:]
+    private(set) var typedFilter: NSSegmentedControl?
+
     private func typedHere(_ pane: String) -> NSView? {
         guard let recs = host?.inputs(pane) else { return nil }
-        let last = recs.compactMap { r in PanelView.shown(r).map { (r, $0) } }.suffix(4).reversed()
-        var rows: [NSView?] = []
-        if last.isEmpty { rows.append(label(t("page.nothingTyped"), Fonts.pt(12), "tx3")) }
-        for (r, text) in last {
-            let src = r["source"] as? [String: Any] ?? [:]
-            let person = src["kind"] as? String == "person"
-            let who = person ? "You" : (src["name"] as? String ?? (src["agent"] as? String) ?? "An agent")
-            rows.append(hstack([label(When.clock(r["at"] as? String), Fonts.pt(11.5).withTabularDigits, "tx3"), label(who, Fonts.pt(12, .semibold), person ? "tx" : "work"),
-                                label(text.replacingOccurrences(of: "\r", with: " ⏎ ").replacingOccurrences(of: "\n", with: " ⏎ "), Fonts.mono(11.5), "tx2")], spacing: 6))
+        let u = typedUI[pane] ?? (0, false)
+        let all = recs.filter { PanelView.parts($0) != nil }
+        let list = all.filter { r in
+            let person = (r["source"] as? [String: Any])?["kind"] as? String == "person"
+            return u.filter == 0 || (u.filter == 2) == person
+        }.reversed()
+        let shown = u.whole ? Array(list) : Array(list.prefix(4))
+        let seg = NSSegmentedControl(labels: [t("panel.typedAll"), t("panel.typedAgents"), t("panel.typedYou")], trackingMode: .selectOne, target: PopTarget.shared, action: #selector(PopTarget.segmented(_:)))
+        seg.controlSize = .small
+        seg.font = Fonts.pt(11)
+        seg.selectedSegment = u.filter
+        seg.setAccessibilityLabel(t("panel.typedFilter"))
+        PopTarget.shared.run[ObjectIdentifier(seg)] = { [weak self, weak seg] in
+            guard let self, let seg else { return }
+            self.typedUI[pane] = (seg.selectedSegment, u.whole)
+            self.signature = ""; self.host?.redraw()
         }
-        return sec(t("panel.typedHere"), rows)
+        typedFilter = seg
+        var rows: [NSView?] = []
+        if shown.isEmpty { rows.append(label(all.isEmpty ? t("page.nothingTyped") : t("panel.typedNoneFrom"), Fonts.pt(12), "tx3")) }
+        for r in shown { rows.append(typedRecord(r)) }
+        if list.count > 4 {
+            let b = RButton(u.whole ? t("panel.typedFew") : t("panel.typedWhole"), .link) { [weak self] in
+                guard let self else { return }
+                self.typedUI[pane] = (u.filter, !u.whole)
+                self.signature = ""; self.host?.redraw()
+            }
+            buttons["typedWhole"] = b
+            rows.append(hstack([b, spring()], spacing: 0))
+        }
+        return sec(t("panel.typedHere"), right: seg, rows)
+    }
+
+    /// A record: when, who (an agent's session as a chip), what was typed with Enter as a key, and a note.
+    private func typedRecord(_ r: [String: Any]) -> NSView {
+        let src = r["source"] as? [String: Any]
+        let person = src?["kind"] as? String == "person"
+        let w: (who: String, place: String?) = person ? (t("project.you"), nil) : (host?.whoOf(src) ?? ("An agent", nil))
+        let time = fixedLabel(When.clock(r["at"] as? String), Fonts.pt(11.5).withTabularDigits, "tx3")
+        var head: [NSView?] = [time, fixedLabel(w.who, Fonts.pt(12, .semibold), person ? "tx" : "work")]
+        if let pl = w.place { let c = assistantChip(pl); (c.subviews.first as? NSTextField)?.lineBreakMode = .byTruncatingTail; c.setContentCompressionResistancePriority(.init(240), for: .horizontal); c.subviews.first?.setContentCompressionResistancePriority(.init(240), for: .horizontal); head.append(c) }
+        head.append(spring())
+        // The words, Enter drawn as a key between lines.
+        let a = NSMutableAttributedString(attributedString: PanelView.keysText(PanelView.parts(r) ?? []))
+        if r["truncated"] as? Bool == true { a.append(NSAttributedString(string: "...", attributes: [.font: Fonts.mono(11.5), .foregroundColor: Design.color("tx3")])) }
+        let tx = label("", Fonts.mono(11.5), "tx2", lines: 3, select: true)
+        tx.attributedStringValue = a
+        tx.preferredMaxLayoutWidth = PanelView.width - 56
+        var col: [NSView?] = [hstack(head, spacing: 6), tx]
+        if person, let lh = r["lease_holder"] as? [String: Any] { col.append(label(t("panel.whileHad", ["who": host?.whoOf(lh).who ?? "An agent"]), Fonts.pt(11.5), "tx3")) }
+        return vstack(col, spacing: 3)
+    }
+
+    /// What a record shows as text and keys (panepanel.ts shownParts); nil when it shows nothing.
+    static func parts(_ r: [String: Any]) -> [(text: String, key: Bool)]? {
+        guard let s = shown(r) else { return nil }
+        // An older daemon sends no `shown`: its log text, keys as <Enter>.
+        if r["shown"] == nil { return keyParts(s) }
+        return s.components(separatedBy: "\n").enumerated().flatMap { i, l -> [(text: String, key: Bool)] in (i > 0 ? [("Enter", true)] : []) + (l.isEmpty ? [] : [(l, false)]) }
+    }
+
+    /// Text and named keys in order (hub/public/keys.mjs keyParts): "<Ctrl+C>npm run dev<Enter>"; a raw line end is Enter.
+    static func keyParts(_ text: String) -> [(text: String, key: Bool)] {
+        let t = text.replacingOccurrences(of: "\r\n", with: "<Enter>").replacingOccurrences(of: "\r", with: "<Enter>").replacingOccurrences(of: "\n", with: "<Enter>")
+            .replacingOccurrences(of: "\t", with: "<Tab>").replacingOccurrences(of: "\u{1b}", with: "<Esc>")
+        var out: [(text: String, key: Bool)] = []
+        let re = try! NSRegularExpression(pattern: "<([A-Za-z0-9+/]+)>")
+        let ns = t as NSString
+        var at = 0
+        for m in re.matches(in: t, range: NSRange(location: 0, length: ns.length)) {
+            if m.range.location > at { out.append((ns.substring(with: NSRange(location: at, length: m.range.location - at)), false)) }
+            out.append((ns.substring(with: m.range(at: 1)).replacingOccurrences(of: "+", with: " "), true))
+            at = m.range.location + m.range.length
+        }
+        if at < ns.length { out.append((ns.substring(from: at), false)) }
+        return out
+    }
+
+    /// Text and keys as one line: the keys as chips.
+    static func keysText(_ parts: [(text: String, key: Bool)], font: NSFont = Fonts.mono(11.5), color: String = "tx2") -> NSAttributedString {
+        let a = NSMutableAttributedString()
+        for p in parts {
+            if p.key {
+                let k = NSTextAttachment()
+                k.image = keyImage(p.text)
+                k.bounds = NSRect(x: 0, y: -3, width: k.image!.size.width, height: k.image!.size.height)
+                a.append(NSAttributedString(string: " ", attributes: [.font: font]))
+                a.append(NSAttributedString(attachment: k))
+                a.append(NSAttributedString(string: " ", attributes: [.font: font]))
+            } else {
+                a.append(NSAttributedString(string: p.text, attributes: [.font: font, .foregroundColor: Design.color(color)]))
+            }
+        }
+        return a
+    }
+
+    /// A key drawn as a small chip (.key).
+    static func keyImage(_ s: String) -> NSImage {
+        let f = Fonts.pt(10, .semibold)
+        let sz = (s as NSString).size(withAttributes: [.font: f])
+        let w = ceil(sz.width) + 10, h: CGFloat = 15
+        return NSImage(size: NSSize(width: w, height: h), flipped: false) { r in
+            let p = NSBezierPath(roundedRect: r.insetBy(dx: 0.5, dy: 0.5), xRadius: 3.5, yRadius: 3.5)
+            Design.color("card2").setFill(); p.fill()
+            Design.color("sep").setStroke(); p.lineWidth = 1; p.stroke()
+            (s as NSString).draw(at: NSPoint(x: 5, y: (h - sz.height) / 2), withAttributes: [.font: f, .foregroundColor: Design.color("tx2")])
+            return true
+        }
     }
 
     /// What Typed here shows of a record: the daemon's `shown`, the lines
@@ -432,11 +616,104 @@ final class PanelView: Box {
 
     // MARK: a project, a shell
 
+    /// A project's last conversation (GET /api/project/last), by project: nil while asked.
+    private var lastConv: [String: (at: Date, last: [String: Any]?)] = [:]
+    private var lastAsking = Set<String>()
+    /// The sessions seen in this window's panes, by pane: what its panel says once it leaves the board.
+    private var lastKnown: [String: (project: [String: Any], session: [String: Any])] = [:]
+
+    private func readLast(_ id: String) {
+        guard !lastAsking.contains(id), Date().timeIntervalSince(lastConv[id]?.at ?? .distantPast) > 15, let h = host else { return }
+        lastAsking.insert(id)
+        h.hub.get("/api/project/last?projectId=\(id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? id)") { [weak self] code, j in
+            guard let self else { return }
+            self.lastAsking.remove(id)
+            self.lastConv[id] = (Date(), code == 200 ? j["last"] as? [String: Any] : self.lastConv[id]?.last)
+            if self.key == "project:\(id)" { self.signature = ""; self.host?.redraw() }
+        }
+    }
+
+    func stateLine(_ g: String, _ text: String) -> NSView {
+        let c = g == "idle" ? "tx2" : g
+        let l = label(text, Fonts.pt(12.5, .semibold), c, lines: 3)
+        l.preferredMaxLayoutWidth = PanelView.width - 56 - 21
+        let v = hstack([Icon("ring-\(g)", c, size: 14), l, spring()], spacing: 7)
+        v.alignment = .top
+        return v
+    }
+
+    /// A small grey caption over its words (.sec p.t3.small then p).
+    private func titled(_ title: String, _ text: String) -> [NSView?] {
+        [label(title, Fonts.pt(11, .semibold), "tx3"), para(text)]
+    }
+
+    /// A project no session runs in (projectPanel): its state, goal, next, last conversation and folder.
     private func projectBody(_ p: HubProject) -> [NSView] {
         var out: [NSView] = []
-        if let g = (p.brief?["goal"] as? String) { out.append(sec(t("panel.goal"), [para(g)])) }
+        let st = projectFacts(p)
+        out.append(stateLine(st.group, st.text))
+        if let g = p.brief?["goal"] as? String { out.append(sec(nil, titled(t("panel.goal"), g.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")))) }
+        if let n = p.brief?["next"] as? String, !n.isEmpty { out.append(sec(nil, titled(t("panel.next"), n.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")))) }
+        readLast(p.id)
+        if let c = lastConv[p.id] {
+            if let l = c.last {
+                let who = (l["assistant"] as? String) == "codex" ? "Codex" : "Claude"
+                out.append(sec(t("panel.lastConversation"), [para(l["title"] as? String ?? ""),
+                                                             label(t("panel.stopped", ["who": who, "when": When.stopped(l["stoppedAt"] as? String)]), Fonts.pt(12), "tx3")]))
+            } else { out.append(sec(nil, [label(t("panel.noConversation"), Fonts.pt(12), "tx3", lines: 2)])) }
+        }
         if let f = p.folderShort { out.append(sec(nil, [label(f, Fonts.pt(12), "tx3")])) }
         return out
+    }
+
+    /// A session that ran in this pane and left the board (offBoardPanel): not running, its topic and folder, its last turn.
+    private func offBoardBody(_ p: HubProject, _ s: HubSession) -> [NSView] {
+        var out: [NSView] = []
+        let whereName = s.termName ?? (s.term == "ravenry" ? "Ravenry" : nil)
+        out.append(stateLine("idle", whereName.map { $0 == "Ravenry" ? t("panel.notRunning") : t("panel.notRunningIn", ["where": $0]) } ?? t("panel.notRunning")))
+        out.append(sec(nil, [para(s.topic ?? p.name), p.folderShort.map { label($0, Fonts.pt(12), "tx3") }]))
+        if let last = s.conversation.last {
+            var rows: [NSView?] = []
+            if let a = last["ask"] as? String { rows.append(para(t("panel.youSaid", ["text": a.count > 140 ? String(a.prefix(139)) + "..." : a]), "tx3", size: 12)) }
+            if let x = last["text"] as? String { rows.append(para(x.count > 240 ? String(x.prefix(239)) + "..." : x)) }
+            if !rows.isEmpty { out.append(sec(nil, rows)) }
+        }
+        let canMove = s.sessionId != nil && (s.assistant ?? "claude").range(of: "^(claude|codex)", options: .regularExpression) != nil && !s.surfaceId.hasPrefix("ravenry:")
+        if canMove {
+            let b = RButton(t("move.here"), .primary, small: true) { [weak self] in self?.move(p, s, keep: "ravenry") }
+            buttons["move"] = b
+            out.append(sec(nil, [para(t("panel.moveOffBoard"), "tx3", size: 12), hstack([b, spring()], spacing: 0)]))
+        }
+        return out
+    }
+
+    /// The assistant a pane was started for as a session ("" when the label names none), else nil.
+    private func newSessionKind(_ pn: (id: String, name: String, cwd: String, command: [String])) -> String? {
+        guard let l = host?.paneLabels(pn.id), let v = l["ravenry.session"] ?? l["ravenry.agent"] else { return nil }
+        return v.contains("codex") ? "codex" : v.contains("claude") ? "claude" : ""
+    }
+
+    private func newSessionBody(_ pn: (id: String, name: String, cwd: String, command: [String]), kind: String) -> [NSView] {
+        var rows: [NSView?] = [kv(t("panel.folder"), tilde(pn.cwd), mono: true)]
+        if !kind.isEmpty { rows.append(kv(t("panel.assistant"), kind == "codex" ? "Codex" : "Claude Code")) }
+        if !kind.isEmpty, let sl = host?.setup(kind) { rows += [check(sl.hooks, t("panel.alertsOn"), t("panel.alertsOff")), check(sl.skill, t("panel.skillOn"), t("panel.skillOff"))] }
+        var out: [NSView] = [stateLine("idle", t("panel.readyFirst")), sec(t("panel.thisSession"), rows)]
+        if let typed = typedHere(pn.id) { out.append(typed) }
+        return out
+    }
+
+    /// A key and its value on a line (.kv).
+    private func kv(_ k: String, _ v: String, mono: Bool = false) -> NSView {
+        let kl = fixedLabel(k, Fonts.pt(12), "tx3")
+        kl.widthAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
+        let vl = yields(label(v, mono ? Fonts.mono(11.5) : Fonts.pt(12), "tx2"))
+        vl.lineBreakMode = .byTruncatingMiddle
+        return hstack([kl, vl], spacing: 8)
+    }
+
+    private func tilde(_ p: String) -> String {
+        let h = NSHomeDirectory()
+        return p == h ? "~" : p.hasPrefix(h + "/") ? "~" + p.dropFirst(h.count) : p
     }
 
     private func shellBody(_ pn: (id: String, name: String, cwd: String, command: [String])) -> [NSView] {
@@ -450,6 +727,10 @@ final class PanelView: Box {
             let q = boxed(para(m, size: 13), fill: "card", ring: "you", radius: 10, insets: NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14))
             q.setAccessibilityLabel(m)
             out.append(q)
+        }
+        // Where it runs and what (shellPanel's Folder and Runs).
+        if !pn.cwd.isEmpty || !pn.command.isEmpty {
+            out.append(sec(nil, [kv(t("panel.folder"), tilde(pn.cwd), mono: true), kv(t("panel.runs"), pn.command.isEmpty ? t("panel.loginShell") : pn.command.joined(separator: " "), mono: true)]))
         }
         if let h = host { out.append(whoCanType(pn.id, h.whoCanType(pn.id))) }
         if let typed = typedHere(pn.id) { out.append(typed) }
@@ -521,7 +802,9 @@ final class PanelView: Box {
                           changed: { [weak self] id in self?.cardChanged(id) },
                           openPicker: { id in h.openPicker(id) },
                           phoneToo: phoneToo,
-                          paneName: { h.paneName($0) })
+                          paneName: { h.paneName($0) },
+                          showPane: { h.showPane($0) },
+                          driveFacts: { h.driveFacts($0) })
         let v = CheckpointCard(cp, ui: u, ctx: ctx, key: key)
         cardViews[id] = v
         shownCard = v
@@ -563,6 +846,9 @@ final class PanelView: Box {
             u.busy = false
             if code == 200 {
                 u.editing = false; u.refusing = false; u.reason = ""; u.draft = ""
+            } else if code == 403, j["notPerson"] as? Bool == true {
+                // The hub takes answers from a person only (refusedAsPerson): this window was started from inside a pane.
+                u.error = t("checkpoint.notPerson")
             } else {
                 let why = j["error"] as? String ?? "the board answered \(code)"
                 u.error = t("checkpoint.failed", ["why": why])
@@ -597,6 +883,7 @@ final class PopTarget: NSObject {
     static let shared = PopTarget()
     var run: [ObjectIdentifier: () -> Void] = [:]
     @objc func changed(_ p: NSPopUpButton) { run[ObjectIdentifier(p)]?() }
+    @objc func segmented(_ s: NSSegmentedControl) { run[ObjectIdentifier(s)]?() }
 }
 
 /// The latest picture, 16:10, its corners rounded; a click opens it large.

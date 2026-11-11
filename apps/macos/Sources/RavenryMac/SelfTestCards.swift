@@ -71,7 +71,8 @@ extension SelfTestBoard {
         var n = board.hub.sentBodies.count
         if let c = card { keyDown(c, "2") }
         check("ask_number_key_answers", answered(n) && (lastAnswer(after: n)?["choice"] as? Int) == 1 && lastAnswer(after: n)?["by"] as? String == "desktop", json(lastAnswer(after: n)))
-        check("ask_refused_answer_said", wait(4) { self.card.map { self.shows($0, "did not take the answer") } ?? false })
+        // The demo board refuses it (no such checkpoint, or not a person's: run from inside a pane): either way the card says so.
+        check("ask_refused_answer_said", wait(4) { self.card.map { self.shows($0, "did not take the answer") || self.shows($0, "Answers only work from the Ravenry app") } ?? false })
         n = board.hub.sentBodies.count
         card?.opts["3"]?.press()
         check("ask_option_click_answers", answered(n) && (lastAnswer(after: n)?["choice"] as? Int) == 2, json(lastAnswer(after: n)))

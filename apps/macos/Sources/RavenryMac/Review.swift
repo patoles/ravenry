@@ -226,7 +226,18 @@ final class DiffLine: Box {
             addSubview(bar)
             NSLayoutConstraint.activate([bar.leadingAnchor.constraint(equalTo: leadingAnchor), bar.widthAnchor.constraint(equalToConstant: 2), bar.topAnchor.constraint(equalTo: topAnchor), bar.bottomAnchor.constraint(equalTo: bottomAnchor)])
         }
+        numberLabel = ln
         if kind != "hunk" {
+            // The blue + at the line under the pointer, over its sign (.dl:hover .cm-btn): a press there comments.
+            let plus = boxed(label("+", Fonts.pt(13, .bold), ""), fill: "work", radius: 4, insets: NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 4))
+            (plus.subviews.first as? NSTextField)?.textColor = .white
+            (plus.subviews.first as? NSTextField)?.alignment = .center
+            plus.isHidden = true
+            plus.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(plus)
+            NSLayoutConstraint.activate([plus.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 40), plus.widthAnchor.constraint(equalToConstant: 18),
+                                         plus.heightAnchor.constraint(equalToConstant: 18), plus.centerYAnchor.constraint(equalTo: centerYAnchor)])
+            plusMark = plus
             toolTip = t("review.commentHere")
             setAccessibilityElement(true)
             setAccessibilityRole(.button)
@@ -234,6 +245,25 @@ final class DiffLine: Box {
         }
     }
     required init?(coder: NSCoder) { fatalError() }
+    private weak var numberLabel: NSTextField?
+    /// The + shown while the pointer is on the line.
+    private(set) weak var plusMark: NSView?
+    var hovering = false {
+        didSet {
+            plusMark?.isHidden = !hovering
+            numberLabel?.textColor = hovering && plusMark != nil ? Design.color("link") : termDim
+        }
+    }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for t in trackingAreas { removeTrackingArea(t) }
+        if plusMark != nil { addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)) }
+    }
+    override func mouseEntered(with e: NSEvent) { hovering = true }
+    override func mouseExited(with e: NSEvent) { hovering = false }
+    override func resetCursorRects() { if plusMark != nil { addCursorRect(NSRect(x: 0, y: 0, width: 62, height: bounds.height), cursor: .pointingHand) } }
+    /// The width its text needs on one line, with the gutter and the right margin.
+    static func width(of text: String) -> CGFloat { ceil((text as NSString).size(withAttributes: [.font: Fonts.mono(12)]).width) + 62 + 16 }
     /// The press is the line's, not its words' (a label would keep it).
     override func hitTest(_ p: NSPoint) -> NSView? { frame.contains(p) ? self : nil }
     override func accessibilityPerformPress() -> Bool { onComment?(); return true }
@@ -270,6 +300,8 @@ final class ReviewView: Box {
     private let head = Flipped()
     private let list = StackScroll(spacing: 2, insets: NSEdgeInsets(top: 10, left: 8, bottom: 10, right: 8))
     private let body = StackScroll(spacing: 0, insets: NSEdgeInsets(top: 0, left: 0, bottom: 20, right: 0))
+    /// The diff's scroll view, for the self-test.
+    var diffScroll: StackScroll { body }
     private let listEdge = Box(fill: "sep")
     private var drawn = ""
     /// What the self-test presses.
@@ -288,6 +320,9 @@ final class ReviewView: Box {
         addSubview(listEdge)
         body.drawsBackground = true
         body.backgroundColor = Design.color("term-bg")
+        // Long lines scroll sideways, whole (.rv-d overflow: auto, white-space: pre).
+        body.hasHorizontalScroller = true
+        body.horizontalScrollElasticity = .allowed
         for s in [list, body] { s.automaticallyAdjustsContentInsets = false }
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -436,7 +471,9 @@ final class ReviewView: Box {
             dv.append(fh)
             if f["binary"] as? Bool ?? false { dv.append(pad(label(t("review.binary"), Fonts.pt(12), "tx3"))) }
             let who = s.assistant == "claude" ? "Claude" : s.assistant == "codex" ? "Codex" : "the agent"
-            for l in (d?["lines"] as? [String: Any])?[path] as? [[String: Any]] ?? [] {
+            let fl = (d?["lines"] as? [String: Any])?[path] as? [[String: Any]] ?? []
+            body.minWidth = fl.map { DiffLine.width(of: $0["text"] as? String ?? "") }.max() ?? 0
+            for l in fl {
                 let kind = l["kind"] as? String ?? "ctx"
                 let no = ((l["newNo"] as? NSNumber) ?? (l["oldNo"] as? NSNumber))?.intValue ?? 0
                 let side = l["newNo"] is NSNumber ? "new" : "old"
@@ -504,7 +541,16 @@ final class ReviewView: Box {
             items.append(vstack([box, hstack([add, cancel, spring()], spacing: 6)], spacing: 6))
         }
         let card = boxed(vstack(items, spacing: 10), fill: "card", ring: "sep", radius: 8, insets: NSEdgeInsets(top: 10, left: 12, bottom: 10, right: 12))
-        return vstack([card], spacing: 0, insets: NSEdgeInsets(top: 6, left: 62, bottom: 10, right: 16))
+        // Under its line, at most 640 wide: a diff wider than the view scrolls, the thread stays in view.
+        let wrapV = Flipped()
+        wrapV.translatesAutoresizingMaskIntoConstraints = false
+        wrapV.addSubview(card)
+        let fill = card.trailingAnchor.constraint(equalTo: wrapV.trailingAnchor, constant: -16)
+        fill.priority = .init(700)
+        NSLayoutConstraint.activate([card.leadingAnchor.constraint(equalTo: wrapV.leadingAnchor, constant: 62), card.topAnchor.constraint(equalTo: wrapV.topAnchor, constant: 6),
+                                     card.bottomAnchor.constraint(equalTo: wrapV.bottomAnchor, constant: -10), card.widthAnchor.constraint(lessThanOrEqualToConstant: 640), fill,
+                                     card.trailingAnchor.constraint(lessThanOrEqualTo: wrapV.trailingAnchor, constant: -16)])
+        return wrapV
     }
 
     func compose(_ file: String, _ line: Int, _ side: String) {

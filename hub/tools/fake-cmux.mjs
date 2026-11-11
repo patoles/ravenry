@@ -24,6 +24,10 @@
 // "newSurfacesShell": true as well, the new tab draws a plain shell prompt
 // (as a real tab does before Claude starts in it) until the test sets its
 // prompt's "shell" to false: then it draws Claude's box.
+// `close-surface` (Close idle sessions) is refused, unless the fixture has
+// "closeSurfaces": true: then the tab leaves its workspace, the Claude in it
+// ends (its process leaves $STUB_PS_STATE, the stub ps's list) and the call
+// is appended to <fixture>.close-surface.log.
 // "denied": true refuses every call as cmux's socket refuses a program it
 // did not start; "logCalls" appends each call to <fixture>.calls.log;
 // "focusLog" takes Open in cmux (select-workspace, focus-panel) and appends
@@ -114,6 +118,23 @@ switch (args[0]) {
     render(id);
     save();
     out({ surface_id: id, surface_ref: ref });
+    break;
+  }
+  case 'close-surface': {
+    const sf = opt('--surface');
+    const w = st.closeSurfaces && st.workspaces.find((x) => x.id === opt('--workspace') && x.surfaces.some((y) => y.id === sf));
+    if (!w) refuse();
+    w.surfaces = w.surfaces.filter((y) => y.id !== sf);
+    delete st.screens[sf];
+    fs.appendFileSync(process.env.FAKE_CMUX_STATE + '.close-surface.log', JSON.stringify({ workspace: w.id, surface: sf }) + '\n');
+    // Closing the tab ends the Claude in it.
+    if (process.env.STUB_PS_STATE) {
+      let ps = [];
+      try { ps = JSON.parse(fs.readFileSync(process.env.STUB_PS_STATE, 'utf8')); } catch { /* none */ }
+      fs.writeFileSync(process.env.STUB_PS_STATE, JSON.stringify(ps.filter((p) => !String(p.env || '').includes(`CMUX_SURFACE_ID=${sf}`))));
+    }
+    save();
+    out('OK\n');
     break;
   }
   case 'surface': if (args[1] === 'resume' && args[2] === 'show') out({ resume_binding: null }); refuse(); break;

@@ -152,6 +152,7 @@ echo "a very long line of code that goes on and on past the edge of the column t
 // mistake under its last good version, and a copy of Plans whose default
 // changed since.
 const PAGES = SCREEN === 'pages';
+const SESSIONS_SCREEN = SCREEN === 'sessions';
 const PD = PAGES ? fs.mkdtempSync(path.join(os.tmpdir(), 'rvn-pages-')) : null;
 if (PAGES) fs.cpSync(path.join(REPO, 'hub', 'pages', 'defaults'), path.join(PD, 'defaults'), { recursive: true });
 const BUGS = `version: 1
@@ -276,6 +277,8 @@ const screenHub = PAGES ? {
   // --screen settings: the projects' folder is the registry's setting (not
   // MC_PROJECTS_ROOT), so the Hand-off tab's Change can change it.
   env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '' } : {}) },
+  // --screen sessions: each session's process in its cmux tab (closable), quiet for 36 s is idle.
+  ...(SESSIONS_SCREEN ? { cmuxIds: true, settings: { idleHours: 0.01 } } : {}),
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
   prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review') reviewRepo(ROOT); },
@@ -329,6 +332,8 @@ function listResumed() {
 }
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
+// --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
+if (SESSIONS_SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
 const hookLine = (bin, S, ev, sid = S.sid) => `printf '%s' ${sq(JSON.stringify({ hook_event_name: ev, session_id: sid, cwd: S.folder, transcript_path: S.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) }))} | ${sq(bin)} hook --assistant claude >/dev/null 2>&1`;
 let OLDER = null;

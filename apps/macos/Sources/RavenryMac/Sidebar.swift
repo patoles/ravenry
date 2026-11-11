@@ -24,6 +24,14 @@ final class SidebarView: Flipped {
     var onNew: (() -> Void)?
     var onNav: ((String, String) -> Void)?
     var onResize: ((CGFloat) -> Void)?
+    /// A row's right-click Close: the hub's session ids, and the name it said.
+    var onCloseSessions: (([String], String) -> Void)?
+    /// A row's right-click Hand off now (its key).
+    var onHandOff: ((String) -> Void)?
+    /// A hint's Learn more: Learn Ravenry at that card.
+    var onLearn: ((String) -> Void)?
+    /// "Using dev server" (holds) or "Waiting for dev server, Claude has it" for a session's row (its key), else nil.
+    var useLine: ((String) -> (holds: Bool, text: String)?)?
 
     private let brand = Flipped()
     private let mix = Flipped()
@@ -31,6 +39,18 @@ final class SidebarView: Flipped {
     private let nav = Flipped()
     private let foot = Flipped()
     private let empty = label("", Fonts.pt(12.5), "tx3", lines: 6)
+    /// A folder macOS is asking about, or did not let the board read, over a list that has rows (.access-note).
+    private let note = Box(fill: "card", ring: "you", radius: 8)
+    private let noteText = label("", Fonts.pt(12), "tx2", lines: 6)
+    private(set) var noteButton: RButton?
+    /// What the access note says, for the self-test.
+    var noteShown: String? { note.isHidden ? nil : noteText.stringValue }
+    /// The list goes on under its bottom edge: a fade says so (the overlay scroller hides).
+    private let fade = FadeEdge()
+    /// The board as last drawn: the right-click menus read its sessions.
+    private(set) var lastState: HubState?
+    /// No tab is open and the board is down or has no project: the foot keeps Settings, Learn and Machines, the pages are dimmed (app.ts firstRun).
+    private(set) var firstRun = false
     /// What the list says when it has no row (the install check's report).
     var emptyText: String? { empty.isHidden ? nil : empty.stringValue }
     private let handle = ResizeHandle()
@@ -57,7 +77,13 @@ final class SidebarView: Flipped {
         addSubview(brand)
         addSubview(mix)
         addSubview(list)
+        addSubview(fade)
+        addSubview(note)
         addSubview(empty)
+        note.isHidden = true
+        noteText.preferredMaxLayoutWidth = 230
+        list.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: list.contentView, queue: .main) { [weak self] _ in self?.placeFade() }
         addSubview(nav)
         addSubview(foot)
         addSubview(handle)
@@ -84,14 +110,29 @@ final class SidebarView: Flipped {
         y += 34 + 12
         if !mix.isHidden { mix.frame = NSRect(x: pad + 6, y: y, width: inner - 12, height: 6); y += 6 + 12 }
         layoutMix()
+        if !note.isHidden {
+            noteText.preferredMaxLayoutWidth = inner - 24
+            let nh = ceil(note.fittingSize.height)
+            note.frame = NSRect(x: pad, y: y, width: inner, height: nh)
+            y += nh + 10
+        }
         let footH: CGFloat = 34
         foot.frame = NSRect(x: pad, y: bounds.height - 10 - footH, width: inner, height: footH)
         let navH = navStack?.fittingSize.height ?? 0
         nav.frame = NSRect(x: pad, y: foot.frame.minY - 12 - navH, width: inner, height: navH)
         let listH = max(0, nav.frame.minY - 12 - y)
         list.frame = NSRect(x: pad - 4, y: y, width: inner + 8, height: listH)
+        placeFade()
         empty.frame = NSRect(x: pad + 6, y: y + 4, width: inner - 12, height: min(listH, 120))
         handle.frame = NSRect(x: w - 3, y: 0, width: 6, height: bounds.height)
+    }
+
+    /// The fade over the list's last 18 points while more rows wait below them.
+    private func placeFade() {
+        let doc = list.documentView?.frame.height ?? 0
+        let below = doc - list.contentView.bounds.maxY
+        fade.isHidden = below <= 2 || list.isHidden
+        fade.frame = NSRect(x: list.frame.minX, y: list.frame.maxY - 18, width: list.frame.width, height: 18)
     }
 
     private var mixCounts: [(String, Int)] = []
@@ -120,15 +161,33 @@ final class SidebarView: Flipped {
     var waitingFor: String?
 
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
+        lastState = state
         let times = state?.sections.flatMap { $0.projects.map { timeText($0) } }.joined(separator: ",") ?? ""
+        let sections = state?.sections ?? []
+        uses = [:]
+        for s in sections { for p in s.projects { for r in p.rows { if let u = useLine?(r.key) { uses[r.key] = u } } } }
+        let denied = (((state?.raw["access"] as? [String: Any])?["denied"] as? [[String: Any]]) ?? []).compactMap { $0["folder"] as? String }
+        firstRun = sections.isEmpty && (!reachable || (state?.projects.isEmpty ?? true)) && !hasTabs
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String($0.hashValue) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
-                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", waitingFor ?? ""].joined(separator: "|")
+                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", waitingFor ?? "",
+                   uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260)].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
         rows = [:]
         pins = [:]
-        let sections = state?.sections ?? []
+        hintShown = false
+        // macOS asking for a folder, or refused one, while rows show (deniedNote).
+        noteButton = nil
+        if !sections.isEmpty, let w = waitingFor {
+            noteText.stringValue = t("side.accessAsking", ["folder": w])
+            let b = RButton(t("side.openPrivacy"), .link) { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!) }
+            noteButton = b
+            setNote([noteText, hstack([b, spring()], spacing: 0)])
+        } else if !sections.isEmpty, !denied.isEmpty {
+            noteText.stringValue = t("side.accessDenied", ["folders": denied.joined(separator: ", ")])
+            setNote([noteText])
+        } else { note.isHidden = true }
         // The mix bar: each state's share of the rows.
         mixCounts = ["you", "work", "wait", "idle"].compactMap { g in (state?.counts[g] ?? 0) > 0 ? (g, state!.counts[g]!) : nil }
         mix.subviews.forEach { $0.removeFromSuperview() }
@@ -142,11 +201,32 @@ final class SidebarView: Flipped {
         } else {
             empty.isHidden = true
             list.set(sections.map { section($0, front: front, pinned: pinned) })
+            if !hintShown { Hints.shared.gone("needs-you") }
         }
         buildNav(state, page: page)
-        buildFoot(state, alerts: alerts)
+        nav.alphaValue = firstRun ? 0.55 : 1
+        buildFoot(state, alerts: alerts, page: page)
         select(front, page: page)
         needsLayout = true
+        // More rows below the fold: the scroller shows a moment, and the fade stays.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.placeFade()
+            if !self.fade.isHidden { self.list.flashScrollers() }
+        }
+    }
+
+    private var hintShown = false
+    /// A tab is open (the window is not on its first run).
+    var hasTabs = true
+    private var uses: [String: (holds: Bool, text: String)] = [:]
+
+    private func setNote(_ views: [NSView]) {
+        note.subviews.forEach { $0.removeFromSuperview() }
+        let s = vstack(views, spacing: 6, insets: NSEdgeInsets(top: 9, left: 12, bottom: 9, right: 12))
+        note.addSubview(s)
+        pinEdges(s, note)
+        note.isHidden = false
     }
 
     /// The highlighted row: what is in front (a project's row when its
@@ -168,8 +248,10 @@ final class SidebarView: Flipped {
 
     private func machineTag(_ m: String?) -> NSView? {
         guard let m else { return nil }
-        let s = hstack([Icon("machine", "tx3", size: 12), label(m, Fonts.pt(11.5, .medium), "tx2")], spacing: 4)
+        let s = hstack([Icon("machine", "tx3", size: 12), fixedLabel(m, Fonts.pt(11.5, .medium), "tx2")], spacing: 4)
         s.toolTip = "Runs on \(m)"
+        s.setContentCompressionResistancePriority(.required, for: .horizontal)
+        s.setHuggingPriority(.required, for: .horizontal)
         return s
     }
 
@@ -192,20 +274,29 @@ final class SidebarView: Flipped {
                 let idle = s.group == "idle"
                 let r = Row()
                 r.key = pk
-                let line = hstack([label(p.name, idle ? Fonts.pt(12.5) : Fonts.pt(13, Fonts.w650), idle ? "tx2" : "tx"), machineTag(p.machine), spring(),
-                                   label(timeText(p), Fonts.pt(12.5).withTabularDigits, "tx3")], spacing: 8, insets: NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10))
+                let line = hstack([yields(label(p.name, idle ? Fonts.pt(12.5) : Fonts.pt(13, Fonts.w650), idle ? "tx2" : "tx"), fill: false), machineTag(p.machine), spring(),
+                                   fixedLabel(timeText(p), Fonts.pt(12.5).withTabularDigits, "tx3")], spacing: 8, insets: NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10))
                 r.addSubview(line)
                 pinEdges(line, r)
                 r.selected = psel
                 r.setAccessibilityLabel(p.name)
                 r.onOpen = { [weak self] in self?.onProject?(p.id) }
+                r.menuItems = { [weak self] in self?.projectMenu(p) }
                 rows[pk] = r
                 items.append(r)
                 continue
             }
-            items.append(hstack([label(p.name, Fonts.pt(13, Fonts.w650)), machineTag(p.machine), spring(), label(timeText(p), Fonts.pt(13).withTabularDigits, "tx3")],
+            items.append(hstack([yields(label(p.name, Fonts.pt(13, Fonts.w650)), fill: false), machineTag(p.machine), spring(), fixedLabel(timeText(p), Fonts.pt(13).withTabularDigits, "tx3")],
                                 spacing: 8, insets: NSEdgeInsets(top: 6, left: 10, bottom: 2, right: 10)))
-            for r in p.rows { items.append(sessionRow(r, selected: front == r.key, pinned: pinned.contains(r.key))) }
+            for r in p.rows {
+                items.append(sessionRow(r, selected: front == r.key, pinned: pinned.contains(r.key)))
+                // The first time a session waits on the person: a line under its row (the needs-you hint).
+                if s.group == "you", !hintShown, Hints.shared.wants("needs-you") {
+                    hintShown = true
+                    let h = hintView("needs-you", bold: t("hint.needsYouB"), text: t("hint.needsYou"), width: bounds.width - 28) { [weak self] k in self?.onLearn?(k) }
+                    items.append(vstack([h], insets: NSEdgeInsets(top: 4, left: 6, bottom: 6, right: 6)))
+                }
+            }
         }
         let st = vstack(items, spacing: 1)
         return boxed(st, fill: "\(s.group)-t", radius: 10, insets: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4))
@@ -217,8 +308,10 @@ final class SidebarView: Flipped {
                                      v.topAnchor.constraint(equalTo: p.topAnchor), v.bottomAnchor.constraint(equalTo: p.bottomAnchor)])
     }
 
-    /// .ss: the dot, the name, the assistant, the percent (the pin over it
-    /// on hover, and always when pinned), and the line under it.
+    /// .ss: the dot, the name (cut first, taking the free width so every
+    /// row's chip and percent line up on the right), the assistant's chip
+    /// (never squeezed), the percent (the pin in its place on hover; a
+    /// pinned row shows both), and the line under it.
     private func sessionRow(_ r: SideRow, selected: Bool, pinned: Bool) -> NSView {
         let row = Row()
         row.key = r.key
@@ -226,47 +319,132 @@ final class SidebarView: Flipped {
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
-        let tag = r.assistant.map { a -> NSView in
-            let b = boxed(label(a, Fonts.pt(11, .semibold), "tx2"), fill: nil, ring: "sep", radius: 5, insets: NSEdgeInsets(top: 3, left: 7, bottom: 3, right: 7))
-            b.setContentHuggingPriority(.required, for: .horizontal)
-            return b
-        }
-        let pc = label(r.pct.map { "\($0)%" } ?? "", Fonts.pt(11.5).withTabularDigits, r.pctWarn ? "you" : "tx3")
+        let tag = r.assistant.map { assistantChip($0) }
+        tags[r.key] = tag
+        let pc = fixedLabel(r.pct.map { "\($0)%" } ?? "", Fonts.pt(11.5).withTabularDigits, r.pctWarn ? "you" : "tx3")
         pc.alignment = .right
-        pc.widthAnchor.constraint(equalToConstant: 28).isActive = true
         let pinB = RButton(pinned ? t("side.unpin") : t("side.pin"), .icon, small: true, icon: "pin")
         pinB.removeConstraints(pinB.constraints.filter { $0.firstAttribute == .width || $0.firstAttribute == .height })
         pinB.widthAnchor.constraint(equalToConstant: 18).isActive = true
         pinB.heightAnchor.constraint(equalToConstant: 18).isActive = true
         pinB.iconView?.tint = pinned ? "tx2" : "tx3"
         pinB.on = pinned
-        pinB.isHidden = !pinned
         pinB.run = { [weak self] in self?.onPin?(r.key) }
         pins[r.key] = pinB
-        let name = label(r.name, Fonts.pt(12.5))
-        let top = hstack([dot, name, tag, pinned ? nil : pc, pinB], spacing: 8)
+        // The percent's slot, 28 wide: an unpinned row's pin shows there on hover.
+        let slot = Flipped()
+        slot.translatesAutoresizingMaskIntoConstraints = false
+        slot.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        slot.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        slot.addSubview(pc)
+        pc.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([pc.leadingAnchor.constraint(equalTo: slot.leadingAnchor), pc.trailingAnchor.constraint(equalTo: slot.trailingAnchor), pc.centerYAnchor.constraint(equalTo: slot.centerYAnchor)])
+        if !pinned {
+            slot.addSubview(pinB)
+            pinB.trailingAnchor.constraint(equalTo: slot.trailingAnchor).isActive = true
+            pinB.centerYAnchor.constraint(equalTo: slot.centerYAnchor).isActive = true
+            pinB.isHidden = true
+        }
+        pcs[r.key] = pc
+        let name = yields(label(r.name, Fonts.pt(12.5)))
+        names[r.key] = name
+        let top = hstack([dot, name, tag, slot, pinned ? pinB : nil], spacing: 8)
         var second: NSView?
         if let m = r.mark {
             let icon: String = ["ask": "ask", "approve": "run", "secret": "key", "drive": "keyboard", "pick": "pick", "review": "review"][m.kind] ?? "ask"
-            second = hstack([Icon(icon, "you", size: 13), label(m.text, m.code ? Fonts.mono(11.5) : Fonts.pt(12), m.code ? "tx" : "tx2")],
+            second = hstack([Icon(icon, "you", size: 13), yields(label(m.text, m.code ? Fonts.mono(11.5) : Fonts.pt(12), m.code ? "tx" : "tx2"))],
                             spacing: 6, insets: NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 0))
         } else if let l = r.line {
-            second = hstack([label(l, Fonts.pt(12), "tx2")], spacing: 0, insets: NSEdgeInsets(top: 0, left: 15, bottom: 0, right: 0))
+            second = hstack([yields(label(l, Fonts.pt(12), "tx2"))], spacing: 0, insets: NSEdgeInsets(top: 0, left: 15, bottom: 0, right: 0))
+        } else if let u = uses[r.key] {
+            // An agent holding a pane, or waiting for one (useLine).
+            second = hstack([Icon(u.holds ? "holds" : "clock", u.holds ? "claude" : "tx3", size: 13), yields(label(u.text, Fonts.pt(12), u.holds ? "tx2" : "tx3"))],
+                            spacing: 6, insets: NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 0))
         }
         let col = vstack([top, second], spacing: 4, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
         row.addSubview(col)
         pinEdges(col, row)
         row.selected = selected
-        row.setAccessibilityLabel([r.name, r.assistant, r.pct.map { "\($0)%" }, r.mark?.text ?? r.line].compactMap { $0 }.joined(separator: ", "))
+        row.setAccessibilityLabel([r.name, r.assistant, r.pct.map { "\($0)%" }, pinned ? t("side.pinned") : nil, r.mark?.text ?? r.line ?? uses[r.key]?.text].compactMap { $0 }.joined(separator: ", "))
+        row.toolTip = [r.name, r.mark?.text ?? r.line].compactMap { $0 }.joined(separator: "\n")
         row.onOpen = { [weak self] in self?.onSession?(r.key) }
-        // The pin shows on hover in the percent's place.
+        row.menuItems = { [weak self] in self?.sessionMenu(r, pinned: pinned) }
+        // The pin shows on hover in the percent's place (a pinned row's stays where it is).
         row.onHover = { [weak pinB, weak pc] on in
-            guard !pinned else { return }
-            pinB?.isHidden = !on
             pc?.isHidden = on
+            if !pinned { pinB?.isHidden = !on }
         }
         rows[r.key] = row
         return row
+    }
+
+    /// The chip, the percent and the name of each row drawn, for the self-test.
+    private(set) var tags: [String: NSView?] = [:]
+    private(set) var pcs: [String: NSTextField] = [:]
+    private(set) var names: [String: NSTextField] = [:]
+
+    // MARK: right-click menus (Electron has none; the hub's board closes sessions from its Sessions view)
+
+    /// The rows of state.sessions that stand for a sidebar session: by its session id, else its tab.
+    func procRows(of key: String) -> [SessionProc] {
+        guard let st = lastState, let f = st.find(key) else { return [] }
+        let all = st.sessionProcs
+        if let sid = f.session.sessionId, let r = all.first(where: { $0.sessionId == sid }) { return [r] }
+        return all.filter { $0.surfaceId == f.session.surfaceId && f.session.surfaceId != "" }
+    }
+
+    private func item(_ title: String, enabled: Bool = true, _ run: (() -> Void)? = nil) -> NSMenuItem {
+        let i = MenuAction.item(title, run)
+        i.isEnabled = enabled && run != nil
+        return i
+    }
+
+    /// Close for the sessions a row stands for: ended in its tab, its transcript kept, Reopen on the Sessions page.
+    private func closeItems(_ procs: [SessionProc], name: String) -> [NSMenuItem] {
+        let can = procs.filter { $0.canClose }
+        if can.isEmpty {
+            let why = procs.first.map { $0.whyNot } ?? t("sess.notRunning")
+            let i = item(t("sess.closeOne"), enabled: false, nil)
+            i.toolTip = why
+            let w = item(why, enabled: false, nil)
+            return [i, w]
+        }
+        let ids = can.compactMap { $0.sessionId }
+        let mem = can.reduce(0) { $0 + $1.memKb }
+        let title = can.count == 1 ? t("sess.closeOneFrees", ["mem": SessionProc.mem(mem)]) : t("sess.closeNFrees", ["n": "\(can.count)", "mem": SessionProc.mem(mem)])
+        return [item(title) { [weak self] in self?.onCloseSessions?(ids, name) }]
+    }
+
+    private func sessionMenu(_ r: SideRow, pinned: Bool) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        m.addItem(item(t("sess.open")) { [weak self] in self?.onSession?(r.key) })
+        m.addItem(item(pinned ? t("side.unpin") : t("side.pin")) { [weak self] in self?.onPin?(r.key) })
+        if let f = lastState?.find(r.key) {
+            if f.session.sessionId != nil, f.session.ctx != nil, !(f.session.handoffQueued) {
+                m.addItem(item(t("session.handOffNow")) { [weak self] in self?.onHandOff?(r.key) })
+            }
+            if f.project.brief != nil { m.addItem(item(t("panel.openBrief")) { [weak self] in self?.onNav?("brief:\(f.project.id)", t("panel.brief")) }) }
+        }
+        m.addItem(.separator())
+        for i in closeItems(procRows(of: r.key), name: r.name) { m.addItem(i) }
+        m.addItem(item(t("sess.manage")) { [weak self] in self?.onNav?("sessions", t("sess.title")) })
+        return m
+    }
+
+    private func projectMenu(_ p: SideProject) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        m.addItem(item(t("sess.open")) { [weak self] in self?.onProject?(p.id) })
+        if lastState?.project(p.id)?.brief != nil { m.addItem(item(t("panel.openBrief")) { [weak self] in self?.onNav?("brief:\(p.id)", t("panel.brief")) }) }
+        let procs = lastState?.sessionProcs.filter { $0.projectId == p.id } ?? []
+        if !procs.isEmpty {
+            m.addItem(.separator())
+            for i in closeItems(procs, name: p.name) { m.addItem(i) }
+        }
+        m.addItem(.separator())
+        m.addItem(item(t("sess.manage")) { [weak self] in self?.onNav?("sessions", t("sess.title")) })
+        return m
     }
 
     /// .nav: the pages from their files (state.pages: the shipped ones,
@@ -317,8 +495,9 @@ final class SidebarView: Flipped {
     }
 
     /// .foot: Settings, the phone, Alerts, Learn, Machines, and the memory line.
-    private func buildFoot(_ state: HubState?, alerts: Bool) {
+    private func buildFoot(_ state: HubState?, alerts: Bool, page: String?) {
         footStack?.removeFromSuperview()
+        footButtons = [:]
         let b = { (key: String, icon: String) -> RButton in
             let x = RButton(t(key), .icon, icon: icon)
             x.run = { [weak self] in self?.onNav?(key, t(key)) }
@@ -328,7 +507,19 @@ final class SidebarView: Flipped {
         }
         let bell = b("side.alerts", "bell")
         if alerts { bell.iconView?.tint = "you" }
-        let mem = state?.memoryLine.map { label(t("side.memory", ["mem": $0]), Fonts.pt(11.5).withTabularDigits, "tx3") }
+        // The memory the sessions hold: it opens Sessions (close the idle ones, reopen a closed one).
+        let mem = state?.memoryLine.map { line -> RButton in
+            // Narrow (a sidebar under 260 pt), the figure alone, so it is never cut.
+            let x = RButton(bounds.width > 0 && bounds.width < 260 ? line : t("side.memory", ["mem": line]), .link) { [weak self] in self?.onNav?("sessions", t("sess.title")) }
+            x.titleColor = page == "sessions" ? "tx" : "tx3"
+            x.titleSize = 11.5
+            x.on = page == "sessions"
+            let idle = state?.sessionsIdle ?? 0
+            x.toolTip = t(idle == 1 ? "sess.memTip1" : "sess.memTip", ["n": "\(idle)"])
+            x.setAccessibilityLabel(t("sess.memA11y", ["mem": line, "n": "\(idle)"]))
+            self.footButtons["sessions"] = x
+            return x
+        }
         // .m-foot .bdot: 7 wide, --you, ringed in the window's colour, at its top right.
         let mach = b("side.machines", "machines")
         mach.onFill = true
@@ -342,7 +533,7 @@ final class SidebarView: Flipped {
             mach.addSubview(d)
             mach.setAccessibilityValue("needs you")
         }
-        let s = hstack([b("side.settings", "settings"), b("side.phone", "phone"), bell, b("side.learn", "question"), mach, spring(), mem],
+        let s = hstack([b("side.settings", "settings"), firstRun ? nil : b("side.phone", "phone"), firstRun ? nil : bell, b("side.learn", "question"), mach, spring(), firstRun ? nil : mem],
                        spacing: 2, insets: NSEdgeInsets(top: 4, left: 2, bottom: 0, right: 6))
         foot.addSubview(s)
         pinEdges(s, foot)

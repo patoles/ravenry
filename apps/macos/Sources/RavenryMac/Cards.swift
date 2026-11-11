@@ -40,6 +40,21 @@ struct CardCtx {
     var phoneToo: Bool
     /// A pane's name as the tabs say it, when this window has it.
     var paneName: (String) -> String?
+    /// A pane of this window in front (Show in the terminal); false when it has no such pane.
+    var showPane: (String) -> Bool = { _ in false }
+    /// A drive card's facts: what the pane is, who asks and from where, when it was opened, its folder.
+    var driveFacts: ([String: Any]) -> DriveFacts? = { _ in nil }
+}
+
+/// What a drive card says besides its pane's name (app.ts cardCtx.drive).
+struct DriveFacts {
+    /// "a shell", "a pane you opened", "Claude's pane", "Codex's session".
+    let what: String
+    /// The asking agent's session ("Tilting the hull").
+    let session: String?
+    /// "By you, at 16:58".
+    let opened: String?
+    let folder: String?
 }
 
 /// Text that wraps in the card's width.
@@ -746,12 +761,25 @@ final class CheckpointCard: Box {
         let who = w["who"] as? String ?? "The agent"
         var rows: [NSView?] = [header("keyboard", heading: "\(who) \(d["wants"] as? String ?? "")"), cardText(cpFill(d["title"] as? String ?? "", w), Fonts.pt(14, .semibold))]
         let pane = d["pane"] as? String ?? ""
-        rows.append(kv([(t("checkpoint.pane"), cardText(pane, Fonts.pt(12.5, .semibold)))], keyWidth: 60))
+        // Pane: its name and what it is; who asks, when it was opened, where (driveCard's kv).
+        let facts = ctx.driveFacts(cp)
+        let paneLine = NSMutableAttributedString(string: pane, attributes: [.font: Fonts.pt(12.5, .semibold), .foregroundColor: Design.color("tx")])
+        if let w = facts?.what, !w.isEmpty { paneLine.append(NSAttributedString(string: ", \(w)", attributes: [.font: Fonts.pt(12.5), .foregroundColor: Design.color("tx")])) }
+        let pl = cardText("", Fonts.pt(12.5))
+        pl.attributedStringValue = paneLine
+        var pairs: [(String, NSView)] = [(t("checkpoint.pane"), pl)]
+        if let s = facts?.session { pairs.append((t("checkpoint.asks"), cardText(t("checkpoint.asksIn", ["who": who, "session": s]), Fonts.pt(12.5)))) }
+        if let o = facts?.opened { pairs.append((t("checkpoint.opened"), cardText(o, Fonts.pt(12.5)))) }
+        if let f = facts?.folder { pairs.append((t("checkpoint.folder"), cardText(f, Fonts.mono(11.5)))) }
+        rows.append(kv(pairs, keyWidth: 60))
         let input = (cp["drive"] as? [String: Any])?["input"] as? String ?? ""
         if !input.isEmpty, d["action"] as? String != "type" { rows.append(commandBlock(input)) }
         if !input.isEmpty, d["action"] as? String == "type" {
+            // What it would press: its text, and each key as a chip (Enter, Ctrl C).
             rows.append(label(t("checkpoint.wouldPress"), Fonts.pt(12, Fonts.w650), "tx2"))
-            rows.append(commandBlock(input.replacingOccurrences(of: "\r", with: " ⏎ ").replacingOccurrences(of: "\n", with: " ⏎ ")))
+            let keys = cardText("", Fonts.mono(12))
+            keys.attributedStringValue = PanelView.keysText(PanelView.keyParts(input), font: Fonts.mono(12), color: "tx")
+            rows.append(boxed(keys, fill: "card2", radius: 7, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)))
         }
         if let why = (cp["drive"] as? [String: Any])?["reason"] as? String { rows.append(cardText("\(t("checkpoint.whoSays", ["who": who])) \(why)", Fonts.pt(12.5), "tx2")) }
         var list: [NSView] = []
@@ -843,6 +871,15 @@ final class CheckpointCard: Box {
                 (a["small"] as? String).map { cardText($0, Fonts.pt(12), "tx3") },
                 (a["big"] as? String).map { cardText($0, Fonts.pt(14, .semibold)) },
                 (a["command"] as? String).map { commandBlock($0, muted: true) },
-                cardText(cpFill(a["text"] as? String ?? "", w), Fonts.pt(12.5), "tx2")]
+                cardText(cpFill(a["text"] as? String ?? "", w), Fonts.pt(12.5), "tx2"),
+                showRunLink()]
+    }
+
+    /// An approved command that ran in a pane of this window: Show in the terminal (afterCard's showRun).
+    private func showRunLink() -> NSView? {
+        guard let pane = (cp["run"] as? [String: Any])?["pane"] as? String ?? (w["after"] as? [String: Any])?["runPane"] as? String, cp["machine"] == nil || cp["machine"] is NSNull,
+              ctx.paneName(pane) != nil else { return nil }
+        let b = button("showRun", t("checkpoint.showRun"), .link) { [weak self] in _ = self?.ctx.showPane(pane) }
+        return hstack([b, spring()], spacing: 0)
     }
 }

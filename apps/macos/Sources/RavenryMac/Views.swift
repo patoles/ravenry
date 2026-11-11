@@ -87,6 +87,59 @@ class Row: Box {
     }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onOpen?(); return true }
+
+    /// Its right-click (and Control-click) menu, built when asked.
+    var menuItems: (() -> NSMenu?)?
+    override func menu(for e: NSEvent) -> NSMenu? { menuItems?() ?? super.menu(for: e) }
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let m = menuItems?() else { return false }
+        m.popUp(positioning: nil, at: NSPoint(x: 12, y: bounds.height - 4), in: self)
+        return true
+    }
+
+    // The keyboard (rows are tabindex 0 in the Electron app): Tab reaches a
+    // row, Return or Space opens it. A click never takes the keyboard from
+    // the terminal: only Tab (a key press) gives it to a row.
+    override var acceptsFirstResponder: Bool { onOpen != nil && NSApp.currentEvent?.type == .keyDown }
+    override var canBecomeKeyView: Bool { onOpen != nil }
+    override var focusRingMaskBounds: NSRect { bounds }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: radius, yRadius: radius).fill() }
+    override func keyDown(with e: NSEvent) {
+        // Return, Enter, Space.
+        if [36, 76, 49].contains(e.keyCode), e.modifierFlags.intersection([.command, .control, .option]).isEmpty { onOpen?(); return }
+        super.keyDown(with: e)
+    }
+}
+
+/// A label that keeps its whole width (a chip, a tag, a time, a count):
+/// the CSS flex: none of the Electron app. Beside a name made with
+/// `yields(_:)`, the name gives up its room first and is cut, never this.
+func fixedLabel(_ s: String, _ font: NSFont, _ color: String = "tx") -> NSTextField {
+    let f = label(s, font, color)
+    f.setContentCompressionResistancePriority(.required, for: .horizontal)
+    f.setContentHuggingPriority(.required, for: .horizontal)
+    return f
+}
+
+/// A one-line label that is the first to be cut in its row (flex: 1;
+/// min-width: 0), and with `fill` takes the row's free width, so what
+/// follows it lines up on the right. Its whole text is its tooltip.
+@discardableResult
+func yields(_ f: NSTextField, fill: Bool = true) -> NSTextField {
+    f.setContentCompressionResistancePriority(.init(200), for: .horizontal)
+    if fill { f.setContentHuggingPriority(.init(2), for: .horizontal) }
+    if f.toolTip == nil, !f.stringValue.isEmpty { f.toolTip = f.stringValue }
+    return f
+}
+
+/// An assistant's chip (.as-tag): ringed, never squeezed.
+func assistantChip(_ s: String, color: String = "tx2", ring: String = "sep") -> Box {
+    let b = boxed(fixedLabel(s, Fonts.pt(11, .semibold), color), fill: nil, ring: ring, radius: 5, insets: NSEdgeInsets(top: 3, left: 7, bottom: 3, right: 7))
+    b.setContentHuggingPriority(.required, for: .horizontal)
+    b.setContentCompressionResistancePriority(.required, for: .horizontal)
+    b.setAccessibilityElement(true)
+    b.setAccessibilityLabel(s)
+    return b
 }
 
 func label(_ s: String, _ font: NSFont, _ color: String = "tx", lines: Int = 1, select: Bool = false) -> NSTextField {
@@ -306,6 +359,9 @@ func boxed(_ content: NSView, fill: String?, ring: String? = nil, radius: CGFloa
 /// A scroll view whose document is a vertical stack as wide as it.
 final class StackScroll: NSScrollView {
     let stack: NSStackView
+    private var minWidthConstraint: NSLayoutConstraint?
+    /// The least width of its rows (a diff's longest line): wider than the view, it scrolls sideways.
+    var minWidth: CGFloat = 0 { didSet { minWidthConstraint?.constant = minWidth } }
     init(spacing: CGFloat, insets: NSEdgeInsets) {
         stack = vstack([], spacing: spacing, insets: insets)
         super.init(frame: .zero)
@@ -318,9 +374,14 @@ final class StackScroll: NSScrollView {
         doc.translatesAutoresizingMaskIntoConstraints = false
         doc.addSubview(stack)
         documentView = doc
+        // As wide as the view, or `minWidth` when that is more (it then scrolls sideways).
+        let fit = doc.trailingAnchor.constraint(equalTo: contentView.trailingAnchor)
+        fit.priority = .init(999)
+        minWidthConstraint = doc.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)
         NSLayoutConstraint.activate([
             doc.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            doc.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            fit, minWidthConstraint!,
+            doc.widthAnchor.constraint(greaterThanOrEqualTo: contentView.widthAnchor),
             doc.topAnchor.constraint(equalTo: contentView.topAnchor),
             stack.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
@@ -344,4 +405,130 @@ final class StackScroll: NSScrollView {
         contentView.scroll(to: NSPoint(x: 0, y: min(y, max(0, (documentView?.frame.height ?? 0) - contentView.bounds.height))))
         reflectScrolledClipView(contentView)
     }
+}
+
+/// A menu item that runs a closure.
+final class MenuAction: NSObject {
+    private let run: () -> Void
+    private init(_ run: @escaping () -> Void) { self.run = run }
+    @objc func fire(_ sender: Any?) { run() }
+    static func item(_ title: String, _ run: (() -> Void)?) -> NSMenuItem {
+        let i = NSMenuItem(title: title, action: run == nil ? nil : #selector(fire(_:)), keyEquivalent: "")
+        if let r = run { let a = MenuAction(r); i.target = a; i.representedObject = a }
+        return i
+    }
+}
+
+/// A fade from clear to the window's colour: the list goes on under it.
+final class FadeEdge: NSView {
+    private let g = CAGradientLayer()
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(g)
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ p: NSPoint) -> NSView? { nil }
+    override func layout() { super.layout(); recolour() }
+    override func viewDidChangeEffectiveAppearance() { recolour() }
+    private func recolour() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        g.frame = bounds
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let c = Design.color("win")
+            g.colors = [c.withAlphaComponent(0).cgColor, c.withAlphaComponent(0.85).cgColor]
+        }
+        // Flipped: the clear end on top.
+        g.startPoint = CGPoint(x: 0.5, y: 0); g.endPoint = CGPoint(x: 0.5, y: 1)
+        CATransaction.commit()
+    }
+    override var frame: NSRect { didSet { recolour() } }
+}
+
+/// The one-time hints (app.ts F): said once, at the thing they are about,
+/// with Learn more and an x; dismissed either way, never again. The marks
+/// are the hub's (GET and POST /api/onboarding `hints`: "needs-you",
+/// "agent-pane", "pick"), shared with the Electron app. One at a time.
+final class Hints {
+    static let shared = Hints()
+    static let changed = Notification.Name("RavenryHintsChanged")
+    var hub: HubClient?
+    private(set) var done = Set<String>()
+    private(set) var loaded = false
+    /// The hint on screen now (the first that asked).
+    private(set) var current: String?
+    /// The Learn card each points at.
+    static let card = ["needs-you": "needs", "agent-pane": "panes", "pick": "pick"]
+
+    func load() {
+        hub?.get("/api/onboarding") { [weak self] code, j in
+            guard let self, code == 200 else { return }
+            self.done = Set(((j["hints"] as? [String: Any]) ?? [:]).filter { ($0.value as? Bool) == true }.map { $0.key })
+            self.loaded = true
+            NotificationCenter.default.post(name: Hints.changed, object: nil)
+        }
+    }
+
+    /// Whether `id` shows now: read, not dismissed, and no other hint on screen.
+    func wants(_ id: String) -> Bool {
+        guard loaded, !done.contains(id), current == nil || current == id else { return false }
+        current = id
+        return true
+    }
+
+    /// Its thing went from the screen: another may show.
+    func gone(_ id: String) { if current == id { current = nil } }
+
+    func dismiss(_ id: String) {
+        done.insert(id)
+        if current == id { current = nil }
+        hub?.post("/api/onboarding", ["hints": [id: true]]) { _, _ in }
+        NotificationCenter.default.post(name: Hints.changed, object: nil)
+    }
+}
+
+/// A one-time hint (.hint): its words (the first part bold) on --work, Learn more, and an x.
+func hintView(_ id: String, bold: String, text: String, width: CGFloat, learn: @escaping (String) -> Void) -> NSView {
+    let a = NSMutableAttributedString(string: bold + " ", attributes: [.font: Fonts.pt(12.5, .semibold), .foregroundColor: NSColor.white])
+    a.append(NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 12.5, weight: .regular), .foregroundColor: NSColor.white]))
+    let words = label("", Fonts.pt(12.5), "tx", lines: 0)
+    words.allowsEditingTextAttributes = true
+    words.attributedStringValue = a
+    words.preferredMaxLayoutWidth = max(100, width - 24)
+    // White on --work in both appearances (no token is white in both): plain buttons.
+    let more = PlainButton { Hints.shared.dismiss(id); learn(Hints.card[id] ?? "") }
+    more.attributedTitle = NSAttributedString(string: t("hint.learnMore"), attributes: [.font: Fonts.pt(12.5, .semibold), .foregroundColor: NSColor.white, .underlineStyle: NSUnderlineStyle.single.rawValue])
+    let x = PlainButton { Hints.shared.dismiss(id) }
+    x.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: t("hint.dismiss"))?.withSymbolConfiguration(.init(pointSize: 11, weight: .semibold))
+    x.contentTintColor = .white
+    x.toolTip = t("hint.dismiss")
+    x.setAccessibilityLabel(t("hint.dismiss"))
+    let b = boxed(vstack([words, hstack([more, spring(), x], spacing: 8)], spacing: 6), fill: "work", radius: 9, insets: NSEdgeInsets(top: 9, left: 12, bottom: 7, right: 8))
+    b.setAccessibilityElement(true)
+    b.setAccessibilityRole(.group)
+    b.setAccessibilityLabel("\(bold) \(text)")
+    b.identifier = NSUserInterfaceItemIdentifier("hint-\(id)")
+    return b
+}
+
+/// A borderless button that runs a closure (a hint's Learn more and x), drawn as its title or image says.
+final class PlainButton: NSButton {
+    var run: () -> Void
+    init(_ run: @escaping () -> Void) {
+        self.run = run
+        super.init(frame: .zero)
+        isBordered = false
+        bezelStyle = .regularSquare
+        title = ""
+        target = self
+        action = #selector(fire)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    @objc private func fire() { run() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }

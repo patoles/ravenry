@@ -39,6 +39,8 @@ final class OutsideView: MiddleView {
     var onMove: ((HubProject, HubSession) -> Void)?
     private var last: (HubProject, HubSession, String?)?
     var moving = Set<String>()
+    /// The note under the head (what Move here does, or that it waits), for the self-test.
+    private(set) var noteText: String?
 
     /// Shows the session; `why` says why its pane is not drawn here (another ravenryd).
     func show(_ p: HubProject, _ s: HubSession, why: String?) {
@@ -88,7 +90,10 @@ final class OutsideView: MiddleView {
         // does not draw (an older one after an update): Move here ends it there
         // and resumes it in a pane of this window's daemon (POST /api/sessions/move).
         let movable = out != nil || (why != nil && m == nil)
-        let canResume = movable && s.sessionId != nil && kindOk
+        // Outside Ravenry it resumes only while open there, when the hub says it can, or once it ended (renderElsewhere's canResume).
+        let resumable = out == nil || open || (out?["resumable"] as? Bool ?? false)
+        let canResume = movable && s.sessionId != nil && kindOk && resumable
+        let waiting = s.moving?["waiting"] as? Bool ?? false
         if movable {
             let busy = moving.contains(s.sessionId ?? "")
             let w = s.moving?["waiting"] as? Bool ?? false
@@ -98,15 +103,27 @@ final class OutsideView: MiddleView {
             buttons["move"] = b
             acts.append(b)
         }
+        // The words take the free width, so Open in and Move here sit at the row's right end (.else-head).
+        title.lineBreakMode = .byTruncatingTail
+        for l in [title, subL] {
+            l.setContentCompressionResistancePriority(.init(200), for: .horizontal)
+            // Neither line pulls the column narrower than the other needs (both are as wide as the column).
+            l.setContentHuggingPriority(.init(1), for: .horizontal)
+        }
         let words = vstack([title, subL], spacing: 4)
-        words.setContentHuggingPriority(.init(1), for: .horizontal)
-        let head = hstack([words] + acts, spacing: 16)
+        words.setHuggingPriority(.init(1), for: .horizontal)
+        words.setClippingResistancePriority(.init(200), for: .horizontal)
+        let head = hstack([words, spring()] + acts, spacing: 16)
         head.alignment = .top
         var rows: [NSView] = [head]
         if canResume {
-            let n = label(t("else.moveNote", ["where": fromName]), Fonts.pt(12.5, .medium), "tx2", lines: 2); n.textColor = termTx2
-            rows.append(hstack([Icon("done", "tx2", size: 14), n], spacing: 7))
-        }
+            // Waiting for its turn to end (amber, a clock), else what Move here does (green, a check).
+            let who = s.assistant == "codex" ? "Codex" : "Claude"
+            let text = waiting ? t("else.movesWhen", ["who": who, "where": fromName]) : open || why != nil ? t("else.moveNote", ["where": fromName]) : t("else.moveNoteEnded")
+            let n = label(text, Fonts.pt(12.5, .medium), waiting ? "you" : "ok", lines: 2)
+            noteText = text
+            rows.append(hstack([Icon(waiting ? "clock" : "done", waiting ? "you" : "ok", size: 14), n], spacing: 7))
+        } else { noteText = nil }
         if let w = why { let l = label(t("else.otherDaemon", ["why": w]), Fonts.pt(12.5), "you", lines: 3); rows.append(l) }
         if let c = s.cannot, s.terminal == false || entries == nil, open { let l = label(c, Fonts.pt(12.5), "tx3", lines: 3); l.textColor = termTx3; rows.append(l) }
         // Its screen when it has something on it; else its transcript.
@@ -122,7 +139,15 @@ final class OutsideView: MiddleView {
                 case "r": lines.append(("※", "recap: \(text)", termTx2))
                 case "s": lines.append((x["g"] as? String ?? "✻", x["t"] as? String ?? "", termTx2))
                 case "o": lines.append(("⎿", x["t"] as? String ?? "", termTx2))
-                case "t": lines.append(("⏺", (x["b"] as? String) ?? "\(x["n"] as? String ?? "") \(x["a"] as? String ?? "")", termTx2))
+                case "t":
+                    // A tool: its name and argument, "+N lines" it printed; a batch line with "×N".
+                    if let b = x["b"] as? String {
+                        let n = (x["x"] as? NSNumber)?.intValue ?? 0
+                        lines.append(("⏺", b + (n > 1 ? "  ×\(n)" : ""), termTx2))
+                    } else {
+                        let m = (x["m"] as? NSNumber)?.intValue ?? 0
+                        lines.append(("⏺", "\(x["n"] as? String ?? "") \(x["a"] as? String ?? "")" + (m > 0 ? "  +\(m) line\(m > 1 ? "s" : "")" : ""), termTx2))
+                    }
                 default: lines.append((" ", text, termTx))
                 }
             }
@@ -147,7 +172,8 @@ final class OutsideView: MiddleView {
         capLine.translatesAutoresizingMaskIntoConstraints = false
         capLine.heightAnchor.constraint(equalToConstant: 1).isActive = true
         rows.append(vstack([capL, capLine], spacing: 3))
-        for (g, text, color) in lines.suffix(80) {
+        // Every row of its screen (the hub sends what is on it), up to the last 400.
+        for (g, text, color) in lines.suffix(400) {
             let gl = label(g, Fonts.mono(12.5)); gl.textColor = termTx3
             gl.widthAnchor.constraint(equalToConstant: 16).isActive = true
             let tl = label(text, Fonts.mono(12.5), "tx", lines: 0, select: true); tl.textColor = color
@@ -167,6 +193,32 @@ final class OutsideView: MiddleView {
     }
 }
 
+/// Why a project with no session is in its section (app.ts projectFacts):
+/// a plan gate's question, who it waits on, working, idle for how long.
+func projectFacts(_ p: HubProject) -> (group: String, text: String) {
+    let state = p.s("state") ?? ""
+    let g = ["you", "work", "wait", "idle"].contains(state) ? state : "idle"
+    if let q = (p.raw["planGate"] as? [String: Any])?["question"] as? String, !q.isEmpty { return ("you", t("project.needsYouQ", ["q": q])) }
+    switch g {
+    case "wait": return (g, p.waitingOn.map { t("panel.waitingOn", ["who": $0]) } ?? t("panel.waitingOthers"))
+    case "you": return (g, t("group.you"))
+    case "work": return (g, t("panel.working"))
+    default: return (g, p.since.map { t("panel.idleFor", ["ago": When.ago($0)]) } ?? t("panel.idle"))
+    }
+}
+
+/// The state in words with its ring (.st).
+func factLine(_ g: String, _ text: String, size: CGFloat = 13) -> NSView {
+    let c = g == "idle" ? "tx2" : g
+    let l = label(text, Fonts.pt(size, .semibold), c, lines: 3)
+    l.preferredMaxLayoutWidth = 520
+    let v = hstack([Icon("ring-\(g)", c, size: 14), l, spring()], spacing: 7)
+    v.alignment = .top
+    v.setAccessibilityElement(true)
+    v.setAccessibilityLabel(text)
+    return v
+}
+
 /// A project no session runs in: its last conversation.
 final class ProjectPageView: MiddleView {
     private(set) var buttons: [String: RButton] = [:]
@@ -177,14 +229,29 @@ final class ProjectPageView: MiddleView {
     var onNewHere: ((HubProject) -> Void)?
     var onBrief: ((HubProject) -> Void)?
     var onShowSession: ((String) -> Void)?
+    /// Show it: the conversation is open in a pane of this window (its tab in front); false when it has no such pane.
+    var onShowPane: ((String) -> Bool)?
     var busy = false
-    var error: String?
+    /// A Continue the hub refused: said under the buttons, and the last conversation asked again (it may be open somewhere now).
+    var error: String? { didSet { if error != nil { asked = .distantPast } } }
     private var last: [String: Any]?
     private var loaded = false
     private var asked = Date.distantPast
 
     init() { super.init(sheet: true) }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The project left the board while its page was in front (renderProject).
+    func gone(_ id: String) {
+        guard projectId == id else { return }
+        buttons = [:]
+        let l = label(t("project.gone"), Fonts.pt(14, .semibold), "tx2")
+        content.set(centred(vstack([l], spacing: 8)))
+        setAccessibilityLabel(t("project.gone"))
+    }
+
+    /// Asks again for its last conversation (a Continue the hub refused because it is open somewhere).
+    func reload(_ p: HubProject) { asked = .distantPast; show(p) }
 
     func show(_ p: HubProject) {
         if projectId != p.id { projectId = p.id; last = nil; loaded = false; error = nil; busy = false; asked = .distantPast }
@@ -194,6 +261,8 @@ final class ProjectPageView: MiddleView {
                 guard let self, self.projectId == p.id else { return }
                 self.last = code == 200 ? j["last"] as? [String: Any] : nil
                 self.loaded = true
+                // It turned out open in a terminal: the page now says where, with Show it or Move here, not the refusal.
+                if self.error != nil, self.last?["openIn"] is [String: Any] { self.error = nil }
                 self.draw(p)
             }
         }
@@ -214,7 +283,8 @@ final class ProjectPageView: MiddleView {
     func draw(_ p: HubProject) {
         buttons = [:]
         let name = label(p.name, Fonts.pt(20, .bold))
-        var head: [NSView?] = [name, p.folderShort.map { label($0, Fonts.pt(13), "tx3") }]
+        let facts = projectFacts(p)
+        var head: [NSView?] = [name, p.folderShort.map { label($0, Fonts.pt(13), "tx3") }, factLine(facts.group, facts.text)]
         if let s = p.sessions.first(where: { !$0.handed }) {
             head.append(label(t("project.runsIn"), Fonts.pt(13)))
             let b = RButton(t("project.showSession"), .primary) { [weak self] in self?.onShowSession?("\(p.id)/\(s.surfaceId)") }
@@ -239,19 +309,26 @@ final class ProjectPageView: MiddleView {
         }
         let who = (l["assistant"] as? String) == "codex" ? "Codex" : "Claude"
         let openIn = l["openIn"] as? [String: Any]
+        let inRavenry = (openIn?["ravenry"] as? Bool ?? false) ? openIn?["pane"] as? String : nil
         let outside = openIn.flatMap { ($0["ravenry"] as? Bool ?? false) ? nil : ($0["name"] as? String ?? "another terminal") }
+        // The title gives up its room first; the chip and when it stopped stay whole.
         let conv = vstack([
-            hstack([label(l["title"] as? String ?? "", Fonts.pt(13.5, Fonts.w650)), boxed(label(who, Fonts.pt(11, .semibold), "tx2"), fill: nil, ring: "sep", radius: 5, insets: NSEdgeInsets(top: 3, left: 7, bottom: 3, right: 7)),
-                    spring(), label(t("project.stoppedAt", ["when": When.stopped(l["stoppedAt"] as? String)]), Fonts.pt(12, .medium), "tx3")], spacing: 8),
+            hstack([yields(label(l["title"] as? String ?? "", Fonts.pt(13.5, Fonts.w650)), fill: false), assistantChip(who),
+                    spring(), fixedLabel(t("project.stoppedAt", ["when": When.stopped(l["stoppedAt"] as? String)]), Fonts.pt(12, .medium), "tx3")], spacing: 8),
             (l["lastPrompt"] as? String).map { said(t("project.you"), $0, "tx") },
             (l["lastText"] as? String).map { said(who, $0, "tx2") },
         ], spacing: 10)
         var rows: [NSView?] = head + [boxed(conv, fill: "card", radius: 12, insets: NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16))]
         if let o = outside { rows.append(label(t("project.stillOpen", ["where": o]), Fonts.pt(12.5), "you")) }
         let main: RButton
-        if let o = outside {
+        if let pane = inRavenry {
+            // Open in a Ravenry pane already: a second copy would be refused, so it shows that one.
+            main = RButton(t("project.showIt"), .primary) { [weak self] in
+                guard let self else { return }
+                if self.onShowPane?(pane) != true { self.error = t("project.notHere"); self.draw(p) }
+            }
+        } else if outside != nil {
             main = RButton(busy ? t("move.moving") : t("move.here"), .primary) { [weak self] in self?.onMoveLast?(p, l) }
-            _ = o
         } else {
             main = RButton(busy ? t("project.continuing") : t("project.continue"), .primary) { [weak self] in self?.onContinue?(p, l) }
         }

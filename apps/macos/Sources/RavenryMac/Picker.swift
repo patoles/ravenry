@@ -89,6 +89,8 @@ final class PickerView: Box {
     var hub: HubClient?
     var answer: ((String, [String: Any], @escaping (Bool, String?) -> Void) -> Void)?
     var onClose: (() -> Void)?
+    /// A hint's Learn more: Learn Ravenry at that card.
+    var onLearn: ((String) -> Void)?
     /// "Tilting the hull, paper-boat": the asking session and its project.
     var whereOf: (([String: Any]) -> String?)?
     private(set) var picked: Int?
@@ -240,7 +242,20 @@ final class PickerView: Box {
             i += cols
         }
         let grid = vstack(rows, spacing: 14, insets: NSEdgeInsets(top: 6, left: 22, bottom: 16, right: 22))
-        var all: [NSView] = [head, grid]
+        var all: [NSView] = [head]
+        // The first pick: under its title, room made for it (the pick hint).
+        if open, Hints.shared.wants("pick") {
+            let h = hintView("pick", bold: t("hint.pickB"), text: t("hint.pick"), width: min(560, max(220, bounds.width - 44))) { [weak self] k in self?.onLearn?(k) }
+            let wrapH = Flipped()
+            wrapH.translatesAutoresizingMaskIntoConstraints = false
+            h.translatesAutoresizingMaskIntoConstraints = false
+            wrapH.addSubview(h)
+            NSLayoutConstraint.activate([h.leadingAnchor.constraint(equalTo: wrapH.leadingAnchor, constant: 22), h.topAnchor.constraint(equalTo: wrapH.topAnchor),
+                                         h.bottomAnchor.constraint(equalTo: wrapH.bottomAnchor, constant: -8), h.widthAnchor.constraint(lessThanOrEqualToConstant: 560),
+                                         h.trailingAnchor.constraint(lessThanOrEqualTo: wrapH.trailingAnchor, constant: -22)])
+            all.append(wrapH)
+        } else { Hints.shared.gone("pick") }
+        all.append(grid)
         if let e = error { all.append(vstack([label(e, Fonts.pt(12), "bad", lines: 0)], spacing: 0, insets: NSEdgeInsets(top: 0, left: 22, bottom: 0, right: 22))) }
         scroll.set(all)
         drawFoot()
