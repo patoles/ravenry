@@ -6,6 +6,7 @@
 
 import './phonecard.css';
 import { h, replace } from './dom.ts';
+import { pairable } from './phonepair.ts';
 
 export interface PhoneDevice { id: string; name: string; platform: string; app?: string | null; created?: string; lastSeen?: string | null }
 export interface PhoneCardData {
@@ -141,7 +142,7 @@ export class PhoneCard {
     if (!this.el) return;
     const d = this.data;
     const on = !!d?.access;
-    const app = on ? d?.app : null;
+    const app = pairable(on, d?.app);
     const now = this.ctx.now();
     const code = app ? qr(app.svg) : null;
     replace(this.el,
