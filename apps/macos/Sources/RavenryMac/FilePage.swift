@@ -44,6 +44,8 @@ final class FilePage: FormPage {
     private var shown = Set<String>()
     private var dismissed = Set<String>()
     private var memory: (at: Date, rules: [[String: Any]])?
+    /// GET /api/ideas's brainstorm and brainstormError, for the brainstorm view's line (IDEA-009).
+    private(set) var brainstormState: (at: Date, running: [String: Any]?, error: String?)?
     private var images: [String: NSImage] = [:]
     private var asked = Set<String>()
     /// Posts on their way; the self-test waits for none.
@@ -1378,7 +1380,7 @@ final class FilePage: FormPage {
             guard let self else { return }
             let s = self.typed("seed")
             if s.isEmpty { empty(); return }
-            self.send("/api/ideas/brainstorm", ["seed": s], fail: t("pg.notStartedShort"), reload: false) { code, _ in if code == 200 { self.toast?(t("pg.thinking")); self.clear("seed") } }
+            self.send("/api/ideas/brainstorm", ["seed": s], fail: t("pg.notStartedShort"), reload: false) { code, _ in if code == 200 { self.toast?(t("pg.thinking")); self.clear("seed"); self.readBrainstorm(self.key) } }
         }
         add.isEnabled = off == nil; go.isEnabled = off == nil
         // .bs-r (flex-wrap, gap 8): the field (.field, flex 1 1 320px) and the
@@ -1392,8 +1394,37 @@ final class FilePage: FormPage {
             used += (lines[lines.count - 1].isEmpty ? 0 : 8) + w
             lines[lines.count - 1].append(v)
         }
-        let rows = lines.map { l in hstack(l.contains { $0 === f } ? [soft(f)] + l.dropFirst() : l + [spring()], spacing: 8) }
+        var rows = lines.map { l in hstack(l.contains { $0 === f } ? [soft(f)] + l.dropFirst() : l + [spring()], spacing: 8) }
+        // The brainstorm under way (it stops at 3 minutes), or one that came back wrong, with Clear (hub/public/app.js #i-brain).
+        let k = v["key"] as? String ?? ""
+        if brainstormState == nil || Date().timeIntervalSince(brainstormState!.at) > 4 { readBrainstorm(k) }
+        if let r = brainstormState?.running {
+            let secs = When.date(r["startedAt"] as? String).map { max(0, Int(Date().timeIntervalSince($0))) } ?? 0
+            rows.append(hstack([wrap(t("pg.bsThinking", ["who": r["who"] as? String == "codex" ? "Codex" : "Claude", "seed": r["seed"] as? String ?? "", "secs": "\(secs)"]), Fonts.pt(12.5), "work"), spring()], spacing: 8))
+        } else if let e = brainstormState?.error {
+            let clear = btn("bs:clear", t("pg.bsClear")) { [weak self] in
+                self?.send("/api/ideas/brainstorm/clear", [:], fail: t("page.didNotWork"), reload: false) { code, _ in
+                    if code == 200 { self?.brainstormState = (Date(), nil, nil); self?.dirty(); self?.redraw() }
+                }
+            }
+            clear.isEnabled = off == nil
+            rows.append(hstack([soft(wrap(e, Fonts.pt(12.5), "bad")), clear], spacing: 8))
+        }
         return card(vstack(rows, spacing: 8), insets: NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12))
+    }
+
+    /// The brainstorm's line from GET /api/ideas: read again every second while one runs, the view drawn again when it changed.
+    private func readBrainstorm(_ k: String) {
+        brainstormState = (Date(), brainstormState?.running, brainstormState?.error)
+        hub?.get("/api/ideas") { [weak self] code, j in
+            guard let self, code == 200 else { return }
+            let r = j["brainstorm"] as? [String: Any], e = j["brainstormError"] as? String
+            let changed = (r == nil) != (self.brainstormState?.running == nil) || e != self.brainstormState?.error || r != nil
+            self.brainstormState = (Date(), r, e)
+            guard self.key == k, self.window != nil else { return }
+            if changed { self.dirty(); self.redraw() }
+            if r != nil { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in if self?.key == k { self?.readBrainstorm(k) } } }
+        }
     }
 
     private func memoryRules(_ v: [String: Any], _ s: [String: Any]) -> NSView {

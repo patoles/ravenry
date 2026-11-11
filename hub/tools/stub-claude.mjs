@@ -6,6 +6,8 @@ process.stdin.on('data', (d) => { input += d; });
 process.stdin.on('end', () => {
   if (/exactly 3 distinct directions/.test(input)) {
     const seed = (input.match(/for this seed: "([^"]*)"/) || [])[1] || 'the seed';
+    // "BADJSON" in the seed: prose, not the 3 directions, so the board says it could not read them.
+    if (/BADJSON/.test(seed)) { process.stdout.write('Here are some thoughts, but not as a list.'); return; }
     process.stdout.write(JSON.stringify([
       { name: 'Stub One', pitch: `First direction for ${seed}.` },
       { name: 'Stub Two', pitch: `Second direction for ${seed}.` },

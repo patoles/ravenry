@@ -66,6 +66,27 @@ Read [the long notes](https://example.com/rules) for the stories behind each rul
 `;
 export const RULES_PARAGRAPHS = 15;
 
+export const HARBOUR = `version: 1
+id: harbour
+title: Harbour
+nav: { label: Harbour, icon: flag }
+source:
+  folder: harbour/
+  fields:
+    title: { type: string }
+    link: { type: string }
+sections:
+  - view: list
+    item:
+      title: title
+      actions:
+        - { label: Read more, open: { link: link } }
+        - { label: See the notes, open: { page: notes } }
+        - { label: Lost page, open: { page: nowhere } }
+        - { label: Its boat, open: { project: paper-boat } }
+`;
+export const TODO_MD = '# To do\n\n- [x] Pick the sync library\n- [ ] Sync the settings\n- [ ] Sync the notes\n';
+
 export function pagesPrepare({ HOME, ROOT, MC }) {
   fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(HOME, '.claude', 'CLAUDE.md'), RULES);
@@ -78,6 +99,20 @@ export function pagesPrepare({ HOME, ROOT, MC }) {
   idea('harbour-race', 'Harbour race', 'mockup', 'Paper boats raced across a harbour you fold yourself.', 'wide.png');
   idea('night-garden', 'Night garden', 'greenlit', 'A garden that only grows while you sleep.', 'square.png');
   idea('lantern-tower', 'Lantern tower', 'mockup', 'Stack lanterns as high as the wind allows.', 'tall.png');
+  // A page whose buttons open an address, another page, a page that is not there and a project (PAGE-016).
+  const H = path.join(MC, 'pages', 'harbour');
+  fs.mkdirSync(H, { recursive: true });
+  fs.writeFileSync(path.join(MC, 'pages', 'harbour.page.yaml'), HARBOUR);
+  fs.writeFileSync(path.join(H, 'mooring.md'), '---\ntitle: Mooring rings\nlink: https://example.com/harbour/moorings\n---\nThe rings by the north wall.\n');
+  // A TODO.md with 1 of 3 boxes ticked (PLAN-008): Objectives counts it, the file stays as it is.
+  if (fs.existsSync(path.join(ROOT, 'notes-app'))) fs.writeFileSync(path.join(ROOT, 'notes-app', 'TODO.md'), TODO_MD);
+  // A ship command for garden-planner (PAGE-017): Ship's Copy the ship command.
+  const reg = path.join(MC, 'projects.json');
+  if (fs.existsSync(reg)) {
+    const j = JSON.parse(fs.readFileSync(reg, 'utf8'));
+    for (const p of j.projects || []) if (p.id === 'garden-planner') p.shipCommand = 'npm run ship -- --tag garden';
+    fs.writeFileSync(reg, JSON.stringify(j, null, 2));
+  }
   const bf = path.join(ROOT, 'paper-boat', 'BRIEF.md');
   if (fs.existsSync(bf)) {
     fs.appendFileSync(bf, '\n## Plan\n### Rig the sail\n- [x] Cut the cloth\n- [>] Sew the hem\n- [ ] Fit the mast\n\n'

@@ -446,5 +446,7 @@ extension SelfTestBoard {
         fp.buttons["customize"]?.performClick(nil)
         check("customize_posts", posted(n, "/api/pages/customize") && wait(5) { Outside.record?.dropFirst(b3).contains { $0.hasSuffix("/pages/objectives.page.yaml") } == true } && wait(8) { self.shows(self.fp.head, t("pg.yourCopy")) },
               Outside.record?.suffix(2).joined(separator: ", ") ?? "")
+        // The rows the first round left unchecked (SelfTestPagesC.swift).
+        pagesScopeC()
     }
 }
