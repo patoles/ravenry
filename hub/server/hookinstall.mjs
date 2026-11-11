@@ -381,7 +381,7 @@ export function status(json, { root = ROOT } = {}) {
 // daemon's hook, when the scripts leave Ravenry's panes to it (--ravenryd),
 // is on every one of its events with its binary there. What the Settings
 // window's row, the panel's "This session" and GET /api/setup/hooks all
-// say (one answer for every route). null: that assistant is not here.
+// say (one answer for every route). null: not an assistant Ravenry sets up.
 export function hooksOn(kind, { root = ROOT } = {}) {
   const leaves = (json, ours) => Object.values((json && json.hooks) || {}).some((l) => (Array.isArray(l) ? l : []).some((e) => ((e && e.hooks) || []).some((h) => ours.some((o) => isOurs(h, o, { root })) && splitCommand(h.command).includes('--ravenryd'))));
   const daemonOk = (rv, json, ours) => rv.state === 'ok' || (rv.state === 'missing' && !leaves(json, ours));
@@ -391,7 +391,7 @@ export function hooksOn(kind, { root = ROOT } = {}) {
     return { file: cur.file, on: s.state === 'ok' && daemonOk(s.ravenryd, cur.json, OURS), state: s.state, daemon: s.ravenryd.state };
   }
   if (kind === 'codex') {
-    if (!codexPresent()) return null;
+    // Asked for a row the Settings window shows (Codex found): off until set up, even with no hooks.json yet.
     const s = codexStatus({ root });
     return { file: s.file, on: s.state === 'ok' && !s.hooksOff && daemonOk(s.ravenryd, cx.readHooks().json, CODEX_OURS), state: s.state, daemon: s.ravenryd.state };
   }

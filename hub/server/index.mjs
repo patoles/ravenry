@@ -3789,7 +3789,7 @@ async function handleRequest(req, res) {
     }
     if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => cpWords(c)) : []) });
     // `on`: the same answer the skills rows give (hookinstall.hooksOn).
-    if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => ({ ...hookinstall.status(hookinstall.readSettings().json), on: hookinstall.hooksOn('claude').on })), codex: hookinstall.codexInstalled() ? safe(() => ({ ...hookinstall.codexStatus(), on: !!hookinstall.hooksOn('codex')?.on })) : null });
+    if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => ({ ...hookinstall.status(hookinstall.readSettings().json), on: hookinstall.hooksOn('claude').on })), codex: hookinstall.codexInstalled() ? safe(() => ({ ...hookinstall.codexStatus(), on: hookinstall.hooksOn('codex').on })) : null });
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
       return sendJson(res, r.status, r.body);
