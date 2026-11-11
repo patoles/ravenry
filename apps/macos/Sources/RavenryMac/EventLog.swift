@@ -11,6 +11,19 @@
 
 import AppKit
 
+/// The app's log, ~/Library/Logs/Ravenry/app.log (HUB-008), as the Electron
+/// app's appLog: what the window did for a row click, a move, a quit, one
+/// line each ("window: session click <key>: its tab ..."), written off the
+/// main thread. Under a test's HOME it is that HOME's (AppInstall.home).
+enum AppLog {
+    private static let queue = DispatchQueue(label: "dev.ravenry.mac.applog")
+    static func write(_ line: String) { queue.async { AppInstall.shared.log(line) } }
+    static func window(_ line: String) { write("window: \(line)") }
+    /// Waits until every line so far is in the file (a quit, the self-test).
+    static func flush() { queue.sync {} }
+    static var path: String { (AppInstall.shared.home as NSString).appendingPathComponent("Library/Logs/Ravenry/app.log") }
+}
+
 final class EventLog {
     static let shared = EventLog()
 

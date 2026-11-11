@@ -302,6 +302,11 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     /// The self-test's changes to each state (sidetest.mjs --screen review), and its answers to some GETs.
     var testPatch: (([String: Any]) -> [String: Any])?
     var testAnswers: [String: [String: Any]] = [:]
+    /// Each POST's answer, for the self-test: its place in `sent`, the path,
+    /// the status (0: no answer), and whether a test faked it (testPostAnswers).
+    private(set) var answers: [(seq: Int, path: String, code: Int, faked: Bool)] = []
+    /// POSTs sent and not answered yet (the self-test waits for them before it quits).
+    private(set) var inFlight = 0
     /// The self-test's answers to some POSTs (sidetest.mjs --screen start): kept in sentBodies, never sent.
     var testPostAnswers: [String: (Int, [String: Any])] = [:]
     var testCheckpoints: [[String: Any]]? {
@@ -603,9 +608,11 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         var kept = body
         if let sec = kept["secret"] as? String { kept["secret"] = "(\(sec.count) characters)" }
         sentBodies.append((path, kept))
-        if let a = testPostAnswers[path] { DispatchQueue.main.async { done(a.0, a.1) }; return }
-        guard !readOnly else { done(0, ["error": "This window is read only (RAVENRY_MAC_HUB_READONLY)."]); return }
-        guard let b = base, let u = URL(string: b.absoluteString + path) else { done(0, ["error": "No board."]); return }
+        let seq = sent.count - 1
+        if let a = testPostAnswers[path] { answers.append((seq, path, a.0, true)); DispatchQueue.main.async { done(a.0, a.1) }; return }
+        guard !readOnly else { answers.append((seq, path, 0, false)); done(0, ["error": "This window is read only (RAVENRY_MAC_HUB_READONLY)."]); return }
+        guard let b = base, let u = URL(string: b.absoluteString + path) else { answers.append((seq, path, 0, false)); done(0, ["error": "No board."]); return }
+        inFlight += 1
         var r = URLRequest(url: u)
         r.httpMethod = "POST"
         r.timeoutInterval = 60
@@ -615,7 +622,11 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         session.dataTask(with: r) { d, resp, e in
             let j = d.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? (e.map { ["error": $0.localizedDescription] } ?? [:])
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            DispatchQueue.main.async { done(code, j) }
+            DispatchQueue.main.async {
+                self.inFlight -= 1
+                self.answers.append((seq, path, code, false))
+                done(code, j)
+            }
         }.resume()
     }
 }

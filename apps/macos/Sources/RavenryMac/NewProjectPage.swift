@@ -76,6 +76,7 @@ final class NewProjectPage: FormPage {
         p.allowsMultipleSelection = false
         p.prompt = parent ? t("np.chooseHere") : t("np.choose")
         if let w = self?.window { p.beginSheetModal(for: w) { r in done(r == .OK ? p.url?.path : nil) } }
+        else if options.offscreen { done(nil) } // never a panel on the screen of a run off every screen
         else { p.begin { r in done(r == .OK ? p.url?.path : nil) } }
     }
     private(set) var segFolder: NSSegmentedControl?

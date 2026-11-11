@@ -21,8 +21,25 @@ final class SelfTestBoard {
     init(board: Board, window: NSWindow, out: String) { self.board = board; self.window = window; self.out = out }
 
     func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+        var ok = ok, detail = detail
+        // A check of what was posted (*_posts, *_posted) passes only when
+        // the hub took it: every POST sent since the last such check answered
+        // 2xx (a test's faked answer aside), waited for up to 8 s.
+        if name.hasSuffix("_posts") || name.hasSuffix("_posted") {
+            let hub = board.hub
+            let mine = { hub.answers.filter { $0.seq >= self.sentAtLastCheck } }
+            _ = wait(8) { hub.inFlight == 0 }
+            let real = mine().filter { !$0.faked }
+            let refused = real.filter { !(200..<300).contains($0.code) }
+            if !refused.isEmpty { ok = false }
+            let said = real.map { "\($0.path) \($0.code)" } + mine().filter(\.faked).map { "\($0.path) \($0.code) (faked)" }
+            if !said.isEmpty { detail += (detail.isEmpty ? "" : "; ") + "hub: " + said.joined(separator: ", ") }
+            sentAtLastCheck = hub.sent.count
+        }
         checks.append(["name": name, "ok": ok, "detail": detail])
     }
+    /// The hub's `sent` count at the last *_posts check (the posts the next one judges came after it).
+    private var sentAtLastCheck = 0
 
     var dir: URL { URL(fileURLWithPath: out).deletingLastPathComponent() }
 
@@ -158,6 +175,9 @@ final class SelfTestBoard {
         if let r = board.sidebar.rows[k1] { click(r) }
         check("click_session", board.front == .session(k1) && board.panel.key == k1 && board.panel.shows == "session", "front \(board.front) panel \(board.panel.key)")
         check("row_highlighted", board.sidebar.rows[k1]?.selected == true)
+        // HUB-008 / SESS-005: the click is a line in app.log (the test's HOME), saying what it did.
+        let appLog = { () -> String in AppLog.flush(); return (try? String(contentsOfFile: AppLog.path, encoding: .utf8)) ?? "" }
+        check("applog_row_click", appLog().contains("window: session click \(k1): its view outside Ravenry"), appLog().split(separator: "\n").filter { $0.contains("window: session") }.suffix(2).joined(separator: " | "))
         check("outside_view", board.root.middle === board.outside && !board.outside.isHidden)
         settle(1.0)
         picture("native-session-1440.png")
@@ -203,6 +223,10 @@ final class SelfTestBoard {
         board.outside.buttons["move"]?.performClick(nil)
         _ = wait(5) { hub.sent.contains("POST /api/sessions/move") }
         check("move_here_posted", hub.sent.contains("POST /api/sessions/move"), board.outside.buttons.keys.sorted().joined(separator: ","))
+        // HUB-008: the move and what it came to, in app.log.
+        let sid2 = hub.state?.find(k2)?.session.sessionId ?? "?"
+        check("applog_move", wait(8) { appLog().contains("window: move \(sid2) (Move here)") && appLog().contains("window: move \(sid2): ") },
+              appLog().split(separator: "\n").filter { $0.contains("window: move") }.suffix(3).joined(separator: " | "))
 
         // A Claude session in a pane of a ravenryd this window does not draw
         // (an older one after an update): read only here, so Move here, as for
@@ -305,6 +329,8 @@ final class SelfTestBoard {
     }
 
     func finish() {
+        // The screen's last requests reach the hub before the app quits.
+        _ = wait(10) { board.hub.inFlight == 0 }
         let failed = checks.filter { !($0["ok"] as? Bool ?? false) }.count
         let res: [String: Any] = ["checks": checks, "failed": failed, "log": board.log, "sent": board.hub.sent]
         if let d = try? JSONSerialization.data(withJSONObject: res, options: [.prettyPrinted]) { try? d.write(to: URL(fileURLWithPath: out)) }

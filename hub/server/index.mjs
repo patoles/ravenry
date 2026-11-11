@@ -4014,6 +4014,9 @@ async function handleRequest(req, res) {
         let body;
         try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         const r = await moveSession(body);
+        // HUB-008: the hub's side of every move, as the app's app.log says its own.
+        const sid = body && typeof body.sessionId === 'string' ? body.sessionId : '?';
+        console.log(`sessions: move ${sid} (keep ${body && body.keep}${body && body.now ? ', now' : ''}), asked by ${req.mcLocal ? 'this Mac' : 'a phone'}: ${!r.ok ? `refused (${r.status || 500}): ${r.error}` : r.waiting ? 'after its turn' : r.keep === 'ravenry' || r.surfaceId ? `resumed in ${r.surfaceId || 'a new pane'}` : 'kept where it was, the Ravenry copy ended'}`);
         return sendJson(res, r.ok ? 200 : r.status || 500, r);
       }
       if (p === '/api/sessions/resume') {
@@ -4291,7 +4294,8 @@ startlog.watchStalls();
 void startlog.profileStart();
 console.log(`start: modules loaded, ${Math.round(process.uptime() * 1000)} ms after start`);
 startlog.phase('listen');
-server.listen(PORT, () => {
+// RAVENRY_HUB_BIND: the address to listen on (a test hub's 127.0.0.1); every one by default.
+server.listen(PORT, process.env.RAVENRY_HUB_BIND || undefined, () => {
   try { fs.mkdirSync(registry.RAVENRY_HOME, { recursive: true }); fs.writeFileSync(BOARD_FILE, JSON.stringify({ port: PORT, pid: process.pid, at: new Date().toISOString() }) + '\n'); } catch (e) { console.error('board.json:', e.message); }
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { forgetPort(); process.exit(0); });
   process.once('exit', forgetPort);

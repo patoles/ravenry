@@ -49,7 +49,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     init(store: SettingsStore, hub: HubClient?, offscreen: Bool) {
         self.store = store; self.hub = hub; self.offscreen = offscreen
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 600), styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        // A window AppKit leaves where it is put: off every screen, AppKit would move a plain one onto a screen.
+        let w = TerminalWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 600), styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        w.allowOffscreen = offscreen
+        window = w
         super.init()
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden

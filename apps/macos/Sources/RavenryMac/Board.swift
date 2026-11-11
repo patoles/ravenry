@@ -316,7 +316,7 @@ final class Board: NSObject {
         sidebar.onProject = { [weak self] id in self?.topLevel { $0.pickProject(id) } }
         sidebar.onPin = { [weak self] k in self?.togglePin(k) }
         sidebar.onNew = { [weak self] in self?.topLevel { $0.openStart(nil) } }
-        sidebar.onNav = { [weak self] key, name in self?.topLevel { $0.openPage(key, name) } }
+        sidebar.onNav = { [weak self] key, name in self?.note("row click \(key): \(name)"); self?.topLevel { $0.openPage(key, name) } }
         sidebar.onResize = { [weak self] w in
             guard let self else { return }
             self.sideWidth = w
@@ -614,8 +614,11 @@ final class Board: NSObject {
 
     // MARK: opening
 
+    /// A line in the board's log and in app.log (HUB-008: every row click, move and quit says what it did).
+    func note(_ line: String) { log.append(line); AppLog.window(line) }
+
     func pickSession(_ key: String, why: String) {
-        guard let st = hub.state, let f = st.find(key) else { log.append("session \(why) \(key): not on the board"); return }
+        guard let st = hub.state, let f = st.find(key) else { note("session \(why) \(key): not on the board"); return }
         overlay = false
         lastProject = f.project.id
         // A session waiting at a checkpoint: on a narrow window the panel opens over the terminal.
@@ -624,7 +627,7 @@ final class Board: NSObject {
             front = .tab
             hideMiddle()
             ws.showAgain(t)
-            log.append("session \(why) \(key): its tab \(t.id)")
+            note("session \(why) \(key): its tab \(t.id)")
         } else {
             enter(.session(key)) { [weak self] in self?.pickSession(key, why: "back") }
             front = .session(key)
@@ -634,7 +637,7 @@ final class Board: NSObject {
             let why2: String? = f.session.pane != nil ? "it runs in the board's ravenryd, \(f.session.machine ?? f.project.machine ?? "not this window's")" : nil
             showMiddle(outside)
             outside.show(f.project, f.session, why: why2)
-            log.append("session \(why) \(key): its view outside Ravenry")
+            note("session \(why) \(key): its view outside Ravenry")
         }
         render()
     }
@@ -647,7 +650,7 @@ final class Board: NSObject {
         front = .project(id)
         showMiddle(projectPage)
         projectPage.show(p)
-        log.append("project \(id): its page")
+        note("project \(id): its page")
         render()
     }
 
@@ -1307,15 +1310,25 @@ final class Board: NSObject {
         let g = start.grid()
         var body: [String: Any] = ["projectId": p.id, "sessionId": sid, "keep": keep, "cols": g.cols, "rows": g.rows]
         if now { body["now"] = true }
-        log.append("session move \(sid)\(now ? " (now)" : ""): from \(old.map { "\($0) on \(ws.daemon(of: $0)?.version ?? "?")" } ?? "elsewhere")")
+        note("move \(sid) (\(keep == "ravenry" ? "Move here" : "Keep it in \(s.alsoOpen ?? "the other terminal")")\(now ? ", now" : "")): from \(old.map { "\($0) on \(ws.daemon(of: $0)?.version ?? "?")" } ?? "elsewhere")")
         hub.post("/api/sessions/move", body) { [weak self] code, j in
             guard let self else { return }
             self.outside.moving.remove(sid)
+            self.note(Board.moved(sid, code, j))
             if code != 200 || !(j["ok"] as? Bool ?? false) { self.toast(t("move.notDone", ["why": j["error"] as? String ?? "the board answered \(code)"])) }
             else { self.showStarted(p, j, why: "move") }
             if let old { self.ws.release(old) }
             self.render(force: true)
         }
+    }
+
+    /// What a move came to, for app.log (as the Electron app's movedLine).
+    static func moved(_ sid: String, _ code: Int, _ j: [String: Any]) -> String {
+        if code != 200 || !(j["ok"] as? Bool ?? false) { return "move \(sid): not done: \(j["error"] as? String ?? "the board answered \(code)")" }
+        if j["waiting"] as? Bool ?? false { return "move \(sid): waiting for the assistant to finish in \(j["name"] as? String ?? "the other terminal")" }
+        let pane = (j["pane"] as? [String: Any])?["id"] as? String
+        let was = (j["replaced"] as? [String]).flatMap { $0.isEmpty ? nil : " (was \($0.joined(separator: ", ")))" } ?? ""
+        return "move \(sid): \(j["keep"] as? String == "ravenry" || pane != nil ? "resumed in \(pane.map { "pane \($0)" } ?? "a new pane")\(was)" : "kept in the other terminal")"
     }
 
     /// After Move here or Continue, the hub's answer: the new pane in the
@@ -1382,8 +1395,10 @@ final class Board: NSObject {
         guard let sid = l["sessionId"] as? String else { return }
         projectPage.busy = true; projectPage.draw(p)
         let g = start.grid()
+        note("move \(sid) (the project page's Move here)")
         hub.post("/api/sessions/move", ["projectId": p.id, "sessionId": sid, "keep": "ravenry", "cols": g.cols, "rows": g.rows]) { [weak self] code, j in
             guard let self else { return }
+            self.note(Board.moved(sid, code, j))
             self.projectPage.busy = false
             if code != 200 { self.projectPage.error = j["error"] as? String ?? "It could not be moved."; self.projectPage.draw(p); return }
             if j["waiting"] as? Bool ?? false { self.toast("It moves here once Claude finishes its turn in \(j["name"] as? String ?? "the other terminal")."); return }

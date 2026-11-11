@@ -202,6 +202,8 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     MC_PS_BIN: path.join(T, 'stub-ps.mjs'), MC_LSOF_BIN: path.join(T, 'stub-ps.mjs'), STUB_PS_STATE: PS,
     MC_OSASCRIPT_BIN: path.join(T, 'stub-osascript.mjs'), ITERM_OSASCRIPT_BIN: path.join(T, 'stub-osascript.mjs'), STUB_OSASCRIPT_LOG: path.join(dir, 'osascript.jsonl'),
     MC_CODEX: '0', MC_CODEX_HOME: path.join(HOME, '.codex'),
+    // The board and its phone port on this Mac only, never the Wi-Fi's address.
+    RAVENRY_HUB_BIND: '127.0.0.1',
     // Every model call the board makes (an idea's reply, a plan draft, a
     // mockup round, the repeats) goes to a stand-in: a click never spends quota.
     MC_CLAUDE_BIN: path.join(T, 'stub-claude.mjs'),

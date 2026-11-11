@@ -488,7 +488,7 @@ final class FilmSheet: NSView {
                     guard res == .OK, let u = panel.url else { return }
                     do { try data.write(to: u); self.lastSaved = u; self.say(t("film.saved", ["name": u.lastPathComponent])) } catch { self.say(t("film.gifFailed", ["why": error.localizedDescription])) }
                 }
-                if let w = self.window { panel.beginSheetModal(for: w, completionHandler: done) } else { done(panel.runModal()) }
+                if let w = self.window { panel.beginSheetModal(for: w, completionHandler: done) } else if !options.offscreen { done(panel.runModal()) }
             }
         }
     }

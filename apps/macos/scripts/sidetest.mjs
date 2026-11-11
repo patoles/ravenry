@@ -345,6 +345,13 @@ function listResumed() {
 // click continues in a pane of this test's daemon with a stand-in of Claude.
 const LINKS = SCREEN === 'links';
 const STAND_IN = path.join(tmp, 'claude-continued');
+// The whole run (no --screen): Move here really moves (the hub follows this
+// test's daemon and resumes with a stand-in of Claude), so move_here_posted
+// gets the hub's 200, not "a test board does not reach the real ravenryd".
+if (!SCREEN) {
+  fs.writeFileSync(STAND_IN, "#!/bin/sh\nprintf 'Claude Code (a stand-in), moved here\\n\\n> '\nexec sleep 100000\n", { mode: 0o755 });
+  Object.assign(screenHub, { runtime: run, settings: { launchCommand: STAND_IN }, env: { RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
+}
 if (LINKS) {
   fs.writeFileSync(STAND_IN, "#!/bin/sh\nprintf 'Claude Code (a stand-in), continued\\n\\n> '\nexec sleep 100000\n", { mode: 0o755 });
   const first = screenHub.prepare;
@@ -373,7 +380,7 @@ function linksPrepare({ HOME, ROOT, MC }) {
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
 // --screen sessions: the fake cmux closes a tab when asked (its Claude ends) and opens one for Reopen.
-if (SESSIONS_SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
+if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
 const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
 const hookLine = (bin, S, ev, sid = S.sid) => `printf '%s' ${sq(JSON.stringify({ hook_event_name: ev, session_id: sid, cwd: S.folder, transcript_path: S.transcript, ...(ev === 'SessionStart' ? { source: 'startup', model: 'claude-opus-5-5' } : { prompt: '' }) }))} | ${sq(bin)} hook --assistant claude >/dev/null 2>&1`;
 let OLDER = null;
@@ -488,6 +495,13 @@ try { r = JSON.parse(fs.readFileSync(result, 'utf8')); } catch { console.log(`si
 const files = fs.existsSync(env.RAVENRY_DESKTOP_DATA) ? fs.readdirSync(env.RAVENRY_DESKTOP_DATA) : [];
 if (!SCREEN) r.checks.push({ name: 'layout_file_by_daemon', ok: files.some((f) => /^window-[0-9a-f]{12}\.json$/.test(f)) && !files.includes('window.json'), detail: files.join(', ') });
 if (!SCREEN) r.failed += r.checks[r.checks.length - 1].ok ? 0 : 1;
+// HUB-008: the app's quit is a line in its app.log (the test's HOME), and the hub's log says the move it was asked for.
+if (!SCREEN) {
+  const al = (() => { try { return fs.readFileSync(path.join(user, 'Library', 'Logs', 'Ravenry', 'app.log'), 'utf8'); } catch { return ''; } })();
+  const quit = al.split('\n').filter((l) => / quit: /.test(l));
+  const moves = hub.log().split('\n').filter((l) => l.startsWith('sessions: move ') && l.includes('asked by this Mac'));
+  for (const [name, ok, detail] of [['applog_quit', quit.length > 0, quit.slice(-1)[0] || al.split('\n').slice(-3).join(' | ')], ['hub_log_move', moves.length > 0, moves.slice(-2).join(' | ')]]) { r.checks.push({ name, ok, detail }); if (!ok) r.failed++; }
+}
 if (DAEMONS) {
   const files = fs.existsSync(env.RAVENRY_DESKTOP_DATA) ? fs.readdirSync(env.RAVENRY_DESKTOP_DATA).filter((f) => /^window.*\.json$/.test(f)) : [];
   const saved = files.length === 1 ? JSON.parse(fs.readFileSync(path.join(env.RAVENRY_DESKTOP_DATA, files[0]), 'utf8')) : {};

@@ -92,6 +92,7 @@ final class IdeaPage: FormPage {
         p.allowsMultipleSelection = many
         p.allowedContentTypes = [.png, .jpeg, .gif, .webP]
         if let w = self?.window { p.beginSheetModal(for: w) { r in done(r == .OK ? p.urls : []) } }
+        else if options.offscreen { done([]) } // never a panel on the screen of a run off every screen
         else { p.begin { r in done(r == .OK ? p.urls : []) } }
     }
 

@@ -163,6 +163,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var closing = false
     /// Quitting: a window that closes now keeps its tabs for the next launch.
     var terminating = false
+    /// Why the app quits, when not asked through AppKit (a SIGTERM), for app.log.
+    var quitWhy: String?
+    /// SIGTERM ends the app as a quit does (the layout saved, the line in app.log).
+    var sigterm: DispatchSourceSignal?
     /// The first window has opened (its failure ends the app; a later one's does not).
     var launched = false
     /// What the app did with its windows, for the self-test.
@@ -248,6 +252,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         EventLog.shared.open(offscreen: options.offscreen)
+        signal(SIGTERM, SIG_IGN)
+        let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        term.setEventHandler { [weak self] in self?.quitWhy = "a SIGTERM"; NSApp.terminate(nil) }
+        term.resume()
+        sigterm = term
         // Off every screen, nothing is opened outside the window: recorded (Outside.swift).
         if options.offscreen { Outside.record = [] }
         // A packaged app: its ravenryd and hub copied out first, so a daemon
@@ -363,6 +372,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ note: Notification) {
+        // HUB-008: the quit in app.log, as the Electron app's ("quit: ...").
+        AppLog.flush()
+        AppInstall.shared.log("quit: \(quitWhy ?? "asked to (Cmd+Q, the menu, the Dock or macOS logging out)"); the panes keep running")
         shutdown()
         // A downloaded update goes in once this process has ended (Updater.swift).
         Updater.shared.atQuit()

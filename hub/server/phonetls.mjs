@@ -186,7 +186,9 @@ export function start(port, handler, onUpgrade) {
   server.on('upgrade', (req, sock, head) => { req.mcTls = true; onUpgrade(req, sock, head); });
   server.on('tlsClientError', () => {});
   server.on('error', (e) => { console.error(`phone port :${port}: ${e.message}`); listening = false; });
-  server.listen(port, () => { listening = true; console.log(`phone access on: TLS on :${port}`); });
+  // RAVENRY_HUB_BIND (a test's 127.0.0.1): the phone port on that address only, never the Wi-Fi's.
+  const bind = process.env.RAVENRY_HUB_BIND || undefined;
+  server.listen(port, bind, () => { listening = true; console.log(`phone access on: TLS on ${bind || ''}:${port}`); });
   return server;
 }
 
