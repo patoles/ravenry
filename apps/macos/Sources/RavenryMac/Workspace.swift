@@ -1125,7 +1125,11 @@ final class Workspace: NSObject {
             return
         }
         // A question asked in one of its panes, or one that moved on (app.ts onCheckpoint).
-        if name.hasPrefix("checkpoint."), let cp = ev["checkpoint"] as? [String: Any] { hub?.daemonCheckpoint(cp, socket: d.socket); return }
+        if name.hasPrefix("checkpoint."), let cp = ev["checkpoint"] as? [String: Any] {
+            if name == "checkpoint.running" { besideAsker(cp, d) }
+            hub?.daemonCheckpoint(cp, socket: d.socket)
+            return
+        }
         guard let p = ev["pane"] as? [String: Any], let id = p["id"] as? String else { return }
         switch name {
         case "pane.title", "pane.cwd", "pane.updated", "pane.created":
@@ -1208,8 +1212,8 @@ final class Workspace: NSObject {
     /// An agent's own pane: beside its session's (or shell's) tab, without
     /// the keyboard, when that tab is not split yet; else a tab right after
     /// it (and its other panes), else at the end. The tab in front stays.
-    func addAgentPane(_ p: [String: Any]) {
-        guard let id = p["id"] as? String, let owner = (p["creator"] as? [String: Any])?["pane"] as? String else { return }
+    func addAgentPane(_ p: [String: Any], owner given: String? = nil) {
+        guard let id = p["id"] as? String, let owner = given ?? (p["creator"] as? [String: Any])?["pane"] as? String else { return }
         let i = info[id] ?? PaneInfo(id: id)
         i.update(p)
         info[id] = i
@@ -1232,7 +1236,27 @@ final class Workspace: NSObject {
         }
         refresh()
         save()
-        wantHint(id)
+        if given == nil { wantHint(id) }
+    }
+
+    /// An approved command's pane (a checkpoint's run, which the person's
+    /// approval started): beside the pane that asked, as the card said ("A
+    /// new one, beside <pane>"), so they watch it run and the card's Show
+    /// in the terminal finds it; its tab goes when the command ends.
+    private func besideAsker(_ cp: [String: Any], _ d: DaemonLink) {
+        guard let run = (cp["run"] as? [String: Any])?["pane"] as? String, let asker = cp["pane"] as? String,
+              cp["machine"] == nil || cp["machine"] is NSNull,
+              tabs.contains(where: { $0.host == asker || $0.guest == asker }),
+              !tabs.contains(where: { $0.host == run || $0.guest == run }) else { return }
+        d.conn.request("pane.list", [:]) { [weak self] r in
+            guard case .success(let j) = r, let q = (j["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == run }),
+                  (q["state"] as? String ?? "running") == "running" else { return }
+            DispatchQueue.main.async {
+                guard let self, !self.tabs.contains(where: { $0.host == run || $0.guest == run }), !self.closedHere.contains(run) else { return }
+                self.homes[run] = self.homes[run] ?? d
+                self.addAgentPane(q, owner: asker)
+            }
+        }
     }
 
     /// A pane's program ended: its tab goes (the pane too, from the daemon).

@@ -98,8 +98,24 @@ final class FilePage: FormPage {
                 self.cache[k] = (rev, v, sig)
                 if let d = v["drawn"] as? [String: Any], let dt = d["tab"] as? Int, dt != tab { self.tabOf[k] = dt }
             }
-            if self.key == k { self.redraw() }
+            if self.key == k { self.freshSheet(); self.redraw() }
         }
+    }
+
+    /// The item open in a sheet, by its section and file, with the hash it was drawn from.
+    private var openedItem: (sec: [Int], file: String, hash: String)?
+
+    /// The page was read again: an open item whose file changed (its own
+    /// Fixed, an agent's edit) is drawn again from the new copy, so its
+    /// fields say what the file says and its next button sends the new hash.
+    private func freshSheet() {
+        guard sheetKind == "item", let o = openedItem, let v = cache[key]?.view,
+              let d = v["drawn"] as? [String: Any], (d["tab"] as? Int ?? 0) == o.sec[0],
+              let ds = d["sections"] as? [[String: Any]], o.sec[1] < ds.count,
+              let it = rowsOf(ds[o.sec[1]]).first(where: { PageFmt.text($0["file"]) == o.file }),
+              PageFmt.text(it["$hash"]) != o.hash else { return }
+        openSheet("item", itemSheet(v, it, o.sec))
+        openedItem = (o.sec, o.file, PageFmt.text(it["$hash"]))
     }
 
     /// What a view says, as a number that changes with any of it: its JSON's
@@ -306,7 +322,11 @@ final class FilePage: FormPage {
             let id = PageFmt.text(item["id"])
             if host?.pickProject(id) != true { toast?(t("pg.noProject", ["name": id])) }
         case "ravenry:idea-thread": host?.openIdea(PageFmt.text((item["$ravenry"] as? [String: Any])?["id"] ?? item["id"]))
-        default: if let sec { openSheet("item", itemSheet(v, item, sec)) }
+        default:
+            if let sec {
+                openSheet("item", itemSheet(v, item, sec))
+                openedItem = PageFmt.text(item["file"]).isEmpty ? nil : (sec, PageFmt.text(item["file"]), PageFmt.text(item["$hash"]))
+            }
         }
     }
 
@@ -1436,7 +1456,7 @@ final class FilePage: FormPage {
         window?.makeFirstResponder(layer)
     }
     func closeSheet() {
-        sheetView?.removeFromSuperview(); sheetView = nil; sheetKind = ""
+        sheetView?.removeFromSuperview(); sheetView = nil; sheetKind = ""; openedItem = nil
         pb = pb.filter { !$0.key.hasPrefix("sheet:") }
         if form != nil { form = nil }
     }

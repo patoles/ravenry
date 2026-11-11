@@ -55,6 +55,29 @@ extension SelfTestBoard {
         ws.flush()
         check("panes_split_saved", ws.tabs.contains { $0.host == owner && $0.guest == own })
 
+        // An approved command (ravenry approve in a shell of its own, approved here as the person
+        // does): its pane opens beside the asking pane, as the card says, and goes when it ends.
+        let tabsA = ws.tabs.count
+        ws.newTab(in: nil)
+        guard wait(5, { ws.tabs.count > tabsA }), let askTab = ws.tabs.last else { check("panes_approve_shell", false); return }
+        let asker = askTab.host
+        var typed = false
+        ws.conn.request("pane.send", ["pane": asker, "input": [["text": "'\(bin)' approve 'echo approved-ran; sleep 4' >/dev/null 2>&1 &", "mode": "paste"], ["key": "Enter"]]]) { r in if case .success = r { typed = true } }
+        let hub0 = board.hub
+        var cpId: String?
+        check("panes_approve_asked", wait(10) { typed && { cpId = hub0.daemonCps.items.values.first { $0.cp["kind"] as? String == "approve" && $0.cp["pane"] as? String == asker && $0.cp["state"] as? String == "open" }?.cp["id"] as? String; return cpId != nil }() })
+        if let id = cpId {
+            var took = false
+            hub0.answerCheckpoint(id, ["approve": true]) { ok, _ in took = ok }
+            check("panes_approved_run_beside", wait(10) { took && askTab.guest.map { ws.paneInfo($0)?.labels["ravenry.checkpoint"] == id } == true },
+                  "tabs \(ws.tabs.map { "\($0.host)+\($0.guest ?? "-")" })")
+            check("panes_approved_run_named", askTab.guest.map { ws.label($0).name.hasPrefix("Approved: echo approved-ran") } == true, askTab.guest.map { ws.label($0).name } ?? "none")
+            board.render(force: true)
+            settle(0.4)
+            picture("native-panes-approved-run.png")
+            check("panes_approved_run_goes", wait(12) { askTab.guest == nil }, askTab.guest ?? "")
+        }
+
         // Panes it uses, in the panel of the session whose agent runs in the owner's shell:
         // its own (the dev server) and a shell of the person's lent to it, which another agent waits for
         // (the lease as the daemon's pane.list says it).
