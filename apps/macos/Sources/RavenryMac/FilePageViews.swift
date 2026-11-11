@@ -14,6 +14,7 @@ class PressBox: Box {
     var onPress: (() -> Void)?
     var key = ""
     override func mouseDown(with e: NSEvent) { if let p = onPress { p() } else { super.mouseDown(with: e) } }
+    override func resetCursorRects() { handCursor(onPress != nil) }
     override func hitTest(_ p: NSPoint) -> NSView? {
         guard let v = super.hitTest(p) else { return nil }
         guard onPress != nil else { return v }
@@ -236,6 +237,7 @@ final class TickBox: NSView {
         }
     }
     override func mouseDown(with e: NSEvent) { if enabled { run?() } }
+    override func resetCursorRects() { handCursor(enabled) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { if enabled { run?() }; return true }
 }
@@ -571,7 +573,7 @@ final class Chevron: NSView {
     override func mouseDown(with e: NSEvent) { onClick?() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onClick?(); return true }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func resetCursorRects() { handCursor() }
 }
 
 /// A task's dot on an objective's row that ticks it: the task's mark, lit
@@ -609,7 +611,7 @@ final class TaskDot: NSView {
     }
     override func mouseEntered(with e: NSEvent) { hover = true }
     override func mouseExited(with e: NSEvent) { hover = false }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func resetCursorRects() { handCursor() }
     override func mouseDown(with e: NSEvent) { run() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { run(); return true }

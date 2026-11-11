@@ -77,6 +77,7 @@ class Row: Box {
     override func mouseEntered(with e: NSEvent) { hovering = true }
     override func mouseExited(with e: NSEvent) { hovering = false }
     override func mouseDown(with e: NSEvent) { onOpen?() }
+    override func resetCursorRects() { handCursor(onOpen != nil) }
     /// The whole row takes the press (its labels and stacks are its
     /// drawing), except its own buttons (the pin).
     override func hitTest(_ p: NSPoint) -> NSView? {
@@ -257,7 +258,9 @@ final class RButton: NSButton {
         attributedTitle = NSAttributedString(string: s, attributes: [.font: Fonts.pt(size, .medium), .foregroundColor: isEnabled ? c : c.withAlphaComponent(0.5)])
         invalidateIntrinsicContentSize()
     }
-    override var isEnabled: Bool { didSet { if iconView == nil { setTitle(title) } } }
+    override var isEnabled: Bool { didSet { if iconView == nil { setTitle(title) }; if isEnabled != oldValue { window?.invalidateCursorRects(for: self) } } }
+    /// Every button, links and icons too, shows the pointing hand while it can be pressed (Cursors.swift).
+    override func resetCursorRects() { handCursor(isEnabled) }
     override var intrinsicContentSize: NSSize {
         if iconView != nil { return NSSize(width: small ? 26 : 30, height: small ? 26 : 30) }
         let t = attributedTitle.size()
@@ -304,8 +307,8 @@ final class RButton: NSButton {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hover = true; if kind == .link { NSCursor.pointingHand.push() } }
-    override func mouseExited(with e: NSEvent) { hover = false; if kind == .link { NSCursor.pop() } }
+    override func mouseEntered(with e: NSEvent) { hover = true }
+    override func mouseExited(with e: NSEvent) { hover = false }
     override func viewDidChangeEffectiveAppearance() { if iconView == nil { setTitle(title) }; if lead != nil { leadImage() }; needsDisplay = true }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }
@@ -535,6 +538,6 @@ final class PlainButton: NSButton {
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func fire() { run() }
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func resetCursorRects() { handCursor() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }

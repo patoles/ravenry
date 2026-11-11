@@ -211,7 +211,7 @@ final class ZoomView: NSScrollView {
         zoom(to: target, keeping: p, at: NSPoint(x: v.x, y: v.y))
     }
 
-    override func resetCursorRects() { addCursorRect(bounds, cursor: zoomed ? .arrow : .pointingHand) }
+    override func resetCursorRects() { for r in uncovered(bounds) { addCursorRect(r, cursor: zoomed ? .arrow : .pointingHand) } }
 }
 
 /// A picture of the grid: the whole card is one button (the picture, its
@@ -274,8 +274,9 @@ final class GalleryCard: Box {
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
-    override func mouseEntered(with e: NSEvent) { hovering = true; NSCursor.pointingHand.push() }
-    override func mouseExited(with e: NSEvent) { hovering = false; NSCursor.pop() }
+    override func mouseEntered(with e: NSEvent) { hovering = true }
+    override func mouseExited(with e: NSEvent) { hovering = false }
+    override func resetCursorRects() { handCursor() }
     override func hitTest(_ p: NSPoint) -> NSView? { super.hitTest(p) == nil ? nil : self }
     override func mouseDown(with e: NSEvent) { onOpen?() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
@@ -697,6 +698,7 @@ final class FitImage: NSView {
         }
     }
     override func mouseDown(with e: NSEvent) { onClick?() }
+    override func resetCursorRects() { handCursor(onClick != nil) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onClick?(); return true }
 }

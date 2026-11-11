@@ -1294,6 +1294,7 @@ final class Workspace: NSObject {
         } else {
             filmView.removeFromSuperview()
         }
+        stage.window?.cursorRectsAgain()
     }
 
     // MARK: the one-time hint
@@ -1694,6 +1695,8 @@ final class RootView: NSView {
             p.needsDisplay = true
             if panelMode == .overlay { addSubview(p, positioned: .above, relativeTo: nil) }
         }
+        // What lies over the terminal changed (a page, the panel over it): the pointer's rects again (Cursors.swift).
+        window?.cursorRectsAgain()
         onLayout?()
     }
 }

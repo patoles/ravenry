@@ -261,7 +261,7 @@ final class DiffLine: Box {
     }
     override func mouseEntered(with e: NSEvent) { hovering = true }
     override func mouseExited(with e: NSEvent) { hovering = false }
-    override func resetCursorRects() { if plusMark != nil { addCursorRect(NSRect(x: 0, y: 0, width: 62, height: bounds.height), cursor: .pointingHand) } }
+    override func resetCursorRects() { if plusMark != nil { for r in uncovered(NSRect(x: 0, y: 0, width: 62, height: bounds.height)) { addCursorRect(r, cursor: .pointingHand) } } }
     /// The width its text needs on one line, with the gutter and the right margin.
     static func width(of text: String) -> CGFloat { ceil((text as NSString).size(withAttributes: [.font: Fonts.mono(12)]).width) + 62 + 16 }
     /// The press is the line's, not its words' (a label would keep it).

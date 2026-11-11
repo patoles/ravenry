@@ -148,6 +148,8 @@ extension SelfTestBoard {
         check("back_brief_from_sidebar_no_link", b.brief.buttons["back"] == nil && b.brief.backLink == nil, "\(b.brief.backLink?.name ?? "nil")")
         if let c = b.brief.buttons["close"] { click(c) }
         check("back_brief_sidebar_close_to_terminal", b.front == .tab && b.root.middle == nil, "\(b.front)")
+        // The pointer over each kind of thing (SelfTestCursors.swift).
+        pointerChecks()
     }
 
     private func onBrief0(_ pid: String) -> Bool { if case .brief(pid, _) = board.front { return board.root.middle === board.brief }; return false }

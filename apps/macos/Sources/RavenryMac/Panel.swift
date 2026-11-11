@@ -959,6 +959,7 @@ final class PictureThumb: NSImageView {
         img.draw(in: NSRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h))
     }
     override func mouseDown(with e: NSEvent) { onClick?() }
+    override func resetCursorRects() { handCursor(onClick != nil) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onClick?(); return true }
 }

@@ -125,6 +125,7 @@ final class CoverImage: NSView {
         img.draw(in: NSRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h), from: .zero, operation: .sourceOver, fraction: dim, respectFlipped: true, hints: nil)
     }
     override func mouseDown(with e: NSEvent) { onClick?() }
+    override func resetCursorRects() { handCursor(onClick != nil) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onClick?(); return true }
 }

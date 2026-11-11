@@ -398,9 +398,13 @@ class LinkField: NSTextField {
         return l.sessionWord(at: l.convert(p, from: from)) != nil
     }
 
+    /// A field typed in: AppKit's I-beam. Selectable words: the I-beam, the
+    /// hand over a session link in them. A label: the hand over its links
+    /// only (the arrow elsewhere, or its row's hand). Each where nothing lies over it.
     override func resetCursorRects() {
-        super.resetCursorRects()
-        for r in linkRects() { addCursorRect(r, cursor: .pointingHand) }
+        let links = linkRects()
+        if isEditable { super.resetCursorRects() } else if isSelectable { textCursor(bounds, links: links); return }
+        for r in links { for u in uncovered(r) { addCursorRect(u, cursor: .pointingHand) } }
     }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool {
         if let e, sessionWord(at: convert(e.locationInWindow, from: nil)) != nil { return true }

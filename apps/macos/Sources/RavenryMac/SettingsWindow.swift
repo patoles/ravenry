@@ -608,6 +608,7 @@ final class TapBox: Box {
     /// The left and right arrows while it has the keyboard (a tab, a segment): -1 or +1.
     var arrows: ((Int) -> Void)?
     override func mouseDown(with e: NSEvent) { run?() }
+    override func resetCursorRects() { handCursor(run != nil) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { run?(); return true }
     // The keyboard: Tab reaches it, Space or Return presses it, the arrows step.
@@ -649,6 +650,7 @@ final class PopBox: Box {
     }
     required init?(coder: NSCoder) { fatalError() }
     override func mouseDown(with e: NSEvent) { open() }
+    override func resetCursorRects() { handCursor() }
     private func open() { makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { open(); return true }
@@ -700,6 +702,7 @@ final class CheckRow: Flipped {
     required init?(coder: NSCoder) { fatalError() }
     func press() { if enabled { run(!on) } }
     override func mouseDown(with e: NSEvent) { press() }
+    override func resetCursorRects() { handCursor() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { press(); return true }
     override var acceptsFirstResponder: Bool { enabled }

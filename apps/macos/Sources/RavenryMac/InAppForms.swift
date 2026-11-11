@@ -200,6 +200,7 @@ final class Switch: NSView {
         }
     }
     override func mouseDown(with e: NSEvent) { if enabled { run?() } }
+    override func resetCursorRects() { handCursor(enabled) }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { if enabled { run?() }; return true }
 }

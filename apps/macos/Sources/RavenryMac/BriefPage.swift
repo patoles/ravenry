@@ -280,6 +280,27 @@ final class LinkText: NSTextView {
         guard c < st.length else { return nil }
         return st.attribute(.link, at: c, effectiveRange: nil) ?? st.attribute(BriefDoc.entryKey, at: c, effectiveRange: nil)
     }
+    /// The rects of its links (a URL, a file, an entry), in its coordinates.
+    func linkRects() -> [NSRect] {
+        guard let lm = layoutManager, let tc = textContainer, let st = textStorage, st.length > 0 else { return [] }
+        let o = textContainerOrigin
+        var out: [NSRect] = []
+        for key in [NSAttributedString.Key.link, BriefDoc.entryKey] {
+            st.enumerateAttribute(key, in: NSRange(location: 0, length: st.length)) { v, cr, _ in
+                guard v != nil else { return }
+                let gr = lm.glyphRange(forCharacterRange: cr, actualCharacterRange: nil)
+                lm.enumerateEnclosingRects(forGlyphRange: gr, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: tc) { b, _ in
+                    out.append(b.offsetBy(dx: o.x, dy: o.y))
+                }
+            }
+        }
+        return out
+    }
+    /// The I-beam over its text, the pointing hand over its links (Cursors.swift).
+    override func resetCursorRects() {
+        if isEditable { super.resetCursorRects(); return }
+        textCursor(visibleRect, links: linkRects().filter { $0.intersects(visibleRect) })
+    }
     /// A link opens with the press that brings the window forward, as a row does.
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func mouseDown(with e: NSEvent) {

@@ -380,6 +380,7 @@ final class PressRow: Box {
     override func mouseEntered(with e: NSEvent) { hover = true }
     override func mouseExited(with e: NSEvent) { hover = false }
     override func mouseDown(with e: NSEvent) { if enabled { run?() } }
+    override func resetCursorRects() { handCursor(enabled) }
     /// Its own buttons (the tick, Reopen) take their press.
     override func hitTest(_ p: NSPoint) -> NSView? {
         guard let v = super.hitTest(p) else { return nil }

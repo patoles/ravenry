@@ -96,6 +96,7 @@ final class IconButton: NSView {
     override func mouseEntered(with e: NSEvent) { hover = true; needsDisplay = true }
     override func mouseExited(with e: NSEvent) { hover = false; needsDisplay = true }
     override func mouseDown(with e: NSEvent) {}
+    override func resetCursorRects() { handCursor() }
     override func mouseUp(with e: NSEvent) {
         if bounds.contains(convert(e.locationInWindow, from: nil)) { action?() }
     }
@@ -111,12 +112,18 @@ final class IconButton: NSView {
     }
 }
 
+/// A view drawn over others that takes no press (a pane's focus ring):
+/// the press, and the pointer, are the view's under it.
+final class PassView: NSView {
+    override func hitTest(_ p: NSPoint) -> NSView? { nil }
+}
+
 /// A pane's place in the window: its terminal and, in a split, a header
 /// above it (its name, a close x) and a ring when it has the keyboard.
 final class PaneBox: NSView {
     let term: TerminalView
     private let head = PaneHead()
-    private let ring = NSView()
+    private let ring = PassView()
     var showsHead = false { didSet { if showsHead != oldValue { needsLayout = true; head.isHidden = !showsHead } } }
     var inFocus = false { didSet { update() } }
     var name = "" { didSet { head.name = name } }

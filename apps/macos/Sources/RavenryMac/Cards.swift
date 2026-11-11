@@ -164,6 +164,7 @@ final class OptRow: Box {
     required init?(coder: NSCoder) { fatalError() }
     func press() { if enabled { run?() } }
     override func mouseDown(with e: NSEvent) { press() }
+    override func resetCursorRects() { handCursor() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { press(); return true }
 }

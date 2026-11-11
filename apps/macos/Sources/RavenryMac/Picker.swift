@@ -24,7 +24,7 @@ final class PickImage: NSView {
     private var start: NSPoint?
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
-    override func resetCursorRects() { if drawing { addCursorRect(bounds, cursor: .crosshair) } }
+    override func resetCursorRects() { if drawing { for r in uncovered(bounds) { addCursorRect(r, cursor: .crosshair) } } }
     override func draw(_ r: NSRect) {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let path = NSBezierPath(roundedRect: bounds, xRadius: 9, yRadius: 9)

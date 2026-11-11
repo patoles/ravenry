@@ -590,7 +590,7 @@ final class ResizeHandle: NSView {
     var onDrag: ((CGFloat) -> Void)?
     private var startX: CGFloat = 0
     private var startW: CGFloat = 0
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
+    override func resetCursorRects() { for r in uncovered(bounds) { addCursorRect(r, cursor: .resizeLeftRight) } }
     override func mouseDown(with e: NSEvent) {
         startX = e.locationInWindow.x
         startW = superview?.frame.width ?? SidebarView.defaultWidth

@@ -45,6 +45,7 @@ class PickBox: Box {
     override func hitTest(_ p: NSPoint) -> NSView? { super.hitTest(p) == nil ? nil : self }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func mouseDown(with e: NSEvent) { if enabled { onPress?() } }
+    override func resetCursorRects() { handCursor(enabled) }
     override func accessibilityPerformPress() -> Bool { guard enabled else { return false }; onPress?(); return true }
 }
 

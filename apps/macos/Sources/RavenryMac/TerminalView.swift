@@ -1132,6 +1132,16 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     override func mouseMoved(with e: NSEvent) {
+        // Under a view laid over the terminal (a page, the filmstrip's
+        // frame): no link, no name, no motion for the program, and the
+        // pointer is that view's.
+        if covered(convert(e.locationInWindow, from: nil)) {
+            pointerCovered = true
+            clearLink()
+            setNameHover(false)
+            pointerCovered = false
+            return
+        }
         pointer = e.locationInWindow
         commandDown = e.modifierFlags.contains(.command)
         let c = cell(e)
@@ -1505,8 +1515,13 @@ final class TerminalView: NSView, NSTextInputClient {
 
     // MARK: links
 
+    /// A move under a view laid over the terminal: the hover is let go of without setting the pointer.
+    private var pointerCovered = false
+
+    /// Its regions where nothing lies over it: a page over the stage, the
+    /// filmstrip's frame, the panel over the window keep their own pointer.
     override func resetCursorRects() {
-        for (r, c) in cursorRegions() { addCursorRect(r, cursor: c) }
+        for (r, c) in cursorRegions() { for u in uncovered(r) { addCursorRect(u, cursor: c) } }
     }
 
     /// The scrollbar's strip at the right edge, while it shows.
@@ -1588,7 +1603,7 @@ final class TerminalView: NSView, NSTextInputClient {
         window?.invalidateCursorRects(for: self)
         // A window off every screen (the self-test) never sets the
         // pointer, which is the person's.
-        if !offscreen { (on ? NSCursor.pointingHand : NSCursor.iBeam).set() }
+        if !offscreen && !pointerCovered { (on ? NSCursor.pointingHand : NSCursor.iBeam).set() }
     }
 
     /// Cmd+click: opens the link on the cell, the one underlined or the
@@ -1618,7 +1633,7 @@ final class TerminalView: NSView, NSTextInputClient {
         guard on != nameHover else { return }
         nameHover = on
         window?.invalidateCursorRects(for: self)
-        if !offscreen && !linkCursor { (on ? NSCursor.pointingHand : NSCursor.iBeam).set() }
+        if !offscreen && !linkCursor && !pointerCovered { (on ? NSCursor.pointingHand : NSCursor.iBeam).set() }
     }
 
     /// Opens a link's URI: only the web and files.

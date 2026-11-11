@@ -426,6 +426,7 @@ final class MenuBox: Box {
     }
     required init?(coder: NSCoder) { fatalError() }
     override func mouseDown(with e: NSEvent) { items.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self) }
+    override func resetCursorRects() { handCursor() }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { items.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self); return true }
 }

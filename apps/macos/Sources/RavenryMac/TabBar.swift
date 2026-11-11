@@ -446,6 +446,8 @@ final class TabItem: NSView {
     override func mouseEntered(with e: NSEvent) { hover = true; close.isHidden = false; needsDisplay = true }
     override func mouseExited(with e: NSEvent) { hover = false; close.isHidden = !model.active; needsDisplay = true }
 
+    /// A press picks the tab: the pointing hand, as on every button (its x too, an IconButton).
+    override func resetCursorRects() { handCursor() }
     override func mouseDown(with e: NSEvent) {
         downX = bar?.stripPoint(e.locationInWindow).x
         downY = e.locationInWindow.y
