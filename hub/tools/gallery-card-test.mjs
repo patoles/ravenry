@@ -88,7 +88,7 @@ for (const [id, set] of Object.entries(SETS)) {
     const idc = `toolu_${k}_${++n}`;
     lines.push(JSON.stringify({ type: 'assistant', timestamp: at(age), cwd: H, sessionId: SID, message: { content: [{ type: 'tool_use', id: idc, name: 'Bash', input: { command: `node tools/shoot.mjs --${svg}` } }] } }));
     lines.push(JSON.stringify({ type: 'user', timestamp: at(age), cwd: H, sessionId: SID, message: { content: [{ type: 'tool_result', tool_use_id: idc, content: `wrote ${file} (2880 x 1620)` }] } }));
-    lines.push(JSON.stringify({ type: 'assistant', timestamp: at(age - 0.1), cwd: H, sessionId: SID, message: { content: [{ type: 'tool_use', id: `${idc}r`, name: 'Read', input: { file_path: file } }] } }));
+    lines.push(JSON.stringify({ type: 'assistant', timestamp: at(age - 0.1), cwd: H, sessionId: SID, message: { content: [{ type: 'text', text: `The screen: ${file}` }] } }));
   }
   const TD = path.join(CLAUDE, slug(H));
   fs.mkdirSync(TD, { recursive: true });

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The gallery shows only what the session showed you: an image path it
+  wrote in its text to you, or an image you attached to your message (from
+  the project's folder or the session's scratchpad). Its own Read of an
+  image no longer counts: those were pictures it looked at for itself,
+  such as contact sheets of a recording and check renders.
 - `GET /api/project/last?projectId=` names a project's last conversation by
   its last turn (never a file's time): the sessions the board gives the
   project, ended ones too, else its folder's Claude Code transcripts and

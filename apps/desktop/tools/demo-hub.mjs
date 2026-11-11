@@ -138,7 +138,7 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
       const f = path.join(folder, 'shots', p.picture);
       png(f);
       const t = new Date(Date.now() - (m + 1) * MIN); fs.utimesSync(f, t, t);
-      lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'toolu_pic', name: 'Read', input: { file_path: f } }] } }, ago(m + 1)));
+      lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: `The screen: ${f}` }] } }, ago(m + 1))); // named to the person: what puts it in the gallery
     }
     lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: a }], usage: { input_tokens: 8, cache_creation_input_tokens: 3000, cache_read_input_tokens: p.ctx - 3008, output_tokens: 400 } } }, ago(m)));
     if (!p.working) lines.push(rec('system', { subtype: 'turn_duration' }, ago(m)));

@@ -146,7 +146,7 @@ for (const p of P) {
       const id = `toolu_${k}_${++n}`;
       lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: `node tools/shoot.mjs --${svg}` } }] } }, ago(age)));
       lines.push(rec('user', { message: { content: [{ type: 'tool_result', tool_use_id: id, content: `wrote ${f}` }] } }, ago(age)));
-      lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: id + 'r', name: 'Read', input: { file_path: f } }] } }, ago(age - 0.1)));
+      lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: `The screen: ${f}` }] } }, ago(age - 0.1))); // named to the person: what puts it in the gallery
     }
     lines.push(rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text }], usage: { input_tokens: 8, cache_creation_input_tokens: 3000, cache_read_input_tokens: p.ctx - 3008, output_tokens: 400 } } }, ago(m)));
     if (p.key !== 'boat') lines.push(rec('system', { subtype: 'turn_duration' }, ago(m)));

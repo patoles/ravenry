@@ -4,14 +4,20 @@
 // says), its pixel size and its path (docs/design/Gallery.dc.html, B).
 //
 // Source: the project's current session only (the one the board shows for
-// the project, its primary), and only what its MAIN transcript showed the user:
-// (a) the main session's own Read of an image file, or (b) an image path the
-// main session wrote in its own text to the user (outside tool calls). Nothing
-// else counts: never a subagent's transcript (its own verification shots),
-// never a path in a tool call's input (a Bash command, a Write target, a
-// script's arguments) or in tool output (files a command or a test script
-// wrote), no older sessions, no scan of the project's folder: those
-// were how stray images got into the gallery. When
+// the project, its primary), and only the pictures that were in front of the
+// person in its MAIN transcript: (a) an image path the main session wrote in
+// its own text to the user (outside tool calls), or (b) an image the person
+// attached to their own message, which the transcript records as user text
+// "[Image: source: <path>]" (a pasted image with no file has nothing to show).
+// Nothing else counts: never the session's own Read of an image (the agent
+// looking at something for itself, a contact sheet of a recording or a
+// verification render, which the person never sees; 2026-11-11), never a
+// subagent's transcript (its own verification shots), never a path in a tool
+// call's input (a Bash command, a Write target, a script's arguments) or in
+// tool output (files a command or a test script wrote), no older sessions,
+// no scan of the project's folder: those were how stray images got into the
+// gallery. Both kinds pass the privacy rule below, so a screenshot the person
+// attached from the Desktop is never shown. When
 // the current session showed no image, the project has no picture. When the
 // current session changes (a hand-off's fresh session), the old pick is
 // dropped at once and the new session shows nothing until it shows an
@@ -42,6 +48,7 @@ const HOME = os.homedir();
 const UID = typeof process.getuid === 'function' ? process.getuid() : 501;
 export const IMAGE = /\.(png|jpe?g|webp|gif)$/i;
 const IMAGE_IN = /\.(?:png|jpe?g|webp|gif)/i;
+const ATTACHED = /^\[Image: source: (.+)\]$/;
 
 export const LIMITS = {
   maxBytes: 15 * 1024 * 1024,
@@ -214,11 +221,12 @@ export function callLabel(part, target = null) {
 }
 
 // The image paths one main-session transcript record names, with who named
-// them. `shown` marks the two that admit a picture: the session's own Read
-// of an image, and a path in its own text to the user. The rest (a path in a
-// tool call's input, in a command or script, or printed back in tool output)
-// only says who made a picture, for the caption. The user's own prompts are
-// left out, and so is a sidechain (subagent) record. `calls` (tool_use id ->
+// them. `shown` marks the two that admit a picture: a path in the session's
+// own text to the user, and an image the person attached to their message
+// ("[Image: source: <path>]"). The rest (a Read, a path in a tool call's
+// input, in a command or script, or printed back in tool output) only says
+// who made a picture, for the caption. Any other path in the person's
+// prompts is left out, and so is a sidechain (subagent) record. `calls` (tool_use id ->
 // label) is filled from the calls and read for the results, so a path a
 // script printed is made by that script. `made` is false for a Read: the
 // session looked at the picture, which says nothing about who made it.
@@ -247,11 +255,21 @@ export function mentionsInRecord(rec, calls = null) {
       // Every other text the agent wrote in the call: a command or script,
       // a subagent's brief. Caption only.
       inputTexts(part.input, (k, v) => { if (!PATH_KEYS.includes(k)) found.push(...pathsInText(v, CODE_KEYS.includes(k) ? null : cwd)); });
-      for (const p of found) out.push({ p, by: callLabel(part, p), made: !read, shown: read && expand(part.input.file_path, cwd) === p });
+      // A Read is the session looking for itself: never shown, never made.
+      for (const p of found) out.push({ p, by: callLabel(part, p), made: !read, shown: false });
       if (calls && part.id) {
         calls.set(part.id, callLabel(part));
         if (calls.size > 2000) calls.delete(calls.keys().next().value);
       }
+    }
+  }
+  // An image the person attached: Claude Code records its file as a text
+  // part of exactly this form beside the image itself.
+  if (rec.type === 'user' && Array.isArray(c) && !c.some((x) => x && x.type === 'tool_result')) {
+    for (const x of c) {
+      const m = x && x.type === 'text' && typeof x.text === 'string' && x.text.trim().match(ATTACHED);
+      const p = m && expand(m[1]);
+      if (p && IMAGE.test(p)) out.push({ p, by: null, made: false, shown: true });
     }
   }
   if (rec.type === 'user' && Array.isArray(c) && c.some((x) => x && x.type === 'tool_result')) {

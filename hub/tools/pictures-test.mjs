@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Each project's latest picture (server/pictures.mjs): only what the
-// project's current session's MAIN transcript showed the user (its own Read of
-// an image, or a path in its own text; never a subagent's transcript, a
-// path in a tool call's input or a path in tool output), the root guard, the
+// project's current session's MAIN transcript showed the user (a path in its
+// own text, or an image the person attached; never its own Read of an image,
+// a subagent's transcript, a path in a tool call's input or a path in tool
+// output), the root guard, the
 // size and age limits, the brief's own Pictures coming first, the pick following a
 // session change, and the picture route serving only the current pick. Unit
 // checks on the module, then a test board on :4641 with a throwaway RAVENRY_HOME,
@@ -108,7 +109,7 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
     rec({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: `my own check: ${path.join(proj, 'sidechain.png')}` }] } }),
   ].join('\n') + '\n');
   const got = P.transcriptImages(tp);
-  check('transcript: the main session\'s Read of an image counts', got.includes(inFile));
+  check('transcript: the main session\'s Read of an image does not count (it looked for itself)', !got.includes(inFile));
   check('transcript: a path the main session wrote in its text to the user counts', got.includes(path.join(proj, 'said.png')));
   check('transcript: a relative markdown link in its text resolves against the cwd', got.includes(path.join(proj, 'shots', 'rel.png')));
   check('transcript: a quoted path with a space in its text is read whole', got.includes(path.join(proj, 'with space.png')));
@@ -119,6 +120,22 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
   check('transcript: the session\'s thinking does not count', !got.includes(path.join(proj, 'thought.png')));
   check('transcript: a sidechain (subagent) record does not count', !got.includes(path.join(proj, 'sidechain.png')));
   check('transcript: the user\'s own prompt text is not a source', !got.some((p) => p.includes('Desktop')));
+  // The same image, once the main session names it in its text to the user.
+  fs.appendFileSync(tp, rec({ type: 'assistant', message: { content: [{ type: 'text', text: `Here is the screen: ${inFile}` }] } }) + '\n');
+  check('transcript: the Read image counts once the main session names it in its text', P.transcriptImages(tp).includes(inFile));
+  // Images the person attached: the transcript records each as user text "[Image: source: <path>]".
+  const attached = img(path.join(proj, 'shots', 'attached.png'));
+  const ap = path.join(T, 'attached.jsonl');
+  fs.writeFileSync(ap, [
+    rec({ type: 'user', message: { content: [{ type: 'text', text: 'what about this [Image #1]' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG.toString('base64') } }] } }),
+    rec({ type: 'user', isMeta: true, message: { content: [{ type: 'text', text: `[Image: source: ${attached}]` }, { type: 'text', text: `[Image: source: ${path.join(os.homedir(), 'Desktop', 'Screenshot 2026-11-10 at 12.26.24.png')}]` }] } }),
+    rec({ type: 'user', message: { content: [{ type: 'tool_result', content: `[Image: source: ${ownScratch}]` }] } }),
+    rec({ type: 'user', isSidechain: true, message: { content: [{ type: 'text', text: `[Image: source: ${inFile}]` }] } }),
+  ].join('\n') + '\n');
+  const att = P.listFromTranscripts([ap], roots).map((x) => x.abs);
+  check('attached: an image the person attached from the project folder counts', att.includes(fs.realpathSync(attached)), att.join(' '));
+  check('attached: one attached from the Desktop is refused by the privacy rule', !att.some((p) => p.includes('Desktop')));
+  check('attached: the marker in tool output or a subagent record does not count', att.length === 1, att.join(' '));
 }
 
 // ------------------------------------------------------------ unit: what was shown, against what was only made
@@ -131,7 +148,7 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
   const rec = (o, min) => JSON.stringify({ timestamp: at(min), cwd: W, sessionId: S, ...o });
   const asst = (content, min) => rec({ type: 'assistant', message: { content } }, min);
   const res = (id, text, min) => rec({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: text }] } }, min);
-  // Seven pictures the main session showed: four Reads, three in its text.
+  // Seven pictures the main session showed in its text, four of them read first.
   const shown = [];
   for (let i = 0; i < 7; i++) shown.push(img(path.join(W, 'shots', `shown-${i}.png`), { ageDays: (70 - i * 10) / 1440 }));
   // Newer files it never showed: each would have been the pick before.
@@ -141,9 +158,13 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
   const inOnly = img(path.join(W, 'shots', 'compare-in.png'), { ageDays: 2.5 / 1440 });
   const lines = [];
   shown.forEach((p, i) => {
-    if (i % 2 === 0) lines.push(asst([{ type: 'tool_use', id: 'r' + i, name: 'Read', input: { file_path: p } }], 70 - i * 10));
-    else lines.push(asst([{ type: 'text', text: `Here is the new screen: ${p}` }], 70 - i * 10));
+    if (i % 2 === 0) lines.push(asst([{ type: 'tool_use', id: 'r' + i, name: 'Read', input: { file_path: p } }], 70 - i * 10 + 0.1));
+    lines.push(asst([{ type: 'text', text: `Here is the new screen: ${p}` }], 70 - i * 10));
   });
+  // A contact sheet the session made from a recording and only read, to look at it.
+  const sheet = img(path.join(SCRATCH, slug(W), S, 'scratchpad', 'rec1203', 'sheet1.png'), { ageDays: 0.5 / 1440 });
+  lines.push(asst([{ type: 'tool_use', id: 'b5', name: 'Bash', input: { command: 'ffmpeg -i rec.mov -vf tile=4x4 sheet1.png' } }], 0.5));
+  lines.push(asst([{ type: 'tool_use', id: 'r9', name: 'Read', input: { file_path: sheet } }], 0.4));
   lines.push(asst([{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'node tests/draw-fixture.mjs' } }], 1.5));
   lines.push(res('b1', `wrote ${bashFile}`, 1.5));
   lines.push(asst([{ type: 'tool_use', id: 'b2', name: 'Bash', input: { command: 'node tools/shoot.mjs --before' } }], 2));
@@ -167,10 +188,11 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
   check('shown: a file a Bash command wrote (path in its output) does not count', !names.includes('fixture.png'));
   check('shown: a path only in tool output does not count', !names.includes('before.png'));
   check('shown: a path only in a tool call\'s input does not count', !names.includes('compare-in.png'));
-  check('shown: the main session\'s Reads and paths in its text count, 6 kept, oldest first, the 7th dropped', names.join(' ') === 'shown-1.png shown-2.png shown-3.png shown-4.png shown-5.png shown-6.png', names.join(' '));
+  check('shown: an image the session only read (a contact sheet it made to look at) does not count', !names.includes('sheet1.png'), names.join(' '));
+  check('shown: the paths in its text count, 6 kept, oldest first, the 7th dropped', names.join(' ') === 'shown-1.png shown-2.png shown-3.png shown-4.png shown-5.png shown-6.png', names.join(' '));
   check('shown: the pick is the newest shown picture', r.pick && path.basename(r.pick.abs) === 'shown-6.png');
   const byName = Object.fromEntries(r.list.map((x) => [path.basename(x.abs), x]));
-  check('shown: a Read-only picture says "Read" (not made)', byName['shown-2.png'].by === 'Read' && byName['shown-2.png'].made === false, JSON.stringify(byName['shown-2.png'].by));
+  check('shown: a picture read, then named, says "Read" (not made)', byName['shown-2.png'].by === 'Read' && byName['shown-2.png'].made === false, JSON.stringify(byName['shown-2.png'].by));
   check('shown: a picture only named in text says nothing about who made it', byName['shown-1.png'].by === null && byName['shown-1.png'].made === false);
   const all = P.listFromTranscripts([tp], P.rootsFor(W, [S]), Date.now(), 7);
   const zero = all.find((x) => path.basename(x.abs) === 'shown-0.png');
@@ -189,7 +211,7 @@ check('limit: an empty file is skipped', P.checkFile(empty, roots) === null);
   const S1 = 'cccccccc-0000-0000-0000-000000000001';
   const S2 = 'cccccccc-0000-0000-0000-000000000002';
   const S0 = 'cccccccc-0000-0000-0000-000000000000';
-  const line = (p) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), cwd: U, message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: p } }] } }) + '\n';
+  const line = (p) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), cwd: U, message: { content: [{ type: 'text', text: `Here it is: ${p}` }] } }) + '\n';
   const t0p = path.join(UD, S0 + '.jsonl'); fs.writeFileSync(t0p, line(oldShot));
   const t1p = path.join(UD, S1 + '.jsonl'); fs.writeFileSync(t1p, line(mainShot));
   fs.mkdirSync(path.join(UD, S1, 'subagents'), { recursive: true });
@@ -251,7 +273,7 @@ const tx = (cwd, sid, paths) => {
   fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(d, sid + '.jsonl'), paths.map((p, i) => JSON.stringify({
     type: 'assistant', timestamp: new Date(Date.now() - (10 - i) * 1000).toISOString(), cwd, sessionId: sid,
-    message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: p } }] },
+    message: { content: [{ type: 'text', text: `The screen: ${p}` }] },
   })).join('\n') + '\n');
 };
 tx(B, SB0, [bOldSession]);   // an older session of B: not the current one

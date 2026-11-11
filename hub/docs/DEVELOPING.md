@@ -187,8 +187,10 @@ MC_HOME set) never runs the real `open` without `MC_OPEN_REAL=1`.
 The picture card in the right column (under the Live screen) shows the
 newest picture the project's current session showed you
 (`server/pictures.mjs`: only that session's main transcript, and in it only
-its own Read of an image or an image path it wrote in its text to you,
-outside tool calls; never a subagent's transcript, a path in a tool call's
+an image path it wrote in its text to you, outside tool calls, or an image
+you attached to your own message; never its own Read of an image (it
+looking for itself: a contact sheet of a recording, a check render), a
+subagent's transcript, a path in a tool call's
 input such as a command, a Write target or a script's arguments, nor a path
 in tool output, so a subagent's verification shots, "before" shots and test
 fixtures a script draws stay out. Only files in the project's folder or

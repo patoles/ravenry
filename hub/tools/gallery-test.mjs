@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // The picture gallery (docs/design/Gallery.dc.html, variant B): the server
 // keeps the last 6 pictures the current session's main transcript showed
-// the user (its Reads and paths in its text, never a subagent's shots or files
-// a command only wrote) with their time, who made them, pixel size and path, under the same rule as the single pick
+// the user (paths in its text, never its own Reads, a subagent's shots or
+// files a command only wrote) with their time, who made them, pixel size and path, under the same rule as the single pick
 // (server/pictures.mjs), serves only those, and Show in Finder reveals only
 // one of them, on the Mac only.
 //
@@ -102,20 +102,21 @@ const result = (id, text, ageMin) => JSON.stringify({ type: 'user', timestamp: a
 const made = (cmd, file, ageMin) => { const id = 'toolu_' + (++n); return [call(id, 'Bash', { command: cmd }, ageMin), result(id, `wrote ${file} (2880 x 1620)`, ageMin)]; };
 const read = (file, ageMin) => call('toolu_' + (++n), 'Read', { file_path: file }, ageMin);
 const says = (text, ageMin) => JSON.stringify({ type: 'assistant', timestamp: at(ageMin), cwd: H, sessionId: SID, message: { content: [{ type: 'text', text }] } });
-// Each picture is made by a tool call, then shown to the user by a Read or by
-// its path in the session's text: only the showing admits it.
+// Each picture is made by a tool call, then shown to the user by its path in
+// the session's text: only the showing admits it. A Read before it (the
+// session looking for itself) admits nothing.
 const lines = [
   ...made('node tools/shoot.mjs --title', pics.old, 40), says(`The title screen: ${pics.old}`, 39.9),
-  ...made(`cd ${H} && node tools/shoot.mjs --home`, pics.home, 26), read(pics.home, 25.9),
+  ...made(`cd ${H} && node tools/shoot.mjs --home`, pics.home, 26), read(pics.home, 25.95), says(`Home: ${pics.home}`, 25.9),
   call('toolu_pw', 'mcp__plugin_playwright_playwright__browser_take_screenshot', { filename: pics.phone, fullPage: false }, 21),
   says(`The phone screen: \`${pics.phone}\``, 20.9),
-  ...made('python3 tools/plot.py response-times', pics.chart, 15), read(pics.chart, 14.9),
+  ...made('python3 tools/plot.py response-times', pics.chart, 15), read(pics.chart, 14.95), says(`The chart: ${pics.chart}`, 14.9),
   ...made('node tools/shoot.mjs --landscape', pics.landscape, 9), says(`The landscape at full size:\n\n![landscape](shots/landscape.png)`, 8.9),
   ...made('node tools/shoot.mjs --shapes', pics.shapes, 4),
-  read(pics.shapes, 3.5),                                                          // read after being made: still made by shoot.mjs
-  ...made('node tools/shoot.mjs --settings', pics.settings, 1), read(pics.settings, 0.8),
-  read(secret, 0.5),                                                             // refused: outside
-  read(shot('link-out.png'), 0.5),                                               // refused: a symlink out
+  read(pics.shapes, 3.6), says(`Shapes: ${pics.shapes}`, 3.5),                  // read after being made: still made by shoot.mjs
+  ...made('node tools/shoot.mjs --settings', pics.settings, 1), read(pics.settings, 0.85), says(`Settings: ${pics.settings}`, 0.8),
+  says(`Secret: ${secret}`, 0.5),                                                // refused: outside
+  says(`Link: ${shot('link-out.png')}`, 0.5),                                    // refused: a symlink out
   says(`Compare ${otherScratch}`, 2),                                            // refused: another session's scratchpad
   ...made('node tests/draw-fixture.mjs', unshown.fixture, 0.3),                  // never shown: a file a command wrote
   call('toolu_cp', 'Bash', { command: `cp shots/home.png ${unshown.before}` }, 0.35), // never shown: only in a command
@@ -175,13 +176,15 @@ const session = { sessionId: SID, path: path.join(TD, SID + '.jsonl') };
   {
     const tp = path.join(T, 'read-only.jsonl');
     fs.writeFileSync(tp, call('toolu_x', 'Read', { file_path: pics.home }, 1) + '\n');
+    check('shown: a picture the session only read is not kept (it looked for itself)', P.listFromTranscripts([tp], roots).length === 0);
+    fs.appendFileSync(tp, says(`Here is home: ${pics.home}`, 0.9) + '\n');
     const only = P.listFromTranscripts([tp], roots);
-    check('who: a picture the session only read says so (not "made")', only.length === 1 && only[0].by === 'Read' && only[0].made === false);
-    // A subagent made it, its hand-back named it, the main session read it.
+    check('shown: the same picture named in the session\'s text is kept, and says "Read" (not "made")', only.length === 1 && only[0].by === 'Read' && only[0].made === false);
+    // A subagent made it, its hand-back named it, the main session named it to the user.
     const tp2 = path.join(T, 'via-subagent.jsonl');
-    fs.writeFileSync(tp2, [call('toolu_ag', 'Agent', { prompt: 'shoot the home screen' }, 2), result('toolu_ag', `Done: ${pics.home}`, 1.5), call('toolu_y', 'Read', { file_path: pics.home }, 1)].join('\n') + '\n');
+    fs.writeFileSync(tp2, [call('toolu_ag', 'Agent', { prompt: 'shoot the home screen' }, 2), result('toolu_ag', `Done: ${pics.home}`, 1.5), says(`The home screen: ${pics.home}`, 1)].join('\n') + '\n');
     const via = P.listFromTranscripts([tp2], roots);
-    check('who: a subagent\'s shot the main session read is kept, made by "a subagent"', via.length === 1 && via[0].by === 'a subagent' && via[0].made === true, JSON.stringify(via[0] && via[0].by));
+    check('who: a subagent\'s shot the main session named is kept, made by "a subagent"', via.length === 1 && via[0].by === 'a subagent' && via[0].made === true, JSON.stringify(via[0] && via[0].by));
   }
 
   const e = P.refresh({ id: 'u', folder: H }, session);
