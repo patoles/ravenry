@@ -47,12 +47,6 @@ enum InkLaunch {
     static weak var current: InkOverlay?
     private static var env: [String: String] { ProcessInfo.processInfo.environment }
 
-    /// Reduce motion in macOS (Accessibility > Display), or the check's stand-in.
-    static var reduceMotion: Bool {
-        if let v = env["RAVENRY_MAC_REDUCE_MOTION"], !v.isEmpty { return v == "1" }
-        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    }
-
     /// Off every screen, only for Ink's own check.
     static func applies(offscreen: Bool) -> Bool { !offscreen || env["RAVENRY_MAC_INK"] == "1" }
 
@@ -62,7 +56,8 @@ enum InkLaunch {
         guard rw.ws.restoredNone else { record.decided = "tabs restored"; return }
         rw.board.openStart(nil)
         if !rw.ws.settings.bool("launchInk") { record.decided = "setting off"; return }
-        if reduceMotion { record.decided = "reduced motion"; return }
+        // Reduce motion in macOS, or the check's stand-in (Motion.swift, the one switch every animation reads).
+        if Motion.reduced { record.decided = "reduced motion"; return }
         record.decided = "play"
         play(on: rw, offscreen: offscreen)
     }
