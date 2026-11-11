@@ -103,6 +103,7 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
         let hh: CGFloat = 52
         head.frame = NSRect(x: 0, y: 0, width: bounds.width, height: hh)
         head.subviews.first?.frame = head.bounds
+        fitHead()
         headLine.frame = NSRect(x: 0, y: hh, width: bounds.width, height: 1)
         let nh: CGFloat = noteOpen ? 52 : 0
         noteBar.isHidden = !noteOpen
@@ -279,6 +280,21 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
         head.addSubview(row)
         row.frame = head.bounds
         row.autoresizingMask = [.width, .height]
+        headUpdated = updated
+        fitHead()
+    }
+
+    /// The head's "Updated ... by ..." words, the first to give way when the head is narrow.
+    private weak var headUpdated: NSTextField?
+    /// At a width where the head's row does not hold all of it (900 points with Add a note and
+    /// Edit), the updated line goes, so the project's name is never squeezed; it comes back wider.
+    private func fitHead() {
+        guard let u = headUpdated, let row = head.subviews.first as? NSStackView else { return }
+        let rest = row.views.filter { $0 !== u && !$0.isHidden }
+        let need = row.edgeInsets.left + row.edgeInsets.right + rest.reduce(0) { $0 + $1.fittingSize.width } + row.spacing * CGFloat(rest.count)
+            + u.fittingSize.width
+        let hide = need > head.bounds.width
+        if u.isHidden != hide { u.isHidden = hide }
     }
 
     /// The note bar's buttons, for the self-test.
