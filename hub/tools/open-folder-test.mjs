@@ -2,19 +2,19 @@
 // Open the folder: the folder path in a project's header opens it in Finder
 // on the Mac, through POST /api/project/open-folder. A test board on :4675
 // (fake cmux, tools/stub-open.mjs for `open`): the registered folder only,
-// never a path from the page; 403 for a phone and for a page that is not the
-// board; 404 for an unknown project; 409 for a folder not on disk. A second
+// never a path from the page; 403 for a phone (a caller on the board's
+// stand-in for the Wi-Fi, tools/as-phone.mjs, over loopback) and for a page
+// that is not the board; 404 for an unknown project; 409 for a folder not on disk. A second
 // board on :4676 with no stub refuses to run the real `open`. No Finder
 // window, no real cmux. Touches only .tmp/.
 //
 // Usage: node tools/open-folder-test.mjs
 import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort, lanAddress, phoneEnv, phoneRequest } from './as-phone.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'open-folder');
@@ -26,12 +26,10 @@ const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'} 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ------------------------------------------------------------ boards
-const LAN = (() => {
-  const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) out.push({ name, address: a.address });
-  out.sort((a, b) => (b.name === 'en0') - (a.name === 'en0'));
-  return out[0] && out[0].address;
-})();
+// A phone addresses the board by the Mac's Wi-Fi address; it arrives on the
+// board's stand-in port (127.0.0.1 only), seen as a phone.
+const LAN = lanAddress();
+const STANDIN = await freePort();
 
 const PROJ = path.join(T, 'projects', 'scratch');
 fs.mkdirSync(PROJ, { recursive: true });
@@ -75,7 +73,7 @@ async function board(name, port, extraEnv = {}) {
 }
 
 try {
-  const b = await board('b1', 4675);
+  const b = await board('b1', 4675, phoneEnv(STANDIN));
   // ---- open the folder
   let r = await b.post('/api/project/open-folder', { projectId: 'scratch' });
   check('open: the Mac opens the project\'s folder', r.status === 200 && b.opens().length === 1 && JSON.stringify(b.opens()[0].args) === JSON.stringify([PROJ]), `${r.status} ${JSON.stringify(b.opens())}`);
@@ -92,12 +90,8 @@ try {
 
   // A phone, signed in through the Mac's Wi-Fi address.
   let COOKIE = null;
-  const phoneReq = (q) => new Promise((resolve, reject) => {
-    const rq = http.request({ host: LAN, port: 4675, path: q.path, method: q.method || 'GET', headers: { Host: `${LAN}:4675`, ...(COOKIE ? { Cookie: COOKIE } : {}), ...(q.headers || {}) } }, (res) => { let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: s })); });
-    rq.on('error', reject);
-    rq.end(q.body || undefined);
-  });
-  if (!LAN) check('open: a phone gets 403 (needs a private LAN address to arrive as one)', false, 'no LAN address on this Mac');
+  const phoneReq = (q) => phoneRequest(STANDIN, `http://${LAN}:4675${q.path}`, { method: q.method, headers: { ...(COOKIE ? { Cookie: COOKIE } : {}), ...(q.headers || {}) }, body: q.body });
+  if (!LAN) check('open: a phone gets 403 (needs a private LAN address for its Host)', false, 'no LAN address on this Mac');
   else {
     // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
     await fetch(b.base + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: b.base }, body: JSON.stringify({ on: true }) });
