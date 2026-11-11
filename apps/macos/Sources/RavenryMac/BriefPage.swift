@@ -10,8 +10,18 @@
 
 import AppKit
 
-final class BriefPage: Box, NSTextViewDelegate {
+final class BriefPage: Box, NSTextViewDelegate, BackLinked {
     private(set) var project = ""
+    /// Close: back to what was in front before (Board.back()).
+    var onClose: (() -> Void)?
+    /// Where it was opened from, as the head's "‹ Objectives" (Board.showMiddle sets it).
+    var backLink: (name: String, run: () -> Void)? {
+        didSet { if oldValue?.name != backLink?.name { drawHead(headData) } }
+    }
+    /// The head's buttons by name ("back", "close"), for the self-test.
+    private(set) var buttons: [String: RButton] = [:]
+    /// What the head was drawn from last (nil: the brief could not be read, or not yet).
+    private var headData: [String: Any]?
     var hub: HubClient?
     /// What the page drew last (the self-test reads it).
     private(set) var shownText: String?
@@ -107,11 +117,12 @@ final class BriefPage: Box, NSTextViewDelegate {
 
     /// Shows a project's brief: what the hub gave last at once, asked again after 4 seconds.
     func show(_ pid: String, state: HubState?) {
-        if project != pid { project = pid; shownText = nil; doc = BriefDoc(dir: ""); text.string = ""; scroll.contentView.scroll(to: .zero) }
+        let changed = project != pid
+        if changed { project = pid; shownText = nil; doc = BriefDoc(dir: ""); text.string = ""; scroll.contentView.scroll(to: .zero) }
         let p = state?.project(pid)
         projectName = p?.name ?? pid
         machine = p?.machine != nil
-        if let d = data[pid] { apply(d.code, d.j) }
+        if let d = data[pid] { apply(d.code, d.j) } else if changed { drawHead(nil) }
         if data[pid].map({ Date().timeIntervalSince($0.at) > 4 }) ?? true { fetch(pid) }
     }
 
@@ -207,7 +218,14 @@ final class BriefPage: Box, NSTextViewDelegate {
     }
 
     private func drawHead(_ j: [String: Any]?) {
+        headData = j
         head.subviews.forEach { $0.removeFromSuperview() }
+        buttons = [:]
+        // Where it was opened from ("‹ Objectives"), and Close: both go back there (Board.back()).
+        let back = backLink.map { l in backButton(l.name, l.run) }
+        if let back { buttons["back"] = back }
+        let close = RButton(t("page.close"), .icon, small: true, icon: "close") { [weak self] in self?.onClose?() }
+        buttons["close"] = close
         var updated: NSTextField? = nil
         edit = nil
         if let j {
@@ -222,7 +240,7 @@ final class BriefPage: Box, NSTextViewDelegate {
             }
         }
         let name = label(t("brief.title"), Fonts.pt(13, Fonts.w650))
-        let row = hstack([Icon("doc", "tx3", size: 15), name, label(projectName, Fonts.pt(12.5), "tx3"), spring(), updated, edit], spacing: 10, insets: NSEdgeInsets(top: 0, left: 20, bottom: 0, right: 20))
+        let row = hstack([back, Icon("doc", "tx3", size: 15), name, label(projectName, Fonts.pt(12.5), "tx3"), spring(), updated, edit, close], spacing: 10, insets: NSEdgeInsets(top: 0, left: back == nil ? 20 : 14, bottom: 0, right: 14))
         row.translatesAutoresizingMaskIntoConstraints = true
         head.addSubview(row)
         row.frame = head.bounds

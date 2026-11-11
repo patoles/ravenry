@@ -5,7 +5,23 @@
 
 import AppKit
 
-class InAppPage: Box {
+/// A view the middle shows that links back to where it was opened from:
+/// a page's head, the brief's, a session's view, a project's page, Start,
+/// a review, a pick. Board.showMiddle sets it from its back stack as the
+/// view comes in front (nil: opened from the terminal or the sidebar).
+protocol BackLinked: AnyObject {
+    var backLink: (name: String, run: () -> Void)? { get set }
+}
+
+/// The back link every view draws the same way: "‹  Plans", small and quiet.
+func backButton(_ name: String, _ run: @escaping () -> Void) -> RButton {
+    let b = RButton(name, .ghost, small: true, run: run)
+    b.setTitle("‹  " + name)
+    b.setAccessibilityLabel(t("page.backTo", ["name": name]))
+    return b
+}
+
+class InAppPage: Box, BackLinked {
     /// Close: back to what was in front before (Board.back()).
     var onClose: (() -> Void)?
     let head = Flipped()
@@ -24,10 +40,18 @@ class InAppPage: Box {
     /// The page it was opened from, as the head's back link ("‹ Plans") when
     /// the page gives none of its own: its name and how to go back to it.
     /// Set by the board as the page comes in front (nil: no link).
-    var backLink: (name: String, run: () -> Void)?
+    /// A new place to go back to draws the head again as it was asked last.
+    var backLink: (name: String, run: () -> Void)? {
+        didSet { if oldValue?.name != backLink?.name { backLinkChanged() } }
+    }
+    /// The back link changed: the head drawn again (a page with a head of its own draws its own).
+    func backLinkChanged() { headAgain?() }
+    /// The last head asked for, to draw again with a new back link.
+    private var headAgain: (() -> Void)?
 
     /// The head: a back link, a title (20 bold), the line under it (12, tx3), more, and Close.
     func setHead(title: String?, src: String?, back: (String, () -> Void)? = nil, extra: [NSView] = [], chip: NSView? = nil, srcView: NSView? = nil, closable: Bool = true) {
+        headAgain = { [weak self] in self?.setHead(title: title, src: src, back: back, extra: extra, chip: chip, srcView: srcView, closable: closable) }
         head.subviews.forEach { $0.removeFromSuperview() }
         let back = back ?? backLink.map { ($0.name, $0.run) }
         var col: [NSView?] = []
@@ -44,8 +68,7 @@ class InAppPage: Box {
         tt.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         var row: [NSView?] = []
         if let (name, run) = back {
-            let b = RButton(name, .ghost, small: true, run: run)
-            b.setTitle("‹  " + name)
+            let b = backButton(name, run)
             buttons["back"] = b
             row.append(b)
         }

@@ -160,6 +160,7 @@ extension SelfTestBoard {
         check("set_skills_rows", (sw.skills.isEmpty && shows(root, t("set.needsBoard"))) || (shows(root, "Claude Code") && sw.skills.allSatisfy { $0["hooks"] != nil } && shows(root, t("set.hooksTitle"))), texts(root).joined(separator: " | "))
         settingsPictures("settings-skills")
         screenSettingsSkillsFollow()
+        screenSettingsLive()
         if let b = sw.controls["skill:claude"] as? RButton {
             let s = board.hub.sent.count
             b.performClick(nil)
@@ -182,6 +183,68 @@ extension SelfTestBoard {
         board.menuSettings(nil)
         check("set_menu_reopens", sw.tab == "skills" && sw.window.isVisible)
         sw.window.orderOut(nil)
+    }
+
+    /// Simon on 0.1.33: "when installing the skill the checkbox in 'This
+    /// session' only updated after closing the modal". The skill and the
+    /// hooks set up and removed from the Settings window: the panel's rows
+    /// beside a Claude session follow each press while Settings is open.
+    /// The hooks name the stable bin/ravenryd (AppInstall.hookRavenryd).
+    func screenSettingsLive() {
+        let sw = board.settings, b = board
+        guard let st = b.hub.state, let (p, s) = st.projects.lazy.compactMap({ p -> (HubProject, HubSession)? in
+            guard p.machine == nil, let s = p.sessions.first(where: { $0.assistant == "claude" && $0.machine == nil && st.checkpoint(of: p, $0) == nil }) else { return nil }
+            return (p, s) }).first else { check("set_live_session", false, "no Claude session without a question"); return }
+        // The app's data folder has its bin/ravenryd link, as a packaged app's: the hooks name it.
+        if let data = ProcessInfo.processInfo.environment["RAVENRY_DESKTOP_DATA"] {
+            let link = URL(fileURLWithPath: data).appendingPathComponent("bin/ravenryd")
+            try? FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: link.path) { try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/ravenryd")) }
+        }
+        size(1280, 820)
+        b.topLevel { $0.pickSession("\(p.id)/\(s.surfaceId)", why: "test") }
+        if !b.panelVisible { b.togglePanel() }
+        sw.show("skills")
+        _ = wait(8) { sw.skillsRead && sw.busy == nil }
+        let panel = b.panel
+        func row(_ yes: String) -> Bool { b.render(force: true); return shows(panel, yes) }
+        func pressAndFollow(_ ctl: String, _ yes: String, _ no: String, _ id: String) {
+            guard let btn = sw.controls[ctl] as? RButton else { check("set_live_\(id)_button", false, "\(sw.controls.keys.sorted())"); return }
+            _ = wait(8) { row(yes) || row(no) }
+            let was = row(yes)
+            btn.performClick(nil)
+            check("set_live_\(id)_panel_follows_with_settings_open", wait(8) { row(was ? no : yes) } && sw.window.isVisible,
+                  "was \(was) now \(texts(panel).filter { $0 == yes || $0 == no })")
+            if id == "hooks" {
+                picture("native-panel-this-session-\(was ? "off" : "on")-1280.png")
+                size(900, 760)
+                if !b.panelVisible { b.togglePanel() }
+                settle(0.4); b.render(force: true); settle(0.3)
+                let sq = squeezed(window.contentView!)
+                check("set_live_hooks_rows_whole_900", sq.isEmpty && row(was ? no : yes), sq.joined(separator: " | "))
+                picture("native-panel-this-session-\(was ? "off" : "on")-900.png")
+                size(1280, 820)
+            }
+            guard let back = sw.controls[ctl] as? RButton else { return }
+            back.performClick(nil)
+            check("set_live_\(id)_panel_follows_back", wait(8) { row(was ? yes : no) } && sw.window.isVisible, "\(texts(panel).filter { $0 == yes || $0 == no })")
+            if id == "hooks" {
+                picture("native-panel-this-session-\(was ? "on" : "off")-1280.png")
+                size(900, 760)
+                if !b.panelVisible { b.togglePanel() }
+                settle(0.4); b.render(force: true); settle(0.3)
+                let sq = squeezed(window.contentView!)
+                check("set_live_hooks_rows_whole_900_back", sq.isEmpty && row(was ? yes : no), sq.joined(separator: " | "))
+                picture("native-panel-this-session-\(was ? "on" : "off")-900.png")
+                size(1280, 820)
+            }
+        }
+        let n = b.hub.sentBodies.count
+        pressAndFollow("skill:claude", t("panel.skillOn"), t("panel.skillOff"), "skill")
+        pressAndFollow("hooks:claude", t("panel.alertsOn"), t("panel.alertsOff"), "hooks")
+        let sent = b.hub.sentBodies.dropFirst(n).filter { $0.path == "/api/setup/hooks" && $0.body["remove"] == nil }.compactMap { $0.body["ravenryd"] as? String }
+        check("set_live_hooks_name_stable_ravenryd", !sent.isEmpty && sent.allSatisfy { $0.hasSuffix("/bin/ravenryd") && !$0.contains(".app/Contents/") }, sent.joined(separator: ","))
+        settingsPictures("settings-skills-hooks")
     }
 
     /// The foot's Settings button.

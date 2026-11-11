@@ -521,7 +521,7 @@ final class StartView: MiddleView {
         let plain: [NSAttributedString.Key: Any] = [.font: Fonts.pt(12.5), .foregroundColor: Design.color("tx2")]
         let mark = { (s: String, ok: Bool) -> NSView in label(s, ok ? Fonts.pt(11.5) : Fonts.mono(11.5), ok ? "ok" : "tx3") }
         let hooksLine = step(tick("hooks", su.hooksOn || su.hooks, su.hooksOn || su.hooksFile == nil || su.busy), [
-            label(t("setup.hooksH"), Fonts.pt(13.5, Fonts.w650)),
+            label(t("setup.hooksH", ["who": who]), Fonts.pt(13.5, Fonts.w650)),
             para(NSAttributedString(string: t("setup.hooksP", ["who": who]), attributes: plain)),
             su.hooksOn ? mark(t("setup.hooksDone"), true) : su.hooksFile.map { mark(t("setup.hooksAdds", ["file": $0]), false) } ?? mark(t("setup.hooksNeeds"), false),
         ], gap: 5)
@@ -626,7 +626,8 @@ final class StartView: MiddleView {
         return FileManager.default.fileExists(atPath: u.path, isDirectory: &dir) && dir.boolValue ? u.path : nil
     }
 
-    private var ravenryd: String { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/ravenryd").path }
+    /// The stable ravenryd the hooks name (AppInstall.hookRavenryd), not the one inside the app.
+    private var ravenryd: String { AppInstall.shared.hookRavenryd }
 
     /// Step 2 for an assistant, unless it was answered before or both are on.
     private func setupStep(_ kind: String, _ done: @escaping (Setup?) -> Void) {
@@ -649,6 +650,8 @@ final class StartView: MiddleView {
         let finish = { [weak self] in
             guard let self else { return }
             self.hub?.post("/api/onboarding", ["setup": [su.kind: true]]) { _, _ in }
+            // The hooks or the skill set up here: the panel says so at once.
+            SettingsWindow.said("hooks")
             self.setup = nil
             self.setupReady = true
             self.startSession()

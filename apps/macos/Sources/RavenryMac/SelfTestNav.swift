@@ -217,6 +217,8 @@ extension SelfTestBoard {
         b.panel.host?.answered()
         check("learn_needs_ticked", wait(3) { b.hub.sentBodies.dropFirst(n).contains { $0.path == "/api/onboarding" && (($0.body["learn"] as? [String: Any])?["needs"] as? Bool) == true } } || b.learn.used["needs"] == true,
               b.hub.sentBodies.dropFirst(n).map(\.path).joined(separator: ","))
+        // Back from every view a view opens (SelfTestNavBack.swift).
+        navBack()
     }
 
     private func hasDismiss(_ v: NSView) -> Bool {

@@ -75,7 +75,10 @@ final class LearnPage: FormPage {
         close.iconView?.side == 14 ? { close.iconView?.removeFromSuperview(); let x = Icon("close", "tx3", size: 10); close.addSubview(x)
             NSLayoutConstraint.activate([x.centerXAnchor.constraint(equalTo: close.centerXAnchor), x.centerYAnchor.constraint(equalTo: close.centerYAnchor)]) }() : ()
         buttons["close"] = close
-        let tab = hstack([Icon("question", "tx", size: 14), label(t("learn.title"), Fonts.pt(12.5)), close], spacing: 7)
+        // Where it was opened from ("‹ Rules"), before its tab; Close goes back there too.
+        let back = backLink.map { l -> RButton in let b = backButton(l.name, l.run); buttons["back"] = b; return b }
+        if back == nil { buttons["back"] = nil }
+        let tab = hstack([back, Icon("question", "tx", size: 14), label(t("learn.title"), Fonts.pt(12.5)), close], spacing: 7)
         // 40 high: the tab's middle 23 from the top (8 above it), the line at its foot.
         let s = Flipped()
         s.frame = NSRect(x: 0, y: 0, width: 600, height: 40)
@@ -91,6 +94,8 @@ final class LearnPage: FormPage {
         head.addSubview(s)
         needsLayout = true
     }
+
+    override func backLinkChanged() { strip() }
 
     /// .ln-strip is 40 high.
     override var headHeight: CGFloat { 40 }

@@ -309,8 +309,9 @@ final class PanelView: Box {
             i.centerXAnchor.constraint(equalTo: dot.centerXAnchor).isActive = true
             i.centerYAnchor.constraint(equalTo: dot.centerYAnchor).isActive = true
         }
-        var items: [NSView?] = [dot, label(on ? yes : no, Fonts.pt(12), "tx2")]
-        if !on { items.append(RButton(t("side.settings"), .link) { [weak self] in self?.host?.openPage("settings", t("side.settings")) }) }
+        // Its words wrap rather than cut ("Can't tell you when it waits for you." beside Settings in 304 points).
+        var items: [NSView?] = [dot, wrap(on ? yes : no, Fonts.pt(12), "tx2")]
+        if !on { let l = RButton(t("side.settings"), .link) { [weak self] in self?.host?.openPage("settings", t("side.settings")) }; l.setContentCompressionResistancePriority(.required, for: .horizontal); items.append(l) }
         return hstack(items, spacing: 7)
     }
 

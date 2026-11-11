@@ -16,6 +16,12 @@
 import AppKit
 
 final class SettingsWindow: NSObject, NSWindowDelegate {
+    /// Something Settings shows changed (the skill, the hooks, the hand-off,
+    /// the assistant, a setting): every window's panel, sidebar and pages
+    /// read it again at once, while Settings is still open. `object`: what
+    /// changed ("skills", "hooks", "handoff", "assistant", "settings").
+    static let changed = Notification.Name("RavenrySettingsChanged")
+    static func said(_ what: String) { NotificationCenter.default.post(name: changed, object: what) }
     let window: NSWindow
     let store: SettingsStore
     weak var hub: HubClient?
@@ -448,7 +454,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     // MARK: Skills
 
-    private var ravenryd: String { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/ravenryd").path }
+    /// The stable ravenryd the hooks name (AppInstall.hookRavenryd), not the one inside the app.
+    private var ravenryd: String { AppInstall.shared.hookRavenryd }
 
     func readSkills() {
         let q = "/api/setup/skills?ravenryd=\(ravenryd.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")"
@@ -524,7 +531,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     private func done(_ code: Int, _ j: [String: Any]) {
+        let what = busy?.hasPrefix("h:") == true ? "hooks" : "skills"
         busy = nil
+        SettingsWindow.said(what)
         if code != 200 { skillError = j["error"] as? String ?? t("set.needsBoard") }
         readSkills()
         draw()
@@ -534,6 +543,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     func set(_ patch: [String: Any]) {
         if let e = store.set(patch) { NSLog("settings: \(e)") }
+        SettingsWindow.said("settings")
         draw()
     }
 

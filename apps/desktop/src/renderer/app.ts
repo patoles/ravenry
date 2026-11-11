@@ -2426,8 +2426,8 @@ function setupCard(su: SetupStep): HTMLElement {
   const hooksLine = h('div.ob-r', { 'data-line': 'hooks' },
     tick('hooks', su.hooksOn || su.hooks, su.hooksOn || !su.hooksFile || su.busy),
     h('div.ob-c',
-      h('span.h', 'Tell Ravenry when it needs you'),
-      h('p', `${who}\u2019s sessions say here when they wait for you or hand off, so the list on the left puts them on top.`),
+      h('span.h', `Know when ${who} waits for you`),
+      h('p', `${who}\u2019s sessions tell Ravenry when they ask you something, finish or hand off, so they move to Needs you and can alert you.`),
       su.hooksOn ? h('span.ob-m.ok', 'Already set up') : su.hooksFile ? h('span.ob-m', `Adds a line to ${su.hooksFile}`) : h('span.ob-m', 'Needs Ravenry\u2019s board running; Settings can do it later.')));
   const skillLine = h('div.ob-r', { 'data-line': 'skill' },
     tick('skill', su.skillOn || su.skill, su.skillOn || su.busy),
@@ -3039,8 +3039,8 @@ function setupLineEls(sl: { hooks: boolean; skill: boolean }): HTMLElement[] {
   const line = (on: boolean, yes: string, no: string, what: string) => on
     ? h('div.chk', { 'data-setup': what }, h('i', svg(I.CHECK)), yes)
     : h('div.chk.off', { 'data-setup': what }, h('i'), no, ' ', h('button.lk', { on: { click: () => api().settings.open('skills') } }, 'Settings'));
-  // Its hooks, as asked for on 2026-11-08: "Alerts turned on", or "Alerts turned off" with Settings.
-  return [line(sl.hooks, 'Alerts turned on', 'Alerts turned off', 'hooks'),
+  // Its hooks (Simon's wording, 2026-11-11): what they do for the person, the same words as the Mac app's.
+  return [line(sl.hooks, 'Tells you when it waits for you', 'Can\u2019t tell you when it waits for you.', 'hooks'),
     line(sl.skill, 'Has the Ravenry skill', 'Has no Ravenry skill.', 'skill')];
 }
 

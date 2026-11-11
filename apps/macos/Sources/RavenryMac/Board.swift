@@ -154,6 +154,7 @@ final class Board: NSObject {
         outside.hub = hub; projectPage.hub = hub; start.hub = hub
         brief.isHidden = true
         brief.hub = hub
+        brief.onClose = { [weak self] in self?.back() }
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = toaster(gallery)
@@ -216,6 +217,12 @@ final class Board: NSObject {
         NotificationCenter.default.addObserver(forName: SessionLinks.changed, object: nil, queue: .main) { [weak self] _ in
             guard let self, !self.closed else { return }
             self.render(force: true)
+        }
+        // Settings changed something it shows (the skill, the hooks, the hand-off, the assistant):
+        // the panel's "This session" and the rest read it again now, not after Settings closes.
+        NotificationCenter.default.addObserver(forName: SettingsWindow.changed, object: nil, queue: .main) { [weak self] n in
+            guard let self, !self.closed else { return }
+            self.settingsChanged(n.object as? String ?? "")
         }
         // In front: the hub sends the next Mac notification here, not to another app beside it.
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: ws.window, queue: .main) { [weak self] _ in
@@ -424,10 +431,8 @@ final class Board: NSObject {
             self.ws.newTab(in: folder, program: program)
             self.render()
         }
-        start.onCancel = { [weak self] in
-            guard let self else { return }
-            self.front = .tab; self.hideMiddle(); self.render()
-        }
+        // Cancel: back where Start was opened from (a project's page), else the terminal.
+        start.onCancel = { [weak self] in self?.back() }
         start.grid = { [weak self] in
             guard let v = self?.ws.focusedView else { return (100, 30) }
             return (v.screen.cols, v.screen.rows)
@@ -1103,8 +1108,9 @@ final class Board: NSObject {
         root.middle = v
         root.wideMiddle = v is InAppPage || v === picker
         showingMiddle = true
-        // The page's head links back to where it was opened from ("‹ Plans"; InAppPage.backLink).
-        (v as? InAppPage)?.backLink = backName.map { n in (n, { [weak self] in self?.back() }) }
+        // The view links back to where it was opened from ("‹ Plans", "‹ Objectives"): a page's
+        // head, the brief's, a review's, a pick's, a session's view, a project's page, Start (BackLinked).
+        (v as? BackLinked)?.backLink = backName.map { n in (n, { [weak self] in self?.back() }) }
         // The keyboard leaves the terminal the view covers: keys never act on a tab no one sees.
         if let r = ws.window.firstResponder as? NSView, r === ws.root || r.isDescendant(of: ws.stage) {
             ws.window.makeFirstResponder(v.acceptsFirstResponder ? v : nil)
@@ -1164,7 +1170,16 @@ final class Board: NSObject {
     func escape() -> Bool {
         let w = ws.window
         if w.attachedSheet != nil { return false }
-        if let tv = w.firstResponder as? NSTextView, tv.isEditable { return false }
+        if let tv = w.firstResponder as? NSTextView, tv.isEditable {
+            // A one-line field of the page in front (New project's name): Esc lets go of it,
+            // what was typed stays, and the next Esc goes back. Any other text keeps its Esc.
+            if tv.isFieldEditor, showingMiddle, let f = tv.delegate as? NSView, let m = root.middle, f.isDescendant(of: m) {
+                w.makeFirstResponder(nil)
+                log.append("esc: field")
+                return true
+            }
+            return false
+        }
         if phoneCard.isOpen { phoneCard.cancelOperation(nil); log.append("esc: phone card"); render(); return true }
         if case .page(let k, _) = front {
             if k == files.key, files.sheetView != nil { files.closeSheet(); log.append("esc: page sheet"); return true }
@@ -1361,6 +1376,15 @@ final class Board: NSObject {
             }
         }
         return inputs[pane] ?? []
+    }
+
+    /// Settings changed `what`: read again what shows it (the skill and hooks rows at once), then drawn.
+    func settingsChanged(_ what: String) {
+        log.append("settings changed: \(what)")
+        setupAt = .distantPast
+        _ = setupOf("claude")
+        if case .page("side.alerts", _) = front { alerts.show() }
+        render(force: true)
     }
 
     private func setupOf(_ a: String) -> (hooks: Bool, skill: Bool)? {

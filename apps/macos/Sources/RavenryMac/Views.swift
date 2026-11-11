@@ -184,6 +184,9 @@ final class Icon: NSImageView {
         image = SharedIcons.image(name, color: tint, size: side, dark: dark)
     }
     override func viewDidChangeEffectiveAppearance() { reload() }
+    /// A button's icon (Close's x) leaves the press to its button: an image
+    /// view takes a press itself, so a press on the x of a Close did nothing.
+    override func hitTest(_ p: NSPoint) -> NSView? { superview is NSControl ? nil : super.hitTest(p) }
 }
 
 /// The desktop's buttons: .btn (grey), .btn.pri (blue), .sm, .lk (a link),

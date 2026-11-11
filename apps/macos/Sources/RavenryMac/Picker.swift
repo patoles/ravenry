@@ -83,8 +83,12 @@ final class PickImage: NSView {
     }
 }
 
-final class PickerView: Box {
+final class PickerView: Box, BackLinked {
     private(set) var id: String?
+    /// Where it was opened from, as the head's "‹ Paper-boat" (Board.showMiddle sets it).
+    var backLink: (name: String, run: () -> Void)? {
+        didSet { if oldValue?.name != backLink?.name, cp["id"] != nil { draw() } }
+    }
     private var cp: [String: Any] = [:]
     var hub: HubClient?
     var answer: ((String, [String: Any], @escaping (Bool, String?) -> Void) -> Void)?
@@ -200,7 +204,9 @@ final class PickerView: Box {
         tcol.setContentHuggingPriority(.init(1), for: .horizontal)
         let close = RButton(t("pick.closeTip"), .icon, small: true, icon: "close") { [weak self] in self?.onClose?() }
         buttons["close"] = close
-        let head = hstack([tcol, spring(), label(cpWaiting(cp), Fonts.pt(12).withTabularDigits, "tx3"), close], spacing: 10, insets: NSEdgeInsets(top: max(Self.edgeRoom, 16 - titleBand), left: 22, bottom: 10, right: 22))
+        // Where it was opened from ("‹ Paper-boat"), at the head's left; Close goes back there too.
+        let back = backLink.map { l -> RButton in let b = backButton(l.name, l.run); buttons["back"] = b; return b }
+        let head = hstack([back, tcol, spring(), label(cpWaiting(cp), Fonts.pt(12).withTabularDigits, "tx3"), close], spacing: 10, insets: NSEdgeInsets(top: max(Self.edgeRoom, 16 - titleBand), left: 22, bottom: 10, right: 22))
         head.alignment = .top
         // .pk-row: the pictures in up to three columns.
         let cols = max(1, min(vs.count, 3))

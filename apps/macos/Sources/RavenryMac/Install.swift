@@ -65,6 +65,20 @@ final class AppInstall {
         mode = ["install", "dry-run", "off"].contains(e["RAVENRY_SERVICE"] ?? "") ? e["RAVENRY_SERVICE"]! : "install"
     }
 
+    /// The ravenryd the hooks name (Settings' Set up, the first-launch
+    /// step): <data>/bin/ravenryd, the link to the newest version's copy
+    /// that an update moves along (as the Electron app's hookBin), never a
+    /// path inside the app, which an update replaces; the app's own when
+    /// that link is not there (a development build).
+    var hookRavenryd: String {
+        let e = ProcessInfo.processInfo.environment
+        let data = e["RAVENRY_DESKTOP_DATA"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Ravenry")
+        let link = data.appendingPathComponent("bin/ravenryd").path
+        if FileManager.default.isExecutableFile(atPath: link) { return link }
+        return Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/ravenryd").path
+    }
+
     /// Packaged: it carries its hub, its Node and the setup.
     var packaged: Bool {
         version != nil && FileManager.default.isExecutableFile(atPath: node.path) && FileManager.default.fileExists(atPath: setup.path)

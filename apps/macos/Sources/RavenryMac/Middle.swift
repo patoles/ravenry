@@ -13,15 +13,50 @@
 
 import AppKit
 
-/// The middle's base: the terminal's background, a stack of its content.
-class MiddleView: Box {
+/// The middle's base: the terminal's background, a stack of its content,
+/// and over it, when it was opened from another view, the link back there
+/// ("‹ Brief"), as a page's head has it (InAppPage.backLink).
+class MiddleView: Box, BackLinked {
     let content = StackScroll(spacing: 10, insets: NSEdgeInsets(top: 18, left: 22, bottom: 18, right: 22))
+    private let sheet: Bool
+    /// Where it was opened from: a bar over the content with its link (Board.showMiddle sets it).
+    var backLink: (name: String, run: () -> Void)? {
+        didSet { if oldValue?.name != backLink?.name { placeBack() } }
+    }
+    /// The link back, for the self-test.
+    private(set) var backBtn: RButton?
+    private var backBar: NSView?
+    /// The bar's height (its link 8 under the top, as a page head's).
+    static let backBarHeight: CGFloat = 38
     init(sheet: Bool = false) {
+        self.sheet = sheet
         super.init(fill: sheet ? "sheet" : "term-bg")
         addSubview(content)
     }
     required init?(coder: NSCoder) { fatalError() }
-    override func layout() { super.layout(); content.frame = bounds }
+    override func layout() {
+        super.layout()
+        let h = backBar == nil ? 0 : Self.backBarHeight
+        backBar?.frame = NSRect(x: 0, y: 0, width: bounds.width, height: h)
+        content.frame = NSRect(x: 0, y: h, width: bounds.width, height: max(0, bounds.height - h))
+    }
+    private func placeBack() {
+        backBar?.removeFromSuperview()
+        backBar = nil
+        backBtn = nil
+        if let l = backLink {
+            let b = backButton(l.name, l.run)
+            let bar = hstack([b, spring()], spacing: 0, insets: NSEdgeInsets(top: 10, left: 14, bottom: 0, right: 14))
+            bar.alignment = .top
+            bar.translatesAutoresizingMaskIntoConstraints = true
+            // On the terminal's background (a session's view): drawn in its light words in either look.
+            if !sheet { bar.appearance = NSAppearance(named: .darkAqua) }
+            addSubview(bar)
+            backBar = bar
+            backBtn = b
+        }
+        needsLayout = true
+    }
 }
 
 private let termTx = NSColor(srgbRed: 0xD1 / 255, green: 0xD1 / 255, blue: 0xD6 / 255, alpha: 1)

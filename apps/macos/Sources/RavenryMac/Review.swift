@@ -281,11 +281,15 @@ func stableText(_ v: Any?) -> String {
 }
 
 /// The review in the middle (33 A): its files on the left, the diff on the right.
-final class ReviewView: Box {
+final class ReviewView: Box, BackLinked {
     var hub: HubClient?
     var cards: WorktreeCards?
     var toast: (String) -> Void = { _ in }
     var back: () -> Void = {}
+    /// Where it was opened from, as the head's "‹ Paper-boat" (Board.showMiddle sets it); Close goes back too.
+    var backLink: (name: String, run: () -> Void)? {
+        didSet { if oldValue?.name != backLink?.name { drawn = ""; draw() } }
+    }
     private(set) var key: String?
     private var surface = ""
     private(set) var diff: [String: Any]?
@@ -388,7 +392,7 @@ final class ReviewView: Box {
         // seconds, the line or button under the pointer swapped for a new one mid-press.
         let sig = [diff?["diff"] as? String ?? "", stableText(diff?["check"]), stableText(comments), sel ?? "",
                    composing.map { "\($0.file):\($0.line):\($0.side)" } ?? "", "\(busy)", stableText(s.worktree), s.state, s.topic ?? "", p.name,
-                   effectiveAppearance.name.rawValue].joined(separator: "|")
+                   effectiveAppearance.name.rawValue, backLink?.name ?? "-"].joined(separator: "|")
         if sig == drawn { return }
         drawn = sig
         draws += 1
@@ -428,7 +432,11 @@ final class ReviewView: Box {
         merge.isEnabled = !busy && (wt?["state"] as? String) == "open" && d != nil && !files.isEmpty
         buttons["merge"] = merge
         acts.append(merge)
-        let h = hstack([tt, spring()] + acts, spacing: 10, insets: NSEdgeInsets(top: 12, left: 18, bottom: 12, right: 18))
+        // Where it was opened from ("‹ Paper-boat"), back there as its tab's x, Esc and Cmd+W
+        // (no Close of its own: at 900 the head has no room for one beside Merge).
+        var lead: [NSView?] = []
+        if let l = backLink { let b = backButton(l.name, l.run); buttons["back"] = b; lead.append(b) }
+        let h = hstack(lead + [tt, spring()] + acts, spacing: 10, insets: NSEdgeInsets(top: 12, left: lead.isEmpty ? 18 : 12, bottom: 12, right: 18))
         h.translatesAutoresizingMaskIntoConstraints = true
         let line = Box(fill: "sep")
         line.translatesAutoresizingMaskIntoConstraints = false

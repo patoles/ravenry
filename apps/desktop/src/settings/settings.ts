@@ -233,7 +233,7 @@ function skillsPane(): Node[] {
   // Its hooks, the other half of the first-launch step.
   const hookLine = (r: SkillRow) => {
     const status = !r.found ? `Not on ${mac() ? 'this Mac' : 'this computer'}`
-      : r.hooks === 'on' ? 'Tells Ravenry when it needs you' : r.hooks === 'off' ? 'Not set up' : 'Needs Ravenry\u2019s board running';
+      : r.hooks === 'on' ? 'On' : r.hooks === 'off' ? 'Off' : 'Needs Ravenry\u2019s board running';
     const act = !r.found || r.hooks === 'unavailable' ? null
       : h('button.btn', { type: 'button', 'data-hooks': r.kind, disabled: skillBusy === `h:${r.kind}`, onclick: () => void setHooks(r.kind, r.hooks !== 'on') }, r.hooks === 'on' ? 'Remove' : 'Set up');
     return h('div.sk-r', { 'data-hooks-kind': r.kind },
@@ -246,9 +246,9 @@ function skillsPane(): Node[] {
     skills.length ? null : h('p.sk-hint', null, 'Needs Ravenry\u2019s board running.'),
     ...skills.map(line),
     h('p.sk-hint', null, 'Lets the assistant open panes beside it, read their screens, show you pictures to pick from and ask you through the board and your phone. Remove puts the folder back as it was.'),
-    h('div.sec', null, 'Tell Ravenry when it needs you'),
+    h('div.sec', null, 'Know when a session waits for you'),
     ...skills.map(hookLine),
-    h('p.sk-hint', null, 'A line in the assistant\u2019s hooks, so its sessions say here when they wait for you or hand off. Each file is backed up first; Remove puts it back as it was.'),
+    h('p.sk-hint', null, 'Claude Code and Codex tell Ravenry when a session asks you something, finishes or hands off, so it moves to Needs you and can alert you, here and on your phone. It adds a line to the assistant\u2019s hooks; each file is backed up first, and Remove puts it back.'),
     skillErr ? h('p.sk-err', null, skillErr) : null,
   ].filter(Boolean) as Node[];
 }

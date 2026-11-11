@@ -120,6 +120,7 @@ extension SettingsWindow {
                 self.ho.stored = st
                 if !self.ho.again { self.ho.cur = st }
                 self.ho.foot = "saved"
+                SettingsWindow.said("handoff")
             } else {
                 self.ho.cur = self.ho.stored
                 self.ho.again = false
@@ -141,6 +142,7 @@ extension SettingsWindow {
                 self.ho.assistant = a
                 self.ho.foot = foot
                 self.ho.modelBad = false
+                SettingsWindow.said("assistant")
             } else {
                 self.ho.foot = "error"
                 self.ho.err = sentence(j["error"] as? String ?? t("page.didNotWork"))
@@ -158,7 +160,7 @@ extension SettingsWindow {
             hub?.post("/api/settings/projects-root", ["path": path, "from": "chosen"]) { [weak self] code, j in
                 guard let self else { return }
                 self.ho.rootWaiting = false
-                if code == 200 { var v = j; v["ok"] = nil; v["backup"] = nil; self.ho.root = v; self.ho.foot = "saved-root" }
+                if code == 200 { var v = j; v["ok"] = nil; v["backup"] = nil; self.ho.root = v; self.ho.foot = "saved-root"; SettingsWindow.said("settings") }
                 else { self.ho.rootErr = t("ho.notSaved", ["why": sentence(j["error"] as? String ?? t("page.didNotWork"))]) }
                 self.draw()
             }

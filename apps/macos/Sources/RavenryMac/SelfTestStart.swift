@@ -94,7 +94,7 @@ extension SelfTestBoard {
         var n = hub.sentBodies.count
         click(st.go)
         check("start_setup_step", wait(8) { st.setup != nil } && shows(st, "Let Claude work with Ravenry") && shows(st, "One step before Claude opens in notes-app")
-              && shows(st, "Tell Ravenry when it needs you") && shows(st, "Install the Ravenry skill") && shows(st, "Adds ~/.claude/skills/ravenry") && shows(st, "Step 2 of 2"),
+              && shows(st, "Know when Claude waits for you") && shows(st, "Install the Ravenry skill") && shows(st, "Adds ~/.claude/skills/ravenry") && shows(st, "Step 2 of 2"),
               texts(st).joined(separator: " | "))
         check("start_setup_ticked", st.setup?.hooks == true && st.setup?.skill == true && !hub.sentBodies.dropFirst(n).contains { $0.path == "/api/sessions/start" }, "\(String(describing: st.setup))")
         pictures("setup")

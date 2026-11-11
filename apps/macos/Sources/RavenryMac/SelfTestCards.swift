@@ -230,6 +230,9 @@ extension SelfTestBoard {
         check("pick_escape_closes", wait(3) { self.board.front == .session(keyOf("pick")) || self.board.front == .tab }, "\(board.front)")
         board.panel.shownCard?.buttons["openPicker"]?.performClick(nil)
         check("pick_open_button", wait(3) { self.board.root.middle === pk && !pk.isHidden }, "\(board.front)")
+        // Opened from the panel beside its session: the head names it ("‹ Tilting the hull"); none from a terminal tab.
+        check("pick_back_link", (pk.buttons["back"]?.title).map { $0 == "‹  " + (self.board.backName ?? "") } ?? (board.backName == nil),
+              "\(pk.buttons["back"]?.title ?? "none") backName \(board.backName ?? "nil")")
         pk.buttons["close"]?.performClick(nil)
         check("pick_close_button", wait(3) { if case .page = self.board.front { return false }; return true }, "\(board.front)")
         board.hub.testCheckpoints = nil
