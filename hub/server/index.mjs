@@ -46,7 +46,8 @@ import * as projectsRoot from './projectsroot.mjs';
 import { activePlan, planPages, proofKind } from './planfmt.mjs';
 import * as planner from './planner.mjs';
 import * as planrun from './planrun.mjs';
-import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp, hubBind } from './home.mjs';
+import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp, hubBind, testData } from './home.mjs';
+import * as testphone from './testphone.mjs';
 import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
 import * as remoteinstall from './remoteinstall.mjs';
@@ -4342,6 +4343,8 @@ function forgetPort() { try { if (JSON.parse(fs.readFileSync(BOARD_FILE, 'utf8')
 startlog.watchStalls();
 void startlog.profileStart();
 console.log(`start: modules loaded, ${Math.round(process.uptime() * 1000)} ms after start`);
+// A test's stand-in for the Wi-Fi, refused on a person's board (server/testphone.mjs).
+const TEST_PHONE_PORT = testphone.portFrom(process.env, testData());
 startlog.phase('listen');
 // A test's board on this Mac only, the person's on every address (home.mjs hubBind).
 server.listen(PORT, hubBind(), () => {
@@ -4352,6 +4355,7 @@ server.listen(PORT, hubBind(), () => {
   console.log(`Ravenry on http://localhost:${PORT}${lan ? `, phones on http://${lan.address}:${PORT}` : ''}  (registry ${registry.REGISTRY_PATH})`);
   // Phone access on: the phone port opens with the board (docs/PHONE.md).
   void startlog.step('phone port', () => syncPhonePort());
+  if (TEST_PHONE_PORT) testphone.listen(TEST_PHONE_PORT, handleRequest, handleUpgrade);
   // The desktop app's hub after an update: its hooks follow it to this
   // version's folder (server/hookinstall.mjs refreshAppHooks).
   if (process.env.RAVENRY_HUB_SERVICE === '1') {

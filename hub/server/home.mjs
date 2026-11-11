@@ -80,11 +80,17 @@ export const SCRATCH_DATA = inRepoTmp(RAVENRY_HOME);
 // address, as before (phones reach it).
 export function hubBind(env = process.env, home = RAVENRY_HOME) {
   if (env.RAVENRY_HUB_BIND) return env.RAVENRY_HUB_BIND;
+  return testData(env, home) ? '127.0.0.1' : undefined;
+}
+
+// Whether a board's data is a test's: a test process, or data in the repo's
+// .tmp or a temp folder. Its test switches (server/testphone.mjs) need it.
+export function testData(env = process.env, home = RAVENRY_HOME) {
   // (The checkout's own .tmp too, where the app's harness keeps its boards.)
   const tmps = [os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders', path.join(path.dirname(path.dirname(REPO_TMP)), '.tmp')].map((d) => [d, realOr(d)]).flat();
   const abs = realOr(path.resolve(home));
   const temp = tmps.some((d) => d && inside(abs, d));
-  return isTestEnv(env) || inRepoTmp(home) || temp ? '127.0.0.1' : undefined;
+  return isTestEnv(env) || inRepoTmp(home) || temp;
 }
 
 if (isTestEnv() && !SCRATCH_DATA) {

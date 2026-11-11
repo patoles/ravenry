@@ -3,17 +3,23 @@
 // Two test boards with a throwaway RAVENRY_HOME under .tmp/phone-test and
 // tools/fake-cmux.mjs as cmux: one on :4621 with the Mac's real Wi-Fi
 // address, one on :4622 that pretends there is none (MC_PHONE_LAN=none).
-// Requests sent to the Mac's own LAN address arrive as non-loopback, so they
-// stand in for a phone. Never touches the board on :4600.
+// A phone is a caller on the first board's stand-in for the Wi-Fi
+// (tools/as-phone.mjs, server/testphone.mjs: 127.0.0.1 only, every caller
+// seen as a phone), addressing the board by the Wi-Fi address as a phone
+// does. Both boards listen on 127.0.0.1 only. Never touches the board on :4600.
 // Usage: node tools/phone-access-test.mjs [shotsDir]
 import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { freePort, lanAddress, phoneEnv, phoneProxy } from './as-phone.mjs';
+import * as phone from '../server/phone.mjs';
+import { PHONE_ADDRESS } from '../server/testphone.mjs';
+import { testData } from '../server/home.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SHOTS = process.argv[2] ? path.resolve(process.argv[2]) : null;
@@ -30,16 +36,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0;
 const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
 
-// The Mac's Wi-Fi address, picked the way the board picks it.
-const LAN = (() => {
-  const out = [];
-  for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) {
-    if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) out.push({ name, address: a.address });
-  }
-  out.sort((a, b) => (b.name === 'en0') - (a.name === 'en0'));
-  return out[0] && out[0].address;
-})();
-if (!LAN) { console.log('FAIL  this Mac has no private LAN IPv4 address, so nothing can arrive as a phone'); process.exit(1); }
+// The Mac's Wi-Fi address, picked the way the board picks it: what a phone
+// puts in its Host. A phone's requests go to the stand-in port.
+const LAN = lanAddress();
+if (!LAN) { console.log('FAIL  this Mac has no private LAN IPv4 address, so the board shows no address for a phone'); process.exit(1); }
+const STANDIN = await freePort();
 
 // Three fake projects so the board has something to show.
 const projects = [['boat', 'Paper Boat', 'Is E the direction, or do you prefer B or C?'], ['court', 'Cloud Court', 'Pushed the wave tuning.'], ['arcade', 'Arcade', 'Working on the hand-off.']];
@@ -71,11 +72,13 @@ function board(home, port, extra = {}) {
   return child;
 }
 
-// A raw request, so the Host header can be anything.
+// A raw request, so the Host header can be anything. One to the Wi-Fi
+// address is a phone's: it goes to the stand-in port.
 function req(target, { method = 'GET', path: p = '/', host, headers = {}, body = null, stream = false } = {}) {
   const u = new URL(target);
+  const phone = u.hostname === LAN;
   return new Promise((resolve, reject) => {
-    const r = http.request({ host: u.hostname.replace(/^\[|\]$/g, ''), port: u.port, method, path: p, headers: { Host: host || u.host, ...headers } }, (res) => {
+    const r = http.request({ host: phone ? '127.0.0.1' : u.hostname.replace(/^\[|\]$/g, ''), port: phone ? STANDIN : u.port, method, path: p, headers: { Host: host || u.host, ...headers } }, (res) => {
       if (stream) return resolve({ status: res.statusCode, headers: res.headers, res, req: r });
       let b = '';
       res.on('data', (d) => { b += d; });
@@ -90,18 +93,27 @@ function req(target, { method = 'GET', path: p = '/', host, headers = {}, body =
 const MAC = `http://127.0.0.1:${PORT}`;
 const PH = `http://${LAN}:${PORT}`;
 // Phone access on opens the phone port too: its own port, clear of :4622.
-const main = board(MC, PORT, { RAVENRY_PHONE_PORT: '4627' });
+const main = board(MC, PORT, { RAVENRY_PHONE_PORT: '4627', ...phoneEnv(STANDIN) });
 const off = board(MC_OFF, PORT_OFF, { MC_PHONE_LAN: 'none' });
 const procs = [main, off];
 let browser = null;
 
+// Up: the board has read its projects (/api/state is 503 until then).
 async function up(base) {
-  for (let i = 0; i < 150; i++) { try { const r = await req(base, { path: '/api/whoami' }); if (r.status === 200) return true; } catch { /* starting */ } await sleep(100); }
+  for (let i = 0; i < 150; i++) { try { const r = await req(base, { path: '/api/state' }); if (r.status === 200) return true; } catch { /* starting */ } await sleep(100); }
   return false;
 }
 
 try {
   check(`test boards are up on :${PORT} and :${PORT_OFF}`, (await up(MAC)) && (await up(`http://127.0.0.1:${PORT_OFF}`)), main.log.slice(-300));
+  // Nothing on the Wi-Fi: every port the boards listen on, the stand-in's too, is on 127.0.0.1.
+  const listens = procs.flatMap((c) => { try { return execFileSync('/usr/sbin/lsof', ['-a', '-p', String(c.pid), '-iTCP', '-sTCP:LISTEN', '-nP', '-Fn'], { encoding: 'utf8' }).split('\n').filter((l) => l.startsWith('n')).map((l) => l.slice(1)); } catch { return []; } });
+  check('every listener of the test boards is on 127.0.0.1, the phone stand-in included', listens.length >= 3 && listens.every((l) => l.startsWith('127.0.0.1:')) && listens.includes(`127.0.0.1:${STANDIN}`), listens.join(', '));
+  // The switch is a test's only: on a board whose data is not a test's
+  // (~/.ravenry, the app's data folder) it quits with 2 before listening.
+  const refused = spawnSync(process.execPath, ['--input-type=module', '-e', `import { portFrom } from ${JSON.stringify(path.join(ROOT, 'server', 'testphone.mjs'))}; portFrom({ MC_TEST_PHONE_PORT: '4699' }, false); console.log('took it');`], { encoding: 'utf8' });
+  check('the stand-in switch on a person\'s board: exit 2, refused', refused.status === 2 && /test switch/.test(refused.stderr) && !refused.stdout.includes('took it'), `exit ${refused.status} ${refused.stderr.trim()}`);
+  check('testData: ~/.ravenry is a person\'s, this test\'s data is a test\'s', !testData({}, path.join(os.homedir(), '.ravenry')) && !testData({}, path.join(os.homedir(), 'Library', 'Application Support', 'Ravenry', 'hub')) && testData({}, MC));
 
   // ------------------------------------------------------------ host check
   let r = await req(PH, { host: `evil.example:${PORT}` });
@@ -209,9 +221,14 @@ try {
   // ------------------------------------------------------------ loopback
   const loop = await Promise.all([
     req(MAC, { path: '/' }), req(MAC, { path: '/api/state' }),
-    req(`http://localhost:${PORT}`, { path: '/api/whoami' }), req(`http://[::1]:${PORT}`, { path: '/api/whoami' }),
+    req(`http://localhost:${PORT}`, { path: '/api/whoami' }),
   ]);
-  check('loopback works with no key: 127.0.0.1, localhost and [::1]', loop.every((x) => x.status === 200) && JSON.parse(loop[2].body).local === true && JSON.parse(loop[3].body).local === true, loop.map((x) => x.status).join(', '));
+  check('loopback works with no key: 127.0.0.1 and localhost', loop.every((x) => x.status === 200) && JSON.parse(loop[2].body).local === true, loop.map((x) => x.status).join(', '));
+  // A test board listens on 127.0.0.1 only (home.mjs hubBind), so [::1]
+  // reaches nothing; the person's board takes it as the Mac (phone.isLoopback).
+  const v6 = await req(`http://[::1]:${PORT}`, { path: '/api/whoami' }).then((x) => `HTTP ${x.status}`, (e) => e.code);
+  const isLo = (a) => phone.isLoopback({ socket: { remoteAddress: a } });
+  check('[::1]: nothing of the test board there; the board takes ::1 and ::ffff:127.0.0.1 as the Mac, the phone\'s address not', v6 === 'ECONNREFUSED' && isLo('::1') && isLo('::ffff:127.0.0.1') && !isLo(PHONE_ADDRESS), v6);
   r = await req(MAC, { path: '/api/phone' });
   check('the card counts 1 phone signed in', JSON.parse(r.body).phones === 1);
 
@@ -276,8 +293,8 @@ try {
   if (SHOTS) await offPage.screenshot({ path: path.join(SHOTS, 'card-off-wifi-1440.png') });
   await octx.close();
 
-  // A phone: 390 wide, through the LAN address, scanning the code.
-  const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  // A phone: 390 wide, through the LAN address (the stand-in as its proxy), scanning the code.
+  const pctx = await browser.newContext({ proxy: phoneProxy(STANDIN), viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
   const ph = await pctx.newPage();
   await ph.goto(want);
   await ph.waitForSelector('#pchips .pchip', { timeout: 10000 });
