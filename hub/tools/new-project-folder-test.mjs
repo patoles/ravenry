@@ -4,17 +4,19 @@
 // a project made in a shared folder (its own BRIEF-<id>.md and hand-off
 // file, the other project's brief untouched), the new-folder path as
 // before, and Finder's dialog through a stub (picked, cancelled, refused,
-// not blocking the server, timed out, 403 for a phone). Touches only .tmp/.
+// not blocking the server, timed out, 403 for a phone: a caller on the
+// board's stand-in for the Wi-Fi, tools/as-phone.mjs, over loopback).
+// Touches only .tmp/.
 //
 // Usage: node tools/new-project-folder-test.mjs
 import { withTestHome } from './test-guard.mjs'; // first: keeps this test off the real ~/.ravenry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort, lanAddress, phoneEnv, phoneRequest } from './as-phone.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'np-folder');
@@ -107,11 +109,14 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
   ],
 }, null, 2));
 
+// A phone arrives on the board's stand-in port (127.0.0.1 only), seen as a phone.
+const STANDIN = await freePort();
 const env = {
   ...process.env, RAVENRY_HOME: MC, PORT: String(PORT), RAVENRY_PHONE_PORT: String(PORT + 1000), MC_NO_EVENTS: '1', MC_NO_AUTOSTART: '1', MC_REPEATS_AUTO: '0',
   CMUX_BIN: path.join(ROOT, 'tools/fake-cmux.mjs'), FAKE_CMUX_STATE: FAKE,
   MC_CHOOSE_FOLDER_COMMAND: JSON.stringify([process.execPath, path.join(ROOT, 'tools/stub-choose-folder.mjs')]),
   STUB_CHOOSE_FILE: CHOOSE, MC_CHOOSE_FOLDER_TIMEOUT_MS: '1500',
+  ...phoneEnv(STANDIN),
 };
 const server = spawn(process.execPath, [path.join(ROOT, 'server/index.mjs')], { env: withTestHome(env, T), stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
@@ -207,19 +212,11 @@ try {
   check('choose: a dialog left open past the timeout is closed with a sentence', x.status === 504 && /open too long/.test(x.j.error), `${x.status} ${x.j.error}`);
 
   // ---- a phone may not open the dialog
-  const LAN = (() => {
-    const out = [];
-    for (const [name, list] of Object.entries(os.networkInterfaces())) for (const a of list || []) if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) out.push({ name, address: a.address });
-    out.sort((a, b) => (b.name === 'en0') - (a.name === 'en0'));
-    return out[0] && out[0].address;
-  })();
-  if (!LAN) check('choose: 403 for a phone (needs a private LAN address to arrive as one)', false, 'no LAN address on this Mac');
+  // It addresses the board by the Mac's Wi-Fi address.
+  const LAN = lanAddress();
+  if (!LAN) check('choose: 403 for a phone (needs a private LAN address for its Host)', false, 'no LAN address on this Mac');
   else {
-    const req = (o) => new Promise((resolve, reject) => {
-      const q = http.request({ host: LAN, port: PORT, path: o.path, method: o.method || 'GET', headers: { Host: `${LAN}:${PORT}`, ...(o.headers || {}) } }, (res) => { let b = ''; res.on('data', (d) => { b += d; }); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: b })); });
-      q.on('error', reject);
-      q.end(o.body || undefined);
-    });
+    const req = (o) => phoneRequest(STANDIN, `http://${LAN}:${PORT}${o.path}`, { method: o.method, headers: o.headers, body: o.body });
     // The Wi-Fi's browser path opens only while phone access is on (docs/PHONE.md).
     await fetch(BASE + '/api/phone/access', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1', Origin: BASE }, body: JSON.stringify({ on: true }) });
     await fetch(BASE + '/api/phone');
