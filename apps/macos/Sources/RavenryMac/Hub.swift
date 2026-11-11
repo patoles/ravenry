@@ -548,7 +548,9 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         } else {
             boardFile = (testHome ?? (NSHomeDirectory() + "/.ravenry")) + "/board.json"
             named = false
-            base = HubClient.boardURL(boardFile!)
+            // No board.json: the default port, except off every screen (a test's
+            // home), where it would be the person's board.
+            base = HubClient.boardURL(boardFile!) ?? (offscreen ? nil : URL(string: "http://127.0.0.1:4600"))
         }
         readOnly = env["RAVENRY_MAC_HUB_READONLY"] == "1"
         super.init()
@@ -560,12 +562,13 @@ final class HubClient: NSObject, URLSessionDataDelegate {
 
     var url: String { base?.absoluteString ?? "" }
 
-    /// The port the running board wrote to board.json, else 4600 (hub/server/index.mjs, hooks/events.mjs).
+    /// The port the running board wrote to board.json (hub/server/index.mjs, hooks/events.mjs), or nil
+    /// when there is none: a board that stopped takes its board.json away, and the
+    /// window then keeps the address it had (never the default 4600 in its place).
     static func boardURL(_ file: String) -> URL? {
-        var port = 4600
-        if let d = try? Data(contentsOf: URL(fileURLWithPath: file)),
-           let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let p = (j["port"] as? NSNumber)?.intValue, p > 0 { port = p }
-        return URL(string: "http://127.0.0.1:\(port)")
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: file)),
+              let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any], let p = (j["port"] as? NSNumber)?.intValue, p > 0, p < 65536 else { return nil }
+        return URL(string: "http://127.0.0.1:\(p)")
     }
 
     /// The Mac woke (A11Y-012), or the hub is to be read again at once: the
@@ -585,7 +588,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         }
     }
     func start() {
-        guard base != nil else { return }
+        guard base != nil || boardFile != nil else { return }
         startedAt = Date()
         connect()
     }
@@ -597,7 +600,17 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             AppLog.write("hub: the board is at \(u.absoluteString) now (was \(base?.absoluteString ?? "none"))")
             base = u
         }
-        guard !stopped, let b = base else { return }
+        guard !stopped else { return }
+        guard let b = base else {
+            // Off every screen with no board.json yet: looked for again in a moment.
+            gen += 1
+            let g = gen
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, self.gen == g else { return }
+                self.connect()
+            }
+            return
+        }
         // ?app=1: the app's own stream, which the hub sends Mac notifications to (hub/server/desktop.mjs pickApp).
         // A read-only window cannot answer, so it never asks for them.
         var r = URLRequest(url: URL(string: b.absoluteString + (readOnly ? "/api/events" : "/api/events?app=1&client=\(client)")) ?? b.appendingPathComponent("api/events"))
