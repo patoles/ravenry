@@ -220,6 +220,8 @@ final class Atlas {
     private var x = 1, y = 1, rowH = 0
     private var cache: [UInt64: AtlasGlyph] = [:]
     private let fonts: FontSet
+    /// Ravenry's glyph font at this font's size, made at its first use (Glyphs.swift).
+    private var glyphFaces: [CTFont]?
 
     init(device: MTLDevice, fonts: FontSet, size: Int = 2048) {
         self.device = device
@@ -269,7 +271,9 @@ final class Atlas {
     private func render(_ s: String, bold: Bool, italic: Bool, wide: Bool) -> AtlasGlyph {
         let empty = Atlas.emptyGlyph
         if s.isEmpty || s == " " { return empty }
-        let font = fonts.font(bold: bold, italic: italic)
+        var font = fonts.font(bold: bold, italic: italic)
+        // An agent's symbol the font lacks: Ravenry's glyph font, never a colour emoji (TERM-041).
+        if let g = GlyphFont.face(for: s, base: font, sized: &glyphFaces) { font = g }
         // No ligatures: each cell shows its own character.
         let attr = NSAttributedString(string: s, attributes: [.font: font, .foregroundColor: NSColor.white, .ligature: 0])
         let line = CTLineCreateWithAttributedString(attr)

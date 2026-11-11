@@ -159,6 +159,7 @@ final class SelfTest {
         accessibility()
         macKeys()
         settingsApplied()
+        termItems()
         tabsAndSplits()
         check("general_pasteboard_untouched", NSPasteboard.general.changeCount == generalChanges)
     }
@@ -470,13 +471,28 @@ final class SelfTest {
         main { view.mouseMoved(with: mouse(.mouseMoved, col: 10.5, row: row)) }
         sleep(0.3)
         check("link_none_without_cmd", view.link == nil && !view.linkCursor)
+        // TERM-022: resting on the link without Cmd, the tip says how to open it; nothing underlined.
+        let tip = waitFor(3) { self.main { self.view.linkTipText } == "Cmd+click to open" }
+        let tipFrame = main { view.linkTip?.frame ?? .zero }
+        let at = main { view.convert(windowPoint(col: 10.5, row: row), from: nil) }
+        check("link_hover_tip", tip && view.link == nil && !view.linkCursor && tipFrame.minX > at.x && !tipFrame.contains(at) && abs(tipFrame.midY - at.y) < 40,
+              "tip \(main { view.linkTipText } ?? "none") at \(tipFrame), pointer \(at)")
+        savePNGWithTip("selftest-link-tip.png")
+        // Off the link: no tip.
+        main { view.mouseMoved(with: mouse(.mouseMoved, col: 1.5, row: row)) }
+        check("link_tip_off_link", waitFor(3) { self.main { self.view.linkTipText } == nil })
+        main { view.mouseMoved(with: mouse(.mouseMoved, col: 10.5, row: row)) }
+        _ = waitFor(3) { self.main { self.view.linkTipText } != nil }
         // Cmd pressed with the pointer on the URL.
         main { view.flagsChanged(with: flagsEvent(.command)) }
         let found = waitFor(3) { self.main { self.view.link } != nil }
         let l = main { view.link }
         check("link_cmd_finds_url", found && l?.uri == url && l?.range == CellRange(x0: 6, y0: y, x1: 29, y1: y),
               "\(String(describing: l)) want x 6 to 29 on row \(y)")
-        check("link_pointing_hand", main { view.linkCursor })
+        // The pointing hand where the pointer is (the view's cursor rects), the tip gone.
+        let hand = main { view.cursorAt(view.convert(windowPoint(col: 10.5, row: row), from: nil)) }
+        check("link_pointing_hand", main { view.linkCursor } && hand === NSCursor.pointingHand, "cursor \(String(describing: hand))")
+        check("link_cmd_hides_tip", main { view.linkTipText } == nil)
         let ulY = Int(view.renderer.fonts.baseline + view.renderer.fonts.underlineY)
         let on = lit(picture(), row: r, y: ulY, cols: 6, 29)
         check("link_underline_drawn", on > 0.9, String(format: "%.0f%% of the underline's pixels lit", on * 100))
@@ -498,6 +514,11 @@ final class SelfTest {
         let gone = waitFor(3) { self.main { self.view.link == nil && !self.view.linkCursor } }
         let off = lit(picture(), row: r, y: ulY, cols: 6, 29)
         check("link_cmd_release_clears", gone && off < 0.5, String(format: "%.0f%% lit", off * 100))
+        let back = main { view.cursorAt(view.convert(windowPoint(col: 20.5, row: row), from: nil)) }
+        check("link_tip_back_after_cmd", waitFor(3) { self.main { self.view.linkTipText } != nil } && back === NSCursor.iBeam,
+              "tip \(main { view.linkTipText } ?? "none"), cursor \(String(describing: back))")
+        main { view.mouseExited(with: mouse(.mouseMoved, col: 20.5, row: row)) }
+        check("link_tip_goes_on_exit", main { view.linkTipText } == nil)
     }
 
     /// A cell's background colour, read just inside its top left corner.
@@ -643,6 +664,35 @@ final class SelfTest {
         main { view.findOptionsKnown(true) }
         set("needle")
         _ = waitFor(3) { self.findLabel() == "3 matches" }
+    }
+
+    /// savePNG with the link tip drawn where it lies over the terminal
+    /// (a subview: the terminal's own drawing does not hold it).
+    private func savePNGWithTip(_ name: String) {
+        let img: CGImage? = main { view.draw(sync: false); return view.snapshotImage() }
+        guard let img else { return }
+        let w = img.width, h = img.height
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { return }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        main {
+            guard let tip = view.linkTip, !tip.isHidden, let rep = tip.bitmapImageRepForCachingDisplay(in: tip.bounds) else { return }
+            tip.cacheDisplay(in: tip.bounds, to: rep)
+            // cacheDisplay leaves out the layer's own fill and ring: drawn here first.
+            let s = CGFloat(w) / view.bounds.width
+            let r = CGRect(x: tip.frame.minX * s, y: CGFloat(h) - tip.frame.maxY * s, width: tip.frame.width * s, height: tip.frame.height * s)
+            ctx.saveGState()
+            let path = CGPath(roundedRect: r, cornerWidth: 5 * s, cornerHeight: 5 * s, transform: nil)
+            view.effectiveAppearance.performAsCurrentDrawingAppearance {
+                ctx.addPath(path); ctx.setFillColor(Design.color("card2").cgColor); ctx.fillPath()
+                ctx.addPath(path); ctx.setStrokeColor(Design.color("sep").cgColor); ctx.setLineWidth(s); ctx.strokePath()
+            }
+            ctx.restoreGState()
+            if let cg = rep.cgImage { ctx.draw(cg, in: r) }
+        }
+        guard let image = ctx.makeImage() else { return }
+        let url = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent(name)
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: url)
     }
 
     private func savePNG(_ name: String) {
@@ -867,6 +917,9 @@ final class SelfTest {
         click(col: 10.5, row: r)
         let one = waitFor(3) { self.main { self.opened.last?.absoluteString } == "https://ravenry.dev/settings" }
         check("settings_link_one_click", live && one, "underlined \(live), opened \(opened)")
+        let handOne = main { view.cursorAt(view.convert(windowPoint(col: 10.5, row: r), from: nil)) }
+        check("settings_link_one_click_no_tip", main { view.linkTipText } == nil && handOne === NSCursor.pointingHand,
+              "tip \(main { view.linkTipText } ?? "none"), cursor \(String(describing: handOne))")
         // The bell: a sound and the Dock (recorded here), no flash; off: nothing.
         writeSettings(["bell": "sound", "copyOnSelect": false, "openLinksSingleClick": false])
         _ = waitFor(5) { self.main { self.view.look.bell == "sound" } }

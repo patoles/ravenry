@@ -30,6 +30,15 @@ final class TerminalView: NSView, NSTextInputClient {
     /// it had stay, and are drawn at once when it shows again, the
     /// pane's own following from a new stream.
     private(set) var live = false
+    /// Where the view was scrolled when it went behind (rows up from the
+    /// bottom, and the history then): a tab switch keeps each pane's
+    /// place (TERM-007). The new stream starts at the live screen, so its
+    /// first frame asks render.scroll for the same rows, counting the
+    /// rows printed meanwhile, and live frames are acked but not drawn
+    /// until the scrolled one comes (at most half a second).
+    private var keptView: (offset: Int, history: Int)?
+    private var restoreAsk: (offset: Int, history: Int)?
+    private var restoring: (target: Int, until: CFTimeInterval)?
     /// A split's divider is being dragged: draw in the window's
     /// transaction, as during a live resize.
     var splitDragging = false {
@@ -130,7 +139,7 @@ final class TerminalView: NSView, NSTextInputClient {
         metalLayer.contentsGravity = .topLeft
         metalLayer.needsDisplayOnBoundsChange = false
         registerForDraggedTypes([.fileURL, .string])
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil))
         // The words that are session links changed: drawn again.
         NotificationCenter.default.addObserver(self, selector: #selector(sessionLinksChanged), name: SessionLinks.changed, object: nil)
     }
@@ -173,7 +182,10 @@ final class TerminalView: NSView, NSTextInputClient {
         let sent = grid
         chLock.lock()
         wantsStream = true
+        restoreAsk = keptView
+        restoring = nil
         chLock.unlock()
+        keptView = nil
         let sem = wait ? DispatchSemaphore(value: 0) : nil
         var params: [String: Any] = ["pane": pane, "cols": sent.cols, "rows": sent.rows, "fps": fps, "window": 2]
         // Cmd+Left to the line's start and the rest of a Mac's keys
@@ -226,8 +238,13 @@ final class TerminalView: NSView, NSTextInputClient {
     func pause() {
         guard live else { return }
         live = false
+        screen.lock()
+        keptView = screen.offset > 0 ? (screen.offset, screen.history) : nil
+        screen.unlock()
         chLock.lock()
         wantsStream = false
+        restoreAsk = nil
+        restoring = nil
         let ch = liveChannel
         liveChannel = 0
         chLock.unlock()
@@ -259,13 +276,47 @@ final class TerminalView: NSView, NSTextInputClient {
             NSLog("RavenryMac: bad frame: \(error)")
         }
         let view = (screen.offset, screen.history)
+        let seq = screen.seq
         screen.unlock()
         if EventLog.shared.enabled && CACurrentMediaTime() - lastWheelAt < 2 && view != loggedView {
             loggedView = view
             EventLog.shared.write("frame offset \(view.0) history \(view.1)")
         }
+        if restoreFrame(offset: view.0, history: view.1, channel: ch) {
+            // A live frame before the scrolled one: acked, not drawn, so
+            // the tab shows its kept rows until its place comes back.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.live, seq != self.ackedSeq, self.channel == ch else { return }
+                self.ackedSeq = seq
+                self.conn?.sendJSON(["v": 1, "type": "ack", "channel": ch, "frame": seq])
+            }
+            return
+        }
         onFrame?()
         scheduleDraw()
+    }
+
+    /// The first frame of a stream asks for the place the view was kept
+    /// at (reader thread); true while a frame is not the one asked for.
+    private func restoreFrame(offset: Int, history: Int, channel ch: UInt32) -> Bool {
+        chLock.lock()
+        defer { chLock.unlock() }
+        let now = CACurrentMediaTime()
+        if let k = restoreAsk {
+            restoreAsk = nil
+            let target = min(history, k.offset + max(0, history - k.history))
+            if target > 0 && offset != target {
+                restoring = (target, now + 0.5)
+                conn?.request("render.scroll", ["channel": ch, "offset": target])
+            }
+        }
+        guard let r = restoring else { return false }
+        // Rows printed since keep the view where it is (offset grows).
+        if offset >= r.target || now > r.until {
+            restoring = nil
+            return false
+        }
+        return true
     }
 
     /// A frame came (reader thread): draw it on the main thread.
@@ -759,6 +810,7 @@ final class TerminalView: NSView, NSTextInputClient {
 
     override func keyDown(with e: NSEvent) {
         if e.modifierFlags.contains(.command) && shortcut(e) { return }
+        hideTip()
         wakeCursor()
         let hadMarked = hasMarkedText()
         if !optionAsAlt.isEmpty && e.modifierFlags.contains(.option) && !hadMarked {
@@ -797,8 +849,11 @@ final class TerminalView: NSView, NSTextInputClient {
             commandDown = cmd
             if linkLive, let p = pointer ?? window?.mouseLocationOutsideOfEventStream {
                 hoverLink(cell(at: p))
+                linkTip?.isHidden = true
             } else {
                 clearLink()
+                // Cmd let go on a link: its tip again.
+                if let p = pointer { hoverTip(cell(at: p), at: convert(p, from: nil)) }
             }
         }
         let flag: NSEvent.ModifierFlags
@@ -1001,6 +1056,7 @@ final class TerminalView: NSView, NSTextInputClient {
 
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
+        hideTip()
         if e.modifierFlags.contains(.command) {
             // Cmd+click opens the link there; it never selects.
             let c = cell(e)
@@ -1139,6 +1195,7 @@ final class TerminalView: NSView, NSTextInputClient {
         if covered(convert(e.locationInWindow, from: nil)) {
             pointerCovered = true
             clearLink()
+            hideTip()
             setNameHover(false)
             pointerCovered = false
             return
@@ -1146,12 +1203,83 @@ final class TerminalView: NSView, NSTextInputClient {
         pointer = e.locationInWindow
         commandDown = e.modifierFlags.contains(.command)
         let c = cell(e)
-        if linkLive { hoverLink(c) } else { clearLink() }
+        if linkLive {
+            hoverLink(c)
+            hideTip()
+        } else {
+            clearLink()
+            hoverTip(c, at: convert(e.locationInWindow, from: nil))
+        }
         setNameHover(nameWord(at: c) != nil)
         screen.lock()
         let motion = screen.modes & Screen.modeMouseMotion != 0
         screen.unlock()
         if motion { sendEvents([mouseEvent(e, action: "motion", button: "")]) }
+    }
+
+    override func mouseExited(with e: NSEvent) {
+        hideTip()
+    }
+
+    // MARK: the link tip (TERM-022)
+
+    /// "Cmd+click to open" beside the pointer while it rests on a link a
+    /// plain click does not open (Cmd not held, "Open links with one
+    /// click" off), as the Electron app's .link-tip (terminal.ts showTip):
+    /// the daemon's render.link says where a link is, asked once per cell.
+    private(set) var linkTip: Box?
+    private var tipAsked: (x: Int, y: Int)?
+    private var tipRange: CellRange?
+
+    /// The tip's words while it shows, else nil.
+    var linkTipText: String? {
+        guard let b = linkTip, !b.isHidden else { return nil }
+        return (b.subviews.first as? NSTextField)?.stringValue
+    }
+
+    private func hoverTip(_ c: CellHit, at p: NSPoint) {
+        if linkLive { return hideTip() }
+        if let r = tipRange, r.contains(x: c.x, y: c.y) { return showTip(at: p) }
+        if let a = tipAsked, a.x == c.x, a.y == c.y { return }
+        hideTip()
+        tipAsked = (c.x, c.y)
+        askLink(c) { [weak self] found in
+            guard let self, !self.linkLive, let a = self.tipAsked, a.x == c.x, a.y == c.y, let found, TerminalView.openable(found.uri) else { return }
+            self.tipRange = found.range
+            self.showTip(at: self.pointer.map { self.convert($0, from: nil) } ?? p)
+        }
+    }
+
+    private func showTip(at p: NSPoint) {
+        let tip = linkTip ?? {
+            let b = Box(fill: "card2", ring: "sep", radius: 5)
+            let l = label(t("term.linkTip"), NSFont.systemFont(ofSize: 11.5), "tx")
+            b.addSubview(l)
+            b.layer?.shadowColor = NSColor.black.cgColor
+            b.layer?.shadowOpacity = 0.25
+            b.layer?.shadowRadius = 4
+            b.layer?.shadowOffset = CGSize(width: 0, height: -2)
+            addSubview(b)
+            linkTip = b
+            return b
+        }()
+        guard let l = tip.subviews.first as? NSTextField else { return }
+        let ls = l.fittingSize
+        let size = NSSize(width: ceil(ls.width) + 14, height: ceil(ls.height) + 6)
+        l.frame = NSRect(x: 7, y: 3, width: ceil(ls.width), height: ceil(ls.height))
+        // Right of the pointer and under it, inside the view (app.css .link-tip).
+        let x = max(0, min(p.x + 10, bounds.width - size.width - 4))
+        var y = p.y + 18
+        if y + size.height > bounds.height { y = max(0, p.y - size.height - 6) }
+        tip.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+        tip.isHidden = false
+    }
+
+    /// The tip goes (the pointer left the link or the view, a press, a key, the wheel).
+    private func hideTip() {
+        tipAsked = nil
+        tipRange = nil
+        linkTip?.isHidden = true
     }
 
     // MARK: find
@@ -1639,8 +1767,14 @@ final class TerminalView: NSView, NSTextInputClient {
 
     /// Opens a link's URI: only the web and files.
     private func open(_ uri: String) {
-        guard let u = URL(string: uri), let scheme = u.scheme?.lowercased(), ["http", "https", "file"].contains(scheme) else { return }
+        guard TerminalView.openable(uri), let u = URL(string: uri) else { return }
         openURL(u)
+    }
+
+    /// A link the app opens: the web and files only.
+    static func openable(_ uri: String) -> Bool {
+        guard let u = URL(string: uri), let scheme = u.scheme?.lowercased() else { return false }
+        return ["http", "https", "file"].contains(scheme)
     }
 
     // MARK: scrolling
@@ -1650,6 +1784,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// decides, as Ghostty does, whether the program gets it, it becomes
     /// arrow keys on the alternate screen, or the view scrolls.
     override func scrollWheel(with e: NSEvent) {
+        hideTip()
         let s = renderer.fonts.scale
         let ch = renderer.fonts.cellHeight / s
         // A trackpad or Magic Mouse gives points; a wheel's notch is three

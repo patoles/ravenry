@@ -31,6 +31,9 @@ targets:
       - path: ../../shared/themes
         buildPhase: resources
         type: folder
+      # Ravenry's glyph font, the phone terminal's (Glyphs.swift).
+      - path: ../../apps/phone/src/glyphs.css
+        buildPhase: resources
       # The hub's own code for a hub older than state.sidebar (OlderHub.swift).
       - path: ../../hub/server/sidebar.mjs
         buildPhase: resources

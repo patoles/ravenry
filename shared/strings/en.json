@@ -1256,6 +1256,7 @@
   "strip.dropSplitTab": "A split tab cannot go into another",
   "split.dividerTip": "Drag to resize, double-click to even",
   "term.openLink": "Open Link",
+  "term.linkTip": "Cmd+click to open",
   "term.copyLink": "Copy Link",
   "term.copy": "Copy",
   "term.paste": "Paste",

@@ -270,9 +270,17 @@ final class Workspace: NSObject {
     func label(_ pane: String) -> (name: String, sub: String?) {
         if let f = session(of: pane) {
             let name = f.session.topic.flatMap { $0.isEmpty ? nil : $0 } ?? f.project.name
+            sessionNames[pane] = name
             return (name, name.lowercased() == f.project.name.lowercased() ? nil : f.project.name)
         }
         let i = info[pane] ?? PaneInfo(id: pane)
+        // A session the hub started (ravenry.session) that the board does
+        // not list, not yet or not for now: the name it had, else
+        // "Session" with its folder (app.ts tabLabel, SESS-011).
+        if let s = i.labels["ravenry.session"], !s.isEmpty, i.labels["ravenry.kind"] != "shell" {
+            if let n = sessionNames[pane] { return (n, nil) }
+            return ("Session", i.cwd.isEmpty ? nil : i.cwd == home ? "~" : (i.cwd as NSString).lastPathComponent)
+        }
         if let a = i.labels["ravenry.agent"], !a.isEmpty {
             let name = Workspace.assistantName(a)
             let folder = i.cwd.isEmpty ? "" : i.cwd == home ? "~" : (i.cwd as NSString).lastPathComponent
@@ -292,6 +300,9 @@ final class Workspace: NSObject {
         let sub = !folder.isEmpty && folder.lowercased() != name.lowercased() ? folder : nil
         return (name, sub)
     }
+
+    /// A session pane's name when the board last listed it (label).
+    private var sessionNames: [String: String] = [:]
 
     /// An assistant as people say it (app.ts assistantName).
     static func assistantName(_ kind: String) -> String {

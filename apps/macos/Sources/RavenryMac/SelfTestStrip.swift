@@ -86,6 +86,10 @@ extension SelfTestBoard {
         // A session's own pane (the hub's: ravenry.session), opened as a tab.
         guard let sp = newPane(["ravenry.session": "claude"], name: "Claude", command: ["/bin/sleep", "600"]), let st = ws.tab(showing: sp) else { check("strip_session_pane", false); return }
         ws.show(st)
+        // Not on the board yet: "Session" with its folder (SESS-011).
+        board.render(force: true)
+        let m0 = { bar.items.first { $0.model.id == st.id }?.model }
+        check("strip_session_unlisted_label", wait(3) { m0()?.name == "Session" && m0()?.sub == "~" }, "\(m0()?.name ?? "-") / \(m0()?.sub ?? "-")")
         // The board follows it as a project's session: the tab reads as that session.
         let pid = board.hub.state?.projects.first { $0.machine == nil && !$0.sessions.isEmpty }?.id ?? ""
         board.hub.testPatch = { r in
@@ -104,6 +108,24 @@ extension SelfTestBoard {
         let pname = board.hub.state?.project(pid)?.name ?? "?"
         let m = { bar.items.first { $0.model.id == st.id }?.model }
         check("strip_session_label", wait(3) { m()?.name == "Tidy the tiles" && m()?.sub == pname }, "\(m()?.name ?? "-") / \(m()?.sub ?? "-") want \(pname)")
+        // Off the board for now: the name it had.
+        let listed = board.hub.testPatch
+        board.hub.testPatch = { r in
+            var r = r
+            r["projects"] = (r["projects"] as? [[String: Any]] ?? []).map { p in
+                var p = p
+                p["sessions"] = (p["sessions"] as? [[String: Any]] ?? []).map { s in var s = s; if s["pane"] as? String == sp { s["pane"] = nil }; return s }
+                return p
+            }
+            return r
+        }
+        board.hub.testCheckpoints = []
+        board.render(force: true)
+        check("strip_session_off_board_keeps_name", wait(3) { m()?.name == "Tidy the tiles" && m()?.sub == nil }, "\(m()?.name ?? "-") / \(m()?.sub ?? "-")")
+        board.hub.testPatch = listed
+        board.hub.testCheckpoints = []
+        board.render(force: true)
+        _ = wait(3) { m()?.sub == pname }
         check("strip_session_close_tip", m()?.closeTip == "Close the tab (the session goes on)" && bar.items.first { $0.model.id == st.id }?.close.toolTip == "Close the tab (the session goes on)", m()?.closeTip ?? "nil")
         picture("native-session-tab-1280.png")
         check("strip_shell_close_tip", bar.items.first { $0.model.id != st.id && !$0.model.id.hasPrefix("view:") }?.close.toolTip == "Close (⌘W)")
