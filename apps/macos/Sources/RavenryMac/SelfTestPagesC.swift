@@ -99,6 +99,28 @@ extension SelfTestBoard {
         board.hub.get("/api/ideas") { _, j in stored = j["brainstormError"] ?? NSNull() }
         check("c_brainstorm_cleared_for_good", wait(5) { stored != nil } && stored is NSNull && wait(5) { !self.texts(self.fpc).contains { $0.contains("not with 3 directions") } && self.fpc.pb["bs:clear"] == nil },
               "\(String(describing: stored))")
+
+        // MARK: PANEL-004: a session waiting on the person, its brief's quick answers as buttons; one pressed is typed into it as the person
+        let rulesEnv = (FileManager.default.contents(atPath: ProcessInfo.processInfo.environment["RAVENRY_MAC_RULES"] ?? "")).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let fake = rulesEnv["fake"] as? String ?? ""
+        let sentToCmux = { () -> String in
+            guard let d = FileManager.default.contents(atPath: fake), let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return "" }
+            return ((j["prompts"] as? [String: Any]) ?? [:]).values.compactMap { ($0 as? [String: Any]).map { (($0["sent"] as? [String]) ?? []).joined(separator: " / ") } }.joined(separator: " / ")
+        }
+        let np = board.hub.state?.project("notes-app")
+        let ns = np?.sessions.first { !(($0.words["quick"] as? [[String: Any]]) ?? []).isEmpty }
+        check("c_quick_answers_from_hub", ns != nil, "\(np?.sessions.map { "\($0.surfaceId) \($0.group) \($0.words["quick"] ?? "none")" } ?? [])")
+        if let np, let ns {
+            let k = "\(np.id)/\(ns.surfaceId)"
+            board.pickSession(k, why: "test")
+            _ = wait(5) { self.board.panel.buttons["quick:Ship the beta"] != nil }
+            check("c_quick_answers_as_buttons", board.panel.buttons["quick:Ship the beta"] != nil && board.panel.buttons["quick:Not yet"] != nil, board.panel.buttons.keys.filter { $0.hasPrefix("quick") }.joined(separator: ","))
+            twoPicturesC("panel-quick")
+            let n2 = board.hub.sent.count, before = sentToCmux()
+            board.panel.buttons["quick:Ship the beta"]?.performClick(nil)
+            check("c_quick_answer_sent_as_person", wait(6) { self.board.hub.answers.contains { $0.seq >= n2 && $0.path == "/api/send" && $0.code == 200 } } && wait(5) { sentToCmux().count > before.count && sentToCmux().contains("Ship the beta") },
+                  "\(sentSince(n2)) \(board.hub.answers.filter { $0.seq >= n2 }.map { "\($0.path) \($0.code)" }) cmux: \(sentToCmux().suffix(200))")
+        }
     }
 
     private func twoPicturesC(_ name: String) {

@@ -113,6 +113,14 @@ export function pagesPrepare({ HOME, ROOT, MC }) {
     for (const p of j.projects || []) if (p.id === 'garden-planner') p.shipCommand = 'npm run ship -- --tag garden';
     fs.writeFileSync(reg, JSON.stringify(j, null, 2));
   }
+  // Quick answers for notes-app, whose session waits on the person (PANEL-004): its panel's buttons.
+  const nb = path.join(ROOT, 'notes-app', 'BRIEF.md');
+  if (fs.existsSync(path.join(ROOT, 'notes-app'))) {
+    const had = fs.existsSync(nb) ? fs.readFileSync(nb, 'utf8') : '# notes-app\n\nGoal: Quick notes that sync between a phone and a laptop.\n';
+    const lines = had.split('\n');
+    lines.splice(1, 0, '', 'Quick answers: Ship the beta | Not yet');
+    fs.writeFileSync(nb, lines.join('\n'));
+  }
   const bf = path.join(ROOT, 'paper-boat', 'BRIEF.md');
   if (fs.existsSync(bf)) {
     fs.appendFileSync(bf, '\n## Plan\n### Rig the sail\n- [x] Cut the cloth\n- [>] Sew the hem\n- [ ] Fit the mast\n\n'
