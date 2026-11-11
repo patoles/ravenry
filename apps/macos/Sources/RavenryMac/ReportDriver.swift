@@ -8,6 +8,10 @@
 //   box on|off           the dialog's checkbox, clicked to that state
 //   shot PATH            a PNG of the dialog in front (its sheet window), for the look
 //   state                the dialog in front: its title, text, buttons; the menu's titles
+//   menu TOP>ITEM[>ITEM]  an item of another menu (Shell>New Shell, Edit>Find>Find...), pressed the same way
+//   toast TITLE          the newest toast's button of that title, pressed
+//   scroll N             N scroll-wheel lines over the pane in front, as a mouse's wheel sends them
+//   activate             NSApplication.didBecomeActiveNotification, as a Dock click brings the app forward
 //
 // A release takes none: it quits on --offscreen (Gate.swift).
 
@@ -23,6 +27,46 @@ extension AppDelegate {
         case "wake":
             // As macOS says it after a sleep, through the observer Wake.swift set.
             NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didWakeNotification, object: NSWorkspace.shared)
+            ans["ok"] = true
+        case "menu" where arg.contains(">"):
+            var m = NSApp.mainMenu
+            let path = arg.split(separator: ">").map(String.init)
+            for (k, title) in path.enumerated() {
+                // The menu bar's own items have no title: their submenu's is the one shown.
+                guard let menu = m, let i = menu.items.firstIndex(where: { $0.title == title || (menu === NSApp.mainMenu && $0.submenu?.title == title) }) else { m = nil; break }
+                if k == path.count - 1 {
+                    menu.update()
+                    let item = menu.items[i]
+                    ans["enabled"] = item.isEnabled
+                    // An item for the view with the keyboard (no target: Find...) goes to the pane in front, as when its window is key.
+                    if item.target == nil, let sel = item.action, let v = workspace?.focusedView, v.responds(to: sel) {
+                        ans["ok"] = NSApp.sendAction(sel, to: v, from: item)
+                    } else {
+                        menu.performActionForItem(at: i)
+                        ans["ok"] = true
+                    }
+                } else { m = menu.items[i].submenu }
+            }
+            if ans["ok"] == nil { ans["ok"] = false }
+        case "toast":
+            // Pressed as the person's click: a mouse down and up at its middle, through the window.
+            if let b = (board?.toastStack.items ?? []).flatMap(\.buttons).first(where: { $0.title == arg }), let w = b.window {
+                w.contentView?.layoutSubtreeIfNeeded()
+                let p = b.convert(NSPoint(x: b.bounds.midX, y: b.bounds.midY), to: nil)
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { w.sendEvent(e) }
+                }
+                ans["ok"] = true
+            } else { ans["ok"] = false; ans["buttons"] = (board?.toastStack.items ?? []).flatMap(\.buttons).map(\.title) }
+        case "scroll":
+            if let v = workspace?.focusedView, let n = Int32(arg),
+               let cg = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: n, wheel2: 0, wheel3: 0) {
+                cg.location = v.window.map { CGPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? .zero
+                if let e = NSEvent(cgEvent: cg) { v.scrollWheel(with: e); ans["ok"] = true } else { ans["ok"] = false }
+            } else { ans["ok"] = false }
+        case "activate":
+            NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
             ans["ok"] = true
         case "menu":
             let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []

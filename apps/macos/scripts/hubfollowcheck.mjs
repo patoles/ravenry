@@ -57,10 +57,14 @@ const daemon = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'],
 for (let i = 0; !fs.readdirSync(run).some((n) => /^ravenryd-.+\.sock$/.test(n)); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
 
 let hub = null;
-async function board(port) {
-  hub = await startDemoHub({ dir: hubDir, port });
+async function board(port, more = {}) {
+  hub = await startDemoHub({ dir: hubDir, port, ...more });
   return { port, at: Date.now() };
 }
+// A phone channel on this Mac (ntfy's shape): each alert the board sends.
+const alertsGot = [];
+const ntfy = http.createServer((q, r) => { let b = ''; q.on('data', (d) => { b += d; }); q.on('end', () => { alertsGot.push({ at: Date.now(), url: q.url, body: b, title: q.headers.title || '' }); r.end('{}'); }); });
+await new Promise((r) => ntfy.listen(0, '127.0.0.1', r));
 const report = path.join(tmp, 'report.json');
 const readReport = () => { try { return JSON.parse(fs.readFileSync(report, 'utf8')); } catch { return null; } };
 const appLog = () => { try { return fs.readFileSync(path.join(user, 'Library', 'Logs', 'Ravenry', 'app.log'), 'utf8'); } catch { return ''; } };
@@ -69,6 +73,51 @@ const hubOn = (port) => (r) => r && r.hub && r.hub.reachable && r.hub.url.endsWi
 
 let app = null;
 try {
+  // no board (HUB-009), and never the default port: no board.json in the test's RAVENRY_HOME, so the window reads no board at all.
+  {
+    const r0 = path.join(tmp, 'report0.json'), ev = path.join(tmp, 'events.log');
+    const a0 = spawn(EXE, ['--offscreen'], { env: { ...env, RAVENRY_MAC_REPORT: r0, RAVENRY_MAC_EVENTS_LOG: ev }, stdio: ['ignore', 'ignore', 'ignore'] });
+    const rd = () => { try { return JSON.parse(fs.readFileSync(r0, 'utf8')); } catch { return null; } };
+    let k = 0;
+    const cmd0 = async (line) => { const want = ++k; fs.writeFileSync(r0 + '.do', line); return until(10000, () => { const l = (() => { try { return fs.readFileSync(r0 + '.done', 'utf8'); } catch { return ''; } })().trim().split('\n').filter(Boolean); return l.length >= want ? JSON.parse(l[want - 1]) : null; }); };
+    await until(15000, () => rd()?.focused?.frames > 0);
+    let touched = [];
+    for (let i = 0; i < 12; i++) {
+      const l = spawnSync('/usr/sbin/lsof', ['-nP', '-a', '-p', String(a0.pid), '-i'], { encoding: 'utf8' }).stdout || '';
+      touched.push(...l.split('\n').slice(1).filter(Boolean));
+      await sleep(500);
+    }
+    const r = rd();
+    check('noboard_never_default_port', r && r.hub.url === '' && !r.hub.reachable && !touched.some((l) => /:4600\b/.test(l)), `the window's hub address: ${JSON.stringify(r?.hub?.url)}; its network sockets over 6 s: ${touched.length ? touched.map((l) => l.split(/\s+/).slice(-2).join(' ')).join(', ') : 'none'}`);
+    check('noboard_sidebar_says_so', r && r.sidebarEmpty !== '', `the sidebar: ${JSON.stringify(r?.sidebarEmpty)}`);
+    const t0 = r.tabs.length, p0 = r.panes;
+    await cmd0('menu Shell>New Shell');
+    const t1 = await until(8000, () => { const x = rd(); return x && x.tabs.length === t0 + 1 ? x : null; });
+    check('noboard_new_shell', t1, `tabs ${t0} -> ${rd()?.tabs?.length}`);
+    await cmd0('menu Shell>Split Right');
+    const s1 = await until(8000, () => { const x = rd(); return x && x.panes === (t1 ? t1.panes : p0) + 1 ? x : null; });
+    check('noboard_split', s1, `panes ${t1 ? t1.panes : p0} -> ${rd()?.panes}`);
+    await cmd0('menu Edit>Find>Find\u2026');
+    const f1 = await until(5000, () => rd()?.find === true);
+    check('noboard_find', f1, `the find bar shown: ${rd()?.find}`);
+    // HUB-008: the scroll events' log.
+    await cmd0('scroll -3');
+    const evl = await until(5000, () => { try { return fs.readFileSync(ev, 'utf8').trim(); } catch { return null; } });
+    check('events_log_written', evl && evl.split('\n').length >= 1, evl ? evl.split('\n')[0].slice(0, 200) : 'no events.log');
+    a0.kill('SIGTERM');
+    await until(5000, () => a0.exitCode !== null);
+    // The setup off :4600 too: a test's setup with no board.json takes no board for its own.
+    const node = path.join(APP, 'Contents', 'MacOS', 'node'), setup = path.join(APP, 'Contents', 'Resources', 'setup.mjs');
+    if (fs.existsSync(node) && fs.existsSync(setup)) {
+      const lbl = `dev.ravenry.hub.test-${Date.now().toString(36)}`;
+      const sr = spawnSync(node, ['--disable-sigusr1', setup, 'hub', '--resources', path.join(APP, 'Contents', 'Resources'), '--exe', EXE], { env: { ...env, RAVENRY_SERVICE: 'dry-run', RAVENRY_SERVICE_LABEL: lbl }, encoding: 'utf8', timeout: 60000 });
+      let j = {};
+      try { j = JSON.parse(sr.stdout.trim().split('\n').pop()); } catch { /* none */ }
+      const log = (() => { try { return fs.readFileSync(path.join(user, 'Library', 'Logs', 'Ravenry', 'app.log'), 'utf8'); } catch { return ''; } })();
+      check('noboard_setup_never_default_port', j.service && j.service !== 'skipped' && !/a board is already running/.test(log), `the setup's service: ${j.service} (${j.why || ''})`);
+    }
+  }
+
   const p1 = await freePort();
   await board(p1);
   const bj = JSON.parse(fs.readFileSync(path.join(MC, 'board.json'), 'utf8'));
@@ -129,9 +178,23 @@ try {
   check('single_logged', /launch: another Ravenry with this data folder runs \(pid \d+\): it comes to the front, and this one quits/.test(appLog()), (appLog().match(/launch: another Ravenry.*/) || [''])[0]);
   const heard = await until(5000, () => /launch: a second Ravenry started and quit; this one would come to the front/.test(appLog()));
   check('single_first_hears', heard && app.exitCode === null, `the first still runs: ${app.exitCode === null}`);
+
+  // HUB-002: the window quits, the board's alert still reaches the phone channel.
+  hub.stop();
+  await sleep(1000);
+  await board(p2, { prepare: ({ MC: mc }) => fs.writeFileSync(path.join(mc, 'alerts.json'), JSON.stringify({ enabled: true, channel: 'ntfy', ntfy: { server: `http://127.0.0.1:${ntfy.address().port}`, topic: 'hubfollow-alerts' } }), { mode: 0o600 }) });
+  await until(10000, () => { const r = readReport(); return hubOn(p2)(r) ? r : null; });
+  await sleep(9000);
+  app.kill('SIGTERM');
+  await until(10000, () => app.exitCode !== null);
+  const sentBefore = alertsGot.length;
+  await hub.arrive('paper-boat');
+  const alert = await until(20000, () => alertsGot.slice(sentBefore).find((x) => /needs you/i.test(x.title + x.body)));
+  check('quit_alert_still_sent', app.exitCode !== null && alert, alert ? `${((alert.at - Date.now()) / 1000).toFixed(0)} s; to ${alert.url}: ${alert.title || alert.body.slice(0, 80)}` : `alerts received: ${alertsGot.length}`);
 } finally {
   if (app && app.exitCode === null) { app.kill('SIGTERM'); await sleep(1500); }
   hub?.stop();
+  ntfy.close();
   daemon.kill();
   fs.writeFileSync(path.join(OUT, 'hubfollowcheck.json'), JSON.stringify({ app: APP, at: new Date().toISOString(), results }, null, 2));
   try { fs.copyFileSync(path.join(user, 'Library', 'Logs', 'Ravenry', 'app.log'), path.join(OUT, 'app.log')); } catch { /* none */ }

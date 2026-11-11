@@ -20,7 +20,7 @@
 // test's launchd label (install.ts TEST_LABEL): the install check's hub
 // runs on its stand-ins, never the person's processes.
 
-import Foundation
+import AppKit
 
 final class AppInstall {
     static let shared = AppInstall()
@@ -108,6 +108,14 @@ final class AppInstall {
         }
     }
 
+    /// A setup of the hub service is running; the last one was an update that failed and will be tried again (UPD-003).
+    private var setupRunning = false
+    private(set) var failedUpdate = false
+    private var activationWatch: NSObjectProtocol?
+    var setupBusy: Bool { setupRunning }
+    var activationWatchUnset: Bool { activationWatch == nil }
+    func setActivationWatch(_ o: NSObjectProtocol) { activationWatch = o }
+
     /// A self-test's stand-in for the setup (UPD-003's Try again): what it was asked, its answer.
     static var testSetup: (([String]) -> [String: Any])?
 
@@ -180,9 +188,11 @@ final class AppInstall {
     /// `retry`: the update that stopped is tried again (Try again).
     func setUpHub(retry: Bool = false, done: (([String: Any]) -> Void)? = nil) {
         guard mode != "off" else { return }
+        watchActivation()
+        setupRunning = true
         DispatchQueue.global(qos: .utility).async { [self] in
             let r = runSetup(["hub", "--resources", resources.path, "--exe", executable] + (retry ? ["--retry"] : []))
-            DispatchQueue.main.async { self.hubAnswered(r) }
+            DispatchQueue.main.async { self.setupRunning = false; self.hubAnswered(r) }
             done?(r)
             guard r["ok"] as? Bool == true, r["service"] != nil, let v = staged?.version ?? version else { return }
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + (env["RAVENRY_PRUNE_AFTER"].flatMap(Double.init) ?? 60)) { [self] in
@@ -200,9 +210,23 @@ extension AppInstall {
         NpmSwitch.shared.launched(r)
         let stopped = r["stopped"] as? Bool == true
             || (r["updating"] as? Bool == true && r["service"] as? String == "failed" && (r["attempt"] as? Int ?? 0) >= 3)
+        // A failed update (fewer than 3 tries) is tried again when the app comes to the front, as the Electron app's 'activate'.
+        failedUpdate = !stopped && r["updating"] as? Bool == true && r["service"] as? String == "failed"
         guard stopped else { return }
         let text = t("update.stopped", ["version": r["version"] as? String ?? version ?? "", "why": r["why"] as? String ?? t("update.noAnswer")])
         Board.lastFront?.toast(text, actions: [(t("update.tryAgain"), { [weak self] in self?.setUpHub(retry: true) })], key: "update-stopped", seconds: .infinity)
+    }
+}
+
+extension AppInstall {
+    /// The app brought to the front (a Dock click): an update that failed fewer than 3 times is tried again (UPD-003).
+    fileprivate func watchActivation() {
+        guard activationWatchUnset else { return }
+        setActivationWatch(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.failedUpdate, !self.setupBusy else { return }
+            self.log("launch: the update that did not start is tried again (the app came to the front)")
+            self.setUpHub()
+        })
     }
 }
 

@@ -98,6 +98,7 @@ async function makeHome(name, zshrc) {
 /** The app off every screen, driven through its report's command file. */
 function launch(h) {
   const report = path.join(h.root, 'report.json');
+  fs.rmSync(report + '.done', { force: true });
   const p = spawn(EXE, ['--offscreen'], { env: { ...h.env, RAVENRY_MAC_REPORT: report }, stdio: ['ignore', 'ignore', fs.openSync(path.join(h.root, 'app.err'), 'w')] });
   let n = 0;
   const done = report + '.done';
@@ -117,6 +118,66 @@ const shell = (h, script) => spawnSync('/bin/zsh', ['-l', '-i', '-c', script], {
 const post = async (h, p, body) => { const r = await fetch(h.url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body) }); return { code: r.status, j: await r.json().catch(() => ({})) }; };
 const loaded = (h) => { const j = json(path.join(h.launchd, 'jobs.json')) || {}; return !!(j[h.label] && j[h.label].loaded !== false && !j[h.label].unloaded); };
 
+/** Samples, every 500 ms, the network sockets of the app, the hub service and every process they started (lsof). */
+function watchNet(h, appPid) {
+  const seen = new Map();
+  let samples = 0, n = 0;
+  const tree = () => {
+    const rows = spawnSync('/bin/ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' }).stdout.trim().split('\n').map((l) => l.trim().split(/\s+/).map(Number));
+    const roots = [appPid, ...Object.values(json(path.join(h.launchd, 'jobs.json')) || {}).map((j) => j.pid).filter(Boolean)];
+    const all = new Set(roots);
+    for (let grew = true; grew;) { grew = false; for (const [p, pp] of rows) if (all.has(pp) && !all.has(p)) { all.add(p); grew = true; } }
+    return [...all];
+  };
+  const t = setInterval(() => {
+    const pids = tree();
+    n = pids.length;
+    const r = spawnSync('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-i'], { encoding: 'utf8' });
+    samples++;
+    for (const l of (r.stdout || '').split('\n').slice(1)) {
+      const m = /^(\S+)\s.*\s(TCP|UDP)\s(\S+?)(?:->(\S+))?(?:\s\((\w+)\))?$/.exec(l.trim());
+      if (m) seen.set(`${m[1]} ${m[3]} ${m[4] || ''}`, { cmd: m[1], local: m[3], remote: m[4] || null, state: m[5] || '' });
+    }
+  }, 500);
+  return { stop: () => { clearInterval(t); return [...seen.values()]; }, get samples() { return samples; }, pids: () => n };
+}
+
+/** UPD-003, UPD-013: an update whose hub service does not start (launchd refuses it): no prune after it, tried again when the app comes to the front and at each launch, stopped after 3 with Try again. */
+async function failedCase() {
+  const h = await makeHome('failed', 'PROMPT="~ > "\n');
+  const fl = path.join(h.root, 'refusing-launchctl');
+  fs.writeFileSync(fl, '#!/bin/sh\necho "$@" >> "$0.log"\n[ "$1" = print ] && exit 113\necho "Bootstrap failed: 5: Input/output error" >&2\nexit 5\n', { mode: 0o755 });
+  h.env = { ...h.env, RAVENRY_LAUNCHCTL: fl };
+  // An install from before: the service names an older version's hub.
+  const plist = path.join(h.home, 'Library', 'LaunchAgents', `${h.label}.plist`);
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>Label</key><string>${h.label}</string><key>ProgramArguments</key><array><string>${path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.30', 'hub', 'server', 'index.mjs')}</string></array></dict></plist>\n`);
+  const attempts = () => (appLog(h).match(/launch: update to [\d.]+, attempt \d/g) || []).map((x) => Number(x.slice(-1)));
+  const failures = () => (appLog(h).match(/service: failed/g) || []).length;
+  let a = launch(h);
+  const f1 = await until(60000, () => failures() >= 1);
+  await sleep(6000);
+  check('failed_no_prune_after', f1 && exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.25', 'ravenryd')) && !/install: removed versions/.test(appLog(h)),
+    `attempts ${attempts().join(',')}; 0.1.25 whole ${exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.25', 'ravenryd'))} 9 s after the failure (the prune comes 3 s after a setup that worked)`);
+  await a.cmd('activate');
+  const f2 = await until(60000, () => failures() >= 2);
+  check('failed_retry_on_front', f2 && /tried again \(the app came to the front\)/.test(appLog(h)) && attempts().join(',') === '1,2', `attempts ${attempts().join(',')}`);
+  a.p.kill('SIGTERM'); await until(10000, () => a.p.exitCode !== null);
+  a = launch(h);
+  await until(60000, () => failures() >= 3);
+  check('failed_retry_at_launch', attempts().join(',') === '1,2,3', `attempts ${attempts().join(',')}`);
+  a.p.kill('SIGTERM'); await until(10000, () => a.p.exitCode !== null);
+  a = launch(h);
+  const stopped = await until(30000, async () => { const s = await a.cmd('state'); return (s.toasts || []).find((x) => /did not start after 3 tries/.test(x)) || null; });
+  check('failed_stops_after_3', stopped && /stopped after 3 failed attempts/.test(appLog(h)) && failures() === 3, stopped || `toasts: ${JSON.stringify((await a.cmd('state')).toasts)}`);
+  if (stopped) {
+    await a.cmd('toast Try again');
+    const again = await until(60000, () => /update tried again from the window/.test(appLog(h)) && failures() >= 4);
+    check('failed_try_again', again && attempts().slice(-1)[0] === 1, `attempts ${attempts().join(',')}`);
+  }
+  a.p.kill('SIGTERM'); await until(10000, () => a.p.exitCode !== null);
+}
+
 async function runCase(name, zshrc, purge) {
   const h = await makeHome(name, zshrc);
   const a = launch(h);
@@ -125,6 +186,7 @@ async function runCase(name, zshrc, purge) {
     // The board up (the service, by the stand-in launchd), the window on it.
     const up = await until(30000, async () => { try { return (await fetch(h.url + '/api/state')).ok; } catch { return false; } });
     check(`${name}_service_board`, up && exists(bin), `the board on ${h.url}: ${!!up}; ${bin}: ${exists(bin)}`);
+    const net = watchNet(h, a.p.pid);
     // What Settings sets up: the hooks (Claude Code's and Codex's) and the skill for both.
     const hk = await post(h, '/api/setup/hooks', { ravenryd: path.join(h.env.RAVENRY_DESKTOP_DATA, 'bin', 'ravenryd') });
     const sk1 = await post(h, '/api/setup/skills', { kind: 'claude', on: true, ravenryd: path.join(h.env.RAVENRY_DESKTOP_DATA, 'bin', 'ravenryd'), version: '0.1.36' });
@@ -151,6 +213,20 @@ async function runCase(name, zshrc, purge) {
     check(`${name}_prune_after_launch`, pruned && exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.22', 'ravenryd')) && /install: removed versions nothing runs from: 0\.1\.25/.test(appLog(h)),
       `0.1.25 left as hook stubs: ${!!pruned}; 0.1.22 (a process names it) whole: ${exists(path.join(h.env.RAVENRY_DESKTOP_DATA, 'versions', '0.1.22', 'ravenryd'))}`);
 
+    // ravenry doctor (HUB-019), as a person types it: the board found through board.json, everything set up.
+    const denv = { HOME: h.home, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, ...Object.fromEntries(['RAVENRY_DESKTOP_DATA', 'RAVENRY_HOME', 'RAVENRY_SERVICE_LABEL', 'RAVENRY_LAUNCHCTL', 'RAVENRY_FAKE_LAUNCHD', 'RAVENRY_RUNTIME_DIR', 'RAVENRY_STATE_DIR'].map((k) => [k, h.env[k]])) };
+    const doc1 = spawnSync(bin, ['doctor'], { env: denv, encoding: 'utf8', timeout: 30000 });
+    check(`${name}_doctor_all_good`, doc1.status === 0 && /ok {4}The board answers on :\d+/.test(doc1.stdout) && /ok {4}The hub service .* is loaded/.test(doc1.stdout) && /ok {4}Claude Code's hooks are set up/.test(doc1.stdout) && /ok {4}Codex's hooks are set up/.test(doc1.stdout) && /ok {4}The Ravenry skill for Codex/.test(doc1.stdout),
+      `exit ${doc1.status}: ${doc1.stdout.trim().split('\n').map((l) => l.trim()).filter((l) => !l.startsWith('ok') || /hooks|board|service/.test(l)).join(' | ')}; the board's hooks answer: ${JSON.stringify(await (await fetch(h.url + '/api/setup/hooks')).json()).slice(0, 700)}`);
+    const sf = path.join(h.home, '.claude', 'settings.json');
+    const was = read(sf);
+    const cut = JSON.parse(was);
+    for (const e of cut.hooks.Stop || []) e.hooks = (e.hooks || []).filter((x) => !/ravenryd["']? hook/.test(x.command));
+    fs.writeFileSync(sf, JSON.stringify(cut, null, 2));
+    const doc2 = spawnSync(bin, ['doctor'], { env: denv, encoding: 'utf8', timeout: 30000 });
+    fs.writeFileSync(sf, was);
+    check(`${name}_doctor_hook_removed`, doc2.status === 1 && /fix {3}Claude Code's hooks are partial/.test(doc2.stdout), `exit ${doc2.status}: ${(doc2.stdout.match(/.*Claude Code's hooks.*/) || [''])[0].trim()}`);
+
     // The launch's offer, when another ravenry answers in a terminal.
     const offered = await until(15000, async () => { const r = await a.cmd('state'); return (r.toasts || []).find((x) => x.includes('ravenry in your terminals runs')) || null; });
     check(`${name}_offer_toast`, offered && offered.includes("the npm board's ravenry (ravenry-app 0.4.0)"), offered || 'no toast');
@@ -162,11 +238,11 @@ async function runCase(name, zshrc, purge) {
     await a.cmd(`shot ${path.join(OUT, `${name}-command-install-dialog.png`)}`);
     await a.cmd('press Install');
     const toast = await until(15000, async () => { const s = await a.cmd('state'); return (s.toasts || []).find((x) => x.startsWith('ravenry in a new terminal')) || null; });
-    const after = shell(h, 'command -v ravenry; ravenry skill | grep "is this program"; ravenry doctor --yes');
+    const after = shell(h, 'command -v ravenry; ravenry skill | grep "is this program"; ravenry setup --yes');
     const zshrc = read(path.join(h.home, '.zshrc'));
     const lines = zshrc !== h.before.zshrc;
     const backups = fs.readdirSync(h.home).filter((f) => f.startsWith('.zshrc.ravenry-backup-'));
-    check(`${name}_install_lands`, toast && after.stdout.startsWith(path.join(h.home, '.local', 'bin', 'ravenry') + '\n') && /is this program/.test(after.stdout) && /npm board: doctor --yes/.test(after.stdout),
+    check(`${name}_install_lands`, toast && after.stdout.startsWith(path.join(h.home, '.local', 'bin', 'ravenry') + '\n') && /is this program/.test(after.stdout) && /npm board: setup --yes/.test(after.stdout),
       `before: ${before}; after: ${after.stdout.replace(/\n/g, ' | ').slice(0, 300)}`);
     check(`${name}_install_${purge ? 'link_only' : 'adds_line'}`, purge ? !lines && !backups.length : lines && backups.length === 1 && zshrc.endsWith('export PATH="$HOME/.local/bin:$PATH"\n'), `.zshrc changed: ${lines}; backups: ${backups.join(',')}`);
     // Remove the ravenry Command...
@@ -179,6 +255,11 @@ async function runCase(name, zshrc, purge) {
     await until(15000, async () => { const s = await a.cmd('state'); return (s.toasts || []).find((x) => x.startsWith('The ravenry command is gone')) || null; });
     const back = shell(h, 'command -v ravenry').stdout.trim();
     check(`${name}_remove_puts_back`, d2 && read(path.join(h.home, '.zshrc')) === h.before.zshrc && !exists(path.join(h.home, '.local', 'bin', 'ravenry')) && back === before, `a new terminal's ravenry: ${back}`);
+
+    // No telemetry (HUB-013): every connection the app, the hub service and what they started had while this ran.
+    const seen = net.stop();
+    const away = seen.filter((c) => !/^(127\.0\.0\.1|\[::1\]|localhost|\*)[:]/.test(c.local) || (c.remote && !/^(127\.0\.0\.1|\[::1\]|localhost)[:]/.test(c.remote)));
+    check(`${name}_no_connection_away`, net.samples > 20 && seen.length > 0 && away.length === 0, `${net.samples} samples of ${net.pids()} processes, ${seen.length} connections, all on this Mac's loopback${away.length ? `; away: ${away.map((c) => `${c.cmd} ${c.local}->${c.remote}`).join(', ')}` : ''}`);
 
     // Uninstall Ravenry...
     await a.cmd('menu Uninstall Ravenry…');
@@ -220,14 +301,15 @@ async function runCase(name, zshrc, purge) {
 async function quitCase() {
   const h = await makeHome('quit', 'PROMPT="~ > "\n');
   const a = launch(h);
-  await sleep(1000);
+  // A quit while the service is being set up: as soon as the setup says it started (a fresh bundle's first exec can take seconds).
+  await until(30000, () => /launch: native app/.test(appLog(h)));
   a.p.kill('SIGTERM');
   await until(10000, () => a.p.exitCode !== null);
   const plist = path.join(h.home, 'Library', 'LaunchAgents', `${h.label}.plist`);
   const up = await until(40000, async () => { try { return (await fetch(h.url + '/api/state')).ok; } catch { return false; } });
   const lint = spawnSync('/usr/bin/plutil', ['-lint', plist], { encoding: 'utf8' });
   const calls = read(path.join(h.launchd, 'calls.log')) || '';
-  check('quit_soon_service_whole', a.p.exitCode !== null && lint.status === 0 && calls.includes('"bootstrap"') && up, `the app ended (${a.p.exitCode}) at 1 s; plutil -lint: ${lint.stdout.trim()}; bootstrap called: ${calls.includes('"bootstrap"')}; the board answers: ${!!up}`);
+  check('quit_soon_service_whole', a.p.exitCode !== null && lint.status === 0 && calls.includes('"bootstrap"') && up, `the app ended (${a.p.exitCode}) as its setup began; plutil -lint: ${lint.stdout.trim()}; bootstrap called: ${calls.includes('"bootstrap"')}; the board answers: ${!!up}`);
   const penv = (() => { try { return JSON.parse(spawnSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' }).stdout).EnvironmentVariables || {}; } catch { return null; } })();
   const bad = penv ? Object.keys(penv).filter((k) => ['RAVENRY_PANE', 'RAVENRY_SOCKET', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION'].includes(k)) : ['(no plist)'];
   check('service_env_clean', penv && bad.length === 0, `the service's variables: ${penv ? Object.keys(penv).join(', ') : 'none'}${bad.length ? `; not its own: ${bad.join(', ')}` : ''}`);
@@ -236,9 +318,11 @@ async function quitCase() {
 }
 
 try {
-  await quitCase();
-  await runCase('line', 'export PATH="$HOME/npm/bin:$PATH"\nPROMPT="~ > "\n', false);
-  await runCase('link', 'export PATH="$HOME/.local/bin:$HOME/npm/bin:$PATH"\nPROMPT="~ > "\n', true);
+  const only = (n) => !process.env.SMC_ONLY || process.env.SMC_ONLY.split(',').includes(n);
+  if (only('quit')) await quitCase();
+  if (only('failed')) await failedCase();
+  if (only('line')) await runCase('line', 'export PATH="$HOME/npm/bin:$PATH"\nPROMPT="~ > "\n', false);
+  if (only('link')) await runCase('link', 'export PATH="$HOME/.local/bin:$HOME/npm/bin:$PATH"\nPROMPT="~ > "\n', true);
 } finally {
   for (const p of holders) p.kill();
   fs.writeFileSync(path.join(OUT, 'setupmenucheck.json'), JSON.stringify({ app: APP, at: new Date().toISOString(), results }, null, 2));

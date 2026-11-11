@@ -296,6 +296,8 @@ async function hub(resources: string, exe: string, retry = false): Promise<objec
   }
   if (updating) appLog(`launch: update to ${st.version}, attempt ${attempt}`);
   const r = await ensureService({ mode, spec: serviceSpec({ execPath: exe, staged: st }), run: serviceRun, boardAnswers, answers: () => newHubAnswers(port) });
+  // launchctl's words end in a newline: one line, for app.log and the toast.
+  if (r.why) r.why = r.why.replace(/\s*\n\s*/g, ' ').trim();
   const would = mode === 'dry-run' ? `; would run: ${r.commands.map((c) => c.join(' ')).join('; ')}` : '';
   appLog(`service: ${r.state}${r.file ? ` ${r.file}` : ''}${r.why ? ` (${r.why})` : ''}${would}`);
   if (updating) writeRecord(r.state === 'failed' ? { version: st.version, attempts: attempt, why: r.why || '' } : null);

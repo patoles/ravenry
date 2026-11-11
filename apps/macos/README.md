@@ -569,6 +569,18 @@ Windows. What it takes over, and how:
   entries out, backed up), the hub service stopped and removed, the ravenry
   command, bin/, current and versions/, and the data when its box is
   ticked; it says what it did and quits, the app shown in Finder.
+- **`ravenry doctor`** (HUB-019, ravenryd `doctor.go`): the app's install as
+  it stands (the data folder's links, the hub service, the board on its
+  board.json port, the daemons, the hooks and the skill as the board reads
+  them, whether `ravenry` in a terminal is this program), ok, note and fix
+  lines, exit 1 on a fix.
+- **A failed update** (UPD-003): tried again at each launch and when the app
+  comes to the front, three times across launches, then the toast with Try
+  again; no version folder is pruned after a setup that failed.
+- **Never the person's board in a test**: a window off every screen reads a
+  board only where RAVENRY_HUB_URL or its test home's board.json names one,
+  and keeps its address when board.json goes; a test's setup (its own data
+  folder or launchd label) never takes :4600 for its board.
 - **Release signing** (SIGN-004, `package.mjs`): RAVENRY_SIGN_IDENTITY (a
   Developer ID Application identity) in place of the Apple Development one,
   with a secure timestamp; RAVENRY_NOTARY_PROFILE, or APPLE_API_KEY,
