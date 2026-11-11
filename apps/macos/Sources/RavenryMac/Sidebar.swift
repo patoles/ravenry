@@ -186,7 +186,7 @@ final class SidebarView: Flipped {
         let denied = (((state?.raw["access"] as? [String: Any])?["denied"] as? [[String: Any]]) ?? []).compactMap { $0["folder"] as? String }
         let asking = testWaiting ?? waitingFor.map { (folder: $0, name: waitingFolder) }
         firstRun = sections.isEmpty && (!reachable || (state?.projects.isEmpty ?? true)) && !hasTabs
-        let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String($0.hashValue) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
+        let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String(decoding: $0, as: UTF8.self) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
                    String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", asking.map { "\($0.folder)\($0.name ?? "")" } ?? "",
                    uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260)].joined(separator: "|")

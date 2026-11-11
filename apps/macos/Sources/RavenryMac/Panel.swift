@@ -149,7 +149,9 @@ final class PanelView: Box {
         }
         parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
         if let id = loose { parts += [id, host?.hub.card(id: id) ?? [:]] }
-        let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
+        // The JSON itself, never Data's hashValue: that hashes the first 80 bytes only, so a
+        // new checkpoint id of the same length (the next card for the session) kept the old signature.
+        let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String(decoding: $0, as: UTF8.self) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
         if !force, sig == signature { return }
         // (Its signature is not kept: once the field lets go, the change put off is drawn.

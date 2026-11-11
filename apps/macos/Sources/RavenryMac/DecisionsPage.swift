@@ -81,7 +81,7 @@ final class DecisionsPage: FormPage {
         let now = When.now()
         let items = days.flatMap { $0["items"] as? [[String: Any]] ?? [] }
         let live = items.filter { undoable($0, now) }.map { "\($0["id"] ?? "")" }.joined(separator: ",")
-        let data = view.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .sortedKeys) }.map { "\($0.hashValue)" } ?? "-"
+        let data = view.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .sortedKeys) }.map { String(decoding: $0, as: UTF8.self) } ?? "-"
         draw("\(busy)|\(showing)|\(only)|\(lit ?? "")|\(live)|\(data)|\(editing ?? "")|\(editProject)|\(removing ?? "")") { [tools(), editing == "new" ? editor(nil) : nil, list(now)].compactMap { $0 } }
         if let id = lit, let c = cards[id] {
             DispatchQueue.main.async { c.scrollToVisible(c.bounds) }

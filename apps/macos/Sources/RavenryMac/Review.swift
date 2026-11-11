@@ -628,7 +628,7 @@ final class FilesGridPage: FormPage {
         let cols = grid?["cols"] as? [[String: Any]] ?? []
         let you = grid?["you"] as? Bool ?? false
         setHead(title: t("files.whoChanged", ["project": name]), src: "\(cols.count) session\(cols.count == 1 ? "" : "s")\(you ? " and you" : ""), the files each one changed")
-        let sig = (try? JSONSerialization.data(withJSONObject: [d ?? [:], name], options: .sortedKeys)).map { String($0.hashValue) } ?? ""
+        let sig = (try? JSONSerialization.data(withJSONObject: [d ?? [:], name], options: .sortedKeys)).map { String(decoding: $0, as: UTF8.self) } ?? ""
         draw(sig) {
             guard let d else { return [label(t("files.reading"), Fonts.pt(13), "tx3")] }
             let rows = grid?["rows"] as? [[String: Any]] ?? []
