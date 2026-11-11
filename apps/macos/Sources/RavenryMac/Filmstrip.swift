@@ -7,8 +7,9 @@
 // frame replaced within 130 ms of being drawn, so it was seen half drawn; a
 // stretch of 2 s or more the screen did not change), six of them as
 // thumbnails cropped to where they changed. Step and play; a frame clicked
-// fills the pane with "Showing hh:mm:ss" over it and Back to live (the
-// pane runs on underneath); Send to the agent of the pane's session (the
+// (a thumbnail, or a press or a drag on the track: the frame closest to
+// that moment) fills the pane, all of it, with "Showing hh:mm:ss" over it
+// and Back to live (the pane runs on underneath); Send to the agent of the pane's session (the
 // hub's POST /api/sessions/:id/filmstrip); Save as GIF. Opened from the
 // strip's film button (or Learn's card), it belongs to the pane it was
 // opened on and closes when another one comes to the front.
@@ -206,6 +207,9 @@ final class FilmSheet: NSView {
     private(set) var total = 0
     /// The frame shown over the pane, nil for live.
     private(set) var shown: Int?
+    /// The moment picked on the track when the daemon kept no picture of it:
+    /// the closest pictured frame is shown, and its line says so.
+    private(set) var wanted: Date?
     private(set) var sel = 0
     private(set) var loading = false
     private(set) var error: String?
@@ -379,15 +383,41 @@ final class FilmSheet: NSView {
 
     // MARK: stepping
 
-    func showFrame(_ i: Int) {
+    func showFrame(_ i: Int, wanted w: Date? = nil) {
         guard frames.indices.contains(i) else { return }
         sel = i
         shown = i
+        wanted = w
         paint()
         changed?()
     }
 
-    func live() { stop(); shown = nil; paint(); changed?() }
+    func live() { stop(); shown = nil; wanted = nil; paint(); changed?() }
+
+    /// A press on the track at x (0 the left end, 20 s ago; 1 now): the
+    /// frame closest to that moment, pictured or not; one without a
+    /// picture shows the closest pictured frame instead.
+    func pick(at x: CGFloat) {
+        stop()
+        guard !frames.isEmpty else { return }
+        let t = trackTime(x)
+        func gap(_ d: Date) -> Double { abs(d.timeIntervalSince(t)) }
+        let at = allMarks.map(\.at).min { gap($0) < gap($1) } ?? t
+        let near = frames.indices.min { abs(frames[$0].at.timeIntervalSince(at)) < abs(frames[$1].at.timeIntervalSince(at)) } ?? 0
+        showFrame(near, wanted: abs(frames[near].at.timeIntervalSince(at)) < 0.0005 ? nil : at)
+    }
+
+    /// The moment at x on the track, and where a moment lies on it (0 to 1), for the self-test.
+    func trackTime(_ x: CGFloat) -> Date { from.addingTimeInterval(Double(min(1, max(0, x))) * to.timeIntervalSince(from)) }
+    func trackX(_ d: Date) -> CGFloat { CGFloat(min(1, max(0, d.timeIntervalSince(from) / max(0.001, to.timeIntervalSince(from))))) }
+
+    /// The line under "Showing" when the frame picked had no picture: how far the one shown is from it.
+    var nearestLine: String? {
+        guard let w = wanted, let i = shown, frames.indices.contains(i) else { return nil }
+        let d = frames[i].at.timeIntervalSince(w)
+        let s = String(format: "%.1f", max(0.1, abs(d)))
+        return t(d < 0 ? "film.nearestBefore" : "film.nearestAfter", ["s": s])
+    }
 
     func step(_ d: Int) {
         stop()
@@ -512,8 +542,10 @@ final class FilmSheet: NSView {
         track.bad = allMarks.filter { $0.tag != nil }.map { pos($0.at) }
         track.knob = frames.indices.contains(shown ?? sel) ? pos(frames[shown ?? sel].at) : nil
         track.needsDisplay = true
+        track.onPick = { [weak self] x in self?.pick(at: x) }
         track.translatesAutoresizingMaskIntoConstraints = false
-        track.heightAnchor.constraint(equalToConstant: 12).isActive = true
+        if track.constraints.isEmpty { track.heightAnchor.constraint(equalToConstant: 12).isActive = true }
+        controls["track"] = track
         // Under the track's middle: how many of the frames have a picture, when not all.
         let some: NSView? = !frames.isEmpty && frames.count < total ? label(t("film.some", ["n": "\(frames.count)", "all": "\(total)"]), Fonts.pt(11), "tx3") : nil
         some.map { controls["some"] = $0 }
@@ -547,12 +579,12 @@ final class FilmSheet: NSView {
     /// The frame shown over the pane, at the live text's size (each of the
     /// frame's cells, Go Mono's 0.6 em at the size it was drawn, as wide as
     /// the terminal's), its 8 px margin taken off.
-    func overlayImage(cellWidth live: CGFloat) -> (image: CGImage, size: NSSize, offset: CGFloat, bg: NSColor, at: Date)? {
+    func overlayImage(cellWidth live: CGFloat) -> (image: CGImage, size: NSSize, offset: CGFloat, bg: NSColor, at: Date, note: String?)? {
         guard let i = shown, frames.indices.contains(i) else { return nil }
         let f = frames[i]
         let cellPx = (0.6 * drawnAt).rounded()
         let k = live > 0 && cellPx > 0 ? live / (cellPx / scale) : 1
-        return (f.image, NSSize(width: CGFloat(f.image.width) / scale * k, height: CGFloat(f.image.height) / scale * k), 8 / scale * k, f.bg, f.at)
+        return (f.image, NSSize(width: CGFloat(f.image.width) / scale * k, height: CGFloat(f.image.height) / scale * k), 8 / scale * k, f.bg, f.at, nearestLine)
     }
 }
 
@@ -562,7 +594,14 @@ final class FilmTrack: NSView {
     var stalls: [(CGFloat, CGFloat)] = []
     var bad: [CGFloat] = []
     var knob: CGFloat?
+    /// A press or a drag along it: where, 0 (20 s ago) to 1 (now).
+    var onPick: ((CGFloat) -> Void)?
     override var isFlipped: Bool { true }
+    private func at(_ e: NSEvent) -> CGFloat { bounds.width > 0 ? convert(e.locationInWindow, from: nil).x / bounds.width : 0 }
+    override func mouseDown(with e: NSEvent) { onPick?(at(e)) }
+    override func mouseDragged(with e: NSEvent) { onPick?(at(e)) }
+    override func resetCursorRects() { handCursor(onPick != nil) }
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func draw(_ dirty: NSRect) {
         let w = bounds.width, mid = bounds.midY
         Design.sep.setFill()
@@ -601,6 +640,9 @@ final class FilmThumb: NSView {
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
     override func mouseDown(with e: NSEvent) { onPress?() }
+    override func resetCursorRects() { handCursor(onPress != nil) }
+    /// As the buttons beside it: the first press counts in a window not yet in front.
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onPress?(); return true }
 
     /// The words under it: "Half drawn", "Blank", "Same 3 s", or none.
@@ -645,10 +687,17 @@ final class FilmFrameView: NSView {
     private var drawSize = NSSize.zero
     private var offset: CGFloat = 0
     private var bg = NSColor.black
-    private let bar = NSView()
+    /// Flipped: its lines laid from the top, the small one under "Showing".
+    private let bar = Flipped()
     private let words = NSTextField(labelWithString: "")
+    /// Under the words, when the frame picked had no picture: that this is the closest one.
+    private let small = NSTextField(labelWithString: "")
     let back = RButton(t("film.back"), .normal, small: true)
     var onBack: (() -> Void)? { didSet { back.run = onBack } }
+    /// The bar's height: one line, or two with the small one.
+    var barHeight: CGFloat { small.stringValue.isEmpty ? 34 : 52 }
+    /// The frame drawn, for the self-test.
+    private(set) var image: CGImage?
     override var isFlipped: Bool { true }
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -657,40 +706,66 @@ final class FilmFrameView: NSView {
         words.font = Fonts.pt(12.5)
         words.lineBreakMode = .byTruncatingTail
         bar.addSubview(words)
+        small.font = Fonts.pt(11.5)
+        small.lineBreakMode = .byTruncatingTail
+        bar.addSubview(small)
         bar.addSubview(back)
         autoresizingMask = [.width, .height]
     }
     required init?(coder: NSCoder) { fatalError() }
     override func hitTest(_ p: NSPoint) -> NSView? { let v = super.hitTest(p); return v === self ? self : v }
 
-    func show(_ x: (image: CGImage, size: NSSize, offset: CGFloat, bg: NSColor, at: Date)) {
-        img = x.image; drawSize = x.size; offset = x.offset; bg = x.bg
+    func show(_ x: (image: CGImage, size: NSSize, offset: CGFloat, bg: NSColor, at: Date, note: String?)) {
+        img = x.image; image = x.image; drawSize = x.size; offset = x.offset; bg = x.bg
         let ago = max(0, Int(Date().timeIntervalSince(x.at).rounded()))
         words.stringValue = t("film.showing", ["time": Film.hms(x.at), "s": "\(ago)"])
+        small.stringValue = x.note ?? ""
+        small.isHidden = x.note == nil
         needsLayout = true
         needsDisplay = true
     }
     /// What the line says, for the self-test.
     var line: String { words.stringValue }
+    /// The small line under it ("" when none).
+    var note: String { small.stringValue }
 
     override func layout() {
         super.layout()
-        bar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: 34)
+        bar.frame = NSRect(x: 0, y: 0, width: bounds.width, height: barHeight)
         bar.layer?.backgroundColor = Design.color("card").cgColor
         let bw = back.fittingSize.width
         back.frame = NSRect(x: bounds.width - bw - 10, y: 5, width: bw, height: 24)
         words.frame = NSRect(x: 12, y: 9, width: max(0, bounds.width - bw - 34), height: 17)
         words.textColor = Design.tx
+        small.frame = NSRect(x: 12, y: 29, width: max(0, bounds.width - 24), height: 16)
+        small.textColor = Design.color("tx3")
+    }
+
+    /// How much smaller than the live text the frame is drawn so all of it
+    /// shows under the bar: a frame drawn before the sheet took its room
+    /// under the pane is taller than what is left, and its last rows (the
+    /// spinner, the newest output: where frames differ) went under the sheet.
+    var fit: CGFloat {
+        let w = drawSize.width - 2 * offset, h = drawSize.height - 2 * offset
+        guard w > 0, h > 0 else { return 1 }
+        return max(0.05, min(1, bounds.width / w, (bounds.height - barHeight) / h))
+    }
+    /// Where the frame's picture lies in the view (its margin outside).
+    var pictureRect: NSRect {
+        let k = fit
+        return NSRect(x: -offset * k, y: barHeight - offset * k, width: drawSize.width * k, height: drawSize.height * k)
     }
 
     override func draw(_ dirty: NSRect) {
         bg.setFill()
         bounds.fill()
         guard let img, let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let r = pictureRect
         ctx.saveGState()
-        ctx.translateBy(x: -offset, y: 34 - offset + drawSize.height)
+        ctx.translateBy(x: r.minX, y: r.minY + r.height)
         ctx.scaleBy(x: 1, y: -1)
-        ctx.draw(img, in: CGRect(origin: .zero, size: drawSize))
+        ctx.interpolationQuality = .high
+        ctx.draw(img, in: CGRect(origin: .zero, size: r.size))
         ctx.restoreGState()
     }
 }

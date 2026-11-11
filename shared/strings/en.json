@@ -1215,6 +1215,8 @@
   "film.halfTag": "Half drawn",
   "film.same": "Same {s} s",
   "film.showing": "Showing {time}, {s} s ago. The pane is still running underneath.",
+  "film.nearestBefore": "No picture was kept of that moment; this is the closest one, {s} s before it.",
+  "film.nearestAfter": "No picture was kept of that moment; this is the closest one, {s} s after it.",
   "film.back": "Back to live",
   "hint.anAgent": "An agent",
   "hint.agentOpenedNamed": "{who} opened “{name}”",

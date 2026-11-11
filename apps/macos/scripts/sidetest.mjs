@@ -17,6 +17,10 @@
 //
 //   SIDETEST_OLD_RAVENRYD=PATH node scripts/sidetest.mjs --screen daemons [OUT]
 //
+// --screen strip: SIDETEST_FILM_CONTENT=PATH runs that zsh script in the
+// filmstrip's picked-frame panes (SelfTestFilmPick.swift) in place of
+// their own scrolling output (a replayed Claude tab, say).
+//
 // --screen daemons (SelfTestDaemons.swift): the window on two daemons, as
 // after an update. An older ravenryd (PATH: a release's, 0.1.23 or later)
 // runs with two shells, one busy, and the app starts on it with no
@@ -436,7 +440,7 @@ for (const f of [result, ...[1, 2].flatMap((n) => [`${result}.arrive-${n}`, `${r
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;

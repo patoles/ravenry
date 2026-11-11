@@ -373,6 +373,8 @@ extension SelfTestBoard {
             (f.controls["close"] as? RButton)?.run?()
             ws.closePane(bp)
         } else { check("film_big_pane", false, "no pane") }
+        // Frames picked on a pane at the window's size and on the big one: the picture over the pane changes with each (SelfTestFilmPick.swift).
+        filmPicks()
         // A redraw seen half done (the top rows erased, drawn again 150 ms later, no synchronized
         // output) is marked half drawn; the spinner line between is not.
         let torn = "draw() { printf '\\033[H'; head -c 1500 /usr/share/dict/words | tr '\\n' ' ' | fold -w 78; }; draw; i=0; while :; do "
