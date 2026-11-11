@@ -9,8 +9,9 @@
 //   node scripts/updatedialogcheck.mjs PACKAGED_APP [OUT]
 //
 // times     RAVENRY_UPDATE_TEST=launch: the first request to the feed comes
-//           about 15 s after the launch (UPD-012); with RAVENRY_UPDATES=0
-//           none comes in 30 s
+//           about 15 s after the launch (UPD-012), then one every
+//           RAVENRY_UPDATE_EVERY seconds (4 here, the 4 hours' place); with
+//           RAVENRY_UPDATES=0 none comes in 30 s
 // current   the feed says this version: "Ravenry is up to date", "You have
 //           <version>, the newest version." (UPD-009)
 // failed    the feed answers 500: "Could not check for updates" with Open the
@@ -89,10 +90,14 @@ try {
   // times, current, failed: the twin as it is.
   mode = 'current';
   hits.length = 0;
-  let a = launch(TWIN, 't', { RAVENRY_UPDATE_TEST: 'launch', RAVENRY_UPDATE_FEED: FEED });
+  let a = launch(TWIN, 't', { RAVENRY_UPDATE_TEST: 'launch', RAVENRY_UPDATE_FEED: FEED, RAVENRY_UPDATE_EVERY: '4' });
   const first = await until(30000, () => hits[0]);
   const after = first ? (first.at - a.at) / 1000 : null;
   check('times_first_check_15s', after != null && after >= 14 && after <= 20, after != null ? `the first request ${after.toFixed(1)} s after the launch` : 'no request in 30 s');
+  // The repeat (every 4 hours), at RAVENRY_UPDATE_EVERY=4 s in its place.
+  await until(15000, () => hits.length >= 3);
+  const gaps = hits.slice(0, 3).map((h, i, all) => (i ? (h.at - all[i - 1].at) / 1000 : null)).filter((g) => g != null);
+  check('times_repeats', gaps.length === 2 && gaps.every((g) => g >= 3.5 && g <= 5.5), `gaps between checks: ${gaps.map((g) => g.toFixed(1)).join(', ')} s (every 4 s in the 4 hours' place)`);
   await a.cmd('menu Check for Updates…');
   let s = await a.dialog('Ravenry is up to date');
   check('current_up_to_date_dialog', s && s.dialog.text === `You have ${VERSION}, the newest version.` && s.dialog.buttons.join(',') === 'OK', s ? s.dialog.text : 'none');

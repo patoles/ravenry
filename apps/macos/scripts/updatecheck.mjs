@@ -96,11 +96,12 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const FEED = `http://127.0.0.1:${server.address().port}/latest-mac-native.json`;
 
 /** A copy of APP at `version`, signed with `sign` (an identity's SHA-1, or - for ad hoc), zipped into the feed; the feed says `sha` (else the zip's). */
-function publish(version, { sign = id.hash, sha = null } = {}) {
+function publish(version, { sign = id.hash, sha = null, inner = null, bundleId = null } = {}) {
   const dir = fs.mkdtempSync(path.join(root, 'new-'));
   const nb = path.join(dir, 'Ravenry.app');
   execFileSync('/usr/bin/ditto', [APP, nb]);
-  for (const k of ['CFBundleShortVersionString', 'CFBundleVersion']) execFileSync('/usr/bin/plutil', ['-replace', k, '-string', version, path.join(nb, 'Contents', 'Info.plist')]);
+  for (const k of ['CFBundleShortVersionString', 'CFBundleVersion']) execFileSync('/usr/bin/plutil', ['-replace', k, '-string', inner || version, path.join(nb, 'Contents', 'Info.plist')]);
+  if (bundleId) execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIdentifier', '-string', bundleId, path.join(nb, 'Contents', 'Info.plist')]);
   const ents = path.join(REPO, 'apps', 'desktop', 'build', sign === '-' ? 'entitlements.adhoc.plist' : 'entitlements.mac.plist');
   if (sign === '-') {
     // Every binary inside ad hoc too: a bundle of no team at all.
@@ -149,6 +150,24 @@ try {
     const said = await until(() => /signed by team none, not|signature did not check out/.test(logSince(at)), 60000, 300);
     step(`refused: a copy signed ad hoc (no team) is refused: not team ${id.team}`, said && plistGet(app, 'CFBundleShortVersionString') === VERSION, { log: logSince(at).split('\n').slice(-4) });
     p.kill('SIGTERM'); await exited(p);
+  }
+
+  // UPD-011's other refusals: the version inside not the feed's, another
+  // bundle id, an app in a folder it cannot write. (Another Team ID needs a
+  // second team's identity, which this Mac does not have.)
+  for (const [name, opts, re, why] of [
+    ['version', { inner: bump(VERSION, 2) }, /is version \S+, not \S+, so nothing was replaced/, 'the zip holds another version than the feed says'],
+    ['bundle-id', { bundleId: 'dev.ravenry.other' }, /The download is not Ravenry, so nothing was replaced/, 'the zip holds an app of another bundle id'],
+    ['folder', {}, /Ravenry cannot replace itself in /, 'the app sits in a folder it cannot write'],
+  ]) {
+    publish(bump(VERSION, 1), opts);
+    if (name === 'folder') fs.chmodSync(path.join(root, 'Applications'), 0o555);
+    const at = read(appLog).length;
+    const p = launch(`refused-${name}`, 'check');
+    const said = await until(() => re.test(logSince(at)), 60000, 300);
+    p.kill('SIGTERM'); await exited(p);
+    if (name === 'folder') fs.chmodSync(path.join(root, 'Applications'), 0o755);
+    step(`refused: ${why}, said in app.log, the app unchanged`, said && plistGet(app, 'CFBundleShortVersionString') === VERSION && plistGet(app, 'CFBundleIdentifier') === 'dev.ravenry.app', { log: logSince(at).split('\n').slice(-4) });
   }
 
   // The daemon the app started, which must outlive every update.

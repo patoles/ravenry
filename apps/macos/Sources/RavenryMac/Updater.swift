@@ -42,7 +42,8 @@
 //                              (quit: installed on quit, not started again);
 //                              launch: off every screen too, at the real
 //                              times (15 s, then every 4 hours), nothing else
-//                              (scripts/updatedialogcheck.mjs)
+//                              (scripts/updatedialogcheck.mjs), the repeat
+//                              every RAVENRY_UPDATE_EVERY seconds when set
 
 import AppKit
 import CryptoKit
@@ -152,7 +153,9 @@ final class Updater: NSObject, NSMenuItemValidation {
         let first: TimeInterval = test != nil && test != "launch" ? 1 : 15
         timer = Timer.scheduledTimer(withTimeInterval: first, repeats: false) { [weak self] _ in
             self?.check { _ in }
-            self?.timer = Timer.scheduledTimer(withTimeInterval: 4 * 3600, repeats: true) { [weak self] _ in self?.check { _ in } }
+            // Every 4 hours; a test's RAVENRY_UPDATE_EVERY (seconds) in its place, honoured with a test only.
+            let every = (self?.test != nil ? self?.env["RAVENRY_UPDATE_EVERY"].flatMap(Double.init) : nil) ?? 4 * 3600
+            self?.timer = Timer.scheduledTimer(withTimeInterval: every, repeats: true) { [weak self] _ in self?.check { _ in } }
         }
         AppInstall.shared.log("update: checking \(feedOverride?.absoluteString ?? source.map { "\($0.owner)/\($0.repo)" } ?? "") a little after launch, then every 4 hours (this is \(current))")
     }
@@ -318,12 +321,21 @@ final class Updater: NSObject, NSMenuItemValidation {
         var cfErr: Unmanaged<CFError>?
         guard SecStaticCodeCheckValidityWithErrors(code, flags, req, &cfErr) == errSecSuccess else {
             let theirs = signingTeam(code) ?? "none"
+            // The same team but another app (its signature's identifier is not this app's): said as such,
+            // not as "signed by team X, not X" (updatecheck.mjs, refused bundle-id).
+            if theirs == team, signingIdentifier(code) != bundleId { throw UpdateError(description: t("update.why.notRavenry")) }
             throw UpdateError(description: t("update.why.team", ["theirs": theirs, "ours": team]))
         }
         let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) as? [String: Any] ?? [:]
         guard info["CFBundleIdentifier"] as? String == bundleId else { throw UpdateError(description: t("update.why.notRavenry")) }
         let v = info["CFBundleShortVersionString"] as? String ?? ""
         guard v == version, compareVersions(v, current) > 0 else { throw UpdateError(description: t("update.why.version", ["got": v, "want": version])) }
+    }
+
+    private func signingIdentifier(_ code: SecStaticCode) -> String? {
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess, let d = info as? [String: Any] else { return nil }
+        return d[kSecCodeInfoIdentifier as String] as? String
     }
 
     private func signingTeam(_ code: SecStaticCode) -> String? {

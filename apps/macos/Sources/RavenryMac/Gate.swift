@@ -52,7 +52,7 @@ enum Gate {
                                              "inspect", "inspect-brk", "inspect-port", "inspect-wait", "inspect-brk-node", "inspect-publish-uid",
                                              "debug", "debug-brk", "debug-port", "js-flags", "renderer-cmd-prefix", "utility-cmd-prefix",
                                              "gpu-launcher", "browser-subprocess-path"]
-    static let controlVars: Set<String> = AppInstall.controlVars.union(["RAVENRY_OFFSCREEN", "RAVENRY_HUB_URL", "RAVENRY_UPDATE_FEED", "RAVENRY_UPDATE_TEST",
+    static let controlVars: Set<String> = AppInstall.controlVars.union(["RAVENRY_OFFSCREEN", "RAVENRY_HUB_URL", "RAVENRY_UPDATE_FEED", "RAVENRY_UPDATE_TEST", "RAVENRY_UPDATE_EVERY",
                                                                         "RAVENRY_RELAUNCH_TEST", "RAVENRY_PRUNE_AFTER"])
     static let controlPrefixes = ["MC_", "FAKE_", "STUB_", "RAVENRY_MAC_", "RAVENRY_TEST_", "RAVENRY_NOTIFY_", "RAVENRY_SETTINGS_", "RAVENRY_BENCH_"]
 

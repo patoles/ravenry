@@ -109,13 +109,34 @@ function serviceRun(c: string, args: string[]): { status: number | null; out: st
   return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
 }
 
+// A test's run (its own data folder or launchd label): the board only where
+// RAVENRY_HUB_URL or the test's own board.json names it, never the default
+// :4600, which is the person's board (2026-11-11: a check's setup took the
+// person's board for its own and installed no service).
+const isTestRun = () => !!process.env.RAVENRY_DESKTOP_DATA || /^dev\.ravenry\.hub\.test-/.test(process.env.RAVENRY_SERVICE_LABEL || '');
+function boardUrl(): string | null {
+  if (process.env.RAVENRY_HUB_URL) return hubUrl();
+  const bj = path.join(process.env.RAVENRY_HOME || path.join(os.homedir(), '.ravenry'), 'board.json');
+  if (isTestRun() && !fs.existsSync(bj)) return null;
+  return hubUrl();
+}
+/** The board's port: the URL's, else the service's PORT, else 4600 (never 4600 in a test's run: 0). */
+function boardPort(): number {
+  const u = boardUrl();
+  const p = (u && Number(new URL(u).port)) || Number(process.env.PORT) || 4600;
+  return isTestRun() && p === 4600 ? 0 : p;
+}
+
 async function boardAnswers(): Promise<boolean> {
-  try { return (await fetch(hubUrl() + '/api/state', { signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
+  const u = boardUrl();
+  if (!u || (isTestRun() && Number(new URL(u).port) === 4600)) return false;
+  try { return (await fetch(u + '/api/state', { signal: AbortSignal.timeout(1500) })).ok; } catch { return false; }
 }
 
 // The new hub after an update: up to 60 s to listen, then 30 s from its
 // listen for any HTTP answer (main.ts newHubAnswers).
 async function newHubAnswers(port: number): Promise<boolean> {
+  if (!port) { appLog('service: a test run with no port of its own: the new hub is not waited for'); return false; }
   const t0 = Date.now();
   const open = () => new Promise<boolean>((r) => {
     const s = net.connect(port, '127.0.0.1');
@@ -243,7 +264,7 @@ async function serviceUp(st: Staged, exe: string, opts: { port?: number; restart
   const mode = serviceMode(process.env, true);
   // The npm board's port when it ran on another (PORT=4700 ravenry).
   const env = opts.port && opts.port !== 4600 ? { ...process.env, PORT: String(opts.port) } : process.env;
-  const port = opts.port || Number(new URL(hubUrl()).port) || 4600;
+  const port = opts.port || boardPort();
   return { mode, port, r: await ensureService({ mode, spec: serviceSpec({ execPath: exe, staged: st, env }), run: serviceRun, boardAnswers, restart: opts.restart, answers: () => newHubAnswers(port) }) };
 }
 
@@ -262,7 +283,7 @@ async function hub(resources: string, exe: string, retry = false): Promise<objec
     detect = await detectNpm(st);
   }
   const mode = serviceMode(process.env, true);
-  const port = Number(new URL(hubUrl()).port) || 4600;
+  const port = boardPort();
   let before: string | null = null;
   try { before = fs.readFileSync(serviceFile(), 'utf8'); } catch { /* none yet */ }
   const updating = mode !== 'off' && mode !== 'dry-run' && !!before && !before.includes(`${path.sep}versions${path.sep}${st.version}${path.sep}`);
