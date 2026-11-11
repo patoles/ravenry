@@ -70,6 +70,7 @@ import * as firstlaunch from './firstlaunch.mjs';
 import * as skills from './skills.mjs';
 import * as themeImport from './themeimport.mjs';
 import * as onboarding from './onboarding.mjs';
+import * as sessionNames from './sessionnames.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -151,6 +152,9 @@ let lastShip = null;         // the last Ship view (server/ship.mjs), for the pa
 // Sessions page (docs/SESSIONS.md): every claude process, read once a minute.
 let procState = { at: null, procs: [], helpers: 0, error: 'starting' };
 const outlivedSaid = new Set();
+// Session names (server/sessionnames.mjs): kept after a session ends; the name files' last reads.
+const nameStore = sessionNames.load();
+const nameFiles = new Map();
 let procBusy = null;
 const extraScreens = new Map(); // surfaceId -> { text, at }: Claude tabs outside the board's projects
 let lastWorkspaces = [];
@@ -1333,6 +1337,14 @@ async function tick() {
     snapshot = { generatedAt: new Date(now).toISOString(), pages: pageRows, cmuxOk, board: { kind: term.BOARD, name: term.nameOf(term.BOARD), installed: term.BOARD_INSTALLED }, hooks: hooksState(), error: cmuxError ? 'cmux did not answer: ' + cmuxError : !fullRead ? `${term.nameOf(term.BOARD)} could not be asked: ${otherTabs[term.BOARD].error}` : null, events: evAll.size, registryPath: short(registry.REGISTRY_PATH), settings: registry.handoffSettings(settings), assistants: assistantsView(), projectsRoot: projectsRoot.view(reg), alerts: alerts.status(), views, sessions: sessionsView, projects, machines: remoteinstall.view(), homes: homesNow(), checkpoints: checkpointsView(projects), access: access.view(homes.sayLocal) };
     // The sidebar, ready to draw (server/sidebar.mjs): its sections, rows and order.
     sidebar.withGroups(projects);
+    // Session names (server/sessionnames.mjs): the Mac app reads the table
+    // again (GET /api/session-names) when the rev changes.
+    try {
+      const livePids = procState.at ? new Set(procState.procs.map((x) => x.pid)) : null;
+      const named = sessionNames.note(nameStore, sessionNames.readNameFiles(sessionNames.sessionsDir(), nameFiles), evAll, livePids, now);
+      if (nameStore.dirty && (named || now - nameStore.savedAt > 60000)) sessionNames.save(nameStore);
+    } catch (e) { console.error('session names:', e.message); }
+    snapshot.sessionNames = { rev: nameStore.rev || 0 };
     snapshot.sidebar = sidebar.build(projects, { threshold: snapshot.settings.handoffThreshold ?? 50, marks: sidebar.marksOf(projects, snapshot.checkpoints, { reviewFiles, now }), now });
     // The assistant each project's next new session starts (Revive, New
     // session, a plan's start), for the New session switch's line; and the
@@ -1760,6 +1772,17 @@ function procHolding(sid) {
 //      project (two projects can share a folder).
 // With where it is still open (a process on it), and the command that
 // continues it.
+// The project of a named session (GET /api/session-names): the board's row
+// for it, else the project its events give it (eventOwner), for Continue.
+function nameProject(sid) {
+  const sp = (snapshot.projects || []).find((x) => (x.sessions || []).some((s) => s.sessionId === sid));
+  if (sp) return sp.id;
+  const e = ev.all.get(sid);
+  if (!e || e.machine) return null;
+  const own = eventOwner(e);
+  return own ? own.id : null;
+}
+
 // Which project a running assistant process belongs to, by where it runs:
 // the cmux workspace in its environment (CMUX_WORKSPACE_ID) is the project
 // that lists that workspace; else the board's row for its tab (a cmux
@@ -3814,6 +3837,7 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true, draft: planner.view(project.id) });
     }
     if (req.method === 'GET' && p === '/api/pages') return sendJson(res, 200, { ok: true, pages: snapshot.pages || [] });
+    if (req.method === 'GET' && p === '/api/session-names') return sendJson(res, 200, { ok: true, rev: nameStore.rev || 0, names: sessionNames.table(nameStore, nameProject) });
     if (req.method === 'GET' && p === '/api/pages/page') {
       const v = pages.view(url.searchParams.get('key') || '', { tab: url.searchParams.get('tab') });
       return v ? sendJson(res, 200, { ok: true, page: v }) : sendJson(res, 404, { error: 'No such page.' });
