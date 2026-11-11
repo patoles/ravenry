@@ -6994,6 +6994,20 @@
             "pattern_error": {
               "type": "string",
               "description": "The regular expression does not parse, and why (\"missing closing )\"); count is then 0 and the frames show no matches."
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxItems": 1000,
+              "description": "The rows the matches start on, counted from the top of the scrollback, each once (at most 1000, spread over them all when there are more); left out when there are none."
+            },
+            "lines": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The rows in all (scrollback and screen), where a scrollbar marks the matches; left out when there are none."
             }
           },
           "required": [

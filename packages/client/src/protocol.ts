@@ -587,15 +587,15 @@ export interface Methods {
   'pane.clear': { params: { pane: PaneId }; result: { pane: Pane; cleared: boolean } };
   /** The render stream (docs/RENDERING.md): the screen as frames of changed rows (binary kind 4), for a client that draws it itself. */
   'pane.render': {
-    params: { pane: PaneId; cols?: number; rows?: number; fps?: number; window?: number };
+    params: { pane: PaneId; cols?: number; rows?: number; fps?: number; window?: number; keybinds?: 'macos' | 'none' };
     result: { pane: PaneId; channel: number; format: number };
   };
   'render.scroll': { params: { channel: number; offset: number }; result: Record<string, never> };
   'render.input': { params: { channel: number; events: RenderEvent[] }; result: Record<string, never> };
   'render.text': { params: { channel: number; from: RenderPoint; to: RenderPoint; rect?: boolean }; result: { text: string } };
   'render.copy': { params: { channel: number }; result: { text: string } };
-  /** case_sensitive and regex: a daemon older than them refuses them (bad_request); pattern_error: the regex does not parse, and why. */
-  'render.find': { params: { channel: number; needle: string; step?: -1 | 0 | 1; case_sensitive?: boolean; regex?: boolean }; result: { count: number; selected: number; pattern_error?: string } };
+  /** case_sensitive and regex: a daemon older than them refuses them (bad_request); pattern_error: the regex does not parse, and why; rows and lines: where a scrollbar marks the matches (none from an older daemon). */
+  'render.find': { params: { channel: number; needle: string; step?: -1 | 0 | 1; case_sensitive?: boolean; regex?: boolean }; result: { count: number; selected: number; pattern_error?: string; rows?: number[]; lines?: number } };
   'render.link': { params: { channel: number; at: RenderPoint }; result: { uri?: string; from?: RenderPoint; to?: RenderPoint } };
   'agent.report': {
     params: {
