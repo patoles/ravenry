@@ -36,6 +36,8 @@
 // the conversation with a stand-in launch command in a pane of the newer.
 import { guardSpawns } from '../../../tools/test-env.mjs';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
@@ -293,6 +295,21 @@ const screenHub = PAGES ? {
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
   prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review') reviewRepo(ROOT); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
+// --screen machines: the hub carries a build to install (a few bytes, never run:
+// ssh is /usr/bin/false), so Install and Update get the hub's 200 and start a job
+// on the machines the screen registers after the empty page (SelfTestLearn.swift).
+if (SCREEN === 'machines') {
+  const dir = path.join(tmp, 'remote-builds');
+  fs.mkdirSync(dir, { recursive: true });
+  const raw = Buffer.from('#!/bin/sh\necho stand-in ravenryd\n');
+  const builds = {};
+  for (const k of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']) {
+    fs.writeFileSync(path.join(dir, `ravenryd-${k}.gz`), zlib.gzipSync(raw));
+    builds[k] = { file: `ravenryd-${k}.gz`, sha256: crypto.createHash('sha256').update(raw).digest('hex'), size: raw.length };
+  }
+  fs.writeFileSync(path.join(dir, 'builds.json'), JSON.stringify({ version: '0.1.24', builds }));
+  screenHub.env = { ...screenHub.env, RAVENRY_REMOTE_BUILDS: dir };
+}
 // --screen review: notes-app is a git repository; its session works in a
 // worktree on its own branch (as POST /api/sessions/start with worktree
 // makes one), with two commits of work; the main folder has a change of the

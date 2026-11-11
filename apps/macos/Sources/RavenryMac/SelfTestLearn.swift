@@ -92,6 +92,12 @@ extension SelfTestBoard {
         // Every shape, as the hub's cards say it.
         guard let fx = ProcessInfo.processInfo.environment["RAVENRY_MAC_FIXTURE"], let d = try? Data(contentsOf: URL(fileURLWithPath: fx)),
               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { check("machines_fixture", false, "no RAVENRY_MAC_FIXTURE"); return }
+        // The hub has each of them too (the empty page above had none), so each
+        // button's route reaches a machine the hub knows and gets its 200.
+        for m in j["machines"] as? [[String: Any]] ?? [] {
+            board.hub.post("/api/machines/add", ["host": m["host"] ?? "", "name": m["name"] ?? ""]) { _, _ in }
+        }
+        check("machines_fixture_registered_posts", wait(8) { self.board.hub.inFlight == 0 }, "\((j["machines"] as? [Any])?.count ?? 0) machines")
         pg.apply(j)
         board.render(force: true)
         settle(0.3)
@@ -113,10 +119,16 @@ extension SelfTestBoard {
             _ = wait(4) { pg.working.isEmpty }
         }
         press("gpu-box:a0", "/api/machines/install", "machines_update_posts")
-        check("machines_error_under_card", wait(3) { pg.errors["gpu-box"] != nil && self.shows(pg, pg.errors["gpu-box"] ?? "-") }, "\(pg.errors)")
         press("build-server:a1", "/api/machines/retry", "machines_retry_posts")
-        press("pi:a0", "/api/machines/remove", "machines_remove_shape_posts")
         press("pi:a1", "/api/machines/install", "machines_install_posts")
+        press("pi:a0", "/api/machines/remove", "machines_remove_shape_posts")
+        // The hub's refusal said under the card: pi's card (this page holds it) installed
+        // again after the hub let it go, which the hub answers 404.
+        let nPi = board.hub.sent.count
+        pg.buttons["pi:a1"]?.performClick(nil)
+        check("machines_error_under_card", wait(4) { pg.errors["pi"] != nil && self.shows(pg, pg.errors["pi"] ?? "-") } && board.hub.answers.contains { $0.seq >= nPi && $0.path == "/api/machines/install" && $0.code == 404 },
+              "\(pg.errors)")
+        _ = wait(4) { pg.working.isEmpty }
         press("studio:a0", "/api/machines/install", "machines_install_newer_posts")
         press("lab:step-hooks-0", "/api/machines/install", "machines_replace_hooks_posts")
         press("old-laptop:step-sessions-0", "/api/machines/uninstall", "machines_end_sessions_posts")
