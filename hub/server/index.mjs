@@ -3788,7 +3788,8 @@ async function handleRequest(req, res) {
       return sendJson(res, 200, { ok: true, machines: remoteinstall.view(), ...(req.mcLocal ? { hosts: machines.sshHosts(), builds: b ? { version: b.version, systems: Object.keys(b.systems), source: b.source } : null } : {}) });
     }
     if (req.method === 'GET' && p === '/api/checkpoints') return sendJson(res, 200, { ok: true, checkpoints: checkpointsView(snapshot.projects || []).concat(url.searchParams.has('all') ? checkpoints.list({ all: true }).filter((c) => !['open', 'running'].includes(c.state)).map(({ daemon: _d, ...c }) => cpWords(c)) : []) });
-    if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => hookinstall.status(hookinstall.readSettings().json)), codex: hookinstall.codexInstalled() ? safe(() => hookinstall.codexStatus()) : null });
+    // `on`: the same answer the skills rows give (hookinstall.hooksOn).
+    if (req.method === 'GET' && p === '/api/setup/hooks') return sendJson(res, 200, { ok: true, claude: safe(() => ({ ...hookinstall.status(hookinstall.readSettings().json), on: hookinstall.hooksOn('claude').on })), codex: hookinstall.codexInstalled() ? safe(() => ({ ...hookinstall.codexStatus(), on: !!hookinstall.hooksOn('codex')?.on })) : null });
     if (req.method === 'GET' && p === '/api/live') {
       const r = await liveScreen(url.searchParams.get('surface') || '', url.searchParams.get('v'));
       return sendJson(res, r.status, r.body);
@@ -3818,11 +3819,12 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && p === '/api/setup/skills') {
       // ravenryd=<path> (on the Mac only): each row adds its hooks, on, off
       // or unavailable (skills.withHooks, a dry run of setting them up).
+      // On the Mac each row says whether its hooks work (hookinstall.hooksOn,
+      // what GET /api/setup/hooks says too), with or without ravenryd=: a
+      // working hook of another spelling (the Electron app's) is on.
       const rows = skills.skillsView(process.env, HOME);
-      const bin = url.searchParams.get('ravenryd');
-      if (!bin || !req.mcLocal) return sendJson(res, 200, { ok: true, skills: rows });
-      const undoFile = path.join(registry.RAVENRY_HOME, 'setup-undo.json');
-      return sendJson(res, 200, { ok: true, skills: skills.withHooks(rows, (k) => { const r = hookinstall.setupWithRavenryd({ ravenryd: bin, dry: true, only: k, undoFile }); return r.ok && r[k] ? { file: short(r[k].file), changes: r[k].changes } : null; }) });
+      if (!req.mcLocal) return sendJson(res, 200, { ok: true, skills: rows });
+      return sendJson(res, 200, { ok: true, skills: skills.withHooks(rows, (k) => { const r = hookinstall.hooksOn(k); return r ? { file: short(r.file), on: r.on } : null; }) });
     }
     // What the person has seen of the onboarding, for every client (server/onboarding.mjs).
     if (req.method === 'GET' && p === '/api/onboarding') return sendJson(res, 200, { ok: true, ...onboarding.view() });

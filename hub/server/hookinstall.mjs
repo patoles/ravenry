@@ -77,6 +77,8 @@ const onElectron = () => !!process.versions.electron;
 
 export function hookCommand(o, { root = ROOT, node = stableNode(), electron = onElectron() } = {}) {
   const r = hookRoot(root);
+  // The app's own executable runs a script only as Node: never named without the variable.
+  if (path.basename(String(node)) === 'Ravenry') electron = true;
   return `${electron ? `${AS_NODE} ` : ''}${q(throughCurrent(node, root, r))} ${q(path.join(r, 'hooks', o.script))}`;
 }
 
@@ -173,8 +175,35 @@ function staleWhy(command, script0, root) {
   if (realOr(script) !== realOr(path.join(root, 'hooks', script0))) return `it runs another copy of Ravenry (${path.dirname(path.dirname(script))})`;
   const r = hookRoot(root);
   if (r !== root && !throughStable(script, r)) return `it names a version folder (${path.dirname(path.dirname(script))}) that an update removes`;
-  if (onElectron() && realOr(node) === realOr(process.execPath) && !splitCommand(command).includes(AS_NODE)) return `it starts the Ravenry app without ${AS_NODE}, which opens the app instead of running the hook`;
+  if (!splitCommand(command).includes(AS_NODE) && ((onElectron() && realOr(node) === realOr(process.execPath)) || path.basename(node) === 'Ravenry')) return `it starts the Ravenry app without ${AS_NODE}, which opens the app instead of running the hook`;
   return null;
+}
+
+// Whether a hook of ours already there does what `command` would: it runs
+// (its Node or the app as Node, its script, this copy, through current),
+// and it says the same about the daemon's hook (--ravenryd) and the
+// assistant. Such an entry is kept as it is, whatever its spelling (the
+// Electron app's ELECTRON_RUN_AS_NODE=1 .../Ravenry or the native app's
+// .../node): setup never rewrites a working hook only because it would
+// write it another way.
+function scriptWorks(h, o, command, root) {
+  if (!h || typeof h.command !== 'string') return false;
+  const has = splitCommand(h.command), want = splitCommand(command);
+  for (const flag of ['--ravenryd', '--assistant=codex']) if (has.includes(flag) !== want.includes(flag)) return false;
+  return staleWhy(h.command, o.script, root) === null;
+}
+// The daemon's hook already there runs the ravenryd asked for: its binary
+// is there and is that one, or is the app's stable link (<data>/bin/ravenryd,
+// which an update moves to the newest copy, as the Electron app writes it).
+// Another working copy (an app moved, an older one left behind) is moved to
+// the one asked for.
+function daemonWorks(h, assistant, want) {
+  if (!isRavenrydHook(h, assistant)) return false;
+  const w = splitCommand(h.command);
+  const bin = w[w.indexOf('hook') - 1];
+  if (!path.isAbsolute(bin) || !isExe(bin)) return false;
+  if (realOr(bin) === realOr(want)) return true;
+  try { return fs.lstatSync(bin).isSymbolicLink() && path.basename(path.dirname(bin)) === 'bin'; } catch { return false; }
 }
 
 // Matches this script wherever its copy was when it was installed, under
@@ -256,8 +285,11 @@ export function oursFor(assistant, { root = ROOT, node, ravenryd = null, electro
   const scripts = assistant === 'codex' ? CODEX_OURS : OURS;
   const extra = (assistant === 'codex' ? ' --assistant=codex' : '') + (ravenryd ? ' --ravenryd' : '');
   const as = electron === undefined ? {} : { electron };
-  const list = scripts.map((o) => ({ ...o, command: hookCommand(o, { root, node, ...as }) + extra, match: (h) => isOurs(h, o, { root }) }));
-  if (ravenryd) list.push({ script: 'ravenryd hook', events: RAVENRYD_EVENTS[assistant], timeout: 10, what: 'sessions in Ravenry terminals, on any machine', command: ravenrydCommand(ravenryd, assistant), match: (h) => isRavenrydHook(h, assistant) });
+  const list = scripts.map((o) => {
+    const command = hookCommand(o, { root, node, ...as }) + extra;
+    return { ...o, command, match: (h) => isOurs(h, o, { root }), works: (h) => scriptWorks(h, o, command, root) };
+  });
+  if (ravenryd) list.push({ script: 'ravenryd hook', events: RAVENRYD_EVENTS[assistant], timeout: 10, what: 'sessions in Ravenry terminals, on any machine', command: ravenrydCommand(ravenryd, assistant), match: (h) => isRavenrydHook(h, assistant), works: (h) => daemonWorks(h, assistant, ravenryd) });
   return list;
 }
 
@@ -299,7 +331,8 @@ export function plan(json, { remove = false, root = ROOT, node, ravenryd, script
           if (!o.match(h)) return true;
           if (found) { changes.push(`${ev}: dropped a second ${o.script} (${h.command})`); return false; }
           found = true;
-          if (h.command !== cmd) { changes.push(`${ev}: ${o.script} now runs ${cmd}`); h.command = cmd; }
+          // A working entry of another spelling is kept (oursFor's works).
+          if (h.command !== cmd && !(o.works && o.works(h))) { changes.push(`${ev}: ${o.script} now runs ${cmd}`); h.command = cmd; }
           return true;
         });
       }
@@ -341,6 +374,28 @@ export function status(json, { root = ROOT } = {}) {
   const all = scripts.every((s) => s.events.length === s.want.length);
   const none = scripts.every((s) => !s.events.length);
   return { state: stale.length ? 'stale' : all ? 'ok' : none ? 'missing' : 'partial', scripts, stale, ravenryd: ravenrydStatus(json, 'claude') };
+}
+
+// Whether one assistant's sessions report to Ravenry: every event has a
+// working hook of ours (status() ok, in whatever spelling runs), and the
+// daemon's hook, when the scripts leave Ravenry's panes to it (--ravenryd),
+// is on every one of its events with its binary there. What the Settings
+// window's row, the panel's "This session" and GET /api/setup/hooks all
+// say (one answer for every route). null: that assistant is not here.
+export function hooksOn(kind, { root = ROOT } = {}) {
+  const leaves = (json, ours) => Object.values((json && json.hooks) || {}).some((l) => (Array.isArray(l) ? l : []).some((e) => ((e && e.hooks) || []).some((h) => ours.some((o) => isOurs(h, o, { root })) && splitCommand(h.command).includes('--ravenryd'))));
+  const daemonOk = (rv, json, ours) => rv.state === 'ok' || (rv.state === 'missing' && !leaves(json, ours));
+  if (kind === 'claude') {
+    const cur = readSettings();
+    const s = status(cur.json, { root });
+    return { file: cur.file, on: s.state === 'ok' && daemonOk(s.ravenryd, cur.json, OURS), state: s.state, daemon: s.ravenryd.state };
+  }
+  if (kind === 'codex') {
+    if (!codexPresent()) return null;
+    const s = codexStatus({ root });
+    return { file: s.file, on: s.state === 'ok' && !s.hooksOff && daemonOk(s.ravenryd, cx.readHooks().json, CODEX_OURS), state: s.state, daemon: s.ravenryd.state };
+  }
+  return null;
 }
 
 // Whether the daemon's hook is there, on which events, and whether its

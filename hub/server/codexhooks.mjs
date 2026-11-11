@@ -126,7 +126,9 @@ export function planHooks(json, ours, isOurs, { remove = false } = {}) {
           if (!isOurs(h, o)) return true;
           if (found) { changes.push(`${ev}: dropped a second ${o.script} (${h.command})`); return false; }
           found = true;
-          if (h.command !== o.command || h.timeout !== timeout) { changes.push(`${ev}: ${o.script} now runs ${o.command}`); h.command = o.command; h.timeout = timeout; }
+          // A working entry of another spelling keeps its command (hookinstall.mjs oursFor's works).
+          const keep = h.command !== o.command && typeof o.works === 'function' && o.works(h);
+          if ((h.command !== o.command && !keep) || h.timeout !== timeout) { changes.push(`${ev}: ${o.script} now runs ${keep ? h.command : o.command}`); if (!keep) h.command = o.command; h.timeout = timeout; }
           return true;
         });
       }

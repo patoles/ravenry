@@ -103,7 +103,9 @@ export function withHooks(rows, dry) {
   return rows.map((r) => {
     let x = null;
     try { x = dry(r.kind); } catch { x = null; }
-    return { ...r, ...(x && x.file ? { hooks: x.changes && x.changes.length ? 'off' : 'on', hooksFile: x.file } : { hooks: 'unavailable', hooksFile: null }) };
+    // `on` (hookinstall.hooksOn: they work, whatever their spelling), else a dry run's changes.
+    const on = x && typeof x.on === 'boolean' ? x.on : !(x && x.changes && x.changes.length);
+    return { ...r, ...(x && x.file ? { hooks: on ? 'on' : 'off', hooksFile: x.file } : { hooks: 'unavailable', hooksFile: null }) };
   });
 }
 
