@@ -277,6 +277,20 @@ extension SelfTestBoard {
         check("sess_use_line", shows(sb.rows[kp] ?? NSView(), "Using dev server"), texts(sb.rows[kp] ?? NSView()).joined(separator: " | "))
         check("sess_access_note", sb.noteShown?.contains("did not let Ravenry read ~/Documents") == true, sb.noteShown ?? "none")
         pictures("sessions-sidebar-note")
+        // macOS asking (the hub's 503 names the folder): app.ts deniedNote's words, the question first, and Open Files & Folders.
+        sb.testWaiting = (folder: "~/Documents", name: "Documents")
+        board.render(force: true)
+        settle(0.3)
+        check("sess_access_asking_note", sb.noteShown == "macOS is asking whether Ravenry may read ~/Documents. Click Allow in the dialog. Closed it? System Settings > Privacy & Security > Files & Folders > Ravenry, turn on Documents."
+              && sb.noteButton?.title == "Open Files & Folders", sb.noteShown ?? "none")
+        let o = Outside.record?.count ?? 0
+        if let b = sb.noteButton { click(b) }
+        check("sess_access_open_privacy", Outside.record?.dropFirst(o).contains("open \(SidebarView.privacyPane)") ?? false, Outside.record?.suffix(1).joined() ?? "none")
+        pictures("sessions-sidebar-asking")
+        sb.testWaiting = nil
+        board.render(force: true)
+        settle(0.3)
+        check("sess_access_note_back_to_refused", sb.noteShown?.hasPrefix("macOS did not let Ravenry read ~/Documents.") == true, sb.noteShown ?? "none")
         sb.useLine = oldUse
         repatch(nil)
         if let row = sb.rows[kp], let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {

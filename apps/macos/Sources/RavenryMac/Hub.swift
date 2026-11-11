@@ -281,6 +281,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     /// The protected folder macOS is asking about while the hub waits for
     /// the answer (its 503, hub/server/access.mjs), as "~/Documents".
     private(set) var waitingFor: String?
+    /// What macOS calls that folder in System Settings ("Documents"), the hub's `folder`.
+    private(set) var waitingFolder: String?
     var onState: ((HubState) -> Void)?
     var onStatus: ((Bool) -> Void)?
     /// A Mac notification the hub asks this app to post (event: notify, on the app's stream ?app=1).
@@ -500,16 +502,17 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         let ok = code == 200
         if ok { retry = 1; setReachable(true) }
-        if ok, waitingFor != nil { waitingFor = nil; DispatchQueue.main.async { self.onStatus?(true) } }
+        if ok, waitingFor != nil { waitingFor = nil; waitingFolder = nil; DispatchQueue.main.async { self.onStatus?(true) } }
         // Starting: macOS may be asking whether Ravenry may read a folder;
         // every route says which until the person answers.
         if code == 503, let b = base {
             URLSession.shared.dataTask(with: b.appendingPathComponent("api/state")) { [weak self] d, _, _ in
                 guard let self, let d, let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return }
-                let w = j["waitingFor"] as? String
+                let w = j["waitingFor"] as? String, f = j["folder"] as? String
                 DispatchQueue.main.async {
-                    guard w != self.waitingFor else { return }
+                    guard w != self.waitingFor || f != self.waitingFolder else { return }
                     self.waitingFor = w
+                    self.waitingFolder = f
                     self.onStatus?(self.reachable)
                 }
             }.resume()

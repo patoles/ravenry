@@ -41,9 +41,11 @@ final class SidebarView: Flipped {
     private let nav = Flipped()
     private let foot = Flipped()
     private let empty = label("", Fonts.pt(12.5), "tx3", lines: 6)
-    /// A folder macOS is asking about, or did not let the board read, over a list that has rows (.access-note).
-    private let note = Box(fill: "card", ring: "you", radius: 8)
-    private let noteText = label("", Fonts.pt(12), "tx2", lines: 6)
+    /// A folder macOS is asking about, or did not let the board read, over a
+    /// list that has rows (app.ts deniedNote, .access-note: the "you" colour
+    /// on its tint, the question in bold, Open Files & Folders under it).
+    private let note = Box(fill: "you-t", radius: 8)
+    private let noteText = label("", Fonts.pt(12), "you", lines: 8)
     private(set) var noteButton: RButton?
     /// What the access note says, for the self-test.
     var noteShown: String? { note.isHidden ? nil : noteText.stringValue }
@@ -161,8 +163,13 @@ final class SidebarView: Flipped {
     /// The foot's buttons by key (the phone card sits over its own).
     private(set) var footButtons: [String: RButton] = [:]
 
-    /// The folder macOS is asking about while the hub waits (HubClient.waitingFor).
+    /// The folder macOS is asking about while the hub waits (HubClient.waitingFor), and what Settings calls it (waitingFolder).
     var waitingFor: String?
+    var waitingFolder: String?
+    /// The self-test's stand-in for both, as the hub's 503 says them.
+    var testWaiting: (folder: String, name: String?)?
+    /// The pane of System Settings the note's button opens.
+    static let privacyPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
 
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
         lastState = state
@@ -171,10 +178,11 @@ final class SidebarView: Flipped {
         uses = [:]
         for s in sections { for p in s.projects { for r in p.rows { if let u = useLine?(r.key) { uses[r.key] = u } } } }
         let denied = (((state?.raw["access"] as? [String: Any])?["denied"] as? [[String: Any]]) ?? []).compactMap { $0["folder"] as? String }
+        let asking = testWaiting ?? waitingFor.map { (folder: $0, name: waitingFolder) }
         firstRun = sections.isEmpty && (!reachable || (state?.projects.isEmpty ?? true)) && !hasTabs
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String($0.hashValue) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
-                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", waitingFor ?? "",
+                   String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", asking.map { "\($0.folder)\($0.name ?? "")" } ?? "",
                    uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260)].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
@@ -183,13 +191,20 @@ final class SidebarView: Flipped {
         hintShown = false
         // macOS asking for a folder, or refused one, while rows show (deniedNote).
         noteButton = nil
-        if !sections.isEmpty, let w = waitingFor {
-            noteText.stringValue = t("side.accessAsking", ["folder": w])
-            let b = RButton(t("side.openPrivacy"), .link) { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!) }
+        if !sections.isEmpty, let w = asking {
+            // Electron's words: the question in bold, then where to turn it on.
+            let s = NSMutableAttributedString(string: t("start.askingT", ["folder": w.folder]), attributes: [.font: Fonts.pt(12, Fonts.w650), .foregroundColor: Design.color("you")])
+            s.append(NSAttributedString(string: " " + t("side.accessClosed", ["folder": w.name ?? w.folder]), attributes: [.font: Fonts.pt(12), .foregroundColor: Design.color("you")]))
+            let p = NSMutableParagraphStyle(); p.lineBreakMode = .byWordWrapping; p.lineHeightMultiple = 1.15
+            s.addAttribute(.paragraphStyle, value: p, range: NSRange(location: 0, length: s.length))
+            noteText.attributedStringValue = s
+            let b = RButton(t("side.openPrivacy"), .link) { Outside.settings(SidebarView.privacyPane) }
+            b.titleColor = "you"
             noteButton = b
             setNote([noteText, hstack([b, spring()], spacing: 0)])
         } else if !sections.isEmpty, !denied.isEmpty {
             noteText.stringValue = t("side.accessDenied", ["folders": denied.joined(separator: ", ")])
+            noteText.textColor = Design.color("you")
             setNote([noteText])
         } else { note.isHidden = true }
         // The mix bar: each state's share of the rows.

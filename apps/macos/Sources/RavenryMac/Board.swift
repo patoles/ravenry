@@ -1449,6 +1449,7 @@ final class Board: NSObject {
         sidebar.footOn = on
         if phoneCard.isOpen { phoneCard.place() }
         sidebar.waitingFor = hub.waitingFor
+        sidebar.waitingFolder = hub.waitingFolder
         sidebar.newButton.on = front == .start
         sidebar.hasTabs = !ws.tabs.isEmpty
         if !sideHidden { sidebar.update(state: st, reachable: hub.reachable, front: fk, pinned: Set(pinned), page: page, alerts: (st?.counts["you"] ?? 0) > 0) }

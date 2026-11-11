@@ -41,7 +41,7 @@
   "side.pinned": "pinned",
   "side.using": "Using {pane}",
   "side.waitingFor": "Waiting for {pane}, {who} has it",
-  "side.accessAsking": "macOS is asking whether Ravenry may read {folder}. Click Allow in its dialog. Closed it? Turn it on in System Settings > Privacy & Security > Files & Folders > Ravenry.",
+  "side.accessClosed": "Closed it? System Settings > Privacy & Security > Files & Folders > Ravenry, turn on {folder}.",
   "side.accessDenied": "macOS did not let Ravenry read {folders}. Turn it on in System Settings > Privacy & Security > Files & Folders.",
   "side.openPrivacy": "Open Files & Folders",
   "hint.learnMore": "Learn more",
