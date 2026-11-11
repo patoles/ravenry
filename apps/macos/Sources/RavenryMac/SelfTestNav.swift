@@ -70,6 +70,13 @@ extension SelfTestBoard {
         b.files.host?.openPlan("garden-planner", nil)
         b.openPage(plans.key, plans.label)
         check("nav_no_loop", b.backTrail.isEmpty, "\(b.backTrail)")
+        // A page from the sidebar while on another: top level, its Close to the terminal.
+        home()
+        b.openPage(ideas.key, ideas.label)
+        b.sidebar.onNav?(rules.key, rules.label)
+        check("nav_sidebar_is_top_level", b.front == .page(rules.key, rules.label) && b.backTrail.isEmpty && b.backName == nil, "\(b.backTrail)")
+        b.back()
+        check("nav_sidebar_page_closes_to_terminal", onTerminal, "\(b.front)")
         // An idea from Ideas: its "‹ Ideas" goes up to Ideas, whose Close then goes to the terminal (B3).
         home()
         b.openPage(ideas.key, ideas.label)

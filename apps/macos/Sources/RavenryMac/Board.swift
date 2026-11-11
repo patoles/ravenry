@@ -283,11 +283,13 @@ final class Board: NSObject {
     private var showingMiddle = false
 
     private func wire() {
-        sidebar.onSession = { [weak self] k in self?.pickSession(k, why: "click") }
-        sidebar.onProject = { [weak self] id in self?.pickProject(id) }
+        // The sidebar is the top level: what it opens sits over the terminal,
+        // its Close back to the terminal; a page opened from a page goes back to it.
+        sidebar.onSession = { [weak self] k in self?.topLevel { $0.pickSession(k, why: "click") } }
+        sidebar.onProject = { [weak self] id in self?.topLevel { $0.pickProject(id) } }
         sidebar.onPin = { [weak self] k in self?.togglePin(k) }
-        sidebar.onNew = { [weak self] in self?.openStart(nil) }
-        sidebar.onNav = { [weak self] key, name in self?.openPage(key, name) }
+        sidebar.onNew = { [weak self] in self?.topLevel { $0.openStart(nil) } }
+        sidebar.onNav = { [weak self] key, name in self?.topLevel { $0.openPage(key, name) } }
         sidebar.onResize = { [weak self] w in
             guard let self else { return }
             self.sideWidth = w
@@ -922,6 +924,13 @@ final class Board: NSObject {
         }
         backStack.append(h)
         if backStack.count > 40 { backStack.removeFirst() }
+    }
+
+    /// Opened from the sidebar: a fresh stack over the terminal.
+    func topLevel(_ run: (Board) -> Void) {
+        backStack.removeAll()
+        here = nil
+        run(self)
     }
 
     /// A step that can still be shown (its session, project or question is still on the board).
