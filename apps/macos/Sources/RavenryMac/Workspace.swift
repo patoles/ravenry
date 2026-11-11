@@ -299,7 +299,21 @@ final class Workspace: NSObject {
     }
 
     /// The board (Board sets it; else the app's): which session a pane runs.
-    weak var hub: HubClient?
+    /// It also holds the checkpoints of this window's daemons (LocalCheckpoints.swift): each daemon's list now, its events from here.
+    weak var hub: HubClient? {
+        didSet {
+            hub?.daemonConn = { [weak self] s in self?.daemons.all.first { $0.socket == s }?.conn }
+            for d in daemons.all { listCheckpoints(d) }
+        }
+    }
+    /// What a daemon holds now (checkpoint.list): its events only say what changes from here.
+    func listCheckpoints(_ d: DaemonLink) {
+        guard d.conn.methods.isEmpty || d.conn.methods.contains("checkpoint.list") else { return }
+        d.conn.request("checkpoint.list", [:]) { [weak self, weak d] r in
+            guard case .success(let j) = r, let list = j["checkpoints"] as? [[String: Any]] else { return }
+            DispatchQueue.main.async { if let d { for cp in list { self?.hub?.daemonCheckpoint(cp, socket: d.socket) } } }
+        }
+    }
     private var hubState: HubState? { (hub ?? (NSApp.delegate as? AppDelegate)?.hub)?.state }
 
     /// The session the board follows in a pane of this Mac (sessionOfPane).
@@ -426,10 +440,12 @@ final class Workspace: NSObject {
         tabs += added.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }.map(\.element)
         refresh()
         save()
+        listCheckpoints(d)
     }
 
     /// A daemon went away: its panes' tabs go (their processes went with it).
     func left(_ d: DaemonLink) {
+        hub?.dropDaemon(d.socket)
         // The last one gone: the window stays as it was, and says so.
         if daemons.all.isEmpty { window.title = "Ravenry (the daemon went away)"; return }
         let gone = homes.filter { $0.value === d }.map(\.key)
@@ -1103,6 +1119,8 @@ final class Workspace: NSObject {
             if let (id, _) = boxes.first(where: { $0.value.term.channel == ch && $0.value.term.conn === d.conn }) { ended(id) }
             return
         }
+        // A question asked in one of its panes, or one that moved on (app.ts onCheckpoint).
+        if name.hasPrefix("checkpoint."), let cp = ev["checkpoint"] as? [String: Any] { hub?.daemonCheckpoint(cp, socket: d.socket); return }
         guard let p = ev["pane"] as? [String: Any], let id = p["id"] as? String else { return }
         switch name {
         case "pane.title", "pane.cwd", "pane.updated", "pane.created":

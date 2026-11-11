@@ -73,11 +73,13 @@ final class Board: NSObject {
     let picker = PickerView()
     /// Sessions: memory, Close the idle ones, Reopen (SessionsPage.swift).
     let sessionsPage = SessionsPage()
+    /// New project: its folder, its brief and a first session (NewProjectPage.swift).
+    let newProject = NewProjectPage()
     let notifier: Notifier
     /// The project of the session the person last had open (a page's Ask Claude to fix).
     private(set) var lastProject: String?
     /// Every view the middle shows instead of a tab's terminal.
-    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker, review, filesGrid, sessionsPage] }
+    private var middles: [NSView] { [outside, projectPage, placeholder, start, brief, gallery, plan, idea, alerts, files, decisions, learn, machines, picker, review, filesGrid, sessionsPage, newProject] }
     /// Something the middle showed, and how to show it again as it was.
     private struct Step {
         let front: Front
@@ -155,7 +157,7 @@ final class Board: NSObject {
         gallery.isHidden = true
         gallery.hub = hub
         gallery.toast = toaster(gallery)
-        for f in [plan, idea, alerts, files, decisions, learn, machines, sessionsPage] as [FormPage] {
+        for f in [plan, idea, alerts, files, decisions, learn, machines, sessionsPage, newProject] as [FormPage] {
             f.isHidden = true
             f.hub = hub
             f.toast = toaster(f)
@@ -361,8 +363,9 @@ final class Board: NSObject {
             var group: String? = rs == "needs_you" ? "you" : rs == "working" ? "work" : nil
             if let st = self.hub.state {
                 for p in st.projects where p.machine == nil { for s in p.sessions where s.pane == pane && s.machine == nil { group = s.group } }
-                if st.checkpoints.contains(where: { ["open", "running"].contains($0["state"] as? String ?? "") && $0["pane"] as? String == pane && ($0["machine"] as? String) == nil }) { group = "you" }
             }
+            // A question open in it, from the board or this window's daemons (the board down too).
+            if self.hub.checkpoint(pane: pane) != nil { group = "you" }
             let l = self.leaseOf(pane).map { self.sourceOf($0["holder"] as? [String: Any]) }
             return (group, l)
         }
@@ -370,8 +373,9 @@ final class Board: NSObject {
         picker.onClose = { [weak self] in self?.back() }
         picker.answer = { [weak self] id, reply, done in
             self?.markUsed("needs")
-            self?.hub.post("/api/checkpoints/answer", reply.merging(["id": id, "by": "desktop"]) { a, _ in a }) { code, j in
-                done(code == 200, code == 200 ? nil : t("checkpoint.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]))
+            // Through the daemon that holds it, else the hub (HubClient.answerCheckpoint).
+            self?.hub.answerCheckpoint(id, reply) { ok, error in
+                done(ok, error)
                 self?.render(force: true)
             }
         }
@@ -424,6 +428,8 @@ final class Board: NSObject {
         gallery.onClose = { [weak self] in self?.back() }
         // Group A's sidebar, panel and page hooks, once the panel's host is set.
         wireSessions()
+        // The panel's checkpoints from the daemons, New project (NewProjectPage.swift).
+        wirePanel()
     }
 
     // MARK: what is in front
@@ -467,17 +473,42 @@ final class Board: NSObject {
         if !newYou.isEmpty || !newCps.isEmpty { log.append("state: new \((newCps.sorted() + newYou.sorted()).joined(separator: ","))\(first ? " (first)" : "")") }
         if !first {
             var arrived: [String] = []
+            var unheld: [String: Any]?
             for id in newCps {
                 if let cp = st.checkpoints.first(where: { $0["id"] as? String == id }),
                    let k = st.projects.lazy.compactMap({ p in p.sessions.first(where: { st.checkpoint(of: p, $0)?["id"] as? String == id }).map { "\(p.id)/\($0.surfaceId)" } }).first {
                     _ = cp
                     arrived.append(k)
-                }
+                } else if let cp = st.checkpoints.first(where: { $0["id"] as? String == id }) { unheld = cp }
             }
             arrived += newYou.sorted()
             if let k = arrived.last { arrive(k, st) }
+            // One no session holds: its shell tab, else on its own (cpArrived).
+            if let c = unheld { cpArrived(c) }
         }
         render()
+    }
+
+    /// A checkpoint no session holds (app.ts arrive, targetOf): the shell
+    /// tab of its pane (in front, the panel shows it; else a toast with
+    /// Show), else its card on its own over what is in front.
+    func cpArrived(_ cp: [String: Any]) {
+        guard let id = cp["id"] as? String else { return }
+        if let pane = cp["pane"] as? String, cp["machine"] as? String == nil, let tb = ws.tab(showing: pane) {
+            if case .tab = front, ws.active === tb {
+                if !wide { overlay = true }
+                log.append("arrived tab:\(tb.id): the panel opens")
+                return
+            }
+            let w = cp["words"] as? [String: Any] ?? [:]
+            let what = InlineMd.plain(((w["head"] as? String) ?? (cp["title"] as? String) ?? "").replacingOccurrences(of: "\n", with: " "))
+            let said = what.isEmpty ? "." : ": " + (what.count > 70 ? String(what.prefix(69)) + "..." : what)
+            log.append("arrived tab:\(tb.id): a toast")
+            toast("\(ws.label(pane).name) needs you\(said)", actions: [("Show", { [weak self] in self?.showPane(pane) })], key: "needs:tab:\(tb.id)")
+            return
+        }
+        log.append("checkpoint \(id): no session or tab holds it, its card on its own")
+        showCheckpoint(id)
     }
 
     private func arrive(_ key: String, _ st: HubState) {
@@ -626,6 +657,7 @@ final class Board: NSObject {
         if key == "side.phone" { if phoneCard.isOpen { phoneCard.close() } else { openPhone() }; return }
         // The foot's Settings, and the panel's way to Settings when the first-launch step was off (its Skills).
         if key == "sessions" { openSessions(); return }
+        if key == "newproject" { openNewProject(nil); return }
         if key.hasPrefix("settings:") { openSettings(String(key.dropFirst(9))); return }
         if key == "side.settings" || key == "settings" { openSettings(key == "settings" ? "skills" : nil); return }
         if hub.state?.pages.contains(where: { $0.key == key }) == true { openFilePage(key, name); return }
@@ -704,6 +736,17 @@ final class Board: NSObject {
         showMiddle(plan)
         plan.show(pid, mode: .new, state: hub.state)
         log.append("newplan \(pid)")
+        render()
+    }
+
+    /// New project, from nothing or from a folder (a shell's, a session's that is in no project).
+    func openNewProject(_ from: NewProjectPage.From?) {
+        overlay = false
+        enter(.page("newproject", t("np.title"))) { [weak self] in self?.openNewProject(from) }
+        front = .page("newproject", t("np.title"))
+        showMiddle(newProject)
+        newProject.show(from: from, state: hub.state)
+        log.append("new project\(from.map { " from \($0.folderShort)" } ?? "")")
         render()
     }
 
@@ -1252,6 +1295,8 @@ final class Board: NSObject {
         hub.post("/api/sessions/resume", ["projectId": p.id, "sessionId": sid, "cols": g.cols, "rows": g.rows]) { [weak self] code, j in
             guard let self else { return }
             self.projectPage.busy = false
+            // Still open in another terminal: the last conversation asked again, so the page says where, with Move here (app.ts continueLast).
+            if code != 200, j["open"] as? Bool == true { self.projectPage.error = nil; self.projectPage.reload(p); return }
             if code != 200 { self.projectPage.error = j["error"] as? String ?? "It could not be continued."; self.projectPage.draw(p); return }
             self.showStarted(p, j, why: "continue")
         }

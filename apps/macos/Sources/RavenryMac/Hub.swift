@@ -305,8 +305,138 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             var r = s.raw
             r["checkpoints"] = testCheckpoints ?? []
             if let f = testPatch { r = f(r) }
-            state = HubState(r)
+            hubRaw = r
+            state = HubState(withLocal(r))
             onState?(state!)
+        }
+    }
+    /// The last state as the hub sent it (filled for an older hub, the self-test's changes made), before this window's daemons' checkpoints.
+    private var hubRaw: [String: Any]?
+
+    // MARK: the checkpoints this window's daemons hold (LocalCheckpoints.swift)
+
+    let daemonCps = DaemonCheckpoints()
+    /// A daemon's checkpoint opened while the hub has sent no state yet (the board down from the start): the ids.
+    var onLocal: (([String]) -> Void)?
+    /// A daemon's connection by its socket, while the window has it (Workspace).
+    var daemonConn: (String) -> Connection? = { _ in nil }
+    /// The self-test's: the daemon's answer to checkpoint.answer replaced by this error code (forbidden, not_found).
+    var testDaemonError: String?
+    /// The hub's own code for a daemon's copies (OlderHub's, on the main thread only), and the words it made, by "<id>|<state>".
+    private lazy var wordsJS = OlderHub()
+    private var wordsMade: [String: [String: Any]] = [:]
+
+    /// Every checkpoint this window knows: the state's (the daemons' in it), else the daemons' alone; nil when neither has said anything.
+    var checkpoints: [[String: Any]]? {
+        if let s = state { return s.checkpoints }
+        return daemonCps.items.isEmpty ? nil : worded(daemonCps.merged([]))
+    }
+    func checkpoint(id: String) -> [String: Any]? { checkpoints?.first { $0["id"] as? String == id } }
+    /// An open checkpoint from a pane of this computer's daemons, the oldest first.
+    func checkpoint(pane: String) -> [String: Any]? {
+        (checkpoints ?? []).filter { ["open", "running"].contains($0["state"] as? String ?? "") && $0["pane"] as? String == pane && $0["machine"] as? String == nil }
+            .sorted { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }.first
+    }
+
+    /// A checkpoint a daemon of this window reported (its list, an event), on the main thread.
+    func daemonCheckpoint(_ cp: [String: Any], socket: String) {
+        let opened = daemonCps.put(cp, socket: socket)
+        localChanged(opened ? [cp["id"] as? String ?? ""] : [])
+    }
+
+    /// A daemon went away: its checkpoints with it.
+    func dropDaemon(_ socket: String) {
+        let had = daemonCps.items.count
+        daemonCps.drop(socket: socket)
+        if daemonCps.items.count != had { localChanged([]) }
+    }
+
+    private func localChanged(_ opened: [String]) {
+        if let r = hubRaw {
+            let st = HubState(withLocal(r))
+            state = st
+            onState?(st)
+        } else { onLocal?(opened.filter { !$0.isEmpty }) }
+    }
+
+    /// The hub's state with this window's daemons' checkpoints merged in.
+    private func withLocal(_ raw: [String: Any]) -> [String: Any] {
+        guard !daemonCps.items.isEmpty else { return raw }
+        var r = raw
+        r["checkpoints"] = worded(daemonCps.merged(raw["checkpoints"] as? [[String: Any]] ?? []))
+        return r
+    }
+
+    /// Each checkpoint with words for its state: the hub's, else made here by the hub's own code (cpwords.mjs wordsOf).
+    private func worded(_ list: [[String: Any]]) -> [[String: Any]] {
+        func key(_ c: [String: Any]) -> String { "\(c["id"] as? String ?? "")|\(c["state"] as? String ?? "")" }
+        func lacks(_ c: [String: Any]) -> Bool { (c["words"] as? [String: Any])?["state"] as? String != c["state"] as? String }
+        let lacking = list.filter { lacks($0) && wordsMade[key($0)] == nil }
+        if !lacking.isEmpty {
+            let bare = lacking.map { c -> [String: Any] in var x = c; x["words"] = nil; return x }
+            let filled = wordsJS.fill(["sidebar": [:] as [String: Any], "projects": [] as [Any], "checkpoints": bare])["checkpoints"] as? [[String: Any]] ?? []
+            for c in filled { if let w = c["words"] as? [String: Any] { wordsMade[key(c)] = w } }
+        }
+        return list.map { c in
+            guard lacks(c), let w = wordsMade[key(c)] else { return c }
+            var x = c
+            x["words"] = w
+            return x
+        }
+    }
+
+    /// Answers a checkpoint as the Electron app does (app.ts answerCp):
+    /// through the daemon of this window that holds it, else through the
+    /// hub. `done` gets whether it was taken, else the words to show.
+    func answerCheckpoint(_ id: String, _ reply: [String: Any], _ done: @escaping (Bool, String?) -> Void) {
+        let hubHas = (hubRaw?["checkpoints"] as? [[String: Any]])?.contains { $0["id"] as? String == id } ?? false
+        if let sock = daemonCps.socket(of: id) {
+            if let c = daemonConn(sock) {
+                var params = reply
+                params["checkpoint"] = id
+                params["by"] = "desktop"
+                var kept = params
+                if let sec = kept["secret"] as? String { kept["secret"] = "(\(sec.count) characters)" }
+                sent.append("ravenryd checkpoint.answer")
+                sentBodies.append(("ravenryd checkpoint.answer", kept))
+                let edited = reply["command"] != nil || reply["reason"] != nil
+                let finish: (Result<[String: Any], ConnectionError>) -> Void = { [weak self] r in
+                    guard let self else { return }
+                    switch r {
+                    case .success(let j):
+                        if let cp = j["checkpoint"] as? [String: Any] { self.daemonCheckpoint(cp, socket: sock) }
+                        done(true, nil)
+                    case .failure(let e):
+                        if case .daemon(let code, let msg) = e {
+                            if code == "forbidden" { self.daemonCps.notPerson.insert(sock); done(false, t("checkpoint.notPerson")); return }
+                            if code == "not_found" { done(false, t("checkpoint.closedAlready")); return }
+                            if code == "bad_request" && edited { done(false, t("checkpoint.oldDaemon", ["why": msg])); return }
+                        }
+                        if !hubHas { done(false, t("checkpoint.daemonFailed", ["why": "\(e)"])); return }
+                        self.answerOnHub(id, reply, done)
+                    }
+                }
+                if let code = testDaemonError {
+                    DispatchQueue.main.async { finish(.failure(.daemon(code: code, message: "the self-test's \(code)"))) }
+                    return
+                }
+                c.request("checkpoint.answer", params) { r in DispatchQueue.main.async { finish(r) } }
+                return
+            }
+            if !hubHas { DispatchQueue.main.async { done(false, t("checkpoint.daemonGone")) }; return }
+        }
+        answerOnHub(id, reply, done)
+    }
+
+    private func answerOnHub(_ id: String, _ reply: [String: Any], _ done: @escaping (Bool, String?) -> Void) {
+        var body = reply
+        body["id"] = id
+        body["by"] = "desktop"
+        post("/api/checkpoints/answer", body) { code, j in
+            if code == 200 { done(true, nil); return }
+            // The hub takes answers from a person only (refusedAsPerson): this window was started from inside a pane.
+            if code == 403, j["notPerson"] as? Bool == true { done(false, t("checkpoint.notPerson")); return }
+            done(false, t("checkpoint.failed", ["why": j["error"] as? String ?? "the board answered \(code)"]))
         }
     }
     private var session: URLSession!
@@ -416,8 +546,9 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             var full = older.fill(j)
             if let fx = testCheckpoints { full["checkpoints"] = fx }
             if let f = testPatch { full = f(full) }
-            let st = HubState(full)
             DispatchQueue.main.async {
+                self.hubRaw = full
+                let st = HubState(self.withLocal(full))
                 self.state = st
                 self.onState?(st)
             }

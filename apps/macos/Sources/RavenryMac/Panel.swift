@@ -55,6 +55,8 @@ final class PanelView: Box {
         var redraw: () -> Void = {}
         /// What a drive card says of its pane and who asks (cardCtx.drive).
         var driveFacts: ([String: Any]) -> DriveFacts? = { _ in nil }
+        /// New project from a folder (NewProjectPage.swift).
+        var newProject: (NewProjectPage.From) -> Void = { _ in }
     }
 
     var host: Host?
@@ -142,11 +144,11 @@ final class PanelView: Box {
         }
         if let id = pane?.id {
             parts.append(host?.inputs(id)?.count ?? -1)
-            parts += [lastKnown[id] != nil, host?.paneLabels(id)?["ravenry.session"] ?? "", typedUI[id].map { "\($0.filter)\($0.whole)" } ?? ""]
-            if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], state?.checkpoint(pane: id) ?? [:]] }
+            parts += [lastKnown[id] != nil, host?.paneLabels(id)?["ravenry.session"] ?? "", typedUI[id].map { "\($0.filter)\($0.whole)" } ?? "", pane.map { folderFree($0.cwd, state) } ?? false]
+            if front == nil || state?.find(front!) == nil { parts += [host?.report(id) ?? [:], host?.hub.checkpoint(pane: id) ?? [:]] }
         }
         parts.append(cardUI.map { "\($0.key)\($0.value.stamp)" }.sorted())
-        if let id = loose { parts += [id, state?.checkpoints.first { $0["id"] as? String == id } ?? [:]] }
+        if let id = loose { parts += [id, host?.hub.checkpoint(id: id) ?? [:]] }
         let sig = (try? JSONSerialization.data(withJSONObject: parts, options: [.sortedKeys, .fragmentsAllowed])).map { String($0.hashValue) } ?? UUID().uuidString
         // A field being typed in keeps its place: drawn again only when its card changed.
         if !force, sig == signature { return }
@@ -163,8 +165,9 @@ final class PanelView: Box {
         // A loose checkpoint (a page's run button): its card, until it is answered or something else comes to the front.
         if loose != nil, looseFront == nil { looseFront = front ?? "" }
         if loose != nil, (front ?? "") != looseFront { loose = nil; looseFront = nil }
-        let looseCp = loose.flatMap { id in state?.checkpoints.first { $0["id"] as? String == id && ["open", "running"].contains($0["state"] as? String ?? "") } }
-        if loose != nil, looseCp == nil, state != nil { loose = nil; looseFront = nil }
+        // From the state, or the daemons' alone while the board has sent nothing (LocalCheckpoints.swift).
+        let looseCp = loose.flatMap { id in host?.hub.checkpoint(id: id).flatMap { ["open", "running"].contains($0["state"] as? String ?? "") ? $0 : nil } }
+        if loose != nil, looseCp == nil, host?.hub.checkpoints != nil { loose = nil; looseFront = nil }
         if let c = looseCp {
             shows = "loose"
             setHead(c["project"] as? String ?? t("panel.waitingForYou"), tag: (c["assistant"] as? String).map(assistantName), machine: c["machine"] as? String, pinKey: nil)
@@ -476,7 +479,16 @@ final class PanelView: Box {
             m.popUp(positioning: nil, at: NSPoint(x: 0, y: add.bounds.height + 4), in: add)
         }
         buttons["addToProject"] = add
-        return sec(t("panel.notInProject"), [para(t("panel.notInProjectText"), "tx2", size: 12), hstack([add, spring()], spacing: 0)])
+        // New project from this folder: the form with its folder and the session's assistant; the workspace joins the new project (SESS-022).
+        let ws = (p.raw["workspaces"] as? [String])?.first
+        let newB = RButton(t("panel.newFromFolder"), small: true) { [weak self] in
+            guard let f = p.folder else { return }
+            self?.host?.newProject(NewProjectPage.From(name: p.name, folder: f, folderShort: p.folderShort ?? f, workspaceId: ws, assistant: p.mainSession?.assistant))
+        }
+        newB.isEnabled = p.folder != nil
+        if p.folder == nil { newB.toolTip = t("panel.noFolderOwn") }
+        buttons["newProject"] = newB
+        return sec(t("panel.notInProject"), [para(t("panel.notInProjectText"), "tx2", size: 12), flow([add, newB])])
     }
 
     func addToProject(_ from: HubProject, _ to: HubProject) {
@@ -736,11 +748,25 @@ final class PanelView: Box {
         return p == h ? "~" : p.hasPrefix(h + "/") ? "~" + p.dropFirst(h.count) : p
     }
 
+    /// A shell's folder that no project on the board uses, and that can hold one (not home, not the projects root): it offers New project from this folder.
+    private func folderFree(_ cwd: String, _ st: HubState?) -> Bool {
+        guard let st, !cwd.isEmpty, cwd.hasPrefix(NSHomeDirectory() + "/") else { return false }
+        let real = URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path
+        if ["/Library", "/.ravenry", "/.claude"].contains(where: { real.hasPrefix(NSHomeDirectory() + $0) }) { return false }
+        let root = ((st.raw["projectsRoot"] as? [String: Any])?["path"] as? String).map { $0.replacingOccurrences(of: "^~", with: NSHomeDirectory(), options: .regularExpression) }
+        if let r = root, URL(fileURLWithPath: r).resolvingSymlinksInPath().path == real { return false }
+        return !st.projects.contains { p in
+            guard let f = p.folder, !(p.raw["unowned"] as? Bool ?? false) else { return false }
+            let pf = URL(fileURLWithPath: f).resolvingSymlinksInPath().path
+            return real == pf || real.hasPrefix(pf + "/")
+        }
+    }
+
     private func shellBody(_ pn: (id: String, name: String, cwd: String, command: [String])) -> [NSView] {
         var out: [NSView] = []
         if let o = host?.opened(pn.id) { out.append(hstack([Icon("shell", "tx3", size: 13), label(o, Fonts.pt(12), "tx3", lines: 2)], spacing: 7)) }
         // What the agent in it reported through the daemon (app.ts shellPanel): its state, or a question's card.
-        let cp = host?.hub.state?.checkpoint(pane: pn.id)
+        let cp = host?.hub.checkpoint(pane: pn.id)
         if let line = reportLine(host?.report(pn.id), cp: cp) { out.append(line) }
         if let c = cp { out.append(card(c)) }
         else if let m = (host?.report(pn.id)?["need"] as? [String: Any])?["message"] as? String, !m.isEmpty {
@@ -750,7 +776,16 @@ final class PanelView: Box {
         }
         // Where it runs and what (shellPanel's Folder and Runs).
         if !pn.cwd.isEmpty || !pn.command.isEmpty {
-            out.append(sec(nil, [kv(t("panel.folder"), tilde(pn.cwd), mono: true), kv(t("panel.runs"), pn.command.isEmpty ? t("panel.loginShell") : pn.command.joined(separator: " "), mono: true)]))
+            var rows: [NSView?] = [kv(t("panel.folder"), tilde(pn.cwd), mono: true), kv(t("panel.runs"), pn.command.isEmpty ? t("panel.loginShell") : pn.command.joined(separator: " "), mono: true)]
+            // A folder no project uses: a project can start from it (SESS-023).
+            if folderFree(pn.cwd, host?.hub.state) {
+                let b = RButton(t("panel.newFromFolder"), small: true) { [weak self] in
+                    self?.host?.newProject(NewProjectPage.From(name: pn.name, folder: pn.cwd, folderShort: self?.tilde(pn.cwd) ?? pn.cwd, shell: true))
+                }
+                buttons["newProject"] = b
+                rows += [para(t("panel.folderFree"), "tx3", size: 12), hstack([b, spring()], spacing: 0)]
+            }
+            out.append(sec(nil, rows))
         }
         if let h = host { out.append(whoCanType(pn.id, h.whoCanType(pn.id))) }
         if let typed = typedHere(pn.id) { out.append(typed) }
@@ -858,21 +893,11 @@ final class PanelView: Box {
         u.error = nil
         signature = ""
         h.answered()
-        var body = reply
-        body["id"] = id
-        body["by"] = "desktop"
-        h.hub.post("/api/checkpoints/answer", body) { [weak self] code, j in
+        // Through the daemon that holds it, else the hub (HubClient.answerCheckpoint); a refusal as not the person says why.
+        h.hub.answerCheckpoint(id, reply) { [weak self] ok, error in
             guard let self else { return }
             u.busy = false
-            if code == 200 {
-                u.editing = false; u.refusing = false; u.reason = ""; u.draft = ""
-            } else if code == 403, j["notPerson"] as? Bool == true {
-                // The hub takes answers from a person only (refusedAsPerson): this window was started from inside a pane.
-                u.error = t("checkpoint.notPerson")
-            } else {
-                let why = j["error"] as? String ?? "the board answered \(code)"
-                u.error = t("checkpoint.failed", ["why": why])
-            }
+            if ok { u.editing = false; u.refusing = false; u.reason = ""; u.draft = "" } else { u.error = error }
             self.signature = ""
             h.answered()
         }

@@ -30,6 +30,8 @@ final class SidebarView: Flipped {
     var onHandOff: ((String) -> Void)?
     /// A hint's Learn more: Learn Ravenry at that card.
     var onLearn: ((String) -> Void)?
+    /// New project (the list's last row, a project row's right-click menu).
+    var onNewProject: (() -> Void)?
     /// "Using dev server" (holds) or "Waiting for dev server, Claude has it" for a session's row (its key), else nil.
     var useLine: ((String) -> (holds: Bool, text: String)?)?
 
@@ -199,10 +201,16 @@ final class SidebarView: Flipped {
             empty.stringValue = state == nil && !reachable
                 ? (waitingFor.map { t("side.emptyAccess", ["folder": $0]) } ?? t("side.emptyNoBoard")) : t("side.empty")
             empty.isHidden = false
-            list.set([])
+            // The board answers with no project yet: New project under what the list says.
+            if state != nil {
+                let gap = Flipped()
+                gap.translatesAutoresizingMaskIntoConstraints = false
+                gap.heightAnchor.constraint(equalToConstant: ceil(empty.sizeThatFits(NSSize(width: max(120, bounds.width - 32), height: 400)).height) + 12).isActive = true
+                list.set([gap, newProjectRow()])
+            } else { list.set([]) }
         } else {
             empty.isHidden = true
-            list.set(sections.map { section($0, front: front, pinned: pinned) })
+            list.set(sections.map { section($0, front: front, pinned: pinned) } + (state != nil ? [newProjectRow()] : []))
             if !hintShown { Hints.shared.gone("needs-you") }
         }
         buildNav(state, page: page)
@@ -302,6 +310,16 @@ final class SidebarView: Flipped {
         }
         let st = vstack(items, spacing: 1)
         return boxed(st, fill: "\(s.group)-t", radius: 10, insets: NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4))
+    }
+
+    /// The list's last row: New project, its folder, its brief and a first session (SESS-023).
+    private(set) var newProjectButton: RButton?
+    private func newProjectRow() -> NSView {
+        let b = RButton(t("side.newProject"), .ghost, small: true) { [weak self] in self?.onNewProject?() }
+        b.lead = "plus"
+        b.toolTip = t("side.newProjectTip")
+        newProjectButton = b
+        return hstack([b, spring()], spacing: 0, insets: NSEdgeInsets(top: 0, left: 2, bottom: 6, right: 0))
     }
 
     private func pinEdges(_ v: NSView, _ p: NSView) {
@@ -446,6 +464,7 @@ final class SidebarView: Flipped {
         }
         m.addItem(.separator())
         m.addItem(item(t("sess.manage")) { [weak self] in self?.onNav?("sessions", t("sess.title")) })
+        m.addItem(item(t("side.newProjectDots")) { [weak self] in self?.onNewProject?() })
         return m
     }
 
