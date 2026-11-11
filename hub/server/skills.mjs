@@ -110,7 +110,8 @@ export function withHooks(rows, dry) {
     try { x = dry(r.kind); } catch { x = null; }
     // `on` (hookinstall.hooksOn: they work, whatever their spelling), else a dry run's changes.
     const on = x && typeof x.on === 'boolean' ? x.on : !(x && x.changes && x.changes.length);
-    return { ...r, ...(x && x.file ? { hooks: on ? 'on' : 'off', hooksFile: x.file } : { hooks: 'unavailable', hooksFile: null }) };
+    // hooksOff: Codex's own config turns its hooks off ([features] hooks = false), which Ravenry leaves as set.
+    return { ...r, ...(x && x.file ? { hooks: on ? 'on' : 'off', hooksFile: x.file, ...(x.hooksOff ? { hooksOff: true } : {}) } : { hooks: 'unavailable', hooksFile: null }) };
   });
 }
 

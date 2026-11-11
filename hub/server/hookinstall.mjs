@@ -393,7 +393,7 @@ export function hooksOn(kind, { root = ROOT } = {}) {
   if (kind === 'codex') {
     // Asked for a row the Settings window shows (Codex found): off until set up, even with no hooks.json yet.
     const s = codexStatus({ root });
-    return { file: s.file, on: s.state === 'ok' && !s.hooksOff && daemonOk(s.ravenryd, cx.readHooks().json, CODEX_OURS), state: s.state, daemon: s.ravenryd.state };
+    return { file: s.file, on: s.state === 'ok' && !s.hooksOff && daemonOk(s.ravenryd, cx.readHooks().json, CODEX_OURS), state: s.state, daemon: s.ravenryd.state, hooksOff: !!s.hooksOff };
   }
   return null;
 }

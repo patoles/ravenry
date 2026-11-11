@@ -843,6 +843,7 @@
   "set.hooksTitle": "Know when a session waits for you",
   "set.hooksOn": "On",
   "set.hooksOff": "Off",
+  "set.hooksOffInConfig": "Off in Codex’s config.toml (hooks = false). Ravenry leaves that as you set it.",
   "set.hooksHint": "Claude Code and Codex tell Ravenry when a session asks you something, finishes or hands off, so it moves to Needs you and can alert you, here and on your phone. It adds a line to the assistant’s hooks; each file is backed up first, and Remove puts it back.",
   "learn.title": "Learn Ravenry",
   "learn.lead": "Short looks at what Ravenry adds to a session. “Try it” opens a session with a message ready for you to send; nothing runs until you do.",

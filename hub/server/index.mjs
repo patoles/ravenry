@@ -3824,7 +3824,7 @@ async function handleRequest(req, res) {
       // working hook of another spelling (the Electron app's) is on.
       const rows = skills.skillsView(process.env, HOME);
       if (!req.mcLocal) return sendJson(res, 200, { ok: true, skills: rows });
-      return sendJson(res, 200, { ok: true, skills: skills.withHooks(rows, (k) => { const r = hookinstall.hooksOn(k); return r ? { file: short(r.file), on: r.on } : null; }) });
+      return sendJson(res, 200, { ok: true, skills: skills.withHooks(rows, (k) => { const r = hookinstall.hooksOn(k); return r ? { file: short(r.file), on: r.on, hooksOff: !!r.hooksOff } : null; }) });
     }
     // What the person has seen of the onboarding, for every client (server/onboarding.mjs).
     if (req.method === 'GET' && p === '/api/onboarding') return sendJson(res, 200, { ok: true, ...onboarding.view() });
