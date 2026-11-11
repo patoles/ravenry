@@ -190,7 +190,9 @@ extension SelfTestBoard {
         check("brief_older_hub", bp.text.string.contains("Still drawn") && !bp.text.string.contains("dated entries"), String(bp.text.string.prefix(60)))
         // Back to the session: the tab strip's view closes.
         board.ws.bar.onClose?("view:brief")
-        check("brief_closes", board.root.middle == nil && board.front == .tab, "\(board.front)")
+        // Where it was opened from (Board's back stack): the session k1 (its view, or its tab when this window has its pane);
+        // the brief of old-notes took the first brief's place, so it does not come back.
+        check("brief_closes", board.root.middle !== bp && (board.front == .session(k1) || (board.front == .tab && board.frontKey == k1)), "\(board.front)")
 
         // A Plan task's box ticks it in the brief (POST /api/brief/tick), drawn ticked when the hub reads it again.
         board.openPage("brief:lighthouse", t("panel.brief"))

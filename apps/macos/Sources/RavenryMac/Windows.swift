@@ -66,8 +66,8 @@ extension AppDelegate {
         case restore
         /// A new shell in this folder (Cmd+N).
         case shell(String?)
-        /// These panes, as one tab (Move Tab to New Window).
-        case panes([String])
+        /// A tab of another window, whole with its split (Move Tab to New Window).
+        case tab(Tab, from: Workspace)
     }
 
     /// The window in front: the key window, else the one used last, else the newest.
@@ -100,6 +100,8 @@ extension AppDelegate {
         w.contentView = ws.root
         ws.root.onLayout = { [weak w] in w?.placeButtons() }
         let hc = HubClient(offscreen: options.offscreen)
+        // Its tabs named by their sessions from this window's hub stream.
+        ws.hub = hc
         let rw = RavenryWindow(window: w, ws: ws, hub: hc)
         rw.app = self
         rw.tabMenu.app = self
@@ -132,9 +134,9 @@ extension AppDelegate {
             }
         case .shell(let cwd):
             ws.newTab(in: cwd)
-        case .panes(let ids):
-            for id in ids { _ = ws.tab(showing: id) }
-            if let t = ws.tabs.first { ws.show(t, wait: true) }
+        case .tab(let t, let src):
+            // Out of its window, its panes running on, whole with its split (Workspace.move).
+            src.move(t, to: ws)
         }
         if ws.tabs.isEmpty {
             if first { return failed(rw, "no pane to show") }
@@ -147,9 +149,22 @@ extension AppDelegate {
         let bd = Board(ws: ws, hub: hc, keep: !options.offscreen,
                        sidebarOn: !first || !measuring || options.benchResize || ProcessInfo.processInfo.environment["RAVENRY_MAC_SIDEBAR"] == "1")
         rw.attach(bd)
+        // The strip's fold buttons fold this window's sidebar and panel.
+        ws.onToggleSidebar = { [weak bd] in bd?.toggleSidebar() }
+        ws.onTogglePanel = { [weak bd] in bd?.togglePanel() }
         launched = true
+        emptyRule()
         log("window \(windows.count): \(how)")
         return rw
+    }
+
+    /// The last tab of a window gone: with other windows open, it closes;
+    /// the only one stays and says "No shell is open" (Workspace.emptied).
+    private func emptyRule() {
+        let live = windows.filter { !$0.closing }
+        for rw in live {
+            rw.ws.onEmpty = live.count > 1 ? { [weak rw] in rw?.window.close() } : nil
+        }
     }
 
     private func failed(_ rw: RavenryWindow, _ why: String) -> RavenryWindow? {
@@ -182,9 +197,7 @@ extension AppDelegate {
         guard c.ws.tabs.count > 1 else { return nil }
         let ids = c.ws.panes(of: t)
         c.board.toTerminal()
-        guard let nw = makeWindow(.panes(ids)) else { return nil }
-        // Out of the old window without closing them (the guest first, so the tab goes whole).
-        for id in ids.reversed() { c.ws.removePane(id) }
+        guard let nw = makeWindow(.tab(t, from: c.ws)) else { return nil }
         c.board.render()
         log("moved \(ids.joined(separator: "+")) to window \(windows.count)")
         return nw
@@ -207,10 +220,13 @@ extension AppDelegate {
         if lastActive === rw { lastActive = nil }
         rw.ws.save()
         rw.ws.flush()
+        emptyRule()
         if !terminating, let to = current {
             var moved: [String] = []
+            // Each tab whole, with its split (Workspace.move), its panes running on.
             for t in rw.ws.tabs {
-                for id in rw.ws.panes(of: t) where to.ws.tab(showing: id) != nil { moved.append(id) }
+                moved += rw.ws.panes(of: t)
+                rw.ws.move(t, to: to.ws)
             }
             if !moved.isEmpty {
                 to.ws.refresh()

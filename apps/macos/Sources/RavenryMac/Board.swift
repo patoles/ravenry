@@ -139,6 +139,8 @@ final class Board: NSObject {
         if !sidebarOn { sideHidden = true; panelClosed = true }
         pinned = ws.saved.pinned
         ws.pinned = pinned
+        // The pinned sessions come back as tabs (their panes' once the board names them).
+        sessionTabs = pinned
         root.sidebar = sidebar
         root.panel = panel
         root.panelModeFor = { [weak self] w in self?.panelMode(width: w) ?? .hidden }
@@ -252,12 +254,12 @@ final class Board: NSObject {
         }
         ws.bar.onClose = { [weak self] id in
             guard let self else { return }
-            if id.hasPrefix("view:") { self.back(); return }
+            if id.hasPrefix("view:") { self.closeViewTab(id); return }
             prevClose?(id)
         }
         ws.bar.onSelect = { [weak self] id in
             guard let self else { return }
-            if id.hasPrefix("view:") { return }
+            if id.hasPrefix("view:") { self.selectViewTab(id); return }
             self.front = .tab
             self.hideMiddle()
             if let t = self.ws.tabs.first(where: { $0.id == id }) { self.ws.showAgain(t) } else { prevSelect?(id) }
@@ -404,6 +406,13 @@ final class Board: NSObject {
             self.ws.newTab(in: folder)
             self.render()
         }
+        // The board down: Start runs the assistant in a pane of this window, in front.
+        start.onRun = { [weak self] folder, program in
+            guard let self else { return }
+            self.front = .tab; self.hideMiddle()
+            self.ws.newTab(in: folder, program: program)
+            self.render()
+        }
         start.onCancel = { [weak self] in
             guard let self else { return }
             self.front = .tab; self.hideMiddle(); self.render()
@@ -442,6 +451,10 @@ final class Board: NSObject {
     }
 
     private func onState(_ st: HubState) {
+        if !pinsPlaced {
+            pinsPlaced = true
+            for k in pinned where st.find(k) != nil { pinTab(k) }
+        }
         // A checkpoint or a session that came to need you: the panel opens
         // on it when it is in front, else a toast says so, with Show.
         let open = Set(st.checkpoints.filter { ["open", "running"].contains($0["state"] as? String ?? "") }.compactMap { $0["id"] as? String })
@@ -566,6 +579,7 @@ final class Board: NSObject {
             front = .session(key)
             frontSid = f.session.sessionId
             outsideEnded = nil
+            if !sessionTabs.contains(key) { sessionTabs.append(key) }
             let why2: String? = f.session.pane != nil ? "it runs in the board's ravenryd, \(f.session.machine ?? f.project.machine ?? "not this window's")" : nil
             showMiddle(outside)
             outside.show(f.project, f.session, why: why2)
@@ -642,7 +656,11 @@ final class Board: NSObject {
         if case .brief(_, let was) = front { k = was }
         if k.hasPrefix("tab:") { k = "project:\(pid)" }
         if let from { k = from }
+        // A brief over a brief takes its place: its Close goes where the first came from.
+        let was = goingBack
+        if case .brief = front { goingBack = true }
         enter(.brief(pid, k)) { [weak self] in self?.openBrief(pid, from: k) }
+        goingBack = was
         front = .brief(pid, k)
         showMiddle(brief)
         brief.show(pid, state: hub.state)
@@ -778,9 +796,12 @@ final class Board: NSObject {
         log.append("try \(c.key)")
         if c.key == "phone" { back(); openPhone(); return }
         if c.key == "film" {
-            // The terminal that printed last; the filmstrip itself is not native yet.
+            // The terminal that printed last, its filmstrip open (Filmstrip.swift).
             guard let tb = ws.tabs.max(by: { (ws.paneInfo($0.host)?.lastOutput ?? "") < (ws.paneInfo($1.host)?.lastOutput ?? "") }) else { toast(t("learn.filmNeeds")); return }
-            front = .tab; hideMiddle(); ws.showAgain(tb); render()
+            front = .tab; hideMiddle(); ws.showAgain(tb)
+            markUsed("film")
+            ws.openFilm(tb.focusedPane)
+            render()
             return
         }
         guard hub.reachable else { toast(t("learn.noBoard")); return }
@@ -1029,6 +1050,8 @@ final class Board: NSObject {
         root.middle = v
         root.wideMiddle = v is InAppPage || v === picker
         showingMiddle = true
+        // The page's head links back to where it was opened from ("‹ Plans"; InAppPage.backLink).
+        (v as? InAppPage)?.backLink = backName.map { n in (n, { [weak self] in self?.back() }) }
         // The keyboard leaves the terminal the view covers: keys never act on a tab no one sees.
         if let r = ws.window.firstResponder as? NSView, r === ws.root || r.isDescendant(of: ws.stage) {
             ws.window.makeFirstResponder(v.acceptsFirstResponder ? v : nil)
@@ -1144,12 +1167,29 @@ final class Board: NSObject {
     }
 
 
+    /// Pin a session to the tabs (its row's pin, its panel's): its pane's
+    /// tab when this window has its pane, else a tab of its own; kept with
+    /// the tabs (window.json pinned) and back after a relaunch. Unpinned, a
+    /// session's own tab goes unless it is in front.
     func togglePin(_ key: String) {
-        if let i = pinned.firstIndex(of: key) { pinned.remove(at: i) } else { pinned.append(key) }
+        if let i = pinned.firstIndex(of: key) {
+            pinned.remove(at: i)
+            if front != .session(key) { sessionTabs.removeAll { $0 == key } }
+        } else {
+            pinned.append(key)
+            pinTab(key)
+        }
         ws.pinned = pinned
         ws.save()
         log.append("pin \(key): \(pinned.contains(key) ? "on" : "off")")
         render(force: true)
+    }
+
+    /// A pinned session as a tab: its pane's when this window can show it, else its own.
+    private func pinTab(_ key: String) {
+        guard let st = hub.state, let f = st.find(key) else { if !sessionTabs.contains(key) { sessionTabs.append(key) }; return }
+        if let pane = f.session.pane, f.session.machine == nil, f.project.machine == nil, ws.tab(showing: pane) != nil { ws.refresh(); return }
+        if !sessionTabs.contains(key) { sessionTabs.append(key) }
     }
 
     // MARK: moves and Continue, as the person clicked them
@@ -1348,7 +1388,7 @@ final class Board: NSObject {
             }
             panel.update(state: st, front: fk?.hasPrefix("tab:") == true ? nil : fk, pane: pane, force: force)
         }
-        ws.extraTab = middleTab(st)
+        ws.extraTabs = stripTabs(st)
         ws.refresh()
         let strip = leaseStrip()
         if strip?.text != root.strip?.text || (strip == nil) != (root.strip == nil) { root.strip = strip }
@@ -1362,37 +1402,101 @@ final class Board: NSObject {
         }
     }
     private var panesTicked = false
+    /// The pinned sessions were made tabs from the first state.
+    private var pinsPlaced = false
     /// The conversation of the session whose view is in front (followed when its key changes).
     private var frontSid: String?
     /// The session in front whose end was said.
     private var outsideEnded: String?
-    /// The view's tab of the last session shown, kept when it leaves the board.
-    private var lastSessionTab: TabModel?
 
-    /// The middle's tab: a session's name and its project, a page's name.
-    private func middleTab(_ st: HubState?) -> TabModel? {
-        switch front {
-        case .session(let k):
-            guard let f = st?.find(k) else {
-                // Gone from the board: its tab stays, ended, until the person moves on.
-                guard var m = lastSessionTab, m.id == "view:\(k)" else { return nil }
-                m.dot = "idle"; m.tip = t("else.ended")
-                return m
-            }
+    // MARK: the strip's tabs that are not a pane's
+
+    /// Sessions kept as tabs that this window draws no pane of (a read-only
+    /// session once opened, a pinned one), in the order they came: each
+    /// stays until its x, as the Electron app's session tabs (2026-11-07,
+    /// "if I select on other tab at the top the ravenry tab disappears").
+    private(set) var sessionTabs: [String] = []
+    /// Each one's last tab, kept while its session is gone from the board.
+    private var sessionTabCache: [String: TabModel] = [:]
+
+    /// The tab of this window that shows a session's pane, if any.
+    private func ownTab(_ k: String, _ st: HubState?) -> Tab? {
+        guard let f = st?.find(k), let pane = f.session.pane, f.session.machine == nil, f.project.machine == nil else { return nil }
+        return ws.tabs.first { $0.host == pane || $0.guest == pane }
+    }
+
+    /// A session's tab: its name and project, its state's dot; ended when it left the board.
+    private func sessionTab(_ k: String, _ st: HubState?) -> TabModel? {
+        let on = front == .session(k)
+        if let f = st?.find(k) {
             let name = f.session.topic ?? f.project.name
             let g = st?.sections.first { $0.projects.contains { $0.rows.contains { $0.key == k } } }?.group ?? f.session.group
-            let m = TabModel(id: "view:\(k)", name: name, sub: name == f.project.name ? nil : f.project.name, split: false, active: true, tip: name, dot: g)
-            lastSessionTab = m
+            var m = TabModel(id: "view:\(k)", name: name, sub: name == f.project.name ? nil : f.project.name, split: false, active: on, tip: name, dot: g)
+            m.closeTip = t("strip.closeSession")
+            sessionTabCache[k] = m
             return m
-        case .project(let id):
-            guard let p = st?.project(id) else { return nil }
-            return TabModel(id: "view:project", name: p.name, sub: nil, split: false, active: true, tip: p.name, dot: "idle")
-        case .page(_, let name): return TabModel(id: "view:page", name: name, sub: nil, split: false, active: true, tip: name, dot: "tx3")
-        case .start: return TabModel(id: "view:start", name: t("start.title"), sub: nil, split: false, active: true, tip: t("start.title"), dot: "tx3")
-        case .brief(let pid, _):
-            return TabModel(id: "view:brief", name: t("brief.title"), sub: st?.project(pid)?.name, split: false, active: true, tip: t("brief.title"), dot: "tx3")
-        case .tab: return nil
         }
+        guard var m = sessionTabCache[k] else { return nil }
+        m.dot = "idle"; m.tip = t("else.ended"); m.active = on
+        return m
+    }
+
+    /// Where a view about a session goes in the strip: right after that session's tab.
+    private func tabId(of k: String, _ st: HubState?, _ out: [TabModel]) -> String? {
+        if let tb = ownTab(k, st) { return tb.id }
+        return out.contains { $0.id == "view:\(k)" } ? "view:\(k)" : nil
+    }
+
+    /// The strip's tabs besides the panes': the sessions kept as tabs (the
+    /// one in front lit), then the view in front (a page, the brief, a
+    /// review, a project, Start); the brief and a review right after their
+    /// session's tab, that session's tab shown for them when it had none.
+    private func stripTabs(_ st: HubState?) -> [TabModel] {
+        // A session gone from the board, not in front: its tab goes.
+        if let st { sessionTabs.removeAll { st.find($0) == nil && front != .session($0) } }
+        var keys = sessionTabs
+        for k in pinned where !keys.contains(k) && st?.find(k) != nil { keys.append(k) }
+        var out: [TabModel] = []
+        for k in keys where ownTab(k, st) == nil { if let m = sessionTab(k, st) { out.append(m) } }
+        func beside(_ k: String) -> String? {
+            if let id = tabId(of: k, st, out) { return id }
+            guard st?.find(k) != nil, let m = sessionTab(k, st) else { return nil }
+            out.append(m)
+            return m.id
+        }
+        switch front {
+        case .session, .tab: break
+        case .project(let id):
+            if let p = st?.project(id) { out.append(TabModel(id: "view:project", name: p.name, sub: nil, split: false, active: true, tip: p.name, dot: "idle")) }
+        case .page(let k, let name):
+            var m = TabModel(id: "view:page", name: name, sub: nil, split: false, active: true, tip: name, dot: "tx3")
+            if k.hasPrefix("review:") { m.after = beside(String(k.dropFirst(7))) }
+            out.append(m)
+        case .start: out.append(TabModel(id: "view:start", name: t("start.title"), sub: nil, split: false, active: true, tip: t("start.title"), dot: "tx3"))
+        case .brief(let pid, let k):
+            var m = TabModel(id: "view:brief", name: t("brief.title"), sub: st?.project(pid)?.name, split: false, active: true, tip: t("brief.title"), dot: "tx3")
+            if k.contains("/") { m.after = beside(k) }
+            out.append(m)
+        }
+        return out
+    }
+
+    /// A press on a session's tab: that session, as the sidebar opens it.
+    private func selectViewTab(_ id: String) {
+        let k = String(id.dropFirst(5))
+        guard k.contains("/") else { return }
+        topLevel { $0.pickSession(k, why: "tab") }
+    }
+
+    /// The x on a tab that is not a pane's: a session's tab goes (the
+    /// session goes on; pinned, it is unpinned), the view in front goes back.
+    private func closeViewTab(_ id: String) {
+        let k = String(id.dropFirst(5))
+        guard k.contains("/") else { back(); return }
+        sessionTabs.removeAll { $0 == k }
+        if pinned.contains(k) { togglePin(k) }
+        log.append("session tab \(k): closed")
+        if front == .session(k) { back() } else { render() }
     }
 
     // MARK: the menus' commands

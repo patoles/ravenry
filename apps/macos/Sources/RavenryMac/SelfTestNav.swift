@@ -42,12 +42,17 @@ extension SelfTestBoard {
         check("nav_plans_open", b.front == .page(plans.key, plans.label) && b.root.middle === b.files, "\(b.front)")
         b.files.host?.openPlan("garden-planner", nil)
         check("nav_plan_from_plans", b.front == .page("plan:garden-planner", t("panel.plan")) && b.root.middle === b.plan, "\(b.front)")
-        check("nav_plan_back_named", b.backName == plans.label, b.backName ?? "nil")
+        check("nav_plan_back_named", b.backName == plans.label && b.plan.backLink?.name == plans.label, "\(b.backName ?? "nil") / \(b.plan.backLink?.name ?? "nil")")
         size(1280, 820)
         picture("native-nav-plan-1280.png")
         b.plan.onClose?()
         check("nav_plan_close_to_plans", b.front == .page(plans.key, plans.label) && b.root.middle === b.files, "\(b.front) \(b.log.suffix(2).joined(separator: " | "))")
         picture("native-nav-plan-closed-1280.png")
+        // The head's "‹ Plans" link: the same step back (B2, group 3 draws it from backLink).
+        b.files.host?.openPlan("garden-planner", nil)
+        check("nav_plan_head_link", shows(b.plan, plans.label), texts(b.plan).prefix(4).joined(separator: " | "))
+        b.plan.backLink?.run()
+        check("nav_plan_link_to_plans", b.front == .page(plans.key, plans.label), "\(b.front)")
         // Esc: the same step back, then to the terminal.
         b.files.host?.openPlan("garden-planner", nil)
         esc()
@@ -167,6 +172,46 @@ extension SelfTestBoard {
         press(at: stage.convert(NSPoint(x: stage.bounds.midX, y: stage.bounds.midY), to: nil))
         check("phone_press_outside_closes", !b.phoneCard.isOpen, b.log.suffix(2).joined(separator: " | "))
 
+        // Sessions kept as tabs (D7, D8, D9, D21): a read-only session's tab stays when another is picked.
+        home()
+        let outside = (b.hub.state?.projects ?? []).filter { $0.machine == nil }.flatMap { p in p.sessions.filter { $0.pane == nil && $0.machine == nil }.map { (p.id, "\(p.id)/\($0.surfaceId)") } }
+        if outside.count >= 2 {
+            let (p1, k1) = outside[0], k2 = outside[1].1
+            func ids() -> [String] { b.ws.bar.items.map(\.model.id) }
+            b.sidebar.onSession?(k1)
+            check("tabs_session_is_a_tab", ids().contains("view:\(k1)") && b.ws.extraTab?.id == "view:\(k1)", ids().joined(separator: ","))
+            b.ws.bar.onSelect?(b.ws.tabs[0].id)
+            check("tabs_session_tab_stays", onTerminal && ids().contains("view:\(k1)"), ids().joined(separator: ","))
+            b.sidebar.onSession?(k2)
+            check("tabs_two_sessions", ids().contains("view:\(k1)") && ids().contains("view:\(k2)") && b.ws.extraTab?.id == "view:\(k2)", ids().joined(separator: ","))
+            b.ws.bar.onSelect?("view:\(k1)")
+            check("tabs_click_brings_it", b.front == .session(k1), "\(b.front)")
+            b.openPage("brief:\(p1)", t("panel.brief"))
+            let order = ids()
+            check("tabs_brief_beside_its_session", order.firstIndex(of: "view:\(k1)").map { order.indices.contains($0 + 1) && order[$0 + 1] == "view:brief" } ?? false, order.joined(separator: ","))
+            picture("native-tabs-sessions-1280.png")
+            b.back()
+            // Pinned: kept with the tabs (window.json), back in a window opened after, as after a relaunch.
+            b.togglePin(k2)
+            b.ws.flush()
+            check("tabs_pin_saved", LayoutStore(offscreen: true, socket: b.ws.conn.socketPath)?.read().pinned.contains(k2) ?? false)
+            // The x: the session's tab goes, the session goes on.
+            b.ws.bar.onClose?("view:\(k1)")
+            check("tabs_x_closes_tab", !ids().contains("view:\(k1)") && b.front != .session(k1) && b.hub.state?.find(k1) != nil, ids().joined(separator: ","))
+            if let app = NSApp.delegate as? AppDelegate, let nw = app.makeWindow(.shell(nil)) {
+                _ = wait(8) { nw.hub.state != nil }
+                nw.board.render()
+                check("tabs_pinned_come_back", nw.ws.bar.items.contains { $0.model.id == "view:\(k2)" }, nw.ws.bar.items.map(\.model.id).joined(separator: ","))
+                nw.window.performClose(nil)
+                settle(0.3)
+            }
+            b.togglePin(k2)
+            b.ws.bar.onClose?("view:\(k2)")
+            home()
+        } else {
+            check("tabs_outside_sessions", false, "\(outside)")
+        }
+
         // Learn ticks an answered question (C20).
         let n = b.hub.sentBodies.count
         b.panel.host?.answered()
@@ -226,11 +271,14 @@ extension SelfTestBoard {
         // The menus act on the window in front: Cmd+T in the second.
         _ = key("t", .command)
         check("windows_cmd_t_in_front_window", wait(3) { w2.ws.tabs.count == 2 } && w1.ws.tabs.count == total0, "w1 \(w1.ws.tabs.count) w2 \(w2.ws.tabs.count)")
-        // Move Tab to New Window: the tab in front alone in a third, its pane still running.
-        let moving = w2.ws.active!.host
+        // Move Tab to New Window: the tab in front alone in a third, whole with its split, its panes still running.
+        _ = key("d", .command)
+        _ = wait(3) { w2.ws.active?.guest != nil }
+        let moving = w2.ws.active!.host, guest = w2.ws.active?.guest
         app.menuMoveTabToNewWindow(nil)
         check("windows_move_tab", app.windows.count == 3 && w2.ws.tabs.count == 1 && app.windows[2].ws.tabs.map(\.host) == [moving] && w2.ws.paneInfo(moving) == nil,
               "windows \(app.windows.count) w2 \(w2.ws.tabs.map(\.host)) w3 \(app.windows.last?.ws.tabs.map(\.host) ?? [])")
+        check("windows_move_keeps_split", guest != nil && app.windows.last?.ws.tabs.first?.guest == guest, "guest \(guest ?? "none") then \(app.windows.last?.ws.tabs.first?.guest ?? "none")")
         let w3 = app.windows[2]
         check("windows_moved_tab_draws", wait(5) { (w3.ws.focusedView?.screen.frames ?? 0) > 0 })
         shot(w3, "native-window-moved-tab-900.png")
@@ -242,6 +290,7 @@ extension SelfTestBoard {
         settle(0.5)
         let after = Set(app.windows.flatMap { w in w.ws.tabs.flatMap { w.ws.panes(of: $0) } })
         check("windows_close_keeps_tabs", app.windows.count == 2 && after == all, "windows \(app.windows.count) before \(all.sorted()) after \(after.sorted())")
+        check("windows_close_keeps_split", app.windows.contains { w in w.ws.tabs.contains { $0.host == moving && $0.guest == guest } })
         // The last window closed: Ravenry keeps running; the Dock's click brings one back with every tab.
         for w in app.windows { w.window.performClose(nil); settle(0.3) }
         check("windows_last_closed_app_runs", app.windows.isEmpty && !app.terminating && app.windowLog.contains { $0.contains("keeps running") }, app.windowLog.suffix(3).joined(separator: " | "))

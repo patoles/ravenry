@@ -94,9 +94,9 @@ stream".
   on a tab's right click) and Merge All Windows: `Windows.swift`; each
   window has its own tabs, sidebar, panel, pages and hub stream, the menus
   act on the window in front. Every page keeps where it was opened from
-  (Board's back stack): its Close, Esc and Cmd+W go back one step, the
-  terminal last; a tab key with a page in front brings the terminal
-  first. The strip is in the title bar, in the Electron app's colours
+  (Board's back stack): its Close, Esc, Cmd+W and its "‹ Plans" link go
+  back one step, the terminal last; a tab key with a page in front brings
+  the terminal first. The strip is in the title bar, in the Electron app's colours
   and sizes (`Design.swift`).
 - **The hub** (`Hub.swift`): a small typed client of the board's server,
   as the Electron app reads it (`apps/desktop/src/main/hub.ts`): the
@@ -712,7 +712,6 @@ every screen (the bench, the self-test) writes only to
 ## Not done yet
 
 - A tab dragged to an edge to split.
-- Move Tab to New Window takes a split tab as two tabs (its panes, unsplit).
 - A program's steady block cursor reads as the default, so the
   settings' cursor style shows instead.
 - Sidebar and panel: Learn's ticks come from the phone card, Decisions,
