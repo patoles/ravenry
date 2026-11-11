@@ -1260,7 +1260,8 @@ final class Workspace: NSObject {
             let sid = f.session.surfaceId.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? f.session.surfaceId
             return (who, { done in
                 hub.post("/api/sessions/\(sid)/filmstrip", ["pane": p, "last_ms": Film.lastMs]) { code, j in
-                    done(code == 200 ? nil : j["error"] as? String ?? Words.t("film.boardSaid", ["code": "\(code)"]))
+                    // 502: the daemon's own words for why it could not draw them.
+                    done(code == 200 ? nil : code == 502 ? Words.t("film.whyDaemon") : j["error"] as? String ?? Words.t("film.boardSaid", ["code": "\(code)"]))
                 }
             })
         }

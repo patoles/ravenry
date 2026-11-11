@@ -12,6 +12,13 @@
 // hub's POST /api/sessions/:id/filmstrip); Save as GIF. Opened from the
 // strip's film button (or Learn's card), it belongs to the pane it was
 // opened on and closes when another one comes to the front.
+//
+// A big busy pane's frames are hundreds of KB each as PNGs: the daemon
+// lists every frame with its time and pictures as many as fit in its
+// answer's 12 MiB (unpictured, the rest). The marks are read from every
+// frame's time; the frames with a picture are the ones to step through.
+// Each picture is kept as its PNG and drawn from it when shown (a 2464 x
+// 1876 frame is 18 MB drawn), its thumbnail drawn once, small.
 
 import AppKit
 import UniformTypeIdentifiers
@@ -19,7 +26,10 @@ import UniformTypeIdentifiers
 /// One frame: when, its picture, and what the look of it says.
 struct FilmFrame {
     var at: Date
+    /// Drawn from its PNG each time, never kept drawn.
     var image: CGImage
+    /// Its thumbnail, drawn once (FilmThumb's size at the screen's scale).
+    var thumb: CGImage?
     var mark: Int
     /// "blank", "half" or nil.
     var tag: String?
@@ -71,12 +81,14 @@ enum Film {
     }
 
     /// Where a frame has something drawn, its background, and where it changed from the one before (lookAll).
-    static func look(_ img: CGImage, prev: (data: [UInt8], w: Int, h: Int)?) -> (box: CGRect?, change: CGRect?, bg: NSColor, data: [UInt8]) {
+    /// drawn: the picture as drawn here, so its thumbnail needs no second reading of its PNG.
+    static func look(_ img: CGImage, prev: (data: [UInt8], w: Int, h: Int)?) -> (box: CGRect?, change: CGRect?, bg: NSColor, data: [UInt8], drawn: CGImage?) {
         let w = img.width, h = img.height
         var d = [UInt8](repeating: 0, count: w * h * 4)
         let ctx = CGContext(data: &d, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         ctx?.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let drawn = ctx?.makeImage()
         // Row 0 of the buffer is the picture's top.
         let r = Int(d[0]), g = Int(d[1]), b = Int(d[2])
         var x0 = w, y0 = h, x1 = -1, y1 = -1, lit = 0
@@ -101,7 +113,59 @@ enum Film {
         // A lone cursor is not a drawing.
         let box = lit > 6 ? CGRect(x: CGFloat(x0) / fw, y: CGFloat(y0) / fh, width: CGFloat(x1 - x0 + 2) / fw, height: CGFloat(y1 - y0 + 2) / fh) : nil
         let change = cx1 >= 0 ? CGRect(x: CGFloat(cx0) / fw, y: CGFloat(cy0) / fh, width: CGFloat(cx1 - cx0 + 2) / fw, height: CGFloat(cy1 - cy0 + 2) / fh) : nil
-        return (box, change, NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1), d)
+        return (box, change, NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1), d, drawn)
+    }
+
+    /// A PNG as an image drawn from its data each time it is drawn, so a
+    /// strip of big frames holds their PNGs, not their pixels.
+    static func image(_ data: Data) -> CGImage? {
+        let no = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let src = CGImageSourceCreateWithData(data as CFData, no) else { return nil }
+        return CGImageSourceCreateImageAtIndex(src, 0, no)
+    }
+
+    /// A frame's thumbnail: at 0.8 of its size, around where it changed
+    /// (else where anything is drawn), on its background, FilmThumb's size
+    /// at the screen's scale.
+    static func thumb(_ img: CGImage, around at: CGRect?, bg: NSColor, scale: CGFloat) -> CGImage? {
+        let size = FilmThumb.size, k: CGFloat = 0.8
+        guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.setFillColor(bg.cgColor)
+        ctx.fill(CGRect(origin: .zero, size: size))
+        let W = CGFloat(img.width) / scale, H = CGFloat(img.height) / scale
+        let cw = size.width / k, ch = size.height / k
+        var left: CGFloat = 0, top: CGFloat = 0
+        if let at {
+            let cx = at.midX * W, cy = at.midY * H
+            left = max(0, min(W - cw, min(at.minX * W - 8, cx - cw / 2)))
+            top = max(0, min(H - ch, cy - ch / 2))
+        }
+        // The picture's point (left, top) at the thumbnail's top left (this context's y goes up).
+        ctx.interpolationQuality = .high
+        ctx.draw(img, in: CGRect(x: -left * k, y: size.height + top * k - H * k, width: W * k, height: H * k))
+        return ctx.makeImage()
+    }
+
+    /// What went wrong, in words a person reads after "Could not ...: ".
+    static func why(_ e: ConnectionError) -> String {
+        switch e {
+        case .connect, .handshake, .closed: return t("film.whyLost")
+        case .timeout: return t("film.whySlow")
+        case .daemon(let code, let message):
+            if code == "not_found" || code == "pane_closed" { return t("film.whyClosed") }
+            if message.contains("MiB") { return t("film.whyBig") }
+            return t("film.whyDaemon")
+        }
+    }
+
+    /// An older daemon fails a strip over 12 MiB instead of leaving
+    /// pictures out (unpictured is newer).
+    static func tooBig(_ e: ConnectionError) -> Bool {
+        if case .daemon(let code, let message) = e, code == "failed", message.contains("MiB") { return true }
+        return false
     }
 
     /// The daemon's RFC 3339 times, with milliseconds.
@@ -130,7 +194,12 @@ final class FilmSheet: NSView {
     static let height: CGFloat = 236
     /// The pane it was opened on.
     private(set) var pane: String?
+    /// The frames with a picture: the ones to step through and show.
     private(set) var frames: [FilmFrame] = []
+    /// Every frame's time and marks, pictured or not: the track and the summary.
+    private(set) var allMarks: [(at: Date, tag: String?, still: Double)] = []
+    /// How many frames the daemon listed (frames.count of them pictured).
+    private(set) var total = 0
     /// The frame shown over the pane, nil for live.
     private(set) var shown: Int?
     private(set) var sel = 0
@@ -207,6 +276,8 @@ final class FilmSheet: NSView {
         stop()
         pane = nil
         frames = []
+        allMarks = []
+        total = 0
         shown = nil
         isHidden = true
         changed?()
@@ -222,6 +293,8 @@ final class FilmSheet: NSView {
         error = nil
         shown = nil
         frames = []
+        allMarks = []
+        total = 0
         isHidden = false
         paint()
         changed?()
@@ -229,27 +302,61 @@ final class FilmSheet: NSView {
         let l = look()
         scale = max(1, min(3, l.scale))
         drawnAt = min(48, l.size * scale)
-        let params: [String: Any] = ["pane": p, "last_ms": Film.lastMs, "format": "png", "max_frames": 120, "font_size": Double(drawnAt), "theme": Film.theme(l.theme)]
+        // Every frame the daemon holds (about 200 in 20 s): their times are
+        // all read; it pictures as many as fit its answer.
+        let params: [String: Any] = ["pane": p, "last_ms": Film.lastMs, "format": "png", "max_frames": 600, "font_size": Double(drawnAt), "theme": Film.theme(l.theme)]
+        fetch(c, p, params, sized: false)
+    }
+
+    /// Asks for the frames; an older daemon that fails a big strip is asked
+    /// again for as many as one picture of the screen now says fit.
+    private func fetch(_ c: Connection, _ p: String, _ params: [String: Any], sized: Bool) {
+        let scale = self.scale
         c.request("pane.frames", params) { [weak self] r in
+            if case .failure(let e) = r, Film.tooBig(e), !sized {
+                var shot = params
+                shot.removeValue(forKey: "last_ms"); shot.removeValue(forKey: "format"); shot.removeValue(forKey: "max_frames")
+                c.request("pane.shot", shot) { [weak self] s in
+                    let bytes = (try? s.get()["png"] as? String)?.count ?? 0
+                    var again = params
+                    // Its 12 MiB, with room for frames busier than the screen now.
+                    again["max_frames"] = max(1, min(600, bytes > 0 ? Int(Double(9 << 20) / Double(bytes)) : 4))
+                    DispatchQueue.main.async { guard let self, self.pane == p else { return }; self.fetch(c, p, again, sized: true) }
+                }
+                return
+            }
             // The pictures are read off the main thread, then shown.
             var got: [FilmFrame] = []
+            var all: [(at: Date, tag: String?, still: Double)] = []
             var why: String?
             switch r {
-            case .failure(let e): why = "\(e)"
+            case .failure(let e):
+                why = Film.why(e)
+                EventLog.shared.write("film pane.frames \(p) failed: \(e)")
             case .success(let v):
                 let end = Date()
                 var prev: (data: [UInt8], w: Int, h: Int)?
-                var raw: [(Date, CGImage, Int, CGRect?, CGRect?, NSColor)] = []
+                var raw: [(at: Date, mark: Int, img: CGImage?, box: CGRect?, change: CGRect?, bg: NSColor, thumb: CGImage?)] = []
                 for f in v["frames"] as? [[String: Any]] ?? [] {
-                    guard let b = f["png"] as? String, let data = Data(base64Encoded: b), let src = CGImageSourceCreateWithData(data as CFData, nil),
-                          let img = CGImageSourceCreateImageAtIndex(src, 0, nil) else { continue }
                     let at = Film.date(f["at"] as? String) ?? end
+                    let mark = (f["mark"] as? NSNumber)?.intValue ?? 0
+                    guard let b = f["png"] as? String, let data = Data(base64Encoded: b), let img = Film.image(data) else {
+                        raw.append((at, mark, nil, nil, nil, .black, nil))
+                        continue
+                    }
                     let lk = Film.look(img, prev: prev)
                     prev = (lk.data, img.width, img.height)
-                    raw.append((at, img, (f["mark"] as? NSNumber)?.intValue ?? 0, lk.box, lk.change, lk.bg))
+                    raw.append((at, mark, img, lk.box, lk.change, lk.bg, Film.thumb(lk.drawn ?? img, around: lk.change ?? lk.box, bg: lk.bg, scale: scale)))
                 }
-                let marks = Film.analyse(raw.map { ($0.0.timeIntervalSince1970 * 1000, $0.3 == nil) }, end: end.timeIntervalSince1970 * 1000)
-                got = raw.enumerated().map { i, x in FilmFrame(at: x.0, image: x.1, mark: x.2, tag: marks[i].tag, still: marks[i].still / 1000, box: x.3, change: x.4, bg: x.5) }
+                // A frame with no picture is not known to be blank.
+                let marks = Film.analyse(raw.map { ($0.at.timeIntervalSince1970 * 1000, $0.img != nil && $0.box == nil) }, end: end.timeIntervalSince1970 * 1000)
+                all = raw.enumerated().map { i, x in (x.at, marks[i].tag, marks[i].still / 1000) }
+                for (i, x) in raw.enumerated() {
+                    guard let img = x.img else { continue }
+                    got.append(FilmFrame(at: x.at, image: img, thumb: x.thumb, mark: x.mark,
+                                         tag: marks[i].tag, still: marks[i].still / 1000, box: x.box, change: x.change, bg: x.bg))
+                }
+                if got.isEmpty && !raw.isEmpty { why = t("film.whyBig") }
                 DispatchQueue.main.async { [weak self] in self?.from = end.addingTimeInterval(-Double(Film.lastMs) / 1000); self?.to = end }
             }
             DispatchQueue.main.async {
@@ -257,6 +364,8 @@ final class FilmSheet: NSView {
                 self.loading = false
                 self.error = why.map { t("film.failed", ["why": $0]) }
                 self.frames = got
+                self.allMarks = all
+                self.total = all.count
                 self.sel = max(0, got.firstIndex { $0.tag != nil } ?? got.count - 1)
                 self.paint()
             }
@@ -322,7 +431,10 @@ final class FilmSheet: NSView {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard case .success(let v) = r, let b = v["data"] as? String, let data = Data(base64Encoded: b) else {
-                    if case .failure(let e) = r { self.say(t("film.gifFailed", ["why": "\(e)"])) } else { self.say(t("film.gifFailed", ["why": t("film.noGif")])) }
+                    if case .failure(let e) = r {
+                        EventLog.shared.write("film gif \(p) failed: \(e)")
+                        self.say(t("film.gifFailed", ["why": Film.why(e)]))
+                    } else { self.say(t("film.gifFailed", ["why": t("film.noGif")])) }
                     return
                 }
                 if let dir = self.testSaveDir {
@@ -363,13 +475,16 @@ final class FilmSheet: NSView {
         guard let p = pane else { return }
         let title = label(t("film.title"), Fonts.pt(13, Fonts.w650))
         let icon = Icon("film", "tx2", size: 14)
-        summaryLabel.stringValue = note ?? (loading ? t("film.reading") : error ?? (frames.isEmpty ? t("film.nothing") : Film.summary(frames.map { ($0.tag, $0.still * 1000) })))
+        let found = frames.isEmpty ? t("film.nothing") : Film.summary(allMarks.map { ($0.tag, $0.still * 1000) })
+        summaryLabel.stringValue = note ?? (loading ? t("film.reading") : error ?? found)
         summaryLabel.font = Fonts.pt(12)
-        summaryLabel.textColor = Design.color(frames.contains { $0.tag != nil || $0.still > 0 } ? "you" : "tx3")
+        summaryLabel.textColor = Design.color(error == nil && allMarks.contains { $0.tag != nil || $0.still > 0 } ? "you" : "tx3")
         summaryLabel.lineBreakMode = .byTruncatingTail
         summaryLabel.setContentCompressionResistancePriority(.init(100), for: .horizontal)
         let none = frames.isEmpty
-        var row: [NSView?] = [icon, title, summaryLabel, spring(),
+        let retry = error != nil && !loading && note == nil
+            ? button("retry", t("film.retry"), icon: nil, tip: nil, kind: .normal) { [weak self] in if let p = self?.pane { self?.load(p) } } : nil
+        var row: [NSView?] = [icon, title, summaryLabel, retry, spring(),
                               button("prev", nil, icon: "left", tip: t("film.prev")) { [weak self] in self?.step(-1) },
                               button("play", nil, icon: playing ? "pause" : "play", tip: playing ? t("film.pause") : t("film.play")) { [weak self] in self?.play() },
                               button("next", nil, icon: "chevron", tip: t("film.next")) { [weak self] in self?.step(1) }]
@@ -388,13 +503,18 @@ final class FilmSheet: NSView {
         // The track: the rail, the stalls, the marks, the knob; "20 s ago" and "now" under it.
         let span = max(0.001, to.timeIntervalSince(from))
         let pos = { (d: Date) -> CGFloat in CGFloat(min(1, max(0, d.timeIntervalSince(self.from) / span))) }
-        track.stalls = frames.filter { $0.still > 0 }.map { (pos($0.at), CGFloat($0.still / span)) }
-        track.bad = frames.filter { $0.tag != nil }.map { pos($0.at) }
+        track.stalls = allMarks.filter { $0.still > 0 }.map { (pos($0.at), CGFloat($0.still / span)) }
+        track.bad = allMarks.filter { $0.tag != nil }.map { pos($0.at) }
         track.knob = frames.indices.contains(shown ?? sel) ? pos(frames[shown ?? sel].at) : nil
         track.needsDisplay = true
         track.translatesAutoresizingMaskIntoConstraints = false
         track.heightAnchor.constraint(equalToConstant: 12).isActive = true
-        let ends = hstack([label(t("film.ago"), Fonts.pt(11), "tx3"), spring(), label(t("film.now"), Fonts.pt(11), "tx3")], spacing: 0)
+        // Under the track's middle: how many of the frames have a picture, when not all.
+        let some: NSView? = !frames.isEmpty && frames.count < total ? label(t("film.some", ["n": "\(frames.count)", "all": "\(total)"]), Fonts.pt(11), "tx3") : nil
+        some.map { controls["some"] = $0 }
+        let gapL = spring(), gapR = spring()
+        let ends = hstack([label(t("film.ago"), Fonts.pt(11), "tx3"), gapL, some, some == nil ? nil : gapR, label(t("film.now"), Fonts.pt(11), "tx3")], spacing: 0)
+        if some != nil { gapL.widthAnchor.constraint(equalTo: gapR.widthAnchor).isActive = true }
         // The thumbnails.
         thumbs.arrangedSubviews.forEach { $0.removeFromSuperview() }
         thumbs.orientation = .horizontal
@@ -490,21 +610,13 @@ final class FilmThumb: NSView {
         clip.addClip()
         frameData.bg.setFill()
         box.fill()
-        let f = frameData, k: CGFloat = 0.8
-        let W = CGFloat(f.image.width) / scale, H = CGFloat(f.image.height) / scale
-        let cw = box.width / k, ch = box.height / k
-        var left: CGFloat = 0, top: CGFloat = 0
-        if let at = f.change ?? f.box {
-            let cx = (at.midX) * W, cy = (at.midY) * H
-            left = max(0, min(W - cw, min(at.minX * W - 8, cx - cw / 2)))
-            top = max(0, min(H - ch, cy - ch / 2))
-        }
-        // The picture is drawn flipped into this flipped view: its top at the top.
-        if let ctx = NSGraphicsContext.current?.cgContext {
+        let f = frameData
+        // Drawn once when the strip was read (Film.thumb), flipped into this flipped view.
+        if let th = f.thumb, let ctx = NSGraphicsContext.current?.cgContext {
             ctx.saveGState()
-            ctx.translateBy(x: -left * k, y: H * k - top * k)
+            ctx.translateBy(x: 0, y: box.height)
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(f.image, in: CGRect(x: 0, y: 0, width: W * k, height: H * k))
+            ctx.draw(th, in: CGRect(origin: .zero, size: box.size))
             ctx.restoreGState()
         }
         NSGraphicsContext.restoreGraphicsState()

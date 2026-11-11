@@ -339,6 +339,49 @@ extension SelfTestBoard {
         (ws.film.controls["close"] as? RButton)?.run?()
         check("film_closes", !ws.film.isOpen && abs(ws.stage.frame.height - stageH) < 1 && !bar.filmOn)
 
+        // A big busy pane, as a long Claude tab in a 1200 x 1000 pt pane at 2x: 153 x 60 of dense
+        // text and a line redrawn ten times a second. All its frames as PNGs at 26 px are far over
+        // the daemon's 12 MiB (330 KB each): the strip opens with the pictures that fit, says how
+        // many, and every frame's time on the track.
+        let busy = "head -c 8800 /usr/share/dict/words | tr '\\n' ' ' | fold -w 152; echo; i=0; while :; do printf '\\r\\033[38;5;208m* Working on the tiles (%d)\\033[0m\\033[K' $i; i=$((i+1)); sleep 0.1; done"
+        if let bp = newPane([:], name: "Busy", command: ["/bin/sh", "-c", busy]), let bt = ws.tab(showing: bp) {
+            ws.show(bt)
+            _ = try? ws.conn.call("pane.override", ["pane": bp, "cols": 153, "rows": 60, "no_wait": true], timeout: 5)
+            settle(4)
+            let t0 = Date()
+            ws.film.load(bp)
+            let read = wait(30) { !ws.film.loading }
+            let took = Date().timeIntervalSince(t0)
+            let f = ws.film
+            let px = f.frames.first.map { "\($0.image.width)x\($0.image.height)" } ?? "-"
+            check("film_big_pane", read && f.error == nil && f.frames.count >= 2 && f.total > f.frames.count && f.frames.allSatisfy { $0.thumb != nil }
+                  && f.frames.last.map { $0.at > t0.addingTimeInterval(-1) } ?? false,
+                  "\(f.frames.count) of \(f.total) frames pictured at \(px), read in \(String(format: "%.2f", took)) s, err \(f.error ?? "-")")
+            board.render(force: true)
+            settle(0.4)
+            let some = (f.controls["some"] as? NSTextField)?.stringValue ?? "-"
+            check("film_big_says_some", some == t("film.some", ["n": "\(f.frames.count)", "all": "\(f.total)"]) && f.controls["some"]?.isHiddenOrHasHiddenAncestor == false, some)
+            check("film_big_thumbs", f.controls.keys.filter { $0.hasPrefix("thumb:") }.count >= 3, f.controls.keys.sorted().joined(separator: ","))
+            picture("native-film-big-1280.png")
+            if let th = f.controls.keys.sorted().last(where: { $0.hasPrefix("thumb:") }).flatMap({ f.controls[$0] as? FilmThumb }) { th.onPress?() }
+            check("film_big_frame_shown", f.shown != nil && ws.filmView.superview === ws.stage, ws.filmView.line)
+            pictureOver("native-film-big-frame-1280.png", [ws.filmView])
+            ws.filmView.back.performClick(nil)
+            (f.controls["close"] as? RButton)?.run?()
+            ws.closePane(bp)
+        } else { check("film_big_pane", false, "no pane") }
+        // A strip that could not be read says so, with Try again.
+        ws.film.load("pzzzzzzz")
+        settle(0.3)
+        check("film_failure_retry", ws.film.error == t("film.noDaemon") && ws.film.controls["retry"] != nil, ws.film.error ?? "-")
+        picture("native-film-failed-1280.png")
+        (ws.film.controls["close"] as? RButton)?.run?()
+        // A failure reads as words, never the daemon's own.
+        let raw = ConnectionError.daemon(code: "failed", message: "these frames are over 12 MiB as PNGs: ask for fewer (max_frames) or a gif")
+        check("film_failure_words", Film.why(raw) == t("film.whyBig") && Film.why(.daemon(code: "not_found", message: "no pane px")) == t("film.whyClosed")
+              && Film.why(.timeout) == t("film.whySlow") && Film.why(.closed) == t("film.whyLost") && Film.why(.daemon(code: "internal", message: "boom")) == t("film.whyDaemon"),
+              Film.why(raw))
+
         // The first agent's own pane: the one-time hint, under its pane's head; dismissed, marked, never again.
         if let owner = ws.active?.host {
             let bin = Bundle.main.bundlePath + "/Contents/MacOS/ravenryd"
