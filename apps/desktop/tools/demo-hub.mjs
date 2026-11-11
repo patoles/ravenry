@@ -101,7 +101,7 @@ const PROJECTS = [
     turn: ['Round the temperatures', 'Done: whole degrees everywhere, tests pass.', 60 * 73.5], machine: 'gpu-box' },
 ];
 
-export async function startDemoHub({ dir, port, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null, cmuxIds = false, plan = false, ideas = false }) {
+export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, panes = [], runtime = null, env: moreEnv = {}, settings: moreSettings = {}, alerts = false, extra = [], prepare = null, cmuxIds = false, plan = false, ideas = false }) {
   fs.rmSync(dir, { recursive: true, force: true });
   const HOME = path.join(dir, 'home');
   const ROOT = path.join(HOME, 'Projects');
@@ -216,7 +216,7 @@ export async function startDemoHub({ dir, port, empty = false, panes = [], runti
     ...(runtime ? { RAVENRY_RUNTIME_DIR: runtime } : {}),
     ...moreEnv,
   };
-  const child = spawn(process.execPath, [path.join(HUB, 'server', 'index.mjs')], { cwd: HOME, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [path.join(hubDir, 'server', 'index.mjs')], { cwd: HOME, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   child.stdout.on('data', (d) => { log += d; });
   child.stderr.on('data', (d) => { log += d; });
