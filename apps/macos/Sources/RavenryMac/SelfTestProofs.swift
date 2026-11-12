@@ -69,6 +69,8 @@ extension SelfTestBoard {
             check("panel_handoff_read_by_session", shows(board.panel, t("panel.readBySession")),
                   "hub handoffRecent \(String(describing: (p.raw["handoffRecent"] as? [String: Any])?["resumedAt"] ?? "none"))")
             pictures("proofs-handoff")
+            // The hand-off card: two lines at most, a press opens the brief at its Hand-off (SelfTestHandoffCard.swift).
+            screenHandoffCard(hp)
         } else { check("panel_handoff_project", false, "no project \(hp) with a session") }
 
         // MARK: ONB-003: the pick hint, its x, the hub's mark

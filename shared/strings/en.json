@@ -144,6 +144,7 @@
   "panel.handOffLine": "Hand-off line at {pct}%",
   "panel.handOff": "Hand-off",
   "panel.readBySession": "Read by this session",
+  "panel.handOffOpenTip": "Open the brief at its Hand-off",
   "panel.latestPicture": "Latest picture",
   "panel.gallery": "Gallery",
   "panel.galleryCount": "Gallery ({n})",

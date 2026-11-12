@@ -41,6 +41,8 @@ targets:
         buildPhase: resources
       - path: ../../hub/server/briefnext.mjs
         buildPhase: resources
+      - path: ../../hub/server/handoffline.mjs
+        buildPhase: resources
     dependencies:
       - sdk: Metal.framework
       - sdk: QuartzCore.framework

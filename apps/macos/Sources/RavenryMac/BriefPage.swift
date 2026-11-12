@@ -138,6 +138,12 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
     private(set) var focused: String?
     /// Opens at an objective (Objectives' row): the next draw scrolls to its heading.
     func focus(_ objective: String?) { pendingFocus = objective; if shownText != nil { applyFocus() } }
+    /// A section asked for by the hub's key for it (the hand-off card: "handoff"), its heading as the brief names it.
+    private var pendingSection: String?
+    /// The headings brief.mjs reads as a section, by its key.
+    static let sectionNames = ["handoff": ["Hand-off", "Handoff", "Hand off", "Hand-backs"]]
+    /// Opens at a section (the hand-off card's press): the next draw scrolls to its heading.
+    func focus(section key: String) { pendingSection = key; if shownText != nil { applyFocus() } }
 
     /// Shows a project's brief: what the hub gave last at once, asked again after 4 seconds.
     func show(_ pid: String, state: HubState?) {
@@ -200,11 +206,20 @@ final class BriefPage: Box, NSTextViewDelegate, BackLinked {
         if !kept.isEmpty { text.selectedRanges = kept.map { NSValue(range: $0) } }
         scroll.contentView.scroll(to: NSPoint(x: 0, y: min(y, max(0, text.frame.height - scroll.contentSize.height))))
         scroll.reflectScrolledClipView(scroll.contentView)
-        if pendingFocus != nil { applyFocus() }
+        if pendingFocus != nil || pendingSection != nil { applyFocus() }
     }
 
     /// The objective asked for: its heading at the top of the page, flashed as a find shows a match.
     private func applyFocus() {
+        if let k = pendingSection {
+            // The heading's words as this brief writes them ("## Hand-off", "## Handoff").
+            pendingSection = nil
+            let ns = text.string as NSString
+            for name in BriefPage.sectionNames[k] ?? [k] {
+                let r = ns.range(of: "\n" + name + "\n", options: .caseInsensitive)
+                if r.location != NSNotFound { pendingFocus = ns.substring(with: NSRange(location: r.location + 1, length: r.length - 2)); break }
+            }
+        }
         guard let want = pendingFocus, !want.isEmpty, let lm = text.layoutManager, let tc = text.textContainer else { pendingFocus = nil; return }
         let ns = text.string as NSString
         var r = ns.range(of: "\n" + want + "\n")

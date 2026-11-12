@@ -706,7 +706,13 @@ final class Board: NSObject {
     func openPage(_ key: String, _ name: String) {
         // While the npm board keeps the data, what needs the app's hub points there (NpmSwitch.swift).
         if npmPoints(key) { return }
-        if key.hasPrefix("brief:") { openBrief(String(key.dropFirst(6))); return }
+        // "brief:<project>#handoff": the brief at that section (the panel's hand-off card).
+        if key.hasPrefix("brief:") {
+            let parts = key.dropFirst(6).split(separator: "#", maxSplits: 1).map(String.init)
+            openBrief(parts.first ?? "")
+            if parts.count > 1 { brief.focus(section: parts[1]) }
+            return
+        }
         if key.hasPrefix("gallery:") { openGallery(String(key.dropFirst(8)), at: nil); return }
         if key.hasPrefix("plan:") { openPlan(String(key.dropFirst(5)), title: nil); return }
         if key.hasPrefix("newplan:") { openNewPlan(String(key.dropFirst(8))); return }
