@@ -238,6 +238,15 @@ export async function readScreen(id, lines = 40) {
   return tidy(ls.map((l) => l.text).join('\n'), lines);
 }
 
+// The visible screen with each row's styled runs (pane.capture `styles`):
+// { lines: [{ text, spans: [{ col, width, text, dim, ... }] }], cols, rows,
+// cursor }, or null. server/suggestion.mjs reads the prompt's dim text
+// (Claude Code's suggested reply) from it, which no plain read shows.
+export async function readStyled(id) {
+  const r = await call(id, 'pane.capture', { styles: true });
+  return r.ok && r.result && Array.isArray(r.result.lines) ? r.result : null;
+}
+
 const joinedReads = new Map();
 /** The last read of a pane with its soft-wrapped lines joined, or null when none wrapped. */
 export const lastJoined = (id) => joinedReads.get(id) ?? null;

@@ -11,13 +11,20 @@
 // "The suggested reply"; keep the two in step.
 //
 // Three signals, strongest first:
-// 1. The styled read (cmux only): `cmux rpc terminal.replay` returns the
-//    render grid with a style per span. The suggestion's spans are `faint`;
-//    typed text is not. Measured on Claude Code 2.1.318 in cmux 0.64.20.
-//    Definitive (`sure`), costs about as much as a read-screen (30 ms).
+// 1. The styled read (cmux, and Ravenry's own panes): `cmux rpc
+//    terminal.replay` returns the render grid with a style per span, the
+//    daemon's pane.capture with `styles` each row's styled runs. The
+//    suggestion's text is `faint` (cmux) or `dim` (ravenryd); typed text is
+//    not. Measured on Claude Code 2.1.318 in cmux 0.64.20 and 2.1.323 in a
+//    Ravenry pane. Definitive (`sure`), costs about as much as a plain read.
 // 2. The history of reads (any terminal, no keystrokes): a suggestion
 //    appears on its own a few seconds after a turn ends and does not change
-//    until the user types. Not definitive.
+//    until the user types. Not definitive, and wrong around background
+//    agents: Claude Code shows a suggestion while it waits for one ("Wait
+//    for the agent to finish"), which the history sees during work, and
+//    keeps it after the agent's report (measured on 2.1.323), so the
+//    history calls it typed text. Only a terminal with no styled read
+//    (iTerm2, Rex) relies on it.
 // 3. The probe (only on a path that types into the prompt anyway): type one
 //    character and read the prompt again. Over a suggestion the prompt then
 //    holds just that character (a typed character, a paste, and a typed "!"
@@ -96,6 +103,52 @@ export function gridPrompt(grid) {
     return { marker: m[1], text, ghost: ghost > 0 && typed === 0 };
   }
   return null;
+}
+
+// The prompt box of a Ravenry pane's styled capture (ravenryd pane.capture
+// with `styles`: { lines: [{ text, spans: [{ col, text, dim }] }] }), read
+// as gridPrompt reads cmux's grid: { marker, text, ghost } for the box
+// nearest the bottom, ghost when every visible character after the marker
+// is dim. Text with no span has the default style, so it counts as typed.
+// null when the capture shows no prompt box.
+export function capturePrompt(cap) {
+  const rows = cap && Array.isArray(cap.lines) ? cap.lines : null;
+  if (!rows) return null;
+  const text = (r) => String((rows[r] && rows[r].text) || '');
+  const isRule = (r) => r >= 0 && r < rows.length && RULE_ROW.test(text(r));
+  for (let r = rows.length - 1; r > 0; r--) {
+    const m = MARKER.exec(text(r));
+    if (!m || !isRule(r - 1)) continue;
+    const body = [r];
+    for (let j = r + 1; j < r + 12 && j < rows.length && !isRule(j); j++) body.push(j);
+    if (!isRule(body[body.length - 1] + 1)) continue;
+    let ghost = 0;
+    let all = 0;
+    const lines = [];
+    for (const row of body) {
+      const t = text(row);
+      // Cells taken by the marker (a column per character here: the
+      // marker, its space and the rows' indent are all narrow).
+      const skip = row === r ? m[0].length : 0;
+      all += bare(t.slice(skip)).length;
+      for (const sp of rows[row].spans || []) {
+        if (!sp.dim) continue;
+        const cut = Math.max(0, skip - (sp.col || 0));
+        ghost += bare(String(sp.text || '').slice(cut)).length;
+      }
+      lines.push(t);
+    }
+    const out = [lines[0].slice(m[0].length), ...lines.slice(1).map((l) => l.replace(/^\s{2}/, ''))].join('\n').trim();
+    return { marker: m[1], text: out, ghost: ghost > 0 && ghost >= all };
+  }
+  return null;
+}
+
+// The prompt box of whichever styled read the terminal gave: a Ravenry
+// pane's capture (capturePrompt) or cmux's render grid (gridPrompt).
+export function styledPrompt(read) {
+  if (!read) return null;
+  return Array.isArray(read.lines) ? capturePrompt(read) : gridPrompt(read);
 }
 
 // ------------------------------------------------------------ 2. history

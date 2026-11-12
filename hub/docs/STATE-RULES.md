@@ -129,9 +129,9 @@ So the cmux status is shown as a reason but never decides anything by itself.
 | Signal | Source | What it tells |
 | --- | --- | --- |
 | Prompt box | `cmux read-screen` | `────` / `❯ text` / `────` near the bottom means Claude Code is running in that tab. Text after `❯` is either a half-typed reply or Claude Code's dim suggested reply, which a plain read cannot tell apart; `server/suggestion.mjs` decides ("The suggested reply", below). Claude's dim `Try "..."` placeholder is ignored. |
-| Prompt styles | `cmux rpc terminal.replay` | The render grid, a style per span. Faint text after `❯` is Claude Code's suggestion or placeholder; typed text is not faint. cmux only. |
+| Prompt styles | `cmux rpc terminal.replay`, ravenryd `pane.capture` with `styles` | cmux's render grid (a style per span) or a Ravenry pane's styled runs. Faint (cmux) or dim (ravenryd) text after `❯` is Claude Code's suggestion or placeholder; typed text is neither. cmux and Ravenry panes. |
 | Shell below it | screen | A line like `Resume this session with:`, `➜  folder`, or `user@host:path %` after the box means Claude exited and a shell owns the tab. The `claude --resume <id>` line still names the last session. |
-| Spinner line | screen | `· Beaming…`, `✻ Thinking…`, `✻ Waiting for 1 background agent to finish` above the box, or `esc to interrupt` in the footer, means working. |
+| Spinner line | screen | `· Beaming…`, `✻ Thinking…`, `✻ Waiting for 1 background agent to finish` above the box, or `esc to interrupt` in the footer, means working. The `Waiting for` line counts only while the footer lists a running agent: Claude Code leaves it on screen after the agent's report, with no done line under it (2.1.323). |
 | Background agents | screen footer | `◯ general-purpose ...` rows mean subagents are still running. |
 | Done line | screen | `✻ Worked for 1h 7m · done 1:09 AM` means the last turn finished. The time has no date for the past week, so it is not used for age; the transcript is. |
 | Dialog | screen | `Enter to confirm`, `Enter to select`, `Esc to cancel`, numbered `❯ 1.` options without a prompt box: a permission prompt or a question is open. |
@@ -182,17 +182,24 @@ of typing.
 
 Three signals, strongest first:
 
-1. **The styled read** (cmux): `cmux rpc terminal.replay` returns the screen
-   as a render grid with a style per span. The suggestion's spans are
-   `faint`; typed text is not. Read only when the prompt holds text, and
-   once per text (about 30 ms, like a read-screen). Definitive.
+1. **The styled read** (cmux, Ravenry panes): `cmux rpc terminal.replay`
+   returns the screen as a render grid with a style per span, and
+   ravenryd's `pane.capture` with `styles` each row's styled runs. The
+   suggestion's text is `faint` (cmux) or `dim` (ravenryd; measured on
+   2.1.323); typed text is neither. Read only when the prompt holds text,
+   and once per text (about as long as a plain read). Definitive.
 2. **The history of reads** (any terminal, no keystrokes), per tab: a turn
    is seen ending when a read shows the session working and a later one at
    rest, or when the done line changes. The text is a suggestion when it was
    not in the prompt while the turn ran, first showed up within 30 s of the
    turn's end, and has not changed since; a suggestion that comes back after
    the user typed and deleted their text is known by its text. Any other
-   text is a draft. Not definitive, so only shown, never acted on.
+   text is a draft. Not definitive, so only shown, never acted on, and
+   wrong around background agents: Claude Code shows a suggestion while it
+   waits for one ("Wait for the agent to finish") and keeps it after the
+   agent's report, so the history saw it during work and calls it typed.
+   On 2026-11-12 that turned the phone's Send off on a Ravenry pane, which
+   had no styled read then.
 3. **The probe** (only on a path that is about to type or close): the board
    types `1` and reads the prompt again. Over a suggestion the prompt holds
    just `1`; over typed text it holds the old text with the `1` in it

@@ -81,6 +81,48 @@ const jt = sg.withPrompt(pt, sg.judgePrompt({ text: pt.draft, styled: gt }));
 check('judged screen: typed text stays the draft', jt.draft === 'my half reply' && jt.suggestion === null);
 check('prompt box of a plain read: bash mode', JSON.stringify(sg.promptBox(fx('bash.txt'))) === JSON.stringify({ marker: '!', text: '' }));
 
+// A Ravenry pane's styled read (ravenryd pane.capture with styles), real
+// captures of Claude Code 2.1.323: the suggestion's text is dim, typed text
+// has no style.
+const capText = (c) => c.lines.map((l) => l.text).join('\n');
+const rcs = JSON.parse(fx('ravenry-suggestion.capture.json'));
+const rs = sg.styledPrompt(rcs);
+check('ravenry capture: the suggestion is read as dim text', rs && rs.marker === '❯' && rs.text === 'yes' && rs.ghost === true, JSON.stringify(rs));
+check('ravenry capture: the plain rows give parseScreen the same text as a draft', parseScreen(capText(rcs)).draft === 'yes');
+const rct = JSON.parse(fx('ravenry-typed.capture.json'));
+const rt = sg.styledPrompt(rct);
+check('ravenry capture: typed text is not dim', rt && rt.text === 'my half reply' && rt.ghost === false, JSON.stringify(rt));
+v = sg.judgePrompt({ text: parseScreen(capText(rcs)).draft, styled: rs, history: 'draft' });
+check('ravenry capture: the styled read wins over a history that says typed', v.kind === 'suggestion' && v.sure && v.by === 'style');
+v = sg.judgePrompt({ text: parseScreen(capText(rct)).draft, styled: rt, history: 'suggestion' });
+check('ravenry capture: and typed text stays a draft whatever the history says', v.kind === 'draft' && v.sure);
+check('styledPrompt: cmux\'s grid still goes to gridPrompt', JSON.stringify(sg.styledPrompt(JSON.parse(fx('suggestion.grid.json')))) === JSON.stringify(gs));
+check('styledPrompt: no read, nothing', sg.styledPrompt(null) === null);
+
+// The cause of "Send is greyed out" (2026-11-12, a Ravenry pane): Claude
+// Code shows a suggestion while it waits for a background agent and keeps
+// it after the agent's report. Real captures every 2 s through that wait:
+// the history alone calls each suggestion typed text (a draft, which turns
+// Send off); with the styled read every one is a suggestion, for sure.
+{
+  const seq = JSON.parse(fx('ravenry-agent-wait.captures.json')).frames;
+  const h = sg.createTracker();
+  const seen = [];
+  for (const f of seq) {
+    const scr = parseScreen(capText(f.capture));
+    const hist = h.see('w', scr, f.at);
+    if (!scr.draft) continue;
+    seen.push({ text: scr.draft, hist, v: sg.judgePrompt({ text: scr.draft, styled: sg.styledPrompt(f.capture), history: hist }), working: scr.working, agents: scr.agentsRunning });
+  }
+  check('agent wait: the captures hold suggestions during the wait and after the report', seen.length >= 3 && seen.some((x) => x.agents > 0) && seen.some((x) => x.agents === 0), JSON.stringify(seen.map((x) => x.text)));
+  check('agent wait: the history alone calls the suggestions during the wait typed (the bug)', seen.filter((x) => x.agents > 0).every((x) => x.hist === 'draft'));
+  check('agent wait: with the styled read, every one is a suggestion, for sure', seen.every((x) => x.v.kind === 'suggestion' && x.v.sure), JSON.stringify(seen.map((x) => [x.text, x.v.kind])));
+  const last = parseScreen(capText(seq[seq.length - 1].capture));
+  check('agent wait: at rest after the report, the leftover "Waiting for 1 background agent" line is not work', last.claudeLive && !last.working && last.agentsRunning === 0, JSON.stringify({ working: last.working, busy: last.busyLine }));
+  const mid = seq.map((f) => parseScreen(capText(f.capture))).find((x) => x.agentsRunning > 0 && /Waiting for/.test(x.busyLine || ''));
+  check('agent wait: while the footer lists the agent, the same line is work', !!mid && mid.working);
+}
+
 // ------------------------------------------------------------ 2. history
 
 const S = 'yes, write the poem';

@@ -196,8 +196,8 @@ const ADAPTERS = {
   ravenry: {
     listTabs: () => ravenry.listTabs(),
     readScreen: (t, n) => ravenry.readScreen(t.surfaceId, n),
-    // pane.capture has styles, but the suggestion reader reads cmux's grid.
-    readStyled: async () => null,
+    // pane.capture with styles: Claude Code's suggestion is dim there.
+    readStyled: (t) => ravenry.readStyled(t.surfaceId),
     // `t.by`: a person typed it (server/index.mjs sendMessage), so the
     // daemon tags the input as theirs.
     pasteText: (t, text) => ravenry.pasteText(t.surfaceId, text, t.by || null),
@@ -266,8 +266,8 @@ export async function listTabs(kind) {
 export const readScreen = (tab, lines = 40) => adapter(tab).readScreen(tab, lines);
 // The last read with its soft-wrapped lines joined (a Ravenry pane's), or null.
 export const joinedRead = (tab) => (kindOf(tab.surfaceId) === 'ravenry' ? ravenry.lastJoined(tab.surfaceId) : null);
-// The screen with its styles (cmux's render grid), or null where the
-// terminal has none (server/suggestion.mjs). MC_NO_STYLED_READ=1 (tests)
+// The screen with its styles (cmux's render grid, a Ravenry pane's styled
+// capture), or null where the terminal has none (server/suggestion.mjs). MC_NO_STYLED_READ=1 (tests)
 // makes every terminal answer none, so the probe path runs on real cmux.
 export const readStyled = (tab) => {
   const a = adapter(tab);

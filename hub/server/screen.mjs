@@ -125,15 +125,19 @@ export function parseScreen(text) {
   }
 
   // Working: spinner line above the prompt, or the footer offers "esc to interrupt".
+  // "Waiting for 1 background agent to finish" counts only while the footer
+  // lists a running agent: Claude Code leaves that line on screen after the
+  // agent's report (measured on 2.1.323), with no done line under it.
+  out.agentsRunning = out.footer.filter((l) => /^\s*◯\s+\S/.test(l)).length;
   const near = above.slice(-8);
   for (let i = near.length - 1; i >= 0; i--) {
     const l = near[i];
     if (DONE_LINE.test(l)) break;
     const m = l.match(BUSY_LINE);
+    if (m && /^Waiting for /.test(m[1]) && !out.agentsRunning) break;
     if (m) { out.working = true; out.busyLine = l.trim().replace(/^[^\w\s]\s+/, ''); break; }
   }
   if (out.footer.some((l) => /esc to interrupt/i.test(l))) out.working = true;
-  out.agentsRunning = out.footer.filter((l) => /^\s*◯\s+\S/.test(l)).length;
 
   // Done line and recap of the last finished turn.
   for (let i = above.length - 1; i >= Math.max(0, above.length - 40); i--) {

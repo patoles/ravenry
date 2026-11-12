@@ -83,7 +83,7 @@ export function forget(surfaceId) { promptHistory.forget(surfaceId); }
 
 // The verdict on what a fresh read's prompt holds (server/suggestion.mjs):
 // { text, kind, sure, by }. Every read goes into the tab's history; a prompt
-// with text also gets a styled read (cmux only), unless one was taken while
+// with text also gets a styled read (cmux, Ravenry panes), unless one was taken while
 // the prompt held the same text.
 export async function judgeRead(tab, screen, at) {
   const history = promptHistory.see(tab.surfaceId, screen, at);
@@ -92,7 +92,7 @@ export async function judgeRead(tab, screen, at) {
   const seen = styledSeen.get(tab.surfaceId);
   if (seen && seen.text === text) return { text, ...suggest.judgePrompt({ text, styled: seen.styled, history }) };
   const g = await term.readStyled(tab).catch(() => null);
-  const styled = g ? suggest.gridPrompt(g) : null;
+  const styled = suggest.styledPrompt(g);
   const v = suggest.judgePrompt({ text, styled, history });
   // Kept only when it read this very text (the prompt can move between reads).
   if (v.by === 'style') styledSeen.set(tab.surfaceId, { text, styled }); else styledSeen.delete(tab.surfaceId);
@@ -112,14 +112,14 @@ export const withPrompt = suggest.withPrompt;
 
 // Before typing into a prompt that shows text, or closing its tab: is that
 // text Claude's suggestion or a half-typed reply? A fresh styled read
-// decides when the terminal has one (cmux); otherwise the probe types one
+// decides when the terminal has one (cmux, Ravenry panes); otherwise the probe types one
 // character and reads the prompt again (server/suggestion.mjs, probePrompt).
 // `bang`: the message is a "! command", so the probe's character is its
 // "!", which stays typed over a suggestion (then `bash` is true).
 // { kind: 'suggestion' | 'draft' | 'unknown', sure, by, bash?, error? }
 export async function surePrompt(tab, screen, { bang = false } = {}) {
   const g = await term.readStyled(tab).catch(() => null);
-  const v = suggest.judgePrompt({ text: screen.draft, styled: g ? suggest.gridPrompt(g) : null });
+  const v = suggest.judgePrompt({ text: screen.draft, styled: suggest.styledPrompt(g) });
   if (v.sure) return v;
   const p = await suggest.probePrompt({
     read: () => term.readScreen(tab, 40),
