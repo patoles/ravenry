@@ -970,6 +970,7 @@ func (c *conn) paneCapture(id uint64, data []byte) {
 	}
 	for i, l := range cp.Lines {
 		res.Lines[i].Text = l.Text
+		res.Lines[i].Wrapped = l.Wrapped
 		for _, sp := range l.Spans {
 			res.Lines[i].Spans = append(res.Lines[i].Spans, span(sp))
 		}

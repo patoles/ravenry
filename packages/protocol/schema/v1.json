@@ -940,7 +940,7 @@
       "additionalProperties": {
         "type": "string",
         "maxLength": 256,
-        "pattern": "^[^\u0000-\u001f\u007f]*$"
+        "pattern": "^[^\u0000-\u001f]*$"
       },
       "maxProperties": 32,
       "description": "Key-value tags for programs (the app, the hub, plugins). The daemon gives them no meaning."
@@ -957,6 +957,10 @@
           "items": {
             "$ref": "#/$defs/Span"
           }
+        },
+        "wrapped": {
+          "type": "boolean",
+          "description": "The row runs on into the next one (a soft wrap): the two are one line the terminal's width cut. Absent when it does not."
         }
       },
       "required": [

@@ -475,7 +475,9 @@ Result:
   `visible`), `alt_screen`, `title`.
 - `history`: how many entries at the start of `lines` are scrollback.
 - `lines`: one per row (history first, then each visible row). Each has
-  `text` (trailing blanks removed) and, with `styles`, `spans`.
+  `text` (trailing blanks removed), `wrapped: true` when the row runs on
+  into the next (a soft wrap: the two are one line the width cut), and,
+  with `styles`, `spans`.
 - A span is a run of cells whose style is not the default: `col`, `width`
   (in cells; a wide character covers two), `text`, and the attributes
   that are on (`bold`, `dim`, `italic`, `underline`, `blink`, `inverse`,

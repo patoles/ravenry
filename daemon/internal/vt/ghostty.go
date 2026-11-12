@@ -404,6 +404,26 @@ func (s *ghostty) Capture(o CaptureOptions) (*Capture, error) {
 	y, _ := s.t.CursorY()
 	vis, _ := s.t.CursorVisible()
 	c.Cursor = Cursor{X: int(x), Y: int(y), Visible: vis}
+	// Each row's soft wrap, so a reader can join a line the width cut.
+	var sb uint64
+	if hist > 0 {
+		n, err := s.t.ScrollbackRows()
+		if err != nil {
+			return nil, fmt.Errorf("vt: scrollback rows: %w", err)
+		}
+		sb = uint64(n)
+	}
+	for i := range c.Lines {
+		p := gt.Point{Tag: gt.PointTagActive, Y: uint32(i - hist)}
+		if i < hist {
+			p = gt.Point{Tag: gt.PointTagHistory, Y: uint32(int(sb) - hist + i)}
+		}
+		if ref, err := s.t.GridRef(p); err == nil {
+			if row, err := ref.Row(); err == nil {
+				c.Lines[i].Wrapped, _ = row.Wrap()
+			}
+		}
+	}
 	if o.Styles {
 		for i := range c.Lines {
 			var p gt.Point

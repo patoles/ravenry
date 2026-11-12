@@ -288,6 +288,8 @@ type Cursor struct {
 type Line struct {
 	Text  string `json:"text"`
 	Spans []Span `json:"spans,omitempty"`
+	// Wrapped: the row runs on into the next (a soft wrap).
+	Wrapped bool `json:"wrapped,omitempty"`
 }
 
 // Span is a run of cells with a style that is not the default. Fg and Bg

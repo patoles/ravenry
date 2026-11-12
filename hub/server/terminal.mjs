@@ -264,6 +264,8 @@ export async function listTabs(kind) {
 
 // The last `lines` lines of a tab as plain text, or null.
 export const readScreen = (tab, lines = 40) => adapter(tab).readScreen(tab, lines);
+// The last read with its soft-wrapped lines joined (a Ravenry pane's), or null.
+export const joinedRead = (tab) => (kindOf(tab.surfaceId) === 'ravenry' ? ravenry.lastJoined(tab.surfaceId) : null);
 // The screen with its styles (cmux's render grid), or null where the
 // terminal has none (server/suggestion.mjs). MC_NO_STYLED_READ=1 (tests)
 // makes every terminal answer none, so the probe path runs on real cmux.

@@ -229,7 +229,31 @@ export async function listTabs() {
 export async function readScreen(id, lines = 40) {
   const r = await call(id, 'pane.capture', { history: Math.max(0, lines) });
   if (!r.ok) return null;
-  return tidy(r.result.lines.map((l) => l.text).join('\n'), lines);
+  const ls = r.result.lines;
+  // The same read with each soft-wrapped line joined (a daemon that says
+  // `wrapped`), for the Live screen, which lays it out again at the
+  // reader's width (a phone's); the state rules read the rows as drawn.
+  if (ls.some((l) => l.wrapped)) joinedReads.set(id, tidy(joinWrapped(ls, r.result.cols).join('\n'), 0));
+  else joinedReads.delete(id);
+  return tidy(ls.map((l) => l.text).join('\n'), lines);
+}
+
+const joinedReads = new Map();
+/** The last read of a pane with its soft-wrapped lines joined, or null when none wrapped. */
+export const lastJoined = (id) => joinedReads.get(id) ?? null;
+
+/** Rows to lines: a row that runs on (`wrapped`) joins the next, its trailing blanks kept to the width. */
+export function joinWrapped(lines, cols = 0) {
+  const out = [];
+  let cur = '';
+  for (const l of lines) {
+    const t = String(l.text || '');
+    if (l.wrapped) { cur += cols > t.length ? t + ' '.repeat(cols - t.length) : t; continue; }
+    out.push(cur + t);
+    cur = '';
+  }
+  if (cur) out.push(cur.replace(/\s+$/, ''));
+  return out;
 }
 
 export function tidy(text, lines) {

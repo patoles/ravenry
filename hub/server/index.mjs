@@ -328,7 +328,9 @@ async function readSurface(tab) {
   const now = Date.now();
   // okAt and full keep the last good read, for the Live screen's freshness;
   // ver changes only when what the Live screen would show changes.
-  const full = raw != null ? (want ? raw : null) : prev ? prev.full : null;
+  // The Live screen's read: a Ravenry pane's lines joined where the pane's
+  // width cut them, so the reader's width lays them out (a phone's).
+  const full = raw != null ? (want ? term.joinedRead(tab) ?? raw : null) : prev ? prev.full : null;
   const src = full ?? (raw != null ? text : prev ? prev.text : null);
   const prevSrc = prev ? prev.full ?? prev.text : undefined;
   // Which assistant draws this tab: its session's, when a live session

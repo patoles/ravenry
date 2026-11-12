@@ -199,6 +199,9 @@ type Capture struct {
 type Line struct {
 	Text  string
 	Spans []Span
+	// Wrapped: the row runs on into the next one (a soft wrap), so the two
+	// are one line of text that the terminal's width cut.
+	Wrapped bool
 }
 
 // Span is a run of cells with one style that is not the default style.
