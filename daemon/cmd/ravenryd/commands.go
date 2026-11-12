@@ -291,6 +291,14 @@ func init() {
 			{"tcp", valueFlag, "PORT", "the process that holds the TCP connection from this local port..."},
 			{"to", valueFlag, "PORT", "...to this local port (the server's)"},
 		}, run: cmdPeer},
+		{name: "tailnet", service: true, group: "Daemon", summary: "put Ravenry on the person's Tailscale as its own device, for the phone away from home (the hub runs it while Away from home is on): its states as JSON lines, `logout` on standard input signs it out", flags: []flagDoc{
+			{"dir", valueFlag, "DIR", "where its keys are kept (made with mode 0700)"},
+			{"forward", valueFlag, "PORT", "the hub's phone port on 127.0.0.1, which the owner's own devices reach"},
+			{"port", valueFlag, "PORT", "the port it listens on, on the tailnet (default: --forward's)"},
+			{"hostname", valueFlag, "NAME", "the device's name (default ravenry)"},
+			{"control-url", valueFlag, "URL", "a test's control server: http on a loopback address only (default: Tailscale's)"},
+			{"logout", boolFlag, "", "sign the device out: off the tailnet, its keys deleted"},
+		}, run: cmdTailnet},
 		{name: "version", aliases: []string{"--version", "-v"}, service: true, group: "Daemon", summary: "this binary's version", run: cmdVersion},
 	}
 }
