@@ -12,6 +12,7 @@
 //   toast TITLE          the newest toast's button of that title, pressed
 //   scroll N             N scroll-wheel lines over the pane in front, as a mouse's wheel sends them
 //   activate             NSApplication.didBecomeActiveNotification, as a Dock click brings the app forward
+//   learn KEY            Learn opened, and its card KEY's button (Try it) pressed through Accessibility
 //
 // A release takes none: it quits on --offscreen (Gate.swift).
 
@@ -97,6 +98,17 @@ extension AppDelegate {
                     ctx.draw(img, in: CGRect(x: 0, y: 0, width: pw, height: ph))
                     ans["ok"] = (try? ctx.makeImage().map { NSBitmapImageRep(cgImage: $0) }?.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: arg))) != nil
                 } else { ans["ok"] = false }
+            } else { ans["ok"] = false }
+        case "learn":
+            if let bd = board {
+                bd.openLearn()
+                ans["learn"] = bd.learn.buttons.keys.sorted()
+                let n = bd.log.count
+                // Found and pressed (NSButton's own press answers false though its action ran); what the window said since.
+                if let b = bd.learn.buttons["try-\(arg)"] { _ = b.accessibilityPerformPress(); ans["ok"] = true; ans["title"] = b.title } else { ans["ok"] = false }
+                ans["said"] = bd.log.dropFirst(n).filter { $0.hasPrefix("toast ") }.map { String($0.dropFirst(6)) }
+                ans["front"] = "\(bd.front)"
+                ans["film"] = bd.ws.film.isOpen
             } else { ans["ok"] = false }
         case "state": ans["ok"] = true
         default: ans["ok"] = false

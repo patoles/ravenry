@@ -100,6 +100,17 @@ try {
     await cmd0('menu Edit>Find>Find\u2026');
     const f1 = await until(5000, () => rd()?.find === true);
     check('noboard_find', f1, `the find bar shown: ${rd()?.find}`);
+    // HUB-009: Learn's Try it with no board: each card that starts a session says the board is not running, one toast a press,
+    // and Learn stays in front; the filmstrip's needs no board and opens the terminal that printed last.
+    const noBoard = JSON.parse(fs.readFileSync(path.join(REPO, 'shared', 'strings', 'en.json'), 'utf8'))['learn.noBoard'];
+    const said = [];
+    for (const k of ['panes', 'needs', 'pick', 'review', 'decisions']) {
+      const a = await cmd0(`learn ${k}`);
+      said.push(`${k}: ${a?.title || '-'} pressed ${a?.ok}, said ${JSON.stringify(a?.said)}, front ${a?.front}`);
+      check(`noboard_learn_try_${k}`, a?.ok === true && JSON.stringify(a?.said) === JSON.stringify([noBoard]) && /side\.learn/.test(a?.front || ''), said[said.length - 1]);
+    }
+    const fa = await cmd0('learn film');
+    check('noboard_learn_try_film', fa?.ok === true && fa?.front === 'tab' && fa?.film === true && (fa?.said || []).length === 0, `pressed ${fa?.ok}, front ${fa?.front}, filmstrip open ${fa?.film}, said ${JSON.stringify(fa?.said)}`);
     // HUB-008: the scroll events' log.
     await cmd0('scroll -3');
     const evl = await until(5000, () => { try { return fs.readFileSync(ev, 'utf8').trim(); } catch { return null; } });
