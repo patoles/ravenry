@@ -22,6 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { HOME_OVERRIDE } from './home.mjs';
+import { openApp } from './openapp.mjs';
 
 const env = process.env;
 export const PREFIX = 'rex:';
@@ -208,6 +209,12 @@ export async function pressKey(id, key) {
   return run(['send-key', '-b', b, KEYS[key]]);
 }
 
+// The Rex app's bundle id (Rex Beta 0.1.0; its server's folder under
+// Application Support is named after it too, APP_SUPPORT_BIN).
+export const BUNDLE = 'com.superlogical.rex';
+// Open in Rex while Rex's Remote Control is off.
+export const REMOTE_OFF = "Turn on Remote Control in Rex's Settings so Ravenry can show sessions in Rex.";
+
 // The Rex app, for showing a session: the connected client whose kind is
 // "app". null when none is.
 async function appClient() {
@@ -219,9 +226,13 @@ async function appClient() {
 
 // "Open in Rex": the pane's window becomes its session's active window and
 // the pane its focus (`rex focus`, on the server), then the Rex app is
-// asked to show that session (the client action session.select). Rex
-// refuses client actions until Remote Control is on in its Settings; the
-// board says so in those words and never changes the setting.
+// asked to show that session (the client action session.select), then the
+// Rex app comes to the front (`open -b`, openapp.mjs), as Open in iTerm2
+// ends with `activate`: session.select alone switched Rex's window behind
+// Ravenry (2026-11-12). Rex refuses client actions until Remote Control is
+// on in its Settings; the board says so in those words and never changes
+// the setting. Worded for wherever it shows: the Mac app and the board's
+// page ("Ravenry", never "the board").
 export async function focus(id) {
   const b = blockOf(id);
   if (!b) return { ok: false, err: 'no Rex pane named' };
@@ -232,12 +243,17 @@ export async function focus(id) {
   const f = await run(['focus', '-s', w.sessionId, b]);
   if (!f.ok) return f;
   const client = await appClient();
-  if (!client) return { ok: false, err: 'The Rex app is not open, so the board cannot show the tab there.' };
+  if (!client) return { ok: false, err: 'The Rex app is not open, so Ravenry cannot show the tab there.' };
   const args = ['-C', client, 'do', 'session.select', `session_id=${w.sessionId}`];
   if (w.windowId) args.push(`window_id=${w.windowId}`);
   const r = await run(args);
-  if (r.ok) return { ok: true, out: r.out, err: '' };
-  if (/remote control|not allowed|not permitted|permission|denied|disabled|refus/i.test(r.err)) return { ok: false, err: "Turn on Remote Control in Rex's Settings so the board can show sessions in Rex." };
+  if (r.ok) {
+    // The tab is shown: Rex not coming forward is said in the log, not as a refusal.
+    const a = await openApp(BUNDLE);
+    if (!a.ok) console.error('rex: the Rex app did not come forward:', a.error);
+    return { ok: true, out: r.out, err: '', front: a.ok };
+  }
+  if (/remote control|not allowed|not permitted|permission|denied|disabled|refus/i.test(r.err)) return { ok: false, err: REMOTE_OFF };
   return { ok: false, err: 'Rex did not show the tab: ' + r.err };
 }
 

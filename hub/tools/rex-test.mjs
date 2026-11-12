@@ -51,6 +51,12 @@ const setFake = (x, f = FAKE) => fs.writeFileSync(f, JSON.stringify(x));
 
 process.env.RAVENRY_REX_BIN = FAKE_BIN;
 process.env.FAKE_REX_STATE = FAKE;
+// Open in Rex brings the Rex app forward with `open -b`: tools/stub-open.mjs stands in, its calls in OPEN_LOG.
+const OPEN_LOG = path.join(T, 'open.jsonl');
+const OPEN_STUB = JSON.stringify([process.execPath, path.join(ROOT, 'tools', 'stub-open.mjs')]);
+process.env.MC_OPEN_COMMAND = OPEN_STUB;
+process.env.STUB_OPEN_LOG = OPEN_LOG;
+const opens = () => { try { return fs.readFileSync(OPEN_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).args.join(' ')); } catch { return []; } };
 const { terminalOf } = await import('../server/termenv.mjs');
 const rex = await import('../server/rex.mjs');
 const term = await import('../server/terminal.mjs');
@@ -156,11 +162,13 @@ let r = await rex.pressKey(RA, 'tab');
 check('adapter: any other key is refused', !r.ok && /does not send the tab key/.test(r.err));
 r = await rex.focus(RA);
 let st = fst();
-check('adapter: focus selects the pane on the server, then Rex refuses to show it: Remote Control words', !r.ok && r.err === "Turn on Remote Control in Rex's Settings so the board can show sessions in Rex." && st.focused[0].session === SA && st.focused[0].target === BA && !(st.selected || []).length, r.err);
+check('adapter: focus selects the pane on the server, then Rex refuses to show it: Remote Control words', !r.ok && r.err === "Turn on Remote Control in Rex's Settings so Ravenry can show sessions in Rex." && st.focused[0].session === SA && st.focused[0].target === BA && !(st.selected || []).length, r.err);
+check('adapter: refused, the Rex app is not brought forward', opens().length === 0, opens().join(' | '));
 setFake({ ...fst(), remoteControl: true });
 r = await rex.focus(RA);
 st = fst();
 check('adapter: with Remote Control on, the app shows that session and window (session.select)', r.ok && st.selected[0].session_id === SA && st.selected[0].window_id === WA, JSON.stringify(st.selected));
+check('adapter: then the Rex app comes to the front (open -b com.superlogical.rex)', r.ok && r.front === true && opens().length === 1 && opens()[0] === '-b com.superlogical.rex', `${JSON.stringify(r)} opens: ${opens().join(' | ')}`);
 r = await rex.openTab({ near: RA, cwd: T, label: 'rex-test' });
 st = fst();
 check('adapter: a new tab opens in the Rex session of the pane named, in the folder, not focused', r.ok && /^rex:[0-9a-f-]{36}$/.test(r.surfaceId) && st.opened[0].session === SA && st.opened[0].cwd === T && st.opened[0].label === 'rex-test' && st.opened[0].focus === 'false' && r.surfaceRef === 'Rex tab', JSON.stringify({ r, o: st.opened[0] }));
@@ -235,6 +243,7 @@ const boardEnv = (mc, port, extra = {}) => ({
   RAVENRY_REX_BIN: FAKE_BIN, FAKE_REX_STATE: FAKE, FAKE_REX_PS: PS, MC_PS_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), MC_LSOF_BIN: path.join(ROOT, 'tools', 'stub-ps.mjs'), STUB_PS_STATE: PS,
   MC_PROJECTS_ROOT: path.join(T, 'root'), MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'),
   MC_OSASCRIPT_BIN: path.join(ROOT, 'tools', 'stub-osascript.mjs'), MC_CLOSE_ALLOW: SID_S,
+  MC_OPEN_COMMAND: OPEN_STUB, STUB_OPEN_LOG: OPEN_LOG,
   ...extra,
 });
 function startBoard(env) {
@@ -289,12 +298,15 @@ try {
   check('board: menu option 4 ("No") taken with three Downs and Enter, read back after each', res.status === 200 && res.j.sent === 'No' && k2.join(' ') === 'key:down key:down key:down key:enter', `${res.status} ${JSON.stringify(res.j)} ${k2.join(' ')}`);
   check('board: the menu is gone from the screen after Enter', !parseScreen(fst().blocks[BC].screen).dialog);
 
+  const opens0 = opens().length;
   res = await post('/api/open', { projectId: 'rexproj', surfaceId: RA });
-  check('board: Open in Rex with Remote Control off says to turn it on, in plain words', res.status === 500 && res.j.error === "Turn on Remote Control in Rex's Settings so the board can show sessions in Rex.", `${res.status} ${JSON.stringify(res.j)}`);
+  check('board: Open in Rex with Remote Control off says to turn it on, in plain words', res.status === 500 && res.j.error === "Turn on Remote Control in Rex's Settings so Ravenry can show sessions in Rex.", `${res.status} ${JSON.stringify(res.j)}`);
+  check('board: refused, the Rex app is not brought forward', opens().length === opens0, opens().slice(opens0).join(' | '));
   setFake({ ...fst(), remoteControl: true });
   res = await post('/api/open', { projectId: 'rexproj', surfaceId: RA });
   st = fst();
   check('board: Open in Rex with Remote Control on shows that session in the app', res.status === 200 && res.j.where === 'Rex' && st.selected.some((x) => x.session_id === SA && x.window_id === WA), `${res.status} ${JSON.stringify(res.j)}`);
+  check('board: and brings the Rex app to the front (open -b com.superlogical.rex)', opens().slice(opens0).join(' | ') === '-b com.superlogical.rex', opens().slice(opens0).join(' | '));
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

@@ -247,10 +247,12 @@ be closed from there.
   by default): `session.select` is a client action, and Rex refuses client
   actions until it is on. The board never changes the setting. With it
   off, "Open in Rex" still makes the tab its session's active window on the
-  server, and says "Turn on Remote Control in Rex's Settings so the board
+  server, and says "Turn on Remote Control in Rex's Settings so Ravenry
   can show sessions in Rex." (when Rex's refusal names Remote Control or a
   permission; any other refusal is passed on as "Rex did not show the tab:
-  <Rex's words>"). Everything else works without it.
+  <Rex's words>"). Everything else works without it. With it on, the
+  session shown, the Rex app comes to the front (`open -b
+  com.superlogical.rex`), as Open in iTerm2 ends with `activate`.
 - `ravenry doctor` says whether Rex is installed, where its command is,
   whether its server answers and which revision it speaks, with the Remote
   Control note; `ravenry setup` in a Rex tab says the board answers

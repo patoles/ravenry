@@ -75,6 +75,7 @@ import * as skills from './skills.mjs';
 import * as themeImport from './themeimport.mjs';
 import * as onboarding from './onboarding.mjs';
 import * as sessionNames from './sessionnames.mjs';
+import { openApp } from './openapp.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -3182,19 +3183,6 @@ function openFolder(folder, pre = []) {
   return new Promise((resolve) => {
     execFile(cmd, [...args, ...pre, folder], { timeout: 10000 }, (err, _out, stderr) => {
       resolve(err ? { ok: false, status: 500, error: `Finder did not open it: ${(String(stderr || '').trim().split('\n').pop() || err.message).slice(0, 160)}` } : { ok: true });
-    });
-  });
-}
-
-// An app brought forward by its bundle id (`open -b`), on the Mac only, with
-// the same stand-in rules as openFolder.
-function openApp(bundle) {
-  const stub = process.env.MC_OPEN_COMMAND ? JSON.parse(process.env.MC_OPEN_COMMAND) : null;
-  if (!stub && HOME_OVERRIDE && process.env.MC_OPEN_REAL !== '1') return Promise.resolve({ ok: false, status: 503, error: 'A test board does not open apps. Set MC_OPEN_COMMAND or MC_OPEN_REAL=1.' });
-  const [cmd, ...args] = stub || ['/usr/bin/open'];
-  return new Promise((resolve) => {
-    execFile(cmd, [...args, '-b', bundle], { timeout: 10000 }, (err, _out, stderr) => {
-      resolve(err ? { ok: false, status: 500, error: `It did not open: ${(String(stderr || '').trim().split('\n').pop() || err.message).slice(0, 160)}` } : { ok: true });
     });
   });
 }
