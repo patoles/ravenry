@@ -1,6 +1,6 @@
 {
   "name": "@ravenry/desktop",
-  "version": "0.1.39",
+  "version": "0.1.40",
   "private": true,
   "description": "Ravenry's desktop app: the board beside real terminals.",
   "license": "GPL-3.0-only",
