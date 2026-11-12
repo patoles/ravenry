@@ -2066,7 +2066,7 @@ function renderPagesList() {
   const li = (attrs, ic, t1, t2, right) => `<button class="pn-li" ${attrs}><span class="pn-lic">${ic}</span><span class="pn-tx"><span class="pn-t1">${esc(t1)}</span>${t2 ? `<span class="pn-t2">${esc(t2)}</span>` : ''}</span><span class="pn-tm">${right || ''}</span>${PI.chev.replace('class="ic"', 'class="ic pn-chev"')}</button>`;
   const own = rows.map((r) => li(`data-view="page/${escRaw(r.key)}"`, PAGE_ICON[r.icon] || PI.notes, r.label, [r.number != null && r.countLabel ? `${r.number} ${r.countLabel}` : '', r.project ? r.project : ''].filter(Boolean).join(', '), `${esc(pageWhen(r.changed))}${r.number ? `<span class="pn-badge">${r.number}</span>` : ''}`)).join('');
   const objs = (ui.snap.projects || []).reduce((a, p) => a + objectivesOf(p).length, 0);
-  // Settings is the menu's (the phone's menu, Simon 2026-11-12: "weird to have settings inside Pages").
+  // Settings is the menu's alone (docs/PHONE.md, The way back), not a page.
   setHtml('pn-pages', `<div class="pn-h">Your pages</div><div class="pn-card">${own || '<div class="pn-empty">No pages yet. An agent or you can add one: docs/PAGES.md.</div>'}</div>
 <div class="pn-h">Board</div><div class="pn-card">${li('data-view="objectives"', PI.objectives, 'Objectives', objs ? `${objs} across projects` : 'Across projects', '')}</div>`);
 }
