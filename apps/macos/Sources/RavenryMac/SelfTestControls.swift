@@ -122,8 +122,9 @@ extension SelfTestBoard {
             b.hub.testCheckpoints = []
         }
         let reviewKey = { b.hub.state?.project("notes-app")?.sessions.first.map { "notes-app/\($0.surfaceId)" } ?? "" }
-        out.append(("review panel", { clean(); reviewState(); b.toTerminal(); b.pickSession(reviewKey(), why: "test"); _ = self.wait(6) { b.worktrees.buttons["review"] != nil }; self.settle(0.4); return b.panel }))
+        // The review first: the panel's Merge and Discard this copy end the worktree it shows.
         out.append(("review", { clean(); reviewState(); b.toTerminal(); b.openReview(reviewKey()); _ = self.wait(6) { b.root.middle === b.review }; self.settle(0.8); return b.review }))
+        out.append(("review panel", { clean(); reviewState(); b.toTerminal(); b.pickSession(reviewKey(), why: "test"); _ = self.wait(6) { b.worktrees.buttons["review"] != nil }; self.settle(0.4); return b.panel }))
         // The filmstrip of the shell in front, with something printed in its last 20 seconds.
         out.append(("filmstrip", { clean(); b.toTerminal()
             // A shell in front (a press before may have closed the last one).
