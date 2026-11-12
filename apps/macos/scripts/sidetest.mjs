@@ -292,6 +292,7 @@ async function writeFixtures() {
   w(path.join(P, 'broken.page.yaml'), BROKEN_GOOD.replace('    item:', '    sort: [titel]\n    item:'));
   await sleep(3000);
 }
+const IDEA_STOP_MS = 6000;
 const screenHub = PAGES ? {
   plan: true, ideas: true, env: { RAVENRY_PAGE_DEFAULTS: path.join(PD, 'defaults') },
   // harbour-light has the lighthouse's brief (its goal in Markdown: "whose **lamp** turns"); lighthouse has none (Write the brief).
@@ -305,6 +306,8 @@ const screenHub = PAGES ? {
   env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '', PATH: `${stubCodex()}:${process.env.PATH}`, MC_REPEATS_AUTO: '' } : {}), ...(SCREEN === 'settingsroot' ? { MC_PROJECTS_ROOT: lockedRoot() } : {}), ...(SCREEN === 'phone' ? { RAVENRY_PHONE_HOSTS: '100.101.102.103' } : {}) },
   // --screen sessions: each session's process in its cmux tab (closable), quiet for 36 s is idle.
   ...(SESSIONS_SCREEN ? { cmuxIds: true, settings: { idleHours: 0.01 } } : {}),
+  // --screen ideastop (SelfTestIdeaStop.swift): the board stops an idea's reply and a brainstorm at IDEA_STOP_MS, not 3 minutes.
+  ...(SCREEN === 'ideastop' ? { settings: { claudeTimeoutMs: IDEA_STOP_MS } } : {}),
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
   prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review' || SCREEN === 'controls') reviewRepo(ROOT); },
@@ -752,7 +755,7 @@ function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursi
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
