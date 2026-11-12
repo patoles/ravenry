@@ -131,6 +131,8 @@ class Row: Box {
     }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
     override func accessibilityPerformPress() -> Bool { onOpen?(); return true }
+    /// The row picked (the session in front, the file shown) says so to VoiceOver.
+    override func isAccessibilitySelected() -> Bool { selected }
 
     /// Its right-click (and Control-click) menu, built when asked.
     var menuItems: (() -> NSMenu?)?

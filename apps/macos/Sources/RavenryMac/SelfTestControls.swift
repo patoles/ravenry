@@ -81,6 +81,75 @@ extension SelfTestBoard {
         return out
     }
 
+    /// The screens the first sweep left (sidetest's fixtures for --screen controls: the cards'
+    /// checkpoints, notes-app's worktree and its files): the gallery's grid and one picture,
+    /// an idea's thread, a plan's page, the review and its panel, the filmstrip, the picker
+    /// and each kind of checkpoint card in the panel.
+    private func moreScreens(_ clean: @escaping () -> Void) -> [(String, () -> NSView?)] {
+        var out: [(String, () -> NSView?)] = []
+        let b = board
+        out.append(("gallery", { clean(); b.toTerminal(); b.openGallery("garden-planner", at: nil); _ = self.wait(4) { !b.gallery.cards.isEmpty }; self.settle(0.4); return b.gallery }))
+        out.append(("gallery picture", { clean(); b.toTerminal(); b.openGallery("garden-planner", at: 0); _ = self.wait(5) { b.gallery.zoom.picture.image != nil }; self.settle(0.3); return b.gallery }))
+        out.append(("idea", { clean(); b.toTerminal(); b.openPage("idea:demo-tidepool", t("idea.ideas"))
+            // Finder's dialog for pictures is the Mac's: recorded, never shown off every screen.
+            b.idea.choosePictures = { _, done in Outside.record?.append("choose pictures"); done([]) }
+            _ = self.wait(5) { b.idea.ideas != nil && b.idea.busy.isEmpty }; self.settle(0.4); return b.idea }))
+        out.append(("plan", { clean(); b.toTerminal(); b.openPlan("garden-planner", title: nil); _ = self.wait(4) { b.plan.buttons["pause"] != nil || b.plan.buttons["resume"] != nil }; self.settle(0.3); return b.plan }))
+        // The review: notes-app's worktree session running in this window's daemon, done with its turn (as --screen review).
+        let files = ProcessInfo.processInfo.environment["RAVENRY_MAC_FILES"].flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        // A shell of its own (Discard this copy or Merge may close the session's pane), made again when gone.
+        var reviewPane = ""
+        let reviewState = {
+            if let j = files, let path = j["path"] as? String, let answer = j["answer"] as? [String: Any] { b.hub.testAnswers[path] = answer }
+            if !b.ws.tabs.contains(where: { $0.host == reviewPane }) {
+                let before = Set(b.ws.tabs.map(\.host))
+                b.ws.newTab(nil)
+                reviewPane = b.ws.tabs.map(\.host).first { !before.contains($0) } ?? ""
+            }
+            let pane = reviewPane
+            b.hub.testPatch = { st in
+                var st = st
+                var ps = st["projects"] as? [[String: Any]] ?? []
+                for i in ps.indices where ps[i]["id"] as? String == "notes-app" {
+                    var ss = ps[i]["sessions"] as? [[String: Any]] ?? []
+                    if !ss.isEmpty { ss[0]["pane"] = pane; ss[0]["state"] = "idle" }
+                    ps[i]["sessions"] = ss
+                }
+                st["projects"] = ps
+                return st
+            }
+            b.hub.testCheckpoints = []
+        }
+        let reviewKey = { b.hub.state?.project("notes-app")?.sessions.first.map { "notes-app/\($0.surfaceId)" } ?? "" }
+        out.append(("review panel", { clean(); reviewState(); b.toTerminal(); b.pickSession(reviewKey(), why: "test"); _ = self.wait(6) { b.worktrees.buttons["review"] != nil }; self.settle(0.4); return b.panel }))
+        out.append(("review", { clean(); reviewState(); b.toTerminal(); b.openReview(reviewKey()); _ = self.wait(6) { b.root.middle === b.review }; self.settle(0.8); return b.review }))
+        // The filmstrip of the shell in front, with something printed in its last 20 seconds.
+        out.append(("filmstrip", { clean(); b.toTerminal()
+            // A shell in front (a press before may have closed the last one).
+            if b.ws.tabs.isEmpty { b.ws.newTab(nil); _ = self.wait(5) { b.ws.focusedView != nil } }
+            if let t = b.ws.tabs.first, b.ws.active == nil { b.ws.show(t) }
+            guard let fv = b.ws.focusedView else { return nil }
+            b.ws.conn.request("pane.send", ["pane": fv.pane, "input": [["text": "echo film line", "mode": "paste"], ["key": "Enter"]]])
+            self.settle(0.4)
+            b.ws.film.testSaveDir = FileManager.default.temporaryDirectory.appendingPathComponent("ravenry-controls-gif")
+            b.ws.toggleFilm()
+            _ = self.wait(10) { b.ws.film.isOpen && !b.ws.film.loading }
+            self.settle(0.3)
+            return b.ws.film }))
+        // The checkpoint cards (cards-fixture.mjs, the hub's words) and the picker of the pick.
+        let cps = ProcessInfo.processInfo.environment["RAVENRY_MAC_CARDS"].flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] } ?? []
+        for c in cps {
+            let kind = c["kind"] as? String ?? "?", key = "\(c["projectId"] as? String ?? "")/\(c["surfaceId"] as? String ?? "")"
+            out.append(("card \(kind)", { clean(); b.hub.testCheckpoints = cps; b.toTerminal(); b.pickSession(key, why: "test"); _ = self.wait(4) { b.panel.shownCard?.kind == kind }; self.settle(0.3); return b.panel }))
+            if kind == "pick", let id = c["id"] as? String {
+                out.append(("picker", { clean(); b.hub.testCheckpoints = cps; b.toTerminal(); b.openPicker(id); _ = self.wait(4) { b.root.middle === b.picker }; self.settle(0.6); return b.picker }))
+            }
+        }
+        return out
+    }
+
     func screenControls() {
         let sw = board.settings
         let hubHost = URL(string: board.hub.url).map { "\($0.host ?? ""):\($0.port ?? 0)" } ?? "-"
@@ -92,6 +161,9 @@ extension SelfTestBoard {
             // The window as it was: the sidebar and the panel shown (a press may fold either).
             if board.sideHidden { board.toggleSidebar() }
             if board.panelClosed { board.togglePanel() }
+            // The fixtures a screen of the second sweep set (cards, the review's session), and its filmstrip.
+            if board.hub.testPatch != nil || board.hub.testCheckpoints != nil { board.hub.testPatch = nil; board.hub.testCheckpoints = nil }
+            if board.ws.film.isOpen { board.ws.film.close() }
         }
         let screens: [(String, () -> NSView?)] = [
             ("main", { clean(); self.board.toTerminal(); self.board.render(force: true); return self.window.contentView }),
@@ -101,7 +173,7 @@ extension SelfTestBoard {
         ] + sessionAndPages(clean) + ["appearance", "behavior", "handoff", "skills"].map { tab in
             ("settings \(tab)", { clean(); self.board.toTerminal(); self.board.menuSettings(nil); _ = self.wait(3) { sw.window.isVisible }
                 sw.tabButtons[tab]?.press(); self.settle(0.5); return sw.window.contentView })
-        }
+        } + moreScreens(clean)
         var per: [String] = []
         var total = 0, quiet: [String] = [], browser: [String] = [], gone: [String] = [], pickedOnly = 0
         for (name, setup) in screens {
@@ -131,5 +203,8 @@ extension SelfTestBoard {
         board.toTerminal()
         check("controls_every_press_does_something", total > 90 && quiet.isEmpty, "\(total) pressed (\(pickedOnly) already picked), \(gone.count) gone after a reset (\(gone.joined(separator: ", "))); per screen \(per.joined(separator: ", ")); nothing came of: \(quiet.joined(separator: "; "))")
         check("controls_none_opens_the_board_in_the_browser", total > 90 && browser.isEmpty, browser.joined(separator: "; "))
+        // Each screen had controls to press (a fixture missing would leave one out quietly).
+        let empty = per.filter { $0.hasSuffix(" 0") }
+        check("controls_every_screen_swept", empty.isEmpty && per.count == screens.count, "\(per.count) of \(screens.count) screens; none to press on: \(empty.joined(separator: ", "))")
     }
 }

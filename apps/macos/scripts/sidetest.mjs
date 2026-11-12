@@ -115,6 +115,14 @@ if (DAEMONS) {
   const found = () => { const f = fs.readdirSync(run).find((n) => /^ravenryd-.+\.sock$/.test(n)); return f ? path.join(run, f) : null; };
   for (let i = 0; !(sock = found()); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
 }
+// --screen daemongone (SelfTestDaemonGone.swift, TERM-070): this daemon (A) and this tree's built as the
+// next version (B) beside it, each with two shells; at arrival 1, A is killed for good.
+const GONE = SCREEN === 'daemongone';
+if (GONE) {
+  NEW = buildNew();
+  shells(await serve(NEW, 'daemon-b.log'), 'b');
+  shells({ s: sock, bin: path.join(APP, 'Contents', 'MacOS', 'ravenryd') }, 'a');
+}
 
 // A port the system gives (never one a check beside it took).
 const port = await freePort();
@@ -295,7 +303,7 @@ const screenHub = PAGES ? {
   ...(SESSIONS_SCREEN ? { cmuxIds: true, settings: { idleHours: 0.01 } } : {}),
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
-  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review') reviewRepo(ROOT); },
+  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review' || SCREEN === 'controls') reviewRepo(ROOT); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
 // --screen machines: the hub carries a build to install (a few bytes, never run:
 // ssh is /usr/bin/false), so Install and Update get the hub's 200 and start a job
@@ -522,7 +530,7 @@ const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.js
 // --screen plan, review and pages: each session's cmux tab plays Claude's prompt box, so a
 // message the board types there (a plan paused or resumed, review comments sent, a page's ask) is taken
 // (fake-cmux "prompts", what was sent kept in its "sent"), not refused.
-if (SCREEN === 'plan' || SCREEN === 'review' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '' }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
+if (SCREEN === 'plan' || SCREEN === 'review' || SCREEN === 'controls' || SCREEN === 'reply' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '', ...(SCREEN === 'reply' && s.id === 'sf-3' ? { typed: 'abc' } : {}) }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
 if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true, ...(SESSIONS_SCREEN ? { focusLog: true } : {}) })); }
 // --screen sessions: a project with a brief and no earlier conversation (the project page's New session here and Open brief).
 if (SESSIONS_SCREEN) { fs.mkdirSync(path.join(hub.root, 'old-notes'), { recursive: true }); fs.writeFileSync(path.join(hub.root, 'old-notes', 'BRIEF.md'), '# Old notes\n\nGoal: Keep the notes from before the app.\n'); }
@@ -649,7 +657,7 @@ async function realCheckpoints() {
     AGENTS[kind].push({ name, idFile: id, out, file: path.join(CP, `${name}.file`) });
   };
   for (let n = 0; n < 2; n++) make('ask', n, `ravenry ask ${sq('Tilt the hull with the slope too, or keep it level?')} --option ${sq('Tilt it with the slope')} --option ${sq('Keep it level')} --option ${sq('Try both and show me')} --text`);
-  for (let n = 0; n < 3; n++) make('approve', n, `ravenry approve --why ${sq('The settings screen is done.')} --warn ${sq('It publishes the beta.')}`, `-- /bin/sh -c ${sq(`echo approved-${n} > ${path.join(CP, `approve-${n}.file`)}`)}`);
+  for (let n = 0; n < 4; n++) make('approve', n, `ravenry approve --why ${sq('The settings screen is done.')} --warn ${sq('It publishes the beta.')}`, `-- /bin/sh -c ${sq(`echo approved-${n} > ${path.join(CP, `approve-${n}.file`)}`)}`);
   for (let n = 0; n < 3; n++) make('secret', n, `ravenry secret ${sq('Paste the Cloudflare API token for the map tiles')} --env TILES_TOKEN`, `-- /bin/sh -c ${sq(`printf %s "$TILES_TOKEN" > ${path.join(CP, `secret-${n}.file`)}`)}`);
   for (let n = 0; n < 2; n++) make('pick', n, `ravenry pick ${sq('Which hull shape for the boat?')} ${['Flat hull', 'V hull', 'Round hull'].map((l, i) => `--variant ${sq(`${l}=${pics[i]}`)}`).join(' ')}`);
   const ids = () => Object.values(AGENTS).flat().map((a) => { try { return fs.readFileSync(a.idFile, 'utf8').trim(); } catch { return ''; } });
@@ -669,7 +677,9 @@ if (SCREEN === 'cards') {
 }
 // --screen review: the worktree's record, as the hub keeps it, and the project's files as the hub works them out.
 const FILES = path.join(OUT, 'review-files.json');
-if (SCREEN === 'review') {
+// --screen controls sweeps the review, the cards and the picker too (A11Y-003), on the same fixtures.
+if (SCREEN === 'controls') fs.writeFileSync(CARDS, JSON.stringify(cardFixtures(await hub.state(), path.join(hub.home, '.ravenry'))));
+if (SCREEN === 'review' || SCREEN === 'controls') {
   const st = await hub.state();
   const p = st.projects.find((x) => x.id === 'notes-app');
   const s = p.sessions[0];
@@ -737,8 +747,8 @@ function stubCodex() { const d = path.join(tmp, 'stub-bin'); fs.mkdirSync(d, { r
 function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursive: true }); return d; }
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
-const app = spawn(EXE, ['--offscreen', ...(DAEMONS ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
+const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -749,7 +759,7 @@ let n = 1;
 while (!exited && Date.now() - t0 < (SCREEN === 'controls' ? 1200000 : PAGES || WRITE || SESSB ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
-    if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
+    if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (GONE) daemon.kill('SIGKILL'); else if (SCREEN === 'reply') { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts['sf-3'].typed = ''; fs.writeFileSync(hub.fake, JSON.stringify(f)); } else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }
@@ -872,7 +882,7 @@ if (DAEMONS) {
 if (SCREEN === 'cards') {
   const out = (a) => { try { return fs.readFileSync(a.out, 'utf8').trim(); } catch { return ''; } };
   const file = (a) => { try { return fs.readFileSync(a.file, 'utf8').trim(); } catch { return null; } };
-  const [ask0, ask1] = AGENTS.ask, [ap0, ap1, ap2] = AGENTS.approve, [se0, se1, se2] = AGENTS.secret, [pk0, pk1] = AGENTS.pick;
+  const [ask0, ask1] = AGENTS.ask, [ap0, ap1, ap2, ap3] = AGENTS.approve, [se0, se1, se2] = AGENTS.secret, [pk0, pk1] = AGENTS.pick;
   const add = (name, ok, detail) => { r.checks.push({ name, ok, detail }); if (!ok) r.failed++; };
   const say = (...as) => as.map((a) => `${a.name}: ${out(a).replace(/\n/g, ' / ').slice(0, 160)}${file(a) != null ? ` [file: ${file(a)}]` : ''}`).join(' | ');
   add('cards_agent_ask_got_option', /Try both and show me/.test(out(ask0)) && /EXIT 0/.test(out(ask0)), say(ask0));
@@ -880,11 +890,24 @@ if (SCREEN === 'cards') {
   add('cards_agent_approve_ran', file(ap0) === 'approved-0', say(ap0));
   add('cards_agent_approve_refused_with_reason', file(ap1) == null && /Wait for the release notes/.test(out(ap1)), say(ap1));
   add('cards_agent_approve_refused', file(ap2) == null && /declined/.test(out(ap2)), say(ap2));
+  // PANEL-027: the edited command the daemon refused never ran, and the agent still waits for an answer.
+  add('cards_agent_approve_edited_refused_nothing_ran', file(ap3) == null && !/EXIT/.test(out(ap3)), say(ap3));
   add('cards_agent_secret_got_it', file(se0) === 'abc_tiles_9f8e7d' && !out(se0).includes('abc_tiles_9f8e7d'), say(se0));
   add('cards_agent_secret_enter_got_it', file(se1) === 'typed_then_enter', say(se1));
   add('cards_agent_secret_declined', file(se2) == null && /declined/.test(out(se2)), say(se2));
   add('cards_agent_pick_got_v_hull', /V hull/.test(out(pk0)) && /0\.3/.test(out(pk0)) && /Keep this bow, but rounder/.test(out(pk0)), say(pk0));
   add('cards_agent_pick_declined', !/V hull|Flat hull|Round hull/.test(out(pk1).split('\n')[0] || '') && /blue paper/.test(out(pk1)), say(pk1));
+}
+// --screen reply: what cmux's prompt boxes got (fake-cmux "sent"), and the dropped file in garden-planner's .inbox.
+if (SCREEN === 'reply') {
+  const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8'));
+  const sent = (id) => (f.prompts?.[id]?.sent || []).map(String);
+  const inbox = path.join(hub.root, 'garden-planner', '.inbox');
+  const files = fs.existsSync(inbox) ? fs.readdirSync(inbox) : [];
+  const add = (name, ok, detail) => { r.checks.push({ name, ok, detail }); if (!ok) r.failed++; };
+  add('reply_lands_in_prompt', sent('sf-1').some((x) => x.includes('Use the photo of the old page') && x.includes('.inbox/old-page')), JSON.stringify(sent('sf-1')));
+  add('reply_file_in_inbox', files.some((x) => x.startsWith('old-page')), `${inbox}: ${files.join(', ')}`);
+  add('reply_refused_nothing_typed_then_goes', sent('sf-3').length === 1 && sent('sf-3')[0].includes('Go ahead') && !sent('sf-3')[0].includes('abc'), JSON.stringify(sent('sf-3')));
 }
 for (const c of r.checks) console.log(`${c.ok ? 'pass' : 'FAIL'} ${c.name}${c.detail ? ': ' + String(c.detail).replace(/\n/g, '\\n') : ''}`);
 console.log(`sidetest: ${r.checks.length} checks, ${r.failed} failed; pictures in ${OUT}`);

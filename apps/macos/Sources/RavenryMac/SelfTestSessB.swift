@@ -286,85 +286,20 @@ extension SelfTestBoard {
         codexPane = crec["pane"] as? String ?? ""
     }
 
-    // MARK: SESS-026, SESS-045, SESS-036: a reply typed in from the panel, with a file; refused over half-typed text
+    // MARK: SESS-026, SESS-045: no Reply in the panel of a session in a pane of this window (its terminal is how to
+    // type there); the Reply of a session in another terminal, its file and the half-typed refusal: --screen reply
 
     private func sbReply() {
-        guard let key = reviveKey, let pane = revivePane else { check("sb_reply_box", false, "no revived session"); return }
+        guard let key = reviveKey, let pane = revivePane else { check("sb_reply_box_not_in_pane", false, "no revived session"); return }
         board.pickSession(key, why: "test")
         if !board.panelVisible { _ = self.key("b", [.command, .option]) }
-        let shown = wait(15) { self.board.render(force: true); return self.find(self.board.panel, ReplyBox.self) != nil }
-        guard shown, let box = find(board.panel, ReplyBox.self) else {
-            check("sb_reply_box", false, "\(board.panel.shows): " + texts(board.panel).prefix(12).joined(separator: " | ") + " live \(board.hub.state?.find(key)?.session.raw["live"] ?? "-") cannot \(board.hub.state?.find(key)?.session.cannot ?? "-")"); return
-        }
-        check("sb_reply_box", true, "a Reply box in \(board.panel.shows)'s panel")
-        // A file dropped on the box: saved in the project's .inbox, a chip with its path.
-        let png = URL(fileURLWithPath: out).deletingLastPathComponent().appendingPathComponent("old-page.png")
-        // One of this run's own pictures, as the file the person drops.
-        let dirURL = URL(fileURLWithPath: out).deletingLastPathComponent()
-        if let any = (try? FileManager.default.contentsOfDirectory(atPath: dirURL.path))?.first(where: { $0.hasSuffix(".png") }) {
-            try? FileManager.default.removeItem(at: png)
-            try? FileManager.default.copyItem(at: dirURL.appendingPathComponent(any), to: png)
-        }
-        let pb = NSPasteboard(name: NSPasteboard.Name("sessb-drop-\(ProcessInfo.processInfo.processIdentifier)"))
-        pb.clearContents()
-        pb.writeObjects([png as NSURL])
-        let ok = box.performDragOperation(SBDrag(pasteboard: pb, window: window))
-        pb.releaseGlobally()
-        let saved = wait(10) { (ReplyBox.files[key] ?? []).contains { !$0.pending && $0.path != nil } }
-        let path = ReplyBox.files[key]?.first?.path ?? ""
-        let onDisk = ask(["do": "file", "path": path])?["exists"] as? Bool ?? false
-        check("sb_attach_saved_in_inbox", ok && saved && path.contains("/old-notes/.inbox/old-page") && onDisk, "dropped \(ok), saved \(saved): \(path), on disk \(onDisk)")
-        // Typed into the box, as the person types, and Send (the box found again: the panel may have drawn it anew).
-        var typed = ""
-        for _ in 0..<3 where typed != "Use the photo of the old page" {
-            guard let b = find(board.panel, ReplyBox.self) else { settle(0.5); continue }
-            b.field.stringValue = ""
-            ReplyBox.drafts[key] = nil
-            window.makeFirstResponder(b.field)
-            settle(0.2)
-            typeWindow("Use the photo of the old page")
-            typed = find(board.panel, ReplyBox.self)?.field.stringValue ?? ""
-        }
-        check("sb_reply_typed", typed == "Use the photo of the old page", "\(typed); first responder \(String(describing: window.firstResponder.map { type(of: $0) }))")
-        pictures("sessb-reply")
-        guard let live = find(board.panel, ReplyBox.self) else { check("sb_reply_posted", false, "the box left"); return }
-        click(live.sendButton)
-        check("sb_reply_posted", wait(10) { self.board.hub.sentBodies.contains { $0.path == "/api/send" && ($0.body["paths"] as? [String]) == [path] } && self.board.hub.inFlight == 0 })
-        // Its rows joined (a long line wraps at the pane's width).
-        let flat = { (x: String) in x.replacingOccurrences(of: "\n", with: "") }
-        let landed = wait(10) { flat(self.paneScreen(pane)).contains("Use the photo of the old page") }
-        let scr = paneScreen(pane)
-        check("sb_reply_lands_in_pane", landed && flat(scr).contains(".inbox/old-page"), scr.split(separator: "\n").filter { $0.hasPrefix(">") }.joined(separator: " / "))
-        // Half-typed text in its prompt (typed in its own tab, as the person): the reply is refused, said under the box, nothing typed.
-        guard let tv = termOf(pane) else { check("sb_half_typed_refused", false, "no terminal for \(pane)"); return }
-        typeKeys(tv, "abc")
-        _ = wait(5) { self.paneScreen(pane).contains("\u{276F} abc") }
-        board.pickSession(key, why: "test")
-        if !board.panelVisible { _ = self.key("b", [.command, .option]) }
-        _ = wait(5) { self.find(self.board.panel, ReplyBox.self) != nil }
-        guard let b2 = find(board.panel, ReplyBox.self) else { check("sb_half_typed_refused", false, "no box"); return }
-        window.makeFirstResponder(b2.field)
-        typeWindow("Go ahead")
-        let s1 = board.hub.sent.count
-        click(b2.sendButton)
-        _ = wait(15) { self.board.hub.answers.contains { $0.seq >= s1 && $0.path == "/api/send" } }
-        let refusal = ReplyBox.errors[key] ?? ""
-        let shownErr = find(board.panel, ReplyBox.self).map { shows($0, "half-typed text") } ?? false
-        let scr2 = paneScreen(pane)
-        check("sb_half_typed_refused", codes("/api/send", since: s1) == [409] && refusal.contains("There is half-typed text in its prompt") && shownErr && !scr2.contains("> Go ahead") && scr2.contains("\u{276F} abc"),
-              "the hub \(codes("/api/send", since: s1)): \(refusal); pane prompt: \(scr2.split(separator: "\n").filter { $0.hasPrefix("\u{276F}") }.joined())")
-        pictures("sessb-reply-refused")
-        // Cleared (Backspace in its tab), the same reply goes.
-        if let tv2 = termOf(pane) { for _ in 0..<3 { termKey(tv2, "\u{7f}", 0x33) } }
-        _ = wait(5) { self.paneScreen(pane).contains("\u{276F} \n") || !self.paneScreen(pane).contains("\u{276F} abc") }
-        board.pickSession(key, why: "test")
-        if !board.panelVisible { _ = self.key("b", [.command, .option]) }
-        _ = wait(5) { self.find(self.board.panel, ReplyBox.self) != nil }
-        if let b3 = find(board.panel, ReplyBox.self) {
-            if b3.field.stringValue.isEmpty { window.makeFirstResponder(b3.field); typeWindow("Go ahead") }
-            click(b3.sendButton)
-        }
-        check("sb_reply_after_clear_posted", wait(15) { self.paneScreen(pane).contains("> Go ahead") }, paneScreen(pane).split(separator: "\n").filter { $0.hasPrefix(">") }.joined(separator: " / "))
+        _ = wait(5) { self.board.render(force: true); return self.board.panel.key == key }
+        settle(0.5)
+        let s = board.hub.state?.find(key)?.session
+        check("sb_reply_box_not_in_pane", board.panel.key == key && board.front == .tab && s?.pane == pane && find(board.panel, ReplyBox.self) == nil
+              && s.map { ReplyBox.canType(board.hub.state!, $0) } == true && s?.raw["live"] as? Bool == true,
+              "\(board.panel.shows) \(board.front), pane \(s?.pane ?? "-"), live \(s?.raw["live"] ?? "-"); " + texts(board.panel).prefix(12).joined(separator: " | "))
+        pictures("sessb-no-reply")
     }
 
     // MARK: SESS-008: a Codex session on this board, its permission request Needs you and an alert

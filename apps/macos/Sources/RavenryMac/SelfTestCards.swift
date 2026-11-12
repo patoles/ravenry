@@ -136,6 +136,19 @@ extension SelfTestBoard {
         cardPictures("cards-edit", keyOf("approve"))
         if let e = card?.editor { keyDown(e, "\u{1b}", code: 53) }
         check("approve_escape_ends_edit", wait(3) { self.card?.editor == nil && self.card?.buttons["edit"] != nil })
+        // PANEL-027: the daemon refuses an edited command it cannot run (over its 8 KiB): the card says so in the
+        // daemon's words, never that the ravenryd is older (every release takes an edited command), and nothing ran.
+        useCard("approve", real: 3)
+        card?.buttons["edit"]?.performClick(nil)
+        _ = wait(3) { self.card?.editor != nil }
+        if let e = card?.editor { e.setSelectedRange(NSRange(location: 0, length: e.string.utf16.count)); e.insertText("echo " + String(repeating: "x", count: 9000), replacementRange: e.selectedRange()); settle(0.2) }
+        n = board.hub.sentBodies.count
+        if let e = card?.editor { keyDown(e, "\r", code: 36, mods: .command) }
+        let refusedWords = { self.card.map { self.texts($0).joined(separator: " | ") } ?? "" }
+        check("approve_edited_refused_by_daemon_said", answered(n) && wait(6) { self.lastStatus("/api/checkpoints/answer") == 400 && refusedWords().contains("did not take the answer, so nothing ran: command is 1 to") }
+              && !refusedWords().contains("older ravenryd"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0): \(refusedWords())")
+        if let e = card?.editor { keyDown(e, "\u{1b}", code: 53) }
+        _ = wait(3) { self.card?.editor == nil }
         useCard("approve", real: 1)
         card?.buttons["refuse"]?.performClick(nil)
         check("approve_refuse_asks_why", wait(3) { self.card?.reasonField != nil } && card.map { shows($0, "is told you said no") } ?? false)

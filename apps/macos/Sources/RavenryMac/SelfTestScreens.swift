@@ -42,6 +42,8 @@ extension SelfTestBoard {
         case "window": screenWindow()
         case "start": screenStart()
         case "daemons": screenDaemons()
+        case "daemongone": screenDaemonGone()
+        case "reply": screenReply()
         case "sessions": screenSessions()
         case "sessb": screenSessB()
         case "sessb2": screenSessB2()
