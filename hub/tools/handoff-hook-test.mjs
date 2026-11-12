@@ -84,6 +84,8 @@ if (r.out) fs.writeFileSync(path.join(T, 'reason-50.txt'), r.out.reason);
 // The brief's Next step: replaced whole by at most 3 one-line bullets of
 // next actions; the history goes in the Hand-off (docs/BRIEF-FORMAT.md).
 check('reason: replace "## Next step" with at most 3 one-line bullets of next actions; history in the Hand-off', r.out && /replace the whole "## Next step" section/.test(r.out.reason) && /at most 3 one-line bullets, each a next action/.test(r.out.reason) && /what happened goes in the Hand-off bullet, never in Next step/.test(r.out.reason) && !/Update "## Next step" too/.test(r.out.reason));
+// The card shows the bullet's first sentence, two lines at most (hub/server/handoffline.mjs): a short headline, details nested.
+check('reason: the bullet is a headline under 80 characters, what changed for the user, no session names or ids; details in sub-bullets', r.out && r.out.reason.includes('"- YYYY-MM-DD HH:MM <headline>"') && /one sentence under 80 characters that says what changed for the user/.test(r.out.reason) && /no session names or ids/.test(r.out.reason) && /Everything else goes in indented sub-bullets under it: "State:", "Next step:", "Open items:" and "Key files:"/.test(r.out.reason) && !/<one line: what this session finished/.test(r.out.reason));
 
 // 3. The stop right after (stop_hook_active): never blocks. Claude deferred,
 // so the marker records the deferral and the board's line says when it asks.

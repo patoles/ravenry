@@ -20,8 +20,11 @@ finished, the work committed, nothing running.
    hook stays quiet until something changes (Deferrals, below), then asks
    again, until the hand-off is written.
 3. **Written.** Claude adds a dated bullet at the top of the `## Hand-off`
-   section of the project's BRIEF.md, with `State:`, `Next step:`,
-   `Open items:` and `Key files:` sub-bullets, and commits. Without a
+   section of the project's BRIEF.md: a headline under 80 characters saying
+   what changed for the person (no session names or ids), with `State:`,
+   `Next step:`, `Open items:` and `Key files:` sub-bullets, and commits.
+   The hand-off card shows the bullet's first useful sentence, two lines at
+   most (`server/handoffline.mjs`), whatever the session wrote. Without a
    BRIEF.md it writes `HANDOFF.md` at the repo root (`HANDOFF-<project>.md`
    when two projects share that folder). Either the hook (at the stop after)
    or the board (once the session is at rest) sees the section change.

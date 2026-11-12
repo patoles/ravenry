@@ -22,6 +22,7 @@ import { markEntries, spansGen } from './codespans.mjs';
 import * as registry from './registry.mjs';
 import { readBrief, appendNote, parseBrief, tickTask, writeBriefSafe } from './brief.mjs';
 import { nextParts } from './briefnext.mjs';
+import { handoffLine } from './handoffline.mjs';
 import { sessionState, eventState, projectState, describe, plain } from './state.mjs';
 import * as handoff from './handoff.mjs';
 import { config } from './config.mjs';
@@ -156,6 +157,8 @@ let procState = { at: null, procs: [], helpers: 0, error: 'starting' };
 const outlivedSaid = new Set();
 // Session names (server/sessionnames.mjs): kept after a session ends; the name files' last reads.
 const nameStore = sessionNames.load();
+// The names a hand-off's card line skips as it skips ids (server/handoffline.mjs).
+const knownNames = { has: (w) => nameStore.records.some((r) => r.name === w) };
 const nameFiles = new Map();
 let procBusy = null;
 const extraScreens = new Map(); // surfaceId -> { text, at }: Claude tabs outside the board's projects
@@ -960,7 +963,8 @@ function buildProject(project, wsById, hooks, settings, now) {
   const winOf = (t) => t.contextWindow || cw;
   const ctx = (s) => (s && s.transcript && s.transcript.contextTokens != null ? { tokens: s.transcript.contextTokens, window: winOf(s.transcript), pct: Math.min(100, (s.transcript.contextTokens / winOf(s.transcript)) * 100), model: s.transcript.model } : null);
   const timeline = [];
-  if (brief) for (const h of brief.handoff) timeline.push({ when: h.when, text: plain(h.text), from: 'brief' });
+  // A Hand-off entry's card line (server/handoffline.mjs): its first useful sentence, cut; the whole entry in `full`.
+  if (brief) for (const h of brief.handoff) { const full = plain(h.text); timeline.push({ when: h.when, text: handoffLine(full, { names: knownNames }), full, from: 'brief' }); }
   if (primary && primary.transcript) {
     for (const turn of primary.transcript.turns.slice(0, 4)) {
       const first = plain(turn.text).split(/\n\s*\n/)[0].replace(/\s+/g, ' ');
