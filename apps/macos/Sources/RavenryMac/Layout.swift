@@ -77,9 +77,14 @@ final class LayoutStore {
         url = dir.appendingPathComponent(LayoutStore.fileName(socket: socket))
     }
 
-    /// The Electron app's daemons' folder: its window.json is theirs.
+    /// The Electron app's daemons' folder: its window.json is theirs. Under
+    /// $HOME, as ravenryd and the Electron app resolve it (Go's
+    /// os.UserHomeDir, Electron's app.getPath read HOME), so a check's
+    /// throwaway HOME has its own (NSHomeDirectory is the account's,
+    /// whatever HOME says: the same on a person's Mac).
     static var electronRuntime: String {
-        (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/Ravenry/run")
+        let h = ProcessInfo.processInfo.environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+        return (h as NSString).appendingPathComponent("Library/Application Support/Ravenry/run")
     }
 
     /// window.json for the Electron app's daemon, else window-<daemon>.json.
