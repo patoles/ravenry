@@ -336,6 +336,10 @@ extension SelfTestBoard {
         if let c = pkc { c.numberKey("2") }
         pc("pc_pick_three_kinds_drawn", wait(8) { pk.images.count == 3 && pk.images.allSatisfy { $0.image != nil } } && shows(pk, "The pane") && shows(pk, "Drawn from a page by the board"),
            "images \(pk.images.map { $0.image != nil }) | \(texts(pk).prefix(14).joined(separator: " | "))")
+        // Drawn where a person sees them: the window's pixels, not the views' state.
+        let pd = pickDrawn(pk)
+        pc("pc_pick_pictures_drawn_pixels", pd.ok, pd.detail)
+        picture("native-pick-three-kinds-1440-dark.png")
         pk.buttons["pick2"].map { pressIt($0) }
         // A ring dragged on B, as a mouse does, then its note: the label, the region and the note printed for the agent.
         pk.buttons["circle"].map { pressIt($0) }

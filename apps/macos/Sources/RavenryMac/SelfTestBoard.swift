@@ -100,13 +100,20 @@ final class SelfTestBoard {
     func picture(_ name: String) {
         // A render just before the picture starts the images' fetches again: wait for them (2 s at most).
         if let root = window.contentView, imageLoading(root) { _ = wait(2) { !self.imageLoading(root) }; settle(0.1) }
-        guard let root = window.contentView, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
-        root.cacheDisplay(in: root.bounds, to: rep)
+        // The window as the window server composes it, what a person sees
+        // (SelfTestPixels.swift); else the views drawn again (cacheDisplay),
+        // which drew a scroll view's content blank the first time it was
+        // captured (the picker's head and pictures, never on screen).
+        guard let root = window.contentView else { return }
         let s: CGFloat = 2
         let w = Int(root.bounds.width * s), h = Int(root.bounds.height * s)
+        var shown = windowImage()
+        if let i = shown, i.width != w || i.height != h { shown = nil }
+        var cached: CGImage?
+        if shown == nil, let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) { root.cacheDisplay(in: root.bounds, to: rep); cached = rep.cgImage }
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
-              let base = rep.cgImage else { return }
+              let base = shown ?? cached else { return }
         var bg = CGColor(gray: 0, alpha: 1)
         window.effectiveAppearance.performAsCurrentDrawingAppearance { bg = (window.backgroundColor.usingColorSpace(.sRGB) ?? .black).cgColor }
         ctx.setFillColor(bg)

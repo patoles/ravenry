@@ -277,7 +277,13 @@ extension SelfTestBoard {
             // Out of the title bar's band: no scroll edge effect over the head.
             let pocket = sc.subviews.contains { "\(Swift.type(of: $0))".contains("Pocket") && !$0.isHidden && $0.frame.height > PickerView.edgeRoom }
             return !pocket && clip.intersects(h.convert(h.bounds, to: sc.contentView)) && clip.intersects(im.convert(im.bounds, to: sc.contentView)) }(), shown() + " band \(pk.titleBand) subviews \(pk.scroll.subviews.map { "\(Swift.type(of: $0)) \($0.frame)" })")
+        // Drawn where a person sees them (the window's pixels), before the
+        // first picture and after the four (two sizes, dark and light).
+        var pd = pickDrawn(pk)
+        check("pick_picker_pictures_drawn_pixels", pd.ok, pd.detail)
         pictures("cards-picker")
+        pd = pickDrawn(pk)
+        check("pick_picker_pictures_drawn_pixels_after", pd.ok, pd.detail)
         board.openPicker(cardId("pick"))
         pk.buttons["send"]?.performClick(nil)
         let pb = lastAnswer(after: n)?["pick"] as? [String: Any]
