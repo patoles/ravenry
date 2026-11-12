@@ -713,7 +713,7 @@ final class TerminalView: NSView, NSTextInputClient {
 
     /// The pane is drawn at a size this view did not ask for (another
     /// window resized it, or a phone app before 0.1.42 did, which left the
-    /// Mac's session at a phone's size: Simon's playtest, 2026-11-12): the
+    /// Mac's session at a phone's size: the maintainer's playtest, 2026-11-12): the
     /// view asks for its own size back, once for each size it sees. A size
     /// the pane keeps for a test (pane.override) stays, as the daemon keeps
     /// it; the view does not ask again for the same size.

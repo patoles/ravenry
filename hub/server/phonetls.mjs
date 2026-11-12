@@ -164,7 +164,7 @@ export function tailscaleAddresses() {
 
 // The Mac's own Tailscale app's addresses, only while that app is connected:
 // a 100.x address can stay on its interface while the app is stuck
-// connecting, and a phone would wait on it for nothing (Simon's playtest,
+// connecting, and a phone would wait on it for nothing (the maintainer's playtest,
 // 2026-11-12). The app's CLI (`tailscale status --json`, read only) says
 // whether it runs; asked in the background at most every 30 s, and an
 // answer that does not come in 3 s counts as not connected. With no CLI to
