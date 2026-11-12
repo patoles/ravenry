@@ -442,7 +442,13 @@ try {
 
   const calls = fs.existsSync(TRIP_LOG) ? fs.readFileSync(TRIP_LOG, 'utf8').trim() : '';
   check('Rex mode: cmux was never run, not once', calls === '', calls.split('\n').slice(0, 3).join(' | '));
-  check('Rex mode: no cmux error in its output', !/cmux/i.test(server.log), server.log.split('\n').filter((l) => /cmux/i.test(l)).slice(0, 2).join(' | '));
+  // The start log's own timing lines (server/startlog.mjs) name the tick's
+  // phases, "cmux workspaces" among them, in every mode: a line of exactly
+  // that shape (names and numbers only) is not an error; any other line
+  // naming cmux is.
+  const timing = (l) => /^tick \d+ phases \(ms\): [a-z ]+ \d+(, [a-z ]+ \d+)*$/.test(l) || /^start: [a-z ]+ \d+ ms, \d+ ms after start$/.test(l);
+  const cmuxLines = server.log.split('\n').filter((l) => /cmux/i.test(l) && !timing(l));
+  check('Rex mode: no cmux error in its output', cmuxLines.length === 0 && timing('tick 1 phases (ms): registry 5, cmux workspaces 2') && !timing('tick: cmux: connect ENOENT'), cmuxLines.slice(0, 2).join(' | '));
 } finally {
   if (browser) await browser.close();
   server.kill();
