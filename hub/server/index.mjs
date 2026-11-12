@@ -63,7 +63,7 @@ import * as worktrees from './worktrees.mjs';
 import { projectFiles } from './filesview.mjs';
 import * as reviewview from './reviewview.mjs';
 import * as reviews from './reviews.mjs';
-import { paneRequest, paneInfo } from './ravenryd.mjs';
+import { paneRequest, paneInfo, barKeys } from './ravenryd.mjs';
 import * as picks from './picks.mjs';
 import { render as mockupsRender } from './mockups.mjs';
 import * as pages from './pages.mjs';
@@ -3581,9 +3581,10 @@ function gate(req, res, url) {
 const PHONE_PORT = phonetls.phonePort(PORT);
 // The hosts: the Wi-Fi's, then Ravenry's own device on the person's
 // Tailscale (its MagicDNS name, its 100.x address: server/tailnet.mjs), then
-// this Mac's own Tailscale addresses (the Tailscale app's), then RAVENRY_PHONE_HOSTS.
-function phoneApp() { return { port: PHONE_PORT, pin: phonetls.identity().pin, hosts: phone.phoneHosts([...tailnet.hosts(), ...phonetls.tailscaleAddresses()]) }; }
-function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT, wifi: (phone.lanAddresses()[0] || {}).address || null, systemTailscale: phonetls.tailscaleAddresses().length > 0, away: tailnet.card() }; }
+// this Mac's own Tailscale addresses (the Tailscale app's, only while it is
+// connected: phonetls.systemTailscale), then RAVENRY_PHONE_HOSTS.
+function phoneApp() { return { port: PHONE_PORT, pin: phonetls.identity().pin, hosts: phone.phoneHosts([...tailnet.hosts(), ...phonetls.systemTailscale()]) }; }
+function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT, wifi: (phone.lanAddresses()[0] || {}).address || null, systemTailscale: phonetls.systemTailscale().length > 0, away: tailnet.card() }; }
 
 // After New key, live streams held by phones end, so their pages find out;
 // with a device id, only that device's (revoked, or signed out).
@@ -4004,6 +4005,19 @@ async function handleRequest(req, res) {
         // The person's own words: from the composer, or the phone.
         const r = await sendMessage({ ...body, by: req.mcPhone ? 'phone' : 'composer' });
         return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? r : { error: r.error });
+      }
+      if (p === '/api/keys') {
+        // The phone's key bar: keys into a session's Ravenry pane, the
+        // person's own (docs/PHONE.md, the live screen).
+        let body = null;
+        try { body = JSON.parse((await readBody(req, 1e4)).toString('utf8') || '{}'); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const proj = snapshot.projects.find((x) => x.id === body.projectId);
+        const s = proj && proj.sessions.find((x) => x.surfaceId === body.surfaceId);
+        if (!s) return sendJson(res, 404, { error: 'That session is not on the board.' });
+        if (term.kindOf(s.surfaceId) !== 'ravenry') return sendJson(res, 409, { error: 'Keys go only to a session in a Ravenry pane.' });
+        const r = await barKeys(s.surfaceId, body.keys, req.mcPhone ? 'phone' : 'composer');
+        if (r.ok) { wantTick = true; return sendJson(res, 200, { ok: true }); }
+        return sendJson(res, 400, { error: r.err || 'The keys did not go through.' });
       }
       if (p.startsWith('/api/inbox/')) {
         const project = findProject(decodeURIComponent(p.slice(11)));

@@ -49,10 +49,17 @@ const phone = await import('../server/phone.mjs');
 const { pinOf } = await import('../server/phonetls.mjs');
 const person = await import('../server/person.mjs');
 const { frameReader } = await import('../server/termproxy.mjs');
+const { systemTailscaleRunning } = await import('../server/phonetls.mjs');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0;
 const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+
+// The Mac's own Tailscale app's addresses go in the pairing link only while
+// that app is connected (phonetls.systemTailscale, from its CLI's status).
+check('the Tailscale app counts as connected only when its status says Running and online', systemTailscaleRunning('{"BackendState":"Running","Self":{"Online":true}}')
+  && !systemTailscaleRunning('{"BackendState":"Starting","Self":{"Online":false}}') && !systemTailscaleRunning('{"BackendState":"Running","Self":{"Online":false}}')
+  && !systemTailscaleRunning('{"BackendState":"NeedsLogin"}') && !systemTailscaleRunning('') && !systemTailscaleRunning('not json'));
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const unb64u = (s) => Buffer.from(s, 'base64url');
 

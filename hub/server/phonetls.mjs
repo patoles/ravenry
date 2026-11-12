@@ -162,6 +162,45 @@ export function tailscaleAddresses() {
   return out.sort((a, b) => (b.includes('.') - a.includes('.')));
 }
 
+// The Mac's own Tailscale app's addresses, only while that app is connected:
+// a 100.x address can stay on its interface while the app is stuck
+// connecting, and a phone would wait on it for nothing (Simon's playtest,
+// 2026-11-12). The app's CLI (`tailscale status --json`, read only) says
+// whether it runs; asked in the background at most every 30 s, and an
+// answer that does not come in 3 s counts as not connected. With no CLI to
+// ask (a Tailscale without one) the addresses are listed as before.
+// RAVENRY_TAILSCALE_CLI names the CLI (a test's stand-in); empty: none.
+const TS_CLIS = ['/Applications/Tailscale.app/Contents/MacOS/Tailscale', '/usr/local/bin/tailscale', '/opt/homebrew/bin/tailscale', '/usr/bin/tailscale'];
+const tsState = { at: 0, up: null, asking: false };
+function tailscaleCli() {
+  if ('RAVENRY_TAILSCALE_CLI' in process.env) return process.env.RAVENRY_TAILSCALE_CLI || null;
+  return TS_CLIS.find((f) => fs.existsSync(f)) || null;
+}
+export function systemTailscaleRunning(text) {
+  let j = null;
+  try { j = JSON.parse(String(text || '')); } catch { return false; }
+  return !!j && j.BackendState === 'Running' && !(j.Self && j.Self.Online === false);
+}
+function askTailscale(cli) {
+  if (tsState.asking || Date.now() - tsState.at < 30000) return;
+  tsState.asking = true;
+  import('node:child_process').then(({ execFile }) => {
+    execFile(cli, ['status', '--json'], { timeout: 3000, maxBuffer: 8 << 20 }, (err, out) => {
+      tsState.up = !err && systemTailscaleRunning(out);
+      tsState.at = Date.now();
+      tsState.asking = false;
+    });
+  }).catch(() => { tsState.asking = false; });
+}
+export function systemTailscale() {
+  const addrs = tailscaleAddresses();
+  if (!addrs.length) return [];
+  const cli = tailscaleCli();
+  if (!cli) return addrs;
+  askTailscale(cli);
+  return tsState.up ? addrs : [];
+}
+
 // ------------------------------------------------------------ the server
 
 export function phonePort(boardPort) {
