@@ -95,7 +95,24 @@ extension SelfTestBoard {
         useCard("ask", real: 1)
         board.pickSession(keyOf("ask"), why: "test")
         _ = wait(4) { self.card?.kind == "ask" && self.card?.sendField != nil }
-        if let f = card?.sendField { type(f.field, "Tilt it, but only half the slope"); f.send() }
+        // A11Y-007: the answer being typed in the card stays through a new state from the hub: the
+        // card's session gets a question of its own (arrival 1, the demo board's paper-boat Stop), the
+        // board's state moves on, and the field keeps its text, the keyboard and the selection.
+        if let f = card?.sendField {
+            type(f.field, "Tilt it, but only half the slope")
+            let ed = window.firstResponder as? NSTextView
+            ed?.setSelectedRange(NSRange(location: 8, length: 3))
+            let cardBefore = card, gen0 = board.hub.hubRaw?["generatedAt"] as? String ?? ""
+            let inYou0 = board.hub.state?.sidebar(has: keyOf("ask"), in: "you") ?? false
+            let arrived = arrival(1) && wait(30) { self.board.hub.state?.sidebar(has: keyOf("ask"), in: "you") ?? false }
+            settle(1.5)
+            let gen1 = board.hub.hubRaw?["generatedAt"] as? String ?? ""
+            let ed2 = window.firstResponder as? NSTextView
+            check("a11y_card_typed_kept_through_hub_state", arrived && !inYou0 && gen1 != gen0 && card === cardBefore && f.field.stringValue == "Tilt it, but only half the slope"
+                  && ed2 != nil && ed2 === ed && ed2?.isDescendant(of: f) == true && ed2?.selectedRange() == NSRange(location: 8, length: 3),
+                  "arrived \(arrived) (needs you before: \(inYou0)), state \(gen0) -> \(gen1), same card \(card === cardBefore), text \"\(f.field.stringValue)\", keyboard \(ed2?.className ?? "none") in the field \(ed2?.isDescendant(of: f) == true), selection \(ed2.map { NSStringFromRange($0.selectedRange()) } ?? "none")")
+        }
+        if let f = card?.sendField { if f.field.stringValue.isEmpty { type(f.field, "Tilt it, but only half the slope") }; f.send() }
         check("ask_own_words_sent", answered(n) && lastAnswer(after: n)?["text"] as? String == "Tilt it, but only half the slope", json(lastAnswer(after: n)))
         check("ask_own_words_posted", landed(after: n, "ask"), "the hub answered \(lastStatus("/api/checkpoints/answer") ?? 0) for \(cardId("ask"))")
         useCard("ask", real: nil)
