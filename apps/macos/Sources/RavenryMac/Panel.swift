@@ -379,8 +379,10 @@ final class PanelView: Box {
             }
             out.append(sec(nil, rows, ring: "you"))
         }
-        // Reply: the person's own words typed into it from here, with files (SESS-026, SESS-045).
-        if s.machine == nil, p.machine == nil, s.raw["live"] as? Bool == true, ReplyBox.canType(st, s), let h = host {
+        // Reply: the person's own words typed into it from here, with files (SESS-026, SESS-045), only where its terminal
+        // is not this window's: a session in iTerm2, Terminal or cmux, or one shown read only. A session in a pane this
+        // window draws (it knows the pane) is typed into in its terminal, where a file dropped pastes its path.
+        if s.machine == nil, p.machine == nil, s.raw["live"] as? Bool == true, ReplyBox.canType(st, s), let h = host, s.pane.flatMap(h.paneName) == nil {
             out.append(ReplyBox(key: key, project: p, session: s, hub: h.hub, width: PanelView.width - 28) { [weak self] in self?.host?.toast($0) })
         }
         if s.pane != nil, s.machine == nil, p.machine == nil, let h = host {
@@ -428,8 +430,20 @@ final class PanelView: Box {
         // Over the terminal on a narrow window, a card keeps the panel short.
         if cp != nil, superview.map({ _ in isOverlay }) ?? false { return out }
         if let ho = p.timeline.first(where: { $0["from"] as? String == "brief" }) {
-            out.append(sec(t("panel.handOff"), right: (ho["when"] as? String).map { label($0, Fonts.pt(12, .medium), "tx3") },
-                           [para(ho["text"] as? String ?? ""), p.handoffRecent ? check(true, t("panel.readBySession"), "") : nil]))
+            // The hand-off card (2026-11-12): the hub's line for the entry, at most two lines cut at a word (TwoLines.swift,
+            // an older hub's whole entry too); "›" after the time, and a press opens the brief at its Hand-off.
+            let words = TwoLines.cut(ho["text"] as? String ?? "", font: Fonts.pt(12.5), width: PanelView.width - 56)
+            let line = words.isEmpty ? nil : label(words, Fonts.pt(12.5), "tx", lines: 2)
+            line?.preferredMaxLayoutWidth = PanelView.width - 56
+            let head = hstack([label(t("panel.handOff"), Fonts.pt(12, Fonts.w650), "tx2"), spring(),
+                               (ho["when"] as? String).map { label($0, Fonts.pt(12, .medium), "tx3") }, label("›", Fonts.pt(13), "tx3")], spacing: 8)
+            let c = RavenryMac.card(vstack([head, line, p.handoffRecent ? check(true, t("panel.readBySession"), "") : nil], spacing: 8),
+                         radius: 10, insets: NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)) { [weak self] in
+                self?.host?.openPage("brief:\(p.id)#handoff", t("panel.brief"))
+            }
+            c.identifier = NSUserInterfaceItemIdentifier("handoff-card")
+            c.toolTip = t("panel.handOffOpenTip")
+            out.append(c)
         }
         if let pics = p.brief?["pictures"] as? [[String: Any]], let pic = pics.filter({ $0["url"] is String }).last {
             let n = pics.filter { $0["url"] is String }.count
