@@ -18,7 +18,7 @@
 // Mac's card shows (pairingCode, pair), only while phone access is on
 // (the `access` switch).
 //
-// State: <RAVENRY_HOME>/phone.json (mode 0600): { key, access, tokens: [{
+// State: <RAVENRY_HOME>/phone.json (mode 0600): { key, access, away, tokens: [{
 // hash, id, name, platform, app, ua, created, lastSeen, push }] }. Tokens
 // are kept as SHA-256 hashes. The key, a token and a pairing code are
 // never logged.
@@ -72,14 +72,14 @@ function load() {
   let d = null;
   try { d = JSON.parse(fs.readFileSync(PHONE_FILE, 'utf8')); } catch { /* none yet */ }
   if (d && typeof d.key === 'string' && d.key.length >= 43) {
-    data = { key: d.key, access: d.access === true, tokens: Array.isArray(d.tokens) ? d.tokens.filter((t) => t && typeof t.hash === 'string') : [] };
+    data = { key: d.key, access: d.access === true, away: d.away === true, tokens: Array.isArray(d.tokens) ? d.tokens.filter((t) => t && typeof t.hash === 'string') : [] };
     try { fs.chmodSync(PHONE_FILE, 0o600); } catch { /* ignore */ }
     // A token from before devices (a phone browser's cookie) gets an id.
     let added = false;
     for (const t of data.tokens) if (typeof t.id !== 'string') { t.id = newId(); t.platform = t.platform || 'browser'; t.name = t.name || browserName(t.ua); added = true; }
     if (added) { try { save(); } catch { /* next time */ } }
   } else {
-    data = { key: newSecret(), access: false, tokens: [] };
+    data = { key: newSecret(), access: false, away: false, tokens: [] };
     save();
   }
   return data;
@@ -203,6 +203,16 @@ export function setAccess(on) {
   const d = load();
   d.access = !!on;
   if (!on) pairing = null;
+  save();
+}
+
+// Away from home (server/tailnet.mjs): Ravenry on the person's Tailscale,
+// while phone access is on too.
+export const away = () => load().away === true;
+
+export function setAway(on) {
+  const d = load();
+  d.away = !!on;
   save();
 }
 

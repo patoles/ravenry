@@ -14,8 +14,10 @@
 // variables the test variables are named as ignored in app.log
 // node      run as Node (ELECTRON_RUN_AS_NODE=1): --inspect exits 2,
 //           NODE_OPTIONS is dropped (a script reads none), a hub test switch
-//           (MC_TEST_PHONE_PORT: callers on this Mac seen as a phone) exits 2
-//           before the script runs; the twin as Node runs it with the switch
+//           (MC_TEST_PHONE_PORT: callers on this Mac seen as a phone;
+//           MC_TEST_TAILNET_CONTROL: Away from home on a test's control
+//           server) exits 2 before the script runs; the twin as Node runs it
+//           with the switch
 // dyld      a library given in DYLD_INSERT_LIBRARIES is not loaded into the
 //           release (the hardened runtime), while the same library loads
 //           into a program built here without it (the control)
@@ -70,9 +72,9 @@ const rel = run(REL, ['--older-hub-check', older, path.join(tmp, 'rel-o.json')])
 check('release_refuses_the_same', rel.code === 2 && !fs.existsSync(path.join(tmp, 'rel-o.json')), `exit ${rel.code}`);
 
 // variables
-const v = run(REL, ['--offscreen'], { RAVENRY_HUB_URL: 'http://127.0.0.1:1', RAVENRY_MAC_REPORT: '/tmp/x', RAVENRY_UPDATE_FEED: 'http://127.0.0.1:1/f', RAVENRY_TEST_SINGLE: '1', STUB_PS_STATE: '/tmp/s', NODE_OPTIONS: '--require /nonexistent', MC_TEST_PHONE_PORT: '4699' });
+const v = run(REL, ['--offscreen'], { RAVENRY_HUB_URL: 'http://127.0.0.1:1', RAVENRY_MAC_REPORT: '/tmp/x', RAVENRY_UPDATE_FEED: 'http://127.0.0.1:1/f', RAVENRY_TEST_SINGLE: '1', STUB_PS_STATE: '/tmp/s', NODE_OPTIONS: '--require /nonexistent', MC_TEST_PHONE_PORT: '4699', MC_TEST_TAILNET_CONTROL: 'http://127.0.0.1:1' });
 const ign = (v.log.match(/launch: a release build ignores (.*)/) || [])[1] || '';
-check('variables_named_ignored', ['MC_TEST_PHONE_PORT', 'NODE_OPTIONS', 'RAVENRY_HUB_URL', 'RAVENRY_MAC_REPORT', 'RAVENRY_TEST_SINGLE', 'RAVENRY_UPDATE_FEED', 'STUB_PS_STATE'].every((x) => ign.includes(x)), ign);
+check('variables_named_ignored', ['MC_TEST_PHONE_PORT', 'MC_TEST_TAILNET_CONTROL', 'NODE_OPTIONS', 'RAVENRY_HUB_URL', 'RAVENRY_MAC_REPORT', 'RAVENRY_TEST_SINGLE', 'RAVENRY_UPDATE_FEED', 'STUB_PS_STATE'].every((x) => ign.includes(x)), ign);
 
 // node
 const ni = run(REL, ['--inspect', '-e', '1'], { ELECTRON_RUN_AS_NODE: '1' });
@@ -87,6 +89,13 @@ const rp = asPhone(REL, relMark);
 check('node_hub_test_switch_refused', rp.code === 2 && rp.err.includes('a release build does not take MC_TEST_PHONE_PORT: quitting') && !fs.existsSync(relMark), `exit ${rp.code}: ${rp.err.trim().split('\n')[0]}; script ran: ${fs.existsSync(relMark)}`);
 const tp = asPhone(TWIN, twinMark);
 check('twin_node_takes_hub_test_switch', tp.code === 0 && fs.existsSync(twinMark) && fs.readFileSync(twinMark, 'utf8') === '4699', `exit ${tp.code}: ${fs.existsSync(twinMark) ? fs.readFileSync(twinMark, 'utf8') : 'script did not run'}`);
+// Away from home's test control server (hub/server/tailnet.mjs): the same.
+const asLab = (app, mark) => run(app, ['-e', `require('fs').writeFileSync(${JSON.stringify(mark)}, process.env.MC_TEST_TAILNET_CONTROL || 'none')`], { ELECTRON_RUN_AS_NODE: '1', MC_TEST_TAILNET_CONTROL: 'http://127.0.0.1:1' });
+const relLab = path.join(tmp, 'rel-tailnet.mark'), twinLab = path.join(tmp, 'twin-tailnet.mark');
+const rl = asLab(REL, relLab);
+check('node_tailnet_test_switch_refused', rl.code === 2 && rl.err.includes('a release build does not take MC_TEST_TAILNET_CONTROL: quitting') && !fs.existsSync(relLab), `exit ${rl.code}: ${rl.err.trim().split('\n')[0]}; script ran: ${fs.existsSync(relLab)}`);
+const tl = asLab(TWIN, twinLab);
+check('twin_node_takes_tailnet_test_switch', tl.code === 0 && fs.existsSync(twinLab) && fs.readFileSync(twinLab, 'utf8') === 'http://127.0.0.1:1', `exit ${tl.code}: ${fs.existsSync(twinLab) ? fs.readFileSync(twinLab, 'utf8') : 'script did not run'}`);
 
 // dyld
 const lib = path.join(tmp, 'mark.dylib'), prog = path.join(tmp, 'plain');

@@ -23,7 +23,9 @@
 //   Electron app's fuses do; and the hub's test switches (hubTestVars) make
 //   it quit before the hub starts, as a test switch does the app: the hub
 //   service is the person's board, where a caller on this Mac must never
-//   pass as a phone (MC_TEST_PHONE_PORT, hub/server/testphone.mjs).
+//   pass as a phone (MC_TEST_PHONE_PORT, hub/server/testphone.mjs), nor
+//   Away from home sign in to a test's Tailscale (MC_TEST_TAILNET_CONTROL,
+//   hub/server/tailnet.mjs).
 //
 // What only says where things are (RAVENRY_HOME, RAVENRY_DESKTOP_DATA, the
 // runtime and state folders, a test's launchd label) or how the window looks
@@ -61,7 +63,7 @@ enum Gate {
 
     /// The hub's test switches, which a release run as Node quits on. The
     /// hub refuses them itself on a person's data (hub/server/testphone.mjs).
-    static let hubTestVars: Set<String> = ["MC_TEST_PHONE_PORT"]
+    static let hubTestVars: Set<String> = ["MC_TEST_PHONE_PORT", "MC_TEST_TAILNET_CONTROL"]
 
     static func isControlVar(_ k: String) -> Bool { controlVars.contains(k) || controlPrefixes.contains { k.hasPrefix($0) } }
 

@@ -155,14 +155,16 @@ func (l *Lab) Close() {
 	}
 }
 
-// Node is a device the control server knows, by its name ("ravenry").
+// Node is a device the control server knows, by its name ("ravenry"):
+// the one that joined last (a sign-in cancelled before left one behind).
 func (l *Lab) Node(name string) *tailcfg.Node {
+	var last *tailcfg.Node
 	for _, n := range l.Control.AllNodes() {
-		if n.Hostinfo.Valid() && n.Hostinfo.Hostname() == name {
-			return n
+		if n.Hostinfo.Valid() && n.Hostinfo.Hostname() == name && (last == nil || n.ID > last.ID) {
+			last = n
 		}
 	}
-	return nil
+	return last
 }
 
 // Peer is a phone stand-in on the tailnet.
@@ -262,6 +264,11 @@ type Answer struct {
 // tailnet address or MagicDNS name), taking any certificate and saying
 // its pin, as the phone app does before it checks the pin.
 func (p *Peer) Request(ctx context.Context, addr, method, path, body string) Answer {
+	return p.RequestAs(ctx, addr, method, path, body, "")
+}
+
+// RequestAs is Request with a device token (Authorization: Bearer).
+func (p *Peer) RequestAs(ctx context.Context, addr, method, path, body, token string) Answer {
 	var pin string
 	tr := &http.Transport{
 		DialContext: func(ctx context.Context, network, a string) (net.Conn, error) { return p.Srv.Dial(ctx, "tcp", a) },
@@ -284,6 +291,9 @@ func (p *Peer) Request(ctx context.Context, addr, method, path, body string) Ans
 	}
 	if method != "GET" {
 		req.Header.Set("X-Ravenry", "1")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	res, err := (&http.Client{Transport: tr}).Do(req)
 	if err != nil {

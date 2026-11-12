@@ -10,10 +10,11 @@
 // board only). Opening a sign-in URL completes that sign-in, as the
 // person's browser would. The admin URL takes:
 //
-//	POST /phone {"name","kind","addr","method","path","body"}
+//	POST /phone {"name","kind","addr","method","path","body","token"}
 //	     a phone stand-in called name joins (once), is made a device of that
 //	     kind (owner, stranger, tagged, shared: tailnettest.Make) and sends
-//	     one HTTPS request to addr over the tailnet; the answer, or the
+//	     one HTTPS request to addr over the tailnet (with the device token,
+//	     when given); the answer, or the
 //	     error when the connection was closed (tailnettest.Answer). An
 //	     owner's request is tried again for up to 15 s while ravenry has
 //	     not yet seen the device as its owner's.
@@ -70,7 +71,7 @@ func run() error {
 		json.NewEncoder(w).Encode(v)
 	}
 	mux.HandleFunc("POST /phone", func(w http.ResponseWriter, r *http.Request) {
-		var q struct{ Name, Kind, Addr, Method, Path, Body string }
+		var q struct{ Name, Kind, Addr, Method, Path, Body, Token string }
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&q); err != nil || q.Name == "" || q.Addr == "" {
 			http.Error(w, "name, kind, addr, method, path, body", 400)
 			return
@@ -102,7 +103,7 @@ func run() error {
 		end := time.Now().Add(15 * time.Second)
 		for {
 			one, c := context.WithTimeout(ctx, 6*time.Second)
-			a := p.Request(one, q.Addr, q.Method, q.Path, q.Body)
+			a := p.RequestAs(one, q.Addr, q.Method, q.Path, q.Body, q.Token)
 			c()
 			if a.Status != 0 || q.Kind != tailnettest.Owner || time.Now().After(end) {
 				reply(w, a)

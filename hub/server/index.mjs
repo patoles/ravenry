@@ -50,6 +50,7 @@ import * as planner from './planner.mjs';
 import * as planrun from './planrun.mjs';
 import { HOME_OVERRIDE, SCRATCH_DATA, repoTmpPaths, inRepoTmp, hubBind, testData } from './home.mjs';
 import * as testphone from './testphone.mjs';
+import * as tailnet from './tailnet.mjs';
 import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
 import * as remoteinstall from './remoteinstall.mjs';
@@ -3578,8 +3579,11 @@ function gate(req, res, url) {
 // The QR card and New key: the Mac only, never a phone. While phone
 // access is on it also pairs the app (docs/PHONE.md section 3).
 const PHONE_PORT = phonetls.phonePort(PORT);
-function phoneApp() { return { port: PHONE_PORT, pin: phonetls.identity().pin, hosts: phone.phoneHosts(phonetls.tailscaleAddresses()) }; }
-function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT }; }
+// The hosts: the Wi-Fi's, then Ravenry's own device on the person's
+// Tailscale (its MagicDNS name, its 100.x address: server/tailnet.mjs), then
+// this Mac's own Tailscale addresses (the Tailscale app's), then RAVENRY_PHONE_HOSTS.
+function phoneApp() { return { port: PHONE_PORT, pin: phonetls.identity().pin, hosts: phone.phoneHosts([...tailnet.hosts(), ...phonetls.tailscaleAddresses()]) }; }
+function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT, wifi: (phone.lanAddresses()[0] || {}).address || null, away: tailnet.card() }; }
 
 // After New key, live streams held by phones end, so their pages find out;
 // with a device id, only that device's (revoked, or signed out).
@@ -3594,6 +3598,8 @@ function syncPhonePort() {
   if (phone.access()) phonetls.start(PHONE_PORT, handleRequest, handleUpgrade);
   else phonetls.stop();
   if (boardPort) boardPort.sync(phone.access());
+  // Away from home: Ravenry's device on the person's Tailscale runs only while phone access is on too.
+  tailnet.sync();
 }
 
 // An app's alerts reach its live streams too (server/push.mjs).
@@ -3701,6 +3707,26 @@ async function handleRequest(req, res) {
         syncPhonePort();
         if (!phone.access()) dropPhoneStreams();
         return sendJson(res, 200, phoneCard());
+      }
+      // Away from home (server/tailnet.mjs): the switch, Sign in with
+      // Tailscale (the card opens the sign-in page it answers with), Cancel
+      // and Sign out. A sign-in that did not finish is the card's own state.
+      if (p === '/api/phone/away') {
+        tailnet.setOn(!!(body && body.on === true));
+        return sendJson(res, 200, phoneCard());
+      }
+      if (p === '/api/phone/away/signin') {
+        const r = await tailnet.signIn();
+        if (!r.ok && r.status === 409) return sendJson(res, 409, { error: r.error });
+        return sendJson(res, 200, phoneCard());
+      }
+      if (p === '/api/phone/away/cancel') {
+        await tailnet.cancel();
+        return sendJson(res, 200, phoneCard());
+      }
+      if (p === '/api/phone/away/signout') {
+        const r = await tailnet.signOut();
+        return sendJson(res, 200, { ...phoneCard(), removed: r.removed });
       }
       return sendJson(res, 404, { error: 'unknown' });
     }
@@ -4351,6 +4377,9 @@ void startlog.profileStart();
 console.log(`start: modules loaded, ${Math.round(process.uptime() * 1000)} ms after start`);
 // A test's stand-in for the Wi-Fi, refused on a person's board (server/testphone.mjs).
 const TEST_PHONE_PORT = testphone.portFrom(process.env, testData());
+// Away from home's device (server/tailnet.mjs); a test's control server is refused on a person's board.
+tailnet.configure({ bin: () => term.ravenryBin(), forward: PHONE_PORT, control: tailnet.controlFrom(process.env, testData()), access: phone.access, away: phone.away, setAway: phone.setAway });
+process.once('exit', () => tailnet.shutdown());
 startlog.phase('listen');
 // A test's board on this Mac only; the person's on this Mac, and on every
 // address while phone access is on (home.mjs hubBind, server/boardlisten.mjs).

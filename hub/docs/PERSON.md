@@ -163,6 +163,8 @@ session's review comments and the agent's replies).
 | `/api/phone/devices/rename` | person | Judged (ambiguous): it changes the name the person reads on the phone card and on the phone itself, which an agent could use to pass one device off as another. |
 | `/api/phone/devices/revoke` | person | Signing a device out is the person's call; an agent could cut the person off. |
 | `/api/phone/access` | person | Phone access opens a port on the home Wi-Fi and Tailscale for paired phones. |
+| `/api/phone/away` | person | It puts Ravenry on the person's Tailscale as a device of its own, so their phone reaches this Mac from anywhere: an agent could open that way in, or cut the person off. |
+| `/api/phone/away/{signin,cancel,signout}` | person | Signing in joins Ravenry to a Tailscale account (whoever signs in owns the way in); signing out takes the person's phone's way in away. |
 | `GET /api/term` | person | It types into panes and reads their screens through the hub, which the daemons take as the person. |
 | `GET /api/alerts/setup` | person | It shows the alert channels' tokens and topic. |
 | `/api/alerts/switch` | person | Judged (ambiguous): an agent could silence the alerts that call the person. |
