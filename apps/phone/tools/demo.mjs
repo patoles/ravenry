@@ -13,7 +13,14 @@
 // own fixture). Nothing leaves this machine: the commands the checkpoints
 // would run are stand-ins.
 //
-//   node tools/demo.mjs [--port N] [--phone] [--hold]
+//   node tools/demo.mjs [--port N] [--phone] [--hold] [--e2e]
+//
+// --e2e (tools/phone-e2e.mjs): the board opens sessions in Ravenry panes
+// (RAVENRY_TERMINAL=ravenry, so New session starts a real pane), `claude`
+// there is a stand-in that prints its words and then echoes what is typed,
+// and portfolio gets a session in a wide pane (140 x 40): long lines, one
+// that the width wraps, and more lines than a phone's screen, then `cat`,
+// so what the phone types shows in the pane.
 //
 // --phone turns phone access on, so the hub listens with TLS on the phone
 // port (docs/PHONE.md section 2) for an emulator (10.0.2.2), and prints the
@@ -36,6 +43,7 @@ const REPO = path.resolve(APP, '..', '..');
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const PHONE = args.includes('--phone');
+const E2E = args.includes('--e2e');
 const WORK = path.resolve(opt('--dir', path.join(APP, '.tmp', 'demo')));
 const BIN = path.resolve(process.env.RAVENRYD || path.join(REPO, 'daemon', 'ravenryd'));
 if (!fs.existsSync(BIN)) { console.error(`no ravenryd at ${BIN}; build it (daemon/README.md) or set RAVENRYD`); process.exit(1); }
@@ -56,6 +64,12 @@ for (const d of [STAND, FAKE, DEVBOX_HOME]) fs.mkdirSync(d, { recursive: true })
 const script = (dir, name, body) => fs.writeFileSync(path.join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 script(STAND, 'git', `case "$1" in push) sleep 2; echo "To devbox:code/recipe-box.git"; echo "   4be1f0a..9c2d7e1  main -> main";; *) exec /usr/bin/git "$@";; esac`);
 script(STAND, 'npm', `case "$1" in publish) sleep 3; echo "+ recipe-box@2.3.0";; *) echo "npm $*";; esac`);
+// The stand-in claude a New session starts (--e2e): its words, then what is typed.
+// After 3 s it reports SessionStart, as Claude Code's hooks do, so the board
+// moves it from Starting to a session of its own.
+script(STAND, 'claude', `printf 'claude stand-in: %s\\n' "$*"
+(sleep 3; printf '{"hook_event_name":"SessionStart","session_id":"%s","cwd":"%s","source":"startup","model":"claude-opus-5-5"}' "$(/usr/bin/uuidgen | tr A-Z a-z)" "$PWD" | '${BIN}' hook --assistant claude >/dev/null 2>&1) &
+exec cat`);
 script(STAND, 'npx', `[ "$1" = wrangler ] || exit 1; printf "? Enter a secret value: "; IFS= read -r v; [ \${#v} -ge 4 ] || exit 1; echo; echo "Success! Uploaded secret MAIL_API_KEY"`);
 fs.symlinkSync(BIN, path.join(FAKE, 'ravenryd'));
 const DEVBOX_ENV = { HOME: DEVBOX_HOME, PATH: `${FAKE}:${STAND}:/usr/bin:/bin`, SHELL: '/bin/sh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: RR, RAVENRY_STATE_DIR: path.join(WORK, 'devbox-state') };
@@ -108,6 +122,7 @@ function preparePages({ MC }) {
 execFileSync(BIN, ['serve', '--detach'], { env: localEnv(WORK) });
 const extraEnv = { MC_NO_EVENTS: '0', RAVENRY_SSH: path.join(FAKE, 'ssh'), RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'), RAVENRY_MACHINE_RETRY_MS: '300' };
 Object.assign(extraEnv, { RAVENRY_HUB_NAME: 'MacBook Pro' });
+if (E2E) Object.assign(extraEnv, { RAVENRY_TERMINAL: 'ravenry', PATH: `${STAND}:${process.env.PATH}` });
 if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
 const hub = await startDemoHub({
   dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false,
@@ -182,7 +197,36 @@ if (args.includes('--hold')) {
   const t = setInterval(() => { if (fs.existsSync(path.join(WORK, 'go'))) { clearInterval(t); openCheckpoints(); console.log('checkpoints opened'); } }, 300);
 } else openCheckpoints();
 
-const info = { url: hub.url, port: PORT, runtime: RT, home: hub.home, phone: null };
+const info = { url: hub.url, port: PORT, runtime: RT, home: hub.home, phone: null, wide: null };
+if (E2E) {
+  // portfolio's session in a 140 x 40 pane, as a Mac window would size it.
+  const folder = path.join(hub.home, 'Projects', 'portfolio');
+  fs.mkdirSync(folder, { recursive: true });
+  const w = { sid: 'f6f6f6f6-0000-4000-8000-000000000006', folder, transcript: path.join(WORK, 'wide.jsonl') };
+  const rule = '\u2500'.repeat(140);
+  const para = 'The intro now opens with what the portfolio is for and who it is for, then three projects with one picture each, and the contact line moves to the top so a phone shows it without scrolling; the old about page folds into it.';
+  const steps = Array.from({ length: 24 }, (_, i) => [`${C.w}\u23fa${C.r} Section ${String(i + 1).padStart(2, '0')} of the intro page is built: its links, its pictures and its text checked at three widths, nothing left to fix there.`, '']).flat();
+  const screen = [`${C.box} > Rewrite the portfolio intro so it reads well on a phone, and keep the contact line in sight ${C.r}`, '',
+    `${C.w}\u23fa${C.r} I'll rewrite the intro, move the contact line up and check every section at a phone's width before I touch the pictures.`, '',
+    `${C.w}\u23fa${C.r} ${para}`, '', ...steps, `${C.g}\u23fa${C.r} ${C.w}Bash${C.r}(npm run build -- --report)`, `  \u23bf  built 24 sections in 3.2 s`, '',
+    `${C.w}\u23fa${C.r} Done. The intro is shorter, the contact line is first, and every section passed at 360, 412 and 1440 pixels wide.`, '',
+    ''].join('\n');
+  const f = sessionScript(w, { screen: screen.replace(/\n/g, '\\n'), wait: 'true', title: 'Portfolio intro' });
+  // Its prompt box, the cursor in it, and each line typed there answered
+  // above it as a new entry (escape bytes shown as text), as Claude Code
+  // takes a message.
+  const loop = [`RULE='${rule}'`,
+    `box() { printf '%s\\n\\342\\235\\257 \\n%s\\033[1A\\r\\033[2C' "$RULE" "$RULE"; }`,
+    'box',
+    'while IFS= read -r l; do',
+    `  l=$(printf '%s' "$l" | tr -d '\\033')`,
+    `  printf '\\033[2A\\r\\033[J\\342\\217\\272 You said: %s\\n\\n' "$l"`,
+    '  box',
+    'done'].join('\n');
+  fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('exec sleep 100000', loop));
+  const out = execFileSync(BIN, ['new', '--cwd', folder, '--name', 'Portfolio intro', '--size', '140x40', '--label', 'ravenry.session=claude', '--', '/bin/sh', f], { env: localEnv(WORK), encoding: 'utf8' }).trim();
+  info.wide = { pane: out.split(/\s+/)[0], folder, sid: w.sid };
+}
 if (PHONE) {
   // Phone access on, as the Mac's switch does (POST /api/phone/access, a
   // person's call: this process is outside every pane), and the app's link.

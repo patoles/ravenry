@@ -1,11 +1,9 @@
-// The hub as the page sees it: its state from the live stream, its calls,
-// and the protocol v1 stream of a pane, all through the shell.
+// The hub as the page sees it: its state from the live stream and its
+// calls, through the shell.
 
-import { RavenryClient } from '@ravenry/client';
-import type { Transport } from '@ravenry/client';
 import type { HubState } from '../../desktop/src/renderer/model.ts';
 import type { HubCheckpoint } from '../../desktop/src/renderer/checkpoints.ts';
-import { b64, current } from './shell.ts';
+import { current } from './shell.ts';
 
 export interface Reply { status: number; body: Record<string, unknown> }
 
@@ -64,32 +62,4 @@ export async function start(): Promise<void> {
 async function loadMachines(): Promise<void> {
   const r = await call('GET', '/api/machines').catch(() => null);
   if (r && r.status === 200 && Array.isArray(r.body.machines)) { live.machines = r.body.machines as Live['machines']; changed(); }
-}
-
-// ---------------------------------------------------------------- a pane's stream
-
-/** A protocol v1 transport over the shell's socket ops (docs/PHONE.md section 6). */
-export async function paneTransport(pane: string): Promise<Transport> {
-  const sh = current();
-  const { sid } = await sh.call<{ sid: number }>('socket.open', { path: `/api/term?pane=${encodeURIComponent(pane)}`, protocol: 'ravenry.v1' });
-  const t: Transport = {
-    send: (d) => { void sh.call('socket.send', typeof d === 'string' ? { sid, text: d } : { sid, b64: b64.from(d) }).catch(() => {}); },
-    close: () => { off1(); off2(); void sh.call('socket.close', { sid }).catch(() => {}); },
-    onmessage: null,
-    onclose: null,
-  };
-  const off1 = sh.on('socket.message', (m) => {
-    if (m.sid !== sid) return;
-    t.onmessage?.(typeof m.text === 'string' ? m.text : b64.to(String(m.b64)));
-  });
-  const off2 = sh.on('socket.close', (m) => {
-    if (m.sid !== sid) return;
-    off1(); off2();
-    t.onclose?.(String(m.reason || `closed (${m.code})`));
-  });
-  return t;
-}
-
-export async function paneClient(pane: string): Promise<RavenryClient> {
-  return RavenryClient.connect(await paneTransport(pane), { name: 'ravenry-phone', version: current().hello.app });
 }

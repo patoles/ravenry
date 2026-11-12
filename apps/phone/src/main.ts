@@ -1,23 +1,22 @@
-// The phone board (docs/PHONE.md): one page, four kinds of screen.
+// The app's own screens (docs/PHONE.md): what the hub's board, the app's
+// home, cannot do in a page. The home is the board itself (src/board.ts):
+// this page shows only
 //
-//   #/                 the sessions, Needs you first (picture 2)
-//   #/s/<session key>  a session, live (picture 3)
-//   #/cp/<id>          a checkpoint (pictures 4 and the checkpoints' phone frames)
+//   #/cp/<id>          a checkpoint (the checkpoints' phone frames): a
+//                      secret, a pick, a drive, or an ask or a command
+//                      opened from its alert
 //   #/fb/<id>          a photo or a voice note for it (picture 6)
-//   #/p/<page key>     a page of the sidebar (the pages' phone frames)
-//   #/settings         the app's settings, behind the gear
+//   #/settings         the app's settings, behind the board's gear
 //
-// The shell gives a tap on an alert as `open`, Back as `back`.
+// and anything else goes back to the board. The shell gives a tap on an
+// alert as `open`, Back as `back`.
 
 import { h, replace } from '../../desktop/src/renderer/dom.ts';
 import { connect, current } from './shell.ts';
 import type { Alert } from './shell.ts';
 import * as hub from './hub.ts';
 import { parentOf } from './logic.ts';
-import { sessionsScreen } from './sessions.ts';
-import { sessionScreen } from './session.ts';
 import { checkpointScreen, feedbackScreen } from './checkpoint.ts';
-import { pageScreen } from './pages.ts';
 import { settingsScreen } from './settings.ts';
 
 export interface Screen { el: HTMLElement; update(): void; dispose(): void }
@@ -38,8 +37,14 @@ export function go(to: string, { replace: rep = false } = {}): void {
 
 export function back(): void {
   const p = stack.pop() ?? parentOf(route);
-  if (p === null) return;
+  if (p === null || p === '/') { toBoard(); return; }
   location.replace('#' + p);
+}
+
+/** The board, the app's home (src/board.ts); a toast said there once it shows. */
+function toBoard(): void {
+  if (toastEl.textContent && !toastEl.hidden) { try { sessionStorage.setItem('rv-toast', toastEl.textContent); } catch { /* none */ } }
+  location.replace('/');
 }
 
 /** True when Back has somewhere to go. */
@@ -50,12 +55,10 @@ function show(): void {
   if (screen) screen.dispose();
   const [, kind, ...rest] = route.split('/');
   const arg = decodeURIComponent(rest.join('/'));
-  screen = kind === 's' ? sessionScreen(arg)
-    : kind === 'cp' ? checkpointScreen(arg)
+  if (kind !== 'cp' && kind !== 'fb' && kind !== 'settings') { toBoard(); return; }
+  screen = kind === 'cp' ? checkpointScreen(arg)
     : kind === 'fb' ? feedbackScreen(arg)
-    : kind === 'p' ? pageScreen(arg)
-    : kind === 'settings' ? settingsScreen()
-    : sessionsScreen();
+    : settingsScreen();
   replace(root, screen.el, toastEl);
   window.scrollTo(0, 0);
 }
@@ -108,8 +111,7 @@ async function main(): Promise<void> {
 function openAlert(a: Alert | null | undefined): void {
   if (!a) return;
   if (a.checkpoint && a.checkpoint.id) { go(`/cp/${encodeURIComponent(a.checkpoint.id)}`); return; }
-  if (a.project && a.session) { go(`/s/${encodeURIComponent(`${a.project.id}/${a.session.surfaceId}`)}`); return; }
-  go('/');
+  location.replace(a.project ? `/#${encodeURIComponent(a.project.id)}${a.session ? `/${encodeURIComponent(a.session.surfaceId)}` : ''}` : '/');
 }
 
 export const shellNow = (): ReturnType<typeof current> => current();

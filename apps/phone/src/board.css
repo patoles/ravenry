@@ -1,0 +1,12 @@
+/* The app's layer over the hub's board (src/board.ts): what the app hides,
+   its bar for a computer it cannot reach, its toast, and the agents'
+   symbols (the glyph font, glyphs.css) in the live screen's text. */
+#phone-anchor, #alerts { display: none !important; }
+.rv-reach { position: fixed; left: 10px; right: 10px; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 60; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; background: var(--card, #2C2C2E); color: var(--tx, #F2F2F4); box-shadow: 0 8px 28px rgba(0,0,0,.45); font: 14px/1.4 -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; }
+.rv-reach[hidden] { display: none; }
+.rv-reach b { font-weight: 600; }
+.rv-reach .rv-row { display: flex; gap: 8px; }
+.rv-reach button { flex: 1; min-height: 40px; border-radius: 10px; border: 0; font: inherit; font-weight: 600; background: var(--work, #0A84FF); color: #FFFFFF; }
+.rv-reach button.q { background: var(--card2, #3A3A3C); color: var(--tx, #F2F2F4); }
+.rv-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); z-index: 61; padding: 10px 16px; border-radius: 12px; background: var(--card2, #3A3A3C); color: var(--tx, #F2F2F4); font: 14px/1.35 -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; box-shadow: 0 6px 18px rgba(0,0,0,.4); max-width: 90vw; }
+.mc .lv-scroll, .mc .lv-scroll *, .mc .cpcmd, .mc .kb button { font-family: 'Roboto Mono', 'DejaVu Sans Mono', 'Droid Sans Mono', 'Ravenry Glyphs', ui-monospace, monospace; }
