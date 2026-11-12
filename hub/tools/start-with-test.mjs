@@ -686,7 +686,9 @@ async function pageChecks() {
         const { ctx, pg, errs } = await open(vp, theme);
         // ---- Settings
         await pb.post('/api/settings/assistant', { startWith: 'claude' });
-        await pg.click('#gear');
+        // At phone width the gear is in the top bar's menu (Settings).
+        if (await pg.isVisible('#gear')) await pg.click('#gear');
+        else { await pg.click('#pb-more'); await pg.click('#pmenu [data-act="pn-settings"]'); }
         await pg.waitForSelector('#hs-pop [data-as]');
         await pg.waitForFunction(() => document.querySelector('#hs-pop [data-as="claude"]').classList.contains('on'));
         const card = await pg.evaluate(() => {

@@ -178,6 +178,25 @@ function taskDot(state) {
 }
 function project(id) { return ui.snap && ui.snap.projects.find((p) => p.id === id); }
 
+// Checkpoints (ravenry ask, approve, secret, pick, drive: docs/CHECKPOINTS.md)
+// make their project and session Needs you from the moment they open, as the
+// Mac's sidebar has them; the answer card shows the checkpoint (cpTopHtml).
+function withCheckpoints(snap) {
+  const open = (snap.checkpoints || []).filter((c) => c && c.state === 'open' && c.projectId);
+  for (const p of snap.projects || []) {
+    const cps = open.filter((c) => c.projectId === p.id);
+    if (!cps.length) continue;
+    const since = cps.map((c) => c.created_at).filter(Boolean).sort()[0] || p.since;
+    if (p.state !== 'you') { p.state = 'you'; p.since = since; }
+    for (const s of p.sessions || []) if (cps.some((c) => c.surfaceId === s.surfaceId) && s.words) s.words.state = 'you';
+  }
+}
+// The open checkpoint the project's answer card shows: the shown session's, else the oldest.
+function cpOf(p, s) {
+  const open = ((ui.snap && ui.snap.checkpoints) || []).filter((c) => c && c.state === 'open' && c.projectId === p.id);
+  return (s && open.find((c) => c.surfaceId === s.surfaceId)) || open.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))[0] || null;
+}
+
 // The assistant tag (docs/design/CodexStage2.dc.html, section 2, A): one small
 // neutral word on every session, the same style for both. "Claude", not
 // "Claude Code", which takes more room.
@@ -478,7 +497,8 @@ function pchipHtml(p, k) {
   if (p.unowned) return `<button class="pchip un ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: var(--card)" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(`${p.name}, not in a project, ${t.word.toLowerCase()}`)}">${k === 'idle' ? '' : stateIcon(t)}${UN_ICON}<span>${esc(p.name)}</span></button>`;
   // The idle tint is nearly clear; a selected idle project's chip sits on the
   // card colour like the idle chip beside it.
-  return `<button class="pchip ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: ${k === 'idle' ? 'var(--card)' : t.tint}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(rowLabel(p, k))}">${stateIcon(t)}<span>${esc(p.name)}</span></button>`;
+  // A project on another machine carries the machine's name (several machines).
+  return `<button class="pchip ${sel ? 'on' : ''}" data-id="${escRaw(p.id)}" style="--c: ${t.c}; --t: ${k === 'idle' ? 'var(--card)' : t.tint}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(rowLabel(p, k) + (p.machine ? ', on ' + p.machine : ''))}">${stateIcon(t)}<span>${esc(p.name)}</span>${p.machine ? `<span class="mtag">${esc(p.machine)}</span>` : ''}</button>`;
 }
 
 function renderProjectChips() {
@@ -665,6 +685,7 @@ ${openButton(p, s)}`);
   const why = gateHere ? p.planGate.fileOnly === 'removed' ? 'From the plan: a gate you set was taken out of the file, not by you' : `From the plan: step ${p.planGate.n} is ${p.planGate.fileOnly ? 'a gate marked passed in the file, not by you' : p.planGate.unforeseen ? 'not in the plan, so it stopped to ask' : `a gate, "${p.planGate.text.charAt(0).toLowerCase() + p.planGate.text.slice(1)}"`}`
     : s ? `${SOURCE[s.source] || SOURCE.screen}: ${s.reasons.join('; ')}` : `No ${projWho(p)} session in this project`;
   const meta = [];
+  if (p.machine) meta.push(`<span class="on-m">On ${esc(p.machine)}</span>`);
   // On the Mac the folder opens in Finder; a phone keeps it plain text.
   meta.push(ui.local === true && p.folder ? `<button class="linkish fold-open" data-act="open-folder" data-pid="${escRaw(p.id)}" title="Open in Finder">${esc(p.folderShort || p.folder)}</button>` : `<span>${esc(p.folderShort || 'No folder')}</span>`);
   // Not in a project: its cmux workspace instead of a brief's kind and stage.
@@ -721,11 +742,16 @@ ${openButton(p, s)}`);
   }
   // A plan waiting at a gate: the answer card becomes the gate card.
   if (gateHere) top = gateTopHtml(p);
+  // A checkpoint: the answer card is the checkpoint's (cpTopHtml).
+  const cp = gateHere ? null : cpOf(p, s);
+  if (cp) { top = cpTopHtml(p, cp); ask.style.background = 'var(--you-t)'; }
   setHtml('d-ask-top', top);
 
   // Composer state
   const ta = $('#compose');
-  const canSend = !!(s && s.live && !s.dialog && !s.draft);
+  // An ask that takes words: the box answers it.
+  const cpText = !!(cp && cp.kind === 'ask' && cp.free_text);
+  const canSend = cpText || !!(s && s.live && !s.dialog && !s.draft);
   let label = 'Message';
   const tn = termOf(s);
   if (s && s.terminal === false) label = (s.cannotType || `This session runs outside ${boardTerm()}, so the board cannot type into it`).replace(/\.$/, '');
@@ -735,6 +761,7 @@ ${openButton(p, s)}`);
   else if (s.dialog) label = `A choice is open on screen. Pick an option above or answer in ${tn}`;
   else if (s.draft) label = `Its prompt already holds a half-typed reply. Finish or clear it in ${tn} first, so the two are not mixed`;
   else if (gateHere) label = 'Or answer in your own words. The plan carries on from your answer';
+  if (cpText) label = 'Or answer in your own words';
   else if (state === 'you') label = 'Write an answer';
   else if (s.working) label = 'Message, delivered after its current step';
   let ph = canSend && !gateHere ? label + '. Paste a path, or drop or paste a file.' : label + '.';
@@ -746,6 +773,7 @@ ${openButton(p, s)}`);
   if (ta.placeholder !== ph) { ta.placeholder = ph; ta.setAttribute('aria-label', label); }
   ta.disabled = ns ? !canStart : !canSend && !p.brief && !gateHere;
   $('#send').disabled = ns ? !canStart : !canSend && !gateHere;
+  ui.cpText = cpText ? cp.id : null;
   const sendWord = ns ? 'Start session' : 'Send';
   if ($('#send').textContent !== sendWord) $('#send').textContent = sendWord;
   $('#composer').classList.toggle('ns-mode', ns);
@@ -1490,7 +1518,7 @@ function renderFullBar() {
   const { state } = view(p);
   const t = ST[state] || ST.idle;
   const html = LV_PHONE.matches
-    ? `<button class="linkish lv-back" data-lv-close>${LV_ICON.back}Back</button><span class="fs-name lv-mid">${esc(p.name)}</span><span class="lv-end"><span class="fresh" data-fresh="bar"><i></i><span></span></span></span>`
+    ? `<button class="linkish lv-back" data-lv-close>${LV_ICON.back}Back</button><span class="fs-name lv-mid">${esc(p.name)}</span><span class="lv-end"><span class="fresh" data-fresh="bar"><i></i><span></span></span>${p.machine ? `<span class="mtag">${esc(p.machine)}</span>` : ''}</span>`
     : `<span class="fs-name">${esc(p.name)}</span><span class="state-c" style="color: ${t.c}">${stateIcon(t, state === 'work' ? 'working' : '')}${esc(t.word)}</span><span class="t3" style="font-size: 12px">Live screen</span><span style="flex: 1"></span><span class="fresh" data-fresh="bar"><i></i><span></span></span><span class="strip-sep" aria-hidden="true"></span>${openButton(p, view(p).s)}<button class="btn sm" data-lv-close>${LV_ICON.shrink}Exit full screen<span class="kbd">esc</span></button>`;
   if (bar.dataset.html !== html) { bar.dataset.html = html; bar.innerHTML = html; }
   renderFresh();
@@ -1522,6 +1550,11 @@ function openFull() {
   layer.setAttribute('aria-label', 'Live screen, full screen');
   const body = $('#lv-fs-body');
   body.appendChild($('#lv'));
+  // The key bar, for a session in a Ravenry pane: Esc, Tab, the arrows,
+  // Enter and Ctrl+C, pressed in its pane (POST /api/keys).
+  const ps = project(ui.sel);
+  const vs = ps && view(ps).s;
+  if (vs && String(vs.surfaceId).startsWith('ravenry:')) body.insertAdjacentHTML('beforeend', keyBarHtml());
   const comp = $('#composer');
   if (comp) body.appendChild(comp);
   $('#lv').classList.add('flush');
@@ -1550,6 +1583,7 @@ function closeFull({ back = true } = {}) {
   const layer = $('#lv-fs');
   layer.hidden = true;
   layer.innerHTML = '';
+  $('#lv-keys')?.remove();
   document.documentElement.classList.remove('lv-lock');
   restoreView(a);
   renderJump();
@@ -1558,6 +1592,19 @@ function closeFull({ back = true } = {}) {
   if (b && back) b.focus({ preventScroll: true });
 }
 window.addEventListener('popstate', () => { if (lv.full) closeFull({ back: false }); });
+
+const LV_KEYS = [['esc', 'Esc', 'Escape'], ['tab', 'Tab', 'Tab'], ['left', '\u2190', 'Left'], ['up', '\u2191', 'Up'], ['down', '\u2193', 'Down'], ['right', '\u2192', 'Right'], ['enter', 'Enter', 'Enter'], ['ctrl-c', 'Ctrl-C', 'Control C']];
+function keyBarHtml() {
+  return `<div class="kb" id="lv-keys" role="toolbar" aria-label="Keys">${LV_KEYS.map(([k, label, aria]) => `<button class="${k === 'ctrl-c' ? 'red' : ''}" data-act="lv-key" data-key="${k}" aria-label="${aria}">${esc(label)}</button>`).join('')}</div>`;
+}
+// A key keeps the box's keyboard up: the press does not take the focus.
+document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest('#lv-keys button')) e.preventDefault(); });
+async function pressKey(k) {
+  const p = project(ui.sel);
+  const s = p && view(p).s;
+  if (!s) return;
+  try { await post('/api/keys', { projectId: p.id, surfaceId: s.surfaceId, keys: [k] }); } catch (e) { toaster().error(e.message); }
+}
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lv.full) { e.preventDefault(); closeFull(); } });
 document.addEventListener('click', (e) => { if (e.target.closest('[data-lv-close]')) closeFull(); });
 
@@ -1717,6 +1764,12 @@ async function sendCompose() {
   if (fs.some((f) => f.pending)) { say('Still saving a file, one moment'); return; }
   const text = ($('#compose').value || '').trim();
   if (!text && !fs.length) { say('Type something or add a file first'); return; }
+  // An ask that takes words: the box's words (and files' paths) are its answer.
+  if (ui.cpText) {
+    const answer = [text, ...fs.map((f) => f.path)].filter(Boolean).join(' ');
+    if (await answerCp(ui.cpText, { text: answer }, `Sent your answer to ${p.name}`)) { ui.drafts[p.id] = ''; ui.files[p.id] = []; $('#compose').value = ''; render(); }
+    return;
+  }
   if (!s) return;
   const btn = $('#send');
   btn.disabled = true;
@@ -1767,6 +1820,55 @@ async function startSession() {
     say.error(e.message);
   } finally {
     btn.disabled = false;
+    render();
+  }
+}
+
+// A checkpoint in the project's answer card (the approved card, with what a
+// checkpoint adds): an ask's options and its words in the box; a command with
+// Refuse and Run (the phone app asks for a fingerprint first); a secret, a
+// pick or a drive opens the app's full-screen screen for it, where the
+// secret is typed on the phone's private keyboard and a pick is compared.
+function cpTopHtml(p, cp) {
+  const w = cp.words || {};
+  const app = !!window.ravenryApp;
+  const head = `<h2 style="margin: 0; font-size: 12.5px; font-weight: 600; color: var(--you); display: flex; align-items: center; gap: 7px">${stateIcon(ST.you, 'pulse')}${esc(w.top || 'Waiting on your answer')}</h2>`;
+  const line = (text, cls = 't2') => (text ? `<div class="${cls}" style="font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere">${esc(text)}</div>` : '');
+  const where = cp.machine || (w.machine && w.machine.remote) ? (w.machine && w.machine.here) || cp.machine : null;
+  if (cp.kind === 'approve') {
+    const folder = cp.cwd ? (p.folder && cp.cwd === p.folder ? p.folderShort || cp.cwd : cp.cwd.replace(/^.*\/([^/]+\/[^/]+)$/, '\u2026/$1')) : null;
+    const runs = [folder ? `Runs in ${folder}` : 'Runs', where ? ` on ${where}.` : '.'].join('') + (app ? ' Your fingerprint first.' : '');
+    return `${head}
+<div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(cp.why || w.head || 'Run this command?')}</div>
+<pre class="cpcmd">${esc(cp.command || '')}</pre>
+${(w.warnings || []).map((x) => line(`${x.label || ''} ${x.text || ''}`.trim(), 'cp-warn')).join('')}
+${line(runs)}
+<div class="cp-row"><button class="btn" data-act="cp-refuse" data-cp="${escRaw(cp.id)}">Refuse</button><button class="btn pri" data-act="cp-run" data-cp="${escRaw(cp.id)}">Run</button></div>`;
+  }
+  if (cp.kind === 'ask') {
+    return `${head}
+<div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(w.head || cp.title || '')}</div>
+${line(w.body)}
+${(cp.options || []).length ? `<div class="q-opts" style="display: flex; flex-wrap: wrap; gap: 8px">${cp.options.map((o, k) => `<button class="btn ${k === 0 ? 'pri' : ''}" data-act="cp-choice" data-cp="${escRaw(cp.id)}" data-k="${k}">${esc(o)}</button>`).join('')}</div>` : ''}`;
+  }
+  // A secret, a pick, a drive: their own screens in the app.
+  const what = cp.kind === 'secret' ? 'Type it' : cp.kind === 'pick' ? 'Compare' : 'Open';
+  return `${head}
+<div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(w.head || cp.title || '')}</div>
+${line(w.body)}
+${app ? `<div class="cp-row"><button class="btn pri" data-act="cp-open" data-cp="${escRaw(cp.id)}">${what}</button></div>` : line(cp.kind === 'secret' ? 'Type it on the Mac or in the Ravenry app on your phone.' : 'Answer it on the Mac or in the Ravenry app on your phone.')}`;
+}
+
+async function answerCp(id, reply, said) {
+  const say = toaster();
+  try {
+    await post('/api/checkpoints/answer', { id, ...reply });
+    say(said);
+    return true;
+  } catch (e) {
+    say.error(e.message);
+    return false;
+  } finally {
     render();
   }
 }
@@ -1853,12 +1955,151 @@ async function openInCmux() {
   }
 }
 
+// ------------------------------------------------------------ the phone's menu
+// docs/design/PhoneMenu (the mockup round of 2026-11-12, variant A, picked):
+// at phone width a top bar (the Ravenry mark, Search, the menu, New project)
+// and a bottom navigation bar (Projects, Ideas, Rules, Ship, Pages) with
+// icons, count badges and the selected one lit. Pages is a full-screen list:
+// "Your pages" (the sidebar's own, with their counts and last change) and
+// "Board" (Objectives, Settings); a page opens with a back arrow and Pages
+// stays lit. The menu: Open on your phone and Alerts (the Mac's), the theme
+// (Light, Dark, Auto) and Settings; in the Ravenry app, This phone (its own
+// settings) instead of the Mac's two.
+
+const pv20 = (d, extra = '') => `<svg class="ic" width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${d}</svg>`;
+const PI = {
+  projects: pv20('<rect x="2.5" y="3.5" width="15" height="5" rx="1.6"/><rect x="2.5" y="11.5" width="15" height="5" rx="1.6"/><circle cx="5.5" cy="6" r=".7" fill="currentColor"/><circle cx="5.5" cy="14" r=".7" fill="currentColor"/>'),
+  objectives: pv20('<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.6"/><circle cx="10" cy="10" r=".9" fill="currentColor"/>'),
+  ideas: pv20('<path d="M7.2 14.5h5.6M7.8 17h4.4"/><path d="M10 2.8a5 5 0 0 0-3 9c.6.5 1 1.1 1 1.9h4c0-.8.4-1.4 1-1.9a5 5 0 0 0-3-9z"/>'),
+  rules: pv20('<path d="M4 3.5h9.5a2 2 0 0 1 2 2V17H6a2 2 0 0 1-2-2z"/><path d="M4 15a2 2 0 0 1 2-2h9.5M7.5 6.8h5M7.5 9.5h3.5"/>'),
+  ship: pv20('<path d="M10 2.5c2.6 1.8 3.8 4.6 3.6 8.2l-1.6 2.3H8l-1.6-2.3C6.2 7.1 7.4 4.3 10 2.5z"/><circle cx="10" cy="7.7" r="1.4"/><path d="M6.4 10.7L4 13.2l.4 2.8 3-1.6M13.6 10.7l2.4 2.5-.4 2.8-3-1.6M9 15.5l1 2 1-2"/>'),
+  pages: pv20('<path d="M5 2.5h6.8l3.7 3.7v11.3H5z"/><path d="M11.5 2.5v4h4M7.6 10.2h5M7.6 13.2h5"/>'),
+  plans: pv20('<path d="M3.5 5l1.4 1.4L7.5 3.8M3.5 10.5l1.4 1.4 2.6-2.6M3.5 16l1.4 1.4"/><path d="M10 5.2h6.5M10 10.7h6.5M10 16.2h6.5"/>'),
+  notes: pv20('<path d="M4 3.5h12v9l-4.5 4.5H4z"/><path d="M11.5 17v-4.5H16M7 7.5h6M7 10.3h3.5"/>'),
+  check: pv20('<rect x="3" y="3" width="14" height="14" rx="3"/><path d="M6.6 10.2l2.3 2.3 4.6-4.8"/>'),
+  phone: pv20('<rect x="5.5" y="2" width="9" height="16" rx="2.2"/><path d="M8.8 15.2h2.4"/>'),
+  bell: pv20('<path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 1.5h-13zM8.2 17.5a2 2 0 0 0 3.6 0"/>'),
+  plus: pv20('<path d="M10 4v12M4 10h12"/>', ' stroke-width="2"'),
+  gear: pv20('<path d="M15.9 8.2l2 .6v2.4l-2 .6-.5 1.1 1 1.9-1.7 1.7-1.9-1-1.1.5-.6 2H8.8l-.6-2-1.1-.5-1.9 1-1.7-1.7 1-1.9-.5-1.1-2-.6V8.8l2-.6.5-1.1-1-1.9 1.7-1.7 1.9 1 1.1-.5.6-2h2.4l.6 2 1.1.5 1.9-1 1.7 1.7-1 1.9z"/><circle cx="10" cy="10" r="2.6"/>', ' stroke-width="1.5"'),
+  search: pv20('<circle cx="8.8" cy="8.8" r="5.3"/><path d="M12.8 12.8l4 4"/>'),
+  back: pv20('<path d="M16 10H4.5M9.5 5l-5 5 5 5"/>', ' stroke-width="1.9"'),
+  kebab: '<svg class="ic" width="22" height="22" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4.2" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="10" cy="15.8" r="1.6"/></svg>',
+  chev: pv20('<path d="M8 5l5 5-5 5"/>'),
+  sun: pv20('<circle cx="10" cy="10" r="3.4"/><path d="M10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M4.7 15.3L6 14M14 6l1.3-1.3"/>'),
+  moon: pv20('<path d="M15.5 12.3A6.5 6.5 0 0 1 7.7 4.5a6.5 6.5 0 1 0 7.8 7.8z"/>'),
+  auto: pv20('<rect x="2.5" y="4" width="15" height="10" rx="1.8"/><path d="M7 17h6M10 14v3"/>'),
+};
+// A page's icon by the name its file gives (docs/PAGES.md, nav.icon).
+const PAGE_ICON = { plans: PI.plans, target: PI.objectives, idea: PI.ideas, rules: PI.rules, ship: PI.ship, check: PI.check, checklist: PI.check, notes: PI.notes, note: PI.notes, bug: PI.notes };
+const PN_LOGO = '<svg width="26" height="26" viewBox="0 0 100 100" aria-hidden="true"><g transform="translate(4.77 -2.10) scale(0.8954)"><path d="M95 34 C89 28 82 24 75 23 C66 21 58 24 54 30 C50 36 46 40 40 46 C32 54 24 64 18 74 L6 92 L20 94 L28 84 C36 80 48 78 56 76 C68 72 76 62 76 52 C76 46 74 43 78 40 C84 37 90 36 95 34 Z" fill="var(--tx)"/><path d="M50 74 h5 v12 h-5 Z M60 72 h5 v14 h-5 Z M34 85 H86 a3 3 0 0 1 0 6 H34 a3 3 0 0 1 0 -6 Z" fill="var(--tx)"/><circle cx="65" cy="32" r="6.5" fill="var(--work)"/></g></svg>';
+
+// The pages the person (or an agent) made: the sidebar's own, not the board's views.
+function ownPages() {
+  return ((ui.snap && ui.snap.pages) || []).filter((r) => !(OWN_VIEWS.has(r.id) && r.origin !== 'project') && r.id !== 'plans');
+}
+// Where a view sits in the bottom bar: the five destinations; a page, Objectives and Search under Pages.
+function navSpot(v) {
+  if (v === 'projects' || v === 'plan' || v === 'sessions') return 'projects';
+  if (v === 'ideas' || v === 'rules' || v === 'ship') return v;
+  return 'pages';
+}
+const pnBadge = (you, n) => (you ? `<span class="pn-badge you">${you}</span>` : n ? `<span class="pn-badge">${n}</span>` : '');
+function pageWhen(iso) {
+  const d = iso ? parseT(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return '';
+  const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400e3);
+  return days <= 0 ? clock(d) : days === 1 ? 'Yesterday' : days < 7 ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] : day(d);
+}
+
+function renderPhoneNav() {
+  if (!ui.snap) return;
+  const v = ui.view;
+  const spot = navSpot(v);
+  const you = ui.snap.projects.filter((p) => p.state === 'you').length;
+  const n = ui.snap.views || {};
+  const ds = [['projects', 'Projects', PI.projects, pnBadge(you, 0)], ['ideas', 'Ideas', PI.ideas, pnBadge(0, n.ideas)], ['rules', 'Rules', PI.rules, pnBadge(0, n.rules)], ['ship', 'Ship', PI.ship, pnBadge(0, n.ship)], ['pages', 'Pages', PI.pages, '']];
+  setHtml('bnav', ds.map(([k, label, ic, b]) => `<button class="pn-d${spot === k ? ' on' : ''}" data-pnav="${k}" ${spot === k ? 'aria-current="page"' : ''} aria-label="${esc(label)}"><span class="pn-pill">${ic}${b}</span><span>${esc(label)}</span></button>`).join(''));
+  // The top bar: the home's, a page's (back to Pages), the Pages list's, Search's.
+  const ib = (id, ic, label, cls = '', attrs = '') => `<button class="pn-ib ${cls}" ${id ? `id="${id}"` : ''} aria-label="${esc(label)}" ${attrs}>${ic}</button>`;
+  const np = (label) => `<button class="pn-np" data-act="pn-new">${PI.plus}<span>${esc(label)}</span></button>`;
+  const more = ib('pb-more', PI.kebab, 'More', ui.pmenu ? 'hl' : '', `aria-haspopup="menu" aria-expanded="${ui.pmenu ? 'true' : 'false'}"`);
+  let bar;
+  if (v === 'search') bar = `${ib('', PI.back, 'Back', 'fg', 'data-act="pn-back"')}<input id="pn-q" class="pn-q" type="search" placeholder="Search projects and pages" autocomplete="off" value="${escRaw(ui.pnq || '')}">`;
+  else if (v === 'pages') bar = `<span class="pn-ttl">Pages</span>${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}`;
+  else if (v.startsWith('page/') || v === 'objectives') {
+    const row = ((ui.snap.pages) || []).find((r) => 'page/' + r.key === v);
+    bar = `${ib('', PI.back, 'Back to Pages', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(v === 'objectives' ? 'Objectives' : row ? row.label : 'Page')}</span>${more}`;
+  } else bar = `<span class="pn-ttl">${PN_LOGO}Ravenry</span>${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np('New project') : ''}`;
+  setHtml('pbar', bar);
+  $('#mc').classList.toggle('pn-sub', v === 'pages' || v === 'search' || v.startsWith('page/') || v === 'objectives');
+  renderPhoneMenu();
+}
+
+function renderPhoneMenu() {
+  if (!ui.pmenu) { setHtml('pmenu', ''); return; }
+  const app = !!window.ravenryApp;
+  const local = ui.local === true;
+  const alertsOn = $('#alerts') && $('#alerts').getAttribute('aria-pressed') === 'true';
+  const ch = ui.themeChoice || ui.theme;
+  const seg = [['light', 'Light', PI.sun], ['dark', 'Dark', PI.moon], ['auto', 'Auto', PI.auto]].map(([k, l, ic]) => `<button class="pn-seg${ch === k ? ' on' : ''}" data-theme-pick="${k}" aria-pressed="${ch === k}">${ic}${l}</button>`).join('');
+  setHtml('pmenu', `<div class="pn-scrim" data-act="pn-menu-close"></div><div class="pn-menu" role="menu">
+${local ? `<button class="pn-mi" role="menuitem" data-act="pn-phone">${PI.phone}<span>Open on your phone</span></button>
+<button class="pn-mi" role="menuitemcheckbox" aria-checked="${alertsOn}" data-act="pn-alerts">${PI.bell}<span class="sp">Alerts</span><span class="pn-tg${alertsOn ? ' on' : ''}"></span></button><div class="pn-div"></div>` : ''}
+<div class="pn-mh">Theme</div><div class="pn-seg3" role="group" aria-label="Theme">${seg}</div><div class="pn-div"></div>
+${app ? `<button class="pn-mi" role="menuitem" data-act="pn-app">${PI.phone}<span>This phone</span></button>` : ''}
+<button class="pn-mi" role="menuitem" data-act="pn-settings">${PI.gear}<span>Settings</span></button></div>`);
+}
+
+function renderPagesList() {
+  buildView('pages', '<div class="pn-scr" id="pn-pages"></div>');
+  const rows = ownPages();
+  const li = (attrs, ic, t1, t2, right) => `<button class="pn-li" ${attrs}><span class="pn-lic">${ic}</span><span class="pn-tx"><span class="pn-t1">${esc(t1)}</span>${t2 ? `<span class="pn-t2">${esc(t2)}</span>` : ''}</span><span class="pn-tm">${right || ''}</span>${PI.chev.replace('class="ic"', 'class="ic pn-chev"')}</button>`;
+  const own = rows.map((r) => li(`data-view="page/${escRaw(r.key)}"`, PAGE_ICON[r.icon] || PI.notes, r.label, [r.number != null && r.countLabel ? `${r.number} ${r.countLabel}` : '', r.project ? r.project : ''].filter(Boolean).join(', '), `${esc(pageWhen(r.changed))}${r.number ? `<span class="pn-badge">${r.number}</span>` : ''}`)).join('');
+  const objs = (ui.snap.projects || []).reduce((a, p) => a + objectivesOf(p).length, 0);
+  setHtml('pn-pages', `<div class="pn-h">Your pages</div><div class="pn-card">${own || '<div class="pn-empty">No pages yet. An agent or you can add one: docs/PAGES.md.</div>'}</div>
+<div class="pn-h">Board</div><div class="pn-card">${li('data-view="objectives"', PI.objectives, 'Objectives', objs ? `${objs} across projects` : 'Across projects', '')}${li('data-act="pn-settings"', PI.gear, 'Settings', 'Machines, hand-off, alerts', '')}</div>`);
+}
+
+function renderSearch() {
+  if (buildView('search', '<div class="pn-scr" id="pn-res"></div>')) setTimeout(() => { const q = $('#pn-q'); if (q) q.focus(); }, 50);
+  const q = (ui.pnq || '').trim().toLowerCase();
+  const ps = (ui.snap.projects || []).filter((p) => !q || p.name.toLowerCase().includes(q) || (p.folderShort || '').toLowerCase().includes(q));
+  const pages = [...viewTabs().filter((t) => t.k !== 'projects').map((t) => ({ k: t.k, label: t.label })), { k: 'pages', label: 'Pages' }].filter((t) => !q || t.label.toLowerCase().includes(q));
+  const row = (attrs, ic, t1, t2) => `<button class="pn-li" ${attrs}><span class="pn-lic">${ic}</span><span class="pn-tx"><span class="pn-t1">${esc(t1)}</span>${t2 ? `<span class="pn-t2">${esc(t2)}</span>` : ''}</span>${PI.chev.replace('class="ic"', 'class="ic pn-chev"')}</button>`;
+  setHtml('pn-res', `${ps.length ? `<div class="pn-h">Projects</div><div class="pn-card">${ps.slice(0, 40).map((p) => row(`data-pn-project="${escRaw(p.id)}"`, PI.projects, p.name, `${ST[p.state] ? ST[p.state].word : ''}${p.machine ? ', on ' + p.machine : ''}`)).join('')}</div>` : ''}
+${pages.length ? `<div class="pn-h">Views and pages</div><div class="pn-card">${pages.map((t) => row(`data-view="${escRaw(t.k)}"`, t.k.startsWith('page/') ? PI.notes : PI[t.k] || PI.pages, t.label, '')).join('')}</div>` : ''}
+${!ps.length && !pages.length ? `<div class="pn-h" style="font-weight: 500">Nothing matches "${esc(ui.pnq)}"</div>` : ''}`);
+}
+
+document.addEventListener('input', (e) => { if (e.target.id === 'pn-q') { ui.pnq = e.target.value; renderSearch(); } });
+document.addEventListener('click', (e) => {
+  const d = e.target.closest('[data-pnav]');
+  if (d) { ui.pmenu = false; const k = d.dataset.pnav; if (k === 'projects' && ui.view === 'projects') window.scrollTo(0, 0); setView(k); renderPhoneNav(); return; }
+  const pp = e.target.closest('[data-pn-project]');
+  if (pp) { select(pp.dataset.pnProject); return; }
+  const th = e.target.closest('[data-theme-pick]');
+  if (th) { applyTheme(th.dataset.themePick); store.set('theme', th.dataset.themePick); renderPhoneMenu(); return; }
+  const a = e.target.closest('[data-act^="pn-"]');
+  if (!a) return;
+  const act = a.dataset.act;
+  if (act === 'pn-search') { ui.pnBack = ui.view; ui.pnq = ''; setView('search'); renderPhoneNav(); }
+  else if (act === 'pn-back') { const to = ui.view === 'search' ? (ui.pnBack && ui.pnBack !== 'search' ? ui.pnBack : 'projects') : 'pages'; setView(to); renderPhoneNav(); }
+  else if (act === 'pn-new') openModal({ mode: 'new' });
+  else if (act === 'pn-menu-close') { ui.pmenu = false; renderPhoneNav(); }
+  else if (act === 'pn-phone') { ui.pmenu = false; renderPhoneNav(); setTimeout(() => $('#phone').click(), 0); }
+  else if (act === 'pn-alerts') { $('#alerts').click(); setTimeout(renderPhoneMenu, 300); }
+  else if (act === 'pn-app') { ui.pmenu = false; renderPhoneNav(); if (window.ravenryApp && window.ravenryApp.openSettings) window.ravenryApp.openSettings(); }
+  else if (act === 'pn-settings') { ui.pmenu = false; renderPhoneNav(); setTimeout(() => { if (!hs.open) openHs(); }, 0); }
+});
+document.addEventListener('click', (e) => { if (e.target.closest('#pb-more')) { ui.pmenu = !ui.pmenu; renderPhoneNav(); } });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.pmenu) { ui.pmenu = false; renderPhoneNav(); } });
+
 // ------------------------------------------------------------ views (phase D)
 
 const VIEWS = [['projects', 'Projects'], ['objectives', 'Objectives'], ['ideas', 'Ideas'], ['rules', 'Rules'], ['ship', 'Ship']];
 // Pages the URL can name: the five tabs, and Sessions, which the top-bar
 // memory readout opens (it has no tab of its own).
-const PAGES = [...VIEWS, ['sessions', 'Sessions']];
+const PAGES = [...VIEWS, ['sessions', 'Sessions'], ['pages', 'Pages'], ['search', 'Search']];
 const IDEA_COLS = [['spark', 'Spark', 'var(--tx2)', 'var(--idle-t)'], ['mock', 'Mockup', 'var(--work)', 'var(--work-t)'], ['green', 'Greenlit', 'var(--ok)', 'rgba(48,209,88,.09)'], ['park', 'Parked', 'var(--idle)', 'var(--idle-t)']];
 const STAGE_NAME = { spark: 'Spark', mock: 'Mockup', green: 'Greenlit', park: 'Parked' };
 const CHIPS = {
@@ -3761,8 +4002,20 @@ function renderMemchip() {
   const on = ui.view === 'sessions';
   // One readout, drawn twice: in the top bar's tools, and on its own line at
   // phone width (CSS shows one of the two).
+  // Several machines: at phone width the line names this Mac and each
+  // machine with its dot (connected or not), then the idle count.
+  const ms = (ui.snap && ui.snap.machines) || [];
   for (const id of ['memchip', 'memchip-m']) {
     const b = document.getElementById(id);
+    if (id === 'memchip-m' && ms.length) {
+      b.hidden = false;
+      b.classList.toggle('on', on);
+      const dot = (ok) => `<span class="m-dot" style="background: ${ok ? 'var(--ok)' : 'var(--idle)'}"></span>`;
+      b.title = `This Mac and ${plural(ms.length, 'machine')}${v && v.at ? `; ${v.idleCount} idle ${v.idleCount === 1 ? 'session' : 'sessions'}` : ''}`;
+      b.setAttribute('aria-label', [`This Mac`, ...ms.map((m) => `${m.name} ${m.state === 'connected' ? 'connected' : 'not connected'}`)].join(', ') + (v && v.at ? `, ${v.idleCount} idle` : ''));
+      setHtml(id, `${dot(true)}<span class="t2">This Mac</span>${ms.map((m) => `<span class="memchip-sep"></span>${dot(m.state === 'connected')}<span class="t2">${esc(m.name)}</span>`).join('')}${v && v.at ? `<span class="memchip-sep"></span><span class="num t3">${v.idleCount} idle</span>` : ''}`);
+      continue;
+    }
     if (!v || !v.at) { b.hidden = true; continue; }
     b.hidden = false;
     b.classList.toggle('on', on);
@@ -3943,6 +4196,7 @@ function render() {
   const you = ui.snap.projects.filter((p) => p.state === 'you').length;
   document.title = (you ? `(${you}) ` : '') + 'Ravenry';
   renderViews();
+  renderPhoneNav();
   renderMemchip();
   paintBell();
   followNew();
@@ -3959,6 +4213,8 @@ function render() {
   else if (ui.view === 'ship') renderShip();
   else if (ui.view === 'sessions') renderSessions();
   else if (ui.view.startsWith('page/')) renderPageView();
+  else if (ui.view === 'pages') renderPagesList();
+  else if (ui.view === 'search') renderSearch();
   else if (ui.view === 'plan') renderPlanPage();
   else renderSheet();
 }
@@ -3981,12 +4237,16 @@ function select(id) {
   if (window.matchMedia('(max-width: 700px)').matches && $('#pchips').getBoundingClientRect().top < 0) window.scrollTo(0, 0);
 }
 
-function applyTheme(theme) {
+// Light, Dark, or Auto (the system's, followed as it changes: the phone's menu).
+function applyTheme(choice) {
+  ui.themeChoice = choice;
+  const theme = choice === 'auto' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
   ui.theme = theme;
   $('#mc').classList.toggle('light', theme === 'light');
   document.body.classList.toggle('light', theme === 'light');
   document.documentElement.style.colorScheme = theme;
 }
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (ui.themeChoice === 'auto') { applyTheme('auto'); renderPhoneNav(); } });
 
 document.addEventListener('click', (e) => {
   const row = e.target.closest('.row[data-id], .pchip[data-id]');
@@ -4025,6 +4285,11 @@ document.addEventListener('click', (e) => {
   if (act === 'ho-whole') { ui.hoWhole = ui.hoWhole === a.dataset.k ? null : a.dataset.k; render(); return; }
   if (act === 'write-brief') { openModal({ mode: 'brief', projectId: a.dataset.pid }); return; }
   if (act === 'quick') sendQuick(Number(a.dataset.k));
+  if (act === 'cp-choice') { const c = ((ui.snap && ui.snap.checkpoints) || []).find((x) => x.id === a.dataset.cp); const o = c && (c.options || [])[Number(a.dataset.k)]; if (o != null) answerCp(a.dataset.cp, { choice: Number(a.dataset.k) }, `Sent "${o}"`); return; }
+  if (act === 'cp-run') { a.disabled = true; answerCp(a.dataset.cp, { approve: true }, 'Allowed: it runs now'); return; }
+  if (act === 'cp-refuse') { a.disabled = true; answerCp(a.dataset.cp, { decline: true }, 'Refused: nothing ran'); return; }
+  if (act === 'cp-open') { if (window.ravenryApp) window.ravenryApp.openCheckpoint(a.dataset.cp); return; }
+  if (act === 'lv-key') { pressKey(a.dataset.key); return; }
   if (act === 'open') openInCmux();
   if (act === 'handoff') handoffNow();
   if (act === 'handoff-start') handoffStart();
@@ -4379,7 +4644,8 @@ function placeHs() {
   const mc = $('#mc'), m = mc.getBoundingClientRect(), r = $('#gear').getBoundingClientRect();
   const W = mc.clientWidth, cx = r.left + r.width / 2 - m.left;
   let left;
-  if (matchMedia('(max-width: 700px)').matches) { left = 16; pop.style.width = (W - 32) + 'px'; }
+  // On a phone the gear is the menu's Settings: under the top bar.
+  if (matchMedia('(max-width: 700px)').matches) { left = 16; pop.style.width = (W - 32) + 'px'; const b = $('#pb-more'); if (b) { pop.style.top = (b.getBoundingClientRect().bottom - m.top + 10) + 'px'; pop.querySelector('.hs-caret').style.left = (b.getBoundingClientRect().left + b.offsetWidth / 2 - m.left - left) + 'px'; pop.style.left = left + 'px'; return; } }
   else { pop.style.width = ''; left = Math.max(16, Math.min(W - pop.offsetWidth - 16, cx - pop.offsetWidth / 2)); }
   pop.style.left = left + 'px';
   pop.style.top = (r.bottom - m.top + 10) + 'px';
@@ -4990,6 +5256,7 @@ function connect() {
   ui.es = es;
   es.addEventListener('state', (ev) => {
     const snap = JSON.parse(ev.data);
+    withCheckpoints(snap);
     const prev = ui.lastStates;
     ui.snap = snap;
     if (snap.generatedAt && ui.skew == null) ui.skew = Date.now() - Date.parse(snap.generatedAt);

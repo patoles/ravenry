@@ -348,19 +348,37 @@ export function navRows() {
   return state.pages.map((e) => {
     const nav = e.page ? e.page.nav : null;
     let number = null;
+    let changed = null;
     // What the page draws: its file, its items, its trust and notices.
     let rev = sha(e.hash + JSON.stringify([e.ok, e.trust, e.defaultChanged]));
     if (e.page) {
       const items = itemsFor(e, ctx);
       number = pf.navNumber(items.page, nav);
       rev = sha(rev + JSON.stringify(items));
+      changed = lastChange(e, items);
     }
     return {
       key: e.key, id: e.id, label: nav ? nav.label : e.id, icon: nav ? nav.icon : 'page', number, countLabel: nav ? nav.countLabel : null,
       route: nav ? nav.route : e.id, origin: e.origin, slot: e.slot, project: e.project ? e.project.name : null, projectId: e.project ? e.project.id : null,
-      error: !e.ok, trust: e.trust ? e.trust.state : null, defaultChanged: !!e.defaultChanged, created: e.created, rev: rev.slice(0, 16),
+      error: !e.ok, trust: e.trust ? e.trust.state : null, defaultChanged: !!e.defaultChanged, created: e.created, rev: rev.slice(0, 16), changed,
     };
   });
+}
+
+// When a page last changed, for the phone's list of pages: the newest time
+// its sections' items carry (their `time` field), else null.
+function lastChange(e, items) {
+  let best = 0;
+  e.page.tabs.forEach((t, ti) => t.sections.forEach((sec, si) => {
+    const f = sec.item && sec.item.time;
+    if (!f) return;
+    for (const it of (items.sections[ti] && items.sections[ti][si]) || []) {
+      const v = String(f).split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), it);
+      const ms = v == null ? NaN : typeof v === 'number' ? v : Date.parse(String(v));
+      if (Number.isFinite(ms) && ms > best) best = ms;
+    }
+  }));
+  return best ? new Date(best).toISOString() : null;
 }
 
 // ---------------------------------------------------------------- one page

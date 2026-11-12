@@ -66,11 +66,22 @@ const click = (sel, wait) => async (page) => {
   await page.click(sel);
   if (wait) await page.waitForSelector(wait, { timeout: 15000 });
 };
+// The Settings card: the gear on a desktop; at phone width the top bar's
+// menu has it (Settings), as the phone's menu A draws it.
+const gear = (wait) => async (page) => {
+  if (await page.isVisible('#gear')) await page.click('#gear');
+  else { await page.click('#pb-more'); await page.click('#pmenu [data-act="pn-settings"]'); }
+  if (wait) await page.waitForSelector(wait, { timeout: 15000 });
+};
 const VIEWS = [
   { name: 'projects', q: `#${pid}`, wait: '#d-objs .card', also: ['#lv-card', '#d-timeline', '#d-sessions'] },
   // The Live screen full screen, from the card's "Tap to expand".
   { name: 'projects-live-full', q: `#${pid}`, wait: '#lv-lines > *', steps: [click('#lv-tap', '#lv-fs .fs-bar .lv-back')] },
   // The phone's "N idle" chip opens the idle projects in a bottom sheet.
+  // The phone's menu (A): the bottom bar's Pages list, the top bar's menu, Search.
+  { name: 'pages', q: '#/pages', wait: '#pn-pages .pn-li' },
+  { name: 'menu', q: `#${pid}`, wait: '#pchips .pchip', steps: [click('#pb-more', '#pmenu .pn-menu')] },
+  { name: 'search', q: '#/search', wait: '#pn-res .pn-li' },
   { name: 'projects-idle-sheet', q: `#${pid}`, wait: '#pchips [data-idle-open]', steps: [click('#pchips [data-idle-open]', '#idle-sheet .bsheet .row')] },
   { name: 'objectives', q: '#/objectives', wait: '#o-rows .card' },
   { name: 'ideas', q: '?idea=none#/ideas', wait: '.idea' },
@@ -86,12 +97,12 @@ const VIEWS = [
   // The Folder row on Existing, a long name typed, every known folder shown.
   { name: 'new-project-existing', q: '?modal=new#/projects', wait: '#modal-form', steps: [async (p) => { await p.fill('[name="name"]', 'A rather long project name to test the footer'); }, click('[data-fmode="existing"]', '.frow'), async (p) => { if (await p.$('[data-act="folders-more"]')) await click('[data-act="folders-more"]')(p); }] },
   // The Settings card from the gear (opening it writes nothing).
-  { name: 'settings-card', q: `#${pid}`, wait: '#pchips .pchip', steps: [click('#gear', '#hs-pop .hs-th')] },
+  { name: 'settings-card', q: `#${pid}`, wait: '#pchips .pchip', steps: [gear('#hs-pop .hs-th')] },
   // Phone alerts' setup sheet, one view per channel (docs/design/PhoneAlerts.dc.html, B).
   // Opening it writes only the ntfy topic, on a board that has none yet.
   ...[['telegram', 'Telegram'], ['webhook', 'Discord or Slack'], ['ntfy', 'ntfy']].map(([tab]) => ({
     name: `alerts-sheet-${tab}`, q: `#${pid}`, wait: '#pchips .pchip',
-    steps: [click('#gear', '#pa-btns [data-pa="setup"]'), click('#pa-btns [data-pa="setup"]', '#pa-back .pa-step'), click(`[data-pa-tab="${tab}"]`, `[data-pa-tab="${tab}"].on`)],
+    steps: [gear('#pa-btns [data-pa="setup"]'), click('#pa-btns [data-pa="setup"]', '#pa-back .pa-step'), click(`[data-pa-tab="${tab}"]`, `[data-pa-tab="${tab}"].on`)],
   })),
   ...(gatePid ? [
     { name: 'plan-card', q: `#${gatePid}`, wait: '#d-plan .pl-card', also: ['#d-ask'] },
