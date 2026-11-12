@@ -23,7 +23,7 @@
   <string name="pair_title">Pair with your Mac</string>
   <string name="pair_sub">On the Mac, click the phone button in Ravenry and point the camera at the code it shows.</string>
   <string name="pair_hold">Hold it inside the corners</string>
-  <string name="pair_away">Away from home, the phone reaches your Mac through Tailscale.</string>
+  <string name="pair_away">Not on your Mac\'s Wi-Fi? The phone reaches it through Tailscale.</string>
   <string name="pair_tailscale">Set up Tailscale</string>
   <string name="pair_camera_q">Camera not working?</string>
   <string name="pair_type">Type the code instead</string>

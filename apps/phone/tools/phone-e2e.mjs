@@ -28,8 +28,8 @@
 //   - the way back: Android's Back on every screen, sheet and modal goes one
 //     level up (the rows of hub/tools/phone-back-test.mjs, by touch), a sheet
 //     closes on a swipe down, Settings is the menu's only;
-//   - the connection chip says Home Wi-Fi; Reconnecting then Offline while
-//     the board's process is stopped, Home Wi-Fi again when it runs; the
+//   - the connection chip says Wi-Fi; Reconnecting then Offline while
+//     the board's process is stopped, Wi-Fi again when it runs; the
 //     details sheet's Reconnect reconnects;
 //   - the launch (docs/PHONE.md, The launch): a cold start from the
 //     launcher, recorded (launch-cold.webm), the splash ending within 1 s,
@@ -556,8 +556,8 @@ try {
 
   // ------------------------------------------------------------ 7d. the connection chip
   const chipWord = () => page('(document.querySelector("#cx-chip .cx-w") || {}).textContent || null');
-  const homeWifi = await until(async () => ((await chipWord()) === 'Home Wi-Fi' ? 1 : null), 15000, 500);
-  check(homeWifi, 'the top bar\'s chip says Home Wi-Fi (the phone reaches the Mac at a home address)', String(await chipWord()));
+  const homeWifi = await until(async () => ((await chipWord()) === 'Wi-Fi' ? 1 : null), 15000, 500);
+  check(homeWifi, 'the top bar\'s chip says Wi-Fi (the phone reaches the Mac at a Wi-Fi address)', String(await chipWord()));
   const stopAt = Date.now();
   process.kill(info.pid, 'SIGSTOP');
   let reAt = null, offAt = null, reach = null;
@@ -569,8 +569,8 @@ try {
     shot('chip-offline-dark.png');
   } finally { process.kill(info.pid, 'SIGCONT'); }
   const contAt = Date.now();
-  const upAt = await until(async () => ((await chipWord()) === 'Home Wi-Fi' ? Date.now() : null), 30000, 700);
-  check(reAt && offAt && upAt, 'the board\'s process stopped: the chip goes Reconnecting, then Offline (the reason words under it), and Home Wi-Fi again once it runs', `Reconnecting after ${reAt && Math.round((reAt - stopAt) / 100) / 10} s, Offline after ${offAt && Math.round((offAt - stopAt) / 100) / 10} s; "${reach}"; back ${upAt && Math.round((upAt - contAt) / 100) / 10} s after it ran again`);
+  const upAt = await until(async () => ((await chipWord()) === 'Wi-Fi' ? Date.now() : null), 30000, 700);
+  check(reAt && offAt && upAt, 'the board\'s process stopped: the chip goes Reconnecting, then Offline (the reason words under it), and Wi-Fi again once it runs', `Reconnecting after ${reAt && Math.round((reAt - stopAt) / 100) / 10} s, Offline after ${offAt && Math.round((offAt - stopAt) / 100) / 10} s; "${reach}"; back ${upAt && Math.round((upAt - contAt) / 100) / 10} s after it ran again`);
   await page('window.__cx = []; window.addEventListener("ravenry:conn", () => window.__cx.push(window.ravenryApp.conn.state)); 1');
   await tapUntil('#cx-chip', () => page('document.querySelector(".cx-sheet") ? 1 : null'));
   await sleep(500);

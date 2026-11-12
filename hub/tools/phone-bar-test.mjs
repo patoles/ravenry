@@ -1,10 +1,11 @@
 // The phone's top bar with the connection chip (docs/PHONE.md, The
 // connection): at 360, 393 and 412 px wide, in every state the chip has
-// (Home Wi-Fi, Tailscale, Reconnecting, Offline), nothing in the bar overlaps
-// or is cut, and the word Ravenry stays beside the mark wherever it fits (at
-// 412 it does); below that the mark alone. Then the details sheet (its rows
-// and buttons, Reconnect calls the app), and a phone's browser: the chip from
-// its own address (a home Wi-Fi address, a tailnet name), none on the Mac itself.
+// (Wi-Fi, Tailscale, Reconnecting, Offline), dark and light, nothing in the
+// bar overlaps or is cut, and the word Ravenry stays beside the mark (bar B);
+// narrower than 360 the word gives way to the mark alone. Then the details
+// sheet (its rows and buttons, Reconnect calls the app, no "home" in it), and
+// a phone's browser: the chip from its own address (a Wi-Fi address, a
+// tailnet name), none on the Mac itself.
 //
 // Usage: node tools/phone-bar-test.mjs --url http://127.0.0.1:4791 [--shots dir]
 //   (a demo board: apps/phone/tools/demo.mjs)
@@ -28,7 +29,7 @@ const STATES = {
   reconnecting: { state: 'reconnecting', via: 'wifi', since: null, rtt: null, mac: 'Studio Mac' },
   offline: { state: 'offline', via: 'wifi', since: null, rtt: null, reason: 'mac-away', words: 'The Mac is not answering. It may be asleep or off.', mac: 'Studio Mac' },
 };
-const WORD = { wifi: 'Home Wi-Fi', tailscale: 'Tailscale', reconnecting: 'Reconnecting', offline: 'Offline' };
+const WORD = { wifi: 'Wi-Fi', tailscale: 'Tailscale', reconnecting: 'Reconnecting', offline: 'Offline' };
 
 /** Every piece of the bar inside it and apart from the others. */
 const measure = (page) => page.evaluate(() => {
@@ -48,7 +49,6 @@ const measure = (page) => page.evaluate(() => {
 for (const scheme of ['dark', 'light']) {
   for (const w of [360, 393, 412]) {
     for (const [k, conn] of Object.entries(STATES)) {
-      if (scheme === 'light' && k !== 'wifi' && k !== 'offline') continue;
       const page = await b.newPage({ viewport: { width: w, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: scheme });
       await page.addInitScript((c) => { window.ravenryApp = { openCheckpoint() {}, openSettings() {}, openTailscale() { window.__ts = 1; }, reconnect() { window.__re = 1; }, platform: 'android', conn: c }; }, conn);
       await page.goto(base + '/#portfolio');
@@ -56,14 +56,15 @@ for (const scheme of ['dark', 'light']) {
       await page.evaluate((s) => { localStorage.setItem('mc.theme', JSON.stringify(s)); }, scheme);
       await page.reload(); await page.waitForSelector('#cx-chip'); await page.waitForTimeout(500);
       const m = await measure(page);
-      const good = !m.out.length && !m.over.length && !m.cut && m.chip === WORD[k] && !m.scroll && (w < 412 || m.ravenry);
+      const good = !m.out.length && !m.over.length && !m.cut && m.chip === WORD[k] && !m.scroll && m.ravenry;
       ok(good, `${w} ${k} ${scheme}: ${JSON.stringify(m)}`);
       console.log(`${good ? 'ok  ' : 'FAIL'} ${scheme} ${w} px, ${WORD[k]}: ${m.ravenry ? 'Ravenry beside the mark' : 'the mark alone'}${m.over.length ? ', overlaps ' + m.over.join(', ') : ''}${m.out.length ? ', cut ' + m.out.join(', ') : ''}`);
       if (shots) await page.screenshot({ path: `${shots}/bar-${scheme}-${w}-${k}.png`, clip: { x: 0, y: 0, width: w, height: 72 } });
-      if (w === 412 && (k === 'tailscale' || k === 'offline')) {
+      if (w === 412 && (k === 'wifi' || k === 'tailscale' || k === 'offline')) {
         await page.click('#cx-chip'); await page.waitForTimeout(400);
-        const sh = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.cx-row .k')].map((e) => e.textContent), btns: [...document.querySelectorAll('.cx-btns .btn')].map((e) => e.textContent), how: (document.querySelectorAll('.cx-row .v')[1] || {}).textContent }));
-        ok(sh.rows.join() === 'Mac,How,Since,Answers in' && sh.btns.includes('Reconnect') && sh.btns.includes('Open Tailscale'), `${k} sheet: ${JSON.stringify(sh)}`);
+        const sh = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.cx-row .k')].map((e) => e.textContent), btns: [...document.querySelectorAll('.cx-btns .btn')].map((e) => e.textContent), how: (document.querySelectorAll('.cx-row .v')[1] || {}).textContent, all: document.querySelector('.cx-sheet').innerText }));
+        const howWant = { wifi: 'Wi-Fi, straight to the Mac', tailscale: "Tailscale, through Ravenry's own device on your tailnet", offline: STATES.offline.words }[k];
+        ok(sh.rows.join() === 'Mac,How,Since,Answers in' && sh.btns.includes('Reconnect') && (k === 'wifi' || sh.btns.includes('Open Tailscale')) && sh.how === howWant && !/home/i.test(sh.all), `${k} sheet: ${JSON.stringify(sh)}`);
         console.log(`ok   ${scheme} the details sheet, ${k}: ${sh.how}`);
         if (shots) await page.screenshot({ path: `${shots}/sheet-${scheme}-${k}.png` });
         await page.click('[data-act="cx-reconnect"]'); await page.waitForTimeout(300);
@@ -77,23 +78,38 @@ for (const scheme of ['dark', 'light']) {
   }
 }
 
+// Narrower than any phone the bar was drawn for (300 px): the word gives way
+// to the mark, and still nothing overlaps or is cut.
+{
+  const page = await b.newPage({ viewport: { width: 300, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'dark' });
+  await page.addInitScript((c) => { window.ravenryApp = { openCheckpoint() {}, openSettings() {}, openTailscale() {}, reconnect() {}, platform: 'android', conn: c }; }, STATES.reconnecting);
+  await page.goto(base + '/#portfolio');
+  await page.waitForSelector('#cx-chip'); await page.waitForTimeout(500);
+  const m = await measure(page);
+  const good = !m.out.length && !m.over.length && !m.cut && !m.scroll && !m.ravenry && m.chip === 'Reconnecting';
+  ok(good, `300 reconnecting: ${JSON.stringify(m)}`);
+  console.log(`${good ? 'ok  ' : 'FAIL'} 300 px, Reconnecting: the word gives way to the mark alone, nothing cut`);
+  if (shots) await page.screenshot({ path: `${shots}/bar-dark-300-reconnecting.png`, clip: { x: 0, y: 0, width: 300, height: 72 } });
+  await page.close();
+}
+
 // A phone's browser: its own address says the path (the board answers only
 // to its own addresses, so the tailnet names are read by the board's own
-// classifier, and the chip drawn at a home address).
+// classifier, and the chip drawn at a Wi-Fi address).
 {
   const page = await b.newPage({ viewport: { width: 393, height: 800 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'dark' });
   await page.route('**/api/whoami', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ local: false }) }));
   await page.goto(base + '/#portfolio');
   await page.waitForSelector('#cx-chip', { timeout: 15000 }).catch(() => {});
   const chip = await page.evaluate(() => { const e = document.querySelector('#cx-chip .cx-w'); return e ? e.textContent : null; });
-  ok(chip === 'Home Wi-Fi', `browser at a home address: ${chip}`);
-  console.log(`${chip === 'Home Wi-Fi' ? 'ok  ' : 'FAIL'} a phone's browser at a home address: ${chip}`);
+  ok(chip === 'Wi-Fi', `browser at a Wi-Fi address: ${chip}`);
+  console.log(`${chip === 'Wi-Fi' ? 'ok  ' : 'FAIL'} a phone's browser at a Wi-Fi address: ${chip}`);
   if (shots) await page.screenshot({ path: `${shots}/browser-home.png`, clip: { x: 0, y: 0, width: 393, height: 72 } });
   const hosts = { '192.168.1.20': 'wifi', 'homemac.local': 'wifi', '10.0.0.5': 'wifi', 'ravenry.tail0000.ts.net': 'tailscale', 'studio.tail0000.ts.net': 'tailscale', '100.101.102.103': 'tailscale', '100.63.0.1': 'wifi', '[fd7a:115c:a1e0::1]': 'tailscale' };
   const got = await page.evaluate((hs) => Object.fromEntries(Object.keys(hs).map((h) => [h, window.ravenryConnVia(h)])), hosts);
   const bad = Object.keys(hosts).filter((h) => got[h] !== hosts[h]);
   ok(!bad.length, 'the address says the path: ' + bad.map((h) => `${h} ${got[h]}`).join(', '));
-  console.log(`${!bad.length ? 'ok  ' : 'FAIL'} the address says the path: ${Object.keys(hosts).length} addresses (.ts.net and 100.64/10 Tailscale, others home Wi-Fi)`);
+  console.log(`${!bad.length ? 'ok  ' : 'FAIL'} the address says the path: ${Object.keys(hosts).length} addresses (.ts.net and 100.64/10 Tailscale, others Wi-Fi)`);
   await page.close();
 }
 {

@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Home Wi-Fi first (docs/PHONE.md, The connection): with both a home address
+ * Wi-Fi first (docs/PHONE.md, The connection): with both a home address
  * and Tailscale answering the phone goes through the home address, whichever
  * answered last; Tailscale only when no home address answers; a home address
  * that does not answer costs the next requests nothing; the 30 s check tries

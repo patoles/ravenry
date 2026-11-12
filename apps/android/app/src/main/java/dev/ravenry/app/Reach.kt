@@ -21,7 +21,7 @@ object Reach {
     val TAILSCALE_OFF = Why("tailscale-off", "Tailscale is off on this phone. Turn it on, then try again.")
     val TAILSCALE_MISSING = Why("tailscale-missing", "This phone doesn't have Tailscale. Install it and sign in, then try again.")
     val MAC_AWAY = Why("unreachable", "Your Mac didn't answer. Check that it's on and awake, and that Tailscale is connected on both.")
-    val MAC_HOME = Why("unreachable", "Your Mac didn't answer. Check that it's on and awake, and that this phone is on its Wi-Fi.")
+    val MAC_WIFI = Why("unreachable", "Your Mac didn't answer. Check that it's on and awake, and that this phone is on its Wi-Fi.")
 
     /** A host only the tailnet reaches: a MagicDNS name, a 100.64/10 or fd7a:115c:a1e0:: address. */
     fun tailnetHost(h: String): Boolean {
@@ -41,7 +41,7 @@ object Reach {
     fun decide(hosts: List<String>, vpnUp: Boolean, tailscaleInstalled: Boolean, tailnetNameUnresolved: Boolean = false): Why {
         val tail = hosts.any(::tailnetHost)
         if (tail && (!vpnUp || tailnetNameUnresolved)) return if (tailscaleInstalled) TAILSCALE_OFF else TAILSCALE_MISSING
-        return if (tail) MAC_AWAY else MAC_HOME
+        return if (tail) MAC_AWAY else MAC_WIFI
     }
 
     /**
@@ -49,7 +49,7 @@ object Reach {
      * tailnet: its MagicDNS name ravenry.<tailnet>.ts.net, or the 100.x
      * address the pairing link lists right after it), "tailscale-mac" (the
      * Mac's own Tailscale app's addresses), "local" (this device itself) or
-     * "wifi" (an address on the home network).
+     * "wifi" (an address on the Wi-Fi the Mac is on).
      */
     fun via(host: String, hosts: List<String>): String {
         val h = host.trim().lowercase()

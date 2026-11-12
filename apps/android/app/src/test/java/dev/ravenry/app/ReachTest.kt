@@ -30,11 +30,11 @@ class ReachTest {
 
     @Test fun theMacWhenTailscaleIsUpOrNotInTheLink() {
         assertEquals(Reach.MAC_AWAY, Reach.decide(away, vpnUp = true, tailscaleInstalled = true))
-        assertEquals(Reach.MAC_HOME, Reach.decide(listOf("192.168.1.20"), vpnUp = false, tailscaleInstalled = false))
+        assertEquals(Reach.MAC_WIFI, Reach.decide(listOf("192.168.1.20"), vpnUp = false, tailscaleInstalled = false))
     }
 
     @Test fun neverAHostInTheWords() {
-        for (w in listOf(Reach.TAILSCALE_OFF, Reach.TAILSCALE_MISSING, Reach.MAC_AWAY, Reach.MAC_HOME)) {
+        for (w in listOf(Reach.TAILSCALE_OFF, Reach.TAILSCALE_MISSING, Reach.MAC_AWAY, Reach.MAC_WIFI)) {
             assertFalse(w.words, Regex("""\d+\.\d+|ts\.net|:\d""").containsMatchIn(w.words))
         }
         assertEquals("Tailscale is off on this phone. Turn it on, then try again.", Reach.TAILSCALE_OFF.words)

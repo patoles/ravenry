@@ -1153,6 +1153,15 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
   #pbar .cx-chip{margin:0 auto 0 6px}
   #pbar .pn-np{width:40px;padding:0;justify-content:center;margin:0 6px 0 2px}
   #pbar.tight .pn-word{display:none}
+  /* The home's bar, B (picked 2026-11-12): the word at 18 px and the mark at
+     24, the chip 28 tall at 12 px, Search and More at their 40 dp, so the
+     word stays beside the chip at 360 px; below that it still gives way. */
+  #pbar.home{padding:0 4px 0 6px;gap:0}
+  #pbar.home .pn-ttl{padding-left:6px;gap:7px;font-size:18px}
+  #pbar.home .pn-ttl svg{width:24px;height:24px}
+  #pbar.home .pn-ib{width:40px;height:40px;border-radius:20px}
+  #pbar.home .cx-chip{height:28px;padding:0 9px 0 7px;gap:5px;font-size:12px;margin:0 auto 0 6px}
+  #pbar.home .pn-np{margin:0 4px 0 2px}
   .cx-chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px 0 9px;border-radius:15px;background:var(--card);box-shadow:inset 0 0 0 1px var(--sep);font-size:12.5px;font-weight:600;color:var(--tx);flex:none;white-space:nowrap;cursor:pointer;margin:0 2px}
   .cx-dot{width:8px;height:8px;border-radius:4px;flex:none;background:var(--ok)}
   .cx-chip.ts .cx-dot{background:var(--work)}

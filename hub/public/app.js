@@ -2063,6 +2063,8 @@ function renderPhoneNav() {
     bar = `${ib('', PI.back, 'Back to Pages', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(v === 'objectives' ? 'Objectives' : row ? row.label : 'Page')}</span>${more}`;
   } else bar = `<span class="pn-ttl">${PN_LOGO}<span class="pn-word">Ravenry</span></span>${connChip()}${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np('New project') : ''}`;
   setHtml('pbar', bar);
+  // The home's bar (B, picked 2026-11-12): its sizes make room for the word beside the chip at 360 px.
+  $('#pbar').classList.toggle('home', !!$('#pbar .pn-word'));
   fitBar();
   $('#mc').classList.toggle('pn-sub', v === 'pages' || v === 'search' || v.startsWith('page/') || v === 'objectives' || v === 'sessions' || v === 'plan' || !!idea);
   $('#mc').classList.toggle('pn-idea', !!idea);
@@ -2170,17 +2172,18 @@ document.addEventListener('touchend', () => {
 
 // ------------------------------------------------------------ the connection chip
 // docs/PHONE.md, The connection: in the phone's top bar, whether the phone
-// reaches the Mac and how (home Wi-Fi, Tailscale, offline, reconnecting),
+// reaches the Mac and how (Wi-Fi, Tailscale, offline, reconnecting),
 // and on a tap the details. In the app the shell says (window.ravenryApp.conn,
 // the ravenry:conn event: apps/phone/src/board.ts); in a phone's browser the
 // board reads its own address and its live stream. On the Mac: none.
-const CONN_WORD = { wifi: 'Home Wi-Fi', tailscale: 'Tailscale', 'tailscale-mac': 'Tailscale', local: 'This computer' };
+// "Wi-Fi", not "Home Wi-Fi": the phone may be on any Wi-Fi the Mac is on.
+const CONN_WORD = { wifi: 'Wi-Fi', tailscale: 'Tailscale', 'tailscale-mac': 'Tailscale', local: 'This computer' };
 function connNow() {
   if (window.ravenryApp && window.ravenryApp.conn) return window.ravenryApp.conn;
   if (ui.local !== false) return null;
   return { state: ui.browserConn || 'up', via: connVia(location.hostname), since: ui.connSince || null, rtt: ui.connRtt || null, mac: null, browser: true };
 }
-/** A tailnet name or address (MagicDNS .ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48) is Tailscale; any other the home network. */
+/** A tailnet name or address (MagicDNS .ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48) is Tailscale; any other the Wi-Fi the Mac is on. */
 function connVia(host) {
   const h = String(host || '').replace(/^\[|\]$/g, '');
   return /\.ts\.net$/i.test(h) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || /^fd7a:115c:a1e0:/i.test(h) ? 'tailscale' : 'wifi';
@@ -2206,7 +2209,7 @@ const fmtSince = (t) => { if (!t) return 'Not yet'; const d = new Date(t); const
 function connSheet() {
   const c = connNow();
   if (!ui.cxOpen || !c) { setHtml('cx', ''); return; }
-  const how = c.state === 'offline' ? (c.words || 'Not connected.') : c.state === 'reconnecting' ? 'Reconnecting...' : c.via === 'tailscale' ? "Away from home, through Tailscale (Ravenry's own device on your tailnet)" : c.via === 'tailscale-mac' ? "Away from home, through Tailscale (the Mac's Tailscale app)" : c.via === 'local' ? 'On this computer' : 'Home Wi-Fi, straight to the Mac';
+  const how = c.state === 'offline' ? (c.words || 'Not connected.') : c.state === 'reconnecting' ? 'Reconnecting...' : c.via === 'tailscale' ? "Tailscale, through Ravenry's own device on your tailnet" : c.via === 'tailscale-mac' ? "Tailscale, through the Mac's Tailscale app" : c.via === 'local' ? 'On this computer' : 'Wi-Fi, straight to the Mac';
   const app = !!(window.ravenryApp && window.ravenryApp.conn);
   const ts = app && !(c.via === 'wifi' && c.state === 'up') && c.via !== 'local';
   setHtml('cx', `<div class="scrim" data-cx-close></div><div class="bsheet cx-sheet" role="dialog" aria-modal="true" aria-label="Connection"><div class="grab"></div><div class="bs-head"><span class="bs-title">Connection</span><span style="flex: 1"></span><button class="bs-done" data-cx-close>Done</button></div>

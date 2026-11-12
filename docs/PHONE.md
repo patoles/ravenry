@@ -96,13 +96,16 @@ level up (2026-11-12, the phonenotes2 walk):
 ### The connection
 
 The phone's top bar carries a chip saying whether the phone reaches the
-Mac and how: Home Wi-Fi (green), Tailscale (blue), Reconnecting (orange,
-its dot pulsing) or Offline (red). The word Ravenry stays beside the mark
-wherever the bar has room for it with the chip (412 px wide it does);
-narrower, the mark alone (`phone-bar-test.mjs` at 360, 393 and 412 px). A
-tap opens its details sheet: which Mac, how (home Wi-Fi straight to the
-Mac; away from home through Tailscale, Ravenry's own device or the Mac's
-Tailscale app; this computer), since when, how fast it answers, and Open
+Mac and how: Wi-Fi (green), Tailscale (blue), Reconnecting (orange, its
+dot pulsing) or Offline (red). "Wi-Fi", never "Home Wi-Fi": the phone may be
+on any Wi-Fi the Mac is on. The home's bar is B (picked 2026-11-12): the
+word Ravenry at 18 px beside a 24 px mark, the chip 28 px tall at 12 px,
+Search and More at their 40 dp, so the word stays beside the chip at 360,
+393 and 412 px in every state; narrower, it gives way to the mark alone
+(`phone-bar-test.mjs`). A tap opens its details sheet: which Mac, how
+("Wi-Fi, straight to the Mac"; "Tailscale, through Ravenry's own device on
+your tailnet" or "through the Mac's Tailscale app"; this computer), since
+when, how fast it answers, and Open
 Tailscale and Reconnect. Offline, the reason words stay under the top bar
 (the reach bar, with Open Tailscale and Try again).
 
@@ -112,26 +115,26 @@ most), the stream's own drops too; a failure makes it Reconnecting, three
 in a row Offline (with the reason, `Reach.kt`), an answer Up again (the
 stream reopened at once). It sends the page `conn` events (state, path,
 since, round trip, reason) and answers `conn.now` and `conn.reconnect`. The
-path is `Reach.via`: an address of the home network is Home Wi-Fi;
+path is `Reach.via`: an address that is not a tailnet host is Wi-Fi;
 `ravenry.<tailnet>.ts.net` and the 100.x address the pairing link lists
 after it are Ravenry's own device; other tailnet addresses the Mac's
 Tailscale app. A phone's browser reads its own address the same way (a
 `.ts.net` name or 100.64.0.0/10 is Tailscale) and its live stream for
 Reconnecting and Offline; the Mac's own board has no chip.
 
-Home Wi-Fi first (`HubClient.order`): whenever a home address (any that is
-not a tailnet host) answers, the phone goes through it, Tailscale only when
-none does, whichever answered last. A home address gets 1.5 s to accept a
-connection (a home network answers in tens of ms); one that did not answer
-is tried after Tailscale until it answers again or the phone's network
-changes, so away from home it costs requests nothing (measured: 2 ms a
-request after the first). The 30 s check tries the home addresses first
-every time, so coming home switches the path and the chip to Home Wi-Fi
-within one check (sooner when the phone joins the Wi-Fi: the network
+Wi-Fi first (`HubClient.order`): whenever a Wi-Fi address (any that is
+not a tailnet host; "home" in the code) answers, the phone goes through it,
+Tailscale only when none does, whichever answered last. A Wi-Fi address
+gets 1.5 s to accept a connection (a local network answers in tens of ms);
+one that did not answer is tried after Tailscale until it answers again or
+the phone's network changes, so off that Wi-Fi it costs requests nothing
+(measured: 2 ms a request after the first). The 30 s check tries the Wi-Fi
+addresses first every time, so coming back to the Mac's Wi-Fi switches the
+path and the chip to Wi-Fi within one check (sooner when the phone joins the Wi-Fi: the network
 callback checks at once), leaving switches to Tailscale, and the stream
 reopens on the new path (`HubOrderTest`; on the emulator both answering is
-Home Wi-Fi, the home address dropped is Tailscale in 29 s, back is Home
-Wi-Fi in 29 s).
+Wi-Fi, the Wi-Fi address dropped is Tailscale in 29 s, back is Wi-Fi in
+29 s).
 
 ### The launch
 
@@ -178,8 +181,8 @@ the **phone port** (`RAVENRY_PHONE_PORT`, default the board's port plus
 one: 4601) and takes connections that arrive on:
 
 - a private LAN address of this machine (10/8, 172.16/12, 192.168/16): the
-  home Wi-Fi;
-- a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48): away from home
+  Wi-Fi the Mac is on;
+- a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48): off that Wi-Fi,
   through the Tailscale app on this Mac, when it runs;
 - loopback, so an emulator on this machine reaches it (its 10.0.2.2), and
   so does Ravenry's own device on the person's tailnet (Away from home,

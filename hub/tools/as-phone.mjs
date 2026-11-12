@@ -1,4 +1,4 @@
-// A phone on the home Wi-Fi, for the tests, over loopback only: a test board
+// A phone on the Mac's Wi-Fi, for the tests, over loopback only: a test board
 // started with phoneEnv(port) also listens on 127.0.0.1:<port>, where every
 // caller is seen as a phone (server/testphone.mjs), and the board's real
 // checks decide what it gets. Nothing listens on the Wi-Fi's address.
