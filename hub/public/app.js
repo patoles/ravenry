@@ -761,9 +761,9 @@ ${openButton(p, s)}`);
   else if (s.dialog) label = `A choice is open on screen. Pick an option above or answer in ${tn}`;
   else if (s.draft) label = `Its prompt already holds a half-typed reply. Finish or clear it in ${tn} first, so the two are not mixed`;
   else if (gateHere) label = 'Or answer in your own words. The plan carries on from your answer';
-  if (cpText) label = 'Or answer in your own words';
   else if (state === 'you') label = 'Write an answer';
   else if (s.working) label = 'Message, delivered after its current step';
+  if (cpText) label = 'Or answer in your own words';
   let ph = canSend && !gateHere ? label + '. Paste a path, or drop or paste a file.' : label + '.';
   // The New session switch (docs/design/NewSession.dc.html, D): on, the
   // same box starts a new session in the project's folder.
