@@ -3583,7 +3583,7 @@ const PHONE_PORT = phonetls.phonePort(PORT);
 // Tailscale (its MagicDNS name, its 100.x address: server/tailnet.mjs), then
 // this Mac's own Tailscale addresses (the Tailscale app's), then RAVENRY_PHONE_HOSTS.
 function phoneApp() { return { port: PHONE_PORT, pin: phonetls.identity().pin, hosts: phone.phoneHosts([...tailnet.hosts(), ...phonetls.tailscaleAddresses()]) }; }
-function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT, wifi: (phone.lanAddresses()[0] || {}).address || null, away: tailnet.card() }; }
+function phoneCard(opts = {}) { return { ok: true, ...phone.card(PORT, phone.access() ? phoneApp() : null, opts), port: PHONE_PORT, wifi: (phone.lanAddresses()[0] || {}).address || null, systemTailscale: phonetls.tailscaleAddresses().length > 0, away: tailnet.card() }; }
 
 // After New key, live streams held by phones end, so their pages find out;
 // with a device id, only that device's (revoked, or signed out).
