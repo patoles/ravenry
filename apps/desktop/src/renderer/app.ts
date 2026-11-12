@@ -2683,7 +2683,27 @@ function renderPanel(): void {
   if (heldIn(el, renderPanel)) return;
   patch(el, [head, panelBody]);
   patch(panelBody, body);
+  cutAtWords(panelBody);
   clearHiddenSecrets(true);
+}
+
+/**
+ * The hand-off card's line in its two lines, cut at a word with "…" where it runs past them (.ho-line's clamp
+ * alone cuts inside a word): the longest run of its words that fits, as drawn now.
+ */
+function cutAtWords(root: Element): void {
+  for (const el of root.querySelectorAll<HTMLElement>('.ho-line')) {
+    if (!el.clientHeight || el.scrollHeight <= el.clientHeight + 1) continue;
+    const words = (el.textContent || '').split(' ');
+    const upTo = (n: number) => words.slice(0, n).join(' ').replace(/[\s,;:(\-\u2013[{]+$/, '') + '\u2026';
+    let lo = 1, hi = words.length - 1, best = 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      el.textContent = upTo(mid);
+      if (el.scrollHeight <= el.clientHeight + 1) { best = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    el.textContent = upTo(best);
+  }
 }
 
 // The sessions of the tabs as the hub last listed them: a tab whose session
@@ -2930,9 +2950,12 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
 
   const ho = (p.timeline || []).find((x) => x.from === 'brief');
   if (ho) {
-    body.push(h('div.sec',
-      h('div.sec-h', 'Hand-off', h('span.sp'), ho.when ? h('span.t3.light', ho.when) : null),
-      h('p', ho.text),
+    // The hand-off card (2026-11-12): the hub's line for the entry, at most two lines (.ho-line, an older hub's whole
+    // entry too); "›" after the time, and a press opens the brief at its Hand-off.
+    const openHandoff = () => { briefFocus = { project: p.id, section: 'handoff' }; setView({ kind: 'brief', key: `project:${p.id}`, project: p.id }); };
+    body.push(h('div.sec.ho-card', { role: 'button', tabindex: '0', title: 'Open the brief at its Hand-off', on: { click: openHandoff, keydown: (e: Event) => { const k = (e as KeyboardEvent).key; if (k === 'Enter' || k === ' ') { e.preventDefault(); openHandoff(); } } } },
+      h('div.sec-h', 'Hand-off', h('span.sp'), ho.when ? h('span.t3.light', ho.when) : null, h('span.t3.chev', '\u203a')),
+      ho.text ? h('p.ho-line', ho.text) : null,
       p.handoffRecent ? h('div.chk', h('i', svg(I.CHECK)), 'Read by this session') : null));
   }
 
@@ -2971,6 +2994,16 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
 // drawn again only when its text changed (so the entries opened stay open),
 // asked again at most every 4 s while it shows.
 let briefShown: { project: string; text: string; at: number } | null = null;
+/** A section the next draw of that project's brief scrolls to (the hand-off card's press). */
+let briefFocus: { project: string; section: 'handoff' } | null = null;
+/** The brief's heading for a section, by the names brief.mjs reads, scrolled to the top of the page. */
+function focusBriefSection(el: HTMLElement, project: string): void {
+  if (!briefFocus || briefFocus.project !== project) return;
+  const names = ['hand-off', 'handoff', 'hand off', 'hand-backs'];
+  const h2 = [...el.querySelectorAll('.md h2')].find((x) => names.includes((x.textContent || '').trim().toLowerCase())) as HTMLElement | undefined;
+  briefFocus = null;
+  if (h2) h2.scrollIntoView({ block: 'start' });
+}
 /** Each project's brief as the hub last gave it (the Brief page draws from it at once, and reads it again after 4 s). */
 const briefData = new Map<string, { r: { status: number; body: unknown } | null; at: number }>();
 const briefLoading = new Map<string, Promise<void>>();
@@ -3004,13 +3037,14 @@ async function renderBrief(project: string): Promise<void> {
   }
   const same = briefShown && briefShown.project === project && briefShown.text === b.text;
   briefShown = { project, text: b.text, at: Date.now() };
-  if (same && el.firstChild) return;
+  if (same && el.firstChild) { focusBriefSection(el, project); return; }
   const dir = b.file.replace(/\/[^/]*$/, '');
   replace(el,
     h('div.doc-h', svg(I.DOC), h('b', 'Brief'), h('span.t3', p ? p.name : project), h('span.sp'),
       h('span.t3', { title: b.path }, `Updated ${clock(b.updatedAt, now())}${b.by ? ` by ${b.by}` : ''}`),
       p && p.machine ? null : h('button.btn.sm', { title: `Open ${b.path} in your Markdown editor`, on: { click: () => api().openPath(b.file) } }, 'Edit')),
     h('div.doc-b', briefPage(b.text, { dir, onLink: (u) => api().openExternal(u) }, b.nextParts?.entries || [])));
+  focusBriefSection(el, project);
 }
 
 /** What a session's panel shows of Phase 2 between its card and its context. */
