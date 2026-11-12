@@ -37,6 +37,8 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -192,13 +194,22 @@ class MainActivity : FragmentActivity() {
         web.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val u = request.url
-                if (u.host == HOST && (u.path ?: "").startsWith("/phone/hub/")) {
+                if (u.host != HOST) return null
+                val path = u.path ?: "/"
+                if (path.startsWith("/phone/hub/")) {
                     // Only the page itself: a frame of another origin (an MCP
                     // App's sandbox) never reads the hub through this door.
                     if (request.method != "GET" || !HubGate.allowed(request.requestHeaders)) return HubGate.refused()
                     return hubResource(u)
                 }
-                return loader.shouldInterceptRequest(u)
+                if (path.startsWith("/phone/")) return loader.shouldInterceptRequest(u)
+                // The rest of the origin is the hub's own board, the app's
+                // home (docs/PHONE.md section 1): its page, opened in this
+                // WebView, and its files and pictures for that page only.
+                if (request.method != "GET") return HubGate.refused()
+                if (request.isForMainFrame) return boardPage(u)
+                if (!HubGate.allowed(request.requestHeaders)) return HubGate.refused()
+                return hubResource(u, board = true)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -232,8 +243,8 @@ class MainActivity : FragmentActivity() {
         pending = intent?.getStringExtra(Notifier.EXTRA_ALERT)
         // A new theme (light or dark) or a new window size makes a new
         // activity: the page comes back on the screen it was on.
-        val was = savedInstanceState?.getString(STATE_URL)?.takeIf { it.startsWith("$ORIGIN/phone/index.html") && pending == null }
-        web.loadUrl(was ?: "$ORIGIN/phone/index.html")
+        val was = savedInstanceState?.getString(STATE_URL)?.takeIf { it.startsWith("$ORIGIN/") && pending == null }
+        web.loadUrl(was ?: "$ORIGIN/")
         if (Build.VERSION.SDK_INT >= 33 && !Store.get(this).notificationsAsked) {
             Store.get(this).notificationsAsked = true
             needPermission(Manifest.permission.POST_NOTIFICATIONS, {}, {})
@@ -306,6 +317,43 @@ class MainActivity : FragmentActivity() {
                 pending = null
                 reply(id, true, r)
             }
+            // A request of the board's page (src/board.ts's fetch): any
+            // method, its body and headers as they are, the answer's bytes.
+            "http" -> {
+                val method = o.optString("method", "GET").uppercase()
+                val path = o.optString("path")
+                if (!path.startsWith("/")) { reply(id, false, error = "A path starts with /."); return }
+                val bytes = o.optString("b64").takeIf { it.isNotEmpty() && it != "null" }?.let { Base64.getDecoder().decode(it) }
+                val hs = o.optJSONObject("headers")
+                val headers = mutableMapOf<String, String>()
+                hs?.keys()?.forEach { k -> if (k.lowercase() in PASS_HEADERS) headers[k] = hs.optString(k) }
+                Hub.io.execute {
+                    try {
+                        val type = headers.entries.firstOrNull { it.key.equals("content-type", true) }?.value
+                        val body = if (method == "GET" || method == "HEAD") null else (bytes ?: ByteArray(0)).toRequestBody(type?.toMediaTypeOrNull())
+                        hub().execute(method, path, body, headers).use { r ->
+                            val out = r.body?.bytes() ?: ByteArray(0)
+                            reply(id, true, JSONObject().put("status", r.code).put("type", r.header("Content-Type") ?: "application/octet-stream").put("b64", Base64.getEncoder().encodeToString(out)))
+                        }
+                    } catch (e: Exception) {
+                        reply(id, false, error = unreachable(e))
+                    }
+                }
+            }
+            "reach.now" -> reply(id, true, lastReach ?: JSONObject.NULL)
+            "reach.retry" -> { lastReach = null; Hub.io.execute { runCatching { hub().call("GET", "/api/phone/hello") }.onSuccess { main.post { web.reload() } }.onFailure { unreachable(it) } }; reply(id, true) }
+            // The board's background and theme for the system bars (src/board.ts).
+            "bars" -> {
+                val light = o.optBoolean("light", false)
+                val c = Regex("""rgba?\((\d+),\s*(\d+),\s*(\d+)""").find(o.optString("color"))?.groupValues
+                main.post {
+                    if (c != null) box.setBackgroundColor(android.graphics.Color.rgb(c[1].toInt(), c[2].toInt(), c[3].toInt()))
+                    WindowCompat.getInsetsController(window, box).isAppearanceLightStatusBars = light
+                    WindowCompat.getInsetsController(window, box).isAppearanceLightNavigationBars = light
+                }
+                reply(id, true)
+            }
+            "open.tailscale" -> { Reach.openTailscale(this); reply(id, true) }
             "hub.call" -> {
                 val method = o.optString("method", "GET")
                 val path = o.optString("path")
@@ -327,7 +375,11 @@ class MainActivity : FragmentActivity() {
                     events = hub().events("/api/events", { name, data ->
                         event(JSONObject().put("event", "hub").put("name", name).put("data", parse(data)))
                     }, { up, err ->
-                        event(JSONObject().put("event", "link").put("state", if (up) "up" else "down").put("error", err ?: JSONObject.NULL))
+                        if (up) lastReach = null
+                        // Never the exception's own words (a host name): the reason.
+                        val words = if (up) null else Hub.get(this)?.let { c -> if (err == "signed out") err else reachOf(c.allHosts, null).words }
+                        event(JSONObject().put("event", "link").put("state", if (up) "up" else "down").put("error", words ?: JSONObject.NULL))
+                        if (!up && words != null && err != "signed out") lastReach?.let { r -> event(JSONObject(r.toString()).put("event", "reach")) }
                     })
                 }
                 reply(id, true)
@@ -409,16 +461,13 @@ class MainActivity : FragmentActivity() {
             }
             "alerts.clear" -> { Notifier.cancel(this, o.optString("id")); reply(id, true) }
             "pair.reset" -> {
+                // The screen changes on the tap; the computer is told in the
+                // background, now and later until it answers (Revokes).
                 reply(id, true)
-                Hub.io.execute {
-                    runCatching { Hub.get(this)?.call("POST", "/api/phone/unpair", "{}") }
-                    Push.unregister(this)
-                    main.post {
-                        Store.get(this).clear(); Hub.reset(); ConnectionService.stop(this)
-                        startActivity(Intent(this, PairActivity::class.java))
-                        finish()
-                    }
-                }
+                events?.close(); events = null
+                Revokes.signOut(this)
+                startActivity(Intent(this, PairActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                finish()
             }
             // Settings (the phone board's #/settings): push and the held connection.
             "push.status" -> reply(id, true, Push.status(this))
@@ -543,9 +592,31 @@ class MainActivity : FragmentActivity() {
         askPermission.launch(p)
     }
 
-    /** A picture or file of the hub: `hub/<path>` relative to the page, fetched with the pin and the token. */
-    private fun hubResource(u: Uri): WebResourceResponse {
-        val path = "/" + (u.encodedPath ?: "").removePrefix("/phone/hub/") + (u.encodedQuery?.let { "?$it" } ?: "")
+    /**
+     * The board's page (the hub's `/`), with the app's layer (board.js,
+     * apps/phone/src/board.ts) first in its head, so the board's requests
+     * go through the shell.
+     */
+    private fun boardPage(u: Uri): WebResourceResponse {
+        return try {
+            val r = hub().execute("GET", "/")
+            val html = r.body?.string() ?: ""
+            r.close()
+            if (r.code != 200) return hubResource(u, board = true)
+            val page = html.replaceFirst("<head>", "<head>\n<script src=\"/phone/board.js\"></script>")
+            WebResourceResponse("text/html", "utf-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(page.toByteArray()))
+        } catch (e: Exception) {
+            // The computer did not answer: the app's own page says why (its
+            // board.js still runs there, with the bar and Try again).
+            val w = reachOf(Hub.get(this)?.allHosts ?: emptyList(), e)
+            val page = "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><script src=\"/phone/board.js\"></script><style>body{margin:0;background:#161618;color:#A1A1A8}@media (prefers-color-scheme: light){body{background:#F1F0ED;color:#5F5F66}}</style></head><body data-unreached=\"${w.reason}\"></body></html>"
+            WebResourceResponse("text/html", "utf-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(page.toByteArray()))
+        }
+    }
+
+    /** A picture or file of the hub: `hub/<path>` relative to the page (or the board's own path), fetched with the pin and the token. */
+    private fun hubResource(u: Uri, board: Boolean = false): WebResourceResponse {
+        val path = (if (board) (u.encodedPath ?: "/") else "/" + (u.encodedPath ?: "").removePrefix("/phone/hub/")) + (u.encodedQuery?.let { "?$it" } ?: "")
         return try {
             val r = hub().execute("GET", path)
             val type = r.header("Content-Type")?.substringBefore(';')?.trim() ?: "application/octet-stream"
@@ -577,9 +648,21 @@ class MainActivity : FragmentActivity() {
 
     private fun isNight() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
+    /** The last reason the computer could not be reached, for the board's bar (null once it answers). */
+    @Volatile private var lastReach: JSONObject? = null
+
+    private fun reachOf(hosts: List<String>, e: Throwable?): Reach.Why {
+        val w = Reach.why(this, hosts, e)
+        lastReach = JSONObject().put("reason", w.reason).put("words", w.words)
+        return w
+    }
+
+    /** What a failed request says: why the computer cannot be reached, never a host name. */
     private fun unreachable(e: Throwable): String {
-        val name = Store.get(this).paired()?.hubName ?: "The computer"
-        return if (e is java.io.IOException) "$name didn't answer. Is it on, and is this phone on its Wi-Fi or Tailscale?" else (e.message ?: "It did not work.")
+        if (e !is java.io.IOException) return e.message ?: "It did not work."
+        val w = reachOf(Hub.get(this)?.allHosts ?: emptyList(), e)
+        lastReach?.let { r -> event(JSONObject(r.toString()).put("event", "reach")) }
+        return w.words
     }
 
     private fun stamp() = SimpleDateFormat("HHmm-ss", Locale.US).format(Date())
@@ -614,3 +697,6 @@ object HubGate {
 }
 
 private const val STATE_URL = "ravenry.page"
+
+/** The request headers the board's fetch may set on a hub request. */
+private val PASS_HEADERS = setOf("content-type", "x-filename", "accept")

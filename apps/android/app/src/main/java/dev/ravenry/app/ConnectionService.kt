@@ -39,7 +39,12 @@ class ConnectionService : Service() {
                 }
             }, { up, err ->
                 if (!up) android.util.Log.w("Ravenry", "connection: $err")
-                if (!up) { val t = getString(R.string.not_linked, p.hubName); if (t != line) { line = t; Notifier.updateConnection(this, t) } }
+                if (!up) {
+                    // Tailscale off or missing: said as such; else the Mac's own line.
+                    val w = Reach.why(this, hub.allHosts, null)
+                    val t = if (w.reason.startsWith("tailscale")) w.words else getString(R.string.not_linked, p.hubName)
+                    if (t != line) { line = t; Notifier.updateConnection(this, t) }
+                }
             })
         }
         return START_STICKY

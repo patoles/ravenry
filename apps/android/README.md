@@ -1,14 +1,18 @@
 # Ravenry Android app
 
-A thin Kotlin shell around one WebView. The phone board in the WebView
-(sessions, the live terminal, the checkpoint screens, the sidebar's pages)
-is web code shared with iOS, `../phone`, built into the app's assets. The
-shell adds only what a page cannot: pairing (QR code, typed code, the
-`ravenry://pair` link), TLS with the pinned key, the device token,
-notifications with action buttons and a reply line, a fingerprint before
-every Run, a camera photo and a voice note into a session, the connection
-held in the background, push through UnifiedPush, and the private keyboard
-for a secret. The contract is [../../docs/PHONE.md](../../docs/PHONE.md).
+A thin Kotlin shell around one WebView. Its home is the hub's own board at
+phone width (`hub/public`, loaded from the paired computer over the pinned
+connection), with the app's layer first in it (`../phone/src/board.ts`);
+the app's own screens (a checkpoint full screen, a photo or voice note,
+the app's settings) are web code too, `../phone`, built into the app's
+assets. The shell adds only what a page cannot: pairing (QR code, typed
+code, the `ravenry://pair` link), TLS with the pinned key, the device
+token, notifications with action buttons and a reply line, a fingerprint
+before every Run, a camera photo and a voice note into a session, the
+connection held in the background, push through UnifiedPush, the private
+keyboard for a secret, and the words when the Mac does not answer
+(Tailscale off or not installed on this phone, or the Mac: `Reach.kt`).
+The contract is [../../docs/PHONE.md](../../docs/PHONE.md).
 
 Licence: GPL-3.0-only (../../LICENSING.md). No Google Play services and no
 proprietary library: it builds for F-Droid.
@@ -93,7 +97,10 @@ pairs and opens the board.
 - `./gradlew testDebugUnitTest`: the pin (another key refused, even one an
   authority signed), the pairing link and the check number, the alert
   messages and their calls, push bodies opened with the connector's own
-  decryption (the RFC 8291 example and one made by Node).
+  decryption (the RFC 8291 example and one made by Node), and the words
+  when the Mac does not answer (ReachTest: tailnet hosts, Tailscale off or
+  missing, never a host in the words, tailnet hosts skipped with no VPN).
+- The app end to end on an emulator: `../phone/tools/phone-e2e.mjs`.
 - Push through a real distributor, on the emulator:
   `RAVENRYD_BIN=../daemon/ravenryd node tools/push-ntfy-e2e.mjs --serial emulator-5554`
   in `hub/` installs ntfy's published APK (its SHA-256 and signer checked),

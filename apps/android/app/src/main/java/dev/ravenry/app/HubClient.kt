@@ -56,9 +56,13 @@ class HubClient(
     private val token: String?,
     private val onHost: (String) -> Unit = {},
     private val onSignedOut: () -> Unit = {},
+    /** Hosts not worth a try now (a tailnet one with no VPN up: Reach.skip). */
+    private val skip: (String) -> Boolean = { false },
 ) {
     val trust = PinnedTrust(pin)
     private val hosts = hosts.distinct()
+    /** Every address of the computer, for the words when none answers (Reach). */
+    val allHosts: List<String> get() = hosts
     @Volatile var host: String = this.hosts.first()
         private set
 
@@ -93,9 +97,16 @@ class HubClient(
         return b.build()
     }
 
+    /** The hosts in the order they are tried now: the last that answered first, those not worth a try left out. */
+    fun order(): List<String> = (listOf(host) + hosts.filter { it != host }).filter { !skip(it) }
+
+    /** The host a stream opens on: the last that answered, unless it is not worth a try now. */
+    private fun streamHost(): String = order().firstOrNull() ?: host
+
     /** Runs a request on the first address that answers. Throws when none does. */
     fun execute(method: String, path: String, body: RequestBody? = null, headers: Map<String, String> = emptyMap()): Response {
-        val order = listOf(host) + hosts.filter { it != host }
+        val order = order()
+        if (order.isEmpty()) throw IOException("No address can answer now")
         var last: IOException? = null
         for (h in order) {
             try {
@@ -143,7 +154,7 @@ class HubClient(
             var wait = 1000L
             while (!holder.closed) {
                 try {
-                    val c = streaming.newCall(build(host, "GET", path, null, mapOf("Accept" to "text/event-stream")))
+                    val c = streaming.newCall(build(streamHost(), "GET", path, null, mapOf("Accept" to "text/event-stream")))
                     holder.call = c
                     c.execute().use { r ->
                         if (r.code == 401) { onSignedOut(); holder.closed = true; link(false, "signed out"); return@use }
@@ -180,16 +191,16 @@ class HubClient(
     }
 
     fun socket(path: String, protocol: String?, listener: WebSocketListener): WebSocket {
-        val b = build(host, "GET", path, null, if (protocol != null) mapOf("Sec-WebSocket-Protocol" to protocol) else emptyMap())
+        val b = build(streamHost(), "GET", path, null, if (protocol != null) mapOf("Sec-WebSocket-Protocol" to protocol) else emptyMap())
         return http.newWebSocket(b, listener)
     }
 
     companion object {
         val JSON = "application/json".toMediaType()
 
-        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}): HubClient {
+        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }): HubClient {
             val order = listOfNotNull(p.lastHost) + p.hosts
-            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut)
+            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip)
         }
     }
 }

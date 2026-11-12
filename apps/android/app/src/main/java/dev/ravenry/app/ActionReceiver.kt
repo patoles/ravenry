@@ -33,7 +33,7 @@ class ActionReceiver : BroadcastReceiver() {
             val said = when {
                 ok && call.path == "/api/decisions/undo" -> context.getString(R.string.undone)
                 ok -> context.getString(R.string.sent, label)
-                r.isFailure -> context.getString(R.string.not_reached, Store.get(context).paired()?.hubName ?: "")
+                r.isFailure -> context.getString(R.string.not_sent_why, Reach.why(context, hub.allHosts, r.exceptionOrNull()).words)
                 else -> runCatching { JSONObject(r.getOrThrow().text).optString("error") }.getOrNull()?.takeIf { it.isNotEmpty() }
                     ?: context.getString(R.string.not_taken)
             }

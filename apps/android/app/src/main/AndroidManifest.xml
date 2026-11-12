@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Whether a VPN (Tailscale) is up, for the words when the Mac does not answer (Reach). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -13,6 +15,8 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <queries>
+        <!-- Open Tailscale, or say it is not installed (Reach). -->
+        <package android:name="com.tailscale.ipn" />
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>

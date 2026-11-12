@@ -96,6 +96,8 @@ class PairActivity : ComponentActivity() {
 
     private val step = mutableStateOf<Step>(Step.Scan)
     private val error = mutableStateOf<String?>(null)
+    /** Why the computer did not answer, when Tailscale is the reason: its button under the words. */
+    private val reach = mutableStateOf<Reach.Why?>(null)
     private val cameraOn = mutableStateOf(false)
     @Volatile private var scanned = false
     private val analysis = Executors.newSingleThreadExecutor()
@@ -141,11 +143,15 @@ class PairActivity : ComponentActivity() {
     private fun fetchKey(link: PairLink) {
         step.value = Step.Busy
         Hub.io.execute {
-            val c = HubClient(link.hosts, link.port, null, null)
+            val c = HubClient(link.hosts, link.port, null, null, skip = Reach.skip(this))
             val r = runCatching { c.call("GET", "/api/phone/hello") }
             val pin = c.trust.seen
             runOnUiThread {
-                if (pin == null) step.value = Step.Typing(link.hosts.first(), link.code, getString(R.string.not_reached, link.hosts.first()))
+                if (pin == null) {
+                    val w = Reach.why(this, link.hosts, r.exceptionOrNull())
+                    reach.value = w.takeIf { it.reason.startsWith("tailscale") }
+                    step.value = Step.Typing(link.hosts.first(), link.code, w.words)
+                }
                 else {
                     val name = r.getOrNull()?.let { runCatching { JSONObject(it.text).optString("name") }.getOrNull() }?.takeIf { it.isNotEmpty() }
                     step.value = Step.Check(link.copy(name = name ?: link.name), pin)
@@ -157,19 +163,23 @@ class PairActivity : ComponentActivity() {
     private fun pair(link: PairLink, pin: String) {
         step.value = Step.Busy
         error.value = null
+        reach.value = null
         Hub.io.execute {
-            val c = HubClient(link.hosts, link.port, pin, null)
+            val c = HubClient(link.hosts, link.port, pin, null, skip = Reach.skip(this))
             val body = JSONObject().put("code", link.code).put("name", DeviceName.of(this@PairActivity)).put("platform", "android").put("app", BuildConfig.VERSION_NAME)
             val r = runCatching { c.call("POST", "/api/phone/pair", body.toString()) }
             val o = r.getOrNull()?.let { runCatching { JSONObject(it.text) }.getOrNull() }
+            // Why it did not answer, in plain words: Tailscale off or not on
+            // this phone, else the Mac (never a host name: Reach).
+            val why = if (r.isFailure) Reach.why(this, link.hosts, r.exceptionOrNull()) else null
             val err = when {
-                r.isFailure -> getString(R.string.not_reached, link.name)
+                why != null -> why.words
                 r.getOrNull()?.status != 200 || o == null -> o?.optString("error")?.takeIf { it.isNotEmpty() } ?: "The Mac did not pair (${r.getOrNull()?.status})."
                 o.optJSONObject("hub")?.optString("pin").let { it != null && it.isNotEmpty() && it != pin } -> "The Mac answered with another key. Not paired."
                 else -> null
             }
             if (err != null) {
-                runOnUiThread { error.value = err; scanned = false; step.value = Step.Scan }
+                runOnUiThread { error.value = err; reach.value = why?.takeIf { it.reason.startsWith("tailscale") }; scanned = false; step.value = if (why != null) Step.Confirm(link) else Step.Scan }
                 return@execute
             }
             val hub = o!!.optJSONObject("hub") ?: JSONObject()
@@ -208,6 +218,10 @@ class PairActivity : ComponentActivity() {
                 is Step.Confirm -> ConfirmStep(s)
             }
             error.value?.let { Text(it, color = Color(0xFFFF6961), fontSize = 14.sp, modifier = Modifier.padding(top = 14.dp)) }
+            reach.value?.let { w ->
+                Spacer(Modifier.height(12.dp))
+                Quiet(if (w.reason == "tailscale-off") stringResource(R.string.open_tailscale) else stringResource(R.string.get_tailscale)) { Reach.openTailscale(this@PairActivity) }
+            }
             Spacer(Modifier.weight(1f).height(24.dp))
             Text(stringResource(R.string.pair_foot), color = tx2, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 40.dp, bottom = 20.dp))
         }
@@ -339,6 +353,7 @@ class PairActivity : ComponentActivity() {
         field(s.address, { step.value = s.copy(address = it, error = null) }, stringResource(R.string.pair_address), KeyboardType.Uri, false)
         field(s.code, { step.value = s.copy(code = it, error = null) }, stringResource(R.string.pair_code), KeyboardType.Ascii, true)
         s.error?.let { Text(it, color = Color(0xFFFF6961), fontSize = 14.sp, modifier = Modifier.padding(bottom = 12.dp)) }
+        reach.value?.let { w -> Quiet(if (w.reason == "tailscale-off") stringResource(R.string.open_tailscale) else stringResource(R.string.get_tailscale)) { Reach.openTailscale(this@PairActivity) } }
         Big(stringResource(R.string.pair_next)) {
             PairLink.typed(s.address, s.code).fold({ fetchKey(it) }, { step.value = s.copy(error = it.message) })
         }
@@ -358,8 +373,8 @@ class PairActivity : ComponentActivity() {
 
     @Composable
     private fun ConfirmStep(s: Step.Confirm) {
+        // The computer by its name only: its addresses mean nothing to a person.
         Title(stringResource(R.string.pair_confirm, s.link.name), stringResource(R.string.pair_confirm_sub))
-        Text(s.link.hosts.joinToString(", ") + ":" + s.link.port, color = colorResource(R.color.tx2), fontSize = 14.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 24.dp))
         Big(stringResource(R.string.pair_button)) { pair(s.link, s.link.pin!!) }
         Quiet(stringResource(R.string.pair_back)) { step.value = Step.Scan }
     }

@@ -70,6 +70,26 @@ class Store(context: Context) {
         cached = null
     }
 
+    /**
+     * Pairings signed out on this phone whose computer has not heard yet:
+     * Sign out changes the screen at once, and the unpair goes out in the
+     * background until the computer answers (Revokes). Kept encrypted, as
+     * the pairing is.
+     */
+    fun revokes(): List<Paired> {
+        val blob = prefs.getString(REVOKES, null) ?: return emptyList()
+        return runCatching { val a = JSONArray(decrypt(blob)); List(a.length()) { Paired.fromJson(a.getJSONObject(it)) } }.getOrDefault(emptyList())
+    }
+
+    @Synchronized fun addRevoke(p: Paired) = saveRevokes(revokes().filter { it.token != p.token } + p)
+
+    @Synchronized fun dropRevoke(token: String) = saveRevokes(revokes().filter { it.token != token })
+
+    private fun saveRevokes(list: List<Paired>) {
+        if (list.isEmpty()) prefs.edit().remove(REVOKES).apply()
+        else prefs.edit().putString(REVOKES, encrypt(JSONArray(list.map { it.toJson() }).toString())).apply()
+    }
+
     /** Alert ids already drawn, so push and the live stream show each once. */
     fun seen(id: String): Boolean {
         val list = (prefs.getString(SEEN, "") ?: "").split('\n').filter { it.isNotEmpty() }
@@ -123,6 +143,7 @@ class Store(context: Context) {
     companion object {
         private const val KEY = "paired"
         private const val SEEN = "seen"
+        private const val REVOKES = "revokes"
         private const val ALIAS = "ravenry-store"
 
         @Volatile private var one: Store? = null
