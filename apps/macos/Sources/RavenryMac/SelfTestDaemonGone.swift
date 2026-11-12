@@ -1,7 +1,8 @@
 // A daemon gone for good (sidetest.mjs --screen daemongone, TERM-070): the
 // window on two daemons of this tree, the app's own ravenryd (A) and this
-// tree's built as the desktop app's version (B), each with a busy shell and
-// a shell as tabs, the app started with no --socket. With a tab of A in
+// tree's built as the version after the desktop app's (B, never the app's
+// own ravenryd's, a package's being the desktop app's), each with a busy
+// shell and a shell as tabs, the app started with no --socket. With a tab of A in
 // front and another behind, the driver kills A (SIGKILL, at arrival 1): both
 // its tabs go with one toast, "That shell is gone: the Ravenry that ran it
 // stopped", and a drawn tab of B is in front, never a blank pane. Then a

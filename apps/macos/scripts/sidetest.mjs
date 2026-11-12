@@ -93,10 +93,14 @@ function shells(d, tag) {
   execFileSync(d.bin, ['new', ...opt, '--name', `${tag}-shell`, '--', '/bin/zsh', '-l'], { env });
 }
 const goEnv = () => Object.fromEntries(['GOCACHE', 'GOPATH', 'GOMODCACHE', 'GOROOT'].map((k, i) => [k, execFileSync('go', ['env', k], { encoding: 'utf8' }).trim()]));
-// This tree's ravenryd as the next version (build.sh's way, with the version).
-function buildNew() {
+// This tree's ravenryd as the next version (build.sh's way, with the version):
+// the desktop app's version, or (past) the one after it, which no app's own
+// ravenryd is: a package's (SIDETEST_APP) is the desktop app's version, so
+// --screen daemongone's B beside it must be past it to be a second daemon.
+function buildNew(past = false) {
   if (process.env.SIDETEST_NEW_RAVENRYD) return process.env.SIDETEST_NEW_RAVENRYD;
-  const ver = JSON.parse(fs.readFileSync(path.join(REPO, 'apps', 'desktop', 'package.json'), 'utf8')).version;
+  let ver = JSON.parse(fs.readFileSync(path.join(REPO, 'apps', 'desktop', 'package.json'), 'utf8')).version;
+  if (past) ver = ver.replace(/(\d+)$/, (n) => String(Number(n) + 1));
   const out = path.join(tmp, 'new-ravenryd');
   execFileSync('/bin/sh', ['-c', 'pc=$(scripts/libghostty.sh) && PKG_CONFIG_PATH=$pc CGO_CPPFLAGS="-DRAVENRY_LIBGHOSTTY=$(basename "$(dirname "$(dirname "$pc")")")" go build -ldflags "-X main.version=$VER" -o "$OUT" ./cmd/ravenryd'],
     // The test's folders (the spawn guard's rule), Go's own caches as they are.
@@ -116,10 +120,10 @@ if (DAEMONS) {
   for (let i = 0; !(sock = found()); i++) { if (i > 100) throw new Error('the daemon did not start'); await sleep(50); }
 }
 // --screen daemongone (SelfTestDaemonGone.swift, TERM-070): this daemon (A) and this tree's built as the
-// next version (B) beside it, each with two shells; at arrival 1, A is killed for good.
+// version after the desktop app's (B) beside it, each with two shells; at arrival 1, A is killed for good.
 const GONE = SCREEN === 'daemongone';
 if (GONE) {
-  NEW = buildNew();
+  NEW = buildNew(true);
   shells(await serve(NEW, 'daemon-b.log'), 'b');
   shells({ s: sock, bin: path.join(APP, 'Contents', 'MacOS', 'ravenryd') }, 'a');
 }
