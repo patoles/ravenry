@@ -18,6 +18,16 @@ class PairingTest {
         assertEquals("ABCDEFGHJKMNPQRS", l.code)
     }
 
+    // Away from home (docs/PHONE.md section 2): the Wi-Fi first, then Ravenry's own
+    // device on the person's tailnet by its MagicDNS name and its 100.x address.
+    @Test fun takesTheTailnetNameAsAHost() {
+        val l = PairLink.parse("ravenry://pair?v=1&name=Studio%20Mac&hosts=192.168.1.20,ravenry.tail1234.ts.net,100.64.0.2&port=4601&pin=$pin&code=ABCD-EFGH-JKMN-PQRS").getOrThrow()
+        assertEquals(listOf("192.168.1.20", "ravenry.tail1234.ts.net", "100.64.0.2"), l.hosts)
+        val c = HubClient(l.hosts, l.port, l.pin, null)
+        assertEquals("https://ravenry.tail1234.ts.net:4601/api/phone/hello", c.url("ravenry.tail1234.ts.net", "/api/phone/hello"))
+        assertEquals("https://100.64.0.2:4601/api/phone/hello", c.url("100.64.0.2", "/api/phone/hello"))
+    }
+
     @Test fun refusesWhatIsNotALink() {
         fun err(s: String) = PairLink.parse(s).exceptionOrNull()?.message ?: ""
         assertTrue(err("https://example.com/pair").contains("not a Ravenry"))
