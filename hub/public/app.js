@@ -75,6 +75,8 @@ const ui = {
   repeats: null,   // /api/rules/repeats: Suggested
   rulesTab: 'mine',
   rulesMore: false,
+  // The hand-off entry shown whole in Hand-backs (its project and time), else null: the card shows its line.
+  hoWhole: null,
   openRepeat: null,
   repeatError: null,
   repeatBusy: null,
@@ -258,6 +260,24 @@ function view(p) {
   const isPrimary = !s || s.surfaceId === p.primary;
   const w = isPrimary ? { state: p.state, line: p.line, headline: p.headline, quick: p.quick, dialog: p.dialog, draft: p.draft } : s.words;
   return { s, w, state: isPrimary ? p.state : w.state };
+}
+
+// A hand-off's line in its two lines, cut at a word with "…" where it runs past them (.ho-line's clamp alone cuts
+// inside a word): the longest run of its words that fits, as drawn now.
+function cutAtWords(root) {
+  if (!root) return;
+  for (const el of root.querySelectorAll('.ho-r:not(.open) .ho-line')) {
+    if (!el.clientHeight || el.scrollHeight <= el.clientHeight + 1) continue;
+    const words = (el.textContent || '').split(' ');
+    const upTo = (n) => words.slice(0, n).join(' ').replace(/[\s,;:(\-\u2013[{]+$/, '') + '\u2026';
+    let lo = 1, hi = words.length - 1, best = 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      el.textContent = upTo(mid);
+      if (el.scrollHeight <= el.clientHeight + 1) { best = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    el.textContent = upTo(best);
+  }
 }
 
 function setHtml(id, html) {
@@ -817,7 +837,17 @@ ${o.source || o.updatedAt ? `<div class="card-r t2" style="font-size: 12px">${es
   const tl = s && !(s.surfaceId === p.primary) ? [] : p.timeline.slice();
   const hr = p.handoffRecent;
   if (hr && (!s || s.surfaceId === p.primary || s.sessionId === hr.sessionId)) tl.unshift({ at: hr.resumedAt, text: `Clean point after the task. Hand-off written to ${hr.fileName}, and a fresh session read it and carried on.` });
-  setHtml('d-timeline', `<h2 class="card-h">Hand-backs</h2>${tl.length ? tl.map((x) => `<div class="card-r" style="align-items: flex-start"><span class="num t3" style="flex: 0 0 64px; font-size: 12px">${esc(whenLabel(x))}</span><span style="line-height: 1.45; min-width: 0; overflow-wrap: anywhere">${esc(x.text)}</span></div>`).join('') : `<div class="card-r t2">${s && s.surfaceId !== p.primary ? 'Shown for the main session of this project.' : 'Nothing handed back yet.'}</div>`}`);
+  // A brief's hand-off: the hub's line, two lines at most (hub/server/handoffline.mjs); a press shows the
+  // entry whole (the board has no brief page), "›" turning down, and again its line.
+  const hoRow = (x) => {
+    const plainRow = (text) => `<div class="card-r" style="align-items: flex-start"><span class="num t3" style="flex: 0 0 64px; font-size: 12px">${esc(whenLabel(x))}</span><span style="line-height: 1.45; min-width: 0; overflow-wrap: anywhere">${esc(text)}</span></div>`;
+    if (x.from !== 'brief' || !x.full || x.full === x.text) return plainRow(x.text);
+    const k = `${p.id} ${x.when || ''}`;
+    const open = ui.hoWhole === k;
+    return `<div class="card-r ho-r${open ? ' open' : ''}" role="button" tabindex="0" data-act="ho-whole" data-k="${escRaw(k)}" aria-expanded="${open}" title="${open ? 'Show its first line' : 'Show the whole hand-off'}" style="align-items: flex-start"><span class="num t3" style="flex: 0 0 64px; font-size: 12px">${esc(whenLabel(x))}</span><span class="ho-line" style="line-height: 1.45; min-width: 0; flex: 1; overflow-wrap: anywhere">${esc(open ? x.full : x.text)}</span><span class="t3 ho-chev" aria-hidden="true">\u203a</span></div>`;
+  };
+  setHtml('d-timeline', `<h2 class="card-h">Hand-backs</h2>${tl.length ? tl.map(hoRow).join('') : `<div class="card-r t2">${s && s.surfaceId !== p.primary ? 'Shown for the main session of this project.' : 'Nothing handed back yet.'}</div>`}`);
+  cutAtWords(document.getElementById('d-timeline'));
 
   // Pictures (only if any). The session's picture opens the gallery
   // (docs/design/Gallery.dc.html, B).
@@ -880,6 +910,8 @@ document.addEventListener('click', (e) => {
   if (u && u.dataset.un === 'new') { const p = project(ui.sel); if (p) unNewProject(p); return; }
   if (ui.unPick && !e.target.closest('.un-pop')) { ui.unPick = null; if (ui.view === 'projects') renderSheet(); }
 });
+// A hand-off row of Hand-backs from the keyboard, as a button.
+document.addEventListener('keydown', (e) => { const r = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('.ho-r'); if (r) { e.preventDefault(); r.click(); } });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.unPick) { ui.unPick = null; renderSheet(); const b = $('[data-un="pick"]'); if (b) b.focus(); } });
 
 // ------------------------------------------------------------ live screen
@@ -3990,6 +4022,7 @@ document.addEventListener('click', (e) => {
   if (act === 'plan-pause' || act === 'plan-stop' || act === 'plan-resume' || act === 'plan-confirm' || act === 'plan-reopen') { planAct(a.dataset.pid, act.slice(5)); return; }
   if (act === 'plan-choice') { const p = project(ui.sel); const c = p && p.planGate && p.planGate.choices[Number(a.dataset.k)]; if (c) planAnswer({ choice: c }); return; }
   if (act === 'rules-more') { ui.rulesMore = !ui.rulesMore; render(); return; }
+  if (act === 'ho-whole') { ui.hoWhole = ui.hoWhole === a.dataset.k ? null : a.dataset.k; render(); return; }
   if (act === 'write-brief') { openModal({ mode: 'brief', projectId: a.dataset.pid }); return; }
   if (act === 'quick') sendQuick(Number(a.dataset.k));
   if (act === 'open') openInCmux();
