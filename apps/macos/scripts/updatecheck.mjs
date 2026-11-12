@@ -17,6 +17,15 @@
 //
 // refused  a zip whose SHA-256 is not the feed's, and a copy signed ad hoc
 //          (no team): each is refused, said in app.log, the app untouched
+// team     a copy signed by another team: a code-signing identity made for
+//          the check (openssl, a self-signed certificate) in a throwaway
+//          keychain of the check's own, never the login keychain or its
+//          trust settings; the keychain is on the user's search list only
+//          while codesign signs (the list put back as it was at once) and is
+//          deleted at the end. Two such copies: one whose certificate names
+//          another team (OU ZZ9ZZ9ZZ9Z), one that names this app's own team
+//          in its OU (a forged team): both refused, said in app.log, the
+//          app unchanged
 // quit     a newer version, RAVENRY_UPDATE_TEST=quit: downloaded, checked,
 //          the app quits, the new bundle is in place, not started again
 // restart  a newer one again, RAVENRY_UPDATE_TEST=restart: in place and
@@ -95,19 +104,59 @@ const server = http.createServer((q, s) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const FEED = `http://127.0.0.1:${server.address().port}/latest-mac-native.json`;
 
-/** A copy of APP at `version`, signed with `sign` (an identity's SHA-1, or - for ad hoc), zipped into the feed; the feed says `sha` (else the zip's). */
-function publish(version, { sign = id.hash, sha = null, inner = null, bundleId = null } = {}) {
+// Another team's identities, in a keychain of the check's own (made below, deleted in finally).
+const KC = { file: path.join(root, 'other.keychain-db'), pass: crypto.randomBytes(12).toString('hex'), made: false };
+function searchList() { return execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user'], { encoding: 'utf8' }).split('\n').map((l) => l.trim().replace(/^"|"$/g, '')).filter(Boolean); }
+/** A code-signing identity of a self-signed certificate whose OU is `ou`, imported into the check's keychain; its SHA-1. */
+function otherIdentity(name, ou) {
+  if (!KC.made) {
+    const before = searchList();
+    execFileSync('/usr/bin/security', ['create-keychain', '-p', KC.pass, KC.file]);
+    KC.made = true;
+    // create-keychain may add it to the search list: put the list back as it was.
+    if (searchList().join('\n') !== before.join('\n')) execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user', '-s', ...before]);
+    execFileSync('/usr/bin/security', ['unlock-keychain', '-p', KC.pass, KC.file]);
+  }
+  const d = fs.mkdtempSync(path.join(root, 'id-'));
+  fs.writeFileSync(path.join(d, 'cs.cnf'), `[req]\ndistinguished_name=dn\nprompt=no\nx509_extensions=ext\n[dn]\nCN=${name}\nOU=${ou}\nO=Not Ravenry\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n`);
+  execFileSync('/usr/bin/openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(d, 'k.pem'), '-out', path.join(d, 'c.pem'), '-days', '2', '-config', path.join(d, 'cs.cnf')], { stdio: 'ignore' });
+  execFileSync('/usr/bin/openssl', ['pkcs12', '-export', '-inkey', path.join(d, 'k.pem'), '-in', path.join(d, 'c.pem'), '-out', path.join(d, 'id.p12'), '-passout', `pass:${KC.pass}`, '-certpbe', 'PBE-SHA1-3DES', '-keypbe', 'PBE-SHA1-3DES', '-macalg', 'sha1'], { stdio: 'ignore' });
+  execFileSync('/usr/bin/security', ['import', path.join(d, 'id.p12'), '-k', KC.file, '-P', KC.pass, '-T', '/usr/bin/codesign'], { stdio: 'ignore' });
+  execFileSync('/usr/bin/security', ['set-key-partition-list', '-S', 'apple-tool:,apple:', '-s', '-k', KC.pass, KC.file], { stdio: 'ignore' });
+  const sha1 = crypto.createHash('sha1').update(Buffer.from(fs.readFileSync(path.join(d, 'c.pem'), 'utf8').replace(/-----[^-]+-----|\s/g, ''), 'base64')).digest('hex').toUpperCase();
+  fs.rmSync(d, { recursive: true, force: true });
+  return sha1;
+}
+/** codesign with the check's keychain on the search list for that call only, the list put back as it was. */
+function signOther(args) {
+  const before = searchList();
+  try {
+    execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user', '-s', ...before, KC.file]);
+    execFileSync('/usr/bin/codesign', [...args.slice(0, -1), '--keychain', KC.file, args[args.length - 1]]);
+  } finally {
+    execFileSync('/usr/bin/security', ['list-keychains', '-d', 'user', '-s', ...before]);
+  }
+}
+
+/** A copy of APP at `version`, signed with `sign` (an identity's SHA-1, or - for ad hoc; `other`: an identity of the check's keychain), zipped into the feed; the feed says `sha` (else the zip's). */
+function publish(version, { sign = id.hash, sha = null, inner = null, bundleId = null, other = false } = {}) {
   const dir = fs.mkdtempSync(path.join(root, 'new-'));
   const nb = path.join(dir, 'Ravenry.app');
   execFileSync('/usr/bin/ditto', [APP, nb]);
   for (const k of ['CFBundleShortVersionString', 'CFBundleVersion']) execFileSync('/usr/bin/plutil', ['-replace', k, '-string', inner || version, path.join(nb, 'Contents', 'Info.plist')]);
   if (bundleId) execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIdentifier', '-string', bundleId, path.join(nb, 'Contents', 'Info.plist')]);
   const ents = path.join(REPO, 'apps', 'desktop', 'build', sign === '-' ? 'entitlements.adhoc.plist' : 'entitlements.mac.plist');
+  if (other) {
+    // Every binary inside by the other team too: a bundle wholly of its signing.
+    for (const b of ['node', 'ravenryd']) signOther(['--force', '--sign', sign, '--options', 'runtime', '--timestamp=none', '--entitlements', ents, path.join(nb, 'Contents', 'MacOS', b)]);
+    signOther(['--force', '--sign', sign, '--options', 'runtime', '--timestamp=none', '--entitlements', ents, nb]);
+  } else {
   if (sign === '-') {
     // Every binary inside ad hoc too: a bundle of no team at all.
     for (const b of ['node', 'ravenryd']) execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', '--options', 'runtime', '--entitlements', ents, path.join(nb, 'Contents', 'MacOS', b)]);
   }
   execFileSync('/usr/bin/codesign', ['--force', '--sign', sign, '--options', 'runtime', '--timestamp=none', '--entitlements', ents, nb]);
+  }
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', nb]);
   const zip = path.join(root, 'feed', `RavenryNative-${version}.zip`);
   fs.rmSync(zip, { force: true });
@@ -152,9 +201,24 @@ try {
     p.kill('SIGTERM'); await exited(p);
   }
 
+  // ------------------------------------------------------------ team
+  // Another team's signing (UPD-011): an identity of the check's own keychain.
+  for (const [name, ou, why] of [
+    ['other-team', 'ZZ9ZZ9ZZ9Z', 'a copy signed by another team (a certificate of OU ZZ9ZZ9ZZ9Z)'],
+    ['forged-team', id.team, `a copy signed by a certificate that names this app's team (OU ${id.team}) but is not Apple's`],
+  ]) {
+    const sign = otherIdentity(`Ravenry Check ${name}`, ou);
+    publish(bump(VERSION, 1), { sign, other: true });
+    const at = read(appLog).length;
+    const p = launch(`refused-${name}`, 'check');
+    const said = await until(() => new RegExp(`signed by team \\S+, not ${id.team}, so nothing was replaced`).test(logSince(at)), 60000, 300);
+    p.kill('SIGTERM'); await exited(p);
+    step(`refused: ${why}, said in app.log, the app unchanged`, said && plistGet(app, 'CFBundleShortVersionString') === VERSION && !/installing|is ready at/.test(logSince(at)),
+      { log: logSince(at).split('\n').filter((l) => /update:/.test(l)).slice(-3) });
+  }
+
   // UPD-011's other refusals: the version inside not the feed's, another
-  // bundle id, an app in a folder it cannot write. (Another Team ID needs a
-  // second team's identity, which this Mac does not have.)
+  // bundle id, an app in a folder it cannot write.
   for (const [name, opts, re, why] of [
     ['version', { inner: bump(VERSION, 2) }, /is version \S+, not \S+, so nothing was replaced/, 'the zip holds another version than the feed says'],
     ['bundle-id', { bundleId: 'dev.ravenry.other' }, /The download is not Ravenry, so nothing was replaced/, 'the zip holds an app of another bundle id'],
@@ -219,6 +283,10 @@ try {
   step('the check ran to its end', false, { error: String(e && e.stack || e) });
 } finally {
   server.close();
+  if (KC.made) {
+    try { execFileSync('/usr/bin/security', ['delete-keychain', KC.file]); } catch { /* gone */ }
+    step('team: the check\'s keychain is deleted and the search list is as it was', !fs.existsSync(KC.file) && !searchList().some((k) => k.includes(root)), { list: searchList() });
+  }
   for (const p of started) { try { p.kill('SIGTERM'); } catch { /* gone */ } }
   for (const x of procs()) if (x.cmd.includes(root)) { try { process.kill(x.pid, 'SIGTERM'); } catch { /* gone */ } }
   await sleep(500);
