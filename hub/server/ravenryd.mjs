@@ -258,6 +258,15 @@ export async function pressKey(id, key, by = null) {
   return send(id, [{ key: KEYS[key] }], by);
 }
 
+// The phone's key bar (POST /api/keys): Esc, Tab, the arrows, Enter and
+// Ctrl+C, as the person's own keys.
+export const BAR_KEYS = { esc: 'Escape', tab: 'Tab', left: 'Left', up: 'Up', down: 'Down', right: 'Right', enter: 'Enter', 'ctrl-c': 'Ctrl+C' };
+export async function barKeys(id, keys, by = null) {
+  const list = (Array.isArray(keys) ? keys : []).map((k) => BAR_KEYS[k]);
+  if (!list.length || list.length > 16 || list.some((k) => !k)) return { ok: false, err: 'Send keys from the key bar: esc, tab, left, up, down, right, enter, ctrl-c.' };
+  return send(id, list.map((key) => ({ key })), by);
+}
+
 // A daemon that tags input by its source lists pane.inputs; an older one
 // refuses the `by` field, so it is sent only where it is known.
 export const tagsInput = (c) => !!(c && c.has && c.has('pane.inputs'));
