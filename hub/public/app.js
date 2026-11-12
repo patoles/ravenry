@@ -694,7 +694,8 @@ ${openButton(p, s)}`);
     if (p.brief.kind) meta.push(`<span>${esc(p.brief.kind)}</span>`);
     meta.push(`<span>${esc(p.brief.stage ? p.brief.stage + ' stage' : 'No stage')}</span>`);
   } else meta.push('<span>No brief yet</span>');
-  if (s && s.sessionId) meta.push(`<span title="${esc('Found by ' + s.method)}">Session ${esc(s.sessionId.slice(0, 8))}, via ${esc(s.method)}</span>`);
+  // A session's id and how the board found it are never shown to the person.
+  if (s && s.sessionId) { /* nothing to say */ }
   // Codex reports a session id with its first prompt (docs/ASSISTANTS.md).
   else if (p.unowned && s && asKind(s.assistant) === 'codex' && s.live) meta.push('<span>Session not started yet: Codex reports it with its first prompt</span>');
   else meta.push('<span>No session</span>');
@@ -2021,7 +2022,7 @@ function renderPhoneNav() {
   setHtml('bnav', ds.map(([k, label, ic, b]) => `<button class="pn-d${spot === k ? ' on' : ''}" data-pnav="${k}" ${spot === k ? 'aria-current="page"' : ''} aria-label="${esc(label)}"><span class="pn-pill">${ic}${b}</span><span>${esc(label)}</span></button>`).join(''));
   // The top bar: the home's, a page's (back to Pages), the Pages list's, Search's.
   const ib = (id, ic, label, cls = '', attrs = '') => `<button class="pn-ib ${cls}" ${id ? `id="${id}"` : ''} aria-label="${esc(label)}" ${attrs}>${ic}</button>`;
-  const np = (label) => `<button class="pn-np" data-act="pn-new">${PI.plus}<span>${esc(label)}</span></button>`;
+  const np = (label) => `<button class="pn-np" data-act="pn-new" aria-label="${esc(label)}">${PI.plus}<span>${esc(label)}</span></button>`;
   const more = ib('pb-more', PI.kebab, 'More', ui.pmenu ? 'hl' : '', `aria-haspopup="menu" aria-expanded="${ui.pmenu ? 'true' : 'false'}"`);
   let bar;
   if (v === 'search') bar = `${ib('', PI.back, 'Back', 'fg', 'data-act="pn-back"')}<input id="pn-q" class="pn-q" type="search" placeholder="Search projects and pages" autocomplete="off" value="${escRaw(ui.pnq || '')}">`;
@@ -4046,7 +4047,7 @@ function crow(r) {
   const tag = r.tag === 'draft' ? '<span class="crow-tag">Half-typed reply</span>'
     : r.tag === 'asked' ? '<span class="crow-tag">Asked you a question</span>' : '';
   const blocked = !can ? `<span class="crow-tag muted" title="${esc(r.blocked || '')}">${esc(/^(Outside|In) \S+$/.test(r.blocked || '') ? r.blocked : 'Cannot close')}</span>` : '';
-  const tip = `${r.folder || ''}${r.sessionId ? `, session ${r.sessionId.slice(0, 8)} via ${r.method}` : ''}, pid ${r.pid}`;
+  const tip = r.folder || '';
   return `<label class="crow ${can ? '' : 'nohover'}" title="${esc(tip)}">
 <input type="checkbox" class="sr-only" data-tick="${escRaw(r.sessionId || 'pid-' + r.pid)}" ${on ? 'checked' : ''} ${can ? '' : 'disabled'} aria-label="${esc(`${r.label}: ${r.line}, idle ${idleWord(r)}, ${fmtMem(r.memKb)}${can ? '' : '. ' + (r.blocked || 'Cannot be closed')}`)}">
 <span class="tick ${on ? 'on' : ''} ${can ? '' : 'off'}" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 10 10"><path d="${on ? CHECK : ''}" stroke="#FFFFFF" stroke-width="2" fill="none"></path></svg></span>
@@ -4113,7 +4114,7 @@ function renderSessions() {
   const byMix = (a, b) => ORDER.indexOf(a.mix) - ORDER.indexOf(b.mix) || b.memKb - a.memKb;
   const use = rows.filter((r) => r.group === 'use' && !r.unowned).sort(byMix);
   const useUn = rows.filter((r) => r.group === 'use' && r.unowned).sort(byMix);
-  const useRow = (r) => `<div class="card-r" style="gap: 10px" title="${esc(`${r.folder || ''}, session ${r.sessionId ? r.sessionId.slice(0, 8) : ''} via ${r.method}, pid ${r.pid}`)}">${stateIcon(ST[r.mix] || ST.idle)}<span class="ell" style="flex: 1"><b style="${r.unowned ? 'font-weight: 500; color: var(--tx2)' : 'font-weight: 600'}">${esc(r.label)}</b> <span class="t2">${esc(r.line)}</span></span>${asTag(r.assistant)}<span class="num" style="font-size: 12px; white-space: nowrap">${esc(fmtMem(r.memKb))}</span></div>`;
+  const useRow = (r) => `<div class="card-r" style="gap: 10px" title="${esc(r.folder || '')}">${stateIcon(ST[r.mix] || ST.idle)}<span class="ell" style="flex: 1"><b style="${r.unowned ? 'font-weight: 500; color: var(--tx2)' : 'font-weight: 600'}">${esc(r.label)}</b> <span class="t2">${esc(r.line)}</span></span>${asTag(r.assistant)}<span class="num" style="font-size: 12px; white-space: nowrap">${esc(fmtMem(r.memKb))}</span></div>`;
   let rh2 = sessCard('In use', use.length ? countMem(use) : 'None', use.length ? use.map(useRow).join('')
     : `<div class="card-r t2" style="font-size: 12.5px">${useUn.length ? 'Every session in a project is idle.' : 'Every session is idle.'}</div>`);
   if (useUn.length) rh2 += sessCard('Not in a project', countMem(useUn), useUn.map(useRow).join(''));

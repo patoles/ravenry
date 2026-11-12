@@ -272,6 +272,10 @@ const DEV = paired.body && paired.body.device && paired.body.device.id;
 check('the right code pairs: a token, the device, and the hub with the same pin', paired.status === 200 && /^[A-Za-z0-9_-]{43}$/.test(TOKEN) && paired.body.device.name === 'Pixel' && paired.body.hub.pin === L.pin && paired.body.hub.api === 1, paired.text);
 const reuse = await phoneReq('POST', '/api/phone/pair', { body: { code: card.code, name: 'Other' } });
 check('the same code a second time: 401', reuse.status === 401);
+// A second phone, which signs itself out below (the app's Sign out: POST /api/phone/unpair with its own token).
+const code2 = (await mac('GET', '/api/phone?code=new')).body.app.code;
+const paired2 = await phoneReq('POST', '/api/phone/pair', { body: { code: code2, name: 'Second', platform: 'android', app: '0.1.0' } });
+const TOKEN2 = paired2.body && paired2.body.token;
 const fresh = (await mac('GET', '/api/phone?code=new')).body.app.code;
 for (let i = 0; i < 5; i++) await phoneReq('POST', '/api/phone/pair', { body: { code: 'ZZZZZZZZZZZZZZZ' + i } });
 const locked = await phoneReq('POST', '/api/phone/pair', { body: { code: fresh } });
@@ -386,6 +390,10 @@ await until(async () => evEnded, 5000);
 check('the Mac revokes the device: its event stream ends', rv.status === 200 && evEnded && !rv.body.devices.some((d) => d.id === DEV));
 const after = await phoneReq('GET', '/api/phone/me', { token: TOKEN });
 check('and its token gets 401 signedOut', after.status === 401 && after.body.signedOut === true);
+// The phone signs itself out (the app's Sign out, told in the background): 200, then its token is refused.
+const un = await phoneReq('POST', '/api/phone/unpair', { token: TOKEN2, body: {} });
+const un2 = await phoneReq('GET', '/api/phone/me', { token: TOKEN2 });
+check('a phone signs itself out (unpair with its own token), and its token gets 401 signedOut', paired2.status === 200 && un.status === 200 && un2.status === 401 && un2.body.signedOut === true, `${paired2.status} ${un.status} ${un2.status}`);
 const off = await mac('POST', '/api/phone/access', { on: false });
 await sleep(300);
 check('access off again: the phone port closes', off.body.access === false && !(await portOpen()));

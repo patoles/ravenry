@@ -396,10 +396,13 @@ try {
       const c = r('#composer');
       return { attach: r('#composer .attach'), ns: r('#ns'), note: r('#note'), send: r('#send'), right: c.right, sw: document.documentElement.scrollWidth, w: innerWidth };
     });
-    const row1 = Math.abs(geo.attach.top - geo.ns.top) < 4;
-    const row2 = Math.abs(geo.note.top - geo.send.top) < 4 && geo.note.top > geo.ns.bottom - 2;
-    check('phone: Attach and the switch share the first row', row1, JSON.stringify({ attach: geo.attach.top, ns: geo.ns.top }));
-    check('phone: Add as note and Send wrap to a second row, at the right', row2 && geo.send.right > geo.right - 16 && geo.note.left > geo.ns.left, JSON.stringify({ note: [geo.note.left, geo.note.top], send: [geo.send.right, geo.send.top], right: geo.right }));
+    // The phone's message box (main's look notes, 2026-11-12): the switch on
+    // its own line, then Attach, Add as note and Send on one row, Send never
+    // wrapping under the rest.
+    const row1 = geo.ns.bottom <= geo.attach.top + 2;
+    const row2 = Math.abs(geo.note.top - geo.send.top) < 4 && Math.abs(geo.attach.top - geo.send.top) < 8;
+    check('phone: the switch on its own line above the buttons', row1, JSON.stringify({ attach: geo.attach.top, ns: [geo.ns.top, geo.ns.bottom] }));
+    check('phone: Attach, Add as note and Send share one row, Send at the right', row2 && geo.send.right > geo.right - 16 && geo.note.left > geo.attach.right, JSON.stringify({ attach: geo.attach.top, note: [geo.note.left, geo.note.top], send: [geo.send.right, geo.send.top], right: geo.right }));
     check('phone: nothing scrolls sideways', geo.sw <= geo.w, `${geo.sw} > ${geo.w}`);
     await pg.click('#ns');
     const geo2 = await pg.evaluate(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); return { ns: r('#ns').top, note: r('#note').top, send: r('#send').top, sendText: document.querySelector('#send').textContent }; });
