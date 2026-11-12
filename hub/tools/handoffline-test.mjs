@@ -22,7 +22,7 @@ check('long entry: cut at a word, with "…"', a.endsWith('…') && LONG.include
 // 2. A first sentence that only names a session, in its usual shapes.
 is('id and name only: skipped', handoffLine('Session 25204b9f (ravenry-1d) is main. Fixed the header at 390 px. Then pricing.'), 'Fixed the header at 390 px.');
 is('a continued session: skipped', handoffLine('Continued from ravenry-19. Shipped the pricing page.'), 'Shipped the pricing page.');
-is('a name with dashes: skipped', handoffLine('This is ai-game-sdk-8e, the main session. The boat no longer clips the dock.'), 'The boat no longer clips the dock.');
+is('a name with dashes: skipped', handoffLine('This is garden-planner-8e, the main session. The boat no longer clips the dock.'), 'The boat no longer clips the dock.');
 check('an id in a sentence that says more: kept', handoffLine('Merged 5d1bfe4 into main. Then more.') === 'Merged 5d1bfe4 into main.');
 check('onlyNamesASession: plain words are not a session', !onlyNamesASession('This is main.') && !onlyNamesASession('Released 0.3.0.') && onlyNamesASession('Session 25204b9f is main.'));
 check('onlyNamesASession: a name the board knows', onlyNamesASession('Took over from garden.', new Set(['garden'])));

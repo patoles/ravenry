@@ -8,6 +8,7 @@ import { FONT_FALLBACK, FONT_SIZE, SCROLLBACK } from '../shared/settings.ts';
 import type { SettingsPatch, SettingsSetResult, SettingsSnapshot, SettingsTab } from '../shared/settings.ts';
 import type { ThemeInfo } from '../shared/themes.ts';
 import type { SkillRow, SkillsApi } from '../shared/skills.ts';
+import { t } from '../shared/strings.ts';
 
 interface Bridge {
   get(): Promise<SettingsSnapshot>;
@@ -19,7 +20,10 @@ interface Bridge {
   size(height: number): void;
   tab(tab: SettingsTab): void;
   skills: SkillsApi;
+  repeats: { get(): Promise<Repeats | null>; set(on: boolean): Promise<{ ok: true; repeats: Repeats } | { ok: false; error: string }> };
 }
+/** The hub's rule suggestions switch (GET /api/settings/repeats). */
+interface Repeats { on?: boolean; locked?: boolean; lastRun?: { at?: string; ok?: boolean } | null }
 const api = (window as unknown as { ravenrySettings: Bridge }).ravenrySettings;
 
 const I = {
@@ -209,7 +213,40 @@ function behaviorPane(): Node[] {
     row('Closing a tab', ctl(checkbox('Ask first when something is running in it', s.confirmCloseBusy, (on) => void set({ confirmCloseBusy: on }))),
       { hint: 'An idle shell always closes at once.' }),
   );
+  if (mac()) out.push(...repeatsRows());
   return out;
+}
+
+// Rule suggestions (PAGE-018), as the Mac app's Settings has them: the
+// board's own switch, through src/main/main.ts; off until turned on. No
+// answer: the board is not running, and the box is off.
+let repeats: Repeats | null = null;
+let repeatsBusy = false;
+let repeatsErr = '';
+
+function repeatsRows(): Node[] {
+  const on = !!repeats?.on, locked = !!repeats?.locked;
+  let hint = !repeats ? 'Needs Ravenry\u2019s board running.' : locked ? t('rep.locked') : on ? t('rep.onHint') : t('rep.offHint');
+  const last = repeats?.lastRun;
+  if (repeats && last?.at) {
+    const when = new Date(last.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    hint += ' ' + (last.ok === false ? t('rep.ranFailed', { when }) : t('rep.ranOk', { when }));
+  }
+  if (repeatsErr) hint = t('rep.failed', { why: repeatsErr });
+  return [
+    h('div.sec', null, `${t('rep.title')} (${t('set.thisMac')})`),
+    row(t('rep.label'), ctl(checkbox(t('rep.box'), on, (v) => void setRepeats(v), { disabled: !repeats || locked || repeatsBusy, id: 'repeats' })), { hint }),
+  ];
+}
+
+async function setRepeats(on: boolean): Promise<void> {
+  if (repeatsBusy) return;
+  repeatsBusy = true; repeatsErr = '';
+  draw();
+  const r = await api.repeats.set(on);
+  repeatsBusy = false;
+  if (r.ok) repeats = r.repeats; else repeatsErr = r.error;
+  draw();
 }
 
 // The Ravenry skill, one line per assistant: Install or Remove (the hub's
@@ -370,6 +407,7 @@ async function start(): Promise<void> {
   document.body.dataset.platform = platform;
   snap = await api.get();
   skills = await api.skills.get();
+  repeats = await api.repeats.get();
   api.skills.onChange((rows) => { skills = rows; draw(); });
   api.onChange((s) => { snap = s as SettingsSnapshot; draw(); });
   api.onShowTab((t) => showTab(t as SettingsTab));

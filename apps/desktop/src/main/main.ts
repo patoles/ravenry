@@ -419,6 +419,20 @@ function ipc(): void {
     return v;
   };
   ipcMain.handle('skills:get', () => skillsView());
+  // Rule suggestions (PAGE-018): the hub's switch, the Mac only (GET and POST /api/settings/repeats).
+  ipcMain.handle('repeats:get', async () => {
+    if (!feed) return null;
+    try { return await hubGet(feed.url, '/api/settings/repeats'); } catch { return null; }
+  });
+  ipcMain.handle('repeats:set', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') return { ok: false, error: 'Send on or off.' };
+    if (!feed) return { ok: false, error: 'Ravenry\'s board is not running.' };
+    try {
+      const r = await hubPost(feed.url, '/api/settings/repeats', { on });
+      appLog(`repeats: rule suggestions turned ${on ? 'on' : 'off'}`);
+      return { ok: true, repeats: r };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  });
   ipcMain.handle('hooks:set', async (_e, kind: unknown, on: unknown) => {
     if (kind !== 'claude' && kind !== 'codex') return { ok: false, error: 'No such assistant.' };
     const bin = hookBin();

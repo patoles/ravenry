@@ -1,4 +1,4 @@
-// The hand-off card's line (2026-11-12, Simon: "The hand-off card is a wall
+// The hand-off card's line (2026-11-12, the user: "The hand-off card is a wall
 // of text, not really useful" ... "will every llm write in the good
 // format?"). A brief's Hand-off bullet is whatever the session wrote: one
 // short line, or 1700 characters of commits, counts and ids. Every client
@@ -46,7 +46,7 @@ const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 // A short id: hex with a digit and a letter ("25204b9f"), 6 to 12 long.
 const SHORT_ID = /^(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{6,12}$/i;
 // A session's name as Claude Code gives it: words with dashes, the last part
-// a short counter with a digit ("ravenry-1d", "ai-game-sdk-8e", "ravenry-19").
+// a short counter with a digit ("ravenry-1d", "garden-planner-8e", "ravenry-19").
 const NAME = /^[a-z][a-z0-9_]*(?:-[a-z0-9_]+)*-(?=[a-z0-9]{0,3}\d)[a-z0-9]{1,4}$/;
 // What a sentence about a session says around its name or id.
 const FILLER = new Set(('session sessions chat conversation agent claude codex is was are be been being the this that a an now here and or of from to by in on for as at with it its ' +
