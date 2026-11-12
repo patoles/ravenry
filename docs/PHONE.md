@@ -8,14 +8,19 @@ hub's `api`), and an old phone keeps working against a new hub.
 
 ## 1. What a phone app is
 
-A thin native shell around one WebView. The **phone board** (the sessions,
-the live terminal, the checkpoint screens, the sidebar's pages) is web
-code, `apps/phone/`, shared by both shells and built from the desktop
-app's own modules where they exist (the sidebar's groups from
-`apps/desktop/src/renderer/model.ts`, checkpoints from `checkpoints.ts`,
-pages from `pages.ts`, the terminal through `@ravenry/client` and
-xterm.js). The shell ships that bundle inside the app and adds only what a
-page cannot do:
+A thin native shell around one WebView. Its home is **the hub's own
+board** at phone width (`hub/public`, the approved phone designs: the
+projects as chips with the selected one's detail under them
+(PhoneProjects C), the Live screen (LiveScreen B), the message box with
+New session (NewSession D), and the menu: a top bar and a bottom bar with
+Projects, Ideas, Rules, Ship and Pages (PhoneMenu A, 2026-11-12)), loaded
+from the hub over the pinned connection at the app's own origin. The same
+board serves a phone's browser. The app adds `apps/phone/src/board.ts`
+first in that page (the app's layer: the board's requests through the
+shell, a fingerprint before Run, the reach bar, Back, This phone in the
+menu) and its own screens, `apps/phone/` (a checkpoint full screen for a
+secret, a pick or a drive, a photo or voice note for it, the app's
+settings). The shell adds only what a page cannot do:
 
 - notifications with action buttons and a reply line, so Needs you, an
   `ask --wait` or a checkpoint is answered from the shade;
@@ -31,12 +36,37 @@ network connection of its own: it asks the shell (section 7), and the
 shell makes the request over TLS with the pinned key and the device token.
 So the pin is enforced in one place, the token never enters the page, and
 a valid certificate from any authority is refused if its key is not the
-pinned one. The page is served from the app itself
+pinned one. The app's own screens are served from the app
 (`https://appassets.androidplatform.net/phone/` on Android,
-`ravenry-app://phone/` on iOS); a picture or file of the hub is
-`hub/<path>` relative to the page, which the shell fetches the same way,
-for the page itself only (its own Referer and Origin), never for a frame
-of another origin.
+`ravenry-app://phone/` on iOS); the board is the rest of that origin: the
+shell fetches the hub's `/` (with `board.js` put first in its head), its
+files and its pictures over the pinned connection, for the page itself
+only (its own Referer and Origin; a frame of another origin is refused),
+and the board's `fetch('/api/...')` and `EventSource('/api/events')` go
+through the bridge (`http`, `hub.events`). A picture or file of the hub
+for the app's own screens is `hub/<path>` relative to their page, fetched
+the same way.
+
+**The phone never resizes a pane.** The Mac keeps its own size: the board
+shows a session's screen as text (the Live screen, from `GET /api/live`),
+laid out at the phone's width, a line the pane's width wrapped joined
+again (`pane.capture`'s `wrapped`), scrolled by touch; the key bar (Esc,
+Tab, the arrows, Enter, Ctrl-C) over the message box in full screen
+presses keys in a Ravenry pane (`POST /api/keys`). The hub turns a
+`pane.resize` that comes from a phone on `/api/term` (an older app's
+terminal) into a `pane.capture`, so the pane keeps its size; and the Mac
+app asks for its own size back when it sees a pane drawn at a size it did
+not ask for (one an older phone app left small).
+
+**When the Mac does not answer**, the app says why in plain words, never
+a host name or an address: "Tailscale is off on this phone. Turn it on,
+then try again." (with Open Tailscale) when only the tailnet could answer
+and no VPN is up or a tailnet name did not resolve; "This phone doesn't
+have Tailscale. Install it and sign in, then try again." (Get Tailscale,
+its store page) when it is not installed; else that the Mac did not
+answer. On the pairing screen, in the board's bar at the top (with Try
+again) and in the connection notification. Tailnet addresses are not
+tried while no VPN is up, so the words come at once.
 
 ## 2. Reaching the hub
 
@@ -412,7 +442,9 @@ and joins the two byte streams: the phone speaks protocol v1
   `hello`, `cancel`, `pane.list`, `pane.capture`, `pane.read`,
   `pane.subscribe`, `pane.unsubscribe`, `pane.resize`, `pane.send` and
   `ack`. Anything else closes the connection (1008). Answers go through the
-  HTTP API, never this stream.
+  HTTP API, never this stream. A phone's `pane.resize` never reaches the
+  daemon: the hub sends a `pane.capture` of the same pane with the same id
+  instead, so the phone gets an answer and the pane keeps the Mac's size.
 - Binary frames (input) pass as they are; the daemon tags them as the
   person's in the pane's input log. A `pane.send` from the phone board
   carries `by: "phone"` so its input is tagged the person's too (without
@@ -433,6 +465,10 @@ The shell sends events as `{ "event": "...", ... }`.
 | --- | --- | --- |
 | `hello` | | `{ v, platform, app, hub: { name, port }, device: { id, name }, features }` |
 | `hub.call` | `method`, `path`, `body` | `{ status, body }` |
+| `http` | `method`, `path`, `headers` (Content-Type, X-Filename, Accept), `b64` | the board's fetch: `{ status, type, b64 }`; a computer that does not answer: an error with the reach words, and the event `reach` |
+| `reach.now`, `reach.retry` | | the last reason the computer did not answer (`{ reason, words }` or null); try again (the board reloads when it answers) |
+| `open.tailscale` | | the Tailscale app, or its page in the store |
+| `bars` | `light`, `color` | the system bars take the board's background and theme |
 | `hub.events` | `on` | events `hub` `{ name, data }` and `link` `{ state: "up" \| "down", error }` |
 | `socket.open` | `path`, `protocol` | `{ sid }`; events `socket.message` `{ sid, text }` or `{ sid, b64 }`, `socket.close` `{ sid, code, reason }` |
 | `socket.send` | `sid`, `text` or `b64` | |
@@ -448,7 +484,7 @@ The shell sends events as `{ "event": "...", ... }`.
 | `secret.close` | | |
 | `speech` | | voice typing for the reply field: `{ text }` |
 | `alerts.clear` | `id` | |
-| `pair.reset` | | sign out on this phone and go back to pairing |
+| `pair.reset` | | sign out on this phone: the pairing screen at once; the computer is told (`POST /api/phone/unpair` with the old token) in the background, again after 5 s doubling to 5 min and at each start of the app, until it answers |
 | `push.status` | | `{ distributors, current, off }`: the UnifiedPush apps on the phone, the one in use, and whether alerts by push are off |
 | `push.set` | `on` | alerts by push on (register with the distributor) or off (target `none`); the new status |
 | `connection.get`, `connection.set` | `on` | the held connection (Stay connected) on or off: `{ on }` |
@@ -509,10 +545,11 @@ them.
 | Private keyboard | native field, no suggestions, no learning | secure `UITextField` |
 | Screen kept from screenshots while a secret is typed | `FLAG_SECURE` (release builds) | the secure field |
 | Connection status | the `connection` notification | none (iOS has no such notification) |
-| Sessions from every machine, Needs you first | the phone board | the phone board |
-| Live terminal and key bar | the phone board (xterm.js) | the phone board |
-| Replies and menu answers | the phone board | the phone board |
-| Hand-off | the phone board | the phone board |
-| The checkpoint screens | the phone board | the phone board |
-| The sidebar's pages | the phone board (the desktop's pages code) | the phone board |
+| Projects from every machine, Needs you first | the hub's board (chips, the machines line) | the hub's board |
+| Live screen and key bar | the hub's board (text at the phone's width; the pane keeps the Mac's size) | the hub's board |
+| Replies, answers, a checkpoint's card (ask, command) | the hub's board | the hub's board |
+| New session | the hub's board (NewSession D) | the hub's board |
+| Hand-off | the hub's board | the hub's board |
+| A secret, a pick, a drive | the app's own screens (`apps/phone`) | the app's own screens |
+| The sidebar's pages | the hub's board (Pages) | the hub's board |
 | Store | F-Droid, then Play | App Store |
