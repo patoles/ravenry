@@ -1,6 +1,6 @@
-// Ink, the launch's animation (Simon, 2026-11-08: "if we can support some
+// Ink, the launch's animation (the maintainer, 2026-11-08: "if we can support some
 // shader like Ghostty does it would be nice, for example we could have an
-// animation on first launch"; he picked Ink from the mockup's three): pale
+// animation on first launch"; Ink was picked from the mockup's three): pale
 // ink gathers into the raven, its eye opens with one ripple, and the mark
 // flies to the app's icon on New session while the window washes in.
 //

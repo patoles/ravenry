@@ -3076,7 +3076,7 @@ function setupLineEls(sl: { hooks: boolean; skill: boolean }): HTMLElement[] {
   const line = (on: boolean, yes: string, no: string, what: string) => on
     ? h('div.chk', { 'data-setup': what }, h('i', svg(I.CHECK)), yes)
     : h('div.chk.off', { 'data-setup': what }, h('i'), no, ' ', h('button.lk', { on: { click: () => api().settings.open('skills') } }, 'Settings'));
-  // Its hooks (Simon's wording, 2026-11-11): what they do for the person, the same words as the Mac app's.
+  // Its hooks (the maintainer's wording, 2026-11-11): what they do for the person, the same words as the Mac app's.
   return [line(sl.hooks, 'Tells you when it waits for you', 'Can\u2019t tell you when it waits for you.', 'hooks'),
     line(sl.skill, 'Has the Ravenry skill', 'Has no Ravenry skill.', 'skill')];
 }

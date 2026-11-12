@@ -1,6 +1,6 @@
-// Session links (Simon, 2026-11-10: "just clicking the link should open the
+// Session links (the maintainer, 2026-11-10: "just clicking the link should open the
 // session without asking"). A Claude session's name ("ravenry-19",
-// "ai-game-sdk-8e") or id in terminal text is a link: drawn as one at rest
+// "lighthouse-8e") or id in terminal text is a link: drawn as one at rest
 // (the link colour, underlined), and a press and release on it without
 // moving opens that session's tab at once, with no card and no question; a
 // drag still selects. ravenry://session/<name> (a phone alert, a brief)

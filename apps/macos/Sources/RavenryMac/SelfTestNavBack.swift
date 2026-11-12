@@ -59,7 +59,7 @@ extension SelfTestBoard {
         func onObjectives() -> Bool { b.front == .page(obj.key, obj.label) && b.root.middle === b.files }
         func objectives() { toTerminal(); b.sidebar.onNav?(obj.key, obj.label); _ = wait(4) { b.files.key == obj.key && (b.files.scroll.documentView?.frame.height ?? 0) > 200 } }
 
-        // The brief from Objectives (Simon: "in Objectives when opening a brief there's no navigation back").
+        // The brief from Objectives (the maintainer: "in Objectives when opening a brief there's no navigation back").
         objectives()
         settle(0.5)
         // Objectives scrolled down a little: it comes back at the same place.

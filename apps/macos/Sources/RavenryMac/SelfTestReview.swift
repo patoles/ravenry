@@ -53,7 +53,7 @@ extension SelfTestBoard {
         check("review_opens_beside_panel", wait(3) { self.board.root.middle === rv && !self.board.root.wideMiddle && self.board.panel.key == key && self.board.root.panelMode == .docked }, "\(board.front)")
         check("review_diff_read", wait(8) { (rv.diff?["files"] as? [Any])?.count == 2 && rv.sel != nil && !rv.lines.isEmpty }, "\(rv.diff?["error"] ?? "") \(rv.lines.count)")
         check("review_clean", shows(rv, "No clashes with main") && shows(rv, "2 files, +5 −1") && shows(rv, "Sync settings, ready to merge"), texts(rv).prefix(10).joined(separator: " | "))
-        // Its head names where it was opened from (none from a terminal tab: the class of Simon's brief with no way back).
+        // Its head names where it was opened from (none from a terminal tab: the class of the maintainer's brief with no way back).
         check("review_back_link", (rv.buttons["back"]?.title).map { $0 == "‹  " + (self.board.backName ?? "") } ?? (board.backName == nil),
               "\(rv.buttons["back"]?.title ?? "none") backName \(board.backName ?? "nil")")
         rv.select("app/sync.js")

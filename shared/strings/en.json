@@ -695,7 +695,7 @@
   "pg.planLabel": "Plan",
   "pg.openPlan": "Open the plan",
   "pg.onThisPage": "Contents",
-  "pg.foldTip": "Fold or unfold this section",
+  "pg.foldTip": "Collapse or expand this section",
   "pg.openPlanTip": "Open this plan",
   "pg.openInBriefTip": "Open the brief at this objective",
   "pg.openProjectTip": "Open the project",

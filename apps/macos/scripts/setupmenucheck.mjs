@@ -22,7 +22,7 @@
 //          Codex's) and the skills put back as they were, byte for byte, the
 //          service unloaded and its file gone, bin/, current and versions/
 //          gone, ~/.ravenry kept; Quit ends the app.
-// link     ~/.local/bin first (as on Simon's Mac): Install adds the link only,
+// link     ~/.local/bin first (as on the maintainer's Mac): Install adds the link only,
 //          no line; Uninstall with the box ticked deletes the data too.
 //
 // Pictures of the dialogs go to OUT.

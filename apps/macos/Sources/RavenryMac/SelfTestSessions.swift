@@ -6,7 +6,7 @@
 // are left for you (each ends on a question).
 //
 // - A session's name 80 characters long: its assistant chip keeps its whole
-//   width at every sidebar width and window size (Simon's 15.51.40.png: an
+//   width at every sidebar width and window size (the maintainer's 15.51.40.png: an
 //   empty chip), and every row's percent ends on the same x.
 // - A pinned row keeps its percent beside the pin.
 // - The foot's memory line opens Sessions; the ticks follow the hub's

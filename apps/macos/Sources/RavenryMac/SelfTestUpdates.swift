@@ -237,12 +237,12 @@ extension SelfTestBoard {
         var d: [String: Any] = [
             "ok": true, "npm": true,
             "board": running ? ["port": 4600, "pid": 4242, "version": "0.4.0", "own": false, "again": login ? NSNull() : "ravenry --no-open", "command": "node ravenry"] as [String: Any] : NSNull(),
-            "login": login ? [["label": "gg.ravenry.board", "plist": "~/Library/LaunchAgents/gg.ravenry.board.plist", "loaded": running]] : [],
+            "login": login ? [["label": "npm.board.login", "plist": "~/Library/LaunchAgents/npm.board.login.plist", "loaded": running]] : [],
             "hooks": ["claude": [["event": "Stop", "command": "node hooks/events.mjs"]], "codex": [["event": "Stop", "command": "node hooks/events.mjs"]]],
             "copy": ["root": "/usr/local/lib/node_modules/ravenry-app", "version": "0.4.0", "node": "/usr/local/bin/node"],
         ]
         if let r = record {
-            d["record"] = ["state": r, "port": 4600, "from": ["board": ["again": "ravenry --no-open", "command": "node ravenry"]], "login": login ? [["label": "gg.ravenry.board"]] : []] as [String: Any]
+            d["record"] = ["state": r, "port": 4600, "from": ["board": ["again": "ravenry --no-open", "command": "node ravenry"]], "login": login ? [["label": "npm.board.login"]] : []] as [String: Any]
         } else { d["record"] = NSNull() }
         return d
     }

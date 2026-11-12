@@ -1,6 +1,6 @@
 // Proves that hooks which work count as on, whatever their spelling, and
 // that setup leaves them alone (server/hookinstall.mjs hooksOn and the
-// works() of oursFor). Simon's Mac on the native app: the Electron era's
+// works() of oursFor). The maintainer's Mac on the native app: the Electron era's
 // entries (ELECTRON_RUN_AS_NODE=1 .../Ravenry '<data>/current/hub/hooks/
 // events.mjs' --ravenryd, and '<data>/bin/ravenryd' hook) ran fine, yet
 // the Settings row and the panel said "Not set up" / "Alerts turned off",
@@ -59,7 +59,7 @@ const commands = (f) => Object.values((JSON.parse(text(f) || '{}').hooks) || {})
 const ours = (f) => commands(f).filter((c) => /ravenryd|hooks\/(events|handoff-stop)\.mjs/.test(c));
 const row = (k) => skills.withHooks([{ kind: k, found: true }], (kind) => { const r = hk.hooksOn(kind, { root: ROOT }); return r ? { file: r.file, on: r.on } : null; })[0].hooks;
 
-// ---- Simon's files: the Electron app wrote them (its executable as Node, the stable bin/ravenryd).
+// ---- The maintainer's files: the Electron app wrote them (its executable as Node, the stable bin/ravenryd).
 const theirs = { type: 'command', command: '/usr/local/bin/their-hook --x', timeout: 3 };
 fs.writeFileSync(SETTINGS, JSON.stringify({ model: 'opus', hooks: { Stop: [{ hooks: [theirs] }] } }, null, 2));
 fs.writeFileSync(path.join(CODEX, 'config.toml'), 'model = "gpt"\n');

@@ -2,7 +2,7 @@
 // each window has its own tabs and splits (Workspace), its own sidebar,
 // panel and pages (Board) and its own stream from the hub, over the same
 // daemons. So the console can sit in one window and the board in another
-// (Simon, 2026-11-10: "can't split console from UI").
+// (the maintainer, 2026-11-10: "can't split console from UI").
 //
 // - Shell > New Window (Cmd+N): a window with a shell of its own, in the
 //   folder of the pane in front (as Cmd+T), cascaded from the window in

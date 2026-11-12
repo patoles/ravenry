@@ -4,7 +4,7 @@
 // iResolution, iTime, iTimeDelta, iFrame and iMouse. Ghostty runs its GLSL
 // through glslang and SPIRV-Cross; this app keeps no third-party code and
 // compiles its Metal from source at launch (Renderer.swift), so the shaders
-// are ported to MSL by hand: each body below is the GLSL of Simon's mockup
+// are ported to MSL by hand: each body below is the GLSL of the maintainer's mockup
 // (scratchpad build2/ink/ravenry-shaders-mockup.html) line for line, read
 // through a small prelude (vec2 is float2, texture() samples iChannel0 with
 // GLSL's y-up coordinates, fragCoord from the bottom left), with `out vec4`

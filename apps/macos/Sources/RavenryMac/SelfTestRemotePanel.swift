@@ -129,9 +129,9 @@ extension SelfTestBoard {
         // MARK: PANEL-025, a card's timing (asked first: its "waiting 2 min" is read at the end)
         guard let third = freshTab(), let thirdTab = ws.tab(showing: third) else { pc("pc_third_tab", false); return }
         let asked = Date()
-        typeLine(third, "\(q(bin)) ask 'Fold the mast down for the night?' --option 'Fold it' --option 'Leave it up' --timeout 10m > \(q(out + "/timing.out")) 2>&1 &")
-        let tc = cardFor("Fold the mast down")
-        let tcp = cpTitled("Fold the mast down")
+        typeLine(third, "\(q(bin)) ask 'Lower the mast for the night?' --option 'Lower it' --option 'Leave it up' --timeout 10m > \(q(out + "/timing.out")) 2>&1 &")
+        let tc = cardFor("Lower the mast")
+        let tcp = cpTitled("Lower the mast")
         let exp = When.date(tcp?["expires_at"] as? String)
         let hm = exp.map { let c = Calendar.current.dateComponents([.hour, .minute], from: $0); return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0) } ?? "none"
         pc("pc_timing_gives_up_at", tc != nil && exp.map { abs($0.timeIntervalSince(asked) - 600) < 20 } == true && shows(tc!, "Gives up at \(hm)"), "\(hm) expires \(tcp?["expires_at"] ?? "nil") | \(cardText(tc))")
@@ -363,13 +363,13 @@ extension SelfTestBoard {
         ws.show(thirdTab)
         let left = 125 - Date().timeIntervalSince(asked)
         if left > 0 { settle(left) }
-        let tc2 = cardFor("Fold the mast down")
+        let tc2 = cardFor("Lower the mast")
         board.render(force: true)
         settle(0.3)
         pc("pc_timing_waiting_2_min", tc2.map { shows($0, "waiting 2 min") } == true, cardText(tc2))
         picture("native-cards-timing-1440-dark.png")
         if let o = tc2?.opts["1"] { pressIt(o) }
-        _ = wait(6) { self.fileText(out + "/timing.out").contains("Fold it") }
+        _ = wait(6) { self.fileText(out + "/timing.out").contains("Lower it") }
         if let t = ws.tab(showing: shell) { ws.show(t) }
     }
 

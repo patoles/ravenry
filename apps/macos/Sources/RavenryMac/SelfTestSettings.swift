@@ -212,7 +212,7 @@ extension SelfTestBoard {
         sw.window.orderOut(nil)
     }
 
-    /// Simon on 0.1.33: "when installing the skill the checkbox in 'This
+    /// The maintainer on 0.1.33: "when installing the skill the checkbox in 'This
     /// session' only updated after closing the modal". The skill and the
     /// hooks set up and removed from the Settings window: the panel's rows
     /// beside a Claude session follow each press while Settings is open.

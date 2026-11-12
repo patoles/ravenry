@@ -242,7 +242,7 @@ final class SelfTestBoard {
                 var ss = ps[i]["sessions"] as? [[String: Any]] ?? []
                 if !ss.isEmpty {
                     ss[0]["pane"] = "pnotdrawn"; ss[0]["state"] = "idle"; ss[0]["assistant"] = "claude"
-                    ss[0]["sessionId"] = "0f6c1d0e-7a1b-4c2d-9e3f-5a6b7c8d9e0f"
+                    ss[0]["sessionId"] = "0f6c1d0e-7a1b-4c2d-9e3f-000000000e0f"
                     ss[0].removeValue(forKey: "outside"); ss[0].removeValue(forKey: "machine")
                 }
                 ps[i]["sessions"] = ss

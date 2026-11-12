@@ -30,7 +30,7 @@ const file = (pid, j) => fs.writeFileSync(path.join(DIR, `${pid}.json`), JSON.st
 // ravenry-19 runs in pid 100; its file still has the session it started
 // with (S1), its events say it moved on to S2 (a /clear).
 file(100, { sessionId: S1, name: 'ravenry-19' });
-file(200, { sessionId: S3, name: 'ai-game-sdk-8e' });
+file(200, { sessionId: S3, name: 'lighthouse-8e' });
 file(300, { sessionId: S3, name: 'ravenry' });       // a plain word: never a name
 file(400, { sessionId: S3, name: 'odd.name-2' });    // a dot: not text a link is cut from
 fs.writeFileSync(path.join(DIR, '500.json'), '{"pid": 5');  // half written
@@ -42,7 +42,7 @@ const evAll = new Map([
 const cache = new Map();
 const files = names.readNameFiles(DIR, cache);
 check('the name files with a name of a dashed word are read; a plain word, a dot and a half-written file are not',
-  files.map((f) => f.name).sort().join(',') === 'ai-game-sdk-8e,ravenry-19', files);
+  files.map((f) => f.name).sort().join(',') === 'lighthouse-8e,ravenry-19', files);
 check('a name file unchanged is not read again', names.readNameFiles(DIR, cache).length === 2 && cache.size === 5);
 
 let store = names.load(STORE);
@@ -50,8 +50,8 @@ check('no store yet: empty', store.records.length === 0);
 let changed = names.note(store, files, evAll, new Set([100, 200]), T0 + 10000);
 check('the first tick adds both names', changed && store.records.length === 2 && store.rev === 1);
 check('a name is the session its pid\'s newest events name (S2 after the /clear), not the file\'s', names.resolve(store, 'ravenry-19').sessionId === S2, names.resolve(store, 'ravenry-19'));
-check('with no events, the file\'s own session id', names.resolve(store, 'ai-game-sdk-8e').sessionId === S3);
-check('both are live', names.resolve(store, 'ravenry-19').live && names.resolve(store, 'ai-game-sdk-8e').live);
+check('with no events, the file\'s own session id', names.resolve(store, 'lighthouse-8e').sessionId === S3);
+check('both are live', names.resolve(store, 'ravenry-19').live && names.resolve(store, 'lighthouse-8e').live);
 check('a tick with nothing new changes nothing', !names.note(store, files, evAll, new Set([100, 200]), T0 + 12000) && store.rev === 1);
 names.save(store, STORE);
 
@@ -75,7 +75,7 @@ names.note(store, [], new Map(), new Set(), T0 + 200000);
 check('none live: the newest that had it', names.resolve(store, 'ravenry-19').sessionId === S3 && !names.resolve(store, 'ravenry-19').live);
 
 const tb = names.table(store, (sid) => (sid === S3 ? 'ravenry' : null));
-check('the table: each name once, resolved, with its project', tb['ravenry-19'] && tb['ravenry-19'].sessionId === S3 && tb['ravenry-19'].projectId === 'ravenry' && tb['ai-game-sdk-8e'] && Object.keys(tb).length === 2, tb);
+check('the table: each name once, resolved, with its project', tb['ravenry-19'] && tb['ravenry-19'].sessionId === S3 && tb['ravenry-19'].projectId === 'ravenry' && tb['lighthouse-8e'] && Object.keys(tb).length === 2, tb);
 
 // Older than 14 days and not live: forgotten.
 changed = names.note(store, [], new Map(), new Set(), T0 + names.KEEP_MS + 300000);

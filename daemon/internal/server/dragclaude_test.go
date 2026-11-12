@@ -25,7 +25,7 @@ import (
 //
 //   - bars: a lone character in the last column on many rows, what a
 //     redraw laid out for a wider width gives on a narrower screen (each
-//     word past the margin goes to the last column; Simon on 0.1.31:
+//     word past the margin goes to the last column; the maintainer on 0.1.31:
 //     "still blanks, and vertical bars of characters too now");
 //   - a frame short of rows (a blank screen, a redraw half done);
 //   - a frame that is not a screen the program drew for a size it was

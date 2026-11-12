@@ -5,7 +5,7 @@
 // and of its superviews say the pointer, the deepest one's last rect
 // first; a rect there from any other view is one under a view laid over
 // it, which AppKit would still apply (the terminal's I-beam over a page's
-// back link, Simon on 0.1.34: "Back navigation cursor stays the text
+// back link, the maintainer on 0.1.34: "Back navigation cursor stays the text
 // cursor"), and counts as a leak.
 
 import AppKit

@@ -5,7 +5,7 @@
 // picked, and the picture over the pane changes with it (its pixels
 // compared, under the "Showing" bar). A moment on the track the daemon
 // kept no picture of shows the closest pictured frame, with a line saying
-// so. Simon (0.1.34): "Selecting a frame in last 20 seconds doesnt change
+// so. The maintainer (0.1.34): "Selecting a frame in last 20 seconds doesnt change
 // the preview image".
 
 import AppKit

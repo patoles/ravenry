@@ -386,7 +386,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// During a live resize a frame draws as soon as it comes, as in 0.1.28.
     /// 0.1.29 made frames wait for the next step (2cbd07b): resizebench got
     /// faster offscreen, but on a real screen every resize blanked the
-    /// terminal (Simon, 2026-11-11 12:03), so that was taken out.
+    /// terminal (the maintainer, 2026-11-11 12:03), so that was taken out.
     func requestDraw() {
         if drawScheduled || !live { return }
         let now = CACurrentMediaTime()

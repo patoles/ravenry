@@ -24,7 +24,7 @@ import (
 // screen is always full, so a frame with fewer rows shows the erased
 // screen or a redraw half done. libghostty ends synchronized output on
 // a resize, and a drag step that landed in the middle of the redraw sent
-// such a frame out (Simon's long Claude tab blanked on every resize,
+// such a frame out (the maintainer's long Claude tab blanked on every resize,
 // 2026-11-11).
 //
 // The program draws with autowrap off, so a redraw it finishes for a

@@ -1,6 +1,6 @@
-// Session names (2026-11-10, Simon: a way to link to a session). Claude Code
+// Session names (2026-11-10, the maintainer: a way to link to a session). Claude Code
 // gives each running session a name other sessions use for it ("ravenry-19",
-// "ai-game-sdk-8e"): <CLAUDE_CONFIG_DIR or ~/.claude>/sessions/<pid>.json
+// "lighthouse-8e"): <CLAUDE_CONFIG_DIR or ~/.claude>/sessions/<pid>.json
 // holds it with the process's pid. The hook events record that pid
 // (claude_pid), so a name is the session the events of that process name
 // (the newest since the process started), else the session id the file
@@ -14,7 +14,7 @@
 // The Mac app reads the table (GET /api/session-names, read again when the
 // state's sessionNames.rev changes) and draws each name and session id it
 // knows as a link in terminal text; a click opens that session's tab. The
-// names are never shown as such (Simon, 2026-11-10: "that's not useful for
+// names are never shown as such (the maintainer, 2026-11-10: "that's not useful for
 // the user").
 
 import fs from 'node:fs';

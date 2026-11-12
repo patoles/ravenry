@@ -17,7 +17,7 @@
 // screen as Claude Code does, once for every size it is told, in order,
 // 150 ms after it, each word at its column), idle (the shell at its
 // prompt), or a command typed in it, as a replay of a real Claude tab
-// with its history and a spinner line (Simon's feel checks: real content
+// with its history and a spinner line (the maintainer's feel checks: real content
 // beside an empty shell). The content check counts the frames of the drag
 // short of a tenth or more of the rows of text the screen had before it
 // (a redraw shown half done), and the frames of the drag and the 600 ms

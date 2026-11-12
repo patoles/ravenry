@@ -5,8 +5,8 @@
 //
 // AppKit gives the cursor rects of every view in the window, also of one
 // another view lies over: the terminal's I-beam, under a page laid over
-// the stage, came back over the page's back link and buttons (Simon on
-// 0.1.34: "Back navigation cursor stays the text cursor"). So each view's
+// the stage, came back over the page's back link and buttons (the maintainer
+// on 0.1.34: "Back navigation cursor stays the text cursor"). So each view's
 // rects leave out what views over it take presses on (uncovered), and the
 // window asks for them again when what lies over what changes
 // (cursorRectsAgain).

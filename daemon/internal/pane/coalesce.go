@@ -17,8 +17,8 @@ import (
 // redraw laid out for a width the drag had already left landed on a
 // narrower grid: every column past the margin went to the last one, a
 // column of single letters at the right edge and the rest of the screen
-// mostly empty (Simon on 0.1.31: "still blanks, and vertical bars of
-// characters too now"; 17 of 180 frames of his recorded drag). Resizing
+// mostly empty (the maintainer on 0.1.31: "still blanks, and vertical bars of
+// characters too now"; 17 of 180 frames of a recorded drag). Resizing
 // the grid at each step without telling the program breaks it another
 // way: its cursor moves, relative to rows that the reflow moved, land on
 // the wrong rows and leave garbage in the scrollback.
@@ -32,7 +32,7 @@ import (
 
 const (
 	// dragPause: no step for this long and the drag has paused or ended.
-	// Steps come every 8 to 17 ms; Simon's recorded drags had gaps of up
+	// Steps come every 8 to 17 ms; the recorded drags had gaps of up
 	// to 55 ms within a movement.
 	dragPause = 80 * time.Millisecond
 	// redrawQuiet: a program that has written nothing for this long

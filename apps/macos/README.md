@@ -280,7 +280,7 @@ stream".
   to 6.4 ms with an effect (median); `bench.sh`: the frame (CPU and GPU)
   0.71 ms off, 1.98 ms bloom, 0.77 ms crt (median, the drag at 900 x 560
   pt at 2x), keys echoed in 0.55 to 0.63 ms and no blank or debris step in
-  any. **Ink** (`Ink.swift`, Simon's pick of the mockup's launches): a
+  any. **Ink** (`Ink.swift`, the pick of the mockup's launches): a
   launch with no tab to bring back (`Workspace.restoredNone`) opens on New
   session and plays Ink over the window for 3.4 s, its iChannel0 the
   window's own picture (its layers rendered, about 60 ms at 1440 x 900 pt:

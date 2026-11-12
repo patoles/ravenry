@@ -173,9 +173,9 @@ theme on the client is never overridden by the daemon's defaults.
   (`ESC[<col>G`). Resized at every step, a redraw laid out for a width
   the drag had already left landed on a narrower screen: every column
   past the margin went to the last one, a column of single letters down
-  the right edge and the rest mostly empty (Simon on 0.1.31: "still
+  the right edge and the rest mostly empty (the maintainer on 0.1.31: "still
   blanks, and vertical bars of characters too now"; 17 of 180 frames of
-  his recorded drag), and widening showed a narrow layout in a wide pane
+  a recorded drag), and widening showed a narrow layout in a wide pane
   for 300 to 400 ms. Resizing the screen at each step without telling
   the program breaks it another way: its cursor moves, relative to rows
   the reflow moved, land on the wrong rows and leave garbage in the
