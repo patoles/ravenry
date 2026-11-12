@@ -591,6 +591,7 @@ function buildSheet(p) {
           <textarea id="compose" rows="2" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
           <div id="chips" style="display: flex; flex-wrap: wrap; gap: 6px"></div>
           <div class="t3 ns-hint" id="ns-hint" hidden></div>
+          <div class="send-why" id="send-why" role="status" hidden></div>
           <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
             <label class="attach"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 6.5L7 11.5a3 3 0 0 1-4.2-4.2L8 2.1a2 2 0 0 1 2.8 2.8L5.7 10"></path></svg>Attach<input type="file" multiple id="pick"></label>
             <button class="ns-tg" id="ns" role="switch" aria-checked="false"><span class="ns-sw"><i></i></span><span>New session</span></button>
@@ -766,6 +767,14 @@ ${openButton(p, s)}`);
   else if (s.working) label = 'Message, delivered after its current step';
   if (cpText) label = 'Or answer in your own words';
   let ph = canSend && !gateHere ? label + '. Paste a path, or drop or paste a file.' : label + '.';
+  // Why Send is off, shown under the box once something is typed (the
+  // placeholder says it while the box is empty).
+  let offWhy = null;
+  if (!canSend && !gateHere && s && s.terminal !== false && s.live) {
+    if (s.dialog && !(w.quick && w.quick.some((o) => o.choice != null))) offWhy = `Send is off: a permission or a question is open in its tab. Answer it in ${tn}.`;
+    else if (s.dialog) offWhy = `Send is off: a choice is open. Pick an option above or answer in ${tn}.`;
+    else if (s.draft) offWhy = `Send is off: its prompt holds a half-typed reply. Finish or clear it in ${tn} first.`;
+  } else if (!canSend && !gateHere) offWhy = ph;
   // The New session switch (docs/design/NewSession.dc.html, D): on, the
   // same box starts a new session in the project's folder.
   const ns = ui.ns;
@@ -774,6 +783,8 @@ ${openButton(p, s)}`);
   if (ta.placeholder !== ph) { ta.placeholder = ph; ta.setAttribute('aria-label', label); }
   ta.disabled = ns ? !canStart : !canSend && !p.brief && !gateHere;
   $('#send').disabled = ns ? !canStart : !canSend && !gateHere;
+  ui.sendWhy = ns ? (canStart ? null : `${p.name} has no folder, so there is nowhere to start a session.`) : offWhy;
+  renderSendWhy();
   ui.cpText = cpText ? cp.id : null;
   const sendWord = ns ? 'Start session' : 'Send';
   if ($('#send').textContent !== sendWord) $('#send').textContent = sendWord;
@@ -1690,6 +1701,7 @@ function renderChips(pid) {
   setHtml('chips', fs.map((f, k) => fileChip(f, `data-act="unfile" data-k="${k}"`)).join(''));
   const chips = $('#chips');
   if (chips) chips.hidden = !fs.length;
+  renderSendWhy();
 }
 
 // Saves files into the project's .inbox (the composer's route, its limits
@@ -1719,10 +1731,22 @@ async function addFiles(pid, list) {
   await saveToInbox(pid, files, ui.files[pid], () => renderChips(pid));
 }
 
+// The line under the box that says why Send is off (ui.sendWhy), while
+// the box holds something: an empty box says it in its placeholder.
+function renderSendWhy() {
+  const el = $('#send-why');
+  const ta = $('#compose');
+  if (!el || !ta) return;
+  const files = ui.sel && (ui.files[ui.sel] || []).length;
+  const text = ui.sendWhy && (ta.value.trim() || files) ? ui.sendWhy : '';
+  if (el.textContent !== text) el.textContent = text;
+  if (el.hidden !== !text) el.hidden = !text;
+}
+
 function wireComposer(pid) {
   const ta = $('#compose');
   const box = $('#composer');
-  ta.addEventListener('input', () => { ui.drafts[pid] = ta.value; });
+  ta.addEventListener('input', () => { ui.drafts[pid] = ta.value; renderSendWhy(); });
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendCompose(); } });
   ta.addEventListener('paste', (e) => {
     const fs = Array.from((e.clipboardData && e.clipboardData.files) || []);

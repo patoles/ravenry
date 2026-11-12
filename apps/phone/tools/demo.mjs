@@ -26,6 +26,12 @@
 // that the width wraps, and more lines than a phone's screen, then `cat`,
 // so what the phone types shows in the pane.
 //
+// --suggest (with --e2e): portfolio's prompt box holds Claude Code's dim
+// suggested reply, first while it waits for a background agent (12 s, the
+// agent listed under the box), then at rest after a done line, as Claude
+// Code 2.1.323 draws it. A board that judged the prompt by its history
+// alone took that suggestion for a half-typed reply and turned Send off.
+//
 // --phone turns phone access on, so the hub listens with TLS on the phone
 // port (docs/PHONE.md section 2) for an emulator (10.0.2.2), and prints the
 // pairing link. It runs until stopped, and writes what it started to
@@ -48,6 +54,7 @@ const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
 const PHONE = args.includes('--phone');
 const E2E = args.includes('--e2e');
+const SUGGEST = args.includes('--suggest');
 const WORK = path.resolve(opt('--dir', path.join(APP, '.tmp', 'demo')));
 const BIN = path.resolve(process.env.RAVENRYD || path.join(REPO, 'daemon', 'ravenryd'));
 if (!fs.existsSync(BIN)) { console.error(`no ravenryd at ${BIN}; build it (daemon/README.md) or set RAVENRYD`); process.exit(1); }
@@ -138,6 +145,8 @@ execFileSync(BIN, ['serve', '--detach'], { env: localEnv(WORK) });
 const extraEnv = { MC_NO_EVENTS: '0', RAVENRY_SSH: path.join(FAKE, 'ssh'), RAVENRY_DAEMON_BIN: BIN, RAVENRY_STATE_DIR: path.join(WORK, 'hub-state'), RAVENRY_MACHINE_RETRY_MS: '300' };
 Object.assign(extraEnv, { RAVENRY_HUB_NAME: 'MacBook Pro' });
 if (E2E) Object.assign(extraEnv, { RAVENRY_TERMINAL: 'ravenry', PATH: `${STAND}:${process.env.PATH}` });
+// MC_NO_STYLED_READ=1: the board without its styled read (the history alone).
+if (process.env.MC_NO_STYLED_READ === '1') extraEnv.MC_NO_STYLED_READ = '1';
 if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
 const hub = await startDemoHub({
   dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false, ...(opt('--hub') ? { hubDir: path.resolve(opt('--hub')) } : {}),
@@ -231,8 +240,18 @@ if (E2E) {
   // Its prompt box, the cursor in it, and each line typed there answered
   // above it as a new entry (escape bytes shown as text), as Claude Code
   // takes a message.
+  // --suggest: the suggestion is dim after the marker, the cursor on its
+  // first character; first under a wait for a background agent.
+  const sug = 'Ship the intro to the testers';
   const loop = [`RULE='${rule}'`,
-    `box() { printf '%s\\n\\342\\235\\257 \\n%s\\033[1A\\r\\033[2C' "$RULE" "$RULE"; }`,
+    SUGGEST
+      ? `box() { printf '%s\\n\\342\\235\\257 \\033[2m%s\\033[0m\\n%s\\033[1A\\r\\033[2C' "$RULE" '${sug}' "$RULE"; }`
+      : `box() { printf '%s\\n\\342\\235\\257 \\n%s\\033[1A\\r\\033[2C' "$RULE" "$RULE"; }`,
+    ...(SUGGEST ? [
+      `printf '\\342\\234\\273 Waiting for 1 background agent to finish\\n%s\\n\\342\\235\\257 \\033[2m%s\\033[0m\\n%s\\n  \\342\\227\\257 general-purpose  Check the intro at three widths   12s\\n' "$RULE" '${sug}' "$RULE"`,
+      'sleep 12',
+      `printf '\\033[5A\\r\\033[J\\342\\234\\273 Worked for 4m 2s \\302\\267 done 11:40 PM\\n\\n'`,
+    ] : []),
     'box',
     'while IFS= read -r l; do',
     `  l=$(printf '%s' "$l" | tr -d '\\033')`,
