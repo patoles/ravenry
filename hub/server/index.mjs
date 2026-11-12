@@ -787,10 +787,13 @@ function briefFor(project) {
   const b = readBrief(p);
   if (!b) return null;
   const dir = path.dirname(p);
+  // The file's time in the URL (v, as the latest picture's): a picture
+  // changed on disk is a new URL, so an app that keeps the pictures it read
+  // by URL (the Mac app's HubClient.picture) reads it again.
   b.pictures = b.pictures
-    .map((pic) => ({ ...pic, abs: path.resolve(dir, pic.path) }))
-    .filter((pic) => fs.existsSync(pic.abs))
-    .map((pic) => ({ path: pic.path, alt: pic.alt || path.basename(pic.path), url: `/api/pic/${encodeURIComponent(project.id)}?p=${encodeURIComponent(pic.path)}` }));
+    .map((pic) => { let st = null; try { st = fs.statSync(path.resolve(dir, pic.path)); } catch {} return { ...pic, st }; })
+    .filter((pic) => pic.st && pic.st.isFile())
+    .map((pic) => ({ path: pic.path, alt: pic.alt || path.basename(pic.path), url: `/api/pic/${encodeURIComponent(project.id)}?p=${encodeURIComponent(pic.path)}&v=${Math.round(pic.st.mtimeMs)}` }));
   return b;
 }
 

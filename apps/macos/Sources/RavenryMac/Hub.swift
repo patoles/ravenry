@@ -17,7 +17,7 @@
 // never with RAVENRY_MAC_HUB_READONLY=1. Its stream is not the app's own
 // (no ?app=1): the Mac notifications stay the Electron app's.
 
-import Foundation
+import AppKit
 
 // MARK: the state, typed as the window reads it
 
@@ -740,6 +740,57 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             let ok = (resp as? HTTPURLResponse)?.statusCode == 200
             DispatchQueue.main.async { done(ok ? d : nil) }
         }.resume()
+    }
+
+    // MARK: pictures, read once (2026-11-12)
+
+    /// A picture already read, by its URL: a view made again on a redraw (the
+    /// panel's latest picture, a pick's pictures) draws it at once and asks
+    /// the hub for nothing. Each URL names one picture: the hub puts the
+    /// file's time in it (pictures.mjs urlFor, index.mjs briefFor), a pick's
+    /// pictures never change, so a new picture is a new URL and is read.
+    /// At most `keepPictures` pictures and `keepPictureBytes` of pixels, the
+    /// ones drawn least lately going first.
+    private var pictures: [String: (img: NSImage, bytes: Int)] = [:]
+    private var pictureOrder: [String] = []
+    private var pictureBytes = 0
+    private var pictureWaits: [String: [(NSImage?) -> Void]] = [:]
+    let keepPictures = 32, keepPictureBytes = 96 << 20
+    /// Every picture URL asked of the hub, in order (the self-test counts them).
+    private(set) var pictureReads: [String] = []
+
+    /// The picture at `path`: at once when it was read before (and `done`
+    /// is not called), else nil, and `done` on the main thread once it is
+    /// read (nil: the hub did not give it). One read at a time per URL.
+    func picture(_ path: String, _ done: @escaping (NSImage?) -> Void) -> NSImage? {
+        if let p = pictures[path] {
+            if pictureOrder.last != path { pictureOrder.removeAll { $0 == path }; pictureOrder.append(path) }
+            return p.img
+        }
+        if pictureWaits[path] != nil { pictureWaits[path]?.append(done); return nil }
+        pictureWaits[path] = [done]
+        pictureReads.append(path)
+        data(path) { [weak self] d in
+            guard let self else { return }
+            let img = d.flatMap(NSImage.init(data:))
+            if let img { self.keepPicture(path, img) }
+            for f in self.pictureWaits.removeValue(forKey: path) ?? [] { f(img) }
+        }
+        return nil
+    }
+
+    private func keepPicture(_ path: String, _ img: NSImage) {
+        // Its pixels' size, decoded (4 bytes a pixel).
+        let px = img.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
+        let bytes = max(px, Int(img.size.width * img.size.height), 1) * 4
+        if let old = pictures[path] { pictureBytes -= old.bytes; pictureOrder.removeAll { $0 == path } }
+        pictures[path] = (img, bytes)
+        pictureOrder.append(path)
+        pictureBytes += bytes
+        while pictureOrder.count > 1, pictureOrder.count > keepPictures || pictureBytes > keepPictureBytes {
+            let gone = pictureOrder.removeFirst()
+            pictureBytes -= pictures.removeValue(forKey: gone)?.bytes ?? 0
+        }
     }
 
     /// POST what the person clicked, as the board's page does.

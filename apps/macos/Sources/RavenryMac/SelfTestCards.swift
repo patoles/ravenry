@@ -230,6 +230,10 @@ extension SelfTestBoard {
         board.pickSession(keyOf("pick"), why: "test")
         check("pick_card_shown", wait(4) { self.card?.kind == "pick" } && card?.tiles.count == 3 && card.map { shows($0, "or press 1, 2, 3") } ?? false)
         check("pick_card_pictures", wait(6) { self.card?.tiles.allSatisfy { $0.image != nil } ?? false })
+        // Drawn again at once through new hub states, each read once (SelfTestThumbs.swift).
+        thumbsRedraw(pickKey: keyOf("pick"))
+        board.pickSession(keyOf("pick"), why: "test")
+        _ = wait(4) { self.card?.kind == "pick" }
         cardPictures("cards-pick", keyOf("pick"))
         useCard("pick", real: 0)
         if let c = card { keyDown(c, "2") }

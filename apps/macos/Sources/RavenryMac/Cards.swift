@@ -824,7 +824,8 @@ final class CheckpointCard: Box {
             img.setAccessibilityLabel(name)
             img.translatesAutoresizingMaskIntoConstraints = false
             img.heightAnchor.constraint(equalTo: img.widthAnchor, multiplier: 10.0 / 16).isActive = true
-            ctx.hub.data("/api/checkpoints/\(id)/variants/\(n)?as=png") { [weak img] d in img?.image = d.flatMap(NSImage.init(data:)) }
+            // Read once (HubClient.picture): a card built again draws them at once.
+            img.image = ctx.hub.picture("/api/checkpoints/\(id)/variants/\(n)?as=png") { [weak img] i in img?.image = i }
             tiles.append(img)
             let frame = Box(ring: "sep", radius: 6)
             frame.translatesAutoresizingMaskIntoConstraints = false

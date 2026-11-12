@@ -73,6 +73,8 @@ final class PanelView: Box {
     private(set) var key = ""
     private(set) var buttons: [String: RButton] = [:]
     private(set) var pictureView: NSImageView?
+    /// The latest picture drawn last, by project: kept on show while a new one is read.
+    private var shownPicture: [String: NSImage] = [:]
 
     init() {
         super.init(fill: "sheet", ring: "sheet-ring", radius: 11)
@@ -453,7 +455,13 @@ final class PanelView: Box {
             img.setAccessibilityLabel(pic["alt"] as? String ?? t("panel.seeLarge"))
             img.onClick = { [weak self] in self?.host?.openPicture(p, pic) }
             pictureView = img
-            if let u = pic["url"] as? String { host?.hub.data(u) { d in img.image = d.flatMap(NSImage.init(data:)) } }
+            // Read once (HubClient.picture): drawn again at once on every redraw. A new picture (a new URL)
+            // is read, the one drawn before staying until it comes.
+            if let u = pic["url"] as? String {
+                let pid = p.id
+                if let i = host?.hub.picture(u, { [weak self, weak img] i in img?.image = i; self?.shownPicture[pid] = i }) { img.image = i; shownPicture[pid] = i }
+                else { img.image = shownPicture[pid] }
+            }
             out.append(sec(t("panel.latestPicture"), right: gallery, [img, (pic["alt"] as? String).map { label($0, Fonts.pt(12), "tx3", lines: 2) }]))
         }
         if let b = p.brief, (b["goal"] as? String) != nil || (b["next"] as? String) != nil {

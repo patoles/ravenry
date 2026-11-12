@@ -148,9 +148,10 @@ final class PickerView: Box, BackLinked {
             id = cid; picked = nil; circling = false; region = nil; pin = ""; editingPin = false; busy = false; error = nil
             extra.stringValue = ""; pictures = [:]
             let n = (cp["variants"] as? [Any] ?? []).count
+            // Read once (HubClient.picture): the card's pictures are drawn here at once.
             for i in 0..<n {
-                hub?.data("/api/checkpoints/\(cid ?? "")/variants/\(i)?as=png") { [weak self] d in
-                    guard let self, self.id == cid, let img = d.flatMap(NSImage.init(data:)) else { return }
+                pictures[i] = hub?.picture("/api/checkpoints/\(cid ?? "")/variants/\(i)?as=png") { [weak self] img in
+                    guard let self, self.id == cid, let img else { return }
                     self.pictures[i] = img
                     if i < self.images.count { self.images[i].image = img }
                 }
