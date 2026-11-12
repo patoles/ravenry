@@ -12,6 +12,7 @@
 //   toast TITLE          the newest toast's button of that title, pressed
 //   scroll N             N scroll-wheel lines over the pane in front, as a mouse's wheel sends them
 //   activate             NSApplication.didBecomeActiveNotification, as a Dock click brings the app forward
+//   closewindows         every window closed as its close button does (performClose); the app runs on with none
 //   learn KEY            Learn opened, and its card KEY's button (Try it) pressed through Accessibility
 //
 // A release takes none: it quits on --offscreen (Gate.swift).
@@ -69,6 +70,10 @@ extension AppDelegate {
         case "activate":
             NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
             ans["ok"] = true
+        case "closewindows":
+            for w in windows { w.window.performClose(nil) }
+            ans["ok"] = true
+            ans["left"] = windows.filter { !$0.closing }.count
         case "menu":
             let items = NSApp.mainMenu?.items.first?.submenu?.items ?? []
             if let i = items.firstIndex(where: { $0.title == arg }), let m = NSApp.mainMenu?.items.first?.submenu {

@@ -364,6 +364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "sidebarEmpty": self.board?.sidebar.emptyText ?? "",
                 "hub": ["url": self.hub?.url ?? "", "reachable": self.hub?.reachable ?? false, "generatedAt": self.hub?.hubRaw?["generatedAt"] as? String ?? ""],
                 "panes": ws.boxes.count, "find": v?.findBarVisible ?? false,
+                "windows": self.windows.filter { !$0.closing }.map { rw in ["visible": rw.window.isVisible, "miniaturized": rw.window.isMiniaturized, "onScreen": NSScreen.screens.contains { $0.frame.intersects(rw.window.frame) }] },
                 "sidebar": (self.board?.sidebar.rows.keys).map { Array($0).sorted() } ?? [],
                 "cpwords": (self.hub?.hubRaw?["checkpoints"] as? [[String: Any]] ?? []).map { ["id": $0["id"] ?? "", "words": $0["words"] ?? NSNull()] },
                 "focused": ["pane": v?.pane ?? "", "frames": v?.screen.frames ?? 0, "draws": v?.drawCount ?? 0, "text": v?.screen.text() ?? ""],

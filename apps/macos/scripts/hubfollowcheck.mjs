@@ -187,7 +187,7 @@ try {
   const second = spawnSync(EXE, ['--offscreen'], { env: { ...env, RAVENRY_MAC_REPORT: path.join(tmp, 'report2.json'), RAVENRY_TEST_SINGLE: '1' }, timeout: 15000 });
   check('single_second_quits', second.status === 0 && Date.now() - t5 < 5000, `exit ${second.status} after ${Date.now() - t5} ms`);
   check('single_logged', /launch: another Ravenry with this data folder runs \(pid \d+\): it comes to the front, and this one quits/.test(appLog()), (appLog().match(/launch: another Ravenry.*/) || [''])[0]);
-  const heard = await until(5000, () => /launch: a second Ravenry started and quit; this one would come to the front/.test(appLog()));
+  const heard = await until(5000, () => /launch: a second Ravenry started and quit; this one (would )?comes? to the front/.test(appLog()));
   check('single_first_hears', heard && app.exitCode === null, `the first still runs: ${app.exitCode === null}`);
 
   // HUB-002: the window quits, the board's alert still reaches the phone channel.

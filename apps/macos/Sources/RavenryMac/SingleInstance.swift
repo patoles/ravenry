@@ -14,8 +14,10 @@
 // A development build (no build.json: it sets nothing up) and a window off
 // every screen (the bench, the self-tests) take no lock, unless a test asks
 // (RAVENRY_TEST_SINGLE=1, the twin only: Gate drops it in a release); then
-// the first one writes what it would do to app.log and stays where it is,
-// off every screen, never taking the focus from the person's screen.
+// the first one does what a Dock click does (a window again if none is
+// open, restored if minimised, ordered in front) but is not activated, its
+// window stays off every screen, never taking the focus from the person's
+// screen, and app.log says what it did (scripts/singlecheck.mjs).
 
 import AppKit
 
@@ -60,14 +62,22 @@ enum SingleInstance {
         guard fd >= 0 else { return }
         DistributedNotificationCenter.default().addObserver(forName: note, object: dataFolder, queue: .main) { [weak app] _ in
             guard let app else { return }
+            // As a Dock click: a window again if none is open, restored if minimised, in front.
+            let had = app.windows.count
+            _ = app.applicationShouldHandleReopen(NSApp, hasVisibleWindows: !app.windows.isEmpty)
+            let w = (app.current ?? app.windows.first)?.window
+            if let w, w.isMiniaturized { w.deminiaturize(nil) }
             if test && app.options.offscreen {
-                AppInstall.shared.log("launch: a second Ravenry started and quit; this one would come to the front (off every screen in a test: it stays)")
+                // A test off every screen: the same steps, but the app is not activated and its window
+                // stays where it is drawn, off every screen (never the person's focus or screen).
+                w?.orderFront(nil)
+                let what = w.map { "\($0.isVisible ? "visible" : "not visible")\($0.isMiniaturized ? ", minimised" : ""), ordered in front of the app's windows" } ?? "no window"
+                AppInstall.shared.log("launch: a second Ravenry started and quit; this one comes to the front (off every screen in a test, not activated): \(had == 0 ? "a window made again" : "its window") \(what), \(app.windows.count) window(s)")
                 return
             }
             AppInstall.shared.log("launch: a second Ravenry started and quit; this one comes to the front")
-            _ = app.applicationShouldHandleReopen(NSApp, hasVisibleWindows: !app.windows.isEmpty)
             NSApp.activate(ignoringOtherApps: true)
-            app.windows.first?.window.makeKeyAndOrderFront(nil)
+            w?.makeKeyAndOrderFront(nil)
         }
     }
 }
