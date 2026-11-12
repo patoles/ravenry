@@ -731,7 +731,8 @@ async function pageChecks() {
           await pg.evaluate(() => { const r = document.querySelector('#m-folder-row'); r.scrollIntoView({ block: 'start' }); const m = document.querySelector('.modal-back'); if (m) m.scrollTop = Math.max(0, m.scrollTop - 90); });
           await pg.screenshot({ path: path.join(SH, `newproject-${tag}-${theme}.png`) });
         }
-        await pg.click('#modal-close');
+        // Its close: the x, or at phone width the back arrow at the top left (a full screen there).
+        await pg.click(tag === 'phone' ? '#modal .m-back' : '#modal-close');
         // ---- the New session switch's line
         await pg.click('#ns');
         await pg.fill('#compose', 'Fix the end screen on small phones');

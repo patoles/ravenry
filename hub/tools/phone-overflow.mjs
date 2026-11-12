@@ -92,7 +92,7 @@ const VIEWS = [
   { name: 'rules-reword', q: '#/rules', wait: '.yr-card', steps: [click('[data-rtab="sug"]', '.quiet-line'), async (p) => { if (await p.$('[data-rep-act="open"]')) await click('[data-rep-act="open"]', '.pv')(p); }] },
   { name: 'rules-memory', q: '#/rules', wait: '.yr-card', steps: [click('[data-rtab="sug"]', '.quiet-line'), click('[data-act="rules-more"]', '#r-rows .card, #r-rows .err-line')] },
   { name: 'ship', q: '#/ship', wait: '#s-repos .card' },
-  { name: 'sessions', q: '#/projects', wait: '#pchips .pchip', steps: [click('#memchip-m', '#sessions-view h1')] },
+  { name: 'sessions', q: '#/projects', wait: '#pchips .pchip', steps: [click('#memchip-m', '#sessions-view')] },
   { name: 'new-project', q: '?modal=new#/projects', wait: '#modal-form' },
   // The Folder row on Existing, a long name typed, every known folder shown.
   { name: 'new-project-existing', q: '?modal=new#/projects', wait: '#modal-form', steps: [async (p) => { await p.fill('[name="name"]', 'A rather long project name to test the footer'); }, click('[data-fmode="existing"]', '.frow'), async (p) => { if (await p.$('[data-act="folders-more"]')) await click('[data-act="folders-more"]')(p); }] },
@@ -108,8 +108,8 @@ const VIEWS = [
     { name: 'plan-card', q: `#${gatePid}`, wait: '#d-plan .pl-card', also: ['#d-ask'] },
     { name: 'plan-full', q: `#/plan/${gatePid}`, wait: '.pl-flow' },
   ] : []),
-  ...(sheetPid ? [{ name: 'plan-sheet', q: `#${sheetPid}`, wait: '[data-act="plan-new"]', steps: [click('[data-act="plan-new"]', '#plan-phone .strip')] }] : []),
-  ...(sheetPid && attach ? [{ name: 'plan-sheet-files', q: `#${sheetPid}`, wait: '[data-act="plan-new"]', steps: [click('[data-act="plan-new"]', '#plan-phone .strip'), async (page) => {
+  ...(sheetPid ? [{ name: 'plan-sheet', q: `#${sheetPid}`, wait: '[data-act="plan-new"]', steps: [click('[data-act="plan-new"]', '#plan-phone .body')] }] : []),
+  ...(sheetPid && attach ? [{ name: 'plan-sheet-files', q: `#${sheetPid}`, wait: '[data-act="plan-new"]', steps: [click('[data-act="plan-new"]', '#plan-phone .body'), async (page) => {
     const saved = async () => { for (let i = 0; i < 100 && await page.$('.chip:has-text("Saving")'); i++) await page.waitForTimeout(100); };
     for (const box of ['goal', 'chat']) if (await page.$(`#plan-phone [data-plfile="${box}"]`)) { await page.setInputFiles(`#plan-phone [data-plfile="${box}"]`, [attach, attach]); await saved(); }
     if (await page.$('#plan-phone .cv-s [data-pl="comment"]')) { await page.click('#plan-phone .cv-s [data-pl="comment"]'); await page.setInputFiles('#plan-phone [data-plfile="comment"]', [attach]); await saved(); }

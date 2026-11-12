@@ -1176,3 +1176,8 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
 }
 .pl-h-p{display:none}
 @media (max-width: 700px){ .plan-phone .pl-h-d{display:none} .plan-phone .pl-h-p{display:inline} }
+@media (max-width: 700px){
+  /* An open idea on a phone: a full screen of its own (its back arrow and name in the top bar). */
+  .mc.pn-idea .ideas-main{display:none !important}
+  .mc.pn-idea .ideas-panel{padding:8px 16px 36px !important;max-width:none !important}
+}
