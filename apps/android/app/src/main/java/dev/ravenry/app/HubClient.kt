@@ -14,6 +14,7 @@ import java.io.IOException
 import java.security.SecureRandom
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
@@ -47,7 +48,15 @@ class HubReply(val status: Int, val text: String)
 /**
  * Every byte between the phone and the hub: TLS with the pinned key, the
  * device token on every request, `X-Ravenry: 1` on every write. Tries the
- * computer's addresses in order, the last one that answered first.
+ * computer's addresses in order: a home address (not a tailnet host) before
+ * Tailscale, the one that answered last first within each, so at home the
+ * phone goes straight to the Mac even with Tailscale on (docs/PHONE.md, The
+ * connection). A home address gets [HOME_CONNECT_MS] to accept a connection
+ * (a home network answers in tens of ms), and one that did not answer is
+ * tried after Tailscale until it answers again or the network changes
+ * ([networkChanged]), so away from home it costs requests nothing; the
+ * connection watch's check ([probe], every 30 s) tries the home addresses
+ * first every time, so coming home switches back within one check.
  */
 class HubClient(
     hosts: List<String>,
@@ -60,6 +69,9 @@ class HubClient(
     private val skip: (String) -> Boolean = { false },
     /** Names resolved another way (a debug build's stand-in tailnet name: DebugNet). */
     private val dns: okhttp3.Dns? = null,
+    /** A host only the tailnet reaches (Reach.tailnetHost); every other is a home one. */
+    private val isTailnet: (String) -> Boolean = Reach::tailnetHost,
+    homeConnectMs: Long = HOME_CONNECT_MS,
 ) {
     val trust = PinnedTrust(pin)
     private val hosts = hosts.distinct()
@@ -85,30 +97,53 @@ class HubClient(
 
     private val streaming: OkHttpClient = http.newBuilder().readTimeout(45, TimeUnit.SECONDS).build()
     private val quick: OkHttpClient = http.newBuilder().callTimeout(5, TimeUnit.SECONDS).build()
+    // The same, with the home address's short time to connect.
+    private val httpHome = http.newBuilder().connectTimeout(homeConnectMs, TimeUnit.MILLISECONDS).build()
+    private val streamingHome = streaming.newBuilder().connectTimeout(homeConnectMs, TimeUnit.MILLISECONDS).build()
+    private val quickHome = quick.newBuilder().connectTimeout(homeConnectMs, TimeUnit.MILLISECONDS).build()
+    private fun pick(h: String, home: OkHttpClient, other: OkHttpClient) = if (isTailnet(h)) other else home
+
+    /** Home addresses that did not answer, tried after Tailscale until they answer or the network changes. */
+    private val homeDown: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** The phone's network changed (joined or left a Wi-Fi): every home address is worth a first try again. */
+    fun networkChanged() = homeDown.clear()
+
+    private fun answered(h: String) {
+        homeDown.remove(h)
+        if (h != host) { host = h; onHost(h) }
+    }
+
+    private fun failed(h: String) { if (!isTailnet(h)) homeDown.add(h) }
+
+    /** A key that is not the pinned one: that address is not this computer (another device on a strange network may hold it). */
+    private fun pinRefused(e: IOException) = e is javax.net.ssl.SSLPeerUnverifiedException || e.cause is CertificateException
 
     /**
      * How the Mac answers now: GET /api/phone/hello on the first address that
      * answers within 5 s, and the round trip in ms. Throws when none does.
      */
     fun probe(): Pair<String, Long> {
-        val order = order()
+        val order = order(check = true)
         if (order.isEmpty()) throw IOException("No address can answer now")
         var last: IOException? = null
+        var pin: IOException? = null
         for (h in order) {
             val t = System.nanoTime()
             try {
-                quick.newCall(build(h, "GET", "/api/phone/hello", null, emptyMap())).execute().use { r ->
+                pick(h, quickHome, quick).newCall(build(h, "GET", "/api/phone/hello", null, emptyMap())).execute().use { r ->
                     if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
                 }
                 val ms = (System.nanoTime() - t) / 1_000_000
-                if (h != host) { host = h; onHost(h) }
+                answered(h)
                 return h to ms
             } catch (e: IOException) {
                 last = e
-                if (e is javax.net.ssl.SSLPeerUnverifiedException || e.cause is CertificateException) throw e
+                failed(h)
+                if (pinRefused(e)) pin = e
             }
         }
-        throw last ?: IOException("No address to try")
+        throw pin ?: last ?: IOException("No address to try")
     }
 
     fun url(h: String, path: String): String {
@@ -126,8 +161,20 @@ class HubClient(
         return b.build()
     }
 
-    /** The hosts in the order they are tried now: the last that answered first, those not worth a try left out. */
-    fun order(): List<String> = (listOf(host) + hosts.filter { it != host }).filter { !skip(it) }
+    /**
+     * The hosts in the order they are tried now: the home addresses, then
+     * the tailnet ones, the last that answered first within each; a home
+     * address that did not answer goes after Tailscale (unless [check]: the
+     * connection watch's check tries every home address first); those not
+     * worth a try (Tailscale off) left out.
+     */
+    fun order(check: Boolean = false): List<String> {
+        val (home, tail) = hosts.partition { !isTailnet(it) }
+        val last = { l: List<String> -> if (host in l) listOf(host) + l.filter { it != host } else l }
+        val h = last(home)
+        val first = if (check) h else h.filter { it !in homeDown }
+        return (first + last(tail) + (h - first.toSet())).filter { !skip(it) }
+    }
 
     /** The host a stream opens on: the last that answered, unless it is not worth a try now. */
     private fun streamHost(): String = order().firstOrNull() ?: host
@@ -137,10 +184,11 @@ class HubClient(
         val order = order()
         if (order.isEmpty()) throw IOException("No address can answer now")
         var last: IOException? = null
+        var pin: IOException? = null
         for (h in order) {
             try {
-                val r = http.newCall(build(h, method, path, body, headers)).execute()
-                if (h != host) { host = h; onHost(h) }
+                val r = pick(h, httpHome, http).newCall(build(h, method, path, body, headers)).execute()
+                answered(h)
                 if (r.code == 401) {
                     val peek = runCatching { r.peekBody(4096).string() }.getOrDefault("")
                     if (peek.contains("\"signedOut\":true")) onSignedOut()
@@ -148,11 +196,12 @@ class HubClient(
                 return r
             } catch (e: IOException) {
                 last = e
-                // A key that is not the pinned one is not a host that is down.
-                if (e is javax.net.ssl.SSLPeerUnverifiedException || e.cause is CertificateException) throw e
+                failed(h)
+                // A key that is not the pinned one: said when no other address answers.
+                if (pinRefused(e)) pin = e
             }
         }
-        throw last ?: IOException("No address to try")
+        throw pin ?: last ?: IOException("No address to try")
     }
 
     /** A JSON call: `body` is JSON text or null. */
@@ -182,8 +231,10 @@ class HubClient(
         Thread({
             var wait = 1000L
             while (!holder.closed) {
+                var sh: String? = null
                 try {
-                    val c = streaming.newCall(build(streamHost(), "GET", path, null, mapOf("Accept" to "text/event-stream")))
+                    val h = streamHost().also { sh = it }
+                    val c = pick(h, streamingHome, streaming).newCall(build(h, "GET", path, null, mapOf("Accept" to "text/event-stream")))
                     holder.call = c
                     c.execute().use { r ->
                         if (r.code == 401) { onSignedOut(); holder.closed = true; link(false, "signed out"); return@use }
@@ -209,6 +260,7 @@ class HubClient(
                     if (!holder.closed) link(false, "the stream ended")
                 } catch (e: Exception) {
                     if (holder.closed) break
+                    if (e is IOException) sh?.let(::failed)
                     link(false, e.message)
                     // Another address may answer now (the Wi-Fi went, Tailscale is up).
                     runCatching { call("GET", "/api/phone/hello") }
@@ -220,12 +272,21 @@ class HubClient(
     }
 
     fun socket(path: String, protocol: String?, listener: WebSocketListener): WebSocket {
-        val b = build(streamHost(), "GET", path, null, if (protocol != null) mapOf("Sec-WebSocket-Protocol" to protocol) else emptyMap())
-        return http.newWebSocket(b, listener)
+        val h = streamHost()
+        val b = build(h, "GET", path, null, if (protocol != null) mapOf("Sec-WebSocket-Protocol" to protocol) else emptyMap())
+        return pick(h, httpHome, http).newWebSocket(b, listener)
     }
 
     companion object {
         val JSON = "application/json".toMediaType()
+
+        /**
+         * How long a home address gets to accept a connection. On a home
+         * network the Mac accepts in tens of ms (Wi-Fi power save included);
+         * away, an address that does not exist there either fails at once or
+         * never answers, and this caps what the 30 s check spends on it.
+         */
+        const val HOME_CONNECT_MS = 1500L
 
         fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }, dns: okhttp3.Dns? = null): HubClient {
             val order = listOfNotNull(p.lastHost) + p.hosts

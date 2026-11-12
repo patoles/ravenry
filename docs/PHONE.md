@@ -119,6 +119,20 @@ Tailscale app. A phone's browser reads its own address the same way (a
 `.ts.net` name or 100.64.0.0/10 is Tailscale) and its live stream for
 Reconnecting and Offline; the Mac's own board has no chip.
 
+Home Wi-Fi first (`HubClient.order`): whenever a home address (any that is
+not a tailnet host) answers, the phone goes through it, Tailscale only when
+none does, whichever answered last. A home address gets 1.5 s to accept a
+connection (a home network answers in tens of ms); one that did not answer
+is tried after Tailscale until it answers again or the phone's network
+changes, so away from home it costs requests nothing (measured: 2 ms a
+request after the first). The 30 s check tries the home addresses first
+every time, so coming home switches the path and the chip to Home Wi-Fi
+within one check (sooner when the phone joins the Wi-Fi: the network
+callback checks at once), leaving switches to Tailscale, and the stream
+reopens on the new path (`HubOrderTest`; on the emulator both answering is
+Home Wi-Fi, the home address dropped is Tailscale in 29 s, back is Home
+Wi-Fi in 29 s).
+
 ### The launch
 
 On a cold start the app draws itself in ink (the approved Ink, variant A,

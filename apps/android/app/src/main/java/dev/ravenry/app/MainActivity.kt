@@ -718,8 +718,8 @@ class MainActivity : FragmentActivity() {
             if (changed || s == "up") emit()
         }
 
-        fun start() { stopped = false; schedule(0) }
-        fun stop() { stopped = true; main.removeCallbacks(tick) }
+        fun start() { stopped = false; Hub.onNetwork = { main.post { if (!stopped) schedule(500) } }; schedule(0) }
+        fun stop() { stopped = true; Hub.onNetwork = null; main.removeCallbacks(tick) }
         private fun schedule(ms: Long) { main.removeCallbacks(tick); if (!stopped) main.postDelayed(tick, ms) }
 
         fun linkUp() {
@@ -752,8 +752,11 @@ class MainActivity : FragmentActivity() {
                     probing = false
                     r.fold({ (host, ms) ->
                         rtt = ms; fails = 0
+                        val was = via
                         via = Reach.via(host, c!!.allHosts)
                         lastReach = null
+                        // The path changed (home again, or away): the stream follows it now.
+                        if (state == "up" && was != via && eventsWanted) startEvents()
                         if (state != "up") {
                             set("up")
                             ink?.answered()

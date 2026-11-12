@@ -27,6 +27,7 @@ class RavenryApp : Application() {
         // only while the app is in front, so it starts then and keeps running.
         // A sign-out the computer has not heard yet: told now, if it answers.
         Revokes.flush(this)
+        Hub.watchNetwork(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) { if (Store.get(this@RavenryApp).paired() != null && Store.get(this@RavenryApp).stayConnected) ConnectionService.start(this@RavenryApp) }
         })
@@ -56,6 +57,30 @@ object Hub {
     }
 
     fun reset() { client = null; forToken = null }
+
+    /** Told when the phone joins or leaves a network (the connection watch checks at once). */
+    @Volatile var onNetwork: (() -> Unit)? = null
+
+    /**
+     * Joining or leaving a Wi-Fi (or the mobile network): every home address
+     * is worth a first try again, and the connection watch checks now rather
+     * than at its next 30 s check (docs/PHONE.md, The connection).
+     */
+    fun watchNetwork(context: Context) {
+        val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        // A plain request leaves VPNs out: the networks under Tailscale, which change when the phone comes home.
+        val req = android.net.NetworkRequest.Builder().addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) = changed()
+            override fun onLost(network: android.net.Network) = changed()
+        }
+        runCatching { cm.registerNetworkCallback(req, cb) }
+    }
+
+    private fun changed() {
+        client?.networkChanged()
+        onNetwork?.invoke()
+    }
 }
 
 /**
