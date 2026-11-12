@@ -213,7 +213,7 @@ if (args.includes('--hold')) {
   const t = setInterval(() => { if (fs.existsSync(path.join(WORK, 'go'))) { clearInterval(t); openCheckpoints(); console.log('checkpoints opened'); } }, 300);
 } else openCheckpoints();
 
-const info = { url: hub.url, port: PORT, runtime: RT, home: hub.home, phone: null, wide: null };
+const info = { url: hub.url, pid: hub.pid, port: PORT, runtime: RT, home: hub.home, phone: null, wide: null };
 if (E2E) {
   // portfolio's session in a 140 x 40 pane, as a Mac window would size it.
   const folder = path.join(hub.home, 'Projects', 'portfolio');

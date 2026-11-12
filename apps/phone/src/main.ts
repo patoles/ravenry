@@ -83,6 +83,13 @@ export function sheet(title: string | null, choices: { label: string; danger?: b
     const el = h('div.sheet-bg', { on: { click: (e: Event) => { if (e.target === e.currentTarget) close(null); } } },
       h('div.sheet', title ? h('div.sheet-t', title) : null,
         choices.map((c, i) => h(`button.sheet-r${c.danger ? '.danger' : ''}${c.on ? '.on' : ''}`, { on: { click: () => close(i) } }, c.label))));
+    // Android's Back closes it (main's back handler: openSheet), and so does a swipe down.
+    (el as HTMLElement & { close?: () => void }).close = () => close(null);
+    const card = el.querySelector('.sheet') as HTMLElement;
+    let y0 = -1, dy = 0;
+    card.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; dy = 0; }, { passive: true });
+    card.addEventListener('touchmove', (e) => { if (y0 < 0) return; dy = Math.max(0, e.touches[0].clientY - y0); card.style.transform = `translateY(${dy}px)`; }, { passive: true });
+    card.addEventListener('touchend', () => { y0 = -1; if (dy > 80) close(null); else card.style.transform = ''; });
     document.body.appendChild(el);
   });
 }
@@ -96,6 +103,9 @@ async function main(): Promise<void> {
   hub.watch(() => screen?.update());
   sh.on('open', (m) => openAlert(m.alert as Alert));
   sh.on('back', () => {
+    // A sheet on top closes first; then one screen up.
+    const open = [...document.querySelectorAll('.sheet-bg')].pop() as (HTMLElement & { close?: () => void }) | undefined;
+    if (open && open.close) { open.close(); void sh.call('back.done', { handled: true }).catch(() => {}); return; }
     const handled = canGoBack();
     if (handled) back();
     void sh.call('back.done', { handled }).catch(() => {});

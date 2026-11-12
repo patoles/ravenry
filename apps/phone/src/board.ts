@@ -12,7 +12,16 @@
 // - Run on a command asks for a fingerprint first (as in the shade).
 // - The board's menu gets This phone (the app's own settings: window.ravenryApp);
 //   the Mac's bell and phone button are the Mac's and stay hidden.
-// - Back closes the full-screen live screen or a sheet, else leaves.
+// - Back goes one level up: the board's own window.ravenryBack (a layer
+//   closes with its own close control, a screen goes back to its
+//   destination, a destination to Projects); at home the app leaves.
+// - The connection (docs/PHONE.md, The connection): the shell's `conn`
+//   events (the path in use, up, reconnecting or offline, since when, the
+//   round trip) go to the board as window.ravenryApp.conn and the
+//   ravenry:conn event, for its chip in the top bar.
+// - The launch (docs/PHONE.md, The launch): once the board has drawn its top
+//   bar, the shell learns where the bar's mark is (ink.ready), for the
+//   mark's flight out of the splash.
 // - An alert tapped opens its checkpoint (the app's full-screen screens
 //   for a secret, a pick or a drive) or its project.
 // - When the computer cannot be reached, a bar says why in plain words
@@ -22,7 +31,14 @@
 import { connect, b64 } from './shell.ts';
 import type { Alert, Shell } from './shell.ts';
 
-declare global { interface Window { ravenryApp?: { openCheckpoint(id: string): void; openSettings(): void; platform: string } } }
+/** What the shell says about the connection to the Mac (MainActivity's ConnWatch). */
+export interface Conn { state: 'up' | 'reconnecting' | 'offline'; via: string; since: number | null; rtt: number | null; reason?: string | null; words?: string | null; mac?: string | null }
+declare global {
+  interface Window {
+    ravenryApp?: { openCheckpoint(id: string): void; openSettings(): void; openTailscale(): void; reconnect(): void; platform: string; conn?: Conn | null };
+    ravenryBack?: () => boolean;
+  }
+}
 
 const ready: Promise<Shell> = connect();
 
@@ -44,7 +60,16 @@ const PHONE = '/phone/index.html';
 const openCheckpoint = (id: string): void => { location.href = `${PHONE}#/cp/${encodeURIComponent(id)}`; };
 /** The app's own settings (this phone's pairing, push, Sign out): the board's menu, This phone. */
 const openSettings = (): void => { location.href = `${PHONE}#/settings`; };
-window.ravenryApp = { openCheckpoint, openSettings, platform: 'android' };
+window.ravenryApp = {
+  openCheckpoint, openSettings, platform: 'android', conn: null,
+  openTailscale: () => { void ready.then((sh) => sh.call('open.tailscale')).catch(() => {}); },
+  reconnect: () => { void ready.then((sh) => sh.call('conn.reconnect')).catch(() => {}); },
+};
+function setConn(c: Conn | null, mac: string | null): void {
+  if (!window.ravenryApp) return;
+  window.ravenryApp.conn = c ? { ...c, mac: c.mac || mac } : null;
+  window.dispatchEvent(new CustomEvent('ravenry:conn'));
+}
 
 async function bodyBytes(input: RequestInfo | URL, init?: RequestInit): Promise<Uint8Array | null> {
   const b = init && 'body' in init ? init.body : input instanceof Request ? await input.clone().arrayBuffer() : null;
@@ -204,6 +229,9 @@ function openAlert(a: Alert | null | undefined): void {
  * at home the app leaves.
  */
 function goBack(): boolean {
+  // The board's own (hub/public/app.js phoneBack): any layer, any screen.
+  if (typeof window.ravenryBack === 'function') return window.ravenryBack();
+  // An older board: what it had.
   if (history.state && (history.state as { lvFull?: number }).lvFull) { history.back(); return true; }
   const close = document.querySelector('#pmenu [data-act="pn-menu-close"], #idle-sheet [data-idle-close], #modal [data-close], #modal .x, #pbar [data-act="pn-back"]') as HTMLElement | null;
   if (close) { close.click(); return true; }
@@ -231,6 +259,24 @@ function start(sh: Shell): void {
   new MutationObserver(paintBars).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   addEventListener('load', paintBars);
   paintBars();
+  // The connection, for the board's chip.
+  const mac = sh.hello.hub && sh.hello.hub.name ? sh.hello.hub.name : null;
+  sh.on('conn', (m) => setConn(m as unknown as Conn, mac));
+  void sh.call<Conn | null>('conn.now').then((c) => setConn(c, mac)).catch(() => {});
+  // The launch: where the top bar's mark is, once the board drew it.
+  const mark = () => document.querySelector('#pbar .pn-ttl svg') as SVGElement | null;
+  const tellMark = (): boolean => {
+    const el = mark();
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    if (!r.width) return false;
+    void sh.call('ink.ready', { x: r.x, y: r.y, w: r.width, h: r.height, dpr: devicePixelRatio, dark: !document.body.classList.contains('light') }).catch(() => {});
+    return true;
+  };
+  if (!tellMark()) {
+    const mo = new MutationObserver(() => { if (tellMark()) mo.disconnect(); });
+    mo.observe(document.body, { childList: true, subtree: true });
+  }
   if (sh.hello.pending) openAlert(sh.hello.pending);
   try { const t = sessionStorage.getItem('rv-toast'); if (t) { sessionStorage.removeItem('rv-toast'); toast(t); } } catch { /* none */ }
   void sh.call<Reach | null>('reach.now').then((r) => { if (r) showReach(sh, r); }).catch(() => {});

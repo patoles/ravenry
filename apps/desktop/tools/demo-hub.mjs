@@ -259,6 +259,8 @@ export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, pan
   if (!st || !st.generatedAt || child.exitCode !== null || child.signalCode !== null) { child.kill(); throw new Error('the demo board did not start:\n' + log.slice(-2000)); }
 
   return {
+    /** The hub's process, for a check that stops and resumes it (phone-e2e's connection chip). */
+    pid: child.pid,
     url, home: HOME, root: ROOT, log: () => log, sessions, fake: FAKE, ps: PS,
     state: async () => (await fetch(url + '/api/state')).json(),
     /** A working session stops on a question: a checkpoint arrives. */
