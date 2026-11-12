@@ -168,6 +168,7 @@ final class SelfTest {
         settingsApplied()
         termItems()
         termA()
+        reclaim()
         tabsAndSplits()
         check("general_pasteboard_untouched", NSPasteboard.general.changeCount == generalChanges)
     }
