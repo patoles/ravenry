@@ -857,6 +857,10 @@ if (PROOFS) {
 if (WRITE) { try { fs.writeFileSync(path.join(OUT, 'hub.log'), hub.log()); } catch { /* gone */ } proxy.close(); }
 // The demo hub's own log, kept beside the app's.
 try { fs.writeFileSync(path.join(tmp, 'hub.log'), hub.log()); } catch { /* none */ }
+// --screen cards: what each agent printed, read before its daemon stops: an
+// agent still waiting (PANEL-027's) then ends with "the daemon is stopping",
+// which a check read after the stop took for an answer (2026-11-12).
+if (SCREEN === 'cards') for (const a of Object.values(AGENTS).flat()) { try { a.seen = fs.readFileSync(a.out, 'utf8').trim(); } catch { a.seen = ''; } }
 hub.stop();
 daemon?.kill();
 for (const d of daemonsUp) d.kill();
@@ -912,7 +916,7 @@ if (DAEMONS) {
 }
 // --screen cards: what each agent got, where it lands (its command's output, the file its program wrote).
 if (SCREEN === 'cards') {
-  const out = (a) => { try { return fs.readFileSync(a.out, 'utf8').trim(); } catch { return ''; } };
+  const out = (a) => a.seen ?? '';
   const file = (a) => { try { return fs.readFileSync(a.file, 'utf8').trim(); } catch { return null; } };
   const [ask0, ask1] = AGENTS.ask, [ap0, ap1, ap2, ap3] = AGENTS.approve, [se0, se1, se2] = AGENTS.secret, [pk0, pk1] = AGENTS.pick;
   const add = (name, ok, detail) => { r.checks.push({ name, ok, detail }); if (!ok) r.failed++; };
