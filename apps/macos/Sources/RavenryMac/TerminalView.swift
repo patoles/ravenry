@@ -55,6 +55,13 @@ final class TerminalView: NSView, NSTextInputClient {
     var onFocus: (() -> Void)?
 
     private var grid = (cols: 0, rows: 0)
+    /// The size the daemon's frames last said (reader thread), and the one
+    /// this view last asked back (main thread): see reclaimSize.
+    private var frameSize = (cols: 0, rows: 0)
+    private var reclaimed: (cols: Int, rows: Int)?
+    /// When this view last asked for a size of its own: the daemon may draw
+    /// at the old size a moment longer (a program's redraw), not a size to take back.
+    private var askedAt: CFTimeInterval = 0
     private var drawPending = false
     private let drawLock = NSLock()
     private var ackedSeq: UInt32 = 0
@@ -177,6 +184,8 @@ final class TerminalView: NSView, NSTextInputClient {
         guard let c = conn, !live else { return }
         live = true
         grid = renderer.grid(for: bounds.size)
+        askedAt = CACurrentMediaTime()
+        reclaimed = nil
         appliedSize = bounds.size
         if metalLayer.drawableSize != pixelSize { metalLayer.drawableSize = pixelSize }
         screen.lock()
@@ -299,8 +308,13 @@ final class TerminalView: NSView, NSTextInputClient {
         let view = (screen.offset, screen.history)
         let seq = screen.seq
         let cur = screen.cursor
+        let fs = (cols: screen.cols, rows: screen.rows)
         let point: InputMarks.Point? = cur.inView ? InputMarks.Point(mark: frameMark, row: screen.history - screen.offset + cur.y, x: cur.x) : nil
         screen.unlock()
+        if fs != frameSize {
+            frameSize = fs
+            DispatchQueue.main.async { [weak self] in self?.reclaimSize(fs) }
+        }
         if let point {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.live else { return }
@@ -670,6 +684,7 @@ final class TerminalView: NSView, NSTextInputClient {
         let g = renderer.grid(for: bounds.size)
         if g != grid {
             grid = g
+            askedAt = CACurrentMediaTime()
             // A hidden pane is resized when it shows (resume).
             if let c = conn, !pane.isEmpty, live, channel != 0 {
                 c.request("pane.resize", ["pane": pane, "cols": g.cols, "rows": g.rows])
@@ -695,6 +710,31 @@ final class TerminalView: NSView, NSTextInputClient {
     }
 
     var gridSize: (cols: Int, rows: Int) { grid }
+
+    /// The pane is drawn at a size this view did not ask for (another
+    /// window resized it, or a phone app before 0.1.42 did, which left the
+    /// Mac's session at a phone's size: Simon's playtest, 2026-11-12): the
+    /// view asks for its own size back, once for each size it sees. A size
+    /// the pane keeps for a test (pane.override) stays, as the daemon keeps
+    /// it; the view does not ask again for the same size.
+    private func reclaimSize(_ fs: (cols: Int, rows: Int)) {
+        guard live, channel != 0, !resizing, let c = conn, !pane.isEmpty, grid.cols > 0, grid.rows > 0, fs.cols > 0 else { return }
+        if fs == grid { reclaimed = nil; return }
+        if let r = reclaimed, r == fs { return }
+        let wait = 1.0 - (CACurrentMediaTime() - askedAt)
+        if wait > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self else { return }
+                self.screen.lock()
+                let now = (cols: self.screen.cols, rows: self.screen.rows)
+                self.screen.unlock()
+                self.reclaimSize(now)
+            }
+            return
+        }
+        reclaimed = fs
+        c.request("pane.resize", ["pane": pane, "cols": grid.cols, "rows": grid.rows])
+    }
 
     // MARK: font size
 
