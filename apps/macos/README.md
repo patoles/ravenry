@@ -653,10 +653,13 @@ stand-ins for ps, lsof, cmux, open and osascript, about two minutes:
   own resources and executable, its hub service running, its daemon with
   three shells, an older daemon from OLD_RAVENRYD with one, its hooks),
   the native app put at the same path: the Electron app's hooks run on it
-  before its first launch; launched, it opens on the running daemon with
-  the three shells as tabs in the saved order, rewrites the service so
-  exactly one hub answers, on its Node, restages the version, starts no
-  daemon, and the older daemon, its shell and its folder stay;
+  before its first launch; launched, it opens the running daemon's three
+  shells as tabs in the saved order, rewrites the service so exactly one
+  hub answers, on its Node, restages the version, and the older daemon,
+  its shell and its folder stay; an Electron app of this version: its
+  daemon is the window's and none starts; an older one (the last Electron
+  release, 0.1.23): this version's daemon starts beside it and the
+  Electron app's version folder is kept;
 - access: while the hub waits for macOS's answer about ~/Documents, the
   sidebar says so.
 

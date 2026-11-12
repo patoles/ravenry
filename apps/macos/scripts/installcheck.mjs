@@ -30,9 +30,13 @@
 //         path: the Electron app's hooks run on it at once, before it is
 //         launched; launched, it restages the version, the service is
 //         rewritten and exactly one hub answers, on its Node; the window
-//         opens on the running daemon (no new one) with its three shells
-//         as tabs in the saved order, the one in front drawn; the older
-//         daemon and its shell keep running and its folder is kept.
+//         opens the Electron app's daemon's three shells as tabs in the
+//         saved order, the one in front drawn; the older daemon and its
+//         shell keep running and its folder is kept. An Electron app of
+//         this version: its daemon is the window's and none starts. An
+//         older one (the last Electron release, 0.1.23): this version's
+//         daemon starts beside it, versions/<this version> is staged and
+//         the Electron app's version folder is kept.
 // access  while the hub waits for macOS's answer about ~/Documents (its
 //         503 on every route, hub/server/access.mjs), the sidebar says so;
 //         while it answers 503 "starting" (before its first read), the
@@ -292,7 +296,14 @@ try {
     step('update: right after the swap, before the native app runs, the Electron app\'s hooks run on the native executable', h0.wrote && h0.status === 0, h0);
     const n = launchNative(a, 'update');
     const r = await until(() => { const x = n.report(); return x && x.tabs.length === 3 && x.focused.draws > 0 && /in-pane-two/.test(x.focused.text) ? x : null; }, 30000);
-    step('update: the window opens on the running daemon (no new one), its three shells as tabs in the saved order, the one in front drawn with what it showed', !!r && r.daemon === EBUILD.version && JSON.stringify(r.tabs.map((t) => t.host)) === JSON.stringify([panes[1], panes[2], panes[0]]) && r.front === panes[1], { report: r && { ...r, focused: { ...r.focused, text: r.focused.text.slice(0, 200) } }, panes });
+    // An Electron app of this version: the window opens on its daemon and
+    // starts none. An older one (the person's last Electron release): the
+    // packaged app starts this version's daemon beside it ("The daemon" in
+    // README.md, UPD-004) and its shells stay tabs on the daemon they run in.
+    const same = EBUILD.version === BUILD.version;
+    step(same ? 'update: the window opens on the running daemon (no new one), its three shells as tabs in the saved order, the one in front drawn with what it showed'
+      : `update: the window opens the older daemon's (${EBUILD.version}) three shells as tabs on it in the saved order, the one in front drawn with what it showed, on this version's daemon started beside it`,
+    !!r && r.daemon === BUILD.version && r.tabs.every((t) => t.daemon === EBUILD.version) && JSON.stringify(r.tabs.map((t) => t.host)) === JSON.stringify([panes[1], panes[2], panes[0]]) && r.front === panes[1], { report: r && { ...r, focused: { ...r.focused, text: r.focused.text.slice(0, 200) } }, panes });
     const done = await until(async () => {
       const lis = listeners(a.port);
       const plist = read(path.join(a.home, 'Library', 'LaunchAgents', `${a.label}.plist`)) || '';
@@ -303,11 +314,18 @@ try {
     const resp = lis.length ? responsibleFor(lis[0]) : 0;
     step('update: macOS holds the app\'s executable responsible for the hub on its Node, so a folder grant Ravenry had still covers the hub\'s reads', !!resp && commandOf(resp).startsWith(a.exe) && resp !== lis[0], { hub: lis[0], responsible: resp, its: resp && commandOf(resp) });
     step('update: the service is rewritten for this build and exactly one hub answers, on the app\'s Node; the Electron hub is gone', !!done && lis.length === 1 && !lis.includes(ePid), { hub: lis.map(commandOf), parent: lis.map((p) => commandOf(parentOf(p))), electronHub: ePid });
-    const v = path.join(a.data, 'versions', EBUILD.version);
-    step('update: versions/<version> holds this build now, bin/ and current/ point at it', json(path.join(v, '.build.json'))?.id === BUILD.id && real(path.join(a.data, 'bin', 'ravenryd')) === real(path.join(v, 'ravenryd')) && real(path.join(a.data, 'current')) === real(v), { marker: json(path.join(v, '.build.json')), current: real(path.join(a.data, 'current')) });
+    const v = path.join(a.data, 'versions', BUILD.version);
+    const ev = path.join(a.data, 'versions', EBUILD.version);
+    step(same ? 'update: versions/<version> holds this build now, bin/ and current/ point at it' : `update: versions/${BUILD.version} holds this build, bin/ and current/ point at it, and the Electron app's versions/${EBUILD.version} is kept`,
+      json(path.join(v, '.build.json'))?.id === BUILD.id && real(path.join(a.data, 'bin', 'ravenryd')) === real(path.join(v, 'ravenryd')) && real(path.join(a.data, 'current')) === real(v) && (same || (json(path.join(ev, '.build.json'))?.id === EBUILD.id && fs.existsSync(path.join(ev, 'ravenryd')))),
+      { marker: json(path.join(v, '.build.json')), electron: same ? undefined : json(path.join(ev, '.build.json')), current: real(path.join(a.data, 'current')) });
     await sleep(5000); // the prune runs 3 s after the service (RAVENRY_PRUNE_AFTER)
     const after = daemonPids(a);
-    step('update: every daemon that ran before still runs (none started), the older one\'s shell too, and its version folder is kept', JSON.stringify(after.sort()) === JSON.stringify(daemonsBefore.sort()) && sockets(a).length === 2 && rvd(a, ['ls', '--socket', oldSock, '--json']).includes(oldPane) && fs.existsSync(path.join(oldDir, 'ravenryd')), { before: daemonsBefore, after, sockets: sockets(a) });
+    const started = after.filter((p) => !daemonsBefore.includes(p));
+    const wantSockets = [...new Set(['ravenryd-0.1.22.sock', `ravenryd-${EBUILD.version}.sock`, `ravenryd-${BUILD.version}.sock`])].sort();
+    step(same ? 'update: every daemon that ran before still runs (none started), the older one\'s shell too, and its version folder is kept'
+      : `update: every daemon that ran before still runs and one of this version started beside them, the older ones' shells too, and the 0.1.22 folder is kept`,
+    daemonsBefore.every((p) => after.includes(p)) && started.length === (same ? 0 : 1) && JSON.stringify(sockets(a)) === JSON.stringify(wantSockets) && rvd(a, ['ls', '--socket', oldSock, '--json']).includes(oldPane) && panes.every((p) => rvd(a, ['ls', '--socket', sock, '--json']).includes(p)) && fs.existsSync(path.join(oldDir, 'ravenryd')), { before: daemonsBefore, after, started, sockets: sockets(a) });
     const h1 = runHook(a, electronHook(a), 'updhook0002');
     const h2 = runHook(a, hubHookCommand(a, node), 'updhook0003');
     step('update: after the update the hooks still run, the Electron app\'s and the ones the hub now writes', h1.wrote && h2.wrote, { h1, h2 });
