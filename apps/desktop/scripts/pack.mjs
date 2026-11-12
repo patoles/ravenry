@@ -134,6 +134,26 @@ function ravenrydVersion(bin) {
   } catch { return null; } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
+// The Go toolchain daemon/go.mod names: `toolchain goX` when it has one,
+// else `go X` (the go command switches to that release, GOTOOLCHAIN=auto).
+function goModToolchain() {
+  const mod = fs.readFileSync(path.join(REPO, 'daemon', 'go.mod'), 'utf8');
+  const tc = /^toolchain\s+(go\S+)\s*$/m.exec(mod);
+  if (tc) return tc[1];
+  const go = /^go\s+(\S+)\s*$/m.exec(mod);
+  if (!go) throw new Error('daemon/go.mod has no go line');
+  return `go${go[1]}`;
+}
+
+const goParts = (g) => String(g).replace(/^go/, '').split(/[^0-9]+/).filter(Boolean).map(Number);
+function goOlder(have, want) {
+  const a = goParts(have), b = goParts(want);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+  }
+  return false;
+}
+
 function stageRavenryd(arch) {
   const goos = platform;
   const dst = path.join(STAGE, 'ravenryd', `${platform}-${arch}`, 'ravenryd');
@@ -156,7 +176,13 @@ function stageRavenryd(arch) {
     if (v.version !== pkg.version || v.os !== goos || v.arch !== goarch) {
       throw new Error(`${dst} is ravenryd ${v.version} for ${v.os}/${v.arch}; the app needs ${pkg.version} for ${goos}/${goarch}`);
     }
-    say(`ravenryd ${v.version} ${v.os}/${v.arch} (libghostty-vt ${v.libghostty_vt})`);
+    // Built with the Go daemon/go.mod asks for or newer (its toolchain line,
+    // else its go line; an older go switches to it, GOTOOLCHAIN=auto): a fix
+    // in Go reaches the app through go.mod, so a ravenryd an older Go built
+    // (a --ravenryd folder made elsewhere) is refused.
+    const goWant = goModToolchain();
+    if (goOlder(v.go, goWant)) throw new Error(`${dst} was built with ${v.go}; daemon/go.mod asks for ${goWant} or newer`);
+    say(`ravenryd ${v.version} ${v.os}/${v.arch} (libghostty-vt ${v.libghostty_vt}, ${v.go})`);
   } else {
     say(`ravenryd for ${platform}-${arch}: ${execFileSync('file', ['-b', dst], { encoding: 'utf8' }).trim()}`);
   }
