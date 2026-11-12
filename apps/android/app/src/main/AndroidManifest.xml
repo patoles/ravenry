@@ -44,7 +44,12 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden|navigation|touchscreen|colorMode|fontScale|fontWeightAdjustment|mcc|mnc">
+            <!-- The board stays loaded through what changes while it is open or in the
+                 background (docs/PHONE.md, The launch): a fold or the cover screen (size,
+                 density, colour mode), a keyboard, a font size, a new network country. A
+                 light or dark switch (uiMode) rebuilds the activity, as the page's colours
+                 follow the theme it is made with; the still mark holds while it reloads. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

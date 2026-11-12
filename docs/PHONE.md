@@ -150,10 +150,25 @@ same on every Android version, rather than an AGSL shader on 13 and a
 circular reveal on 12). When the Mac takes longer: the same drawing,
 "Reaching your Mac..." after 1.4 s, the eye breathing, then the same exit;
 after 12 s the reason words and Try again (the board loads afresh once the
-Mac answers). A warm start (the app in the background) shows none of it;
-with the phone's animations off, the still mark and then the board at once;
-Android 8 to 11 have no splash API, so the window shows the still mark and
-the exit still plays.
+Mac answers). With the phone's animations off, the still mark and then the
+board at once; Android 8 to 11 have no splash API, so the window shows the
+still mark and the exit still plays.
+
+Coming back to the app is never an empty screen (phonefix3, Simon on his
+Flip: "2/3 seconds of blank screen" on a reopen). A hot start (the activity
+and its board still there) shows the board at once. What changes while the
+app is open or in the background no longer rebuilds it: a fold or the cover
+screen, a new size, density or colour mode, a keyboard, the font size, a
+new network country (`configChanges` in the manifest; the WebView lays the
+board out again in place). When the activity is rebuilt anyway (Android
+closed it in the background, the page's renderer was killed, a light or
+dark switch), the board reloads behind the still mark: centred where the
+splash draws it, "Reaching your Mac..." after 1.4 s, and a 150 ms fade as
+soon as the board's bar is laid out (the page's hello says `launch:
+"warm"`, so it reports at once instead of when idle). Measured on the
+emulator with 150 ms of network latency: Don't keep activities, 0.1.43 had
+500 ms of empty window, now the mark for 350 ms and the board at 415 ms;
+density and size changes keep the board (no reload).
 
 ## 2. Reaching the hub
 

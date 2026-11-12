@@ -17,6 +17,8 @@ export interface Hello {
   features: string[];
   /** The alert that opened the app, if one did. */
   pending?: Alert | null;
+  /** The app's launch now: "warm" when the board reloads in a rebuilt activity (the still mark waits, briefly). */
+  launch?: 'cold' | 'warm' | null;
 }
 
 /** A push message's alert (docs/PHONE.md section 5), as far as the page reads it. */

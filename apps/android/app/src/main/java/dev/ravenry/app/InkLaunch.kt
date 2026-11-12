@@ -39,14 +39,29 @@ import kotlin.math.max
  * flies the mark on an arc to the bar's mark while the board is revealed from
  * that point (a soft-edged circle). When the Mac takes longer: the same
  * drawing, "Reaching your Mac..." after 1.4 s, the eye breathing; when it
- * gives up, the reason words with Try again. A warm start has none of it;
- * with the phone's animations off, the still mark and the board at once;
- * Android 8 to 11 show the still mark (the window's background) and the exit
- * still plays.
+ * gives up, the reason words with Try again. With the phone's animations
+ * off, the still mark and the board at once; Android 8 to 11 show the still
+ * mark (the window's background) and the exit still plays.
+ *
+ * A hot start (the activity and its board still there) has none of it. A
+ * warm start (the process lives, but the activity was rebuilt: Android
+ * closed it in the background, or the page's renderer was killed) loads the
+ * board afresh: the still mark holds until the board has drawn (the same
+ * words after 1.4 s), then fades in 150 ms over it; never an empty window.
  */
-class InkLaunch private constructor(private val activity: Activity, private val web: WebView, private val retry: () -> Unit, private val why: () -> String) {
-    /** The launch's start: the process's (the system shows the splash as it starts it). */
-    private val start = android.os.Process.getStartUptimeMillis()
+class InkLaunch private constructor(
+    private val activity: Activity,
+    private val web: WebView,
+    private val retry: () -> Unit,
+    private val why: () -> String,
+    /** The launch's start: the process's on a cold start (the system shows the splash as it starts it), the activity's on a warm one. */
+    private val start: Long,
+    /** A warm start: the board was there a moment ago, so it comes back with a short fade, not the mark's flight. */
+    private val warm: Boolean = false,
+) {
+    /** For the page's hello: "cold" or "warm". */
+    val kind: String get() = if (warm) "warm" else "cold"
+
     private val animationsOff = Settings.Global.getFloat(activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     private var hold: HoldView? = null
         private set
@@ -105,6 +120,11 @@ class InkLaunch private constructor(private val activity: Activity, private val 
         exiting = true
         // Animations off: the board at once, a few frames on (the page's first composite, under the mark).
         if (animationsOff) { h.postOnAnimation { h.postOnAnimation { h.postOnAnimation { remove() } } }; return }
+        if (warm) {
+            Log.i(TAG, "warm exit at ${SystemClock.uptimeMillis() - start} ms")
+            h.fadeOut { remove(); Log.i(TAG, "warm exit done at ${SystemClock.uptimeMillis() - start} ms") }
+            return
+        }
         val dpr = t.optDouble("dpr", 1.0).toFloat()
         val loc = IntArray(2); web.getLocationInWindow(loc)
         // The bar's mark: a 26 px svg of viewBox 100, its glyph at translate(4.77 -2.10) scale(0.8954).
@@ -134,11 +154,13 @@ class InkLaunch private constructor(private val activity: Activity, private val 
         /** The window's own colour from here (the launch theme's background is the still mark). */
         fun plainWindow(activity: Activity) = activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(ContextCompat.getColor(activity, R.color.win)))
 
-        /** Once per process: a warm start shows nothing. */
+        /** Once per process: the splash's Ink plays on the cold start only. */
         @Volatile private var coldDone = false
+        /** The board right after pairing: no launch (pairing was the app's first screen). */
+        @Volatile private var afterPairing = false
 
         /** Another screen of the app came first (pairing): the board after it is no launch. */
-        fun markWarm() { coldDone = true }
+        fun markWarm() { coldDone = true; afterPairing = true }
 
         /**
          * Before the activity's first frame. Returns the launch on a cold start,
@@ -148,12 +170,22 @@ class InkLaunch private constructor(private val activity: Activity, private val 
             val cold = !coldDone
             coldDone = true
             if (!cold) {
-                Log.i(TAG, "warm start: no launch")
-                plainWindow(activity)
                 if (Build.VERSION.SDK_INT >= 31) activity.splashScreen.setOnExitAnimationListener { it.remove() }
-                return null
+                if (afterPairing) {
+                    afterPairing = false
+                    Log.i(TAG, "after pairing: no launch")
+                    plainWindow(activity)
+                    return null
+                }
+                // A warm start: the board loads afresh. The still mark (where the
+                // window's own background and the system's splash draw it) until it has drawn.
+                val ink = InkLaunch(activity, web, retry, why, SystemClock.uptimeMillis(), warm = true)
+                Log.i(TAG, "warm start: the still mark until the board has drawn")
+                ink.attach(-1f, -1f, 288 * activity.resources.displayMetrics.density)
+                content.post { ink.splashEnded() }
+                return ink
             }
-            val ink = InkLaunch(activity, web, retry, why)
+            val ink = InkLaunch(activity, web, retry, why, android.os.Process.getStartUptimeMillis())
             Log.i(TAG, "cold start, api ${Build.VERSION.SDK_INT}, animations ${if (ink.animationsOff) "off" else "on"}")
             val density = activity.resources.displayMetrics.density
             // The hold is there from the app's first frame, under the splash
@@ -232,7 +264,7 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
         val d = resources.displayMetrics.density
         addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = (max(0f, cy) + 104 * d).toInt(); leftMargin = (40 * d).toInt(); rightMargin = (40 * d).toInt() })
         // "Reaching your Mac..." only after 1.4 s from the launch.
-        postDelayed({ if (hole == 0f) { words.animate().alpha(1f).setDuration(300).start(); Log.i(InkLaunch.TAG, "hold words at ${SystemClock.uptimeMillis() - start} ms") } }, max(0L, 1400L - (SystemClock.uptimeMillis() - start)))
+        postDelayed({ if (hole == 0f && isAttachedToWindow) { words.animate().alpha(1f).setDuration(300).start(); Log.i(InkLaunch.TAG, "hold words at ${SystemClock.uptimeMillis() - start} ms") } }, max(0L, 1400L - (SystemClock.uptimeMillis() - start)))
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
@@ -289,6 +321,13 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
             }
             column.addView(b, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = (22 * resources.displayMetrics.density).toInt() })
         }
+    }
+
+    /** A warm start's exit: the board under it, the hold fading in 150 ms (its first frame the board's own). */
+    fun fadeOut(done: () -> Unit) {
+        breath?.cancel()
+        isClickable = false
+        animate().alpha(0f).setDuration(150).withEndAction(done).start()
     }
 
     fun exit(tx: Float, ty: Float, ts: Float, box: FloatArray, feather: Float, web: WebView, done: () -> Unit) {

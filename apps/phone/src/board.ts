@@ -276,7 +276,10 @@ function start(sh: Shell): void {
   // Once the page is idle after its first draw (its first layout is the
   // heaviest frame; the mark's flight goes after it), at most 400 ms later.
   const whenIdle = (f: () => void): void => { const w = window as unknown as { requestIdleCallback?: (cb: () => void, o: { timeout: number }) => void }; if (w.requestIdleCallback) w.requestIdleCallback(f, { timeout: 400 }); else setTimeout(f, 120); };
-  const tryMark = (): boolean => { if (!mark()) return false; whenIdle(() => { if (!tellMark()) requestAnimationFrame(() => tellMark()); }); return true; };
+  // A warm start (the board reloading in a rebuilt activity): no flight to
+  // smooth, the board as soon as its bar is laid out.
+  const warm = sh.hello.launch === 'warm';
+  const tryMark = (): boolean => { if (!mark()) return false; if (warm) requestAnimationFrame(() => { if (!tellMark()) requestAnimationFrame(() => tellMark()); }); else whenIdle(() => { if (!tellMark()) requestAnimationFrame(() => tellMark()); }); return true; };
   if (!tryMark()) {
     const mo = new MutationObserver(() => { if (tryMark()) mo.disconnect(); });
     mo.observe(document.body, { childList: true, subtree: true });

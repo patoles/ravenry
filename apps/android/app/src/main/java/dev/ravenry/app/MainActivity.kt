@@ -334,6 +334,7 @@ class MainActivity : FragmentActivity() {
                     .put("device", JSONObject().put("id", p?.deviceId).put("name", p?.deviceName))
                     .put("features", JSONArray(features()))
                     .put("pending", pending?.let { parse(it) } ?: JSONObject.NULL)
+                    .put("launch", ink?.kind ?: JSONObject.NULL)
                 pending = null
                 reply(id, true, r)
             }
