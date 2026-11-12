@@ -15,6 +15,10 @@
 //
 //   node tools/demo.mjs [--port N] [--phone] [--hold] [--e2e]
 //
+// --hub DIR runs that hub folder in place of ../../hub, with the node running
+// this script: a packaged app's own (Contents/Resources/hub, run by its
+// Contents/MacOS/node), to pair a phone with the board as it ships.
+//
 // --e2e (tools/phone-e2e.mjs): the board opens sessions in Ravenry panes
 // (RAVENRY_TERMINAL=ravenry, so New session starts a real pane), `claude`
 // there is a stand-in that prints its words and then echoes what is typed,
@@ -105,7 +109,18 @@ function sessionScript(s, { screen, wait, after = '', title = s.topic }) {
 }
 
 // The pages: the page format's playtest board, its notes dated around now.
-function preparePages({ MC }) {
+function preparePages({ HOME, MC }) {
+  // The person's rules (the Rules page's Mine), so the phone's Rules view
+  // has cards to lay out (tools/phone-overflow.mjs measures it).
+  fs.writeFileSync(path.join(HOME, '.claude', 'CLAUDE.md'), [
+    '# Working rules', '',
+    '## Writing',
+    '- Say what changed in plain words, then the check that proves it.',
+    '- A path like `apps/phone/tools/demo.mjs` or a long command stays whole on a phone screen.', '',
+    '## Checks',
+    '- Run the one check the change touches before saying it is done.',
+    '- Never test on the real board: a test hub on 127.0.0.1 with its own data.', '',
+  ].join('\n'));
   const src = path.join(REPO, 'packages', 'page-format', 'fixtures', 'playtest');
   const dst = path.join(MC, 'pages');
   fs.mkdirSync(path.join(dst, 'playtest', 'shots'), { recursive: true });
@@ -125,12 +140,13 @@ Object.assign(extraEnv, { RAVENRY_HUB_NAME: 'MacBook Pro' });
 if (E2E) Object.assign(extraEnv, { RAVENRY_TERMINAL: 'ravenry', PATH: `${STAND}:${process.env.PATH}` });
 if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
 const hub = await startDemoHub({
-  dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false,
+  dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false, ...(opt('--hub') ? { hubDir: path.resolve(opt('--hub')) } : {}),
   panes: ['notes-app', 'recipe-box', 'garden-planner', 'weather-widget', 'paper-boat'],
   env: extraEnv,
   settings: { machines: [{ name: 'devbox', host: 'devbox' }] },
   extra: [{ id: 'notes-cli' }, { id: 'portfolio' }, { id: 'trail-map' }],
   prepare: preparePages,
+  ideas: true,
 });
 const S = hub.sessions;
 const q = (s) => `'${s.replace(/'/g, "'\\''")}'`;
