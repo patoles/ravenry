@@ -46,4 +46,16 @@ class ReachTest {
         val none = HubClient(listOf("ravenry.tail1234.ts.net"), 4601, null, null, skip = { Reach.tailnetHost(it) })
         assertEquals(emptyList<String>(), none.order())
     }
+
+    /** The path the chip names (docs/PHONE.md, The connection). */
+    @Test fun thePathAHostIs() {
+        val hosts = listOf("192.168.1.20", "ravenry.tail1234.ts.net", "100.101.102.103", "studio.tail1234.ts.net", "100.90.1.2")
+        assertEquals("wifi", Reach.via("192.168.1.20", hosts))
+        assertEquals("wifi", Reach.via("10.0.2.2", hosts))
+        assertEquals("tailscale", Reach.via("ravenry.tail1234.ts.net", hosts))
+        assertEquals("tailscale", Reach.via("100.101.102.103", hosts))
+        assertEquals("tailscale-mac", Reach.via("studio.tail1234.ts.net", hosts))
+        assertEquals("tailscale-mac", Reach.via("100.90.1.2", hosts))
+        assertEquals("local", Reach.via("127.0.0.1", hosts))
+    }
 }

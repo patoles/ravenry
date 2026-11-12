@@ -44,7 +44,7 @@ object Hub {
         val p = store.paired() ?: return null
         client?.let { if (forToken == p.token) return it }
         val app = context.applicationContext
-        return HubClient.of(p, onHost = { store.rememberHost(it) }, onSignedOut = { signedOut(app) }, skip = Reach.skip(app)).also { client = it; forToken = p.token }
+        return HubClient.of(p, onHost = { store.rememberHost(it) }, onSignedOut = { signedOut(app) }, skip = Reach.skip(app), dns = DebugNet.dns(app)).also { client = it; forToken = p.token }
     }
 
     /** The hub forgot this device (revoked, unpaired, a new key): back to pairing. */

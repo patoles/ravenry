@@ -7,6 +7,10 @@
     <item name="android:navigationBarColor">@android:color/transparent</item>
     <item name="android:windowLightStatusBar">true</item>
   </style>
+  <!-- The launch (docs/PHONE.md, The launch): MainActivity's theme until onCreate; Android 8 to 11 show the still mark. -->
+  <style name="Theme.Ravenry.Launch" parent="Theme.Ravenry">
+    <item name="android:windowBackground">@drawable/launch_bg</item>
+  </style>
   <style name="Theme.Ravenry.Translucent" parent="Theme.Ravenry">
     <item name="android:windowIsTranslucent">true</item>
     <item name="android:windowBackground">@android:color/transparent</item>

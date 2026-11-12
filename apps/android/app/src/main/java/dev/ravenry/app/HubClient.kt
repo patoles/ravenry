@@ -58,6 +58,8 @@ class HubClient(
     private val onSignedOut: () -> Unit = {},
     /** Hosts not worth a try now (a tailnet one with no VPN up: Reach.skip). */
     private val skip: (String) -> Boolean = { false },
+    /** Names resolved another way (a debug build's stand-in tailnet name: DebugNet). */
+    private val dns: okhttp3.Dns? = null,
 ) {
     val trust = PinnedTrust(pin)
     private val hosts = hosts.distinct()
@@ -77,10 +79,37 @@ class HubClient(
             .connectTimeout(4, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
+            .apply { if (dns != null) dns(dns) }
             .build()
     }
 
     private val streaming: OkHttpClient = http.newBuilder().readTimeout(45, TimeUnit.SECONDS).build()
+    private val quick: OkHttpClient = http.newBuilder().callTimeout(5, TimeUnit.SECONDS).build()
+
+    /**
+     * How the Mac answers now: GET /api/phone/hello on the first address that
+     * answers within 5 s, and the round trip in ms. Throws when none does.
+     */
+    fun probe(): Pair<String, Long> {
+        val order = order()
+        if (order.isEmpty()) throw IOException("No address can answer now")
+        var last: IOException? = null
+        for (h in order) {
+            val t = System.nanoTime()
+            try {
+                quick.newCall(build(h, "GET", "/api/phone/hello", null, emptyMap())).execute().use { r ->
+                    if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
+                }
+                val ms = (System.nanoTime() - t) / 1_000_000
+                if (h != host) { host = h; onHost(h) }
+                return h to ms
+            } catch (e: IOException) {
+                last = e
+                if (e is javax.net.ssl.SSLPeerUnverifiedException || e.cause is CertificateException) throw e
+            }
+        }
+        throw last ?: IOException("No address to try")
+    }
 
     fun url(h: String, path: String): String {
         val hh = if (h.contains(':') && !h.startsWith("[")) "[$h]" else h
@@ -198,9 +227,9 @@ class HubClient(
     companion object {
         val JSON = "application/json".toMediaType()
 
-        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }): HubClient {
+        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }, dns: okhttp3.Dns? = null): HubClient {
             val order = listOfNotNull(p.lastHost) + p.hosts
-            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip)
+            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip, dns)
         }
     }
 }

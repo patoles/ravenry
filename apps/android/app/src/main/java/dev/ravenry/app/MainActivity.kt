@@ -71,6 +71,8 @@ class MainActivity : FragmentActivity() {
     private var out: JavaScriptReplyProxy? = null
     private var pending: String? = null
     private var events: Closeable? = null
+    /** The launch's hold and exit (docs/PHONE.md, The launch); null on a warm start. */
+    private var ink: InkLaunch? = null
     private val sockets = ConcurrentHashMap<Int, WebSocket>()
     private val nextSid = AtomicInteger(1)
     private var backWaiting = false
@@ -140,6 +142,7 @@ class MainActivity : FragmentActivity() {
         web = WebView(this)
         box.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(box)
+        ink = InkLaunch.begin(this, box, web, retry = { conn.reconnect() }, why = { Hub.get(this)?.let { reachOf(it.allHosts, null).words } ?: getString(R.string.mac_no_answer) })
         ViewCompat.setOnApplyWindowInsetsListener(box) { v, ins ->
             val b = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.displayCutout())
             v.setPadding(b.left, b.top, b.right, b.bottom)
@@ -267,6 +270,16 @@ class MainActivity : FragmentActivity() {
         if (out != null) event(JSONObject().put("event", "open").put("alert", parse(a))) else pending = a
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (::web.isInitialized) conn.start()
+    }
+
+    override fun onStop() {
+        conn.stop()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         events?.close(); events = null
         sockets.values.forEach { it.cancel() }; sockets.clear()
@@ -370,20 +383,13 @@ class MainActivity : FragmentActivity() {
                 }
             }
             "hub.events" -> {
-                events?.close(); events = null
-                if (o.optBoolean("on", true)) {
-                    events = hub().events("/api/events", { name, data ->
-                        event(JSONObject().put("event", "hub").put("name", name).put("data", parse(data)))
-                    }, { up, err ->
-                        if (up) lastReach = null
-                        // Never the exception's own words (a host name): the reason.
-                        val words = if (up) null else Hub.get(this)?.let { c -> if (err == "signed out") err else reachOf(c.allHosts, null).words }
-                        event(JSONObject().put("event", "link").put("state", if (up) "up" else "down").put("error", words ?: JSONObject.NULL))
-                        if (!up && words != null && err != "signed out") lastReach?.let { r -> event(JSONObject(r.toString()).put("event", "reach")) }
-                    })
-                }
+                eventsWanted = o.optBoolean("on", true)
+                startEvents()
                 reply(id, true)
             }
+            "conn.now" -> reply(id, true, conn.json())
+            "conn.reconnect" -> { conn.reconnect(); reply(id, true) }
+            "ink.ready" -> { ink?.ready(o); reply(id, true) }
             "socket.open" -> {
                 val sid = nextSid.getAndIncrement()
                 val path = o.optString("path")
@@ -647,6 +653,120 @@ class MainActivity : FragmentActivity() {
     private fun canSpeech() = packageManager.queryIntentActivities(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0).isNotEmpty()
 
     private fun isNight() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    // ------------------------------------------------------------ the live stream and the connection
+
+    private var eventsWanted = false
+
+    /** The hub's live stream for the page, opened again from scratch (Reconnect). */
+    private fun startEvents() {
+        events?.close(); events = null
+        if (!eventsWanted) return
+        events = hub().events("/api/events", { name, data ->
+            event(JSONObject().put("event", "hub").put("name", name).put("data", parse(data)))
+        }, { up, err ->
+            if (up) lastReach = null
+            // Never the exception's own words (a host name): the reason.
+            val words = if (up) null else Hub.get(this)?.let { c -> if (err == "signed out") err else reachOf(c.allHosts, null).words }
+            event(JSONObject().put("event", "link").put("state", if (up) "up" else "down").put("error", words ?: JSONObject.NULL))
+            main.post { if (up) conn.linkUp() else if (err != "signed out") conn.linkDown() }
+        })
+    }
+
+    private val conn = ConnWatch()
+
+    /**
+     * Whether the phone reaches the Mac and how (docs/PHONE.md, The
+     * connection), for the board's chip: the path in use (Reach.via), up,
+     * reconnecting (the stream or a probe failed, fewer than three times in
+     * a row) or offline (three: with the reason words and the bar), since
+     * when it is up, and a measured round trip (GET /api/phone/hello, every
+     * 30 s while up, every 3 s while not).
+     */
+    inner class ConnWatch {
+        var state = "reconnecting"; private set
+        private var via = "wifi"
+        private var since: Long? = null
+        private var rtt: Long? = null
+        private var fails = 0
+        private var probing = false
+        private var stopped = false
+        private val tick = Runnable { probe() }
+
+        fun json(): JSONObject {
+            val r = lastReach
+            return JSONObject().put("state", state).put("via", via).put("since", since ?: JSONObject.NULL).put("rtt", rtt ?: JSONObject.NULL)
+                .put("reason", if (state == "offline") r?.optString("reason") ?: JSONObject.NULL else JSONObject.NULL)
+                .put("words", if (state == "offline") r?.optString("words") ?: JSONObject.NULL else JSONObject.NULL)
+                .put("mac", Store.get(this@MainActivity).paired()?.hubName ?: JSONObject.NULL)
+        }
+
+        private fun emit() = event(json().put("event", "conn"))
+
+        private fun set(s: String) {
+            if (s == "up" && state != "up") since = System.currentTimeMillis()
+            if (s != "up") since = null
+            val changed = s != state
+            state = s
+            if (changed || s == "up") emit()
+        }
+
+        fun start() { stopped = false; schedule(0) }
+        fun stop() { stopped = true; main.removeCallbacks(tick) }
+        private fun schedule(ms: Long) { main.removeCallbacks(tick); if (!stopped) main.postDelayed(tick, ms) }
+
+        fun linkUp() {
+            fails = 0
+            Hub.get(this@MainActivity)?.let { via = Reach.via(it.host, it.allHosts) }
+            if (state != "up") { set("up"); ink?.answered(); probe() }
+        }
+
+        fun linkDown() {
+            if (state == "up") set("reconnecting")
+            schedule(3000)
+        }
+
+        fun reconnect() {
+            fails = 0
+            lastReach = null
+            Hub.reset()
+            set("reconnecting")
+            if (eventsWanted) startEvents()
+            probe()
+        }
+
+        private fun probe() {
+            if (probing || stopped) return
+            probing = true
+            Hub.io.execute {
+                val c = Hub.get(this@MainActivity)
+                val r = runCatching { c?.probe() ?: throw java.io.IOException("not paired") }
+                main.post {
+                    probing = false
+                    r.fold({ (host, ms) ->
+                        rtt = ms; fails = 0
+                        via = Reach.via(host, c!!.allHosts)
+                        lastReach = null
+                        if (state != "up") {
+                            set("up")
+                            ink?.answered()
+                            // Back: the stream too, at once, rather than at its own next try.
+                            if (eventsWanted) startEvents()
+                        } else emit()
+                        schedule(30_000)
+                    }, { e ->
+                        fails++
+                        if (fails >= 3 && c != null) {
+                            reachOf(c.allHosts, e)
+                            set("offline")
+                            lastReach?.let { rr -> event(JSONObject(rr.toString()).put("event", "reach")); ink?.unreached(rr.optString("words")) }
+                        } else if (state != "offline") set("reconnecting")
+                        schedule(3000)
+                    })
+                }
+            }
+        }
+    }
 
     /** The last reason the computer could not be reached, for the board's bar (null once it answers). */
     @Volatile private var lastReach: JSONObject? = null

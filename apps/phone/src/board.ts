@@ -273,8 +273,12 @@ function start(sh: Shell): void {
     void sh.call('ink.ready', { x: r.x, y: r.y, w: r.width, h: r.height, dpr: devicePixelRatio, dark: !document.body.classList.contains('light') }).catch(() => {});
     return true;
   };
-  if (!tellMark()) {
-    const mo = new MutationObserver(() => { if (tellMark()) mo.disconnect(); });
+  // Once the page is idle after its first draw (its first layout is the
+  // heaviest frame; the mark's flight goes after it), at most 400 ms later.
+  const whenIdle = (f: () => void): void => { const w = window as unknown as { requestIdleCallback?: (cb: () => void, o: { timeout: number }) => void }; if (w.requestIdleCallback) w.requestIdleCallback(f, { timeout: 400 }); else setTimeout(f, 120); };
+  const tryMark = (): boolean => { if (!mark()) return false; whenIdle(() => { if (!tellMark()) requestAnimationFrame(() => tellMark()); }); return true; };
+  if (!tryMark()) {
+    const mo = new MutationObserver(() => { if (tryMark()) mo.disconnect(); });
     mo.observe(document.body, { childList: true, subtree: true });
   }
   if (sh.hello.pending) openAlert(sh.hello.pending);

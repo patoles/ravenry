@@ -40,6 +40,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.Ravenry.Launch"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"

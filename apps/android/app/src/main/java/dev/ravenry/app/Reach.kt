@@ -44,8 +44,25 @@ object Reach {
         return if (tail) MAC_AWAY else MAC_HOME
     }
 
+    /**
+     * The path a host is: "tailscale" (Ravenry's own device on the person's
+     * tailnet: its MagicDNS name ravenry.<tailnet>.ts.net, or the 100.x
+     * address the pairing link lists right after it), "tailscale-mac" (the
+     * Mac's own Tailscale app's addresses), "local" (this device itself) or
+     * "wifi" (an address on the home network).
+     */
+    fun via(host: String, hosts: List<String>): String {
+        val h = host.trim().lowercase()
+        if (h == "127.0.0.1" || h == "localhost" || h == "::1") return "local"
+        if (!tailnetHost(h)) return "wifi"
+        val own = { x: String? -> x != null && x.lowercase().startsWith("ravenry.") && x.lowercase().endsWith(".ts.net") }
+        if (own(h)) return "tailscale"
+        val i = hosts.indexOfFirst { it.equals(host, true) }
+        return if (i > 0 && own(hosts[i - 1])) "tailscale" else "tailscale-mac"
+    }
+
     /** A VPN is up on this phone (Tailscale is one when it is on). */
-    fun vpnUp(context: Context): Boolean = runCatching {
+    fun vpnUp(context: Context): Boolean = DebugNet.vpn(context) || runCatching {
         val cm = context.getSystemService(ConnectivityManager::class.java)
         @Suppress("DEPRECATION")
         cm.allNetworks.any { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true }
@@ -70,6 +87,34 @@ object Reach {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { context.startActivity(i) }.onFailure {
             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://tailscale.com/download/android")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+    }
+}
+
+/**
+ * A debug build's stand-in network for the end-to-end test (apps/phone/tools/
+ * phone-e2e.mjs): `files/debug-net.json`, pushed with `adb shell run-as`,
+ * says `{"dns": {"ravenry.tail0000.ts.net": "10.0.2.2"}, "vpn": true}`, so a
+ * stand-in tailnet name answers and a VPN counts as up. A release build never
+ * reads it.
+ */
+object DebugNet {
+    private fun read(context: Context): org.json.JSONObject? {
+        if (!BuildConfig.DEBUG) return null
+        val f = java.io.File(context.filesDir, "debug-net.json")
+        return if (f.exists()) runCatching { org.json.JSONObject(f.readText()) }.getOrNull() else null
+    }
+
+    fun vpn(context: Context): Boolean = read(context)?.optBoolean("vpn", false) == true
+
+    fun dns(context: Context): okhttp3.Dns? {
+        if (!BuildConfig.DEBUG) return null
+        val app = context.applicationContext
+        return object : okhttp3.Dns {
+            override fun lookup(hostname: String): List<java.net.InetAddress> {
+                val ip = read(app)?.optJSONObject("dns")?.optString(hostname)?.takeIf { it.isNotEmpty() }
+                return if (ip != null) listOf(java.net.InetAddress.getByName(ip)) else okhttp3.Dns.SYSTEM.lookup(hostname)
+            }
         }
     }
 }

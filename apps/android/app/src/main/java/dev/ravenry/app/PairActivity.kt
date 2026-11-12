@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Size
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -109,6 +110,7 @@ class PairActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        InkLaunch.markWarm()
         enableEdgeToEdge()
         if (intent.getBooleanExtra(SIGNED_OUT, false)) error.value = getString(R.string.signed_out)
         cameraOn.value = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -143,7 +145,7 @@ class PairActivity : ComponentActivity() {
     private fun fetchKey(link: PairLink) {
         step.value = Step.Busy
         Hub.io.execute {
-            val c = HubClient(link.hosts, link.port, null, null, skip = Reach.skip(this))
+            val c = HubClient(link.hosts, link.port, null, null, skip = Reach.skip(this), dns = DebugNet.dns(this))
             val r = runCatching { c.call("GET", "/api/phone/hello") }
             val pin = c.trust.seen
             runOnUiThread {
@@ -165,7 +167,7 @@ class PairActivity : ComponentActivity() {
         error.value = null
         reach.value = null
         Hub.io.execute {
-            val c = HubClient(link.hosts, link.port, pin, null, skip = Reach.skip(this))
+            val c = HubClient(link.hosts, link.port, pin, null, skip = Reach.skip(this), dns = DebugNet.dns(this))
             val body = JSONObject().put("code", link.code).put("name", DeviceName.of(this@PairActivity)).put("platform", "android").put("app", BuildConfig.VERSION_NAME)
             val r = runCatching { c.call("POST", "/api/phone/pair", body.toString()) }
             val o = r.getOrNull()?.let { runCatching { JSONObject(it.text) }.getOrNull() }
@@ -211,6 +213,13 @@ class PairActivity : ComponentActivity() {
                 Spacer(Modifier.width(10.dp))
                 Text(stringResource(R.string.app_name), color = tx, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
+            // Android's Back goes one step up (the camera first); it leaves only from the camera.
+            val up = when (val s = step.value) {
+                is Step.Check -> Step.Typing(s.link.hosts.first(), s.link.code)
+                is Step.Typing, is Step.Confirm -> Step.Scan
+                else -> null
+            }
+            BackHandler(enabled = up != null) { error.value = null; reach.value = null; if (up != null) step.value = up }
             when (val s = step.value) {
                 is Step.Scan, is Step.Busy -> ScanStep(s is Step.Busy)
                 is Step.Typing -> TypingStep(s)

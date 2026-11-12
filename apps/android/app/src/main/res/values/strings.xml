@@ -46,4 +46,8 @@
     <item quantity="other">%1$d pictures.</item>
   </plurals>
   <string name="signed_out">This phone was signed out. Scan the code on the Mac again.</string>
+  <!-- The launch's hold (InkLaunch.kt), after 1.4 s. -->
+  <string name="reaching">Reaching your Mac…</string>
+  <string name="try_again">Try again</string>
+  <string name="mac_no_answer">Your Mac did not answer.</string>
 </resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch on Android 8 to 11 (no SplashScreen API): the window's colour and the still mark, centred as the splash icon is. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+  <item android:drawable="@color/win" />
+  <item android:drawable="@drawable/ink_still" android:gravity="center" android:width="288dp" android:height="288dp" />
+</layer-list>
