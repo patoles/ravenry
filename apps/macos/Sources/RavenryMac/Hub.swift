@@ -498,7 +498,10 @@ final class HubClient: NSObject, URLSessionDataDelegate {
                         if case .daemon(let code, let msg) = e {
                             if code == "forbidden" { self.daemonCps.notPerson.insert(sock); done(false, t("checkpoint.notPerson")); return }
                             if code == "not_found" { done(false, t("checkpoint.closedAlready")); return }
-                            if code == "bad_request" && edited { done(false, t("checkpoint.oldDaemon", ["why": msg])); return }
+                            // Older only when it says it does not know the field (Go's decoder: unknown field "command");
+                            // else it refused what was written (a command over 8 KiB, a reason too long), in its own words.
+                            if code == "bad_request" && edited && msg.contains("unknown field") { done(false, t("checkpoint.oldDaemon", ["why": msg])); return }
+                            if code == "bad_request" && edited { done(false, t("checkpoint.daemonFailed", ["why": msg])); return }
                         }
                         if !hubHas { done(false, t("checkpoint.daemonFailed", ["why": "\(e)"])); return }
                         self.answerOnHub(id, reply, done)

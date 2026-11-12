@@ -836,7 +836,9 @@ async function answerCp(k: Known, reply: Reply): Promise<void> {
         const code = (e as { code?: string }).code;
         if (code === 'forbidden') { S.notPerson.add(k.socket); render(); throw new NotPerson(); }
         if (code === 'not_found') throw new Error('It closed already: answered somewhere else, withdrawn, or out of time.');
-        if (code === 'bad_request' && ('command' in reply || 'reason' in reply)) throw new Error(`This ravenryd did not take the answer, so nothing ran: ${(e as Error).message}. An older ravenryd cannot run an edited command or pass a reason on; update it, or answer without them.`);
+        // Older only when it does not know the field (unknown field "command"); else it refused what was written, in its own words.
+        if (code === 'bad_request' && ('command' in reply || 'reason' in reply) && /unknown field/.test((e as Error).message)) throw new Error(`This ravenryd did not take the answer, so nothing ran: ${(e as Error).message}. An older ravenryd cannot run an edited command or pass a reason on; update it, or answer without them.`);
+        if (code === 'bad_request' && ('command' in reply || 'reason' in reply)) throw new Error(`ravenryd did not take the answer, so nothing ran: ${(e as Error).message}`);
         if (!k.hub) throw new Error(`ravenryd did not take the answer: ${(e as Error).message}`);
       }
     }

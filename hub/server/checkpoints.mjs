@@ -194,8 +194,9 @@ export async function answer(body, send) {
   } catch (e) {
     // The daemon's own words, never the request (it may hold the secret).
     if (e && e.code === 'forbidden') return { ok: false, status: 403, error: `${cp.machine ? cp.machine : 'The daemon'} did not take the answer from this hub: ${e.message}` };
-    // A daemon older than the field refuses it: nothing ran.
-    if (e && e.code === 'bad_request' && (params.command || params.reason || params.allow || params.pick)) return { ok: false, status: 400, error: `${cp.machine ? `ravenryd on ${cp.machine}` : 'ravenryd'} did not take the answer, so nothing ran: ${e.message}. An older ravenryd cannot take every field of this answer; update it there.` };
+    // A daemon older than the field refuses it (Go's decoder: unknown field "command"): nothing ran.
+    // Any other refusal is of what was written (a command over 8 KiB, a reason too long), in its own words.
+    if (e && e.code === 'bad_request' && (params.command || params.reason || params.allow || params.pick)) return { ok: false, status: 400, error: `${cp.machine ? `ravenryd on ${cp.machine}` : 'ravenryd'} did not take the answer, so nothing ran: ${e.message}.${/unknown field/.test(e.message || '') ? ' An older ravenryd cannot take every field of this answer; update it there.' : ''}` };
     const why = e && e.code === 'not_found' ? 'It closed already: answered somewhere else, cancelled or expired.' : `The daemon did not take the answer (${e && e.code ? e.code : 'unreachable'}).`;
     return { ok: false, status: e && e.code === 'not_found' ? 409 : 502, error: why };
   } finally {
