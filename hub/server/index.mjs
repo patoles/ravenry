@@ -78,6 +78,10 @@ import * as sessionNames from './sessionnames.mjs';
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT || 4600);
+// Run by the Mac app's executable as Node (the service), the hub gets the
+// relay's RAVENRY_RELAY (NodeRunner.swift); none of what it starts (a
+// daemon, a pane's shell) is that relay's child: it is not handed on.
+delete process.env.RAVENRY_RELAY;
 const TICK_MS = 2000;
 const HOME = os.homedir();
 

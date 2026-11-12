@@ -40,6 +40,21 @@ export function shape(assistant, input) {
   return null;
 }
 
+// The process that ran this hook: the assistant (Claude Code or Codex, or
+// Codex's app-server). Claude Code and Codex run a hook through `sh -c`,
+// which execs the single command, so that is the hook's parent, except
+// when the command is the Mac app's executable run as Node (the hooks the
+// Electron app wrote, `ELECTRON_RUN_AS_NODE=1 .../Contents/MacOS/Ravenry
+// <script>`): the native app's NodeRunner.swift starts Node as its child
+// and stays its parent, so it says in RAVENRY_RELAY="<its pid>:<its
+// parent's pid>" whose process it stands in for. Taken only when this
+// process's parent is that relay, so a value inherited from further up
+// (a pane started under the hub) is never believed.
+export function hookParent(ppid = process.ppid, env = process.env) {
+  const m = /^(\d+):(\d+)$/.exec(String(env.RAVENRY_RELAY || ''));
+  return m && Number(m[1]) === ppid && Number(m[2]) > 1 ? Number(m[2]) : ppid;
+}
+
 // Is this Codex hook run by Codex's shared app-server daemon? Codex started
 // outside cmux runs its sessions in one daemon (`codex app-server`), and its
 // hooks run there with the environment of whichever terminal started the
@@ -48,7 +63,7 @@ export function shape(assistant, input) {
 // reported the first tab's surface). Inside cmux, cmux's wrapper starts
 // Codex with its hooks in the session's own process, which is not the
 // daemon. `ps` costs about 10 ms; only Codex's hooks ask.
-export async function codexDaemon(ppid = process.ppid) {
+export async function codexDaemon(ppid = hookParent()) {
   try {
     const { execFileSync } = await import('node:child_process');
     const cmd = execFileSync('/bin/ps', ['-o', 'command=', '-p', String(ppid)], { encoding: 'utf8', timeout: 500, stdio: ['ignore', 'pipe', 'ignore'] });

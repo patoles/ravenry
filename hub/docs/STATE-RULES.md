@@ -27,7 +27,8 @@ per-tool events, so it costs one Node start per event: about 37 ms here,
 ```
 
 Every line also carries `claude_pid`, the Claude process that ran the hook
-(its parent), which ties a process and its memory to a session
+(its parent, or past the Mac app's Node relay the process it names in
+RAVENRY_RELAY: server/assistanthook.mjs hookParent), which ties a process and its memory to a session
 (docs/SESSIONS.md). Per event it also keeps: SessionStart `source` and `model`; SessionEnd
 `reason`; Notification `notification_type`, `message` and `title` (capped);
 Stop `ends_on_question`, `question`, `background_tasks` (entries still

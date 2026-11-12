@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { RAVENRY_HOME } from '../server/home.mjs';
-import { assistantOf, codexDaemon } from '../server/assistanthook.mjs';
+import { assistantOf, codexDaemon, hookParent } from '../server/assistanthook.mjs';
 import { record } from '../server/hookrecord.mjs';
 
 const DIR = path.join(RAVENRY_HOME, 'events');
@@ -100,7 +100,10 @@ async function main() {
   // command says so with --ravenryd), the daemon reports the event: this
   // copy stands down so the board does not get it twice.
   if (process.argv.includes('--ravenryd') && process.env.RAVENRY_PANE && process.env.RAVENRY_SOCKET) return;
-  const r = record(ASSISTANT, input, { env: process.env, ppid: process.ppid, daemon: ASSISTANT === 'codex' && await codexDaemon(), home: RAVENRY_HOME });
+  // The assistant's process: this hook's parent, or the one the app's
+  // executable run as Node stands in for (server/assistanthook.mjs).
+  const ppid = hookParent();
+  const r = record(ASSISTANT, input, { env: process.env, ppid, daemon: ASSISTANT === 'codex' && await codexDaemon(ppid), home: RAVENRY_HOME });
   if (!r) return;
   const line = JSON.stringify(r);
   try {

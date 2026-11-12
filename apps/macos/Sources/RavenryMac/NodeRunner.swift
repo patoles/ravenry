@@ -30,8 +30,18 @@ enum NodeRunner {
         }
         // Its environment without ELECTRON_RUN_AS_NODE, so nothing the hub
         // starts (a daemon, a pane's program) inherits it.
+        //
+        // RAVENRY_RELAY="<this pid>:<its parent's pid>": staying the parent
+        // puts this process between a hook and the assistant that ran it
+        // (`sh -c` execs into this executable), and the hook records its
+        // parent as the assistant's process (hub/server/assistanthook.mjs
+        // hookParent: claude_pid, codex_pid, Codex's app-server). The hook
+        // takes the second pid only when its parent is the first, so a value
+        // inherited further down (the hub's children) is never believed; the
+        // hub drops it from its own environment (hub/server/index.mjs).
         var env: [String] = []
-        for (k, v) in ProcessInfo.processInfo.environment where k != "ELECTRON_RUN_AS_NODE" { env.append("\(k)=\(v)") }
+        for (k, v) in ProcessInfo.processInfo.environment where k != "ELECTRON_RUN_AS_NODE" && k != "RAVENRY_RELAY" { env.append("\(k)=\(v)") }
+        env.append("RAVENRY_RELAY=\(getpid()):\(getppid())")
         let args = [node] + CommandLine.arguments.dropFirst()
         var cargs: [UnsafeMutablePointer<CChar>?] = args.map { strdup($0) } + [nil]
         var cenv: [UnsafeMutablePointer<CChar>?] = env.map { strdup($0) } + [nil]

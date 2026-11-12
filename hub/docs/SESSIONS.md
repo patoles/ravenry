@@ -45,7 +45,12 @@ folder, counted in the total, and never closed.
 1. **hook events (pid):** `hooks/events.mjs` records `claude_pid` on every
    event. Claude Code runs a hook through `sh -c`, which execs a single
    command, so the hook's parent is Claude itself (measured: the throwaway
-   session's events named pid 85485, its claude process). The newest session
+   session's events named pid 85485, its claude process). A hook command
+   that runs the Mac app's executable as Node (`ELECTRON_RUN_AS_NODE=1
+   .../Contents/MacOS/Ravenry`, as the Electron app wrote them) has that
+   executable in between: it starts Node as its child and names its own
+   parent in RAVENRY_RELAY, which the hook takes when its parent is that
+   relay (server/assistanthook.mjs hookParent). The newest session
    that reported from that pid since the process started wins, so a `/clear`
    or `/resume` inside a process moves it to the new session.
 2. **cmux hook record (pid):** `cmux sessions --json` keeps the pid as well.

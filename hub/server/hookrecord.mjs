@@ -42,8 +42,9 @@ export function record(assistant, input, { env = {}, ppid = 0, daemon = false, h
   };
   // The Claude process this session runs in, so the board can tie a process
   // (and its memory) to a session. Claude Code runs a hook through `sh -c`,
-  // which execs a single command, so the hook's parent is Claude itself. It
-  // costs nothing; the board trusts it only when that pid is a live claude
+  // which execs a single command, so the hook's parent is Claude itself
+  // (past the Mac app's Node relay: hooks/events.mjs passes hookParent(),
+  // server/assistanthook.mjs). It costs nothing; the board trusts it only when that pid is a live claude
   // process that started before this event.
   // Codex's hooks run under Codex or its app-server daemon, which holds many
   // sessions, so its pid is kept under its own name and never mapped.

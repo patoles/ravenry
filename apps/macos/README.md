@@ -439,6 +439,11 @@ Windows. What it takes over, and how:
   process responsible for it, the app's own executable, as before: the
   grant holds, and a new prompt would name Ravenry. Hooks the hub writes
   from now on name `Contents/MacOS/node` directly (no extra process).
+  Since it stays the parent, a hook run through it would take this
+  process for the assistant's: it gives Node RAVENRY_RELAY=`<its pid>:<its
+  parent's pid>`, and the hook records that parent (claude_pid, codex_pid)
+  when its own parent is this relay (hub/server/assistanthook.mjs
+  hookParent; scripts/hookpidcheck.mjs). The hub drops the variable.
 - **The daemon** (HUB-006, UPD-004). With no `--socket`, the newest
   running daemon that has the render stream and is not draining, as the
   Electron app's DaemonLink finds it; none, and the app starts its own

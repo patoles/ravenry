@@ -89,7 +89,8 @@ rust-v0.166.0). Every line carries `assistant: "codex"`.
   Code's does; no `background_tasks`, so it records 0.
 - A turn that ends in an error (an unsupported model) runs no Stop; the screen
   rule for a missing Stop covers it.
-- The hook's parent is Codex (`codex_pid`, never mapped to a process).
+- The hook's parent is Codex (`codex_pid`, never mapped to a process), past
+  the Mac app's Node relay as for Claude Code (docs/SESSIONS.md).
 
 **Codex's daemon.** Codex started outside cmux runs its sessions in one
 shared app-server daemon (`codex app-server`), and its hooks run there with
