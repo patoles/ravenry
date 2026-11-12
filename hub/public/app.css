@@ -1113,7 +1113,7 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
   .lv-fs{z-index:40}
   /* The key bar: every key whole at 360 px; the word keys wider than the arrows. */
   .kb{gap:4px}
-  .kb button{flex:1.3 1 0;min-width:0;font-size:12px;padding:0}
+  .kb button{flex:1.3 1 0;min-width:0;font-size:11.5px;letter-spacing:-.2px;padding:0}
   .kb button[data-key="left"],.kb button[data-key="up"],.kb button[data-key="down"],.kb button[data-key="right"]{flex:.8 1 0}
   /* The message box: Attach, Add as note and Send on one row, the New session
      switch on its own line above them, so Send never wraps under the rest. */
