@@ -160,12 +160,13 @@ class InkLaunch private constructor(private val activity: Activity, private val 
             // (centred, at the splash icon's 288 dp), so nothing blinks when the splash goes.
             ink.attach(-1f, -1f, 288 * density)
             if (Build.VERSION.SDK_INT >= 31) {
-                // The splash stays for its 1 s (the Ink plays whole), then exits into the hold.
-                val until = ink.start + if (ink.animationsOff) 0 else 1000
+                // The splash stays while the Ink plays (800 ms, tools/ink-avd.mjs LEN), then exits into the hold.
+                val until = ink.start + if (ink.animationsOff) 0 else 800
                 content.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
                     override fun onPreDraw(): Boolean {
                         if (SystemClock.uptimeMillis() < until) { content.postInvalidateOnAnimation(); return false }
                         content.viewTreeObserver.removeOnPreDrawListener(this)
+                        Log.i(TAG, "splash let go at ${SystemClock.uptimeMillis() - ink.start} ms")
                         return true
                     }
                 })

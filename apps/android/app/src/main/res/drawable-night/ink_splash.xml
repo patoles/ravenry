@@ -123,831 +123,831 @@
   <target android:name="d0p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d0p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d0p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M91.88,58.02 L90.42,62.81 L88.41,67.24 L85.92,71.25 L83,74.8 L79.75,77.83 L76.23,80.33 L72.54,82.27 L68.75,83.66 L64.94,84.49 L61.19,84.8 L57.57,84.6 L54.14,83.93 L50.96,82.84 L48.09,81.39 L45.56,79.62 L43.4,77.6 L41.63,75.39 L40.27,73.06 L39.31,70.68 L38.75,68.31 L38.57,66 L38.74,63.81 L39.23,61.8 L40,60" android:startOffset="41" android:duration="519" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="41" android:duration="519" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="41" android:duration="519" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M91.88,58.02 L90.42,62.81 L88.41,67.24 L85.92,71.25 L83,74.8 L79.75,77.83 L76.23,80.33 L72.54,82.27 L68.75,83.66 L64.94,84.49 L61.19,84.8 L57.57,84.6 L54.14,83.93 L50.96,82.84 L48.09,81.39 L45.56,79.62 L43.4,77.6 L41.63,75.39 L40.27,73.06 L39.31,70.68 L38.75,68.31 L38.57,66 L38.74,63.81 L39.23,61.8 L40,60" android:startOffset="33" android:duration="415" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="33" android:duration="415" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="33" android:duration="415" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d1p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d1p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d1p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M16.16,81.21 L15.13,77 L14.57,72.82 L14.47,68.71 L14.8,64.74 L15.53,60.94 L16.65,57.35 L18.1,54.01 L19.85,50.94 L21.87,48.18 L24.1,45.75 L26.52,43.66 L29.06,41.91 L31.68,40.53 L34.35,39.49 L37.02,38.8 L39.64,38.45 L42.18,38.42 L44.59,38.69 L46.86,39.23 L48.94,40.02 L50.81,41.03 L52.46,42.22 L53.86,43.55 L55,45" android:startOffset="72" android:duration="504" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="72" android:duration="504" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="72" android:duration="504" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M16.16,81.21 L15.13,77 L14.57,72.82 L14.47,68.71 L14.8,64.74 L15.53,60.94 L16.65,57.35 L18.1,54.01 L19.85,50.94 L21.87,48.18 L24.1,45.75 L26.52,43.66 L29.06,41.91 L31.68,40.53 L34.35,39.49 L37.02,38.8 L39.64,38.45 L42.18,38.42 L44.59,38.69 L46.86,39.23 L48.94,40.02 L50.81,41.03 L52.46,42.22 L53.86,43.55 L55,45" android:startOffset="58" android:duration="403" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="58" android:duration="403" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="58" android:duration="403" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d2p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d2p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d2p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M61.93,107.56 L53.82,107.56 L45.96,106.27 L38.56,103.77 L31.8,100.16 L25.84,95.6 L20.81,90.23 L16.8,84.24 L13.89,77.81 L12.1,71.15 L11.45,64.43 L11.89,57.84 L13.37,51.56 L15.8,45.75 L19.07,40.55 L23.06,36.06 L27.6,32.39 L32.57,29.59 L37.78,27.7 L43.08,26.72 L48.33,26.64 L53.37,27.4 L58.07,28.94 L62.31,31.18 L66,34" android:startOffset="87" android:duration="496" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="87" android:duration="496" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="87" android:duration="496" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M61.93,107.56 L53.82,107.56 L45.96,106.27 L38.56,103.77 L31.8,100.16 L25.84,95.6 L20.81,90.23 L16.8,84.24 L13.89,77.81 L12.1,71.15 L11.45,64.43 L11.89,57.84 L13.37,51.56 L15.8,45.75 L19.07,40.55 L23.06,36.06 L27.6,32.39 L32.57,29.59 L37.78,27.7 L43.08,26.72 L48.33,26.64 L53.37,27.4 L58.07,28.94 L62.31,31.18 L66,34" android:startOffset="70" android:duration="397" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="70" android:duration="397" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="70" android:duration="397" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d3p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d3p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d3p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d3">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M69.29,24.94 L69.94,26.04 L70.53,27.15 L71.08,28.26 L71.58,29.38 L72.03,30.5 L72.43,31.62 L72.78,32.74 L73.09,33.86 L73.34,34.98 L73.55,36.09 L73.72,37.19 L73.83,38.28 L73.91,39.35 L73.93,40.42 L73.92,41.47 L73.86,42.5 L73.76,43.52 L73.62,44.52 L73.44,45.49 L73.23,46.44 L72.97,47.37 L72.68,48.27 L72.36,49.15 L72,50" android:startOffset="101" android:duration="490" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="101" android:duration="490" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="101" android:duration="490" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M69.29,24.94 L69.94,26.04 L70.53,27.15 L71.08,28.26 L71.58,29.38 L72.03,30.5 L72.43,31.62 L72.78,32.74 L73.09,33.86 L73.34,34.98 L73.55,36.09 L73.72,37.19 L73.83,38.28 L73.91,39.35 L73.93,40.42 L73.92,41.47 L73.86,42.5 L73.76,43.52 L73.62,44.52 L73.44,45.49 L73.23,46.44 L72.97,47.37 L72.68,48.27 L72.36,49.15 L72,50" android:startOffset="80" android:duration="392" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="80" android:duration="392" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="80" android:duration="392" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d4p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d4p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d4p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d4">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M15.05,33.78 L21.8,26.9 L29.75,21.78 L38.45,18.58 L47.47,17.41 L56.34,18.23 L64.64,20.92 L71.99,25.28 L78.06,31.03 L82.62,37.82 L85.51,45.28 L86.65,53.01 L86.07,60.62 L83.88,67.75 L80.27,74.05 L75.47,79.27 L69.78,83.19 L63.54,85.7 L57.08,86.72 L50.73,86.31 L44.8,84.54 L39.58,81.6 L35.27,77.68 L32.04,73.06 L30,68" android:startOffset="119" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="119" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="119" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M15.05,33.78 L21.8,26.9 L29.75,21.78 L38.45,18.58 L47.47,17.41 L56.34,18.23 L64.64,20.92 L71.99,25.28 L78.06,31.03 L82.62,37.82 L85.51,45.28 L86.65,53.01 L86.07,60.62 L83.88,67.75 L80.27,74.05 L75.47,79.27 L69.78,83.19 L63.54,85.7 L57.08,86.72 L50.73,86.31 L44.8,84.54 L39.58,81.6 L35.27,77.68 L32.04,73.06 L30,68" android:startOffset="95" android:duration="384" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="95" android:duration="384" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="95" android:duration="384" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d5p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d5p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d5p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d5">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M58.43,36.48 L62.11,37.1 L65.75,38.37 L69.23,40.28 L72.44,42.81 L75.27,45.92 L77.62,49.55 L79.38,53.63 L80.48,58.06 L80.84,62.73 L80.43,67.51 L79.21,72.28 L77.19,76.89 L74.37,81.21 L70.81,85.1 L66.56,88.43 L61.73,91.08 L56.42,92.96 L50.76,93.97 L44.89,94.04 L38.96,93.15 L33.15,91.27 L27.61,88.42 L22.51,84.64 L18,80" android:startOffset="147" android:duration="466" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="147" android:duration="466" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="147" android:duration="466" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M58.43,36.48 L62.11,37.1 L65.75,38.37 L69.23,40.28 L72.44,42.81 L75.27,45.92 L77.62,49.55 L79.38,53.63 L80.48,58.06 L80.84,62.73 L80.43,67.51 L79.21,72.28 L77.19,76.89 L74.37,81.21 L70.81,85.1 L66.56,88.43 L61.73,91.08 L56.42,92.96 L50.76,93.97 L44.89,94.04 L38.96,93.15 L33.15,91.27 L27.61,88.42 L22.51,84.64 L18,80" android:startOffset="118" android:duration="373" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="118" android:duration="373" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="118" android:duration="373" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d6p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d6p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d6p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d6">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M89.23,61.17 L87.68,63.99 L85.93,66.57 L84,68.92 L81.93,71 L79.73,72.83 L77.44,74.39 L75.08,75.68 L72.7,76.7 L70.3,77.46 L67.92,77.95 L65.59,78.19 L63.33,78.2 L61.16,77.97 L59.1,77.54 L57.18,76.91 L55.41,76.1 L53.81,75.14 L52.38,74.05 L51.15,72.84 L50.11,71.55 L49.27,70.2 L48.64,68.8 L48.22,67.4 L48,66" android:startOffset="164" android:duration="458" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="164" android:duration="458" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="164" android:duration="458" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M89.23,61.17 L87.68,63.99 L85.93,66.57 L84,68.92 L81.93,71 L79.73,72.83 L77.44,74.39 L75.08,75.68 L72.7,76.7 L70.3,77.46 L67.92,77.95 L65.59,78.19 L63.33,78.2 L61.16,77.97 L59.1,77.54 L57.18,76.91 L55.41,76.1 L53.81,75.14 L52.38,74.05 L51.15,72.84 L50.11,71.55 L49.27,70.2 L48.64,68.8 L48.22,67.4 L48,66" android:startOffset="131" android:duration="367" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="131" android:duration="367" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="131" android:duration="367" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d7p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d7p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d7p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d7">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M5.63,19.36 L11.91,15.67 L18.4,12.91 L24.97,11.07 L31.48,10.11 L37.84,10.02 L43.92,10.72 L49.64,12.16 L54.91,14.27 L59.65,16.94 L63.81,20.1 L67.34,23.64 L70.21,27.45 L72.42,31.44 L73.95,35.51 L74.84,39.54 L75.1,43.45 L74.79,47.16 L73.95,50.57 L72.64,53.63 L70.96,56.28 L68.96,58.46 L66.75,60.15 L64.4,61.33 L62,62" android:startOffset="193" android:duration="443" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="193" android:duration="443" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="193" android:duration="443" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M5.63,19.36 L11.91,15.67 L18.4,12.91 L24.97,11.07 L31.48,10.11 L37.84,10.02 L43.92,10.72 L49.64,12.16 L54.91,14.27 L59.65,16.94 L63.81,20.1 L67.34,23.64 L70.21,27.45 L72.42,31.44 L73.95,35.51 L74.84,39.54 L75.1,43.45 L74.79,47.16 L73.95,50.57 L72.64,53.63 L70.96,56.28 L68.96,58.46 L66.75,60.15 L64.4,61.33 L62,62" android:startOffset="154" android:duration="355" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="154" android:duration="355" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="154" android:duration="355" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d8p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d8p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d8p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d8">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M40.96,4.81 L43.55,5.13 L46.09,5.57 L48.57,6.13 L50.99,6.81 L53.34,7.59 L55.61,8.49 L57.8,9.48 L59.91,10.57 L61.93,11.75 L63.85,13.01 L65.69,14.35 L67.42,15.76 L69.06,17.24 L70.59,18.78 L72.01,20.36 L73.34,22 L74.55,23.68 L75.65,25.39 L76.65,27.12 L77.53,28.88 L78.31,30.65 L78.98,32.44 L79.54,34.22 L80,36" android:startOffset="193" android:duration="444" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="193" android:duration="444" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="193" android:duration="444" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M40.96,4.81 L43.55,5.13 L46.09,5.57 L48.57,6.13 L50.99,6.81 L53.34,7.59 L55.61,8.49 L57.8,9.48 L59.91,10.57 L61.93,11.75 L63.85,13.01 L65.69,14.35 L67.42,15.76 L69.06,17.24 L70.59,18.78 L72.01,20.36 L73.34,22 L74.55,23.68 L75.65,25.39 L76.65,27.12 L77.53,28.88 L78.31,30.65 L78.98,32.44 L79.54,34.22 L80,36" android:startOffset="154" android:duration="355" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="154" android:duration="355" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="154" android:duration="355" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d9p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d9p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d9p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d9">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M70.35,0.96 L83.58,8.62 L94.16,19.18 L101.51,31.81 L105.28,45.58 L105.38,59.53 L101.98,72.71 L95.47,84.28 L86.43,93.55 L75.59,100.02 L63.78,103.38 L51.84,103.58 L40.57,100.78 L30.69,95.32 L22.8,87.73 L17.31,78.64 L14.45,68.76 L14.25,58.81 L16.56,49.47 L21.05,41.34 L27.26,34.89 L34.66,30.46 L42.64,28.19 L50.61,28.09 L58,30" android:startOffset="232" android:duration="424" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="232" android:duration="424" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="232" android:duration="424" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M70.35,0.96 L83.58,8.62 L94.16,19.18 L101.51,31.81 L105.28,45.58 L105.38,59.53 L101.98,72.71 L95.47,84.28 L86.43,93.55 L75.59,100.02 L63.78,103.38 L51.84,103.58 L40.57,100.78 L30.69,95.32 L22.8,87.73 L17.31,78.64 L14.45,68.76 L14.25,58.81 L16.56,49.47 L21.05,41.34 L27.26,34.89 L34.66,30.46 L42.64,28.19 L50.61,28.09 L58,30" android:startOffset="186" android:duration="339" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="186" android:duration="339" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="186" android:duration="339" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d10p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d10p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d10p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d10">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M22.74,71.45 L20.52,64.56 L19.9,57.37 L20.9,50.23 L23.46,43.51 L27.45,37.53 L32.67,32.61 L38.85,28.98 L45.67,26.82 L52.79,26.24 L59.85,27.26 L66.49,29.84 L72.38,33.82 L77.23,39.01 L80.79,45.14 L82.88,51.9 L83.42,58.95 L82.37,65.93 L79.79,72.48 L75.82,78.29 L70.66,83.06 L64.57,86.55 L57.87,88.59 L50.9,89.08 L44,88" android:startOffset="221" android:duration="430" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="221" android:duration="430" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="221" android:duration="430" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M22.74,71.45 L20.52,64.56 L19.9,57.37 L20.9,50.23 L23.46,43.51 L27.45,37.53 L32.67,32.61 L38.85,28.98 L45.67,26.82 L52.79,26.24 L59.85,27.26 L66.49,29.84 L72.38,33.82 L77.23,39.01 L80.79,45.14 L82.88,51.9 L83.42,58.95 L82.37,65.93 L79.79,72.48 L75.82,78.29 L70.66,83.06 L64.57,86.55 L57.87,88.59 L50.9,89.08 L44,88" android:startOffset="177" android:duration="344" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="177" android:duration="344" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="177" android:duration="344" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d11p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d11p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d11p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d11">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M69.69,26.57 L72.33,28.26 L74.81,30.18 L77.11,32.3 L79.21,34.6 L81.11,37.08 L82.78,39.72 L84.21,42.48 L85.39,45.35 L86.32,48.32 L86.99,51.34 L87.39,54.42 L87.52,57.51 L87.39,60.59 L86.98,63.65 L86.32,66.66 L85.39,69.59 L84.22,72.43 L82.8,75.16 L81.16,77.74 L79.29,80.17 L77.23,82.43 L74.98,84.5 L72.57,86.36 L70,88" android:startOffset="238" android:duration="421" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="238" android:duration="421" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="238" android:duration="421" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M69.69,26.57 L72.33,28.26 L74.81,30.18 L77.11,32.3 L79.21,34.6 L81.11,37.08 L82.78,39.72 L84.21,42.48 L85.39,45.35 L86.32,48.32 L86.99,51.34 L87.39,54.42 L87.52,57.51 L87.39,60.59 L86.98,63.65 L86.32,66.66 L85.39,69.59 L84.22,72.43 L82.8,75.16 L81.16,77.74 L79.29,80.17 L77.23,82.43 L74.98,84.5 L72.57,86.36 L70,88" android:startOffset="190" android:duration="337" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="190" android:duration="337" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="190" android:duration="337" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d12p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d12p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d12p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d12">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M93.94,44.72 L94.3,49.56 L94.11,54.31 L93.4,58.93 L92.2,63.34 L90.53,67.5 L88.46,71.37 L86,74.89 L83.23,78.05 L80.17,80.81 L76.9,83.14 L73.47,85.04 L69.92,86.5 L66.31,87.52 L62.71,88.1 L59.15,88.25 L55.69,88 L52.37,87.36 L49.24,86.37 L46.33,85.06 L43.67,83.46 L41.29,81.61 L39.21,79.55 L37.44,77.34 L36,75" android:startOffset="271" android:duration="404" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="271" android:duration="404" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="271" android:duration="404" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M93.94,44.72 L94.3,49.56 L94.11,54.31 L93.4,58.93 L92.2,63.34 L90.53,67.5 L88.46,71.37 L86,74.89 L83.23,78.05 L80.17,80.81 L76.9,83.14 L73.47,85.04 L69.92,86.5 L66.31,87.52 L62.71,88.1 L59.15,88.25 L55.69,88 L52.37,87.36 L49.24,86.37 L46.33,85.06 L43.67,83.46 L41.29,81.61 L39.21,79.55 L37.44,77.34 L36,75" android:startOffset="217" android:duration="323" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="217" android:duration="323" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="217" android:duration="323" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d13p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d13p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d13p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d13">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M-2.06,81.9 L-4.46,69.6 L-4.17,57.38 L-1.34,45.8 L3.78,35.39 L10.84,26.57 L19.39,19.67 L28.95,14.91 L39.01,12.41 L49.07,12.15 L58.64,14.02 L67.3,17.8 L74.68,23.18 L80.5,29.81 L84.6,37.28 L86.88,45.17 L87.36,53.06 L86.14,60.56 L83.42,67.33 L79.45,73.08 L74.52,77.59 L68.98,80.75 L63.16,82.5 L57.4,82.88 L52,82" android:startOffset="287" android:duration="397" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="287" android:duration="397" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="287" android:duration="397" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M-2.06,81.9 L-4.46,69.6 L-4.17,57.38 L-1.34,45.8 L3.78,35.39 L10.84,26.57 L19.39,19.67 L28.95,14.91 L39.01,12.41 L49.07,12.15 L58.64,14.02 L67.3,17.8 L74.68,23.18 L80.5,29.81 L84.6,37.28 L86.88,45.17 L87.36,53.06 L86.14,60.56 L83.42,67.33 L79.45,73.08 L74.52,77.59 L68.98,80.75 L63.16,82.5 L57.4,82.88 L52,82" android:startOffset="229" android:duration="317" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="229" android:duration="317" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="229" android:duration="317" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d14p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d14p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d14p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d14">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M21.01,56.48 L22.19,49.32 L25,42.62 L29.3,36.75 L34.85,32.03 L41.34,28.73 L48.43,27.03 L55.73,27.03 L62.83,28.72 L69.36,32.02 L74.94,36.74 L79.27,42.64 L82.12,49.39 L83.32,56.63 L82.8,63.95 L80.6,70.95 L76.83,77.26 L71.69,82.52 L65.46,86.45 L58.49,88.82 L51.15,89.51 L43.84,88.47 L36.97,85.77 L30.91,81.53 L26,76" android:startOffset="294" android:duration="393" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="294" android:duration="393" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="294" android:duration="393" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M21.01,56.48 L22.19,49.32 L25,42.62 L29.3,36.75 L34.85,32.03 L41.34,28.73 L48.43,27.03 L55.73,27.03 L62.83,28.72 L69.36,32.02 L74.94,36.74 L79.27,42.64 L82.12,49.39 L83.32,56.63 L82.8,63.95 L80.6,70.95 L76.83,77.26 L71.69,82.52 L65.46,86.45 L58.49,88.82 L51.15,89.51 L43.84,88.47 L36.97,85.77 L30.91,81.53 L26,76" android:startOffset="235" android:duration="315" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="235" android:duration="315" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="235" android:duration="315" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d15p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d15p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d15p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d15">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M79.92,80.78 L74.45,85.24 L68.32,88.47 L61.82,90.38 L55.21,90.94 L48.76,90.2 L42.72,88.24 L37.32,85.19 L32.74,81.22 L29.13,76.53 L26.59,71.35 L25.17,65.9 L24.87,60.42 L25.65,55.13 L27.43,50.24 L30.07,45.93 L33.42,42.33 L37.31,39.57 L41.54,37.7 L45.93,36.75 L50.27,36.7 L54.4,37.5 L58.15,39.07 L61.38,41.28 L64,44" android:startOffset="321" android:duration="379" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="321" android:duration="379" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="321" android:duration="379" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M79.92,80.78 L74.45,85.24 L68.32,88.47 L61.82,90.38 L55.21,90.94 L48.76,90.2 L42.72,88.24 L37.32,85.19 L32.74,81.22 L29.13,76.53 L26.59,71.35 L25.17,65.9 L24.87,60.42 L25.65,55.13 L27.43,50.24 L30.07,45.93 L33.42,42.33 L37.31,39.57 L41.54,37.7 L45.93,36.75 L50.27,36.7 L54.4,37.5 L58.15,39.07 L61.38,41.28 L64,44" android:startOffset="257" android:duration="303" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="257" android:duration="303" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="257" android:duration="303" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d16p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d16p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d16p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d16">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M81.22,80.96 L77.07,83.67 L72.73,85.7 L68.29,87.06 L63.88,87.75 L59.56,87.81 L55.45,87.27 L51.6,86.19 L48.1,84.62 L45,82.65 L42.34,80.35 L40.16,77.79 L38.47,75.07 L37.27,72.26 L36.56,69.45 L36.32,66.7 L36.5,64.11 L37.08,61.72 L38,59.59 L39.19,57.76 L40.6,56.28 L42.15,55.16 L43.78,54.41 L45.42,54.03 L47,54" android:startOffset="345" android:duration="367" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="345" android:duration="367" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="345" android:duration="367" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M81.22,80.96 L77.07,83.67 L72.73,85.7 L68.29,87.06 L63.88,87.75 L59.56,87.81 L55.45,87.27 L51.6,86.19 L48.1,84.62 L45,82.65 L42.34,80.35 L40.16,77.79 L38.47,75.07 L37.27,72.26 L36.56,69.45 L36.32,66.7 L36.5,64.11 L37.08,61.72 L38,59.59 L39.19,57.76 L40.6,56.28 L42.15,55.16 L43.78,54.41 L45.42,54.03 L47,54" android:startOffset="276" android:duration="294" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="276" android:duration="294" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="276" android:duration="294" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d17p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d17p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d17p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d17">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M75.11,46.22 L77.66,52.06 L78.74,58.43 L78.24,64.97 L76.13,71.29 L72.5,77 L67.53,81.72 L61.48,85.15 L54.69,87.04 L47.54,87.23 L40.46,85.66 L33.89,82.38 L28.23,77.54 L23.85,71.4 L21.05,64.29 L20.05,56.62 L20.94,48.84 L23.72,41.41 L28.27,34.79 L34.36,29.41 L41.66,25.61 L49.76,23.67 L58.18,23.75 L66.43,25.89 L74,30" android:startOffset="376" android:duration="352" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="376" android:duration="352" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="376" android:duration="352" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M75.11,46.22 L77.66,52.06 L78.74,58.43 L78.24,64.97 L76.13,71.29 L72.5,77 L67.53,81.72 L61.48,85.15 L54.69,87.04 L47.54,87.23 L40.46,85.66 L33.89,82.38 L28.23,77.54 L23.85,71.4 L21.05,64.29 L20.05,56.62 L20.94,48.84 L23.72,41.41 L28.27,34.79 L34.36,29.41 L41.66,25.61 L49.76,23.67 L58.18,23.75 L66.43,25.89 L74,30" android:startOffset="301" android:duration="282" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="301" android:duration="282" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="301" android:duration="282" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d18p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d18p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d18p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d18">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M18.26,43.36 L21.46,37.97 L25.5,33.24 L30.26,29.3 L35.58,26.24 L41.3,24.16 L47.26,23.09 L53.26,23.05 L59.14,24.02 L64.72,25.97 L69.85,28.83 L74.39,32.49 L78.21,36.83 L81.2,41.73 L83.3,47.02 L84.46,52.55 L84.66,58.16 L83.9,63.67 L82.23,68.93 L79.7,73.79 L76.41,78.11 L72.46,81.78 L67.98,84.69 L63.11,86.78 L58,88" android:startOffset="383" android:duration="348" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="383" android:duration="348" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="383" android:duration="348" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M18.26,43.36 L21.46,37.97 L25.5,33.24 L30.26,29.3 L35.58,26.24 L41.3,24.16 L47.26,23.09 L53.26,23.05 L59.14,24.02 L64.72,25.97 L69.85,28.83 L74.39,32.49 L78.21,36.83 L81.2,41.73 L83.3,47.02 L84.46,52.55 L84.66,58.16 L83.9,63.67 L82.23,68.93 L79.7,73.79 L76.41,78.11 L72.46,81.78 L67.98,84.69 L63.11,86.78 L58,88" android:startOffset="307" android:duration="279" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="307" android:duration="279" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="307" android:duration="279" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d19p0">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.062" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.062" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d19p1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.1364" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.1364" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d19p2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="200" android:duration="400" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.62" android:valueType="floatType" android:startOffset="0" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.62" android:valueTo="0" android:valueType="floatType" android:startOffset="352" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="160" android:duration="320" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="d19">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M37.12,98.68 L36.05,98.57 L34.97,98.43 L33.89,98.27 L32.81,98.07 L31.72,97.85 L30.64,97.59 L29.56,97.31 L28.47,97 L27.39,96.66 L26.32,96.28 L25.24,95.88 L24.18,95.45 L23.11,94.99 L22.06,94.5 L21.01,93.99 L19.96,93.44 L18.93,92.86 L17.9,92.25 L16.89,91.62 L15.89,90.95 L14.9,90.25 L13.92,89.53 L12.95,88.78 L12,88" android:startOffset="411" android:duration="335" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="411" android:duration="335" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="411" android:duration="335" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyXName="translateX" android:propertyYName="translateY" android:pathData="M37.12,98.68 L36.05,98.57 L34.97,98.43 L33.89,98.27 L32.81,98.07 L31.72,97.85 L30.64,97.59 L29.56,97.31 L28.47,97 L27.39,96.66 L26.32,96.28 L25.24,95.88 L24.18,95.45 L23.11,94.99 L22.06,94.5 L21.01,93.99 L19.96,93.44 L18.93,92.86 L17.9,92.25 L16.89,91.62 L15.89,90.95 L14.9,90.25 L13.92,89.53 L12.95,88.78 L12,88" android:startOffset="329" android:duration="268" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="329" android:duration="268" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0.7" android:valueTo="1.25" android:valueType="floatType" android:startOffset="329" android:duration="268" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="bodyRot">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="rotation" android:valueFrom="-38" android:valueTo="0" android:valueType="floatType" android:startOffset="120" android:duration="600" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="rotation" android:valueFrom="-38" android:valueTo="0" android:valueType="floatType" android:startOffset="96" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="body">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="pathData" android:valueFrom="M57.2,55.1 C55.33,55.3,54.81,54.82,54.85,53.66 C54.56,51.24,53.46,49.7,52.62,49.28 C51.19,49.08,49.02,49.06,44.43,50.43 C48,57.2,46.88,59.1,43.85,61.83 L42.81,64.79 L44.18,66.8 L43.97,66.7 C45.41,67.06,50.49,65.53,53.49,64.7 C56.19,61.67,64.04,60.01,61.95,55.51 C57.92,55.04,56.05,55.24,55.97,55.25 C56.24,55.22,56.97,55.12,57.2,55.1 Z" android:valueTo="M95,34 C89,28,82,24,75,23 C66,21,58,24,54,30 C50,36,46,40,40,46 C32,54,24,64,18,74 L6,92 L20,94 L28,84 C36,80,48,78,56,76 C68,72,76,62,76,52 C76,46,74,43,78,40 C84,37,90,36,95,34 Z" android:valueType="pathType" android:startOffset="120" android:duration="600" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="160" android:duration="400" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="220" android:duration="440" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="pathData" android:valueFrom="M57.2,55.1 C55.33,55.3,54.81,54.82,54.85,53.66 C54.56,51.24,53.46,49.7,52.62,49.28 C51.19,49.08,49.02,49.06,44.43,50.43 C48,57.2,46.88,59.1,43.85,61.83 L42.81,64.79 L44.18,66.8 L43.97,66.7 C45.41,67.06,50.49,65.53,53.49,64.7 C56.19,61.67,64.04,60.01,61.95,55.51 C57.92,55.04,56.05,55.24,55.97,55.25 C56.24,55.22,56.97,55.12,57.2,55.1 Z" android:valueTo="M95,34 C89,28,82,24,75,23 C66,21,58,24,54,30 C50,36,46,40,40,46 C32,54,24,64,18,74 L6,92 L20,94 L28,84 C36,80,48,78,56,76 C68,72,76,62,76,52 C76,46,74,43,78,40 C84,37,90,36,95,34 Z" android:valueType="pathType" android:startOffset="96" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="128" android:duration="320" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="176" android:duration="352" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="halo1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="pathData" android:valueFrom="M57.2,55.1 C55.33,55.3,54.81,54.82,54.85,53.66 C54.56,51.24,53.46,49.7,52.62,49.28 C51.19,49.08,49.02,49.06,44.43,50.43 C48,57.2,46.88,59.1,43.85,61.83 L42.81,64.79 L44.18,66.8 L43.97,66.7 C45.41,67.06,50.49,65.53,53.49,64.7 C56.19,61.67,64.04,60.01,61.95,55.51 C57.92,55.04,56.05,55.24,55.97,55.25 C56.24,55.22,56.97,55.12,57.2,55.1 Z" android:valueTo="M95,34 C89,28,82,24,75,23 C66,21,58,24,54,30 C50,36,46,40,40,46 C32,54,24,64,18,74 L6,92 L20,94 L28,84 C36,80,48,78,56,76 C68,72,76,62,76,52 C76,46,74,43,78,40 C84,37,90,36,95,34 Z" android:valueType="pathType" android:startOffset="120" android:duration="600" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.07" android:valueType="floatType" android:startOffset="180" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0.07" android:valueTo="0" android:valueType="floatType" android:startOffset="550" android:duration="300" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeWidth" android:valueFrom="14" android:valueTo="4" android:valueType="floatType" android:startOffset="300" android:duration="600" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="220" android:duration="440" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="pathData" android:valueFrom="M57.2,55.1 C55.33,55.3,54.81,54.82,54.85,53.66 C54.56,51.24,53.46,49.7,52.62,49.28 C51.19,49.08,49.02,49.06,44.43,50.43 C48,57.2,46.88,59.1,43.85,61.83 L42.81,64.79 L44.18,66.8 L43.97,66.7 C45.41,67.06,50.49,65.53,53.49,64.7 C56.19,61.67,64.04,60.01,61.95,55.51 C57.92,55.04,56.05,55.24,55.97,55.25 C56.24,55.22,56.97,55.12,57.2,55.1 Z" android:valueTo="M95,34 C89,28,82,24,75,23 C66,21,58,24,54,30 C50,36,46,40,40,46 C32,54,24,64,18,74 L6,92 L20,94 L28,84 C36,80,48,78,56,76 C68,72,76,62,76,52 C76,46,74,43,78,40 C84,37,90,36,95,34 Z" android:valueType="pathType" android:startOffset="96" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.07" android:valueType="floatType" android:startOffset="144" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0.07" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="240" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeWidth" android:valueFrom="14" android:valueTo="4" android:valueType="floatType" android:startOffset="240" android:duration="480" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="176" android:duration="352" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="halo2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="pathData" android:valueFrom="M57.2,55.1 C55.33,55.3,54.81,54.82,54.85,53.66 C54.56,51.24,53.46,49.7,52.62,49.28 C51.19,49.08,49.02,49.06,44.43,50.43 C48,57.2,46.88,59.1,43.85,61.83 L42.81,64.79 L44.18,66.8 L43.97,66.7 C45.41,67.06,50.49,65.53,53.49,64.7 C56.19,61.67,64.04,60.01,61.95,55.51 C57.92,55.04,56.05,55.24,55.97,55.25 C56.24,55.22,56.97,55.12,57.2,55.1 Z" android:valueTo="M95,34 C89,28,82,24,75,23 C66,21,58,24,54,30 C50,36,46,40,40,46 C32,54,24,64,18,74 L6,92 L20,94 L28,84 C36,80,48,78,56,76 C68,72,76,62,76,52 C76,46,74,43,78,40 C84,37,90,36,95,34 Z" android:valueType="pathType" android:startOffset="120" android:duration="600" android:interpolator="@interpolator/ink_fosi"/>
-        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.12" android:valueType="floatType" android:startOffset="180" android:duration="220" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0.12" android:valueTo="0" android:valueType="floatType" android:startOffset="550" android:duration="300" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeWidth" android:valueFrom="6" android:valueTo="1.5" android:valueType="floatType" android:startOffset="300" android:duration="600" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="220" android:duration="440" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="pathData" android:valueFrom="M57.2,55.1 C55.33,55.3,54.81,54.82,54.85,53.66 C54.56,51.24,53.46,49.7,52.62,49.28 C51.19,49.08,49.02,49.06,44.43,50.43 C48,57.2,46.88,59.1,43.85,61.83 L42.81,64.79 L44.18,66.8 L43.97,66.7 C45.41,67.06,50.49,65.53,53.49,64.7 C56.19,61.67,64.04,60.01,61.95,55.51 C57.92,55.04,56.05,55.24,55.97,55.25 C56.24,55.22,56.97,55.12,57.2,55.1 Z" android:valueTo="M95,34 C89,28,82,24,75,23 C66,21,58,24,54,30 C50,36,46,40,40,46 C32,54,24,64,18,74 L6,92 L20,94 L28,84 C36,80,48,78,56,76 C68,72,76,62,76,52 C76,46,74,43,78,40 C84,37,90,36,95,34 Z" android:valueType="pathType" android:startOffset="96" android:duration="480" android:interpolator="@interpolator/ink_fosi"/>
+        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.12" android:valueType="floatType" android:startOffset="144" android:duration="176" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0.12" android:valueTo="0" android:valueType="floatType" android:startOffset="440" android:duration="240" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeWidth" android:valueFrom="6" android:valueTo="1.5" android:valueType="floatType" android:startOffset="240" android:duration="480" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="176" android:duration="352" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="perch">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.25" android:valueTo="1" android:valueType="floatType" android:startOffset="340" android:duration="380" android:interpolator="@interpolator/ink_emph"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0.25" android:valueTo="1" android:valueType="floatType" android:startOffset="272" android:duration="304" android:interpolator="@interpolator/ink_emph"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="perchP">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="340" android:duration="260" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="400" android:duration="300" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="272" android:duration="208" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="320" android:duration="240" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="legs">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="500" android:duration="240" android:interpolator="@interpolator/ink_emph"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="400" android:duration="192" android:interpolator="@interpolator/ink_emph"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="legsP">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="500" android:duration="160" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="400" android:duration="300" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:startOffset="400" android:duration="128" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillColor" android:valueFrom="#3D5C94" android:valueTo="#F2F2F4" android:valueType="colorType" android:startOffset="320" android:duration="240" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="eye">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="0" android:valueTo="1.15" android:valueType="floatType" android:startOffset="700" android:duration="100" android:interpolator="@interpolator/ink_emph"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="0" android:valueTo="1.15" android:valueType="floatType" android:startOffset="700" android:duration="100" android:interpolator="@interpolator/ink_emph"/>
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="1.15" android:valueTo="1" android:valueType="floatType" android:startOffset="800" android:duration="60" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="1.15" android:valueTo="1" android:valueType="floatType" android:startOffset="800" android:duration="60" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="0" android:valueTo="1.15" android:valueType="floatType" android:startOffset="560" android:duration="80" android:interpolator="@interpolator/ink_emph"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="0" android:valueTo="1.15" android:valueType="floatType" android:startOffset="560" android:duration="80" android:interpolator="@interpolator/ink_emph"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="1.15" android:valueTo="1" android:valueType="floatType" android:startOffset="640" android:duration="48" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="1.15" android:valueTo="1" android:valueType="floatType" android:startOffset="640" android:duration="48" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="glow1">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.18000000000000002" android:valueType="floatType" android:startOffset="700" android:duration="100" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.18000000000000002" android:valueTo="0.081" android:valueType="floatType" android:startOffset="800" android:duration="200" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.18000000000000002" android:valueType="floatType" android:startOffset="560" android:duration="80" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.18000000000000002" android:valueTo="0.081" android:valueType="floatType" android:startOffset="640" android:duration="160" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="glow2">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.4" android:valueType="floatType" android:startOffset="700" android:duration="100" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.4" android:valueTo="0.18" android:valueType="floatType" android:startOffset="800" android:duration="200" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="0.4" android:valueType="floatType" android:startOffset="560" android:duration="80" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.4" android:valueTo="0.18" android:valueType="floatType" android:startOffset="640" android:duration="160" android:interpolator="@android:interpolator/linear"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="ripple">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="scaleX" android:valueFrom="1" android:valueTo="7.076923076923077" android:valueType="floatType" android:startOffset="760" android:duration="240" android:interpolator="@interpolator/ink_ripple"/>
-        <objectAnimator android:propertyName="scaleY" android:valueFrom="1" android:valueTo="7.076923076923077" android:valueType="floatType" android:startOffset="760" android:duration="240" android:interpolator="@interpolator/ink_ripple"/>
+        <objectAnimator android:propertyName="scaleX" android:valueFrom="1" android:valueTo="7.076923076923077" android:valueType="floatType" android:startOffset="608" android:duration="192" android:interpolator="@interpolator/ink_ripple"/>
+        <objectAnimator android:propertyName="scaleY" android:valueFrom="1" android:valueTo="7.076923076923077" android:valueType="floatType" android:startOffset="608" android:duration="192" android:interpolator="@interpolator/ink_ripple"/>
       </set>
     </aapt:attr>
   </target>
   <target android:name="rippleP">
     <aapt:attr name="android:animation">
       <set android:ordering="together">
-        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.6" android:valueType="floatType" android:startOffset="755" android:duration="10" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0.6" android:valueTo="0" android:valueType="floatType" android:startOffset="765" android:duration="235" android:interpolator="@android:interpolator/linear"/>
-        <objectAnimator android:propertyName="strokeWidth" android:valueFrom="3" android:valueTo="0.09" android:valueType="floatType" android:startOffset="760" android:duration="240" android:interpolator="@interpolator/ink_ripple"/>
+        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="0.6" android:valueType="floatType" android:startOffset="604" android:duration="8" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0.6" android:valueTo="0" android:valueType="floatType" android:startOffset="612" android:duration="188" android:interpolator="@android:interpolator/linear"/>
+        <objectAnimator android:propertyName="strokeWidth" android:valueFrom="3" android:valueTo="0.09" android:valueType="floatType" android:startOffset="608" android:duration="192" android:interpolator="@interpolator/ink_ripple"/>
       </set>
     </aapt:attr>
   </target>

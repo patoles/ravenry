@@ -5,6 +5,10 @@
 //
 //   - a pairing link whose only host is a tailnet name that does not
 //     resolve: the pairing screen says Tailscale, never the host;
+//   - Android's Back on the pairing screen goes one step up, and leaves only
+//     from the camera;
+//   - the stand-in tailnet name answering (a debug build's DebugNet): it
+//     pairs, and the top bar's connection chip says Tailscale;
 //   - the real link pairs, and the home is the board (PhoneProjects C);
 //   - a chip swaps the project's detail in place; the idle chip's sheet
 //     opens an idle project;
@@ -20,7 +24,18 @@
 //     Sessions card then opens the other session;
 //   - Sign out: the time from the tap to the pairing screen, and the device
 //     gone from the hub (its token refused);
-//   - pictures of each screen, dark and light, at 412 x 915.
+//   - pictures of each screen, dark and light, at 412 x 915;
+//   - the way back: Android's Back on every screen, sheet and modal goes one
+//     level up (the rows of hub/tools/phone-back-test.mjs, by touch), a sheet
+//     closes on a swipe down, Settings is the menu's only;
+//   - the connection chip says Home Wi-Fi; Reconnecting then Offline while
+//     the board's process is stopped, Home Wi-Fi again when it runs; the
+//     details sheet's Reconnect reconnects;
+//   - the launch (docs/PHONE.md, The launch): a cold start from the
+//     launcher, recorded (launch-cold.webm), the splash ending within 1 s,
+//     the mark landing on the top bar's, gfxinfo's frames; Reaching your
+//     Mac... only after 1.4 s with the board stopped; none on a warm start;
+//     the still mark and the board at once with animations off.
 //
 //   node build.mjs && (cd ../android && ./gradlew assembleDebug)
 //   node tools/phone-e2e.mjs <outDir> [--port 5584] [--avd ravenry-pixel] [--keep]
@@ -47,6 +62,8 @@ const WORK = path.resolve(opt('--work', path.join(APP_DIR, '.tmp', 'phone-e2e-wo
 const PORT = Number(opt('--port', 5584));
 const SERIAL = `emulator-${PORT}`;
 const AVD = opt('--avd', 'ravenry-pixel');
+// The host's GPU, headless all the same (no window): frame times mean something.
+const GPU = opt('--gpu', 'host');
 const SDK = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), 'Library/Android/sdk');
 const ADB = path.join(SDK, 'platform-tools', 'adb');
 const EMULATOR = path.join(SDK, 'emulator', 'emulator');
@@ -93,7 +110,7 @@ try {
   // ------------------------------------------------------------ the emulator
   const booted = () => { try { return adb('shell', 'getprop', 'sys.boot_completed').trim() === '1'; } catch { return false; } };
   if (!booted()) {
-    emu = spawn(EMULATOR, ['-avd', AVD, '-port', String(PORT), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot', '-read-only'], { stdio: 'ignore' });
+    emu = spawn(EMULATOR, ['-avd', AVD, '-port', String(PORT), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot', '-read-only', '-gpu', GPU], { stdio: 'ignore' });
     await until(booted, 240000, 2000);
   }
   if (adb('shell', 'getprop', 'ro.kernel.qemu').trim() !== '1') throw new Error(`${SERIAL} does not say ro.kernel.qemu=1: not an emulator`);
@@ -209,8 +226,45 @@ try {
   check(!texts.some((t) => /didn.t answer/.test(t)), 'and no "<name> didn\'t answer" line', texts.join(' | '));
   shot('pair-tailscale-dark.png');
 
+  // ------------------------------------------------------------ 1b. Back on the pairing screen
+  const resumed = () => (adb('shell', 'dumpsys', 'activity', 'activities').match(/topResumedActivity=.*?\/(\.\w+)/) || [])[1] || null;
+  adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  const scan = await until(() => find('Pair with your Mac'), 6000, 400);
+  await tapWhen((n) => /Type the code instead/.test(n.text));
+  await until(() => find("The Mac's address"), 6000, 400);
+  await sleep(800);
+  if (keyboardUp()) { adb('shell', 'input', 'keyevent', 'KEYCODE_BACK'); await sleep(600); }
+  adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  const scan2 = await until(() => find('Pair with your Mac'), 6000, 400);
+  adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  const left = await until(() => (resumed() !== '.PairActivity' ? 1 : null), 6000, 400);
+  check(scan && scan2 && left, "Android's Back on the pairing screen goes one step up (Pair with... to the camera, Type the code to the camera) and leaves only from the camera", `${!!scan} ${!!scan2} ${!!left}`);
+
+  // ------------------------------------------------------------ 1c. through the stand-in tailnet name: Tailscale
+  // The debug build's stand-in network (Reach.kt DebugNet): the tailnet name
+  // answers at this machine, and a VPN counts as up.
+  adb('shell', `run-as ${APP} sh -c 'mkdir -p files && echo "{\\"dns\\":{\\"ravenry.tail0000.ts.net\\":\\"10.0.2.2\\"},\\"vpn\\":true}" > files/debug-net.json'`);
+  adb('shell', `am start -a android.intent.action.VIEW -d '${tsLink}' ${APP}`);
+  await tapWhen('Pair', 30000);
+  const tsChip = await until(() => page('(document.querySelector("#cx-chip .cx-w") || {}).textContent || null'), 40000, 1000);
+  await sleep(800);
+  await tapPage('#cx-chip');
+  const tsHow = await until(() => page('(document.querySelectorAll(".cx-row .v")[1] || {}).textContent || null'), 6000);
+  await sleep(500);
+  shot('chip-tailscale-sheet-dark.png');
+  check(tsChip === 'Tailscale' && /Tailscale/.test(tsHow || ''), 'paired through the tailnet name (the stand-in), the chip says Tailscale and its sheet how', `${tsChip}; ${tsHow}`);
+  // Signed out here for the real link (a fresh code: the one above is used),
+  // and this device taken off the hub as the Mac's Sign out does.
+  adb('shell', 'pm', 'clear', APP);
+  for (const d of ((await (await fetch(`${info.url}/api/phone/devices`)).json()).devices || [])) {
+    await fetch(`${info.url}/api/phone/devices/revoke`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ id: d.id }) });
+  }
+  adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
+  adb('shell', 'pm', 'grant', APP, 'android.permission.CAMERA');
+  const freshLink = (await (await fetch(`${info.url}/api/phone?code=new`)).json()).app.link;
+
   // ------------------------------------------------------------ 2. pairs, home is the board
-  adb('shell', `am start -a android.intent.action.VIEW -d '${real}' ${APP}`);
+  adb('shell', `am start -a android.intent.action.VIEW -d '${freshLink}' ${APP}`);
   await tapWhen('Pair', 30000);
   const board = await until(() => page('document.querySelector("#pchips .pchip") ? location.pathname : null'), 40000, 1000);
   check(board === '/', 'the real link pairs, and the home is the board (the project chips)', String(board));
@@ -375,6 +429,155 @@ try {
   const saved = await page('localStorage.getItem("mc.theme")');
   check(lit && dark && saved === '"dark"', 'the menu\'s theme switch changes the theme (Light, then Dark), and keeps it', String(saved));
   await tapPage('#pmenu [data-act="pn-menu-close"]');
+
+  // ------------------------------------------------------------ 7b. the way back (Android's Back on every row)
+  const back = () => adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  const look = async () => JSON.parse(await page(`JSON.stringify((() => {
+    const vis = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+    const layers = [...document.querySelectorAll('[role="dialog"], [role="menu"], #plan-phone:not(:empty)')].filter((e) => !e.hidden && vis(e));
+    const tl = [...document.querySelectorAll('button, a, [data-act="pn-back"]')].filter((e) => e.matches('[aria-label^="Back"], [data-act="pn-back"]') || /^back$/i.test((e.textContent || '').trim())).filter(vis).filter((e) => { const r = e.getBoundingClientRect(); return r.left < 80 && r.top < 120; });
+    const done = [...document.querySelectorAll('.bs-done, [aria-label="Close"], [data-act="pn-menu-close"], [data-lv-close]')].filter(vis);
+    return { layers: layers.length, way: tl.length > 0 ? 'arrow' : done.length ? 'done' : 'none', lvFull: !!(history.state && history.state.lvFull), pnav: (document.querySelector('#bnav .pn-d.on') || {}).dataset?.pnav || null, title: ((document.querySelector('#pbar .pn-ttl') || {}).textContent || '').trim(), sug: !!document.querySelector('[data-rtab="sug"].on, [data-rtab="sug"][aria-selected="true"]'), stuck: window.ravenryBackStuck || 0 };
+  })())`) || 'null');
+  const toProjects = async () => { if ((await navOn()) !== 'projects') await tapUntil('#bnav [data-pnav="projects"]', async () => ((await navOn()) === 'projects' ? 1 : null)); };
+  const nav = (k) => tapUntil(`#bnav [data-pnav="${k}"]`, async () => ((await navOn()) === k ? 1 : null));
+  const home = (t) => t && !t.layers && t.pnav === 'projects' && /Ravenry/.test(t.title);
+  const atPages = (t) => t && !t.layers && t.pnav === 'pages' && t.title === 'Pages';
+  const walked = [];
+  async function backRow(name, open, want, way) {
+    try {
+      await open();
+      await sleep(800);
+      const before = await look();
+      if (keyboardUp()) { back(); await sleep(600); }
+      back();
+      const after = await until(async () => { const t = await look(); return t && !t.stuck && want(t, before) ? t : null; }, 6000, 400);
+      const wayOk = way === 'any' || (before && (before.way === way || (way === 'done' && before.way === 'arrow')));
+      walked.push(`${name}:${after && wayOk ? 'ok' : `NO (${JSON.stringify(before)} -> ${JSON.stringify(await look())})`}`);
+    } catch (e) { walked.push(`${name}:NO (${e.message.split('\n')[0]})`); }
+    await toProjects().catch(() => {});
+  }
+  await toProjects();
+  await backRow('idle sheet', () => tapPage('#pchips [data-idle-open]'), home, 'done');
+  await backRow('live screen, full screen', () => tapUntil('#lv-tap', async () => ((await look()).lvFull ? 1 : null)), (t, b) => b.lvFull && !t.lvFull && home(t), 'arrow');
+  await backRow('menu', () => tapUntil('#pb-more', () => page('document.querySelector("#pmenu .pn-menu") ? 1 : null')), home, 'any');
+  await backRow('Settings', async () => { await tapUntil('#pb-more', () => page('document.querySelector("#pmenu .pn-menu") ? 1 : null')); await tapUntil('#pmenu [data-act="pn-settings"]', () => page('document.querySelector("#hs-pop") ? 1 : null')); }, home, 'arrow');
+  await backRow('Sessions', () => tapUntil('#memchip-m', async () => ((await look()).title === 'Sessions' ? 1 : null)), home, 'arrow');
+  await backRow('Search', () => tapUntil('[data-act="pn-search"]', () => page('document.querySelector("#pn-q") ? 1 : null')), home, 'arrow');
+  await backRow('Pages', () => nav('pages'), home, 'any');
+  await backRow('a page', async () => { await nav('pages'); await tapUntil('#pn-pages [data-view^="page/"]', () => page('document.querySelector("#pv-t") ? 1 : null')); }, atPages, 'arrow');
+  await backRow('Objectives', async () => { await nav('pages'); await tapUntil('#pn-pages [data-view="objectives"]', async () => ((await look()).title === 'Objectives' ? 1 : null)); }, atPages, 'arrow');
+  await backRow('Ideas', () => nav('ideas'), home, 'any');
+  await backRow('an idea, open', async () => { await nav('ideas'); await tapUntil('.idea', async () => ((await look()).way === 'arrow' ? 1 : null)); }, (t) => t && !t.layers && t.pnav === 'ideas' && /Ravenry/.test(t.title), 'arrow');
+  await backRow('Rules', () => nav('rules'), home, 'any');
+  await backRow('Rules, Suggested', async () => { await nav('rules'); await tapUntil('[data-rtab="sug"]', async () => ((await look()).sug ? 1 : null)); }, (t) => t && t.pnav === 'rules' && !t.sug, 'any');
+  await backRow('Ship', () => nav('ship'), home, 'any');
+  await backRow('New project', () => tapUntil('#pbar [data-act="pn-new"]', () => page('document.querySelector("#modal-title") ? 1 : null')), home, 'arrow');
+  await backRow('Write the brief', async () => { await tapUntil('#pchips .pchip[data-id="portfolio"]', async () => ((await title()) === 'portfolio' ? 1 : null)); await tapUntil('[data-act="write-brief"]', () => page('document.querySelector("#modal-title") ? 1 : null')); }, home, 'arrow');
+  await backRow('New plan', async () => { await tapUntil('#pchips .pchip[data-id="garden-planner"]', async () => ((await title()) === 'garden-planner' ? 1 : null)); await tapUntil('[data-act="plan-new"]', () => page('document.querySelector("#plan-phone .body") ? 1 : null')); }, home, 'arrow');
+  await backRow('a plan, full page', () => page('location.hash = "#/plan/garden-planner"; 1'), home, 'arrow');
+  check(walked.every((x) => x.endsWith(':ok')), `Android's Back goes one level up on every row (${walked.length}): each with its way out on the screen (a back arrow at the top left, or Done on a sheet)`, walked.filter((x) => !x.endsWith(':ok')).join(' | ') || walked.map((x) => x.split(':')[0]).join(', '));
+  const noSettings = await nav('pages').then(() => page('document.querySelector("#pn-pages [data-act=pn-settings]") ? "listed" : "not listed"'));
+  check(noSettings === 'not listed', 'Settings is not in Pages (the menu\'s only)', noSettings);
+  await toProjects();
+  // A sheet closes on a swipe down.
+  await tapPage('#pchips [data-idle-open]');
+  await until(() => page('document.querySelector("#idle-sheet .bsheet") ? 1 : null'), 5000);
+  await sleep(500);
+  const g = await rectOf('#idle-sheet .grab');
+  adb('shell', 'input', 'swipe', String(Math.round(g.x + g.w / 2)), String(Math.round(g.y + g.h / 2)), String(Math.round(g.x + g.w / 2)), String(Math.round(g.y + g.h / 2 + 600)), '250');
+  const swiped = await until(() => page('!document.querySelector("#idle-sheet .bsheet") ? 1 : null'), 5000);
+  check(swiped, 'a sheet closes on a swipe down (the idle sheet, from its handle)');
+  // Home: Back leaves the app (the warm start below brings it back).
+  await sleep(500);
+  back();
+  const leftHome = await until(() => (resumed() !== '.MainActivity' ? 1 : null), 5000, 400);
+  check(leftHome, 'at home (Projects), Android\'s Back leaves the app', String(resumed()));
+
+  // ------------------------------------------------------------ 7c. the launch (docs/PHONE.md, The launch)
+  const inkLog = () => adb('logcat', '-d', '-s', 'RavenryInk');
+  const msOf = (re, log) => { const m = re.exec(log); return m ? Number(m[1]) : null; };
+  async function launch({ record = null, waitFor = /exit done|board ready/, ms: wait = 20000 } = {}) {
+    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+    await sleep(800);
+    adb('shell', 'input', 'swipe', '540', '2000', '540', '600', '300');
+    await sleep(1500);
+    const icon = find((n) => n.text === 'Ravenry' && n.pkg !== APP);
+    if (!icon) throw new Error('the launcher shows no Ravenry');
+    adb('logcat', '-c');
+    try { adb('shell', 'dumpsys', 'gfxinfo', APP, 'reset'); } catch { /* not running */ }
+    if (record) { adb('emu', 'screenrecord', 'start', '--time-limit', '8', '--fps', '60', path.join(OUT, record)); await sleep(400); }
+    const at = Date.now();
+    tap(icon);
+    const log = await until(() => { const l = inkLog(); return waitFor.test(l) ? l : null; }, wait, 300) || inkLog();
+    if (record) { await sleep(1500); try { adb('emu', 'screenrecord', 'stop'); } catch { /* done */ } await sleep(1500); }
+    return { log, at };
+  }
+  // Warm: the app is in the background: no launch.
+  const warm = await launch({ waitFor: /never/, ms: 2500 });
+  const warmSplash = /SplashScreenView: Build/.test(adb('logcat', '-d', '-s', 'SplashScreenView'));
+  check(!/cold start/.test(warm.log) && !warmSplash && resumed() === '.MainActivity', 'a warm start (the app in the background): no splash and no Ink, the board at once', `${warm.log.trim().split('\n').pop() || 'no Ink log'}; splash ${warmSplash}`);
+  // Cold, recorded.
+  adb('shell', 'am', 'force-stop', APP);
+  const cold = await launch({ record: 'launch-cold.webm', waitFor: /exit done/ });
+  const gfx = adb('shell', 'dumpsys', 'gfxinfo', APP);
+  const g2 = (re) => (re.exec(gfx) || [])[1];
+  // The app lets the splash go once the Ink has played (800 ms); the system
+  // then takes it down at the app's next frame (the hold under it draws the
+  // same picture, so nothing shows the step).
+  const splashGo = msOf(/splash let go at (\d+) ms/, cold.log);
+  const splashEnd = msOf(/splash ended at (\d+) ms/, cold.log);
+  const exitM = /exit: (\d+) frames.*the mark at (\d+),(\d+) scale ([\d.]+) \(target ([\d.]+),([\d.]+) scale ([\d.]+)\)/.exec(cold.log);
+  check(/AnimatableIconAnimateListener/.test(adb('logcat', '-d', '-s', 'SplashScreenView')) && splashGo !== null && splashGo <= 1000, 'a cold start from the launcher plays the Ink (the splash\'s animated icon) and the app lets the splash go within 1 s', `let go ${splashGo} ms after the process started, taken down by the system at ${splashEnd} ms`);
+  check(exitM && Number(exitM[1]) >= 10 && Math.abs(exitM[2] - exitM[5]) < 2 && Math.abs(exitM[3] - exitM[6]) < 2, 'the exit: the mark flies to the top bar\'s mark and lands on it, the board revealed from there', exitM ? `${exitM[1]} frames in ${msOf(/exit done at (\d+)/, cold.log) - msOf(/exit from .* at (\d+) ms/, cold.log)} ms, landed at ${exitM[2]},${exitM[3]} (the bar's mark at ${Math.round(exitM[5])},${Math.round(exitM[6])})` : cold.log);
+  check(fs.existsSync(path.join(OUT, 'launch-cold.webm')), 'the cold start is recorded (launch-cold.webm, frames to compare with A\'s strip)');
+  console.log(`gfxinfo over the launch: ${g2(/Total frames rendered: (\d+)/)} frames, janky ${g2(/Janky frames: ([^\n]+)/)}, 50th ${g2(/50th percentile: (\d+ms)/)}, 90th ${g2(/90th percentile: (\d+ms)/)}, 99th ${g2(/99th percentile: (\d+ms)/)}`);
+  // The Mac slow to answer: the board stopped for 6 s.
+  adb('shell', 'am', 'force-stop', APP);
+  process.kill(info.pid, 'SIGSTOP');
+  let holdWords = null;
+  try {
+    const p0 = launch({ waitFor: /hold words/, ms: 8000 });
+    holdWords = await until(() => find((n) => /Reaching your Mac/.test(n.text)), 9000, 300);
+    if (holdWords) shot('launch-hold-dark.png');
+    await p0;
+  } finally { setTimeout(() => process.kill(info.pid, 'SIGCONT'), 1500); }
+  const held = await until(() => { const l = inkLog(); return /exit done/.test(l) ? l : null; }, 30000, 500) || inkLog();
+  const wordsAt = msOf(/hold words at (\d+) ms/, held);
+  check(holdWords && wordsAt >= 1400 && /exit done/.test(held), 'the Mac slow to answer: the same drawing holds, Reaching your Mac... only after 1.4 s, then the same exit', `words at ${wordsAt} ms, board at ${msOf(/board ready at (\d+) ms/, held)} ms`);
+  // Animations off: the still mark, then the board at once.
+  const scales = ['animator_duration_scale', 'transition_animation_scale', 'window_animation_scale'];
+  for (const k of scales) adb('shell', 'settings', 'put', 'global', k, '0');
+  adb('shell', 'am', 'force-stop', APP);
+  let still;
+  try { still = await launch({ waitFor: /board ready/ }); await sleep(1000); still.log = inkLog(); } finally { for (const k of scales) adb('shell', 'settings', 'put', 'global', k, '1'); }
+  check(/animations off/.test(still.log) && /board ready/.test(still.log) && !/exit:/.test(still.log), 'with the phone\'s animations off: the still mark, then the board at once (no flight)', still.log.trim().split('\n').slice(-2).join(' | '));
+  await until(() => page('document.querySelector("#pchips .pchip") ? 1 : null'), 15000, 500);
+
+  // ------------------------------------------------------------ 7d. the connection chip
+  const chipWord = () => page('(document.querySelector("#cx-chip .cx-w") || {}).textContent || null');
+  const homeWifi = await until(async () => ((await chipWord()) === 'Home Wi-Fi' ? 1 : null), 15000, 500);
+  check(homeWifi, 'the top bar\'s chip says Home Wi-Fi (the phone reaches the Mac at a home address)', String(await chipWord()));
+  const stopAt = Date.now();
+  process.kill(info.pid, 'SIGSTOP');
+  let reAt = null, offAt = null, reach = null;
+  try {
+    reAt = await until(async () => ((await chipWord()) === 'Reconnecting' ? Date.now() : null), 60000, 700);
+    offAt = await until(async () => ((await chipWord()) === 'Offline' ? Date.now() : null), 60000, 700);
+    reach = await page('(() => { const r = document.querySelector(".rv-reach"); return r && r.getBoundingClientRect().height ? r.innerText.replace(/\\s+/g, " ").trim() : null; })()');
+    await sleep(600);
+    shot('chip-offline-dark.png');
+  } finally { process.kill(info.pid, 'SIGCONT'); }
+  const contAt = Date.now();
+  const upAt = await until(async () => ((await chipWord()) === 'Home Wi-Fi' ? Date.now() : null), 30000, 700);
+  check(reAt && offAt && upAt, 'the board\'s process stopped: the chip goes Reconnecting, then Offline (the reason words under it), and Home Wi-Fi again once it runs', `Reconnecting after ${reAt && Math.round((reAt - stopAt) / 100) / 10} s, Offline after ${offAt && Math.round((offAt - stopAt) / 100) / 10} s; "${reach}"; back ${upAt && Math.round((upAt - contAt) / 100) / 10} s after it ran again`);
+  await page('window.__cx = []; window.addEventListener("ravenry:conn", () => window.__cx.push(window.ravenryApp.conn.state)); 1');
+  await tapUntil('#cx-chip', () => page('document.querySelector(".cx-sheet") ? 1 : null'));
+  await sleep(500);
+  shot('chip-sheet-dark.png');
+  await tapPage('[data-act="cx-reconnect"]');
+  const recon = await until(async () => { const v = JSON.parse(await page('JSON.stringify(window.__cx)') || '[]'); return v.includes('reconnecting') && v[v.length - 1] === 'up' ? v : null; }, 15000, 500);
+  check(recon, 'the details sheet\'s Reconnect reconnects (reconnecting, then up)', JSON.stringify(recon));
 
   // ------------------------------------------------------------ 8. pictures in light
   await page('localStorage.setItem("mc.theme", JSON.stringify("light")); location.reload()');

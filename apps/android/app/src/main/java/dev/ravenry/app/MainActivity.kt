@@ -258,10 +258,17 @@ class MainActivity : FragmentActivity() {
         if (Store.get(this).stayConnected) ConnectionService.start(this)
     }
 
+    /**
+     * Back at home: the app goes to the background as it is (the board stays
+     * loaded), so coming back is instant and shows no launch (docs/PHONE.md,
+     * The launch: a warm start has none).
+     */
     private fun leave() {
-        back.isEnabled = false
-        onBackPressedDispatcher.onBackPressed()
-        back.isEnabled = true
+        if (!moveTaskToBack(true)) {
+            back.isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            back.isEnabled = true
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

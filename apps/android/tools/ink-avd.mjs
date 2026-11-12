@@ -3,7 +3,7 @@
 // variant A, phoneink A): the splash's AnimatedVectorDrawable and the still
 // mark, for night and day, from the mark's own geometry (brand/ravenry, the
 // launcher's foreground). Ink drops gather and merge into the raven inside the
-// splash circle and its eye opens with one ripple, in 1000 ms; then the app's
+// splash circle and its eye opens with one ripple, in 800 ms (LEN); then the app's
 // own exit (InkLaunch.kt) flies the mark to the board's top bar.
 //
 // A vector cannot run the Mac's ink shader, so the ink is drawn with what an
@@ -54,7 +54,11 @@ function dropPos(dp, u) { const tx = dp.tg[0] - C.x, ty = dp.tg[1] - C.y; const 
 const I = { FOSI: 'fosi', EMPH: 'emph', STD: 'std', LIN: 'lin', RIPPLE: 'ripple' };
 const INTERP = { fosi: [0.4, 0, 0.2, 1], emph: [0.05, 0.7, 0.1, 1], std: [0.2, 0, 0, 1], ripple: [0.2, 0.6, 0.35, 1] };
 const interp = (k) => (k === 'lin' ? '@android:interpolator/linear' : `@interpolator/ink_${k}`);
-const ms = (t) => Math.round(t * 1000);
+// The Ink's 1 s, played in 800 ms: the splash then ends within 1 s of the
+// launch on a phone that draws its first frame late (the emulator: 100 ms
+// after the splash is told to go: 150 ms).
+const LEN = 800;
+const ms = (t) => Math.round(t * LEN);
 
 function anim(prop, from, to, t0, t1, k = 'lin', type = 'floatType') {
   return `    <objectAnimator android:propertyName="${prop}" android:valueFrom="${from}" android:valueTo="${to}" android:valueType="${type}" android:startOffset="${ms(t0)}" android:duration="${Math.max(1, ms(t1 - t0))}" android:interpolator="${interp(k)}"/>`;
