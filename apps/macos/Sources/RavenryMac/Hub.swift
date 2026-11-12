@@ -281,6 +281,8 @@ final class HubClient: NSObject, URLSessionDataDelegate {
     let named: Bool
     private(set) var state: HubState?
     private(set) var reachable = false
+    /// How many times the stream was opened (a check sees it was never dropped).
+    private(set) var streamStarts = 0
     /// The protected folder macOS is asking about while the hub waits for
     /// the answer (its 503, hub/server/access.mjs), as "~/Documents".
     private(set) var waitingFor: String?
@@ -623,6 +625,7 @@ final class HubClient: NSObject, URLSessionDataDelegate {
         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         buf = Data()
         task = session.dataTask(with: r)
+        streamStarts += 1
         task?.resume()
     }
 

@@ -303,7 +303,7 @@ const screenHub = PAGES ? {
   // --screen machines: ssh never reaches anything from this board.
   // --screen settings: the projects' folder is the registry's setting (not
   // MC_PROJECTS_ROOT), so the Hand-off tab's Change can change it.
-  env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '', PATH: `${stubCodex()}:${process.env.PATH}`, MC_REPEATS_AUTO: '' } : {}), ...(SCREEN === 'settingsroot' ? { MC_PROJECTS_ROOT: lockedRoot() } : {}), ...(SCREEN === 'phone' ? { RAVENRY_PHONE_HOSTS: '100.101.102.103' } : {}) },
+  env: { RAVENRY_SSH: '/usr/bin/false', ...(SCREEN === 'settings' ? { MC_PROJECTS_ROOT: '', PATH: `${stubCodex()}:${process.env.PATH}`, MC_REPEATS_AUTO: '' } : {}), ...(SCREEN === 'settingsroot' ? { MC_PROJECTS_ROOT: lockedRoot() } : {}), ...(SCREEN === 'phone' ? { RAVENRY_PHONE_HOSTS: '100.101.102.103', RAVENRY_HUB_BIND: 'phone' } : {}) },
   // --screen sessions: each session's process in its cmux tab (closable), quiet for 36 s is idle.
   ...(SESSIONS_SCREEN ? { cmuxIds: true, settings: { idleHours: 0.01 } } : {}),
   // --screen ideastop (SelfTestIdeaStop.swift): the board stops an idea's reply and a brainstorm at IDEA_STOP_MS, not 3 minutes.

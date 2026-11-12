@@ -175,10 +175,19 @@ extension SelfTestBoard {
         check("phone_escape_closes", !pc.isOpen && board.sidebar.footButtons["side.phone"]?.on != true)
         foot("side.phone")
         _ = wait(4) { pc.data != nil }
+        // The board's port (sidetest.mjs runs this screen's board as the
+        // person's: RAVENRY_HUB_BIND=phone): access off, the Wi-Fi's address
+        // is refused at TCP, loopback answers; the app's stream stays open
+        // through every switch.
+        let wifi = Self.wifiAddress(), port = URL(string: board.hub.url)?.port ?? 0
+        let starts = board.hub.streamStarts
+        check("phone_board_wifi_refused_off", wifi != nil && port > 0 && !Self.tcpOpen(wifi!, port) && Self.tcpOpen("127.0.0.1", port) && Self.tcpOpen("::1", port), "wifi \(wifi ?? "none") port \(port)")
         // On: the QR code, the code and its check number (or no address to reach).
         n = board.hub.sent.count
         click(pc.toggle, at: NSPoint(x: 30, y: 13))
         check("phone_access_on", wait(4) { self.sentSince(n).contains("POST /api/phone/access") } && wait(6) { pc.toggle.on && (self.shows(pc, t("phone.scan")) || self.shows(pc, t("phone.noAddress"))) }, texts(pc).joined(separator: " | "))
+        let onCode = wifi.flatMap { w in wait(4) { Self.tcpOpen(w, port) } ? Self.httpStatus("http://\(w):\(port)/api/phone") : nil }
+        check("phone_board_wifi_answers_on", onCode.map { (200..<500).contains($0) } == true && board.hub.reachable && board.hub.streamStarts == starts, "wifi \(wifi ?? "none"):\(port) answered \(onCode.map(String.init) ?? "nothing"); stream opened \(board.hub.streamStarts - starts) more times")
         let realApp = pc.data?["app"] as? [String: Any]
         check("phone_code_and_check", realApp == nil || (shows(pc, realApp?["code"] as? String ?? "-") && shows(pc, t("phone.check"))))
         pictures("phone-on")
@@ -224,6 +233,56 @@ extension SelfTestBoard {
         n = board.hub.sent.count
         click(pc.toggle, at: NSPoint(x: 10, y: 13))
         check("phone_access_off", wait(4) { self.sentSince(n).contains("POST /api/phone/access") } && wait(6) { !pc.toggle.on && self.shows(pc, t("phone.off")) })
+        check("phone_board_wifi_refused_again", wifi.map { w in wait(4) { !Self.tcpOpen(w, port) } } == true && Self.tcpOpen("127.0.0.1", port) && Self.httpStatus("http://127.0.0.1:\(port)/api/state") == 200 && board.hub.reachable && board.hub.streamStarts == starts, "stream opened \(board.hub.streamStarts - starts) more times, reachable \(board.hub.reachable)")
         pc.close()
+    }
+
+    /// This Mac's Wi-Fi address (en0's private IPv4), else another private one.
+    static func wifiAddress() -> String? {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return nil }
+        defer { freeifaddrs(list) }
+        var found: [(String, String)] = []
+        for p in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            guard let sa = p.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let a = String(cString: host), q = a.split(separator: ".").compactMap { Int($0) }
+            guard q.count == 4, q[0] == 10 || (q[0] == 172 && (16...31).contains(q[1])) || (q[0] == 192 && q[1] == 168) else { continue }
+            found.append((String(cString: p.pointee.ifa_name), a))
+        }
+        return (found.first { $0.0 == "en0" } ?? found.first)?.1
+    }
+
+    /// Whether a TCP connection to host:port is accepted (within a second).
+    static func tcpOpen(_ host: String, _ port: Int) -> Bool {
+        var hints = addrinfo(ai_flags: AI_NUMERICHOST, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, String(port), &hints, &res) == 0, let ai = res else { return false }
+        defer { freeaddrinfo(res) }
+        let fd = socket(ai.pointee.ai_family, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        if connect(fd, ai.pointee.ai_addr, ai.pointee.ai_addrlen) == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pfd, 1, 1000) == 1 else { return false }
+        var err: Int32 = 0
+        var len = socklen_t(MemoryLayout<Int32>.size)
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
+        return err == 0
+    }
+
+    /// The HTTP status of a GET (nil: no answer in 3 s).
+    static func httpStatus(_ url: String) -> Int? {
+        guard let u = URL(string: url) else { return nil }
+        var code: Int?
+        let done = DispatchSemaphore(value: 0)
+        var r = URLRequest(url: u, timeoutInterval: 3)
+        r.setValue("1", forHTTPHeaderField: "X-Ravenry")
+        URLSession.shared.dataTask(with: r) { _, resp, _ in code = (resp as? HTTPURLResponse)?.statusCode; done.signal() }.resume()
+        _ = done.wait(timeout: .now() + 3.5)
+        return code
     }
 }

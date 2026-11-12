@@ -188,7 +188,8 @@ export function start(port, handler, onUpgrade) {
   server.on('tlsClientError', () => {});
   server.on('error', (e) => { console.error(`phone port :${port}: ${e.message}`); listening = false; });
   // A test's board: the phone port on this Mac only, never the Wi-Fi's (home.mjs hubBind).
-  const bind = hubBind();
+  // The person's: every address (it is open only while phone access is on).
+  const bind = hubBind() || undefined;
   server.listen(port, bind, () => { listening = true; console.log(`phone access on: TLS on ${bind || ''}:${port}`); });
   return server;
 }

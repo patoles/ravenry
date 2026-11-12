@@ -38,6 +38,7 @@ import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
 import * as phonetls from './phonetls.mjs';
+import { boardListeners } from './boardlisten.mjs';
 import * as push from './push.mjs';
 import * as termproxy from './termproxy.mjs';
 import * as pictures from './pictures.mjs';
@@ -3596,9 +3597,12 @@ function dropPhoneStreams(device = null) {
 }
 
 // The phone port follows the phone access switch.
+// Phone access on: the phone port, and the board's port on the network's
+// addresses too; off: neither (server/boardlisten.mjs).
 function syncPhonePort() {
   if (phone.access()) phonetls.start(PHONE_PORT, handleRequest, handleUpgrade);
   else phonetls.stop();
+  if (boardPort) boardPort.sync(phone.access());
 }
 
 // An app's alerts reach its live streams too (server/push.mjs).
@@ -4306,8 +4310,11 @@ async function handleRequest(req, res) {
   }
 }
 
-const server = http.createServer(handleRequest);
-server.on('upgrade', handleUpgrade);
+function makeServer() {
+  const s = http.createServer(handleRequest);
+  s.on('upgrade', handleUpgrade);
+  return s;
+}
 
 // cmux reruns `npm start` when it restores this board's terminal, and a
 // board may already hold the port (a second tab, a manual start). A board of
@@ -4322,7 +4329,7 @@ function portHolders() {
   }));
 }
 
-server.on('error', (e) => {
+function portTaken(e) {
   if (e.code !== 'EADDRINUSE') throw e;
   const holders = portHolders();
   const ours = holders.find((h) => h.command.includes(ROOT) || (h.cwd === ROOT && h.command.includes('server/index.mjs')));
@@ -4333,11 +4340,11 @@ server.on('error', (e) => {
   const h = holders[0];
   console.error(`:${PORT} is taken by ${h ? `pid ${h.pid} (${h.command})` : 'another process'}, not this board. Stop it or set PORT.`);
   process.exit(1);
-});
+}
 
-// No host: every interface (IPv6 and IPv4), so a phone on the home Wi-Fi can
-// open the board and a new DHCP address still works. server/phone.mjs decides
-// who gets in.
+// This Mac's addresses, and every address (IPv6 and IPv4, so a new DHCP
+// address still works) only while phone access is on (server/boardlisten.mjs);
+// server/phone.mjs decides who gets in.
 // A board on a test's data never takes the real board's port: the real one
 // would find it there, call it "already running" and exit.
 if (SCRATCH_DATA && PORT === 4600) {
@@ -4354,13 +4361,15 @@ console.log(`start: modules loaded, ${Math.round(process.uptime() * 1000)} ms af
 // A test's stand-in for the Wi-Fi, refused on a person's board (server/testphone.mjs).
 const TEST_PHONE_PORT = testphone.portFrom(process.env, testData());
 startlog.phase('listen');
-// A test's board on this Mac only, the person's on every address (home.mjs hubBind).
-server.listen(PORT, hubBind(), () => {
+// A test's board on this Mac only; the person's on this Mac, and on every
+// address while phone access is on (home.mjs hubBind, server/boardlisten.mjs).
+const boardPort = boardListeners({ port: PORT, bind: hubBind(), make: makeServer, onTaken: portTaken });
+void boardPort.start(() => {
   try { fs.mkdirSync(registry.RAVENRY_HOME, { recursive: true }); fs.writeFileSync(BOARD_FILE, JSON.stringify({ port: PORT, pid: process.pid, at: new Date().toISOString() }) + '\n'); } catch (e) { console.error('board.json:', e.message); }
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { forgetPort(); process.exit(0); });
   process.once('exit', forgetPort);
   const lan = phone.lanAddresses()[0];
-  console.log(`Ravenry on http://localhost:${PORT}${lan ? `, phones on http://${lan.address}:${PORT}` : ''}  (registry ${registry.REGISTRY_PATH})`);
+  console.log(`Ravenry on http://localhost:${PORT}${lan && !boardPort.fixed ? `, phones on http://${lan.address}:${PORT} while phone access is on` : ''}  (registry ${registry.REGISTRY_PATH})`);
   // Phone access on: the phone port opens with the board (docs/PHONE.md).
   void startlog.step('phone port', () => syncPhonePort());
   if (TEST_PHONE_PORT) testphone.listen(TEST_PHONE_PORT, handleRequest, handleUpgrade);

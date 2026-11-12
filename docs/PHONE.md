@@ -52,10 +52,15 @@ one: 4601) and takes connections that arrive on:
 
 A connection to any other local address is closed before TLS. With the
 switch off there is no TLS socket at all. The board's own port (4600)
-serves the Mac's window on loopback, and phone browsers signed in with the
-QR cookie on the Wi-Fi only while the same switch is on: off, a request
-from the Wi-Fi (the QR's `/?k=` sign-in, a cookie or a token) gets 403,
-"Phone access is off on the computer.
+serves the Mac's window on loopback (127.0.0.1 and ::1, always), and phone
+browsers signed in with the QR cookie on the Wi-Fi only while the same
+switch is on: off, the board listens on this Mac only, so a connection to
+its Wi-Fi or Tailscale address is refused; on, it listens on every address
+too (`hub/server/boardlisten.mjs`), opened and closed the moment the switch
+moves, without a restart, the Mac's own loopback connections kept. A
+request from the Wi-Fi that still arrives while it is off (the QR's `/?k=`
+sign-in, a cookie or a token) gets 403, "Phone access is off on the
+computer.
 
 **The key.** The hub makes one ECDSA P-256 key and a self-signed
 certificate for it on first use (`<RAVENRY_HOME>/phone-tls/`, key mode

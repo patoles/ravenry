@@ -76,11 +76,14 @@ export const SCRATCH_DATA = inRepoTmp(RAVENRY_HOME);
 // The address the board and its phone port listen on. A test's board (a test
 // process, data in the repo's .tmp or in a temp folder: the install check's,
 // a tool's throwaway HOME) listens on this Mac only, never on the Wi-Fi's
-// address, unless RAVENRY_HUB_BIND names one; the person's board on every
-// address, as before (phones reach it).
+// address, unless RAVENRY_HUB_BIND names one. The person's board: null, this
+// Mac's addresses, and every address only while phone access is on
+// (server/boardlisten.mjs); RAVENRY_HUB_BIND=phone asks a test's board for
+// that too (the check that proves it).
 export function hubBind(env = process.env, home = RAVENRY_HOME) {
+  if (env.RAVENRY_HUB_BIND === 'phone') return null;
   if (env.RAVENRY_HUB_BIND) return env.RAVENRY_HUB_BIND;
-  return testData(env, home) ? '127.0.0.1' : undefined;
+  return testData(env, home) ? '127.0.0.1' : null;
 }
 
 // Whether a board's data is a test's: a test process, or data in the repo's
