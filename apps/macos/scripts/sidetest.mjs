@@ -419,8 +419,33 @@ function linksPrepare({ HOME, ROOT, MC }) {
     + '## Hand-off\nWritten by paper-boat-7c for the next session. Not links: /tmp/paper-boat-7c/notes, paper-boat-7c.json, ravenry-99 and garden-planner.\n\n'
     + '## Plan\n### Rock with the waves\n- [x] Tilt the hull\n- [>] Ask **garden-planner-3f** about the wind\n');
 }
+// --screen away (SelfTestAway.swift): a tailnet of this Mac for Away from home
+// (daemon/tools/tailnetlab: Tailscale's test control server on 127.0.0.1,
+// never a real one); the board runs this app's ravenryd tailnet against it
+// (MC_TEST_TAILNET_CONTROL, a test's board only) and waits 6 s for a sign-in,
+// phone access already on, Pixel 8 signed in.
+const AWAY = SCREEN === 'away';
+let LAB = null;
+if (AWAY) {
+  const bin = path.join(tmp, 'tailnetlab');
+  execFileSync('go', ['build', '-o', bin, './tools/tailnetlab'], { cwd: path.join(REPO, 'daemon'), stdio: ['ignore', 'ignore', 'inherit'] });
+  const lab = spawn(bin, [], { stdio: ['pipe', 'pipe', fs.openSync(path.join(tmp, 'tailnetlab.log'), 'w')] });
+  daemonsUp.push(lab);
+  LAB = await new Promise((resolve, reject) => { let b = ''; lab.stdout.on('data', (d) => { b += d; const i = b.indexOf('\n'); if (i >= 0) resolve(JSON.parse(b.slice(0, i))); }); lab.on('exit', () => reject(new Error('tailnetlab did not start'))); });
+  screenHub.env = { ...screenHub.env, MC_TEST_TAILNET_CONTROL: LAB.control, MC_TAILNET_SIGNIN_MS: '6000', RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') };
+}
 // --screen phone: the two devices the card lists (SelfTestLearn.swift) are the
 // board's own, so Rename and Sign out reach real ones (the hub's 200, not 404).
+if (AWAY) {
+  const first = screenHub.prepare;
+  screenHub.prepare = (a) => {
+    first?.(a);
+    const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
+    fs.writeFileSync(path.join(a.MC, 'phone.json'), JSON.stringify({ key: 'k'.repeat(48), access: true, away: false, tokens: [
+      { hash: 'a'.repeat(64), id: 'd1a2', name: 'Pixel 8', platform: 'android', app: '0.4.2', created: at(48), lastSeen: at(0.05) },
+    ] }), { mode: 0o600 });
+  };
+}
 if (SCREEN === 'phone') {
   const first = screenHub.prepare;
   screenHub.prepare = (a) => {
@@ -755,7 +780,7 @@ function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursi
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -763,7 +788,7 @@ app.on('exit', () => { exited = true; });
 const arrivals = [['paper-boat', 'Tilt the hull with the slope too, or keep it level?'], ['notes-app', 'The settings screen is done. Ship the beta to the testers?']];
 const t0 = Date.now();
 let n = 1;
-while (!exited && Date.now() - t0 < (SCREEN === 'controls' ? 1200000 : PAGES || WRITE || SESSB ? 420000 : 240000)) {
+while (!exited && Date.now() - t0 < (SCREEN === 'controls' ? 1200000 : PAGES || WRITE || SESSB || AWAY ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
     if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (GONE) daemon.kill('SIGKILL'); else if (SCREEN === 'reply') { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts['sf-3'].typed = ''; fs.writeFileSync(hub.fake, JSON.stringify(f)); } else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);

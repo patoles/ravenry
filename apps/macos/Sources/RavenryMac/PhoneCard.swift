@@ -6,6 +6,14 @@
 // New key. GET /api/phone, read again every 2 s while it is open; each
 // device's name and line are the hub's (`line`, phone.mjs deviceLine).
 // Escape closes it, as does a press outside it.
+//
+// Away from home (PHONE-011, PHONE-013 to PHONE-016; hub/server/tailnet.mjs,
+// the mockup's variant B): under the code, the addresses (Home Wi-Fi, then
+// ravenry's name on the person's Tailscale while it is on), and a switch
+// with what it is doing: Sign in with Tailscale (the hub answers with the
+// sign-in page, opened in the browser), waiting with Open the sign-in page
+// again and Cancel, on with Sign out, the sign-in that did not finish with
+// Try again, and no internet.
 
 import AppKit
 
@@ -14,7 +22,7 @@ final class AccessToggle: NSView {
     var on = false { didSet { needsDisplay = true; setAccessibilityValue(on) } }
     var enabled = true { didSet { needsDisplay = true } }
     var run: (() -> Void)?
-    init() {
+    init(label: String = t("phone.access")) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -22,7 +30,7 @@ final class AccessToggle: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.checkBox)
         setAccessibilitySubrole(.switch)
-        setAccessibilityLabel(t("phone.access"))
+        setAccessibilityLabel(label)
     }
     required init?(coder: NSCoder) { fatalError() }
     override func draw(_ r: NSRect) {
@@ -39,6 +47,70 @@ final class AccessToggle: NSView {
     override func accessibilityPerformPress() -> Bool { if enabled { run?() }; return true }
 }
 
+/// .spin: a ring with a lit quarter, turning (still under Reduce motion).
+/// Drawn (not layers), so the self-test's pictures show it as the screen does.
+final class Spin: NSView {
+    private var angle: CGFloat = 0
+    private var timer: Timer?
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 15, height: 15))
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 15).isActive = true
+        heightAnchor.constraint(equalToConstant: 15).isActive = true
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func draw(_ r: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let ring = NSBezierPath(ovalIn: NSRect(x: 1, y: 1, width: 13, height: 13))
+            ring.lineWidth = 2
+            Design.color("tx3").withAlphaComponent(0.55).setStroke()
+            ring.stroke()
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: NSPoint(x: 7.5, y: 7.5), radius: 6.5, startAngle: 45 - angle, endAngle: 135 - angle)
+            arc.lineWidth = 2
+            arc.lineCapStyle = .round
+            Design.color("tx").setStroke()
+            arc.stroke()
+        }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        timer?.invalidate(); timer = nil
+        guard window != nil, !Motion.reduced else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.angle = (self.angle + 18).truncatingRemainder(dividingBy: 360)
+            self.needsDisplay = true
+        }
+    }
+}
+
+/// .ico: a filled circle with a "!" (the colour of what it says: bad, you).
+final class AlertMark: NSView {
+    let tone: String
+    init(_ tone: String) {
+        self.tone = tone
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        widthAnchor.constraint(equalToConstant: 15).isActive = true
+        heightAnchor.constraint(equalToConstant: 15).isActive = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func draw(_ r: NSRect) {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            Design.color(tone).setFill()
+            NSBezierPath(ovalIn: NSRect(x: 0.5, y: 0.5, width: 14, height: 14)).fill()
+            let p = NSBezierPath()
+            let top: CGFloat = isFlipped ? 4 : 11, mid: CGFloat = isFlipped ? 8.4 : 6.6, dot: CGFloat = isFlipped ? 10.9 : 4.1
+            p.move(to: NSPoint(x: 7.5, y: top)); p.line(to: NSPoint(x: 7.5, y: mid))
+            p.move(to: NSPoint(x: 7.5, y: dot)); p.line(to: NSPoint(x: 7.5, y: dot + (isFlipped ? 0.3 : -0.3)))
+            p.lineWidth = 1.9; p.lineCapStyle = .round
+            NSColor.black.withAlphaComponent(0.78).setStroke(); p.stroke()
+        }
+    }
+}
+
 final class PhoneCard: Box, NSTextFieldDelegate {
     var hub: HubClient?
     var toast: ((String) -> Void)?
@@ -50,6 +122,8 @@ final class PhoneCard: Box, NSTextFieldDelegate {
     private(set) var editing: String?
     private(set) var buttons: [String: RButton] = [:]
     let toggle = AccessToggle()
+    /// Away from home's switch (hub/server/tailnet.mjs).
+    let awayToggle = AccessToggle(label: t("phone.away.title"))
     private(set) var nameField: NSTextField?
     private var timer: Timer?
     private var qr: (String, NSImage?)?
@@ -72,6 +146,10 @@ final class PhoneCard: Box, NSTextFieldDelegate {
         toggle.run = { [weak self] in
             guard let self else { return }
             self.post("/api/phone/access", ["on": !(self.data?["access"] as? Bool ?? false)], t("phone.accessFailed"))
+        }
+        awayToggle.run = { [weak self] in
+            guard let self else { return }
+            self.post("/api/phone/away", ["on": !((self.data?["away"] as? [String: Any])?["on"] as? Bool ?? false)], t("phone.away.notChanged"))
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -147,11 +225,12 @@ final class PhoneCard: Box, NSTextFieldDelegate {
         }
     }
 
-    private func post(_ p: String, _ body: [String: Any], _ fail: String) {
+    private func post(_ p: String, _ body: [String: Any], _ fail: String, then: (([String: Any]) -> Void)? = nil) {
         guard !busy, let hub else { return }
         busy = true; drawn = ""; paint()
         hub.post(p, body) { [weak self] code, j in
             guard let self else { return }
+            if code == 200 { then?(j) }
             if code != 200 { self.toast?(j["error"] as? String ?? fail) }
             else if !self.held, j["access"] != nil { self.data = j }
             else if !self.held, let d = j["devices"], self.data != nil { self.data?["devices"] = d }
@@ -182,6 +261,10 @@ final class PhoneCard: Box, NSTextFieldDelegate {
         toggle.on = on
         toggle.enabled = d != nil && !busy
         var rows: [NSView] = []
+        let away = d?["away"] as? [String: Any]
+        let aState = away?["state"] as? String ?? "off"
+        let reach = on && (aState == "on" || aState == "offline")
+        let sysTs = d?["systemTailscale"] as? Bool ?? false
         // .phc-h
         rows.append(hstack([label(t("phone.title"), Fonts.pt(14, .bold)), spring(), toggle], spacing: 10, insets: NSEdgeInsets(top: 14, left: 16, bottom: 10, right: 16)))
         let app = on ? d?["app"] as? [String: Any] : nil
@@ -241,15 +324,28 @@ final class PhoneCard: Box, NSTextFieldDelegate {
             check.append(NSAttributedString(string: a["check"] as? String ?? "", attributes: [.font: Fonts.pt(12.5, .bold).withTabularDigits, .foregroundColor: Design.color("tx")]))
             let chk = wrap("", Fonts.pt(12.5), "tx2")
             chk.text.attributedStringValue = check
-            let info = vstack([label(t("phone.scan"), Fonts.pt(13.5, .bold)), wrap(t("phone.where"), Fonts.pt(12.5), "tx2"), label(t("phone.orType"), Fonts.pt(12.5), "tx2"), code, chk], spacing: 8)
+            let info = vstack([label(t("phone.scan"), Fonts.pt(13.5, .bold)), wrap(t(reach ? "phone.whereAway" : sysTs ? "phone.where" : "phone.whereHome"), Fonts.pt(12.5), "tx2"), label(t("phone.orType"), Fonts.pt(12.5), "tx2"), code, chk], spacing: 8)
             info.setHuggingPriority(.init(1), for: .horizontal)
             let r = NSStackView(views: [q, info])
             r.orientation = .horizontal; r.alignment = .top; r.spacing = 16
             r.edgeInsets = NSEdgeInsets(top: 6, left: 16, bottom: 14, right: 16)
             r.translatesAutoresizingMaskIntoConstraints = false
+            // The code's picture and its padding below it, whatever the words beside it take.
+            r.heightAnchor.constraint(greaterThanOrEqualTo: q.heightAnchor, constant: 20).isActive = true
             rows.append(r)
+            // .addr: where the phone finds this Mac, the Wi-Fi first, then ravenry on Tailscale.
+            var addr: [NSView] = []
+            if let w = d?["wifi"] as? String, !w.isEmpty { addr.append(addressRow(t("phone.addrHome"), w)) }
+            if reach, let h = away?["host"] as? String, !h.isEmpty { addr.append(addressRow(t("phone.addrAway"), h)) }
+            if aState == "on" { addr.append(wrap(t("phone.addrNote"), Fonts.pt(12.5), "tx2")) }
+            if !addr.isEmpty { rows.append(vstack(addr, spacing: 6, insets: NSEdgeInsets(top: 0, left: 16, bottom: bsvg != nil ? 4 : 14, right: 16))) }
             if bsvg != nil { rows.append(link(t("phone.browserLink"), "browser", true)) }
         } else { rows.append(line(on ? t("phone.noAddress") : t("phone.off"))) }
+        // .aw: Away from home, while phone access is on.
+        if on, d != nil {
+            rows.append(sepLine())
+            rows.append(awayBlock(away ?? [:]))
+        }
         // .phc-dev
         let devs = d?["devices"] as? [[String: Any]] ?? []
         if !devs.isEmpty {
@@ -296,7 +392,7 @@ final class PhoneCard: Box, NSTextFieldDelegate {
         nk.toolTip = t("phone.newKeyTip")
         nk.isEnabled = d != nil && !busy
         buttons["newKey"] = nk
-        let foot = wrap(on ? t("phone.footOn") : t("phone.footOff"), Fonts.pt(12.5), "tx2")
+        let foot = wrap(!on ? t("phone.footOff") : reach ? t("phone.footOnAway") : sysTs ? t("phone.footOn") : t("phone.footOnHome"), Fonts.pt(12.5), "tx2")
         rows.append(sepLine())
         rows.append(hstack([foot, spring(), nk], spacing: 10, insets: NSEdgeInsets(top: 10, left: 16, bottom: 12, right: 16)))
         for v in rows {
@@ -306,6 +402,102 @@ final class PhoneCard: Box, NSTextFieldDelegate {
         }
         stack.layoutSubtreeIfNeeded()
         place()
+    }
+
+    /// .ar: a name in grey 108 wide, then the address in mono.
+    private func addressRow(_ k: String, _ v: String) -> NSView {
+        let key = label(k, Fonts.pt(12.5), "tx2")
+        key.translatesAutoresizingMaskIntoConstraints = false
+        key.widthAnchor.constraint(equalToConstant: 108).isActive = true
+        let val = label(v, NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), "tx", select: true)
+        val.lineBreakMode = .byCharWrapping
+        let r = NSStackView(views: [key, val])
+        r.orientation = .horizontal; r.alignment = .firstBaseline; r.spacing = 10
+        r.translatesAutoresizingMaskIntoConstraints = false
+        return r
+    }
+
+    /// .st: a mark (a spinner, or a circle with "!") and a line in its colour.
+    private func stateLine(_ mark: NSView, _ s: String, _ color: String) -> NSView {
+        let w = wrap(s, Fonts.pt(13, .semibold), color)
+        let r = NSStackView(views: [mark, w])
+        r.orientation = .horizontal; r.alignment = .top; r.spacing = 8
+        r.translatesAutoresizingMaskIntoConstraints = false
+        return r
+    }
+
+    /// The sign-in page the hub answered with, opened in the browser.
+    private func signIn() {
+        post("/api/phone/away/signin", [:], t("phone.away.notChanged")) { j in
+            if let u = (j["away"] as? [String: Any])?["authURL"] as? String { Outside.open(u) }
+        }
+    }
+
+    /// Away from home: its switch and what it is doing (the mockup's variant B).
+    private func awayBlock(_ a: [String: Any]) -> NSView {
+        let st = a["state"] as? String ?? "off"
+        awayToggle.on = a["on"] as? Bool ?? false
+        awayToggle.enabled = !busy
+        let sub: NSView
+        switch st {
+        case "off": sub = wrap(t("phone.away.off"), Fonts.pt(12.5), "tx2")
+        case "on", "offline":
+            let name = a["name"] as? String ?? "ravenry", acct = a["account"] as? String ?? ""
+            let whole = t("phone.away.reachable", ["name": name, "account": acct])
+            let m = NSMutableAttributedString(string: whole, attributes: [.font: Fonts.pt(12.5), .foregroundColor: Design.color("tx2")])
+            if let r = whole.range(of: name) { m.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular), .foregroundColor: Design.color("tx")], range: NSRange(r, in: whole)) }
+            let w = wrap(whole, Fonts.pt(12.5), "tx2")
+            w.text.attributedStringValue = m
+            sub = w
+        default: sub = wrap(t("phone.away.about"), Fonts.pt(12.5), "tx2")
+        }
+        let words = vstack([label(t("phone.away.title"), Fonts.pt(13.5, .bold)), sub], spacing: 1)
+        words.setHuggingPriority(.init(1), for: .horizontal)
+        let head = NSStackView(views: [words, awayToggle])
+        head.orientation = .horizontal; head.alignment = .centerY; head.spacing = 10
+        head.translatesAutoresizingMaskIntoConstraints = false
+        var items: [NSView] = [head]
+        let note = { (k: String) -> NSView in wrap(t(k), Fonts.pt(12.5), "tx2") }
+        let primary = { (title: String, key: String) -> NSView in
+            let b = RButton(title, .primary, small: true) { [weak self] in self?.signIn() }
+            b.external = true
+            b.isEnabled = !self.busy
+            self.buttons[key] = b
+            return hstack([b, spring()], spacing: 0)
+        }
+        switch st {
+        case "ready":
+            items += [primary(t("phone.away.signIn"), "awaySignIn"), note("phone.away.signInNote")]
+        case "starting":
+            items.append(stateLine(Spin(), t("phone.away.joining"), "tx"))
+        case "waiting":
+            items.append(stateLine(Spin(), t("phone.away.waiting"), "tx"))
+            let again = RButton(t("phone.away.openAgain"), .link) { [weak self] in
+                if let u = (self?.data?["away"] as? [String: Any])?["authURL"] as? String { Outside.open(u) }
+            }
+            again.titleSize = 12.5
+            let cancel = RButton(t("phone.away.cancel"), small: true) { [weak self] in self?.post("/api/phone/away/cancel", [:], t("phone.away.notChanged")) }
+            cancel.isEnabled = !busy
+            buttons["awayOpenAgain"] = again; buttons["awayCancel"] = cancel
+            items.append(hstack([again, cancel, spring()], spacing: 14))
+        case "on":
+            let so = RButton(t("phone.away.signOut"), small: true) { [weak self] in
+                self?.post("/api/phone/away/signout", [:], t("phone.away.notChanged")) { j in
+                    if j["removed"] as? Bool == false { self?.toast?(t("phone.away.leftListed")) }
+                }
+            }
+            so.toolTip = t("phone.away.signOutTip")
+            so.isEnabled = !busy
+            buttons["awaySignOut"] = so
+            let n = note("phone.away.onlyYou")
+            items.append(hstack([n, spring(), so], spacing: 10))
+        case "failed":
+            items += [stateLine(AlertMark("bad"), a["error"] as? String ?? t("phone.away.failed"), "bad"), primary(t("phone.away.tryAgain"), "awayTryAgain")]
+        case "offline":
+            items += [stateLine(AlertMark("you"), t("phone.away.offline"), "you"), note("phone.away.offlineNote")]
+        default: break
+        }
+        return vstack(items, spacing: 9, insets: NSEdgeInsets(top: 12, left: 16, bottom: 14, right: 16))
     }
 
     private func sepLine() -> NSView {

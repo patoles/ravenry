@@ -32,6 +32,7 @@ extension SelfTestBoard {
         case "learn": screenLearn()
         case "machines": screenMachines()
         case "phone": screenPhone()
+        case "away": screenAway()
         case "terminal": screenTerminal()
         case "cards": screenCards()
         case "remote": screenRemote()

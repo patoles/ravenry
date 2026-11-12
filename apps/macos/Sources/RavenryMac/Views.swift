@@ -250,6 +250,26 @@ final class RButton: NSButton {
     var iconView: Icon?
     /// An icon of shared/icons before the title (.btn svg), in the title's colour.
     var lead: String? { didSet { leadImage(); invalidateIntrinsicContentSize() } }
+    /// The "opens outside" mark after the title (a box with an arrow out of it), in the title's colour.
+    var external = false { didSet { externalImage(); invalidateIntrinsicContentSize(); needsDisplay = true } }
+    /// The mark as the button's image, after its title (the cell draws it, as it draws a lead icon).
+    private func externalImage() {
+        guard external else { return }
+        let c: NSColor = kind == .primary && titleColor == nil ? .white : Design.color(titleColor ?? (kind == .link ? "link" : "btn-tx"))
+        image = NSImage(size: NSSize(width: 11, height: 11), flipped: true) { _ in
+            let k: CGFloat = 11 / 12
+            let pt = { (x: CGFloat, y: CGFloat) in NSPoint(x: x * k, y: y * k) }
+            let p = NSBezierPath()
+            p.move(to: pt(5, 2)); p.line(to: pt(2, 2)); p.line(to: pt(2, 10)); p.line(to: pt(10, 10)); p.line(to: pt(10, 7))
+            p.move(to: pt(7, 2)); p.line(to: pt(10, 2)); p.line(to: pt(10, 5))
+            p.move(to: pt(10, 2)); p.line(to: pt(5.5, 6.5))
+            p.lineWidth = 1.4; p.lineCapStyle = .round; p.lineJoinStyle = .round
+            c.setStroke(); p.stroke()
+            return true
+        }
+        imagePosition = .imageTrailing
+        imageHugsTitle = true
+    }
     /// The lead icon as the button's image, before its title, in the title's colour for the appearance in effect.
     private func leadImage() {
         guard let ln = lead else { image = nil; return }
@@ -308,7 +328,7 @@ final class RButton: NSButton {
         if iconView != nil { return NSSize(width: small ? 26 : 30, height: small ? 26 : 30) }
         let t = attributedTitle.size()
         if kind == .link { return NSSize(width: ceil(t.width), height: ceil(t.height)) }
-        return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil ? 0 : 20), height: small ? 28 : 32)
+        return NSSize(width: ceil(t.width) + (small ? 20 : 26) + (lead == nil ? 0 : 20) + (external ? 17 : 0), height: small ? 28 : 32)
     }
     @objc private func fire() { run?() }
     // The keyboard's ring (A11Y-004): the button's own rounded shape, whatever its kind draws.
@@ -355,7 +375,7 @@ final class RButton: NSButton {
     }
     override func mouseEntered(with e: NSEvent) { hover = true }
     override func mouseExited(with e: NSEvent) { hover = false }
-    override func viewDidChangeEffectiveAppearance() { if iconView == nil { setTitle(title) }; if lead != nil { leadImage() }; needsDisplay = true }
+    override func viewDidChangeEffectiveAppearance() { if iconView == nil { setTitle(title) }; if lead != nil { leadImage() }; if external { externalImage() }; needsDisplay = true }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 }
 
