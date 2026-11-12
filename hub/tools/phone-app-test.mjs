@@ -334,6 +334,12 @@ if (BIN) {
   ws.send(JSON.stringify({ v: 1, type: 'pane.subscribe', id: 2, pane: pane.id }));
   await until(async () => Buffer.concat(ws.bins).toString('latin1').includes('hello from the pane'), 5000);
   check('a pane\'s bytes come through the hub from the daemon', Buffer.concat(ws.bins).toString('latin1').includes('hello from the pane'), JSON.stringify(ws.texts.slice(0, 3)).slice(0, 300));
+  // A phone never resizes a pane (docs/PHONE.md section 6): its pane.resize
+  // is answered and the pane keeps its size.
+  ws.send(JSON.stringify({ v: 1, type: 'pane.resize', id: 9, pane: pane.id, cols: 40, rows: 30 }));
+  await until(async () => ws.texts.some((t) => t.id === 9), 5000);
+  const sized = (await dc.request('pane.list', {})).panes.find((x) => x.id === pane.id);
+  check('a phone\'s pane.resize gets an answer and the pane keeps its size (80x10)', ws.texts.some((t) => t.id === 9 && t.type === 'result') && sized && sized.cols === 80 && sized.rows === 10, `${sized && sized.cols}x${sized && sized.rows}`);
   ws.send(JSON.stringify({ v: 1, type: 'checkpoint.answer', id: 3, checkpoint: 'cxxxxxxx', approve: true }));
   await until(async () => ws.closeCode !== null, 5000);
   check('a method the phone may not send (checkpoint.answer) closes the stream with 1008', ws.closeCode === 1008, String(ws.closeCode));

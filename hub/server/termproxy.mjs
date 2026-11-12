@@ -6,7 +6,8 @@
 // handshake included.
 //
 // The daemon takes the hub as the person, so the hub reads every text frame
-// the phone sends and lets through only what draws and types into a pane;
+// the phone sends and lets through only what draws and types into a pane
+// (a phone's pane.resize never reaches the daemon: noResize);
 // anything else (an answer, a hook decision, a new pane) closes the
 // connection with 1008. Answers go through the HTTP API, where the person
 // check is. Binary frames (input) and control frames pass as they are.
@@ -99,6 +100,18 @@ export function withKey(text, key) {
   return textFrame(JSON.stringify({ ...m, answer_key: key }));
 }
 
+// A phone never resizes a pane: the Mac keeps its own size (docs/PHONE.md
+// section 6). A phone's pane.resize (an older app's terminal sent one at
+// each fit) becomes a pane.capture of the same pane with the same id, so
+// the phone gets an answer and the pane keeps its size. Its frame again,
+// else null (not a resize).
+export function noResize(text) {
+  let m;
+  try { m = JSON.parse(text); } catch { return null; }
+  if (!m || m.type !== 'pane.resize') return null;
+  return textFrame(JSON.stringify({ v: m.v || 1, type: 'pane.capture', id: m.id, pane: m.pane }));
+}
+
 // Whether a text frame from the phone may reach the daemon: { ok, why }.
 export function allowedText(text) {
   let m;
@@ -181,6 +194,8 @@ export async function handle(req, sock, head, url) {
       const text = f.payload.toString('utf8');
       const a = allowedText(text);
       if (!a.ok) { console.log(`term: closed a phone's stream to ${pane}: ${a.why}`); kill(1008, a.why); return false; }
+      const kept = req.mcTls ? noResize(text) : null;
+      if (kept) { up.write(kept); return true; }
       const keyed = home.machine ? withKey(text, answerKey()) : null;
       if (keyed) { up.write(keyed); return true; }
     }
