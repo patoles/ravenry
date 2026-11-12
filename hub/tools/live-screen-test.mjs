@@ -905,6 +905,28 @@ try {
     const phone = en === 'webkit';
     const browser = await (phone ? webkit : chromium).launch({ headless: true });
     const ctx = await browser.newContext(phone ? { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, colorScheme: 'dark' } : { viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+    // The person's clipboard is never written. Headless Chromium keeps a
+    // clipboard of its own, but headless WebKit on a Mac writes the Mac's:
+    // each copy here replaced what the person had copied (and failed the
+    // app's selftest general_pasteboard_untouched when run beside it). So the
+    // phone's page gets a clipboard in memory, navigator.clipboard and the
+    // fallback's execCommand('copy') (its copy event fired as WebKit fires
+    // it, on the selected field); the phone checks read only what was copied.
+    if (phone) await ctx.addInitScript(() => {
+      let held = '';
+      const clip = { writeText: (t) => { held = String(t); return Promise.resolve(); }, readText: () => Promise.resolve(held) };
+      Object.defineProperty(Navigator.prototype, 'clipboard', { get: () => clip, configurable: true });
+      const exec = Document.prototype.execCommand;
+      Document.prototype.execCommand = function (cmd, ...rest) {
+        if (String(cmd).toLowerCase() !== 'copy') return exec.call(this, cmd, ...rest);
+        const el = document.activeElement;
+        const field = el && typeof el.value === 'string' && el.selectionStart != null;
+        const text = field ? el.value.slice(el.selectionStart, el.selectionEnd) : String(getSelection());
+        (field ? el : document).dispatchEvent(new Event('copy', { bubbles: true, cancelable: true }));
+        held = text;
+        return true;
+      };
+    });
     const page = await ctx.newPage();
     if (process.env.LIVE_DEBUG) page.on('response', async (res) => { if (res.url().includes('/api/live')) { try { const j = await res.json(); console.log('   live', en, j.same ? 'same' : j.lines, j.entries ? j.entries.length : '', j.entries && j.entries[0] ? (j.entries[0].l || [''])[0].slice(0, 9) : ''); } catch { /* */ } } });
     const errs = [];
