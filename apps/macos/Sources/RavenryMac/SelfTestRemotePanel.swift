@@ -324,19 +324,41 @@ extension SelfTestBoard {
             NSGraphicsContext.restoreGraphicsState()
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: f))
         }
-        typeLine(pkPane, "\(q(bin)) pick 'Which sail colour?' --variant \(q("Red sail=" + picA)) --variant \(q("Blue sail=" + picB)) > \(q(out + "/pick.out")) 2>&1 &")
+        // AGENT-026: an image, an .html page and a shot of a pane (pane:ID), one described in the agent's words.
+        typeLine(pkPane, "\(q(bin)) pick 'Which sail colour?' --variant \(q("Red sail=" + picA)) --variant \(q("Blue sail=" + picB)) --variant \(q("The pane=pane:" + pkPane)) --describe \(q("Blue sail=Drawn from a page by the board")) > \(q(out + "/pick.out")) 2>&1 &")
         let pkc = cardFor("Which sail colour?")
         let pkId = pkc?.id ?? ""
-        pc("pc_pick_html_variant_drawn", wait(20) { pkc?.tiles.count == 2 && pkc?.tiles.allSatisfy { $0.image != nil } == true }, "tiles \(pkc?.tiles.map { $0.image != nil } ?? [])")
+        pc("pc_pick_html_variant_drawn", wait(20) { pkc?.tiles.count == 3 && pkc?.tiles.allSatisfy { $0.image != nil } == true }, "tiles \(pkc?.tiles.map { $0.image != nil } ?? [])")
         board.render(force: true)
         settle(0.3)
         picture("native-cards-pick-html-1440-dark.png")
         let pk = board.picker
         if let c = pkc { c.numberKey("2") }
-        _ = wait(6) { pk.images.count == 2 && pk.images.allSatisfy { $0.image != nil } }
+        pc("pc_pick_three_kinds_drawn", wait(8) { pk.images.count == 3 && pk.images.allSatisfy { $0.image != nil } } && shows(pk, "The pane") && shows(pk, "Drawn from a page by the board"),
+           "images \(pk.images.map { $0.image != nil }) | \(texts(pk).prefix(14).joined(separator: " | "))")
         pk.buttons["pick2"].map { pressIt($0) }
+        // A ring dragged on B, as a mouse does, then its note: the label, the region and the note printed for the agent.
+        pk.buttons["circle"].map { pressIt($0) }
+        if pk.images.count > 1 {
+            let im = pk.images[1]
+            window.contentView?.layoutSubtreeIfNeeded()
+            let at = { (x: CGFloat, y: CGFloat) in im.convert(NSPoint(x: im.bounds.width * x, y: im.bounds.height * y), to: nil) }
+            for (type, p) in [(NSEvent.EventType.leftMouseDown, at(0.3, 0.3)), (.leftMouseDragged, at(0.5, 0.5)), (.leftMouseUp, at(0.6, 0.7))] {
+                guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                switch type {
+                case .leftMouseDown: im.mouseDown(with: e)
+                case .leftMouseDragged: im.mouseDragged(with: e)
+                default: im.mouseUp(with: e)
+                }
+            }
+            settle(0.3)
+        }
+        let ringed = pk.picked == 1 && pk.region.map { abs($0.minX - 0.3) < 0.01 && abs($0.width - 0.3) < 0.01 && abs($0.height - 0.4) < 0.01 } == true
+        if let r = pk.region { pk.circle(1, r, note: "This blue, a little darker") }
         pk.buttons["send"].map { pressIt($0) }
         pc("pc_pick_answered", wait(10) { self.fileText(out + "/pick.out").contains("Blue sail") }, fileText(out + "/pick.out").prefix(200).description)
+        pc("pc_pick_printed_label_region_note", ringed && wait(5) { let o = self.fileText(out + "/pick.out"); return o.contains("Blue sail\nregion 0.3000 0.3000 0.3000 0.4000\nnote This blue, a little darker") },
+           "ringed \(ringed) \(String(describing: pk.region)) | \(fileText(out + "/pick.out").prefix(300))")
         try? FileManager.default.removeItem(atPath: picA)
         try? FileManager.default.removeItem(atPath: picB)
         // Its card leaves the panel once answered (a pick has nothing more to say there, as in the Electron app).
@@ -352,7 +374,7 @@ extension SelfTestBoard {
             return c.blueComponent > 0.6 && c.redComponent < 0.4
         }
         pc("pc_pick_closed_still_shows_pictures", !pkId.isEmpty && !FileManager.default.fileExists(atPath: picB) && wait(4) { self.board.root.middle === pk }
-           && wait(8) { pk.images.count == 2 && pk.images.allSatisfy { $0.image != nil } } && blueAt(pk.images[1].image) && pk.buttons["send"]?.isEnabled == false,
+           && wait(8) { pk.images.count == 3 && pk.images.allSatisfy { $0.image != nil } } && blueAt(pk.images[1].image) && pk.buttons["send"]?.isEnabled == false,
            "\(board.front) images \(pk.images.map { $0.image != nil }) blue \(pk.images.count > 1 ? blueAt(pk.images[1].image) : false)")
         board.render(force: true)
         settle(0.4)
