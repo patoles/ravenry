@@ -21,6 +21,8 @@
 //      starts no other copy and leaves no marker;
 //   4. --older-hub-check with pane variables does its check and exits
 //      before the relaunch is looked at: no other copy starts;
+//   6. the hub service the clean app writes (dry-run: the file only, under
+//      a test's label) carries none of the pane's variables (HUB-007);
 //   5. opened with `open -n -a` and the pane's variables (LaunchServices
 //      hands them on, the route of 2026-11-10 11:53), it relaunches clean
 //      too; and the starts reuse the daemon the first one started.
@@ -186,6 +188,25 @@ try {
   await sleep(3000);
   const extra4 = mains();
   step('4 --older-hub-check with pane variables: does its check, exits 0, and no other copy starts', oh.status === 0 && fs.existsSync(outFile) && extra4.length === 0, { status: oh.status, out: fs.existsSync(outFile), extra: extra4 });
+
+  // 6. HUB-007: the hub service written by an app started from a pane.
+  //    The same start as 1 (this test's own stand-in pane variables), its
+  //    service in dry-run (the file written, launchctl never run) under a
+  //    test's label: the service file the clean app writes carries none of
+  //    the pane's variables.
+  const label = `dev.ravenry.hub.test-${Math.random().toString(36).slice(2, 10)}`;
+  const plist = path.join(home, 'Library', 'LaunchAgents', `${label}.plist`);
+  const lines6 = relaunchLines();
+  const six = spawn(exe, ARGS, { env: { ...env, RAVENRY_SERVICE: 'dry-run', RAVENRY_SERVICE_LABEL: label }, stdio: 'ignore' });
+  const relaunched6 = await until(() => relaunchLines() > lines6, 15000);
+  const written = await until(() => fs.existsSync(plist), 30000);
+  let penv = null;
+  try { penv = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' })).EnvironmentVariables || {}; } catch { /* none */ }
+  const leaked = penv ? Object.keys(penv).filter((k) => new RegExp(LEAK).test(` ${k}=`)) : ['(no file)'];
+  const serviceLine = logText().split('\n').filter((l) => /service:/.test(l)).pop() || '';
+  step('6 started from a pane, the hub service the clean app writes carries none of the pane\'s variables', !!relaunched6 && !!written && penv && leaked.length === 0,
+    { relaunched: !!relaunched6, file: written ? plist : null, variables: penv ? Object.keys(penv).sort() : null, leaked, service: serviceLine, first: six.exitCode });
+  for (const p of mains()) await stop(p);
 } finally {
   for (const p of mains()) { try { process.kill(p, 'SIGTERM'); } catch { /* gone */ } }
   await sleep(500);
