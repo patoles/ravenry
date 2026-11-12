@@ -135,6 +135,24 @@ try {
     return n;
   }
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
+  // A fingerprint, enrolled as a person does in Settings after a PIN (as
+  // tools/pick-shots.mjs does; the sensor is touched with `adb emu finger touch`).
+  {
+    const fp = () => screen();
+    adb('shell', 'locksettings', 'set-pin', '1234');
+    adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
+    await until(() => find('Re-enter your PIN') || find('Enter your PIN'), 15000, 800);
+    adb('shell', 'input', 'text', '1234'); adb('shell', 'input', 'keyevent', 'KEYCODE_ENTER');
+    for (let i = 0; i < 6 && !find('I AGREE'); i++) { const more = find('MORE'); if (more) tap(more); await sleep(800); }
+    const agree = await until(() => find('I AGREE'), 10000, 600);
+    if (agree) tap(agree);
+    await until(() => find('Touch the sensor'), 15000, 800);
+    for (let i = 0; i < 12 && !find('Fingerprint added'); i++) { adb('emu', 'finger', 'touch', '1'); await sleep(900); }
+    check(!!find('Fingerprint added', fp()), 'a fingerprint is enrolled on the emulator');
+    const done = await until(() => find('DONE'), 10000, 600);
+    if (done) tap(done);
+    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+  }
 
   // The page in the WebView, through DevTools (a debug build allows it).
   async function page(expression) {
@@ -156,7 +174,10 @@ try {
       try { adb('forward', '--remove', `tcp:${port}`); } catch { /* gone */ }
     }
   }
-  const webView = () => find((n) => n.cls === 'android.webkit.WebView');
+  // The WebView's corner on the screen, found once: it never moves, and
+  // uiautomator can stall for a while after the fingerprint prompt.
+  let webAt = null;
+  const webView = () => { if (!webAt) webAt = find((n) => n.cls === 'android.webkit.WebView'); return webAt; };
   async function rectOf(selector) {
     const r = await until(() => page(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e || e.disabled) return null; e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); if (!r.width) return null; return { x: r.x, y: r.y, w: r.width, h: r.height, dpr: devicePixelRatio }; })()`), 15000, 400);
     const web = webView();
@@ -296,8 +317,8 @@ try {
   await tapPage('#pchips .pchip[data-id="portfolio"]');
   await until(async () => ((await title()) === 'portfolio' ? 1 : null), 8000);
   const panesBefore = panes().map((p) => p.id);
-  await tapPage('#ns');
-  await until(() => page('document.querySelector("#send").textContent === "Start session" ? 1 : null'), 5000);
+  const nsOn = await tapUntil('#ns', () => page('document.querySelector("#send").textContent === "Start session" ? 1 : null'));
+  check(nsOn, 'the New session switch turns on: Send reads Start session');
   await tapPage('#compose');
   await until(keyboardUp, 8000, 400);
   const first = 'Check the contact line on small phones';
@@ -376,7 +397,21 @@ try {
   await page('document.querySelector("#d-ask").scrollIntoView({ block: "start" })');
   await sleep(500);
   shot('card-approve-light.png');
-  await tapPage('#pchips .pchip[data-id="paper-boat"]');
+  // Run from the card: the fingerprint prompt first, then the command runs.
+  const runId = await page('document.querySelector("[data-act=cp-run]").dataset.cp');
+  await tapPage('[data-act="cp-run"]');
+  const prompt = await until(() => find((n) => n.pkg === 'com.android.systemui' && /fingerprint|Run this command/i.test(n.text || n.desc)), 15000, 700);
+  const notYet = (await (await fetch(`${HUB}/api/checkpoints?all`)).json()).checkpoints.find((x) => x.id === runId);
+  adb('emu', 'finger', 'touch', '1');
+  const ran = await until(async () => { const c = (await (await fetch(`${HUB}/api/checkpoints?all`)).json()).checkpoints.find((x) => x.id === runId); return c && c.state !== 'open' ? c : null; }, 20000, 500);
+  check(prompt && notYet && notYet.state === 'open' && ran && ran.answer && ran.answer.approved && ran.answer.by === 'phone', 'Run in the command\'s card asks for the fingerprint first (nothing sent before), then the command is allowed, by the phone', `${prompt ? prompt.text || prompt.desc : 'no prompt'}; before: ${notYet && notYet.state}; after: ${JSON.stringify(ran && ran.answer)}`);
+  await sleep(1500);
+  const after = await page('JSON.stringify({ path: location.pathname, hash: location.hash, chips: [...document.querySelectorAll("#pchips .pchip[data-id]")].map((c) => c.dataset.id) })');
+  console.log('after Run:', after);
+  // The board again from its start (the prompt's window came and went over it).
+  await page('location.replace("/")');
+  await until(() => page('document.querySelector("#pchips .pchip[data-id=weather-widget]") ? 1 : null'), 15000, 500);
+  await tapPage('#pchips .pchip[data-id="weather-widget"]');
   await sleep(800);
   await tapPage('#ns');
   await sleep(500);
@@ -404,18 +439,26 @@ try {
   await until(() => page('document.querySelector(".sheet .sheet-r.danger") ? 1 : null'), 5000);
   const r = await rectOf('.sheet .sheet-r.danger');
   adb('logcat', '-c');
+  // The Mac out of reach: the phone in airplane mode while it signs out.
+  adb('shell', 'cmd', 'connectivity', 'airplane-mode', 'enable');
+  await sleep(2500);
   const tapAt = Date.now();
   adb('shell', 'input', 'tap', String(Math.round(r.x + r.w / 2)), String(Math.round(r.y + r.h / 2)));
   const pairUp = await until(() => (/mResumedActivity.*PairActivity|topResumedActivity.*PairActivity/.test(adb('shell', 'dumpsys', 'activity', 'activities')) ? Date.now() : null), 10000, 100);
   const shown = (adb('logcat', '-d', '-s', 'ActivityTaskManager').match(/Displayed dev\.ravenry\.app\/\.PairActivity[^+]*\+(\d+)s?(\d+)?ms/) || []);
   const ms = pairUp ? pairUp - tapAt : null;
   check(ms !== null && ms < 1500, 'Sign out changes the screen on the tap: the pairing screen shows', `${ms} ms from the tap (adb and dumpsys included)${shown[0] ? `; Android: ${shown[0].replace(/^.*Displayed /, '')}` : ''}`);
-  const gone = await until(async () => { const d = await (await fetch(`${HUB}/api/phone/devices`)).json(); return !(d.devices || []).some((x) => x.platform === 'android') ? Date.now() : null; }, 20000, 300);
-  check(gone, 'and the Mac forgets this phone: the device is revoked on the hub (its token is refused from then on)', gone ? `${gone - tapAt} ms after the tap` : 'still listed');
+  await sleep(4000);
+  const listed = ((await (await fetch(`${HUB}/api/phone/devices`)).json()).devices || []).some((x) => x.platform === 'android');
+  const onAt = Date.now();
+  adb('shell', 'cmd', 'connectivity', 'airplane-mode', 'disable');
+  const gone = await until(async () => { const d = await (await fetch(`${HUB}/api/phone/devices`)).json(); return !(d.devices || []).some((x) => x.platform === 'android') ? Date.now() : null; }, 60000, 300);
+  check(listed && gone, 'with the Mac out of reach the device stays on the hub; back in reach, the retried unpair revokes it (its token then gets 401: phone-app-test, a phone signing itself out)', gone ? `still listed ${Math.round((onAt - tapAt) / 1000)} s after the tap in airplane mode; revoked ${Math.round((gone - onAt) / 100) / 10} s after the network came back` : 'still listed');
   await sleep(1000);
   shot('pair-after-signout-light.png');
 } catch (e) {
   console.error(e);
+  try { fs.writeFileSync(path.join(OUT, 'error.png'), adbBin('exec-out', 'screencap', '-p')); } catch { /* gone */ }
   results.push({ ok: false, what: String(e.message || e) });
 } finally {
   const fails = results.filter((x) => !x.ok).length;
