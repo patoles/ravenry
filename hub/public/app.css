@@ -1126,3 +1126,53 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
   .pn-np{width:40px;padding:0;justify-content:center}
   .pn-np span{display:none}
 }
+/* The way back, the connection chip (docs/PHONE.md, phonebuild2). */
+.hs-bar,.m-back{display:none}
+.cx{display:none}
+@media (max-width: 700px){
+  /* Settings: a full screen with its back bar, the bottom bar kept. */
+  .hs-pop{position:fixed !important;left:0 !important;right:0;top:0 !important;bottom:calc(80px + env(safe-area-inset-bottom, 0px));width:auto !important;border-radius:0;overflow:auto;z-index:35;box-shadow:none !important;background:var(--win)}
+  .hs-pop .hs-caret,.hs-pop .hs-head{display:none}
+  .hs-bar{display:flex;align-items:center;height:64px;padding:0 4px 0 8px;position:sticky;top:0;background:var(--win);z-index:2}
+  .hs-pop .hs-body{margin:0 12px;background:var(--sheet);border-radius:16px;box-shadow:0 0 0 1px var(--sheet-ring)}
+  .hs-pop .hs-foot{margin:0 12px 16px}
+  /* A modal (New project, Write the brief): a full screen with its back arrow. */
+  .modal-back:has(#modal-title){padding:0;align-items:stretch;background:var(--win)}
+  .modal-back:has(#modal-title) > .modal{width:100%;max-width:none;border-radius:0;min-height:100%;box-shadow:none;background:var(--win)}
+  .m-back{display:flex;margin:-8px 4px -8px -12px}
+  .m-head #modal-close{display:none}
+  .m-head h2{font-size:19px !important;font-weight:650 !important}
+  .pl-strip{padding-left:4px}
+  .mc.pn-sub #s-head h1{display:none}
+  .mc.pn-idea #i-close{display:none}
+  /* The connection chip and its sheet. */
+  .pn-ttl .pn-word{white-space:nowrap}
+  /* The chip right after the mark (and the word, where it fits). */
+  #pbar .pn-ttl:has(+ .cx-chip){flex:0 1 auto}
+  #pbar .cx-chip{margin:0 auto 0 6px}
+  #pbar .pn-np{width:40px;padding:0;justify-content:center;margin:0 6px 0 2px}
+  #pbar.tight .pn-word{display:none}
+  .cx-chip{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px 0 9px;border-radius:15px;background:var(--card);box-shadow:inset 0 0 0 1px var(--sep);font-size:12.5px;font-weight:600;color:var(--tx);flex:none;white-space:nowrap;cursor:pointer;margin:0 2px}
+  .cx-dot{width:8px;height:8px;border-radius:4px;flex:none;background:var(--ok)}
+  .cx-chip.ts .cx-dot{background:var(--work)}
+  .cx-chip.off{color:var(--bad);box-shadow:inset 0 0 0 1px rgba(255,105,97,.45)}
+  .cx-chip.off .cx-dot{background:var(--bad)}
+  .cx-chip.re{color:var(--you)}
+  .cx-chip.re .cx-dot{background:var(--you);animation:cxPulse 1.2s ease-in-out infinite}
+  @keyframes cxPulse{50%{opacity:.35}}
+  .cx{display:block}
+  .cx-rows{padding:0 0 4px}
+  .cx-row{display:flex;gap:12px;padding:11px 20px;border-top:1px solid var(--sep);font-size:14px;color:var(--tx)}
+  .cx-row .k{flex:0 0 104px;color:var(--tx2)}
+  .cx-row .v{flex:1;min-width:0;line-height:1.4}
+  .cx-btns{display:flex;gap:8px;padding:12px 20px 4px}
+  .cx-btns .btn{flex:1;min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){.cx-chip.re .cx-dot{animation:none}}
+@media (max-width: 700px){
+  /* New plan on a phone: a full screen, the top bar its back arrow and title. */
+  .mc.planning .mc-top,.mc.planning .pchips,.mc.planning .mc-list{display:none}
+  .mc.planning .pl-strip{display:none}
+}
+.pl-h-p{display:none}
+@media (max-width: 700px){ .plan-phone .pl-h-d{display:none} .plan-phone .pl-h-p{display:inline} }

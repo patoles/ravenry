@@ -2022,17 +2022,26 @@ function renderPhoneNav() {
   setHtml('bnav', ds.map(([k, label, ic, b]) => `<button class="pn-d${spot === k ? ' on' : ''}" data-pnav="${k}" ${spot === k ? 'aria-current="page"' : ''} aria-label="${esc(label)}"><span class="pn-pill">${ic}${b}</span><span>${esc(label)}</span></button>`).join(''));
   // The top bar: the home's, a page's (back to Pages), the Pages list's, Search's.
   const ib = (id, ic, label, cls = '', attrs = '') => `<button class="pn-ib ${cls}" ${id ? `id="${id}"` : ''} aria-label="${esc(label)}" ${attrs}>${ic}</button>`;
-  const np = (label) => `<button class="pn-np" data-act="pn-new" aria-label="${esc(label)}">${PI.plus}<span>${esc(label)}</span></button>`;
+  const np = (label) => `<button class="pn-np" data-act="pn-new" aria-label="${esc(label)}">${PI.plus}</button>`;
   const more = ib('pb-more', PI.kebab, 'More', ui.pmenu ? 'hl' : '', `aria-haspopup="menu" aria-expanded="${ui.pmenu ? 'true' : 'false'}"`);
   let bar;
-  if (v === 'search') bar = `${ib('', PI.back, 'Back', 'fg', 'data-act="pn-back"')}<input id="pn-q" class="pn-q" type="search" placeholder="Search projects and pages" autocomplete="off" value="${escRaw(ui.pnq || '')}">`;
+  const backBar = (title) => `${ib('', PI.back, 'Back', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(title)}</span>`;
+  const idea = v === 'ideas' && ui.selIdea && ideaById(ui.selIdea);
+  const planning = !!(pl.pid && $('#mc').classList.contains('planning'));
+  if (planning) bar = backBar(pl.draft && pl.draft.mode === 'change' ? 'Change the plan' : 'New plan');
+  else if (v === 'sessions') bar = backBar('Sessions');
+  else if (v === 'plan') bar = backBar('Plan');
+  else if (idea) bar = backBar(idea.name || 'Idea');
+  else if (v === 'search') bar = `${ib('', PI.back, 'Back', 'fg', 'data-act="pn-back"')}<input id="pn-q" class="pn-q" type="search" placeholder="Search projects and pages" autocomplete="off" value="${escRaw(ui.pnq || '')}">`;
   else if (v === 'pages') bar = `<span class="pn-ttl">Pages</span>${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}`;
   else if (v.startsWith('page/') || v === 'objectives') {
     const row = ((ui.snap.pages) || []).find((r) => 'page/' + r.key === v);
     bar = `${ib('', PI.back, 'Back to Pages', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(v === 'objectives' ? 'Objectives' : row ? row.label : 'Page')}</span>${more}`;
-  } else bar = `<span class="pn-ttl">${PN_LOGO}Ravenry</span>${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np('New project') : ''}`;
+  } else bar = `<span class="pn-ttl">${PN_LOGO}<span class="pn-word">Ravenry</span></span>${connChip()}${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np('New project') : ''}`;
   setHtml('pbar', bar);
-  $('#mc').classList.toggle('pn-sub', v === 'pages' || v === 'search' || v.startsWith('page/') || v === 'objectives');
+  fitBar();
+  $('#mc').classList.toggle('pn-sub', v === 'pages' || v === 'search' || v.startsWith('page/') || v === 'objectives' || v === 'sessions' || v === 'plan' || !!idea);
+  $('#mc').classList.toggle('pn-idea', !!idea);
   renderPhoneMenu();
 }
 
@@ -2057,8 +2066,9 @@ function renderPagesList() {
   const li = (attrs, ic, t1, t2, right) => `<button class="pn-li" ${attrs}><span class="pn-lic">${ic}</span><span class="pn-tx"><span class="pn-t1">${esc(t1)}</span>${t2 ? `<span class="pn-t2">${esc(t2)}</span>` : ''}</span><span class="pn-tm">${right || ''}</span>${PI.chev.replace('class="ic"', 'class="ic pn-chev"')}</button>`;
   const own = rows.map((r) => li(`data-view="page/${escRaw(r.key)}"`, PAGE_ICON[r.icon] || PI.notes, r.label, [r.number != null && r.countLabel ? `${r.number} ${r.countLabel}` : '', r.project ? r.project : ''].filter(Boolean).join(', '), `${esc(pageWhen(r.changed))}${r.number ? `<span class="pn-badge">${r.number}</span>` : ''}`)).join('');
   const objs = (ui.snap.projects || []).reduce((a, p) => a + objectivesOf(p).length, 0);
+  // Settings is the menu's (the phone's menu, Simon 2026-11-12: "weird to have settings inside Pages").
   setHtml('pn-pages', `<div class="pn-h">Your pages</div><div class="pn-card">${own || '<div class="pn-empty">No pages yet. An agent or you can add one: docs/PAGES.md.</div>'}</div>
-<div class="pn-h">Board</div><div class="pn-card">${li('data-view="objectives"', PI.objectives, 'Objectives', objs ? `${objs} across projects` : 'Across projects', '')}${li('data-act="pn-settings"', PI.gear, 'Settings', 'Machines, hand-off, alerts', '')}</div>`);
+<div class="pn-h">Board</div><div class="pn-card">${li('data-view="objectives"', PI.objectives, 'Objectives', objs ? `${objs} across projects` : 'Across projects', '')}</div>`);
 }
 
 function renderSearch() {
@@ -2073,6 +2083,145 @@ ${!ps.length && !pages.length ? `<div class="pn-h" style="font-weight: 500">Noth
 }
 
 document.addEventListener('input', (e) => { if (e.target.id === 'pn-q') { ui.pnq = e.target.value; renderSearch(); } });
+
+// ------------------------------------------------------------ one level up
+// Android's Back (the phone app calls window.ravenryBack: apps/phone/src/board.ts)
+// and every top-left back arrow go one level up. First the layers on top,
+// any of them, a future one too: each closes with its own close control
+// (a dialog or a menu with none fails phone-e2e's walk). Then the screens
+// under the bottom bar's destinations, back to them; then the destinations
+// back to Projects. At home there is nothing to go back to (false).
+const CLOSE_CONTROL = '[data-close], [data-lv-close], [data-gl-close], [data-idle-close].bs-done, .bs-done, [data-pl="cancel"], [data-pl="close"], [data-act="pn-menu-close"], [aria-label="Close"], [aria-label="Back"], .x-btn';
+function openLayers() {
+  const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+  return [...document.querySelectorAll('[role="dialog"], [role="menu"], #plan-phone:not(:empty)')].filter((e) => !e.hidden && vis(e));
+}
+function phoneBack() {
+  const layers = openLayers();
+  if (layers.length) {
+    const top = layers[layers.length - 1];
+    const c = top.querySelector(CLOSE_CONTROL) || (top.parentElement && top.parentElement.querySelector(CLOSE_CONTROL));
+    if (c) { c.click(); return true; }
+    // A layer with no close control (a bug: tools/phone-back-test.mjs fails on it): hidden, never the app left behind it.
+    window.ravenryBackStuck = (window.ravenryBackStuck || 0) + 1;
+    console.warn('Back: a layer with no close control', top.getAttribute('aria-label') || top.id || top.className);
+    top.hidden = true;
+    return true;
+  }
+  return viewBack();
+}
+window.ravenryBack = phoneBack;
+function viewBack() {
+  const v = ui.view;
+  if (v === 'search') { setView(ui.pnBack && ui.pnBack !== 'search' ? ui.pnBack : 'projects'); }
+  else if (v.startsWith('page/') || v === 'objectives') setView('pages');
+  else if (v === 'sessions') setView(ui.pnBack && ui.pnBack !== 'sessions' ? ui.pnBack : 'projects');
+  else if (v === 'plan') { const pid = ui.planFor; setView('projects'); if (pid) select(pid); }
+  else if (v === 'ideas' && ui.selIdea) { ui.selIdea = null; store.set('selIdea', null); render(); }
+  else if (v === 'rules' && ui.rulesTab === 'sug') { ui.rulesTab = 'mine'; render(); }
+  else if (v !== 'projects') setView('projects');
+  else return false;
+  renderPhoneNav();
+  return true;
+}
+// A sheet closes on a swipe down from its handle or its head, as Android's sheets do.
+let swipe = null;
+document.addEventListener('touchstart', (e) => {
+  const h = e.target.closest && e.target.closest('.bsheet .grab, .bsheet .bs-head, .cx-sheet .cx-grab, .cx-sheet .cx-head');
+  if (!h) return;
+  swipe = { el: h.closest('.bsheet, .cx-sheet'), y: e.touches[0].clientY, dy: 0 };
+}, { passive: true });
+document.addEventListener('touchmove', (e) => {
+  if (!swipe) return;
+  swipe.dy = Math.max(0, e.touches[0].clientY - swipe.y);
+  swipe.el.style.transform = `translateY(${swipe.dy}px)`;
+}, { passive: true });
+document.addEventListener('touchend', () => {
+  if (!swipe) return;
+  const { el, dy } = swipe;
+  swipe = null;
+  if (dy > 80) { const c = el.querySelector('.bs-done, [data-close]'); if (c) c.click(); else el.style.transform = ''; }
+  else el.style.transform = '';
+});
+
+// ------------------------------------------------------------ the connection chip
+// docs/PHONE.md, The connection: in the phone's top bar, whether the phone
+// reaches the Mac and how (home Wi-Fi, Tailscale, offline, reconnecting),
+// and on a tap the details. In the app the shell says (window.ravenryApp.conn,
+// the ravenry:conn event: apps/phone/src/board.ts); in a phone's browser the
+// board reads its own address and its live stream. On the Mac: none.
+const CONN_WORD = { wifi: 'Home Wi-Fi', tailscale: 'Tailscale', 'tailscale-mac': 'Tailscale', local: 'This computer' };
+function connNow() {
+  if (window.ravenryApp && window.ravenryApp.conn) return window.ravenryApp.conn;
+  if (ui.local !== false) return null;
+  return { state: ui.browserConn || 'up', via: connVia(location.hostname), since: ui.connSince || null, rtt: ui.connRtt || null, mac: null, browser: true };
+}
+/** A tailnet name or address (MagicDNS .ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48) is Tailscale; any other the home network. */
+function connVia(host) {
+  const h = String(host || '').replace(/^\[|\]$/g, '');
+  return /\.ts\.net$/i.test(h) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || /^fd7a:115c:a1e0:/i.test(h) ? 'tailscale' : 'wifi';
+}
+window.ravenryConnVia = connVia;
+function connChip() {
+  const c = connNow();
+  if (!c) return '';
+  const word = c.state === 'offline' ? 'Offline' : c.state === 'reconnecting' ? 'Reconnecting' : CONN_WORD[c.via] || 'Connected';
+  const cls = c.state === 'offline' ? 'off' : c.state === 'reconnecting' ? 're' : c.via === 'wifi' || c.via === 'local' ? 'ok' : 'ts';
+  return `<button class="cx-chip ${cls}" id="cx-chip" data-act="cx-open" aria-label="${esc(`Connection: ${word}`)}"><span class="cx-dot"></span><span class="cx-w">${esc(word)}</span></button>`;
+}
+// The bar fits at any width: the word Ravenry gives way to the mark when the chip needs its room.
+function fitBar() {
+  const bar = $('#pbar');
+  if (!bar) return;
+  bar.classList.remove('tight');
+  const t = bar.querySelector('.pn-ttl');
+  if (bar.scrollWidth > bar.clientWidth + 1 || (t && t.scrollWidth > t.clientWidth + 1) || bar.getBoundingClientRect().right > document.documentElement.clientWidth + 1) bar.classList.add('tight');
+}
+window.addEventListener('resize', fitBar);
+const fmtSince = (t) => { if (!t) return 'Not yet'; const d = new Date(t); const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return `${clock(d)} (${m < 1 ? 'just now' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min'})`; };
+function connSheet() {
+  const c = connNow();
+  if (!ui.cxOpen || !c) { setHtml('cx', ''); return; }
+  const how = c.state === 'offline' ? (c.words || 'Not connected.') : c.state === 'reconnecting' ? 'Reconnecting...' : c.via === 'tailscale' ? "Away from home, through Tailscale (Ravenry's own device on your tailnet)" : c.via === 'tailscale-mac' ? "Away from home, through Tailscale (the Mac's Tailscale app)" : c.via === 'local' ? 'On this computer' : 'Home Wi-Fi, straight to the Mac';
+  const app = !!(window.ravenryApp && window.ravenryApp.conn);
+  const ts = app && !(c.via === 'wifi' && c.state === 'up') && c.via !== 'local';
+  setHtml('cx', `<div class="scrim" data-cx-close></div><div class="bsheet cx-sheet" role="dialog" aria-modal="true" aria-label="Connection"><div class="grab"></div><div class="bs-head"><span class="bs-title">Connection</span><span style="flex: 1"></span><button class="bs-done" data-cx-close>Done</button></div>
+<div class="cx-rows"><div class="cx-row"><span class="k">Mac</span><span class="v">${esc(c.mac || 'This Mac')}</span></div>
+<div class="cx-row"><span class="k">How</span><span class="v">${esc(how)}</span></div>
+<div class="cx-row"><span class="k">Since</span><span class="v">${esc(c.state === 'up' ? fmtSince(c.since) : 'Not connected now')}</span></div>
+<div class="cx-row"><span class="k">Answers in</span><span class="v num">${c.state !== 'up' ? 'No answer now' : c.rtt != null ? esc(Math.round(c.rtt) + ' ms') : 'Measuring...'}</span></div></div>
+<div class="cx-btns">${ts ? '<button class="btn" data-act="cx-tailscale">Open Tailscale</button>' : ''}<button class="btn pri" data-act="cx-reconnect">Reconnect</button></div></div>`);
+}
+window.addEventListener('ravenry:conn', () => { if (ui.snap) { renderPhoneNav(); connSheet(); } });
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('[data-act="cx-open"], [data-cx-close], [data-act="cx-reconnect"], [data-act="cx-tailscale"]');
+  if (!a) return;
+  if (a.dataset.act === 'cx-open') { ui.cxOpen = true; connSheet(); return; }
+  if (a.hasAttribute('data-cx-close')) { ui.cxOpen = false; connSheet(); return; }
+  if (a.dataset.act === 'cx-tailscale') { if (window.ravenryApp && window.ravenryApp.openTailscale) window.ravenryApp.openTailscale(); return; }
+  if (a.dataset.act === 'cx-reconnect') {
+    ui.cxOpen = false; connSheet();
+    if (window.ravenryApp && window.ravenryApp.reconnect) window.ravenryApp.reconnect();
+    else location.reload();
+  }
+});
+// A phone's browser: its live stream says up or not (reconnecting while it
+// retries, offline after 30 s of it); a round trip every 30 s.
+let browserOff = null;
+function browserConn(st) {
+  if (st === 'up') { clearTimeout(browserOff); browserOff = null; if (ui.browserConn !== 'up') ui.connSince = Date.now(); void measureBrowser(); }
+  else if (ui.browserConn === 'up' || !ui.browserConn) browserOff = setTimeout(() => { ui.browserConn = 'offline'; renderPhoneNav(); connSheet(); }, 30000);
+  if (st === 'offline') { clearTimeout(browserOff); }
+  ui.browserConn = st;
+  renderPhoneNav(); connSheet();
+}
+// A phone's browser: a round trip every 30 s.
+async function measureBrowser() {
+  if (window.ravenryApp || ui.local !== false) return;
+  const t = performance.now();
+  try { await fetch('/api/whoami', { cache: 'no-store' }); ui.connRtt = performance.now() - t; } catch { /* the stream says */ }
+}
+setInterval(measureBrowser, 30000);
 document.addEventListener('click', (e) => {
   const d = e.target.closest('[data-pnav]');
   if (d) { ui.pmenu = false; const k = d.dataset.pnav; if (k === 'projects' && ui.view === 'projects') window.scrollTo(0, 0); setView(k); renderPhoneNav(); return; }
@@ -2084,7 +2233,7 @@ document.addEventListener('click', (e) => {
   if (!a) return;
   const act = a.dataset.act;
   if (act === 'pn-search') { ui.pnBack = ui.view; ui.pnq = ''; setView('search'); renderPhoneNav(); }
-  else if (act === 'pn-back') { const to = ui.view === 'search' ? (ui.pnBack && ui.pnBack !== 'search' ? ui.pnBack : 'projects') : 'pages'; setView(to); renderPhoneNav(); }
+  else if (act === 'pn-back') phoneBack();
   else if (act === 'pn-new') openModal({ mode: 'new' });
   else if (act === 'pn-menu-close') { ui.pmenu = false; renderPhoneNav(); }
   else if (act === 'pn-phone') { ui.pmenu = false; renderPhoneNav(); setTimeout(() => $('#phone').click(), 0); }
@@ -3020,7 +3169,7 @@ async function openModal({ mode, projectId, ideaId, prefill = {}, from = null })
   const briefWhere = p ? (p.briefExpected || (p.shared.length ? `${p.folderShort}/BRIEF-${p.id}.md` : `${p.folderShort}/BRIEF.md`)) : '';
   $('#modal').innerHTML = `<div class="modal-back" id="modal-back">
 <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-<div style="display: flex; align-items: center; padding: 16px 20px 8px"><h2 id="modal-title" style="margin: 0; font-size: 20px; font-weight: 700; flex: 1">${esc(title)}</h2><button class="x-btn" id="modal-close" aria-label="Close">${X_ICON}</button></div>
+<div class="m-head" style="display: flex; align-items: center; padding: 16px 20px 8px"><button class="pn-ib fg m-back" data-close aria-label="Back">${PI.back}</button><h2 id="modal-title" style="margin: 0; font-size: 20px; font-weight: 700; flex: 1">${esc(title)}</h2><button class="x-btn" id="modal-close" aria-label="Close">${X_ICON}</button></div>
 <form id="modal-form" style="padding: 8px 20px 20px; display: flex; flex-direction: column; gap: 14px">
 ${mode === 'new' ? `<label class="inp">Name<input name="name" placeholder="e.g. Garden planner" autocomplete="off" required></label>
 <div class="inp" id="m-folder-row">Folder<div class="fseg" role="group" aria-label="Folder"><button type="button" class="seg on" data-fmode="new" aria-pressed="true">New folder</button><button type="button" class="seg" data-fmode="existing" aria-pressed="false">Existing</button></div><div id="m-folder" class="fbody"></div></div>
@@ -3061,6 +3210,7 @@ ${meta.globalRules && meta.globalRules.length ? `<div style="display: flex; flex
     $('#kinds').querySelectorAll('[data-kind]').forEach((x) => { const on = x.dataset.kind === ui.modal.kind; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
   });
   $('#modal-close').addEventListener('click', closeModal);
+  $('#modal .m-back').addEventListener('click', closeModal);
   $('#modal-back').addEventListener('mousedown', (e) => { if (e.target.id === 'modal-back') closeModal(); });
   f.addEventListener('submit', (e) => { e.preventDefault(); submitModal(); });
   f.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
@@ -3624,6 +3774,7 @@ function closePlanSheet() {
   $('#modal').innerHTML = '';
   $('#plan-phone').innerHTML = '';
   $('#mc').classList.remove('planning');
+  renderPhoneNav();
 }
 
 // Files in the planning sheet: the goal box, the chat box and a step's
@@ -3727,8 +3878,8 @@ function plSheetHtml(p, d, phone) {
     const sub = `Say what you want; ${printWho()} drafts the plan and you go over it together. Nothing runs until you start it.`;
     const swap = `<button class="linkish cv-own" data-pl="${own ? 'goal-mode' : 'own-mode'}">${own ? `Let ${printWho()} draft it` : 'Write the plan yourself'}</button>`;
     if (phone) {
-      return `<div class="strip"><span class="t3" style="font-size: 12.5px; flex: 1 1 auto">${esc(p.name)}<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">New plan</span></span><button class="btn sm" data-pl="cancel">Cancel</button></div>
-<div class="body"><h1 style="margin: 0; font-size: 22px; font-weight: 700">New plan</h1><div class="t3" style="font-size: 12px; line-height: 1.45">${esc(sub)}</div>${box}<div>${swap}</div></div>`;
+      return `<div class="strip pl-strip"><button class="pn-ib fg" data-pl="cancel" aria-label="Back">${PI.back}</button><span class="pn-ttl sm" style="flex: 1 1 auto">New plan</span><button class="btn sm" data-pl="cancel">Cancel</button></div>
+<div class="body"><h1 style="margin: 0; font-size: 22px; font-weight: 700"><span class="pl-h-d">New plan</span><span class="pl-h-p">${esc(p.name)}</span></h1><div class="t3" style="font-size: 12px; line-height: 1.45">${esc(sub)}</div>${box}<div>${swap}</div></div>`;
     }
     return `<div class="modal-back" id="pl-back"><div class="modal cv-modal goal" role="dialog" aria-modal="true" aria-label="${esc(title)}">
 <div style="display: flex; align-items: center; gap: 10px; padding: 22px 24px 4px"><h2 style="margin: 0; font-size: 20px; font-weight: 700; flex: 1">${esc(title)}</h2>${x}</div>
@@ -3744,7 +3895,7 @@ function plSheetHtml(p, d, phone) {
   const always = `<div class="wr-rule">${PG.lock}<span><b>Always on:</b> anything the plan doesn't foresee is a gate. ${projWho(p)} stops and asks.</span></div>`;
   const chatPh = marks || d.mode === 'change' ? 'Anything else to change? Say it here.' : 'Bigger changes: say them here.';
   if (phone) {
-    return `<div class="strip"><span class="t3" style="font-size: 12.5px; flex: 1 1 auto">${esc(p.name)}<span style="padding: 0 6px">/</span><span style="color: var(--tx2)">${d.mode === 'change' ? 'Change the plan' : 'New plan'}</span></span><button class="btn sm" data-pl="cancel">Cancel</button></div>
+    return `<div class="strip pl-strip"><button class="pn-ib fg" data-pl="cancel" aria-label="Back">${PI.back}</button><span class="pn-ttl sm" style="flex: 1 1 auto">${d.mode === 'change' ? 'Change the plan' : 'New plan'}</span><button class="btn sm" data-pl="cancel">Cancel</button></div>
 <div class="body ${pl.files.chat.length ? 'has-chips' : ''}"><div class="cv-thread">${plThreadHtml(d)}</div><div class="wr-lbl">${label}</div>${steps}${always}</div>
 <div class="cv-pbar">${plChips('chat')}<div class="composer cv-chat" data-plbox="chat"><textarea id="pl-chat" rows="1" placeholder="${marks || d.mode === 'change' ? 'Anything else to change?' : 'Bigger changes: say them here'}" aria-label="Changes to the plan">${esc(pl.chat)}</textarea>${plAttach('chat', true)}${pl.chat.trim() ? `<button class="btn sm pri" data-pl="chat" ${d.busy ? 'disabled' : ''}>Send</button>` : plMic('pl-chat', true)}</div>
 <div class="cv-pbtns">${d.questions.some((q) => q.answer == null) || d.busy ? `<span class="t2" style="font-size: 12.5px">${esc(plFootNote(d))}</span>` : '<button class="linkish cv-own" data-pl="own-restart">Write it yourself</button>'}${plStartBtn(d)}</div></div>`;
@@ -3768,7 +3919,9 @@ function drawPlanSheet(first = false) {
   const top = scroller ? scroller.scrollTop : 0;
   other.innerHTML = '';
   host.innerHTML = plSheetHtml(p, pl.draft, phone);
+  const was = $('#mc').classList.contains('planning');
   $('#mc').classList.toggle('planning', phone);
+  if (was !== phone) renderPhoneNav();
   const sc = phone ? null : host.querySelector('.modal-back');
   if (sc) sc.scrollTop = top;
   const f = focus && document.getElementById(focus);
@@ -4266,7 +4419,7 @@ document.addEventListener('click', (e) => {
   if (rp) { repeatAction(rp.dataset.rep, rp.dataset.repAct); return; }
   const cp = e.target.closest('[data-copy]');
   if (cp) { lvCopyText(cp.dataset.copy).then((ok) => { if (!ok) throw new Error('copy'); }).then(() => toast(cp.dataset.copyMsg || `Copied. Paste it into a session's prompt in ${boardTerm()} when you decide.`), () => toast(cp.dataset.copyMsg ? 'Copy did not work. The path is ' + cp.dataset.copy : 'Copy did not work; select the line instead')); return; }
-  if (e.target.closest('#memchip, #memchip-m')) { setView('sessions'); return; }
+  if (e.target.closest('#memchip, #memchip-m')) { if (ui.view !== 'sessions') ui.pnBack = ui.view; setView('sessions'); return; }
   const ro = e.target.closest('[data-reopen]');
   if (ro) { reopenClosed(ro.dataset.reopen, ro); return; }
   if (e.target.closest('#close-idle')) { closeIdle(); return; }
@@ -4576,6 +4729,7 @@ async function asChange(kind) {
 
 function hsHtml() {
   return `<div class="hs-pop" id="hs-pop" role="dialog" aria-label="Settings"><span class="hs-caret" aria-hidden="true"></span>
+<div class="hs-bar"><button class="pn-ib fg" data-close aria-label="Back">${PI.back}</button><span class="pn-ttl sm">Settings</span></div>
 <div class="hs-head">Settings</div>
 <div class="hs-body">
 ${asHtml()}
@@ -4646,6 +4800,8 @@ function placeHs() {
   const W = mc.clientWidth, cx = r.left + r.width / 2 - m.left;
   let left;
   // On a phone the gear is the menu's Settings: under the top bar.
+  // On a phone Settings is a full screen of its own (CSS), placed by nothing here.
+  if (matchMedia('(max-width: 700px)').matches) { pop.style.left = ''; pop.style.top = ''; pop.style.width = ''; return; }
   if (matchMedia('(max-width: 700px)').matches) { left = 16; pop.style.width = (W - 32) + 'px'; const b = $('#pb-more'); if (b) { pop.style.top = (b.getBoundingClientRect().bottom - m.top + 10) + 'px'; pop.querySelector('.hs-caret').style.left = (b.getBoundingClientRect().left + b.offsetWidth / 2 - m.left - left) + 'px'; pop.style.left = left + 'px'; return; } }
   else { pop.style.width = ''; left = Math.max(16, Math.min(W - pop.offsetWidth - 16, cx - pop.offsetWidth / 2)); }
   pop.style.left = left + 'px';
@@ -4806,6 +4962,7 @@ function wireHs() {
 }
 
 $('#gear').addEventListener('click', () => { if (hs.open) closeHs(); else openHs(); });
+document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('#hs-pop [data-close]')) closeHs(); });
 document.addEventListener('click', (e) => {
   if (!hs.open || hs.drag) return;
   // The path as it was when the click started: a button the card redrew
@@ -5288,7 +5445,8 @@ function connect() {
     decisionToast(m.decision, m.undo_until || m.decision.undo_until || null);
   });
   // EventSource reconnects by itself; a phone signed out by New key gets 401.
-  es.onerror = () => { checkSignedIn(); };
+  es.onerror = () => { checkSignedIn(); browserConn(es.readyState === EventSource.CLOSED ? 'offline' : 'reconnecting'); };
+  es.addEventListener('open', () => browserConn('up'));
 }
 
 // Boot
