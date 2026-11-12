@@ -19,6 +19,7 @@ import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startDemoHub } from '../../desktop/tools/demo-hub.mjs';
+import { boatPng } from './cards-fixture.mjs';
 import { testApp } from './testapp.mjs';
 
 guardSpawns();
@@ -51,16 +52,34 @@ async function run(name, hubDir) {
   const daemon = spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env, stdio: 'ignore' });
   await until(10000, () => fs.readdirSync(rt).some((n) => n.endsWith('.sock')));
   const port = await freePort();
-  const hub = await startDemoHub({ dir: path.join(root, 'hub'), port, hubDir });
+  // The board follows this daemon: agents in its panes ask, propose a command, ask for a secret and show a pick
+  // (ravenry ask/approve/secret/pick --no-wait), so each card's words come from the hub, or from its cpwords.mjs here.
+  const rd = path.join(APP, 'Contents', 'MacOS', 'ravenryd');
+  const hub = await startDemoHub({ dir: path.join(root, 'hub'), port, hubDir, runtime: rt, env: { MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: rd } });
+  const bin = path.join(root, 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.symlinkSync(rd, path.join(bin, 'ravenry'));
+  const pics = [[0, [196, 86, 64]], [0.12, [72, 120, 190]]].map(([tilt, hull], n) => { const f = path.join(root, `boat-${n}.png`); fs.writeFileSync(f, boatPng(tilt, hull)); return f; });
+  const sq = (x) => `'${String(x).replace(/'/g, `'\\''`)}'`;
+  const asks = [
+    `ravenry ask ${sq('Tilt the hull with the slope too, or keep it level?')} --option ${sq('Tilt it with the slope')} --option ${sq('Keep it level')} --text`,
+    `ravenry approve --why ${sq('The settings screen is done.')} --warn ${sq('It publishes the beta.')} --no-wait -- npm publish --tag beta`,
+    `ravenry secret ${sq('Paste the Cloudflare API token for the map tiles')} --env TILES_TOKEN --no-wait -- /bin/sh -c true`,
+    `ravenry pick ${sq('Which hull shape for the boat?')} --variant ${sq(`Flat hull=${pics[0]}`)} --variant ${sq(`V hull=${pics[1]}`)}`,
+  ];
+  for (const [n, c] of asks.entries()) {
+    const line = c.includes('--no-wait') ? c : `${c} --no-wait`;
+    execFileSync(rd, ['new', '--cwd', user, '--name', `agent-${n}`, '--json', '--', '/bin/sh', '-c', `export PATH=${sq(bin)}:/usr/bin:/bin; ${line} > ${sq(path.join(root, `cp-${n}.out`))} 2>&1; exec sleep 100000`], { env });
+  }
   const report = path.join(root, 'report.json');
   const app = spawn(EXE, ['--offscreen'], { env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_REPORT: report }, stdio: 'ignore' });
-  const rd = () => { try { return JSON.parse(fs.readFileSync(report, 'utf8')); } catch { return null; } };
+  const rep = () => { try { return JSON.parse(fs.readFileSync(report, 'utf8')); } catch { return null; } };
   try {
-    await until(20000, () => rd()?.hub?.generatedAt && rd().sidebar.length > 0);
+    await until(20000, () => rep()?.hub?.generatedAt && rep().sidebar.length > 0);
     await hub.arrive('paper-boat');
-    const got = await until(20000, () => { const r = rd(); return r && r.cpwords.some((c) => c.words) ? r : null; });
+    const got = await until(20000, () => { const r = rep(); return r && r.cpwords.filter((c) => c.words).length >= asks.length ? r : null; });
     await sleep(2500);
-    const r = rd() || got;
+    const r = rep() || got;
     return { sidebar: r?.sidebar || [], words: (r?.cpwords || []).filter((c) => c.words).map((c) => c.words).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1) };
   } finally {
     app.kill('SIGTERM');
@@ -74,6 +93,9 @@ try {
   const now = await run('new', path.join(REPO, 'hub'));
   const old = await run('old', OLD);
   check('older_hub_sidebar_same', now.sidebar.length > 0 && JSON.stringify(now.sidebar) === JSON.stringify(old.sidebar), `this hub: ${now.sidebar.length} rows; ${oldVersion}: ${old.sidebar.length} rows${JSON.stringify(now.sidebar) === JSON.stringify(old.sidebar) ? ', the same' : `; only now: ${now.sidebar.filter((k) => !old.sidebar.includes(k)).join(', ')}; only old: ${old.sidebar.filter((k) => !now.sidebar.includes(k)).join(', ')}`}`);
+  fs.writeFileSync(path.join(OUT, 'words-new.json'), JSON.stringify(now.words, null, 1));
+  fs.writeFileSync(path.join(OUT, 'words-old.json'), JSON.stringify(old.words, null, 1));
+  check('older_hub_cards_listed', now.words.length >= 4 && old.words.length === now.words.length, `this hub: ${now.words.length} cards with words; ${oldVersion}: ${old.words.length}`);
   if (now.words.length) check('older_hub_card_words_same', now.words.length > 0 && JSON.stringify(now.words) === JSON.stringify(old.words), `this hub: ${JSON.stringify(now.words).slice(0, 200)}; ${oldVersion}: ${JSON.stringify(old.words).slice(0, 200)}`);
 } finally {
   fs.writeFileSync(path.join(OUT, 'olderhubcheck.json'), JSON.stringify({ app: APP, old: SRC, oldVersion, at: new Date().toISOString(), results }, null, 2));
