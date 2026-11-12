@@ -1662,6 +1662,18 @@ final class Workspace: NSObject {
         ["x": Int(f.minX.rounded()), "y": Int((mainHeight - f.maxY).rounded()), "width": Int(f.width.rounded()), "height": Int(f.height.rounded()), "maximized": maximized]
     }
 
+    /// What is kept for a window: zoomed, the frame it had before the zoom with maximized (the
+    /// Electron app's getNormalBounds() and isMaximized()), so a zoom after the next launch goes back
+    /// to it; else its frame.
+    static func boundsToKeep(frame: NSRect, zoomed: Bool, normal: NSRect?, mainHeight: CGFloat) -> [String: Any] {
+        bounds(fromFrame: zoomed ? normal ?? frame : frame, mainHeight: mainHeight, maximized: zoomed)
+    }
+
+    /// The window's frame when not zoomed, the last one seen (windowShouldZoom, and each move or resize while not zoomed).
+    var normalFrame: NSRect?
+    /// This window writes the bounds (only the first, WIN-006).
+    private(set) var keepsBounds = false
+
     private static var mainHeight: CGFloat { NSScreen.screens.first?.frame.height ?? 900 }
     private var boundsTimer: DispatchWorkItem?
     private var boundsWatch: [NSObjectProtocol] = []
@@ -1671,12 +1683,14 @@ final class Workspace: NSObject {
         guard let b = layout?.readBounds(),
               let f = Workspace.frame(fromBounds: b, screens: NSScreen.screens.map(\.visibleFrame), mainHeight: Workspace.mainHeight) else { return false }
         window.setFrame(f, display: false)
+        normalFrame = f
         if b["maximized"] as? Bool ?? false, !window.isZoomed { window.zoom(nil) }
         return true
     }
 
     /// Keeps the window's size and place as it moves and resizes, and when it closes.
     func keepBounds() {
+        keepsBounds = true
         let save = { [weak self] in
             guard let self else { return }
             self.boundsTimer?.cancel()
@@ -1690,12 +1704,13 @@ final class Workspace: NSObject {
         boundsWatch.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in self?.saveBoundsNow() })
     }
 
-    /// Writes the window's bounds (not while full screen; zoomed, the frame it had before).
+    /// Writes the window's bounds (not while full screen; zoomed, the frame it had before the zoom).
     func saveBoundsNow() {
         boundsTimer?.cancel()
         guard !window.styleMask.contains(.fullScreen), window.frame.minX > -20000 else { return }
         let zoomed = window.isZoomed
-        layout?.saveBounds(Workspace.bounds(fromFrame: window.frame, mainHeight: Workspace.mainHeight, maximized: zoomed))
+        if !zoomed { normalFrame = window.frame }
+        layout?.saveBounds(Workspace.boundsToKeep(frame: window.frame, zoomed: zoomed, normal: normalFrame, mainHeight: Workspace.mainHeight))
     }
 }
 

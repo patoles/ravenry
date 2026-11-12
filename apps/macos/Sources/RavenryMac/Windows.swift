@@ -57,6 +57,11 @@ final class RavenryWindow: NSObject, NSWindowDelegate {
     }
     func windowDidResignKey(_ note: Notification) { if !ws.options.offscreen { ws.focusedView?.setFocus(false) } }
     func windowWillClose(_ note: Notification) { app?.windowClosed(self) }
+    /// Before a zoom from the normal size: that frame is the one kept with maximized (TERM-043).
+    func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
+        if !window.isZoomed { ws.normalFrame = window.frame }
+        return true
+    }
 }
 
 extension AppDelegate {
@@ -76,6 +81,9 @@ extension AppDelegate {
         w.setFrame(b.frame, display: false)
         w.setFrameTopLeftPoint(w.cascadeTopLeft(from: NSPoint(x: b.frame.minX, y: b.frame.maxY)))
     }
+
+    /// A window made with this many open (itself counted) keeps its place: the first only (WIN-006).
+    static func keepsPlace(openWindows: Int) -> Bool { openWindows == 1 }
 
     /// The window in front: the key window, else the one used last, else the newest.
     var current: RavenryWindow? {
@@ -127,7 +135,9 @@ extension AppDelegate {
             if let b = before?.window, !first {
                 AppDelegate.cascade(w, after: b)
             } else if !ws.placeWindow() { w.center() }
-            ws.keepBounds()
+            // Only the first keeps its place (WIN-006), as the Electron app's primary window:
+            // the window made when none is open; the others never write the bounds.
+            if AppDelegate.keepsPlace(openWindows: windows.count) { ws.keepBounds() }
             w.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
