@@ -92,6 +92,9 @@ enum Design {
     static var headFg: NSColor { headTint(0.55) }
     static var headName: NSColor { headTint(0.75) }
     static var headLine: NSColor { headTint(0.12) }
+    /// A header button: greyed (nothing to act on), and its fill under the pointer.
+    static var headOff: NSColor { headTint(0.22) }
+    static var headHover: NSColor { headTint(terminal == Theme.ravenry ? 0.14 : 0.09) }
     private static func headTint(_ a: CGFloat) -> NSColor { terminal == Theme.ravenry ? rgb(0xD1D1D6, a) : terminal.nsForeground.withAlphaComponent(a) }
 
     // .tabs and .tab

@@ -37,6 +37,7 @@ extension SelfTestBoard {
         case "cards": screenCards()
         case "remote": screenRemote()
         case "panes": screenPanes()
+        case "panebuttons": screenPaneButtons()
         case "strip": screenStrip()
         case "startlocal": screenStartLocal()
         case "tabmarks": screenTabMarks()

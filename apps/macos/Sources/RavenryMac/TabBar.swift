@@ -43,6 +43,8 @@ struct TabModel: Equatable {
     /// An extra tab (Workspace.extraTabs): the tab it comes right after
     /// (its session's own tab, "s:<pane>", or a pane id), nil at the end.
     var after: String? = nil
+    /// Its panes, shown after the split icon when split.
+    var count = 1
     /// A session that left the board: the tab dims, its tip says it ended (NAV-005).
     var ended = false
 }
@@ -429,7 +431,8 @@ final class TabItem: NSView {
     private var fg3: NSColor { let c = model.active ? Design.tfg.withAlphaComponent(0.55) : Design.tx3; return model.ended ? c.withAlphaComponent(0.45) : c }
     private func nameText() -> NSAttributedString { NSAttributedString(string: model.name, attributes: [.font: Design.tabFont, .foregroundColor: fg]) }
     private func subText() -> NSAttributedString? { model.sub.map { NSAttributedString(string: $0, attributes: [.font: Design.tabFont, .foregroundColor: fg3]) } }
-    private static let badge = NSAttributedString(string: "2", attributes: [.font: Design.tabFont])
+    /// The split's count of panes ("2", "3"), as drawn after the split icon.
+    private var countText: NSAttributedString { NSAttributedString(string: "\(max(2, model.count))", attributes: [.font: Design.tabFont]) }
     private static let lentFont = NSFont.systemFont(ofSize: 10.5, weight: Fonts.w650)
     private static let bellColor = NSColor(srgbRed: 1, green: 0x9F / 255, blue: 0x0A / 255, alpha: 1)
     /// The marks after the name (.lbadge, .act, .tbell): their width.
@@ -444,7 +447,7 @@ final class TabItem: NSView {
     func idealWidth(withSub: Bool) -> CGFloat {
         var w = Design.tabPadLeft + 12 + Design.tabInnerGap + ceil(nameText().size().width)
         if withSub, let s = subText() { w += Design.tabInnerGap + ceil(s.size().width) }
-        if model.split { w += Design.tabInnerGap + 11 + 3 + ceil(TabItem.badge.size().width) }
+        if model.split { w += Design.tabInnerGap + 11 + 3 + ceil(countText.size().width) }
         w += marksWidth
         w += Design.tabInnerGap + Design.closeSize + Design.tabPadRight
         // A lease badge takes room of its own (phase2.css .tab:has(.lbadge)).
@@ -517,10 +520,10 @@ final class TabItem: NSView {
         x += 12 + Design.tabInnerGap
         var end = bounds.width - Design.tabPadRight - Design.closeSize - Design.tabInnerGap
         if model.split {
-            let bw = 11 + 3 + ceil(TabItem.badge.size().width)
+            let bw = 11 + 3 + ceil(countText.size().width)
             let bx = end - bw
             Icons.split(NSRect(x: bx, y: (bounds.height - 11) / 2, width: 11, height: 11), fg3)
-            let b = NSAttributedString(string: "2", attributes: [.font: Design.tabFont, .foregroundColor: fg3])
+            let b = NSAttributedString(string: "\(max(2, model.count))", attributes: [.font: Design.tabFont, .foregroundColor: fg3])
             b.draw(at: NSPoint(x: bx + 14, y: (bounds.height - b.size().height) / 2))
             end = bx - Design.tabInnerGap
         }

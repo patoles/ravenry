@@ -22,11 +22,15 @@
 //   Cmd+9, Cmd+Shift+[ and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab; a
 //   tab is dragged along the strip, or down onto an edge of the pane in
 //   front to split it with that tab.
-// - One split per tab: Cmd+D a new shell on the right, Cmd+Shift+D
-//   below, with the keyboard (a new tab when the tab is split already);
-//   Cmd+Option+arrows or a click move the keyboard; the divider is
-//   dragged, a double click or Cmd+Ctrl+= evens it; Cmd+Shift+Enter
-//   shows the pane with the keyboard alone, and back.
+// - Splits as Rex has them: a tab is a tree of panes (PaneNode), split
+//   again to any depth that keeps each pane at its minimum (160 pt).
+//   Cmd+D a new shell right of the pane with the keyboard, Cmd+Shift+D
+//   below it, with the keyboard; Cmd+Option+arrows or a click move the
+//   keyboard to the pane that way; a divider is dragged, a double click
+//   evens it, Cmd+Ctrl+= evens them all; Cmd+Shift+Enter shows the pane
+//   with the keyboard alone, and back; Move to its own tab takes a pane
+//   out to a tab of its own. Every pane's header has these as buttons
+//   (Panes.swift PaneHead), greyed when they have nothing to act on.
 // - Each pane is its own render stream. A tab not in front has none and
 //   draws nothing; brought to the front, its panes draw the rows they
 //   had at once and open their streams again. A pane never drawn yet is
@@ -81,21 +85,42 @@ final class PaneInfo {
     }
 }
 
-/// A tab: its pane, and the pane beside it when split.
+/// A tab: its panes (a tree of splits), the one with the keyboard, and
+/// whether it shows that one alone (zoom).
 final class Tab {
+    /// Its own pane (its id is "s:<host>"): the first one, or the one that
+    /// stayed when that went.
     var host: String
-    var guest: String?
-    /// Where the guest is: right, left, down or up.
-    var side = "right"
-    /// The host's share, in percent.
-    var size: Double = 50
-    /// 1 when the guest has the keyboard.
-    var focus = 0
+    var root: PaneNode
+    /// The pane with the keyboard.
+    var focused: String
     var zoom = false
 
-    init(host: String) { self.host = host }
+    init(host: String) {
+        self.host = host
+        root = PaneNode(pane: host)
+        focused = host
+    }
     var id: String { "s:" + host }
-    var focusedPane: String { focus == 1 ? (guest ?? host) : host }
+    var leaves: [String] { root.leaves }
+    var count: Int { leaves.count }
+    func has(_ pane: String) -> Bool { root.node(of: pane) != nil }
+    var focusedPane: String { has(focused) ? focused : host }
+
+    // One split, as the Electron app keeps it ({host, guest, side, size, focus}):
+    // the first pane other than its own, where it is, its own pane's share.
+    var guest: String? { leaves.first { $0 != host } }
+    var side: String {
+        guard root.isSplit else { return "right" }
+        let hostFirst = root.first?.node(of: host) != nil
+        return root.across ? (hostFirst ? "right" : "left") : (hostFirst ? "down" : "up")
+    }
+    var size: Double {
+        guard root.isSplit else { return 50 }
+        let f = Double(root.first?.node(of: host) != nil ? root.fraction : 1 - root.fraction)
+        return round(f * 1000) / 10
+    }
+    var focus: Int { focusedPane == host ? 0 : 1 }
 }
 
 /// An agent's own pane: made by an agent in a pane, shown, running, not a shell (the Electron app's agentPane).
@@ -252,17 +277,22 @@ final class Workspace: NSObject {
         v.marks.whoOf = { [weak self] s in self?.whoOf?(s) }
         v.onFontSize = { [weak self] s in self?.setFontSize(s) }
         v.windowMinSize = { [weak self] in self?.minContentSize() ?? .zero }
-        // Its menu's Split Right, Split Down (its own tab, not split yet) and Copy Path.
-        v.onSplit = { [weak self] side in
-            guard let self, let t = self.tabs.first(where: { $0.host == pane || $0.guest == pane }), t.guest == nil else { return }
-            if t !== self.active { self.show(t) }
-            self.split(side)
-        }
-        v.canSplit = { [weak self] in self?.tabs.first(where: { $0.host == pane || $0.guest == pane })?.guest == nil }
+        // Its menu's Split Right, Split Down (where there is room), Move to Its Own Tab and Copy Path.
+        v.onSplit = { [weak self] side in self?.split(pane: pane, side) }
+        v.canSplit = { [weak self] side in self?.splitRefusal(pane, side) == nil }
+        v.onOwnTab = { [weak self] in self?.moveToOwnTab(pane) }
+        v.canOwnTab = { [weak self] in (self?.tab(of: pane)?.count ?? 1) > 1 }
         v.folderPath = { [weak self] in self?.info[pane].flatMap { $0.cwd.isEmpty ? nil : $0.cwd } }
         v.onRenderFailed = { [weak self] e in self?.renderFailed(pane, e) }
         let b = PaneBox(term: v)
-        b.onClose = { [weak self] in self?.askClose(pane) { self?.closePane(pane) } }
+        // The header's buttons act on their own pane, as Cmd+W on the pane with the keyboard.
+        b.onClose = { [weak self] in self?.closePaneAsked(pane) }
+        let h = b.headView
+        h.splitRight.action = { [weak self] in self?.split(pane: pane, "right") }
+        h.splitDown.action = { [weak self] in self?.split(pane: pane, "down") }
+        h.ownTab.action = { [weak self] in self?.moveToOwnTab(pane) }
+        h.zoom.action = { [weak self] in self?.toggleZoom(pane: pane) }
+        b.onResize = { [weak self, weak b] in if let b { self?.updateButtons(pane, b) } }
         b.onClickHead = { [weak self, weak v] in if let v { self?.window.makeFirstResponder(v) } }
         boxes[pane] = b
         return b
@@ -392,18 +422,9 @@ final class Workspace: NSObject {
         let rank: (String) -> Int = { id in saved.order.firstIndex(of: "s:" + id) ?? (saved.order.count + (byAge.firstIndex(of: id) ?? 0)) }
         ids.sort { rank($0) < rank($1) }
         tabs = ids.map { Tab(host: $0) }
-        for sp in saved.splits {
-            guard let h = tabs.first(where: { $0.id == sp.host }), let g = tabs.first(where: { $0.id == sp.guest }),
-                  h !== g, h.guest == nil, g.guest == nil, ["right", "left", "down", "up"].contains(sp.side) else { continue }
-            tabs.removeAll { $0 === g }
-            h.guest = g.host
-            h.side = sp.side
-            h.size = sp.size > 0 && sp.size < 100 ? sp.size : 50
-            h.focus = sp.focus == 1 ? 1 : 0
-            h.zoom = sp.zoom
-        }
-        var front = tabs.first { $0.id == saved.active || ("s:" + ($0.guest ?? "")) == saved.active }
-        if let a = options.attach { front = tabs.first { $0.host == a || $0.guest == a } ?? front }
+        restoreSplits(saved)
+        var front = tabs.first { t in t.id == saved.active || t.leaves.contains { "s:" + $0 == saved.active } }
+        if let a = options.attach { front = tabs.first { $0.has(a) } ?? front }
         if tabs.isEmpty {
             // In the folder of the shell in front last, while it is there (TERM-068).
             var isDir: ObjCBool = false
@@ -418,6 +439,38 @@ final class Workspace: NSObject {
 
     /// The launch had no tab to bring back (restore made a new shell).
     private(set) var restoredNone = false
+
+    /// The saved splits on the tabs: a tab's tree of splits (`trees`) while
+    /// the one split the Electron app reads of it (`splits`) is still the
+    /// one written with it (the Electron app rewrote the file since: its
+    /// split wins), a pane that is gone leaving its split's other part in its
+    /// place; else the one split. Each pane in one tab only.
+    private func restoreSplits(_ saved: SavedLayout) {
+        var done = Set<String>()
+        for tr in saved.trees {
+            guard let h = tabs.first(where: { $0.id == tr.host }), h.count == 1,
+                  saved.splits.contains(where: { $0.host == tr.host && $0.guest == tr.guest }) else { continue }
+            let single = Set(tabs.filter { $0.count == 1 }.map(\.host))
+            guard let root = PaneNode.from(saved: tr.tree, have: { single.contains($0) }), root.isSplit, root.node(of: h.host) != nil else { continue }
+            let ls = Set(root.leaves)
+            tabs.removeAll { $0 !== h && ls.contains($0.host) }
+            h.root = root
+            let f = tr.focus.map { String($0.dropFirst(2)) } ?? h.host
+            h.focused = ls.contains(f) ? f : h.host
+            h.zoom = tr.zoom
+            done.insert(tr.host)
+        }
+        for sp in saved.splits where !done.contains(sp.host) {
+            guard let h = tabs.first(where: { $0.id == sp.host }), let g = tabs.first(where: { $0.id == sp.guest }),
+                  h !== g, h.count == 1, g.count == 1, ["right", "left", "down", "up"].contains(sp.side) else { continue }
+            tabs.removeAll { $0 === g }
+            h.root.split(adding: g.host, side: sp.side)
+            let size = sp.size > 0 && sp.size < 100 ? sp.size : 50
+            h.root.fraction = CGFloat(sp.side == "right" || sp.side == "down" ? size : 100 - size) / 100
+            h.focused = sp.focus == 1 ? g.host : h.host
+            h.zoom = sp.zoom
+        }
+    }
 
     /// A daemon's tabs: its shells, the pane --attach names, its agents' own
     /// panes, and every running pane the window kept as a tab (`kept`, the
@@ -455,7 +508,7 @@ final class Workspace: NSObject {
         guard let mine = try? shells(of: d, kept: saved.order) else { return }
         var added: [Tab] = []
         for p in mine.sorted(by: { ($0["created_at"] as? String ?? "") < ($1["created_at"] as? String ?? "") }) {
-            guard let id = p["id"] as? String, homes[id] == nil, !tabs.contains(where: { $0.host == id || $0.guest == id }) else { continue }
+            guard let id = p["id"] as? String, homes[id] == nil, !tabs.contains(where: { $0.has(id) }) else { continue }
             homes[id] = d
             let i = PaneInfo(id: id)
             i.update(p)
@@ -477,7 +530,7 @@ final class Workspace: NSObject {
         let gone = homes.filter { $0.value === d }.map(\.key)
         // Never an empty window: a shell in the newest first when every tab was that daemon's.
         if tabs.allSatisfy({ panes(of: $0).allSatisfy(gone.contains) }) { newTab(in: nil) }
-        let shown = gone.filter { id in tabs.contains { $0.host == id || $0.guest == id } }
+        let shown = gone.filter { id in tabs.contains { $0.has(id) } }
         for id in gone {
             // One a move replaces waits for its new pane (release, else replace).
             if held.contains(id) { endedHeld.insert(id); continue }
@@ -622,8 +675,8 @@ final class Workspace: NSObject {
     /// `exited`: a pane that has ended is a tab too, showing what it last drew
     /// (an approved command's pane after its run, Show in the terminal).
     func tab(showing pane: String, exited: Bool = false) -> Tab? {
-        if let t = tabs.first(where: { $0.host == pane || $0.guest == pane }) {
-            if t.guest == pane { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
+        if let t = tabs.first(where: { $0.has(pane) }) {
+            t.focused = pane
             return t
         }
         guard adopt(pane, exited: exited) else { return nil }
@@ -671,16 +724,18 @@ final class Workspace: NSObject {
     /// pane's last picture stays until the new one drew (at most 300 ms).
     /// nil when no tab shows the old pane or the new one is not running.
     func replace(_ old: String, with new: String) -> Tab? {
-        guard old != new, let t = tabs.first(where: { $0.host == old || $0.guest == old }), adopt(new) else { return nil }
+        guard old != new, let t = tabs.first(where: { $0.has(old) }), adopt(new) else { return nil }
         // A tab of its own already (one came first): it goes, the old place stays.
         var front = t === active
-        if let o = tabs.firstIndex(where: { $0 !== t && ($0.host == new || $0.guest == new) }) {
-            guard tabs[o].guest == nil else { return nil }
+        if let o = tabs.firstIndex(where: { $0 !== t && $0.has(new) }) {
+            guard tabs[o].count == 1 else { return nil }
             front = front || tabs[o] === active
             layout?.forget([tabs[o].id])
             tabs.remove(at: o)
         }
-        if t.host == old { t.host = new } else { t.guest = new }
+        t.root.replace(old, with: new)
+        if t.host == old { t.host = new }
+        if t.focused == old { t.focused = new }
         layout?.forget(["s:" + old])
         let ob = boxes.removeValue(forKey: old)
         ob?.term.pause()
@@ -728,35 +783,44 @@ final class Workspace: NSObject {
         }
     }
 
-    /// The panes of a tab; visibleOnly: without the one a zoom hides.
+    /// The panes of a tab; visibleOnly: without the ones a zoom hides.
     func panes(of t: Tab, visibleOnly: Bool = false) -> [String] {
-        guard let g = t.guest else { return [t.host] }
-        if visibleOnly && t.zoom { return [t.focusedPane] }
-        return [t.host, g]
+        if visibleOnly && t.zoom && t.count > 1 { return [t.focusedPane] }
+        return t.leaves
     }
 
-    /// The view that shows a tab: its pane, or its split.
+    /// The tab a pane is in.
+    func tab(of pane: String) -> Tab? { tabs.first { $0.has(pane) } }
+
+    /// The view that shows a tab: its pane, or its splits (zoomed: the pane with the keyboard).
     private func build(_ t: Tab) -> NSView {
-        guard let g = t.guest, !t.zoom, let hb = box(t.host), let gb = box(g) else {
-            return box(t.zoom ? t.focusedPane : t.host) ?? NSView()
+        if t.zoom && t.count > 1 { return box(t.focusedPane) ?? NSView() }
+        guard t.root.isSplit else { return box(t.host) ?? NSView() }
+        let v = view(of: t.root)
+        v.frame = stage.bounds
+        (v as? PaneSplitView)?.layoutPanes()
+        return v
+    }
+
+    /// A split's view, its parts built the same way; a pane's box.
+    private func view(of n: PaneNode) -> NSView {
+        guard n.isSplit, let a = n.first, let b = n.second else {
+            guard let p = n.pane, let bx = box(p) else { return NSView() }
+            bx.removeFromSuperview()
+            return bx
         }
-        hb.removeFromSuperview()
-        gb.removeFromSuperview()
-        let guestFirst = t.side == "left" || t.side == "up"
-        let f = CGFloat(guestFirst ? 100 - t.size : t.size) / 100
-        let sv = PaneSplitView(vertical: t.side == "right" || t.side == "left", first: guestFirst ? gb : hb, second: guestFirst ? hb : gb, fraction: f)
-        sv.frame = stage.bounds
-        sv.layoutPanes()
-        sv.onFraction = { [weak self, weak t] f in
-            guard let self, let t else { return }
-            t.size = Double(round((guestFirst ? 1 - f : f) * 1000) / 10)
+        let sv = PaneSplitView(vertical: n.across, first: view(of: a), second: view(of: b), fraction: n.fraction)
+        sv.evenFraction = n.evenFraction
+        sv.onFraction = { [weak self, weak n] f in
+            guard let self, let n else { return }
+            n.fraction = f
             self.save()
         }
         return sv
     }
 
     private func updateBoxes(_ t: Tab) {
-        let split = t.guest != nil && !t.zoom
+        let split = t.count > 1 && !t.zoom
         for id in panes(of: t) {
             guard let b = boxes[id] else { continue }
             let l = label(id)
@@ -765,11 +829,57 @@ final class Workspace: NSObject {
             // An agent's own pane: the chip with its assistant (app.ts renderPaneHead), not "Claude's" under it.
             let c = info[id]?.creator
             b.badge = c?["kind"] as? String == "agent" && c?["pane"] != nil ? (whoOf?(c!).map { $0 == "An agent" ? "Agent" : $0 } ?? "Agent") : nil
-            b.showsHead = split
+            b.showsHead = true
+            b.inSplit = split
             b.inFocus = id == t.focusedPane
             // A session's pane: its state's dot in the head (marksOf: the board's group).
             b.dot = b.badge == nil && session(of: id) != nil ? (marksOf?(id).group ?? "idle") : nil
+            updateButtons(id, b)
         }
+    }
+
+    /// A pane's header buttons: what each does now, its words with its key,
+    /// greyed with the reason when it has nothing to act on (Rex: a pane
+    /// alone has no own tab, zoom or close to give; a pane too small to
+    /// halve has no split).
+    func updateButtons(_ id: String, _ b: PaneBox) {
+        guard let t = tab(of: id) else { return }
+        let h = b.headView
+        let many = t.count > 1
+        let zoomed = t.zoom && many
+        let alone = Words.t("pane.alone")
+        for (btn, side) in [(h.splitRight, "right"), (h.splitDown, "down")] {
+            let why = splitRefusal(id, side)
+            h.set(btn, enabled: why == nil, words: Words.t(side == "right" ? "pane.splitRight" : "pane.splitDown"), why: why)
+        }
+        h.set(h.ownTab, enabled: many, words: Words.t("pane.ownTab"), why: many ? nil : alone)
+        if h.zoom.on != zoomed { h.zoom.icon = zoomed ? Icons.unzoom : Icons.zoom }
+        h.zoom.on = zoomed
+        h.set(h.zoom, enabled: many, words: Words.t(zoomed ? "pane.unzoom" : "pane.zoom"), why: many ? nil : alone)
+        h.set(h.close, enabled: many, words: Words.t("pane.close"), why: many ? nil : alone)
+        h.zoomChip = zoomed ? Words.t("pane.zoomedOf", ["n": "\((t.leaves.firstIndex(of: id) ?? 0) + 1)", "total": "\(t.count)"]) : nil
+    }
+
+    /// Why a pane cannot be split that way (nil: it can): each half must
+    /// keep a pane's smallest size (160 pt across; its header and the
+    /// terminal's smallest grid high), measured where the pane lies in its
+    /// tab (zoomed, where it lies when the zoom ends).
+    func splitRefusal(_ pane: String, _ side: String) -> String? {
+        guard let t = tab(of: pane) else { return Words.t("pane.alone") }
+        let b = boxes[pane]
+        let r: NSRect
+        if let b, b.superview != nil, !(t.zoom && t.count > 1) {
+            r = b.frame
+        } else {
+            r = t.root.rects(in: stage.bounds, gutter: Design.gutter)[pane] ?? stage.bounds
+        }
+        let m = b?.minSize ?? NSSize(width: Design.paneMin, height: Design.paneMin)
+        if side == "right" || side == "left" {
+            let need = 2 * m.width + Design.gutter
+            return r.width + 0.5 >= need ? nil : Words.t("pane.tooNarrow", ["pt": "\(Int(m.width))"])
+        }
+        let need = 2 * m.height + Design.gutter
+        return r.height + 0.5 >= need ? nil : Words.t("pane.tooShort", ["pt": "\(Int(m.height))"])
     }
 
     /// The tab strip, the headers and the window's title, from the model.
@@ -780,10 +890,10 @@ final class Workspace: NSObject {
             let l = label(t.host)
             let m = marksOf?(t.host)
             let on = t === active && extraTab == nil
-            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.guest != nil, active: on,
+            return TabModel(id: t.id, name: l.name, sub: l.sub, split: t.count > 1, active: on,
                             tip: i < 9 ? "\(l.name) (⌘\(i + 1))" : l.name, dot: m?.group,
                             bell: bells.contains(t.id), activity: activity.contains(t.id), lent: m?.lent?.who, lentCls: m?.lent?.cls ?? "other",
-                            closeTip: t.guest == nil && keepsRunning(t.host) ? Words.t("strip.closeSession") : nil)
+                            closeTip: t.count == 1 && keepsRunning(t.host) ? Words.t("strip.closeSession") : nil, count: t.count)
         }
         // Each extra tab right after its session's, in the order given; the rest at the end.
         for x in extraTabs {
@@ -863,39 +973,82 @@ final class Workspace: NSObject {
         return e.localizedDescription
     }
 
-    /// Cmd+D (right), Cmd+Shift+D (down): a shell beside the pane in
-    /// front, with the keyboard; a new tab when the tab is split already.
+    /// Cmd+D (right), Cmd+Shift+D (down): a shell beside the pane with
+    /// the keyboard, with the keyboard.
     func split(_ side: String) {
-        guard let t = active, t.guest == nil else { newTab(nil); return }
-        let s = stage.bounds.size
-        let half = side == "down" ? NSSize(width: s.width, height: s.height / 2 - Design.headHeight) : NSSize(width: s.width / 2, height: s.height - Design.headHeight)
+        guard let t = active else { newTab(nil); return }
+        split(pane: t.focusedPane, side)
+    }
+
+    /// A shell beside a pane (its header's Split right or Split down, its
+    /// menu), in its folder, with the keyboard: the pane becomes a split of
+    /// itself and the new one, half and half, where there is room for both
+    /// at their smallest (splitRefusal; else nothing, the reason in the
+    /// button's tip). Zoomed, the zoom ends.
+    func split(pane: String, _ side: String) {
+        guard let t = tab(of: pane) else { return }
+        if let why = splitRefusal(pane, side) {
+            splitsRefused.append("\(pane) \(side): \(why)")
+            return
+        }
+        let r = t.root.rects(in: stage.bounds, gutter: Design.gutter)[pane] ?? stage.bounds
+        let half = side == "down" ? NSSize(width: r.width, height: r.height / 2 - Design.headHeight) : NSSize(width: r.width / 2, height: r.height - Design.headHeight)
         do {
-            guard let id = try newPane(cwd: info[t.host]?.cwd, size: half) else { return }
-            t.guest = id
-            t.side = side
-            t.size = 50
-            t.focus = 1
+            guard let id = try newPane(cwd: info[pane]?.cwd, size: half) else { return }
+            t.root.node(of: pane)?.split(adding: id, side: side)
+            t.focused = id
             t.zoom = false
-            show(t)
+            rebuild(t)
         } catch {
             NSLog("RavenryMac: split: \(error)")
+            say?(Words.t("term.newShellFailed", ["why": Workspace.words(error)]))
         }
     }
 
-    /// Cmd+Option+arrows: the other pane of the split, when it lies that
-    /// way.
-    func focusToward(_ dir: String) {
-        guard let t = active, t.guest != nil else { return }
-        let toGuest = dir == t.side
-        let opposite = ["right": "left", "left": "right", "down": "up", "up": "down"]
-        let toHost = opposite[dir] == t.side
-        if toGuest { focusSplit(t, 1) } else if toHost { focusSplit(t, 0) }
+    /// Splits refused for want of room (the self-test reads them).
+    private(set) var splitsRefused: [String] = []
+
+    /// A tab's panes laid out again after its tree changed: in front, built
+    /// again (each pane keeps its terminal); else its strip entry.
+    private func rebuild(_ t: Tab) {
+        if t === active {
+            if shownTab === t { shown?.removeFromSuperview(); shown = nil; shownTab = nil }
+            show(t)
+        } else {
+            refresh()
+            save()
+        }
     }
 
-    private func focusSplit(_ t: Tab, _ i: Int) {
-        if t.focus != i {
-            t.focus = i
-            if t.zoom { show(t); return }
+    /// Cmd+Option+arrows: the keyboard to the pane that lies that way of
+    /// the one that has it (the nearest one beside it, the one across from
+    /// its middle first).
+    func focusToward(_ dir: String) {
+        guard let t = active, t.count > 1 else { return }
+        let rects = t.root.rects(in: stage.bounds, gutter: Design.gutter)
+        guard let f = rects[t.focusedPane] else { return }
+        var best: (String, CGFloat, Bool)?
+        for (id, r) in rects where id != t.focusedPane {
+            let gap: CGFloat
+            let overlaps: Bool, across: Bool
+            switch dir {
+            case "left": gap = f.minX - r.maxX; overlaps = r.maxY > f.minY + 1 && r.minY < f.maxY - 1; across = r.minY <= f.midY && r.maxY >= f.midY
+            case "right": gap = r.minX - f.maxX; overlaps = r.maxY > f.minY + 1 && r.minY < f.maxY - 1; across = r.minY <= f.midY && r.maxY >= f.midY
+            case "up": gap = f.minY - r.maxY; overlaps = r.maxX > f.minX + 1 && r.minX < f.maxX - 1; across = r.minX <= f.midX && r.maxX >= f.midX
+            default: gap = r.minY - f.maxY; overlaps = r.maxX > f.minX + 1 && r.minX < f.maxX - 1; across = r.minX <= f.midX && r.maxX >= f.midX
+            }
+            guard gap >= -1, overlaps else { continue }
+            if let b = best, (b.1, b.2 ? 0 : 1) <= (gap, across ? 0 : 1) { continue }
+            best = (id, gap, across)
+        }
+        if let b = best { focusPane(t, b.0) }
+    }
+
+    /// A pane of the tab in front takes the keyboard (zoomed: it is the one shown).
+    func focusPane(_ t: Tab, _ pane: String) {
+        if t.focused != pane {
+            t.focused = pane
+            if t.zoom && t.count > 1 { rebuild(t); return }
         }
         if let v = boxes[t.focusedPane]?.term { window.makeFirstResponder(v) }
         updateBoxes(t)
@@ -905,34 +1058,70 @@ final class Workspace: NSObject {
 
     /// A pane took the keyboard (a click in it).
     private func focused(pane: String) {
-        guard let t = active, t.guest != nil else { return }
-        let i = pane == t.guest ? 1 : 0
-        if t.focus != i {
-            t.focus = i
+        guard let t = active, t.count > 1, t.has(pane) else { return }
+        if t.focused != pane {
+            t.focused = pane
             updateBoxes(t)
             refresh()
             save()
         }
     }
 
-    /// Even: half and half.
+    /// Cmd+Ctrl+=: every split of the tab in front even (each pane of a row the same size).
     func equalize() {
-        guard let t = active, t.guest != nil, let sv = shown as? PaneSplitView else { return }
-        sv.equalize()
-        _ = t
+        guard let t = active, t.count > 1 else { return }
+        for n in t.root.splits { n.fraction = n.evenFraction }
+        var views: [PaneSplitView] = (shown as? PaneSplitView).map { [$0] } ?? []
+        while let v = views.popLast() {
+            v.fraction = v.evenFraction
+            views += v.arrangedSubviews.compactMap { $0 as? PaneSplitView }
+        }
+        (shown as? PaneSplitView)?.layoutPanes()
+        save()
     }
 
     /// Cmd+Shift+Enter: the pane with the keyboard alone, and back.
     func toggleZoom() {
-        guard let t = active, t.guest != nil else { return }
-        t.zoom.toggle()
-        show(t)
+        guard let t = active else { return }
+        toggleZoom(pane: t.focusedPane)
+    }
+
+    /// A pane's Zoom: that pane alone (with the keyboard), and back to every pane.
+    func toggleZoom(pane: String) {
+        guard let t = tab(of: pane), t.count > 1 else { return }
+        if t.zoom && t.focusedPane != pane {
+            t.focused = pane
+        } else {
+            t.zoom.toggle()
+            t.focused = pane
+        }
+        if t !== active { show(t) } else { rebuild(t) }
+    }
+
+    /// A pane out of its split into a tab of its own, right after its tab,
+    /// in front with the keyboard; its split's other part takes its place.
+    func moveToOwnTab(_ pane: String) {
+        guard let t = tab(of: pane), t.count > 1, let i = tabs.firstIndex(where: { $0 === t }) else { return }
+        let next = t.root.node(of: pane)?.sibling?.leaves.first
+        t.root.remove(pane)
+        if t.host == pane { t.host = t.leaves[0] }
+        if !t.has(t.focused) { t.focused = next ?? t.leaves[0] }
+        if t.count == 1 { t.zoom = false }
+        let nt = Tab(host: pane)
+        tabs.insert(nt, at: i + 1)
+        if shownTab === t { shown?.removeFromSuperview(); shown = nil; shownTab = nil }
+        show(nt)
     }
 
     /// Cmd+W: the pane with the keyboard (a session's only leaves the tab).
     func closeFocused() {
         guard let t = active else { return }
-        let id = t.focusedPane
+        closePaneAsked(t.focusedPane)
+    }
+
+    /// A pane's Close (its header's x, Cmd+W): a shell's process ends, asked
+    /// first when busy; a session's pane only leaves the window.
+    func closePaneAsked(_ id: String) {
         if keepsRunning(id) { removePane(id); return }
         askClose(id) { [weak self] in self?.closePane(id) }
     }
@@ -955,7 +1144,7 @@ final class Workspace: NSObject {
     /// when the terminal's foreground process is not the pane's first one.
     func askClose(_ pane: String, then close: @escaping () -> Void) {
         guard look.confirmClose else { return close() }
-        let what = tabs.contains { $0.guest != nil && ($0.host == pane || $0.guest == pane) } ? "pane" : "tab"
+        let what = tabs.contains { $0.count > 1 && $0.has(pane) } ? "pane" : "tab"
         let c = conn(of: pane)
         c.request("pane.process", ["pane": pane]) { [weak self] r in
             guard let self else { return }
@@ -1050,7 +1239,7 @@ final class Workspace: NSObject {
 
     /// A pane is gone (closed here, or it ended): out of its tab.
     func removePane(_ id: String) {
-        guard let i = tabs.firstIndex(where: { $0.host == id || $0.guest == id }) else { return }
+        guard let i = tabs.firstIndex(where: { $0.has(id) }) else { return }
         let t = tabs[i]
         layout?.forget(["s:" + id])
         let wasActive = t === active
@@ -1059,16 +1248,14 @@ final class Workspace: NSObject {
         boxes.removeValue(forKey: id)
         info.removeValue(forKey: id)
         homes.removeValue(forKey: id)
-        if t.guest == id {
-            t.guest = nil
-            t.focus = 0
-            t.zoom = false
-        } else if let g = t.guest {
-            // The tab's own pane went: its split's pane is the tab.
-            t.host = g
-            t.guest = nil
-            t.focus = 0
-            t.zoom = false
+        if t.count > 1 {
+            // Its split's other part takes its place; the tab's own pane gone, the first one left is the tab's.
+            let wasFocused = t.focusedPane == id
+            let next = t.root.node(of: id)?.sibling?.leaves.first
+            t.root.remove(id)
+            if t.host == id { t.host = t.leaves[0] }
+            if wasFocused { t.focused = next ?? t.leaves[0] }
+            if t.count == 1 || wasFocused { t.zoom = false }
         } else {
             tabs.remove(at: i)
             if wasActive {
@@ -1135,6 +1322,8 @@ final class Workspace: NSObject {
         stage.layer?.backgroundColor = Design.tbg.cgColor
         bar.needsDisplay = true
         for v in bar.subviews { v.needsDisplay = true }
+        // The tabs sit in the strip's clip: the one in front takes the terminal's new colour too.
+        for it in bar.items { it.needsDisplay = true }
         updateMinSize()
         // The filmstrip's frames are drawn in the terminal's colours: again in the new ones.
         if let p = film.pane, l.theme != was.theme || l.size != was.size { film.load(p) }
@@ -1155,19 +1344,19 @@ final class Workspace: NSObject {
 
     // MARK: size
 
-    /// The window's smallest content: each pane of the tab in front at
-    /// least its smallest grid (40 x 10), or 160 pt in a split, as the
+    /// The window's smallest content: the pane of the tab in front at
+    /// least its smallest grid (40 x 10) under its header, or in a split
+    /// each pane 160 pt across and its header and that grid high, as the
     /// Electron app's; the strip above.
     func minContentSize() -> NSSize {
         guard let t = active, let v = boxes[t.host]?.term else { return NSSize(width: 400, height: 200) }
         let one = v.minContentSize
-        var m = one
-        if t.guest != nil && !t.zoom {
-            if t.side == "right" || t.side == "left" {
-                m = NSSize(width: 2 * Design.paneMin + Design.gutter, height: one.height + Design.headHeight)
-            } else {
-                m = NSSize(width: one.width, height: 2 * max(Design.paneMin, one.height + Design.headHeight) + Design.gutter)
-            }
+        var m = NSSize(width: one.width, height: one.height + Design.headHeight)
+        if t.count > 1 && !t.zoom {
+            let leaf = NSSize(width: Design.paneMin, height: max(Design.paneMin, one.height + Design.headHeight))
+            m = t.root.minSize(leaf: leaf, gutter: Design.gutter)
+            // Panes only one over the other: as wide as one pane alone.
+            if t.root.count(across: true) == 1 { m.width = max(m.width, one.width) }
         }
         return NSSize(width: m.width, height: m.height + Design.stripHeight)
     }
@@ -1195,7 +1384,7 @@ final class Workspace: NSObject {
             info[id]?.update(p)
             // The shell in front changed folder: kept as the last folder (TERM-068).
             if name == "pane.cwd", active?.focusedPane == id { save() }
-            let shown = tabs.contains(where: { $0.host == id || $0.guest == id })
+            let shown = tabs.contains(where: { $0.has(id) })
             if isAgentPane(p), !shown { homes[id] = homes[id] ?? d; addAgentPane(p) }
             else if !shown, isOwnShell(p), (p["state"] as? String ?? "running") == "running", !closedHere.contains(id), !held.contains(id), !gaveAway.contains(id) {
                 // A shell another client made for this window (the command
@@ -1212,7 +1401,7 @@ final class Workspace: NSObject {
                 d.conn.request("pane.list", [:]) { [weak self] r in
                     guard case .success(let j) = r, let q = (j["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == id }) else { return }
                     DispatchQueue.main.async {
-                        guard let self, isAgentPane(q), !self.tabs.contains(where: { $0.host == id || $0.guest == id }) else { return }
+                        guard let self, isAgentPane(q), !self.tabs.contains(where: { $0.has(id) }) else { return }
                         self.homes[id] = self.homes[id] ?? d
                         self.addAgentPane(q)
                     }
@@ -1235,7 +1424,7 @@ final class Workspace: NSObject {
             if info[id] != nil, boxes[id]?.term.window == nil {
                 TerminalView.ring(look, offscreen: options.offscreen) { self.bellsHeard.append($0) }
             }
-            if let t = tabs.first(where: { $0.host == id || $0.guest == id }), !(t === active && extraTab == nil) || boxes[id]?.term.window == nil {
+            if let t = tabs.first(where: { $0.has(id) }), !(t === active && extraTab == nil) || boxes[id]?.term.window == nil {
                 bells.insert(t.id)
                 refresh()
             }
@@ -1244,13 +1433,13 @@ final class Workspace: NSObject {
             if let r = ev["input"] as? [String: Any], let v = boxes[id]?.term, v.live { v.inputLogged(r) }
         case "pane.activity":
             // A tab not on screen printed: a quiet dot on it.
-            if let t = tabs.first(where: { $0.host == id || $0.guest == id }), !(t === active && extraTab == nil) {
+            if let t = tabs.first(where: { $0.has(id) }), !(t === active && extraTab == nil) {
                 activity.insert(t.id)
                 refresh()
             }
         case "pane.focus":
-            if let t = tabs.first(where: { $0.host == id || $0.guest == id }) {
-                if t.guest == id { t.focus = 1 } else if t.guest != nil { t.focus = 0 }
+            if let t = tabs.first(where: { $0.has(id) }) {
+                t.focused = id
                 show(t)
                 if !options.offscreen { NSApp.activate(ignoringOtherApps: true) }
             }
@@ -1283,11 +1472,9 @@ final class Workspace: NSObject {
         let i = info[id] ?? PaneInfo(id: id)
         i.update(p)
         info[id] = i
-        if let host = tabs.first(where: { $0.host == owner && $0.guest == nil }) {
-            host.guest = id
-            host.side = "right"
-            host.size = 50
-            host.focus = 0
+        if let host = tabs.first(where: { $0.host == owner && $0.count == 1 }) {
+            host.root.split(adding: id, side: "right")
+            host.focused = owner
             host.zoom = false
             if host === active {
                 shown?.removeFromSuperview()
@@ -1297,7 +1484,7 @@ final class Workspace: NSObject {
             }
         } else {
             var at = -1
-            for (k, x) in tabs.enumerated() where x.host == owner || x.guest == owner || [x.host, x.guest].contains(where: { $0.flatMap { self.info[$0]?.creator?["pane"] as? String } == owner }) { at = k }
+            for (k, x) in tabs.enumerated() where x.has(owner) || x.leaves.contains(where: { self.info[$0]?.creator?["pane"] as? String == owner }) { at = k }
             tabs.insert(Tab(host: id), at: at < 0 ? tabs.count : at + 1)
         }
         refresh()
@@ -1312,13 +1499,13 @@ final class Workspace: NSObject {
     private func besideAsker(_ cp: [String: Any], _ d: DaemonLink) {
         guard let run = (cp["run"] as? [String: Any])?["pane"] as? String, let asker = cp["pane"] as? String,
               cp["machine"] == nil || cp["machine"] is NSNull,
-              tabs.contains(where: { $0.host == asker || $0.guest == asker }),
-              !tabs.contains(where: { $0.host == run || $0.guest == run }) else { return }
+              tabs.contains(where: { $0.has(asker) }),
+              !tabs.contains(where: { $0.has(run) }) else { return }
         d.conn.request("pane.list", [:]) { [weak self] r in
             guard case .success(let j) = r, let q = (j["panes"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == run }),
                   (q["state"] as? String ?? "running") == "running" else { return }
             DispatchQueue.main.async {
-                guard let self, !self.tabs.contains(where: { $0.host == run || $0.guest == run }), !self.closedHere.contains(run) else { return }
+                guard let self, !self.tabs.contains(where: { $0.has(run) }), !self.closedHere.contains(run) else { return }
                 self.homes[run] = self.homes[run] ?? d
                 self.addAgentPane(q, owner: asker)
             }
@@ -1394,7 +1581,7 @@ final class Workspace: NSObject {
 
     /// Opens the filmstrip of a pane (Learn's card), its tab in front.
     func openFilm(_ pane: String) {
-        guard let t = tabs.first(where: { $0.host == pane || $0.guest == pane }) else { return }
+        guard let t = tabs.first(where: { $0.has(pane) }) else { return }
         if t !== active { show(t) }
         if film.pane != pane { film.load(pane) }
     }
@@ -1472,7 +1659,7 @@ final class Workspace: NSObject {
             anchorX = r.minX + 40
             // A pane too narrow for one: the panes' whole area under it (the Electron app's middleRegion), as at 720 x 480 (ONB-003).
             if region.width < 320 { region = NSRect(x: stage.bounds.minX, y: region.minY, width: stage.bounds.width, height: region.height) }
-        } else if let it = bar.items.first(where: { $0.model.id == "s:" + p || $0.model.id == tabs.first(where: { $0.guest == p })?.id }), extraTab == nil, it.superview != nil {
+        } else if let it = bar.items.first(where: { $0.model.id == "s:" + p || $0.model.id == tab(of: p)?.id }), extraTab == nil, it.superview != nil {
             anchorX = it.convert(NSPoint(x: it.bounds.midX, y: 0), to: stage).x
         } else {
             hint.removeFromSuperview()
@@ -1514,55 +1701,70 @@ final class Workspace: NSObject {
     /// What a drop there does, lit on the stage while a tab is dragged.
     let dropZone = SplitDropView()
 
-    /// The edge of the stage a point is near (within 30% of it), or nil in the middle (app.ts edgeAt).
-    func edge(at p: NSPoint) -> String? {
-        let b = stage.bounds
+    /// The edge of a pane's rectangle (the stage's by default) a point is
+    /// near (within 30% of it), or nil in the middle (app.ts edgeAt).
+    func edge(at p: NSPoint, in r: NSRect? = nil) -> String? {
+        let b = r ?? stage.bounds
         guard b.width > 0, b.height > 0, b.contains(p) else { return nil }
-        let fx = p.x / b.width, fy = p.y / b.height
+        let fx = (p.x - b.minX) / b.width, fy = (p.y - b.minY) / b.height
         let d: [(String, CGFloat)] = [("left", fx), ("right", 1 - fx), ("up", fy), ("down", 1 - fy)]
         let m = d.min { $0.1 < $1.1 }!
         return m.1 < 0.3 ? m.0 : nil
     }
 
-    /// Why a tab cannot split the tab in front (nil: it can).
-    private func refusal(_ t: Tab) -> String? {
-        guard let host = active else { return "" }
-        if host.guest != nil { return Words.t("strip.dropSplit") }
-        if t.guest != nil { return Words.t("strip.dropSplitTab") }
+    /// The pane of the tab in front under a point of the stage, and where it lies.
+    private func paneAt(_ p: NSPoint) -> (pane: String, rect: NSRect)? {
+        guard let t = active else { return nil }
+        if t.count == 1 || t.zoom { return (t.focusedPane, stage.bounds) }
+        for id in t.leaves {
+            guard let b = boxes[id], b.superview != nil else { continue }
+            let r = b.convert(b.bounds, to: stage)
+            if r.contains(p) { return (id, r) }
+        }
         return nil
     }
 
+    /// Why a tab cannot go beside a pane that way (nil: it can): the pane
+    /// and every pane of the tab must keep their smallest size.
+    private func refusal(_ t: Tab, onto pane: String, _ r: NSRect, _ side: String) -> String? {
+        let m = boxes[pane]?.minSize ?? NSSize(width: Design.paneMin, height: Design.paneMin)
+        let theirs = t.root.minSize(leaf: m, gutter: Design.gutter)
+        if side == "left" || side == "right" {
+            return r.width + 0.5 >= m.width + Design.gutter + theirs.width && r.height + 0.5 >= theirs.height ? nil : Words.t("pane.tooNarrow", ["pt": "\(Int(m.width))"])
+        }
+        return r.height + 0.5 >= m.height + Design.gutter + theirs.height && r.width + 0.5 >= theirs.width ? nil : Words.t("pane.tooShort", ["pt": "\(Int(m.height))"])
+    }
+
     /// A tab dragged over the window (nil: out of it, or let go): the edge
-    /// it would split lit, with what it would do or why it cannot.
+    /// of the pane under it that it would split lit, with what it would do
+    /// or why it cannot.
     func dragOver(_ id: String, _ wp: NSPoint?) {
         guard let wp, let t = tabs.first(where: { $0.id == id }), t !== active, extraTab == nil, root.middle == nil,
-              let side = edge(at: stage.convert(wp, from: nil)) else {
+              let at = paneAt(stage.convert(wp, from: nil)), let side = edge(at: stage.convert(wp, from: nil), in: at.rect) else {
             dropZone.removeFromSuperview()
             return
         }
         if dropZone.superview !== stage { stage.addSubview(dropZone) }
-        dropZone.frame = stage.bounds
-        let why = refusal(t)
+        dropZone.frame = at.rect
+        let why = refusal(t, onto: at.pane, at.rect, side)
         dropZone.show(side: side, words: why ?? Words.t("strip.drop.\(side)"), refused: why != nil)
     }
 
-    /// The drop: the tab's pane beside the tab in front, on that side,
-    /// with the keyboard (linkSplit); its own tab goes.
+    /// The drop: the tab's panes (its splits too) beside the pane under the
+    /// pointer, on that side, with the keyboard (linkSplit); its own tab goes.
     @discardableResult
     func dropTab(_ id: String, _ wp: NSPoint) -> Bool {
         dropZone.removeFromSuperview()
+        let p = stage.convert(wp, from: nil)
         guard let t = tabs.first(where: { $0.id == id }), let host = active, t !== host, extraTab == nil, root.middle == nil,
-              refusal(t) == nil, let side = edge(at: stage.convert(wp, from: nil)) else { return false }
+              let at = paneAt(p), let side = edge(at: p, in: at.rect), refusal(t, onto: at.pane, at.rect, side) == nil else { return false }
         tabs.removeAll { $0 === t }
-        host.guest = t.host
-        host.side = side
-        host.size = 50
-        host.focus = 1
+        bells.remove(t.id)
+        activity.remove(t.id)
+        host.root.node(of: at.pane)?.split(adding: t.root, side: side)
+        host.focused = t.focusedPane
         host.zoom = false
-        shown?.removeFromSuperview()
-        shown = nil
-        shownTab = nil
-        show(host)
+        rebuild(host)
         return true
     }
 
@@ -1628,20 +1830,25 @@ final class Workspace: NSObject {
         guard let layout else { return }
         var order: [String] = []
         var splits: [SavedSplit] = []
+        var trees: [SavedTree] = []
         for t in tabs {
             order.append(t.id)
             if let g = t.guest {
-                order.append("s:" + g)
+                for p in t.leaves where p != t.host { order.append("s:" + p) }
                 splits.append(SavedSplit(host: t.id, guest: "s:" + g, side: t.side, size: t.size, focus: t.focus, zoom: t.zoom))
+                // Deeper than one split: the whole tree beside it (the Electron app keeps the one split).
+                if t.count > 2 { trees.append(SavedTree(host: t.id, guest: "s:" + g, tree: t.root.saved, focus: "s:" + t.focusedPane, zoom: t.zoom)) }
             }
         }
         // The folder of the shell in front (TERM-068), as the Electron app's lastCwd.
         let front = active.flatMap { info[$0.focusedPane] }
         let lastCwd = front.flatMap { $0.labels["ravenry.kind"] == "shell" && !$0.cwd.isEmpty ? $0.cwd : nil }
-        layout.save(order: order, splits: splits, active: active?.id, pinned: pinned, lastCwd: lastCwd)
+        layout.save(order: order, splits: splits, trees: trees, active: active?.id, pinned: pinned, lastCwd: lastCwd)
     }
 
     func flush() { layout?.flush() }
+    /// The layout file this window keeps its tabs in (the self-test reads it).
+    var layoutURL: URL? { layout?.url }
 
     // MARK: the window's size and place (TERM-043)
 

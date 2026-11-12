@@ -11,7 +11,14 @@
 //   3. the Electron app (this tree's build, apps/desktop/dist, with
 //      Electron from node_modules) opens that file: the same tabs in the
 //      same order, the split on the same tab with the same pane beside it
-//      on the right, the same tab in front.
+//      on the right, the same tab in front;
+//   4. the native app again: Shell > Split Down splits the pane with the
+//      keyboard (a split of a split, three panes in the tab); quitting, it
+//      writes the tree (`trees`) and the one split the Electron app reads;
+//   5. the Electron app opens that file: it cannot nest, so it flattens:
+//      the one split on the same tab, the tree's third pane a tab of its
+//      own, no pane lost (every running shell is a tab);
+//   6. the native app opens it once more: the tab of three panes whole.
 //
 // Both apps off every screen (the native app's window off every screen,
 // the Electron app's offscreen rendering), in a throwaway HOME under /tmp
@@ -52,6 +59,8 @@ function step(name, ok, detail = {}) {
   console.log(`${ok ? 'pass' : 'FAIL'} ${name}${ok ? '' : `: ${JSON.stringify(detail).slice(0, 900)}`}`);
 }
 async function until(fn, ms) { const end = Date.now() + ms; for (;;) { const v = fn(); if (v || Date.now() > end) return v; await sleep(150); } }
+// A tree as a string with its keys in order (the native app writes them sorted).
+const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((n) => [n, x[n]])) : x));
 const json = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
 
 const daemon = spawn(RD, ['serve'], { env: base, stdio: ['ignore', 'ignore', fs.openSync(path.join(root, 'daemon.log'), 'w')] });
@@ -105,6 +114,59 @@ try {
   step('3 the Electron app opens the window.json the native app wrote: the same tabs in the same order', tabs.map((t) => t.id).join(',') === order2.join(','), { tabs, want: order2 });
   step('3 ... the split on the same tab, the native app\'s new pane beside it on the right', host.split && host.split.guest === id(guest) && host.split.side === 'right', { host });
   step('3 ... the same tab in front', e.view && e.view.kind === 'tab' && e.view.id === id(panes[0]), { view: e.view });
+
+  // 4. The native app again: Shell > Split Down in the pane with the keyboard (the new one, on the right): three panes in the tab.
+  fs.rmSync(report, { force: true });
+  native = spawn(EXE, ['--offscreen'], { env: { ...base, RAVENRY_HUB_URL: 'http://127.0.0.1:9', RAVENRY_SERVICE: 'off', RAVENRY_UPDATES: '0', RAVENRY_MAC_REPORT: report }, stdio: ['ignore', 'ignore', fs.openSync(path.join(root, 'native2.log'), 'w')] });
+  const r4 = await until(() => { const r = json(report); return r && r.tabs?.some((t) => t.host === panes[0] && (t.panes || []).length === 2) ? r : null; }, 30000);
+  step('4 the native app opens the file the Electron app read: the split back on its tab', !!r4, { tabs: json(report)?.tabs });
+  fs.writeFileSync(report + '.do', 'menu Shell>Split Down');
+  const r5 = await until(() => { const r = json(report); return r && r.tabs?.some((t) => t.host === panes[0] && (t.panes || []).length === 3) ? r : null; }, 15000);
+  const three = r5?.tabs.find((t) => t.host === panes[0])?.panes || [];
+  const third = three.find((p) => p !== panes[0] && p !== guest) || '';
+  step('4 Shell > Split Down splits the split\'s right pane: a tab of three panes', three.length === 3 && three[1] === guest && !!third, { tabs: r5?.tabs });
+  await sleep(1200);
+  native.kill('SIGTERM');
+  await until(() => native.exitCode !== null || native.signalCode !== null, 10000);
+  const w4 = json(file) || {};
+  const tr = (w4.trees || []).find((t) => t.host === id(panes[0])) || {};
+  const sp4 = (w4.splits || []).find((t) => t.host === id(panes[0])) || {};
+  step('4 quitting, it writes the tree beside the one split the Electron app reads',
+    sp4.guest === id(guest) && sp4.side === 'right' && tr.guest === id(guest) && canon(tr.tree) === canon({ dir: 'right', size: 50, a: id(panes[0]), b: { dir: 'down', size: 50, a: id(guest), b: id(third) } })
+      && (w4.order || []).join(',') === [id(panes[2]), id(panes[0]), id(guest), id(third), id(panes[1])].join(','),
+    { written: w4 });
+
+  // 5. The Electron app opens it: flattened, no pane lost.
+  const out5 = path.join(work, 'electron-state-2.json');
+  await runApp({
+    name: 'roundtrip2', work, rt, bin: RD, home, hubUrl: 'http://127.0.0.1:9', shell: '/bin/zsh -f', width: 1200, height: 800, hints: true,
+    env: { RAVENRY_SERVICE: 'off', RAVENRY_UPDATES: '0', RAVENRY_DESKTOP_DATA: data, RAVENRY_STATE_DIR: state },
+    steps: [
+      { until: 'document.body.dataset.ready', timeout: 30000 },
+      { until: 'window.__ravenry && window.__ravenry.S.tabs.filter((t) => t.kind === "shell").length >= 5', timeout: 20000, soft: true },
+      { sleep: 500 },
+      { save: { expr: '({ tabs: window.__ravenry.S.tabs.map((t) => ({ id: t.id, kind: t.kind, split: t.split || null, host: t.host || null })), view: window.__ravenry.S.view })', out: out5 } },
+    ],
+  });
+  const e5 = json(out5) || {};
+  const tabs5 = e5.tabs || [];
+  const all5 = [panes[2], panes[0], guest, third, panes[1]].map(id);
+  const host5 = tabs5.find((t) => t.id === id(panes[0])) || {};
+  step('5 the Electron app opens the tree it cannot nest flattened: every pane still a tab (none lost), in the order written',
+    tabs5.map((t) => t.id).join(',') === all5.join(','), { tabs: tabs5, want: all5 });
+  step('5 ... its one split on the same tab, the tree\'s third pane a tab of its own',
+    host5.split && host5.split.guest === id(guest) && host5.split.side === 'right' && !tabs5.find((t) => t.id === id(third))?.host, { host: host5, third: tabs5.find((t) => t.id === id(third)) });
+
+  // 6. The native app once more: the tab of three panes whole.
+  fs.rmSync(report, { force: true });
+  native = spawn(EXE, ['--offscreen'], { env: { ...base, RAVENRY_HUB_URL: 'http://127.0.0.1:9', RAVENRY_SERVICE: 'off', RAVENRY_UPDATES: '0', RAVENRY_MAC_REPORT: report }, stdio: ['ignore', 'ignore', fs.openSync(path.join(root, 'native3.log'), 'w')] });
+  const r6 = await until(() => { const r = json(report); return r && r.tabs?.length ? r : null; }, 30000);
+  const t6 = r6?.tabs.find((t) => t.host === panes[0]);
+  step('6 the native app opens the file again: the tab of three panes whole, the other tabs as they were',
+    (t6?.panes || []).join(',') === [panes[0], guest, third].join(',') && r6.tabs.map((t) => id(t.host)).join(',') === [id(panes[2]), id(panes[0]), id(panes[1])].join(','),
+    { tabs: r6?.tabs });
+  native.kill('SIGTERM');
+  await until(() => native.exitCode !== null || native.signalCode !== null, 10000);
 } catch (err) {
   step('the check ran to its end', false, { error: String(err && err.stack || err) });
 } finally {
@@ -112,7 +174,7 @@ try {
   daemon.kill();
   stopDaemons(RD, rt);
   fs.writeFileSync(path.join(OUT, 'roundtripcheck.json'), JSON.stringify({ app: APP, at: new Date().toISOString(), failed, steps: results }, null, 2));
-  for (const f of ['native.log', 'daemon.log']) { try { fs.copyFileSync(path.join(root, f), path.join(OUT, f)); } catch { /* none */ } }
+  for (const f of ['native.log', 'native2.log', 'native3.log', 'daemon.log']) { try { fs.copyFileSync(path.join(root, f), path.join(OUT, f)); } catch { /* none */ } }
   try { fs.copyFileSync(file, path.join(OUT, 'window.json')); } catch { /* none */ }
   if (process.argv[3]) { try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); } catch { console.log(`roundtripcheck: ${root} left`); } }
 }

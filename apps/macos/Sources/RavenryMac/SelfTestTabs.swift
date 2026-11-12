@@ -249,17 +249,24 @@ extension SelfTest {
         let dframes = main { dboxes.map { $0.convert($0.bounds, to: nil) } }
         check("split_cmd_shift_d_down", down.guest != nil && down.side == "down" && prompt(front()) && dframes.count == 2
               && abs(dframes[0].minX - dframes[1].minX) < 1, "\(dframes)")
-        // Cmd+D on a split tab: a new tab, as the Electron app.
+        // Cmd+D on a split tab: the pane with the keyboard splits again (Rex's splits of splits), the tabs as they were.
         let n1 = count()
+        let lower = ws { $0.active!.focusedPane }
         deliver("d", code: 0x02, flags: .command)
-        check("split_on_split_tab_new_tab", count() == n1 + 1 && ws { $0.active!.guest } == nil)
+        let nested = ws { w -> (Int, String, String) in (w.active!.count, w.active!.focusedPane, w.active!.root.shape) }
+        check("split_on_split_tab_nests", count() == n1 && nested.0 == 3 && nested.1 != lower && paneIds().contains(nested.1)
+              && nested.2 == "(- \(down.host) (| \(lower) \(nested.1)))", "\(nested)")
 
-        // Cmd+W in a split: that pane closes and its tab is whole.
+        // Cmd+W in a split: that pane closes, the other part of its split takes its place.
         deliver("3", code: 0x14, flags: .command)
         let gone = ws { $0.active!.focusedPane }
         deliver("w", code: 0x0D, flags: .command)
         sleep(0.4)
-        check("split_cmd_w_closes_pane", ws { $0.tabs[2].guest } == nil && !paneIds().contains(gone), "gone \(gone)")
+        check("split_cmd_w_closes_pane", ws { $0.tabs[2].count } == 2 && ws { $0.tabs[2].root.shape } == "(- \(down.host) \(lower))" && !paneIds().contains(gone), "gone \(gone) \(ws { $0.tabs[2].root.shape })")
+        // Cmd+W again: the tab is whole.
+        deliver("w", code: 0x0D, flags: .command)
+        sleep(0.4)
+        check("split_cmd_w_whole_again", ws { $0.tabs[2].count } == 1 && !paneIds().contains(lower), ws { $0.tabs[2].root.shape })
         // Cmd+W on a whole tab: the tab and its pane go.
         let n2 = count()
         let lastPane = ws { $0.tabs.last!.host }
@@ -282,12 +289,17 @@ extension SelfTest {
         sleep(0.4)
         check("tab_middle_click_closes", count() == n2 - 1 && !paneIds().contains(midPane), "tabs \(count())")
 
+        // The first tab's pane with the keyboard split down, so the relaunch has a tab of three panes to bring back (the tree in window.json).
+        deliver("1", code: 0x12, flags: .command)
+        deliver("D", code: 0x02, flags: [.command, .shift])
+        check("split_nested_for_restore", ws { $0.tabs[0].count } == 3 && ws { $0.tabs[0].root.shape }.filter { $0 == "(" }.count == 2, ws { $0.tabs[0].root.shape })
+
         // The layout a relaunch must restore (selftest.sh runs the app
         // again with --restore-check).
         sleep(0.4)
         restore = ws { w in
             ["order": w.tabs.map { $0.id }, "splits": w.tabs.compactMap { t in t.guest.map { "\(t.id)>\($0)>\(t.side)" } },
-             "active": w.active?.id ?? ""]
+             "trees": w.tabs.map { $0.root.shape }, "focus": w.tabs.map { $0.focusedPane }, "active": w.active?.id ?? ""]
         }
     }
 
@@ -298,8 +310,11 @@ extension SelfTest {
         let want = data?["restore"] as? [String: Any] ?? [:]
         let got = ws { w -> [String: Any] in
             ["order": w.tabs.map { $0.id }, "splits": w.tabs.compactMap { t in t.guest.map { "\(t.id)>\($0)>\(t.side)" } },
-             "active": w.active?.id ?? ""]
+             "trees": w.tabs.map { $0.root.shape }, "focus": w.tabs.map { $0.focusedPane }, "active": w.active?.id ?? ""]
         }
+        // A tab of three panes comes back whole, each pane where it was, the one with the keyboard too.
+        check("restore_nested_splits", (got["trees"] as? [String]) == (want["trees"] as? [String]) && (got["trees"] as? [String] ?? []).contains { $0.filter { $0 == "(" }.count >= 2 }
+              && (got["focus"] as? [String]) == (want["focus"] as? [String]), "\(got["trees"] ?? "") \(got["focus"] ?? "") want \(want["trees"] ?? "") \(want["focus"] ?? "")")
         check("restore_tabs_order", (got["order"] as? [String]) == (want["order"] as? [String]) && !(got["order"] as? [String] ?? []).isEmpty,
               "\(got["order"] ?? "") want \(want["order"] ?? "")")
         check("restore_splits", (got["splits"] as? [String]) == (want["splits"] as? [String]) && !(got["splits"] as? [String] ?? []).isEmpty,

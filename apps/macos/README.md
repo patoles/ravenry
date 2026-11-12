@@ -74,10 +74,16 @@ stream".
   small bell when its pane rang, a quiet dot when it printed (the daemon's
   `pane.activity` and `pane.bell`), until it is opened; its dot takes the
   colour of Needs you or Working from what its agent reported or a
-  question open in it; a lent pane's tab carries its holder's badge. One split per tab: Cmd+D right, Cmd+Shift+D
-  down, Cmd+Option+arrows or a click move the keyboard, the divider is
-  dragged (a double click or Cmd+Ctrl+= evens it), Cmd+Shift+Enter
-  zooms the pane. A tab not in front has no render stream and draws
+  question open in it; a lent pane's tab carries its holder's badge. Splits as Rex has them: every pane has a
+  header (a pane alone too) with Split right (Cmd+D), Split down
+  (Cmd+Shift+D), Move to its own tab, Zoom (Cmd+Shift+Enter) and Close
+  (Cmd+W) at its right, greyed with the reason in the tip when there is
+  nothing to act on; any pane splits again, to any depth that keeps each
+  pane 160 pt (`PaneNode` in `Panes.swift`); Cmd+Option+arrows or a click
+  move the keyboard, a divider is dragged (a double click evens it,
+  Cmd+Ctrl+= evens them all). A tab split more than once is kept in
+  window.json's `trees` beside the one split the Electron app reads
+  (`Layout.swift`), which opens it flattened, no pane lost. A tab not in front has no render stream and draws
   nothing; brought back, its panes draw the rows they had at once and
   open their streams again (a pane never drawn waits under the tab in
   front for its first frame). The order, splits, tab in front and pinned

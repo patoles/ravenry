@@ -526,7 +526,7 @@ final class Board: NSObject {
             let k = String(i.key.dropFirst(6))
             if k.hasPrefix("tab:") {
                 let tb = ws.tabs.first { $0.id == String(k.dropFirst(4)) }
-                if tb == nil || !openPanes.contains(where: { $0 == tb?.host || $0 == tb?.guest }) { toastView.drop(i) }
+                if tb == nil || !openPanes.contains(where: { tb?.has($0) == true }) { toastView.drop(i) }
             } else if !you.contains(k) { toastView.drop(i) }
         }
         if !newYou.isEmpty || !newCps.isEmpty { log.append("state: new \((newCps.sorted() + newYou.sorted()).joined(separator: ","))\(first ? " (first)" : "")") }
@@ -1454,7 +1454,7 @@ final class Board: NSObject {
     // MARK: what the panel reads besides the state
 
     private func inputsOf(_ pane: String) -> [[String: Any]]? {
-        guard ws.paneInfo(pane) != nil || ws.tabs.contains(where: { $0.host == pane || $0.guest == pane }) else { return nil }
+        guard ws.paneInfo(pane) != nil || ws.tabs.contains(where: { $0.has(pane) }) else { return nil }
         if Date().timeIntervalSince(inputsAsked[pane] ?? .distantPast) > 3 {
             inputsAsked[pane] = Date()
             ws.conn(of: pane).request("pane.inputs", ["pane": pane, "limit": 50]) { [weak self] r in
@@ -1625,7 +1625,7 @@ final class Board: NSObject {
     /// The tab of this window that shows a session's pane, if any.
     private func ownTab(_ k: String, _ st: HubState?) -> Tab? {
         guard let f = st?.find(k), let pane = f.session.pane, f.session.machine == nil, f.project.machine == nil else { return nil }
-        return ws.tabs.first { $0.host == pane || $0.guest == pane }
+        return ws.tabs.first { $0.has(pane) }
     }
 
     /// A session's tab: its name and project, its state's dot; ended when it left the board.

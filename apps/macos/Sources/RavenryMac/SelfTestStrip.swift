@@ -192,8 +192,8 @@ extension SelfTestBoard {
         let menu = v.contextMenu(at: v.convert(NSPoint(x: 20, y: 20), to: nil))
         let items = menu.items.filter { !$0.isSeparatorItem }
         let on = Dictionary(items.map { ($0.title, $0.isEnabled) }, uniquingKeysWith: { a, _ in a })
-        check("term_menu_items", items.map(\.title) == ["Copy", "Paste", "Select All", "Copy Path", "Find…", "Clear", "Split Right", "Split Down"]
-              && on["Copy"] == false && on["Copy Path"] == true && on["Split Right"] == true, items.map { "\($0.title):\($0.isEnabled)" }.joined(separator: ","))
+        check("term_menu_items", items.map(\.title) == ["Copy", "Paste", "Select All", "Copy Path", "Find…", "Clear", "Split Right", "Split Down", "Move to Own Tab"]
+              && on["Copy"] == false && on["Copy Path"] == true && on["Split Right"] == true && on["Move to Own Tab"] == false, items.map { "\($0.title):\($0.isEnabled)" }.joined(separator: ","))
         // Copy Path: the pane's folder on the pasteboard.
         let pb = NSPasteboard(name: NSPasteboard.Name("ravenry-selftest-term-menu"))
         v.pasteboard = pb
@@ -215,13 +215,14 @@ extension SelfTestBoard {
         if let cl = lm.items.first(where: { $0.title == "Copy Link" }), let a = cl.action { NSApp.sendAction(a, to: cl.target, from: cl) }
         check("term_menu_copy_link", pb.string(forType: .string) == "https://ravenry.dev/strip-link", pb.string(forType: .string) ?? "nil")
         v.pasteboard = .general
-        // Split Right from the menu: the tab splits, then its menu says it cannot again.
+        // Split Right from the menu: the tab splits; in the split, its menu splits again where there is room and moves the pane to its own tab.
         let host = ws.active
         if let sr = items.first(where: { $0.title == "Split Right" }), let a = sr.action { NSApp.sendAction(a, to: sr.target, from: sr) }
         check("term_menu_split", wait(5) { host?.guest != nil && ws.active === host })
         if let v2 = ws.focusedView {
             let again = v2.contextMenu(at: v2.convert(NSPoint(x: 20, y: 20), to: nil))
-            check("term_menu_split_off", again.items.first { $0.title == "Split Right" }?.isEnabled == false)
+            check("term_menu_split_again", again.items.first { $0.title == "Split Right" }?.isEnabled == (ws.splitRefusal(v2.pane, "right") == nil)
+                  && again.items.first { $0.title == "Move to Own Tab" }?.isEnabled == true, again.items.map { "\($0.title) \($0.isEnabled)" }.joined(separator: ", "))
         }
         // A session's pane in a split: its head shows its state's dot (here: none, a shell).
         if let g = host?.guest { ws.closePane(g) }
@@ -284,14 +285,24 @@ extension SelfTestBoard {
         bar.endDrag(item, window: wp)
         check("drag_split_done", ws.active === hostTab && hostTab.guest == moving.host && hostTab.side == "right" && ws.tabs.count == count - 1 && ws.dropZone.superview == nil,
               "guest \(hostTab.guest ?? "-") side \(hostTab.side) tabs \(ws.tabs.count)")
-        // Another tab over a split tab: refused, and nothing changes.
+        // Another tab over the right pane of the split: that pane is lit and splits with it (splits of splits).
         if let third = ws.tabs.first(where: { $0 !== hostTab }) ?? { ws.newTab(nil); ws.show(hostTab); return ws.tabs.first { $0 !== hostTab } }() {
+            let right = ws.boxes[moving.host].map { $0.convert($0.bounds, to: stage) } ?? .zero
             ws.dragOver(third.id, wp)
-            check("drag_split_refused", ws.dropZone.refused && ws.dropZone.words == "Already split: one split per tab", ws.dropZone.words)
-            check("drag_split_refused_drop", !ws.dropTab(third.id, wp) && ws.tabs.contains { $0 === third })
+            check("drag_split_onto_pane", !ws.dropZone.refused && ws.dropZone.words == "Split right" && ws.dropZone.frame == right, "\(ws.dropZone.words) \(ws.dropZone.frame) pane \(right)")
+            check("drag_split_nested", ws.dropTab(third.id, wp) && hostTab.root.shape == "(| \(hostTab.host) (| \(moving.host) \(third.host)))" && !ws.tabs.contains { $0 === third },
+                  hostTab.root.shape)
+            // A fourth over the narrow pane it made: refused with the reason, and nothing changes.
+            ws.newTab(nil)
+            let fourth = ws.active!
+            ws.show(hostTab)
+            let wp2 = stage.convert(NSPoint(x: stage.bounds.width - 20, y: stage.bounds.midY), to: nil)
+            ws.dragOver(fourth.id, wp2)
+            check("drag_split_refused", ws.dropZone.refused && ws.dropZone.words == "Too narrow to split: each pane needs at least 160 points across", ws.dropZone.words)
+            check("drag_split_refused_drop", !ws.dropTab(fourth.id, wp2) && ws.tabs.contains { $0 === fourth } && hostTab.count == 3)
         }
-        if let g = hostTab.guest { ws.closePane(g) }
-        _ = wait(3) { hostTab.guest == nil }
+        for g in hostTab.leaves where g != hostTab.host { ws.closePane(g) }
+        _ = wait(3) { hostTab.count == 1 }
 
         // The filmstrip: the film button while a pane is in front, the sheet under the pane.
         if let t0 = ws.tabs.first { ws.show(t0) }

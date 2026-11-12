@@ -42,6 +42,7 @@ extension SelfTestBoard {
             if v.isHiddenOrHasHiddenAncestor || v.alphaValue < 0.05 || v is TerminalView { return }
             // Off (greyed, and said so to VoiceOver): a press is not asked of it.
             if let c = v as? CheckRow, !c.enabled { return }
+            if let h = v as? HeadButton, !h.enabled { return }
             let role = v.accessibilityRole()
             let pressable = (v is NSButton && (v as? NSButton)?.isEnabled == true && !(v is NSPopUpButton))
                 || (v.isAccessibilityElement() && [.button, .radioButton, .checkBox, .link, .menuButton].contains(role) && !(v is NSButton))

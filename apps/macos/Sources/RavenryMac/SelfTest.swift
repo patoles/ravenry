@@ -199,12 +199,12 @@ final class SelfTest {
         // The window's smallest content size: 40 x 10 cells at the font,
         // larger with a larger font.
         let min12 = main { window.contentMinSize }
-        // (The tab strip is above the terminal.)
-        let grid12 = main { view.renderer.grid(for: NSSize(width: min12.width, height: min12.height - Design.stripHeight)) }
+        // (The tab strip and the pane's header are above the terminal.)
+        let grid12 = main { view.renderer.grid(for: NSSize(width: min12.width, height: min12.height - Design.stripHeight - Design.headHeight)) }
         _ = shortcut("=", code: 0x18)
         _ = waitFor(3) { view.renderer.fontSize == 14 }
         let min13 = main { window.contentMinSize }
-        let grid13 = main { view.renderer.grid(for: NSSize(width: min13.width, height: min13.height - Design.stripHeight)) }
+        let grid13 = main { view.renderer.grid(for: NSSize(width: min13.width, height: min13.height - Design.stripHeight - Design.headHeight)) }
         _ = shortcut("0", code: 0x1D)
         _ = waitFor(3) { view.renderer.fontSize == 13 }
         check("window_min_size_40x10", grid12 == (40, 10) && grid13 == (40, 10) && min13.width > min12.width && min13.height > min12.height,
@@ -814,7 +814,7 @@ final class SelfTest {
     private func menuAndClear() {
         let e = mouse(.rightMouseDown, col: 5.5, row: 2.5)
         let titles = main { view.menu(for: e)?.items.map { $0.isSeparatorItem ? "-" : $0.title } ?? [] }
-        check("context_menu_items", titles == ["Copy", "Paste", "Select All", "-", "Copy Path", "Find…", "Clear", "-", "Split Right", "Split Down"], "\(titles)")
+        check("context_menu_items", titles == ["Copy", "Paste", "Select All", "-", "Copy Path", "Find…", "Clear", "-", "Split Right", "Split Down", "Move to Own Tab"], "\(titles)")
         _ = run(#"printf '\e[?1000h'"#, until: { _ in self.scr { $0.modes & Screen.modeMouse != 0 } })
         check("context_menu_none_with_mouse_reporting", main { view.menu(for: e) } == nil)
         _ = run(#"printf '\e[?1000l'"#, until: { _ in self.scr { $0.modes & Screen.modeMouse == 0 } })

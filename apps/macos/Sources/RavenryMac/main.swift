@@ -357,7 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "daemon": c.daemonVersion, "socket": c.socketPath,
                 "daemons": ws.daemons.all.map { ["version": $0.version, "socket": $0.socket, "draining": $0.draining] },
                 "tabs": ws.tabs.map { t in
-                    ["host": t.host, "guest": t.guest ?? "", "daemon": ws.daemon(of: t.host)?.version ?? "",
+                    ["host": t.host, "guest": t.guest ?? "", "panes": t.leaves, "daemon": ws.daemon(of: t.host)?.version ?? "",
                      "frames": ws.boxes[t.host]?.term.screen.frames ?? 0]
                 },
                 "front": ws.active?.host ?? "",
@@ -486,6 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                ("Select Pane Below", String(UnicodeScalar(NSDownArrowFunctionKey)!), 3)]
         for (t, k, tag) in arrows { add(shell, t, #selector(menuFocusPane(_:)), k, [.command, .option], target: self, tag: tag) }
         add(shell, "Zoom Pane", #selector(menuZoom(_:)), "\r", [.command, .shift], target: self)
+        add(shell, "Move Pane to Own Tab", #selector(menuOwnTab(_:)), "", target: self)
         add(shell, "Equalize Splits", #selector(menuEqualize(_:)), "=", [.command, .control], target: self)
         shell.addItem(.separator())
         add(shell, "Close", #selector(menuClose(_:)), "w", target: self)

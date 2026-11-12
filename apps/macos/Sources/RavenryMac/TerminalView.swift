@@ -1711,10 +1711,13 @@ final class TerminalView: NSView, NSTextInputClient {
     // MARK: the context menu and Clear
 
     /// The window's commands the menu offers (Workspace.box sets them): a
-    /// split beside this pane, whether its tab can split (one split per
-    /// tab), and the pane's folder (Copy Path).
+    /// split beside this pane, whether there is room for one that way, the
+    /// pane to a tab of its own (while its tab has others), and the pane's
+    /// folder (Copy Path).
     var onSplit: ((String) -> Void)?
-    var canSplit: () -> Bool = { false }
+    var canSplit: (String) -> Bool = { _ in false }
+    var onOwnTab: (() -> Void)?
+    var canOwnTab: () -> Bool = { false }
     var folderPath: () -> String? = { nil }
     /// pane.render failed (the pane is gone, the daemon did not answer): the workspace says so (TERM-070).
     var onRenderFailed: ((ConnectionError) -> Void)?
@@ -1724,7 +1727,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// Right click, when the program does not take the mouse (the Electron
     /// app's term:menu): Open Link and Copy Link over a link, Copy (only
     /// with a selection), Paste, Select All, Copy Path (the pane's folder),
-    /// Find, Clear, Split Right and Split Down (not in a split tab).
+    /// Find, Clear, Split Right and Split Down (where there is room), Move to Own Tab (in a split).
     override func menu(for event: NSEvent) -> NSMenu? {
         if mouseReporting { return nil }
         return contextMenu(at: event.locationInWindow)
@@ -1759,9 +1762,9 @@ final class TerminalView: NSView, NSTextInputClient {
         add(t("term.find")) { [weak self] in self?.showFindBar(nil) }
         add(t("term.clear")) { [weak self] in self?.clearScreen(nil) }
         m.addItem(.separator())
-        let split = canSplit() && onSplit != nil
-        add(t("term.splitRight"), split) { [weak self] in self?.onSplit?("right") }
-        add(t("term.splitDown"), split) { [weak self] in self?.onSplit?("down") }
+        add(t("term.splitRight"), onSplit != nil && canSplit("right")) { [weak self] in self?.onSplit?("right") }
+        add(t("term.splitDown"), onSplit != nil && canSplit("down")) { [weak self] in self?.onSplit?("down") }
+        add(t("term.ownTab"), onOwnTab != nil && canOwnTab()) { [weak self] in self?.onOwnTab?() }
         lastMenu = m
         return m
     }

@@ -273,6 +273,7 @@ extension AppDelegate {
         current?.board.tabCommand("pane \(dir)") { $0.focusToward(dir) }
     }
     @objc func menuZoom(_ sender: Any?) { current?.board.tabCommand("zoom") { $0.toggleZoom() } }
+    @objc func menuOwnTab(_ sender: Any?) { current?.board.tabCommand("own tab") { ws in ws.active.map { ws.moveToOwnTab($0.focusedPane) } } }
     @objc func menuEqualize(_ sender: Any?) { current?.board.tabCommand("equalize") { $0.equalize() } }
     @objc func menuNextTab(_ sender: Any?) { current?.board.stepTab(1) }
     @objc func menuPreviousTab(_ sender: Any?) { current?.board.stepTab(-1) }
@@ -301,6 +302,7 @@ extension AppDelegate {
             item.title = c?.board.panelVisible ?? false ? t("panel.hideMenu") : t("panel.showMenu")
             return c != nil
         case #selector(menuMoveTabToNewWindow(_:)): return (c?.ws.tabs.count ?? 0) > 1
+        case #selector(menuOwnTab(_:)): return (c?.ws.active?.count ?? 0) > 1
         case #selector(menuMergeAllWindows(_:)): return windows.filter { !$0.closing }.count > 1
         case #selector(menuNewWindow(_:)), #selector(menuSettings(_:)), #selector(menuLearn(_:)): return true
         case #selector(menuClose(_:)): return NSApp.keyWindow != nil || c != nil
@@ -326,7 +328,7 @@ extension AppDelegate {
             to = [maker.flatMap { m in live.first { $0.ws.paneInfo(m) != nil } } ?? current ?? live[0]]
         }
         for w in to {
-            if name == "pane.focus", w.ws.tabs.contains(where: { $0.host == id || $0.guest == id }) {
+            if name == "pane.focus", w.ws.tabs.contains(where: { $0.has(id) }) {
                 // ravenryd focus: that window in front, its terminal in front of any page.
                 w.board.toTerminal()
                 if !options.offscreen { w.window.makeKeyAndOrderFront(nil) }

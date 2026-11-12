@@ -13,6 +13,18 @@
 //           has the keyboard;
 //   active  the tab in front.
 //
+// And one key of this app's own, which the Electron app keeps as it is:
+//
+//   trees   {host, guest, tree, focus, zoom}: a tab split more than once
+//           (Rex's splits of splits), its whole tree: a pane "s:<pane>",
+//           a split {dir: right or down, size: the first part's percent,
+//           a, b}. Its one split (host and the first other pane) is in
+//           `splits` too, which is all the Electron app reads: it opens
+//           that split and the tree's other panes as tabs of their own
+//           (flattened, none lost). A tree is read back only while that
+//           split is still the one in `splits` with it: once the Electron
+//           app wrote its own, the file is its.
+//
 // So the two apps agree: which panes are tabs is the daemon's (the panes
 // labelled ravenry.kind: shell; here also its agents' own panes and any
 // running pane this file lists), and their order and splits are this
@@ -46,9 +58,19 @@ struct SavedSplit {
     var zoom: Bool
 }
 
+/// A tab split more than once: its tree (PaneNode.saved), with the one split written beside it.
+struct SavedTree {
+    var host: String
+    var guest: String
+    var tree: Any
+    var focus: String?
+    var zoom: Bool
+}
+
 struct SavedLayout {
     var order: [String] = []
     var splits: [SavedSplit] = []
+    var trees: [SavedTree] = []
     var active: String?
     /// The sessions pinned to the tabs (their keys), as the Electron app keeps them.
     var pinned: [String] = []
@@ -133,6 +155,10 @@ final class LayoutStore {
                                        size: (s["size"] as? NSNumber)?.doubleValue ?? 50,
                                        focus: (s["focus"] as? NSNumber)?.intValue ?? 0, zoom: s["zoom"] as? Bool ?? false))
         }
+        for s in all["trees"] as? [[String: Any]] ?? [] {
+            guard let h = s["host"] as? String, let g = s["guest"] as? String, let tr = s["tree"] else { continue }
+            l.trees.append(SavedTree(host: h, guest: g, tree: tr, focus: s["focus"] as? String, zoom: s["zoom"] as? Bool ?? false))
+        }
         return l
     }
 
@@ -140,9 +166,9 @@ final class LayoutStore {
 
     /// Writes this window's tabs (ids in the strip's order, guests after
     /// their tab), splits and tab in front, 200 ms after the last change.
-    func save(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]? = nil, lastCwd: String? = nil) {
+    func save(order ours: [String], splits: [SavedSplit], trees: [SavedTree] = [], active: String?, pinned: [String]? = nil, lastCwd: String? = nil) {
         timer?.cancel()
-        let w = DispatchWorkItem { [weak self] in self?.write(order: ours, splits: splits, active: active, pinned: pinned, lastCwd: lastCwd) }
+        let w = DispatchWorkItem { [weak self] in self?.write(order: ours, splits: splits, trees: trees, active: active, pinned: pinned, lastCwd: lastCwd) }
         timer = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: w)
     }
@@ -154,7 +180,7 @@ final class LayoutStore {
         t.cancel()
     }
 
-    private func write(order ours: [String], splits: [SavedSplit], active: String?, pinned: [String]?, lastCwd: String? = nil) {
+    private func write(order ours: [String], splits: [SavedSplit], trees: [SavedTree] = [], active: String?, pinned: [String]?, lastCwd: String? = nil) {
         timer = nil
         var all = readAll()
         let mine = Set(ours).union(dropped)
@@ -176,6 +202,13 @@ final class LayoutStore {
         for s in splits {
             outSplits.append(["host": s.host, "guest": s.guest, "side": s.side, "size": s.size, "focus": s.focus, "zoom": s.zoom])
         }
+        var outTrees = (all["trees"] as? [[String: Any]] ?? []).filter { s in !mine.contains(s["host"] as? String ?? "") }
+        for t in trees {
+            var e: [String: Any] = ["host": t.host, "guest": t.guest, "tree": t.tree, "zoom": t.zoom]
+            if let f = t.focus { e["focus"] = f }
+            outTrees.append(e)
+        }
+        if outTrees.isEmpty { all.removeValue(forKey: "trees") } else { all["trees"] = outTrees }
         all["order"] = order
         if let p = pinned { all["pinned"] = p }
         if let c = lastCwd, !c.isEmpty { all["lastCwd"] = c }
