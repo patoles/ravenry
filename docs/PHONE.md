@@ -574,13 +574,29 @@ first, signed out), the notification says why and keeps **Open**.
 | `needs-you` | high (heads-up, sound) | every alert |
 | `connection` | min, silent | while the app holds its connection: "Connected to MacBook Pro" (and the other machines it reaches) over how and what runs, "Wi-Fi. 2 working, 1 needs you.", "Tailscale. 1 needs you.", "Wi-Fi. Nothing running."; "Connecting to MacBook Pro" at first; "Can't reach MacBook Pro" over the Tailscale words or "Trying again." |
 
+**The alerts' ask.** Right after pairing, before the board, the app asks
+for its alerts on a screen of its own (`PairActivity`, the Alerts step):
+the mark, "Get an alert when a session needs you", why ("A question, a
+command to approve or a finished task reaches this phone at once, with
+buttons to answer it from the alert."), a sample alert, **Turn on
+alerts** (then Android's own dialog; whatever its answer, the board) and
+**Not now** (the board, no dialog; Android's Back is Not now), over "You
+can change it later in Settings." It shows once ever on a phone (a
+re-pair or a relaunch never shows it again), and not at all when Android
+already shows the alerts (Android 12 and older, or allowed already). The
+app never asks at its first open any more.
+
 **This phone's alerts in Settings.** In the app, the board's Settings
 section is this phone's own alerts only: "Alert this phone when a project
-needs me", On or "Off in Android settings" as Android has them (the app's
-notifications and its Needs you channel; the shell's `alerts.state`, read
-again each time the board comes back), and Change in Android (Turn on in
-Android when off), which opens Android's notification settings for the
-app (`alerts.settings`). The board's channels (Telegram, Discord or
+needs me", On with Change in Android, or, when Android blocks them
+(refused at the ask, or turned off in Android later), "Off: Android
+blocks Ravenry's alerts" in red with **Turn on**, which opens Android's
+notification settings for the app (`alerts.settings`), under it "Opens
+Android's notification settings for Ravenry." Whether Android shows them
+is the app's notifications and its Needs you channel: the shell's
+`alerts.state`, read again each time the board comes back, and the
+shell's `alerts` event each time the app comes to the front (back from
+Android's settings, the row turns On by itself). The board's channels (Telegram, Discord or
 Slack, ntfy) are not there: on the Mac and a browser board the section
 lists them as "Also send alerts to ...", under the line naming the phones
 that get alerts through the app ("Pixel 8 gets alerts through the
