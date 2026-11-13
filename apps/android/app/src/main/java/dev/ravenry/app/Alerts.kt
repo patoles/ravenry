@@ -44,33 +44,33 @@ data class Alert(
 
         private fun keysOf(a: org.json.JSONArray?): List<KeyPart> = (0 until (a?.length() ?: 0)).mapNotNull { i ->
             val p = a!!.optJSONObject(i) ?: return@mapNotNull null
-            val t = p.optString("text")
-            if (t.isEmpty()) null else KeyPart(p.optString("kind") == "key", t)
+            val t = p.str("text") ?: return@mapNotNull null
+            KeyPart(p.str("kind") == "key", t)
         }
 
         /** The message, or null when it is not one this app reads (another version, another type). */
         fun parse(text: String): Alert? {
             val o = runCatching { JSONObject(text) }.getOrNull() ?: return null
             if (o.optInt("v", 0) != VERSION) return null
-            val type = o.optString("type")
-            val id = o.optString("id").takeIf { it.isNotEmpty() } ?: return null
+            val type = o.str("type") ?: return null
+            val id = o.str("id") ?: return null
             if (type == "close") return Alert(type, id, "", "", "", null, null, null, null, null, null, emptyList(), null, text)
             if (type != "alert" && type != "test") return null
-            val kind = o.optString("kind", type)
+            val kind = o.str("kind", type)
             val project = o.optJSONObject("project")
             val session = o.optJSONObject("session")
             val cp = o.optJSONObject("checkpoint")
             val list = o.optJSONArray("actions")
             var actions = (0 until (list?.length() ?: 0)).mapNotNull { i ->
                 val a = list!!.optJSONObject(i) ?: return@mapNotNull null
-                val aid = a.optString("id"); val label = a.optString("label")
-                if (aid.isEmpty() || label.isEmpty()) null else AlertAction(aid, label, a.optString("text").takeIf { it.isNotEmpty() }, a.optBoolean("biometric", false))
+                val aid = a.str("id"); val label = a.str("label")
+                if (aid == null || label == null) null else AlertAction(aid, label, a.str("text"), a.optBoolean("biometric", false))
             }
             val vlist = cp?.optJSONArray("variants")
             val variants = (0 until (vlist?.length() ?: 0)).mapNotNull { i ->
                 val v = vlist!!.optJSONObject(i) ?: return@mapNotNull null
-                val url = v.optString("url")
-                if (!url.startsWith("/api/")) null else AlertVariant(v.optString("label"), v.optString("type", "image"), url)
+                val url = v.str("url") ?: return@mapNotNull null
+                if (!url.startsWith("/api/")) null else AlertVariant(v.str("label", ""), v.str("type", "image"), url)
             }
             // A pick in the shade shows its pictures side by side, small:
             // Compare opens the swipe screen, where a part can be circled and
@@ -79,13 +79,13 @@ data class Alert(
             if (kind == "pick") actions = listOf(AlertAction("open", "Compare"), AlertAction("later", "Not now"))
             // Allowing an agent to type into a pane is as strong as running a
             // command there: a fingerprint first, whatever the message says.
-            var title = o.optString("title")
-            var body = o.optString("body")
-            var detail = o.optString("detail").takeIf { it.isNotEmpty() }
+            var title = o.str("title", "")
+            var body = o.str("body", "")
+            var detail = o.str("detail")
             if (kind == "drive") {
                 val dj = cp?.optJSONObject("drive")
-                fun f(k: String) = dj?.optString(k)?.takeIf { it.isNotEmpty() && it != "null" }
-                val d = Drive.of(f("action"), title, body, f("name"), f("session"), f("reason"), session?.optString("assistant")?.takeIf { it.isNotEmpty() && it != "null" })
+                fun f(k: String) = dj.str(k)
+                val d = Drive.of(f("action"), title, body, f("name"), project.str("name") ?: f("session"), f("reason"), session.str("assistant"))
                 title = d.title; body = d.body
                 if (d.says != null) detail = d.says
                 actions = actions.mapNotNull { act ->
@@ -101,7 +101,7 @@ data class Alert(
             val r = o.optJSONObject("reply")
             // A secret is never typed into a notification, whatever the message says.
             val reply = if (r == null || kind == "secret" || kind !in KNOWN) null
-                else AlertReply(r.optString("action", "send"), r.optString("label", "Reply"), r.optString("hint").takeIf { it.isNotEmpty() })
+                else AlertReply(r.str("action", "send"), r.str("label", "Reply"), r.str("hint"))
             // Android shows at most three buttons, the reply line counting as one.
             val room = if (reply != null) 2 else 3
             if (actions.size > room) {
@@ -110,12 +110,12 @@ data class Alert(
             }
             return Alert(
                 type, id, kind, title, body, detail,
-                project?.optString("id")?.takeIf { it.isNotEmpty() }, project?.optString("name")?.takeIf { it.isNotEmpty() },
-                o.optString("machine").takeIf { it.isNotEmpty() && it != "null" },
-                session?.optString("surfaceId")?.takeIf { it.isNotEmpty() },
-                cp?.optString("id")?.takeIf { it.isNotEmpty() },
+                project.str("id"), project.str("name"),
+                o.str("machine"),
+                session.str("surfaceId"),
+                cp.str("id"),
                 actions, reply, text, variants,
-                o.optJSONObject("decision")?.optString("id")?.takeIf { it.isNotEmpty() },
+                o.optJSONObject("decision").str("id"),
                 keysOf(cp?.optJSONObject("drive")?.optJSONArray("keys")),
             )
         }
@@ -125,7 +125,8 @@ data class Alert(
 /**
  * A drive in the shade says who wants to do what (`checkpoint.drive.action`:
  * input, close, restart, override) to which pane, by the names the board
- * shows, never a pane id: "Tilting the hull wants to close dev server",
+ * shows, never a pane id, and the asker by its project, never its
+ * session's name: "paper-boat wants to close dev server",
  * with Let it close and Refuse; typing keeps Allow once and This session.
  * A hub that sends `checkpoint.drive.name` writes the title, body and
  * detail that way itself (docs/PHONE.md section 5); for an older one the
@@ -207,6 +208,33 @@ object Actions {
                 else ActionCall.Post("/api/send", "{\"projectId\":${q(a.projectId)},\"surfaceId\":${q(a.surfaceId)},\"choice\":$n}")
             }
             else -> null
+        }
+    }
+}
+
+/**
+ * What still waits for the person in a state snapshot (the board's
+ * `projects` and open `checkpoints`), to tell whether an alert in the shade
+ * is still worth showing (Notifier.sweep).
+ */
+class Waiting private constructor(private val open: Set<String>, private val projects: Map<String, org.json.JSONObject>) {
+    /** Whether the alert's question still waits. Alerts of other kinds (a test, a saved decision) say yes: they end on their own. */
+    fun still(a: Alert): Boolean = when {
+        a.id.startsWith("cp:") -> a.checkpointId != null && a.checkpointId in open
+        a.id.startsWith("s:") -> projects[a.projectId]?.let { p -> p.str("state") == "you" && p.str("primary") == a.surfaceId } ?: false
+        a.id.startsWith("gate:") -> projects[a.projectId]?.let { p -> p.str("state") == "you" && p.optJSONObject("planGate") != null } ?: false
+        else -> true
+    }
+
+    companion object {
+        /** Null when the snapshot has no projects (not a whole one). */
+        fun of(o: org.json.JSONObject): Waiting? {
+            val ps = o.optJSONArray("projects") ?: return null
+            val open = hashSetOf<String>()
+            o.optJSONArray("checkpoints")?.let { cps -> for (i in 0 until cps.length()) { val c = cps.optJSONObject(i) ?: continue; if (c.str("state") == "open") c.str("id")?.let { open += it } } }
+            val byId = HashMap<String, org.json.JSONObject>()
+            for (i in 0 until ps.length()) { val p = ps.optJSONObject(i) ?: continue; p.str("id")?.let { byId[it] = p } }
+            return Waiting(open, byId)
         }
     }
 }

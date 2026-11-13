@@ -5,9 +5,6 @@
   <string name="channel_needs_you_about">A session asks, wants to run a command or needs a secret</string>
   <string name="channel_connection">Connection</string>
   <string name="channel_connection_about">What the phone is linked to, quietly</string>
-  <string name="connected">connected</string>
-  <string name="linking">Linking to %1$s.</string>
-  <string name="not_linked">Can\'t reach %1$s right now. Trying again.</string>
   <string name="open">Open</string>
   <string name="run">Run</string>
   <string name="cancel">Cancel</string>

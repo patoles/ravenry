@@ -89,6 +89,8 @@ object Notifier {
         // A group of its own, so Android never folds several alerts into
         // one line: each keeps its buttons in the shade.
         .setGroup(a.id)
+        // The message itself, so a later snapshot can tell whether it still waits (sweep).
+        .addExtras(android.os.Bundle().apply { putString(EXTRA_ALERT, a.raw) })
 
     /**
      * What a drive would type, its keys drawn as keys: each one bold on a
@@ -170,21 +172,47 @@ object Notifier {
         try { NotificationManagerCompat.from(context).notify(id, ALERT_ID, n) } catch (_: SecurityException) { }
     }
 
-    fun connection(context: Context, text: String): Notification = NotificationCompat.Builder(context, CONNECTION)
+    fun connection(context: Context, line: ConnectionService.Line): Notification = NotificationCompat.Builder(context, CONNECTION)
         .setSmallIcon(R.drawable.ic_perch)
         .setColor(0xFF30D158.toInt())
-        .setContentTitle(context.getString(R.string.connected))
-        .setContentText(text)
+        .setContentTitle(line.title)
+        .setContentText(line.body)
         .setGroup("connection")
-        .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        .apply { if (line.body != null) setStyle(NotificationCompat.BigTextStyle().bigText(line.body)) }
         .setOngoing(true)
         .setSilent(true)
         .setPriority(NotificationCompat.PRIORITY_MIN)
         .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), flags()))
         .build()
 
-    fun updateConnection(context: Context, text: String) {
+    fun updateConnection(context: Context, line: ConnectionService.Line) {
         val nm = context.getSystemService(NotificationManager::class.java)
-        try { nm.notify(CONNECTION_ID, connection(context, text)) } catch (_: SecurityException) { }
+        try { nm.notify(CONNECTION_ID, connection(context, line)) } catch (_: SecurityException) { }
     }
+
+    /**
+     * Takes off every alert whose question no longer waits, from a state
+     * snapshot (the live stream's `state`): a checkpoint that is no longer
+     * open, a session that left Needs you or is not the one that waits, a
+     * plan gate passed. The hub sends a close for each, but a close is lost
+     * when the phone heard nothing at that moment (asleep with no push
+     * distributor) or the hub restarted in between; the next snapshot puts
+     * it right. An alert posted in the last few seconds, or just answered
+     * from the shade, is left alone.
+     */
+    fun sweep(context: Context, json: String) {
+        val o = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return
+        val shown = runCatching { context.getSystemService(NotificationManager::class.java).activeNotifications.filter { it.id == ALERT_ID && it.tag != null } }.getOrNull() ?: return
+        if (shown.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val waits = Waiting.of(o) ?: return
+        for (n in shown) {
+            if (now - n.postTime < SWEEP_GRACE_MS) continue
+            val x = answered[n.tag]
+            if (x != null && android.os.SystemClock.elapsedRealtime() - x.at < ANSWER_HOLD_MS) continue
+            val a = n.notification.extras.getString(EXTRA_ALERT)?.let { Alert.parse(it) } ?: continue
+            if (!waits.still(a)) cancel(context, n.tag)
+        }
+    }
+    private const val SWEEP_GRACE_MS = 10_000L
 }

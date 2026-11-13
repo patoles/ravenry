@@ -141,11 +141,66 @@ class AlertsTest {
         assertEquals("""{"id":"dk4x34fg"}""", c.json)
     }
 
-    @Test fun theConnectionLineCountsSessions() {
+    @Test fun theConnectionLineSaysTheMacHowAndTheSessions() {
         val s = """{"projects":[{"machine":null,"sessions":[{"state":"working"},{"state":"dialog"}]},{"machine":"devbox","sessions":[{"state":"idle","words":{"state":"work"}},{"state":"asked"},{"state":"idle"}]}]}"""
-        assertEquals("Linked to Studio Mac and devbox. 2 sessions working, 2 need you.", ConnectionService.status("Studio Mac", s))
+        val c = ConnectionService.counts(s)!!
+        assertEquals(ConnectionService.Line("Connected to MacBook Pro and devbox", "Wi-Fi. 2 working, 2 need you."), ConnectionService.up("MacBook Pro", "wifi", c))
         // A working session whose agent waits on an open checkpoint needs you.
         val cp = """{"projects":[{"sessions":[{"surfaceId":"ravenry:pa","state":"working"},{"surfaceId":"ravenry:pb","state":"working"}]}],"checkpoints":[{"state":"open","surfaceId":"ravenry:pa"},{"state":"answered","surfaceId":"ravenry:pb"}]}"""
-        assertEquals("Linked to Studio Mac. 1 session working, 1 need you.", ConnectionService.status("Studio Mac", cp))
+        assertEquals(ConnectionService.Line("Connected to MacBook Pro", "Tailscale. 1 working, 1 needs you."), ConnectionService.up("MacBook Pro", "tailscale-mac", ConnectionService.counts(cp)))
+        val none = ConnectionService.counts("""{"projects":[{"machine":null,"sessions":[{"state":"idle","machine":null,"surfaceId":null}]}],"checkpoints":[{"state":"open","surfaceId":null}]}""")
+        assertEquals(ConnectionService.Line("Connected to MacBook Pro", "Wi-Fi. Nothing running."), ConnectionService.up("MacBook Pro", "wifi", none))
+        assertEquals("1 needs you.", ConnectionService.sessions(0, 1))
+        assertEquals("2 working.", ConnectionService.sessions(2, 0))
+        assertEquals(ConnectionService.Line("Can't reach MacBook Pro", "Trying again."), ConnectionService.down("MacBook Pro", null))
+        assertEquals(ConnectionService.Line("Connecting to MacBook Pro", null), ConnectionService.connecting("MacBook Pro"))
+    }
+
+    @Test fun theMacIsNamedAsAPersonNamesItNeverByItsHostName() {
+        assertEquals("MacBook Pro", MacName.say("owners-macbook-pro-1"))
+        assertEquals("MacBook Pro", MacName.say("Owners-MacBook-Pro.local"))
+        assertEquals("MacBook Air", MacName.say("annes-macbook-air"))
+        assertEquals("Mac mini", MacName.say("mac-mini-2"))
+        assertEquals("iMac", MacName.say("office-imac"))
+        assertEquals("MacBook Pro", MacName.say("MacBook Pro"))
+        assertEquals("Test hub", MacName.say("Test hub"))
+        assertEquals("studio", MacName.say("studio"))
+        assertEquals("your Mac", MacName.say(null))
+    }
+
+    @Test fun aJsonNullIsNeverTheWordNull() {
+        // org.json on Android reads a JSON null through optString as "null";
+        // every optional field goes through str() instead.
+        val handback = """{"v":1,"type":"alert","id":"s:ravenry:ravenry:p7x4eol5:t","kind":"handback","title":"Ravenry needs you","body":"Three things are still untested.","detail":null,"project":{"id":"ravenry","name":"Ravenry"},"machine":null,"session":{"surfaceId":"ravenry:p7x4eol5","topic":null,"assistant":null},"checkpoint":null,"actions":[{"id":"open","label":"Open"}],"reply":{"action":"send","label":"Reply","hint":null}}"""
+        val a = Alert.parse(handback)!!
+        assertNull(a.detail)
+        assertNull(a.machine)
+        assertNull(a.checkpointId)
+        assertNull(a.reply!!.hint)
+        assertEquals("Three things are still untested.", a.body)
+        val o = org.json.JSONObject("""{"a":null,"b":"null","c":"","d":"x","e":3}""")
+        assertNull(o.str("a")); assertNull(o.str("b")); assertNull(o.str("c")); assertNull(o.str("missing"))
+        assertEquals("x", o.str("d")); assertEquals("3", o.str("e")); assertEquals("fb", o.str("a", "fb"))
+        val nulls = Alert.parse("""{"v":1,"type":"alert","id":"cp:c1","kind":"ask","title":null,"body":null,"detail":"null","project":{"id":null,"name":null},"checkpoint":{"id":"c1","kind":"ask"},"actions":[{"id":"choice:0","label":null},{"id":"open","label":"Open"}]}""")!!
+        assertEquals("", nulls.title); assertEquals("", nulls.body); assertNull(nulls.detail); assertNull(nulls.projectId); assertNull(nulls.projectName)
+        assertEquals(listOf("open"), nulls.actions.map { it.id })
+    }
+
+    @Test fun aSnapshotSaysWhichAlertsStillWait() {
+        val snap = org.json.JSONObject("""{"projects":[{"id":"ravenry","state":"work","primary":"ravenry:pa"},{"id":"boat","state":"you","primary":"ravenry:pb","planGate":null},{"id":"plan","state":"you","primary":"ravenry:pc","planGate":{"n":2}}],"checkpoints":[{"id":"c1","state":"open"},{"id":"c2","state":"running"}]}""")
+        val w = Waiting.of(snap)!!
+        fun alert(id: String, project: String?, surface: String?, cp: String? = null) = Alert.parse("""{"v":1,"type":"alert","id":"$id","kind":"handback","title":"t","body":"b","project":${if (project == null) "null" else "{\"id\":\"$project\",\"name\":\"$project\"}"},"session":${if (surface == null) "null" else "{\"surfaceId\":\"$surface\"}"},"checkpoint":${if (cp == null) "null" else "{\"id\":\"$cp\"}"},"actions":[]}""")!!
+        // The session went back to working (answered): its alert goes.
+        assertEquals(false, w.still(alert("s:ravenry:ravenry:pa:t", "ravenry", "ravenry:pa")))
+        assertEquals(true, w.still(alert("s:boat:ravenry:pb:t", "boat", "ravenry:pb")))
+        // Still Needs you, but another session is the one that waits.
+        assertEquals(false, w.still(alert("s:boat:ravenry:px:t", "boat", "ravenry:px")))
+        assertEquals(true, w.still(alert("cp:c1", null, null, "c1")))
+        assertEquals(false, w.still(alert("cp:c2", null, null, "c2")))
+        assertEquals(false, w.still(alert("cp:c3", null, null, "c3")))
+        assertEquals(true, w.still(alert("gate:abc", "plan", null)))
+        assertEquals(false, w.still(alert("gate:abc", "boat", null)))
+        assertEquals(true, w.still(alert("dec:d1", null, null)))
+        assertNull(Waiting.of(org.json.JSONObject("""{"checkpoints":[]}""")))
     }
 }

@@ -314,7 +314,7 @@ class MainActivity : FragmentActivity() {
         out = proxy
         val o = runCatching { JSONObject(message.data ?: "") }.getOrNull() ?: return
         val id = o.optInt("id", -1)
-        val op = o.optString("op")
+        val op = o.str("op", "")
         if (o.optInt("v", 1) != 1) { reply(id, false, error = "This app speaks bridge version 1."); return }
         try {
             handle(id, op, o)
@@ -330,7 +330,7 @@ class MainActivity : FragmentActivity() {
             "hello" -> {
                 val p = Store.get(this).paired()
                 val r = JSONObject().put("v", 1).put("platform", "android").put("app", BuildConfig.VERSION_NAME)
-                    .put("hub", JSONObject().put("name", p?.hubName).put("port", p?.port))
+                    .put("hub", JSONObject().put("name", p?.hubName?.let(MacName::say)).put("port", p?.port))
                     .put("device", JSONObject().put("id", p?.deviceId).put("name", p?.deviceName))
                     .put("features", JSONArray(features()))
                     .put("pending", pending?.let { parse(it) } ?: JSONObject.NULL)
@@ -341,13 +341,13 @@ class MainActivity : FragmentActivity() {
             // A request of the board's page (src/board.ts's fetch): any
             // method, its body and headers as they are, the answer's bytes.
             "http" -> {
-                val method = o.optString("method", "GET").uppercase()
-                val path = o.optString("path")
+                val method = o.str("method", "GET").uppercase()
+                val path = o.str("path", "")
                 if (!path.startsWith("/")) { reply(id, false, error = "A path starts with /."); return }
-                val bytes = o.optString("b64").takeIf { it.isNotEmpty() && it != "null" }?.let { Base64.getDecoder().decode(it) }
+                val bytes = o.str("b64")?.let { Base64.getDecoder().decode(it) }
                 val hs = o.optJSONObject("headers")
                 val headers = mutableMapOf<String, String>()
-                hs?.keys()?.forEach { k -> if (k.lowercase() in PASS_HEADERS) headers[k] = hs.optString(k) }
+                hs?.keys()?.forEach { k -> if (k.lowercase() in PASS_HEADERS) hs.str(k)?.let { headers[k] = it } }
                 Hub.io.execute {
                     try {
                         val type = headers.entries.firstOrNull { it.key.equals("content-type", true) }?.value
@@ -366,7 +366,7 @@ class MainActivity : FragmentActivity() {
             // The board's background and theme for the system bars (src/board.ts).
             "bars" -> {
                 val light = o.optBoolean("light", false)
-                val c = Regex("""rgba?\((\d+),\s*(\d+),\s*(\d+)""").find(o.optString("color"))?.groupValues
+                val c = Regex("""rgba?\((\d+),\s*(\d+),\s*(\d+)""").find(o.str("color", ""))?.groupValues
                 main.post {
                     if (c != null) box.setBackgroundColor(android.graphics.Color.rgb(c[1].toInt(), c[2].toInt(), c[3].toInt()))
                     WindowCompat.getInsetsController(window, box).isAppearanceLightStatusBars = light
@@ -376,8 +376,8 @@ class MainActivity : FragmentActivity() {
             }
             "open.tailscale" -> { Reach.openTailscale(this); reply(id, true) }
             "hub.call" -> {
-                val method = o.optString("method", "GET")
-                val path = o.optString("path")
+                val method = o.str("method", "GET")
+                val path = o.str("path", "")
                 if (!path.startsWith("/")) { reply(id, false, error = "A path starts with /."); return }
                 val b = o.opt("body")
                 val json = when (b) { null, JSONObject.NULL -> null; is String -> b; else -> b.toString() }
@@ -400,8 +400,8 @@ class MainActivity : FragmentActivity() {
             "ink.ready" -> { ink?.ready(o); reply(id, true) }
             "socket.open" -> {
                 val sid = nextSid.getAndIncrement()
-                val path = o.optString("path")
-                val proto = o.optString("protocol").takeIf { it.isNotEmpty() }
+                val path = o.str("path", "")
+                val proto = o.str("protocol")
                 Hub.io.execute {
                     try {
                         val ws = hub().socket(path, proto, object : WebSocketListener() {
@@ -421,15 +421,15 @@ class MainActivity : FragmentActivity() {
             }
             "socket.send" -> {
                 val ws = sockets[o.optInt("sid")] ?: run { reply(id, false, error = "That connection is closed."); return }
-                val ok = if (o.has("b64")) ws.send(Base64.getDecoder().decode(o.getString("b64")).toByteString()) else ws.send(o.optString("text"))
+                val ok = if (o.has("b64")) ws.send(Base64.getDecoder().decode(o.getString("b64")).toByteString()) else ws.send(o.str("text", ""))
                 if (ok) reply(id, true) else reply(id, false, error = "That connection is closed.")
             }
             "socket.close" -> { sockets.remove(o.optInt("sid"))?.close(1000, null); reply(id, true) }
-            "biometric" -> Biometrics.ask(this, o.optString("title", getString(R.string.run)), o.optString("subtitle").takeIf { it.isNotEmpty() }) { ok, err ->
+            "biometric" -> Biometrics.ask(this, o.str("title", getString(R.string.run)), o.str("subtitle")) { ok, err ->
                 if (ok) reply(id, true, JSONObject().put("ok", true)) else reply(id, false, error = err ?: "Not confirmed.")
             }
             "photo" -> {
-                val project = o.optString("projectId").takeIf { it.isNotEmpty() } ?: run { reply(id, false, error = "Which session's project?"); return }
+                val project = o.str("projectId") ?: run { reply(id, false, error = "Which session's project?"); return }
                 needPermission(Manifest.permission.CAMERA, {
                     val dir = File(cacheDir, "shots").apply { mkdirs() }
                     val f = File(dir, "photo-${stamp()}.jpg")
@@ -441,7 +441,7 @@ class MainActivity : FragmentActivity() {
                 try { startVoice(); reply(id, true) } catch (e: Exception) { reply(id, false, error = "The microphone did not start.") }
             }, { reply(id, false, error = "The microphone is off for Ravenry. Allow it in Settings.") })
             "voice.stop" -> {
-                val project = o.optString("projectId").takeIf { it.isNotEmpty() }
+                val project = o.str("projectId")
                 val r = recorder ?: run { reply(id, false, error = "Nothing is recording."); return }
                 val ms = System.currentTimeMillis() - voiceAt
                 runCatching { r.stop() }; r.release(); recorder = null
@@ -455,7 +455,7 @@ class MainActivity : FragmentActivity() {
                 reply(id, true)
             }
             "secret.open" -> {
-                val cp = o.optString("checkpoint").takeIf { it.isNotEmpty() } ?: run { reply(id, false, error = "Which checkpoint?"); return }
+                val cp = o.str("checkpoint") ?: run { reply(id, false, error = "Which checkpoint?"); return }
                 secret.open(cp, rect(o), o.optBoolean("dark", isNight()), o.optDouble("size", 16.0).toFloat())
                 if (!BuildConfig.DEBUG) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                 reply(id, true)
@@ -473,7 +473,7 @@ class MainActivity : FragmentActivity() {
                 speechReply = id
                 speech.launch(i)
             }
-            "alerts.clear" -> { Notifier.cancel(this, o.optString("id")); reply(id, true) }
+            "alerts.clear" -> { o.str("id")?.let { Notifier.cancel(this, it) }; reply(id, true) }
             "pair.reset" -> {
                 // The screen changes on the tap; the computer is told in the
                 // background, now and later until it answers (Revokes).
@@ -536,7 +536,7 @@ class MainActivity : FragmentActivity() {
             val r = runCatching { hub().call("POST", "/api/checkpoints/answer", body) }
             val ok = r.getOrNull()?.status == 200
             val err = if (ok) null else r.exceptionOrNull()?.let { unreachable(it) }
-                ?: runCatching { JSONObject(r.getOrThrow().text).optString("error") }.getOrNull()?.takeIf { it.isNotEmpty() } ?: "It was not sent."
+                ?: runCatching { JSONObject(r.getOrThrow().text).str("error") }.getOrNull() ?: "It was not sent."
             main.post {
                 if (ok) closeSecret()
                 if (id != null) { if (ok) reply(id, true, JSONObject().put("ok", true)) else reply(id, false, error = err) }
@@ -575,8 +575,8 @@ class MainActivity : FragmentActivity() {
             val r = hub().upload("/api/inbox/" + Uri.encode(project), f.readBytes(), f.name, type)
             f.delete()
             val b = runCatching { JSONObject(r.text) }.getOrNull() ?: JSONObject()
-            if (r.status != 200) { reply(id, false, error = b.optString("error").ifEmpty { "It was not sent." }); return }
-            val res = JSONObject().put("path", b.optString("path")).put("short", b.optString("short")).put("name", f.name)
+            if (r.status != 200) { reply(id, false, error = b.str("error") ?: "It was not sent."); return }
+            val res = JSONObject().put("path", b.str("path") ?: JSONObject.NULL).put("short", b.str("short") ?: JSONObject.NULL).put("name", f.name)
             if (ms != null) res.put("ms", ms)
             if (thumb != null) res.put("thumb", thumb)
             reply(id, true, res)
@@ -704,9 +704,9 @@ class MainActivity : FragmentActivity() {
         fun json(): JSONObject {
             val r = lastReach
             return JSONObject().put("state", state).put("via", via).put("since", since ?: JSONObject.NULL).put("rtt", rtt ?: JSONObject.NULL)
-                .put("reason", if (state == "offline") r?.optString("reason") ?: JSONObject.NULL else JSONObject.NULL)
-                .put("words", if (state == "offline") r?.optString("words") ?: JSONObject.NULL else JSONObject.NULL)
-                .put("mac", Store.get(this@MainActivity).paired()?.hubName ?: JSONObject.NULL)
+                .put("reason", if (state == "offline") r.str("reason") ?: JSONObject.NULL else JSONObject.NULL)
+                .put("words", if (state == "offline") r.str("words") ?: JSONObject.NULL else JSONObject.NULL)
+                .put("mac", Store.get(this@MainActivity).paired()?.hubName?.let(MacName::say) ?: JSONObject.NULL)
         }
 
         private fun emit() = event(json().put("event", "conn"))
@@ -770,7 +770,7 @@ class MainActivity : FragmentActivity() {
                         if (fails >= 3 && c != null) {
                             reachOf(c.allHosts, e)
                             set("offline")
-                            lastReach?.let { rr -> event(JSONObject(rr.toString()).put("event", "reach")); ink?.unreached(rr.optString("words")) }
+                            lastReach?.let { rr -> event(JSONObject(rr.toString()).put("event", "reach")); ink?.unreached(rr.str("words", "")) }
                         } else if (state != "offline") set("reconnecting")
                         schedule(3000)
                     })

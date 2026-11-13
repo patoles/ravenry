@@ -112,7 +112,7 @@ object DebugNet {
         val app = context.applicationContext
         return object : okhttp3.Dns {
             override fun lookup(hostname: String): List<java.net.InetAddress> {
-                val ip = read(app)?.optJSONObject("dns")?.optString(hostname)?.takeIf { it.isNotEmpty() }
+                val ip = read(app)?.optJSONObject("dns").str(hostname)
                 return if (ip != null) listOf(java.net.InetAddress.getByName(ip)) else okhttp3.Dns.SYSTEM.lookup(hostname)
             }
         }

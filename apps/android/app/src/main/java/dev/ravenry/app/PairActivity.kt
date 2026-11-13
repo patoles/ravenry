@@ -155,7 +155,7 @@ class PairActivity : ComponentActivity() {
                     step.value = Step.Typing(link.hosts.first(), link.code, w.words)
                 }
                 else {
-                    val name = r.getOrNull()?.let { runCatching { JSONObject(it.text).optString("name") }.getOrNull() }?.takeIf { it.isNotEmpty() }
+                    val name = r.getOrNull()?.let { runCatching { JSONObject(it.text).str("name") }.getOrNull() }
                     step.value = Step.Check(link.copy(name = name ?: link.name), pin)
                 }
             }
@@ -176,8 +176,8 @@ class PairActivity : ComponentActivity() {
             val why = if (r.isFailure) Reach.why(this, link.hosts, r.exceptionOrNull()) else null
             val err = when {
                 why != null -> why.words
-                r.getOrNull()?.status != 200 || o == null -> o?.optString("error")?.takeIf { it.isNotEmpty() } ?: "The Mac did not pair (${r.getOrNull()?.status})."
-                o.optJSONObject("hub")?.optString("pin").let { it != null && it.isNotEmpty() && it != pin } -> "The Mac answered with another key. Not paired."
+                r.getOrNull()?.status != 200 || o == null -> o.str("error") ?: "The Mac did not pair (${r.getOrNull()?.status})."
+                o.optJSONObject("hub").str("pin").let { it != null && it != pin } -> "The Mac answered with another key. Not paired."
                 else -> null
             }
             if (err != null) {
@@ -188,8 +188,8 @@ class PairActivity : ComponentActivity() {
             val dev = o.optJSONObject("device") ?: JSONObject()
             val hosts = (listOf(c.host) + link.hosts).distinct()
             Store.get(this).save(Paired(
-                hubName = hub.optString("name").ifEmpty { link.name }, hosts = hosts, port = hub.optInt("port", link.port), pin = pin,
-                token = o.getString("token"), deviceId = dev.optString("id"), deviceName = dev.optString("name").ifEmpty { DeviceName.of(this@PairActivity) }, lastHost = c.host,
+                hubName = hub.str("name") ?: link.name, hosts = hosts, port = hub.optInt("port", link.port), pin = pin,
+                token = o.getString("token"), deviceId = dev.str("id", ""), deviceName = dev.str("name") ?: DeviceName.of(this@PairActivity), lastHost = c.host,
             ))
             Hub.reset()
             runOnUiThread {
@@ -375,7 +375,7 @@ class PairActivity : ComponentActivity() {
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colorResource(R.color.card)).padding(vertical = 26.dp), contentAlignment = Alignment.Center) {
             Text(Pins.checkNumber(s.pin), color = colorResource(R.color.tx), fontSize = 30.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold)
         }
-        Text(s.link.name + ", " + s.link.hosts.first(), color = colorResource(R.color.tx2), fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp, bottom = 24.dp))
+        Text(MacName.say(s.link.name) + ", " + s.link.hosts.first(), color = colorResource(R.color.tx2), fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp, bottom = 24.dp))
         Big(stringResource(R.string.pair_match)) { pair(s.link, s.pin) }
         Quiet(stringResource(R.string.pair_back)) { step.value = Step.Typing(s.link.hosts.first(), s.link.code) }
     }
@@ -383,7 +383,7 @@ class PairActivity : ComponentActivity() {
     @Composable
     private fun ConfirmStep(s: Step.Confirm) {
         // The computer by its name only: its addresses mean nothing to a person.
-        Title(stringResource(R.string.pair_confirm, s.link.name), stringResource(R.string.pair_confirm_sub))
+        Title(stringResource(R.string.pair_confirm, MacName.say(s.link.name)), stringResource(R.string.pair_confirm_sub))
         Big(stringResource(R.string.pair_button)) { pair(s.link, s.link.pin!!) }
         Quiet(stringResource(R.string.pair_back)) { step.value = Step.Scan }
     }

@@ -34,7 +34,7 @@ class ActionReceiver : BroadcastReceiver() {
                 ok && call.path == "/api/decisions/undo" -> context.getString(R.string.undone)
                 ok -> context.getString(R.string.sent, label)
                 r.isFailure -> context.getString(R.string.not_sent_why, Reach.why(context, hub.allHosts, r.exceptionOrNull()).words)
-                else -> runCatching { JSONObject(r.getOrThrow().text).optString("error") }.getOrNull()?.takeIf { it.isNotEmpty() }
+                else -> runCatching { JSONObject(r.getOrThrow().text).str("error") }.getOrNull()
                     ?: context.getString(R.string.not_taken)
             }
             Notifier.after(context, a, ok, said)

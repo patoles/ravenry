@@ -34,7 +34,7 @@ data class Paired(
             List(o.getJSONArray("hosts").length()) { o.getJSONArray("hosts").getString(it) },
             o.getInt("port"), o.getString("pin"), o.getString("token"),
             o.getString("deviceId"), o.getString("deviceName"),
-            o.optString("lastHost").takeIf { it.isNotEmpty() && it != "null" },
+            o.str("lastHost"),
         )
     }
 }
