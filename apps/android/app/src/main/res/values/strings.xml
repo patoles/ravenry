@@ -38,6 +38,14 @@
   <string name="pair_button">Pair</string>
   <string name="pair_back">Back</string>
   <string name="pairing">Pairing…</string>
+  <!-- The alerts screen, once, right after pairing (PairActivity, docs/PHONE.md). -->
+  <string name="alerts_title">Get an alert when a session needs you</string>
+  <string name="alerts_sub">A question, a command to approve or a finished task reaches this phone at once, with buttons to answer it from the alert.</string>
+  <string name="alerts_sample_title">paper-boat needs you</string>
+  <string name="alerts_sample_text">The hull now follows the wave height.</string>
+  <string name="alerts_on">Turn on alerts</string>
+  <string name="alerts_not_now">Not now</string>
+  <string name="alerts_later">You can change it later in Settings.</string>
   <plurals name="pictures">
     <item quantity="one">%1$d picture.</item>
     <item quantity="other">%1$d pictures.</item>

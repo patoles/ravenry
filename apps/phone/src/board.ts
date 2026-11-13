@@ -281,6 +281,8 @@ function start(sh: Shell): void {
   paintBars();
   readAlerts(sh);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') readAlerts(sh); });
+  // The app back in front (from Android's notification settings too) says it itself.
+  sh.on('alerts', (m) => { if (window.ravenryApp && typeof m.on === 'boolean') { window.ravenryApp.alerts = { on: m.on }; window.dispatchEvent(new CustomEvent('ravenry:alerts')); } });
   // The connection, for the board's chip.
   const mac = sh.hello.hub && sh.hello.hub.name ? sh.hello.hub.name : null;
   sh.on('conn', (m) => setConn(m as unknown as Conn, mac));

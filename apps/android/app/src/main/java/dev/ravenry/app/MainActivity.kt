@@ -248,10 +248,8 @@ class MainActivity : FragmentActivity() {
         // activity: the page comes back on the screen it was on.
         val was = savedInstanceState?.getString(STATE_URL)?.takeIf { it.startsWith("$ORIGIN/") && pending == null }
         web.loadUrl(was ?: "$ORIGIN/")
-        if (Build.VERSION.SDK_INT >= 33 && !Store.get(this).notificationsAsked) {
-            Store.get(this).notificationsAsked = true
-            needPermission(Manifest.permission.POST_NOTIFICATIONS, {}, {})
-        }
+        // The alerts are asked once, on their own screen right after pairing
+        // (PairActivity's Alerts step); Settings has the way back to them.
         Push.register(this)
         // Paired now (the first open after pairing too): hold the connection,
         // unless Settings turned that off.
@@ -280,6 +278,13 @@ class MainActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         if (::web.isInitialized) conn.start()
+    }
+
+    // Back in front (from Android's notification settings too): the board's
+    // Settings row learns whether Android shows the alerts now.
+    override fun onResume() {
+        super.onResume()
+        if (::web.isInitialized) event(JSONObject().put("event", "alerts").put("on", Notifier.allowed(this)))
     }
 
     override fun onStop() {

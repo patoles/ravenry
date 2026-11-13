@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Size
 import androidx.activity.ComponentActivity
@@ -22,6 +23,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
@@ -93,6 +96,8 @@ class PairActivity : ComponentActivity() {
         data class Check(val link: PairLink, val pin: String) : Step()
         data class Confirm(val link: PairLink) : Step()
         object Busy : Step()
+        /** Paired: the alerts' one ask, before the board (docs/PHONE.md, The alerts' ask). */
+        object Alerts : Step()
     }
 
     private val step = mutableStateOf<Step>(Step.Scan)
@@ -104,6 +109,8 @@ class PairActivity : ComponentActivity() {
     private val analysis = Executors.newSingleThreadExecutor()
 
     private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { cameraOn.value = it }
+    // Android's own dialog for the alerts; whatever the answer, the board next.
+    private val askAlerts = registerForActivityResult(ActivityResultContracts.RequestPermission()) { toBoard() }
     // Asked when the camera's screen shows, not before: a pairing link
     // opens on "Pair with ...?" and needs no camera.
     private var cameraAsked = false
@@ -115,7 +122,15 @@ class PairActivity : ComponentActivity() {
         if (intent.getBooleanExtra(SIGNED_OUT, false)) error.value = getString(R.string.signed_out)
         cameraOn.value = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         fromIntent(intent)
+        // Rebuilt on the alerts' ask (a new screen density, the process
+        // gone in the background): the ask again, never the camera.
+        if (savedInstanceState?.getBoolean(ON_ALERTS) == true && Store.get(this).paired() != null) step.value = Step.Alerts
         setContent { Screen() }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(ON_ALERTS, step.value is Step.Alerts)
     }
 
     // A theme change keeps this activity (and the step the person is on,
@@ -193,16 +208,28 @@ class PairActivity : ComponentActivity() {
             ))
             Hub.reset()
             runOnUiThread {
-                startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-                finish()
+                // The alerts' ask, once ever on this phone (a re-pair never
+                // shows it again), and only when Android would ask: 13 and
+                // later, alerts not allowed yet.
+                val store = Store.get(this)
+                if (Build.VERSION.SDK_INT >= 33 && !store.notificationsAsked && !Notifier.allowed(this)) {
+                    store.notificationsAsked = true
+                    step.value = Step.Alerts
+                } else toBoard()
             }
         }
+    }
+
+    private fun toBoard() {
+        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        finish()
     }
 
     // ------------------------------------------------------------ the screen
 
     @Composable
     private fun Screen() {
+        if (step.value is Step.Alerts) { AlertsStep(); return }
         val tx = colorResource(R.color.tx); val tx2 = colorResource(R.color.tx2)
         Column(
             Modifier.fillMaxSize().background(colorResource(R.color.win)).statusBarsPadding().navigationBarsPadding().imePadding()
@@ -221,7 +248,7 @@ class PairActivity : ComponentActivity() {
             }
             BackHandler(enabled = up != null) { error.value = null; reach.value = null; if (up != null) step.value = up }
             when (val s = step.value) {
-                is Step.Scan, is Step.Busy -> ScanStep(s is Step.Busy)
+                is Step.Scan, is Step.Busy, is Step.Alerts -> ScanStep(s is Step.Busy)
                 is Step.Typing -> TypingStep(s)
                 is Step.Check -> CheckStep(s)
                 is Step.Confirm -> ConfirmStep(s)
@@ -388,8 +415,60 @@ class PairActivity : ComponentActivity() {
         Quiet(stringResource(R.string.pair_back)) { step.value = Step.Scan }
     }
 
+    /**
+     * The alerts' ask, as drawn (phonefix5 item 7): the mark, why, a sample
+     * alert, Turn on alerts (then Android's dialog) and Not now. Back is Not
+     * now. The words scroll on a short screen; the buttons stay at the foot.
+     */
+    @Composable
+    private fun AlertsStep() {
+        val tx = colorResource(R.color.tx); val tx2 = colorResource(R.color.tx2); val blue = colorResource(R.color.work)
+        val card = colorResource(R.color.card); val sep = tx.copy(alpha = .1f)
+        BackHandler { toBoard() }
+        Column(Modifier.fillMaxSize().background(colorResource(R.color.win)).statusBarsPadding().navigationBarsPadding()) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+                Row(Modifier.padding(top = 22.dp, bottom = 46.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Image(painterResource(R.drawable.logo), null, Modifier.size(24.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(stringResource(R.string.app_name), color = tx, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                Box(Modifier.size(76.dp).clip(RoundedCornerShape(22.dp)).background(card).border(1.dp, sep, RoundedCornerShape(22.dp)), contentAlignment = Alignment.Center) {
+                    Image(painterResource(R.drawable.logo), null, Modifier.size(46.dp))
+                }
+                Spacer(Modifier.height(26.dp))
+                Text(stringResource(R.string.alerts_title), color = tx, fontSize = 26.sp, fontWeight = FontWeight.Bold, lineHeight = 32.sp)
+                Text(stringResource(R.string.alerts_sub), color = tx2, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 10.dp))
+                // A sample of the alert, as the shade shows it.
+                Row(
+                    Modifier.padding(top = 26.dp, bottom = 20.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(card).border(1.dp, sep, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(30.dp).clip(RoundedCornerShape(50)).background(Color(0xFFFF9F0A)), contentAlignment = Alignment.Center) {
+                        Image(painterResource(R.drawable.logo), null, Modifier.size(20.dp), colorFilter = ColorFilter.tint(Color.White))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(stringResource(R.string.alerts_sample_title), color = tx, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.alerts_sample_text), color = tx2, fontSize = 13.sp)
+                    }
+                }
+            }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Button({ askAlerts.launch(Manifest.permission.POST_NOTIFICATIONS) }, shape = RoundedCornerShape(24.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = blue, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)) { Text(stringResource(R.string.alerts_on), fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(20.dp)).clickable { toBoard() }, contentAlignment = Alignment.Center) {
+                    Text(stringResource(R.string.alerts_not_now), color = blue, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Text(stringResource(R.string.alerts_later), color = tx2, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 20.dp))
+            }
+        }
+    }
+
     companion object {
         const val SIGNED_OUT = "signedOut"
+        private const val ON_ALERTS = "onAlerts"
     }
 }
 
