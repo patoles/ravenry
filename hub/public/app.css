@@ -440,6 +440,9 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .pa-btns .pa-res.bad{flex:1 1 100%}
 .pa-on{color:var(--tx2) !important;display:flex;align-items:center;gap:6px}
 .hs-tok.pa-bad{color:var(--bad);font-weight:550;line-height:1.4}
+.pa-app-note{color:var(--tx2);font-size:12.5px;padding:0 0 12px}
+.pa-btns .btn.pa-turn{min-height:34px;padding:7px 13px;font-size:14px;font-weight:600;border-radius:9px}
+.mc.light .pa-btns .btn.pa-turn{box-shadow:none}
 .pa-live{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
 .pa-back{z-index:35}
 .mc.light .pa-back{background:rgba(0,0,0,.28)}

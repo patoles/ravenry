@@ -5171,7 +5171,8 @@ function paCardHtml() {
   if (paInApp()) {
     return `<div class="hs-row sep pa-top"><div class="hs-l"><div class="hs-sec" style="padding: 0 0 6px">Alerts<span>this phone</span></div></div></div>
 <div class="hs-row"><div class="hs-l"><div>Alert this phone when a project needs me</div><div class="hs-tok" id="pa-app" role="status"></div></div></div>
-<div class="pa-btns" id="pa-app-btns"></div>`;
+<div class="pa-btns" id="pa-app-btns"></div>
+<div class="pa-note pa-app-note" id="pa-app-note" hidden>Opens Android's notification settings for Ravenry.</div>`;
   }
   return `<div class="hs-row sep pa-top"><div class="hs-l"><div class="hs-sec" style="padding: 0 0 6px">Phone alerts<span>this board</span></div></div></div>
 <div class="pa-note pa-apps" id="pa-apps-row" hidden>${PA_PHONE}<span id="pa-apps"></span></div>
@@ -5205,13 +5206,17 @@ function paPaintApp() {
   const app = window.ravenryApp || {};
   const a = app.alerts;
   const can = typeof app.openAlertSettings === 'function';
-  el.className = 'hs-tok' + (a && a.on ? ' pa-on' : '');
+  // Refused at the alerts' ask, or turned off in Android later: Android blocks them.
+  const off = can && a && !a.on;
+  el.className = 'hs-tok' + (a && a.on ? ' pa-on' : off ? ' pa-bad' : '');
   if (!can) el.textContent = 'Set in Android: Settings, Apps, Ravenry, Notifications';
   else if (!a) el.textContent = 'Reading...';
   else if (a.on) el.innerHTML = '<i class="pa-live"></i>On';
-  else el.textContent = 'Off in Android settings';
+  else el.textContent = "Off: Android blocks Ravenry's alerts";
   const btns = $('#pa-app-btns');
-  if (btns) btns.innerHTML = can ? `<button class="btn sm" data-pa="app-settings">${a && !a.on ? 'Turn on in Android' : 'Change in Android'}</button>` : '';
+  if (btns) btns.innerHTML = !can ? '' : off ? '<button class="btn pri pa-turn" data-pa="app-settings">Turn on</button>' : '<button class="btn sm" data-pa="app-settings">Change in Android</button>';
+  const note = $('#pa-app-note');
+  if (note) note.hidden = !off;
 }
 window.addEventListener('ravenry:alerts', () => { if (hs.open) paPaintApp(); });
 
