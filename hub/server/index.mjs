@@ -9,6 +9,7 @@
 import * as startlog from './startlog.mjs';
 import * as slice from './slice.mjs';
 import http from 'node:http';
+import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -38,6 +39,7 @@ import * as events from './events.mjs';
 import * as sess from './sessions.mjs';
 import * as phone from './phone.mjs';
 import * as phonetls from './phonetls.mjs';
+import * as staticFiles from './static.mjs';
 import { boardListeners } from './boardlisten.mjs';
 import * as push from './push.mjs';
 import * as termproxy from './termproxy.mjs';
@@ -2927,8 +2929,17 @@ function saveToInbox(project, name, buf) {
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' };
 
 function sendJson(res, status, obj) {
+  const body = JSON.stringify(obj);
+  // A big answer (the state is 100 KB and more) goes gzipped to a client
+  // that takes it, as the board's files do (server/static.mjs): a phone
+  // through Tailscale feels every KB. Level 4: 123 KB in about 1.3 ms, to 25%.
+  if (body.length >= 8192 && /\bgzip\b/.test(String((res.req && res.req.headers['accept-encoding']) || ''))) {
+    const z = zlib.gzipSync(body, { level: 4 });
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding', 'Content-Length': z.length });
+    return res.end(z);
+  }
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(obj));
+  res.end(body);
 }
 
 function readBody(req, limit) {
@@ -3912,8 +3923,7 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && p === '/api/pages/img') {
       const pic = pages.picture(url.searchParams.get('key') || '', url.searchParams.get('path') || '');
       if (!pic) return sendJson(res, 404, { error: 'not a picture of this page' });
-      res.writeHead(200, { 'Content-Type': pic.type, 'Cache-Control': 'no-cache' });
-      return fs.createReadStream(pic.file).on('error', () => res.end()).pipe(res);
+      return staticFiles.sendPicture(req, res, pic.file, pic.type);
     }
     if (req.method === 'GET' && p === '/api/pages/docs') {
       const t = pages.docs(url.searchParams.get('topic') || '');
@@ -3943,7 +3953,10 @@ async function handleRequest(req, res) {
       return v ? sendJson(res, 200, v) : sendJson(res, 503, { error: 'Not ready yet.' });
     }
     if (req.method === 'GET' && p === '/api/events') {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+      // A phone's stream (the phone port) goes gzipped as it goes: each state is the whole snapshot.
+      const gz = !!req.mcTls && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', ...(gz ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : {}) });
+      if (gz) staticFiles.gzipStream(res);
       res.write(`event: state\ndata: ${snapshotJson}\n\n`);
       res.mcPhone = req.mcPhone || null;
       // The Ravenry app's own stream (?app=1, from this Mac): Mac notifications go to it (server/desktop.mjs).
@@ -3961,16 +3974,14 @@ async function handleRequest(req, res) {
       if (url.searchParams.has('plan')) {
         const abs = project ? planPicture(project, url.searchParams.get('plan')) : null;
         if (!abs) return sendJson(res, 404, { error: 'not a picture of this plan' });
-        res.writeHead(200, { 'Content-Type': TYPES[path.extname(abs).toLowerCase()], 'Cache-Control': 'no-cache' });
-        return fs.createReadStream(abs).on('error', () => res.end()).pipe(res);
+        return staticFiles.sendPicture(req, res, abs, TYPES[path.extname(abs).toLowerCase()]);
       }
       // The project's latest picture and the gallery's others: only one of
       // the current 6 (the pick without a key), re-checked now.
       if (url.searchParams.has('auto')) {
         const abs = project ? pictures.serveable(project.id, url.searchParams.get('auto'), url.searchParams.get('k')) : null;
         if (!abs) return sendJson(res, 404, { error: 'not the current picture' });
-        res.writeHead(200, { 'Content-Type': TYPES[path.extname(abs).toLowerCase()], 'Cache-Control': 'no-cache' });
-        return fs.createReadStream(abs).on('error', () => res.end()).pipe(res);
+        return staticFiles.sendPicture(req, res, abs, TYPES[path.extname(abs).toLowerCase()]);
       }
       const bp = project && registry.briefPath(project);
       if (!bp) return sendJson(res, 404, { error: 'no brief' });
@@ -3981,8 +3992,7 @@ async function handleRequest(req, res) {
       const abs = path.resolve(path.dirname(bp), rel);
       const type = TYPES[path.extname(abs).toLowerCase()];
       if (!type || !type.startsWith('image/')) return sendJson(res, 415, { error: 'not an image' });
-      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
-      return fs.createReadStream(abs).on('error', () => res.end()).pipe(res);
+      return staticFiles.sendPicture(req, res, abs, type);
     }
     if (req.method === 'POST' && p.startsWith('/api/')) {
       if (!allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' });
@@ -4333,8 +4343,8 @@ async function handleRequest(req, res) {
       let rel = p === '/' ? 'index.html' : p.slice(1);
       const abs = path.resolve(PUBLIC, rel);
       if (!abs.startsWith(PUBLIC + path.sep) || !fs.existsSync(abs) || fs.statSync(abs).isDirectory()) return sendJson(res, 404, { error: 'not found' });
-      res.writeHead(200, { 'Content-Type': TYPES[path.extname(abs)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-      return fs.createReadStream(abs).pipe(res);
+      // Compressed, with an ETag: a reload sends little and never runs stale code (server/static.mjs).
+      return staticFiles.send(req, res, abs, TYPES[path.extname(abs)] || 'application/octet-stream');
     }
     sendJson(res, 405, { error: 'method' });
   } catch (e) {

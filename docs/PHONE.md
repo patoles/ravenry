@@ -109,6 +109,27 @@ when, how fast it answers, and Open
 Tailscale and Reconnect. Offline, the reason words stay under the top bar
 (the reach bar, with Open Tailscale and Try again).
 
+**A reload sends little** (2026-11-13). The hub sends the board's own
+files (`hub/public`) brotli or gzip, whichever the client takes, with an
+ETag from their content and `Cache-Control: no-cache` (`server/static.mjs`):
+a reload asks again for each and gets a 304 with no body while the file is
+the same, and a file an update changed comes at once with its new ETag, so
+the board never runs stale code. A brief's or a plan's pictures carry an
+ETag from their size and time; JSON answers over 8 KB go gzipped; a phone's
+live stream (`/api/events` on the phone port) goes gzipped as it goes, each
+event flushed at once (the state's snapshot is the whole board, 100 KB and
+more). The app keeps the answers that carry an ETag between reloads
+(OkHttp's cache, 16 MB in its cache folder, `Hub.boardCache`), never the
+API's. Measured on the emulator through a pass-through adding 150 ms a
+round trip: a reload's bytes down went from 513 KB to 24 KB, the board drawn
+1212 ms after the reload began to 954 ms (median of 5); app.js changed on
+the test hub, the next reload ran the new code.
+
+**The theme** is Auto until the person picks Light or Dark in the menu:
+Auto follows the phone's dark or light as it switches (`board.ts` saves
+Auto on the first load; the app up to 0.1.43 saved the phone's theme then
+as if picked, and that goes back to Auto once).
+
 In the app the shell watches (`MainActivity` ConnWatch): `GET
 /api/phone/hello` every 30 s while up and every 3 s while not (5 s each at
 most), the stream's own drops too; a failure makes it Reconnecting, three

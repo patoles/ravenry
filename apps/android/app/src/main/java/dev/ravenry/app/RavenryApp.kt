@@ -45,8 +45,13 @@ object Hub {
         val p = store.paired() ?: return null
         client?.let { if (forToken == p.token) return it }
         val app = context.applicationContext
-        return HubClient.of(p, onHost = { store.rememberHost(it) }, onSignedOut = { signedOut(app) }, skip = Reach.skip(app), dns = DebugNet.dns(app)).also { client = it; forToken = p.token }
+        return HubClient.of(p, onHost = { store.rememberHost(it) }, onSignedOut = { signedOut(app) }, skip = Reach.skip(app), dns = DebugNet.dns(app), cache = boardCache(app)).also { client = it; forToken = p.token }
     }
+
+    /** The board's files between reloads (HubClient `cache`): one per folder, as OkHttp wants. */
+    @Volatile private var cache: okhttp3.Cache? = null
+    @Synchronized private fun boardCache(app: Context): okhttp3.Cache =
+        cache ?: okhttp3.Cache(java.io.File(app.cacheDir, "board-files"), 16L * 1024 * 1024).also { cache = it }
 
     /** The hub forgot this device (revoked, unpaired, a new key): back to pairing. */
     fun signedOut(context: Context) {

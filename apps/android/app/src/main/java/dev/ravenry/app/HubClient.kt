@@ -72,6 +72,15 @@ class HubClient(
     /** A host only the tailnet reaches (Reach.tailnetHost); every other is a home one. */
     private val isTailnet: (String) -> Boolean = Reach::tailnetHost,
     homeConnectMs: Long = HOME_CONNECT_MS,
+    /**
+     * Where the board's own files are kept between reloads (the app's cache
+     * folder; null: none). The hub sends them with an ETag and `no-cache`
+     * (hub/server/static.mjs), so each reload asks "still this one?" and a
+     * 304 costs a few hundred bytes; a changed file comes at once. Only
+     * responses with an ETag are kept (the board's files, a brief's
+     * pictures): never the API's answers.
+     */
+    private val cache: okhttp3.Cache? = null,
 ) {
     val trust = PinnedTrust(pin)
     private val hosts = hosts.distinct()
@@ -92,6 +101,15 @@ class HubClient(
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .apply { if (dns != null) dns(dns) }
+            .apply {
+                if (cache != null) {
+                    cache(cache)
+                    addNetworkInterceptor { chain ->
+                        val r = chain.proceed(chain.request())
+                        if (r.header("ETag") == null) r.newBuilder().header("Cache-Control", "no-store").build() else r
+                    }
+                }
+            }
             .build()
     }
 
@@ -288,9 +306,9 @@ class HubClient(
          */
         const val HOME_CONNECT_MS = 1500L
 
-        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }, dns: okhttp3.Dns? = null): HubClient {
+        fun of(p: Paired, onHost: (String) -> Unit = {}, onSignedOut: () -> Unit = {}, skip: (String) -> Boolean = { false }, dns: okhttp3.Dns? = null, cache: okhttp3.Cache? = null): HubClient {
             val order = listOfNotNull(p.lastHost) + p.hosts
-            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip, dns)
+            return HubClient(order, p.port, p.pin, p.token, onHost, onSignedOut, skip, dns, cache = cache)
         }
     }
 }
