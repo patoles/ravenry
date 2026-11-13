@@ -50,9 +50,17 @@ const ready: Promise<Shell> = connect();
   document.head.appendChild(st);
 }
 
-// The board's theme (hub/public applyTheme, saved as mc.theme): the phone's
-// own until the person picks one with the board's switch.
-try { if (localStorage.getItem('mc.theme') == null) localStorage.setItem('mc.theme', JSON.stringify(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')); } catch { /* none */ }
+// The board's theme (hub/public applyTheme, saved as mc.theme): Auto, which
+// follows the phone's light or dark as it switches, until the person picks
+// Light or Dark in the menu. The app up to 0.1.43 saved the phone's theme of
+// the first load as if picked, so the board kept it after the phone
+// switched; that saved theme goes back to Auto once (mc.themeV).
+try {
+  if (localStorage.getItem('mc.themeV') !== '2') {
+    localStorage.setItem('mc.theme', JSON.stringify('auto'));
+    localStorage.setItem('mc.themeV', '2');
+  }
+} catch { /* none */ }
 const realFetch = window.fetch.bind(window);
 
 /** Where the app's own screens are (apps/phone): a checkpoint, the settings. */
