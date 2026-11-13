@@ -318,6 +318,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The hub service, in the background (Install.swift); the window
         // reads the hub as soon as it answers.
         if installing { inst.setUpHub { _ in DispatchQueue.main.async { MachineMenu.shared.atLaunch() } } }
+        // Mac notifications: what macOS says, and its one ask while the person is here (Notifier.swift).
+        bd.notifier.atLaunch()
         // Updates: a check a little after launch, then every few hours (Updater.swift).
         Updater.shared.start(offscreen: options.offscreen)
         // A wake reads the hub and the daemons again (Wake.swift); a second start brings this one forward.

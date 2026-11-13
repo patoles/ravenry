@@ -58,11 +58,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         let c = UNUserNotificationCenter.current()
-        c.requestAuthorization(options: [.alert, .sound]) { granted, err in
-            if !granted {
-                answer(false, err?.localizedDescription ?? "Notifications are not allowed for this application", true)
-                return
-            }
+        // What macOS says first: refused (by the person, or never asked
+        // because the ask failed) answers at once with the words the board
+        // shows and its Open Notifications settings; never asked yet asks
+        // now, else it posts. It asked before each one, so a refusal was
+        // only ever "not allowed", with no way to tell why.
+        Notifier.allowed(c) { ok, why in
+            if !ok { answer(false, why, true); return }
             let content = UNMutableNotificationContent()
             content.title = q.title
             content.body = q.body
@@ -90,6 +92,47 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                     }
                 }
                 look()
+            }
+        }
+    }
+
+    static let notAllowed = "Notifications are not allowed for this application"
+
+    /// Whether macOS lets Ravenry post: asks once when it was never asked;
+    /// `why` says it in the words app.log and the board keep.
+    static func allowed(_ c: UNUserNotificationCenter, done: @escaping (Bool, String) -> Void) {
+        c.getNotificationSettings { s in
+            switch s.authorizationStatus {
+            case .authorized, .provisional: done(true, "")
+            case .notDetermined:
+                c.requestAuthorization(options: [.alert, .sound]) { granted, err in
+                    if let e = err as NSError? { AppLog.write("notify: macOS refused the ask: \(e.domain) \(e.code): \(e.localizedDescription)") }
+                    done(granted, granted ? "" : err?.localizedDescription ?? notAllowed)
+                }
+            default: done(false, notAllowed)
+            }
+        }
+    }
+
+    /// At launch, with the window up: what macOS says about Ravenry's
+    /// notifications goes in app.log, and an app macOS never asked about
+    /// asks now, so its question comes while the person is at the Mac and
+    /// not with the first alert at night.
+    func atLaunch() {
+        guard !standIn else { return }
+        let c = UNUserNotificationCenter.current()
+        c.getNotificationSettings { s in
+            let st: String
+            switch s.authorizationStatus {
+            case .authorized: st = "allowed"
+            case .provisional: st = "allowed quietly"
+            case .denied: st = "not allowed (System Settings > Notifications > Ravenry)"
+            case .notDetermined: st = "not asked yet: asking"
+            default: st = "status \(s.authorizationStatus.rawValue)"
+            }
+            AppLog.write("notify: macOS says Ravenry's notifications are \(st)")
+            if s.authorizationStatus == .notDetermined {
+                Notifier.allowed(c) { ok, why in AppLog.write("notify: macOS's answer: \(ok ? "allowed" : "not allowed: \(why)")") }
             }
         }
     }
