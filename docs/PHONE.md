@@ -428,7 +428,7 @@ has shown and draws it once.
 {
   "v": 1, "type": "alert", "id": "cp:c7k2m9qx", "at": "2026-11-06T17:36:02.120Z",
   "kind": "ask",
-  "title": "Sync settings asks",
+  "title": "notes-app asks",
   "body": "Ship the beta to the testers?",
   "detail": "Claude waits until 18:04.",
   "project": { "id": "notes-app", "name": "notes-app" },
@@ -445,7 +445,22 @@ has shown and draws it once.
 
 `{ "v": 1, "type": "close", "id": "cp:c7k2m9qx" }` takes an alert off the
 phone: the checkpoint was answered, cancelled or ran out, or the session
-left Needs you. `{ "v": 1, "type": "test", ... }` is a test alert.
+left Needs you. `{ "v": 1, "type": "test", ... }` is a test alert. A close
+the phone never heard (asleep with no push distributor, the hub restarted
+in between) is made good by the next state snapshot on the live stream:
+the app takes off every alert whose checkpoint is no longer open, whose
+session left Needs you or is no longer the one that waits, or whose plan
+gate passed (Android `Notifier.sweep`, `Waiting`); an alert posted in the
+last 10 s, or just answered from the shade, is left alone.
+
+**The words.** A title names the project, never the session's own name or
+an id ("notes-app asks", "Ravenry needs you"; 2026-11-13); a drive's asker
+is named by its project too. The Mac is named as a person names it, never
+by its host name ("on MacBook Pro", not "owners-macbook-pro-1": the hub's
+`sayMac`, the model found in the host name macOS makes, unless
+RAVENRY_HUB_NAME says). Any field may be JSON null; the app reads every
+optional string through one helper (`str`, Android `Json.kt`), so a null
+is never the word "null".
 
 Unlike the third-party channels (Telegram, Discord, ntfy topics), which
 carry only "<Project> needs you", an app alert carries the question, the
@@ -506,9 +521,10 @@ reason?, keys? }`: the pane the agent wants to act on, what it wants to do
 speed or TERM), the pane's `name` as the sidebar and the tabs show it
 (the topic of the session that runs in it, else its name, its title or
 its command's program; null when the hub does not know the pane), the
-asking `session`'s topic, and `reason`, the agent's own words for why
-(at most 300 characters here), when it gave them. The title names both,
-never by id: "Claude, in Tilting the hull, wants to type in dev server"
+asking `session`'s place (its project's name; a tab's name when it is in
+no project), and `reason`, the agent's own words for why (at most 300
+characters here), when it gave them. The title names both, never by id
+or a session's name: "Claude, in paper-boat, wants to type in dev server"
 ("... wants to close dev server", "... restart ...", "... change how
 dev server runs"); with no `name`, the daemon's own title. `body` is
 "Claude says: <reason>" when there is a reason, with what it would type
@@ -556,7 +572,20 @@ first, signed out), the notification says why and keeps **Open**.
 | Channel | Importance | |
 | --- | --- | --- |
 | `needs-you` | high (heads-up, sound) | every alert |
-| `connection` | min, silent | "Linked to <computer> and <machines>. N sessions working, M need you." while the app holds its connection |
+| `connection` | min, silent | while the app holds its connection: "Connected to MacBook Pro" (and the other machines it reaches) over how and what runs, "Wi-Fi. 2 working, 1 needs you.", "Tailscale. 1 needs you.", "Wi-Fi. Nothing running."; "Connecting to MacBook Pro" at first; "Can't reach MacBook Pro" over the Tailscale words or "Trying again." |
+
+**This phone's alerts in Settings.** In the app, the board's Settings
+section is this phone's own alerts only: "Alert this phone when a project
+needs me", On or "Off in Android settings" as Android has them (the app's
+notifications and its Needs you channel; the shell's `alerts.state`, read
+again each time the board comes back), and Change in Android (Turn on in
+Android when off), which opens Android's notification settings for the
+app (`alerts.settings`). The board's channels (Telegram, Discord or
+Slack, ntfy) are not there: on the Mac and a browser board the section
+lists them as "Also send alerts to ...", under the line naming the phones
+that get alerts through the app ("Pixel 8 gets alerts through the
+Ravenry app.", the hub's `alerts.apps`); the native Alerts page's Your
+phone row says the same, with Pair another phone.
 
 ## 6. The terminal on the phone
 
