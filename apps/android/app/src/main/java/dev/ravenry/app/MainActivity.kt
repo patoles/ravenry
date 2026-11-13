@@ -375,6 +375,13 @@ class MainActivity : FragmentActivity() {
                 reply(id, true)
             }
             "open.tailscale" -> { Reach.openTailscale(this); reply(id, true) }
+            // This phone's own alerts: whether Android shows them (the app's
+            // notifications and its Needs you channel), and its settings for them.
+            "alerts.state" -> reply(id, true, JSONObject().put("on", Notifier.allowed(this)))
+            "alerts.settings" -> {
+                runCatching { startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)) }
+                reply(id, true)
+            }
             "hub.call" -> {
                 val method = o.str("method", "GET")
                 val path = o.str("path", "")
@@ -648,7 +655,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun features(): List<String> {
-        val f = mutableListOf("secret")
+        val f = mutableListOf("secret", "alerts.state")
         if (runCatching { UnifiedPush.getDistributors(this).isNotEmpty() }.getOrDefault(false)) f += "push"
         val bio = BiometricManager.from(this).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         if (bio != BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE && bio != BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE) f += "biometric"

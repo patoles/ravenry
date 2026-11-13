@@ -53,6 +53,13 @@ object Notifier {
         show(context, a)
     }
 
+    /** Whether Android shows this app's alerts: its notifications on and the Needs you channel not blocked. */
+    fun allowed(context: Context): Boolean {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+        val ch = runCatching { context.getSystemService(NotificationManager::class.java).getNotificationChannel(NEEDS_YOU) }.getOrNull()
+        return ch == null || ch.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
     fun cancel(context: Context, id: String) {
         NotificationManagerCompat.from(context).cancel(id, ALERT_ID)
     }

@@ -430,6 +430,8 @@ a{color:#0A84FF}a:hover{color:#409CFF}
 .pa-sb>.pa-res.bad{flex:none}
 .mc.light .pa-test .btn,.mc.light .pa-btns .btn,.mc.light .pa-frow .btn,.mc.light .pa-sh-f .btn:not(.pri){box-shadow:0 0 0 1px var(--sep)}
 .pa-note{display:flex;gap:7px;align-items:flex-start;font-size:11.5px;color:var(--tx3);line-height:1.4}
+.pa-note[hidden]{display:none}
+.pa-apps{padding:0 0 4px}
 .pa-note svg{flex:none;margin-top:2px}
 .pa-note .pa-bad{color:var(--bad);font-weight:550}
 .hs-body>.pa-note{padding:4px 0 6px}

@@ -334,6 +334,12 @@ extension SelfTestBoard {
         pg.buttons["settings"]?.performClick(nil)
         check("alerts_open_settings", Outside.record?.dropFirst(o).contains("open x-apple.systempreferences:com.apple.Notifications-Settings.extension") ?? false)
         pictures("alerts-denied")
+        // A paired app: the phone row names it, and pairing another is the button.
+        var withApp = den
+        withApp["apps"] = ["Pixel 8"]
+        pg.apply(withApp)
+        check("alerts_phone_app_named", shows(pg, "Pixel 8 gets alerts through the Ravenry app") && pg.buttons["pair"]?.title == t("alerts.pairAnother"), texts(pg).joined(separator: " | ").prefix(300).description)
+        pictures("alerts-phone-app")
         check("notify_denied_words", Notifier.denied("Notifications are not allowed for this application") && Notifier.denied("UNErrorDomain error 1.") && !Notifier.denied("macOS did not say it showed it"))
         // A click on one opens the session it is about.
         board.notifier.post(Notifier.Request(id: "n-click", title: "garden-planner needs you", body: "Asked you a question", kind: "ask", projectId: "garden-planner", surfaceId: "sf-1")) { _ in }

@@ -35,7 +35,7 @@ import type { Alert, Shell } from './shell.ts';
 export interface Conn { state: 'up' | 'reconnecting' | 'offline'; via: string; since: number | null; rtt: number | null; reason?: string | null; words?: string | null; mac?: string | null }
 declare global {
   interface Window {
-    ravenryApp?: { openCheckpoint(id: string): void; openSettings(): void; openTailscale(): void; reconnect(): void; platform: string; conn?: Conn | null };
+    ravenryApp?: { openCheckpoint(id: string): void; openSettings(): void; openTailscale(): void; reconnect(): void; platform: string; conn?: Conn | null; alerts?: { on: boolean } | null; openAlertSettings?(): void };
     ravenryBack?: () => boolean;
   }
 }
@@ -72,7 +72,19 @@ window.ravenryApp = {
   openCheckpoint, openSettings, platform: 'android', conn: null,
   openTailscale: () => { void ready.then((sh) => sh.call('open.tailscale')).catch(() => {}); },
   reconnect: () => { void ready.then((sh) => sh.call('conn.reconnect')).catch(() => {}); },
+  // This phone's own alerts, as Android has them (the board's Settings, hub/public/app.js paPaintApp).
+  alerts: null,
+  openAlertSettings: () => { void ready.then((sh) => sh.call('alerts.settings')).catch(() => {}); },
 };
+/** Whether Android shows Ravenry's alerts, read again each time the board comes back (from Android's settings too). */
+function readAlerts(sh: Shell): void {
+  if (!sh.has('alerts.state')) return;
+  void sh.call<{ on: boolean }>('alerts.state').then((a) => {
+    if (!window.ravenryApp) return;
+    window.ravenryApp.alerts = a;
+    window.dispatchEvent(new CustomEvent('ravenry:alerts'));
+  }).catch(() => {});
+}
 function setConn(c: Conn | null, mac: string | null): void {
   if (!window.ravenryApp) return;
   window.ravenryApp.conn = c ? { ...c, mac: c.mac || mac } : null;
@@ -267,6 +279,8 @@ function start(sh: Shell): void {
   new MutationObserver(paintBars).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   addEventListener('load', paintBars);
   paintBars();
+  readAlerts(sh);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') readAlerts(sh); });
   // The connection, for the board's chip.
   const mac = sh.hello.hub && sh.hello.hub.name ? sh.hello.hub.name : null;
   sh.on('conn', (m) => setConn(m as unknown as Conn, mac));

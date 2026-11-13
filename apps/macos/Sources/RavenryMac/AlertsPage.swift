@@ -93,9 +93,13 @@ final class AlertsPage: FormPage {
         sw.enabled = busy.isEmpty
         switches["desktop"] = sw
         var out: [NSView] = [card([alRow(t("alerts.mac"), line, on: dkOn && !denied, [settingsB, test, sw])])]
-        let pair = RButton(t("alerts.pair"), .primary) { [weak self] in self?.pairPhone?() }
+        // The phones whose Ravenry app gets alerts (the hub's `apps`), named; else the way to pair one.
+        let apps = (a["apps"] as? [String] ?? []).filter { !$0.isEmpty }
+        let pair = RButton(t(apps.isEmpty ? "alerts.pair" : "alerts.pairAnother"), apps.isEmpty ? .primary : .normal) { [weak self] in self?.pairPhone?() }
         buttons["pair"] = pair
-        out.append(card([alRow(t("alerts.phone"), t("alerts.phoneLine"), on: false, [pair])]))
+        let names = apps.count <= 1 ? apps.joined() : apps.dropLast().joined(separator: ", ") + t("alerts.and") + apps.last!
+        let phoneLine = apps.isEmpty ? t("alerts.phoneLine") : t(apps.count == 1 ? "alerts.phoneApp" : "alerts.phoneApps", ["names": names])
+        out.append(card([alRow(t("alerts.phone"), phoneLine, on: !apps.isEmpty, [pair])]))
 
         let tg = a["telegram"] as? [String: Any] ?? [:], wh = a["webhook"] as? [String: Any] ?? [:], nt = a["ntfy"] as? [String: Any] ?? [:]
         let bot = (tg["bot"] as? String).map { "@" + $0 }

@@ -164,6 +164,9 @@ export function send(msg) {
   return devs.length;
 }
 
+// The paired apps' names, for the board's alerts section.
+export const appNames = () => phone.devices().filter((d) => d.platform !== 'browser').map((d) => d.name || 'A phone');
+
 // Whether any app is paired (the app trigger runs only then).
 export const ready = () => phone.devices().some((d) => d.platform !== 'browser');
 

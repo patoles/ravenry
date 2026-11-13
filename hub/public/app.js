@@ -5160,9 +5160,22 @@ const PA_DESK = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" str
 const PA_LOCK = '<svg width="11" height="12" viewBox="0 0 11 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="5.2" width="8" height="5.8" rx="1.4"></rect><path d="M3.3 5.2V3.6a2.2 2.2 0 0 1 4.4 0v1.6"></path></svg>';
 const paPhone = () => matchMedia('(max-width: 700px)').matches;
 
+// In the Android app the section is this phone's own alerts: the app's,
+// on once paired, as Android allows them, changed in Android's settings.
+// The channels (Telegram, Discord or Slack, ntfy) are the board's, set up
+// on the Mac or a browser board, where the section also names the phones
+// that get alerts through the app.
+const paInApp = () => !!(window.ravenryApp && window.ravenryApp.platform === 'android');
+const PA_PHONE = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="1" width="6" height="10" rx="1.3"></rect><path d="M5.3 9h1.4"></path></svg>';
 function paCardHtml() {
+  if (paInApp()) {
+    return `<div class="hs-row sep pa-top"><div class="hs-l"><div class="hs-sec" style="padding: 0 0 6px">Alerts<span>this phone</span></div></div></div>
+<div class="hs-row"><div class="hs-l"><div>Alert this phone when a project needs me</div><div class="hs-tok" id="pa-app" role="status"></div></div></div>
+<div class="pa-btns" id="pa-app-btns"></div>`;
+  }
   return `<div class="hs-row sep pa-top"><div class="hs-l"><div class="hs-sec" style="padding: 0 0 6px">Phone alerts<span>this board</span></div></div></div>
-<div class="hs-row on-row"><div class="hs-l"><div id="pa-on-l">Alert my phone when a project needs me</div><div class="hs-tok" id="pa-status" role="status"></div></div>${hsSwitch('pa-on')}</div>
+<div class="pa-note pa-apps" id="pa-apps-row" hidden>${PA_PHONE}<span id="pa-apps"></span></div>
+<div class="hs-row on-row"><div class="hs-l"><div id="pa-on-l">Send alerts to Telegram, Discord or Slack, or ntfy</div><div class="hs-tok" id="pa-status" role="status"></div></div>${hsSwitch('pa-on')}</div>
 <div class="pa-btns" id="pa-btns"></div>
 <div class="pa-note">${PA_DESK}<span id="pa-desk"></span></div>`;
 }
@@ -5177,11 +5190,42 @@ function paResHtml(r) {
   return `<span class="pa-res bad">${esc(r.text)}</span>`;
 }
 
-// The card's three rows from the status the server pushes.
+/** "Pixel 8 and Z Flip7 get alerts through the Ravenry app." from the paired apps' names. */
+function paAppsLine(names) {
+  const n = (names || []).filter(Boolean);
+  if (!n.length) return '';
+  const who = n.length === 1 ? n[0] : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`;
+  return `${who} ${n.length === 1 ? 'gets' : 'get'} alerts through the Ravenry app.`;
+}
+
+// In the app: on or off as Android has it (the shell says, src/board.ts).
+function paPaintApp() {
+  const el = $('#pa-app');
+  if (!el) return;
+  const app = window.ravenryApp || {};
+  const a = app.alerts;
+  const can = typeof app.openAlertSettings === 'function';
+  el.className = 'hs-tok' + (a && a.on ? ' pa-on' : '');
+  if (!can) el.textContent = 'Set in Android: Settings, Apps, Ravenry, Notifications';
+  else if (!a) el.textContent = 'Reading...';
+  else if (a.on) el.innerHTML = '<i class="pa-live"></i>On';
+  else el.textContent = 'Off in Android settings';
+  const btns = $('#pa-app-btns');
+  if (btns) btns.innerHTML = can ? `<button class="btn sm" data-pa="app-settings">${a && !a.on ? 'Turn on in Android' : 'Change in Android'}</button>` : '';
+}
+window.addEventListener('ravenry:alerts', () => { if (hs.open) paPaintApp(); });
+
+// The card's rows from the status the server pushes.
 function paPaintCard() {
+  if (paInApp()) return paPaintApp();
   const el = $('#pa-status');
   if (!el) return;
   const s = paStatus() || { enabled: false, configured: false };
+  // The phones that get alerts through the app; the channels are then the "also".
+  const apps = paAppsLine(s.apps);
+  $('#pa-apps').textContent = apps;
+  $('#pa-apps-row').hidden = !apps;
+  $('#pa-on-l').textContent = `${apps ? 'Also send' : 'Send'} alerts to Telegram, Discord or Slack, or ntfy`;
   const b = $('#pa-on');
   b.classList.toggle('on', !!s.enabled);
   b.setAttribute('aria-checked', String(!!s.enabled));
@@ -5199,7 +5243,9 @@ function paPaintCard() {
   // The bell's own line: Mac notifications, separate from the phone.
   const dk = s.desktop || { enabled: true };
   const dl = dk.last;
-  $('#pa-desk').textContent = dk.enabled && dl && !dl.ok ? `The bell also sends these as Mac notifications. The last one failed: ${dl.error || 'no answer'}.`
+  // macOS refused them: what to do about it, not macOS's own words.
+  $('#pa-desk').textContent = dk.enabled && dl && !dl.ok && dl.denied ? 'The bell also sends these as Mac notifications, and macOS has not allowed them: turn them on in System Settings > Notifications > Ravenry.'
+    : dk.enabled && dl && !dl.ok ? `The bell also sends these as Mac notifications. The last one failed: ${dl.error || 'no answer'}.`
     : `The bell also sends these as Mac notifications. ${dk.enabled ? 'On now.' : 'Off now.'}`;
   $('#pa-desk').classList.toggle('pa-bad', !!(dk.enabled && dl && !dl.ok));
   $('#pa-btns').innerHTML = s.configured
@@ -5212,6 +5258,7 @@ async function paRefresh() {
 }
 
 async function paCardClick(b) {
+  if (b.dataset.pa === 'app-settings') { if (window.ravenryApp && window.ravenryApp.openAlertSettings) window.ravenryApp.openAlertSettings(); return; }
   const say = toaster();
   const s = paStatus() || {};
   if (b.id === 'pa-on') {

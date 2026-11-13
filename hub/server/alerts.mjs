@@ -126,6 +126,8 @@ export function status() {
     channelLabel: label(d, d.channel),
     last: l ? { at: l.at, ok: !!l.ok, error: l.ok ? null : l.error || null, retrying: !!l.retrying, channelLabel: l.channelLabel || null } : null,
     desktop: desktopStatus(d),
+    // The phones whose Ravenry app gets alerts (server/push.mjs), by name.
+    apps: push.appNames(),
   };
 }
 
