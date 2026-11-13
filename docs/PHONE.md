@@ -230,7 +230,7 @@ is taken), with Tailscale's tsnet inside `ravenryd tailnet`
 (`daemon/internal/tailnet`). The phone needs the Tailscale app, signed in
 with the same account.
 
-- **The words.** The Mac's card never says "home" (Simon, 2026-11-13: the
+- **The words.** The Mac's card never says "home" (2026-11-13: the
   phone may be on any Wi-Fi the Mac is on): its address rows are Wi-Fi and
   Tailscale, the switch is Away from this Mac's Wi-Fi (strings-test checks
   every `phone.*` string).
