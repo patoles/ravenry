@@ -178,8 +178,8 @@ Mac answers). With the phone's animations off, the still mark and then the
 board at once; Android 8 to 11 have no splash API, so the window shows the
 still mark and the exit still plays.
 
-Coming back to the app is never an empty screen (phonefix3, Simon on his
-Flip: "2/3 seconds of blank screen" on a reopen). A hot start (the activity
+Coming back to the app is never an empty screen (phonefix3, on a folding
+phone: "2/3 seconds of blank screen" on a reopen). A hot start (the activity
 and its board still there) shows the board at once. What changes while the
 app is open or in the background no longer rebuilds it: a fold or the cover
 screen, a new size, density or colour mode, a keyboard, the font size, a

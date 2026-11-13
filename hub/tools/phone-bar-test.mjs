@@ -64,7 +64,7 @@ for (const scheme of ['dark', 'light']) {
         await page.click('#cx-chip'); await page.waitForTimeout(400);
         const sh = await page.evaluate(() => ({ rows: [...document.querySelectorAll('.cx-row .k')].map((e) => e.textContent), btns: [...document.querySelectorAll('.cx-btns .btn')].map((e) => e.textContent), how: (document.querySelectorAll('.cx-row .v')[1] || {}).textContent, all: document.querySelector('.cx-sheet').innerText }));
         const howWant = { wifi: 'Wi-Fi, straight to the Mac', tailscale: "Tailscale, through Ravenry's own device on your tailnet", offline: STATES.offline.words }[k];
-        ok(sh.rows.join() === 'Mac,How,Since,Answers in' && sh.btns.includes('Reconnect') && (k === 'wifi' || sh.btns.includes('Open Tailscale')) && sh.how === howWant && !/home/i.test(sh.all), `${k} sheet: ${JSON.stringify(sh)}`);
+        ok(sh.rows.join() === 'Mac,How,Since,Answers in' && sh.btns.includes('Reconnect') && (k === 'wifi' || sh.btns.includes('Open Tailscale')) && sh.how === howWant && !sh.all.toLowerCase().includes('home'), `${k} sheet: ${JSON.stringify(sh)}`);
         console.log(`ok   ${scheme} the details sheet, ${k}: ${sh.how}`);
         if (shots) await page.screenshot({ path: `${shots}/sheet-${scheme}-${k}.png` });
         await page.click('[data-act="cx-reconnect"]'); await page.waitForTimeout(300);
