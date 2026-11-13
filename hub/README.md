@@ -15,7 +15,7 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 - **Know where to look**: the projects waiting on you are at the top, with their question.
 - **Answer without hunting**: reply, pick a menu option or attach a file from the board.
 - **Stop repeating yourself**: briefs, hand-offs and rule suggestions carry what you said to the next session.
-- **Step away**: follow and answer from your phone on your home Wi-Fi, with alerts when a project needs you.
+- **Step away**: follow and answer from your phone on the same Wi-Fi, with alerts when a project needs you.
 
 ## Features
 
@@ -26,7 +26,7 @@ Ravenry puts every session on one page, sorted by what needs you. It pairs with 
 - **Plans with gates**: hand work over as a plan with steps; it runs on its own and stops at the gates you set.
 - **Project briefs and a pictures gallery**: a short brief per project (goal, plan, next step, notes) and the last pictures each session showed you.
 - **Rule suggestions**: corrections you keep typing in your sessions, offered as rules for your CLAUDE.md, or AGENTS.md for what you told Codex (off until you turn them on).
-- **Phone access**: the whole board on your phone on your home Wi-Fi, through a QR code.
+- **Phone access**: the whole board on your phone on the same Wi-Fi, through a QR code.
 - **Phone alerts**: a message when a project starts needing you, through Telegram, Discord, Slack or ntfy, plus Mac notifications.
 - **Terminals**: answer sessions in cmux, iTerm2 and Rex; sessions in any other terminal are watch only.
 - **Codex too**: OpenAI Codex sessions show up beside Claude Code's, with their state, live screen, context, alerts, replies and menu answers from the board, the hand-off at half context, their memory on the Sessions page, and their AGENTS.md beside CLAUDE.md in the Rules view. Not shown for Codex: pictures, background tasks, Close idle on the Sessions page and recaps.

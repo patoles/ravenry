@@ -92,7 +92,7 @@ travels changes.
   there the same way, in the remote user's home with no sudo: it carries
   the builds for macOS and Linux on arm64 and x86-64, and puts the daemon's
   hook in Claude Code's and Codex's settings there.
-- **To the phone:** TLS, on the home Wi-Fi or a Tailscale interface, and
+- **To the phone:** TLS, on the Mac's Wi-Fi or a Tailscale interface, and
   only while phone access is on. Pairing is a QR code that carries the
   hub's public key; the phone pins that key, so a different server is
   refused even with a valid certificate. Each phone also holds its own

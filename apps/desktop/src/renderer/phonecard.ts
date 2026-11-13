@@ -152,7 +152,7 @@ export class PhoneCard {
         : app && code ? h('div.phc-b',
           h('div.phc-q', code),
           h('div.phc-i', h('b', 'Scan with the Ravenry app'),
-            h('span.t2', 'On the home Wi-Fi or Tailscale. The code works once, for 10 minutes.'),
+            h('span.t2', 'On this Mac’s Wi-Fi or Tailscale. The code works once, for 10 minutes.'),
             h('span.t2', 'Or type'), h('span.phc-code', app.code),
             h('span.t2', 'and check the phone shows ', h('b.num', app.check))))
           : h('div.phc-b.t2', on ? 'No Wi-Fi or Tailscale address, so a phone cannot reach this computer.' : 'Phone access is off. Turn it on to pair a phone.'),

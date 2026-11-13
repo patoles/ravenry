@@ -206,7 +206,7 @@ one: 4601) and takes connections that arrive on:
 - a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48): off that Wi-Fi,
   through the Tailscale app on this Mac, when it runs;
 - loopback, so an emulator on this machine reaches it (its 10.0.2.2), and
-  so does Ravenry's own device on the person's tailnet (Away from home,
+  so does Ravenry's own device on the person's tailnet (Away from this Mac's Wi-Fi,
   below), which passes the owner's phones to it.
 
 A connection to any other local address is closed before TLS. With the
@@ -221,19 +221,23 @@ request from the Wi-Fi that still arrives while it is off (the QR's `/?k=`
 sign-in, a cookie or a token) gets 403, "Phone access is off on the
 computer.
 
-### Away from home
+### Away from this Mac's Wi-Fi
 
-The phone reaches this Mac away from home through the person's own
+The phone reaches this Mac away from its Wi-Fi through the person's own
 Tailscale, with no VPN app on the Mac: Ravenry joins their tailnet as a
 device of its own, named **ravenry** (Tailscale adds a number when the name
 is taken), with Tailscale's tsnet inside `ravenryd tailnet`
 (`daemon/internal/tailnet`). The phone needs the Tailscale app, signed in
 with the same account.
 
-- **The switch.** Away from home, in the phone card under the code
+- **The words.** The Mac's card never says "home" (Simon, 2026-11-13: the
+  phone may be on any Wi-Fi the Mac is on): its address rows are Wi-Fi and
+  Tailscale, the switch is Away from this Mac's Wi-Fi (strings-test checks
+  every `phone.*` string).
+- **The switch.** Away from this Mac's Wi-Fi, in the phone card under the code
   (`POST /api/phone/away { on }`, kept in `phone.json` as `away`). The
   device runs, as a child of the hub (`hub/server/tailnet.mjs`), only while
-  phone access and Away from home are both on and the person signed in;
+  phone access and Away from this Mac's Wi-Fi are both on and the person signed in;
   otherwise nothing of Ravenry is on the tailnet and nothing listens there.
   Off, the keys are kept: on again, it joins again without a sign-in. The
   hub gone, its input closes and the device leaves with it.
@@ -258,13 +262,13 @@ with the same account.
   are deleted all the same and the card says to remove ravenry in
   Tailscale's admin page.
 - **No internet.** The device keeps its name and joins again by itself; the
-  card says the phone cannot reach the Mac away from home meanwhile.
+  card says the phone cannot reach the Mac away from its Wi-Fi meanwhile.
 - **Its keys** live in `<RAVENRY_HOME>/tailnet/` (mode 0700), what it last
   was (name, MagicDNS name, addresses, account) in
   `<RAVENRY_HOME>/tailnet.json` (mode 0600). Tailscale's log uploads are
   off.
-- **The card** (`GET /api/phone`) carries `wifi` (the address the Home
-  Wi-Fi row shows) and `away`: `{ on, state, name, host, ips, account,
+- **The card** (`GET /api/phone`) carries `wifi` (the address the Wi-Fi
+  row shows) and `away`: `{ on, state, name, host, ips, account,
   authURL?, error?, listening }`, `state` one of `off`, `ready`, `starting`,
   `waiting`, `on`, `offline`, `failed`, `paused` (signed in, phone access
   off).
@@ -301,7 +305,7 @@ ravenry://pair?v=1&name=<hub name>&hosts=<host>[,<host>...]&port=<phone port>&pi
 - `name`: what the phone calls the computer (its host name, `.local`
   dropped), URL-encoded.
 - `hosts`: the addresses to try, in order: the Wi-Fi's first, then, while
-  Away from home is on, the ravenry device's MagicDNS name
+  Away from this Mac's Wi-Fi is on, the ravenry device's MagicDNS name
   (`ravenry.<tailnet>.ts.net`) and its 100.x address, then this Mac's own
   Tailscale addresses (the Tailscale app's, when it runs), then any in
   `RAVENRY_PHONE_HOSTS` (comma separated, for an emulator: `10.0.2.2`). A
@@ -357,7 +361,7 @@ its cookie is its token). The same token store serves both; the cookie
 | `POST /api/phone/devices/rename` | the Mac | person | `{ id, name }`: the name the card and the phone's settings show (60 characters at most) |
 | `POST /api/phone/devices/revoke` | the Mac | person | `{ id }`: that device is signed out at once, its open streams end |
 | `POST /api/phone/access` | the Mac | person | `{ on }`: phone access on or off |
-| `POST /api/phone/away` | the Mac | person | `{ on }`: Away from home on or off (section 2) |
+| `POST /api/phone/away` | the Mac | person | `{ on }`: Away from this Mac's Wi-Fi on or off (section 2) |
 | `POST /api/phone/away/signin`, `cancel`, `signout` | the Mac | person | Sign in with Tailscale (answers with the sign-in page), Cancel, Sign out (`removed`: Tailscale took the log-out) |
 | `POST /api/phone/new-key` | the Mac | person | as before: a new sign-in key, every device signed out |
 | `GET /api/phone` | the Mac | person | the card: the browser QR as before, and while access is on the app's pairing link, its QR, the code and the check number |

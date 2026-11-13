@@ -24,6 +24,9 @@ const bad = Object.entries(raw).filter(([k, v]) => k !== '$comment' && (!/^[a-z]
 check('every key is dotted lowerCamel with a string', bad.length === 0, bad.map(([k]) => k).join(', '));
 const dashes = Object.entries(raw).filter(([, v]) => /\u2014/.test(v));
 check('no em dash in the words', dashes.length === 0, dashes.map(([k]) => k).join(', '));
+// The phone's connection words never say "home": the phone may be on any Wi-Fi the Mac is on (Simon, 2026-11-13).
+const homes = Object.entries(raw).filter(([k, v]) => k.startsWith('phone.') && /\bhome\b/i.test(v));
+check('no "home" in the phone card\'s connection words', homes.length === 0, homes.map(([k]) => k).join(', '));
 
 if (failed) { console.log(`\n${failed} failed`); process.exit(1); }
 console.log('\nall passed');
