@@ -118,7 +118,15 @@ const auth = crypto.randomBytes(16);
   const long = checkpointMessage({ id: 'c5', kind: 'approve', title: 'x', command: 'y'.repeat(9000) });
   check('a message stays within 3000 bytes', Buffer.byteLength(JSON.stringify(long)) <= 3000, String(Buffer.byteLength(JSON.stringify(long))));
   const perm = projectMessage({ kind: 'permission' }, { id: 'lp', name: 'landing-page', primary: 's1', state: 'you', question: 'Allow npm install sharp?', quick: [{ label: 'Yes', choice: 1 }, { label: 'Yes, always', choice: 2 }, { label: 'No', choice: 3 }, { label: 'Other', choice: 4 }], sessions: [{ surfaceId: 's1', topic: 'Lazy-load gallery', since: '2026-11-06T10:00:00Z' }] });
-  check('a permission menu of four: its first two answers and Open', JSON.stringify(perm.actions.map((a) => a.id)) === '["quick:1","quick:2","open"]' && perm.title === 'Lazy-load gallery needs you' && perm.reply === null, JSON.stringify(perm.actions));
+  {
+    // Every alert names the project, never the session's own name (2026-11-13).
+    const pr = { id: 'ravenry', name: 'Ravenry', primary: 's9', state: 'you', headline: 'Three things are still untested.', sessions: [{ surfaceId: 's9', topic: 'Ravenry brief hand-off', since: 't' }] };
+    const titles = ['handback', 'question', 'permission'].map((k) => projectMessage({ kind: k }, pr));
+    const cps = ['ask', 'approve', 'secret', 'pick', 'drive'].map((k) => checkpointMessage({ id: `c${k}0000`, kind: k, title: 'Q', pane: 'pabcdefg', assistant: 'claude', drive: { pane: 'pzzzzzzz' } }, { project: { id: 'ravenry', name: 'Ravenry', sessions: [{ surfaceId: 'ravenry:pabcdefg', topic: 'Ravenry brief hand-off' }] }, paneName: 'dev server' }));
+    const all = [...titles, ...cps];
+    check('every alert names the project, never the session, and no text says null or undefined', titles.every((m) => m.title === 'Ravenry needs you') && all.every((m) => !/hand-off/.test(m.title + m.body + (m.detail || '')) && !/\b(null|undefined)\b/.test(m.title + m.body + (m.detail || ''))) && cps.find((m) => m.kind === 'secret').title === 'Claude needs a secret for Ravenry', JSON.stringify(all.map((m) => [m.title, m.body, m.detail])));
+  }
+  check('a permission menu of four: its first two answers and Open', JSON.stringify(perm.actions.map((a) => a.id)) === '["quick:1","quick:2","open"]' && perm.title === 'landing-page needs you' && perm.reply === null, JSON.stringify(perm.actions));
   const q = projectMessage({ kind: 'question' }, { id: 'w', name: 'weather-api', primary: 's2', state: 'you', question: 'Which do you want: 10 minutes or 30?', quick: [{ label: '10 minutes' }, { label: '30 minutes' }], sessions: [{ surfaceId: 's2', assistant: 'claude' }] });
   check('a question in a session: its quick answers (typed ones say their text) and Reply', JSON.stringify(q.actions) === '[{"id":"quick:0","label":"10 minutes","text":"10 minutes"},{"id":"quick:1","label":"30 minutes","text":"30 minutes"}]' && q.reply && q.reply.label === 'Reply');
   check('push targets: unifiedpush is checked, apns is not built yet, none clears', checkTarget({ kind: 'unifiedpush', endpoint: 'https://ntfy.example/up1?up=1', p256dh: b64u(ua.getPublicKey()), auth: b64u(auth) }).ok && checkTarget({ kind: 'apns' }).status === 400 && checkTarget({ kind: 'none' }).target === null);
@@ -149,6 +157,7 @@ const auth = crypto.randomBytes(16);
   const plain = phone.hubName();
   process.env.RAVENRY_HUB_NAME = 'MacBook Pro';
   check('the hub\'s name: the host name up to its first dot, unless RAVENRY_HUB_NAME says', !plain.includes('.') && plain.length > 0 && phone.hubName() === 'MacBook Pro');
+  check('the Mac as a person names it, never its host name', phone.sayMac('owners-macbook-pro-1') === 'MacBook Pro' && phone.sayMac('Owners-MacBook-Pro.local') === 'MacBook Pro' && phone.sayMac('annes-mac-mini-2') === 'Mac mini' && phone.sayMac('studio') === 'studio' && phone.sayMac('Test hub') === 'Test hub' && phone.sayMac(null) === '', phone.sayMac('owners-macbook-pro-1'));
   if (had === undefined) delete process.env.RAVENRY_HUB_NAME; else process.env.RAVENRY_HUB_NAME = had;
   check('a typed code is read the Crockford way', phone.normalizeCode('abcd-efgh ijkl-mnoo') === 'ABCDEFGH1JK1MN00');
 }

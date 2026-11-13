@@ -283,7 +283,22 @@ export const pushDevices = () => load().tokens.filter((t) => t.push && t.push.ki
 export function hubName() {
   const set = String(process.env.RAVENRY_HUB_NAME || '').trim();
   if (set) return set.slice(0, 60);
-  return String(os.hostname() || '').split('.')[0] || 'Ravenry';
+  return sayMac(os.hostname()) || 'Ravenry';
+}
+
+// The Mac as a person names it, never its host name: macOS makes the host
+// name from the computer's name ("owners-macbook-pro-1"), so the model is
+// found in it ("MacBook Pro"). A name a person wrote (a space or a capital,
+// no hyphen) or any other host name ("studio") is kept. The Android app
+// says a stored name the same way (MacName.kt).
+const MODELS = [['macbook-pro', 'MacBook Pro'], ['macbook-air', 'MacBook Air'], ['macbook', 'MacBook'], ['imac-pro', 'iMac Pro'], ['imac', 'iMac'], ['mac-mini', 'Mac mini'], ['mac-studio', 'Mac Studio'], ['mac-pro', 'Mac Pro']];
+export function sayMac(name) {
+  const n = String(name || '').trim();
+  if (!n) return '';
+  if (/[ A-Z]/.test(n) && !n.includes('-')) return n;
+  const h = n.split('.')[0].toLowerCase().replace(/-\d+$/, '');
+  for (const [k, v] of MODELS) if (new RegExp(`(^|-)${k}(-|$)`).test(h)) return v;
+  return n.split('.')[0];
 }
 
 // ------------------------------------------------------------ pairing

@@ -210,9 +210,13 @@ export function program(command) {
 // A checkpoint's alert.
 export function checkpointMessage(cp, { project = null, machine = null, paneName = null, askerName = null } = {}) {
   const s = sessionOf(project, cp.pane);
-  // A drive's asker that is no session the board lists: its pane's name.
-  const topic = (s && s.topic) || (cp.kind === 'drive' && askerName ? clip(String(askerName), 80) : null);
-  const name = topic || (project ? project.name : null) || who(cp.assistant);
+  const topic = (s && s.topic) || null;
+  // Where it asks from, as the person knows it: the project, never the
+  // session's own name (2026-11-13: a session's name or id is never shown).
+  // A drive from a pane that is in no project: that tab's name.
+  const place = project ? project.name : (cp.kind === 'drive' && askerName ? clip(String(askerName), 80) : null);
+  const name = place || who(cp.assistant);
+  const mac = phone.sayMac(machine) || phone.hubName();
   const [head, ...rest] = String(cp.title || '').replace(/\r/g, '').trim().split('\n');
   const more = rest.join('\n').trim();
   const until = cp.expires_at ? ` waits until ${hhmm(cp.expires_at)}.` : ' waits for you.';
@@ -235,26 +239,26 @@ export function checkpointMessage(cp, { project = null, machine = null, paneName
   } else if (cp.kind === 'approve') {
     msg.title = `${name} wants to run a command`;
     msg.body = String(cp.command || '');
-    msg.detail = `on ${machine || phone.hubName()}${cp.cwd ? `, in ${sayFolder(cp.cwd, machine)}` : ''}`;
+    msg.detail = `on ${mac}${cp.cwd ? `, in ${sayFolder(cp.cwd, machine)}` : ''}`;
     msg.checkpoint.command = String(cp.command || '');
     msg.checkpoint.cwd = cp.cwd || null;
     if (cp.warning) msg.checkpoint.warning = clip(cp.warning, 300);
     msg.actions = [{ id: 'run', label: 'Run', biometric: true }, { id: 'refuse', label: 'Refuse' }, { id: 'open', label: 'Open' }];
   } else if (cp.kind === 'secret') {
-    msg.title = `${who(cp.assistant)} needs a secret${topic ? ` for ${topic}` : ''}`;
+    msg.title = `${who(cp.assistant)} needs a secret${place ? ` for ${place}` : ''}`;
     const to = cp.secret && cp.secret.to;
     const prog = cp.command ? program(cp.command) : null;
-    msg.detail = `${prog && to !== 'input' ? `for ${prog} ` : ''}on ${machine || phone.hubName()}. Type it in the app.`;
+    msg.detail = `${prog && to !== 'input' ? `for ${prog} ` : ''}on ${mac}. Type it in the app.`;
     msg.actions = [{ id: 'open', label: 'Type it' }, { id: 'decline', label: 'Not now' }];
     msg.reply = null;
   } else if (cp.kind === 'drive') {
     // An agent asks to type into a pane it did not start. Allowing it is as
     // strong as running a command there, so it takes a fingerprint, like
-    // Run. The pane and the asker are named as the sidebar names them
-    // (`paneName`: the pane's session topic, else its tab name), never by
-    // their ids; the daemon's own title only when the pane is not known.
+    // Run. The asker is named by its project (never its session's name);
+    // the pane it would act on as the sidebar names it (`paneName`), never
+    // by ids; the daemon's own title only when the pane is not known.
     const d = cp.drive || {};
-    const asker = `${who(cp.assistant)}${topic ? `, in ${topic},` : ''}`;
+    const asker = `${who(cp.assistant)}${place ? `, in ${place},` : ''}`;
     const pn = paneName ? clip(String(paneName), 80) : null;
     const what = { close: `close ${pn}`, restart: `restart ${pn}`, override: `change how ${pn} runs` }[d.action] || `type in ${pn}`;
     msg.title = pn ? `${asker} wants to ${what}` : (head || `${who(cp.assistant)} wants to use another tab`);
@@ -265,8 +269,8 @@ export function checkpointMessage(cp, { project = null, machine = null, paneName
     const input = d.input ? clip(String(d.input), 300) : null;
     const typed = input ? keyLine(input) : null;
     msg.body = reason ? `${who(cp.assistant)} says: ${reason}` : (typed || '');
-    msg.detail = reason && typed ? `It would type: ${typed}` : `on ${machine || phone.hubName()}`;
-    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input', name: pn, session: topic, ...(reason ? { reason } : {}), ...(input ? { keys: keyParts(input) } : {}) };
+    msg.detail = reason && typed ? `It would type: ${typed}` : `on ${mac}`;
+    msg.checkpoint.drive = { pane: d.pane || null, action: d.action || 'input', name: pn, session: place, ...(reason ? { reason } : {}), ...(input ? { keys: keyParts(input) } : {}) };
     msg.actions = [{ id: 'allow:once', label: 'Allow once', biometric: true }, { id: 'allow:session', label: 'This session', biometric: true }, { id: 'refuse', label: 'Refuse' }];
   } else if (cp.kind === 'pick') {
     // Pictures to choose from. The shade picks a variant by its label; the
@@ -291,7 +295,8 @@ export function projectMessage(alert, p) {
   const s = (p.sessions || []).find((x) => x.surfaceId === p.primary) || null;
   const w = (s && s.words) || {};
   const topic = (s && s.topic) || null;
-  const name = topic || p.name;
+  // The project names it, never the session (its name is not shown).
+  const name = p.name;
   const kind = alert.kind;
   const id = kind === 'gate'
     ? `gate:${crypto.createHash('sha256').update(String(alert.gateKey || '')).digest('base64url').slice(0, 16)}`
