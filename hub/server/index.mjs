@@ -3014,7 +3014,16 @@ async function alertsWrite(req, res, p) {
   // The bell: Mac notifications on or off (server/desktop.mjs), from any page.
   if (p === '/api/alerts/desktop') return answer(alerts.setDesktop(!!body.enabled));
   if (p === '/api/alerts/test') return answer(await alerts.sendTest(local ? body.channel || null : null, boardUrl()));
+  // Add an iPhone (docs/PHONE.md section 4): from its own Safari page (a
+  // signed-in phone browser, its device id) or from this Mac ('mac').
+  const by = local ? 'mac' : req.mcDevice || null;
+  if (p === '/api/alerts/iphone/start') { const r = alerts.iphoneStart(by); return sendJson(res, r.ok ? 200 : r.status, r.ok ? r : { error: r.error }); }
+  if (p === '/api/alerts/iphone/test') return answer(await alerts.iphoneTest(body.id, by, boardUrl()));
+  if (p === '/api/alerts/iphone/confirm') return answer(alerts.iphoneConfirm(body.id, by));
   if (!local) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
+  if (p === '/api/alerts/iphone/copy') return answer(await alerts.iphoneCopy());
+  if (p === '/api/alerts/iphone/remove') return answer(alerts.iphoneRemove(body.id));
+  if (p === '/api/alerts/phone/test') return answer(await alerts.phoneTest(body.id, boardUrl()));
   if (p === '/api/alerts/desktop/test') return answer(await alerts.testDesktop());
   // The app's answer for a notification it was sent: shown by macOS or not, and why.
   // An app's window came to the front: Mac notifications go to it (desktop.mjs pickApp).
@@ -3031,6 +3040,7 @@ async function alertsWrite(req, res, p) {
 }
 
 const alertsQr = (link) => phone.qrSvg(link, 156, 'QR code that subscribes the ntfy app to your topic');
+const iphoneQr = (link) => phone.qrSvg(link, 156, 'QR code that opens Alerts on this iPhone in Safari');
 
 function shipProjects() {
   return reg.projects.filter((p) => !p.hidden).map((p) => ({ ...p, state: (snapshot.projects.find((x) => x.id === p.id) || {}).state || null }));
@@ -3879,7 +3889,7 @@ async function handleRequest(req, res) {
     if (req.method === 'GET' && p === '/api/alerts/setup') {
       if (!req.mcLocal) return sendJson(res, 403, { error: alerts.PHONE_REFUSED });
       if (await refusedAsPerson(req, res, p)) return;
-      return sendJson(res, 200, { ok: true, local: true, ...alerts.setupView(alertsQr) });
+      return sendJson(res, 200, { ok: true, local: true, ...alerts.setupView(alertsQr, { iphoneLink: phone.signInLink(PORT), iphoneQr: iphoneQr }) });
     }
     if (req.method === 'GET' && p === '/api/meta') {
       const c = cfg();

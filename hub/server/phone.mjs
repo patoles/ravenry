@@ -22,6 +22,11 @@
 // hash, id, name, platform, app, ua, created, lastSeen, push }] }. Tokens
 // are kept as SHA-256 hashes. The key, a token and a pairing code are
 // never logged.
+//
+// A device that alerts reach without signing in (an iPhone through ntfy,
+// server/alerts.mjs) is a record in the same list with `hash: null`: no
+// token ever matches it, the phone card's sign-ins leave it out, and New
+// key keeps it (it holds no key).
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -72,7 +77,7 @@ function load() {
   let d = null;
   try { d = JSON.parse(fs.readFileSync(PHONE_FILE, 'utf8')); } catch { /* none yet */ }
   if (d && typeof d.key === 'string' && d.key.length >= 43) {
-    data = { key: d.key, access: d.access === true, away: d.away === true, tokens: Array.isArray(d.tokens) ? d.tokens.filter((t) => t && typeof t.hash === 'string') : [] };
+    data = { key: d.key, access: d.access === true, away: d.away === true, tokens: Array.isArray(d.tokens) ? d.tokens.filter((t) => t && (typeof t.hash === 'string' || (t.hash === null && t.push && typeof t.push.kind === 'string'))) : [] };
     try { fs.chmodSync(PHONE_FILE, 0o600); } catch { /* ignore */ }
     // A token from before devices (a phone browser's cookie) gets an id.
     let added = false;
@@ -185,12 +190,13 @@ function redirect(res, setCookie) {
   res.end();
 }
 
-export function phoneCount() { return load().tokens.length; }
+export function phoneCount() { return load().tokens.filter((t) => t.hash).length; }
 
-// New key: a fresh key, every token forgotten. Phone access stays as it was.
+// New key: a fresh key, every token forgotten. Phone access stays as it was,
+// and so do the devices alerts reach without a sign-in (no token to forget).
 export function rotate() {
-  const access = load().access;
-  data = { key: newSecret(), access, tokens: [] };
+  const d = load();
+  data = { key: newSecret(), access: d.access, tokens: d.tokens.filter((t) => t.hash === null) };
   pairing = null;
   save();
 }
@@ -218,8 +224,9 @@ export function setAway(on) {
 
 const pub = (t) => ({ id: t.id, name: t.name || null, platform: t.platform || null, app: t.app || null, created: t.created || null, lastSeen: t.lastSeen || null, push: t.push ? t.push.kind : null });
 
-// Every device, without its hash or push secrets.
-export const devices = () => load().tokens.map(pub);
+// Every device signed in (a phone browser, a paired app), without its hash
+// or push secrets.
+export const devices = () => load().tokens.filter((t) => t.hash).map(pub);
 
 /** "seen now", "seen 2 min ago", "seen 3 h ago", "seen yesterday", "seen 4 d ago". */
 export function seen(iso, now) {
@@ -277,6 +284,40 @@ export function setPush(id, target) {
 
 // Every device with a push target.
 export const pushDevices = () => load().tokens.filter((t) => t.push && t.push.kind && t.push.kind !== 'none');
+
+// Every device alerts reach (server/push.mjs), as stored: a paired app
+// (never a phone browser's sign-in), and a device with no sign-in once its
+// setup was confirmed (an iPhone through ntfy: `push.confirmed`).
+export const alertRecords = () => load().tokens.filter((t) => t.platform !== 'browser' && (t.hash || (t.push && t.push.confirmed)));
+
+// Every device with no sign-in of its own, confirmed or not (alerts.mjs).
+export const unsignedRecords = () => load().tokens.filter((t) => t.hash === null);
+
+// A device alerts reach without a sign-in: { id, name, platform, push, by }
+// stored with `hash: null`. Returns the record.
+export function addUnsigned({ name, platform, push, by = null }) {
+  const at = new Date().toISOString();
+  const t = { hash: null, id: newId(), name: String(name || 'Phone').slice(0, 60), platform: String(platform || 'unknown').slice(0, 20), app: null, ua: '', created: at, lastSeen: null, push: push || null, by };
+  load().tokens.push(t);
+  save();
+  return t;
+}
+
+// Changes a stored device in place (`fn(record)`) and saves. Returns the record or null.
+export function updateRecord(id, fn) {
+  const t = load().tokens.find((x) => x.id === id);
+  if (!t) return null;
+  fn(t);
+  save();
+  return t;
+}
+
+// The board's sign-in link on the Wi-Fi (the browser QR's), or null with
+// no Wi-Fi address. It carries the key: for a QR picture on the Mac only.
+export function signInLink(port) {
+  const lan = lanAddresses()[0];
+  return lan ? `http://${lan.address}:${port}/?k=${load().key}` : null;
+}
 
 // What the phone calls this computer: RAVENRY_HUB_NAME, else its host
 // name up to the first dot (".local", ".lan", ".home" dropped).

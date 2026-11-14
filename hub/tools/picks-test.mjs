@@ -115,7 +115,8 @@ check('a drive without the agent\'s words says what it would type in its body, k
 const plain = checkpointMessage({ ...open, id: 'cdrive05' }, { paneName: 'dev server', askerName: 'scratch shell' });
 check('a drive between plain panes (no session on the board) names both by their panes', plain.title === 'Claude, in scratch shell, wants to type in dev server' && plain.checkpoint.drive.name === 'dev server' && plain.checkpoint.drive.session === 'scratch shell', JSON.stringify(plain));
 const bare = checkpointMessage({ ...open, id: 'cdrive04' });
-check('a drive whose pane is not known falls back to the daemon\'s title', bare.title === 'Type into the server pane?', bare.title);
+// Fixed words, never the checkpoint's own title (an iPhone through ntfy gets the title in clear: docs/PHONE.md section 5).
+check('a drive whose pane is not known says so in fixed words, never the checkpoint\'s own title', bare.title === 'Claude wants to use another tab', bare.title);
 
 // ------------------------------------------------------------ end to end
 const BIN = process.env.RAVENRYD_BIN && path.resolve(process.env.RAVENRYD_BIN);

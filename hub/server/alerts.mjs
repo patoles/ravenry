@@ -23,9 +23,12 @@
 // failed send is shown in the status and the log and tried once more after
 // RETRY_MS (30 s).
 //
-// The phone apps (server/push.mjs, docs/PHONE.md) are a third, with their
-// own trigger and state: an app alert carries the question and its buttons,
-// encrypted for each paired phone, and goes whenever an app is paired.
+// The phones (server/push.mjs, docs/PHONE.md) are a third, with their own
+// trigger and state, on whenever a phone gets alerts: a paired app's alert
+// carries the question and its buttons, encrypted for that phone; an
+// iPhone through ntfy (set up here, "iPhones through ntfy" below) gets the
+// same alert's title and fixed line on a topic of its own. One person may
+// have them all at once, besides one channel: each gets an alert once.
 //
 // Mac notifications (the bell, server/desktop.mjs) are a second channel with
 // the same triggers, wording and dedupe, run by their own trigger with its
@@ -44,6 +47,8 @@ import { execFile } from 'node:child_process';
 import { RAVENRY_HOME } from './home.mjs';
 import * as desktop from './desktop.mjs';
 import * as push from './push.mjs';
+import * as phone from './phone.mjs';
+import { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS } from './alertwords.mjs';
 import {
   CHANNELS, DEFAULT_NTFY, telegramTokenOk, telegramMe, telegramFindChat,
   webhookKind, maskWebhook, ntfySubscribeLink, maskTopic, ntfyServerOk,
@@ -56,7 +61,8 @@ const COOLDOWN_MS = num(env.MC_ALERT_COOLDOWN_MS, 10 * 60 * 1000);
 const RETRY_MS = num(env.MC_ALERT_RETRY_MS, 30 * 1000);
 const PRIME_MS = num(env.MC_ALERT_PRIME_MS, 8000);
 
-export const KINDS = { question: 'Asked you a question', handback: 'Handed back', permission: 'Waiting for permission', gate: 'Plan gate' };
+// The fixed words (server/alertwords.mjs), as this module has always exported them.
+export { KINDS, CHECKPOINT_KINDS, DRIVE_ACTIONS };
 
 // The alert's second line. A plan gate says its own short question (the
 // plan wrote it, server/planfmt.mjs shortQuestion); every other kind is a
@@ -128,6 +134,9 @@ export function status() {
     desktop: desktopStatus(d),
     // The phones whose Ravenry app gets alerts (server/push.mjs), by name.
     apps: push.appNames(),
+    // Every phone alerts reach, with how: 'app' (the Ravenry app) or 'ntfy'
+    // (an iPhone through ntfy). No id, topic or endpoint.
+    phones: push.phones().map((x) => ({ name: x.name, transport: x.transport })),
   };
 }
 
@@ -149,12 +158,22 @@ export function maskChat(c) {
 // The setup sheet, for the Mac only. Everything secret is masked; the ntfy
 // subscribe link reaches the page only inside its QR picture, like the
 // phone sign-in key.
-export function setupView(qrSvg) {
+// `iphone.link`: the board's Safari sign-in link (server/phone.mjs
+// signInLink), which the Add an iPhone QR opens on its #iphone page.
+export function setupView(qrSvg, { iphoneLink = null, iphoneQr = null } = {}) {
   const d = load();
   if (!d.ntfy.topic) { d.ntfy.topic = newTopicName(); save(); }
   const t = d.telegram, w = d.webhook, n = d.ntfy;
+  const access = phone.access();
+  const mine = pending('mac');
   return {
     ...status(),
+    // The phones list, with what the Mac's rows need (ids, the last send).
+    phones: push.phones().map((x) => ({ id: x.id, name: x.name, platform: x.platform, transport: x.transport, last: x.last })),
+    // Add an iPhone: the QR (the sign-in link + #iphone) only while phone
+    // access is on, else the person copies the code instead; the code this
+    // Mac copied and has not confirmed yet.
+    iphone: { access, qr: access && iphoneLink && iphoneQr ? iphoneQr(`${iphoneLink}#iphone`) : null, server: ntfyServerOf(d), pending: mine ? { id: mine.id } : null },
     ready: Object.fromEntries(Object.keys(CHANNELS).map((id) => [id, ready(d, id)])),
     telegram: { token: maskToken(t.token), bot: t.bot || null, chat: maskChat(t.chatId) },
     webhook: { url: w.url ? maskWebhook(w.url) : null, kind: w.url ? webhookKind(w.url) : null },
@@ -237,17 +256,108 @@ export function setNtfyServer(raw) {
   return { ok: true };
 }
 
+// Text onto the Mac's clipboard (MC_COPY_COMMAND in tests).
+function copyText(text, what) {
+  const argv = env.MC_COPY_COMMAND ? JSON.parse(env.MC_COPY_COMMAND) : ['/usr/bin/pbcopy'];
+  return new Promise((resolve) => {
+    const p = execFile(argv[0], argv.slice(1), { timeout: 5000 }, (err) => resolve(err ? fail(500, `Could not copy the ${what}.`) : { ok: true }));
+    p.stdin.end(text);
+  });
+}
+
 // The topic onto the Mac's clipboard, for an iPhone (the ntfy iPhone app
 // opens no links, and Universal Clipboard carries it across). The topic
 // itself never goes to the page.
 export function copyTopic() {
   const d = load();
   if (!d.ntfy.topic) return Promise.resolve(fail(409, 'There is no topic yet.'));
-  const argv = env.MC_COPY_COMMAND ? JSON.parse(env.MC_COPY_COMMAND) : ['/usr/bin/pbcopy'];
-  return new Promise((resolve) => {
-    const p = execFile(argv[0], argv.slice(1), { timeout: 5000 }, (err) => resolve(err ? fail(500, 'Could not copy the topic.') : { ok: true }));
-    p.stdin.end(d.ntfy.topic);
-  });
+  return copyText(d.ntfy.topic, 'topic');
+}
+
+// ------------------------------------------------------------ iPhones through ntfy
+
+// An iPhone is a phone in the phones list, not a channel (docs/PHONE.md
+// section 4, "An iPhone through ntfy"): a device record with no sign-in,
+// { id, name: "iPhone", platform: "ios", app: null, hash: null, push: {
+// kind: "ntfy", server, topic, confirmed } }, made by its setup, alerted by
+// server/push.mjs with every other phone. Its topic is its own, never the
+// ntfy channel's; Remove forgets it.
+//
+// The setup: the iPhone's own Safari page (the board's #iphone, signed in
+// by the QR) or this Mac (Copy the code instead) asks for a code (start),
+// the person subscribes to it in ntfy, Send a test sends one there, It
+// arrived confirms, and from then on it gets alerts. `by` is who asked:
+// the browser's device id, or 'mac'; each has at most one code waiting,
+// and a code nobody confirmed in an hour goes.
+const PENDING_MS = 60 * 60 * 1000;
+const ntfyServerOf = (d) => String((d.ntfy && d.ntfy.server) || DEFAULT_NTFY).replace(/\/+$/, '');
+const isNtfyIphone = (r) => !!(r && r.hash === null && r.push && r.push.kind === 'ntfy');
+
+function pending(by) {
+  return phone.unsignedRecords().find((r) => isNtfyIphone(r) && !r.push.confirmed && r.by === by && Date.now() - Date.parse(r.created) < PENDING_MS) || null;
+}
+
+// A code for this iPhone: { ok, id, topic, server, mac }.
+export function iphoneStart(by) {
+  if (!by) return fail(401, 'Sign in first.');
+  for (const r of phone.unsignedRecords()) if (isNtfyIphone(r) && !r.push.confirmed && Date.now() - Date.parse(r.created) >= PENDING_MS) phone.revoke(r.id);
+  const rec = pending(by) || phone.addUnsigned({ name: 'iPhone', platform: 'ios', by, push: { kind: 'ntfy', server: ntfyServerOf(load()), topic: newTopicName(), confirmed: null } });
+  return { ok: true, id: rec.id, topic: rec.push.topic, server: rec.push.server, mac: phone.hubName() };
+}
+
+// An iPhone's record, for `by` (the Mac may act on any).
+function iphoneFor(id, by) {
+  const r = phone.deviceRecord(String(id || ''));
+  if (!isNtfyIphone(r) || (by !== 'mac' && r.by !== by)) return null;
+  return r;
+}
+
+// Send a test: one test alert on that iPhone's topic, confirmed or not.
+export async function iphoneTest(id, by, boardUrl) {
+  const r = iphoneFor(id, by);
+  if (!r) return fail(404, 'No such iPhone. Start again.');
+  const x = await push.sendTo(r.id, push.testMessage(), { click: boardUrl || null });
+  console.log(`alerts: iPhone test ${x.ok ? 'sent' : 'failed: ' + x.error}`);
+  return x.ok ? { ok: true } : fail(502, `${x.error}.`);
+}
+
+// It arrived: the iPhone joins the phones list and gets every alert.
+export function iphoneConfirm(id, by) {
+  const r = iphoneFor(id, by);
+  if (!r) return fail(404, 'No such iPhone. Start again.');
+  if (!r.push.confirmed) {
+    const taken = new Set(phone.alertRecords().map((x) => x.name));
+    let name = 'iPhone';
+    for (let k = 2; taken.has(name); k++) name = `iPhone ${k}`;
+    phone.updateRecord(r.id, (t) => { t.push = { ...t.push, confirmed: new Date().toISOString() }; t.name = name; });
+    console.log(`alerts: ${name} gets alerts through ntfy (${r.id})`);
+  }
+  return { ok: true, id: r.id };
+}
+
+// Copy the code instead: this Mac's code onto its clipboard (Universal
+// Clipboard carries it to the iPhone). The code never goes to the page.
+export async function iphoneCopy() {
+  const s = iphoneStart('mac');
+  const r = await copyText(s.topic, 'code');
+  return r.ok ? { ok: true, id: s.id } : r;
+}
+
+// Remove: the iPhone's record and its topic are forgotten.
+export function iphoneRemove(id) {
+  const r = iphoneFor(id, 'mac');
+  if (!r) return fail(404, 'No such iPhone.');
+  phone.revoke(r.id);
+  console.log(`alerts: ${r.name} removed (${r.id})`);
+  return { ok: true };
+}
+
+// Send a test to one phone of the list (an app or an iPhone).
+export async function phoneTest(id, boardUrl) {
+  const rec = phone.deviceRecord(String(id || ''));
+  if (!rec || !phone.alertRecords().includes(rec)) return fail(404, 'No such phone.');
+  const x = await push.sendTo(rec.id, push.testMessage(), { click: boardUrl || null });
+  return x.ok ? { ok: true, held: !!x.held } : fail(502, `${x.error}.`);
 }
 
 // Done in the sheet: the channel shown becomes the one alerts use, and a
@@ -272,7 +382,7 @@ function testAlert(boardUrl) {
 // test that goes through makes that channel the active one.
 export async function sendTest(id, boardUrl) {
   // Paired apps get a test too (server/push.mjs), whatever the channel.
-  const apps = push.ready() ? push.send(push.testMessage()) : 0;
+  const apps = push.ready() ? push.send(push.testMessage(), { click: boardUrl || null }) : 0;
   const d = load();
   if (apps && !CHANNELS[id || d.channel]) return { ok: true, apps };
   const ch = id || d.channel;
@@ -466,10 +576,7 @@ export function observe(projects, opts = {}) {
 // blocked until someone answers). Like every alert it says who and what
 // kind, never the agent's text: the question, the command and the secret's
 // label stay on the board.
-export const CHECKPOINT_KINDS = { ask: 'Asks you something', approve: 'Wants to run a command', secret: 'Needs you to type a secret', drive: 'Wants to type into another tab', pick: 'Wants you to pick a variant' };
-
-// What a drive asks to do to a tab (its drive.action; absent: type).
-export const DRIVE_ACTIONS = { input: 'Wants to type into another tab', close: 'Wants to close another tab', restart: 'Wants to restart another tab', override: 'Wants to change how another tab runs' };
+// (CHECKPOINT_KINDS and DRIVE_ACTIONS: server/alertwords.mjs.)
 
 export function checkpointAlert(cp, { project = null, machine = null, boardUrl = null, paneName = null, askerName = null } = {}) {
   const who = project ? project.name : machine ? `An agent on ${machine}` : 'An agent';
@@ -481,6 +588,6 @@ export function checkpointAlert(cp, { project = null, machine = null, boardUrl =
   const d = load();
   if (d.enabled && ready(d, d.channel)) deliver(alert).catch((e) => console.error('alerts:', e.message));
   if (d.desktop.enabled !== false) deliverDesktop({ kind: 'checkpoint', projectId: alert.projectId, title: alert.title, body: alert.body, surfaceId: s ? s.surfaceId : null }).catch((e) => console.error('desktop:', e.message));
-  try { push.fromCheckpoint(cp, { project, machine, paneName, askerName }); } catch (e) { console.error('push:', e.message); }
+  try { push.fromCheckpoint(cp, { project, machine, paneName, askerName, click: alert.url }); } catch (e) { console.error('push:', e.message); }
   return alert;
 }
