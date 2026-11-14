@@ -213,6 +213,37 @@ theme on the client is never overridden by the daemon's defaults.
   7800 rows, now once per pause rather than at every step. The client
   meanwhile draws the frame it has at the new size; it never sees a
   cleared prompt, nor half a redraw.
+- **A full redraw leaves no stale copy.** Claude Code, after a SIGWINCH
+  and whenever its frame is taller than the screen and changes, puts the
+  cursor home, erases every row and draws its whole frame again from the
+  top (`ESC[H`, `ESC[2K ESC[1B` for each row, the frame, in one
+  synchronized update). The rows of the frame past the screen scroll into
+  the scrollback, and the copy an earlier redraw left there cannot be
+  erased by the program; a taller screen pulls no rows back from the
+  scrollback while the cursor is not on the last row (Claude Code's
+  prompt has rows under it), and the program draws them again on the
+  screen. So every resize, the phone's Flip fold or a window drag, left
+  earlier messages twice in the history, and the Live screen and the
+  phone feed, which read it, showed them twice. When such a redraw ends,
+  the daemon (`daemon/internal/vt/redraw.go`) takes the longest text
+  right above the frame's first row that is exactly the start of the
+  frame's text, white space aside (a copy laid out at another width
+  matches), and removes it: whole rows, and the end of the row it starts
+  in (a libghostty patch, `daemon/patches/ghostty-redraw-history.patch`,
+  removes scrollback rows and keeps the screen as it is). Only rows from
+  the first row of the program's previous full redraw down count, or any
+  after a resize; a match under 16 characters, or one shorter text
+  repeated (a rule, the same word over and over), stays, since both
+  sides can share it by chance. Real scrollback stays: a frame starts
+  with the text right above it only when the program drew it twice, or
+  when the session repeats there exactly (a message and its whole
+  answer twice in a row, the frame starting at the second, which the
+  daemon cannot tell apart). `TestRedrawLeavesNoStaleCopy` (the recorded
+  bytes' shape, at the sizes of a recorded fold and drag),
+  `TestRedrawKeepsRealScrollback`, and `TestResizeTranscriptOnce`
+  (testprog's redraw with a live part taller than the screen, through
+  `pane.capture`: before, the person's 40 messages read 44 times after
+  the first resize; now each once at every size).
 
 ## Key bindings
 
