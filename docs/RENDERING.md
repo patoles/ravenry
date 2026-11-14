@@ -134,7 +134,7 @@ theme on the client is never overridden by the daemon's defaults.
   dropped it for a newer one).
 - **Whole.** A frame never shows a program's synchronized update half
   done (mode 2026): during one the daemon keeps sending the last frame the
-  program finished, up to a second from its start, as Ghostty does. A
+  program finished, up to a second from its start. A
   resize does not end it (libghostty's resize does, and Claude Code,
   which erases every row after a SIGWINCH and draws them again over 50
   to 150 ms, showed blank or a few rows through a drag): at the new size
@@ -179,11 +179,10 @@ theme on the client is never overridden by the daemon's defaults.
   for 300 to 400 ms. Resizing the screen at each step without telling
   the program breaks it another way: its cursor moves, relative to rows
   the reflow moved, land on the wrong rows and leave garbage in the
-  scrollback. Ghostty never parses a program's output against a size
-  the program was not told: it sets the pty's size and the grid's
-  together, under one lock, and coalesces resizes 25 ms apart
-  (`src/termio/Thread.zig`, `Termio.zig` resize); kitty waits for the
-  resizes to stop (about 0.1 s) and then does both. So:
+  scrollback. A program's output must never be parsed against a size
+  the program was not told: the pty's size and the grid's change
+  together, under one lock, and resizes close together (25 ms) are
+  coalesced, or both wait for the resizes to stop (about 0.1 s). So:
   - A resize on its own (a split, a font change, a window snapped, a
     drag's first step) goes at once: the screen and the pty together.
   - During a drag (a size within 50 ms of the last one asked) the screen
@@ -224,11 +223,10 @@ the daemon (`daemon/internal/vt/keybinds.go`), so every client of a
 platform sends the same bytes and none types them again; a client names
 its table in `pane.render` (`keybinds`). A binding applies to a press or
 a repeat with exactly its modifiers (Caps Lock and Num Lock aside), even
-when the program asked for the Kitty keyboard protocol, as Ghostty's do.
+when the program asked for the Kitty keyboard protocol.
 A setting may later replace single rows; the tables are the defaults.
 
-`macos`, Ghostty's macOS defaults (its `src/config/Config.zig`, "Natural
-text editing", at the libghostty pin) and so Rex's, and what the
+`macos`, the keys a Mac's text fields edit with, and what the
 Electron app sends (`apps/desktop/src/renderer/terminal.ts`):
 
 | Key | Sends | At a shell prompt |
@@ -238,17 +236,17 @@ Electron app sends (`apps/desktop/src/renderer/terminal.ts`):
 | Cmd+Backspace | `^U` | deletes to the start of the line (zsh: the whole line) |
 | Option+Left | `ESC b` | a word left |
 | Option+Right | `ESC f` | a word right (zsh: to the next word's start) |
-| Cmd+Delete (forward) | `^K` | deletes to the end of the line (Ravenry's, not Ghostty's) |
-| Option+Delete (forward) | `ESC d` | deletes the next word (Ravenry's) |
+| Cmd+Delete (forward) | `^K` | deletes to the end of the line |
+| Option+Delete (forward) | `ESC d` | deletes the next word |
 | Shift+Enter | LF | a new line in Claude Code and Codex; Enter in a shell (the Electron app's) |
 
 Not bound, because the encoder already gives what is expected:
 Option+Backspace is `ESC DEL`, the word before the cursor; Ctrl+Left and
-Ctrl+Right are `CSI 1;5D` and `CSI 1;5C`, as in Ghostty, and Ravenry's
+Ctrl+Right are `CSI 1;5D` and `CSI 1;5C`, and Ravenry's
 zsh and bash integrations bind those to a word left and right where the
 person's own files left them unbound (zsh binds neither and typed
-`;5D`). Ghostty's Cmd+Up and Cmd+Down jump to the previous or next
-prompt, a client's action, not bytes: not done yet. `daemon/internal/server/keybinds_test.go`
+`;5D`). Cmd+Up and Cmd+Down to the previous or next prompt would
+be a client's action, not bytes: not done yet. `daemon/internal/server/keybinds_test.go`
 checks each at a zsh prompt.
 
 ## What a client implements
@@ -286,7 +284,7 @@ These are the parts that are the platform's, and nothing else:
    in the client's units; the daemon encodes them (X10, SGR, SGR pixels).
    Every wheel or trackpad movement goes as a `wheel` event in rows (a
    trackpad's points divided by the cell's height, momentum included):
-   the daemon decides, as Ghostty does, whether it goes to the program,
+   the daemon decides whether it goes to the program,
    becomes arrow keys on the alternate screen, or scrolls the view. The
    client draws a scrollbar from `history`, `offset` and `rows`.
 7. **Selection and copy.** Without mouse reporting (or with Shift), a

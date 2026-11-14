@@ -1,7 +1,7 @@
 # Ravenry for macOS (native)
 
 A native Mac app, Swift and AppKit with no web view, that draws its
-terminal itself, the way Rex does: the daemon's screen (libghostty-vt in
+terminal itself: the daemon's screen (libghostty-vt in
 `ravenryd`) is the only screen, the app draws the rows the daemon sends
 with its own Metal renderer, and the daemon encodes the person's keys and
 mouse for the program. There is no second terminal emulator to drift from
@@ -74,7 +74,7 @@ stream".
   small bell when its pane rang, a quiet dot when it printed (the daemon's
   `pane.activity` and `pane.bell`), until it is opened; its dot takes the
   colour of Needs you or Working from what its agent reported or a
-  question open in it; a lent pane's tab carries its holder's badge. Splits as Rex has them: every pane has a
+  question open in it; a lent pane's tab carries its holder's badge. Splits of splits: every pane has a
   header (a pane alone too) with Split right (Cmd+D), Split down
   (Cmd+Shift+D), Move to its own tab, Zoom (Cmd+Shift+Enter) and Close
   (Cmd+W) at its right, greyed with the reason in the tip when there is
@@ -248,11 +248,10 @@ stream".
   theme (the desktop app's) and whatever the program changed. The
   shaders are compiled when the app starts, so the build needs no Metal
   Toolchain.
-- **Fonts**: the cell is the font's own, as Ghostty (and so Rex)
-  computes it: the advance of "M" wide, ascent, descent and line gap
+- **Fonts**: the cell is the font's own: the advance of "M" wide, ascent, descent and line gap
   high, each rounded to a pixel, no extra line spacing; the baseline
   leaves the descent at the cell's bottom. The font and its size are the
-  shared settings' (Menlo 13 by default, 16 x 30 px at 2x; Rex's Menlo 12
+  shared settings' (Menlo 13 by default, 16 x 30 px at 2x; Menlo 12
   is 14 x 28), a family that is not here falling back to the settings'
   list. Cmd+= (or Cmd++), Cmd+- and Cmd+0 change the size from 8 to 32
   points, in the View menu too, written to the shared settings file as
@@ -268,12 +267,11 @@ stream".
   or off, the Dock bouncing while the app is not in front, for a pane not
   on screen too) and closing a busy shell (a sheet: Close, Cancel, Don't
   ask again).
-- **Shaders, as Ghostty's** (`Shaders.swift`): shaders in Ghostty's
-  custom-shader format (`mainImage`, `iTime`, `iResolution`, `iChannel0`
+- **Shaders** (`Shaders.swift`): shaders in the usual
+  custom-shader shape (`mainImage`, `iTime`, `iResolution`, `iChannel0`
   the picture under it), the GLSL of the mockup ported to MSL by hand
   behind a small prelude (vec2 is float2, `texture()` samples with GLSL's
-  y-up coordinates) and compiled at launch like the renderer's. Ghostty
-  runs its GLSL through glslang and SPIRV-Cross; this app keeps no
+  y-up coordinates) and compiled at launch like the renderer's; this app keeps no
   third-party code. **Pane effect** (Settings > Appearance: Off, Soft bloom,
   CRT curve; `paneEffect`, off by default): `Renderer.encode` draws the
   pane into a texture of its own and the effect from it into the drawable,
@@ -349,8 +347,8 @@ stream".
   settings' Option as Meta says (`--option-as-alt` for one run).
 - **Scrolling**: every wheel and trackpad movement goes to the daemon in
   rows (`wheel`: a trackpad's points over the cell's height, momentum
-  included; a wheel's notch three rows), and the daemon decides, as
-  Ghostty does, whether the program gets it, it becomes arrow keys on
+  included; a wheel's notch three rows), and the daemon decides
+  whether the program gets it, it becomes arrow keys on
   the alternate screen, or the view scrolls. Typing brings the view
   back (the daemon does). A macOS-style overlay scrollbar shows while
   the view scrolls and fades out a second after. Cmd+Home and Cmd+End go
@@ -704,7 +702,7 @@ prints:
   encode, plus GPU);
 - for `seq`: the time to the prompt and the draws a second;
 - the grid of the app's first window (900 x 560 pt at 2x) with its cell,
-  beside what Rex's cell (14 x 28 px) makes of it.
+  beside what the compact target's cell (Menlo 12, 14 x 28 px) makes of it.
 
 The daemon's own drag test (`daemon/internal/server/drag_test.go`) does
 the same through the protocol with a Go client.

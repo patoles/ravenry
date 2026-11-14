@@ -241,8 +241,8 @@ the command prints. A shell without shell integration sends no marks;
 itself, when it starts one interactively in a pane (the default login
 shell, or a `command` that is the shell with no script or `-c`): `A`, `B`,
 `C` with the command line (`cmdline_url`) and `D` with the exit status,
-and OSC 7 with the working folder. It injects them at start, as Ghostty
-does, and never changes the user's files: zsh gets a `ZDOTDIR` whose
+and OSC 7 with the working folder. It injects them at start
+and never changes the user's files: zsh gets a `ZDOTDIR` whose
 `.zshenv` gives `ZDOTDIR` back and runs the user's own; bash 4 and newer
 starts with `--posix` and an `ENV` file that leaves POSIX mode and runs
 the user's startup files as bash would have; bash 3.2 (macOS's
@@ -444,8 +444,8 @@ signalled.
 
 ### pane.clear
 
-`pane`. Clears the screen and the scrollback the way Cmd+K does in
-Terminal.app and iTerm2: the prompt stays and moves to the top, and
+`pane`. Clears the screen and the scrollback, as Cmd+K does on a Mac:
+the prompt stays and moves to the top, and
 everything above it goes. The prompt is the cursor's row, or, when the
 shell marks its prompts (OSC 133, section 3) and the cursor is at one,
 the whole prompt from its first row, so a prompt of two rows stays

@@ -89,7 +89,7 @@ Ravenry protocol, [packages/protocol](../packages/protocol/PROTOCOL.md).
   session's transcript and brief for the hand-off.
 - **Shell integration.** zsh, bash and fish started in a pane send OSC 133
   prompt marks (with the command line and its exit status) and OSC 7,
-  injected at start the way Ghostty does it, without touching the user's
+  injected at start, without touching the user's
   files (`internal/pane/shell`, PROTOCOL.md section 3).
   `RAVENRY_SHELL_INTEGRATION=0` turns it off.
 

@@ -582,7 +582,7 @@ twin (step 16).
 
 ## Keys in the terminal
 
-As in Terminal.app, iTerm2 and Ghostty on a Mac. xterm.js sends almost all
+The usual Mac terminal keys. xterm.js sends almost all
 of them itself; the few it does otherwise are a table in
 `src/renderer/terminal.ts` (MAC_CMD_SEND, MAC_OPT_SEND, MAC_CMD_ACT). No
 app shortcut takes any of them while a terminal has focus.
