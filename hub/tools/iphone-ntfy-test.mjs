@@ -397,6 +397,18 @@ try {
     await pg.waitForTimeout(300);
     check('page: Open the board closes it and leaves #iphone', !(await pg.$('#iph')) && !pg.url().includes('#iphone'), pg.url());
     await ctx.close();
+    // The board's Settings on the Mac: the phones line names the iPhone with its transport.
+    const mctx = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+    const mp = await mctx.newPage();
+    await mp.goto(`${BASE}/`);
+    await mp.waitForSelector('#gear');
+    await mp.click('#gear');
+    await mp.waitForSelector('#pa-apps-row:not([hidden])', { timeout: 5000 }).catch(() => {});
+    const line = await mp.textContent('#pa-apps').catch(() => '');
+    const onL = await mp.textContent('#pa-on-l').catch(() => '');
+    check('board Settings: the phones line says how each gets alerts, the channels as "Also"', line === 'iPhone gets alerts through ntfy.' && onL.startsWith('Also send alerts to'), JSON.stringify([line, onL]));
+    if (SHOTS) await mp.screenshot({ path: path.join(SHOTS, 'board-settings-phones.png') });
+    await mctx.close();
   }
 } finally {
   if (browser) await browser.close().catch(() => {});
