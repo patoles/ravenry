@@ -17,6 +17,11 @@
 //
 //   SIDETEST_OLD_RAVENRYD=PATH node scripts/sidetest.mjs --screen daemons [OUT]
 //
+// SIDETEST_HUB_DIR: the hub folder the demo board runs in place of the
+// tree's hub/, run by the node running this script: a package's own
+// (Contents/Resources/hub, with its Contents/MacOS/node), to check the app
+// on the board as it ships.
+//
 // --screen strip: SIDETEST_FILM_CONTENT=PATH runs that zsh script in the
 // filmstrip's picked-frame panes (SelfTestFilmPick.swift) in place of
 // their own scrolling output (a replayed Claude tab, say).
@@ -567,7 +572,7 @@ if (PAGES) {
   });
   fs.writeFileSync(RULES_FILE, JSON.stringify({ memory: path.join(cpdP(path.join(PR, 'paper-boat')), 'memory'), global: path.join(PHP, '.claude', 'CLAUDE.md'), projectClaudeMd: path.join(PR, 'paper-boat', 'CLAUDE.md'), fake: path.join(PD, 'hub', 'fake-cmux.json') }));
 }
-const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub });
+const hub = await startDemoHub({ dir: PAGES ? path.join(PD, 'hub') : path.join(tmp, 'hub'), port, ...screenHub, ...(process.env.SIDETEST_HUB_DIR ? { hubDir: path.resolve(process.env.SIDETEST_HUB_DIR) } : {}) });
 const sbDrive = SB ? sessbDriver({ hub: { current: hub }, sb: SB, sock, APP, env }) : null;
 if (SB) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true })); }
 const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.jsonl')) : null;
