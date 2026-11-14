@@ -26,9 +26,10 @@ At the top of `index.html`, `window.RAVENRY_SITE`:
 - `downloads`: where GitHub serves the latest release's files
   (`.../releases/latest/download/`).
 - `reportUrl`: where "report a problem" goes (a new GitHub issue).
-- `firstLaunchNote`: `true` shows "Right-click Ravenry and choose Open the
-  first time." under the Mac download, for a build not signed with a
-  Developer ID. Off by default.
+- `firstLaunchNote`: `true` shows "The first time, macOS asks: open System
+  Settings, Privacy & Security, and choose Open Anyway." under the Mac
+  download, for a build not signed with a Developer ID. On while the DMG is
+  not notarized.
 
 ## Preview and check
 

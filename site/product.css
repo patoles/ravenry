@@ -161,25 +161,37 @@
 .rv-tabbar div i { width:20px; height:16px; border:2px solid currentColor; border-radius:4px; }
 .rv-tabbar div.on { color:#fff; } .rv-tabbar div.on i { border-color:var(--work); }
 
-/* Android notification shade */
-.rv-shade { background:#111214; height:100%; padding:44px 10px 10px; }
-.rv-n { background:#2B2D31; border-radius:22px; padding:14px 16px 12px; margin-bottom:6px; color:#E8E8EC; }
-.rv-n .h { display:flex; gap:10px; align-items:flex-start; }
-.rv-n .ic { width:28px; height:28px; border-radius:50%; background:var(--you); display:grid; place-items:center; flex:none; }
-.rv-n .t { font-size:13.5px; font-weight:500; } .rv-n .t span { color:#A8A8AE; font-weight:400; font-size:12px; }
-.rv-n .b { font-size:13px; color:#C9C9CE; margin-top:2px; } .rv-n .b b { color:#fff; font-weight:600; }
-.rv-n .acts { display:flex; gap:22px; padding:10px 0 0 38px; color:#A8C7FA; font-size:13.5px; font-weight:500; }
-.rv-n.done { background:#21302A; }
-.rv-n.done .ic { background:var(--ok); }
+/* Android notification shade, as stock Android 14 draws Ravenry's alerts
+   (dark): measured from the app's own alerts on an emulator, 1080 px wide
+   scaled to the 340 px screen. The small icon's circle is the alert's
+   colour (AlertColor in Notifier.kt): orange waits for you, green is done. */
+.rv-shade { background:#000; height:100%; padding:6px 0 0; font-family:Roboto,"Helvetica Neue",Arial,sans-serif; }
+.rv-nsb { height:32px; display:flex; justify-content:space-between; align-items:center; padding:0 22px 4px; font-size:11.5px; color:#F0F0F3; }
+.rv-nsb span { display:flex; gap:5px; align-items:center; } .rv-nsb svg { width:12px; height:12px; }
+.rv-sheet { background:#191C1E; border-radius:24px 24px 0 0; padding:13px; height:100%; }
+.rv-n { position:relative; background:#2E3133; border-radius:4px; margin-bottom:2px; padding:0 13px 0 43px; color:#C0C7CD; font-size:11.5px; line-height:16.5px; }
+.rv-n:first-child { border-top-left-radius:22px; border-top-right-radius:22px; }
+.rv-n:last-child { border-bottom-left-radius:22px; border-bottom-right-radius:22px; margin-bottom:0; }
+.rv-n .ic { position:absolute; left:13px; top:13px; width:20px; height:20px; border-radius:50%; background:var(--you); color:#2E3133; display:grid; place-items:center; }
+.rv-n.ok .ic { background:var(--ok); }
+.rv-n .cv { position:absolute; right:13px; top:13px; width:20px; height:20px; border-radius:50%; background:#191C1E; color:#F0F0F3; display:grid; place-items:center; }
+.rv-n .cv svg { width:10px; height:10px; }
+.rv-n .hd { height:40px; display:flex; align-items:center; font-size:10.5px; padding-right:30px; }
+.rv-n .tt { font-size:13px; line-height:18px; color:#F0F0F3; }
+.rv-n .bd { margin-top:5px; } .rv-n .bd b { font-weight:600; }
+.rv-n .acts { display:flex; gap:23px; height:40px; align-items:center; margin-top:8px; padding-bottom:4px; color:#C1E8FF; font-weight:500; }
+/* A collapsed alert: the title, its project and time on one line, the body under it. */
+.rv-n.c { height:68px; padding:16px 46px 0 43px; }
+.rv-n.c .ic, .rv-n.c .cv { top:24px; }
+.rv-n.c .r1 { display:flex; align-items:baseline; white-space:nowrap; min-width:0; }
+.rv-n.c .r1 .tt { overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; min-width:0; }
+.rv-n.c .r1 span { font-size:10.5px; flex:none; }
+.rv-n.c .bd { margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* The reply line Android opens on Answer: the buttons give way to it. */
+.rv-reply { display:flex; align-items:center; margin:21px 0 0 -30px; padding-bottom:13px; }
+.rv-reply span { flex:1; background:#505355; border-radius:21px; padding:11px 13px; font-size:13px; line-height:16px; color:#F0F0F3; }
+.rv-reply i { display:inline-block; width:1.5px; height:15px; background:#C1E8FF; vertical-align:-3px; margin-left:1px; }
+.rv-reply svg { width:19px; height:19px; margin-left:15px; color:#C1E8FF; flex:none; }
 
-/* Shade on black, an alert being answered (round 2, direction A) */
+/* The hero's phone frame */
 .rv-phone-a { background:#050506; box-shadow:0 0 0 1.5px #3a3a3f, 0 0 0 8px #0d0d0f, 0 0 0 9px rgba(255,255,255,.14); }
-.rv-n-a { background:#1C1C1E; }
-.rv-n-a.done { background:#13241A; }
-.rv-chipsrow { display:flex; gap:7px; padding:12px 0 0 38px; }
-.rv-chipsrow span { border-radius:16px; padding:6px 12px; font-size:13px; font-weight:500; color:#A8C7FA; box-shadow:0 0 0 1px #3a3d44 inset; }
-.rv-chipsrow span.on { background:#A8C7FA; color:#0b1d36; box-shadow:none; }
-.rv-reply { display:flex; align-items:center; gap:8px; margin:10px 0 0 38px; background:#2C2C30; border-radius:20px; padding:8px 8px 8px 14px; }
-.rv-reply span { flex:1; font-size:13px; color:#fff; line-height:1.35; }
-.rv-reply i { display:inline-block; width:1.5px; height:15px; background:#A8C7FA; vertical-align:-3px; margin-left:1px; }
-.rv-reply b { width:30px; height:30px; border-radius:50%; background:#A8C7FA; color:#0b1d36; display:grid; place-items:center; font-size:16px; flex:none; }

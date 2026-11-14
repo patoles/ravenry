@@ -137,12 +137,26 @@
       <div style="display:flex;gap:6px;margin-top:10px"><span class="rv-btn" style="background:#3A3A40;color:#fff;box-shadow:none;flex:1;justify-content:center">1</span><span class="rv-btn" style="background:#3A3A40;color:#fff;box-shadow:none;flex:1;justify-content:center">2</span><span class="rv-btn" style="background:#3A3A40;color:#fff;box-shadow:none;flex:1;justify-content:center">3</span><span class="rv-btn pri" style="flex:2;justify-content:center">Answer</span></div></div>
     <div class="rv-tabbar"><div class="on"><i></i>Projects</div><div><i></i>Ideas</div><div><i></i>Rules</div><div><i></i>Ship</div><div><i></i>Pages</div></div>
   </div></div>`;
-  const phoneShade = () => `<div class="rv-phone" style="height:640px"><div class="rv-screen"><div class="rv-shade"><div style="display:flex;justify-content:space-between;font-size:13px;color:#ddd;margin:-26px 8px 18px"><span>17:26 &nbsp;Sat, Nov 14</span><span>80%</span></div>
-    <div class="rv-n"><div class="h"><span class="ic" style="color:#1a1000">${mark(16, 'transparent')}</span><div><div class="t">paper-boat asks <span>· now</span></div><div class="b"><b>Tilt the hull with the slope too, or keep it level?</b></div></div></div><div class="acts"><span>Tilt it</span><span>Keep level</span><span>Answer</span></div></div>
-    <div class="rv-n"><div class="h"><span class="ic" style="color:#1a1000">${mark(16, 'transparent')}</span><div><div class="t">notes-app wants to run <span>· 1m</span></div><div class="b"><b>npm publish --tag beta</b> on This Mac</div></div></div><div class="acts"><span>Run</span><span>Refuse</span><span>Open</span></div></div>
-    <div class="rv-n"><div class="h"><span class="ic" style="color:#1a1000">${mark(16, 'transparent')}</span><div><div class="t">garden-planner needs a secret <span>· 2m</span></div><div class="b"><b>API token for the map tiles</b></div></div></div><div class="acts"><span>Type it</span><span>Not now</span></div></div>
-    <div class="rv-n done"><div class="h"><span class="ic" style="color:#062">${mark(16, 'transparent')}</span><div><div class="t">recipe-box is done <span>· 5m</span></div><div class="b">The old import format works again.</div></div></div></div>
-  </div></div></div>`;
+  // Ravenry's alerts as stock Android draws them (the app's own alerts on an
+  // emulator), with the words the hub builds (hub/server/push.mjs). The icon's
+  // circle is the alert's colour: orange waits for you, green is done.
+  const chev = (up) => `<span class="cv"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${up ? 'M2 6.5l3-3 3 3' : 'M2 3.5l3 3 3-3'}"/></svg></span>`;
+  const sendIc = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5l18-8.5L3 3.5v6.6L15 12 3 13.9z"/></svg>';
+  const nIc = () => `<span class="ic">${mark(13, 'transparent')}</span>`;
+  const nFull = (o) => `<div class="rv-n${o.ok ? ' ok' : ''}">${nIc()}${chev(true)}<div class="hd">Ravenry • ${o.project} • ${o.at || 'now'}</div><div class="tt">${o.title}</div><div class="bd"><b>${o.body}</b>${o.detail ? ' ' + o.detail : ''}</div>${o.reply ? `<div class="rv-reply"><span>${o.reply}<i></i></span>${sendIc}</div>` : `<div class="acts">${o.acts.map((x) => `<span>${x}</span>`).join('')}</div>`}</div>`;
+  const nRow = (o) => `<div class="rv-n c${o.ok ? ' ok' : ''}">${nIc()}${chev(false)}<div class="r1"><span class="tt">${o.title}</span><span>&nbsp;• ${o.project} • ${o.at || 'now'}</span></div><div class="bd"><b>${o.body}</b>${o.detail ? ' ' + o.detail : ''}</div></div>`;
+  const statusBar = '<div class="rv-nsb"><span>17:26 &nbsp;Sat, Nov 14</span><span><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5L23.5 6.6C23 6.2 18.6 2.5 12 2.5S1 6.2.5 6.6z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2.5h6v2h2.5v18h-11v-18H9z"/></svg>80%</span></div>';
+  const ALERTS = {
+    ask: { project: 'paper-boat', title: 'paper-boat asks', body: 'Tilt the hull with the slope too, or keep it level?', detail: 'Claude waits for you.', acts: ['Tilt it', 'Keep level', 'Answer'] },
+    approve: { project: 'notes-app', title: 'notes-app wants to run a command', body: 'npm publish --tag beta', detail: 'on MacBook Pro' },
+    secret: { project: 'garden-planner', title: 'Claude needs a secret for garden-planner', body: 'API token for the map tiles', detail: 'on MacBook Pro. Type it in the app.' },
+    permission: { project: 'weather-widget', title: 'weather-widget needs you', body: 'Do you want to make this edit to forecast.ts?' },
+    handback: { project: 'recipe-box', title: 'recipe-box needs you', body: 'The old import format works again.' },
+    decision: { project: 'paper-boat', title: 'Saved your decision', body: 'Keep the hull level for now; try tilting on the pond later.', detail: 'Claude recorded it for paper-boat.', ok: true },
+  };
+  const phoneShade = () => `<div class="rv-phone" style="height:640px"><div class="rv-screen"><div class="rv-shade">${statusBar}<div class="rv-sheet">
+    ${nFull(ALERTS.ask)}${nRow(ALERTS.approve)}${nRow(ALERTS.secret)}${nRow(ALERTS.permission)}${nRow(ALERTS.handback)}${nRow(ALERTS.decision)}
+  </div></div></div></div>`;
 
   const termOnly = () => `<div class="rv-mac" style="width:900px;height:520px;padding:0;gap:0"><div class="rv-mid" style="border-radius:12px"><div class="rv-tabs"><span style="display:flex;gap:7px;margin:0 10px 0 4px" class="rv-lights"><i></i><i></i><i></i></span><span class="rv-tab">›_ zsh ~</span><span class="rv-tab on"><i class="rv-dot work"></i>Sync settings <span class="p">notes-app</span></span><span class="rv-tab">Old recipe import <span class="p">recipe-box</span></span><span class="rv-tab">+</span></div>
     <div style="display:flex;flex:1;min-height:0"><div class="rv-term mono" style="flex:1;border-right:1px solid #2A2A2E"><span class="g">~/Projects/notes-app ›</span> codex
@@ -163,15 +177,11 @@
 <span class="g">17:24:09</span> page reload src/settings/store.ts</div></div></div></div>`;
 
 
-  const ic = (c) => `<span class="ic" style="color:${c}">${mark(16, 'transparent')}</span>`;
-  const shadeAnswer = () => `<div class="rv-phone rv-phone-a" style="height:540px"><div class="rv-screen" style="background:#000"><div class="rv-shade" style="background:#000">
-    <div style="display:flex;justify-content:space-between;font-size:13px;color:#ddd;margin:-26px 8px 14px"><span>17:26 &nbsp;Sat, Nov 14</span><span>80%</span></div>
-    <div class="rv-n rv-n-a"><div class="h">${ic('#1a1000')}<div style="flex:1"><div class="t">paper-boat asks <span>· Claude · now</span></div><div class="b"><b>Tilt the hull with the slope too, or keep it level?</b></div><div class="b" style="color:#9a9aa0;margin-top:3px">The slope is 8 degrees on the test pond.</div></div></div>
-      <div class="rv-chipsrow"><span class="on">Keep it level</span><span>Tilt it</span><span>Both</span></div>
-      <div class="rv-reply"><span>Keep it level for now, try tilting on the pond later<i></i></span><b>↑</b></div></div>
-    <div class="rv-n rv-n-a"><div class="h">${ic('#1a1000')}<div><div class="t">notes-app wants to run <span>· 1m</span></div><div class="b"><b>npm publish --tag beta</b> on This Mac</div></div></div><div class="acts"><span>Run</span><span>Refuse</span><span>Open</span></div></div>
-    <div class="rv-n rv-n-a done"><div class="h">${ic('#062')}<div><div class="t">recipe-box is done <span>· 5m</span></div><div class="b">The old import format works again.</div></div></div></div>
-  </div></div></div>`;
+  // The hero: the question being answered from the shade, as Android draws
+  // it once Answer is tapped (the reply line in place of the buttons).
+  const shadeAnswer = () => `<div class="rv-phone rv-phone-a" style="height:540px"><div class="rv-screen" style="background:#000"><div class="rv-shade">${statusBar}<div class="rv-sheet">
+    ${nFull({ ...ALERTS.ask, detail: 'The slope is 8 degrees on the test pond.', reply: 'Keep it level for now, try tilting on the pond later' })}${nRow({ ...ALERTS.approve, at: '1m' })}${nRow({ ...ALERTS.handback, at: '5m' })}
+  </div></div></div></div>`;
   const SIZES = { mac: [1280, 800, mac], board: [260, 0, board], ask: [340, 0, askCard], approve: [340, 0, approveCard], secret: [340, 0, secretCard], pick: [340, 0, pickCard], decisions: [420, 0, decisions], handoff: [420, 0, handoff], phone: [380, 800, phoneProjects], shade: [380, 660, phoneShade], term: [900, 520, termOnly], shadeA: [380, 560, shadeAnswer] };
   function mount() {
     for (const el of document.querySelectorAll('[data-rv]')) {
