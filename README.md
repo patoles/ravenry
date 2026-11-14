@@ -2,6 +2,8 @@
 
 # Ravenry
 
+> **Ravenry is now a Mac app.** The early test is open: get the Mac app and the Android app at https://patoles.github.io/ravenry/. This repository holds the npm board (`ravenry-app` 0.4), which the Mac app replaces.
+
 One local board for every Claude Code session on your Mac (and OpenAI Codex's): see which project needs you, answer it from the board, and keep a short brief for each project.
 
 ![The Ravenry board: projects grouped by what needs you, a question with its options, and the session's live screen](https://raw.githubusercontent.com/patoles/ravenry/main/docs/screenshot.png)
