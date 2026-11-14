@@ -439,3 +439,35 @@ func TestSkillRunIt(t *testing.T) {
 		t.Errorf("none: %q", s)
 	}
 }
+
+// The guide says what Ravenry does, one line per area of FEATURES.md
+// section 2 (tools/features-check.mjs checks the same against this
+// source), and where an agent is: only this Mac's panes, another machine's
+// over ssh.
+func TestSkillWhatRavenryDoes(t *testing.T) {
+	doc, err := os.ReadFile(filepath.Join("..", "..", "..", "docs", "FEATURES.md"))
+	if err != nil {
+		t.Skip("no docs/FEATURES.md beside the daemon")
+	}
+	sec := strings.SplitN(string(doc), "\n## 2.", 2)[1]
+	sec = strings.SplitN(sec, "\n## 3.", 2)[0]
+	s := skillText()
+	does := strings.SplitN(strings.SplitN(s, "## What Ravenry does", 2)[1], "\n## ", 2)[0]
+	n := 0
+	for _, l := range strings.Split(sec, "\n") {
+		if a, ok := strings.CutPrefix(l, "### "); ok {
+			n++
+			if !strings.Contains(does, "- **"+strings.TrimSpace(a)+"**") {
+				t.Errorf("What Ravenry does has no line for %q", a)
+			}
+		}
+	}
+	if n < 10 {
+		t.Fatalf("only %d areas read from FEATURES.md", n)
+	}
+	for _, w := range []string{"Your commands reach only this Mac's panes", "ssh studio '~/.ravenry/bin/ravenry ls'", "Remote Login on", "no Tailscale", "Pair your phone", "Away from this Mac's Wi-Fi"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("the guide misses %q", w)
+		}
+	}
+}

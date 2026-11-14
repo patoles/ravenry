@@ -34,6 +34,26 @@ Ravenry sets these in every pane it runs:
 If they are not set, you are not in a Ravenry pane: commands then use the
 newest daemon on this machine (and start one if none runs).
 
+**Your commands reach only this Mac's panes.** The person's app also shows
+the sessions of their other machines (Machines, under What Ravenry does).
+To work on one, go over ssh by the full path (` + "`ravenry`" + ` is not on an ssh
+command's PATH): ` + "`~/.ravenry/bin/ravenry`" + ` where the Machines page installed
+it, ` + "`\"$HOME/Library/Application Support/Ravenry/bin/ravenry\"`" + ` on a Mac that
+has the app itself.
+
+    ssh studio '~/.ravenry/bin/ravenry ls'
+
+Every ssh call is a new client there, so a pane you started in one call
+is not yours in the next: ` + "`send`" + `, ` + "`settle`" + `, ` + "`close`" + ` and ` + "`restart`" + ` on it
+ask the person (exit 125 with ` + "`--no-wait`" + `). Give the pane its whole job
+as its command, then read it (` + "`ls`" + `, ` + "`capture`" + `, ` + "`read`" + ` and ` + "`wait`" + ` work on
+any pane there):
+
+    id=$(ssh studio "~/.ravenry/bin/ravenry new --hidden --ttl 30m --cwd ~/app -- sh -c 'npm test'")
+    ssh studio "~/.ravenry/bin/ravenry wait $id --exit --timeout 10m --json"   # exit.code
+
+Ask the person from here, with this Mac's ` + "`ravenry ask`" + `.
+
 ## Words
 
 | The person says | Ravenry |
@@ -174,6 +194,84 @@ person never needs to come back to your chat.
 - ` + "`ravenry fixture PANE --last 30s -o bug.fixture.json`" + ` turns a real
   session into a test fixture; ` + "`ravenry replay bug.fixture.json --headless -o end.png`" + `
   plays it into a fresh screen, at any ` + "`--speed`" + `.
+
+## What Ravenry does
+
+What the app does for the person, one line per area, and where it is, so
+you can answer them or point them to it. The Mac app is a terminal with a
+board beside it (the hub, a background service) that follows every Claude
+Code and Codex session; there are Linux builds and an Android app too.
+
+- **Terminal**: tabs and splits of panes that live in ravenryd, so closing,
+  relaunching or updating the app never ends a shell or a session.
+- **Navigation and windows**: several windows over the same panes (Shell >
+  New Window); every page goes back to where it was opened from.
+- **Sessions and sidebar**: every session, on this Mac and its machines, in
+  Needs you, Working, Waiting on others and Idle; New session
+  (Cmd+Shift+N), Hand off now, Recently closed, New project.
+- **Session panel**: the right column: the selected session's state, its
+  questions, approvals and picks as cards, context, files changed, and the
+  review of a worktree session (comments, Merge).
+- **Brief**: each project's BRIEF.md (goal, rules, Next), a card in the
+  panel and a page beside the session.
+- **Plans**: a plan's steps with their proofs, and the gates the person
+  answers; New plan from the brief. The Objectives page counts the boxes
+  of a project's PLAN, ROADMAP and TODO files.
+- **Ideas**: the Ideas page, a board from spark to mockup, greenlit and
+  parked; an idea's thread with an agent, mockup rounds, Make a project.
+- **Decisions**: the directions the person gave, in their own words, on
+  the Decisions page (Decisions in the sidebar, with its count): who saved
+  each, when, what it replaced. ` + "`ravenry decide`" + ` saves one, ` + "`ravenry decisions`" + `
+  reads them.
+- **Pages from files**: the sidebar's pages (Ideas, Objectives, Plans,
+  Rules, Ship, then the person's own), drawn from ` + "`.page.yaml`" + ` files you can
+  write (` + "`ravenry page docs`" + `).
+- **Gallery and pictures**: a project's pictures (picks, screenshots), from
+  the panel's latest picture or Gallery.
+- **Alerts and notifications**: the bell in the sidebar's foot opens
+  Alerts: Mac notifications, the phone, or Telegram, Discord, Slack or ntfy.
+  Your ` + "`ask`" + `, ` + "`approve`" + `, ` + "`secret`" + ` and ` + "`pick`" + ` reach the person there.
+- **Settings** (Cmd+,): appearance, behaviour, the hooks and this skill for
+  Claude Code and Codex, the hand-off line, which assistant new sessions
+  start with, where new projects go.
+- **Onboarding and Learn**: the first launch reaches a working session with
+  no terminal command; Learn Ravenry (the ?, or Help) has short cards.
+- **Phone pairing**: the Ravenry app on Android shows the projects and a
+  session's live screen, starts a session, and answers questions,
+  approvals and picks, from its notifications too (a phone's browser gets
+  the board on the Mac's Wi-Fi only; no iPhone app yet).
+  - Pair: on the Mac, Alerts > Pair your phone, then scan the QR code with
+    the app (or type its code). That turns phone access on.
+  - On the Mac's Wi-Fi the phone connects directly, nothing else to set up.
+  - Away from it: in the same card, turn on Away from this Mac's Wi-Fi and
+    Sign in with Tailscale (Ravenry joins the person's Tailscale as its own
+    device, no VPN app on the Mac); the phone needs the Tailscale app,
+    signed in with the same account. Then it answers from anywhere.
+- **Machines**: sessions on another Mac (or a Linux box) over ssh, shown in
+  the sidebar with the machine's name, live, answerable; New session's Runs
+  on starts one there. The Machines page opens from the server mark in the
+  sidebar's foot. To add another Mac:
+  - On that Mac: System Settings > General > Sharing > Remote Login on.
+  - From this Mac, an ssh key login with no password (` + "`ssh-copy-id`" + `):
+    Ravenry's ssh never asks a question, so a password prompt fails.
+  - A Host in ` + "`~/.ssh/config`" + ` (` + "`Host studio`" + `, ` + "`HostName Studio.local`" + `, ` + "`User`" + `
+    ...). On the same network the other Mac's .local name (Sharing, Local
+    hostname) is enough, no Tailscale; away from it, use its Tailscale name
+    (both Macs on Tailscale). ` + "`ssh studio true`" + ` must work in a terminal.
+  - Machines: pick the host, Add and install: ravenryd and the hooks go
+    there over ssh, in the home folder, no sudo.
+- **Updates and install**: the app updates itself from its releases; an
+  update never ends a session (the old daemon keeps its panes until they
+  end).
+- **The hub service**: the board runs on as a service with the window
+  closed, so alerts still reach the phone; no telemetry.
+- **Signing**: the app and every binary in it are code signed, and an
+  update replaces nothing until its checksum and signature check out.
+- **Accessibility and keyboard**: every action is in the menus with its
+  shortcut, no shortcut takes a key a terminal program needs, dark and light
+  follow the system.
+- **Agent tools**: the commands below, and the hooks that tell the board
+  each session's state.
 
 ## Two names, one binary
 
