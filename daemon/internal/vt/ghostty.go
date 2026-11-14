@@ -59,6 +59,10 @@ type ghostty struct {
 	// gen counts changes to the text (output, a resize, Clear); reflow
 	// counts those that may change the history's rows (find.go).
 	gen, reflow uint64
+
+	// rd: a program's full redraw, and the stale copy of its frame it
+	// leaves in the scrollback (redraw.go).
+	rd redrawState
 }
 
 // snapshotExtras restores everything except the palette: a client keeps
@@ -265,7 +269,7 @@ func newVTFormatter(t *gt.Terminal) (*gt.Formatter, error) {
 
 func (s *ghostty) Write(p []byte) {
 	s.gen++
-	s.t.VTWrite(p)
+	s.writeRedraws(p)
 }
 
 func (s *ghostty) Resize(cols, rows int) error {
@@ -280,6 +284,9 @@ func (s *ghostty) Resize(cols, rows int) error {
 	// as debris. A taller screen, and any other program's, still pulls.
 	s.gen++
 	s.reflow++
+	if cols != s.cols || rows != s.rows {
+		s.rd.resized = true
+	}
 	pull := !(cols != s.cols && s.AtPrompt())
 	s.t.SetResizePullScrollback(pull)
 	held, heldAt := s.held, s.heldAt
@@ -733,6 +740,9 @@ func (s *ghostty) EncodePaste(text []byte) ([]byte, error) {
 }
 
 func (s *ghostty) Close() {
+	if s.t != nil {
+		s.redrawClose()
+	}
 	if s.sel.g != nil {
 		for _, e := range s.sel.ev {
 			e.Close()

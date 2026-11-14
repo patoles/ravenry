@@ -53,7 +53,11 @@
 //	          with relative moves. claude-busy adds a spinner line over the
 //	          footer that it updates 10 times a second with relative moves
 //	          from the prompt, each in a synchronized update, as Claude
-//	          Code does while it works.
+//	          Code does while it works. $RAVENRY_TESTPROG_LIVE=N: the last
+//	          N lines are its live part, drawn whole from the top when they
+//	          are taller than the screen (the rows past it scroll into the
+//	          scrollback), the whole transcript so on the first draw, as
+//	          Claude Code does while a turn or a background agent runs.
 package testprog
 
 import (
@@ -184,12 +188,13 @@ func redraw() {
 		os.Exit(1)
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	live, _ := strconv.Atoi(os.Getenv("RAVENRY_TESTPROG_LIVE"))
 	switch os.Getenv("RAVENRY_TESTPROG_REDRAW") {
 	case "claude":
-		claude(lines, false)
+		claude(lines, false, live)
 		return
 	case "claude-busy":
-		claude(lines, true)
+		claude(lines, true, live)
 		return
 	}
 	winch := make(chan os.Signal, 1)

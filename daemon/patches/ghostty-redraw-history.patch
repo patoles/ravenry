@@ -1,0 +1,105 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 1a338e6..4ebbcfc 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -315,6 +315,7 @@ comptime {
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
++        @export(&c.terminal_ravenry_erase_history, .{ .name = "ghostty_terminal_ravenry_erase_history" });
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
+         @export(&c.terminal_vt_write_until, .{ .name = "ghostty_terminal_vt_write_until" });
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 50ea4ab..8af0860 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -978,6 +978,46 @@ pub fn cursorReload(self: *Screen) void {
+     self.cursor.page_cell = page_rac.cell;
+ }
+ 
++/// Ravenry (daemon/patches/ghostty-redraw-history.patch): remove a stale
++/// run of the scrollback, n rows from row y (screen coordinates, 0 the
++/// oldest row), the first of them from column x on: with x > 0 that row
++/// stays with its cells before x, cleared from x and no longer wrapping.
++/// The rows under the run move up and the screen shows the same rows as
++/// before. The row above a run taken whole wraps no more into it. Returns
++/// how many rows went: none past the scrollback's end.
++/// The daemon removes this way the stale copy of rows that a program,
++/// which erased its screen and drew its frame again from the top, has
++/// just drawn once more under them (vt, redraw.go).
++pub fn ravenryEraseHistory(self: *Screen, y: usize, x: usize, n: usize) usize {
++    const hist = self.pages.total_rows -| self.pages.rows;
++    if (y >= hist or n == 0) return 0;
++    var first = y;
++    var count = @min(n, hist - y);
++    if (x > 0) {
++        const p = self.pages.pin(.{ .screen = .{ .y = @intCast(y) } }) orelse return 0;
++        const rac = p.rowAndCell();
++        const cells = p.cells(.all);
++        if (x < cells.len) self.clearCells(p.node.page(), rac.row, cells[x..]);
++        rac.row.wrap = false;
++        rac.row.dirty = true;
++        first = y + 1;
++        count -= 1;
++    } else if (y > 0) {
++        if (self.pages.pin(.{ .screen = .{ .y = @intCast(y - 1) } })) |p| {
++            p.rowAndCell().row.wrap = false;
++        }
++    }
++    var done: usize = 0;
++    while (done < count) : (done += 1) {
++        self.pages.eraseRow(.{ .screen = .{ .y = @intCast(first) } }) catch break;
++    }
++    // Each erased row went to the end of the list as a blank row: drop
++    // them there, so the screen's window moves up over the scrollback.
++    const trimmed = self.pages.ravenryTrimBottom(done);
++    self.cursorReload();
++    return trimmed;
++}
++
+ /// Scroll the active area and keep the cursor at the bottom of the screen.
+ /// This is a very specialized function but it keeps it fast.
+ pub fn cursorDownScroll(self: *Screen) !void {
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index fbd891d..104c31b 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -196,6 +196,7 @@ pub const terminal_new = terminal.new;
+ pub const terminal_free = terminal.free;
+ pub const terminal_reset = terminal.reset;
+ pub const terminal_resize = terminal.resize;
++pub const terminal_ravenry_erase_history = terminal.ravenry_erase_history;
+ pub const terminal_set = terminal.set;
+ pub const terminal_vt_write = terminal.vt_write;
+ pub const terminal_vt_write_until = terminal.vt_write_until;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 348eebf..ab6f359 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -2026,6 +2026,25 @@ pub const TerminalData = enum(c_int) {
+     }
+ };
+ 
++/// Ravenry (daemon/patches/ghostty-redraw-history.patch): remove a run of
++/// the primary screen's scrollback, n rows from row y (0 the oldest row),
++/// the first of them from column x on (Screen.ravenryEraseHistory); the
++/// screen keeps its rows. erased, when given, gets how many rows went.
++pub fn ravenry_erase_history(
++    terminal_: Terminal,
++    y: usize,
++    x: usize,
++    n: usize,
++    erased: ?*usize,
++) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    const t: *ZigTerminal = wrapper.terminal;
++    const screen = t.screens.get(.primary) orelse return .invalid_value;
++    const done = screen.ravenryEraseHistory(y, x, n);
++    if (erased) |e| e.* = done;
++    return .success;
++}
++
+ pub fn get(
+     terminal_: Terminal,
+     data: TerminalData,

@@ -107,7 +107,25 @@ func ClaudeScreen(lines []string, cols, rows int, busy bool) []string {
 	return out
 }
 
-func claude(lines []string, busy bool) {
+// claudeFrame is what the program draws at cols x rows: the screen's
+// last rows (claudeRows) or, with live > 0, its live part whole when
+// that is taller than the screen: the last live lines of the transcript
+// (all of them on the first draw) and the footer, the rows past the
+// screen's height scrolling into the scrollback.
+func claudeFrame(lines []string, cols, rows int, busy bool, spin string, live int, first bool) [][]placed {
+	if live > 0 {
+		from := max(0, len(lines)-live)
+		if first {
+			from = 0
+		}
+		if all := claudeRows(lines[from:], cols, 1<<20, busy, spin); len(all) > rows {
+			return all
+		}
+	}
+	return claudeRows(lines, cols, rows, busy, spin)
+}
+
+func claude(lines []string, busy bool, live int) {
 	var mu sync.Mutex
 	write := func(s string) { os.Stdout.WriteString(s) }
 	n := 0
@@ -122,8 +140,10 @@ func claude(lines []string, busy bool) {
 		}
 		return cols, rows
 	}
+	drawn := false
 	draw := func(cols, rows int) {
-		laid := claudeRows(lines, cols, rows, busy, spin())
+		laid := claudeFrame(lines, cols, rows, busy, spin(), live, !drawn)
+		drawn = true
 		rowsOut := make([]string, len(laid))
 		for y, r := range laid {
 			var b strings.Builder
