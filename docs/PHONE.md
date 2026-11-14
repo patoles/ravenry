@@ -58,6 +58,15 @@ terminal) into a `pane.capture`, so the pane keeps its size; and the Mac
 app asks for its own size back when it sees a pane drawn at a size it did
 not ask for (one an older phone app left small).
 
+**The person's messages stay in the feed** (2026-11-14). The Live screen
+is the pane's screen, and a terminal can lose rows: in a person's pane a
+message sent from the phone, and the done line above it, were drawn
+over, so the feed went from the reply before it to the tools after it.
+For a Claude Code session the hub lines the trimmed screen up with the
+transcript (`server/codespans.mjs`, keepPersonTurns) and puts such a
+message back where the transcript has it, a typed turn or one sent while
+Claude worked alike; every board reads it (`GET /api/live`).
+
 **When the Mac does not answer**, the app says why in plain words, never
 a host name or an address: "Tailscale is off on this phone. Turn it on,
 then try again." (with Open Tailscale) when only the tailnet could answer
@@ -108,6 +117,23 @@ your tailnet" or "through the Mac's Tailscale app"; this computer), since
 when, how fast it answers, and Open
 Tailscale and Reconnect. Offline, the reason words stay under the top bar
 (the reach bar, with Open Tailscale and Try again).
+
+**Back by itself** (2026-11-14). Everything that says the Mac cannot be
+reached goes as soon as the Mac answers again, by any path, with nothing
+touched: any answer of the hub (a request of the board, the connection's
+check, the live stream, a socket) clears the reach bar (an empty `reach`
+event) and, when the watch did not think it up, makes it check at once, so
+the chip turns back within that check; a `conn` up or a `link` up clears the
+bar too; a request that gives up after the hub has answered since it was
+asked does not bring the bar back; the app's own page for a board that did
+not load (`body[data-unreached]`) loads the board when the Mac answers; the
+connection notification's stream tries again at once on a network change or
+when the app hears the Mac, instead of at the end of its wait (up to 15 s).
+Up to a573d63 the bar went only on the live stream's "link up": a request
+that gave up while the stream stayed open (a short loss, under its 45 s)
+left "Your Mac didn't answer" over a board that was back, the chip saying
+Wi-Fi (emulator, the test hub frozen 30 s: still there 45 s after it
+answered again).
 
 **A reload sends little** (2026-11-13). The hub sends the board's own
 files (`hub/public`) brotli or gzip, whichever the client takes, with an

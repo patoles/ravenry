@@ -31,12 +31,11 @@
 //
 // The same reading keeps the person's own messages on the Live screen
 // (keepPersonTurns): the screen is the terminal's, and the terminal can lose
-// rows (2026-11-14: in a Ravenry pane of Simon's, the rows of a message he
+// rows (2026-11-14: in a Ravenry pane, the rows of a message the person
 // sent from the phone, and the done line above it, were drawn over; the
 // screen went on from the reply before it to the tools after it). The
 // transcript keeps the order of the turns, so a message of the person's
-// missing between two of Claude's replies that are on screen goes back
-// between them.
+// missing between two things the screen still shows goes back between them.
 
 import fs from 'node:fs';
 

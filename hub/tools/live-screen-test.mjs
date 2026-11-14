@@ -240,7 +240,7 @@ for (const w of [194, 80, 60]) {
   check('code: part of a block on screen is a block of the lines shown', pb.length === 1 && !pb[0].whole && pb[0].t === [code[1].trim(), code[3]].join('\n'), JSON.stringify(p.cs));
 }
 
-// The person's messages on the Live screen (2026-11-14, Simon: "after I
+// The person's messages on the Live screen (2026-11-14, the person: "after I
 // send a message, that new message get overwritten on the mobile feed").
 // Real shapes: tools/fixtures/live-turns/ holds a real Claude Code 2.1.325
 // session (its transcript, paths scrubbed) and two real reads of its pane:
@@ -248,7 +248,7 @@ for (const w of [194, 80, 60]) {
 // queued_command attachments) and two that waited for the end of the turn
 // (recorded as user turns), idle.txt with messages sent at the prompt while
 // a background agent ran. The terminal drawing over rows is played by taking
-// the rows out of the read, as Simon's pane had them: his message and the
+// the rows out of the read, as a real pane had them: the message and the
 // done line above it gone, the reply before it and the tools after it kept.
 {
   const LT = path.join(ROOT, 'tools', 'fixtures', 'live-turns');
@@ -288,7 +288,7 @@ for (const w of [194, 80, 60]) {
   const idle = fs.readFileSync(path.join(LT, 'idle.txt'), 'utf8');
   const idf = asOf('idle.txt');
   check('turns: the idle read with a background agent running is left as it is', keepPersonTurns(trimScreen(idle).entries, idf) === trimScreen(idle).entries || !keepPersonTurns(trimScreen(idle).entries, idf).some((e) => e.kept));
-  // Simon's shape: the message and the done line above it drawn over.
+  // The real pane's shape: the message and the done line above it drawn over.
   const iLost = trimScreen(without(idle, /^❯ MSG-TWO/, /^✻ Churned for 0s/)).entries;
   const iBack = keepPersonTurns(iLost, idf);
   const r1 = first(iBack, /^Red Blue Green/), m2 = first(iBack, /^MSG-TWO/), r2 = first(iBack, /^The root directory/), m3 = first(iBack, /^MSG-THREE/);
