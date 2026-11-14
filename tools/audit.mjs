@@ -16,7 +16,8 @@
 // slugs of them, long hex strings (keys, ids), real-looking UUIDs, and text
 // in PNG metadata. An embedded PNG, JPEG, GIF or WebP data URI is always a
 // hit (decoded and named for a look by eye); an SVG data URI is decoded and
-// audited as text.
+// audited as text. It also runs tools/origins.mjs: no other product named
+// as the model of what Ravenry does.
 //
 // The personal term list is never committed. It comes from, in order:
 // 1. --terms <file>
@@ -33,6 +34,7 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { origins } from './origins.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PRIVATE_TERMS = path.resolve(ROOT, '..', 'ravenry', 'tools', 'private', 'audit-terms.txt');
@@ -304,17 +306,20 @@ export function audit(dir, termsFile) {
     if (!TEXT_EXT.test(rel) && buf.includes(0)) { hits.other.push(rel); continue; }
     scanText(rel, buf.toString('utf8'), rules, hits);
   }
-  return { files, terms: terms ? terms.length : 0, source, ...hits };
+  const o = origins(dir);
+  for (const h of o.hits) hits.list.push(`${h} (origins: say what Ravenry does, not which product it follows; tools/origins.mjs)`);
+  return { files, terms: terms ? terms.length : 0, source, origins: o, ...hits };
 }
 
 function report(r, requireTerms) {
   for (const h of r.list) console.log('HIT  ' + h);
   for (const h of r.allowed) console.log('ALLOWED  ' + h);
   for (const f of r.other) console.log('HIT  ' + f + ':0: a binary file the audit cannot read');
+  for (const s of r.origins.stale) console.log('NOTE  ' + s + ' (an origins allow line that matches nothing now: remove it)');
   let bad = r.list.length + r.other.length;
   console.log('');
   console.log(`audit: ${r.files.length} files, ${r.terms} personal terms (${r.terms ? 'from ' + r.source : 'NO TERM LIST: generic shapes only'}), ${SHAPES.length} shapes`);
-  console.log(`audit: ${bad} hit(s), ${r.allowed.length} allowed, ${r.images.length} image file(s) checked for text chunks`);
+  console.log(`audit: ${bad} hit(s), ${r.allowed.length} allowed, ${r.images.length} image file(s) checked for text chunks; origins: ${r.origins.hits.length} hit(s), ${r.origins.allowed} allowed`);
   if (requireTerms && !r.terms) {
     console.log('audit: the personal term list is missing or empty. In CI it comes from the repository secret AUDIT_TERMS (one term per line): add it under Settings > Secrets and variables > Actions.');
     bad++;

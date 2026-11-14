@@ -1,0 +1,117 @@
+# What tools/origins.mjs lets through. Each line: <file> | <text> | why
+# <text> is the exact text a pattern matched in that file; * marks the file
+# (or every file under a folder ending in /) as integration code, where
+# "cmux's socket" and "as in iTerm2" are how its work is said. The "always"
+# patterns ("as <P> does", "<P>-style", "taken from <P>") are checked there
+# too. Never add a line for a mention of a product as a model: rewrite it
+# as what Ravenry does.
+
+# ---- integration code: the adapters to the terminals Ravenry follows
+hub/server/cmux.mjs | * | the cmux adapter
+hub/server/iterm.mjs | * | the iTerm2 adapter
+hub/server/iterm-keys.py | * | the iTerm2 adapter's key presser
+hub/server/itermhelper.mjs | * | the iTerm2 adapter's Python setup
+hub/server/rex.mjs | * | the Rex adapter
+hub/server/terminal.mjs | * | the terminal adapters' front
+hub/server/termenv.mjs | * | which terminal a session runs in
+hub/server/sessions.mjs | * | a session's terminal from its environment
+hub/server/hookrecord.mjs | * | a hook's terminal ids
+hub/server/assistanthook.mjs | * | the hooks cmux's wrapper adds
+hub/server/claude.mjs | * | finding claude past cmux's shims
+hub/server/codex.mjs | * | finding codex past cmux's shims
+hub/server/codexexec.mjs | * | running codex past cmux's wrapper
+hub/server/create.mjs | * | opening a tab in the board's terminal
+hub/server/desktop.mjs | * | why the alerts are the app's, not cmux's pane
+hub/server/index.mjs | * | the board's server: the terminals it drives
+hub/server/suggestion.mjs | * | reading the prompt from each terminal's screen
+hub/server/ravenryd.mjs | * | the daemon adapter, the same shape as the others
+hub/server/themeimport.mjs | * | importing iTerm2 and Ghostty theme files
+hub/bin/ravenry.mjs | * | the npm board's setup and doctor for each terminal
+hub/docs/TERMINALS.md | * | the terminal adapters
+hub/docs/DEVELOPING.md | * | running the board in each terminal
+hub/docs/SESSIONS.md | * | sessions in each terminal
+hub/docs/ASSISTANTS.md | * | Codex in each terminal
+hub/docs/STATE-RULES.md | * | reading each terminal's screen
+hub/docs/HANDOFF.md | * | a hand-off's tab ids
+tools/test-env.mjs | * | the tests' guard against the person's own terminals
+apps/macos/scripts/sidetest.mjs | * | the Mac app's checks against a stand-in cmux
+daemon/scripts/libghostty.sh | * | builds the libghostty-vt dependency
+daemon/patches/ | * | Ravenry's patches to the libghostty-vt dependency
+# the stand-ins and tests of those integrations
+hub/tools/fake-cmux.mjs | * | a stand-in for cmux
+hub/tools/fake-iterm.mjs | * | a stand-in for iTerm2
+hub/tools/fake-rex.mjs | * | a stand-in for Rex
+hub/tools/iterm-test.mjs | * | the iTerm2 adapter's test
+hub/tools/iterm-mode-test.mjs | * | the board in iTerm2's test
+hub/tools/rex-test.mjs | * | the Rex adapter's test
+hub/tools/open-in-iterm.mjs | * | opens the board in an iTerm2 tab
+hub/tools/iterm-board-split.py | * | opens the board in an iTerm2 tab
+hub/tools/install-iterm.mjs | * | the iTerm2 helper's install
+hub/tools/install-login.mjs | * | the board at login, cmux's socket modes
+hub/tools/assistant-test.mjs | * | Codex hooks beside cmux's
+hub/tools/choose-test.mjs | * | choices through the stand-in cmux
+hub/tools/data-guard-test.mjs | * | the tests' guard against the person's terminals
+hub/tools/gallery-card-test.mjs | * | the page in cmux's browser (WebKit)
+hub/tools/gallery-test.mjs | * | the page in cmux's browser (WebKit)
+hub/tools/new-session-test.mjs | * | new sessions in cmux
+hub/tools/outside-terminal-test.mjs | * | sessions in other terminals
+hub/tools/phone-access-test.mjs | * | a test board with the stand-in cmux
+hub/tools/phone-app-test.mjs | * | a test board with the stand-in cmux
+hub/tools/start-with-test.mjs | * | starting sessions in cmux
+
+# ---- integration mentions in other files
+hub/README.md | iTerm2's package. | the iTerm2 helper the board sets up
+hub/README.md | Rex's Settings. | Open in Rex needs Remote Control
+hub/README.md | Rex's `rex` | the doctor looks for Rex's command
+hub/README.md | Rex's server | the doctor asks Rex's server
+hub/README.md | Rex's Settings | Open in Rex needs Remote Control
+hub/CHANGELOG.md | beside cmux | the terminals the board drives
+hub/CHANGELOG.md | Rex's `rex` | where the board finds Rex's command
+hub/CHANGELOG.md | Rex's command, | the board without Rex's command
+hub/CHANGELOG.md | as in iTerm2 | Codex sessions in Rex, watch only like in iTerm2
+hub/public/app.js | than cmux | the board's terminal when it is not cmux
+docs/FEATURES.md | Rex's Settings) | SESS-013: Open in Rex needs Remote Control
+docs/FEATURES.md | Rex's refusal | SESS-013: Rex's words passed on
+docs/FEATURES.md | Rex's Settings..."); | SESS-013: the words shown
+docs/FEATURES.md | iTerm2's Automation | SESS-013: macOS's permission for iTerm2
+docs/FEATURES.md | Rex's Settings..." | SESS-014: the words shown
+docs/FEATURES.md | Rex's window | SESS-014: Open in Rex brings its window forward
+docs/FEATURES.md | Rex's Remote | SESS-014: Open in Rex needs Remote Control
+docs/FEATURES.md | cmux's prompt | a reply typed into a session in cmux
+docs/FEATURES.md | iTerm2's Python, | HUB-019: the doctor checks iTerm2's Python
+apps/desktop/src/renderer/app.ts | cmux's restore | cmux starting the same session again
+apps/desktop/tools/release-check.mjs | cmux's restore | cmux starting the same session again
+apps/desktop/tools/outside-shots.mjs | as cmux | the stand-in cmux
+apps/desktop/docs/SETTINGS.md | as in Ghostty | the Ghostty theme file format Ravenry imports
+apps/desktop/docs/SETTINGS.md | Ghostty's `themes/` | the Ghostty theme file format Ravenry imports
+apps/desktop/test/themeimport.test.ts | Ghostty's own | a value Ghostty theme files carry
+apps/macos/Sources/RavenryMac/SelfTestFilePages.swift | cmux's box, | the stand-in cmux's prompt box
+apps/macos/Sources/RavenryMac/SelfTestProofs.swift | cmux's typed | the stand-in cmux's typed text
+
+# ---- the dependencies Ravenry ships or used
+docs/RENDERING.md | Ghostty's own | the first native spike used Ghostty's renderer (a dependency then)
+daemon/internal/attach/filter.go | Ghostty's embedding | the embedded Ghostty library a native window may host
+
+# ---- protocols, named for what they are
+daemon/internal/pane/pane.go | Kitty's included. | the Kitty keyboard protocol's encodings
+
+# ---- pending: inspiration wording in daemon/internal/vt and daemon/internal/pane,
+# files another agent had open on 2026-11-14 and rewrites itself. Rewrite
+# each as what Ravenry does and drop its line (a line that matches nothing
+# is reported STALE).
+daemon/internal/pane/coalesce.go | as Ghostty does | pending rewrite
+daemon/internal/pane/coalesce.go | as Ghostty | pending rewrite
+daemon/internal/pane/coalesce.go | as kitty does | pending rewrite
+daemon/internal/pane/coalesce.go | as kitty | pending rewrite
+daemon/internal/pane/render.go | as Ghostty does | pending rewrite
+daemon/internal/pane/render.go | as Ghostty draws | pending rewrite
+daemon/internal/pane/render.go | as Ghostty | pending rewrite
+daemon/internal/pane/shell.go | as Ghostty does | pending rewrite
+daemon/internal/pane/shell.go | as Ghostty | pending rewrite
+daemon/internal/vt/keybinds.go | Ghostty's own | pending rewrite
+daemon/internal/vt/keybinds.go | as in Ghostty | pending rewrite
+daemon/internal/vt/keybinds.go | beside Ghostty | pending rewrite
+daemon/internal/vt/render.go | as in Ghostty | pending rewrite
+daemon/internal/vt/render.go | as Ghostty does | pending rewrite
+daemon/internal/vt/render.go | as Ghostty | pending rewrite
+daemon/internal/vt/vt.go | iTerm2's Cmd+K | pending rewrite
