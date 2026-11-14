@@ -805,9 +805,21 @@ start with the sidebar and panel folded (`RAVENRY_MAC_SIDEBAR=1` shows
 them).
 
 `node scripts/sidetest.mjs --screen NAME [DIR]` runs one screen's checks
-(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`, `links`) on the demo hub with its plan, its
+(`SelfTestScreens.swift`: `brief`, `gallery`, `plan`, `idea`, `alerts`, `pages`, `cards`, `panes`, `tabmarks`, `review`, `window`, `daemons`, `links`, `idlefold`) on the demo hub with its plan, its
 idea and a project whose brief has every shape a brief takes, and leaves
 `native-NAME-{1280,900}-{dark,light}.png`.
+
+`--screen idlefold` (`SelfTestIdleFold.swift`): Idle in the sidebar is
+folded at the first launch (its head "Idle ›" with the count, no idle line,
+none in the Tab order); a press on the head opens it and folds it, Return and
+Space on the head do the same with the keyboard kept on it; the idle project
+in front keeps its one line under the folded head; a Working session gone
+idle drops into the fold; with every session idle it shows open with no
+chevron; Needs you, Working and Waiting never fold. Then the app again on the
+same data folder (`--screen idlefold2`): Idle as it was left. The choice is
+the app's own setting beside the sidebar's width (never kept by the bench or
+the self-tests outside their data folder). It leaves pictures of the
+sidebar alone, `sidebar-NAME-{dark,light}-{284,220}.png`.
 
 `--screen links` (`SelfTestLinks.swift`, `SessionLinks.swift`): Claude's
 name files for three demo sessions and a named session that ended in
