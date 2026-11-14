@@ -70,7 +70,7 @@ func (p *Pane) renderUpdate() {
 // the program has drawn itself at the new size, so a client never draws
 // the screen between the resize and the program's redraw. At a shell
 // prompt that matters most: the resize clears the prompt for the shell
-// to draw again (as Ghostty does), and the shell's redraw comes
+// to draw again, and the shell's redraw comes
 // milliseconds later.
 type resizeHold struct {
 	at, start  time.Time
@@ -150,8 +150,8 @@ func minTime(a, b time.Time) time.Time {
 // a step comes every 8 ms at 120 Hz), so a pane with a big scrollback or
 // a busy line got a frame only when the hold's 500 ms cap ran out. Such
 // a program cannot redraw between steps anyway, so during a drag each
-// step's reflowed screen goes out at once, as Ghostty draws it, and the
-// program's redraw follows as ordinary output. A shell at a prompt keeps
+// step's reflowed screen goes out at once, and the program's redraw
+// follows as ordinary output. A shell at a prompt keeps
 // its hold at every step: the resize cleared its prompt, and it redraws
 // within milliseconds.
 func (p *Pane) resized(atPrompt bool) {

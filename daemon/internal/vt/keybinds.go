@@ -20,26 +20,26 @@ type KeyBind struct {
 	Does string
 }
 
-// MacOSKeybinds is the "macos" table. The first five are Ghostty's own
-// macOS defaults (src/config/Config.zig, "Natural text editing", at the
-// libghostty pin daemon/scripts/libghostty.sh builds), which Rex, built
-// on Ghostty, has too; the Electron app sends the same
+// MacOSKeybinds is the "macos" table. The first five are a Mac's natural
+// text editing keys: Cmd+Left and Cmd+Right to the start and end of the
+// line, Cmd+Backspace to delete back to its start, Option+Left and
+// Option+Right a word back and forward. The Electron app sends the same
 // (apps/desktop/src/renderer/terminal.ts MAC_CMD_SEND, MAC_OPT_SEND,
-// SHIFT_SEND). Like Ghostty's, they go out as these bytes even when the
-// program asked for the Kitty keyboard protocol.
+// SHIFT_SEND). They go out as these bytes even when the program asked
+// for the Kitty keyboard protocol.
 //
 // Not in the table, because the encoder already gives what a Mac person
 // expects: Option+Backspace is ESC DEL (backward-kill-word), Ctrl+Left
-// and Ctrl+Right are CSI 1;5D and CSI 1;5C, as in Ghostty (zsh's shell
-// integration binds them to a word left and right).
+// and Ctrl+Right are CSI 1;5D and CSI 1;5C (zsh's shell integration
+// binds them to a word left and right).
 var MacOSKeybinds = []KeyBind{
 	{Code: "ArrowLeft", Mods: ModSuper, Send: "\x01", Does: "beginning-of-line (Ctrl+A)"},
 	{Code: "ArrowRight", Mods: ModSuper, Send: "\x05", Does: "end-of-line (Ctrl+E)"},
 	{Code: "Backspace", Mods: ModSuper, Send: "\x15", Does: "kill to the start of the line (Ctrl+U)"},
 	{Code: "ArrowLeft", Mods: ModAlt, Send: "\x1bb", Does: "backward-word (Esc b)"},
 	{Code: "ArrowRight", Mods: ModAlt, Send: "\x1bf", Does: "forward-word (Esc f)"},
-	// Ravenry's, beside Ghostty's: the forward Delete key as a Mac's
-	// text fields have it, and Shift+Enter as the Electron app sends it.
+	// And two more: the forward Delete key as a Mac's text fields have
+	// it, and Shift+Enter as the Electron app sends it.
 	{Code: "Delete", Mods: ModSuper, Send: "\x0b", Does: "kill to the end of the line (Ctrl+K)"},
 	{Code: "Delete", Mods: ModAlt, Send: "\x1bd", Does: "kill-word (Esc d)"},
 	{Code: "Enter", Mods: ModShift, Send: "\n", Does: "a newline (LF): a new line in Claude Code and Codex, Enter in a shell"},

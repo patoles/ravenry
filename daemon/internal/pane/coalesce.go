@@ -8,9 +8,9 @@ import (
 // A program's resizes (docs/RENDERING.md, Resize). A program that is not
 // a shell at its prompt is told its new size (TIOCSWINSZ, a SIGWINCH)
 // once per pause of a drag, not at each step, and the grid is resized
-// with it, as Ghostty does (it sets the pty's size and the grid's
-// together, "so its redraw cannot be parsed against the old terminal
-// dimensions") and as kitty does (it waits for the resizes to stop).
+// with it: the pty's size and the grid's change together, so the
+// program's redraw is never parsed against the old size, and only once
+// the resizes stop.
 //
 // Claude Code redraws once for every size it is told, in order, 100 to
 // 250 ms after it, placing its words at absolute columns (ESC[<col>G). A

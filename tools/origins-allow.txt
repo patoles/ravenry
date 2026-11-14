@@ -99,19 +99,3 @@ daemon/internal/pane/pane.go | Kitty's included. | the Kitty keyboard protocol's
 # files another agent had open on 2026-11-14 and rewrites itself. Rewrite
 # each as what Ravenry does and drop its line (a line that matches nothing
 # is reported STALE).
-daemon/internal/pane/coalesce.go | as Ghostty does | pending rewrite
-daemon/internal/pane/coalesce.go | as Ghostty | pending rewrite
-daemon/internal/pane/coalesce.go | as kitty does | pending rewrite
-daemon/internal/pane/coalesce.go | as kitty | pending rewrite
-daemon/internal/pane/render.go | as Ghostty does | pending rewrite
-daemon/internal/pane/render.go | as Ghostty draws | pending rewrite
-daemon/internal/pane/render.go | as Ghostty | pending rewrite
-daemon/internal/pane/shell.go | as Ghostty does | pending rewrite
-daemon/internal/pane/shell.go | as Ghostty | pending rewrite
-daemon/internal/vt/keybinds.go | Ghostty's own | pending rewrite
-daemon/internal/vt/keybinds.go | as in Ghostty | pending rewrite
-daemon/internal/vt/keybinds.go | beside Ghostty | pending rewrite
-daemon/internal/vt/render.go | as in Ghostty | pending rewrite
-daemon/internal/vt/render.go | as Ghostty does | pending rewrite
-daemon/internal/vt/render.go | as Ghostty | pending rewrite
-daemon/internal/vt/vt.go | iTerm2's Cmd+K | pending rewrite

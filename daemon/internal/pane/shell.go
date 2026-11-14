@@ -17,8 +17,8 @@ import (
 
 // Shell integration: the shells ravenryd starts (zsh, bash and fish) get
 // OSC 133 prompt marks (A, B, C with the command line, D with the exit
-// status) and OSC 7 for the working folder, as Ghostty does it: the
-// integration is injected when the shell starts, and the user's own
+// status) and OSC 7 for the working folder: the integration is
+// injected when the shell starts, and the user's own
 // startup files run as they always do and are never changed.
 //
 //   - zsh: ZDOTDIR names a folder whose .zshenv gives ZDOTDIR back, runs

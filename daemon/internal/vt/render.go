@@ -67,7 +67,7 @@ const (
 	// wants to know; the daemon encodes keys itself.
 	ModeAppCursor
 	// ModeAltScroll: on the alternate screen, the wheel is arrow keys
-	// (mode 1007, on unless the program turned it off), as in Ghostty.
+	// (mode 1007, on unless the program turned it off).
 	ModeAltScroll
 )
 
@@ -102,7 +102,7 @@ const (
 )
 
 // renderHoldMax is how long a program may hold the screen with
-// synchronized output before the hold is ended for it, as Ghostty does.
+// synchronized output before the hold is ended for it.
 const renderHoldMax = time.Second
 
 var (
