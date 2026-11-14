@@ -92,13 +92,13 @@ then `security add-generic-password -a ravenry-release -s "Ravenry Android relea
 `keytool -list -v -keystore ~/.ravenry-release/ravenry-release.jks` (the
 SHA256 line above).
 
-CI (`.github/workflows/android.yml`) signs with its own secrets, a
-different upload key (its fingerprint is pinned there): its release APK
-does not install over a tester's. To have CI build testers' APKs, put this
-key in the secrets (`RAVENRY_ANDROID_KEYSTORE_B64` the file in base64,
-both passwords this one, alias `ravenry-release`) and pin this
-fingerprint in the workflow instead. For a Play release later, give Play
-this key as the app signing key, so the testers' copies update from Play.
+CI (`.github/workflows/android.yml`) signs with this same key since
+2026-11-14: its secrets hold it (`RAVENRY_ANDROID_KEYSTORE_B64` the file in
+base64, both passwords this one, alias `ravenry-release`) and the workflow
+pins this fingerprint, so a CI release APK installs over a tester's. The
+older upload key (certificate `7ba7b99d...`) signs nothing any more; keep
+its backup. For a Play release later, give Play this key as the app
+signing key, so the testers' copies update from Play.
 
 ## The public repository's README
 
