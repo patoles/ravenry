@@ -8,14 +8,44 @@ plugins {
 
 // Nothing secret is committed. A release is signed only when a keystore is
 // given (RAVENRY_ANDROID_KEYSTORE, its password and alias, from the
-// environment or a gitignored local.properties); without one a release
-// build comes out unsigned and a debug build uses the SDK's debug key.
+// environment or a gitignored local.properties: CI's way), or, on the Mac
+// that holds it, with the testers' release key outside the repository:
+// ~/.ravenry-release/ravenry-release.jks, its password in the login
+// keychain (service "Ravenry Android release key", read with
+// /usr/bin/security only when a release task runs). Without either a
+// release build comes out unsigned and a debug build uses the SDK's debug
+// key. docs/PUBLISHING.md says how the key was made and how to back it up.
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
 fun secret(name: String, fallback: String = ""): String =
     (System.getenv(name) ?: localProps.getProperty(name) ?: fallback).trim()
+
+val releaseKeyFile = File(System.getProperty("user.home"), ".ravenry-release/ravenry-release.jks")
+val RELEASE_KEY_SERVICE = "Ravenry Android release key"
+val wantsRelease = gradle.startParameter.taskNames.any { it.contains("Release") }
+fun keychainPassword(service: String): String {
+    val p = ProcessBuilder("/usr/bin/security", "find-generic-password", "-s", service, "-w")
+        .redirectError(ProcessBuilder.Redirect.DISCARD).start()
+    val out = p.inputStream.bufferedReader().readText().trim()
+    if (p.waitFor() != 0 || out.isEmpty()) throw GradleException("No password in the login keychain for \"$service\" (docs/PUBLISHING.md)")
+    return out
+}
+
+// The app's version, the Mac app's (apps/desktop/package.json), so the
+// phone app and the Mac app of one release say the same number;
+// RAVENRY_ANDROID_VERSION in its place for a test build. versionCode grows
+// with it (major * 1000000 + minor * 1000 + patch: 0.1.47 is 1047), so a
+// newer APK always installs over the one before.
+val appVersion: String = System.getenv("RAVENRY_ANDROID_VERSION")?.trim()?.takeIf { it.isNotEmpty() }
+    ?: Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(rootProject.file("../desktop/package.json").readText())!!.groupValues[1]
+val appVersionCode: Int = run {
+    val m = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)").find(appVersion) ?: throw GradleException("Not a version: $appVersion")
+    val (a, b, c) = m.destructured.toList().map { it.toInt() }
+    if (b > 999 || c > 999) throw GradleException("versionCode: minor and patch must stay under 1000 ($appVersion)")
+    a * 1_000_000 + b * 1_000 + c
+}
 
 // The phone board (../phone, shared with iOS) is web code. It is built
 // with Node into build/generated/phone-assets/phone, which the app serves
@@ -69,8 +99,8 @@ android {
         applicationId = "dev.ravenry.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -80,12 +110,22 @@ android {
 
     signingConfigs {
         create("release") {
+            // v2 for every Android the app runs on, v3 so the key can be rotated later.
+            enableV2Signing = true
+            enableV3Signing = true
             val store = secret("RAVENRY_ANDROID_KEYSTORE")
             if (store.isNotEmpty() && file(store).exists()) {
                 storeFile = file(store)
                 storePassword = secret("RAVENRY_ANDROID_KEYSTORE_PASSWORD")
                 keyAlias = secret("RAVENRY_ANDROID_KEY_ALIAS", "ravenry")
                 keyPassword = secret("RAVENRY_ANDROID_KEY_PASSWORD")
+            } else if (wantsRelease && releaseKeyFile.isFile) {
+                // The testers' key (PKCS12: one password for the store and the key).
+                val pw = keychainPassword(RELEASE_KEY_SERVICE)
+                storeFile = releaseKeyFile
+                storePassword = pw
+                keyAlias = "ravenry-release"
+                keyPassword = pw
             }
         }
     }

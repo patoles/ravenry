@@ -29,10 +29,26 @@ Java 17 and the Android SDK (compileSdk 36). `buildPhoneBoard` runs
 `node ../phone/build.mjs --out app/build/generated/phone-assets/phone`
 before every build; without that file a placeholder page says so, and
 `RAVENRY_PHONE_OPTIONAL=1` takes the placeholder when the board does not
-build. A release is signed only with `RAVENRY_ANDROID_KEYSTORE` (a path),
+build. A release is signed with `RAVENRY_ANDROID_KEYSTORE` (a path),
 `RAVENRY_ANDROID_KEYSTORE_PASSWORD`, `RAVENRY_ANDROID_KEY_ALIAS` and
-`RAVENRY_ANDROID_KEY_PASSWORD`, from the environment or local.properties;
-CI signs only when its secrets exist.
+`RAVENRY_ANDROID_KEY_PASSWORD`, from the environment or local.properties
+(CI signs only when its secrets exist), else, on the Mac that holds it,
+with the testers' release key: `~/.ravenry-release/ravenry-release.jks`, its
+password read from the login keychain (service "Ravenry Android release
+key") only when a release task runs. Neither: the release APK is unsigned.
+
+The version is the Mac app's (`apps/desktop/package.json`; 0.1.47 is
+versionCode 1047, major * 1000000 + minor * 1000 + patch), so each release's
+APK installs over the one before and keeps its pairing.
+`RAVENRY_ANDROID_VERSION=0.1.48` builds a test APK as another version.
+
+```sh
+./gradlew assembleRelease    # app/build/outputs/apk/release/app-release.apk
+```
+
+The testers' key, how it was made and how to back it up:
+`docs/PUBLISHING.md`. Lose it and no later APK installs over the testers'
+copies: each would have to uninstall (and pair again).
 
 ## Run on an emulator against a hub
 
