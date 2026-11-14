@@ -344,13 +344,16 @@ export function createGallery(d) {
     draw();
   }
 
-  // A new snapshot: the 6 may have moved on. The picture shown stays while
-  // it is still one of them; else the newest. None left: closed.
+  // A new snapshot: the 6 may have moved on. The picture shown stays, with
+  // its zoom and place, at its place in the strip, even once new pictures
+  // have pushed it out of the 6 (the next snapshot after a move drops it).
+  // None left (another session): closed.
   function sync() {
     if (!isOpen()) return;
-    const list = galleryOf(d.project(g.pid));
+    const list = [...galleryOf(d.project(g.pid))];
     if (!list.length) { close(); return; }
-    if (!list.some((x) => x.key === g.key)) g.key = list[list.length - 1].key;
+    const shown = cur();
+    if (shown && !list.some((x) => x.key === g.key)) list.splice(Math.min(idx(), list.length), 0, shown);
     g.list = list;
     draw();
   }

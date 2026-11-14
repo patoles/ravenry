@@ -457,6 +457,113 @@ try {
     check('zoom desk: no script errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
+  // --------------------------------------------- zoom: centred, and kept
+  // A tall picture zoomed in but still narrower than the view stays in the
+  // middle across. The zoom, the place and the picture shown stay through
+  // new snapshots, mid-pinch (a trackpad's gesture events on a desk, two
+  // fingers on a phone) and after, a new picture in the 6 included, and
+  // when new ones push the picture shown out of the 6. The snapshots go
+  // through the page's own 'state' handler, from the hub's /api/state with
+  // new pictures added (the hub works its 6 out once a minute).
+  async function keptPage(vp, extra = {}) {
+    const ctx = await browser.newContext({ viewport: vp, deviceScaleFactor: 2, ...extra });
+    await ctx.addInitScript(() => { const ES = window.EventSource; window.EventSource = function (u, o) { const es = new ES(u, o); window.__glES = es; return es; }; window.EventSource.prototype = ES.prototype; });
+    const pg = await ctx.newPage();
+    const errs = [];
+    pg.on('pageerror', (e) => errs.push(e.message));
+    await pg.goto(`${base}/?theme=dark#sketchbook`);
+    await pg.waitForSelector('.picard', { timeout: 15000 });
+    await pg.waitForFunction(() => { const i = document.querySelector('.picard img'); return i && i.complete && i.naturalWidth > 0; });
+    // The hub's own stream stops here: from now on the snapshots are the test's.
+    await pg.evaluate(() => window.__glES.close());
+    return { ctx, pg, errs };
+  }
+  // `added` new pictures after the hub's 6 (the 6 newest kept), sent `times` times.
+  const push = (pg, added, times = 1) => pg.evaluate(async ([added, times]) => {
+    const snap = await (await fetch('/api/state')).json();
+    const auto = snap.projects.find((x) => x.id === 'sketchbook').brief.pictures.find((x) => x.auto);
+    const last = auto.gallery[auto.gallery.length - 1];
+    for (let k = 1; k <= added; k++) auto.gallery.push({ ...last, name: `new-${k}.png`, url: `${last.url}&n=${k}`, at: new Date().toISOString() });
+    auto.gallery = auto.gallery.slice(-6);
+    for (let k = 0; k < times; k++) { window.__glES.dispatchEvent(new MessageEvent('state', { data: JSON.stringify(snap) })); await new Promise((r) => setTimeout(r, 30)); }
+  }, [added, times]);
+  const same = (a, b) => a.s === b.s && a.x === b.x && a.y === b.y && a.open && b.open;
+  const shownSrc = (pg) => pg.$eval('#gl-im', (i) => i.getAttribute('src'));
+  {
+    const { ctx, pg, errs } = await keptPage({ width: 1440, height: 900 });
+    await pg.click('.picard');
+    await settle(pg);
+    for (let k = 0; k < 4; k++) await pg.keyboard.press('ArrowLeft'); // phone-screen.png, 900 x 1950
+    await settle(pg);
+    let z = await zs(pg);
+    const src = await shownSrc(pg);
+    check('kept desk: on the tall picture', /phone-screen\.png/.test(src) && z.on === 1, src);
+    await pg.mouse.move(z.cx + 150, z.cy - 100);
+    await pg.keyboard.down('Control');
+    for (let k = 0; k < 5; k++) { await pg.mouse.wheel(0, -10); await sleep(30); }
+    await pg.keyboard.up('Control');
+    await sleep(120);
+    z = await zs(pg);
+    check('centred desk: a tall picture zoomed in, still narrower than the view, stays in the middle across', z.s > 1.2 && z.fw * z.s < z.vw && z.x === 0, JSON.stringify(z));
+    await pg.mouse.move(z.cx, z.cy); await pg.mouse.down(); await pg.mouse.move(z.cx - 200, z.cy - 80, { steps: 6 }); await pg.mouse.up();
+    const z1 = await zs(pg);
+    check('centred desk: dragged sideways, it stays in the middle across (and moves down)', z1.x === 0 && z1.y !== z.y, JSON.stringify(z1));
+    // Mid-pinch: five snapshots, then one with a new picture.
+    const gesture = (type, scale) => pg.evaluate(([type, scale, x, y]) => { const e = new Event(type, { bubbles: true, cancelable: true }); Object.defineProperties(e, { scale: { value: scale }, clientX: { value: x }, clientY: { value: y } }); document.querySelector('#gl-view').dispatchEvent(e); }, [type, scale, z.cx - 100, z.cy]);
+    await gesture('gesturestart', 1); await gesture('gesturechange', 1.3);
+    const z2 = await zs(pg);
+    await push(pg, 0, 5);
+    let z3 = await zs(pg);
+    check('kept desk: mid-pinch, five new snapshots change nothing', same(z2, z3) && await shownSrc(pg) === src, JSON.stringify({ z2, z3 }));
+    await push(pg, 1);
+    z3 = await zs(pg);
+    check('kept desk: mid-pinch, a new picture in the 6 changes neither the zoom nor the picture', same(z2, z3) && await shownSrc(pg) === src && z3.on === 0, JSON.stringify({ z2, z3 }));
+    await gesture('gesturechange', 1.5); await gesture('gestureend', 1.5);
+    const z4 = await zs(pg);
+    await push(pg, 1, 5);
+    z3 = await zs(pg);
+    check('kept desk: after the pinch, new snapshots change nothing', same(z4, z3) && await shownSrc(pg) === src, JSON.stringify({ z4, z3 }));
+    // Two more new ones push the picture shown out of the 6: it stays, zoomed where it was.
+    await push(pg, 2, 2);
+    z3 = await zs(pg);
+    const names = await pg.$$eval('.gl-thumb', (b) => b.length);
+    check('kept desk: pushed out of the 6 by new pictures, the picture shown stays, zoom and place kept', same(z4, z3) && await shownSrc(pg) === src && names === 7, JSON.stringify({ z4, z3, thumbs: names }));
+    await pg.keyboard.press('ArrowRight');
+    await settle(pg);
+    await push(pg, 2);
+    const left = await pg.$$eval('.gl-thumb', (b) => b.length);
+    check('kept desk: once moved off it, the next snapshot drops it (the 6 again)', left === 6 && !/phone-screen/.test(await shownSrc(pg)), String(left));
+    if (SHOTS) await pg.screenshot({ path: path.join(SHOTS, 'kept-desk.png') });
+    check('kept desk: no script errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
+  if (!process.env.GL_WEBKIT) {
+    const { ctx, pg, errs } = await keptPage({ width: 390, height: 844 }, { hasTouch: true, isMobile: true });
+    const cdp = await ctx.newCDPSession(pg);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    await pg.click('.picard');
+    await settle(pg);
+    await pg.click('.gb-ctl [data-gl-step="-1"]'); // shapes.png
+    await settle(pg);
+    const src = await shownSrc(pg);
+    let z = await zs(pg);
+    // Two fingers down and apart, still on the glass.
+    await touch('touchStart', [[z.cx - 30, z.cy], [z.cx + 30, z.cy]]);
+    for (let k = 1; k <= 6; k++) { await touch('touchMove', [[z.cx - 30 - 10 * k, z.cy], [z.cx + 30 + 10 * k, z.cy]]); await sleep(16); }
+    const z2 = await zs(pg);
+    await push(pg, 0, 5);
+    await push(pg, 1);
+    let z3 = await zs(pg);
+    check('kept phone: mid-pinch, new snapshots and a new picture change neither the zoom nor the picture', z2.s > 1.5 && same(z2, z3) && await shownSrc(pg) === src, JSON.stringify({ z2, z3 }));
+    await touch('touchEnd', []);
+    await sleep(100);
+    const z4 = await zs(pg);
+    await push(pg, 2, 3);
+    z3 = await zs(pg);
+    check('kept phone: after the pinch, new snapshots and pictures change nothing', same(z4, z3) && await shownSrc(pg) === src, JSON.stringify({ z4, z3 }));
+    check('kept phone: no script errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
   // ------------------------------------------------------- a real board
   // A user's screenshot (2026-11-03 19:36): a pane about 1273 x 764 in cmux's
   // browser (WebKit), the page scrolled down a long project, a permission
