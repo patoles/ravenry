@@ -731,12 +731,12 @@ drawable taken in an uncommitted transaction is still given back at once
 screen does with them.
 
 Those numbers held until the daemon sent each step's reflowed screen at
-once (df48b13, 2026-11-10 15:37): from then the busy pane's frames came
+once (96bf514, 2026-11-10 15:37): from then the busy pane's frames came
 between the steps, half the steps drew twice (the step's draw, then the
 frame's, each waiting about 5 ms for a drawable), and the drag took 2.61
 to 2.72 s, a step 9 to 15 ms (median); an idle shell's prompt redraws did
-the same. The app built at 5d67c4c with df48b13's daemon took 2.67 s, the
-app at 860e6b9 with 5d67c4c's daemon 1.88 s: the daemon's change alone.
+the same. The app built at cfaf0b1 with 96bf514's daemon took 2.67 s, the
+app at 9e0a40b with cfaf0b1's daemon 1.88 s: the daemon's change alone.
 Since 2026-11-11 a frame during a live resize or a split's drag waits for
 the next step, which draws it, and draws on its own only when no step
 comes for two refreshes (`TerminalView.requestDraw`). `--content busy`
@@ -829,7 +829,7 @@ drag selects, a name cut by the row's end is a link on both rows, and
 `ravenry://session/<name>` opens it. The rows are scanned on the reader
 thread as each frame is applied (Screen.apply), never in a draw: 8.4 to
 9.3 us for an 84 x 50 screen with 16 linked words. On 2026-11-11, the
-resize bench (above) on 860e6b9 and on the same tree with only the links,
+resize bench (above) on 9e0a40b and on the same tree with only the links,
 three runs each, interleaved: the drag 2.64 to 2.67 s before, 2.66 to 2.69 s
 after, 119 draws a second both, steps over 16 ms 44 to 59 before and 42 to 47
 after; with the busy tab's lines carrying two session ids each (drawn as

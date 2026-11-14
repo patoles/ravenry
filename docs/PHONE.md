@@ -129,7 +129,7 @@ asked does not bring the bar back; the app's own page for a board that did
 not load (`body[data-unreached]`) loads the board when the Mac answers; the
 connection notification's stream tries again at once on a network change or
 when the app hears the Mac, instead of at the end of its wait (up to 15 s).
-Up to a573d63 the bar went only on the live stream's "link up": a request
+Up to ffac4ca the bar went only on the live stream's "link up": a request
 that gave up while the stream stayed open (a short loss, under its 45 s)
 left "Your Mac didn't answer" over a board that was back, the chip saying
 Wi-Fi (emulator, the test hub frozen 30 s: still there 45 s after it
