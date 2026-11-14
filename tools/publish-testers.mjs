@@ -111,7 +111,9 @@ if (fs.existsSync(app)) {
   const authority = (/^Authority=(.*)$/m.exec(cs) || [])[1] || 'none (ad hoc)';
   const devId = /^Developer ID Application/.test(authority);
   say(`       signed by: ${authority}`);
-  if (!devId) warn('the Mac app is not signed with a Developer ID: macOS on a tester\'s Mac refuses to open it until they allow it in System Settings, Privacy & Security, Open Anyway (the page\'s firstLaunchNote is off). Package with RAVENRY_SIGN_IDENTITY and RAVENRY_NOTARY_PROFILE for a release that opens normally.');
+  // The page's own setting, so the warning says whether testers are told.
+  const note = /^\s*firstLaunchNote:\s*true\b/m.test(fs.readFileSync(path.join(ROOT, 'site', 'index.html'), 'utf8'));
+  if (!devId) warn(`the Mac app is not signed with a Developer ID: macOS on a tester's Mac refuses to open it until they allow it in System Settings, Privacy & Security, Open Anyway (the page's firstLaunchNote is ${note ? 'on: the page tells them' : 'off: turn it on in site/index.html'}). Package with RAVENRY_SIGN_IDENTITY and RAVENRY_NOTARY_PROFILE for a release that opens normally.`);
   const st = tryRun('/usr/bin/xcrun', ['stapler', 'validate', dmgV.src || app]);
   if (st.code === 0) say('       the dmg is notarized and stapled');
   else if (devId) warn('the dmg is not notarized and stapled: Gatekeeper asks testers to allow it by hand');
