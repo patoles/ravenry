@@ -376,7 +376,10 @@ The code is compared in constant time and used up by the first success.
 `{ id, hash, name, platform, app, created, lastSeen, push }`. A phone
 browser signed in with the QR cookie is a device too (`platform: "browser"`,
 its cookie is its token). The same token store serves both; the cookie
-`mc_phone` and the header are two ways to carry a token.
+`mc_phone` and the header are two ways to carry a token. A device alerts
+reach without signing in, an iPhone through ntfy (section 4), is a record
+in the same list with `hash: null`: no token matches it, the phone card's
+sign-ins (`GET /api/phone/devices`) leave it out, and New key keeps it.
 
 | Route | Where | Class | |
 | --- | --- | --- | --- |
@@ -407,12 +410,14 @@ machine it is judged.
 
 ## 4. Push
 
-Each device has at most one **push target**, set by the device itself with
-`POST /api/phone/push`:
+Each device has at most one **push target**. A paired app sets its own
+with `POST /api/phone/push`; an iPhone with no Ravenry app yet gets
+`ntfy` from its setup (below):
 
 | `kind` | Fields | Built | |
 | --- | --- | --- | --- |
 | `unifiedpush` | `endpoint`, `p256dh`, `auth` | now | Android, through any UnifiedPush distributor (ntfy) |
+| `ntfy` | `server`, `topic`, `confirmed` | now | an iPhone through the ntfy iPhone app, on a topic of its own, in clear: the title and the `line` only (section 5); set by Add an iPhone, never by `POST /api/phone/push` |
 | `apns` | `relay`, `token`, `p256dh`, `auth` | later | iOS, through a Ravenry relay to APNs |
 | `fcm` | `token`, `p256dh`, `auth` | later | Android with Google services, through a relay |
 | `none` | | now | no push; alerts arrive only while the app holds its connection |
@@ -446,6 +451,110 @@ The same messages also reach a device on its live event stream
 shows an alert at once and without push. The app keeps each alert id it
 has shown and draws it once.
 
+**One sender per kind.** `server/push.mjs` sends through `SENDERS[kind]`
+(`unifiedpush`, `ntfy`; `apns` is one more entry when it is built), so every
+phone, whatever it is reached by, is alerted by the same trigger, dedupe
+and cooldown (`server/alerts.mjs`, the phones' trigger, on while any phone
+gets alerts) and each alert reaches each phone once. A kind this hub has no
+sender for is skipped, never thrown. Each phone's last send (time, ok,
+error) is kept for its row on the Mac.
+
+### An iPhone through ntfy
+
+Until there is a Ravenry iPhone app, an iPhone gets its alerts through the
+free ntfy app (App Store, `id1625396347`). It is a **phone in the phones
+list, not a channel**: Telegram, a webhook or the ntfy channel stay one at
+a time as before, beside Mac notifications and every phone, and one person
+may have them all on at once.
+
+The record, in `phone.json` with the paired phones:
+
+```json
+{ "id": "dk3m9q2x7v", "name": "iPhone", "platform": "ios", "app": null, "hash": null,
+  "push": { "kind": "ntfy", "server": "https://ntfy.sh", "topic": "ravenry-7qk2m9x4...", "confirmed": "2026-11-14T14:12:00.000Z" },
+  "by": "dq1..." }
+```
+
+`topic` is made for this iPhone (`ravenry-` and 20 random letters and
+digits), never the ntfy channel's; `server` is the ntfy channel's server
+when the code was made (ntfy.sh unless the person set their own; a
+self-hosted server reaches iPhones only through ntfy.sh's
+`upstream-base-url`). Until `confirmed` it is not a phone: no alert goes
+to it, the list does not show it; a code nobody confirmed goes after an
+hour; `by` is who asked for it (the iPhone's browser device id, or
+`mac`), each with one code waiting at most.
+
+**The setup.** The Mac's Alerts, Phones, **Add an iPhone**: the steps, what
+the iPhone gets, and a QR that is the board's own Safari sign-in link with
+`#iphone` (`/?k=<key>#iphone`; only while phone access is on, else the
+setup says so and Copy the code instead is the way). The iPhone's camera
+opens it in Safari, which is signed in (the browser cookie, as PHONE-012)
+and lands on **Alerts on this iPhone** (the board's `#iphone` page): 1 Get
+ntfy (the App Store), 2 Copy the code (onto the iPhone's own clipboard;
+the page is http on the Wi-Fi address, so the field is selected and copied,
+there is no clipboard API), then in ntfy +, paste, Subscribe, 3 Send a test
+and **It arrived**, which confirms it: the Mac's list shows "iPhone · through
+ntfy". Away from the Mac's Wi-Fi, **Copy the code instead** on the Mac puts
+a code of its own on the Mac's clipboard (Universal Clipboard carries it),
+and Send a test and It arrived are on the Mac. **Remove** forgets the
+record and its topic.
+
+| Route | Who | Body | |
+| --- | --- | --- | --- |
+| `POST /api/alerts/iphone/start` | the iPhone's page, or the Mac | | `{ id, topic, server, mac }`: this caller's code, made or the one waiting |
+| `POST /api/alerts/iphone/test` | the one who asked, or the Mac | `{ id }` | one test on that topic |
+| `POST /api/alerts/iphone/confirm` | the one who asked, or the Mac | `{ id }` | It arrived: a phone from now on (named "iPhone", "iPhone 2", ...) |
+| `POST /api/alerts/iphone/copy` | the Mac | | the Mac's code onto its clipboard; `{ id }`, never the code |
+| `POST /api/alerts/iphone/remove` | the Mac | `{ id }` | the record and its topic forgotten |
+| `POST /api/alerts/phone/test` | the Mac | `{ id }` | one test to that phone only (any kind) |
+
+All are person rows (`hub/docs/PERSON.md`). `GET /api/alerts` and the
+board's state carry `phones: [{ name, transport }]` (`app` or `ntfy`; no id,
+topic or endpoint), `GET /api/alerts/setup` (the Mac's) adds each phone's
+`id`, `platform` and `last`, and `iphone: { access, qr, server, pending }`.
+
+**What the iPhone gets.** ntfy.sh carries the text in clear and the topic
+is the only key, so the publish (JSON to the server's root, as the ntfy
+channel's) is the message's `title` (Android's, word for word), its `line`
+(section 5: fixed words only), `click` the board's link to the session
+(`#<project>/<session>`: Safari opens it on the Mac's Wi-Fi, or over
+Tailscale when the iPhone has it; elsewhere it does not load) and
+`priority` 4 (a test: 3). Never the body, the detail, the question, the
+command, the agent's words or the screen, and no buttons: an answer would
+need a credential inside a message that travels in clear. A saved decision
+is not sent (its only use is Undo), nor a close (ntfy cannot take a
+notification back on iOS: an alert answered on the Mac stays until
+swiped).
+
+### Later: the Ravenry iPhone app takes over (designed, built with the app)
+
+The iPhone app pairs like Android (section 3) and sets an `apns` target.
+Nothing for the person to switch, and no duplicates:
+
+- **Which iPhone is this?** At pairing, when the person has iPhones through
+  ntfy, the app asks once: "Which iPhone is this?" with each by its name
+  and "A new iPhone". The only one is offered first. The answer goes with
+  the pairing (`replaces: <id>`).
+- **The takeover.** The hub keeps the same record (same id, same name, same
+  row): the token's `hash`, `app`, and `push` becomes the `apns` target,
+  the ntfy target moving to `push.was`. One last ntfy line goes on the old
+  topic: "Alerts for this iPhone now come from the Ravenry app. You can
+  delete ntfy." From then on alerts go through the app only, encrypted, with
+  the agent's words and the buttons. The row reads "iPhone · Ravenry app,
+  Gets alerts. Moved from ntfy today at 10:20."
+- **The app deleted later.** When APNs says the app is gone (410 from the
+  relay), the target is dropped and the row says "No alerts: Apple says the
+  Ravenry app is gone from this iPhone." with **Use ntfy again** (the target
+  in `push.was` back as `push`, so a kept ntfy works at once) and Remove.
+  There is no silent fall back to ntfy: the person was told ntfy can go.
+
+The model leaves room for it today: the sender is picked by the kind
+(`SENDERS`), the record shape is the same for both, and
+`hub/tools/iphone-ntfy-test.mjs` proves a target of a later kind on the
+same record, with the ntfy one in `push.was`, is sent through its own
+sender once and never through ntfy, and that a kind with no sender here is
+skipped.
+
 ## 5. Alerts and their actions
 
 ### The message
@@ -457,6 +566,7 @@ has shown and draws it once.
   "title": "notes-app asks",
   "body": "Ship the beta to the testers?",
   "detail": "Claude waits until 18:04.",
+  "line": "Answer on the board.",
   "project": { "id": "notes-app", "name": "notes-app" },
   "machine": null,
   "session": { "surfaceId": "ravenry:pk3m9q2x", "topic": "Sync settings", "assistant": "claude" },
@@ -491,6 +601,28 @@ is never the word "null".
 Unlike the third-party channels (Telegram, Discord, ntfy topics), which
 carry only "<Project> needs you", an app alert carries the question, the
 command and the agent's words: it is encrypted for that phone.
+
+### The line
+
+Every alert also carries `line`: what the alert is, in fixed words only
+(`hub/server/alertwords.mjs`), for a transport that carries text in clear
+(an iPhone through ntfy). One builder makes both, so the title is the
+same everywhere:
+
+| `kind` | `title` (as on Android) | `line` |
+| --- | --- | --- |
+| `handback` | paper-boat needs you | Handed back |
+| `question` | paper-boat needs you | Asked you a question |
+| `permission` | paper-boat needs you | Waiting for permission |
+| `gate` | paper-boat: plan gate | the plan's short question (else "Plan gate") |
+| `approve` | paper-boat wants to run a command | On MacBook Pro. Run or refuse on the board. |
+| `ask`, `pick`, `drive` | as Android | Answer on the board. |
+| `secret` | Claude needs a secret for paper-boat | Type it on the Mac. |
+| `test` | Ravenry test | Alerts from MacBook Pro will land here. |
+| `decision` | Saved your decision | `null`: not sent in clear |
+
+A drive whose tab is not known is titled "Claude wants to use another
+tab", never the checkpoint's own title.
 
 ### Ids
 
@@ -626,8 +758,9 @@ Android's settings, the row turns On by itself). The board's channels (Telegram,
 Slack, ntfy) are not there: on the Mac and a browser board the section
 lists them as "Also send alerts to ...", under the line naming the phones
 that get alerts through the app ("Pixel 8 gets alerts through the
-Ravenry app.", the hub's `alerts.apps`); the native Alerts page's Your
-phone row says the same, with Pair another phone.
+Ravenry app, iPhone through ntfy.", the hub's `alerts.phones`); the
+native Alerts page's Phones card lists each phone with how, under it Pair
+an Android phone and Add an iPhone (section 4).
 
 ## 6. The terminal on the phone
 
@@ -732,7 +865,7 @@ them.
 | Pairing: typed code | the check number | the check number |
 | Pairing: deep link | `ravenry://pair` | `ravenry://pair` |
 | Pairing: found on this Wi-Fi | later | later |
-| Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay, decrypted in a Notification Service Extension |
+| Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay, decrypted in a Notification Service Extension; until the app, the ntfy iPhone app on a topic of its own, the title and line in clear (section 4) |
 | Push without a distributor | the connection held by a foreground service | the connection while the app is open |
 | Alert buttons | notification actions | `UNNotificationCategory` actions |
 | A pick's picture in the alert | `BigPictureStyle` with the image variants side by side in one picture, fetched over the pinned connection when the alert arrives | a `UNNotificationAttachment` the Notification Service Extension fetches over the pinned connection |
