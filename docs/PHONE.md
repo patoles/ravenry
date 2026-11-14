@@ -186,7 +186,7 @@ Wi-Fi, the Wi-Fi address dropped is Tailscale in 29 s, back is Wi-Fi in
 ### The launch
 
 On Android 13 and later a cold start plays the Mac's Ink (`ShaderInk.kt`,
-`inkphone` 2026-11-14, Simon on its recording: "Yes that looks good"): the
+`inkphone` 2026-11-14, approved on its recording): the
 Mac app's shader (`apps/macos` Shaders.swift, inkBody) ported line for line
 to AGSL and run as a `RenderEffect` over the app's content, so its input is
 the board itself, live, loading under the ink. The same 3.4 s as the Mac's:
