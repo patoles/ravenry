@@ -63,6 +63,7 @@ const ALLOWED = [
   { file: 'packages/protocol/package.json', sha256: OWNER, why: 'the GitHub owner in repository' },
   { file: 'packages/protocol/package.json', sha256: NAME, why: 'the package author' },
   { file: '.github/workflows/cla.yml', sha256: OWNER, why: 'the GitHub owner in the CLA document URL' },
+  { file: 'site/index.html', sha256: OWNER, why: "the GitHub owner in the launch page's download and issue links" },
   { file: 'hub/NOTICE', sha256: NAME, why: 'the copyright holder and trademark owner' },
   { file: 'hub/README.md', sha256: NAME, why: 'the author line and the trademark owner' },
   { file: 'hub/docs/PUBLISHING.md', sha256: NAME, why: 'the author, as decided for 0.1.0' },

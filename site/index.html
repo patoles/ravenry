@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<script>
+// ---- The page's settings: change them here, nowhere else. -----------------------------
+window.RAVENRY_SITE = {
+  // The Mac app's version on the latest GitHub release. The DMG's name comes from it, as
+  // apps/macos/scripts/package.mjs names it: Ravenry-<version>-mac-arm64.dmg.
+  macVersion: '0.1.47',
+  // The Android app's file on every release: upload the APK under this name.
+  apkFile: 'Ravenry-android.apk',
+  // Where GitHub serves the latest release's files.
+  downloads: 'https://github.com/patoles/ravenry/releases/latest/download/',
+  // "Report a problem".
+  reportUrl: 'https://github.com/patoles/ravenry/issues/new',
+  // A line under the Mac download for a build not signed with a Developer ID:
+  // "Right-click Ravenry and choose Open the first time."
+  firstLaunchNote: false,
+};
+// -----------------------------------------------------------------------------------------
+</script>
+<title>Ravenry: your agents, anywhere</title>
+<meta name="description" content="Claude Code and Codex on your Mac and on your other machines over ssh, all on one board. When one needs you, answer from your phone.">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Ravenry: your agents, anywhere">
+<meta property="og:description" content="Claude Code and Codex on your Mac and on your other machines over ssh, all on one board. When one needs you, answer from your phone.">
+<meta property="og:image" content="assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Ravenry on a Mac, with a phone answering an agent's question from a notification.">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="product.css">
+<link rel="stylesheet" href="site.css">
+<script src="product.js"></script>
+</head>
+<body>
+<nav><div class="wrap"><span id="m"></span>Ravenry<span class="sp"></span><a class="l" href="#ask">Ask</a><a class="l" href="#remember">Remember</a><a class="l" href="#phone">Phone</a><a class="dl" href="#get">Download</a></div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="eyebrow">Ravenry for Mac · <b>Early test</b></div>
+  <h1>Your agents, <span>anywhere.</span></h1>
+  <p class="lede"><b>Claude Code</b> and <b>Codex</b> on your Mac and on your other machines over ssh, all on one board. When one needs you, answer from your phone.</p>
+  <div class="ctas"><a class="btn pri" data-link="mac" href="#get">Download for Mac</a><a class="btn sec" href="#get">Get the Android app</a></div>
+  <div class="fine">Apple silicon · macOS 13 or later</div>
+</div>
+<div class="stage"><div class="tilt"><div data-rv="mac" role="img" aria-label="Ravenry on a Mac: the board of sessions, a Claude Code session asking a question, and the question card beside it"></div></div><div class="phone"><div class="callout"><i></i>Answer from the notification</div><div data-rv="shadeA" role="img" aria-label="An Android phone answering that question from the notification"></div></div></div>
+</header>
+
+<section class="big" id="ask"><div class="wrap">
+  <div class="eyebrow" style="color:var(--you)">Ask</div>
+  <h2>They ask.<br>You answer.</h2>
+  <p class="body">When an agent needs a choice, a go-ahead or a secret, it stops and asks. <b>The question shows up on your Mac and your phone at the same time.</b></p>
+  <div class="cards4">
+    <figure><div data-rv="ask" role="img" aria-label="A question card"></div><figcaption><b>Ask</b>Pick an option, or answer in your own words.</figcaption></figure>
+    <figure><div data-rv="approve" role="img" aria-label="A command waiting for approval"></div><figcaption><b>Approve</b>Read the command first, then run it with your fingerprint.</figcaption></figure>
+    <figure><div data-rv="secret" role="img" aria-label="A secret asked for"></div><figcaption><b>Secret</b>Paste a key straight into the command. The agent never sees it.</figcaption></figure>
+    <figure><div data-rv="pick" role="img" aria-label="Three pictures to pick from"></div><figcaption><b>Pick</b>Choose from pictures when words won't do.</figcaption></figure>
+  </div>
+</div></section>
+
+<section class="big" id="remember"><div class="wrap">
+  <div class="eyebrow" style="color:var(--ok)">Remember</div>
+  <h2>It remembers<br>what you decided.</h2>
+  <p class="body">Every answer you give goes into Decisions, and agents check them before they ask again. Each project keeps a short brief. <b>When a session runs low on room, it hands off to a fresh one that picks up where it stopped.</b></p>
+  <div class="pair"><div data-rv="decisions" role="img" aria-label="The Decisions list"></div><div data-rv="handoff" role="img" aria-label="A hand-off to a fresh session"></div></div>
+</div></section>
+
+<section class="big" id="board"><div class="wrap">
+  <div class="eyebrow" style="color:var(--work)">Board</div>
+  <h2>Every session.<br>One list.</h2>
+  <p class="body">The sessions waiting on you stay on top, whether they run on this Mac or on another one you reach over ssh.</p>
+  <div class="board"><div data-rv="board" role="img" aria-label="The board: Needs you, Working and Idle"></div>
+    <div class="facts"><div><b class="y">Needs you</b>A question, a command to approve, a finished task. Answer it and it moves on.</div><div><b class="w">Working</b>Busy agents, with how much room each one has left.</div><div><b class="i">Idle</b>Folded away until you want them.</div></div></div>
+</div></section>
+
+<section class="big" id="phone"><div class="wrap">
+  <div class="eyebrow" style="color:var(--you)">Phone</div>
+  <h2>Leave your desk.<br>Not your agents.</h2>
+  <p class="body">The Android app shows every project and its live screen. When an agent asks, answer right from the notification. <b>On iPhone, alerts come through ntfy today. The app is on its way.</b></p>
+  <div class="phones"><div data-rv="phone" role="img" aria-label="The Android app: a project and its live screen"></div><div data-rv="shade" role="img" aria-label="Ravenry's notifications on an Android phone"></div></div>
+</div></section>
+
+<section class="big" id="terminal"><div class="wrap">
+  <div class="eyebrow" style="color:var(--tx2)">Terminal</div>
+  <h2>A real terminal,<br>made for the Mac.</h2>
+  <p class="body">Native and drawn on the GPU, so typing feels instant. Tabs and splits for everything else you run. <b>Quit the app or update it: your sessions keep running.</b></p>
+  <div class="term"><div data-rv="term" role="img" aria-label="The terminal with two panes side by side"></div></div>
+  <div class="stats"><div><b>Native</b>Swift and Metal</div><div><b>Always on</b>sessions survive updates</div></div>
+</div></section>
+
+<section class="get" id="get"><div class="wrap">
+  <h2>Try it now.</h2>
+  <p class="body getsub">It's an early test. It works with Claude Code and Codex.</p>
+  <div class="dls">
+    <div><h3>Mac</h3><p>Apple silicon, macOS 13 Ventura or later.<br>Version <span data-site="macVersion"></span> · DMG</p><p class="first" id="first" hidden>Right-click Ravenry and choose Open the first time.</p><a class="btn pri" data-link="mac" href="#get">Download for Mac</a></div>
+    <div><h3>Android</h3><p>The APK, for Android 8 or later, until the app is in the Play Store.</p><a class="btn pri" data-link="apk" href="#get">Get the Android app</a></div>
+    <div id="iphone"><h3>iPhone</h3><p>Alerts come through ntfy today, set up from Ravenry's settings. The app is coming.</p>
+      <details><summary class="btn muted">How to set up alerts</summary><ol>
+        <li>In Ravenry on your Mac, open Alerts and choose <b>Add an iPhone</b>.</li>
+        <li>Scan the code with your iPhone's camera.</li>
+        <li>Get ntfy from the App Store, paste the code in it and send a test.</li>
+      </ol></details></div>
+  </div>
+  <div class="note">
+    <div><h4>This is an early test</h4>Expect rough edges and the odd crash. Updates arrive inside the app. Tell us what breaks, or what confuses you: <a data-link="report" href="#get">report a problem</a>.</div>
+    <div><h4>What you need</h4><ul><li>A Mac with Apple silicon, macOS 13 or later</li><li>Claude Code or Codex, installed and signed in</li><li>For the phone: the same Wi-Fi as your Mac, or Tailscale</li></ul></div>
+  </div>
+</div></section>
+
+<footer><div class="wrap"><span>Ravenry will be open source soon, under the GPL.</span><span>© 2026 Ravenry</span></div></footer>
+<script>
+(() => {
+  const S = window.RAVENRY_SITE;
+  const links = {
+    mac: S.downloads + 'Ravenry-' + S.macVersion + '-mac-arm64.dmg',
+    apk: S.downloads + S.apkFile,
+    report: S.reportUrl,
+  };
+  for (const a of document.querySelectorAll('[data-link]')) a.href = links[a.dataset.link];
+  for (const el of document.querySelectorAll('[data-site]')) el.textContent = S[el.dataset.site];
+  document.getElementById('first').hidden = !S.firstLaunchNote;
+  document.getElementById('m').innerHTML = RVMARK(22);
+})();
+</script>
+</body></html>
