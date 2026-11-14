@@ -1,0 +1,209 @@
+ ▐▛███▛█   Claude Code v2.1.325
+▝▜██████▀  Haiku 5.5 · Claude Pro
+ ▝▝   ▝▝   /work/demo
+
+
+❯ Use the Bash tool to run: sleep 15; echo first-done. Then write two short paragraphs about
+  clouds.
+
+⏺ Bash(sleep 15; echo first-done)
+  ⎿  first-done
+  ⎿  Allowed by auto mode
+
+▝▜██████▀  Haiku 5.5 · Claude Pro
+ ▝▝   ▝▝   /work/demo
+
+
+❯ Use the Bash tool to run: sleep 15; echo first-done. Then write two short paragraphs about
+  clouds.
+
+⏺ Bash(sleep 15; echo first-done)
+  ⎿  first-done
+  ⎿  Allowed by auto mode
+
+▝▜██████▀  Haiku 5.5 · Claude Pro
+ ▝▝   ▝▝   /work/demo
+
+
+❯ Use the Bash tool to run: sleep 15; echo first-done. Then write two short paragraphs
+  about clouds.
+
+⏺ Bash(sleep 15; echo first-done)
+  ⎿  first-done
+
+❯ SECOND MESSAGE sent while you work: after that, also name three birds.
+
+❯ THIRD MESSAGE also while busy: and one fish.
+
+⏺ The sleep finished and printed first-done.
+
+  Clouds form when water vapor in rising air cools until it condenses into tiny droplets or ice
+  crystals around particles like dust or salt. Their shapes depend on how the air moves: cumulus
+  clouds are puffy and piled up from convection on warm days, while stratus clouds are flat, grey
+  sheets that spread across the sky. Higher up, cirrus clouds are thin, wispy ice crystals that
+  often signal a change in weather.
+
+  Clouds do more than decorate the sky. They reflect sunlight back to space and trap heat radiating
+  from the ground, so they shape both daytime temperatures and nighttime warmth. They also move
+  water around the planet, since precipitation falls from them and returns to rivers, lakes, and
+  oceans. Because of this, cloud cover is one of the hardest things for climate models to represent
+  accurately.
+
+  Three birds: robin, sparrow, and blue jay.
+
+  One fish: salmon.
+
+✻ Crunched for 21s · done 2:21 PM
+
+❯ Write a numbered list of 40 facts about the ocean, one line each, no tools.
+
+⏺ 1. The ocean covers about 71% of Earth's surface.
+  2. The ocean holds roughly 97% of the planet's water.
+  3. The average depth of the ocean is about 3,700 meters (12,100 feet).
+  4. The deepest known point, the Challenger Deep, is about 11,000 meters below sea level.
+  5. More than 80% of the ocean has never been mapped in detail.
+  6. The ocean produces roughly half of the oxygen we breathe, mostly through phytoplankton.
+  7. Phytoplankton are microscopic algae that form the base of most marine food webs.
+  8. The ocean absorbs about a quarter of the carbon dioxide humans emit each year.
+  9. Seawater averages about 3.5% salt by mass.
+  10. The ocean's salinity varies by region, with the Red Sea among the saltiest large bodies of
+      water.
+  11. The ocean's average surface temperature is around 17°C (62°F), though it varies widely by
+      latitude.
+  12. Sunlight penetrates only about 200 meters into the ocean, so the deep sea is in permanent
+      darkness.
+  13. Around 90% of the ocean's water lies in the deep sea below 1,000 meters.
+  14. The ocean is connected as one global system of currents, often called the global conveyor
+      belt.
+  15. Ocean currents redistribute heat and help regulate Earth's climate.
+  16. Tides are caused mainly by the gravitational pull of the Moon, with the Sun contributing as
+      well.
+  17. The largest waves ever measured were over 25 meters (80 feet) high.
+  18. The Pacific Ocean is the largest and deepest ocean basin.
+  19. The Pacific covers more area than all of Earth's land combined.
+  20. The Atlantic Ocean is widening slowly as tectonic plates pull apart.
+  21. The Great Barrier Reef, off Australia, is the largest coral reef system in the world.
+  22. Coral reefs cover less than 1% of the ocean floor but support about 25% of known marine
+      species.
+  23. The blue whale is the largest animal known to have ever lived, and it feeds in the ocean.
+  24. Some whales can dive more than 2,000 meters in search of food.
+  25. Giant squid have the largest eyes of any animal, roughly the size of a dinner plate.
+  26. Some deep-sea animals produce their own light through bioluminescence.
+  27. Over 80% of marine life is estimated to be unknown to science.
+  28. Hydrothermal vents on the seafloor support ecosystems that do not rely on sunlight.
+  29. The ocean contains an estimated 20 million tons of gold dissolved in seawater, but it is
+      extremely dilute.
+  30. Ocean noise from shipping and sonar can affect how whales and dolphins communicate.
+  31. Sea otters use rocks as tools to crack open shellfish.
+  32. Octopuses have three hearts and blue blood.
+  33. Sharks have existed in the oceans for more than 400 million years, predating trees.
+  34. The Mariana Trench is over 2,500 kilometers (1,550 miles) long.
+  35. Plastic debris has been found in every major ocean basin, including the deep sea.
+  36. Mangroves, seagrass, and salt marshes store large amounts of carbon, often called "blue
+      carbon."
+  37. Sea level rise is driven partly by thermal expansion, as warmer water takes up more space.
+  38. Many marine species migrate thousands of kilometers each year, including sea turtles and some
+      tuna.
+  39. Bioluminescent plankton can make waves glow blue at night in some coastal areas.
+  30. Ocean noise from shipping and sonar can affect how whales and dolphins communicate.
+  31. Sea otters use rocks as tools to crack open shellfish.
+  32. Octopuses have three hearts and blue blood.
+  33. Sharks have existed in the oceans for more than 400 million years, predating trees.
+  34. The Mariana Trench is over 2,500 kilometers (1,550 miles) long.
+  35. Plastic debris has been found in every major ocean basin, including the deep sea.
+  36. Mangroves, seagrass, and salt marshes store large amounts of carbon, often called "blue
+      carbon."
+  37. Sea level rise is driven partly by thermal expansion, as warmer water takes up more space.
+  38. Many marine species migrate thousands of kilometers each year, including sea turtles and some
+      tuna.
+  39. Bioluminescent plankton can make waves glow blue at night in some coastal areas.
+  40. Humans have explored only a tiny fraction of the deep ocean directly, and most of it remains
+      unseen.
+
+✻ Worked for 6s · done 2:25 PM · 1 shell still running
+
+❯ QUEUED-A: then list 5 rivers.
+
+❯ QUEUED-B: and 3 lakes.
+
+⏺ Five rivers:
+  1. Nile
+  2. Amazon
+  3. Yangtze
+  4. Mississippi
+  5. Danube
+
+  Three lakes:
+  1. Lake Superior
+  2. Lake Victoria
+  3. Lake Baikal
+
+✻ Crunched for 0s · done 2:25 PM · 1 shell still running
+
+❯ Start a background agent with the Agent tool, run_in_background true, subagent general-purpose,
+  model haiku, whose task is: run the Bash command sleep 90 and then reply ok. Do not wait for it.
+  Then reply in one sentence that it started.
+
+⏺ Agent(Background sleep task)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+⏺ A background agent has started to run sleep 90 and reply "ok," and I'm not waiting on it.
+
+✻ Waiting for 1 background agent to finish
+
+› Message from @general-purpose (ctrl+o to expand)
+
+⏺ The background agent hasn't finished yet. It reports that the harness blocked its foreground sleep
+  90, so it relaunched the sleep as a background command. It can't confirm completion, so I'll wait
+  for its completion notification before treating the "ok" as final.
+
+⏺ Agent "Background sleep task" is waiting on its own background work · 9s
+
+⏺ The background agent has stopped, but its result is interim. It started a sleep 90 in the
+  background, and that command may still be running. The agent may report again when it finishes, so
+  the "ok" isn't confirmed yet.
+
+✻ Crunched for 15s · done 2:29 PM
+
+❯ MSG-ONE: while that runs, list three colours, one per line.
+
+⏺ Red
+  Blue
+  Green
+
+✻ Churned for 0s · done 2:29 PM
+
+❯ MSG-TWO: now use Bash to run: ls -la / | head -40, then summarize in two sentences.
+
+  Listed 1 directory (ctrl+o to expand)
+
+⏺ The root directory holds the standard macOS layout, with system folders like System, Library, usr,
+  bin, and sbin, plus Applications, Users, and Volumes. Several top-level entries, including etc,
+  tmp, and var, are symlinks into private/, and home links to the Data volume.
+
+✻ Baked for 3s · done 2:30 PM
+
+❯ MSG-THREE: name two planets.
+
+⏺ Mars and Jupiter.
+
+✻ Sautéed for 1s · done 2:30 PM
+
+❯ MSG-FOUR: name one star.
+
+⏺ Sirius.
+
+✻ Brewed for 1s · done 2:30 PM
+
+⏺ Agent "Background sleep task" finished · 1m 36s
+
+⏺ The background agent has finished. Its run took about 96 seconds, which fits the 90-second sleep
+  completing. Its earlier report still said the result wasn't confirmed, and this notification
+  doesn't include the agent's final reply, so I haven't seen an "ok" from it.
+
+✻ Churned for 2s · done 2:30 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ check if the background agent replied ok
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

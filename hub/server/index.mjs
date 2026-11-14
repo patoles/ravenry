@@ -19,7 +19,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import * as term from './terminal.mjs';
 import * as access from './access.mjs';
 import * as asst from './assistant.mjs';
-import { markEntries, spansGen } from './codespans.mjs';
+import { markEntries, keepPersonTurns, spansGen } from './codespans.mjs';
 import * as registry from './registry.mjs';
 import { readBrief, appendNote, parseBrief, tickTask, writeBriefSafe } from './brief.mjs';
 import { nextParts } from './briefnext.mjs';
@@ -397,7 +397,9 @@ async function liveScreen(surfaceId, ver) {
   const t0 = performance.now();
   if (liveTrim.text !== src || liveTrim.kind !== x.assistant) liveTrim = { text: src, kind: x.assistant, value: asst.trimScreen(src, x.assistant) };
   const mkey = vkey + '\u0000' + surfaceId;
-  if (liveMarked.key !== mkey || liveMarked.src !== src) liveMarked = { key: mkey, src, entries: markEntries(liveTrim.value.entries, tp) };
+  // The person's messages the terminal lost come back from the transcript
+  // (server/codespans.mjs, keepPersonTurns).
+  if (liveMarked.key !== mkey || liveMarked.src !== src) liveMarked = { key: mkey, src, entries: keepPersonTurns(markEntries(liveTrim.value.entries, tp), tp) };
   const trimMs = performance.now() - t0;
   const body = { ok: true, surfaceId, at: x.okAt, now, ver: lvv.ver, lines: src ? src.split('\n').length - 1 : 0, ...liveTrim.value, entries: liveMarked.entries };
   if (process.env.MC_LIVE_LOG === '1') console.log('live trim', JSON.stringify({ surfaceId, ms: +trimMs.toFixed(2), entries: body.entries.length }));

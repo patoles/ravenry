@@ -188,6 +188,8 @@ export function tailLines(text, n) {
 
 // "⏺ Bash(cmd" / "⏺ Web Search(" / "⏺ games - deploy_game (MCP)(html: ...)"
 const TOOL_HEAD = /^⏺ ((?:[\w.-]+ - [\w.-]+ \(MCP\))|[A-Z][\w-]*(?: [A-Z][\w-]*)?)\((.*)$/;
+// The same line with the dot blinked off: "  Bash(cmd".
+const TOOL_BLINK = /^ {2}((?:[\w.-]+ - [\w.-]+ \(MCP\))|[A-Z][\w-]*(?: [A-Z][\w-]*)?)\((.*)$/;
 // "⏺ Agent "Build phone chips" finished · 8m 7s": a background task's notice.
 const TOOL_NOTICE = /^⏺ ([A-Z][\w-]*(?: [a-z]+)?) "[^"]*"/;
 // The time at the end of a notice: " · 9m 15s", " · 45s", " · 1h 2m".
@@ -366,6 +368,17 @@ export function trimScreen(text) {
       start({ k: 'spin', live: i === spinAt, todo: [] }, 'drop');
       continue;
     }
+    // A running tool's dot blinks: drawn without it, the tool's line is
+    // "  Bash(...)" with its "⎿" line under it, never a line of the prompt
+    // or the reply above (measured on Claude Code 2.1.325).
+    if ((m = l.match(TOOL_BLINK)) && (!above[i - 1] || !above[i - 1].trim()) && /^\s*⎿/.test(above[i + 1] || '')) {
+      const arg = m[2];
+      const closed = arg.endsWith(')');
+      start({ k: 't', n: m[1], a: (closed ? arg.slice(0, -1) : arg + ' …').replace(/^"(.*)"$/, '$1'), m: 0 }, 'head');
+      continue;
+    }
+    // Under a message sent while Claude works, Claude Code's hint for it.
+    if (/^\s+ctrl\+x ctrl\+s to send now\s*$/.test(l)) continue;
     if (/^\s/.test(l)) {
       const ind = indentOf(l);
       if (mode === 'out' && ind >= 5) {

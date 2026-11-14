@@ -25,7 +25,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium, webkit, devices } from 'playwright';
 import { trimScreen, tailLines, parseScreen } from '../server/screen.mjs';
-import { markEntries } from '../server/codespans.mjs';
+import { markEntries, keepPersonTurns } from '../server/codespans.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const T = path.join(ROOT, '.tmp', 'live-screen-test');
@@ -238,6 +238,86 @@ for (const w of [194, 80, 60]) {
   const p = marked(md, cut, 100);
   const pb = (p.cs || []).filter((x) => x.b);
   check('code: part of a block on screen is a block of the lines shown', pb.length === 1 && !pb[0].whole && pb[0].t === [code[1].trim(), code[3]].join('\n'), JSON.stringify(p.cs));
+}
+
+// The person's messages on the Live screen (2026-11-14, Simon: "after I
+// send a message, that new message get overwritten on the mobile feed").
+// Real shapes: tools/fixtures/live-turns/ holds a real Claude Code 2.1.325
+// session (its transcript, paths scrubbed) and two real reads of its pane:
+// queued.txt with two messages sent while Claude worked (recorded as
+// queued_command attachments) and two that waited for the end of the turn
+// (recorded as user turns), idle.txt with messages sent at the prompt while
+// a background agent ran. The terminal drawing over rows is played by taking
+// the rows out of the read, as Simon's pane had them: his message and the
+// done line above it gone, the reply before it and the tools after it kept.
+{
+  const LT = path.join(ROOT, 'tools', 'fixtures', 'live-turns');
+  const frames = JSON.parse(fs.readFileSync(path.join(LT, 'frames.json'), 'utf8'));
+  const all = fs.readFileSync(path.join(LT, 'session.jsonl'), 'utf8').split('\n').filter(Boolean);
+  // The transcript as it was when the screen was read.
+  const asOf = (name) => {
+    const f = path.join(T, 'turns', `${name}.jsonl`);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(f, all.filter((l) => { const t = JSON.parse(l).timestamp; return !t || t <= frames[name]; }).join('\n') + '\n');
+    return f;
+  };
+  const without = (text, ...res) => text.split('\n').filter((l) => !res.some((re) => re.test(l))).join('\n');
+  const said = (es) => es.filter((e) => e.k === 'u').map((e) => e.l.join(' '));
+  const kinds = (es) => es.map((e) => e.k + (e.kept ? '+' : '')).join(' ');
+  const first = (es, re) => es.findIndex((e) => re.test((e.l || []).join(' ')));
+
+  const queued = fs.readFileSync(path.join(LT, 'queued.txt'), 'utf8');
+  const qf = asOf('queued.txt');
+  const q0 = trimScreen(queued).entries;
+  const q1 = keepPersonTurns(q0, qf);
+  check('turns: a read that shows every message is left as it is (queued and waiting messages included)', q1 === q0 && !q1.some((e) => e.kept), kinds(q1));
+  // The two sent while it worked, drawn over.
+  const qLost = trimScreen(without(queued, /^❯ SECOND MESSAGE/, /^❯ THIRD MESSAGE/)).entries;
+  check('turns: drawn over, the trimmed read loses the two messages sent while Claude worked (the bug)', !said(qLost).some((x) => /SECOND|THIRD/.test(x)));
+  const qBack = keepPersonTurns(qLost, qf);
+  const iS = first(qBack, /^SECOND MESSAGE/), iT = first(qBack, /^THIRD MESSAGE/), iTool = qBack.findIndex((e) => e.k === 't' && e.n === 'Bash'), iReply = first(qBack, /^The sleep finished/);
+  check('turns: both come back from the transcript, after the tool they waited for and before the reply that answered them, in order', iTool >= 0 && iTool < iS && iS < iT && iT < iReply && qBack[iS].kept && qBack[iT].kept, kinds(qBack));
+  check('turns: with their words as sent', qBack[iS].l.join(' ') === 'SECOND MESSAGE sent while you work: after that, also name three birds.' && qBack[iT].l.join(' ') === 'THIRD MESSAGE also while busy: and one fish.');
+  // The two that waited for the end of the turn, and the done line above them.
+  const qLost2 = trimScreen(without(queued, /^❯ QUEUED-[AB]/, /^✻ Worked for/)).entries;
+  const qBack2 = keepPersonTurns(qLost2, qf);
+  const iA = first(qBack2, /^QUEUED-A/), iB = first(qBack2, /^QUEUED-B/), iFacts = first(qBack2, /^1\. The ocean/), iRivers = first(qBack2, /^Five rivers/);
+  check('turns: messages Claude Code recorded as turns of their own come back between the reply before them and the one after, in order', !said(qLost2).some((x) => /QUEUED/.test(x)) && iFacts >= 0 && iFacts < iA && iA < iB && iB < iRivers && qBack2[iA].kept && qBack2[iB].kept, kinds(qBack2));
+  check('turns: nothing else is added', qBack2.length === qLost2.length + 2 && qBack.length === qLost.length + 2);
+
+  const idle = fs.readFileSync(path.join(LT, 'idle.txt'), 'utf8');
+  const idf = asOf('idle.txt');
+  check('turns: the idle read with a background agent running is left as it is', keepPersonTurns(trimScreen(idle).entries, idf) === trimScreen(idle).entries || !keepPersonTurns(trimScreen(idle).entries, idf).some((e) => e.kept));
+  // Simon's shape: the message and the done line above it drawn over.
+  const iLost = trimScreen(without(idle, /^❯ MSG-TWO/, /^✻ Churned for 0s/)).entries;
+  const iBack = keepPersonTurns(iLost, idf);
+  const r1 = first(iBack, /^Red Blue Green/), m2 = first(iBack, /^MSG-TWO/), r2 = first(iBack, /^The root directory/), m3 = first(iBack, /^MSG-THREE/);
+  check('turns: a message sent at the prompt and drawn over comes back after the reply before it, before the reply to it', r1 >= 0 && r1 < m2 && m2 < r2 && r2 < m3 && iBack[m2].kept && !iBack[m3].kept, kinds(iBack));
+  // Replies said twice: the line-up starts from the newest end, so a short
+  // reply that is in older turns too never makes them look lost.
+  {
+    const f = path.join(T, 'turns', 'twice.jsonl');
+    const u = (text, n) => JSON.stringify({ type: 'user', uuid: 'p' + n, timestamp: `2026-11-14T10:00:0${n}Z`, message: { role: 'user', content: text } });
+    const a = (text, n) => JSON.stringify({ type: 'assistant', uuid: 'a' + n, timestamp: `2026-11-14T10:00:0${n}Z`, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+    fs.writeFileSync(f, [u('first ask', 1), a('Blue', 2), u('second ask', 3), a('Blue', 4), u('third ask', 5), a('Blue', 6)].join('\n') + '\n');
+    const scr = (rows) => trimScreen([...rows, '', '─'.repeat(40), '❯ ', '─'.repeat(40), ''].join('\n')).entries;
+    const top = scr(['⏺ Blue', '', '❯ third ask', '', '⏺ Blue']);
+    check('turns: the screen\'s top cut after an older "Blue": nothing added', !keepPersonTurns(top, f).some((e) => e.kept), kinds(keepPersonTurns(top, f)));
+    const lost = keepPersonTurns(scr(['⏺ Blue', '', '⏺ Blue']), f);
+    check('turns: "third ask" drawn over between two "Blue": it alone comes back, between them', said(lost).join('|') === 'third ask' && kinds(lost) === 'c u+ c', kinds(lost));
+    // A prompt on screen that is no message of the transcript (a paste
+    // Claude Code folds): the screen is left as it is.
+    const folded = keepPersonTurns(scr(['⏺ Blue', '', '❯ [Pasted text #1 +12 lines]', '', '⏺ Blue']), f);
+    check('turns: a prompt drawn another way between them: nothing added', !folded.some((e) => e.kept), kinds(folded));
+  }
+  // A running tool's dot blinks off: its line stays a tool line, never part
+  // of the message above it, and the queued hint is not part of the message.
+  {
+    const b = trimScreen(fs.readFileSync(path.join(LT, 'blink.txt'), 'utf8')).entries;
+    const us = b.filter((e) => e.k === 'u');
+    check('trim: a tool line whose dot blinked off is the tool, not part of the message above', b.some((e) => e.k === 't' && e.n === 'Bash' && e.a === 'sleep 15; echo first-done') && !us.some((e) => /Bash\(/.test(e.l.join(' '))), kinds(b));
+    check('trim: Claude Code\'s "ctrl+x ctrl+s to send now" under a queued message is left out', us.length === 2 && us[1].l.join(' ') === 'SECOND MESSAGE sent while you work: after that, also name three birds.', JSON.stringify(us));
+  }
 }
 
 // parseScreen is unchanged: the same outputs as the module before this work.
@@ -570,6 +650,29 @@ async function plainChipChecks(page, tag, phone) {
 }
 
 // The page side of the code spans, and the S2 dot.
+// The person's message the terminal drew over, on the page (the desktop
+// board and the phone's board read the same /api/live and draw it with the
+// same code): it shows between the reply before it and the reply to it,
+// and once the screen shows it again it is there once.
+const PERSON = { a: 'The plan is ready for review, with two steps left.', p: 'Ship it after the tests pass, please.', b: 'Shipping now: the tests passed on both machines.' };
+const personRec = (type, text, n) => JSON.stringify(type === 'user' ? { type: 'user', uuid: 'pu' + n, message: { role: 'user', content: text } } : { type: 'assistant', uuid: 'pa' + n, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+async function personChecks(page, tag) {
+  fs.writeFileSync(TRANSCRIPT, [personRec('assistant', PERSON.a, 1), personRec('user', PERSON.p, 2), personRec('assistant', PERSON.b, 3)].join('\n') + '\n');
+  setSteps(2, [`⏺ ${PERSON.a}`, '', `⏺ ${PERSON.b}`, '']);
+  const order = () => page.evaluate((w) => Array.from(document.querySelectorAll('#lv-lines > .e')).map((n) => (n.textContent.includes(w.a) ? 'a' : n.textContent.includes(w.p) ? (n.classList.contains('u') ? 'p' : '?') : n.textContent.includes(w.b) ? 'b' : null)).filter(Boolean).join(''), PERSON);
+  const api = await liveNow((b) => b.entries.some((e) => e.kept));
+  const ks = api ? api.entries.filter((e) => /plan is ready|Ship it|Shipping now/.test((e.l || []).join(' '))).map((e) => e.k + (e.kept ? '+' : '')).join(' ') : '';
+  check(`${tag}: person: the API gives the message back from the transcript, between the two replies`, ks === 'c u+ c', ks);
+  check(`${tag}: person: the page shows it there, as the person's message`, await until(async () => (await order()) === 'apb', 9000), await order());
+  // The screen shows it again: once.
+  setSteps(2, [`⏺ ${PERSON.a}`, '', `❯ ${PERSON.p}`, '', `⏺ ${PERSON.b}`, '']);
+  const api2 = await liveNow((b) => b.entries.some((e) => e.k === 'u' && !e.kept && /Ship it/.test(e.l.join(' '))));
+  check(`${tag}: person: once the screen shows it, it is the screen's, not added again`, !!api2 && api2.entries.filter((e) => e.k === 'u' && /Ship it/.test(e.l.join(' '))).length === 1);
+  check(`${tag}: person: the page shows it once`, await until(async () => (await order()) === 'apb', 9000), await order());
+  setSteps(130);
+}
+const until = async (fn, ms) => { for (let i = 0; i < ms / 250; i++) { if (await fn()) return true; await sleep(250); } return false; };
+
 async function spanChecks(page, ctx, tag, phone) {
   const w = phone ? 390 : 1440;
   if (!phone) await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://127.0.0.1:${PORT}` });
@@ -1050,6 +1153,7 @@ try {
     }
     await noticeChecks(page, tag, phone ? 390 : 1440);
     await spanChecks(page, ctx, tag, phone);
+    await personChecks(page, tag);
     await npmMessageChecks(page, tag, phone ? 390 : 1440, phone);
     await menuChecks(page, tag, phone);
     check(`${tag}: no page errors`, errs.length === 0, errs.join(' | '));

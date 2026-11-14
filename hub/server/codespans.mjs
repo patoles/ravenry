@@ -28,11 +28,21 @@
 // read (the first read takes its last 512 KB), each message's spans and
 // letters are worked out once, and each entry's marks are cached by its text
 // and the transcript generation.
+//
+// The same reading keeps the person's own messages on the Live screen
+// (keepPersonTurns): the screen is the terminal's, and the terminal can lose
+// rows (2026-11-14: in a Ravenry pane of Simon's, the rows of a message he
+// sent from the phone, and the done line above it, were drawn over; the
+// screen went on from the reply before it to the tools after it). The
+// transcript keeps the order of the turns, so a message of the person's
+// missing between two of Claude's replies that are on screen goes back
+// between them.
 
 import fs from 'node:fs';
 
 const TAIL = 512 * 1024;   // the first read of a transcript: its recent part only
 const KEEP = 60;           // recent text blocks kept per transcript
+const KEEP_TURNS = 400;    // recent turns (text blocks, tool calls, the person's messages) kept per transcript
 const CTX = 16;            // letters of context either side of a span
 const PROBE = 16;          // length of each sampled piece of an entry
 const AL = /[\p{L}\p{N}]/u;
@@ -162,6 +172,62 @@ function textBlocks(rec) {
   return rec.message.content.filter((c) => c && c.type === 'text' && c.text && c.text.trim()).map((c) => c.text);
 }
 
+// A message the person sent, as Claude Code records it, or null: a typed
+// prompt (a `user` record whose content is the text, or text blocks beside
+// pictures; never a tool's result), or one sent while Claude worked and
+// handed over between two steps (an `attachment` of type `queued_command`
+// from a human turn). Claude Code's own records of commands, shell input,
+// notices and agents' reports start with "<", and an Esc is recorded as
+// "[Request interrupted by user]": none of them are the person's words as
+// typed.
+export function personText(rec) {
+  if (!rec || rec.isSidechain || rec.isMeta || rec.isCompactSummary) return null;
+  let c;
+  if (rec.type === 'user' && rec.message) c = rec.message.content;
+  else if (rec.type === 'attachment' && rec.attachment && rec.attachment.type === 'queued_command') {
+    const a = rec.attachment;
+    if (!(a.humanTurn || (a.origin && a.origin.kind === 'human'))) return null;
+    if (a.commandMode && a.commandMode !== 'prompt') return null;
+    c = a.prompt;
+  } else return null;
+  let text = null;
+  if (typeof c === 'string') text = c;
+  else if (Array.isArray(c)) {
+    if (c.some((b) => b && b.type === 'tool_result')) return null;
+    text = c.filter((b) => b && b.type === 'text' && typeof b.text === 'string' && !/^\s*</.test(b.text)).map((b) => b.text).join('\n');
+  }
+  text = text == null ? '' : String(text).trim();
+  // "[Request interrupted by user]": Claude Code's note of an Esc, drawn as "Interrupted" under the tool.
+  if (!text || text.startsWith('<') || /^Caveat:/.test(text) || /^\[Request interrupted by user/.test(text)) return null;
+  return text;
+}
+
+// One record's turns, in order: Claude's text blocks ('a', with the id of
+// its message), its tool calls ('t') and the person's message ('p').
+function addTurns(c, rec) {
+  let added = 0;
+  if (rec.type === 'assistant' && !rec.isSidechain && rec.message && Array.isArray(rec.message.content)) {
+    for (const b of rec.message.content) {
+      if (!b) continue;
+      if (b.type === 'text' && b.text && b.text.trim()) {
+        const id = (rec.uuid || '') + ':' + c.seq++;
+        c.msgs.push({ id, ...prepare(b.text) });
+        c.turns.push({ k: 'a', id });
+        added++;
+      } else if (b.type === 'tool_use') { c.turns.push({ k: 't' }); added++; }
+    }
+    return added;
+  }
+  const text = personText(rec);
+  if (text == null) return 0;
+  // The same words recorded twice in a row (a queued message and its turn) are one.
+  const last = c.turns[c.turns.length - 1];
+  const s = lettersOf(text).s;
+  if (last && last.k === 'p' && last.s === s) return 0;
+  c.turns.push({ k: 'p', text, s });
+  return 1;
+}
+
 // The recent Claude text blocks of a transcript, read from where the last
 // call stopped. `gen` changes only when a text block arrives (or the file
 // is replaced), so callers can cache on it.
@@ -170,7 +236,7 @@ export function recentMessages(file) {
   try { st = fs.statSync(file); } catch { return null; }
   let c = files.get(file);
   if (!c || st.ino !== c.ino || st.size < c.offset) {
-    c = { ino: st.ino, offset: Math.max(0, st.size - TAIL), cut: st.size > TAIL, msgs: [], gen: (c ? c.gen : 0) + 1 };
+    c = { ino: st.ino, offset: Math.max(0, st.size - TAIL), cut: st.size > TAIL, msgs: [], turns: [], seq: 0, gen: (c ? c.gen : 0) + 1 };
     files.set(file, c);
   }
   if (st.size > c.offset || (c.mtimeMs !== st.mtimeMs && c.seen)) {
@@ -203,9 +269,10 @@ export function recentMessages(file) {
         if (!line) continue;
         let rec;
         try { rec = JSON.parse(line); } catch { continue; }
-        for (const t of textBlocks(rec)) { c.msgs.push({ id: (rec.uuid || '') + ':' + c.msgs.length, ...prepare(t) }); added++; }
+        added += addTurns(c, rec);
       }
       if (c.msgs.length > KEEP) c.msgs = c.msgs.slice(-KEEP);
+      if (c.turns.length > KEEP_TURNS) c.turns = c.turns.slice(-KEEP_TURNS);
       if (added) c.gen++;
     }
     c.offset += Math.max(end, from);
@@ -352,6 +419,114 @@ export function markEntries(entries, file) {
     }
     return cs.length ? { ...e, cs } : e;
   });
+}
+
+// ------------------------------------------------------------ the person's messages
+
+// Whether a prompt on screen shows a message of the transcript: the same
+// letters, or one holding the other's first 24 (a screen that cut a long
+// message, a transcript that kept text the screen folds).
+function sameWords(screen, said) {
+  if (screen === said) return true;
+  if (!screen || !said) return false;
+  const n = Math.min(24, screen.length, said.length);
+  return n >= 4 && (said.includes(screen.slice(0, n)) || screen.includes(said.slice(0, n)));
+}
+
+// Whether a reply on screen is the start of a message of the transcript:
+// the entry's first letters (its ⏺ line, which a terminal that draws over
+// rows keeps longest) found in the message.
+function startsIn(E, msg) {
+  if (!E || E.length < 2) return false;
+  return msg.s.includes(E.slice(0, 32));
+}
+
+// The entries with the person's messages kept: a message of the person's
+// that the screen lost goes back as a 'u' entry (with `kept`), where the
+// transcript has it. The screen and the transcript are lined up from the
+// newest end (each reply and prompt on screen to the latest turn before the
+// last one lined up that it can be, at most 40 turns back), so a reply said
+// twice ("Done.") or a copy the terminal left higher up never pulls the
+// line-up into older turns. A message goes back only between two things the
+// screen and the transcript both have (a reply of Claude's or another
+// message of the person's) with nothing of Claude's lost between them, and
+// no prompt between them on screen that could be it in another form (a
+// paste Claude Code folds, a picture); otherwise the screen is left as it
+// is. Its place: after the reply before it, the done line and
+// anything else that ends that turn, and as many tool calls as the
+// transcript has between that reply and it.
+export function keepPersonTurns(entries, file) {
+  const c = file ? recentMessages(file) : null;
+  if (!c || !c.turns || !c.turns.some((t) => t.k === 'p')) return entries;
+  const byId = new Map(c.msgs.map((m) => [m.id, m]));
+  const line = new Map(); // entry index -> turn index
+  let j = c.turns.length;
+  for (let i = entries.length - 1; i >= 0 && j > 0; i--) {
+    const e = entries[i];
+    if ((e.k !== 'c' && e.k !== 'u') || !e.l || !e.l.length) continue;
+    const E = lettersOf(e.l.join('\n')).s;
+    for (let k = j - 1, n = 0; k >= 0 && n < 40; k--) {
+      const t = c.turns[k];
+      if (t.k === 't') continue;
+      n++;
+      const hit = e.k === 'u' ? t.k === 'p' && sameWords(E, t.s) : t.k === 'a' && byId.has(t.id) && startsIn(E, byId.get(t.id));
+      if (hit) { line.set(i, k); j = k; break; }
+    }
+  }
+  const adds = []; // { at: entry index to insert before, turn }
+  // What the screen and the transcript both have, in screen order.
+  const anchors = [...line].sort((x, y) => x[0] - y[0]);
+  for (let n = 0; n + 1 < anchors.length; n++) {
+    const [ae, at] = anchors[n];
+    const [be, bt] = anchors[n + 1];
+    if (bt <= at + 1) continue;
+    // Only the person's messages (and tool calls) lost between them: a reply
+    // of Claude's missing too means more of the screen went, left as it is.
+    const said = [];
+    let gap = true;
+    for (let k = at + 1; k < bt; k++) {
+      if (c.turns[k].k === 'a') gap = false;
+      else if (c.turns[k].k === 'p') said.push(k);
+    }
+    if (!gap || !said.length) continue;
+    // A prompt between them on screen that is no message of the transcript:
+    // maybe one of these, drawn another way. Left as it is.
+    let unknown = false;
+    for (let i = ae + 1; i < be; i++) if (entries[i].k === 'u') unknown = true;
+    if (unknown) continue;
+    for (const t of said) {
+      // After what the transcript has before it: the done line and notes
+      // that end the turn above, and its tool calls up to this message.
+      let tools = 0;
+      for (let k = at + 1; k < t; k++) if (c.turns[k].k === 't') tools++;
+      let pos = ae + 1;
+      let afterTool = false;
+      while (pos < be) {
+        const e = entries[pos];
+        if (e.k === 't' && !e.b) { if (tools > 0) { tools--; afterTool = true; pos++; continue; } break; }
+        if (e.k === 'c' && e.orphan && afterTool) { pos++; continue; }
+        if (e.k === 's' || e.k === 'r' || e.k === 'o' || (e.k === 't' && e.b)) { afterTool = false; pos++; continue; }
+        break;
+      }
+      adds.push({ at: pos, turn: t });
+    }
+  }
+  if (!adds.length) return entries;
+  adds.sort((x, y) => x.at - y.at || x.turn - y.turn);
+  const out = [];
+  let k = 0;
+  entries.forEach((e, i) => {
+    while (k < adds.length && adds[k].at === i) out.push(personEntry(c.turns[adds[k++].turn].text));
+    out.push(e);
+  });
+  while (k < adds.length) out.push(personEntry(c.turns[adds[k++].turn].text));
+  return out;
+}
+
+// A message of the person's as a Live screen entry: its lines (at most 60).
+function personEntry(text) {
+  const l = String(text).replace(/\r/g, '').split('\n').map((x) => x.replace(/\s+$/, ''));
+  return { k: 'u', l: l.length > 60 ? [...l.slice(0, 59), `… +${l.length - 59} lines`] : l, kept: true };
 }
 
 // The generation of a transcript's text blocks, for the Live screen's version.

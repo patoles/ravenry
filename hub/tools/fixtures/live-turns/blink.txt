@@ -1,0 +1,21 @@
+ ▐▛███▛█   Claude Code v2.1.325
+▝▜██████▀  Haiku 5.5 · Claude Pro
+ ▝▝   ▝▝   /work/demo
+
+
+❯ Use the Bash tool to run: sleep 15; echo first-done. Then write two short paragraphs about
+  clouds.
+
+  Bash(sleep 15; echo first-done)
+  ⎿  Running… (4s)
+     (ctrl+b to run in background)
+
+❯ SECOND MESSAGE sent while you work: after that, also name three birds.
+  ctrl+x ctrl+s to send now
+
+✽ Moseying… (7s · ↓ 216 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt
