@@ -5191,12 +5191,21 @@ function paResHtml(r) {
   return `<span class="pa-res bad">${esc(r.text)}</span>`;
 }
 
-/** "Pixel 8 and Z Flip7 get alerts through the Ravenry app." from the paired apps' names. */
-function paAppsLine(names) {
-  const n = (names || []).filter(Boolean);
-  if (!n.length) return '';
-  const who = n.length === 1 ? n[0] : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`;
-  return `${who} ${n.length === 1 ? 'gets' : 'get'} alerts through the Ravenry app.`;
+/** "Pixel 8 gets alerts through the Ravenry app, iPhone through ntfy." from
+ * the hub's phones and how each gets them (`phones`; a hub before it: the
+ * apps' names). */
+const PA_VIA = { app: 'the Ravenry app', ntfy: 'ntfy' };
+function paAppsLine(names, phones) {
+  const list = Array.isArray(phones) ? phones.filter((x) => x && x.name) : (names || []).filter(Boolean).map((name) => ({ name, transport: 'app' }));
+  if (!list.length) return '';
+  const and = (n) => (n.length === 1 ? n[0] : `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}`);
+  const parts = [];
+  for (const via of ['app', 'ntfy']) {
+    const n = list.filter((x) => (x.transport || 'app') === via).map((x) => x.name);
+    if (!n.length) continue;
+    parts.push(parts.length ? `${and(n)} through ${PA_VIA[via]}` : `${and(n)} ${n.length === 1 ? 'gets' : 'get'} alerts through ${PA_VIA[via]}`);
+  }
+  return parts.join(', ') + '.';
 }
 
 // In the app: on or off as Android has it (the shell says, src/board.ts).
@@ -5227,7 +5236,7 @@ function paPaintCard() {
   if (!el) return;
   const s = paStatus() || { enabled: false, configured: false };
   // The phones that get alerts through the app; the channels are then the "also".
-  const apps = paAppsLine(s.apps);
+  const apps = paAppsLine(s.apps, s.phones);
   $('#pa-apps').textContent = apps;
   $('#pa-apps-row').hidden = !apps;
   $('#pa-on-l').textContent = `${apps ? 'Also send' : 'Send'} alerts to Telegram, Discord or Slack, or ntfy`;
@@ -5528,6 +5537,92 @@ function connect() {
   es.addEventListener('open', () => browserConn('up'));
 }
 
+// ------------------------------------------------------------ Alerts on this iPhone (#iphone)
+// The page the Mac's Add an iPhone code opens in the iPhone's Safari
+// (docs/PHONE.md section 4, "An iPhone through ntfy"): the code signs
+// Safari in and lands here. 1 Get ntfy, 2 Copy the code (a topic made for
+// this iPhone, onto its own clipboard), 3 Send a test, then It arrived,
+// which puts the iPhone in the Mac's phones list.
+const IPH_STORE = 'https://apps.apple.com/app/ntfy/id1625396347';
+const iph = { open: false, s: null, error: null, test: null, done: false, copied: false };
+function iphHtml() {
+  const s = iph.s;
+  const head = `<div class="iph-brand">${$('.mc-mark') ? $('.mc-mark').outerHTML : ''}<b>Ravenry</b></div><h2 class="iph-h">Alerts on this iPhone</h2>`;
+  if (iph.error && !s) return `${head}<div class="iph-w">${esc(iph.error)}</div><button class="btn" data-iph="again">Try again</button>`;
+  if (!s) return `${head}<div class="iph-w">Reading...</div>`;
+  const own = !/^https:\/\/ntfy\.sh$/.test(s.server || '');
+  const res = (r) => (!r ? '' : `<div class="iph-res ${r.ok ? 'ok' : 'bad'}" role="status">${esc(r.text)}</div>`);
+  const step3 = iph.done
+    ? `<div class="iph-res ok" role="status">Done. This iPhone gets alerts from ${esc(s.mac)}.</div><div class="iph-acts"><button class="btn" data-iph="board">Open the board</button></div>`
+    : `<div class="iph-acts"><button class="btn" data-iph="test"${iph.test && iph.test.sending ? ' disabled' : ''}>Send a test</button><button class="btn" data-iph="arrived">It arrived</button></div>${res(iph.test && !iph.test.sending ? iph.test : null)}`;
+  return `${head}<div class="iph-w">From ${esc(s.mac)}, through the ntfy app.</div>
+<section class="iph-step"><div class="iph-k">1 · Get ntfy</div>Free on the App Store.<div class="iph-acts"><a class="btn" href="${IPH_STORE}" target="_blank" rel="noopener">Get ntfy</a></div></section>
+<section class="iph-step"><div class="iph-k">2 · Subscribe</div>In ntfy: +, paste, Subscribe.${own ? `<div class="iph-srv">On ${esc(s.server.replace(/^https?:\/\//, ''))}: in ntfy, turn on Use another server and type it.</div>` : ''}<input class="iph-code" id="iph-code" readonly value="${esc(s.topic)}" aria-label="The code"><div class="iph-acts"><button class="btn pri" data-iph="copy">${iph.copied ? 'Copied' : 'Copy the code'}</button></div></section>
+<section class="iph-step"><div class="iph-k">3 · Check</div>${step3}</section>`;
+}
+function iphPaint() {
+  let el = $('#iph');
+  if (!iph.open) { if (el) el.remove(); document.body.classList.remove('iph-on'); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'iph'; el.className = 'iph'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Alerts on this iPhone'); $('#mc').appendChild(el); }
+  document.body.classList.add('iph-on');
+  el.innerHTML = `<div class="iph-in">${iphHtml()}</div>`;
+}
+async function iphOpen() {
+  iph.open = true;
+  iph.error = null;
+  iphPaint();
+  try { iph.s = await post('/api/alerts/iphone/start', {}); } catch (e) { iph.error = `Could not make a code: ${e.message}`; }
+  iphPaint();
+}
+function iphClose() {
+  iph.open = false;
+  iphPaint();
+  if (location.hash === '#iphone') history.replaceState(null, '', location.pathname + location.search);
+}
+// The code onto this iPhone's clipboard. Safari on the Mac's Wi-Fi address
+// is not a secure page, so the clipboard API is not there: the visible
+// field is selected and copied, the way iOS allows it.
+function iphCopy() {
+  const t = iph.s && iph.s.topic;
+  if (!t) return Promise.resolve(false);
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t).then(() => true, () => false);
+  const f = $('#iph-code');
+  if (!f) return Promise.resolve(false);
+  f.readOnly = false;
+  f.focus({ preventScroll: true });
+  f.setSelectionRange(0, t.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  f.readOnly = true;
+  f.blur();
+  return Promise.resolve(ok);
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-iph]');
+  if (!b) return;
+  const a = b.dataset.iph;
+  if (a === 'again') return iphOpen();
+  if (a === 'board') return iphClose();
+  if (a === 'copy') {
+    const ok = await iphCopy();
+    iph.copied = ok;
+    iphPaint();
+    toast(ok ? 'Copied. In ntfy, tap +, paste it and tap Subscribe.' : 'Copy did not work. Press and hold the code to copy it.');
+    return;
+  }
+  if (a === 'test') {
+    iph.test = { sending: true };
+    iphPaint();
+    try { await post('/api/alerts/iphone/test', { id: iph.s.id }); iph.test = { ok: true, text: 'Sent. It arrives in ntfy in a few seconds.' }; } catch (err) { iph.test = { ok: false, text: `Not sent: ${err.message}` }; }
+    iphPaint();
+    return;
+  }
+  if (a === 'arrived') {
+    try { await post('/api/alerts/iphone/confirm', { id: iph.s.id }); iph.done = true; } catch (err) { iph.test = { ok: false, text: err.message }; }
+    iphPaint();
+  }
+});
+
 // Boot
 const q = new URLSearchParams(location.search);
 applyTheme(q.get('theme') || store.get('theme', 'dark'));
@@ -5540,9 +5635,10 @@ function sessionFromHash(raw) {
   if (raw.startsWith('/') || i < 0) return null;
   try { return { pid: decodeURIComponent(raw.slice(0, i)), key: decodeURIComponent(raw.slice(i + 1)) }; } catch { return null; }
 }
+if (location.hash === '#iphone') iphOpen();
 const hs0 = sessionFromHash(location.hash.slice(1));
 if (hs0) { ui.wantSession = hs0; history.replaceState(null, '', '#' + encodeURIComponent(hs0.pid)); }
-const h0 = decodeURIComponent(location.hash.slice(1));
+const h0 = location.hash === '#iphone' ? '' : decodeURIComponent(location.hash.slice(1));
 ui.view = h0.startsWith('/') ? h0.slice(1) : (q.get('view') || (h0 ? 'projects' : store.get('view', 'projects')));
 // #/plan/<project>: the full plan of that project.
 if (ui.view.startsWith('plan/')) { ui.planFor = ui.view.slice(5); ui.view = 'plan'; }
@@ -5564,6 +5660,7 @@ if (/(?:^|;\s*)mc_new=1/.test(document.cookie)) {
 
 // A typed or linked #/view or #project switches without a reload.
 window.addEventListener('hashchange', () => {
+  if (location.hash === '#iphone') { iphOpen(); return; }
   const hs = sessionFromHash(location.hash.slice(1));
   if (hs) { ui.wantSession = hs; history.replaceState(null, '', '#' + encodeURIComponent(hs.pid)); if (ui.sel === hs.pid && ui.view === 'projects') { render(); return; } }
   const h = decodeURIComponent(location.hash.slice(1));
