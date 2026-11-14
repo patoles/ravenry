@@ -50,6 +50,7 @@ import { fileURLToPath } from 'node:url';
 import { startDemoHub, freePort } from '../../desktop/tools/demo-hub.mjs';
 import { writeLedger, recordLive } from './decisions-fixture.mjs';
 import { cardFixtures, boatPng } from './cards-fixture.mjs';
+import { galleryPictures } from './gallery-fixture.mjs';
 import { testApp } from './testapp.mjs';
 import { pagesPrepare } from './pages-fixture.mjs';
 import { sessbHub, sessbDriver, sessbSecond, sessbThird } from './sessb-fixture.mjs';
@@ -315,7 +316,8 @@ const screenHub = PAGES ? {
   ...(SCREEN === 'ideastop' ? { settings: { claudeTimeoutMs: IDEA_STOP_MS } } : {}),
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
-  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review' || SCREEN === 'controls') reviewRepo(ROOT); },
+  // --screen gallery: lighthouse's brief lists a tall, a wide and a small picture (gallery-fixture.mjs).
+  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'gallery') galleryPictures(path.join(ROOT, 'lighthouse')); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review' || SCREEN === 'controls') reviewRepo(ROOT); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
 // --screen machines: the hub carries a build to install (a few bytes, never run:
 // ssh is /usr/bin/false), so Install and Update get the hub's 200 and start a job

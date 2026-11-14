@@ -269,7 +269,11 @@ extension SelfTestBoard {
         settle(0.3)
         let docAfter = z.contentView.convert(z.convert(vp, to: z.contentView), to: z.picture)
         check("picture_click_zooms_in", z.zoomed, "mag \(z.magnification) fit \(z.fit)")
-        check("picture_zoom_keeps_point", abs(docAfter.x - docBefore.x) < 2 && abs(docAfter.y - docBefore.y) < 2, "\(docBefore) to \(docAfter)")
+        // On an axis where the zoomed picture still is smaller than the view, it sits in the middle instead (CentringClip).
+        let pz = z.convert(z.picture.bounds, from: z.picture), vz = z.contentView.frame
+        let keptX = pz.width < vz.width ? abs(pz.midX - vz.midX) < 0.75 : abs(docAfter.x - docBefore.x) < 2
+        let keptY = pz.height < vz.height ? abs(pz.midY - vz.midY) < 0.75 : abs(docAfter.y - docBefore.y) < 2
+        check("picture_zoom_keeps_point", keptX && keptY, "\(docBefore) to \(docAfter), picture \(pz.integral) in \(vz.integral)")
         check("picture_pinch_and_pan", z.allowsMagnification && z.maxMagnification >= z.fit * 5.9 && z.hasHorizontalScroller, "max \(z.maxMagnification)")
         // Zoomed and moved: kept through the hub's refreshes.
         z.contentView.scroll(to: NSPoint(x: z.contentView.bounds.origin.x + 10, y: z.contentView.bounds.origin.y))
@@ -302,5 +306,6 @@ extension SelfTestBoard {
         check("gallery_older_hub", ol.map { $0.name } == ["a.png", "B"] && !ol[0].fromBrief && ol[1].fromBrief, ol.map { $0.name }.joined(separator: ","))
         g.closeButton.performClick(nil)
         screenGalleryMore()
+        screenGalleryZoom()
     }
 }

@@ -21,8 +21,12 @@
 //   zooms around the pointer and two fingers pan (the scroll view's own
 //   magnification); + and - zoom, 0 fits. The left and right arrows go to
 //   the previous and the next; Escape fits a zoomed picture, else goes
-//   back to the grid. The zoom and the place stay through the hub's
-//   refreshes; a new picture starts fitted.
+//   back to the grid. Each picture opens at its own fit (the whole of it,
+//   worked out again once its whole copy is in), and zooms out to that fit
+//   and no further; on an axis where it is smaller than the view it sits
+//   in the middle. The zoom, the place and the picture shown stay through
+//   the hub's new states, a new picture in the list included (the picture
+//   is followed by its URL, not its place in the list).
 
 import AppKit
 import ImageIO
@@ -54,22 +58,18 @@ struct GalleryPic: Equatable {
     var when: String? { fromBrief ? t("gallery.fromBrief") : When.day(at) }
 }
 
-/// The scroll view's clip: a picture smaller than it in its middle while
-/// fitted; zoomed (`free`), anywhere that keeps it inside the frame, so the
-/// point under the pointer stays there (the Electron app's margins).
+/// The scroll view's clip, each axis on its own: a picture smaller than the
+/// view on it sits in its middle (fitted or zoomed, during a pinch and
+/// after), a bigger one is kept covering the view (never a margin past its
+/// edge). A tall page zoomed in but still narrower than the view stays in
+/// the middle across, and scrolls down.
 final class CentringClip: NSClipView {
-    var free = false
     override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
         var r = super.constrainBoundsRect(proposed)
         guard let d = documentView else { return r }
-        if free {
-            let dx = d.frame.width - r.width, dy = d.frame.height - r.height
-            r.origin.x = min(max(proposed.origin.x, min(0, dx)), max(0, dx))
-            r.origin.y = min(max(proposed.origin.y, min(0, dy)), max(0, dy))
-            return r
-        }
-        if d.frame.width < r.width { r.origin.x = (d.frame.width - r.width) / 2 }
-        if d.frame.height < r.height { r.origin.y = (d.frame.height - r.height) / 2 }
+        let f = d.frame
+        r.origin.x = f.width <= r.width ? f.minX - (r.width - f.width) / 2 : min(max(proposed.origin.x, f.minX), f.maxX - r.width)
+        r.origin.y = f.height <= r.height ? f.minY - (r.height - f.height) / 2 : min(max(proposed.origin.y, f.minY), f.maxY - r.height)
         return r
     }
 }
@@ -88,6 +88,12 @@ final class ZoomView: NSScrollView {
     /// Escape while it has the keyboard (the page's escape()).
     var onEscape: (() -> Bool)?
     private(set) var url = ""
+    /// The whole picture at its fit, worked out again whenever the picture
+    /// or the view changes (its whole copy after the small one, a resize);
+    /// false once the person zooms in, until it is fitted again. Never
+    /// guessed from the magnification: a fit worked out before the picture
+    /// was in (none: 1) or on its small copy is not this picture's.
+    private(set) var fitted = true
     init() {
         super.init(frame: .zero)
         contentView = CentringClip()
@@ -109,63 +115,102 @@ final class ZoomView: NSScrollView {
     required init?(coder: NSCoder) { fatalError() }
 
     /// Its own size in points, as the Electron app's CSS pixels.
-    private var natural: NSSize {
-        guard let i = picture.image, let r = i.representations.first, r.pixelsWide > 0 else { return picture.image?.size ?? .zero }
-        return NSSize(width: r.pixelsWide, height: r.pixelsHigh)
-    }
+    private var natural: NSSize { picture.image.map(Self.pixels) ?? .zero }
 
     /// The magnification that fits the picture in the frame, never above its own size.
     var fit: CGFloat {
         let n = natural
-        guard n.width > 0, n.height > 0, bounds.width > 0 else { return 1 }
+        guard n.width > 0, n.height > 0, bounds.width > 0, bounds.height > 0 else { return 1 }
         return min(1, bounds.width / n.width, bounds.height / n.height)
     }
-    var zoomed: Bool { magnification > fit * 1.02 }
+    var zoomed: Bool { !fitted }
 
-    /// A new picture: fitted. The same one: as it was.
+    /// A new picture: at its fit. The same one: as the person left it; a
+    /// bigger copy of it (the whole one after the small one) takes its place
+    /// at the same zoom and place on the picture, at its fit when fitted; a
+    /// smaller copy never replaces a bigger one.
     func show(_ u: String, _ img: NSImage?) {
-        if u == url && (img == nil || picture.image === img) { return }
-        let fresh = u != url
-        url = u
-        picture.image = img
-        picture.frame = NSRect(origin: .zero, size: natural)
-        if fresh || !zoomed { refit() }
-    }
-
-    /// Fitted again, in the middle.
-    func fitAgain() {
-        (contentView as? CentringClip)?.free = false
-        magnification = fit
-        contentView.scroll(to: contentView.constrainBoundsRect(contentView.bounds).origin)
+        if u != url {
+            url = u
+            put(img)
+            fitAgain()
+            return
+        }
+        guard let img, picture.image !== img else { return }
+        let was = natural, now = Self.pixels(img)
+        if picture.image != nil && now.width * now.height < was.width * was.height { return }
+        guard !fitted, was.width > 0, now.width > 0 else { put(img); fitAgain(); return }
+        let k = now.width / was.width
+        let m = magnification, o = contentView.bounds.origin
+        put(img)
+        limits()
+        magnification = max(minMagnification, min(maxMagnification, m / k))
+        contentView.scroll(to: contentView.constrainBoundsRect(NSRect(origin: NSPoint(x: o.x * k, y: o.y * k), size: contentView.bounds.size)).origin)
         reflectScrolledClipView(contentView)
     }
 
-    /// A pinch (the scroll view's own): free while zoomed, in the middle when back to fitted.
-    override func magnify(with e: NSEvent) {
-        (contentView as? CentringClip)?.free = true
-        super.magnify(with: e)
-        if !zoomed { fitAgain() }
+    private func put(_ img: NSImage?) {
+        picture.image = img
+        picture.frame = NSRect(origin: .zero, size: natural)
     }
 
-    func refit() {
-        (contentView as? CentringClip)?.free = false
-        minMagnification = max(0.01, min(fit, 1))
-        maxMagnification = max(1, 6 * max(1, 1 / max(fit, 0.01)) * fit)
+    /// A picture's own size in pixels: its size, set to its pixels when it
+    /// was decoded (PictureCache.whole and thumb), never read from its
+    /// representations (drawing adds copies of other sizes to them).
+    static func pixels(_ i: NSImage) -> NSSize { i.size }
+
+    /// Fitted again, in the middle.
+    func fitAgain() {
+        fitted = true
+        limits()
         magnification = fit
+        recentre()
     }
 
+    /// The zoom's bounds from this picture in this view: down to its fit (the whole picture, never short of it), up to six times its own size.
+    private func limits() {
+        let f = max(0.0001, fit)
+        if minMagnification != f { minMagnification = f }
+        if maxMagnification != 6 { maxMagnification = 6 }
+    }
+
+    /// The clip where the clip's rule puts it (in the middle on a smaller axis, covering on a bigger one).
+    private func recentre() {
+        let o = contentView.constrainBoundsRect(contentView.bounds).origin
+        if o != contentView.bounds.origin { contentView.scroll(to: o) }
+        reflectScrolledClipView(contentView)
+    }
+
+    /// A pinch (the scroll view's own, around the pointer): zoomed from its
+    /// first step; at its end, back to fitted when it is (nearly) there.
+    override func magnify(with e: NSEvent) {
+        fitted = false
+        super.magnify(with: e)
+        if e.phase.isEmpty || e.phase.contains(.ended) || e.phase.contains(.cancelled) { settle() }
+    }
+    /// A two-finger double tap: the scroll view's own zoom, then as a pinch's end.
+    override func smartMagnify(with e: NSEvent) {
+        fitted = false
+        super.smartMagnify(with: e)
+        settle()
+    }
+    private func settle() { if magnification <= fit * 1.02 { fitAgain() } }
+
+    /// Resized (or laid out again): fitted, at the new fit; zoomed, at the same zoom, the clip's rule kept.
     override func layout() {
-        let wasFit = !zoomed
         super.layout()
-        // Resized: still fitted when it was.
-        minMagnification = max(0.01, min(fit, 1))
-        if wasFit && abs(magnification - fit) > 0.001 { magnification = fit }
+        limits()
+        if fitted {
+            if magnification != fit { magnification = fit }
+            recentre()
+        } else if magnification <= fit * 1.0001 { fitAgain() } else { recentre() }
     }
 
-    /// The magnification `m`, the picture's point `p` (its own coordinates) kept under the view's point `v`.
+    /// The magnification `m`, the picture's point `p` (its own coordinates) kept under the view's point `v`; at its fit or below, fitted.
     func zoom(to m: CGFloat, keeping p: NSPoint, at v: NSPoint) {
         let mm = max(minMagnification, min(maxMagnification, m))
-        (contentView as? CentringClip)?.free = mm > fit * 1.02
+        if mm <= fit * 1.02 { fitAgain(); return }
+        fitted = false
         magnification = mm
         let origin = NSPoint(x: p.x - v.x / mm, y: p.y - v.y / mm)
         contentView.scroll(to: contentView.constrainBoundsRect(NSRect(origin: origin, size: contentView.bounds.size)).origin)
@@ -329,6 +374,9 @@ final class PictureCache {
     var changed: ((String) -> Void)?
     let keepSmall = 120, keepLarge = 6, atOnce = 4
 
+    /// The self-test's: the whole copies let go, as when newer ones pushed them out (a picture opens on its small copy first again).
+    func dropLarge() { large = [:]; bigOrder = [] }
+
     func smallImage(_ u: String) -> NSImage? { if let i = small[u] { touch(u, big: false); return i }; return nil }
     func largeImage(_ u: String) -> NSImage? { if let i = large[u] { touch(u, big: true); return i }; return nil }
 
@@ -353,7 +401,7 @@ final class PictureCache {
             hub.data(u) { [weak self] d in
                 guard let d else { self?.done(key, u, nil, big: big); return }
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let img = big ? NSImage(data: d) : Self.thumb(d)
+                    let img = big ? Self.whole(d) : Self.thumb(d)
                     DispatchQueue.main.async { self?.done(key, u, img, big: big) }
                 }
             }
@@ -380,11 +428,22 @@ final class PictureCache {
         if big { bigOrder.removeAll { $0 == u }; bigOrder.append(u) } else { order.removeAll { $0 == u }; order.append(u) }
     }
 
+    /// The whole picture, its size in points its size in pixels (a Retina
+    /// shot's 144 dpi aside), set once here: a drawn NSImage keeps copies
+    /// of itself at the sizes it was drawn (a small picture drawn at 2x
+    /// gains a copy twice its pixels), so its representations are no
+    /// measure of the picture once it has been shown.
+    static func whole(_ d: Data) -> NSImage? {
+        guard let img = NSImage(data: d) else { return nil }
+        if let r = img.representations.first, r.pixelsWide > 0 { img.size = NSSize(width: r.pixelsWide, height: r.pixelsHigh) }
+        return img
+    }
+
     /// At most 640 px on its longer side, decoded now (not when first drawn).
     static func thumb(_ d: Data) -> NSImage? {
         guard let src = CGImageSourceCreateWithData(d as CFData, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 640, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-        else { return NSImage(data: d) }
+        else { return whole(d) }
         return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
     }
     static func thumb(_ i: NSImage) -> NSImage { i.tiffRepresentation.flatMap { thumb($0) } ?? i }
@@ -450,12 +509,27 @@ final class GalleryPage: InAppPage {
         takeKeys()
     }
 
-    /// The hub's state again: drawn again only when the list changed.
+    /// The hub's state again: drawn again only when the list changed. The
+    /// picture shown and the card ringed are followed through the new list
+    /// (a new picture goes first and moves every other one along); the one
+    /// shown stays, at its place, even when it has left the list (the
+    /// session's oldest, pushed out by a new one).
     func refresh(_ state: HubState?) {
+        let shown = at.flatMap { pics.indices.contains($0) ? pics[$0] : nil }
+        let ringed = lit.flatMap { pics.indices.contains($0) ? pics[$0] : nil }
         pics = GalleryPic.of(state?.project(project))
-        if let a = at { at = pics.isEmpty ? nil : min(a, pics.count - 1) }
-        if let l = lit { lit = pics.isEmpty ? nil : min(l, pics.count - 1) }
+        if let a = at, let x = shown {
+            if let i = place(of: x) { at = i } else { at = min(a, pics.count); pics.insert(x, at: at!) }
+        } else if let a = at { at = pics.isEmpty ? nil : min(a, pics.count - 1) }
+        if let l = lit { lit = pics.isEmpty ? nil : ringed.flatMap { place(of: $0) } ?? min(l, pics.count - 1) }
         draw()
+    }
+
+    /// Where a picture is in the list now: by its URL, else its key (a session's picture whose file changed), else a brief's by its name.
+    private func place(of x: GalleryPic) -> Int? {
+        if let i = pics.firstIndex(where: { $0.url == x.url }) { return i }
+        if let k = x.key, let i = pics.firstIndex(where: { $0.key == k }) { return i }
+        return x.fromBrief ? pics.firstIndex { $0.fromBrief && $0.name == x.name } : nil
     }
 
     /// The page takes the keyboard when it shows (a page in front, not the terminal behind it).
