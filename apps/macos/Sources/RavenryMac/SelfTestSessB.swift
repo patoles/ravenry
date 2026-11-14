@@ -351,6 +351,8 @@ extension SelfTestBoard {
         guard wait(20, { self.board.hub.state?.projects.contains { $0.sessions.contains { $0.sessionId == sid } } ?? false }),
               let p = board.hub.state?.projects.first(where: { $0.sessions.contains { $0.sessionId == sid } }), let s = p.sessions.first(where: { $0.sessionId == sid }) else { return }
         let key = "\(p.id)/\(s.surfaceId)"
+        // An idle project's line under Idle folded: the head pressed first, as the person would.
+        if board.hub.state?.sections.first(where: { $0.group == "idle" })?.projects.contains(where: { $0.id == p.id }) == true, board.sidebar.idleFolded, let h = board.sidebar.idleHead { click(h) }
         _ = wait(5) { self.board.render(force: true); return self.board.sidebar.rows[key] != nil || self.board.sidebar.rows["project:\(p.id)"] != nil }
         if let r = board.sidebar.rows[key] { click(r) }
         else if let r = board.sidebar.rows["project:\(p.id)"] {

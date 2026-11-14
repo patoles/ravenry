@@ -118,7 +118,7 @@ final class Board: NSObject {
     private var lastYou = Set<String>()
     private var timer: Timer?
     private let keep: Bool
-    /// Where the sidebar's width and fold are kept: the person's defaults;
+    /// Where the sidebar's width, its fold and Idle's are kept: the person's defaults;
     /// off every screen only a test's data folder (RAVENRY_DESKTOP_DATA),
     /// so a relaunch check reads them back (NAV-007), else nowhere.
     private lazy var prefs: UserDefaults? = keep ? .standard
@@ -142,6 +142,7 @@ final class Board: NSObject {
         if let d = prefs {
             if let w = d.object(forKey: "sidebarWidth") as? Double { sideWidth = min(SidebarView.maxWidth, max(SidebarView.minWidth, CGFloat(w))) }
             sideHidden = d.bool(forKey: "sidebarHidden")
+            sidebar.idleOpen = d.bool(forKey: "sidebarIdleOpen")
         }
         // Measuring the terminal (the bench, its self-test): the sidebar and the panel start folded.
         if !sidebarOn { sideHidden = true; panelClosed = true }
@@ -331,6 +332,12 @@ final class Board: NSObject {
             self.root.sideWidth = w
             self.prefs?.set(Double(w), forKey: "sidebarWidth")
             self.root.place()
+        }
+        // Idle folded or opened: kept beside the width, the list drawn again.
+        sidebar.onIdleFold = { [weak self] open in
+            guard let self else { return }
+            self.prefs?.set(open, forKey: "sidebarIdleOpen")
+            self.render()
         }
         panel.host = PanelView.Host(
             hub: hub,

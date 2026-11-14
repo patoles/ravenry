@@ -62,6 +62,8 @@ extension SelfTestBoard {
         settle(0.8)
         guard let st = board.hub.state else { check("sess_drawn_state", false); return }
         let sb = board.sidebar
+        // Idle folded (the first launch's, --screen idlefold): its head pressed to open it, as the person would.
+        if sb.idleFolded, let h = sb.idleHead { click(h); _ = wait(2) { !sb.idleFolded } }
         sb.layoutSubtreeIfNeeded()
         // The sections drawn: the tinted boxes, top first.
         var boxes: [Box] = []
@@ -91,7 +93,7 @@ extension SelfTestBoard {
         var orderOk = boxes.count == hubSections.count, orderDetail: [String] = []
         for (b, s) in zip(boxes, hubSections) {
             var rs: [Row] = []
-            func rows(_ v: NSView) { if let r = v as? Row, !r.key.isEmpty { rs.append(r) }; v.subviews.forEach(rows) }
+            func rows(_ v: NSView) { if let r = v as? Row, !r.key.isEmpty, !r.key.hasPrefix("fold:") { rs.append(r) }; v.subviews.forEach(rows) }
             rows(b)
             let drawn = rs.sorted { top($0) > top($1) }.map(\.key)
             let want = s.projects.flatMap { p in p.rows.isEmpty ? ["project:\(p.id)"] : p.rows.map(\.key) }

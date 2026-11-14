@@ -9,7 +9,10 @@
 //
 // It folds away (View > Hide Sidebar, Cmd+Ctrl+S) and its right edge is
 // dragged from 220 to 420 points (284 as the desktop's), both kept for the
-// next launch (never by the bench or the self-tests).
+// next launch (never by the bench or the self-tests). Idle folds too:
+// folded by default, its head (ring, Idle, a chevron, the count) a button
+// that opens it, kept the same way; open with no chevron when every session
+// is idle; folded, the idle project in front keeps its line under the head.
 
 import AppKit
 
@@ -67,6 +70,14 @@ final class SidebarView: Flipped {
     /// The rows drawn, by their key ("<project>/<surface>", "project:<id>", "page:<key>").
     private(set) var rows: [String: Row] = [:]
     private(set) var pins: [String: RButton] = [:]
+    /// Idle opened by the person (Board keeps it beside the width); folded by default.
+    var idleOpen = false
+    /// A press (or Return, Space) on the Idle head: the fold's new state; Board keeps it and draws again.
+    var onIdleFold: ((Bool) -> Void)?
+    /// The Idle head as drawn when it folds (nil when every session is idle, or no idle section).
+    private(set) var idleHead: Row?
+    /// Idle folded as drawn now (its head a button and the list's idle lines hidden).
+    var idleFolded: Bool { idleHead != nil && !idleOpen }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -191,15 +202,19 @@ final class SidebarView: Flipped {
         for s in sections { for p in s.projects { for r in p.rows { if let u = useLine?(r.key) { uses[r.key] = u } } } }
         let denied = (((state?.raw["access"] as? [String: Any])?["denied"] as? [[String: Any]]) ?? []).compactMap { $0["folder"] as? String }
         let asking = testWaiting ?? waitingFor.map { (folder: $0, name: waitingFolder) }
+        // Idle folded: the idle project in front, the one line it keeps (a tab switch to it draws again).
+        idleAlone = sections.allSatisfy { $0.group == "idle" }
+        let frontIdle = idleAlone || idleOpen ? "" : sections.first { $0.group == "idle" }?.projects.first { idleInFront($0, front) }?.id ?? ""
         firstRun = sections.isEmpty && (!reachable || (state?.projects.isEmpty ?? true)) && !hasTabs
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String(decoding: $0, as: UTF8.self) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
                    String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", asking.map { "\($0.folder)\($0.name ?? "")" } ?? "",
-                   uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260)].joined(separator: "|")
+                   uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260), "\(idleOpen)\(frontIdle)"].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
         rows = [:]
         pins = [:]
+        idleHead = nil
         hintShown = false
         // macOS asking for a folder, or refused one, while rows show (deniedNote).
         noteButton = nil
@@ -244,6 +259,7 @@ final class SidebarView: Flipped {
         nav.alphaValue = firstRun ? 0.55 : 1
         buildFoot(state, alerts: alerts, page: page)
         select(front, page: page)
+        chainKeys()
         needsLayout = true
         // More rows below the fold: the scroller shows a moment, and the fade stays.
         DispatchQueue.main.async { [weak self] in
@@ -251,6 +267,23 @@ final class SidebarView: Flipped {
             self.placeFade()
             if !self.fade.isHidden { self.list.flashScrollers(); self.flashes += 1 }
         }
+    }
+
+    /// Tab and Shift+Tab from row to row, as drawn now (the rows are made
+    /// again on each change, so the window's own loop never had them): the
+    /// list's rows, the Idle head among them, then the pages; folded idle
+    /// lines are not drawn, so never in it.
+    private func chainKeys() {
+        func walk(_ v: NSView) -> [Row] { ((v as? Row).flatMap { $0.onOpen != nil && !$0.isHidden ? [$0] : nil } ?? []) + v.subviews.flatMap(walk) }
+        let order = (list.documentView.map(walk) ?? []) + walk(nav)
+        for (i, r) in order.enumerated() { r.nextKeyView = order[(i + 1) % order.count] }
+    }
+    /// The rows Tab goes through, in order (the self-test).
+    var keyRows: [Row] {
+        guard var r = idleHead ?? rows.values.first else { return [] }
+        var seen: [Row] = []
+        while !seen.contains(where: { $0 === r }) { seen.append(r); guard let n = r.nextKeyView as? Row else { break }; r = n }
+        return seen
     }
 
     private var hintShown = false
@@ -299,18 +332,56 @@ final class SidebarView: Flipped {
         return s
     }
 
+    /// Every section is Idle: it shows open, with no chevron (the sidebar is never empty).
+    private var idleAlone = false
+    /// The project the tab in front belongs to (its page, or one of its sessions).
+    private func idleInFront(_ p: SideProject, _ front: String?) -> Bool {
+        front == "project:\(p.id)" || (front.map { $0.hasPrefix("\(p.id)/") } ?? false)
+    }
+    /// A light-theme count on Idle's tint: --card2 there is the tint's own grey (it vanished), so a darker one; dark as is.
+    private static let idleCountFill = NSColor(name: "idle-count") { ap in
+        ap.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? Design.dark("card2") : NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.08)
+    }
+
     /// .grp: its tint, its head (ring, title, count), its projects.
     private func section(_ s: SideSection, front: String?, pinned: Set<String>) -> NSView {
         let color = s.group == "idle" ? "tx2" : s.group
         let count = label(String(s.count), Fonts.pt(12, .bold), s.group == "you" ? "" : s.group == "idle" ? "tx2" : "")
         count.textColor = s.group == "you" ? NSColor(srgbRed: 0x1D / 255, green: 0x1D / 255, blue: 0x1F / 255, alpha: 1) : s.group == "idle" ? Design.color("tx2") : .white
         count.alignment = .center
-        let pill = boxed(count, fill: s.group == "idle" ? "card2" : s.group, radius: 10, insets: NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6))
+        let pill = boxed(count, fill: s.group == "idle" ? nil : s.group, radius: 10, insets: NSEdgeInsets(top: 2, left: 6, bottom: 2, right: 6))
+        if s.group == "idle" { pill.rawFill = SidebarView.idleCountFill }
         pill.widthAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
-        let head = hstack([Icon("ring-\(s.group)", color, size: 14), label(s.title, Fonts.pt(12.5, Fonts.w650), color), spring(), pill],
+        // Only Idle folds, and not when it is all there is: "○ Idle ›" (⌄ open), the count in the right column.
+        let folds = s.group == "idle" && !idleAlone
+        let folded = folds && !idleOpen
+        let title = label(s.title, Fonts.pt(12.5, Fonts.w650), color)
+        let chevron: Icon? = folds ? Icon(folded ? "chevron" : "down", "tx3", size: 12) : nil
+        let head = hstack([Icon("ring-\(s.group)", color, size: 14), title, chevron, spring(), pill],
                           spacing: 8, insets: NSEdgeInsets(top: 8, left: 10, bottom: 6, right: 10))
+        if folds { head.setCustomSpacing(5, after: title) }
         var items: [NSView] = [head]
-        for p in s.projects {
+        if folds {
+            // The head is a button: a press, Return or Space folds or opens; on hover its words and chevron brighten, no fill.
+            let hr = Row(radius: 8)
+            hr.hoverFills = false
+            hr.key = "fold:idle"
+            hr.addSubview(head)
+            pinEdges(head, hr)
+            hr.onHover = { on in title.textColor = Design.color(on ? "tx" : color); chevron?.tint = on ? "tx" : "tx3" }
+            hr.setAccessibilityLabel(t(folded ? "side.idleFolded" : "side.idleOpen", ["title": s.title, "count": String(s.count)]))
+            hr.onOpen = { [weak self, weak hr] in
+                guard let self else { return }
+                let hadKey = hr.map { self.window?.firstResponder === $0 } ?? false
+                self.idleOpen.toggle()
+                self.onIdleFold?(self.idleOpen)
+                // Return or Space: the keyboard stays on the head, drawn again.
+                if hadKey, let h = self.idleHead { self.window?.makeFirstResponder(h) }
+            }
+            idleHead = hr
+            items = [hr]
+        }
+        for p in folded ? s.projects.filter({ idleInFront($0, front) }) : s.projects {
             let pk = "project:\(p.id)"
             let psel = front == pk || (front.map { $0.hasPrefix("\(p.id)/") } ?? false) && !p.rows.contains { $0.key == front }
             if p.rows.isEmpty {

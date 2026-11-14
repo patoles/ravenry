@@ -95,6 +95,8 @@ class Row: Box {
     var onOpen: (() -> Void)?
     var selected = false { didSet { restyle() } }
     var hoverFill = "sel"
+    /// Lit on hover (a section's head that folds is not: its words light instead).
+    var hoverFills = true
     private(set) var hovering = false { didSet { restyle(); onHover?(hovering) } }
     var onHover: ((Bool) -> Void)?
     /// The rows' key, for the self-test and the accessibility tree.
@@ -107,7 +109,7 @@ class Row: Box {
     }
     required init?(coder: NSCoder) { fatalError() }
     private func restyle() {
-        fill = selected || hovering ? hoverFill : nil
+        fill = selected || hovering && hoverFills ? hoverFill : nil
         ring = selected ? "selring" : nil
     }
     override func updateTrackingAreas() {

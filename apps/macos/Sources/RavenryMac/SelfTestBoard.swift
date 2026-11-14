@@ -168,6 +168,8 @@ final class SelfTestBoard {
         settle(0.6)
         // The sections, their counts and every row the hub sent.
         let keys = st0.sections.flatMap { s in s.projects.flatMap { p in p.rows.isEmpty ? ["project:\(p.id)"] : p.rows.map { $0.key } } }
+        // Idle is folded at the first launch (--screen idlefold): a press on its head opens it.
+        if board.sidebar.idleFolded, let h = board.sidebar.idleHead { click(h); _ = wait(2) { !self.board.sidebar.idleFolded } }
         let drawn = keys.filter { board.sidebar.rows[$0] != nil }
         check("sidebar_rows", !keys.isEmpty && drawn.count == keys.count, "\(drawn.count) of \(keys.count): \(keys.joined(separator: ","))")
         check("sidebar_counts", st0.sections.map { $0.count }.reduce(0, +) == keys.count, st0.sections.map { "\($0.group) \($0.count)" }.joined(separator: ", "))

@@ -45,6 +45,8 @@
   "side.accessClosed": "Closed it? System Settings > Privacy & Security > Files & Folders > Ravenry, turn on {folder}.",
   "side.accessDenied": "macOS did not let Ravenry read {folders}. Turn it on in System Settings > Privacy & Security > Files & Folders.",
   "side.openPrivacy": "Open Files & Folders",
+  "side.idleFolded": "{title}, {count}, folded",
+  "side.idleOpen": "{title}, {count}, open",
   "hint.learnMore": "Learn more",
   "hint.dismiss": "Dismiss",
   "hint.needsYouB": "This session waits on you.",

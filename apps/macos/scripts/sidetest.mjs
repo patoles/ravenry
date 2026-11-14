@@ -842,6 +842,20 @@ if (SCREEN === 'termnav') {
   if (!done4) a4.kill();
   try { termnav2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
 }
+// --screen idlefold (SelfTestIdleFold.swift): Idle opened by a press, then
+// the app again on the same data folder (--screen idlefold2): still open.
+let idlefold2 = null;
+if (SCREEN === 'idlefold') {
+  await sleep(1500);
+  const r2 = path.join(OUT, 'sidetest-idlefold2.json');
+  fs.rmSync(r2, { force: true });
+  const a5 = spawn(EXE, ['--offscreen', '--socket', sock, '--sidetest', r2, '--screen', 'idlefold2'], { env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events-idlefold2.log') }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-idlefold2.log'), 'w')] });
+  let done5 = false;
+  a5.on('exit', () => { done5 = true; });
+  for (let i = 0; i < 1200 && !done5; i++) await sleep(100);
+  if (!done5) a5.kill();
+  try { idlefold2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
+}
 let proofs2 = null, marks2 = null;
 if (PROOFS) {
   const r2 = path.join(OUT, 'sidetest-proofs2.json');
@@ -874,6 +888,7 @@ if (PROOFS) {
   r.checks.push({ name: 'onb_second_client_reads_marks', ok: !!ok, detail: JSON.stringify(marks2) });
   if (!ok) r.failed++;
 }
+if (SCREEN === 'idlefold') for (const c of idlefold2?.checks || [{ name: 'idlefold2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 if (SCREEN === 'termnav') for (const c of termnav2?.checks || [{ name: 'termnav2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 // The layout file is kept by daemon: this test's daemon is not the Electron
 // app's, so the window writes window-<daemon>.json, never window.json.
