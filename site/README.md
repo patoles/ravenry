@@ -17,9 +17,11 @@ trackers: it uses the system fonts and the files in this folder only.
 
 At the top of `index.html`, `window.RAVENRY_SITE`:
 
-- `macVersion`: the Mac app's version on the latest release. The DMG link and
-  the "Version" line come from it: `Ravenry-<version>-mac-arm64.dmg`, the name
-  `apps/macos/scripts/package.mjs` gives it. Change it with each release.
+- `macVersion`: the Mac app's version on the latest release, the "Version"
+  line. `tools/publish-testers.mjs` sets it in the copy it publishes.
+- `macFile`: the DMG's name, the same on every release (`Ravenry-mac.dmg`,
+  which `apps/macos/scripts/package.mjs` writes beside the versioned one), so
+  the link never breaks on a new version.
 - `apkFile`: the APK's name, the same on every release (`Ravenry-android.apk`).
 - `downloads`: where GitHub serves the latest release's files
   (`.../releases/latest/download/`).
@@ -44,14 +46,10 @@ hero.
 
 ## Publishing (a person's step)
 
-1. Copy this folder, without `tools/`, to the public repository chosen for
-   the page, and turn on GitHub Pages for it (Settings, Pages: deploy from a
-   branch, the folder that holds `index.html`).
-2. Publish a GitHub release on the repository `downloads` names, with these
-   files attached: `Ravenry-<macVersion>-mac-arm64.dmg` (from
-   `apps/macos/scripts/package.mjs`) and the release APK, renamed to
-   `apkFile`. GitHub's `releases/latest/download/` links always point at the
-   newest release, so `macVersion` must match the DMG on it.
-3. Once the page has its address, make `og:image` in `index.html` an
-   absolute URL (`https://<address>/assets/og-image.png`): link previews need
-   one.
+`node tools/publish-testers.mjs` (a dry run; `--yes` does it) publishes this
+folder, without `tools/` and this README, to the `gh-pages` branch of the public repository
+(the root package.json's `ravenry.releases`, the one `downloads` names), with
+`macVersion` set to the release's version and `og:image` made absolute (link
+previews need one), and makes the release whose files `downloads` names:
+`macFile` and `apkFile` among them. GitHub's `releases/latest/download/`
+links always point at the newest release. The steps: `docs/PUBLISHING.md`.

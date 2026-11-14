@@ -9,6 +9,9 @@
     "type": "git",
     "url": "git+https://github.com/patoles/ravenry-app.git"
   },
+  "ravenry": {
+    "releases": "patoles/ravenry"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"

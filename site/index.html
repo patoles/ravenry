@@ -3,9 +3,11 @@
 <script>
 // ---- The page's settings: change them here, nowhere else. -----------------------------
 window.RAVENRY_SITE = {
-  // The Mac app's version on the latest GitHub release. The DMG's name comes from it, as
-  // apps/macos/scripts/package.mjs names it: Ravenry-<version>-mac-arm64.dmg.
+  // The Mac app's version on the latest GitHub release, shown under the download
+  // (tools/publish-testers.mjs sets it in the copy it publishes).
   macVersion: '0.1.47',
+  // The Mac app's DMG on every release (apps/macos/scripts/package.mjs writes it).
+  macFile: 'Ravenry-mac.dmg',
   // The Android app's file on every release: upload the APK under this name.
   apkFile: 'Ravenry-android.apk',
   // Where GitHub serves the latest release's files.
@@ -116,7 +118,7 @@ window.RAVENRY_SITE = {
 (() => {
   const S = window.RAVENRY_SITE;
   const links = {
-    mac: S.downloads + 'Ravenry-' + S.macVersion + '-mac-arm64.dmg',
+    mac: S.downloads + S.macFile,
     apk: S.downloads + S.apkFile,
     report: S.reportUrl,
   };

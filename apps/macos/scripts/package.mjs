@@ -24,8 +24,11 @@
 //   Contents/Resources/setup.mjs  install/setup.ts, bundled (Install.swift)
 //   Contents/Resources/AppIcon.icns
 //   Contents/Resources/app-update.json  the GitHub repository its updates
-//                               come from (Updater.swift), as electron-builder
-//                               writes app-update.yml for the Electron app
+//                               come from (Updater.swift): the public one the
+//                               testers' copies read, the root package.json's
+//                               ravenry.releases (the npm board's repository);
+//                               RAVENRY_UPDATE_REPO=owner/repo in its place
+//                               for a build that reads another
 //   Contents/MacOS/ravenry      is Contents/MacOS/Ravenry (macOS's file names
 //                               ignore case), so no link can sit there: the
 //                               executable called by that name runs ravenryd
@@ -34,7 +37,9 @@
 // Beside the zip: latest-mac-native.json, the native updater's feed (its
 // version, the zip's name, its SHA-256 and size), and Ravenry-<version>-
 // mac-arm64.dmg, the app and a link to /Applications in a window, for a
-// first install by hand (UPD-008).
+// first install by hand (UPD-008), with the same file again as
+// Ravenry-mac.dmg (a hard link): the name the launch page links on
+// releases/latest/download/, the same on every release.
 //
 // The test twin (SIGN-003): build/package/release-test/Ravenry.app, the same
 // bundle (the same executable, ravenryd, Node and hub, byte for byte) with
@@ -43,9 +48,9 @@
 // RAVENRY_HUB_URL, fixture or update feed); the twin takes them all, and the
 // harness (sidetest.mjs SIDETEST_APP, selftest.sh, relaunchcheck, updatecheck,
 // installcheck, npmswitchcheck) runs on it. It is never zipped or shipped. Publishing is a person's
-// step: both files uploaded to a published GitHub release of that
-// repository (gh release upload v<version> ZIP FEED), which the updater
-// reads as releases/latest/download/latest-mac-native.json.
+// step: tools/publish-testers.mjs (dry run unless --yes) makes the release
+// v<version> on that repository with the zip, the feed and both dmgs, which
+// the updater reads as releases/latest/download/latest-mac-native.json.
 // Info.plist: the Electron app's name, id, version and the words macOS
 // shows when a pane asks for a guarded folder, the camera... (read from
 // apps/desktop/electron-builder.config.mjs, extendInfo), and the ravenry://
@@ -149,12 +154,14 @@ fs.cpSync(path.join(STAGE, 'hub'), path.join(R, 'hub'), { recursive: true });
 fs.cpSync(path.join(STAGE, 'hub-modules'), path.join(R, 'hub', 'node_modules'), { recursive: true });
 fs.cpSync(path.join(STAGE, 'remote'), path.join(R, 'remote'), { recursive: true });
 fs.writeFileSync(path.join(R, 'build.json'), JSON.stringify(build, null, 2) + '\n');
-// Where updates come from: the Electron app's repository (electron-builder.config.mjs githubRepo).
+// Where updates come from: the public releases (the root package.json's ravenry.releases),
+// or RAVENRY_UPDATE_REPO. Not GITHUB_REPOSITORY: CI sets it to the private source repository.
 {
   const rootPkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  const slug = process.env.GITHUB_REPOSITORY || /github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/.exec(String(rootPkg.repository?.url || ''))?.[1];
-  if (!slug) throw new Error('package.mjs: no GitHub repository for updates (set GITHUB_REPOSITORY=owner/repo)');
+  const slug = process.env.RAVENRY_UPDATE_REPO || rootPkg.ravenry?.releases;
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(slug || ''))) throw new Error(`package.mjs: no GitHub repository for updates (ravenry.releases in package.json, or RAVENRY_UPDATE_REPO=owner/repo): ${slug}`);
   const [owner, repo] = slug.split('/');
+  say(`updates from github.com/${owner}/${repo} (app-update.json)`);
   fs.writeFileSync(path.join(R, 'app-update.json'), JSON.stringify({ provider: 'github', owner, repo, feed: 'latest-mac-native.json' }, null, 2) + '\n');
 }
 await esbuild.build({ entryPoints: [path.join(MAC, 'install', 'setup.ts')], bundle: true, platform: 'node', format: 'esm', target: 'node22', outfile: path.join(R, 'setup.mjs'), logLevel: 'warning', legalComments: 'none' });
@@ -268,6 +275,10 @@ const DMG = path.join(path.dirname(ZIP), `Ravenry-${pkg.version}-mac-arm64.dmg`)
   run('/usr/bin/hdiutil', ['verify', '-quiet', DMG]);
   if (notary) { notarize(DMG); staple(DMG); }
 }
+// The same dmg under the name the launch page links, on every release.
+const DMG_FIXED = path.join(path.dirname(ZIP), 'Ravenry-mac.dmg');
+fs.rmSync(DMG_FIXED, { force: true });
+try { fs.linkSync(DMG, DMG_FIXED); } catch { fs.copyFileSync(DMG, DMG_FIXED); }
 // The test twin: the same bundle with the test hooks on (Gate.swift), signed again.
 const TWIN = path.join(OUT, 'release-test', 'Ravenry.app');
 fs.mkdirSync(path.dirname(TWIN), { recursive: true });
@@ -276,7 +287,7 @@ run('/usr/bin/plutil', ['-replace', 'RavenryTestHooks', '-bool', 'YES', path.joi
 sign(TWIN);
 execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', TWIN], { stdio: 'inherit' });
 say(`${app}`);
-say(`${DMG} (${(fs.statSync(DMG).size / 1048576).toFixed(1)} MiB)`);
+say(`${DMG} (${(fs.statSync(DMG).size / 1048576).toFixed(1)} MiB), and as ${path.basename(DMG_FIXED)}`);
 say(`${TWIN}: the test twin (test hooks on; the checks run it, never shipped)`);
 say(`${ZIP} (${(fs.statSync(ZIP).size / 1048576).toFixed(1)} MiB), ${build.id}`);
-say(`${FEED}: the updater's feed; to publish: gh release upload v${pkg.version} ${ZIP} ${FEED} (on a published release)`);
+say(`${FEED}: the updater's feed; to publish: node tools/publish-testers.mjs (a dry run; --yes publishes)`);

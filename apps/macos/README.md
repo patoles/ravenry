@@ -546,11 +546,13 @@ Windows. What it takes over, and how:
   `codesign --verify --deep --strict` and this app's Team ID checked, the
   new bundle swapped in once the app has quit, and Restart to Update
   starting it again through LaunchServices with the clean environment.
-  A build signed ad hoc never updates itself. Nothing is published yet:
-  `gh release upload v<version> build/package/RavenryNative-<version>.zip
-  build/package/latest-mac-native.json` on a published release does it;
-  while the repository is private the check needs RAVENRY_UPDATE_TOKEN,
-  as the Electron app's does. `scripts/updatecheck.mjs APP` checks it on a
+  A build signed ad hoc never updates itself. A packaged app reads the
+  public repository's releases (the root package.json's
+  `ravenry.releases`, written into Resources/app-update.json;
+  RAVENRY_UPDATE_REPO=owner/repo packages one that reads another), where
+  `tools/publish-testers.mjs` publishes the testers' releases
+  (docs/PUBLISHING.md); RAVENRY_UPDATE_TOKEN still reads a private
+  repository's, as the Electron app's does. `scripts/updatecheck.mjs APP` checks it on a
   local feed, `scripts/npmswitchcheck.mjs APP` the switch on the npm
   board 0.4.0.
 
@@ -936,10 +938,12 @@ every screen (the bench, the self-test) writes only to
 - The scrollbar shows the position but cannot be dragged.
 - `build.sh` signs ad hoc for local runs; `package.mjs` signs with this
   Mac's Apple Development identity, for Apple silicon only, not notarized
-  (SIGN-004), and makes no dmg.
-- Taking over from the Electron app: no native build is on the releases
-  yet, so the updater finds nothing until one is published (and the
-  repository is private: RAVENRY_UPDATE_TOKEN); the swap into
+  (SIGN-004) unless RAVENRY_SIGN_IDENTITY and a notary profile are set: a
+  tester's Mac then refuses to open it until they allow it in System
+  Settings, Privacy & Security.
+- Taking over from the Electron app: the Electron app reads this
+  repository's releases, not the public one's, so it is never offered the
+  native app by its updater; the swap into
   /Applications is checked on a copy in a throwaway folder only; the
   panes of a daemon without the render stream (before 0.1.23) are read
   only in the window; opened from inside a
