@@ -252,11 +252,84 @@ extension SelfTestBoard {
         _ = wait(6) { pg.buttons["ntfy-use"]?.title == t("alerts.useIt") }
     }
 
+    /// Phones (docs/PHONE.md section 4): the Pixel the board knows as a row, Add an iPhone's setup
+    /// (the steps, the QR while phone access is on), Copy the code instead, then Send a test and It
+    /// arrived from here: each posts the hub's route, the stand-in ntfy gets the test on the
+    /// iPhone's own topic, and the iPhone's row comes; its Send a test and Remove.
+    private func alertsPhones(_ pg: AlertsPage) {
+        let env = ProcessInfo.processInfo.environment
+        let logPath = env["RAVENRY_MAC_NTFY_LOG"] ?? ""
+        let got = { () -> [[String: Any]] in
+            ((try? String(contentsOfFile: logPath, encoding: .utf8)) ?? "").split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                .compactMap { ($0["body"] as? String).flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] } }
+        }
+        let phones = { pg.setup?["phones"] as? [[String: Any]] ?? [] }
+        _ = wait(5) { pg.busy.isEmpty }
+        if pg.open != nil { pg.buttons["\(pg.open!)-toggle"]?.performClick(nil) }
+        check("alerts_phones_card", wait(6) { self.shows(pg, t("alerts.phones")) && self.shows(pg, "Pixel 8") && self.shows(pg, "· " + t("alerts.viaApp")) && self.shows(pg, t("alerts.phonesLine")) }
+              && pg.buttons["pair"]?.title == t("alerts.pairAndroid") && pg.buttons["addIphone"]?.title == t("alerts.addIphone") && shows(pg, t("alerts.oneWay")), texts(pg).prefix(14).joined(separator: " | "))
+        let pixel = phones().first { $0["name"] as? String == "Pixel 8" }?["id"] as? String ?? ""
+        var n = board.hub.sent.count
+        var L = board.log.count
+        pg.buttons["phoneTest-\(pixel)"]?.performClick(nil)
+        check("alerts_phone_test_android", !pixel.isEmpty && wait(5) { self.sentSince(n).contains("POST /api/alerts/phone/test") && self.toasts(since: L).contains(t("alerts.phoneTestSent", ["name": "Pixel 8"])) }, "\(sentSince(n)) \(toasts(since: L))")
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["addIphone"]?.performClick(nil)
+        let qrShown = { () -> Bool in var found = false; func walk(_ v: NSView) { if (v as? NSImageView)?.image != nil, v.accessibilityLabel() == t("alerts.iphoneQr") { found = true }; v.subviews.forEach(walk) }; walk(pg); return found }
+        let access = (pg.setup?["iphone"] as? [String: Any])?["access"] as? Bool == true
+        check("alerts_add_iphone_opens", pg.iphoneOpen && pg.buttons["addIphone"]?.title == t("alerts.close") && shows(pg, t("alerts.iphoneTitle")) && shows(pg, t("alerts.iphoneWhy")) && shows(pg, t("alerts.iphoneQrCap"))
+              && pg.buttons["iphoneCopy"] != nil && texts(pg).contains { $0.hasPrefix("What the iPhone gets:") && $0.contains("unencrypted") }, texts(pg).prefix(24).joined(separator: " | "))
+        check("alerts_add_iphone_qr", access && wait(3) { qrShown() }, "access \(access)")
+        pictures("alerts-iphone-setup")
+        _ = wait(5) { pg.busy.isEmpty }
+        n = board.hub.sent.count
+        L = board.log.count
+        pg.buttons["iphoneCopy"]?.performClick(nil)
+        check("alerts_iphone_copy", wait(5) { self.sentSince(n).contains("POST /api/alerts/iphone/copy") && self.toasts(since: L).contains(t("alerts.iphoneCopied")) }
+              && wait(6) { pg.buttons["iphoneTest"] != nil && pg.buttons["iphoneArrived"] != nil && self.shows(pg, t("alerts.iphoneThen")) }, "\(sentSince(n)) \(toasts(since: L))")
+        pictures("alerts-iphone-copied")
+        _ = wait(5) { pg.busy.isEmpty }
+        let before = got().count
+        n = board.hub.sent.count
+        L = board.log.count
+        pg.buttons["iphoneTest"]?.performClick(nil)
+        check("alerts_iphone_test_reaches_ntfy", wait(5) { self.sentSince(n).contains("POST /api/alerts/iphone/test") } && wait(10) { got().count > before && got().last?["title"] as? String == "Ravenry test" && (got().last?["topic"] as? String ?? "").hasPrefix("ravenry-") && got().last?["priority"] as? Int == 3 }
+              && wait(5) { self.toasts(since: L).contains(t("alerts.iphoneTestSent")) }, "\(got().last ?? [:]) \(toasts(since: L))")
+        let iphoneTopic = got().last?["topic"] as? String ?? ""
+        _ = wait(5) { pg.busy.isEmpty }
+        n = board.hub.sent.count
+        L = board.log.count
+        pg.buttons["iphoneArrived"]?.performClick(nil)
+        let iphone = { phones().first { $0["transport"] as? String == "ntfy" } }
+        check("alerts_iphone_arrived_row", wait(5) { self.sentSince(n).contains("POST /api/alerts/iphone/confirm") } && wait(6) { iphone() != nil && !pg.iphoneOpen && self.toasts(since: L).contains(t("alerts.iphoneAdded")) }
+              && shows(pg, "iPhone") && shows(pg, "· " + t("alerts.viaNtfy")) && texts(pg).contains { $0.hasPrefix(t("alerts.getsNtfy").dropLast().description) } && pg.buttons["addIphone"]?.title == t("alerts.addIphone"),
+              "\(sentSince(n)) \(toasts(since: L)) \(phones())")
+        let iid = iphone()?["id"] as? String ?? ""
+        check("alerts_iphone_row_buttons", pg.buttons["phoneTest-\(iid)"] != nil && pg.buttons["remove-\(iid)"] != nil && pg.buttons["remove-\(pixel)"] == nil, iid)
+        pictures("alerts-phones")
+        _ = wait(5) { pg.busy.isEmpty }
+        let b2 = got().count
+        n = board.hub.sent.count
+        pg.buttons["phoneTest-\(iid)"]?.performClick(nil)
+        check("alerts_iphone_row_test", wait(5) { self.sentSince(n).contains("POST /api/alerts/phone/test") } && wait(10) { got().count > b2 && got().last?["topic"] as? String == iphoneTopic }, "\(got().last ?? [:])")
+        _ = wait(5) { pg.busy.isEmpty }
+        n = board.hub.sent.count
+        L = board.log.count
+        pg.buttons["remove-\(iid)"]?.performClick(nil)
+        check("alerts_iphone_remove", wait(5) { self.sentSince(n).contains("POST /api/alerts/iphone/remove") && self.toasts(since: L).contains(t("alerts.removed", ["name": "iPhone"])) } && wait(6) { iphone() == nil && pg.buttons["remove-\(iid)"]?.window == nil && !self.shows(pg, "· " + t("alerts.viaNtfy")) }, "\(phones())")
+        // Escape closes Add an iPhone's setup, as it closes a channel's.
+        _ = wait(5) { pg.busy.isEmpty }
+        pg.buttons["addIphone"]?.performClick(nil)
+        window.makeFirstResponder(pg)
+        pg.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!)
+        check("alerts_escape_closes_iphone_setup", !pg.iphoneOpen)
+    }
+
     func screenAlerts() {
         let pg = board.alerts
         board.openPage("side.alerts", t("side.alerts"))
         check("alerts_opens", board.front == .page("side.alerts", t("alerts.title")) && board.root.middle === pg, "\(board.front)")
-        check("alerts_drawn", wait(5) { pg.setup != nil && self.shows(pg, t("alerts.mac")) } && shows(pg, t("alerts.phone")) && shows(pg, "Telegram") && shows(pg, "Discord or Slack webhook") && shows(pg, "ntfy") && shows(pg, t("alerts.oneWay")), texts(pg).prefix(10).joined(separator: " | "))
+        check("alerts_drawn", wait(5) { pg.setup != nil && self.shows(pg, t("alerts.mac")) } && shows(pg, t("alerts.phones")) && shows(pg, "Telegram") && shows(pg, "Discord or Slack webhook") && shows(pg, "ntfy") && shows(pg, t("alerts.oneWay")), texts(pg).prefix(10).joined(separator: " | "))
         pictures("alerts")
         // The window in front tells the hub; Send a test comes back down this app's stream and the stand-in posts it.
         var n = board.hub.sent.count
@@ -318,6 +391,7 @@ extension SelfTestBoard {
         check("alerts_ntfy_new_topic", wait(5) { self.toasts(since: L).contains(t("alerts.newTopicDone")) })
         pictures("alerts-ntfy")
         alertsOwnNtfy(pg)
+        alertsPhones(pg)
         formKeepsTyping(pg)
         pg.buttons["pair"]?.performClick(nil)
         check("alerts_pair_phone", wait(2) { self.board.phoneCard.isOpen }, "\(board.front)")
@@ -334,12 +408,12 @@ extension SelfTestBoard {
         pg.buttons["settings"]?.performClick(nil)
         check("alerts_open_settings", Outside.record?.dropFirst(o).contains("open x-apple.systempreferences:com.apple.Notifications-Settings.extension") ?? false)
         pictures("alerts-denied")
-        // A paired app: the phone row names it, and pairing another is the button.
-        var withApp = den
-        withApp["apps"] = ["Pixel 8"]
-        pg.apply(withApp)
-        check("alerts_phone_app_named", shows(pg, "Pixel 8 gets alerts through the Ravenry app") && pg.buttons["pair"]?.title == t("alerts.pairAnother"), texts(pg).joined(separator: " | ").prefix(300).description)
-        pictures("alerts-phone-app")
+        // A hub before `phones` (its apps' names only): each a row through the Ravenry app, no buttons of its own.
+        var older = den
+        older["phones"] = nil
+        older["apps"] = ["Pixel 8"]
+        pg.apply(older)
+        check("alerts_phones_older_hub", shows(pg, "Pixel 8") && shows(pg, "· " + t("alerts.viaApp")) && !shows(pg, "· " + t("alerts.viaNtfy")) && pg.buttons["pair"]?.title == t("alerts.pairAndroid"), texts(pg).joined(separator: " | ").prefix(300).description)
         check("notify_denied_words", Notifier.denied("Notifications are not allowed for this application") && Notifier.denied("UNErrorDomain error 1.") && !Notifier.denied("macOS did not say it showed it"))
         // A click on one opens the session it is about.
         board.notifier.post(Notifier.Request(id: "n-click", title: "garden-planner needs you", body: "Asked you a question", kind: "ask", projectId: "garden-planner", surfaceId: "sf-1")) { _ in }

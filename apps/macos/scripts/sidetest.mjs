@@ -457,6 +457,19 @@ if (SCREEN === 'phone') {
     ] }), { mode: 0o600 });
   };
 }
+// --screen alerts: the Phones card (docs/PHONE.md section 4) lists the board's own
+// Pixel 8, and phone access is on so Add an iPhone shows its code (a test board's
+// ports stay on 127.0.0.1: home.mjs hubBind).
+if (SCREEN === 'alerts') {
+  const first = screenHub.prepare;
+  screenHub.prepare = (a) => {
+    first?.(a);
+    const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
+    fs.writeFileSync(path.join(a.MC, 'phone.json'), JSON.stringify({ key: 'k'.repeat(48), access: true, away: false, tokens: [
+      { hash: 'a'.repeat(64), id: 'd1a2', name: 'Pixel 8', platform: 'android', app: '0.4.2', created: at(48), lastSeen: at(0.05) },
+    ] }), { mode: 0o600 });
+  };
+}
 // --screen cards: the hub follows a second test daemon, the agents', whose
 // panes hold real checkpoints (realCheckpoints below). The app is on the
 // first only (--socket), so the agents' checkpoints reach it from the hub,
