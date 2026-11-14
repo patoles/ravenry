@@ -392,7 +392,7 @@ sign-ins (`GET /api/phone/devices`) leave it out, and New key keeps it.
 | `POST /api/phone/access` | the Mac | person | `{ on }`: phone access on or off |
 | `POST /api/phone/away` | the Mac | person | `{ on }`: Away from this Mac's Wi-Fi on or off (section 2) |
 | `POST /api/phone/away/signin`, `cancel`, `signout` | the Mac | person | Sign in with Tailscale (answers with the sign-in page), Cancel, Sign out (`removed`: Tailscale took the log-out) |
-| `POST /api/phone/new-key` | the Mac | person | as before: a new sign-in key, every device signed out |
+| `POST /api/phone/new-key` | the Mac | person | as before: a new sign-in key, every device signed out; phone access, Away from this Mac's Wi-Fi and the devices with no sign-in stay as they were |
 | `GET /api/phone` | the Mac | person | the card: the browser QR as before, and while access is on the app's pairing link, its QR, the code and the check number |
 
 A revoked or forgotten token gets 401 with `signedOut: true` on its next

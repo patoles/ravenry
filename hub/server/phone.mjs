@@ -192,11 +192,12 @@ function redirect(res, setCookie) {
 
 export function phoneCount() { return load().tokens.filter((t) => t.hash).length; }
 
-// New key: a fresh key, every token forgotten. Phone access stays as it was,
-// and so do the devices alerts reach without a sign-in (no token to forget).
+// New key: a fresh key, every token forgotten. Everything else stays as it
+// was: phone access, Away from this Mac's Wi-Fi, and the devices alerts reach
+// without a sign-in (no token to forget).
 export function rotate() {
   const d = load();
-  data = { key: newSecret(), access: d.access, tokens: d.tokens.filter((t) => t.hash === null) };
+  data = { ...d, key: newSecret(), tokens: d.tokens.filter((t) => t.hash === null) };
   pairing = null;
   save();
 }

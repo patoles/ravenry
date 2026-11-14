@@ -312,9 +312,16 @@ try {
   await ph2.close();
 
   // ------------------------------------------------------------ New key
+  // Away from this Mac's Wi-Fi on first (no Tailscale sign-in, so nothing
+  // runs): New key changes the key and the sign-ins, never the switches.
+  r = await req(MAC, { method: 'POST', path: '/api/phone/away', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json', Origin: MAC }, body: JSON.stringify({ on: true }) });
+  const before = JSON.parse(fs.readFileSync(pf, 'utf8'));
+  check('Away from this Mac\'s Wi-Fi turned on from the Mac', r.status === 200 && before.away === true && before.access === true, `HTTP ${r.status}`);
   r = await req(MAC, { method: 'POST', path: '/api/phone/new-key', headers: { 'X-Ravenry': '1', 'Content-Type': 'application/json', Origin: MAC }, body: '{}' });
   const after = JSON.parse(fs.readFileSync(pf, 'utf8'));
   check('New key on the Mac: a new key, every phone forgotten', r.status === 200 && JSON.parse(r.body).phones === 0 && after.key !== KEY && after.tokens.length === 0 && !r.body.includes(after.key), `HTTP ${r.status}`);
+  const keptFields = Object.keys(before).filter((k) => k !== 'key' && k !== 'tokens');
+  check('New key keeps phone access, Away from this Mac\'s Wi-Fi and every other setting', keptFields.length >= 2 && keptFields.every((k) => JSON.stringify(after[k]) === JSON.stringify(before[k])) && Object.keys(after).length === Object.keys(before).length && JSON.parse(r.body).away.on === true, `kept ${keptFields.join(',')} after ${JSON.stringify({ access: after.access, away: after.away })} card away ${JSON.stringify(JSON.parse(r.body).away && JSON.parse(r.body).away.on)}`);
   for (let i = 0; i < 20 && !sseEnded; i++) await sleep(100);
   check('the phone\'s live stream is closed', sseEnded);
   r = await req(PH, { path: '/api/state', headers: H });
