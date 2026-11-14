@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13 and later, at night (values-night-v31 would otherwise win over values-v33): the launch is the Mac's Ink as a shader over the board (ShaderInk.kt, docs/PHONE.md, The launch); the system's splash is the window's colour only, gone at the app's first frame, where the ink starts from nothing. -->
+<resources>
+  <style name="Theme.Ravenry.Launch" parent="Theme.Ravenry">
+    <item name="android:windowBackground">@color/win</item>
+    <item name="android:windowSplashScreenBackground">@color/win</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/ink_none</item>
+  </style>
+</resources>

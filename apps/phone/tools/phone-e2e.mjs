@@ -32,13 +32,22 @@
 //     the board's process is stopped, Wi-Fi again when it runs; the
 //     details sheet's Reconnect reconnects;
 //   - the launch (docs/PHONE.md, The launch): a cold start from the
-//     launcher, recorded (launch-cold.webm), the splash ending within 1 s,
-//     the mark landing on the top bar's, gfxinfo's frames; Reaching your
-//     Mac... only after 1.4 s with the board stopped; none on a warm start;
-//     the still mark and the board at once with animations off.
+//     launcher, recorded (launch-cold.webm), gfxinfo's frames; none on a
+//     warm start; the still mark and the board at once with animations off.
+//     Android 13 and later (the Mac's Ink as a shader): its first frames
+//     within the GPU budget, the 3.4 s played and the mark landing on the
+//     top bar's; a touch ends it; Reaching your Mac... once the raven has
+//     formed (2.15 s) with the board stopped, then the landing; a GPU over
+//     the budget (a debug build's ravenry_ink_budget) plays today's version.
+//     Under 13 (today's version): the splash ending within 1 s (12; 8 to 11
+//     the window's still mark), the mark flying to the top bar's;
+//     Reaching your Mac... only after 1.4 s with the board stopped.
 //
 //   node build.mjs && (cd ../android && ./gradlew assembleDebug)
-//   node tools/phone-e2e.mjs <outDir> [--port 5584] [--avd ravenry-pixel] [--keep]
+//   node tools/phone-e2e.mjs <outDir> [--port 5584] [--avd ravenry-pixel] [--keep] [--launch-only]
+//
+// --launch-only: pair with the real link, then the launch's checks only (an
+// AVD of Android 12 or older for today's version, where the rest is not run).
 //
 // Only an emulator: it starts its own, headless, read-only, names it on
 // every adb command (`-s emulator-<port>`), checks ro.kernel.qemu=1, and
@@ -62,6 +71,7 @@ const WORK = path.resolve(opt('--work', path.join(APP_DIR, '.tmp', 'phone-e2e-wo
 const PORT = Number(opt('--port', 5584));
 const SERIAL = `emulator-${PORT}`;
 const AVD = opt('--avd', 'ravenry-pixel');
+const LAUNCH_ONLY = args.includes('--launch-only');
 // The host's GPU, headless all the same (no window): frame times mean something.
 const GPU = opt('--gpu', 'host');
 const SDK = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), 'Library/Android/sdk');
@@ -114,12 +124,13 @@ try {
     await until(booted, 240000, 2000);
   }
   if (adb('shell', 'getprop', 'ro.kernel.qemu').trim() !== '1') throw new Error(`${SERIAL} does not say ro.kernel.qemu=1: not an emulator`);
+  const API = Number(adb('shell', 'getprop', 'ro.build.version.sdk').trim());
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
   adb('shell', 'wm', 'dismiss-keyguard');
   adb('shell', 'settings', 'put', 'system', 'screen_off_timeout', '1800000');
   adb('install', '-r', APK);
   adb('shell', 'pm', 'clear', APP);
-  adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
+  if (API >= 33) adb('shell', 'pm', 'grant', APP, 'android.permission.POST_NOTIFICATIONS');
   adb('shell', 'pm', 'grant', APP, 'android.permission.CAMERA');
   adb('shell', 'cmd', 'uimode', 'night', 'yes');
   adb('shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1');
@@ -127,7 +138,7 @@ try {
   demoBar('enter'); demoBar('clock', ['-e', 'hhmm', '1755']); demoBar('notifications', ['-e', 'visible', 'false']); demoBar('battery', ['-e', 'level', '80', '-e', 'plugged', 'false']); demoBar('network', ['-e', 'wifi', 'show', '-e', 'level', '4']);
   const size = adb('shell', 'wm', 'size').trim();
   const dens = adb('shell', 'wm', 'density').trim();
-  console.log(`${SERIAL}: ${size}, ${dens}`);
+  console.log(`${SERIAL}: API ${API}, ${size}, ${dens}`);
 
   function screen() {
     for (let i = 0; i < 4; i++) {
@@ -154,7 +165,7 @@ try {
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
   // A fingerprint, enrolled as a person does in Settings after a PIN (as
   // tools/pick-shots.mjs does; the sensor is touched with `adb emu finger touch`).
-  {
+  if (!LAUNCH_ONLY) {
     const fp = () => screen();
     adb('shell', 'locksettings', 'set-pin', '1234');
     adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
@@ -214,6 +225,127 @@ try {
   const typeText = (text) => { for (const word of text.split(' ').map((w, i) => (i ? ' ' : '') + w)) adb('shell', 'input', 'text', word.replace(/ /g, '%s').replace(/([,.;'"()&!?])/g, '\\$1')); };
   const keyboardUp = () => /mInputShown=true/.test(adb('shell', 'dumpsys', 'input_method'));
 
+  // The resumed activity (Android 10 and later say topResumedActivity; Android 11's dump may carry only mResumedActivity).
+  const resumed = () => { const d = adb('shell', 'dumpsys', 'activity', 'activities'); return (d.match(/topResumedActivity=.*?\/(\.\w+)/) || d.match(/mResumedActivity: .*?\/(\.\w+)/) || [])[1] || null; };
+
+  // The launch (docs/PHONE.md, The launch), from the launcher; the app in the background to begin with.
+  async function launchSection() {
+    const inkLog = () => adb('logcat', '-d', '-s', 'RavenryInk');
+    const msOf = (re, log) => { const m = re.exec(log); return m ? Number(m[1]) : null; };
+    async function launch({ record = null, waitFor = /exit done|board ready/, ms: wait = 20000, during = null } = {}) {
+      adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+      await sleep(800);
+      adb('shell', 'input', 'swipe', '540', '2000', '540', '600', '300');
+      await sleep(1500);
+      const icon = find((n) => n.text === 'Ravenry' && n.pkg !== APP);
+      if (!icon) throw new Error('the launcher shows no Ravenry');
+      adb('logcat', '-c');
+      try { adb('shell', 'dumpsys', 'gfxinfo', APP, 'reset'); } catch { /* not running */ }
+      if (record) { adb('emu', 'screenrecord', 'start', '--time-limit', '8', '--fps', '60', path.join(OUT, record)); await sleep(400); }
+      const at = Date.now();
+      tap(icon);
+      if (during) await during();
+      const log = await until(() => { const l = inkLog(); return waitFor.test(l) ? l : null; }, wait, 300) || inkLog();
+      if (record) { await sleep(1500); try { adb('emu', 'screenrecord', 'stop'); } catch { /* done */ } await sleep(1500); }
+      return { log, at };
+    }
+    const SHADER = API >= 33;
+    const last = (log, n = 2) => log.trim().split('\n').slice(-n).map((l) => l.replace(/^.*RavenryInk: /, '')).join(' | ');
+    // The bar's mark where the page draws it (screen px): its glyph centre, as InkLaunch.barMark.
+    const barMark = async () => { const r = await rectOf('#pbar .pn-ttl svg'); const k = r.w / 100; return { x: r.x + k * (4.77 + 0.8954 * 50.5), y: r.y + k * (-2.10 + 0.8954 * 58.5) }; };
+    // Warm: the app is in the background: no launch.
+    const warm = await launch({ waitFor: /never/, ms: 2500 });
+    const warmSplash = /SplashScreenView: Build/.test(adb('logcat', '-d', '-s', 'SplashScreenView'));
+    check(!/cold start/.test(warm.log) && !warmSplash && resumed() === '.MainActivity', 'a warm start (the app in the background): no splash and no Ink, the board at once', `${warm.log.trim().split('\n').pop() || 'no Ink log'}; splash ${warmSplash}`);
+    // Cold, recorded.
+    adb('shell', 'am', 'force-stop', APP);
+    const cold = await launch({ record: 'launch-cold.webm', waitFor: SHADER ? /shader ink: ended|exit done/ : /exit done/ });
+    const gfx = adb('shell', 'dumpsys', 'gfxinfo', APP);
+    const g2 = (re) => (re.exec(gfx) || [])[1];
+    if (SHADER) {
+      // Android 13 and later: the Mac's Ink as a shader over the board.
+      const guard = /shader ink: first frames ([\d.]+) ms on the GPU, ([\d.]+) ms in all \(budget ([\d.]+) ms\): (\w+ ?\w*)/.exec(cold.log);
+      check(/launch path: shader/.test(cold.log) && guard && guard[4] === 'fine', 'Android 13 and later: a cold start plays the Mac\'s Ink as a shader, its first frames within the GPU budget', guard ? `${guard[1]} ms a frame on the GPU, ${guard[2]} ms in all (budget ${guard[3]} ms)` : last(cold.log, 4));
+      const ended = /shader ink: ended \((\w+)\) after (\d+) frames, (\d+) ms/.exec(cold.log);
+      const lands = /shader ink lands at ([\d.]+),([\d.]+)/.exec(cold.log);
+      const want = await barMark();
+      check(ended && ended[1] === 'done' && Number(ended[2]) >= 60 && Number(ended[3]) >= 3400 && lands && Math.abs(lands[1] - want.x) < 2 && Math.abs(lands[2] - want.y) < 2, 'the Ink plays its 3.4 s and the mark lands on the top bar\'s mark, the board washed in from there', ended && lands ? `${ended[2]} frames in ${ended[3]} ms (board ready at ${msOf(/board ready at (\d+) ms/, cold.log)} ms); landed at ${Math.round(lands[1])},${Math.round(lands[2])} (the bar's mark at ${Math.round(want.x)},${Math.round(want.y)})` : last(cold.log, 4));
+    } else {
+      const splashGo = msOf(/splash let go at (\d+) ms/, cold.log);
+      const splashEnd = msOf(/splash ended at (\d+) ms/, cold.log);
+      if (API >= 31) {
+        // The app lets the splash go once the Ink has played (800 ms); the system
+        // then takes it down at the app's next frame (the hold under it draws the
+        // same picture, so nothing shows the step).
+        check(/AnimatableIconAnimateListener/.test(adb('logcat', '-d', '-s', 'SplashScreenView')) && splashGo !== null && splashGo <= 1000, 'a cold start from the launcher plays the Ink (the splash\'s animated icon) and the app lets the splash go within 1 s', `let go ${splashGo} ms after the process started, taken down by the system at ${splashEnd} ms`);
+      } else {
+        check(/launch path: today's \(api \d+\)/.test(cold.log) && splashEnd !== null && splashEnd <= 1500, 'Android 8 to 11: a cold start shows the window\'s still mark (no splash API), held by the app from its first frame', `held from ${splashEnd} ms after the process started`);
+      }
+      const exitM = /exit: (\d+) frames.*the mark at (\d+),(\d+) scale ([\d.]+) \(target ([\d.]+),([\d.]+) scale ([\d.]+)\)/.exec(cold.log);
+      check(/launch path: today's/.test(cold.log) && exitM && Number(exitM[1]) >= 10 && Math.abs(exitM[2] - exitM[5]) < 2 && Math.abs(exitM[3] - exitM[6]) < 2, 'today\'s version: the mark flies to the top bar\'s mark and lands on it, the board revealed from there', exitM ? `${exitM[1]} frames in ${msOf(/exit done at (\d+)/, cold.log) - msOf(/exit from .* at (\d+) ms/, cold.log)} ms, landed at ${exitM[2]},${exitM[3]} (the bar's mark at ${Math.round(exitM[5])},${Math.round(exitM[6])})` : cold.log);
+    }
+    check(fs.existsSync(path.join(OUT, 'launch-cold.webm')), 'the cold start is recorded (launch-cold.webm, frames to compare with the approved strip)');
+    console.log(`gfxinfo over the launch: ${g2(/Total frames rendered: (\d+)/)} frames, janky ${g2(/Janky frames: ([^\n]+)/)}, 50th ${g2(/50th percentile: (\d+ms)/)}, 90th ${g2(/90th percentile: (\d+ms)/)}, 99th ${g2(/99th percentile: (\d+ms)/)}, GPU 50th ${g2(/50th gpu percentile: (\d+ms)/)}, 90th ${g2(/90th gpu percentile: (\d+ms)/)}`);
+    if (SHADER) {
+      // Any touch ends it: a tap once the ink is drawing (its first frames timed), the board then as it is
+      // (or, before it is there, the hold and the flight). Before the app's first frame the system's splash
+      // window is on the screen, and a touch there never reaches the app.
+      adb('shell', 'am', 'force-stop', APP);
+      const touched = await launch({ waitFor: /exit done|the board as it is/, during: async () => { await until(() => /shader ink: first frames/.test(inkLog()), 6000, 100); adb('shell', 'input', 'tap', '540', '1500'); } });
+      const tEnd = /shader ink: ended \(touch\) after (\d+) frames, (\d+) ms/.exec(touched.log);
+      check(tEnd && Number(tEnd[2]) < 3000 && /exit done|the board as it is/.test(touched.log), 'a touch ends the Ink at once, and the board comes', tEnd ? `ended ${tEnd[2]} ms in (${tEnd[1]} frames); ${last(touched.log, 1)}` : last(touched.log, 3));
+      await sleep(1500);
+    }
+    // The Mac slow to answer: the board stopped for 6 s.
+    adb('shell', 'am', 'force-stop', APP);
+    process.kill(info.pid, 'SIGSTOP');
+    let holdWords = null;
+    try {
+      const p0 = launch({ waitFor: /hold words/, ms: 12000 });
+      holdWords = await until(() => find((n) => /Reaching your Mac/.test(n.text)), 15000, 300);
+      if (holdWords) shot('launch-hold-dark.png');
+      await p0;
+    } finally { setTimeout(() => process.kill(info.pid, 'SIGCONT'), 1500); }
+    const held = await until(() => { const l = inkLog(); return (SHADER ? /shader ink: ended/ : /exit done/).test(l) ? l : null; }, 30000, 500) || inkLog();
+    const wordsAt = msOf(/hold words at (\d+) ms/, held);
+    if (SHADER) {
+      const heldMs = msOf(/shader ink: held (\d+) ms/, held);
+      check(holdWords && /holding for the board/.test(held) && wordsAt >= 2150 && heldMs > 0 && /shader ink: ended \(done\)/.test(held), 'the Mac slow to answer: the raven formed holds (its eye on), Reaching your Mac... from then (after 2.15 s), then the landing', `words at ${wordsAt} ms, board at ${msOf(/board ready at (\d+) ms/, held)} ms, held ${heldMs} ms`);
+    } else {
+      check(holdWords && wordsAt >= 1400 && /exit done/.test(held), 'the Mac slow to answer: the same drawing holds, Reaching your Mac... only after 1.4 s, then the same exit', `words at ${wordsAt} ms, board at ${msOf(/board ready at (\d+) ms/, held)} ms`);
+    }
+    // Animations off: the still mark, then the board at once.
+    const scales = ['animator_duration_scale', 'transition_animation_scale', 'window_animation_scale'];
+    for (const k of scales) adb('shell', 'settings', 'put', 'global', k, '0');
+    adb('shell', 'am', 'force-stop', APP);
+    let still;
+    try { still = await launch({ waitFor: /board ready/ }); await sleep(1000); still.log = inkLog(); } finally { for (const k of scales) adb('shell', 'settings', 'put', 'global', k, '1'); }
+    check(/animations off/.test(still.log) && /launch path: today's \(animations off\)/.test(still.log) && /board ready/.test(still.log) && !/exit:|shader ink/.test(still.log), 'with the phone\'s animations off: the still mark, then the board at once (no flight, no shader)', last(still.log));
+    if (SHADER) {
+      // A GPU too slow for the shader (the debug build's budget at 0.5 ms): today's version plays in its place.
+      adb('shell', 'settings', 'put', 'global', 'ravenry_ink_budget', '0.5');
+      adb('shell', 'am', 'force-stop', APP);
+      let slow;
+      try { slow = await launch({ waitFor: /exit done/ }); } finally { adb('shell', 'settings', 'delete', 'global', 'ravenry_ink_budget'); }
+      const exitS = /exit: (\d+) frames.*the mark at (\d+),(\d+) scale ([\d.]+) \(target ([\d.]+),([\d.]+) scale ([\d.]+)\)/.exec(slow.log);
+      const gs = /shader ink: first frames ([\d.]+) ms on the GPU.*: too slow/.exec(slow.log);
+      check(gs && /shader ink: ended \(slow\)/.test(slow.log) && /launch path: today's \(the shader too slow here\)/.test(slow.log) && /vector ink played/.test(slow.log) && exitS && Math.abs(exitS[2] - exitS[5]) < 2 && Math.abs(exitS[3] - exitS[6]) < 2, 'a GPU over the budget: the shader stops after its first frames and today\'s version plays (the vector Ink, the hold, the flight to the bar\'s mark)', gs && exitS ? `${gs[1]} ms a frame over a 0.5 ms budget; ended ${msOf(/shader ink: ended \(slow\) after \d+ frames, (\d+) ms/, slow.log)} ms in; flight landed at ${exitS[2]},${exitS[3]}` : last(slow.log, 4));
+    }
+    await until(() => page('document.querySelector("#pchips .pchip") ? 1 : null'), 15000, 500);
+  }
+
+  sections: {
+  if (LAUNCH_ONLY) {
+    // Paired with the real link, then the launch only.
+    adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
+    await tapWhen('Pair', 30000);
+    const paired = await until(() => page('document.querySelector("#pchips .pchip") ? location.pathname : null'), 40000, 1000);
+    check(paired === '/', 'the real link pairs, and the home is the board (the project chips)', String(paired));
+    await sleep(1500);
+    await launchSection();
+    break sections;
+  }
+
   // ------------------------------------------------------------ 1. Tailscale off
   const real = info.phone.link;
   const q = new URL(real.replace('ravenry://', 'https://'));
@@ -227,7 +359,6 @@ try {
   shot('pair-tailscale-dark.png');
 
   // ------------------------------------------------------------ 1b. Back on the pairing screen
-  const resumed = () => (adb('shell', 'dumpsys', 'activity', 'activities').match(/topResumedActivity=.*?\/(\.\w+)/) || [])[1] || null;
   adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
   const scan = await until(() => find('Pair with your Mac'), 6000, 400);
   await tapWhen((n) => /Type the code instead/.test(n.text));
@@ -495,64 +626,7 @@ try {
   check(leftHome, 'at home (Projects), Android\'s Back leaves the app', String(resumed()));
 
   // ------------------------------------------------------------ 7c. the launch (docs/PHONE.md, The launch)
-  const inkLog = () => adb('logcat', '-d', '-s', 'RavenryInk');
-  const msOf = (re, log) => { const m = re.exec(log); return m ? Number(m[1]) : null; };
-  async function launch({ record = null, waitFor = /exit done|board ready/, ms: wait = 20000 } = {}) {
-    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
-    await sleep(800);
-    adb('shell', 'input', 'swipe', '540', '2000', '540', '600', '300');
-    await sleep(1500);
-    const icon = find((n) => n.text === 'Ravenry' && n.pkg !== APP);
-    if (!icon) throw new Error('the launcher shows no Ravenry');
-    adb('logcat', '-c');
-    try { adb('shell', 'dumpsys', 'gfxinfo', APP, 'reset'); } catch { /* not running */ }
-    if (record) { adb('emu', 'screenrecord', 'start', '--time-limit', '8', '--fps', '60', path.join(OUT, record)); await sleep(400); }
-    const at = Date.now();
-    tap(icon);
-    const log = await until(() => { const l = inkLog(); return waitFor.test(l) ? l : null; }, wait, 300) || inkLog();
-    if (record) { await sleep(1500); try { adb('emu', 'screenrecord', 'stop'); } catch { /* done */ } await sleep(1500); }
-    return { log, at };
-  }
-  // Warm: the app is in the background: no launch.
-  const warm = await launch({ waitFor: /never/, ms: 2500 });
-  const warmSplash = /SplashScreenView: Build/.test(adb('logcat', '-d', '-s', 'SplashScreenView'));
-  check(!/cold start/.test(warm.log) && !warmSplash && resumed() === '.MainActivity', 'a warm start (the app in the background): no splash and no Ink, the board at once', `${warm.log.trim().split('\n').pop() || 'no Ink log'}; splash ${warmSplash}`);
-  // Cold, recorded.
-  adb('shell', 'am', 'force-stop', APP);
-  const cold = await launch({ record: 'launch-cold.webm', waitFor: /exit done/ });
-  const gfx = adb('shell', 'dumpsys', 'gfxinfo', APP);
-  const g2 = (re) => (re.exec(gfx) || [])[1];
-  // The app lets the splash go once the Ink has played (800 ms); the system
-  // then takes it down at the app's next frame (the hold under it draws the
-  // same picture, so nothing shows the step).
-  const splashGo = msOf(/splash let go at (\d+) ms/, cold.log);
-  const splashEnd = msOf(/splash ended at (\d+) ms/, cold.log);
-  const exitM = /exit: (\d+) frames.*the mark at (\d+),(\d+) scale ([\d.]+) \(target ([\d.]+),([\d.]+) scale ([\d.]+)\)/.exec(cold.log);
-  check(/AnimatableIconAnimateListener/.test(adb('logcat', '-d', '-s', 'SplashScreenView')) && splashGo !== null && splashGo <= 1000, 'a cold start from the launcher plays the Ink (the splash\'s animated icon) and the app lets the splash go within 1 s', `let go ${splashGo} ms after the process started, taken down by the system at ${splashEnd} ms`);
-  check(exitM && Number(exitM[1]) >= 10 && Math.abs(exitM[2] - exitM[5]) < 2 && Math.abs(exitM[3] - exitM[6]) < 2, 'the exit: the mark flies to the top bar\'s mark and lands on it, the board revealed from there', exitM ? `${exitM[1]} frames in ${msOf(/exit done at (\d+)/, cold.log) - msOf(/exit from .* at (\d+) ms/, cold.log)} ms, landed at ${exitM[2]},${exitM[3]} (the bar's mark at ${Math.round(exitM[5])},${Math.round(exitM[6])})` : cold.log);
-  check(fs.existsSync(path.join(OUT, 'launch-cold.webm')), 'the cold start is recorded (launch-cold.webm, frames to compare with A\'s strip)');
-  console.log(`gfxinfo over the launch: ${g2(/Total frames rendered: (\d+)/)} frames, janky ${g2(/Janky frames: ([^\n]+)/)}, 50th ${g2(/50th percentile: (\d+ms)/)}, 90th ${g2(/90th percentile: (\d+ms)/)}, 99th ${g2(/99th percentile: (\d+ms)/)}`);
-  // The Mac slow to answer: the board stopped for 6 s.
-  adb('shell', 'am', 'force-stop', APP);
-  process.kill(info.pid, 'SIGSTOP');
-  let holdWords = null;
-  try {
-    const p0 = launch({ waitFor: /hold words/, ms: 8000 });
-    holdWords = await until(() => find((n) => /Reaching your Mac/.test(n.text)), 9000, 300);
-    if (holdWords) shot('launch-hold-dark.png');
-    await p0;
-  } finally { setTimeout(() => process.kill(info.pid, 'SIGCONT'), 1500); }
-  const held = await until(() => { const l = inkLog(); return /exit done/.test(l) ? l : null; }, 30000, 500) || inkLog();
-  const wordsAt = msOf(/hold words at (\d+) ms/, held);
-  check(holdWords && wordsAt >= 1400 && /exit done/.test(held), 'the Mac slow to answer: the same drawing holds, Reaching your Mac... only after 1.4 s, then the same exit', `words at ${wordsAt} ms, board at ${msOf(/board ready at (\d+) ms/, held)} ms`);
-  // Animations off: the still mark, then the board at once.
-  const scales = ['animator_duration_scale', 'transition_animation_scale', 'window_animation_scale'];
-  for (const k of scales) adb('shell', 'settings', 'put', 'global', k, '0');
-  adb('shell', 'am', 'force-stop', APP);
-  let still;
-  try { still = await launch({ waitFor: /board ready/ }); await sleep(1000); still.log = inkLog(); } finally { for (const k of scales) adb('shell', 'settings', 'put', 'global', k, '1'); }
-  check(/animations off/.test(still.log) && /board ready/.test(still.log) && !/exit:/.test(still.log), 'with the phone\'s animations off: the still mark, then the board at once (no flight)', still.log.trim().split('\n').slice(-2).join(' | '));
-  await until(() => page('document.querySelector("#pchips .pchip") ? 1 : null'), 15000, 500);
+  await launchSection();
 
   // ------------------------------------------------------------ 7d. the connection chip
   const chipWord = () => page('(document.querySelector("#cx-chip .cx-w") || {}).textContent || null');
@@ -659,6 +733,7 @@ try {
   check(listed && gone, 'with the Mac out of reach the device stays on the hub; back in reach, the retried unpair revokes it (its token then gets 401: phone-app-test, a phone signing itself out)', gone ? `still listed ${Math.round((onAt - tapAt) / 1000)} s after the tap in airplane mode; revoked ${Math.round((gone - onAt) / 100) / 10} s after the network came back` : 'still listed');
   await sleep(1000);
   shot('pair-after-signout-light.png');
+  }
 } catch (e) {
   console.error(e);
   try { fs.writeFileSync(path.join(OUT, 'error.png'), adbBin('exec-out', 'screencap', '-p')); } catch { /* gone */ }

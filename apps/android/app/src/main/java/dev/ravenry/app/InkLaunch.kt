@@ -74,6 +74,8 @@ class InkLaunch private constructor(
         if (target != null) return
         target = o
         Log.i(TAG, "board ready at ${SystemClock.uptimeMillis() - start} ms")
+        val sh = shader
+        if (sh != null && sh.running) { hold?.settle(); landShader(sh, o); return }
         if (splashDone) exit()
     }
 
@@ -125,16 +127,43 @@ class InkLaunch private constructor(
             h.fadeOut { remove(); Log.i(TAG, "warm exit done at ${SystemClock.uptimeMillis() - start} ms") }
             return
         }
-        val dpr = t.optDouble("dpr", 1.0).toFloat()
         val loc = IntArray(2); web.getLocationInWindow(loc)
-        // The bar's mark: a 26 px svg of viewBox 100, its glyph at translate(4.77 -2.10) scale(0.8954).
-        val k = t.optDouble("w", 26.0).toFloat() / 100f
-        val tx = loc[0] + (t.optDouble("x").toFloat() + k * (4.77f + 0.8954f * GC_X)) * dpr
-        val ty = loc[1] + (t.optDouble("y").toFloat() + k * (-2.10f + 0.8954f * GC_Y)) * dpr
-        val ts = k * 0.8954f * dpr
-        val box = floatArrayOf(loc[0] + t.optDouble("x").toFloat() * dpr, loc[1] + t.optDouble("y").toFloat() * dpr, t.optDouble("w").toFloat() * dpr, t.optDouble("h").toFloat() * dpr)
+        val (m, box) = barMark(t, loc[0].toFloat(), loc[1].toFloat())
+        val (tx, ty, ts) = m
+        val dpr = t.optDouble("dpr", 1.0).toFloat()
         Log.i(TAG, "exit from ${h.cx},${h.cy} to $tx,$ty at ${SystemClock.uptimeMillis() - start} ms")
         h.exit(tx, ty, ts, box, 110f * dpr, web) { remove(); Log.i(TAG, "exit done at ${SystemClock.uptimeMillis() - start} ms") }
+    }
+
+    /** Android 13 and later: the Mac's Ink as a shader over the board (ShaderInk). */
+    private var shader: ShaderInk? = null
+
+    private fun landShader(sh: ShaderInk, t: JSONObject) {
+        if (Build.VERSION.SDK_INT < 33) return
+        val loc = IntArray(2); web.getLocationInWindow(loc)
+        val (m, box) = barMark(t, loc[0].toFloat(), loc[1].toFloat())
+        Log.i(TAG, "shader ink lands at ${m[0]},${m[1]}")
+        sh.land(m[0], m[1], m[2], box)
+    }
+
+    /**
+     * The shader ended (its end, or a touch): the board as it is; before the board said it is there, today's hold.
+     * Too slow for this GPU ("slow", its first frames): today's version from the start, the vector Ink in the hold, then the hold and the flight.
+     */
+    private fun shaderEnded(why: String) {
+        if (why == "slow") {
+            Log.i(TAG, "launch path: today's (the shader too slow here)")
+            val h = hold ?: return
+            h.today()
+            if (animationsOff) { splashEnded(); return }
+            h.playInk { Log.i(TAG, "vector ink played at ${SystemClock.uptimeMillis() - start} ms"); splashEnded() }
+            return
+        }
+        if (target != null) { Log.i(TAG, "shader ended ($why): the board as it is"); remove(); return }
+        Log.i(TAG, "shader ended ($why) before the board: today's hold")
+        hold?.paintHold()
+        hold?.holding()
+        splashEnded()
     }
 
     private fun remove() {
@@ -150,6 +179,20 @@ class InkLaunch private constructor(
         const val GC_Y = 58.5f
         /** dp per mark unit in the 288 dp splash icon (tools/ink-avd.mjs S). */
         const val S = 1.55f
+
+        /**
+         * The bar's mark in the window from the page's ink.ready (CSS px, dpr) and the WebView's place:
+         * its glyph centre and px per glyph unit, and its box (x, y, w, h). A 26 px svg of viewBox 100,
+         * its glyph at translate(4.77 -2.10) scale(0.8954).
+         */
+        internal fun barMark(t: JSONObject, webX: Float, webY: Float): Pair<FloatArray, FloatArray> {
+            val dpr = t.optDouble("dpr", 1.0).toFloat()
+            val x = t.optDouble("x").toFloat(); val y = t.optDouble("y").toFloat()
+            val k = t.optDouble("w", 26.0).toFloat() / 100f
+            val mark = floatArrayOf(webX + (x + k * (4.77f + 0.8954f * GC_X)) * dpr, webY + (y + k * (-2.10f + 0.8954f * GC_Y)) * dpr, k * 0.8954f * dpr)
+            val box = floatArrayOf(webX + x * dpr, webY + y * dpr, t.optDouble("w").toFloat() * dpr, t.optDouble("h").toFloat() * dpr)
+            return mark to box
+        }
 
         /** The window's own colour from here (the launch theme's background is the still mark). */
         fun plainWindow(activity: Activity) = activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(ContextCompat.getColor(activity, R.color.win)))
@@ -191,6 +234,17 @@ class InkLaunch private constructor(
             // The hold is there from the app's first frame, under the splash
             // (centred, at the splash icon's 288 dp), so nothing blinks when the splash goes.
             ink.attach(-1f, -1f, 288 * density)
+            if (Build.VERSION.SDK_INT >= 33 && !ink.animationsOff && content is ViewGroup) {
+                // The splash is the window's colour only (values-v33): gone at the app's first frame, the ink starting from nothing.
+                ink.hold?.clear()
+                activity.splashScreen.setOnExitAnimationListener { v -> v.remove() }
+                val sh = ShaderInk(activity, content, onHold = { ink.hold?.holding() }) { why -> ink.shaderEnded(why) }
+                ink.shader = sh
+                Log.i(TAG, "launch path: shader")
+                sh.start()
+                return ink
+            }
+            Log.i(TAG, "launch path: today's (${if (ink.animationsOff) "animations off" else "api ${Build.VERSION.SDK_INT}"})")
             if (Build.VERSION.SDK_INT >= 31) {
                 // The splash stays while the Ink plays (800 ms, tools/ink-avd.mjs LEN), then exits into the hold.
                 val until = ink.start + if (ink.animationsOff) 0 else 800
@@ -248,6 +302,36 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
     private var breath: ValueAnimator? = null
     private var frames = 0
     private var firstU = 0f
+    /** Android 13+: the shader draws the launch; this view only holds the words (and Try again). */
+    private var painting = true
+    private var settled = false
+
+    fun clear() { painting = false; isClickable = false; wordsOnHold = true; invalidate() }
+    /** Android 13+: the words wait for the shader's hold (the raven formed, the board not there), not 1.4 s. */
+    private var wordsOnHold = false
+    fun holding() { if (!settled && isAttachedToWindow) { words.animate().alpha(1f).setDuration(300).start(); Log.i(InkLaunch.TAG, "hold words at ${SystemClock.uptimeMillis() - start} ms") } }
+    fun paintHold() { painting = true; isClickable = true; invalidate() }
+    /** The board is there: no "Reaching your Mac..." any more. */
+    fun settle() { settled = true; words.animate().cancel(); words.alpha = 0f }
+    /** Android 13+ with the shader too slow: today's hold from here (the words after 1.4 s from the launch, as today). */
+    fun today() {
+        painting = true; isClickable = true; wordsOnHold = false; invalidate()
+        // Past 1.4 s already (the 1.4 s timer passed while the shader played): the words now.
+        if (SystemClock.uptimeMillis() - start >= 1400 && !settled) holding()
+    }
+    /** The mark hidden while the vector Ink plays over this view in its place. */
+    private var markHidden = false
+    /** Today's vector Ink (the splash's ink_splash.xml, 288 dp centred as the splash draws it) here, then this view's still mark in its place. */
+    fun playInk(done: () -> Unit) {
+        val d = ContextCompat.getDrawable(context, R.drawable.ink_splash) as? android.graphics.drawable.Animatable
+        if (d == null) { done(); return }
+        val px = (288 * resources.displayMetrics.density).toInt()
+        val v = android.widget.ImageView(context).apply { setImageDrawable(d as android.graphics.drawable.Drawable) }
+        markHidden = true
+        addView(v, LayoutParams(px, px, Gravity.CENTER))
+        d.start()
+        postDelayed({ markHidden = false; invalidate(); postOnAnimation { removeView(v); done() } }, 800)
+    }
     private val words = TextView(context).apply {
         text = context.getString(R.string.reaching)
         setTextColor(ContextCompat.getColor(context, R.color.tx2))
@@ -264,7 +348,7 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
         val d = resources.displayMetrics.density
         addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = (max(0f, cy) + 104 * d).toInt(); leftMargin = (40 * d).toInt(); rightMargin = (40 * d).toInt() })
         // "Reaching your Mac..." only after 1.4 s from the launch.
-        postDelayed({ if (hole == 0f && isAttachedToWindow) { words.animate().alpha(1f).setDuration(300).start(); Log.i(InkLaunch.TAG, "hold words at ${SystemClock.uptimeMillis() - start} ms") } }, max(0L, 1400L - (SystemClock.uptimeMillis() - start)))
+        postDelayed({ if (hole == 0f && !settled && !wordsOnHold && isAttachedToWindow) { words.animate().alpha(1f).setDuration(300).start(); Log.i(InkLaunch.TAG, "hold words at ${SystemClock.uptimeMillis() - start} ms") } }, max(0L, 1400L - (SystemClock.uptimeMillis() - start)))
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
@@ -369,6 +453,7 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
     }
 
     override fun onDraw(c: Canvas) {
+        if (!painting) return
         // The window's colour, with the board shown through a soft-edged circle while it exits.
         if (hole <= 0f) c.drawColor(win)
         else {
@@ -379,6 +464,7 @@ private class HoldView(context: Context, var cx: Float, var cy: Float, iconPx: F
             // The bar's own mark stays hidden until the flying one lands on it.
             cover?.let { b -> fill.shader = null; fill.color = win; fill.alpha = 255; c.drawRect(b[0] - 2, b[1] - 2, b[0] + b[2] + 2, b[1] + b[3] + 2, fill) }
         }
+        if (markHidden) return
         c.save()
         c.translate(cx, cy); c.scale(scale, scale); c.translate(-InkLaunch.GC_X, -InkLaunch.GC_Y)
         fill.shader = null
