@@ -313,8 +313,11 @@ function start(sh: Shell): void {
   // heaviest frame; the mark's flight goes after it), at most 400 ms later.
   const whenIdle = (f: () => void): void => { const w = window as unknown as { requestIdleCallback?: (cb: () => void, o: { timeout: number }) => void }; if (w.requestIdleCallback) w.requestIdleCallback(f, { timeout: 400 }); else setTimeout(f, 120); };
   // A warm start (the board reloading in a rebuilt activity): no flight to
-  // smooth, the board as soon as its bar is laid out.
-  const warm = sh.hello.launch === 'warm';
+  // smooth, the board as soon as its bar is laid out. The same for Android
+  // 13's shader Ink: it lands on its own clock, and while it draws every
+  // frame the page is never idle, so waiting for idle held the board back
+  // by up to the 400 ms.
+  const warm = sh.hello.launch === 'warm' || sh.hello.launch === 'ink';
   const tryMark = (): boolean => { if (!mark()) return false; if (warm) requestAnimationFrame(() => { if (!tellMark()) requestAnimationFrame(() => tellMark()); }); else whenIdle(() => { if (!tellMark()) requestAnimationFrame(() => tellMark()); }); return true; };
   if (!tryMark()) {
     const mo = new MutationObserver(() => { if (tryMark()) mo.disconnect(); });

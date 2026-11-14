@@ -59,8 +59,8 @@ class InkLaunch private constructor(
     /** A warm start: the board was there a moment ago, so it comes back with a short fade, not the mark's flight. */
     private val warm: Boolean = false,
 ) {
-    /** For the page's hello: "cold" or "warm". */
-    val kind: String get() = if (warm) "warm" else "cold"
+    /** For the page's hello: "cold", "warm", or "ink" (Android 13's shader, which lands on its own clock: the page says where its bar's mark is at once). */
+    val kind: String get() = if (warm) "warm" else if (shader != null) "ink" else "cold"
 
     private val animationsOff = Settings.Global.getFloat(activity.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     private var hold: HoldView? = null
