@@ -84,6 +84,7 @@ object Hub {
 
     private fun changed() {
         client?.networkChanged()
+        ConnectionService.poke()
         onNetwork?.invoke()
     }
 }

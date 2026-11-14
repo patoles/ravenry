@@ -236,15 +236,22 @@ class HubClient(
         }
     }
 
+    /** A live stream: closed for good, or told to try again now (wake) when it waits between tries. */
+    interface Stream : Closeable { fun wake() }
+
     /**
      * Server-sent events (GET /api/events): each `event:` with its `data:`.
-     * Reconnects after a drop until closed; `link` says up or down.
+     * Reconnects after a drop until closed; `link` says up or down. Between
+     * tries it waits 1 s, doubling to 15 s; [Stream.wake] (the network
+     * changed, the Mac answered another request) ends the wait now.
      */
-    fun events(path: String, onEvent: (String, String) -> Unit, link: (Boolean, String?) -> Unit): Closeable {
-        val holder = object : Closeable {
+    fun events(path: String, onEvent: (String, String) -> Unit, link: (Boolean, String?) -> Unit): Stream {
+        val holder = object : Stream {
             @Volatile var closed = false
             @Volatile var call: Call? = null
-            override fun close() { closed = true; call?.cancel() }
+            @Volatile var waiting: Thread? = null
+            override fun close() { closed = true; call?.cancel(); waiting?.interrupt() }
+            override fun wake() { waiting?.interrupt() }
         }
         Thread({
             var wait = 1000L
@@ -283,7 +290,10 @@ class HubClient(
                     // Another address may answer now (the Wi-Fi went, Tailscale is up).
                     runCatching { call("GET", "/api/phone/hello") }
                 }
-                if (!holder.closed) { Thread.sleep(wait); wait = (wait * 2).coerceAtMost(15000L) }
+                if (!holder.closed) {
+                    holder.waiting = Thread.currentThread()
+                    try { Thread.sleep(wait); wait = (wait * 2).coerceAtMost(15000L) } catch (_: InterruptedException) { wait = 1000L } finally { holder.waiting = null }
+                }
             }
         }, "ravenry-events").apply { isDaemon = true }.start()
         return holder

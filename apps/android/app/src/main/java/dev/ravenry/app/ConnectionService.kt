@@ -9,7 +9,6 @@ import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
-import java.io.Closeable
 
 /**
  * The connection held in the background while paired (docs/PHONE.md
@@ -18,7 +17,7 @@ import java.io.Closeable
  * which Mac it reaches and how, and how many sessions work or need you.
  */
 class ConnectionService : Service() {
-    private var stream: Closeable? = null
+    private var stream: HubClient.Stream? = null
     private var line: Line? = null
     private var counts: Counts? = null
 
@@ -35,6 +34,7 @@ class ConnectionService : Service() {
         val n = Notifier.connection(this, first)
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
         try { ServiceCompat.startForeground(this, Notifier.CONNECTION_ID, n, type) } catch (e: Exception) { android.util.Log.w("Ravenry", "connection service: ${e.message}"); stopSelf(); return START_NOT_STICKY }
+        running = this
         if (stream == null) {
             val hub = Hub.get(this) ?: run { stopSelf(); return START_NOT_STICKY }
             val via = { Reach.via(hub.host, hub.allHosts) }
@@ -63,6 +63,7 @@ class ConnectionService : Service() {
     }
 
     override fun onDestroy() {
+        if (running === this) running = null
         stream?.close(); stream = null
         super.onDestroy()
     }
@@ -127,6 +128,16 @@ class ConnectionService : Service() {
 
         /** Not linked: why, when Tailscale is off or missing; else that it tries again. */
         fun down(mac: String, why: String?) = Line("Can't reach $mac", why ?: "Trying again.")
+
+        @Volatile private var running: ConnectionService? = null
+
+        /**
+         * The phone's network changed, or the app heard the Mac while this
+         * line still said it could not reach it: the stream tries again now
+         * instead of at the end of its wait (up to 15 s), so the line says
+         * Connected as soon as the Mac answers.
+         */
+        fun poke() { running?.stream?.wake() }
 
         fun start(context: Context) {
             runCatching { ContextCompat.startForegroundService(context, Intent(context, ConnectionService::class.java)) }

@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.util.Log
@@ -354,20 +355,22 @@ class MainActivity : FragmentActivity() {
                 val headers = mutableMapOf<String, String>()
                 hs?.keys()?.forEach { k -> if (k.lowercase() in PASS_HEADERS) hs.str(k)?.let { headers[k] = it } }
                 Hub.io.execute {
+                    val asked = SystemClock.elapsedRealtime()
                     try {
                         val type = headers.entries.firstOrNull { it.key.equals("content-type", true) }?.value
                         val body = if (method == "GET" || method == "HEAD") null else (bytes ?: ByteArray(0)).toRequestBody(type?.toMediaTypeOrNull())
                         hub().execute(method, path, body, headers).use { r ->
                             val out = r.body?.bytes() ?: ByteArray(0)
+                            answered()
                             reply(id, true, JSONObject().put("status", r.code).put("type", r.header("Content-Type") ?: "application/octet-stream").put("b64", Base64.getEncoder().encodeToString(out)))
                         }
                     } catch (e: Exception) {
-                        reply(id, false, error = unreachable(e))
+                        reply(id, false, error = unreachable(e, asked))
                     }
                 }
             }
             "reach.now" -> reply(id, true, lastReach ?: JSONObject.NULL)
-            "reach.retry" -> { lastReach = null; Hub.io.execute { runCatching { hub().call("GET", "/api/phone/hello") }.onSuccess { main.post { web.reload() } }.onFailure { unreachable(it) } }; reply(id, true) }
+            "reach.retry" -> { lastReach = null; Hub.io.execute { runCatching { hub().call("GET", "/api/phone/hello") }.onSuccess { answered(); main.post { web.reload() } }.onFailure { unreachable(it) } }; reply(id, true) }
             // The board's background and theme for the system bars (src/board.ts).
             "bars" -> {
                 val light = o.optBoolean("light", false)
@@ -394,11 +397,13 @@ class MainActivity : FragmentActivity() {
                 val b = o.opt("body")
                 val json = when (b) { null, JSONObject.NULL -> null; is String -> b; else -> b.toString() }
                 Hub.io.execute {
+                    val asked = SystemClock.elapsedRealtime()
                     try {
                         val r = hub().call(method, path, json)
+                        answered()
                         reply(id, true, JSONObject().put("status", r.status).put("body", if (r.text.isEmpty()) JSONObject.NULL else parse(r.text)))
                     } catch (e: Exception) {
-                        reply(id, false, error = unreachable(e))
+                        reply(id, false, error = unreachable(e, asked))
                     }
                 }
             }
@@ -417,6 +422,7 @@ class MainActivity : FragmentActivity() {
                 Hub.io.execute {
                     try {
                         val ws = hub().socket(path, proto, object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) { answered() }
                             override fun onMessage(webSocket: WebSocket, text: String) { event(JSONObject().put("event", "socket.message").put("sid", sid).put("text", text)) }
                             override fun onMessage(webSocket: WebSocket, bytes: ByteString) { event(JSONObject().put("event", "socket.message").put("sid", sid).put("b64", Base64.getEncoder().encodeToString(bytes.toByteArray()))) }
                             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
@@ -685,7 +691,7 @@ class MainActivity : FragmentActivity() {
         events = hub().events("/api/events", { name, data ->
             event(JSONObject().put("event", "hub").put("name", name).put("data", parse(data)))
         }, { up, err ->
-            if (up) lastReach = null
+            if (up) answered()
             // Never the exception's own words (a host name): the reason.
             val words = if (up) null else Hub.get(this)?.let { c -> if (err == "signed out") err else reachOf(c.allHosts, null).words }
             event(JSONObject().put("event", "link").put("state", if (up) "up" else "down").put("error", words ?: JSONObject.NULL))
@@ -748,12 +754,22 @@ class MainActivity : FragmentActivity() {
 
         fun reconnect() {
             fails = 0
-            lastReach = null
+            clearReach()
             Hub.reset()
             set("reconnecting")
             if (eventsWanted) startEvents()
             probe()
         }
+
+        /**
+         * The hub answered a request or the stream: when the watch did not
+         * think it up, it checks now, so the chip, the bar and the
+         * notification follow at once rather than at the next 3 s check.
+         */
+        fun heard() { if (state != "up" && !stopped) probe() }
+
+        /** A request failed: check now whether the Mac still answers (the bar is up meanwhile). */
+        fun suspect() { if (!stopped) schedule(0) }
 
         private fun probe() {
             if (probing || stopped) return
@@ -767,7 +783,7 @@ class MainActivity : FragmentActivity() {
                         rtt = ms; fails = 0
                         val was = via
                         via = Reach.via(host, c!!.allHosts)
-                        lastReach = null
+                        answered()
                         // The path changed (home again, or away): the stream follows it now.
                         if (state == "up" && was != via && eventsWanted) startEvents()
                         if (state != "up") {
@@ -794,17 +810,45 @@ class MainActivity : FragmentActivity() {
     /** The last reason the computer could not be reached, for the board's bar (null once it answers). */
     @Volatile private var lastReach: JSONObject? = null
 
+    /** When the hub last answered anything (a request, the stream, a check), on the elapsed clock. */
+    @Volatile private var answeredAt = 0L
+
+    /**
+     * The hub answered: whatever said it could not be reached goes, by
+     * every path (docs/PHONE.md, The connection): the board's bar (an empty
+     * `reach`), the chip (the watch checks now when it was not up) and the
+     * ongoing notification (the connection's stream tries again now).
+     */
+    private fun answered() {
+        answeredAt = SystemClock.elapsedRealtime()
+        clearReach()
+        main.post { if (conn.state != "up") { conn.heard(); ConnectionService.poke() } }
+    }
+
+    private fun clearReach() {
+        if (lastReach == null) return
+        lastReach = null
+        event(JSONObject().put("event", "reach").put("reason", JSONObject.NULL).put("words", JSONObject.NULL))
+    }
+
     private fun reachOf(hosts: List<String>, e: Throwable?): Reach.Why {
         val w = Reach.why(this, hosts, e)
         lastReach = JSONObject().put("reason", w.reason).put("words", w.words)
         return w
     }
 
-    /** What a failed request says: why the computer cannot be reached, never a host name. */
-    private fun unreachable(e: Throwable): String {
+    /**
+     * What a failed request says: why the computer cannot be reached, never
+     * a host name. The bar shows it, unless the hub answered something else
+     * after this request was asked (a slow request that gave up after the
+     * connection came back is not news), and the watch checks at once.
+     */
+    private fun unreachable(e: Throwable, asked: Long = SystemClock.elapsedRealtime()): String {
         if (e !is java.io.IOException) return e.message ?: "It did not work."
+        if (asked < answeredAt) return Reach.why(this, Hub.get(this)?.allHosts ?: emptyList(), e).words
         val w = reachOf(Hub.get(this)?.allHosts ?: emptyList(), e)
         lastReach?.let { r -> event(JSONObject(r.toString()).put("event", "reach")) }
+        main.post { conn.suspect() }
         return w.words
     }
 

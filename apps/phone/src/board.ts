@@ -26,7 +26,11 @@
 //   for a secret, a pick or a drive) or its project.
 // - When the computer cannot be reached, a bar says why in plain words
 //   (Tailscale off on this phone, not installed, or the Mac not answering),
-//   with a button to open or get Tailscale.
+//   with a button to open or get Tailscale. It goes by itself as soon as the
+//   Mac answers again, by any path: an empty `reach` (any answer of the
+//   hub), the connection up (the shell's check, a network change, Reconnect)
+//   or the live stream up. The app's own page for a board that did not load
+//   (body[data-unreached]) loads the board then.
 
 import { connect, b64 } from './shell.ts';
 import type { Alert, Shell } from './shell.ts';
@@ -260,12 +264,21 @@ function goBack(): boolean {
   return false;
 }
 
+/** The Mac answers again: the bar goes, and a page that is only the bar becomes the board. */
+let reloading = false;
+function reached(sh: Shell, now = false): void {
+  showReach(sh, null);
+  // Not on the page's own first look (`now`): the page was made just after
+  // that failed, so only news of an answer reloads it, never in a loop.
+  if (!now && document.body && document.body.dataset.unreached != null && !reloading) { reloading = true; location.reload(); }
+}
+
 function start(sh: Shell): void {
   document.documentElement.dataset.app = sh.hello.platform;
   sh.on('back', () => { const handled = goBack(); void sh.call('back.done', { handled }).catch(() => {}); });
   sh.on('open', (m) => openAlert(m.alert as Alert));
-  sh.on('reach', (m) => showReach(sh, m as Reach));
-  sh.on('link', (m) => { if (m.state === 'up') showReach(sh, null); });
+  sh.on('reach', (m) => { if ((m as Reach).words) showReach(sh, m as Reach); else reached(sh); });
+  sh.on('link', (m) => { if (m.state === 'up') reached(sh); });
   // The system bars take the board's background and its light or dark.
   let bars = '';
   const paintBars = () => {
@@ -285,8 +298,7 @@ function start(sh: Shell): void {
   sh.on('alerts', (m) => { if (window.ravenryApp && typeof m.on === 'boolean') { window.ravenryApp.alerts = { on: m.on }; window.dispatchEvent(new CustomEvent('ravenry:alerts')); } });
   // The connection, for the board's chip.
   const mac = sh.hello.hub && sh.hello.hub.name ? sh.hello.hub.name : null;
-  sh.on('conn', (m) => setConn(m as unknown as Conn, mac));
-  void sh.call<Conn | null>('conn.now').then((c) => setConn(c, mac)).catch(() => {});
+  sh.on('conn', (m) => { setConn(m as unknown as Conn, mac); if ((m as unknown as Conn).state === 'up') reached(sh); });
   // The launch: where the top bar's mark is, once the board drew it.
   const mark = () => document.querySelector('#pbar .pn-ttl svg') as SVGElement | null;
   const tellMark = (): boolean => {
@@ -310,7 +322,12 @@ function start(sh: Shell): void {
   }
   if (sh.hello.pending) openAlert(sh.hello.pending);
   try { const t = sessionStorage.getItem('rv-toast'); if (t) { sessionStorage.removeItem('rv-toast'); toast(t); } } catch { /* none */ }
-  void sh.call<Reach | null>('reach.now').then((r) => { if (r) showReach(sh, r); }).catch(() => {});
+  // How it is now: the bar only while the connection is not up.
+  void sh.call<Conn | null>('conn.now').then((c) => {
+    setConn(c, mac);
+    if (c && c.state === 'up') { reached(sh, true); return; }
+    void sh.call<Reach | null>('reach.now').then((r) => { if (r && r.words) showReach(sh, r); }).catch(() => {});
+  }).catch(() => {});
 }
 
 void ready.then((sh) => {
