@@ -14,6 +14,18 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 
+/**
+ * An alert's colour: the small icon's circle, and on stock Android the app's
+ * name above it (One UI keeps its own). A saved decision is done, green
+ * (token `ok`); everything else waits for you, orange (token `you`), as the
+ * board draws them (shared/tokens/tokens.json, dark).
+ */
+object AlertColor {
+    const val YOU = 0xFFFF9F0A.toInt()
+    const val OK = 0xFF30D158.toInt()
+    fun of(kind: String): Int = if (kind == "decision") OK else YOU
+}
+
 /** Alerts in the shade (docs/PHONE.md section 5). One notification per alert id. */
 object Notifier {
     const val NEEDS_YOU = "needs-you"
@@ -23,7 +35,6 @@ object Notifier {
     const val EXTRA_ALERT = "dev.ravenry.app.ALERT"
     const val EXTRA_ACTION = "dev.ravenry.app.ACTION"
     const val REPLY_KEY = "reply"
-    const val ORANGE = 0xFFFF9F0A.toInt()
 
     // Alerts answered from the shade on this phone, with when and whether the
     // hub has closed them since. The hub closes an alert as soon as its answer
@@ -86,7 +97,7 @@ object Notifier {
 
     private fun base(context: Context, a: Alert): NotificationCompat.Builder = NotificationCompat.Builder(context, NEEDS_YOU)
         .setSmallIcon(R.drawable.ic_perch)
-        .setColor(ORANGE)
+        .setColor(AlertColor.of(a.kind))
         .setContentTitle(a.title)
         .setSubText(a.projectName)
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -181,7 +192,7 @@ object Notifier {
 
     fun connection(context: Context, line: ConnectionService.Line): Notification = NotificationCompat.Builder(context, CONNECTION)
         .setSmallIcon(R.drawable.ic_perch)
-        .setColor(0xFF30D158.toInt())
+        .setColor(AlertColor.OK)
         .setContentTitle(line.title)
         .setContentText(line.body)
         .setGroup("connection")

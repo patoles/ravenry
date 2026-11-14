@@ -652,6 +652,11 @@ fit, it shows the first ones and **Open**.
 | `handback` | the session handed back | **Open** | **Reply** |
 | `gate` | a plan waits at a gate | **Open** | none |
 
+Each alert is in the board's colours (`AlertColor` in `Notifier.kt`):
+`decision` green (token `ok`), every other kind orange (token `you`). On
+stock Android that colours the small icon's circle and the app's name above
+it; Samsung's One UI keeps its own and ignores it.
+
 What each action does, as the device, on the phone port:
 
 | Action | Call |
