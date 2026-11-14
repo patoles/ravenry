@@ -15,7 +15,7 @@ window.RAVENRY_SITE = {
   // "Report a problem".
   reportUrl: 'https://github.com/patoles/ravenry/issues/new',
   // A line under the Mac download for a build not signed with a Developer ID:
-  // "Right-click Ravenry and choose Open the first time."
+  // "The first time, macOS asks: open System Settings, Privacy & Security, and choose Open Anyway." (on while the DMG is not notarized)
   firstLaunchNote: false,
 };
 // -----------------------------------------------------------------------------------------
@@ -98,7 +98,7 @@ window.RAVENRY_SITE = {
   <h2>Try it now.</h2>
   <p class="body getsub">It's an early test. It works with Claude Code and Codex.</p>
   <div class="dls">
-    <div><h3>Mac</h3><p>Apple silicon, macOS 13 Ventura or later.<br>Version <span data-site="macVersion"></span> · DMG</p><p class="first" id="first" hidden>Right-click Ravenry and choose Open the first time.</p><a class="btn pri" data-link="mac" href="#get">Download for Mac</a></div>
+    <div><h3>Mac</h3><p>Apple silicon, macOS 13 Ventura or later.<br>Version <span data-site="macVersion"></span> · DMG</p><p class="first" id="first" hidden>The first time, macOS asks: open System Settings, Privacy &amp; Security, and choose Open Anyway.</p><a class="btn pri" data-link="mac" href="#get">Download for Mac</a></div>
     <div><h3>Android</h3><p>The APK, for Android 8 or later, until the app is in the Play Store.</p><a class="btn pri" data-link="apk" href="#get">Get the Android app</a></div>
     <div id="iphone"><h3>iPhone</h3><p>Alerts come through ntfy today, set up from Ravenry's settings. The app is coming.</p>
       <details><summary class="btn muted">How to set up alerts</summary><ol>
@@ -108,7 +108,7 @@ window.RAVENRY_SITE = {
       </ol></details></div>
   </div>
   <div class="note">
-    <div><h4>This is an early test</h4>Expect rough edges and the odd crash. Updates arrive inside the app. Tell us what breaks, or what confuses you: <a data-link="report" href="#get">report a problem</a>.</div>
+    <div><h4>This is an early test</h4>Expect rough edges and the odd crash. The Mac app updates itself; for Android, download the new APK and it installs over the old one. Tell us what breaks, or what confuses you: <a data-link="report" href="#get">report a problem</a>.</div>
     <div><h4>What you need</h4><ul><li>A Mac with Apple silicon, macOS 13 or later</li><li>Claude Code or Codex, installed and signed in</li><li>For the phone: the same Wi-Fi as your Mac, or Tailscale</li></ul></div>
   </div>
 </div></section>
