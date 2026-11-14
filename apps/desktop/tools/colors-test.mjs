@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Colours in Ravenry's terminals, as iTerm2 and cmux show the same shell
+// Colours in Ravenry's terminals, as the shell asks for them
 // (0.1.20; 2026-11-08: "there's no colors in Ravenry, links or commands
 // are the same as normal text").
 //

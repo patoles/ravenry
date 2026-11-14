@@ -17,7 +17,7 @@ import (
 // TestZshMoreMark checks zsh's ">...." row: zsh draws it on its first
 // row when the command line is taller than the screen (its start is
 // above the screen). In a fresh pane as short as the command line is
-// tall, with no resize at all, Ghostty's screen shows it: it is zsh's,
+// tall, with no resize at all, the daemon's screen shows it: it is zsh's,
 // as in any terminal. Once the pane is tall enough for the whole command
 // line, it is gone from the screen and the scrollback, whether the pane
 // was short from the start or made short by a resize.
@@ -39,12 +39,12 @@ func TestZshMoreMark(t *testing.T) {
 	pasted := strings.Join([]string{
 		" Next build of the native app.",
 		" It draws the daemon's screen itself.",
-		" Please compare it with Rex:",
+		" Please compare it with the last one:",
 		" 1. Resize the window by dragging its edge.",
 		" 2. Type a little.",
 		" 3. Run something with a lot of output, for example seq 1 200000.",
 		"",
-		" What it is: a plain Mac window with no web page inside. Ghostty draws the terminal and handles resizing itself. Ravenry's background process still owns",
+		" What it is: a plain Mac window with no web page inside. The app draws the terminal and handles resizing itself. Ravenry's background process still owns",
 		" the session, through a new connector command that both sides use. That connector is shared code, so future Linux or Windows versions reuse it.",
 		" One more line.",
 		" And the last one.",

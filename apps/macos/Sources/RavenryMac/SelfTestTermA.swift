@@ -198,7 +198,7 @@ extension SelfTest {
         keyA("x", "x", code: 0x07, flags: .command)
         sleep(0.3)
         let got = endReader(v, tag: "EDITKEYS")
-        // Kitty's disambiguate: Cmd (super, 8) is mods 9, with Shift 10.
+        // The Kitty keyboard protocol's disambiguate: Cmd (super, 8) is mods 9, with Shift 10.
         let want = hex("\u{1b}[122;9u") + hex("\u{1b}[122;10u") + hex("\u{1b}[120;9u")
         check("edit_cmd_z_shift_z_x_reach_program", got.hasPrefix(want), "read \(got), want \(want)...")
     }

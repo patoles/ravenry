@@ -1,9 +1,8 @@
-// Shaders in Ghostty's custom-shader format (ghostty.org/docs/config/
-// reference#custom-shader, the Shadertoy shape): a `mainImage(out vec4
+// Shaders in the usual custom-shader shape: a `mainImage(out vec4
 // fragColor, in vec2 fragCoord)` over iChannel0, the picture under it, with
-// iResolution, iTime, iTimeDelta, iFrame and iMouse. Ghostty runs its GLSL
-// through glslang and SPIRV-Cross; this app keeps no third-party code and
-// compiles its Metal from source at launch (Renderer.swift), so the shaders
+// iResolution, iTime, iTimeDelta, iFrame and iMouse. This app keeps no
+// third-party code: it compiles its Metal from source at launch
+// (Renderer.swift), so the shaders
 // are ported to MSL by hand: each body below is the GLSL of the maintainer's mockup
 // (scratchpad build2/ink/ravenry-shaders-mockup.html) line for line, read
 // through a small prelude (vec2 is float2, texture() samples iChannel0 with
@@ -21,7 +20,7 @@
 import Metal
 import simd
 
-enum GhosttyShader: String, CaseIterable {
+enum CustomShader: String, CaseIterable {
     case ink, bloom, crt
 
     /// The raven's body (hub/brand/ravenry/icon.svg, shared/icons/app-icon.svg), the mark Ink draws.
@@ -67,14 +66,14 @@ enum GhosttyShader: String, CaseIterable {
     var globals: String {
         switch self {
         case .ink:
-            let p = GhosttyShader.poly
+            let p = CustomShader.poly
             let list = p.map { String(format: "vec2(%.2f,%.2f)", $0.x, $0.y) }.joined(separator: ", ")
             return "#define POLY_N \(p.count)\nconstant vec2 POLY[POLY_N] = { \(list) };\n"
         default: return ""
         }
     }
 
-    /// The shader's body, Ghostty's format in MSL (see the top).
+    /// The shader's body, in MSL (see the top).
     var body: String {
         switch self {
         case .ink: return inkBody
@@ -256,13 +255,13 @@ void mainImage(thread vec4 &fragColor, in vec2 fragCoord) {
 }
 """
 
-/// Runs a Ghostty-format shader over a texture: one triangle over the
+/// Runs a custom shader over a texture: one triangle over the
 /// target, the source as iChannel0. One pipeline per shader, compiled the
 /// first time it is used (a few ms), shared by every pane and window.
 final class ShaderHost {
     static let shared = ShaderHost()
     let device: MTLDevice?
-    private var pipes: [GhosttyShader: MTLRenderPipelineState] = [:]
+    private var pipes: [CustomShader: MTLRenderPipelineState] = [:]
     private(set) var errors: [String] = []
     private var frame: Int32 = 0
 
@@ -276,7 +275,7 @@ final class ShaderHost {
         var layout: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>)
     }
 
-    static func source(_ s: GhosttyShader) -> String {
+    static func source(_ s: CustomShader) -> String {
         """
         #include <metal_stdlib>
         using namespace metal;
@@ -310,7 +309,7 @@ final class ShaderHost {
         """
     }
 
-    func pipeline(_ s: GhosttyShader) -> MTLRenderPipelineState? {
+    func pipeline(_ s: CustomShader) -> MTLRenderPipelineState? {
         if let p = pipes[s] { return p }
         guard let dev = device else { return nil }
         do {
@@ -331,7 +330,7 @@ final class ShaderHost {
 
     /// Draws `shader` over `source` into `target` (same pixel size or not).
     @discardableResult
-    func encode(_ shader: GhosttyShader, source: MTLTexture, into target: MTLTexture, commandBuffer cb: MTLCommandBuffer,
+    func encode(_ shader: CustomShader, source: MTLTexture, into target: MTLTexture, commandBuffer cb: MTLCommandBuffer,
                 time: Double = 0, delta: Double = 1.0 / 60, layout: [SIMD4<Float>] = []) -> Bool {
         guard let p = pipeline(shader) else { return false }
         let pass = MTLRenderPassDescriptor()

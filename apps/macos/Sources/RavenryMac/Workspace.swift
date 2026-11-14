@@ -22,7 +22,7 @@
 //   Cmd+9, Cmd+Shift+[ and ], Ctrl+Tab and Ctrl+Shift+Tab pick a tab; a
 //   tab is dragged along the strip, or down onto an edge of the pane in
 //   front to split it with that tab.
-// - Splits as Rex has them: a tab is a tree of panes (PaneNode), split
+// - Splits of splits: a tab is a tree of panes (PaneNode), split
 //   again to any depth that keeps each pane at its minimum (160 pt).
 //   Cmd+D a new shell right of the pane with the keyboard, Cmd+Shift+D
 //   below it, with the keyboard; Cmd+Option+arrows or a click move the
@@ -839,7 +839,7 @@ final class Workspace: NSObject {
     }
 
     /// A pane's header buttons: what each does now, its words with its key,
-    /// greyed with the reason when it has nothing to act on (Rex: a pane
+    /// greyed with the reason when it has nothing to act on (a pane
     /// alone has no own tab, zoom or close to give; a pane too small to
     /// halve has no split).
     func updateButtons(_ id: String, _ b: PaneBox) {

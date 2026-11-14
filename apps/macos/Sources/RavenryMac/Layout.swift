@@ -16,7 +16,7 @@
 // And one key of this app's own, which the Electron app keeps as it is:
 //
 //   trees   {host, guest, tree, focus, zoom}: a tab split more than once
-//           (Rex's splits of splits), its whole tree: a pane "s:<pane>",
+//           (splits of splits), its whole tree: a pane "s:<pane>",
 //           a split {dir: right or down, size: the first part's percent,
 //           a, b}. Its one split (host and the first other pane) is in
 //           `splits` too, which is all the Electron app reads: it opens

@@ -196,7 +196,7 @@ func (e *lineEditor) csi(seq []byte) {
 	if mods&1 != 0 && alt > 0 {
 		code = alt
 	}
-	if code >= 0x20 && code < 0xe000 { // above: Kitty's functional keys
+	if code >= 0x20 && code < 0xe000 { // above: the Kitty keyboard protocol's functional keys
 		e.insert(rune(code))
 	}
 }

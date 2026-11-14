@@ -148,8 +148,8 @@ struct AtlasGlyph {
     var empty: Bool
 }
 
-/// The font and the cell it makes, in device pixels, as Ghostty computes
-/// it: the cell is the advance of "M" wide and the font's ascent, descent
+/// The font and the cell it makes, in device pixels, from the font's own
+/// metrics: the cell is the advance of "M" wide and the font's ascent, descent
 /// and line gap high, each rounded to a whole pixel, with no extra line
 /// spacing; the baseline sits so the descent (and half the line gap) is
 /// at the cell's bottom.
@@ -753,7 +753,7 @@ final class Renderer {
     /// the screen is drawn into a texture of its own and the effect's
     /// shader (Shaders.swift) from it into the target, so it runs only when
     /// the pane draws. Off (nil): drawn straight into the target, as before.
-    var effect: GhosttyShader?
+    var effect: CustomShader?
     private var fxSource: MTLTexture?
 
     /// Draws the screen into texture (a drawable's, or an offscreen one),

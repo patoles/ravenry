@@ -766,7 +766,7 @@ final class TerminalView: NSView, NSTextInputClient {
     /// than this view (tabs, splits).
     var windowMinSize: (() -> NSSize)?
 
-    /// The smallest grid the window may be dragged to, as Rex has one.
+    /// The smallest grid the window may be dragged to.
     static let minGrid = (cols: 40, rows: 10)
 
     /// The window's smallest content size: minGrid at the current font.
@@ -2000,14 +2000,14 @@ final class TerminalView: NSView, NSTextInputClient {
 
     /// Every wheel and trackpad movement, momentum included, goes to the
     /// daemon in rows (positive: up, toward older output); the daemon
-    /// decides, as Ghostty does, whether the program gets it, it becomes
+    /// decides whether the program gets it, it becomes
     /// arrow keys on the alternate screen, or the view scrolls.
     override func scrollWheel(with e: NSEvent) {
         hideTip()
         let s = renderer.fonts.scale
         let ch = renderer.fonts.cellHeight / s
         // A trackpad or Magic Mouse gives points; a wheel's notch is three
-        // rows (Ghostty's discrete multiplier).
+        // rows.
         let rows = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY / ch : e.scrollingDeltaY * 3
         let log = EventLog.shared
         if log.enabled {

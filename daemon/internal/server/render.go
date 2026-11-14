@@ -256,7 +256,7 @@ func (c *conn) renderInput(id uint64, data []byte) {
 	}
 }
 
-// wheel takes a wheel movement as Ghostty does: to the program when it
+// wheel takes a wheel movement: to the program when it
 // asked for the mouse, as arrow keys on the alternate screen (mode 1007),
 // otherwise it scrolls the stream's view. It returns the bytes for the
 // program.
@@ -314,7 +314,7 @@ func abs(n int) int {
 }
 
 // quotePaths joins file paths for a shell, each quoted: characters a
-// shell reads specially get a backslash, as Ghostty and Terminal do.
+// shell reads specially get a backslash.
 func quotePaths(paths []string) string {
 	var b strings.Builder
 	for i, p := range paths {

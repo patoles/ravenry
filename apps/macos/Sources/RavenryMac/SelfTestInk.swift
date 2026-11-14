@@ -124,8 +124,8 @@ extension SelfTestBoard {
             }
             // The eye of the mark that landed (2.95 s) and the eye of the start screen's icon: the same blue, at the same place.
             if let r = probe.iconRect, let img = probe.picture(at: 2.95), let start = probe.windowPicture() {
-                let unit = r.width * GhosttyShader.iconGlyph.scale / 1024
-                let eye = NSPoint(x: r.minX + r.width * GhosttyShader.iconGlyph.x / 1024 + 65 * unit, y: r.minY + r.width * GhosttyShader.iconGlyph.y / 1024 + 32 * unit)
+                let unit = r.width * CustomShader.iconGlyph.scale / 1024
+                let eye = NSPoint(x: r.minX + r.width * CustomShader.iconGlyph.x / 1024 + 65 * unit, y: r.minY + r.width * CustomShader.iconGlyph.y / 1024 + 32 * unit)
                 let a = rgb(img, eye), b = rgb(InkOverlay.image(start.bytes, start.w, start.h)!, eye)
                 let blue = { (c: (Int, Int, Int)) in c.2 > 200 && c.0 < 80 }
                 check("ink_mark_lands_on_icon_\(Int(w))", blue(a) && blue(b), "icon at \(Int(r.minX)),\(Int(r.minY)) \(Int(r.width)) pt; eye in the frame \(a), on the screen \(b)")

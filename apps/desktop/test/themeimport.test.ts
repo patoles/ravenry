@@ -57,7 +57,7 @@ test('parsePlist: the value types, entities and comments', () => {
   assert.deepEqual(v, { 'a & b': 'x <y>', n: -3, r: 0.5, t: true, f: false, arr: ['1', {}], e: '' });
 });
 
-test('Ghostty theme (as Ghostty bundles them): palette lines, colours without #, comments; palette 16+ ignored', () => {
+test('Ghostty theme file: palette lines, colours without #, comments; palette 16+ ignored', () => {
   const r = importTheme(read('Kelp Forest'), 'Kelp Forest');
   assert.ok(r.ok, !r.ok ? r.error : '');
   if (!r.ok) return;

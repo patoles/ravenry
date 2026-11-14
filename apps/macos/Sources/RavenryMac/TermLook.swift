@@ -27,7 +27,7 @@ struct TermLook: Equatable {
     var bounce = true
     var confirmClose = true
     /// The pane effect drawn over every terminal (Shaders.swift), nil: off.
-    var effect: GhosttyShader?
+    var effect: CustomShader?
 
     init() {}
 
@@ -48,7 +48,7 @@ struct TermLook: Equatable {
         bell = s.string("bell")
         bounce = s.bool("bellBounceDock")
         confirmClose = s.bool("confirmCloseBusy")
-        effect = ["bloom": GhosttyShader.bloom, "crt": .crt][s.string("paneEffect")]
+        effect = ["bloom": CustomShader.bloom, "crt": .crt][s.string("paneEffect")]
     }
 }
 

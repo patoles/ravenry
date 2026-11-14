@@ -249,7 +249,7 @@ extension SelfTest {
         let dframes = main { dboxes.map { $0.convert($0.bounds, to: nil) } }
         check("split_cmd_shift_d_down", down.guest != nil && down.side == "down" && prompt(front()) && dframes.count == 2
               && abs(dframes[0].minX - dframes[1].minX) < 1, "\(dframes)")
-        // Cmd+D on a split tab: the pane with the keyboard splits again (Rex's splits of splits), the tabs as they were.
+        // Cmd+D on a split tab: the pane with the keyboard splits again (splits of splits), the tabs as they were.
         let n1 = count()
         let lower = ws { $0.active!.focusedPane }
         deliver("d", code: 0x02, flags: .command)

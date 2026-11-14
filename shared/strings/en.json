@@ -853,7 +853,7 @@
   "set.paneEffect": "Pane effect",
   "set.fxBloom": "Soft bloom",
   "set.fxCrt": "CRT curve",
-  "set.fxHint": "Drawn over every terminal, like a Ghostty shader.",
+  "set.fxHint": "A shader drawn over every terminal.",
   "set.opening": "Opening",
   "set.launchInk": "Ink animation when Ravenry opens with no tabs",
   "set.launchInkHint": "A click or a key skips it. It does not play when Reduce motion is on in macOS.",

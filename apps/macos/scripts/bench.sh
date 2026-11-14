@@ -75,7 +75,7 @@ if r.get("tabs"):
     print("window: %s; the drags check both panes of the split in front" % r["tabs"])
 w = r.get("window_900x560")
 if w:
-    print("a 900 x 560 pt window at scale %g in the settings' font (Menlo 13 by default): %s, grid %s, cell %s px (%s pt); Rex's cell (Menlo 12, 14x28 px) there: %s" % (w["scale"], w["font"], w["grid"], w["cell_px"], w["cell_pt"], w["rex_grid"]))
+    print("a 900 x 560 pt window at scale %g in the settings' font (Menlo 13 by default): %s, grid %s, cell %s px (%s pt); the compact target's cell (Menlo 12, 14x28 px) there: %s" % (w["scale"], w["font"], w["grid"], w["cell_px"], w["cell_pt"], w["compact_grid"]))
 print("typing, key to drawn echo:", s(r["typing_ms"]))
 d = r["drag"]
 print("drag %d steps in %.2f s down to %d pt: blank %d, debris %d, ends on the daemon's screen: %s" % (d["steps"], d["seconds"], d["min_width"], d["blank"], d["debris"], d["ends_on_daemon_screen"]))

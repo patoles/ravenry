@@ -1,6 +1,5 @@
-// Ink, the launch's animation (the maintainer, 2026-11-08: "if we can support some
-// shader like Ghostty does it would be nice, for example we could have an
-// animation on first launch"; Ink was picked from the mockup's three): pale
+// Ink, the launch's animation (the maintainer, 2026-11-08: a shader
+// animation on first launch; Ink was picked from the mockup's three): pale
 // ink gathers into the raven, its eye opens with one ripple, and the mark
 // flies to the app's icon on New session while the window washes in.
 //
@@ -11,7 +10,7 @@
 // - It never holds the window: the overlay takes no click (hitTest nil),
 //   and any click or key (an event monitor of the app's) ends it at once
 //   and goes on to what is under it, the start screen.
-// - The shader is Ghostty-format GLSL ported to MSL (Shaders.swift); its
+// - The shader is GLSL in the mainImage shape ported to MSL (Shaders.swift); its
 //   iChannel0 is the window itself (its views drawn into a picture, at the
 //   start, on a resize, when what it shows changed and at the end), and where the mark
 //   lands is the start screen's real icon, read from the views each frame.
@@ -298,7 +297,7 @@ final class InkOverlay: NSView {
         let W = bounds.width, H = bounds.height
         let unitA = 4.1 * min(H / 700, W / 1120)
         let a = SIMD4<Float>(Float(W / 2), Float(H / 2 - 8), Float(unitA), 0)
-        let g = GhosttyShader.iconGlyph, gc = GhosttyShader.glyphCentre
+        let g = CustomShader.iconGlyph, gc = CustomShader.glyphCentre
         var b = SIMD4<Float>(Float(W / 2), Float(H * 0.3), Float(unitA / 6), 0)
         var tile = SIMD4<Float>(-1000, -1000, 0, 0)
         var around = SIMD4<Float>(0.118, 0.118, 0.129, 0)

@@ -47,7 +47,7 @@ func TestRenderKeybindsZsh(t *testing.T) {
 	}
 	const line = "echo one two three"
 	// The prompt is "~ > ": column 4 is the command line's first. zsh's
-	// forward-word (Esc f, as Ghostty sends Option+Right) goes to the
+	// forward-word (Esc f, what Option+Right sends) goes to the
 	// start of the next word.
 	cases := []struct {
 		name string

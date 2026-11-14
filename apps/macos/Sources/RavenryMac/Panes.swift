@@ -1,12 +1,12 @@
 // A pane in the window (PaneBox: its header and its terminal, and in a
 // split its focus ring), a tab's panes as a tree (PaneNode: a pane, or a
-// split of two parts, each a pane or a split again, as Rex splits) and
+// split of two parts, each a pane or a split again, to any depth) and
 // one split of it (PaneSplitView), as the Electron app draws a split
 // (phase2.css .split, .pbox, .phead, .gutter; app.ts layoutSplit): a 6 pt
 // divider that is dragged (double click: even), each pane at least 160 pt,
 // the pane with the keyboard ringed in blue and the others a little
 // dimmed. Every pane has its header, a pane alone in its tab too, with
-// Rex's five buttons at its right (split right, split down, move to its
+// five buttons at its right (split right, split down, move to its
 // own tab, zoom, close), greyed when they have nothing to act on.
 
 import AppKit
@@ -45,7 +45,7 @@ enum Icons {
             p.move(to: NSPoint(x: 1.5, y: 7)); p.line(to: NSPoint(x: 12.5, y: 7))
         }
     }
-    /// Move to its own tab (Rex's two squares): a square with another behind it.
+    /// Move to its own tab (two squares): a square with another behind it.
     static func ownTab(_ r: NSRect, _ c: NSColor) {
         stroke(r, c, 1.4) { p in
             p.appendRoundedRect(NSRect(x: 1.5, y: 4.5, width: 8, height: 8), xRadius: 1.6, yRadius: 1.6)
@@ -315,7 +315,7 @@ final class PaneNode {
     }
 }
 
-/// A button of a pane's header (Rex's pane buttons): its icon, a fill on
+/// A button of a pane's header: its icon, a fill on
 /// hover, greyed when it has nothing to act on (no press then), lit in the
 /// accent while on (Zoom while zoomed). Its colours are read when drawn,
 /// so they follow the terminal's theme and the appearance.
@@ -461,7 +461,7 @@ final class PaneBox: NSView, PaneSized {
     }
 }
 
-/// A pane's header (.phead, and Rex's pane header): the shell icon (a
+/// A pane's header (.phead): the shell icon (a
 /// session's dot), the name, "1 of 3" while zoomed, its folder (or, for an
 /// agent's own pane, the agent's chip: .phead .ag), and at its right Split
 /// right, Split down, Move to its own tab, Zoom and Close.

@@ -1,5 +1,5 @@
 // Characters the renderer draws itself instead of taking them from the
-// font, as Ghostty does: box drawing (U+2500 to U+257F), block elements
+// font: box drawing (U+2500 to U+257F), block elements
 // (U+2580 to U+259F), braille (U+2800 to U+28FF) and the Powerline
 // triangles (U+E0B0 to U+E0B3). Each fills its cell exactly, so lines and
 // blocks join across cells and rows with no gap, whatever the font's own

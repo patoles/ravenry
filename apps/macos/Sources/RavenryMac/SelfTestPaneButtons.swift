@@ -1,4 +1,4 @@
-// Rex's pane buttons and its splits of splits (sidetest.mjs --screen
+// The pane buttons and splits of splits (sidetest.mjs --screen
 // panebuttons): every pane's header, a pane alone in its tab too, with
 // Split right, Split down, Move to its own tab, Zoom and Close at its right.
 // Each button is pressed as the person presses it (a mouse press and

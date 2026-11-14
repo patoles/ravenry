@@ -114,7 +114,7 @@ function lastSyncToken(b: Uint8Array, from = 0): 'on' | 'off' | null {
 
 export interface Attached { client: RavenryClient; pane: string }
 
-// macOS's terminals (Terminal.app, iTerm2, Ghostty) where xterm.js does
+// The Mac's usual terminal keys where xterm.js does
 // otherwise: Cmd+arrows to the line's start and end, Cmd+Backspace to
 // delete to its start, Option+arrows by word (xterm.js sends CSI 1;3D/C);
 // and what the window does on Cmd (clear the scrollback, copy, paste,
@@ -262,7 +262,7 @@ export class TerminalView {
     this.term.open(el);
     this.useWebgl();
     // Links are found out: hovering one says how it opens, holding Cmd
-    // underlines it with a pointer (a plain click selects, as in iTerm2),
+    // underlines it with a pointer (a plain click selects),
     // and a setting opens them on a plain click.
     this.tip = document.createElement('div');
     this.tip.className = 'link-tip';
@@ -319,8 +319,8 @@ export class TerminalView {
       const a = this.current;
       if (text && a) void a.client.paste(a.pane, text).catch(() => {});
     }, true);
-    // A file dropped on the terminal: its path, quoted, as if pasted (as
-    // Terminal.app and iTerm2 do), several separated by spaces.
+    // A file dropped on the terminal: its path, quoted, as if pasted,
+    // several separated by spaces.
     el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
     el.addEventListener('drop', (e) => {
       const files = [...(e.dataTransfer?.files || [])];
@@ -578,7 +578,7 @@ export class TerminalView {
   /**
    * A program's output, as it comes. Claude Code draws its whole screen
    * again at each size, between BSU and ESU (synchronized output, mode
-   * 2026: ravenryd answers that it has it, as Ghostty does). Its update
+   * 2026: ravenryd answers that it has it). Its update
    * comes in more than one read of its terminal. xterm.js would hold its
    * drawing until ESU itself, but a resize in between clears its canvas
    * and it draws nothing until ESU: a blank pane at each step of a drag
