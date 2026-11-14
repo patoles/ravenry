@@ -206,7 +206,16 @@ shader's first frames are timed on the GPU (`FrameMetrics`; 3 left out, the
 median of the next 5), and over 20 ms a frame it stops and today's version
 below plays in its place (the vector Ink in the hold, then the hold and the
 flight); the log says which ran (`launch path: shader` or `launch path:
-today's (...)`). A hot or warm start has none of it (below).
+today's (...)`), and at the end of every run the GPU's median and p90 over
+all its frames (`shader ink: the run on the GPU: ...`). The shader computes,
+per pixel, only what can show there (`inkcost` 2026-11-14): where the ink,
+its halo and its glow cannot add 0.001 to a pixel (a quarter of an 8-bit
+step), it skips the swirl's noise and the outline (bounds on how far the
+swirl can carry a point and on the mark's box); the outline's 67 edges are
+measured in chunks of 8, a chunk no nearer than the nearest edge found
+skipped; the wash's noise only along its front, the board's taps only where
+it shows. The same picture as the Mac's port (within one 8-bit step), at a
+fraction of its cost. A hot or warm start has none of it (below).
 
 Android 8 to 12 keep the version before it. On a cold start the app draws
 itself in ink (the approved Ink, variant A,

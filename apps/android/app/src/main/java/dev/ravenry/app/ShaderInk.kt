@@ -36,6 +36,14 @@ import androidx.core.content.ContextCompat
  *   version (the vector Ink, the hold, the flight) in its place.
  * - Colours are the window's own (win, tx, work), dark or light; in light the
  *   glows are mixed in rather than added (added light on paper is nothing).
+ * - Its cost (inkcost): each pixel computes only what can show there. Where
+ *   the ink's body, halo and glow cannot add EPS (a quarter of an 8-bit step)
+ *   to it, by bounds on how far the swirl can carry a point and on the mark's
+ *   box, the swirl's noise and the outline are skipped; the outline's edges
+ *   are measured in chunks, a chunk no nearer than the nearest edge so far
+ *   skipped; the wash's noise only along its front, the board only where it
+ *   shows. The picture is the Mac port's within one 8-bit step. The log ends
+ *   each run with the GPU's median and p90 over all its frames.
  */
 @RequiresApi(33)
 internal class ShaderInk(private val activity: Activity, private val content: ViewGroup, private val onHold: () -> Unit = {}, private val onEnd: (String) -> Unit) {
@@ -53,15 +61,17 @@ internal class ShaderInk(private val activity: Activity, private val content: Vi
     private val totalMs = ArrayList<Double>()
     private var judged = false
     private val metrics = Window.OnFrameMetricsAvailableListener { _, m, _ ->
-        if (judged || done || frames == 0) return@OnFrameMetricsAvailableListener
+        // Every frame of the run (the log's whole-run median and p90 at the end); the guard judges the first ones.
+        if (done || frames == 0 || gpuMs.size >= InkGuard.KEEP) return@OnFrameMetricsAvailableListener
         gpuMs += m.getMetric(FrameMetrics.GPU_DURATION) / 1e6
         totalMs += m.getMetric(FrameMetrics.TOTAL_DURATION) / 1e6
-        if (gpuMs.size < InkGuard.SKIP + InkGuard.JUDGE) return@OnFrameMetricsAvailableListener
+        if (judged || gpuMs.size < InkGuard.SKIP + InkGuard.JUDGE) return@OnFrameMetricsAvailableListener
         judged = true
-        val g = InkGuard.median(gpuMs.drop(InkGuard.SKIP)); val tt = InkGuard.median(totalMs.drop(InkGuard.SKIP))
-        val slow = InkGuard.tooSlow(gpuMs.drop(InkGuard.SKIP), budget)
+        val first = gpuMs.subList(InkGuard.SKIP, gpuMs.size).toList()
+        val g = InkGuard.median(first); val tt = InkGuard.median(totalMs.subList(InkGuard.SKIP, totalMs.size).toList())
+        val slow = InkGuard.tooSlow(first, budget)
         Log.i(InkLaunch.TAG, "shader ink: first frames ${"%.1f".format(g)} ms on the GPU, ${"%.1f".format(tt)} ms in all (budget $budget ms): ${if (slow) "too slow" else "fine"}")
-        activity.window.decorView.post { stopMetrics(); if (slow) finish("slow") }
+        if (slow) activity.window.decorView.post { finish("slow") }
     }
     private var metricsOn = false
     private fun stopMetrics() { if (metricsOn) { metricsOn = false; runCatching { activity.window.removeOnFrameMetricsAvailableListener(metrics) } } }
@@ -82,7 +92,9 @@ internal class ShaderInk(private val activity: Activity, private val content: Vi
         shader.setFloatUniform("sheet", rgb(R.color.win))
         shader.setFloatUniform("dark", if (dark) 1f else 0f)
         shader.setFloatUniform("blurK", d / 2f)
-        shader.setFloatUniform("poly", POLY)
+        shader.setFloatUniform("edge", EDGES)
+        shader.setFloatUniform("cbox", CBOX)
+        shader.setFloatUniform("gbox", GBOX)
         shader.setFloatUniform("icon", -10000f, -10000f, 0f, 0f)
         shader.setFloatUniform("iHeld", 0f)
         unit = InkLaunch.S * d
@@ -138,6 +150,7 @@ internal class ShaderInk(private val activity: Activity, private val content: Vi
         content.setRenderEffect(null)
         (watcher.parent as? ViewGroup)?.removeView(watcher)
         Log.i(InkLaunch.TAG, "shader ink: ended ($why) after $frames frames, ${"%.0f".format(if (t0 > 0) (System.nanoTime() - t0) / 1e6 else 0.0)} ms")
+        Log.i(InkLaunch.TAG, "shader ink: the run on the GPU: ${InkGuard.runStats(gpuMs, totalMs)}")
         onEnd(why)
     }
 
@@ -172,6 +185,46 @@ internal class ShaderInk(private val activity: Activity, private val content: Vi
         }
         val N: Int get() = POLY.size / 2
 
+        /** The polygon's edges in chunks of CH (consecutive, so each chunk is a small piece of the outline). */
+        const val CH = 8
+        val NC: Int get() = (N + CH - 1) / CH
+
+        /**
+         * Edge i as (a, b): a = POLY point i, b = the point before it (the shader's old loop order), NC * CH of them;
+         * the last chunk filled with horizontal edges far off (never the nearest, never crossed).
+         */
+        internal val EDGES: FloatArray by lazy {
+            val out = FloatArray(NC * CH * 4)
+            for (i in 0 until NC * CH) {
+                if (i < N) {
+                    val j = if (i == 0) N - 1 else i - 1
+                    out[i * 4] = POLY[i * 2]; out[i * 4 + 1] = POLY[i * 2 + 1]; out[i * 4 + 2] = POLY[j * 2]; out[i * 4 + 3] = POLY[j * 2 + 1]
+                } else { out[i * 4] = -10000f; out[i * 4 + 1] = -10000f; out[i * 4 + 2] = -9999f; out[i * 4 + 3] = -10000f }
+            }
+            out
+        }
+
+        /** Each chunk's box (min x, min y, max x, max y) over its real edges: no edge of it is nearer than its box. */
+        internal val CBOX: FloatArray by lazy {
+            val out = FloatArray(NC * 4)
+            for (c in 0 until NC) {
+                var x0 = Float.MAX_VALUE; var y0 = Float.MAX_VALUE; var x1 = -Float.MAX_VALUE; var y1 = -Float.MAX_VALUE
+                for (i in c * CH until minOf(N, (c + 1) * CH)) for (k in 0..1) {
+                    val x = EDGES[i * 4 + k * 2]; val y = EDGES[i * 4 + k * 2 + 1]
+                    x0 = minOf(x0, x); y0 = minOf(y0, y); x1 = maxOf(x1, x); y1 = maxOf(y1, y)
+                }
+                out[c * 4] = x0; out[c * 4 + 1] = y0; out[c * 4 + 2] = x1; out[c * 4 + 3] = y1
+            }
+            out
+        }
+
+        /** The whole mark's box (centre, half size), the body and the legs and the perch: sdMark is never less than the distance to it. */
+        internal val GBOX: FloatArray by lazy {
+            var x0 = 31f; var y0 = 72f; var x1 = 89f; var y1 = 91f // the legs (50..55, 60..65 by 72..86) and the perch (31..89 by 85..91)
+            for (i in 0 until N) { x0 = minOf(x0, POLY[i * 2]); y0 = minOf(y0, POLY[i * 2 + 1]); x1 = maxOf(x1, POLY[i * 2]); y1 = maxOf(y1, POLY[i * 2 + 1]) }
+            floatArrayOf((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2)
+        }
+
         /** Shaders.swift inkBody in AGSL: pixels, top-left origin (VIRT = iResolution, devPx = 1). */
         val AGSL: String by lazy { """
 uniform shader iChannel0;
@@ -187,31 +240,56 @@ uniform float3 inkC;
 uniform float3 eyeC;
 uniform float dark;
 uniform float blurK;
-uniform float2 poly[$N];
-const int N = $N;
+uniform float4 edge[${NC * CH}];
+uniform float4 cbox[$NC];
+uniform float4 gbox;
+const int NC = $NC;
+const int CH = $CH;
 const float2 GLYPH_C = float2(50.5, 58.5);
+// What a pixel may be off by where the ink's cost is cut (well under one 8-bit step, 1/255).
+const float EPS = 0.001;
 
-float hash12(float2 p) { float3 p3 = fract(float3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+// hash12 of the Mac's shader at a cell's four corners, the fract(x * .1031) of each column and row taken once.
+float hash3(float3 p3) { p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vnoise(float2 p) {
   float2 i = floor(p), f = fract(p); float2 u = f * f * (3.0 - 2.0 * f);
-  return mix(mix(hash12(i), hash12(i + float2(1, 0)), u.x), mix(hash12(i + float2(0, 1)), hash12(i + float2(1, 1)), u.x), u.y);
+  float2 a = fract(i * .1031), b = fract((i + 1.0) * .1031);
+  return mix(mix(hash3(a.xyx), hash3(float3(b.x, a.y, b.x)), u.x), mix(hash3(float3(a.x, b.y, a.x)), hash3(b.xyx), u.x), u.y);
 }
 float fbm(float2 p) {
   float s = 0.0, a = 0.5; float2x2 m = float2x2(1.6, 1.2, -1.2, 1.6);
   for (int i = 0; i < 5; i++) { s += a * vnoise(p); p = m * p; a *= 0.5; }
   return s;
 }
+// The raven's body: the distance to its outline (negative inside), as the Mac's loop over every edge,
+// but a chunk of edges whose box is no nearer than the nearest found so far is not measured, and its
+// crossings are counted only when the row passes through it (no edge of it can be crossed otherwise).
 float sdPoly(float2 p) {
-  float d = dot(p - poly[0], p - poly[0]); float s = 1.0;
-  float2 b0 = poly[N - 1];
-  for (int i = 0; i < N; i++) {
-    float2 a0 = poly[i];
-    float2 e = b0 - a0, w = p - a0;
-    float2 b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
-    d = min(d, dot(b, b));
-    bool c1 = p.y >= a0.y; bool c2 = p.y < b0.y; bool c3 = e.x * w.y > e.y * w.x;
-    if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
-    b0 = a0;
+  float d = 1e30;
+  for (int c = 0; c < NC; c++) { float2 v = edge[c * CH].xy - p; d = min(d, dot(v, v)); }
+  float s = 1.0;
+  for (int c = 0; c < NC; c++) {
+    float4 bb = cbox[c];
+    float2 q = max(max(bb.xy - p, p - bb.zw), 0.0);
+    if (dot(q, q) < d) {
+      for (int j = 0; j < CH; j++) {
+        float4 ed = edge[c * CH + j];
+        float2 a0 = ed.xy, b0 = ed.zw;
+        float2 e = b0 - a0, w = p - a0;
+        float2 b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
+        d = min(d, dot(b, b));
+        bool c1 = p.y >= a0.y; bool c2 = p.y < b0.y; bool c3 = e.x * w.y > e.y * w.x;
+        if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
+      }
+    } else if (p.y >= bb.y && p.y < bb.w) {
+      for (int j = 0; j < CH; j++) {
+        float4 ed = edge[c * CH + j];
+        float2 a0 = ed.xy, b0 = ed.zw;
+        float2 e = b0 - a0, w = p - a0;
+        bool c1 = p.y >= a0.y; bool c2 = p.y < b0.y; bool c3 = e.x * w.y > e.y * w.x;
+        if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
+      }
+    }
   }
   return s * sqrt(d);
 }
@@ -234,11 +312,20 @@ float3 windowAt(float2 q, float blurPx) {
   return s / 5.0;
 }
 float3 glowOn(float3 col, float3 c, float a) { return dark > 0.5 ? col + c * a : mix(col, c, clamp(a, 0.0, 1.0)); }
+// The most the ink's body, halo and aura can add where the mark is at least dLo away: what is
+// skipped where this is under EPS cannot be seen.
+float inkMost(float dLo, float soft, float spread, float hl, float fade, float auraK) {
+  float dd = max(dLo, 0.0);
+  float body = 1.0 - smoothstep(-soft, soft, dLo);
+  float halo = spread > 0.0 ? spread * exp(-dd / hl) : 0.0;
+  return min(body + halo * 0.75, 1.0) * fade + exp(-dd / 9.0) * auraK;
+}
 
 half4 main(float2 fragCoord) {
   float t = iTime;
   float tE = iTime + iHeld;
   float2 p = fragCoord;
+  if (t >= 3.4) return half4(half3(board(p)), 1.0);
 
   // Where the mark is: large in the middle, then home to the bar's mark.
   float k = inOut((t - 2.15) / 0.75);
@@ -247,28 +334,76 @@ half4 main(float2 fragCoord) {
   float2 g = (p - c) / u + GLYPH_C;
   float pxG = 1.0 / u;
 
+  // The board washes in from the bar's mark, like ink spreading in water.
+  float3 col = bg;
+  if (t > 2.55) {
+    float r = length(p - markB.xy) / iResolution.y;
+    float front = (t - 2.55) * 2.4;
+    float full = smoothstep(3.15, 3.4, t);
+    // The noise moves the front by -0.2 to +0.19: past that the wash is known without it.
+    float wash = full;
+    if (r + 0.1875 <= front - 0.3) wash = 1.0;
+    else if (r - 0.2 < front) {
+      float n = fbm(p / iResolution.y * 5.0 + float2(t * 0.2, 0.0));
+      wash = max(1.0 - smoothstep(front - 0.3, front, r + (n - 0.5) * 0.4), full);
+    }
+    if (wash > 0.0) {
+      float settle = 1.0 - smoothstep(2.55, 3.35, t);
+      float2 cp = markB.xy + (p - markB.xy) / (1.0 + 0.02 * settle);
+      float3 win = windowAt(cp, settle * 0.8 * blurK);
+      // The bar's own mark stays hidden until the flying one lands on it.
+      float2 ib = abs(p - icon.xy) - icon.z + icon.w;
+      float inIcon = 1.0 - smoothstep(-1.0, 1.0, length(max(ib, 0.0)) + min(max(ib.x, ib.y), 0.0) - icon.w);
+      win = mix(win, sheet, inIcon * (1.0 - smoothstep(2.85, 3.05, t)));
+      col = mix(bg, win, wash);
+    }
+  }
+  float markV = 1.0 - smoothstep(3.0, 3.2, t);
+  if (markV <= 0.0) return half4(half3(col), 1.0);
+
   // Ink gathering: the shape seen through a swirl that relaxes to nothing.
   float pA = smoothstep(0.05, 2.0, t);
   float spread = pow(1.0 - pA, 2.0);
+  float soft = max(pxG * 0.7, 20.0 * pow(spread, 0.75));
+  float hl = 4.0 + 28.0 * spread;
+  float fade = smoothstep(0.0, 0.8, t) * markV;
+  float auraK = smoothstep(1.3, 2.0, t) * (1.0 - k) * 0.10 * markV;
+  float dens = 0.0;
+  float aura = 0.0;
+  float3 inkCol = inkC;
+  // The swirl carries a point at most 99.75 * spread glyph units along each axis (|fbm - 0.5| <= 0.5):
+  // 1.2 * 0.5 * 95 of it from w1, 0.9 * 0.5 * 95 from w2.
+  bool near = inkMost(sdBox(g - gbox.xy, gbox.zw + 99.75 * spread), soft, spread, hl, fade, auraK) >= EPS;
   float2 w2 = float2(0.0);
   float2 disp = float2(0.0);
-  if (spread > 0.0) {
+  if (near && spread > 0.0) {
     float2 q = g * 0.03;
     float2 w1 = float2(fbm(q + float2(0.0, t * 0.35)), fbm(q + float2(5.2, 1.3) - t * 0.3)) - 0.5;
-    w2 = float2(fbm(q * 2.1 + 3.0 * w1 + float2(1.7, 9.2) + t * 0.25), fbm(q * 2.1 + 3.0 * w1 + float2(8.3, 2.8) - t * 0.2)) - 0.5;
-    disp = (w1 * 1.2 + w2 * 0.9) * 95.0 * spread;
+    near = inkMost(sdBox(g + w1 * (1.2 * 95.0 * spread) - gbox.xy, gbox.zw + 42.75 * spread), soft, spread, hl, fade, auraK) >= EPS;
+    if (near) {
+      w2 = float2(fbm(q * 2.1 + 3.0 * w1 + float2(1.7, 9.2) + t * 0.25), fbm(q * 2.1 + 3.0 * w1 + float2(8.3, 2.8) - t * 0.2)) - 0.5;
+      disp = (w1 * 1.2 + w2 * 0.9) * 95.0 * spread;
+    }
   }
-  float d = sdMark(g + disp);
-  float soft = max(pxG * 0.7, 20.0 * pow(spread, 0.75));
-  float body = 1.0 - smoothstep(-soft, soft, d);
-  float halo = 0.0;
-  if (spread > 0.0) {
-    float wisp = smoothstep(0.40, 0.80, fbm(g * 0.05 + w2 * 4.0 - t * 0.1));
-    halo = wisp * exp(-max(d, 0.0) / (4.0 + 28.0 * spread)) * spread;
+  if (near) {
+    float2 gd = g + disp;
+    if (inkMost(sdBox(gd - gbox.xy, gbox.zw), soft, spread, hl, fade, auraK) >= EPS) {
+      float d = sdMark(gd);
+      float body = 1.0 - smoothstep(-soft, soft, d);
+      float halo = 0.0;
+      if (spread > 0.0) {
+        float env = exp(-max(d, 0.0) / hl) * spread;
+        // Its wisps only where the halo can show at all (its share of a pixel, its colour's too, under EPS).
+        if (env * 0.75 * fade * 3.5 >= EPS) {
+          float wisp = smoothstep(0.40, 0.80, fbm(g * 0.05 + w2 * 4.0 - t * 0.1));
+          halo = wisp * env;
+        }
+      }
+      dens = clamp(body + halo * 0.75, 0.0, 1.0) * smoothstep(0.0, 0.8, t);
+      inkCol = mix(float3(0.22, 0.38, 0.66), inkC, smoothstep(0.25, 0.9, dens + (1.0 - spread) * 0.6));
+      aura = exp(-max(d, 0.0) / 9.0) * smoothstep(1.3, 2.0, t) * (1.0 - k) * 0.10;
+    }
   }
-  float dens = clamp(body + halo * 0.75, 0.0, 1.0) * smoothstep(0.0, 0.8, t);
-  float3 inkCol = mix(float3(0.22, 0.38, 0.66), inkC, smoothstep(0.25, 0.9, dens + (1.0 - spread) * 0.6));
-  float aura = exp(-max(d, 0.0) / 9.0) * smoothstep(1.3, 2.0, t) * (1.0 - k) * 0.10;
 
   // The eye opens with one ripple (its own clock: it runs on while the mark waits for the board).
   float eD = length(g - float2(65.0, 32.0)) - 6.5;
@@ -278,29 +413,10 @@ half4 main(float2 fragCoord) {
   float ripple = rT > 0.0 ? exp(-abs(eD - rT * 75.0) / 2.0) * (1.0 - smoothstep(0.0, 0.7, rT)) * 0.5 : 0.0;
   float eGlow = exp(-max(eD, 0.0) / 6.0) * eyeOn * (0.18 + 0.5 * (1.0 - smoothstep(2.1, 2.9, tE)));
 
-  // The board washes in from the bar's mark, like ink spreading in water.
-  float3 col = bg;
-  if (t > 2.55) {
-    float settle = 1.0 - smoothstep(2.55, 3.35, t);
-    float2 cp = markB.xy + (p - markB.xy) / (1.0 + 0.02 * settle);
-    float3 win = windowAt(cp, settle * 0.8 * blurK);
-    // The bar's own mark stays hidden until the flying one lands on it.
-    float2 ib = abs(p - icon.xy) - icon.z + icon.w;
-    float inIcon = 1.0 - smoothstep(-1.0, 1.0, length(max(ib, 0.0)) + min(max(ib.x, ib.y), 0.0) - icon.w);
-    win = mix(win, sheet, inIcon * (1.0 - smoothstep(2.85, 3.05, t)));
-    float r = length(p - markB.xy) / iResolution.y;
-    float n = fbm(p / iResolution.y * 5.0 + float2(t * 0.2, 0.0));
-    float front = (t - 2.55) * 2.4;
-    float wash = max(1.0 - smoothstep(front - 0.3, front, r + (n - 0.5) * 0.4), smoothstep(3.15, 3.4, t));
-    col = mix(bg, win, wash);
-  }
-
-  float markV = 1.0 - smoothstep(3.0, 3.2, t);
   col = mix(col, inkCol, dens * markV);
   col = glowOn(col, inkC, aura * markV);
   col = mix(col, eyeC, eye * markV);
   col = glowOn(col, eyeC, (eGlow + ripple) * markV * 0.55);
-  if (t >= 3.4) col = board(p);
   return half4(half3(col), 1.0);
 }
 """ }
@@ -316,10 +432,27 @@ internal object InkGuard {
     /** Then this many frames judged. */
     const val JUDGE = 5
 
+    /** The frames kept for the run's numbers (a run is about 410 at 120 Hz; a debug clock freeze runs on). */
+    const val KEEP = 4000
+
     fun median(v: List<Double>): Double {
         if (v.isEmpty()) return 0.0
         val s = v.sorted(); val m = s.size / 2
         return if (s.size % 2 == 1) s[m] else (s[m - 1] + s[m]) / 2
+    }
+
+    /** The p-th percentile (nearest rank): p90 is the frame time 90 % of the frames stay within. */
+    fun percentile(v: List<Double>, p: Double): Double {
+        if (v.isEmpty()) return 0.0
+        val s = v.sorted()
+        return s[(kotlin.math.ceil(p / 100.0 * s.size).toInt() - 1).coerceIn(0, s.size - 1)]
+    }
+
+    /** The whole run's line for the log (the first SKIP frames left out, as in the guard): frames, GPU median and p90, in all median and p90. */
+    fun runStats(gpuMs: List<Double>, totalMs: List<Double>): String {
+        val g = gpuMs.drop(SKIP); val t = totalMs.drop(SKIP)
+        fun f(x: Double) = "%.1f".format(java.util.Locale.ROOT, x)
+        return "${g.size} frames, median ${f(median(g))} ms, p90 ${f(percentile(g, 90.0))} ms (in all median ${f(median(t))} ms, p90 ${f(percentile(t, 90.0))} ms)"
     }
 
     /** Too slow when the frames judged take over the budget each, as a rule (their median): one slow frame is not the GPU. */
