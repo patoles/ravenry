@@ -121,8 +121,10 @@ final class Board: NSObject {
     /// Where the sidebar's width, its fold and Idle's are kept: the person's defaults;
     /// off every screen only a test's data folder (RAVENRY_DESKTOP_DATA),
     /// so a relaunch check reads them back (NAV-007), else nowhere.
-    private lazy var prefs: UserDefaults? = keep ? .standard
-        : ProcessInfo.processInfo.environment["RAVENRY_DESKTOP_DATA"].flatMap { $0.isEmpty ? nil : UserDefaults(suiteName: ($0 as NSString).appendingPathComponent("board")) }
+    private lazy var prefs: UserDefaults? = keep ? .standard : Board.testPrefs
+    /// One for every window of the app (each window's board reads what another wrote).
+    private static let testPrefs: UserDefaults? = ProcessInfo.processInfo.environment["RAVENRY_DESKTOP_DATA"]
+        .flatMap { $0.isEmpty ? nil : UserDefaults(suiteName: ($0 as NSString).appendingPathComponent("board")) }
     /// The machines a toast already said were older or would not talk (MACH-008).
     lazy var machinesSaid = MachinesSaid(offscreen: !keep)
     /// Every open and its outcome, for the self-test: "session k: its tab".
@@ -293,6 +295,7 @@ final class Board: NSObject {
             self.hideMiddle()
             if let t = self.ws.tabs.first(where: { $0.id == id }) { self.ws.showAgain(t) } else { prevSelect?(id) }
             self.render()
+            self.personPicked("tab")
         }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.render() }
         watchKeysAndPresses()
@@ -519,7 +522,7 @@ final class Board: NSObject {
         // comes back in front, as the Electron app's `selected` (TERM-069); a tab's comes back with its tab.
         if !frontRestored {
             frontRestored = true
-            if let k = prefs?.string(forKey: "frontSession"), let f = st.find(k), f.session.pane == nil, front == .tab { pickSession(k, why: "relaunch") }
+            openOn(st)
         }
         // A checkpoint or a session that came to need you: the panel opens
         // on it when it is in front, else a toast says so, with Show.
@@ -669,6 +672,9 @@ final class Board: NSObject {
 
     func pickSession(_ key: String, why: String) {
         guard let st = hub.state, let f = st.find(key) else { note("session \(why) \(key): not on the board"); return }
+        // Asked for before the window's first state (a link, an alert): where it opens.
+        if !Board.quietPicks.contains(why) { openOnDone = true }
+        defer { if !Board.quietPicks.contains(why) { personPicked(why) } }
         overlay = false
         lastProject = f.project.id
         // A session waiting at a checkpoint: on a narrow window the panel opens over the terminal.
@@ -692,9 +698,10 @@ final class Board: NSObject {
         render()
     }
 
-    func pickProject(_ id: String) {
+    func pickProject(_ id: String, why: String = "project") {
         guard let p = hub.state?.project(id) else { return }
-        if let s = p.mainSession { pickSession("\(p.id)/\(s.surfaceId)", why: "project"); return }
+        if let s = p.mainSession { pickSession("\(p.id)/\(s.surfaceId)", why: why); return }
+        if !Board.quietPicks.contains(why) { openOnDone = true }
         overlay = false
         enter(.project(id)) { [weak self] in self?.pickProject(id) }
         front = .project(id)
@@ -702,6 +709,58 @@ final class Board: NSObject {
         projectPage.show(p)
         note("project \(id): its page")
         render()
+        if !Board.quietPicks.contains(why) { personPicked(why) }
+    }
+
+    // MARK: where the window opens (hub/server/openon.mjs, NAV-009)
+
+    /// Opens the window made: not the person's pick.
+    static let quietPicks: Set<String> = ["open on", "relaunch", "followed"]
+    /// Decided at the window's first state, or asked for before it.
+    private var openOnDone = false
+    /// When the person last picked what is in front in a window of this Mac (a click, a tab, a key,
+    /// an alert): this Mac's own memory of where it was, kept with the sidebar's width.
+    private var frontAt: Date? {
+        get { prefs?.object(forKey: "frontAt") as? Date }
+        set { prefs?.set(newValue, forKey: "frontAt") }
+    }
+
+    /// The window's first state: where it opens. A window opened as at a launch (Workspace.restored)
+    /// that was asked for nothing else opens on the hub's openOn, the session the person used last
+    /// on any device, unless what the person picked on this Mac is newer: then as it was left
+    /// (the tab in front, a session read only in the middle, TERM-069). A window with no tab to
+    /// bring back opens on New session (Ink.swift); one made for a shell or a tab stays on it.
+    private func openOn(_ st: HubState) {
+        let asked = openOnDone
+        openOnDone = true
+        let lastSession = { [self] in
+            if let k = prefs?.string(forKey: "frontSession"), let f = st.find(k), f.session.pane == nil, front == .tab { pickSession(k, why: "relaunch") }
+        }
+        guard ws.restored, !ws.restoredNone, !asked else { lastSession(); return }
+        guard let o = st.openOn else { note("open on: the board says nothing, as it was left"); lastSession(); return }
+        if let mine = frontAt, mine > o.at { note("open on: this Mac's own pick is newer (\(mine) after \(o.at)), as it was left (\((prefs?.string(forKey: "frontSession")).flatMap { $0.isEmpty ? nil : $0 } ?? "its tab"))"); lastSession(); return }
+        if let k = o.key, st.find(k) != nil {
+            if frontKey == k { note("open on \(k) (\(o.why)): in front already"); return }
+            note("open on \(k) (\(o.why))")
+            pickSession(k, why: "open on")
+        } else if st.project(o.projectId) != nil {
+            if frontKey == "project:\(o.projectId)" || frontKey?.hasPrefix("\(o.projectId)/") == true { note("open on \(o.projectId) (\(o.why)): in front already"); return }
+            note("open on \(o.projectId) (\(o.why))")
+            pickProject(o.projectId, why: "open on")
+        }
+    }
+
+    /// The person picked what is in front here: this Mac's own memory (frontAt), and the hub's
+    /// openOn when it is a project or a session (POST /api/opened), so every client opens there next.
+    func personPicked(_ why: String) {
+        frontAt = Date()
+        guard let st = hub.state, let fk = frontKey else { return }
+        var body: [String: Any] = ["device": "mac"]
+        if fk.hasPrefix("project:") { body["projectId"] = String(fk.dropFirst(8)) }
+        else if let f = st.find(fk) { body["projectId"] = f.project.id; body["surfaceId"] = f.session.surfaceId }
+        else { return }
+        let pid = body["projectId"] as? String ?? ""
+        hub.postOpened(body) { [weak self] code in self?.log.append("opened \(pid) (\(why)): \(code)") }
     }
 
     func openStart(_ folder: String?) {
@@ -1303,11 +1362,12 @@ final class Board: NSObject {
         if was, let t = ws.active { ws.showAgain(t) }
         log.append("command \(what)\(was ? ": the terminal in front" : "")")
         render()
+        personPicked(what)
     }
 
     /// Ctrl+Tab and back: from the view's tab (the strip's last), the first tab or the last.
     func stepTab(_ d: Int) {
-        if showingMiddle { tabCommand(d > 0 ? "next tab" : "previous tab") { $0.select(index: d > 0 ? 0 : $0.tabs.count - 1) } } else { ws.step(d) }
+        if showingMiddle { tabCommand(d > 0 ? "next tab" : "previous tab") { $0.select(index: d > 0 ? 0 : $0.tabs.count - 1) } } else { ws.step(d); render(); personPicked(d > 0 ? "next tab" : "previous tab") }
     }
 
     /// Cmd+W: what is in front closes. A page, a session's view, a
@@ -1536,7 +1596,9 @@ final class Board: NSObject {
         // The session read only in the middle that is in front, kept for the next launch.
         if frontRestored {
             if case .session(let k) = front { if prefs?.string(forKey: "frontSession") != k { prefs?.set(k, forKey: "frontSession") } }
-            else if prefs?.string(forKey: "frontSession") != nil { prefs?.removeObject(forKey: "frontSession") }
+            // Emptied, not removed: a removed key of a test's data folder (a suite by path) read back
+            // the file's older value in the same process, a session from the launch before (2026-11-15).
+            else if (prefs?.string(forKey: "frontSession") ?? "") != "" { prefs?.set("", forKey: "frontSession") }
         }
         // A session in front that left the board: followed under its new key
         // (moved, continued: the same conversation), else its view and its tab

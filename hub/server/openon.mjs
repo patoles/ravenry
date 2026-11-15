@@ -25,7 +25,7 @@
 // its state's time), why 'active'. A project that merely sorts first, or
 // waits on someone, is never chosen for that.
 //
-// What clients do with it (docs/FEATURES.md NAV-012): at open (a launch, a
+// What clients do with it (docs/FEATURES.md NAV-009): at open (a launch, a
 // window opened again, a page loaded or reloaded, the app back in front
 // after a while) and when nothing more specific was asked (an alert tapped,
 // a link to a project or card), they show openOn. A pick the person made

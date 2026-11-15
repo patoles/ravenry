@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Where the hub's browser board opens (server/openon.mjs, hub/public/app.js
-// applyOpenOn; docs/FEATURES.md NAV-012), headless, on the demo board
+// applyOpenOn; docs/FEATURES.md NAV-009), headless, on the demo board
 // (apps/desktop/tools/demo-hub.mjs, 127.0.0.1, a throwaway home) shaped like
 // the person's: weather-widget waits on the designer since three days and is
 // first in the list, above the projects in use; notes-app is the session

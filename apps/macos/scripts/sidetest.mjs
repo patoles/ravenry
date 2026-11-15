@@ -299,6 +299,28 @@ async function writeFixtures() {
   await sleep(3000);
 }
 const IDEA_STOP_MS = 6000;
+// --screen openon (SelfTestOpenOn.swift, NAV-009): the board shaped like the
+// person's: weather-widget waits on the designer (for days: its last events
+// are 74 h old) and is first in the list, above the projects in use.
+const OPENON = SCREEN === 'openon';
+function waitingFirst(MC) {
+  const f = path.join(MC, 'projects.json');
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+  const w = j.projects.find((p) => p.id === 'weather-widget');
+  w.waitingOn = 'the designer';
+  j.projects = [w, ...j.projects.filter((p) => p !== w)];
+  fs.writeFileSync(f, JSON.stringify(j, null, 2));
+}
+// The person types to a demo project's session in its terminal: its transcript and its hook event.
+const DEMO_SESSIONS = { 'garden-planner': ['a1a1a1a1-0000-4000-8000-000000000001', 'ws-1', 'sf-1'], 'paper-boat': ['b2b2b2b2-0000-4000-8000-000000000002', 'ws-3', 'sf-3'] };
+function typeTo(id) {
+  const [sid, ws, sf] = DEMO_SESSIONS[id];
+  const tr = hub.transcript(id);
+  const at = new Date().toISOString();
+  const cwd = path.join(hub.root, id);
+  fs.appendFileSync(tr, JSON.stringify({ type: 'user', cwd, sessionId: sid, timestamp: at, message: { role: 'user', content: 'Go on.' } }) + '\n');
+  fs.appendFileSync(path.join(hub.home, '.ravenry', 'events', sid + '.jsonl'), JSON.stringify({ at, event: 'UserPromptSubmit', session_id: sid, cwd, transcript_path: tr, workspace_id: ws, surface_id: sf }) + '\n');
+}
 const screenHub = PAGES ? {
   plan: true, ideas: true, env: { RAVENRY_PAGE_DEFAULTS: path.join(PD, 'defaults') },
   // harbour-light has the lighthouse's brief (its goal in Markdown: "whose **lamp** turns"); lighthouse has none (Write the brief).
@@ -317,7 +339,7 @@ const screenHub = PAGES ? {
   extra: [{ id: 'old-notes', name: 'old-notes' }, { id: 'lighthouse', name: 'lighthouse', conversation: { sid: '1a9b0001-0000-4000-8000-0000000000aa', title: 'Lamp rotation speed', ask: 'How fast should the lamp turn?', answer: 'One turn every ten seconds, like the real one at the harbour.', ago: 600 } }],
   // --screen decisions: a ledger of every shape (decisions-fixture.mjs).
   // --screen gallery: lighthouse's brief lists a tall, a wide and a small picture (gallery-fixture.mjs).
-  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'gallery') galleryPictures(path.join(ROOT, 'lighthouse')); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review' || SCREEN === 'controls') reviewRepo(ROOT); },
+  prepare: ({ ROOT, MC }) => { fs.writeFileSync(path.join(ROOT, 'lighthouse', 'BRIEF.md'), LIGHTHOUSE_BRIEF); if (SCREEN === 'gallery') galleryPictures(path.join(ROOT, 'lighthouse')); if (SCREEN === 'decisions') writeLedger(MC); if (SCREEN === 'review' || SCREEN === 'controls') reviewRepo(ROOT); if (OPENON) waitingFirst(MC); },
 } : { extra: [{ id: 'old-notes', name: 'old-notes' }] };
 // --screen machines: the hub carries a build to install (a few bytes, never run:
 // ssh is /usr/bin/false), so Install and Update get the hub's 200 and start a job
@@ -876,6 +898,8 @@ function stubCodex() { const d = path.join(tmp, 'stub-bin'); fs.mkdirSync(d, { r
 function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursive: true }); return d; }
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
+// --screen openon (SelfTestOpenOn.swift, NAV-009): two shells in the daemon, the window's tabs.
+if (OPENON) for (const n of ['oo-1', 'oo-2']) execFileSync(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['new', '--socket', sock, '--label', 'ravenry.kind=shell', '--cwd', user, '--json', '--name', n, '--', '/bin/zsh', '-l'], { env });
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
   env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' || SCREEN === 'pickzoom' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(ANSWERS ? { RAVENRY_MAC_ANSWERS: JSON.stringify({ fake: hub.fake, argv: STAND_IN + '.argv' }) } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
@@ -941,6 +965,25 @@ if (SCREEN === 'termnav') {
 }
 // --screen idlefold (SelfTestIdleFold.swift): Idle opened by a press, then
 // the app again on the same data folder (--screen idlefold2): still open.
+// --screen openon (SelfTestOpenOn.swift): the person types to garden-planner
+// while Ravenry is not running, then the app again on the same board, daemon
+// and data folder (--screen openon2); at its arrival 1 they type to paper-boat.
+let openon2 = null;
+if (OPENON) {
+  typeTo('garden-planner');
+  for (let i = 0; i < 100 && (await hub.state()).openOn?.projectId !== 'garden-planner'; i++) await sleep(150);
+  const r2 = path.join(OUT, 'sidetest-openon2.json');
+  for (const f of [r2, `${r2}.arrive-1`, `${r2}.go-1`]) fs.rmSync(f, { force: true });
+  const a6 = spawn(EXE, ['--offscreen', '--socket', sock, '--sidetest', r2, '--screen', 'openon2'], { env: { ...env, RAVENRY_HUB_URL: hub.url, RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events-openon2.log') }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app-openon2.log'), 'w')] });
+  let done6 = false;
+  a6.on('exit', () => { done6 = true; });
+  for (let i = 0; i < 2400 && !done6; i++) {
+    if (fs.existsSync(`${r2}.arrive-1`) && !fs.existsSync(`${r2}.go-1`)) { typeTo('paper-boat'); fs.writeFileSync(`${r2}.go-1`, '1'); }
+    await sleep(50);
+  }
+  if (!done6) a6.kill();
+  try { openon2 = JSON.parse(fs.readFileSync(r2, 'utf8')); } catch { /* none */ }
+}
 let idlefold2 = null;
 if (SCREEN === 'idlefold') {
   await sleep(1500);
@@ -987,6 +1030,7 @@ if (PROOFS) {
   if (!ok) r.failed++;
 }
 if (SCREEN === 'idlefold') for (const c of idlefold2?.checks || [{ name: 'idlefold2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
+if (OPENON) for (const c of openon2?.checks || [{ name: 'openon2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 if (SCREEN === 'termnav') for (const c of termnav2?.checks || [{ name: 'termnav2_ran', ok: false, detail: 'no result' }]) { if (c.name === 'hub_state') continue; r.checks.push(c); if (!c.ok) r.failed++; }
 // The layout file is kept by daemon: this test's daemon is not the Electron
 // app's, so the window writes window-<daemon>.json, never window.json.

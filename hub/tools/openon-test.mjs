@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Where every client opens (server/openon.mjs, docs/FEATURES.md NAV-012):
+// Where every client opens (server/openon.mjs, docs/FEATURES.md NAV-009):
 // the project of the session the person used last, on any device.
 //
 // 1. The rule (pick): typed, answered, opened and none known; newest wins

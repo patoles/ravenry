@@ -435,10 +435,14 @@ final class Workspace: NSObject {
             restoredNone = true
         }
         show(front ?? tabs[0], wait: true)
+        restored = options.attach == nil
     }
 
     /// The launch had no tab to bring back (restore made a new shell).
     private(set) var restoredNone = false
+    /// The window opened as at a launch (a launch, the Dock's click with no window), asked for no
+    /// pane: its board opens on the hub's openOn (Board.openOn, NAV-009).
+    private(set) var restored = false
 
     /// The saved splits on the tabs: a tab's tree of splits (`trees`) while
     /// the one split the Electron app reads of it (`splits`) is still the

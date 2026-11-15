@@ -94,7 +94,7 @@ const store = {
   set(k, v) { try { localStorage.setItem('mc.' + k, JSON.stringify(v)); } catch { /* private window */ } },
 };
 
-// Where the board opens (server/openon.mjs, docs/FEATURES.md NAV-012): the
+// Where the board opens (server/openon.mjs, docs/FEATURES.md NAV-009): the
 // hub's openOn, the project of the session the person used last on any
 // device (typed to, answered a card of, opened), when nothing more specific
 // was asked (a link to a project or card, an alert tapped). This device's

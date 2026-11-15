@@ -224,6 +224,12 @@ final class HubState {
         return nil
     }
     func project(_ id: String) -> HubProject? { projects.first { $0.id == id } }
+    /// Where every client opens (hub/server/openon.mjs, NAV-009): the project of the session the
+    /// person used last on any device (typed to, answered a card of, opened), else the one active last.
+    var openOn: (projectId: String, key: String?, at: Date, why: String)? {
+        guard let o = raw["openOn"] as? [String: Any], let pid = o["projectId"] as? String, let at = When.date(o["at"] as? String) else { return nil }
+        return (pid, o["key"] as? String, at, o["why"] as? String ?? "")
+    }
     /// The open checkpoint of a session: by its project and surface, else its pane (hub/server/sidebar.mjs marksOf).
     /// An open checkpoint from a pane of this computer's daemon (a shell's), the oldest first.
     func checkpoint(pane: String) -> [String: Any]? {
@@ -799,6 +805,25 @@ final class HubClient: NSObject, URLSessionDataDelegate {
             pictureBytes -= pictures.removeValue(forKey: gone)?.bytes ?? 0
         }
     }
+
+    /// POST where the person is (POST /api/opened, hub/server/openon.mjs): bookkeeping that answers
+    /// no agent, kept out of `sent`, which lists what the person's clicks asked for.
+    func postOpened(_ body: [String: Any], _ done: @escaping (Int) -> Void) {
+        opened.append(body)
+        guard !readOnly, let b = base, let u = URL(string: b.absoluteString + "/api/opened") else { done(0); return }
+        var r = URLRequest(url: u)
+        r.httpMethod = "POST"
+        r.timeoutInterval = 20
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("1", forHTTPHeaderField: "X-Ravenry")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        session.dataTask(with: r) { _, resp, _ in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            DispatchQueue.main.async { done(code) }
+        }.resume()
+    }
+    /// Every open told to the hub (postOpened), for the self-test.
+    private(set) var opened: [[String: Any]] = []
 
     /// POST what the person clicked, as the board's page does.
     func post(_ path: String, _ body: [String: Any], _ done: @escaping (Int, [String: Any]) -> Void) {

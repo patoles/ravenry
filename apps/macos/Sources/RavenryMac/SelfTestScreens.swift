@@ -64,6 +64,8 @@ extension SelfTestBoard {
         case "termnav2": screenTermNav2()
         case "idlefold": screenIdleFold()
         case "idlefold2": screenIdleFold2()
+        case "openon": screenOpenOn()
+        case "openon2": screenOpenOn2()
         case "answers": screenAnswers()
         case "pickzoom": screenPickZoom()
         default: check("screen_known", false, name)
