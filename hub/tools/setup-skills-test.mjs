@@ -132,6 +132,35 @@ const homeDir = (n) => { const h = path.join(T, n); fs.mkdirSync(h, { recursive:
   check('setSkill: a relative or quoted command is refused', !r.ok && !q.ok && /not installed yet/.test(r.error));
   check('setSkill: no such assistant', sk.setSkill({ kind: 'gemini', on: true }, hubUndo, env, home).ok === false);
 }
+{
+  // The description leads with when to use it (asking the person), within
+  // what Claude Code (1,536) and Codex (1,024) show, as a plain YAML scalar.
+  const d = sk.DESCRIPTION;
+  check('description: asking the person through Ravenry comes first, with ask, pick, approve and secret, under 1,024 characters, one plain YAML line', /^Ask the person through Ravenry, not in your reply\./.test(d) && ['ravenry ask', 'ravenry pick', 'ravenry approve', 'ravenry secret'].every((c) => d.slice(0, 300).includes(c)) && d.length <= 1024 && !/: | #|\n/.test(d) && !/^[`'"&*!|>%@[{]/.test(d) && sk.skillText('/bin/ravenry', '1').includes(`\ndescription: ${d}\n`), `${d.length} characters`);
+  // An update: the app's hub at start (refreshSkills) writes a stub of ours
+  // with an older description again; a skill the person wrote is left alone.
+  const home = homeDir('h-refresh');
+  const env = {};
+  const stable = path.join(T, 'refresh-bin', 'ravenry');
+  fs.mkdirSync(path.dirname(stable), { recursive: true });
+  fs.writeFileSync(stable, '#!/bin/sh\n', { mode: 0o755 });
+  const OLD = "Use Ravenry's terminals from the command line. Open a pane beside you for a server or a build, read its screen, type into it, wait for its output, show the person pictures to pick from, ask them through the board and their phone, and make pages in Ravenry's sidebar (a tracker, a list, a board of notes) for what you work on.";
+  const oldText = sk.skillText(stable, '0.1.49').replace(`description: ${d}`, `description: ${OLD}`);
+  const ours = path.join(sk.skillDir('claude', env, home), 'SKILL.md');
+  fs.mkdirSync(path.dirname(ours), { recursive: true });
+  fs.writeFileSync(ours, oldText);
+  const theirs = path.join(sk.skillDir('codex', env, home), 'SKILL.md');
+  const theirText = `---\nname: ravenry\ndescription: ${OLD}\n---\nMy own notes on Ravenry.\n`;
+  fs.mkdirSync(path.dirname(theirs), { recursive: true });
+  fs.writeFileSync(theirs, theirText);
+  const backups = path.join(T, 'refresh-backups');
+  const r1 = sk.refreshSkills({ stable, version: '0.1.50', undoFile: path.join(T, 'refresh-undo.json'), backups, env, home });
+  const now = fs.readFileSync(ours, 'utf8');
+  check('update: a stub of ours with an older description gets the new one (same command, this version), the old kept in backups', r1.length === 1 && r1[0].kind === 'claude' && now === sk.skillText(stable, '0.1.50') && now.includes(`description: ${d}`) && fs.readFileSync(r1[0].backup, 'utf8') === oldText, JSON.stringify(r1));
+  check('update: a ravenry skill the person wrote (no ravenry-stub mark) is left byte for byte', fs.readFileSync(theirs, 'utf8') === theirText);
+  const r2 = sk.refreshSkills({ stable, version: '0.1.50', undoFile: path.join(T, 'refresh-undo.json'), backups, env, home });
+  check('update: a stub already current is not written again', r2.length === 0 && fs.readdirSync(backups).length === 1);
+}
 
 // ------------------------------------------------------------ 2. a test board
 const PORT = 4673;

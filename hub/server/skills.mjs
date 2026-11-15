@@ -54,12 +54,21 @@ export function skillDir(a, env = process.env, home = os.homedir()) {
 
 const MARK = 'ravenry-stub';
 
+// The description is the one line an assistant always sees (the body only
+// once it opens the skill), so it leads with when to use it: asking the
+// person. It used to read as a terminal tool only, and agents with the
+// person in their chat typed their choices there instead. Claude Code
+// cuts it at 1,536 characters and Codex 0.166 at 1,024, and both shorten
+// it from the end when many skills are installed: it stays well under,
+// trigger first. A plain YAML scalar, so no ": " and no " #" in it.
+export const DESCRIPTION = 'Ask the person through Ravenry, not in your reply. Whenever a decision is theirs (choosing between options, picking between pictures or designs, approving a command) or you need a password or code, run `ravenry ask`, `ravenry pick`, `ravenry approve` or `ravenry secret` and wait for the answer before you go on. They get a card on their board and an alert on their phone, answer there even away from this chat, and you get the answer back. Never leave such a choice in your reply, as a question or as options to pick from later. Ravenry also opens panes beside you for a server or a build, reads their screens, types into them, waits for output, and makes pages in its sidebar (a tracker, a list, a board of notes).';
+
 /** The SKILL.md Ravenry writes: the command it runs is the app's stable link, so updates need no rewrite. */
 export function skillText(bin, version) {
   return [
     '---',
     'name: ravenry',
-    'description: Use Ravenry\'s terminals from the command line. Open a pane beside you for a server or a build, read its screen, type into it, wait for its output, show the person pictures to pick from, ask them through the board and their phone, and make pages in Ravenry\'s sidebar (a tracker, a list, a board of notes) for what you work on.',
+    `description: ${DESCRIPTION}`,
     'metadata:',
     `  ${MARK}: "1"`,
     `  ravenry-version: "${version}"`,

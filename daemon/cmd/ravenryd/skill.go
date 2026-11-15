@@ -152,6 +152,15 @@ person never needs to come back to your chat.
 
 ## Before you ask the person anything
 
+- **Ask through Ravenry, not in your reply.** When a decision is the
+  person's, or you need them to approve or give a secret, do not write the
+  question in your chat, nor leave options in your reply for them to pick
+  later. Ask and wait for the answer before you go on:
+  ` + "`ravenry ask \"Which one?\" --option A --option B`" + ` for options,
+  ` + "`ravenry pick`" + ` for pictures (below), ` + "`ravenry approve`" + ` for a command,
+  ` + "`ravenry secret`" + ` for a password or code. They get a card on their board
+  and an alert on their phone, answer there even away from your chat, and
+  the command prints their answer.
 - **Check their decisions first.** ` + "`ravenry decisions --search WORD`" + ` lists the
   directions the person already gave for this project, in their own
   words, newest first. If one answers your question, follow it and do not
