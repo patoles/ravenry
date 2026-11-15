@@ -4,7 +4,7 @@
 //   the pictures round; the hub reads its options (hub/server/answers.mjs),
 //   the panel shows them as buttons (B, the one recommended, first), and a
 //   press on "Keep A: today" types exactly "Keep A" into its session (the
-//   fake cmux's prompt, through POST /api/send);
+//   prompt the stand-in cmux plays, through POST /api/send);
 // - the model: garden-planner's row chip says "Opus 5.5" at 284 pt and
 //   "Opus" at 220, the panel head "Claude Opus 5.5"; arrival 2 grows its
 //   transcript by a /model switch and a reply on Sonnet 4.6, and the chip
@@ -21,7 +21,7 @@ extension SelfTestBoard {
         (ProcessInfo.processInfo.environment["RAVENRY_MAC_ANSWERS"]?.data(using: .utf8)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
     }
 
-    /// What the fake cmux's prompt of a surface was sent (each Enter one entry).
+    /// What the stand-in cmux typed into a surface's prompt (each Enter one entry).
     private func sentTo(_ surface: String) -> [String] {
         guard let f = answersEnv["fake"] as? String, let d = FileManager.default.contents(atPath: f),
               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return [] }

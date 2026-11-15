@@ -6,8 +6,8 @@
 // pictures round (tools/fixtures/answers/handback-1.txt).
 //
 // - The card shows the message's options as buttons, B (recommended) first;
-//   a press types exactly the key ("Keep A") into the session (the fake
-//   cmux's prompt, through POST /api/send), and the card says it was sent.
+//   a press types exactly the key ("Keep A") into the session (the
+//   prompt the stand-in cmux plays, through POST /api/send), and the card says it was sent.
 // - The Live screen's tag says the assistant and its model ("Claude Opus
 //   5.5"), the Sessions card's tag the model ("Opus 5.5").
 // - New sessions' Model beside the Claude / Codex switch: the hub's menu,
