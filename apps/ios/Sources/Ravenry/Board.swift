@@ -46,6 +46,12 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     /// The alert that opened the app, for the page's hello.
     var pending: [String: Any]?
     private var helloed = false
+    /// Back from the background: the stream and the connection watch start over at once.
+    private var wasAway = false
+    /// Since when a live update waits for the page to take it (nil: none waits).
+    private var unackedSince: Date?
+    private var pageWatch: Timer?
+    private var lastDeliveryLog = Date.distantPast
 
     override var preferredStatusBarStyle: UIStatusBarStyle { light ? .darkContent : .lightContent }
 
@@ -60,7 +66,9 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         c.allowsInlineMediaPlayback = true
         // The channel the page's shell.ts looks for: posts go to the shell, replies and events come back through __rvRecv.
         c.userContentController.addUserScript(WKUserScript(source: Self.channel, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        c.userContentController.add(self, contentWorld: .page, name: "ravenryShell")
+        // Through a weak hop: the content controller keeps its handler, and a board
+        // that is replaced (signed out, paired again) must go, with its stream.
+        c.userContentController.add(WeakShell(self), contentWorld: .page, name: "ravenryShell")
         let w = WKWebView(frame: .zero, configuration: c)
         w.isOpaque = false
         w.backgroundColor = .clear
@@ -101,10 +109,32 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         UIView.performWithoutAnimation { layoutWeb() }
     }
 
-    func appeared() { conn.start(); event(["event": "alerts", "on": AlertCenter.shared.allowed]) }
-    func disappeared() { conn.stop() }
+    /// The app in front. Back from the background, nothing of before is trusted: iOS
+    /// may have frozen the stream's connection or left it half dead while the app
+    /// was away (an iPad that slept), so the stream opens again now (the hub's
+    /// first event is the whole state: every card opened meanwhile) and the
+    /// connection watch checks at once, from a clean start.
+    func appeared() {
+        let back = wasAway
+        wasAway = false
+        if back {
+            Hub.client()?.networkChanged()
+            restartEventsIfWanted()
+        }
+        conn.start(fresh: back)
+        event(["event": "alerts", "on": AlertCenter.shared.allowed])
+        watchPage(true)
+    }
 
-    deinit { events?.close() }
+    /// The app in the background: the stream closes (iOS would freeze it), the watch stops.
+    func disappeared() {
+        wasAway = true
+        conn.stop()
+        watchPage(false)
+        if events != nil { events?.close(); events = nil; Log.say("live stream: closed while the app is away") }
+    }
+
+    deinit { events?.close(); pageWatch?.invalidate() }
 
     static let channel = """
     (function(){var l=[];var ch={onmessage:null,postMessage:function(t){window.webkit.messageHandlers.ravenryShell.postMessage(String(t))},addEventListener:function(ty,f){if(ty==='message')l.push(f)}};
@@ -114,10 +144,64 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
 
     // ------------------------------------------------------------ the bridge
 
-    private func post(_ o: [String: Any]) {
-        guard let d = try? JSONSerialization.data(withJSONObject: o, options: [.fragmentsAllowed]) else { return }
+    /// One message to the page. `text` is JSON as the hub wrote it, put at `key` (a dotted path) in
+    /// the message by the page's own JSON.parse: never read and written again
+    /// here, since Foundation refuses JSON that JavaScript writes and reads (half
+    /// of an emoji, alone, in a string cut by length) and the board would get
+    /// the hub's text in place of its state, or nothing.
+    private func post(_ o: [String: Any], text: String? = nil, at key: String = "data", done: ((Bool) -> Void)? = nil) {
+        guard let d = try? JSONSerialization.data(withJSONObject: o, options: [.fragmentsAllowed]) else {
+            Log.say("board: a message for the page could not be written (\(o["event"] as? String ?? "a reply"))")
+            done?(false)
+            return
+        }
         let s = String(decoding: d, as: UTF8.self)
-        DispatchQueue.main.async { self.web?.callAsyncJavaScript("window.__rvRecv && window.__rvRecv(m)", arguments: ["m": s], in: nil, in: .page, completionHandler: nil) }
+        DispatchQueue.main.async {
+            guard let w = self.web else { done?(false); return }
+            let handled: (Result<Any, Error>) -> Void = { r in
+                if case .failure(let e) = r { self.undelivered(o, e) }
+                done?((try? r.get()) != nil)
+            }
+            if let text {
+                w.callAsyncJavaScript(Self.withText, arguments: ["m": s, "t": text, "k": key], in: nil, in: .page, completionHandler: handled)
+            } else {
+                w.callAsyncJavaScript("if (window.__rvRecv) window.__rvRecv(m); return 1;", arguments: ["m": s], in: nil, in: .page, completionHandler: handled)
+            }
+        }
+    }
+
+    /// The message with the hub's JSON put in by the page (as it is, if it is not JSON), handed over as text.
+    static let withText = "const o = JSON.parse(m); let v; try { v = JSON.parse(t); } catch (e) { v = t; } const p = k.split('.'); let at = o; for (const x of p.slice(0, -1)) at = at[x]; at[p[p.length - 1]] = v; if (window.__rvRecv) window.__rvRecv(JSON.stringify(o)); return 1;"
+
+    private func undelivered(_ o: [String: Any], _ e: Error) {
+        guard Date().timeIntervalSince(lastDeliveryLog) > 60 else { return }
+        lastDeliveryLog = Date()
+        Log.say("board: a message did not reach the page (\(o["event"] as? String ?? "a reply"): \(e.localizedDescription))")
+    }
+
+    /// A live update the page has not taken within 15 s (its process stuck or gone
+    /// quiet): the page loads again, from the hub's whole state.
+    private func watchPage(_ on: Bool) {
+        pageWatch?.invalidate(); pageWatch = nil
+        unackedSince = nil
+        guard on else { return }
+        pageWatch = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self, let t = self.unackedSince, Date().timeIntervalSince(t) > 15 else { return }
+            self.unackedSince = nil
+            Log.say("board: the page took no live update for 15 s; loading it again")
+            self.web?.reload()
+        }
+    }
+
+    /// A hub event, its data as the hub wrote it; `first`: the first state of a new stream, said in the log once taken.
+    private func hubEvent(_ name: String, _ data: String, first: Bool) {
+        DispatchQueue.main.async { if self.unackedSince == nil { self.unackedSince = Date() } }
+        post(["event": "hub", "name": name], text: data) { ok in
+            DispatchQueue.main.async {
+                if ok { self.unackedSince = nil }
+                if first { Log.say("board: \(ok ? "the page has" : "the page did not take") the Mac's state (\(data.utf8.count / 1024) KB)") }
+            }
+        }
     }
 
     func reply(_ id: Int, _ result: Any? = nil) { post(["id": id, "ok": true, "result": result ?? NSNull()]) }
@@ -180,8 +264,9 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
                 do {
                     let r = try await c.call(method, path, json: b is NSNull ? nil : b)
                     answered()
-                    let body: Any = r.data.isEmpty ? NSNull() : ((try? JSONSerialization.jsonObject(with: r.data, options: [.fragmentsAllowed])) ?? r.text)
-                    reply(id, ["status": r.status, "body": body])
+                    // The body as the hub wrote it, read by the page (see post).
+                    if r.data.isEmpty { reply(id, ["status": r.status, "body": NSNull()]) }
+                    else { post(["id": id, "ok": true, "result": ["status": r.status]], text: r.text, at: "result.body") }
                 } catch { fail(id, unreachable(error, asked: asked)) }
             }
         case "hub.events":
@@ -249,13 +334,16 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     func startEvents() {
         events?.close(); events = nil
         guard eventsWanted, let c = hub() else { return }
+        // The first state of each connection is said in the log once the page has it.
+        let firstState = Once()
         events = c.events("/api/events", onEvent: { [weak self] name, data in
-            let parsed: Any = (try? JSONSerialization.jsonObject(with: Data(data.utf8), options: [.fragmentsAllowed])) ?? data
-            self?.event(["event": "hub", "name": name, "data": parsed])
-            if name == "phone", let m = parsed as? [String: Any] { DispatchQueue.main.async { AlertCenter.shared.message(m) } }
+            self?.hubEvent(name, data, first: name == "state" && firstState.take())
+            if name == "phone", let m = Lenient.object(data) { DispatchQueue.main.async { AlertCenter.shared.message(m) } }
         }, link: { [weak self] up, err in
+            if up { firstState.reset() }
             DispatchQueue.main.async {
                 guard let self else { return }
+                Log.say("live stream: \(up ? "open" : "down (\(err == nil || err == "the stream ended" ? "the Mac ended it" : err == EventStream.silence ? "no word from the Mac for 35 s" : err == "signed out" ? "signed out" : "no answer"))")")
                 if up { self.answered() }
                 let words: Any = up ? NSNull() : (err == "signed out" ? err! : Net.why(nil, hosts: c.allHosts).words)
                 self.event(["event": "link", "state": up ? "up" : "down", "error": words])
@@ -349,6 +437,21 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     func webViewWebContentProcessDidTerminate(_ w: WKWebView) { Log.say("board: the page's process ended; loading it again"); w.reload() }
 
     func webView(_ w: WKWebView, didFinish n: WKNavigation!) { Log.say("board: page loaded (\(w.url?.path ?? ""))") }
+}
+
+/// The page's channel through a weak hop (WKUserContentController keeps its handler).
+final class WeakShell: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(_ t: WKScriptMessageHandler) { target = t }
+    func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(u, didReceive: m) }
+}
+
+/// A flag taken once until reset, from any thread.
+final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var armed = true
+    func take() -> Bool { lock.withLock { let a = armed; armed = false; return a } }
+    func reset() { lock.withLock { armed = true } }
 }
 
 /// Serves ravenry-app://phone/: the app's own screens from the app, the

@@ -21,6 +21,8 @@ final class ConnWatch {
     private var probing = false
     private var stopped = true
     private var timer: Timer?
+    /// The check now running: a newer one takes over from one that has not answered in 12 s.
+    private var checkN = 0
 
     init(board: BoardController) { self.board = board }
 
@@ -42,8 +44,10 @@ final class ConnWatch {
         if changed { Log.say("connection: \(s)\(s == "up" ? " (\(via))" : "")") }
     }
 
-    func start() {
+    /// `fresh`: back from the background, no check of before counts (one iOS froze may never answer).
+    func start(fresh: Bool = false) {
         stopped = false
+        if fresh { probing = false; checkN += 1; fails = 0 }
         Net.onChange = { [weak self] in Hub.client()?.networkChanged(); self?.schedule(0.5) }
         schedule(0)
     }
@@ -85,6 +89,20 @@ final class ConnWatch {
     private func probe() {
         guard !probing, !stopped else { return }
         probing = true
+        checkN += 1
+        let n = checkN
+        // A check that never answers (its connection frozen with the app) counts as
+        // failed after 12 s by the wall clock, and the next one goes: the chip
+        // never stays on reconnecting with nothing tried.
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + 12) { [weak self] in
+            guard let self, n == self.checkN, self.probing else { return }
+            Log.say("connection: a check had no answer in 12 s; checking again")
+            self.probing = false
+            self.checkN += 1
+            self.fails += 1
+            if self.state == "up" { self.set("reconnecting") }
+            self.schedule(0)
+        }
         Task { @MainActor in
             let c = Hub.client()
             var result: Result<(host: String, ms: Int), Error>
@@ -92,6 +110,7 @@ final class ConnWatch {
                 guard let c else { throw HubFailure(hosts: [], underlying: "not paired") }
                 result = .success(try await c.probe())
             } catch { result = .failure(error) }
+            guard n == checkN else { return }
             probing = false
             switch result {
             case .success(let r):

@@ -57,9 +57,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         showPairing(link: u.absoluteString)
     }
 
-    func sceneDidBecomeActive(_ s: UIScene) { AlertCenter.shared.refresh { self.board?.appeared() } }
+    // Each said in the log: a field log shows when the app was away and came back.
+    func sceneDidBecomeActive(_ s: UIScene) { Log.say("app: in front"); AlertCenter.shared.refresh { self.board?.appeared() } }
     func sceneWillResignActive(_ s: UIScene) {}
-    func sceneDidEnterBackground(_ s: UIScene) { board?.disappeared() }
+    func sceneDidEnterBackground(_ s: UIScene) { Log.say("app: in the background"); board?.disappeared() }
 
     func showBoard(cold: Bool) {
         guard let w = window else { return }

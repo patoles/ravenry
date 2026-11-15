@@ -67,7 +67,7 @@ struct HubReply {
     let headers: [String: String]
     let data: Data
     var text: String { String(decoding: data, as: UTF8.self) }
-    var json: [String: Any]? { (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] }
+    var json: [String: Any]? { Lenient.object(text) }
     func header(_ n: String) -> String? { headers.first { $0.key.caseInsensitiveCompare(n) == .orderedSame }?.value }
 }
 
@@ -245,8 +245,13 @@ final class HubClient {
 /// Server-sent events (GET /api/events): each `event:` with its `data:`.
 /// Reconnects after a drop until closed; `link` says up or down. Between
 /// tries it waits 1 s, doubling to 15 s; wake() (the network changed, the
-/// Mac answered another request) ends the wait now.
+/// Mac answered another request) ends the wait now. The hub says something
+/// at least every 15 s (its heartbeat): 35 s without a byte, by the clock on
+/// the wall (an iPad asleep in between too), and the connection is taken for
+/// dead and made again, whatever URLSession thinks of it.
 final class EventStream {
+    static let silence = "silence"
+    static var quiet: TimeInterval = 35
     private weak var client: HubClient?
     private let path: String
     private let onEvent: (String, String) -> Void
@@ -287,25 +292,38 @@ final class EventStream {
                 c.streamAnswered(h)
                 link(true, nil)
                 wait = 1_000
-                var name = "message", data = "", line = [UInt8]()
-                for try await b in bytes {
-                    if isClosed { break }
-                    if b != 10 { line.append(b); continue }
-                    if line.last == 13 { line.removeLast() }
-                    let l = String(decoding: line, as: UTF8.self)
-                    line.removeAll(keepingCapacity: true)
-                    if l.isEmpty {
-                        if !data.isEmpty { onEvent(name, data) }
-                        name = "message"; data = ""
-                    } else if l.hasPrefix(":") {
-                    } else if l.hasPrefix("event:") {
-                        name = l.dropFirst(6).trimmingCharacters(in: .whitespaces)
-                    } else if l.hasPrefix("data:") {
-                        var d = String(l.dropFirst(5)); if d.hasPrefix(" ") { d.removeFirst() }
-                        data += data.isEmpty ? d : "\n" + d
+                let heard = Heard()
+                let dog = Task.detached {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        if heard.since > EventStream.quiet { heard.dead = true; bytes.task.cancel(); return }
                     }
                 }
-                if !isClosed { link(false, "the stream ended") }
+                defer { dog.cancel() }
+                var name = "message", data = "", line = [UInt8]()
+                do {
+                    for try await b in bytes {
+                        if isClosed { break }
+                        if b != 10 { line.append(b); continue }
+                        heard.now()
+                        if line.last == 13 { line.removeLast() }
+                        let l = String(decoding: line, as: UTF8.self)
+                        line.removeAll(keepingCapacity: true)
+                        if l.isEmpty {
+                            if !data.isEmpty { onEvent(name, data) }
+                            name = "message"; data = ""
+                        } else if l.hasPrefix(":") {
+                        } else if l.hasPrefix("event:") {
+                            name = l.dropFirst(6).trimmingCharacters(in: .whitespaces)
+                        } else if l.hasPrefix("data:") {
+                            var d = String(l.dropFirst(5)); if d.hasPrefix(" ") { d.removeFirst() }
+                            data += data.isEmpty ? d : "\n" + d
+                        }
+                    }
+                } catch where heard.dead {
+                    c.streamFailed(h)
+                }
+                if !isClosed { link(false, heard.dead ? Self.silence : "the stream ended") }
             } catch {
                 if isClosed { break }
                 c.streamFailed(h)
@@ -322,6 +340,16 @@ final class EventStream {
             wait = min(wait * 2, 15_000)
         }
     }
+}
+
+/// When the stream last said something (a line), by the wall clock.
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var at = Date()
+    private var _dead = false
+    func now() { lock.withLock { at = Date() } }
+    var since: TimeInterval { lock.withLock { Date().timeIntervalSince(at) } }
+    var dead: Bool { get { lock.withLock { _dead } } set { lock.withLock { _dead = newValue } } }
 }
 
 /// A bare TCP connection to a host, to learn within a short time whether it

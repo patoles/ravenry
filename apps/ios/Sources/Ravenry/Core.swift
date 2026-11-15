@@ -266,3 +266,48 @@ final class Route {
     /// The phone joined or left a Wi-Fi: every Wi-Fi address gets a first try again.
     func networkChanged() { lock.lock(); homeDown.removeAll(); lock.unlock() }
 }
+
+/// JSON the hub wrote, read here (an alert, a reply). JavaScript writes half of
+/// an emoji alone as `\ud83d` when the hub cuts a string by length, and reads it
+/// back; Foundation refuses the whole text. Such a half is read as U+FFFD.
+enum Lenient {
+    static func parse(_ text: String) -> Any? {
+        if let o = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]) { return o }
+        let fixed = loneHalves(text)
+        guard fixed != text else { return nil }
+        return try? JSONSerialization.jsonObject(with: Data(fixed.utf8), options: [.fragmentsAllowed])
+    }
+
+    static func object(_ text: String) -> [String: Any]? { parse(text) as? [String: Any] }
+
+    /// Every `\uD800`-`\uDFFF` escape that is not half of a pair becomes `�`.
+    static func loneHalves(_ s: String) -> String {
+        let u = Array(s.utf16)
+        var out = [UInt16]()
+        out.reserveCapacity(u.count)
+        func hex(_ i: Int) -> UInt16? {
+            guard i + 6 <= u.count, u[i] == 0x5C, u[i + 1] == 0x75 else { return nil }
+            var v: UInt16 = 0
+            for c in u[(i + 2)..<(i + 6)] {
+                let d: UInt16
+                switch c { case 0x30...0x39: d = c - 0x30; case 0x41...0x46: d = c - 0x37; case 0x61...0x66: d = c - 0x57; default: return nil }
+                v = v << 4 | d
+            }
+            return v
+        }
+        var i = 0
+        var escaped = false
+        while i < u.count {
+            if !escaped, let v = hex(i) {
+                if (0xD800...0xDBFF).contains(v), let w = hex(i + 6), (0xDC00...0xDFFF).contains(w) {
+                    out.append(contentsOf: u[i..<(i + 12)]); i += 12; continue
+                }
+                if (0xD800...0xDFFF).contains(v) { out.append(contentsOf: Array("\\uFFFD".utf16)); i += 6; continue }
+                out.append(contentsOf: u[i..<(i + 6)]); i += 6; continue
+            }
+            escaped = !escaped && u[i] == 0x5C
+            out.append(u[i]); i += 1
+        }
+        return String(decoding: out, as: UTF16.self)
+    }
+}
