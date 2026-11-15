@@ -25,8 +25,10 @@ extension SelfTestBoard {
         let want = ["restored": "tabs restored", "off": "setting off", "reduced": "reduced motion"]
         if let why = want[mode] {
             check("ink_\(mode)_not_played", rec.decided == why && rec.played == 0 && InkLaunch.current == nil, "decided \(rec.decided), played \(rec.played)")
-            let front = mode == "restored" ? board.front == .tab : board.front == .start
-            check("ink_\(mode)_front", front && board.ws.tabs.count >= 1, "\(board.front), \(board.ws.tabs.count) tabs")
+            // Restored: where every launch opens (NAV-009), the session the hub says was used last, else the tab.
+            let o = board.hub.state?.openOn
+            let front = mode == "restored" ? (o?.key.map { k in wait(8) { self.board.frontKey == k } } ?? (board.front == .tab)) : board.front == .start
+            check("ink_\(mode)_front", front && board.ws.tabs.count >= 1, "\(board.front), \(board.ws.tabs.count) tabs, openOn \(o?.key ?? "none")")
             picture("ink-\(mode).png")
             return
         }

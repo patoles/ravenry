@@ -10,7 +10,8 @@
 // 1. launch: a daemon with no shell. New session opens and Ink plays over
 //    it to the end, then again with a press and a key half way, the mark on
 //    the real icon, Settings' switches pressed, the pane effects' pixels.
-// 2. restored: the same daemon, its shell now a tab to bring back: no Ink.
+// 2. restored: the same daemon, its shell now a tab to bring back: no Ink,
+//    and the window on the hub's openOn (NAV-009), the session used last.
 // 3. off: a new daemon, the setting off in the settings file: no Ink.
 // 4. reduced: a new daemon, Reduce motion on (RAVENRY_MAC_REDUCE_MOTION=1): no Ink.
 //
