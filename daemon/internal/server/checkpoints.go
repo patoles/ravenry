@@ -68,6 +68,10 @@ const (
 	stDeclined  = "declined"
 	stCancelled = "cancelled"
 	stExpired   = "expired"
+
+	// A cancel's answered_in: the person answered the agent in its own
+	// terminal instead of on the card.
+	answeredInTerminal = "terminal"
 )
 
 type checkpoints struct {
@@ -399,6 +403,12 @@ func (s *Server) checkpointEvent(name string, cp proto.Checkpoint) {
 // or running) to a final state, and tells the subscribers. It reports
 // whether it did.
 func (s *Server) closeCheckpoint(id, from, to string, answer *proto.CheckpointAnswer, reason string) (proto.Checkpoint, bool) {
+	return s.closeCheckpointIn(id, from, to, answer, reason, "")
+}
+
+// closeCheckpointIn is closeCheckpoint with where the person answered
+// instead (a cancel's answered_in), set before anyone is told.
+func (s *Server) closeCheckpointIn(id, from, to string, answer *proto.CheckpointAnswer, reason, answeredIn string) (proto.Checkpoint, bool) {
 	s.cps.mu.Lock()
 	x := s.cps.all[id]
 	if x == nil || x.c.State != from {
@@ -412,6 +422,9 @@ func (s *Server) closeCheckpoint(id, from, to string, answer *proto.CheckpointAn
 	}
 	if reason != "" {
 		x.c.Reason = reason
+	}
+	if answeredIn != "" {
+		x.c.AnsweredIn = answeredIn
 	}
 	if x.timer != nil {
 		x.timer.Stop()
@@ -511,11 +524,15 @@ func (c *conn) checkpointCancel(id uint64, data []byte) {
 		c.failErr(id, bad("reason is at most %d bytes", maxTitle))
 		return
 	}
+	if r.AnsweredIn != "" && r.AnsweredIn != answeredInTerminal {
+		c.failErr(id, bad("answered_in is %s: the person answered the agent in its terminal", answeredInTerminal))
+		return
+	}
 	if _, err := c.s.checkpoint(r.Checkpoint); err != nil {
 		c.failErr(id, err)
 		return
 	}
-	out, ok := c.s.closeCheckpoint(r.Checkpoint, stOpen, stCancelled, nil, r.Reason)
+	out, ok := c.s.closeCheckpointIn(r.Checkpoint, stOpen, stCancelled, nil, r.Reason, r.AnsweredIn)
 	if !ok {
 		c.failErr(id, notFound("checkpoint %s is not open: it was answered, is running, or closed", r.Checkpoint))
 		return

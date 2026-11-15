@@ -377,6 +377,8 @@ export interface Checkpoint {
   expires_at: string;
   closed_at?: string;
   reason?: string;
+  /** A cancelled one the person answered another way instead: terminal, in the agent's own terminal. */
+  answered_in?: 'terminal';
   answer?: CheckpointAnswer;
   run?: CheckpointRun;
 }
@@ -650,7 +652,7 @@ export interface Methods {
   'checkpoint.list': { params: { all?: boolean }; result: { checkpoints: Checkpoint[] } };
   'checkpoint.wait': { params: { checkpoint: CheckpointId; timeout_ms?: number }; result: { checkpoint: Checkpoint } };
   'checkpoint.answer': { params: { checkpoint: CheckpointId; by?: string } & CheckpointReply; result: { checkpoint: Checkpoint } };
-  'checkpoint.cancel': { params: { checkpoint: CheckpointId; reason?: string }; result: { checkpoint: Checkpoint } };
+  'checkpoint.cancel': { params: { checkpoint: CheckpointId; reason?: string; answered_in?: 'terminal' }; result: { checkpoint: Checkpoint } };
   'pane.inputs': { params: { pane: PaneId; since?: number; limit?: number }; result: { pane: PaneId; inputs: InputRecord[]; seq: number; truncated: boolean } };
   'pane.grants': { params: { pane?: PaneId }; result: { grants: Grant[] } };
   'pane.revoke': { params: { grant: string }; result: { grant: Grant } };

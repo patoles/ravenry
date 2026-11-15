@@ -642,6 +642,10 @@
         "reason": {
           "type": "string"
         },
+        "answered_in": {
+          "const": "terminal",
+          "description": "A cancelled one the person answered another way instead: terminal, in the agent's own terminal."
+        },
         "answer": {
           "$ref": "#/$defs/CheckpointAnswer"
         },
@@ -1843,6 +1847,10 @@
         "reason": {
           "type": "string",
           "maxLength": 1000
+        },
+        "answered_in": {
+          "const": "terminal",
+          "description": "Withdrawn because the person answered the agent another way: terminal, in its own terminal."
         }
       },
       "required": [

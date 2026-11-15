@@ -209,6 +209,45 @@ func TestCheckpointCommands(t *testing.T) {
 	if out := e.ok("0.2.0", "checkpoints", "--all", "--json"); !strings.Contains(out, id) {
 		t.Fatalf("checkpoints: %s", out)
 	}
+
+	// The person answered in the terminal instead, and the hub withdrew the
+	// card: the waiting ask exits 123 and says to read their message, not
+	// that they declined.
+	done = startCmd(t, e.ravenry("0.2.0", "ask", "Build it or not?", "--option", "Build it", "--option", "Not yet"))
+	withdrawInTerminal(t, e)
+	if out, code := done(); code != exitAnsweredInTerminal || !strings.Contains(out, "the person answered you in the terminal instead") || !strings.Contains(out, "read their message") || strings.Contains(out, "declined") {
+		t.Fatalf("answered in the terminal: %d %q", code, out)
+	}
+}
+
+// withdrawInTerminal withdraws the one open checkpoint as the hub does when
+// the person answered the agent in its terminal.
+func withdrawInTerminal(t *testing.T, e *env) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	c, err := client.Dial(ctx, filepath.Join(e.dir, "run", "ravenryd-0.2.0.sock"), client.Options{Name: "test-hub"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for {
+		var l proto.CheckpointListResult
+		if err := c.Call(ctx, "checkpoint.list", map[string]any{}, &l); err != nil {
+			t.Fatal(err)
+		}
+		if len(l.Checkpoints) == 1 {
+			var r proto.CheckpointResult
+			if err := c.Call(ctx, "checkpoint.cancel", map[string]any{"checkpoint": l.Checkpoints[0].ID, "reason": "the person answered you in the terminal instead", "answered_in": "terminal"}, &r); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+		if ctx.Err() != nil {
+			t.Fatal("no checkpoint opened")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // Only a person answers (PROTOCOL.md section 4, Who acts as the person):

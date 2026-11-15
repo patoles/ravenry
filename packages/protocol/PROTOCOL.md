@@ -849,8 +849,9 @@ Five kinds (`drive` and `pick` added after the first draft, section 10):
 
 States: `open` until a person answers, then `running` while an approved
 command runs, then one of the closed states: `answered`, `declined` (a
-person said no), `cancelled` (the agent withdrew it) or `expired` (no
-answer before `expires_at`). A daemon holds every open checkpoint and the
+person said no), `cancelled` (the agent withdrew it, or the hub did once
+the person answered the agent in its terminal instead: `answered_in`) or
+`expired` (no answer before `expires_at`). A daemon holds every open checkpoint and the
 last 64 closed ones, and at most 64 open at a time.
 
 **The Checkpoint object:** `id` (ravenryd's are "c" and 7 characters),
@@ -859,7 +860,8 @@ last 64 closed ones, and at most 64 open at a time.
 (as the agent proposed it), `cwd`, `why`, `warning`, `env`, `secret` (`to`,
 `pane`, `enter`, `env`), then `created_at`, `expires_at`, `closed_at`,
 `reason` (why it was cancelled, or why an approved command did not run),
-`answer` (`choice` and `option`, `text`, `approved`, `command` (the
+`answered_in` (a cancelled one the person answered another way instead:
+`terminal`, in the agent's own terminal), `answer` (`choice` and `option`, `text`, `approved`, `command` (the
 command as the person edited it, only when it differs from the proposed
 one: what ran), `delivered`, `declined`, `reason` (why they declined,
 when they said), `by`, `at`) and `run` (`pane`, and once it ended `exit`,
@@ -952,6 +954,15 @@ every field or none.
 `checkpoint`, and `reason` (optional). The agent withdraws an open
 checkpoint. Result: `checkpoint`. Fails with `not_found` when it is not
 open.
+
+`answered_in` (optional, `terminal`): it is withdrawn because the person
+answered the agent in its own terminal instead of on the card. The hub
+sends it when the asking session's transcript has a message from the
+person dated after the checkpoint opened; the closed checkpoint carries
+it, and `ravenry ask` (or `checkpoint ID --wait`) waiting on it exits 123
+and tells the agent to read the person's message. A daemon older than the
+field refuses it with `bad_request`: the hub then cancels with the reason
+alone.
 
 ### Who acts as the person
 

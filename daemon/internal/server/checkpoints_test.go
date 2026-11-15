@@ -96,6 +96,16 @@ func TestCheckpointAskWaitsForAPerson(t *testing.T) {
 	if c := call[proto.CheckpointResult](t, agent, "checkpoint.cancel", map[string]any{"checkpoint": cp.ID, "reason": "found it myself"}).Checkpoint; c.State != "cancelled" || c.Reason != "found it myself" {
 		t.Fatalf("cancel %+v", c)
 	}
+	// Withdrawn because the person answered the agent in its terminal: the
+	// checkpoint says so, for the agent that waits on it.
+	cp = newCheckpoint(t, agent, map[string]any{"kind": "ask", "title": "Build it or not?", "options": []string{"Build it", "Not yet"}})
+	waiting := waitCheckpoint(t, agent, cp.ID)
+	if c := call[proto.CheckpointResult](t, person, "checkpoint.cancel", map[string]any{"checkpoint": cp.ID, "reason": "the person answered you in the terminal instead", "answered_in": "terminal"}).Checkpoint; c.State != "cancelled" || c.AnsweredIn != "terminal" {
+		t.Fatalf("answered in the terminal %+v", c)
+	}
+	if w := <-waiting; w.State != "cancelled" || w.AnsweredIn != "terminal" {
+		t.Fatalf("the wait on one answered in the terminal %+v", w)
+	}
 	cp = newCheckpoint(t, agent, map[string]any{"kind": "ask", "title": "Quick?", "options": []string{"Yes"}, "timeout_ms": 150})
 	if w := <-waitCheckpoint(t, agent, cp.ID); w.State != "expired" {
 		t.Fatalf("expire %+v", w)

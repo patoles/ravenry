@@ -25,12 +25,15 @@ import (
 //
 //	0    answered (approve, and a secret with a command: the command's own status)
 //	124  nobody answered in time
+//	123  the person answered in the terminal instead: Ravenry withdrew it
+//	     when they wrote to the agent's session (read their message there)
 //	125  a person declined, or it was cancelled
 //	1    anything else (the command did not start, no daemon)
 
 const (
-	exitTimeout  = 124
-	exitDeclined = 125
+	exitAnsweredInTerminal = 123
+	exitTimeout            = 124
+	exitDeclined           = 125
 )
 
 var safeWord = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
@@ -142,6 +145,10 @@ func waitCheckpoint(ctx context.Context, c *client.Client, a *args, id string, t
 		}
 		return exitCode(exitDeclined)
 	case "cancelled":
+		if cp.AnsweredIn == "terminal" {
+			say("the person answered you in the terminal instead, so %s was withdrawn: read their message in this session and go on from it", id)
+			return exitCode(exitAnsweredInTerminal)
+		}
 		say("%s was cancelled%s", id, map[bool]string{true: ": " + cp.Reason, false: ""}[cp.Reason != ""])
 		return exitCode(exitDeclined)
 	}

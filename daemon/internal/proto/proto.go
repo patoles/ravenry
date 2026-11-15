@@ -784,13 +784,16 @@ type Checkpoint struct {
 	// Drive: an agent asks to type into a pane it did not create.
 	Drive *Drive `json:"drive,omitempty"`
 	// Variants: a pick's pictures or pages.
-	Variants  []Variant         `json:"variants,omitempty"`
-	CreatedAt string            `json:"created_at"`
-	ExpiresAt string            `json:"expires_at"`
-	ClosedAt  string            `json:"closed_at,omitempty"`
-	Reason    string            `json:"reason,omitempty"`
-	Answer    *CheckpointAnswer `json:"answer,omitempty"`
-	Run       *CheckpointRun    `json:"run,omitempty"`
+	Variants  []Variant `json:"variants,omitempty"`
+	CreatedAt string    `json:"created_at"`
+	ExpiresAt string    `json:"expires_at"`
+	ClosedAt  string    `json:"closed_at,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	// AnsweredIn: a cancelled one the person answered another way
+	// instead (terminal: they wrote to the agent in its own terminal).
+	AnsweredIn string            `json:"answered_in,omitempty"`
+	Answer     *CheckpointAnswer `json:"answer,omitempty"`
+	Run        *CheckpointRun    `json:"run,omitempty"`
 }
 
 type CheckpointNewRequest struct {
@@ -854,6 +857,9 @@ type CheckpointCancelRequest struct {
 	Envelope
 	Checkpoint string `json:"checkpoint"`
 	Reason     string `json:"reason,omitempty"`
+	// AnsweredIn: why it is withdrawn, when the person answered the agent
+	// another way (terminal). The waiting agent is told to read it there.
+	AnsweredIn string `json:"answered_in,omitempty"`
 }
 
 // ------------------------------------------------------------ render stream
