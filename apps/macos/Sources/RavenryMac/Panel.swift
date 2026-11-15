@@ -11,6 +11,15 @@
 
 import AppKit
 
+/// What the first-launch step set up for an assistant on this Mac (GET /api/setup/skills), and
+/// whether the panel can turn a missing one on in place (else its line points to Settings):
+/// not hooks Ravenry has no file for, nor hooks Codex's own config turns off, nor a skill folder
+/// that holds someone else's skill.
+struct SetupLines: Equatable {
+    var hooks: Bool, skill: Bool
+    var hooksHere = true, skillHere = true
+}
+
 final class PanelView: Box {
     static let width: CGFloat = 296
 
@@ -22,7 +31,7 @@ final class PanelView: Box {
         var openPicture: (HubProject, [String: Any]) -> Void
         var openPage: (String, String) -> Void
         var inputs: (String) -> [[String: Any]]?
-        var setup: (String) -> (hooks: Bool, skill: Bool)?
+        var setup: (String) -> SetupLines?
         var toast: (String) -> Void
         var answered: () -> Void
         /// A pane's name as the tabs say it, when this window has it.
@@ -94,7 +103,7 @@ final class PanelView: Box {
 
     // MARK: the head (.p-h)
 
-    private func setHead(_ name: String, tag: String?, machine: String?, pinKey: String?) {
+    private func setHead(_ name: String, tag: String?, machine: String?, pinKey: String?, setupKey: String? = nil) {
         head.subviews.forEach { $0.removeFromSuperview() }
         let line = Box(fill: "sep")
         line.frame = NSRect(x: 0, y: 39, width: 4000, height: 1)
@@ -102,7 +111,26 @@ final class PanelView: Box {
         // The name gives up its room first; the machine and the chip stay whole (.p-h .n flex 1).
         var items: [NSView?] = [yields(label(name, Fonts.pt(13.5, Fonts.w650)), fill: false)]
         if let m = machine { items.append(hstack([SharedIconsView.machine(), fixedLabel(m, Fonts.pt(11.5, .medium), "tx2")], spacing: 4)) }
-        if let tg = tag { items.append(tagView(tg)) }
+        if let tg = tag {
+            let chip = tagView(tg)
+            if let sk = setupKey {
+                // The setup lines on demand: the chip names the assistant they are about.
+                let open = setupOpen.contains(sk)
+                (chip as? Box)?.fill = open ? "card2" : nil
+                let tap = TapBox(radius: 5) { [weak self] in
+                    guard let self else { return }
+                    if self.setupOpen.contains(sk) { self.setupOpen.remove(sk) } else { self.setupOpen.insert(sk) }
+                    self.signature = ""; self.host?.redraw()
+                }
+                tap.addSubview(chip)
+                chip.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([chip.leadingAnchor.constraint(equalTo: tap.leadingAnchor), chip.trailingAnchor.constraint(equalTo: tap.trailingAnchor), chip.topAnchor.constraint(equalTo: tap.topAnchor), chip.bottomAnchor.constraint(equalTo: tap.bottomAnchor)])
+                tap.toolTip = t("panel.setupTip")
+                tap.setAccessibilityLabel(t("panel.setupTip"))
+                setupChip = tap
+                items.append(tap)
+            } else { items.append(chip) }
+        }
         items.append(spring())
         if let k = pinKey, let h = host {
             let on = h.pinned(k)
@@ -136,7 +164,7 @@ final class PanelView: Box {
                 var p = f.project.raw
                 p["sessions"] = nil
                 parts += [s, p, host?.hub.card(of: f.project, f.session) ?? [:], st.threshold, host?.pinned(k) ?? false,
-                          host?.setup(f.session.assistant ?? "").map { "\($0.hooks)\($0.skill)" } ?? "",
+                          host?.setup(f.session.assistant ?? "").map { "\($0.hooks)\($0.skill)\($0.hooksHere)\($0.skillHere)" } ?? "",
                           f.session.pane.flatMap { host?.olderDaemon($0) } ?? "", f.session.sessionId.map { host?.moving($0) ?? false } ?? false]
             } else if k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
                 var pr = p.raw; pr["sessions"] = nil
@@ -188,7 +216,8 @@ final class PanelView: Box {
                 lastKnown[pid] = (pr, f.session.raw)
             }
             // "Claude Opus 5.5": the assistant and the model it runs (hub/server/models.mjs), the assistant alone before it named one.
-            setHead(f.project.name, tag: f.session.modelTitle ?? f.session.assistant.map(assistantName), machine: f.session.machine ?? f.project.machine, pinKey: k)
+            let local = f.session.machine == nil && f.project.machine == nil && ["claude", "codex"].contains(f.session.assistant ?? "")
+            setHead(f.project.name, tag: f.session.modelTitle ?? f.session.assistant.map(assistantName), machine: f.session.machine ?? f.project.machine, pinKey: k, setupKey: local ? k : nil)
             rows = sessionBody(st, f.project, f.session, key: k, pane: pane)
         } else if let st = state, let k = front, k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
             shows = "project"
@@ -210,7 +239,7 @@ final class PanelView: Box {
         } else if let pn = pane, let kind = newSessionKind(pn) {
             // Started as a session (ravenry.session), before the board lists it (newSessionPanel).
             shows = "new"
-            setHead(t("panel.newSession"), tag: kind.isEmpty ? nil : assistantName(kind), machine: nil, pinKey: nil)
+            setHead(t("panel.newSession"), tag: kind.isEmpty ? nil : assistantName(kind), machine: nil, pinKey: nil, setupKey: kind.isEmpty ? nil : "new:\(pn.id)")
             rows = newSessionBody(pn, kind: kind)
         } else if let pn = pane {
             shows = "shell"
@@ -233,6 +262,8 @@ final class PanelView: Box {
     }
     /// The head's chip, for the self-test.
     private(set) weak var headChip: NSView?
+    /// The chip that opens the setup lines on demand.
+    private(set) weak var setupChip: TapBox?
 
     /// .sec: a card, its head line and its rows.
     private func sec(_ title: String?, right: NSView? = nil, _ rows: [NSView?], ring: String? = nil) -> NSView {
@@ -305,7 +336,7 @@ final class PanelView: Box {
         return hstack([Icon("ring-\(g)", c, size: 14), label(text, Fonts.pt(12.5, .semibold), c)], spacing: 7)
     }
 
-    private func check(_ on: Bool, _ yes: String, _ no: String) -> NSView {
+    private func check(_ on: Bool, _ yes: String, _ no: String, fix: NSView? = nil) -> NSView {
         let dot = Box(fill: on ? "ok" : nil, ring: on ? nil : "tx3", radius: 6.5)
         dot.ringWidth = 1.5
         dot.translatesAutoresizingMaskIntoConstraints = false
@@ -320,8 +351,83 @@ final class PanelView: Box {
         }
         // Its words wrap rather than cut ("Can't tell you when it waits for you." beside Settings in 304 points).
         var items: [NSView?] = [dot, wrap(on ? yes : no, Fonts.pt(12), "tx2")]
-        if !on { let l = RButton(t("side.settings"), .link) { [weak self] in self?.host?.openPage("settings", t("side.settings")) }; l.setContentCompressionResistancePriority(.required, for: .horizontal); items.append(l) }
+        if !on, let f = fix { items += [spring(), f] }
+        else if !on { let l = RButton(t("side.settings"), .link) { [weak self] in self?.host?.openPage("settings", t("side.settings")) }; l.setContentCompressionResistancePriority(.required, for: .horizontal); items.append(l) }
         return hstack(items, spacing: 7)
+    }
+
+    // MARK: the setup lines (PANEL-003)
+
+    /// How long a line just turned on stays green before the box fades.
+    static let setupFixedShow: TimeInterval = 3
+    /// Opened on demand from the head's assistant chip, by session key ("new:" and a pane id before the board lists it).
+    private var setupOpen: Set<String> = []
+    /// What the panel saw last, by assistant: a line that goes from off to on is "just fixed".
+    private var setupSeen: [String: SetupLines] = [:]
+    private var setupFixedAt: [String: Date] = [:]
+    private var setupFixing: Set<String> = []
+    private var setupRows: [String: NSView] = [:]
+    private(set) weak var setupBox: NSView?
+    private var setupShownOpen = false
+
+    /// The lines to show: one that is off (with its fix), one just turned on (green, 3 s), or both when opened on demand.
+    private func setupLines(_ kind: String, _ sl: SetupLines, open: Bool) -> [NSView] {
+        if let was = setupSeen[kind] {
+            if !was.hooks && sl.hooks { setupFixedAt["\(kind):hooks"] = Date(); fadeSoon(kind, "hooks") }
+            if !was.skill && sl.skill { setupFixedAt["\(kind):skill"] = Date(); fadeSoon(kind, "skill") }
+        }
+        setupSeen[kind] = sl
+        setupShownOpen = open
+        func recent(_ w: String) -> Bool { setupFixedAt["\(kind):\(w)"].map { Date().timeIntervalSince($0) < Self.setupFixedShow } ?? false }
+        setupRows = [:]
+        var out: [NSView] = []
+        for (w, on, here, yes, no) in [("hooks", sl.hooks, sl.hooksHere, t("panel.alertsOn"), t("panel.alertsOff")), ("skill", sl.skill, sl.skillHere, t("panel.skillOn"), t("panel.skillOff"))]
+        where !on || open || recent(w) {
+            let id = "\(kind):\(w)"
+            var fix: RButton? = nil
+            // Turned on in place where the app can; else the line's way is Settings (check's link).
+            if !on, here {
+                let b = RButton(w == "hooks" ? t("set.setUp") : t("set.install"), small: true) { [weak self] in self?.fixSetup(kind, w) }
+                b.isEnabled = !setupFixing.contains(id)
+                b.setContentCompressionResistancePriority(.required, for: .horizontal)
+                buttons["fix:\(w)"] = b
+                fix = b
+            }
+            let r = check(on, yes, no, fix: fix)
+            setupRows[w] = r
+            out.append(r)
+        }
+        return out
+    }
+
+    /// The fix in place: the hooks set up, the skill installed, as Settings does (POST /api/setup/hooks, /api/setup/skills).
+    private func fixSetup(_ kind: String, _ what: String) {
+        let id = "\(kind):\(what)"
+        guard !setupFixing.contains(id), let h = host else { return }
+        setupFixing.insert(id); signature = ""; h.redraw()
+        let rd = AppInstall.shared.hookRavenryd
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        let path = what == "hooks" ? "/api/setup/hooks" : "/api/setup/skills"
+        let body: [String: Any] = what == "hooks" ? ["ravenryd": rd, "only": kind] : ["kind": kind, "on": true, "ravenryd": rd, "version": version]
+        h.hub.post(path, body) { [weak self] code, j in
+            self?.setupFixing.remove(id)
+            if code != 200 { h.toast(j["error"] as? String ?? t("set.needsBoard")) }
+            SettingsWindow.said(what == "hooks" ? "hooks" : "skills")
+            self?.signature = ""; h.redraw()
+        }
+    }
+
+    /// 3 s after a line turned on: the box fades away (the line alone, when another stays off).
+    private func fadeSoon(_ kind: String, _ what: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.setupFixedShow) { [weak self] in
+            guard let self else { return }
+            let redraw = { [weak self] in self?.signature = ""; self?.host?.redraw() }
+            let sl = self.setupSeen[kind]
+            let others = sl.map { what == "hooks" ? !$0.skill : !$0.hooks } ?? false
+            if self.setupShownOpen { redraw(); return }
+            guard let v = others ? self.setupRows[what] : (self.shows == "new" ? self.setupRows[what] : self.setupBox), v.window != nil else { redraw(); return }
+            NSAnimationContext.runAnimationGroup({ c in c.duration = 0.35; v.animator().alphaValue = 0 }, completionHandler: redraw)
+        }
     }
 
     // MARK: a session
@@ -359,8 +465,15 @@ final class PanelView: Box {
         // A session in a cmux workspace no project lists (hub board unCardHtml): Add to a project.
         if p.raw["unowned"] as? Bool ?? false { out.append(notInProject(st, p)) }
         // What the first-launch step set up for its assistant, on this machine.
-        if shown == nil, s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a) {
-            out.append(sec(t("panel.thisSession"), [check(sl.hooks, t("panel.alertsOn"), t("panel.alertsOff")), check(sl.skill, t("panel.skillOn"), t("panel.skillOff"))]))
+        // Shown only when a line is off (with its fix), just turned on, or opened from the head's chip.
+        if s.machine == nil, p.machine == nil, let a = s.assistant, a == "claude" || a == "codex", let sl = host?.setup(a), shown == nil || setupOpen.contains(key) {
+            let rows = setupLines(a, sl, open: setupOpen.contains(key))
+            if !rows.isEmpty {
+                let settings = RButton(t("side.settings"), .link) { [weak self] in self?.host?.openPage("settings", t("side.settings")) }
+                let b = sec(t("panel.thisSession"), right: setupOpen.contains(key) ? settings : nil, rows)
+                setupBox = b
+                out.append(b)
+            }
         }
         if let c = shown { out.append(card(c)) }
         let w = s.words
@@ -832,7 +945,7 @@ final class PanelView: Box {
     private func newSessionBody(_ pn: (id: String, name: String, cwd: String, command: [String]), kind: String) -> [NSView] {
         var rows: [NSView?] = [kv(t("panel.folder"), tilde(pn.cwd), mono: true)]
         if !kind.isEmpty { rows.append(kv(t("panel.assistant"), kind == "codex" ? "Codex" : "Claude Code")) }
-        if !kind.isEmpty, let sl = host?.setup(kind) { rows += [check(sl.hooks, t("panel.alertsOn"), t("panel.alertsOff")), check(sl.skill, t("panel.skillOn"), t("panel.skillOff"))] }
+        if !kind.isEmpty, let sl = host?.setup(kind) { rows += setupLines(kind, sl, open: setupOpen.contains("new:\(pn.id)")) }
         var out: [NSView] = [stateLine("idle", t("panel.readyFirst")), sec(t("panel.thisSession"), rows)]
         if let typed = typedHere(pn.id) { out.append(typed) }
         return out

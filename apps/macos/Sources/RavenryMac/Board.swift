@@ -112,7 +112,7 @@ final class Board: NSObject {
     private(set) var overlay = false
     private var inputs: [String: [[String: Any]]] = [:]
     private var inputsAsked: [String: Date] = [:]
-    private var setup: [String: (hooks: Bool, skill: Bool)] = [:]
+    private var setup: [String: SetupLines] = [:]
     private var setupAt = Date.distantPast
     private var lastOpen = Set<String>()
     private var lastYou = Set<String>()
@@ -1550,14 +1550,19 @@ final class Board: NSObject {
         render(force: true)
     }
 
-    private func setupOf(_ a: String) -> (hooks: Bool, skill: Bool)? {
+    private func setupOf(_ a: String) -> SetupLines? {
         if Date().timeIntervalSince(setupAt) > 30 {
             setupAt = Date()
             hub.get("/api/setup/skills") { [weak self] code, j in
                 guard let self, code == 200 else { return }
-                var next: [String: (hooks: Bool, skill: Bool)] = [:]
+                var next: [String: SetupLines] = [:]
                 for r in j["skills"] as? [[String: Any]] ?? [] where r["found"] as? Bool ?? false {
-                    if let k = r["kind"] as? String { next[k] = (r["hooks"] as? String == "on", r["installed"] as? Bool ?? false) }
+                    guard let k = r["kind"] as? String else { continue }
+                    // The skill is on when it is Ravenry's own, as Settings says; someone else's
+                    // skill in its folder is left alone, so that line points to Settings.
+                    let hooks = r["hooks"] as? String, inst = r["installed"] as? Bool ?? false
+                    next[k] = SetupLines(hooks: hooks == "on", skill: inst && (r["ours"] as? Bool ?? false),
+                                         hooksHere: hooks == "off" && r["hooksOff"] as? Bool != true, skillHere: !inst)
                 }
                 self.setup = next
                 self.render()

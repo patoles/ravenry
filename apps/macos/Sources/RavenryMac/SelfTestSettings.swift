@@ -187,6 +187,7 @@ extension SelfTestBoard {
         settingsPictures("settings-skills")
         screenSettingsSkillsFollow()
         screenSettingsLive()
+        panelSetupQuiet()
         if let b = sw.controls["skill:claude"] as? RButton {
             let s = board.hub.sent.count
             b.performClick(nil)
@@ -235,15 +236,23 @@ extension SelfTestBoard {
         _ = wait(8) { sw.skillsRead && sw.busy == nil }
         let panel = b.panel
         func row(_ yes: String) -> Bool { b.render(force: true); return shows(panel, yes) }
+        // On or off as Settings reads it: the panel shows a line only when it is off or just
+        // turned on (PANEL-003, a few seconds green), so the panel is not where "was" is read.
+        func isOn(_ id: String) -> Bool {
+            let c = sw.skills.first { $0["kind"] as? String == "claude" } ?? [:]
+            return id == "hooks" ? c["hooks"] as? String == "on" : c["ours"] as? Bool == true
+        }
+        // The lines on demand (the head's chip), so a green one stays while the window is resized.
+        func onDemand() { (panel.headChip?.superview as? TapBox)?.press(); settle(0.2) }
         func pressAndFollow(_ ctl: String, _ yes: String, _ no: String, _ id: String) {
             guard let btn = sw.controls[ctl] as? RButton else { check("set_live_\(id)_button", false, "\(sw.controls.keys.sorted())"); return }
-            _ = wait(8) { row(yes) || row(no) }
-            let was = row(yes)
+            let was = isOn(id)
             btn.performClick(nil)
             check("set_live_\(id)_panel_follows_with_settings_open", wait(8) { row(was ? no : yes) } && sw.window.isVisible,
                   "was \(was) now \(texts(panel).filter { $0 == yes || $0 == no })")
             if id == "hooks" {
                 picture("native-panel-this-session-\(was ? "off" : "on")-1280.png")
+                if !was { onDemand() }
                 size(900, 760)
                 if !b.panelVisible { b.togglePanel() }
                 settle(0.4); b.render(force: true); settle(0.3)
@@ -251,12 +260,14 @@ extension SelfTestBoard {
                 check("set_live_hooks_rows_whole_900", sq.isEmpty && row(was ? no : yes), sq.joined(separator: " | "))
                 picture("native-panel-this-session-\(was ? "off" : "on")-900.png")
                 size(1280, 820)
+                if !was { onDemand() }
             }
             guard let back = sw.controls[ctl] as? RButton else { return }
             back.performClick(nil)
             check("set_live_\(id)_panel_follows_back", wait(8) { row(was ? yes : no) } && sw.window.isVisible, "\(texts(panel).filter { $0 == yes || $0 == no })")
             if id == "hooks" {
                 picture("native-panel-this-session-\(was ? "on" : "off")-1280.png")
+                if was { onDemand() }
                 size(900, 760)
                 if !b.panelVisible { b.togglePanel() }
                 settle(0.4); b.render(force: true); settle(0.3)
@@ -264,6 +275,7 @@ extension SelfTestBoard {
                 check("set_live_hooks_rows_whole_900_back", sq.isEmpty && row(was ? yes : no), sq.joined(separator: " | "))
                 picture("native-panel-this-session-\(was ? "on" : "off")-900.png")
                 size(1280, 820)
+                if was { onDemand() }
             }
         }
         let n = b.hub.sentBodies.count

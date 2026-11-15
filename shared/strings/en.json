@@ -140,6 +140,7 @@
   "panel.alertsOff": "Can’t tell you when it waits for you.",
   "panel.skillOn": "Has the Ravenry skill",
   "panel.skillOff": "Has no Ravenry skill.",
+  "panel.setupTip": "Show what Ravenry set up for this assistant",
   "panel.context": "Context",
   "panel.tokensOf": "{used} of {window}",
   "panel.handsOffAt": "Hands off at {pct}%",
