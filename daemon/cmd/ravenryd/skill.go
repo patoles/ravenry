@@ -145,8 +145,11 @@ person never needs to come back to your chat.
   their message and go on from it), 124 nobody answered in time, 125 the
   person declined (or it was cancelled), 1 anything else.
 - ` + "`--no-wait`" + ` prints the checkpoint id and returns: arm it, do other work,
-  then ` + "`ravenry checkpoint ID --wait`" + `. Withdraw one you no longer need with
-  ` + "`ravenry checkpoint ID --cancel`" + `.
+  then ` + "`ravenry checkpoint ID --wait`" + `. If you are not waiting on it when
+  the person answers, the answer comes back as a message in your session:
+  ` + "`Answer to your card \"TITLE\": THEIR ANSWER`" + ` (for a secret, only that it
+  is ready). Go on from it as from their reply. Withdraw one you no
+  longer need with ` + "`ravenry checkpoint ID --cancel`" + `.
 - **If the person answers in the chat instead, withdraw the card at once:**
   ` + "`ravenry checkpoint ID --cancel`" + `. Ravenry also withdraws your open ask,
   approve and pick cards by itself when the person writes to your

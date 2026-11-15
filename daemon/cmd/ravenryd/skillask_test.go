@@ -26,3 +26,15 @@ func TestSkillAskThroughRavenryFirst(t *testing.T) {
 		}
 	}
 }
+
+// After --no-wait, the guide says the answer comes back as a message in
+// the session when the agent is not waiting on it (hub/server/cardanswer.mjs),
+// in the words the hub types.
+func TestSkillNoWaitAnswerComesBack(t *testing.T) {
+	g := strings.Join(strings.Fields(skillText()), " ")
+	for _, c := range []string{"If you are not waiting on it when the person answers, the answer comes back as a message in your session", "`Answer to your card \"TITLE\": THEIR ANSWER`", "for a secret, only that it is ready"} {
+		if !strings.Contains(g, c) {
+			t.Errorf("the guide does not say %q", c)
+		}
+	}
+}
