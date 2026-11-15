@@ -20,6 +20,8 @@
 //           key,                    // "<project id>/<surfaceId>"
 //           surfaceId, name,
 //           assistant: string | null,      // "Claude", "Codex"
+//           model: string | null,          // "Opus 5.5", "gpt-5.4" (server/models.mjs)
+//           modelShort: string | null,     // "Opus", "Codex": for a narrow sidebar
 //           pct: number | null, pctWarn: boolean,
 //           line: string | null,           // its question, one line
 //           mark: { kind, text, code, label, since } | null,  // shown instead of line;
@@ -143,6 +145,11 @@ function row(p, s, threshold, mark) {
     surfaceId: s.surfaceId,
     name: s.topic || p.name,
     assistant: assistantName(s.assistant),
+    // The model its transcript last named (server/models.mjs): whole where
+    // the row is wide ("Opus 5.5", "gpt-5.4"), its family where it is
+    // narrow ("Opus", "Codex"); null until it named one (the assistant then).
+    model: s.modelName || null,
+    modelShort: s.modelShort || null,
     pct,
     pctWarn: pct !== null && pct >= threshold,
     line: line ? String(line).replace(/\s+/g, ' ').trim() : null,

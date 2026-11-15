@@ -1,0 +1,13 @@
+Yes, most will, for the same reasons I did:
+
+1. **Agents read a short description of each skill and only open the full guide when the task seems to match.** Ravenry's description reads like a terminal tool: open a pane, read its screen, show pictures to pick from. It never says "when you need the person to choose, ask through Ravenry". When the person is right there in the chat, typing the question is the obvious move.
+2. **Codex doesn't get the skill by default.** The health check even notes "No Ravenry skill for Codex".
+3. **A plain text question still reaches you**, as a hand-back: "Needs you", a phone alert, "Handed back". So nothing looks broken. But it comes with no buttons, and your answer isn't saved as a decision.
+
+**What I'd do, in order:**
+1. **Rewrite the skill's description so it starts with when to use it.** Something like: "When you need the person to choose, approve or pick a picture, ask through Ravenry (`ravenry ask`, `ravenry pick`), not in chat text." Agents always see this line, so it's the cheapest and most effective fix. Then I'd test it: give a fresh agent a task that ends in a choice and check that it sends a card. The skill guide already has fresh-reader checks like this.
+2. **A safety net for any AI, skill or not.** When a hand-back ends with a question and options (A/B/C, 1/2/3, "X or Y?"), Ravenry turns the options into buttons on the card and in the phone alert. Tapping one types it as your reply.
+   - If it misreads the options, you can still type your own answer, so a mistake costs little.
+   - That's the "suggested answers" idea you described, and it works with Codex too.
+
+The second is a new feature, so pictures first: the hand-back card and the phone alert with suggested buttons. Want me to do 1 now and draw 2 alongside the page fix?

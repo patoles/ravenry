@@ -155,8 +155,12 @@ Checked in this order; the first that matches wins.
    empty prompt below, and the reasons line says "the prompt shows Claude's
    suggested reply".
 5. At an empty prompt after a finished turn:
-   - **asked**: the last paragraph of Claude's last message asks a question,
-     and the turn ended less than 14 days ago.
+   - **asked**: Claude's last message ends on a question (its last sentence
+     asks it; a quoted "which one?" or a "?" in a code block does not), and
+     the turn ended less than 14 days ago. The options that question offers
+     (A/B/C or 1/2/3 described above it, "X or Y?", a yes or no) are its
+     suggested answers (`server/answers.mjs`), which win over the brief's
+     Quick answers.
    - **handback**: the turn ended less than 36 hours ago.
    - **stale**: older than that.
    - **handed**: the session wrote its hand-off (docs/HANDOFF.md), so its
@@ -463,8 +467,8 @@ record it. The bar has a tick at 50%, the hand-off line.
 - Hook events start with sessions that start (or resume) after the hook is
   installed; a session already running keeps the screen rules until then.
 
-- A question asked mid-paragraph, not in the last paragraph, reads as a
-  handback, not as "asked".
+- A question asked mid-paragraph, or anywhere but the message's last
+  sentence, reads as a handback, not as "asked".
 - A screen that cmux cannot read (tabs never opened since cmux started report
   `Failed to read terminal text`) falls back to the title only.
 - An older cmux build (0.64.20 here) has no `surface.input_state`, so the

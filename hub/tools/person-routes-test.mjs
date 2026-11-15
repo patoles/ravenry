@@ -174,6 +174,7 @@ const bodies = {
   '/api/ideas/brainstorm': { seed: 'x' },
   '/api/project/new': { name: 'Made by an agent' },
   '/api/project/assistant': { projectId: 'proj', assistant: 'codex' },
+  '/api/project/model': { projectId: 'proj', assistant: 'claude', model: 'opus' },
   '/api/project/revive': { projectId: 'proj', text: 'hi' },
   '/api/project/open-folder': { projectId: 'proj' },
   '/api/open': { projectId: 'proj', surfaceId: 'ravenry:' + agentPane.id },

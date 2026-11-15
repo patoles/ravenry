@@ -119,6 +119,7 @@ export const ROUTES = [
   { m: 'POST', p: '/api/project/new', c: P, what: 'create a project', why: 'It makes a folder and a brief and starts a session.' },
   { m: 'POST', p: '/api/project/brief', c: P, what: 'write a brief', why: 'It writes the project\'s BRIEF.md from the sheet, the plan included.' },
   { m: 'POST', p: '/api/project/assistant', c: P, what: 'choose a project\'s assistant', why: 'A setting: which assistant the next sessions start.' },
+  { m: 'POST', p: '/api/project/model', c: P, what: 'choose the model a project starts with', why: 'A setting: which model the next sessions start on.' },
   { m: 'POST', p: '/api/project/add-workspace', c: P, what: 'move a session into a project', why: 'Ambiguous, so the safer class: it changes which project a session belongs to.' },
   { m: 'POST', p: '/api/project/open-folder', c: P, what: 'open a folder in Finder', why: 'It opens a window on the person\'s screen.' },
   { m: 'POST', p: '/api/project/reveal-picture', c: P, what: 'show a picture in Finder', why: 'It opens a window on the person\'s screen.' },

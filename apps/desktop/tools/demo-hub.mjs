@@ -262,12 +262,14 @@ export async function startDemoHub({ dir, port, hubDir = HUB, empty = false, pan
     /** The hub's process, for a check that stops and resumes it (phone-e2e's connection chip). */
     pid: child.pid,
     url, home: HOME, root: ROOT, log: () => log, sessions, fake: FAKE, ps: PS,
+    /** A project's session transcript (its Claude Code JSONL), for a check that grows it (a /model switch). */
+    transcript: (id) => (files[id] ? files[id].TR : sessions[id] ? sessions[id].transcript : null),
     state: async () => (await fetch(url + '/api/state')).json(),
-    /** A working session stops on a question: a checkpoint arrives. */
-    async arrive(id, question = 'Tilt the hull with the slope too, or keep it level?') {
+    /** A working session stops on a question: a checkpoint arrives. `body`: what its message says above the question (its turn's words). */
+    async arrive(id, question = 'Tilt the hull with the slope too, or keep it level?', body = null) {
       const f = files[id];
       fs.appendFileSync(f.evFile, f.evLine(['Stop', 0, { ends_on_question: true, question }]) + '\n');
-      fs.appendFileSync(f.TR, f.rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: f.p.turn[1] + '\n\n' + question }], usage: { input_tokens: 8, cache_creation_input_tokens: 3000, cache_read_input_tokens: f.p.ctx, output_tokens: 300 } } }, ago(0)) + '\n' + f.rec('system', { subtype: 'turn_duration' }, ago(0)) + '\n');
+      fs.appendFileSync(f.TR, f.rec('assistant', { message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: (body || f.p.turn[1]) + '\n\n' + question }], usage: { input_tokens: 8, cache_creation_input_tokens: 3000, cache_read_input_tokens: f.p.ctx, output_tokens: 300 } } }, ago(0)) + '\n' + f.rec('system', { subtype: 'turn_duration' }, ago(0)) + '\n');
       const s = JSON.parse(fs.readFileSync(FAKE, 'utf8'));
       s.screens[f.sf] = banner(id) + `❯ ${f.p.turn[0]}\n\n⏺ ${f.p.turn[1]}\n\n  ${question}\n\n` + prompt();
       // Its cmux tab, unless it was closed (Close idle sessions): the question is in its events all the same.

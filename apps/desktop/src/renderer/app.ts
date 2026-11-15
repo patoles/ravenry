@@ -2930,7 +2930,7 @@ function sessionPanel(p: HubProject, s: HubSession, key: string): [HTMLElement, 
     body.push(h('div.sec.ask',
       q ? h('p.q', q) : null,
       w.dialog && w.dialog.length ? h('pre.dlg', w.dialog.join('\n')) : null,
-      quick.length ? h('div.qa', quick.map((o) => h('button.btn.sm', { on: { click: () => void answer(p, s, o.label, o.choice) } }, o.label))) : null));
+      quick.length ? h('div.qa', quick.map((o) => h('button.btn.sm', { on: { click: () => void answer(p, s, o.text || o.label, o.choice) } }, o.label))) : null));
   }
 
   const ap = paneOf(s);

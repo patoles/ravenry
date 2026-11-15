@@ -392,7 +392,7 @@ export function projectMessage(alert, p) {
   const id = kind === 'gate'
     ? `gate:${crypto.createHash('sha256').update(String(alert.gateKey || '')).digest('base64url').slice(0, 16)}`
     : `s:${p.id}:${s ? s.surfaceId : ''}:${(s && s.since) || ''}`;
-  const quick = (Array.isArray(p.quick) ? p.quick : Array.isArray(w.quick) ? w.quick : []).map((o, k) => (o && o.choice != null ? { id: `quick:${o.choice}`, label: String(o.label) } : { id: `quick:${k}`, label: String(o && o.label), text: String(o && o.label) }));
+  const quick = (Array.isArray(p.quick) ? p.quick : Array.isArray(w.quick) ? w.quick : []).map((o, k) => (o && o.choice != null ? { id: `quick:${o.choice}`, label: String(o.label) } : { id: `quick:${k}`, label: String(o && o.label), text: String((o && o.text) || (o && o.label)) }));
   const question = p.question || w.question || null;
   const head = p.headline || w.headline || null;
   const msg = {
@@ -409,7 +409,9 @@ export function projectMessage(alert, p) {
   } else if (kind === 'question') {
     msg.body = question || head || 'Asked you a question';
     msg.detail = head && head !== msg.body ? head : null;
-    msg.actions = quick.length ? fit(quick, 2) : [{ id: 'open', label: 'Open' }];
+    // Its first two answers beside Reply (an alert has room for three; a
+    // tap on the alert opens it, so no Open), a press types the answer's text.
+    msg.actions = quick.length ? quick.slice(0, 2) : [{ id: 'open', label: 'Open' }];
     if (s) msg.reply = { action: 'send', label: 'Reply', hint: `Reply to ${who(s.assistant)}` };
   } else if (kind === 'handback') {
     msg.body = head || p.line || 'Handed back';

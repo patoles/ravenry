@@ -203,9 +203,12 @@ function cpOf(p, s) {
 const AS_WORD = { claude: 'Claude', codex: 'Codex' };
 const AS_NAME = { claude: 'Claude Code', codex: 'Codex' };
 const asKind = (k) => (k === 'codex' ? 'codex' : 'claude');
-function asTag(kind, cls = '') {
+// With the session (`s`), the model its transcript last named in place of
+// the word ("Opus 5.5", "gpt-5.4"; server/models.mjs), the id in the tip.
+function asTag(kind, cls = '', s = null) {
   const k = asKind(kind);
-  return `<span class="as-tag${cls ? ' ' + cls : ''}" title="${AS_NAME[k]} session">${AS_WORD[k]}</span>`;
+  const m = s && s.modelName;
+  return `<span class="as-tag${cls ? ' ' + cls : ''}" title="${AS_NAME[k]} session${m ? esc(', ' + s.model) : ''}">${m ? esc(m) : AS_WORD[k]}</span>`;
 }
 // A session that is not in a project (section 1, C) is shown by its folder
 // name with a folder glyph.
@@ -448,7 +451,7 @@ function unRow(p, k) {
   const line = p.line || (p.headline || '').replace(/^Last: /, '');
   const word = (ST[p.state] || ST.idle).word.toLowerCase();
   return `<button class="row un-row ${sel ? 'sel' : ''}" data-id="${escRaw(p.id)}" ${sel ? 'aria-current="true"' : ''} aria-label="${esc(`${p.name}, not in a project, ${word}${line ? ': ' + line : ''}`)}">
-<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span class="un-name" style="font-weight: ${sel ? 650 : k === 'you' ? 550 : 500}">${UN_ICON}<span style="overflow: hidden; text-overflow: ellipsis">${esc(p.name)}</span></span>${s ? asTag(s.assistant) : ''}<span class="num t3" style="font-size: 11.5px">${esc(since)}</span></span>
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span class="un-name" style="font-weight: ${sel ? 650 : k === 'you' ? 550 : 500}">${UN_ICON}<span style="overflow: hidden; text-overflow: ellipsis">${esc(p.name)}</span></span>${s ? asTag(s.assistant, '', s) : ''}<span class="num t3" style="font-size: 11.5px">${esc(since)}</span></span>
 ${line ? `<span class="t2 un-sub">${esc(line)}</span>` : ''}
 </button>`;
 }
@@ -833,7 +836,7 @@ ${many.map((x) => {
   if (x.surfaceId === startingId) return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${go.topic}, Starting`)}">${startRow(on)}</button>`;
   return `<button class="sess card-r ${on ? 'sel' : ''}" data-act="session" data-surface="${escRaw(x.surfaceId)}" ${on ? 'aria-current="true"' : ''} aria-label="${esc(`${x.topic}, ${SESSION_WORD[x.state]}, context ${ctxLabel(x.ctx)}${x.memKb != null ? ', memory ' + fmtMem(x.memKb) : ''}`)}">
 ${stateIcon(xs)}
-<span class="ss-t"><span class="ss-n" style="font-weight: ${on ? 600 : 400}">${esc(x.topic)}</span>${asTag(x.assistant)}</span>
+<span class="ss-t"><span class="ss-n" style="font-weight: ${on ? 600 : 400}">${esc(x.topic)}</span>${asTag(x.assistant, '', x)}</span>
 <span style="font-size: 11.5px; font-weight: 600; color: ${xs.c}">${esc(SESSION_WORD[x.state])}</span>
 <span class="num t3" style="font-size: 11.5px; flex: 0 0 auto">${esc(x.ctx ? ctxLabel(x.ctx).split(' ')[0] : '')}</span>
 <span class="num" style="font-size: 11.5px; flex: 0 0 52px; text-align: right">${x.memKb != null ? esc(fmtMem(x.memKb)) : ''}</span></button>`;
@@ -1420,7 +1423,9 @@ function renderLive(p, s, state) {
   const tagEl = $('#lv-tag');
   if (tagEl) {
     tagEl.hidden = !s;
-    if (s && tagEl.textContent !== AS_WORD[lv.asst]) { tagEl.textContent = AS_WORD[lv.asst]; tagEl.title = AS_NAME[lv.asst] + ' session'; }
+    // "Claude Opus 5.5": the assistant and the model it runs (server/models.mjs).
+    const word = s ? s.modelTitle || AS_WORD[lv.asst] : '';
+    if (s && tagEl.textContent !== word) { tagEl.textContent = word; tagEl.title = AS_NAME[lv.asst] + ' session' + (s.model ? ', ' + s.model : ''); }
   }
   const sid = s && s.terminal !== false ? s.surfaceId : null;
   const watch = !!s && s.terminal === false;
@@ -1906,9 +1911,11 @@ async function sendQuick(k) {
   const o = w.quick && w.quick[k];
   if (!o || !s) return;
   try {
-    const r = await post('/api/send', { projectId: p.id, surfaceId: s.surfaceId, text: o.choice == null ? o.label : undefined, choice: o.choice });
-    ui.sent[p.id] = { label: o.label, at: Date.now(), delivered: r.delivered };
-    say(`Sent "${o.label}" to ${p.name}`);
+    // A suggested answer types its text ("B", "Keep A"), its label is the button's words.
+    const said = o.text || o.label;
+    const r = await post('/api/send', { projectId: p.id, surfaceId: s.surfaceId, text: o.choice == null ? said : undefined, choice: o.choice });
+    ui.sent[p.id] = { label: o.choice == null ? said : o.label, at: Date.now(), delivered: r.delivered };
+    say(`Sent "${o.choice == null ? said : o.label}" to ${p.name}`);
     render();
     return true;
   } catch (e) {
@@ -4497,6 +4504,8 @@ gallery = createGallery({ $, esc, escRaw, post, toast, project, ui, serverNow, p
 
 // Sessions page: a tick changed.
 document.addEventListener('change', (e) => {
+  const pm = e.target.closest('[data-pm-pid]');
+  if (pm) { pmChange(pm.dataset.pmPid, pm.dataset.pmKind, pm.value); return; }
   const cb = e.target.closest('[data-tick]');
   if (!cb) return;
   ui.tick[cb.dataset.tick] = cb.checked;
@@ -4695,7 +4704,42 @@ function pasHtml(p) {
   const on = pa && pa.want ? pa.want : pasSet(p);
   const tip = `The assistant ${p.name}'s new sessions start with (New session, Revive, a plan's start). Running sessions keep theirs.${!pa && p.assistantNote ? ' ' + p.assistantNote : ''}`;
   const btn = (k) => `<button type="button" class="seg ${on === k ? 'on' : ''}" data-pas="${k}" data-pid="${escRaw(p.id)}" aria-pressed="${on === k}">${AS_WORD[k]}</button>`;
-  return `<span class="pas-meta" title="${esc(tip)}"><span id="pas-l">New sessions:</span><span class="hs-seg" role="group" aria-labelledby="pas-l">${btn('claude')}${btn('codex')}</span></span>${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}`;
+  const pm = pmNow(p.id);
+  return `<span class="pas-meta" title="${esc(tip)}"><span id="pas-l">New sessions:</span><span class="hs-seg" role="group" aria-labelledby="pas-l">${btn('claude')}${btn('codex')}</span></span>${pmHtml(p, on)}${pa && pa.err ? `<span class="pas-err" role="alert">${esc(pa.err)}</span>` : ''}${pm && pm.err ? `<span class="pas-err" role="alert">${esc(pm.err)}</span>` : ''}`;
+}
+
+// New session's Model (server/models.mjs): the model the project's next
+// session of that assistant starts with (Claude Code --model, Codex -m),
+// beside the switch, saved at once through POST /api/project/model and
+// remembered per project. The menu is the hub's (state.startModels): the
+// assistant's default first. Switching during a session stays the CLI's own
+// /model, so a running session shows no menu. ui.pm: { pid, kind, want,
+// until } while a pick waits for the state, { pid, err, until } after a failure.
+const pmNow = (pid) => (ui.pm && ui.pm.pid === pid && Date.now() < ui.pm.until ? ui.pm : null);
+function pmHtml(p, kind) {
+  const menu = ui.snap && ui.snap.startModels && ui.snap.startModels[kind];
+  if (!Array.isArray(menu) || !menu.length) return '';
+  const pm = pmNow(p.id);
+  const set = pm && pm.kind === kind && pm.want != null ? pm.want : (p.models && p.models[kind]) || '';
+  const tip = `The model ${p.name}'s new ${AS_NAME[kind]} sessions start with. Remembered for this project. To switch during a session, type /model in it.`;
+  // Its own item of the meta line, so a narrow line (the phone) wraps it under the switch rather than past the edge.
+  return `<span class="pas-meta"><select class="pm-sel" data-pm-pid="${escRaw(p.id)}" data-pm-kind="${kind}" aria-label="Model for new sessions" title="${esc(tip)}">${menu.map((o) => `<option value="${escRaw(o.id)}"${o.id === set ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></span>`;
+}
+
+async function pmChange(pid, kind, model) {
+  if (!project(pid)) return;
+  ui.pm = { pid, kind, want: model, until: Date.now() + 15000 };
+  render();
+  try {
+    await post('/api/project/model', { projectId: pid, assistant: kind, model });
+    const q = project(pid);
+    if (q) q.models = { ...(q.models || {}), [kind]: model || null };
+    ui.pm = { pid, kind, want: model, until: Date.now() + 4000 };
+  } catch (e) {
+    ui.pm = { pid, err: `Not saved: ${/\.$/.test(e.message) ? e.message : e.message + '.'}`, until: Date.now() + 8000 };
+    setTimeout(() => { if (ui.pm && ui.pm.err && Date.now() >= ui.pm.until) { ui.pm = null; render(); } }, 8100);
+  }
+  render();
 }
 
 async function pasChange(pid, kind) {

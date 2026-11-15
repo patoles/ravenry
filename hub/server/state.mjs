@@ -2,6 +2,8 @@
 // into one honest state per session and per project. The rules are written
 // up in docs/STATE-RULES.md; keep the two in step.
 
+import { suggestedAnswers } from './answers.mjs';
+
 const H = 3600 * 1000;
 
 export function plain(md) {
@@ -25,18 +27,25 @@ function sentences(text) {
   return plain(text).replace(/\n+/g, ' ').match(/[^.!?]+(?:[.!?]+|$)/g)?.map((s) => s.trim()).filter(Boolean) || [];
 }
 
-// The question Claude ended on, if its last paragraph asks one.
+// The question Claude ended on: the last sentence of the message, when that
+// sentence asks one. A "?" inside the message (a quoted "which one?", a
+// code block, a question earlier in the paragraph) is not a question asked.
+const QUOTED = /"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g;
 export function endingQuestion(text) {
-  const ps = paragraphs(text);
+  // A code block is never the question: one that ends the message means it
+  // does not end on a question.
+  const ps = paragraphs(String(text || '').replace(/```[\s\S]*?(?:```|$)/g, '\n\n\u0000\n\n'));
   if (!ps.length) return null;
-  const last = ps[ps.length - 1];
-  if (!/\?/.test(last)) return null;
-  const qs = sentences(last).filter((s) => s.endsWith('?'));
-  return qs.length ? qs[qs.length - 1] : null;
-}
-
-function isYesNo(q) {
-  return /^(should|shall|do you want|want me|can i|could i|may i|is it ok|ok to|ready|go ahead|would you like|happy for me|all good|good to)/i.test(q.trim());
+  const last = plain(ps[ps.length - 1]).replace(/\n+/g, ' ').trim();
+  // It ends on "?", maybe inside a closing quote or bracket.
+  if (!/\?["'\u201d\u2019)\]*_]*$/.test(last)) return null;
+  // The last sentence, its quotes kept whole ("which one?" does not end it).
+  const kept = [];
+  const masked = last.replace(QUOTED, (m) => { kept.push(m); return `\u0001${kept.length - 1}\u0001`; });
+  // A "." inside a word or a number ("0.1.50", "e.g.x") does not end a sentence.
+  const ss = masked.match(/(?:[^.!?]|[.!?]+(?=[^\s.!?"'\u201d\u2019)\]*_]))+(?:[.!?]+["'\u201d\u2019)\]*_]*|$)/g) || [];
+  const q = (ss[ss.length - 1] || '').replace(/\u0001(\d+)\u0001/g, (_, i) => kept[Number(i)]).trim();
+  return q && /\?/.test(q) ? q : null;
 }
 
 function age(now, iso) {
@@ -258,7 +267,11 @@ export function describe(project, primary, state, now) {
       out.question = st.question;
       out.headline = lastPara.length > 600 ? st.question : lastPara;
       out.line = st.question;
-      if (isYesNo(st.question)) out.quick = [{ label: 'Yes' }, { label: 'No' }];
+      // The options its message offers as buttons (server/answers.mjs): read
+      // from the whole message when it ends on this question, else from the
+      // question alone.
+      const whole = t && t.lastText && endingQuestion(t.lastText) === st.question ? t.lastText : st.question;
+      out.quick = suggestedAnswers(whole, st.question);
     } else if (st.state === 'draft') {
       out.headline = (t && t.recap) || lastPara || 'Your reply is half typed in the prompt.';
       out.line = 'Your reply is half typed in the prompt';

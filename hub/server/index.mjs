@@ -73,6 +73,7 @@ import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
 import * as sidebar from './sidebar.mjs';
 import * as cpwords from './cpwords.mjs';
+import * as models from './models.mjs';
 import * as firstlaunch from './firstlaunch.mjs';
 import * as skills from './skills.mjs';
 import * as themeImport from './themeimport.mjs';
@@ -228,9 +229,12 @@ function cfg() {
 // docs/ASSISTANTS.md, "Starting sessions".
 
 // What a launch runs for a choice (asst.startChoice, continueChoice).
-function launchFor(choice) {
+// With a project, its remembered model for that assistant (New session's
+// Model, server/models.mjs) goes on the command: `--model` or `-m`.
+function launchFor(choice, project = null, model = undefined) {
   const settings = reg ? reg.settings : {};
-  return { kind: choice.kind, command: asst.startCommand(choice.kind, settings), note: choice.note, short: asst.of(choice.kind).SHORT };
+  const m = model !== undefined ? model : models.projectModel(project, choice.kind);
+  return { kind: choice.kind, command: models.withModel(asst.startCommand(choice.kind, settings), choice.kind, m), note: choice.note, short: asst.of(choice.kind).SHORT, model: m || null };
 }
 
 // The PATH a session pane starts an assistant with (server/sessionstart.mjs
@@ -246,7 +250,7 @@ function assistantPath(name) {
 // own assistant, else startWith, else Claude Code, never its newest
 // session's. A hand-off's fresh session keeps the assistant of the session
 // it hands off from instead (the hand-off, below).
-const continueLaunch = (project) => launchFor(asst.continueChoice(reg ? reg.settings : {}, project));
+const continueLaunch = (project) => launchFor(asst.continueChoice(reg ? reg.settings : {}, project), project);
 
 // The Settings view of it: what is set, what runs, what is installed.
 function assistantsView() {
@@ -254,6 +258,19 @@ function assistantsView() {
   const set = registry.assistantSettings(settings);
   const ch = asst.startChoice(settings);
   return { ...set, starts: ch.kind, installed: ch.installed, fallback: ch.fallback, note: ch.note, print: ch.kind, codex: ch.installed.codex ? asst.codexModel(settings) : null };
+}
+
+// New session's Model menus (server/models.mjs startMenus): the models the
+// sessions the board reads have named, the ones projects remember, and
+// Codex's config.toml model as its default.
+function startModels() {
+  const seen = [];
+  for (const p of snapshot.projects || []) for (const x of p.sessions || []) if (x.model) seen.push(x.model);
+  const picked = [];
+  for (const p of (reg && reg.projects) || []) for (const k of registry.ASSISTANT_KINDS) { const m = models.projectModel(p, k); if (m) picked.push(m); }
+  let codexDefault = null;
+  try { codexDefault = asst.codexModel(reg ? reg.settings : {}).configured || null; } catch { /* no Codex */ }
+  return models.startMenus({ seen, codexDefault, picked });
 }
 
 // While the board opens a workspace for a project, the tick must not import
@@ -963,7 +980,8 @@ function buildProject(project, wsById, hooks, settings, now) {
     words.headline = planGate.question;
     words.quick = [];
     words.question = planGate.question;
-  } else if (brief && brief.quickAnswers.length && pstate === 'you' && !(primary && primary.st.state === 'dialog')) {
+  } else if (brief && brief.quickAnswers.length && pstate === 'you' && !(primary && primary.st.state === 'dialog') && !words.quick.length) {
+    // The brief's Quick answers, unless the message offers its own options (server/answers.mjs): those win.
     words.quick = brief.quickAnswers.map((label) => ({ label }));
   }
   let since = null;
@@ -1034,6 +1052,8 @@ function buildProject(project, wsById, hooks, settings, now) {
       // The machine it runs on (a remote ravenryd), null on this one.
       machine: sessionMachine(s),
       assistant: asst.kindOf(s.assistant),
+      // The model its transcript last named, as people say it (server/models.mjs).
+      ...models.modelView(s.transcript && s.transcript.model, asst.kindOf(s.assistant)),
       cannot: s.cannot ? s.cannot.why : null, cannotType: s.cannot ? s.cannot.short : null,
       sidebarStatus: s.sidebarStatus, hookLifecycle: s.hook ? s.hook.lifecycle : null,
       ctx: ctx(s), draft: !!s.screen.draft, dialog: !!s.screen.dialog || s.st.state === 'dialog', working: s.st.state === 'working',
@@ -1382,7 +1402,10 @@ async function tick() {
       pv.assistant = ch.kind;
       pv.assistantWants = ch.wanted;
       pv.assistantNote = ch.fallback ? ch.note : null;
+      // The model each assistant's next new session starts with here (New session's Model), null for its default.
+      pv.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') };
     }
+    snapshot.startModels = startModels();
     if (process.env.MC_NO_AUTOSTART !== '1') autoStarts(workspaces, cmuxOk);
   } catch (e) {
     snapshot = { ...snapshot, cmuxOk: false, error: 'The board could not read its terminals: ' + String(e.message || e), generatedAt: new Date().toISOString() };
@@ -3319,6 +3342,22 @@ async function phaseD(req, res, p) {
     const launch = continueLaunch(r.project);
     return sendJson(res, 200, { ok: true, projectId: body.projectId, assistant: r.assistant, starts: launch.kind, note: launch.note || null, backup: r.backup ? short(r.backup) : null });
   }
+  if (p === '/api/project/model') {
+    // The model a project's next session of an assistant starts with (New
+    // session's Model, server/models.mjs): { projectId, assistant, model }
+    // ('' or null: the assistant's default). Remembered per project; running
+    // sessions keep theirs (switching is the CLI's own /model).
+    let body;
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+    if (!body || typeof body.projectId !== 'string' || !('model' in body)) return sendJson(res, 400, { error: 'Send { projectId, assistant, model }.' });
+    const rp = findProject(body.projectId);
+    const kind = body.assistant == null ? (rp ? asst.continueChoice(reg.settings, rp).kind : null) : body.assistant;
+    const r = registry.saveProjectModel(body.projectId, kind, body.model);
+    if (!r.ok) return sendJson(res, r.status, { error: r.error });
+    if (r.reg) afterRegistry(r.reg);
+    wantTick = true; setTimeout(tick, 30);
+    return sendJson(res, 200, { ok: true, projectId: body.projectId, assistant: kind, model: models.projectModel(r.project, kind) });
+  }
   if (p === '/api/project/revive') {
     const body = await jsonBody(req);
     const project = findProject(body.projectId);
@@ -3901,8 +3940,13 @@ async function handleRequest(req, res) {
       // Each folder says whether a session already works in its project
       // (`busy`: a new one there gets its own copy unless told otherwise).
       const v = firstlaunch.startView({ home: HOME, known: projectFolders().folders.map((x) => x.folder), want: url.searchParams.get('folder') });
-      for (const f of v.folders) { const b = sidebar.busyIn(snapshot.projects, f.path); if (b) f.busy = b; }
-      return sendJson(res, 200, { ok: true, ...v });
+      for (const f of v.folders) {
+        const b = sidebar.busyIn(snapshot.projects, f.path); if (b) f.busy = b;
+        // The model each assistant last started with here (New session's Model, remembered per project).
+        const rp = (reg && reg.projects || []).find((x) => x.folder === f.path && !x.hidden && !x.machine);
+        if (rp) f.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') };
+      }
+      return sendJson(res, 200, { ok: true, ...v, models: snapshot.startModels || startModels() });
     }
     if (req.method === 'GET' && p === '/api/setup/skills') {
       // ravenryd=<path> (on the Mac only): each row adds its hooks, on, off
@@ -4133,6 +4177,12 @@ async function handleRequest(req, res) {
         let body;
         try { body = await jsonBody(req, 1e5); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
         const project = body && body.projectId != null ? findProject(body.projectId) : null;
+        // model: the one to start with (New session's Model, server/models.mjs),
+        // '' for the assistant's default; remembered for the folder's project.
+        // Left out: the project's remembered one.
+        if (body && 'model' in body && body.model != null && body.model !== '' && !(typeof body.model === 'string' && models.MODEL_ID.test(body.model))) return sendJson(res, 400, { error: 'model must be a model name like opus or gpt-5.4, or empty for the default.' });
+        const own = project || (body && typeof body.folder === 'string' && !body.machine ? (reg.projects || []).find((x) => x.folder === body.folder.trim() && !x.hidden && !x.machine) || null : null);
+        const modelFor = (kind) => (body && 'model' in body ? (body.model || null) : models.projectModel(own, kind));
         // worktree: true, a parallel session on its own branch in a sibling
         // folder (server/worktrees.mjs). This computer only for now.
         let made = null;
@@ -4147,7 +4197,7 @@ async function handleRequest(req, res) {
         } else if (body && body.worktree != null && body.worktree !== false) return sendJson(res, 400, { error: 'worktree is true or false.' });
         const pl = sessionstart.plan(made ? { ...body, folder: made.cwd } : body, {
           project,
-          launch: (proj, kind) => (kind ? launchFor({ kind, note: null }) : proj ? continueLaunch(proj) : launchFor(asst.startChoice(reg ? reg.settings : {}))),
+          launch: (proj, kind) => { const ch = kind ? { kind, note: null } : proj ? asst.continueChoice(reg ? reg.settings : {}, proj) : asst.startChoice(reg ? reg.settings : {}); return launchFor(ch, null, modelFor(ch.kind)); },
           briefPath: (proj) => registry.briefPath(proj),
           briefExists: (f) => fs.existsSync(f),
           machines: machines.status().map((m) => m.name),
@@ -4170,6 +4220,11 @@ async function handleRequest(req, res) {
         // How long each part took (a slow start shows where in the log).
         console.log(`sessions: started ${r.surfaceId} in ${Date.now() - t0} ms${made ? ` (worktree in ${made.ms} ms)` : ''}: ${Object.entries(r.timing || {}).map(([k, v]) => `${k} ${v}`).join(', ')}`);
         if (project && pl.machine && project.machine !== pl.machine) afterRegistry(registry.update((rg) => { const x = rg.projects.find((y) => y.id === project.id); if (x) x.machine = pl.machine; }));
+        // The Model picked, remembered for this project and assistant (only when it changed).
+        if (own && body && 'model' in body && !body.resume) {
+          const mr = registry.saveProjectModel(own.id, pl.kind, body.model || null);
+          if (mr.ok && mr.reg) afterRegistry(mr.reg);
+        }
         wantTick = true; setTimeout(tick, 30);
         return sendJson(res, 200, { ok: true, surfaceId: r.surfaceId, pane: r.pane, machine: r.machine || null, projectId: project ? project.id : null, command: pl.line, assistant: pl.kind, ...(made ? { worktree: { branch: made.branch, folder: made.folder, base: made.base, baseBranch: made.baseBranch } } : {}) });
       }

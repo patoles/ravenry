@@ -1,0 +1,12 @@
+B it is. An agent is now moving it into the real page: the app screen in the main image, the tab icons and the new iPhone wording.
+- The picture shown when the link is shared, and its description, are updated to match.
+- It also fixes the error from launch night. And it adds a way to update only the page, without making a new release, since v0.1.49 is already out.
+
+Once I've checked the result, I'll publish only the page; the downloads stay as they are.
+
+**On your question:** there's no good reason. I hadn't loaded the Ravenry guide in this session, so I asked out of habit in plain chat text. That throws away what Ravenry is built for:
+- **`ravenry pick`** would have shown you A, B and C as a choice card on your board and your phone. You'd have tapped one, and could have circled part of a picture with a note like "this, but…". Your choice would also be saved to Decisions.
+- **`ravenry ask`**, or Claude Code's own question menu, which Ravenry shows as a card, would have done the same for plain options like "B, C or keep A?". You could answer it from the alert without opening the chat.
+- **`ravenry decisions`** lets me check what you've already decided before asking again.
+
+From now on, any "which one?" goes to you as a pick or ask card, with a one-line note in the chat. I've saved that as a standing rule so future sessions do the same.

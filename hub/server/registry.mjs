@@ -396,6 +396,38 @@ export function saveProjectAssistant(projectId, assistant) {
   return { ok: true, project, assistant: projectAssistant(project), backup, reg: r };
 }
 
+// The model a project's next session of an assistant starts with (New
+// session's Model, server/models.mjs), kept per assistant in `models`; null
+// or '' clears it (the assistant's own default). Running sessions are not
+// touched: switching during one is the CLI's own /model.
+// Returns { ok, project, models, reg } or { ok: false, status, error }.
+const START_MODEL = /^[A-Za-z0-9][\w.:-]{0,79}(?:\[1m\])?$/;
+export function saveProjectModel(projectId, kind, model) {
+  if (!ASSISTANT_KINDS.includes(kind)) return { ok: false, status: 400, error: `assistant must be ${ASSISTANT_KINDS.join(' or ')}.` };
+  if (model != null && model !== '' && !(typeof model === 'string' && START_MODEL.test(model))) return { ok: false, status: 400, error: 'model must be a model name like opus or gpt-5.4, or empty for the default.' };
+  const cur = load();
+  const was = cur && cur.projects.find((p) => p && p.id === projectId);
+  if (!was) return { ok: false, status: 404, error: 'No such project.' };
+  const want = model ? model : null;
+  if (((was.models && was.models[kind]) || null) === want) return { ok: true, project: was, models: { ...(was.models || {}) }, reg: null };
+  let r;
+  try {
+    r = update((reg) => {
+      const p = reg.projects.find((x) => x && x.id === projectId);
+      if (!p) { const e = new Error('No such project.'); e.status = 404; throw e; }
+      const m = { ...(p.models && typeof p.models === 'object' ? p.models : {}) };
+      if (want) m[kind] = want; else delete m[kind];
+      if (Object.keys(m).length) p.models = m; else delete p.models;
+    });
+  } catch (e) {
+    if (e.status === 404) return { ok: false, status: 404, error: e.message };
+    const why = { EACCES: 'permission denied', EPERM: 'permission denied', EROFS: 'the disk is read-only', ENOSPC: 'the disk is full' }[e.code] || e.message;
+    return { ok: false, status: 500, error: `Could not write ${path.basename(REGISTRY_PATH)} (${why})` };
+  }
+  const project = r.projects.find((x) => x && x.id === projectId) || null;
+  return { ok: true, project, models: { ...((project && project.models) || {}) }, reg: r };
+}
+
 // projects.json.bak-YYYYMMDD-HHMMSS next to it, local time, the name the
 // hand-made backups already use. One per burst of changes: a backup at most
 // every 10 minutes, so it holds the settings from before a round of clicks

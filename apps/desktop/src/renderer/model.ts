@@ -4,7 +4,8 @@
 
 export type Group = 'you' | 'work' | 'wait' | 'idle';
 
-export interface HubQuick { label: string; choice?: number }
+/** `text`: what a press types when it differs from the label (a suggested answer: "B" for "B: the app"). */
+export interface HubQuick { label: string; text?: string; choice?: number }
 export interface HubWords { state?: string; line?: string; headline?: string; question?: string | null; quick?: HubQuick[]; dialog?: string[] | null }
 export interface HubCtx { tokens: number; window: number; pct: number; model?: string }
 

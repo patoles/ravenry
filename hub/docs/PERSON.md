@@ -139,6 +139,7 @@ session's review comments and the agent's replies).
 | `/api/project/new` | person | It makes a folder and a brief and starts a session. |
 | `/api/project/brief` | person | It writes the project's BRIEF.md from the sheet, the plan included. |
 | `/api/project/assistant` | person | A setting: which assistant the next sessions start. |
+| `/api/project/model` | person | A setting: which model the next sessions start on. |
 | `/api/project/add-workspace` | person | Judged (ambiguous): it changes which project a session belongs to. |
 | `/api/project/open-folder` | person | It opens a window on the person's screen. |
 | `/api/project/reveal-picture` | person | It opens a window on the person's screen. |

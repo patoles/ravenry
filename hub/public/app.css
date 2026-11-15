@@ -989,6 +989,9 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
 .pas-meta .hs-seg{padding:2px;box-sizing:border-box;height:var(--pas-h);align-items:stretch}
 .pas-meta .seg{padding:0 9px;min-height:0;font-size:12px}
 .pas-err{color:var(--bad)}
+/* New session's Model beside the switch (server/models.mjs): as tall as the switch, its words the switch's. */
+.pm-sel{-webkit-appearance:none;appearance:none;box-sizing:border-box;height:var(--pas-h,22px);margin:0;padding:0 22px 0 9px;border:0;border-radius:8px;font:inherit;font-size:12px;font-weight:500;color:var(--tx);cursor:pointer;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2.5 4l2.5 2.5L7.5 4' fill='none' stroke='%238E8E93' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 7px center;align-self:center}
+.mc.light .pm-sel{box-shadow:inset 0 0 0 1px var(--sep)}
 /* Codex stage two (docs/design/CodexStage2.dc.html). The assistant tag: a
    small neutral word, the same style for both assistants (section 2, A). */
 .as-tag{display:inline-flex;align-items:center;flex:none;font-size:10.5px;font-weight:600;line-height:1;padding:3px 6px;border-radius:5px;color:var(--tx2);box-shadow:inset 0 0 0 1px var(--sep);white-space:nowrap;letter-spacing:.01em;font-style:normal}

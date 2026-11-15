@@ -1,0 +1,26 @@
+The pictures are ready. I recommend **B**: your phone shows the app itself, with the same question as the Mac window next to it.
+
+- **All three main images side by side** (A today, B the app, C the app with an alert arriving): `/tmp/round/sitefix1/overview-1440.png`
+- **B at full size**: `/tmp/round/sitefix1/shots/hero-B-1440.png`
+- **B at phone width**: `/tmp/round/sitefix1/shots/hero-B-390.png`
+- **Phone section** with the tab icons and the new text: `/tmp/round/sitefix1/phone-section-1440.png`
+
+**B:** the phone shows the app's own screen on paper-boat. The question card has its three answers, the answer box and Send, and the label beside it reads "Answer from your phone". At phone width it stays readable and nothing spills off the side.
+- To fit the question, the app's live screen is cut to one line and only two projects are shown.
+
+**C:** the same as B, with a notification sliding in at the top. I wouldn't use it. On a desktop screen the notification's text is tiny, and it covers the bar with the raven and "Ravenry", which is the part that says "this is Ravenry".
+
+**Tab icons:** fixed. They are now the app's real five icons, with the orange 2 on Projects and the 1 on Ideas.
+
+**Text:**
+- **Phone section** now ends "On iPhone, you get the alerts too."
+- **iPhone download box** now starts "Get Ravenry's alerts on your iPhone, set up from Ravenry's settings." The setup steps under it are unchanged.
+
+I also looked for other lines that lead with a limitation and would keep them all:
+- "until the app is in the Play Store" under the Android download is practical install information.
+- "open source soon, under the GPL" is a promise.
+- The "Early test" notes are honest for testers.
+
+If you pick B, I'll also update the picture that shows when the link is shared and its description, since both are based on the current image. Then only the live page is updated; the downloads stay as they are.
+
+B, C, or keep A?
