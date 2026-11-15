@@ -113,7 +113,23 @@ async function main(): Promise<void> {
   window.addEventListener('hashchange', show);
   setInterval(() => screen?.update(), 20000);
   show();
+  // A launch onto this page (the activity rebuilt on a checkpoint's screen by a theme switch, say):
+  // once the computer answered and the screen drew, the launch's still mark goes, as the board's
+  // bar tells it (board.ts). Without this it waited 12 s for a bar this page has not, then said
+  // "Your Mac didn't answer" over a screen that worked (pick-shots, 2026-11-15).
+  let told = false;
+  const tellLaunch = (): void => {
+    if (told || !sh.hello.launch || !hub.live.state) return;
+    told = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const el = document.querySelector('.pcp-top .lab svg, .pcp-top svg, h1, h2');
+      const r = el ? el.getBoundingClientRect() : { x: 20, y: 20, width: 24, height: 24 };
+      void sh.call('ink.ready', { x: r.x, y: r.y, w: r.width || 24, h: r.height || 24, dpr: devicePixelRatio, dark: matchMedia('(prefers-color-scheme: dark)').matches }).catch(() => {});
+    }));
+  };
+  hub.watch(tellLaunch);
   await hub.start();
+  tellLaunch();
   if (sh.hello.pending) openAlert(sh.hello.pending);
 }
 
