@@ -53,12 +53,19 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     private var pageWatch: Timer?
     private var lastDeliveryLog = Date.distantPast
 
-    override var preferredStatusBarStyle: UIStatusBarStyle { light ? .darkContent : .lightContent }
+    /// The board says its own colours (`bars`); the app's own pages (/phone/: a
+    /// checkpoint's screen, settings) follow the phone's dark or light, so the
+    /// status bar does too there, also after a switch.
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        if web?.url?.path.hasPrefix("/phone/") == true { return traitCollection.userInterfaceStyle == .light ? .darkContent : .lightContent }
+        return light ? .darkContent : .lightContent
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = Shared.dynamic("win")
         light = traitCollection.userInterfaceStyle == .light
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (c: BoardController, _: UITraitCollection) in c.setNeedsStatusBarAppearanceUpdate() }
         let c = WKWebViewConfiguration()
         c.setURLSchemeHandler(scheme, forURLScheme: "ravenry-app")
         c.websiteDataStore = .default()
@@ -436,7 +443,13 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
 
     func webViewWebContentProcessDidTerminate(_ w: WKWebView) { Log.say("board: the page's process ended; loading it again"); w.reload() }
 
-    func webView(_ w: WKWebView, didFinish n: WKNavigation!) { Log.say("board: page loaded (\(w.url?.path ?? ""))") }
+    func webView(_ w: WKWebView, didFinish n: WKNavigation!) { Log.say("board: page loaded (\(w.url?.path ?? ""))"); setNeedsStatusBarAppearanceUpdate() }
+
+    func webView(_ w: WKWebView, didCommit n: WKNavigation!) {
+        // Above the app's own pages, the window's colour of the phone's dark or light (the board says its own).
+        if w.url?.path.hasPrefix("/phone/") == true { view.backgroundColor = Shared.dynamic("win") }
+        setNeedsStatusBarAppearanceUpdate()
+    }
 }
 
 /// The page's channel through a weak hop (WKUserContentController keeps its handler).
