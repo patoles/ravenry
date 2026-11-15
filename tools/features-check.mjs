@@ -3,7 +3,8 @@
 // apps/desktop/tools/release-check.mjs is cited (RC-<n>) by some feature
 // row, no row cites a step that does not exist, every feature id is
 // unique and well formed, every row has a value for each status column,
-// and every file a row names exists. And the agent guide (`ravenry skill`,
+// and every file a row names exists. Every table has the same columns,
+// iOS among them. And the agent guide (`ravenry skill`,
 // daemon/cmd/ravenryd/skill.go) says what Ravenry does with one line per
 // area of section 2, "- **Area**", so it never falls behind the app.
 //
@@ -39,7 +40,15 @@ const doc = fs.readFileSync(FEATURES, 'utf8');
 const ids = new Map();
 const cited = new Set();
 let rows = 0;
+// Every table's columns: the feature, then one status column per client
+// (section 1, "How to read the table"), iOS the iPhone app's (apps/ios).
+const COLUMNS = ['ID', 'Behaviour', 'Logic', 'Acceptance', 'macOS', 'Electron', 'Android', 'iOS', 'Phone web'];
 for (const [i, line] of doc.split('\n').entries()) {
+  if (/^\| ID \|/.test(line)) {
+    const head = line.split('|').slice(1, -1).map((c) => c.trim());
+    if (head.join('|') !== COLUMNS.join('|')) problems.push(`docs/FEATURES.md:${i + 1}: the table's columns are ${head.join(', ')}, not ${COLUMNS.join(', ')}`);
+    continue;
+  }
   const m = /^\| ([A-Z0-9]+-\d+) \|/.exec(line);
   if (!m) continue;
   rows++;
@@ -49,7 +58,7 @@ for (const [i, line] of doc.split('\n').entries()) {
   if (ids.has(id)) problems.push(`${at}: ${id} is used again (first at line ${ids.get(id)})`);
   ids.set(id, i + 1);
   const cells = line.split(' | ').map((c) => c.replace(/^\| ?| ?\|$/g, '').trim());
-  if (cells.length !== 8) { problems.push(`${at}: ${id} has ${cells.length} cells, not 8`); continue; }
+  if (cells.length !== COLUMNS.length) { problems.push(`${at}: ${id} has ${cells.length} cells, not ${COLUMNS.length}`); continue; }
   for (const s of cells.slice(4)) if (!STATUS.has(s)) problems.push(`${at}: ${id} has the status "${s}" (done, partial, missing, n/a or ?)`);
   for (const r of cells[3].matchAll(/\bRC-(\d+|env)\b/g)) {
     cited.add(r[1]);

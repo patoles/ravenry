@@ -74,7 +74,12 @@ and no VPN is up or a tailnet name did not resolve; "This phone doesn't
 have Tailscale. Install it and sign in, then try again." (Get Tailscale,
 its store page) when it is not installed; else that the Mac did not
 answer. On the pairing screen, in the board's bar at the top (with Try
-again) and in the connection notification. Tailnet addresses are not
+again) and in the connection notification. On an iPhone, when iOS keeps
+the app off the local network (Settings, Privacy, Local Network): "Local
+Network is off for Ravenry, so it can't reach your Mac on this Wi-Fi. Turn
+it on in Settings, then try again." with Open Settings. iOS does not say
+whether Tailscale is installed: the iPhone says Tailscale is off, and Open
+Tailscale goes to its App Store page when it is not there. Tailnet addresses are not
 tried while no VPN is up, so the words come at once.
 
 ### The way back
@@ -216,6 +221,14 @@ measured in chunks of 8, a chunk no nearer than the nearest edge found
 skipped; the wash's noise only along its front, the board's taps only where
 it shows. The same picture as the Mac's port (within one 8-bit step), at a
 fraction of its cost. A hot or warm start has none of it (below).
+
+On the iPhone (`apps/ios` InkLaunch.swift) a cold start plays the same
+shader, the Mac's Shaders.swift compiled from its source as is, over a
+picture of the board taken when the board says where its mark is
+(`ink.ready`); until then the ink holds at 2.15 s with "Reaching your
+Mac..." under it. Dark uses the board's window (#161618), not the Mac's
+black; light mixes the glows in, as the Android port does. Any touch ends
+it; Reduce Motion: none.
 
 Android 8 to 12 keep the version before it. On a cold start the app draws
 itself in ink (the approved Ink, variant A,
@@ -900,19 +913,20 @@ them.
 
 ## 9. Android and iOS
 
-| | Android (now) | iOS (next) |
+| | Android (now) | iOS (`apps/ios`, round 2, 2026-11-15) |
 | --- | --- | --- |
 | The phone board | WebView, the bundle from the APK | WKWebView, the bundle from the app |
 | Serving the page | `WebViewAssetLoader` at `appassets.androidplatform.net` | `WKURLSchemeHandler` for `ravenry-app:` |
-| The bridge | `addWebMessageListener`, page origin only | `WKScriptMessageHandlerWithReply` |
+| The bridge | `addWebMessageListener`, page origin only | `WKScriptMessageHandler` in the page's world, the main frame of `ravenry-app://phone` only; replies and events through `callAsyncJavaScript` |
 | TLS with the pin | OkHttp, a trust manager that accepts only the pinned key | `URLSession` delegate, server trust checked against the pin |
 | Device token | EncryptedSharedPreferences (Android Keystore) | Keychain, this device only |
 | Pairing: QR | CameraX and ZXing | AVFoundation's QR reader |
 | Pairing: typed code | the check number | the check number |
 | Pairing: deep link | `ravenry://pair` | `ravenry://pair` |
 | Pairing: found on this Wi-Fi | later | later |
+| Local network | open | iOS asks at the first reach of the Mac's Wi-Fi address (at pairing, which waits for the answer); off, the reach words "Local Network is off for Ravenry..." with Open Settings |
 | Push | UnifiedPush (ntfy or any distributor), RFC 8291 | APNs through the relay, decrypted in a Notification Service Extension; until the app, the ntfy iPhone app on a topic of its own, the title and line in clear (section 4) |
-| Push without a distributor | the connection held by a foreground service | the connection while the app is open |
+| Push without a distributor | the connection held by a foreground service | the connection while the app is open: its alerts drawn by iOS then (built); none in the background until APNs |
 | Alert buttons | notification actions | `UNNotificationCategory` actions |
 | A pick's picture in the alert | `BigPictureStyle` with the image variants side by side in one picture, fetched over the pinned connection when the alert arrives | a `UNNotificationAttachment` the Notification Service Extension fetches over the pinned connection |
 | A pick's region and note | the phone board's pick screen | the phone board's pick screen |
