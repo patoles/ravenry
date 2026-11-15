@@ -133,6 +133,11 @@ is('mark labels', ['ask', 'approve', 'secret', 'pick', 'drive', 'review'].map(ma
   is('nobody answered', [expired.head, expired.text], ['Nobody answered', 'Claude gave up waiting at 17:36.']);
   is('nobody answered, no close time: its end', said({ ...ask, state: 'expired' }).a.text, 'Claude gave up waiting at 18:04.');
   check('withdrawn says why', /withdrew it: done another way/.test(said({ ...ask, state: 'cancelled', reason: 'done another way', closed_at: at(0) }).a.text));
+  // The person answered in the terminal instead (server/terminalanswer.mjs): said as theirs, never as one of the options.
+  const term = said({ ...ask, state: 'cancelled', reason: 'the person answered you in the terminal instead: read their message there', answered_in: 'terminal', closed_at: at(0) }).a;
+  is('answered in the terminal: an ask', [term.head, term.small, term.big, term.ok, term.text], ['Answered in the terminal', 'Ship the beta to the testers?', null, false, 'You answered Claude in the terminal, so this card was withdrawn.']);
+  const termRun = said({ ...approve, state: 'cancelled', answered_in: 'terminal', closed_at: at(0) }).a;
+  is('answered in the terminal: an approve keeps its command, ran nothing', [termRun.head, termRun.command, termRun.text], ['Answered in the terminal', 'git push origin main && npm publish', 'You answered Codex in the terminal, so this card was withdrawn.']);
   is('short command', [shortCommand('npx wrangler secret put MAIL_API_KEY'), shortCommand('gh secret set TOKEN')], ['wrangler secret put', 'gh secret set']);
   is('durations', [duration(6000), duration(80000)], ['6 s', '1 min 20 s']);
 }

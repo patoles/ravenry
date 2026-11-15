@@ -427,6 +427,15 @@ export async function answerCheckpoint(daemon, params) {
   return d.c.request('checkpoint.answer', params, { timeoutMs: 15000 });
 }
 
+// Withdraws a checkpoint at the daemon that holds it (checkpoint.cancel):
+// the hub's, when the person answered in the terminal instead
+// (server/terminalanswer.mjs).
+export async function cancelCheckpoint(daemon, params) {
+  const d = (await daemons()).find((x) => x.id === daemon);
+  if (!d) { const e = new Error('that daemon is not connected'); e.code = 'disconnected'; throw e; }
+  return d.c.request('checkpoint.cancel', params, { timeoutMs: 15000 });
+}
+
 // The agent state of a pane on this machine's daemons (pane.list), for a
 // decision an agent recorded from it: { assistant, session } or null.
 export async function paneAgent(paneId) {

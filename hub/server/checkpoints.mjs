@@ -57,10 +57,11 @@ function save() {
 
 // Only the fields the protocol defines, so nothing else a daemon might send
 // is ever stored or shown.
-const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'drive', 'variants', 'created_at', 'expires_at', 'closed_at', 'reason', 'answer', 'run', 'machine', 'daemon'];
+const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'drive', 'variants', 'created_at', 'expires_at', 'closed_at', 'reason', 'answered_in', 'answer', 'run', 'machine', 'daemon'];
 function clean(cp) {
   const out = {};
   for (const k of FIELDS) if (cp[k] !== undefined) out[k] = cp[k];
+  if (out.answered_in !== undefined && out.answered_in !== 'terminal') delete out.answered_in;
   if (out.secret) out.secret = { to: out.secret.to, ...(out.secret.pane ? { pane: out.secret.pane } : {}), ...(out.secret.env ? { env: out.secret.env } : {}), ...(out.secret.enter === false ? { enter: false } : {}) };
   if (out.answer) {
     const a = out.answer;
@@ -109,7 +110,10 @@ export function take(cp, { machine = null, daemon = null } = {}) {
   load();
   if (!cp || typeof cp.id !== 'string') return false;
   const had = byId.get(cp.id);
-  const next = clean({ ...cp, machine, daemon });
+  // Withdrawn by the hub as answered in the terminal, through a daemon too
+  // old to keep answered_in (withdrawAnswered): said here instead.
+  const mark = cp.state === 'cancelled' && !cp.answered_in && withdrawnHere.has(cp.id) ? { answered_in: 'terminal' } : {};
+  const next = clean({ ...cp, ...mark, machine, daemon });
   byId.set(cp.id, next);
   const fresh = next.state === 'open' && !seen.has(cp.id);
   if (fresh || (FINAL.has(next.state) && !(had && FINAL.has(had.state)))) { seen.add(cp.id); save(); }
@@ -129,6 +133,36 @@ export function dropDaemon(daemon, now = new Date()) {
 }
 
 export function get(id) { load(); return byId.get(id) || null; }
+
+// The ids the hub withdrew because the person answered in the terminal
+// (server/terminalanswer.mjs), for a daemon that does not keep answered_in.
+const withdrawnHere = new Set();
+
+// Withdraws an open checkpoint the person answered in its agent's terminal
+// instead: `cancel(daemon, params)` reaches the daemon that holds it
+// (checkpoint.cancel with answered_in terminal). A daemon older than
+// answered_in refuses the field: it is withdrawn with the reason alone, and
+// the hub keeps how it ended. Resolves { ok, checkpoint } or { ok: false,
+// code, error }.
+export const ANSWERED_IN_TERMINAL_REASON = 'the person answered you in the terminal instead: read their message there';
+export async function withdrawAnswered(id, cancel) {
+  load();
+  const cp = byId.get(id);
+  if (!cp || cp.state !== 'open') return { ok: false, code: 'not_open', error: 'It is not open.' };
+  const base = { checkpoint: id, reason: ANSWERED_IN_TERMINAL_REASON };
+  let r;
+  try {
+    r = await cancel(cp.daemon, { ...base, answered_in: 'terminal' });
+  } catch (e) {
+    if (!(e && e.code === 'bad_request' && /answered_in/.test(e.message || ''))) return { ok: false, code: (e && e.code) || 'unreachable', error: (e && e.message) || 'unreachable' };
+    withdrawnHere.add(id);
+    try { r = await cancel(cp.daemon, base); } catch (e2) { withdrawnHere.delete(id); return { ok: false, code: (e2 && e2.code) || 'unreachable', error: (e2 && e2.message) || 'unreachable' }; }
+  }
+  withdrawnHere.add(id);
+  if (withdrawnHere.size > 500) withdrawnHere.delete(withdrawnHere.values().next().value);
+  if (r && r.checkpoint) take(r.checkpoint, { machine: cp.machine, daemon: cp.daemon });
+  return { ok: true, checkpoint: byId.get(id) };
+}
 
 // Open and running ones, oldest first; with all, the recent closed ones too.
 export function list({ all = false } = {}) {
@@ -205,4 +239,4 @@ export async function answer(body, send) {
 }
 
 // For tests.
-export function _reset() { byId = null; seen = null; }
+export function _reset() { byId = null; seen = null; withdrawnHere.clear(); }

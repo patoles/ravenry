@@ -102,6 +102,9 @@ function fresh() {
     usage: null, model: null, usageAt: null,
     lastText: null, lastTextAt: null,
     lastPromptAt: null, lastPrompt: null,
+    // A message the person typed while a turn ran (Claude Code queues it,
+    // `queue-operation` enqueue): when, never what.
+    lastQueuedAt: null,
     lastTurnEndAt: null, lastActivityAt: null,
     lastTool: null, lastToolAt: null,
     lastInterruptAt: null,
@@ -130,6 +133,9 @@ function feed(r, text) {
     if (rec.type === 'ai-title' && rec.aiTitle) r.title = rec.aiTitle;
     if (rec.type === 'custom-title' && rec.customTitle) r.title = rec.customTitle;
     if (rec.type === 'last-prompt' && rec.lastPrompt) r.lastPrompt = rec.lastPrompt;
+    // The person typed while the agent worked: queued, read once the turn
+    // can take it. A task's notification queues the same way, as a tag.
+    if (rec.type === 'queue-operation' && rec.operation === 'enqueue' && at && typeof rec.content === 'string' && rec.content.trim() && !/^\s*</.test(rec.content) && !hasTag(rec.content)) r.lastQueuedAt = at;
     if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) { r.recap = String(rec.content); r.recapAt = at; }
     if (rec.type === 'system' && rec.subtype === 'turn_duration') {
       r.lastTurnEndAt = at;

@@ -57,6 +57,7 @@ import * as hookinstall from './hookinstall.mjs';
 import * as machines from './machines.mjs';
 import * as remoteinstall from './remoteinstall.mjs';
 import * as checkpoints from './checkpoints.mjs';
+import * as terminalanswer from './terminalanswer.mjs';
 import * as gates from './gates.mjs';
 import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
@@ -1045,7 +1046,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     // else the one all its sessions run on, null for this one.
     machine: projectMachine(project, sessions),
     workspaces,
-    sessions: sessions.map((s) => ({
+    sessions: sessions.map((s) => (personAtByTab.set(s.surfaceId, { at: terminalanswer.personAt(s.transcript), sessionId: s.sessionId }), {
       surfaceId: s.surfaceId, surfaceRef: s.surfaceRef, workspaceId: s.workspaceId, workspaceRef: s.workspaceRef,
       topic: s.topic, live: s.live, sessionId: s.sessionId, method: s.method,
       workFolder: s.real && s.real.folder ? homes.sayFolder(s.real.folder, sessionMachine(s)) : null,
@@ -1349,6 +1350,7 @@ async function tick() {
       return out.filter((p) => !p.unowned || p.sessions.length);
     };
     tp.mark('projects');
+    personAtByTab.clear();
     let projects = await build();
     if (noticeWritten(projects)) { boardTabs = []; projects = await build(); }
     // A fresh session the board started: resumed once seen, else its error.
@@ -1369,6 +1371,9 @@ async function tick() {
     // tick without cmux sees fewer sessions and would make false moves.
     tp.mark('alerts');
     if (fullRead) { try { alerts.observe(projects, { now, boardUrl: boardUrl() }); } catch (e) { console.error('alerts:', e.message); } }
+    // A card whose session the person wrote to after it went out is
+    // withdrawn: answered in the terminal (server/terminalanswer.mjs).
+    try { withdrawAnswered(projects); } catch (e) { console.error('checkpoints:', e.message); }
     // An app's alert for a checkpoint that closed comes off the phone (server/push.mjs).
     try { push.syncCheckpoints(checkpoints.list().filter((c) => c.state === 'open').map((c) => c.id)); } catch (e) { console.error('push:', e.message); }
     // The sidebar's pages (server/pages.mjs): read again when a file
@@ -2613,6 +2618,36 @@ function onCheckpoint(cp, where) {
       alert(names);
     }, () => alert());
   } else alert();
+}
+
+// The open cards the person answered in their session's terminal, each
+// withdrawn once at its daemon (not holding up the tick); one that could
+// not be is tried again after a minute. The session is the card's pane's,
+// as checkpointsView finds it.
+const withdrawing = new Map(); // id -> when it was tried
+// Each session's tab -> { at: when the person last wrote to it (ms, its
+// transcript's; terminalanswer.personAt), sessionId }, as the tick's last
+// build of the projects read them (the state's sessions carry no transcript).
+const personAtByTab = new Map();
+function withdrawAnswered(projects) {
+  const sessionOf = (cp) => {
+    const tab = term.tabIdFor('ravenry', cp.pane);
+    if (!tab || !(projects || []).some((p) => p.sessions.some((y) => y.surfaceId === tab))) return null;
+    return personAtByTab.get(tab) || null;
+  };
+  const now = Date.now();
+  for (const [id, at] of withdrawing) if (now - at > 10 * 60000) withdrawing.delete(id);
+  for (const { cp, session } of terminalanswer.answeredInTerminal(checkpoints.list(), sessionOf)) {
+    const tried = withdrawing.get(cp.id);
+    if (tried && now - tried < 60000) continue;
+    withdrawing.set(cp.id, now);
+    checkpoints.withdrawAnswered(cp.id, term.ravenryCancel).then((r) => {
+      if (r.ok) {
+        console.log(`checkpoints: withdrew ${cp.id} (${cp.kind}): the person answered ${session.sessionId ? `session ${session.sessionId}` : 'its session'} in the terminal`);
+        wantTick = true; setTimeout(tick, 30);
+      } else if (r.code !== 'not_found' && r.code !== 'not_open') console.error(`checkpoints: could not withdraw ${cp.id}: ${r.error}`);
+    }, (e) => console.error(`checkpoints: could not withdraw ${cp.id}: ${e.message}`));
+  }
 }
 
 // A drive's pane and asker as people know them, by checkpoint id, for the
