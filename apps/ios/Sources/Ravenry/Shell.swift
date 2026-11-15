@@ -280,27 +280,39 @@ final class AlertCenter: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification) async -> UNNotificationPresentationOptions { [.banner, .list, .sound] }
+    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification, withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        done([.banner, .list, .sound])
+    }
 
-    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse) async {
+    /// A tap on an alert, or one of its buttons. iOS asks off the main thread, and
+    /// its answer must go back on it: the async form of this method answered from
+    /// a background thread, and UIKit stopped the app ("Call must be made on main
+    /// thread") on every tap, the app open or not (2026-11-15, a launch from an alert).
+    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse, withCompletionHandler done: @escaping () -> Void) {
+        DispatchQueue.main.async {
+            self.tapped(r)
+            done()
+        }
+    }
+
+    private func tapped(_ r: UNNotificationResponse) {
         guard let s = r.notification.request.content.userInfo["alert"] as? String,
               let a = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any] else { return }
         let cp = (a["checkpoint"] as? [String: Any])?["id"] as? String
-        await MainActor.run {
-            switch r.actionIdentifier {
-            case "run":
-                guard let cp else { return }
-                // Run always asks for Face ID, from the alert and in the app.
-                Biometrics.ask(reason: a["title"] as? String ?? "Run") { ok, _ in
-                    guard ok else { return }
-                    Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: ["id": cp, "approve": true, "by": "phone"]) }
-                }
-            case "refuse":
-                guard let cp else { return }
-                Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: ["id": cp, "decline": true, "by": "phone"]) }
-            default:
-                if let b = board { b.event(["event": "open", "alert": a]) } else { SceneDelegate.pendingAlert = a }
+        Log.say("alert: tapped (\(r.actionIdentifier == UNNotificationDefaultActionIdentifier ? "open" : r.actionIdentifier))")
+        switch r.actionIdentifier {
+        case "run":
+            guard let cp else { return }
+            // Run always asks for Face ID, from the alert and in the app.
+            Biometrics.ask(reason: a["title"] as? String ?? "Run") { ok, _ in
+                guard ok else { return }
+                Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: ["id": cp, "approve": true, "by": "phone"]) }
             }
+        case "refuse":
+            guard let cp else { return }
+            Task { _ = try? await Hub.client()?.call("POST", "/api/checkpoints/answer", json: ["id": cp, "decline": true, "by": "phone"]) }
+        default:
+            if let b = board { b.event(["event": "open", "alert": a]) } else { SceneDelegate.pendingAlert = a }
         }
     }
 }

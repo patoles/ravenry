@@ -436,4 +436,116 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(nine, "a new card shows after the idea")
         mark("same page throughout: \(samePage())")
     }
+
+    // ------------------------------------------------------------ a launch from an alert
+
+    /// Asks tools/ios-e2e.mjs to have iOS show an alert for that checkpoint (`simctl push`, as push will), titled `banner`.
+    func pushAlert(_ id: String, kind: String, project: String, banner: String) {
+        guard let dir = env["RAVENRY_SIG"] else { return }
+        let alert: [String: Any] = ["v": 1, "type": "alert", "id": "cp:\(id)", "kind": kind, "title": banner, "body": "",
+                                    "project": ["id": project, "name": project], "checkpoint": ["id": id, "kind": kind]]
+        let s = String(decoding: (try? JSONSerialization.data(withJSONObject: alert)) ?? Data(), as: UTF8.self)
+        let payload: [String: Any] = ["aps": ["alert": ["title": banner, "body": "Open it in Ravenry."]], "alert": s]
+        let u = URL(fileURLWithPath: "\(dir)/push.wait")
+        try? JSONSerialization.data(withJSONObject: payload).write(to: u)
+        _ = until(10) { !FileManager.default.fileExists(atPath: u.path) }
+    }
+
+    /// Asks tools/ios-e2e.mjs to switch the simulator to dark or light (the person's Control Centre).
+    func appearance(_ mode: String) {
+        guard let dir = env["RAVENRY_SIG"] else { return }
+        let u = URL(fileURLWithPath: "\(dir)/appearance.wait")
+        try? Data(mode.utf8).write(to: u)
+        _ = until(10) { !FileManager.default.fileExists(atPath: u.path) }
+    }
+
+    /// Text the app shows anywhere (its own views and the page's), read by accessibility: no script in the page,
+    /// since a launch from an alert is iOS's, without the checks' launch settings.
+    func appShows(_ a: XCUIApplication, _ text: String) -> Bool {
+        a.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.exists
+    }
+
+    /// The app opened from an alert, cold (the app not running: iOS starts it on the
+    /// tap, the launch's Ink over it): its checkpoint's screen shows and the launch
+    /// ends on it. The Ink held the formed raven and "Reaching your Mac..." for 15 s
+    /// over a working screen before (it waited for a sign only the board gave); then
+    /// a dark/light switch on that screen, past 12 s, changes nothing else.
+    func test9b_ALaunchFromAnAlertEndsOnItsScreen() throws {
+        if shotsOnly { return }
+        continueAfterFailure = true
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        let cases: [(kind: String, project: String, spec: [String: Any], text: String)] = [
+            ("pick", "paper-boat", ["kind": "pick", "project": "paper-boat", "title": "Which boat for the cover?",
+                                    "variants": [["label": "Sail", "describe": "The boat with its sail up"], ["label": "Oars", "describe": "The boat rowed"]]], "Which boat for the cover?"),
+            ("secret", "weather-widget", ["kind": "secret", "project": "weather-widget", "title": "Forecast service key"], "Forecast service key"),
+            ("approve", "paper-boat", ["kind": "approve", "project": "paper-boat", "command": "echo \"from the alert: it ran\"", "why": "Opened from its alert."], "from the alert: it ran"),
+        ]
+        for (n, c) in cases.enumerated() {
+            guard let id = newCard(c.spec) else { XCTFail("no \(c.kind) card"); continue }
+            // (Only the checks' own launch runs script in the page; later ones are iOS's.)
+            if n == 0 { _ = js("if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return true;") }
+            a.terminate()
+            XCTAssertTrue(a.wait(for: .notRunning, timeout: 10), "the app stopped")
+            let banner = "Ravenry check \(n + 1): \(c.kind)"
+            pushAlert(id, kind: c.kind, project: c.project, banner: banner)
+            let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let note = sb.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", banner)).firstMatch
+            XCTAssertTrue(note.waitForExistence(timeout: 15), "iOS shows the \(c.kind)'s alert")
+            note.tap()
+            XCTAssertTrue(a.wait(for: .runningForeground, timeout: 15), "the alert opens the app")
+            let t0 = Date()
+            let screen = until(20) { self.appShows(a, c.text) }
+            let shownAt = Date().timeIntervalSince(t0)
+            // The launch, watched past the 12 s and 15 s the hold had: its words never stay over the screen.
+            var holdSeen: [Double] = []
+            var gone: Double?
+            while Date().timeIntervalSince(t0) < 16 {
+                let held = appShows(a, "Reaching your Mac") || appShows(a, "didn't answer")
+                let s = Date().timeIntervalSince(t0)
+                if held { holdSeen.append(s); gone = nil } else if gone == nil { gone = s }
+                if n == 0 && s > 5 && s < 5.6 { shot("alert-launch-pick-5s") }
+                Thread.sleep(forTimeInterval: 0.4)
+            }
+            shot("alert-launch-\(c.kind)")
+            let lastHeld = holdSeen.last ?? 0
+            mark(String(format: "launch from the %@ alert: its screen %@ at %.1f s; the launch's words last seen at %.1f s (%d times)", c.kind, screen ? "shown" : "NOT shown", shownAt, lastHeld, holdSeen.count))
+            XCTAssertTrue(screen, "the \(c.kind)'s own screen shows after its alert opened the app")
+            XCTAssertTrue(lastHeld < 6, String(format: "the launch held \"Reaching your Mac...\" over the %@'s screen until %.1f s", c.kind, lastHeld))
+            if n == 0 {
+                // A dark/light switch on the checkpoint's screen, then past 12 s.
+                let other = theme == "dark" ? "light" : "dark"
+                appearance(other)
+                let t1 = Date()
+                var heldAfter = false
+                while Date().timeIntervalSince(t1) < 14 {
+                    if appShows(a, "Reaching your Mac") || appShows(a, "didn't answer") { heldAfter = true }
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+                shot("alert-launch-pick-switched")
+                let still = appShows(a, c.text)
+                appearance(theme)
+                mark("pick's screen after a \(other) switch and 14 s: screen \(still), launch words \(heldAfter)")
+                XCTAssertTrue(still && !heldAfter, "a dark/light switch on the pick's screen: the screen stays, no launch words")
+            }
+        }
+        // The app in the background (not stopped): a tap on an alert brings it back on that card's screen.
+        let title = "Ship the boat from the alert?"
+        guard let id = newCard(["kind": "ask", "project": "notes-app", "title": title, "options": ["Ship it", "Not yet"]]) else { XCTFail("no ask card"); return }
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(a.wait(for: .runningBackground, timeout: 10) || a.wait(for: .runningBackgroundSuspended, timeout: 5), "the app in the background")
+        let banner = "Ravenry check 4: ask"
+        pushAlert(id, kind: "ask", project: "notes-app", banner: banner)
+        let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let note = sb.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", banner)).firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 15), "iOS shows the ask's alert")
+        note.tap()
+        XCTAssertTrue(a.wait(for: .runningForeground, timeout: 15), "the alert brings the app back")
+        let shown = until(15) { self.appShows(a, title) }
+        Thread.sleep(forTimeInterval: 3)
+        let alive = a.state == .runningForeground
+        shot("alert-warm-ask")
+        mark("a tap on the ask's alert with the app in the background: its screen \(shown), the app still running \(alive)")
+        XCTAssertTrue(shown && alive, "the ask's screen after its alert, with the app running")
+    }
 }

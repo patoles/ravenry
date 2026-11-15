@@ -11,7 +11,9 @@
 //   answered here, no match then a match) and only a match runs, the secret
 //   goes to the hub, the pair link and Which iPhone is this (an iPhone
 //   through ntfy made first, on a stand-in ntfy server here: nothing goes
-//   to ntfy.sh), a wrong pin is refused, the launch's Ink ends on the board;
+//   to ntfy.sh), a wrong pin is refused, the launch's Ink ends on the board,
+//   cards that arrive while the board is open, and a launch from an alert
+//   (a pick, a secret, a command) ends on its checkpoint's screen;
 // - after: the token in the simulator's Keychain, and the secret in no log
 //   and nowhere in the web view's storage.
 //
@@ -136,8 +138,9 @@ async function openCard(c) {
   else if (c.kind === 'pick') {
     const pics = fs.readdirSync(PICTURE).filter((x) => /\.(png|jpe?g)$/i.test(x)).slice(0, 2).map((x) => path.join(PICTURE, x));
     a = ['pick', c.title, ...c.variants.flatMap((v, i) => ['--variant', `${v.label}=${pics[i % pics.length]}`, '--describe', `${v.label}=${v.describe}`])];
-  } else a = ['approve', c.command, ...(why ? ['--why', why] : [])];
-  const id = run([...a, '--no-wait', '--timeout', '30m']);
+  } else if (c.kind === 'secret') a = ['secret', c.title, '--no-wait', '--timeout', '30m', '--', 'true'];
+  else a = ['approve', c.command, ...(why ? ['--why', why] : [])];
+  const id = run(c.kind === 'secret' ? a : [...a, '--no-wait', '--timeout', '30m']);
   cardsOpened.set(c.project, [id]);
   return id;
 }
@@ -149,7 +152,22 @@ async function openCard(c) {
   // its connections left open and unanswered, as a phone sees a network that
   // drops or a Mac that sleeps; then it goes on.
   const pw = path.join(SIG, 'pause.wait');
+  // A launch from an alert (test9b): iOS shows it (`simctl push`, as push
+  // will), and the test taps it with the app not running; and a dark/light
+  // switch, as the person's Control Centre makes it.
+  const pu = path.join(SIG, 'push.wait');
+  const ap = path.join(SIG, 'appearance.wait');
   while (watching) {
+    if (fs.existsSync(pu)) {
+      const f2 = path.join(SIG, 'push.json');
+      fs.renameSync(pu, f2);
+      try { simctl('push', UDID, 'dev.ravenry.ios', f2); } catch (x) { console.log('  simctl push: ' + String(x.message).slice(0, 200)); }
+    }
+    if (fs.existsSync(ap)) {
+      const mode = fs.readFileSync(ap, 'utf8').trim();
+      try { simctl('ui', UDID, 'appearance', mode === 'light' ? 'light' : 'dark'); } catch { /* the test says */ }
+      fs.rmSync(ap, { force: true });
+    }
     if (fs.existsSync(pw)) {
       const secs = Number(fs.readFileSync(pw, 'utf8')) || 10;
       fs.rmSync(pw, { force: true });

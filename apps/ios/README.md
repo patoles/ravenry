@@ -41,7 +41,9 @@ iPhone is this, the board, an answer, Run with Face ID (enrolled and
 answered on the simulator), the secret, a wrong pin, the launch's Ink, then
 cards that arrive while the board is open (quotes and accents, a 250 KB
 state, after the background, after 50 s of a silent Mac in front and 30 s
-of one while away, an idea whose name the hub cut in half of an emoji); then
+of one while away, an idea whose name the hub cut in half of an emoji), and
+a launch from an alert (a pick, a secret, a command, shown by `simctl push`
+and tapped with the app stopped, then one with it in the background); then
 the token in the simulator's Keychain and the secret in no log and nowhere
 in the app's data. The pairing screens, the secure field, iOS's own sheets
 and Face ID are driven natively; the board's buttons are pressed by a line
