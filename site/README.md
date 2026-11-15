@@ -53,4 +53,6 @@ folder, without `tools/` and this README, to the `gh-pages` branch of the public
 `macVersion` set to the release's version and `og:image` made absolute (link
 previews need one), and makes the release whose files `downloads` names:
 `macFile` and `apkFile` among them. GitHub's `releases/latest/download/`
-links always point at the newest release. The steps: `docs/PUBLISHING.md`.
+links always point at the newest release. `--page-only` publishes this
+folder alone, between releases, for the release already marked latest. The
+steps: `docs/PUBLISHING.md`.

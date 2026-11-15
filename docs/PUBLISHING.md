@@ -49,8 +49,22 @@ that is not newer than the release marked latest.
    signed in as an account that can write to the repository. It pushes the
    page to `gh-pages` (macVersion set, og:image made absolute), makes the
    release as a draft with every file, publishes it as latest, turns Pages
-   on the first time, and reads the public feed and downloads back.
+   on the first time (an "already enabled" answer, HTTP 409, is fine: GitHub
+   can turn it on by itself when gh-pages is pushed), checks that Pages
+   publishes `gh-pages /`, and reads the public feed and downloads back.
 5. Open the page and download both files once.
+
+### The page alone
+
+A change to the page between releases (copy, pictures):
+`node tools/publish-testers.mjs --page-only` (a dry run), then
+`--page-only --yes`. It pushes `site/` to `gh-pages` the same way and reads
+every file back from the public page until it is the one pushed (up to 5
+minutes), and does nothing else: no release, tag, files or feed. It refuses
+unless the page's `macVersion` is the version of the release marked latest
+and that release has the page's downloads, and unless Pages publishes
+`gh-pages /`. `node tools/publish-testers-test.mjs` runs both modes against
+stand-ins for `gh`, `git` and the network.
 
 ### The Mac app's signature
 
