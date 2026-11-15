@@ -75,6 +75,7 @@ import * as pages from './pages.mjs';
 import { sayPath } from '../public/homepath.mjs';
 import * as homes from './homes.mjs';
 import * as sidebar from './sidebar.mjs';
+import * as openon from './openon.mjs';
 import * as cpwords from './cpwords.mjs';
 import * as models from './models.mjs';
 import * as firstlaunch from './firstlaunch.mjs';
@@ -1048,7 +1049,7 @@ function buildProject(project, wsById, hooks, settings, now) {
     // else the one all its sessions run on, null for this one.
     machine: projectMachine(project, sessions),
     workspaces,
-    sessions: sessions.map((s) => (personAtByTab.set(s.surfaceId, { at: terminalanswer.personAt(s.transcript), sessionId: s.sessionId }), {
+    sessions: sessions.map((s) => (personAtByTab.set(s.surfaceId, { at: terminalanswer.personAt(s.transcript), sessionId: s.sessionId, read: !!s.transcript }), {
       surfaceId: s.surfaceId, surfaceRef: s.surfaceRef, workspaceId: s.workspaceId, workspaceRef: s.workspaceRef,
       topic: s.topic, live: s.live, sessionId: s.sessionId, method: s.method,
       workFolder: s.real && s.real.folder ? homes.sayFolder(s.real.folder, sessionMachine(s)) : null,
@@ -1417,6 +1418,19 @@ async function tick() {
       pv.models = { claude: models.projectModel(rp, 'claude'), codex: models.projectModel(rp, 'codex') };
     }
     snapshot.startModels = startModels();
+    // Where every client opens (server/openon.mjs): the project of the
+    // session the person used last (typed to, answered a card of, opened on
+    // any device), else the one active last.
+    try {
+      const evOf = (x) => (x.sessionId && evPanes.get(x.sessionId)) || null;
+      snapshot.openOn = openon.pick(snapshot.projects, {
+        typedAt: (_p, x) => { const w = personAtByTab.get(x.surfaceId); return w && w.read ? w.at : (evOf(x) || {}).lastPromptAt || null; },
+        activeAt: (_p, x) => (evOf(x) || {}).lastEventAt || x.since || null,
+        checkpoints: checkpoints.list({ all: true }),
+        tabOf: (cp) => (cp.pane ? term.tabIdFor('ravenry', cp.pane) : null),
+        opened: openon.lastOpened(),
+      });
+    } catch (e) { console.error('open on:', e.message); snapshot.openOn = null; }
     if (process.env.MC_NO_AUTOSTART !== '1') autoStarts(workspaces, cmuxOk);
   } catch (e) {
     snapshot = { ...snapshot, cmuxOk: false, error: 'The board could not read its terminals: ' + String(e.message || e), generatedAt: new Date().toISOString() };
@@ -4336,6 +4350,15 @@ async function handleRequest(req, res) {
         const deliveredOf = (id) => { const h = checkpoints.get(id); return h && h.delivered ? { delivered: h.delivered } : { delivered: undefined }; };
         for (const c of list) words[c.id] = cpWords(withPageRun({ ...c, answer: c.answer ? (({ secret: _s, ...a }) => a)(c.answer) : c.answer, ...deliveredOf(c.id) })).words;
         return sendJson(res, 200, { ok: true, words });
+      }
+      if (p === '/api/opened') {
+        // A client says the person opened a project or session there
+        // (server/openon.mjs): every client opens on it next time.
+        let body;
+        try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }); }
+        const r = openon.noteOpened(body, (id) => !!(snapshot.projects || []).some((x) => x.id === id));
+        if (r.ok) { wantTick = true; setTimeout(tick, 30); }
+        return sendJson(res, r.ok ? 200 : r.status || 500, r.ok ? { ok: true, opened: r.opened } : { error: r.error });
       }
       if (p === '/api/checkpoints/answer') {
         // A person's answer (the app, the phone), never a program inside a
