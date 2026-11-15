@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The phone's pick, from a headless emulator, in dark and light: the alert
 // in the shade with the pictures side by side, the swipe screen Compare
-// opens, and the circle and note screen; then the pick answered from the
+// opens, and the circle and note in the full-screen viewer; then the pick answered from the
 // phone, checked on the hub. A made-up board on a throwaway HOME
 // (apps/desktop/tools/demo-hub.mjs) with real ravenryd panes: paper-boat's
 // "Tilting the hull" waits on `ravenry pick` with three pictures drawn
@@ -377,25 +377,27 @@ try {
     await sleep(800);
     shot(`phone-32-swipe-${scheme}.png`);
     console.log('swipe caption:', await board('document.querySelector(".ppick .pcap").innerText'));
-    // Circle a part: a finger draws around the spray over the bow.
+    // Circle a part: the picture full screen (pick.ts viewer), a finger draws around the spray over the bow.
     await tapText('Circle a part');
-    const p = await onScreen('.ppick .pdraw');
+    await until(() => board('document.querySelector(".pzv-stage.drawing .pzv-box img") && document.querySelector(".pzv-box img").complete ? true : null'), 8000, 400);
+    await sleep(600);
+    const p = await onScreen('.pzv-box');
     const cx = p.x + p.w * 0.52, cy = p.y + p.h * 0.36, rx = p.w * 0.105, ry = p.h * 0.15;
     const pts = [];
     for (let i = 0; i <= 26; i++) { const a = -2.3 + (i / 26) * 2 * Math.PI * 1.04; pts.push([Math.round(cx + rx * Math.cos(a)), Math.round(cy + ry * Math.sin(a))]); }
     adb('shell', 'input', 'motionevent', 'DOWN', String(pts[0][0]), String(pts[0][1]));
     for (const [x, y2] of pts.slice(1)) adb('shell', 'input', 'motionevent', 'MOVE', String(x), String(y2));
     adb('shell', 'input', 'motionevent', 'UP', String(pts[pts.length - 1][0]), String(pts[pts.length - 1][1]));
-    await until(() => board('document.querySelector(".ppick .pnote") ? true : null'), 8000, 400);
+    await until(() => board('document.querySelector(".pzv .pnote") ? true : null'), 8000, 400);
     // The note, typed with the phone's keyboard.
-    await tapBoard('.ppick .pnote');
+    await tapBoard('.pzv .pnote');
     await sleep(800);
     for (const word of 'This, but less spray at the bow. It hides the boat.'.split(' ').map((w, i) => (i ? ' ' : '') + w)) adb('shell', 'input', 'text', word.replace(/ /g, '%s').replace(/([,.;'"])/g, '\\$1'));
     await sleep(500);
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK'); // the keyboard goes, the note stays
     await sleep(1200);
     shot(`phone-32-circle-${scheme}.png`);
-    const r = await board('JSON.stringify({ note: document.querySelector(".ppick .pnote").value, send: document.querySelector(".ppick .btn.pri").textContent })');
+    const r = await board('JSON.stringify({ note: document.querySelector(".pzv .pnote").value, send: document.querySelector(".pzv-ctl .btn.pri").textContent })');
     // The drives: Cache forecasts asks to close the person's dev server,
     // Phone preview to type in it; each with its reason.
     for (const [id, name, word] of [[CLOSE, 'close', 'close'], [TYPE, 'type', 'type in']]) {
@@ -459,7 +461,7 @@ try {
   // ------------------------------------------------ as the person, on the phone
   // The pick, which kept its circle and note, sent from the phone.
   await go(`/cp/${PICK}`);
-  await until(() => board('document.querySelector(".ppick .pnote") ? true : null'), 10000, 400);
+  await until(() => board('document.querySelector(".pzv .pnote") ? true : null'), 10000, 400);
   await tapText(JSON.parse(last).send);
   const done = await until(async () => (await hubCps(true)).find((x) => x.id === PICK && x.state !== 'open') || null, 20000, 500);
   const a = done && done.answer && done.answer.pick;

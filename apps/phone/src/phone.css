@@ -290,8 +290,10 @@ textarea.pcmd.edit { width: 100%; resize: vertical; background: var(--input); co
 .ptrack { margin: 16px -4px 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; border-radius: 16px; flex: none; }
 .ptrack::-webkit-scrollbar { display: none; }
 .ptrack.one { margin-top: 22px; overflow: hidden; }
-.pimg { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; position: relative; border-radius: 16px; overflow: hidden; line-height: 0; box-shadow: inset 0 0 0 1px var(--sep); background: var(--card); min-height: 120px; }
-.pimg img { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* The track is as tall as the picture on screen (pick.ts fitHeight): each picture whole in its slide, a tall one fitted inside. */
+.ptrack { height: 62.5vw; transition: height .12s ease-out; }
+.pimg { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; position: relative; border-radius: 16px; overflow: hidden; line-height: 0; box-shadow: inset 0 0 0 1px var(--sep); background: #0B0B0C; cursor: zoom-in; }
+.pimg img { width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .pimg .phtml { width: 100%; aspect-ratio: 16 / 10; border: 0; display: block; background: #FFFFFF; }
 .pimg .pmiss { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; font-size: 14px; line-height: 1.4; color: var(--tx2); text-align: center; }
 /* The letter reads on any variant, a picture or a page: a solid dark pill with a light ring, above the frame. */
@@ -308,6 +310,41 @@ textarea.pcmd.edit { width: 100%; resize: vertical; background: var(--input); co
 .pfield.pnf { margin-top: 14px; align-items: center; }
 .pfield .f.pnote { height: auto; min-height: 50px; padding: 13px 18px; border-radius: 18px; line-height: 1.4; resize: none; font-size: 15px; display: block; }
 .btn.sm2 { min-height: 44px; font-size: 15px; width: 100%; }
+
+/* A pick's picture up close (pick.ts viewer; pickzoom phone A): the whole screen, the picture zoomed and
+   panned by the fingers, its words, the strip of the variants by letter, Circle a part and Pick B at thumb height. */
+.pzv { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; background: var(--win); padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.pzv-bar { flex: none; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: max(4px, env(safe-area-inset-top)) 16px 4px 6px; border-bottom: 1px solid var(--sep); background: var(--sheet); }
+.pzv-title { font-size: 16px; font-weight: 700; }
+.pzv-who { font-size: 13.5px; color: var(--tx2); }
+.pzv-bar .sp { flex: 1; }
+.pzv-at { font-size: 13.5px; color: var(--tx2); white-space: nowrap; }
+.pzv-stage { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; background: #0B0B0C; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.pzv-stage.drawing { box-shadow: inset 0 0 0 2px var(--you); cursor: crosshair; }
+.pzv-stage.drawing .pzv-box { z-index: 0; }
+.pzv-box { position: absolute; transform-origin: 50% 50%; line-height: 0; }
+.pzv-box img, .pzv-box .phtml { width: 100%; height: 100%; display: block; -webkit-user-drag: none; pointer-events: none; }
+.pzv-box .ov { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.pzv-fit { position: absolute; right: 12px; bottom: 12px; z-index: 3; min-height: 36px; padding: 0 12px; gap: 7px; font-size: 14px; font-weight: 650; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.pzv-fit .num { color: var(--tx2); font-weight: 500; }
+.pzv-fit[hidden] { display: none; }
+.pzv-note { position: absolute; z-index: 2; display: flex; gap: 8px; align-items: flex-start; max-width: 180px; padding: 8px 10px; border-radius: 9px; background: rgba(20,20,22,.92); color: #F2F2F4; font-size: 13.5px; line-height: 1.35; pointer-events: none; }
+.pzv-note[hidden] { display: none; }
+.pzv-note b { flex: none; width: 18px; height: 18px; border-radius: 9px; background: var(--you); color: #1D1D1F; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+.pzv-cap, .pzv-hint { flex: none; margin: 12px 16px 0; font-size: 14.5px; line-height: 1.45; color: var(--tx2); }
+.pzv-cap b { color: var(--tx); font-weight: 650; margin-right: 6px; }
+.pzv-hint { color: var(--you); }
+.pzv-nf { flex: none; margin: 10px 16px 0; }
+.pzv-nf .f.pnote { min-height: 46px; padding: 12px 16px; }
+.pzv-err { margin: 8px 16px 0; }
+.pzv-strip { flex: none; display: flex; justify-content: center; gap: 8px; padding: 12px 16px 4px; }
+.pzv-th { all: unset; box-sizing: border-box; position: relative; flex: 0 1 64px; aspect-ratio: 16 / 11; border-radius: 7px; overflow: hidden; background: #0B0B0C; opacity: .6; box-shadow: inset 0 0 0 1px rgba(127,127,127,.25); }
+.pzv-th.on { opacity: 1; box-shadow: 0 0 0 2px var(--win), 0 0 0 4px var(--work); }
+.pzv-th img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pzv-th .pk-lt { position: absolute; left: 4px; top: 4px; font: 700 11px/17px Roboto, system-ui, sans-serif; color: #FFFFFF; background: rgba(20,20,22,.85); padding: 0 5px; border-radius: 5px; }
+.pzv-ctl { flex: none; display: flex; gap: 10px; padding: 12px 16px 0; }
+.pzv-ctl .btn { flex: 1; min-height: 52px; font-size: 16px; font-weight: 650; border-radius: 12px; }
+.pzv-ctl .btn.wide { flex: 1.6; }
 @media (prefers-color-scheme: light) { .pfield.pnf .mic { background: var(--sheet); box-shadow: 0 0 0 1px var(--sep); } }
 
 /* A drive: what the agent would press, in order */
