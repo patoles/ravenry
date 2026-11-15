@@ -2097,6 +2097,12 @@ function renderPhoneNav() {
     bar = `${ib('', PI.back, 'Back to Pages', 'fg', 'data-act="pn-back"')}<span class="pn-ttl sm">${esc(v === 'objectives' ? 'Objectives' : row ? row.label : 'Page')}</span>${more}`;
   } else bar = `<span class="pn-ttl">${PN_LOGO}<span class="pn-word">Ravenry</span></span>${connChip()}${ib('', PI.search, 'Search', '', 'data-act="pn-search"')}${more}${v === 'projects' ? np('New project') : ''}`;
   setHtml('pbar', bar);
+  // The Ravenry app at the board's wide width (an iPad, 2026-11-15): the
+  // connection chip beside the name, and its own settings (This iPad, the
+  // phone menu's item) among the tools. A browser: neither.
+  const inApp = !!window.ravenryApp;
+  setHtml('cx-wide', inApp ? connChip(true) : '');
+  setHtml('app-wide', inApp ? `<button class="icon-btn" data-act="pn-app" aria-label="${esc(thisDevice())}" title="${esc(thisDevice())}"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="1.5" width="8" height="13" rx="2"></rect><path d="M7 12h2" stroke-linecap="round"></path></svg></button>` : '');
   // The home's bar (B, picked 2026-11-12): its sizes make room for the word beside the chip at 360 px.
   $('#pbar').classList.toggle('home', !!$('#pbar .pn-word'));
   fitBar();
@@ -2116,7 +2122,7 @@ function renderPhoneMenu() {
 ${local ? `<button class="pn-mi" role="menuitem" data-act="pn-phone">${PI.phone}<span>Open on your phone</span></button>
 <button class="pn-mi" role="menuitemcheckbox" aria-checked="${alertsOn}" data-act="pn-alerts">${PI.bell}<span class="sp">Alerts</span><span class="pn-tg${alertsOn ? ' on' : ''}"></span></button><div class="pn-div"></div>` : ''}
 <div class="pn-mh">Theme</div><div class="pn-seg3" role="group" aria-label="Theme">${seg}</div><div class="pn-div"></div>
-${app ? `<button class="pn-mi" role="menuitem" data-act="pn-app">${PI.phone}<span>This phone</span></button>` : ''}
+${app ? `<button class="pn-mi" role="menuitem" data-act="pn-app">${PI.phone}<span>${esc(thisDevice())}</span></button>` : ''}
 <button class="pn-mi" role="menuitem" data-act="pn-settings">${PI.gear}<span>Settings</span></button></div>`);
 }
 
@@ -2223,12 +2229,14 @@ function connVia(host) {
   return /\.ts\.net$/i.test(h) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h) || /^fd7a:115c:a1e0:/i.test(h) ? 'tailscale' : 'wifi';
 }
 window.ravenryConnVia = connVia;
-function connChip() {
+/** The app's word for this device, from the shared words it carries (apps/phone board.ts): "This phone", "This iPad". */
+const thisDevice = () => (window.ravenryApp && window.ravenryApp.words && window.ravenryApp.words.thisDevice) || 'This phone';
+function connChip(wide = false) {
   const c = connNow();
   if (!c) return '';
   const word = c.state === 'offline' ? 'Offline' : c.state === 'reconnecting' ? 'Reconnecting' : CONN_WORD[c.via] || 'Connected';
   const cls = c.state === 'offline' ? 'off' : c.state === 'reconnecting' ? 're' : c.via === 'wifi' || c.via === 'local' ? 'ok' : 'ts';
-  return `<button class="cx-chip ${cls}" id="cx-chip" data-act="cx-open" aria-label="${esc(`Connection: ${word}`)}"><span class="cx-dot"></span><span class="cx-w">${esc(word)}</span></button>`;
+  return `<button class="cx-chip ${cls}" ${wide ? '' : 'id="cx-chip"'} data-act="cx-open" aria-label="${esc(`Connection: ${word}`)}"><span class="cx-dot"></span><span class="cx-w">${esc(word)}</span></button>`;
 }
 // The bar fits at any width: the word Ravenry gives way to the mark when the chip needs its room.
 function fitBar() {
