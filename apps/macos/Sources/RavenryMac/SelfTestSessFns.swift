@@ -128,7 +128,7 @@ extension SelfTestBoard {
             let pct = sb.pcs[r.key]?.stringValue ?? ""
             let second = (r.mark?.text ?? r.line).map(plainMd)
             if name != r.name { bad.append("\(r.key) name \(name) vs \(r.name)") }
-            if tag != (r.assistant ?? "") { bad.append("\(r.key) assistant \(tag) vs \(r.assistant ?? "-")") }
+            if tag != (r.chip(narrow: sb.narrowChips) ?? "") { bad.append("\(r.key) chip \(tag) vs \(r.chip(narrow: sb.narrowChips) ?? "-")") }
             if pct != (r.pct.map { "\($0)%" } ?? "") { bad.append("\(r.key) percent \(pct) vs \(r.pct.map(String.init) ?? "-")") }
             if let s2 = second, !w.contains(where: { $0.contains(s2) || s2.contains($0) && $0.count > 8 }) { bad.append("\(r.key) line \"\(s2)\" not in \(w)") }
         } } }

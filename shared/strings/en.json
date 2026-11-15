@@ -1232,6 +1232,8 @@
   "start.notSignedIn": "Found, not signed in yet",
   "start.notHere": "Not on this Mac",
   "start.noAssistant": "Neither Claude Code nor Codex is installed here yet. Install one, then come back. A plain shell works meanwhile.",
+  "start.model": "Model",
+  "start.modelNote": "Remembered for this project. To switch during a session, type /model in it.",
   "start.goAssistant": "Start {assistant} in {folder}",
   "start.goShell": "Open a shell in {folder}",
   "start.goShellOnly": "Open a shell",

@@ -331,7 +331,11 @@ final class Board: NSObject {
             self.sideWidth = w
             self.root.sideWidth = w
             self.prefs?.set(Double(w), forKey: "sidebarWidth")
+            let narrow = self.sidebar.narrowChips
             self.root.place()
+            // Across about 250 pt the rows' chips change words (the model's family alone): drawn again at once.
+            self.sidebar.layoutSubtreeIfNeeded()
+            if self.sidebar.narrowChips != narrow { self.render() }
         }
         // Idle folded or opened: kept beside the width, the list drawn again.
         sidebar.onIdleFold = { [weak self] open in

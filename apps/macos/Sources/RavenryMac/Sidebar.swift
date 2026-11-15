@@ -194,6 +194,10 @@ final class SidebarView: Flipped {
     /// slash, so a narrow sidebar never breaks "~/Documents" after "~/".
     static func unbroken(_ path: String) -> String { path.replacingOccurrences(of: "/", with: "/\u{2060}") }
 
+    /// Under about 250 pt a row's chip says the model's family alone ("Opus", "Codex"): the full name ("Opus 5.5",
+    /// "gpt-5.3-codex") left the session's name a letter or two (docs/design: the askmodel round, 220 pt).
+    var narrowChips: Bool { bounds.width > 0 && bounds.width < 250 }
+
     func update(state: HubState?, reachable: Bool, front: String?, pinned: Set<String>, page: String?, alerts: Bool) {
         lastState = state
         let times = state?.sections.flatMap { $0.projects.map { timeText($0) } }.joined(separator: ",") ?? ""
@@ -209,7 +213,7 @@ final class SidebarView: Flipped {
         let sig = [(try? JSONSerialization.data(withJSONObject: state?.raw["sidebar"] ?? [:], options: .sortedKeys)).map { String(decoding: $0, as: UTF8.self) } ?? "", String(reachable), pinned.sorted().joined(separator: ","),
                    page ?? "", times, state.map { $0.pages.map { "\($0.key)\($0.number ?? -1)" }.joined() } ?? "", state?.memoryLine ?? "",
                    String(alerts), "\(decisions.count)\(decisions.live)", "\(machinesDot)\(footOn.sorted())", asking.map { "\($0.folder)\($0.name ?? "")" } ?? "",
-                   uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260), "\(idleOpen)\(frontIdle)"].joined(separator: "|")
+                   uses.map { "\($0.key)=\($0.value.text)" }.sorted().joined(separator: ","), denied.joined(separator: ","), "\(Hints.shared.loaded)\(Hints.shared.done.sorted())\(Hints.shared.current ?? "")", String(firstRun), String(bounds.width < 260), String(narrowChips), "\(idleOpen)\(frontIdle)"].joined(separator: "|")
         guard sig != signature else { select(front, page: page); return }
         signature = sig
         rows = [:]
@@ -445,7 +449,9 @@ final class SidebarView: Flipped {
         dot.translatesAutoresizingMaskIntoConstraints = false
         dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
         dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
-        let tag = r.assistant.map { assistantChip($0) }
+        // The model it runs ("Opus 5.5"), its family alone in a narrow sidebar ("Opus"), else the assistant.
+        let tag = r.chip(narrow: narrowChips).map { assistantChip($0) }
+        tag?.toolTip = [r.assistant, r.model].compactMap { $0 }.joined(separator: " ")
         tags[r.key] = tag
         let pc = fixedLabel(r.pct.map { "\($0)%" } ?? "", Fonts.pt(11.5).withTabularDigits, r.pctWarn ? "you" : "tx3")
         pc.alignment = .right
@@ -491,7 +497,7 @@ final class SidebarView: Flipped {
         row.addSubview(col)
         pinEdges(col, row)
         row.selected = selected
-        row.setAccessibilityLabel([r.name, r.assistant, r.pct.map { "\($0)%" }, pinned ? t("side.pinned") : nil, r.mark?.text ?? r.line ?? uses[r.key]?.text].compactMap { $0 }.joined(separator: ", "))
+        row.setAccessibilityLabel([r.name, { () -> String? in let w = [r.assistant, r.model].compactMap { $0 }.joined(separator: " "); return w.isEmpty ? nil : w }(), r.pct.map { "\($0)%" }, pinned ? t("side.pinned") : nil, r.mark?.text ?? r.line ?? uses[r.key]?.text].compactMap { $0 }.joined(separator: ", "))
         row.toolTip = [r.name, r.mark?.text ?? r.line].compactMap { $0 }.joined(separator: "\n")
         row.onOpen = { [weak self] in self?.onSession?(r.key) }
         row.menuItems = { [weak self] in self?.sessionMenu(r, pinned: pinned) }

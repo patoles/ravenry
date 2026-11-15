@@ -187,7 +187,8 @@ final class PanelView: Box {
                 var pr = f.project.raw; pr["sessions"] = nil
                 lastKnown[pid] = (pr, f.session.raw)
             }
-            setHead(f.project.name, tag: f.session.assistant.map(assistantName), machine: f.session.machine ?? f.project.machine, pinKey: k)
+            // "Claude Opus 5.5": the assistant and the model it runs (hub/server/models.mjs), the assistant alone before it named one.
+            setHead(f.project.name, tag: f.session.modelTitle ?? f.session.assistant.map(assistantName), machine: f.session.machine ?? f.project.machine, pinKey: k)
             rows = sessionBody(st, f.project, f.session, key: k, pane: pane)
         } else if let st = state, let k = front, k.hasPrefix("project:"), let p = st.project(String(k.dropFirst(8))) {
             shows = "project"
@@ -373,7 +374,9 @@ final class PanelView: Box {
                 let bs = quick.map { o -> NSView in
                     let l = o["label"] as? String ?? ""
                     let choice = o["choice"] as? NSNumber
-                    let b = RButton(l, small: true) { [weak self] in self?.send(p, s, l, choice) }
+                    // A suggested answer types its text ("B", "Keep A"); the label is the button's words ("B: the app").
+                    let say = o["text"] as? String ?? l
+                    let b = RButton(l, small: true) { [weak self] in self?.send(p, s, say, choice) }
                     buttons["quick:\(l)"] = b
                     return b
                 }

@@ -397,6 +397,35 @@ if (!SCREEN || SESSIONS_SCREEN) {
   fs.writeFileSync(STAND_IN, `#!/bin/sh\necho "$$ $RAVENRY_PANE $2 $PWD" >> '${STAND_IN}.log'\nprintf 'Claude Code (a stand-in), moved here\\n\\n> '\nexec sleep 100000\n`, { mode: 0o755 });
   Object.assign(screenHub, { runtime: run, settings: { ...(screenHub.settings || {}), launchCommand: STAND_IN }, env: { ...(screenHub.env || {}), RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
 }
+// --screen answers (SelfTestAnswers.swift): New session with a Model starts a
+// stand-in of Claude in a pane of this test's daemon; it writes the command
+// line it was started with (its argv) in STAND_IN.argv, never a real claude.
+const ANSWERS = SCREEN === 'answers';
+if (ANSWERS) {
+  fs.writeFileSync(STAND_IN, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${STAND_IN}.argv'\nprintf 'Claude Code (a stand-in)\\n\\n> '\nexec sleep 100000\n`, { mode: 0o755 });
+  Object.assign(screenHub, { runtime: run, settings: { ...(screenHub.settings || {}), launchCommand: STAND_IN }, env: { ...(screenHub.env || {}), RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
+}
+// --screen answers: arrival 1, paper-boat hands back the real "B, C, or keep A?"
+// message of the pictures round (A, B and C described above it); arrival 2,
+// garden-planner's transcript gets a /model switch (Claude Code's records)
+// and a reply on Sonnet 4.6.
+async function answersArrive(n) {
+  if (n === 1) {
+    const t = fs.readFileSync(path.join(REPO, 'hub', 'tools', 'fixtures', 'answers', 'handback-1.txt'), 'utf8').trim().split(/\n\s*\n/);
+    await hub.arrive('paper-boat', t.pop(), t.join('\n\n'));
+    return;
+  }
+  const TR = hub.transcript('garden-planner');
+  const at = new Date().toISOString();
+  const rec = (type, extra) => JSON.stringify({ type, cwd: path.join(hub.root, 'garden-planner'), sessionId: 'a1a1a1a1-0000-4000-8000-000000000001', timestamp: at, ...extra });
+  const user = (content) => rec('user', { message: { role: 'user', content } });
+  fs.appendFileSync(TR, [rec('system', { subtype: 'local_command', content: '<command-name>/model</command-name>' }),
+    user('<command-name>/model</command-name>\n            <command-message>model</command-message>\n            <command-args>claude-sonnet-4-6</command-args>'),
+    user('<local-command-stdout>Set model to `Sonnet 4.6` and saved as your default for new sessions</local-command-stdout>'),
+    user('Use the frost date'),
+    rec('assistant', { message: { model: 'claude-sonnet-4-6', role: 'assistant', content: [{ type: 'text', text: 'The first reminder goes out on the first frost-free day.' }], usage: { input_tokens: 5, cache_read_input_tokens: 300000, output_tokens: 60 } } }),
+    rec('system', { subtype: 'turn_duration' })].join('\n') + '\n');
+}
 // --screen sessb (sessb-fixture.mjs): the board in Ravenry mode, its sessions stand-ins in panes of this test's daemon.
 const SESSB = SCREEN === 'sessb';
 const SB = SESSB ? sessbHub({ tmp, APP, run, base: screenHub }) : null;
@@ -582,7 +611,7 @@ const proxy = WRITE ? await trafficProxy(hub.url, path.join(OUT, 'hub-traffic.js
 // --screen plan, review and pages: each session's cmux tab plays Claude's prompt box, so a
 // message the board types there (a plan paused or resumed, review comments sent, a page's ask) is taken
 // (fake-cmux "prompts", what was sent kept in its "sent"), not refused.
-if (SCREEN === 'plan' || SCREEN === 'review' || SCREEN === 'controls' || SCREEN === 'reply' || PAGES) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '', ...(SCREEN === 'reply' && s.id === 'sf-3' ? { typed: 'abc' } : {}) }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
+if (SCREEN === 'plan' || SCREEN === 'review' || SCREEN === 'controls' || SCREEN === 'reply' || PAGES || ANSWERS) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts = Object.fromEntries((f.workspaces || []).flatMap((w) => (w.surfaces || []).map((s) => [s.id, { body: '', ...(SCREEN === 'reply' && s.id === 'sf-3' ? { typed: 'abc' } : {}) }]))); fs.writeFileSync(hub.fake, JSON.stringify(f)); }
 if (SESSIONS_SCREEN || !SCREEN) { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); fs.writeFileSync(hub.fake, JSON.stringify({ ...f, closeSurfaces: true, newSurfaces: true, ...(SESSIONS_SCREEN ? { focusLog: true } : {}) })); }
 // --screen sessions: a project with a brief and no earlier conversation (the project page's New session here and Open brief).
 if (SESSIONS_SCREEN) { fs.mkdirSync(path.join(hub.root, 'old-notes'), { recursive: true }); fs.writeFileSync(path.join(hub.root, 'old-notes', 'BRIEF.md'), '# Old notes\n\nGoal: Keep the notes from before the app.\n'); }
@@ -800,7 +829,7 @@ function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursi
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(ANSWERS ? { RAVENRY_MAC_ANSWERS: JSON.stringify({ fake: hub.fake, argv: STAND_IN + '.argv' }) } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -811,7 +840,7 @@ let n = 1;
 while (!exited && Date.now() - t0 < (SCREEN === 'controls' ? 1200000 : PAGES || WRITE || SESSB || AWAY ? 420000 : 240000)) {
   if (n <= 2 && fs.existsSync(`${result}.arrive-${n}`)) {
     // Decisions: an agent saves one now (inside its undo minute). --screen panel: the board goes down.
-    if (PAGES) await writeFixtures(); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (GONE) daemon.kill('SIGKILL'); else if (SCREEN === 'reply') { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts['sf-3'].typed = ''; fs.writeFileSync(hub.fake, JSON.stringify(f)); } else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
+    if (PAGES) await writeFixtures(); else if (ANSWERS) await answersArrive(n); else if (WRITE) writeArrive(hub, n); else if (SCREEN === 'decisions') await recordLive(hub.url, n); else if (DAEMONS) shells(await serve(NEW, 'daemon-new.log'), 'new'); else if (GONE) daemon.kill('SIGKILL'); else if (SCREEN === 'reply') { const f = JSON.parse(fs.readFileSync(hub.fake, 'utf8')); f.prompts['sf-3'].typed = ''; fs.writeFileSync(hub.fake, JSON.stringify(f)); } else if (SCREEN === 'panel') hub.stop(); else await hub.arrive(...arrivals[n - 1]);
     fs.writeFileSync(`${result}.go-${n}`, '1');
     n++;
   }

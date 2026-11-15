@@ -32,10 +32,15 @@ struct SideMark {
 struct SideRow {
     let key: String, surfaceId: String, name: String
     let assistant: String?, pct: Int?, pctWarn: Bool
+    /// The model its transcript last named (hub/server/models.mjs): "Opus 5.5", "gpt-5.4"; its family alone, "Opus", "Codex".
+    let model: String?, modelShort: String?
     let line: String?, mark: SideMark?, group: String, machine: String?
+    /// The chip's word: the model where the row is wide, its family where it is narrow, else the assistant.
+    func chip(narrow: Bool) -> String? { (narrow ? modelShort ?? model : model) ?? assistant }
     init(_ d: [String: Any]) {
         key = d["key"] as? String ?? ""; surfaceId = d["surfaceId"] as? String ?? ""; name = d["name"] as? String ?? ""
         assistant = d["assistant"] as? String; pct = (d["pct"] as? NSNumber)?.intValue; pctWarn = d["pctWarn"] as? Bool ?? false
+        model = d["model"] as? String; modelShort = d["modelShort"] as? String
         line = d["line"] as? String; mark = (d["mark"] as? [String: Any]).map(SideMark.init)
         group = d["group"] as? String ?? "idle"; machine = d["machine"] as? String
     }
@@ -83,6 +88,8 @@ final class HubSession {
     var surfaceId: String { s("surfaceId") ?? "" }
     var topic: String? { s("topic") }
     var assistant: String? { s("assistant") }
+    /// "Claude Opus 5.5": the assistant and the model its transcript last named (hub/server/models.mjs), nil before it named one.
+    var modelTitle: String? { s("modelTitle") }
     var state: String { s("state") ?? "" }
     var since: String? { s("since") }
     var sessionId: String? { s("sessionId") }

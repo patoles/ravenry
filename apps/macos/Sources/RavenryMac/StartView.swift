@@ -90,6 +90,10 @@ final class StartView: MiddleView {
     private(set) var folders: [[String: Any]] = []
     private(set) var root: String?
     private(set) var assistants: [[String: Any]] = []
+    /// New session's Model menus from the hub (GET /api/setup/start `models`): per assistant, { id, label }, id "" the
+    /// assistant's default. The pick is remembered per project by the hub; `modelPicked` is what was picked here.
+    private(set) var models: [String: [[String: Any]]] = [:]
+    private var modelPicked: [String: String] = [:]
     private(set) var folder: String?
     private(set) var assistant: String?
     private(set) var inFolder = false
@@ -110,7 +114,7 @@ final class StartView: MiddleView {
     var testDenied: [String]?
     private var hubWaiting: String? { testWaiting ?? hub?.waitingFor }
     /// The controls by name, for the self-test: "folder:<path>", "assistant:<kind>", "choose", "go", "cancel",
-    /// "inFolder", "ownCopy", "tick:hooks", "tick:skill", "setUp", "notNow".
+    /// "inFolder", "ownCopy", "model" (the Model pop-up), "tick:hooks", "tick:skill", "setUp", "notNow".
     var controls: [String: NSView] = [:]
     /// What a control asked for that needs the app's hub while the npm board keeps the data (NpmSwitch.swift).
     var npmAsked: String?
@@ -192,6 +196,7 @@ final class StartView: MiddleView {
         folders = j["folders"] as? [[String: Any]] ?? []
         root = j["root"] as? String
         assistants = j["assistants"] as? [[String: Any]] ?? []
+        models = local ? [:] : (j["models"] as? [String: [[String: Any]]] ?? [:])
         if let w = want { folder = w }
         // On a machine, the folder and the assistant are that machine's: this Mac's list leaves them alone.
         if machine == nil, folder == nil || !folders.contains(where: { $0["path"] as? String == folder }) && want == nil { folder = folders.first?["path"] as? String ?? folder }
@@ -215,6 +220,20 @@ final class StartView: MiddleView {
         return entry(f)["busy"] as? [String: Any]
     }
     private var assistantPicked: [String: Any]? { assistants.first { $0["kind"] as? String == assistant && $0["found"] as? Bool == true } }
+    /// The model the session starts with ("" the assistant's default): picked here for this folder, else the one its
+    /// project last started with (the hub's folder `models`), else the default.
+    var modelChoice: String {
+        guard let k = assistant else { return "" }
+        if let m = modelPicked["\(folder ?? "")|\(k)"] { return m }
+        let mine = folder.map(entry)?["models"] as? [String: Any]
+        let m = mine?[k] as? String ?? ""
+        return (models[k] ?? []).contains { $0["id"] as? String == m } || m.isEmpty ? m : ""
+    }
+    func pick(model id: String) {
+        guard let k = assistant else { return }
+        modelPicked["\(folder ?? "")|\(k)"] = id
+        draw()
+    }
     private func name(_ kind: String) -> String { kind == "claude" ? "Claude" : kind == "codex" ? "Codex" : kind.prefix(1).uppercased() + kind.dropFirst() }
     private var folderName: String? { folder.map { ($0 as NSString).lastPathComponent } }
 
@@ -510,6 +529,27 @@ final class StartView: MiddleView {
             col2.append(row)
         } else {
             col2.append(wrap(t("start.noAssistant"), Fonts.pt(12), "tx2"))
+        }
+        // The model to start with (Claude Code --model, Codex -m), remembered per project; switching during a session
+        // stays the CLI's own /model, so this is only here, where a session starts.
+        if let k = assistant, let menu = models[k], !menu.isEmpty, a != nil || onMachine {
+            let pop = NSPopUpButton(frame: .zero, pullsDown: false)
+            pop.controlSize = .small
+            pop.font = Fonts.pt(12)
+            let ids = menu.map { $0["id"] as? String ?? "" }
+            pop.addItems(withTitles: menu.map { $0["label"] as? String ?? ($0["id"] as? String ?? "") })
+            pop.selectItem(at: ids.firstIndex(of: modelChoice) ?? 0)
+            pop.setAccessibilityLabel(t("start.model"))
+            pop.target = PopTarget.shared
+            pop.action = #selector(PopTarget.changed(_:))
+            PopTarget.shared.run[ObjectIdentifier(pop)] = { [weak self, weak pop] in
+                guard let i = pop?.indexOfSelectedItem, i >= 0, i < ids.count else { return }
+                self?.pick(model: ids[i])
+            }
+            controls["model"] = pop
+            let note = wrap(t("start.modelNote"), Fonts.pt(11.5), "tx3")
+            col2.append(hstack([label(t("start.model"), Fonts.pt(12.5, Fonts.w650)), pop, spring()], spacing: 10))
+            col2.append(note)
         }
         let row2 = step(number("2", a != nil || (onMachine && assistant != nil)), col2)
 
@@ -846,6 +886,8 @@ final class StartView: MiddleView {
         }
         let g = grid()
         var body: [String: Any] = ["folder": folder ?? NSHomeDirectory(), "assistant": kind, "cols": g.cols, "rows": g.rows]
+        // The Model picked ("" the default): the hub starts it with it and remembers it for the folder's project.
+        if models[kind] != nil { body["model"] = modelChoice }
         if let b = busyHere, !inFolder, let pid = b["projectId"] as? String { body["worktree"] = true; body["projectId"] = pid }
         // A project's own folder: the hub opens the session on its brief and the decisions on record (SESS-041).
         else if let f = folder, let p = hub?.state?.projects.first(where: { $0.folder == f && $0.machine == nil && $0.brief != nil && $0.raw["unowned"] as? Bool != true }) { body["projectId"] = p.id }
@@ -871,6 +913,7 @@ extension StartView {
     fileprivate func startOn(_ m: String) {
         let g = grid()
         var body: [String: Any] = ["folder": folder ?? "", "machine": m, "assistant": assistant ?? "claude", "cols": g.cols, "rows": g.rows]
+        if models[assistant ?? "claude"] != nil { body["model"] = modelChoice }
         if let f = folder, let p = (hub?.state?.projects ?? []).first(where: { $0.machine == m && $0.folder == f }) { body["projectId"] = p.id }
         hub?.post("/api/sessions/start", body) { [weak self] code, j in
             guard let self else { return }
