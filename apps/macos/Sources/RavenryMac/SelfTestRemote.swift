@@ -173,6 +173,20 @@ extension SelfTestBoard {
         sendLine(shell, "'\(bin)' checkpoint \(id2) --cancel --reason 'Done by hand'")
         rc("rc_withdrawn_card", wait(10) { self.board.render(force: true); return self.shows(pn, "Withdrawn") && self.shows(pn, "Done by hand") }, texts(pn).prefix(8).joined(separator: " | "))
         livePicture("native-cards-withdrawn-1440-dark.png")
+        // The person answered in the terminal instead: the hub withdraws the card with answered_in (its tick does,
+        // hub/server/terminalanswer.mjs; here its daemon call itself). The card leaves the panel with nothing after it,
+        // not even the withdrawn one before, and the waiting ask exits 123, told to read the person's message.
+        let ask4 = out + "/ask4.out"
+        sendLine(shell, "'\(bin)' ask 'Build it or not?' --option 'Build it' --option 'Not yet' > '\(ask4)' 2>&1; echo \"exit=$?\" >> '\(ask4)'")
+        rc("rc_term_ask_card", wait(10) { self.board.render(force: true); return self.shows(pn, "Build it or not?") && pn.shownCard?.kind == "ask" })
+        let id4 = hub.checkpoint(pane: shell)?["id"] as? String ?? ""
+        var cancelled: [String: Any]? = nil
+        ws.conn(of: shell).request("checkpoint.cancel", ["checkpoint": id4, "reason": "the person answered you in the terminal instead: read their message there", "answered_in": "terminal"]) { r in if case .success(let j) = r { cancelled = j } }
+        rc("rc_term_withdrawn_by_daemon", wait(6) { (cancelled?["checkpoint"] as? [String: Any])?["answered_in"] as? String == "terminal" }, "\(cancelled ?? [:])")
+        rc("rc_term_card_leaves_panel", wait(10) { self.board.render(force: true); return !self.shows(pn, "Build it or not?") && !self.shows(pn, "Withdrawn") && pn.shownCard == nil && hub.closed.forPane(shell, machine: nil) == nil },
+           "card \(pn.shownCard?.kind ?? "none") | \(texts(pn).prefix(8).joined(separator: " | "))")
+        rc("rc_term_ask_exits_123", wait(10) { self.file(ask4).contains("exit=123") && self.file(ask4).contains("the person answered you in the terminal instead") && !self.file(ask4).contains("declined") }, file(ask4))
+        livePicture("native-cards-answered-in-terminal-1440-dark.png")
         sendLine(shell, "'\(bin)' ask 'Varnish tonight?' --option 'Yes' --timeout 3s > /dev/null 2>&1")
         rc("rc_ask3_card", wait(10) { self.board.render(force: true); return self.shows(pn, "Varnish tonight?") && pn.shownCard?.kind == "ask" })
         rc("rc_expired_card", wait(15) { self.board.render(force: true); return self.shows(pn, "Nobody answered") }, texts(pn).prefix(8).joined(separator: " | "))

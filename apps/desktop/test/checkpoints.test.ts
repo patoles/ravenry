@@ -152,6 +152,19 @@ test('the store merges a daemon\'s checkpoints with the hub\'s, and keeps a clos
   assert.equal(st.get('cask0001'), null);
 });
 
+test('a card the person answered in the terminal instead leaves the panel at once', () => {
+  const st = new Checkpoints();
+  st.fromDaemon('/s1', ask, NOW);
+  st.fromDaemon('/s1', { ...ask, state: 'cancelled', reason: 'the person answered you in the terminal instead: read their message there', answered_in: 'terminal', closed_at: at(0) } as typeof ask, NOW);
+  assert.equal(st.get('cask0001')!.cp.state, 'cancelled');
+  assert.equal(st.forPane('paaaaaaa', null, NOW), null);
+  // A plain withdrawal still says how it ended.
+  const st2 = new Checkpoints();
+  st2.fromDaemon('/s1', ask, NOW);
+  st2.fromDaemon('/s1', { ...ask, state: 'cancelled', reason: 'done by hand', closed_at: at(0) }, NOW);
+  assert.equal(st2.forPane('paaaaaaa', null, NOW)!.cp.state, 'cancelled');
+});
+
 test('a session waiting at a checkpoint needs you, with its mark and the time it started waiting', () => {
   const state: HubState = {
     projects: [

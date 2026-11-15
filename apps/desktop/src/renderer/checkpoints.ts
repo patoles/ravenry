@@ -299,7 +299,9 @@ export class Checkpoints {
     // A drive or a pick has nothing more to say once answered: what the
     // agent then typed shows in the pane and its log, and a pick's answer is
     // the person's own. Its card leaves the panel at once.
-    if (!isOpen(merged) && (merged.kind === 'drive' || merged.kind === 'pick')) k.closedSeen = -Infinity;
+    // One the person answered in the terminal instead (the hub withdrew
+    // it, answered_in): their words are in the session, so it goes too.
+    if (!isOpen(merged) && (merged.kind === 'drive' || merged.kind === 'pick' || (merged as { answered_in?: string }).answered_in === 'terminal')) k.closedSeen = -Infinity;
     this.items.set(cp.id, k);
     return { opened: !had && isOpen(merged), closed: !!had && wasOpen && !isOpen(merged) };
   }

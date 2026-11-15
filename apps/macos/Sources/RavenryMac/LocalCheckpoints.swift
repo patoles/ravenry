@@ -86,7 +86,8 @@ final class DaemonCheckpoints {
 /// closedSeen and forPane): a pane's card says how its checkpoint ended
 /// (answered, declined, withdrawn, out of time, ran) in the hub's words
 /// (words.after) for half an hour, until another opens there or its agent
-/// moves on. A drive's or a pick's has nothing more to say: it goes at once.
+/// moves on. A drive's or a pick's has nothing more to say: it goes at once,
+/// as does one the person answered in the terminal instead (answered_in).
 final class ClosedCards {
     struct Seen {
         var cp: [String: Any]
@@ -105,17 +106,30 @@ final class ClosedCards {
         guard let id = cp["id"] as? String, !id.isEmpty, !DaemonCheckpoints.isOpen(cp) else { return false }
         if var had = items[id] {
             let w0 = (had.cp["words"] as? [String: Any])?["state"] as? String, w1 = (cp["words"] as? [String: Any])?["state"] as? String
-            guard had.cp["state"] as? String != cp["state"] as? String || (w1 != nil && w0 != w1) || (had.cp["page"] == nil && cp["page"] != nil) else { return false }
+            let inTerminal = had.cp["answered_in"] == nil && cp["answered_in"] as? String == "terminal"
+            guard had.cp["state"] as? String != cp["state"] as? String || (w1 != nil && w0 != w1) || (had.cp["page"] == nil && cp["page"] != nil) || inTerminal else { return false }
             var c = cp
             for k in DaemonCheckpoints.extraKeys where c[k] == nil { c[k] = had.cp[k] }
             had.cp = c
+            if inTerminal { had.hidden = true }
             items[id] = had
+            if inTerminal { answeredInTerminal(c) }
             return true
         }
         let kind = cp["kind"] as? String ?? ""
-        items[id] = Seen(cp: cp, at: now, hidden: kind == "drive" || kind == "pick")
+        // One the person answered in the terminal instead (the hub withdrew it, answered_in): their words are in the session, so it goes too.
+        let inTerminal = cp["answered_in"] as? String == "terminal"
+        items[id] = Seen(cp: cp, at: now, hidden: kind == "drive" || kind == "pick" || inTerminal)
+        if inTerminal { answeredInTerminal(cp) }
         prune(now)
         return true
+    }
+
+    /// The person wrote to the pane's agent (a card of it closed as answered in the terminal): the cards that closed there before go too, as when its agent moves on.
+    private func answeredInTerminal(_ cp: [String: Any]) {
+        guard let pane = cp["pane"] as? String, !pane.isEmpty else { return }
+        let machine = (cp["machine"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        for (id, s) in items where s.cp["pane"] as? String == pane && ((s.cp["machine"] as? String).flatMap { $0.isEmpty ? nil : $0 }) == machine { items[id]?.hidden = true }
     }
 
     /// The closed copy of one, while it is kept.
