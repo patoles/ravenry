@@ -275,14 +275,14 @@ function driveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () =>
     topBar(cp, I.KEYS16), ...fromLine(cp),
     h('h2.sm', words.title),
     words.what ? h('p.det', words.what) : null,
-    input ? [h('div.plbl', action === 'override' ? 'It would set' : say('checkpoint.wouldPress')),
+    input ? [h('div.plbl', action === 'override' ? 'It would set' : word('checkpoint.wouldPress')),
       h('div.ptyped', action === 'override' ? input : keyParts(input).map((x) => (x.kind === 'key' ? h('span.kc', x.text) : h('span', x.text))))] : null,
     reason ? h('p.psays', h('span', `${w.who} says:`), ' ', reason) : null,
     waitBox(cp),
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b',
       words.yes.map((y) => h('button.btn.big.popt', { disabled: ui.busy, on: { click: () => void allow(y) } }, svg(I.FINGER), y.sub ? h('span.two-l', h('span', y.label), h('span.s', y.sub)) : h('span', y.label))),
-      h('button.btn.bad-t', { disabled: ui.busy, on: { click: () => void refuse() } }, say('checkpoint.refuse'))));
+      h('button.btn.bad-t', { disabled: ui.busy, on: { click: () => void refuse() } }, word('checkpoint.refuse'))));
 }
 
 // ---------------------------------------------------------------- the screen
