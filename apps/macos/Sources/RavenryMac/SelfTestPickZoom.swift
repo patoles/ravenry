@@ -51,6 +51,31 @@ extension SelfTestBoard {
         settle(0.2)
         return "window on \(window.screen == nil ? "no screen" : "a screen"): the clip moved as the scroll would"
     }
+    private func pzViews(_ v: NSView) -> [NSView] { v.subviews + v.subviews.flatMap { pzViews($0) } }
+    /// The note's words as drawn: while typed, the characters whose glyphs lie in the field
+    /// editor's visible part (a field scrolled sideways hides its first letters); after, the
+    /// label's words when its frame holds them all, else none.
+    private func pzNoteShown(_ note: NSView?) -> (text: String, how: String) {
+        guard let note else { return ("", "no note") }
+        let fields = pzViews(note).compactMap { $0 as? NSTextField }
+        if let f = fields.first(where: { $0.currentEditor() != nil }), let ed = f.currentEditor() as? NSTextView, let lm = ed.layoutManager, let tc = ed.textContainer {
+            lm.ensureLayout(for: tc)
+            let vis = ed.visibleRect, o = ed.textContainerOrigin
+            let str = ed.string as NSString
+            var shown = ""
+            for i in 0..<str.length {
+                let g = lm.glyphRange(forCharacterRange: NSRange(location: i, length: 1), actualCharacterRange: nil)
+                var r = lm.boundingRect(forGlyphRange: g, in: tc)
+                r.origin.x += o.x; r.origin.y += o.y
+                if str.character(at: i) == 32 || vis.contains(NSPoint(x: r.midX, y: r.midY)) { shown += str.substring(with: NSRange(location: i, length: 1)) }
+            }
+            return (shown.trimmingCharacters(in: .whitespaces), "typed: editor visible \(vis.integral) of \(ed.bounds.integral)")
+        }
+        guard let l = fields.first(where: { !$0.stringValue.isEmpty && $0.stringValue != "1" }) else { return ("", "no words") }
+        let need = l.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: l.frame.width, height: .greatestFiniteMagnitude)) ?? .zero
+        let fits = need.height <= l.frame.height + 1 && l.visibleRect.height >= l.frame.height - 1 && l.visibleRect.width >= l.frame.width - 1
+        return (fits ? l.stringValue : "", "label \(l.frame.integral), its words need \(need)")
+    }
     private func pzJSON(_ d: Any?) -> String {
         guard let d, let j = try? JSONSerialization.data(withJSONObject: d, options: [.sortedKeys]) else { return "nil" }
         return String(decoding: j, as: UTF8.self)
@@ -219,11 +244,18 @@ extension SelfTestBoard {
         if let ed = window.firstResponder as? NSTextView { ed.insertText("Make Allow the bigger button", replacementRange: NSRange(location: NSNotFound, length: 0)) }
         settle(0.2)
         check("pz_send_counts_note", pk.buttons["send"]?.title == "Send B, with 1 note", pk.buttons["send"]?.title ?? "")
+        window.contentView?.layoutSubtreeIfNeeded()
+        var nshown = pzNoteShown(pk.vnote)
+        check("pz_note_drawn_whole_typing", nshown.text == "Make Allow the bigger button", "drawn \"\(nshown.text)\" (\(nshown.how))")
         pictures("pickzoom-circled")
         // The note follows the ring through a pan.
         let ringOn = { () -> NSRect in let g = pk.region ?? .zero, pb = z.picture.bounds; return pk.convert(NSRect(x: g.minX * pb.width, y: g.minY * pb.height, width: g.width * pb.width, height: g.height * pb.height), from: z.picture) }
         window.makeFirstResponder(pk)
         settle(0.2)
+        window.contentView?.layoutSubtreeIfNeeded()
+        nshown = pzNoteShown(pk.vnote)
+        check("pz_note_drawn_whole", nshown.text == "Make Allow the bigger button" && pk.pin == nshown.text, "drawn \"\(nshown.text)\" (\(nshown.how))")
+        pictures("pickzoom-noted")
         let n0 = pk.vnote.map { pk.convert($0.bounds, from: $0) } ?? .zero, r0 = ringOn()
         o0 = z.contentView.bounds.origin
         let how2 = pzPan(z, at: vp, dx: 0, dy: 60)
@@ -232,6 +264,44 @@ extension SelfTestBoard {
         check("pz_note_follows_ring", z.contentView.bounds.origin != o0 && abs((n1.minY - n0.minY) - (r1.minY - r0.minY)) < 1.5 && abs(n1.minX - r1.maxX - 10) < 1.5 && !(pk.vnote?.isHidden ?? true),
               "ring \(r0.integral) to \(r1.integral), note \(n0.integral) to \(n1.integral) (\(how2))")
         (pr, vr) = shown()
+        // The note beside the ring, never over it, wherever the ring is (the edges too), up close at
+        // fit and zoomed, and side by side; inside the picture's area.
+        let spots: [(String, NSRect)] = [("left", NSRect(x: 0.005, y: 0.4, width: 0.06, height: 0.05)), ("right", NSRect(x: 0.93, y: 0.4, width: 0.06, height: 0.05)),
+                                         ("top", NSRect(x: 0.45, y: 0.004, width: 0.08, height: 0.04)), ("bottom", NSRect(x: 0.45, y: 0.95, width: 0.08, height: 0.045)),
+                                         ("middle", NSRect(x: 0.47, y: 0.47, width: 0.06, height: 0.05)), ("wide", NSRect(x: 0.1, y: 0.4, width: 0.8, height: 0.08))]
+        var over: [String] = [], seen: [String] = []
+        for zoomed in [false, true] {
+            for (name, g) in spots {
+                pk.circle(1, g, note: "Make Allow the bigger button")
+                if zoomed { z.zoom(to: 1, keeping: NSPoint(x: g.midX * W, y: g.midY * H), at: NSPoint(x: z.contentView.frame.width / 2, y: z.contentView.frame.height / 2)) } else { z.fitAgain() }
+                pk.zoomMoved()
+                settle(0.15)
+                window.contentView?.layoutSubtreeIfNeeded()
+                guard let nv = pk.vnote, !nv.isHidden else { over.append("\(name)\(zoomed ? " zoomed" : ""): no note"); continue }
+                let nr = pk.convert(nv.bounds, from: nv), rr = ringOn(), area = pk.convert(z.bounds, from: z)
+                seen.append("\(name)\(zoomed ? " zoomed" : ""): ring \(rr.integral) note \(nr.integral)")
+                if nr.intersects(rr) || !area.contains(nr) { over.append(seen.last!) }
+            }
+        }
+        check("pz_note_beside_ring_up_close", over.isEmpty, over.isEmpty ? seen.joined(separator: "; ") : over.joined(separator: "; "))
+        pk.view(nil)
+        settle(0.2)
+        over = []; seen = []
+        for (name, g) in spots {
+            pk.circle(1, g, note: "Make Allow the bigger button")
+            settle(0.3)
+            window.contentView?.layoutSubtreeIfNeeded()
+            guard pk.images.count > 1, let wrap = pk.images[1].superview, let nv = wrap.subviews.first(where: { $0 is Box }) else { over.append("\(name): no note"); continue }
+            let im = pk.images[1], ip = im.convert(im.pictureRect, to: wrap)
+            let rr = NSRect(x: ip.minX + g.minX * ip.width, y: ip.minY + g.minY * ip.height, width: g.width * ip.width, height: g.height * ip.height)
+            seen.append("\(name): ring \(rr.integral) note \(nv.frame.integral)")
+            if nv.frame.intersects(rr) || !wrap.bounds.contains(nv.frame) { over.append(seen.last!) }
+        }
+        check("pz_note_beside_ring_side_by_side", over.isEmpty, over.isEmpty ? seen.joined(separator: "; ") : over.joined(separator: "; "))
+        // Back on B up close with the ring dragged above.
+        pk.circle(1, want, note: "Make Allow the bigger button")
+        pk.view(1)
+        settle(0.2)
         // Send: the pick, its ring in fractions of the whole picture, the note; the hub takes it.
         let sent = board.hub.sentBodies.count
         pk.buttons["send"]?.performClick(nil)

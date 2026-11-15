@@ -168,6 +168,26 @@ final class FitChip: Box {
     override func accessibilityPerformPress() -> Bool { run?(); return true }
 }
 
+/// Where a note of size `s` goes beside a ring (flipped coordinates), inside
+/// `area`: on its right, its left, under it or over it, the first that fits
+/// without touching the ring; when none fits whole, the one that covers the
+/// least of it.
+func notePlace(_ s: NSSize, beside ring: NSRect, in area: NSRect, gap: CGFloat = 10) -> NSRect {
+    let clampX = { (x: CGFloat) in max(area.minX, min(x, area.maxX - s.width)) }
+    let clampY = { (y: CGFloat) in max(area.minY, min(y, area.maxY - s.height)) }
+    let sides = [
+        NSRect(x: ring.maxX + gap, y: clampY(ring.minY - 8), width: s.width, height: s.height),
+        NSRect(x: ring.minX - gap - s.width, y: clampY(ring.minY - 8), width: s.width, height: s.height),
+        NSRect(x: clampX(ring.midX - s.width / 2), y: ring.maxY + gap, width: s.width, height: s.height),
+        NSRect(x: clampX(ring.midX - s.width / 2), y: ring.minY - gap - s.height, width: s.width, height: s.height),
+    ]
+    let off = ring.insetBy(dx: -2, dy: -2)
+    if let f = sides.first(where: { area.contains($0) && !$0.intersects(off) }) { return f }
+    let inside = sides.map { NSRect(x: clampX($0.minX), y: clampY($0.minY), width: s.width, height: s.height) }
+    let covered = { (f: NSRect) -> CGFloat in let i = f.intersection(off); return i.isNull ? 0 : i.width * i.height }
+    return inside.min { covered($0) < covered($1) } ?? inside[0]
+}
+
 /// A pick's picture in its pixels: the zoom's sizes and percentages are the picture's own.
 func inPixels(_ img: NSImage) -> NSImage {
     let px = img.representations.map { NSSize(width: $0.pixelsWide, height: $0.pixelsHigh) }.max { $0.width * $0.height < $1.width * $1.height } ?? .zero
@@ -248,6 +268,13 @@ final class PickerView: Box, BackLinked {
             f.delegate = self
         }
         pinField.font = Fonts.pt(12)
+        // The note wraps as it is typed (never scrolled sideways under its first words), at the label's width.
+        pinField.cell?.wraps = true
+        pinField.cell?.isScrollable = false
+        pinField.usesSingleLineMode = false
+        pinField.lineBreakMode = .byWordWrapping
+        pinField.maximumNumberOfLines = 0
+        pinField.preferredMaxLayoutWidth = 150
         pinField.textColor = NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF4 / 255, alpha: 1)
         pinField.placeholderAttributedString = NSAttributedString(string: t("pick.whatHere"), attributes: [.font: Fonts.pt(12), .foregroundColor: NSColor(white: 0.6, alpha: 1)])
         setAccessibilityRole(.group)
@@ -438,27 +465,33 @@ final class PickerView: Box, BackLinked {
         NSLayoutConstraint.activate([img.leadingAnchor.constraint(equalTo: wrap.leadingAnchor), img.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
                                      img.topAnchor.constraint(equalTo: wrap.topAnchor), img.bottomAnchor.constraint(equalTo: wrap.bottomAnchor)])
         let note = noteView()
+        note.translatesAutoresizingMaskIntoConstraints = true
         wrap.addSubview(note)
-        let right = r.maxX + 0.02 > 0.62
-        // Beside the ring, on the side with room, a little above its top.
-        NSLayoutConstraint.activate([
-            note.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 0),
-            note.widthAnchor.constraint(lessThanOrEqualToConstant: 170),
-        ])
         wrap.postsFrameChangedNotifications = true
-        let place = { [weak wrap, weak note] in
-            guard let wrap, let note else { return }
-            let W = wrap.bounds.width, H = wrap.bounds.height
-            let s = note.fittingSize
-            let y = max(0.02 * H, r.minY * H - 0.06 * H)
-            let x = right ? W * (r.minX - 0.02) - s.width : W * min(r.maxX + 0.02, 0.98)
-            note.translatesAutoresizingMaskIntoConstraints = true
-            note.frame = NSRect(x: max(4, min(x, W - s.width - 4)), y: y, width: s.width, height: s.height)
+        // Beside the ring (drawn in the picture's own place in its well), never over it.
+        let place = { [weak wrap, weak note, weak img] in
+            guard let wrap, let note, let img else { return }
+            let pr = img.convert(img.pictureRect, to: wrap)
+            let ring = NSRect(x: pr.minX + r.minX * pr.width, y: pr.minY + r.minY * pr.height, width: r.width * pr.width, height: r.height * pr.height)
+            note.frame = notePlace(note.fittingSize, beside: ring, in: wrap.bounds.insetBy(dx: 4, dy: 4))
         }
+        placeSideNote = place
         NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: wrap, queue: .main) { _ in place() }
         DispatchQueue.main.async { place() }
         note.setAccessibilityLabel(pin)
         return wrap
+    }
+
+    /// Places the side by side note again (its words changed as they are typed).
+    private var placeSideNote: (() -> Void)?
+    /// The typed note's height: as tall as its words, wrapped at its width.
+    private var pinHeight: NSLayoutConstraint?
+    private func fitPinField() {
+        let font = pinField.font ?? Fonts.pt(12)
+        let text = pinField.currentEditor()?.string ?? pinField.stringValue
+        let r = NSAttributedString(string: text.isEmpty ? "M" : text, attributes: [.font: font]).boundingRect(with: NSSize(width: CGFloat(146), height: CGFloat.greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading])
+        let h = max(ceil(font.ascender - font.descender + font.leading), ceil(r.height)) + 2
+        if pinHeight?.constant != h { pinHeight?.constant = h }
     }
 
     /// The ring's note (.note-pin): its number, and a field while typed, else its words.
@@ -471,11 +504,13 @@ final class PickerView: Box, BackLinked {
             pinField.stringValue = pin
             pinField.translatesAutoresizingMaskIntoConstraints = false
             if !pinField.constraints.contains(where: { $0.firstAttribute == .width }) { pinField.widthAnchor.constraint(equalToConstant: 150).isActive = true }
+            if pinHeight == nil { pinHeight = pinField.heightAnchor.constraint(equalToConstant: 16); pinHeight?.isActive = true }
+            fitPinField()
             content = pinField
         } else {
             let l = label(pin, Fonts.pt(12), "", lines: 0)
             l.textColor = NSColor(srgbRed: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF4 / 255, alpha: 1)
-            l.preferredMaxLayoutWidth = 130
+            l.preferredMaxLayoutWidth = 150
             content = l
         }
         let note = boxed(hstack([dot, content], spacing: 8), fill: nil, radius: 8, insets: NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10))
@@ -619,10 +654,7 @@ final class PickerView: Box, BackLinked {
         let pr = NSRect(x: g.minX * pb.width, y: g.minY * pb.height, width: g.width * pb.width, height: g.height * pb.height)
         let on = viewer.convert(pr, from: zoom.picture)
         let vis = zoom.frame
-        let s = n.fittingSize
-        let right = on.maxX + 10 + s.width <= vis.maxX - 6
-        let x = right ? on.maxX + 10 : on.minX - s.width - 10
-        n.frame = NSRect(x: max(vis.minX + 6, min(x, vis.maxX - s.width - 6)), y: max(vis.minY + 6, min(on.minY - 8, vis.maxY - s.height - 6)), width: s.width, height: s.height)
+        n.frame = notePlace(n.fittingSize, beside: on, in: vis.insetBy(dx: 6, dy: 6))
         // While it is typed it stays; its words hide with the ring when the ring is out of sight.
         n.isHidden = !editingPin && !vis.intersects(on)
     }
@@ -771,7 +803,14 @@ final class PickerView: Box, BackLinked {
 
 extension PickerView: NSTextFieldDelegate {
     func controlTextDidChange(_ n: Notification) {
-        if (n.object as? NSTextField) === pinField { pin = pinField.stringValue; drawFoot() }
+        if (n.object as? NSTextField) === pinField {
+            pin = pinField.stringValue
+            drawFoot()
+            // As tall as its words, the note placed again beside the ring.
+            fitPinField()
+            pinField.superview?.superview?.layoutSubtreeIfNeeded()
+            DispatchQueue.main.async { [weak self] in self?.placeSideNote?(); self?.placeNote() }
+        }
     }
     func controlTextDidEndEditing(_ n: Notification) {
         if (n.object as? NSTextField) === pinField, editingPin { editingPin = false; draw() }
