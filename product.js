@@ -13,6 +13,22 @@
   const boat = (tilt, hull) => `<svg viewBox="0 0 120 80"><rect width="120" height="80" fill="#D7E6F2"/><path d="M0 58 Q30 ${50 - tilt} 60 58 T120 58 V80 H0Z" fill="#6FA3CF"/><g transform="rotate(${tilt} 60 52)"><path d="M34 50 H86 L78 62 H42Z" fill="${hull}"/><path d="M60 22 V50 M60 24 L80 46 H60" stroke="#333" stroke-width="1.5" fill="#fff"/></g></svg>`;
   const nav = (n, extra = '') => `<div><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="5"/></svg>${n}${extra}</div>`;
 
+  // The phone's bottom bar, as the app draws it (hub/public/app.js, PI and
+  // renderPhoneNav): the same five icons, the lit one in a blue pill, counts as badges.
+  const pv20 = (d, extra = '') => `<svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${d}</svg>`;
+  const PI = {
+    projects: pv20('<rect x="2.5" y="3.5" width="15" height="5" rx="1.6"/><rect x="2.5" y="11.5" width="15" height="5" rx="1.6"/><circle cx="5.5" cy="6" r=".7" fill="currentColor"/><circle cx="5.5" cy="14" r=".7" fill="currentColor"/>'),
+    ideas: pv20('<path d="M7.2 14.5h5.6M7.8 17h4.4"/><path d="M10 2.8a5 5 0 0 0-3 9c.6.5 1 1.1 1 1.9h4c0-.8.4-1.4 1-1.9a5 5 0 0 0-3-9z"/>'),
+    rules: pv20('<path d="M4 3.5h9.5a2 2 0 0 1 2 2V17H6a2 2 0 0 1-2-2z"/><path d="M4 15a2 2 0 0 1 2-2h9.5M7.5 6.8h5M7.5 9.5h3.5"/>'),
+    ship: pv20('<path d="M10 2.5c2.6 1.8 3.8 4.6 3.6 8.2l-1.6 2.3H8l-1.6-2.3C6.2 7.1 7.4 4.3 10 2.5z"/><circle cx="10" cy="7.7" r="1.4"/><path d="M6.4 10.7L4 13.2l.4 2.8 3-1.6M13.6 10.7l2.4 2.5-.4 2.8-3-1.6M9 15.5l1 2 1-2"/>'),
+    pages: pv20('<path d="M5 2.5h6.8l3.7 3.7v11.3H5z"/><path d="M11.5 2.5v4h4M7.6 10.2h5M7.6 13.2h5"/>'),
+    search: pv20('<circle cx="8.8" cy="8.8" r="5.3"/><path d="M12.8 12.8l4 4"/>'),
+    kebab: '<svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4.2" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="10" cy="15.8" r="1.6"/></svg>',
+    plus: pv20('<path d="M10 4v12M4 10h12"/>', ' stroke-width="2"'),
+  };
+  const badge = (you, n) => (you ? `<b class="you">${you}</b>` : n ? `<b>${n}</b>` : '');
+  const tabbar = () => `<div class="rv-tabbar">${[['projects', 'Projects', badge(2, 0)], ['ideas', 'Ideas', badge(0, 1)], ['rules', 'Rules', ''], ['ship', 'Ship', ''], ['pages', 'Pages', '']].map(([k, label, b], i) => `<div${i === 0 ? ' class="on"' : ''}><span class="pill">${PI[k]}${b}</span>${label}</div>`).join('')}</div>`;
+
   const sidebar = (o = {}) => `
     <div class="rv-side">
       <div class="rv-lights"><i></i><i></i><i></i></div>
@@ -135,15 +151,14 @@
   2. Keep it level
   3. Try both and show me</div></div>
       <div style="display:flex;gap:6px;margin-top:10px"><span class="rv-btn" style="background:#3A3A40;color:#fff;box-shadow:none;flex:1;justify-content:center">1</span><span class="rv-btn" style="background:#3A3A40;color:#fff;box-shadow:none;flex:1;justify-content:center">2</span><span class="rv-btn" style="background:#3A3A40;color:#fff;box-shadow:none;flex:1;justify-content:center">3</span><span class="rv-btn pri" style="flex:2;justify-content:center">Answer</span></div></div>
-    <div class="rv-tabbar"><div class="on"><i></i>Projects</div><div><i></i>Ideas</div><div><i></i>Rules</div><div><i></i>Ship</div><div><i></i>Pages</div></div>
+    ${tabbar()}
   </div></div>`;
   // Ravenry's alerts as stock Android draws them (the app's own alerts on an
   // emulator), with the words the hub builds (hub/server/push.mjs). The icon's
   // circle is the alert's colour: orange waits for you, green is done.
   const chev = (up) => `<span class="cv"><svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${up ? 'M2 6.5l3-3 3 3' : 'M2 3.5l3 3 3-3'}"/></svg></span>`;
-  const sendIc = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5l18-8.5L3 3.5v6.6L15 12 3 13.9z"/></svg>';
   const nIc = () => `<span class="ic">${mark(13, 'transparent')}</span>`;
-  const nFull = (o) => `<div class="rv-n${o.ok ? ' ok' : ''}">${nIc()}${chev(true)}<div class="hd">Ravenry • ${o.project} • ${o.at || 'now'}</div><div class="tt">${o.title}</div><div class="bd"><b>${o.body}</b>${o.detail ? ' ' + o.detail : ''}</div>${o.reply ? `<div class="rv-reply"><span>${o.reply}<i></i></span>${sendIc}</div>` : `<div class="acts">${o.acts.map((x) => `<span>${x}</span>`).join('')}</div>`}</div>`;
+  const nFull = (o) => `<div class="rv-n${o.ok ? ' ok' : ''}">${nIc()}${chev(true)}<div class="hd">Ravenry • ${o.project} • ${o.at || 'now'}</div><div class="tt">${o.title}</div><div class="bd"><b>${o.body}</b>${o.detail ? ' ' + o.detail : ''}</div><div class="acts">${o.acts.map((x) => `<span>${x}</span>`).join('')}</div></div>`;
   const nRow = (o) => `<div class="rv-n c${o.ok ? ' ok' : ''}">${nIc()}${chev(false)}<div class="r1"><span class="tt">${o.title}</span><span>&nbsp;• ${o.project} • ${o.at || 'now'}</span></div><div class="bd"><b>${o.body}</b>${o.detail ? ' ' + o.detail : ''}</div></div>`;
   const statusBar = '<div class="rv-nsb"><span>17:26 &nbsp;Sat, Nov 14</span><span><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5L23.5 6.6C23 6.2 18.6 2.5 12 2.5S1 6.2.5 6.6z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 2.5h6v2h2.5v18h-11v-18H9z"/></svg>80%</span></div>';
   const ALERTS = {
@@ -176,13 +191,25 @@
 <span class="g">17:24:02</span> page reload src/settings/sync.ts
 <span class="g">17:24:09</span> page reload src/settings/store.ts</div></div></div></div>`;
 
-
-  // The hero: the question being answered from the shade, as Android draws
-  // it once Answer is tapped (the reply line in place of the buttons).
-  const shadeAnswer = () => `<div class="rv-phone rv-phone-a" style="height:540px"><div class="rv-screen" style="background:#000"><div class="rv-shade">${statusBar}<div class="rv-sheet">
-    ${nFull({ ...ALERTS.ask, detail: 'The slope is 8 degrees on the test pond.', reply: 'Keep it level for now, try tilting on the pond later' })}${nRow({ ...ALERTS.approve, at: '1m' })}${nRow({ ...ALERTS.handback, at: '5m' })}
-  </div></div></div></div>`;
-  const SIZES = { mac: [1280, 800, mac], board: [260, 0, board], ask: [340, 0, askCard], approve: [340, 0, approveCard], secret: [340, 0, secretCard], pick: [340, 0, pickCard], decisions: [420, 0, decisions], handoff: [420, 0, handoff], phone: [380, 800, phoneProjects], shade: [380, 660, phoneShade], term: [900, 520, termOnly], shadeA: [380, 560, shadeAnswer] };
+  // The hero's phone: the app on paper-boat, answering the question the Mac
+  // window shows, as the board's answer card draws a checkpoint on a phone
+  // (hub/public/app.js, cpTopHtml and the composer under it).
+  const phoneAsk = () => `<div class="rv-phone rv-phone-a rv-phone-q"><div class="rv-screen">
+    <div class="rv-sb">17:26<span><i></i><i></i></span></div>
+    <div class="rv-ah">${mark(22)}Ravenry<span class="rv-pill">Wi-Fi</span><span class="rv-ib">${PI.search}</span><span class="rv-ib">${PI.kebab}</span><span class="rv-fab">${PI.plus}</span></div>
+    <div class="rv-machines"><span>This Mac</span><span>studio</span></div>
+    <div class="rv-chips"><span class="rv-chip you on">${ring}paper-boat</span><span class="rv-chip you">${ring}garden-planner</span></div>
+    <div class="rv-pc"><div class="crumb">Projects / paper-boat</div><div class="since">${ring}Needs you since 17:23</div><h3>paper-boat</h3>
+      <div class="rv-live sm"><h6>Live screen<span>Live, 1 s ago</span></h6><div class="scr mono"><span style="color:#30D158">●</span> The boat rocks with the waves.</div></div>
+      <div class="rv-ak"><div class="hd">${ring}Claude is waiting for you</div>
+        <div class="q">Tilt the hull with the slope too, or keep it level?</div>
+        <div class="b">The slope is 8 degrees on the test pond.</div>
+        <div class="opts"><span class="rv-btn pri">Tilt it with the slope</span><span class="rv-btn">Keep it level</span><span class="rv-btn">Try both and show me</span></div>
+        <div class="cmp"><div class="ph">Or answer in your own words. Paste a path, or drop or paste a file.</div><div class="ns"><span class="sw"><i></i></span>New session</div><div class="row"><span class="at"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 6.5L7 11.5a3 3 0 0 1-4.2-4.2L8 2.1a2 2 0 0 1 2.8 2.8L5.7 10"/></svg>Attach</span><span class="sp"></span><span class="rv-btn sm">Add as note</span><span class="rv-btn sm pri">Send</span></div></div>
+      </div></div>
+    ${tabbar()}
+  </div></div>`;
+  const SIZES = { mac: [1280, 800, mac], board: [260, 0, board], ask: [340, 0, askCard], approve: [340, 0, approveCard], secret: [340, 0, secretCard], pick: [340, 0, pickCard], decisions: [420, 0, decisions], handoff: [420, 0, handoff], phone: [380, 800, phoneProjects], shade: [380, 660, phoneShade], term: [900, 520, termOnly], appQ: [380, 800, phoneAsk] };
   function mount() {
     for (const el of document.querySelectorAll('[data-rv]')) {
       const [w, h, fn] = SIZES[el.dataset.rv];
@@ -192,7 +219,7 @@
       inner.style.width = w + 'px';
       inner.innerHTML = fn();
       if (el.dataset.rv === 'mac' || el.dataset.rv === 'board' || el.dataset.rv === 'term') inner.firstElementChild.classList.add('rv'), inner.firstElementChild.dataset.theme = inner.dataset.theme;
-      if (el.dataset.rv === 'phone' || el.dataset.rv === 'shade' || el.dataset.rv === 'shadeA') inner.style.padding = '10px';
+      if (el.dataset.rv === 'phone' || el.dataset.rv === 'shade' || el.dataset.rv === 'appQ') inner.style.padding = '10px';
       el.appendChild(inner);
       const fit = () => { const s = el.clientWidth / w; inner.style.transform = `scale(${s})`; el.style.height = (h || inner.offsetHeight) * s + 'px'; };
       fit(); new ResizeObserver(fit).observe(el);
