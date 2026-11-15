@@ -68,8 +68,11 @@ let info = null;
 for (let i = 0; i < 120 && !info; i++) { await sleep(500); try { info = JSON.parse(fs.readFileSync(path.join(DEMO, 'demo.json'), 'utf8')); } catch { /* not yet */ } }
 if (!info || !info.phone) { console.error('the demo hub did not start'); demo.kill(); process.exit(1); }
 const BOARD = info.url;
-const mac = async (method, p, body) => {
-  const r = await fetch(BOARD + p, method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body || {}) });
+// Once more when the connection was reset: fetch reuses a kept-alive socket the hub had
+// just closed after a quiet spell (ECONNRESET at the run's second code, 2026-11-15).
+const mac = async (method, p, body, again = true) => {
+  let r;
+  try { r = await fetch(BOARD + p, method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body || {}) }); } catch (e) { if (again) return mac(method, p, body, false); throw e; }
   return { status: r.status, body: await r.json().catch(() => null) };
 };
 const pinOf = (link) => new URL(link.replace('ravenry://', 'https://x/')).searchParams.get('pin');

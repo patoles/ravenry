@@ -640,9 +640,9 @@ final class FlowTests: XCTestCase {
         _ = js("window.__rvIpad = 'same page'; return true;")
 
         // A card arriving live, upright, on the open project.
-        let one = newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"ipad one: it ran\"", "why": "A card on the iPad, upright."])
+        let one = newCard(["kind": "approve", "project": "weather-widget", "command": "echo \"ipad one: it ran\"", "why": "A card on the iPad, upright."])
         XCTAssertNotNil(one)
-        XCTAssertTrue(onBoard("paper-boat", "ipad one: it ran"), "a card arriving live shows upright")
+        XCTAssertTrue(onBoard("weather-widget", "ipad one: it ran"), "a card arriving live shows upright")
         noMacOnly("upright")
         if upright < 1000 {
             // The phone board's menu: This iPad (the app's own settings), and the connection chip in its bar.
@@ -661,9 +661,9 @@ final class FlowTests: XCTestCase {
         let side = layout(a).room
         layoutIs(a, "sideways")
         var L = layout(a)
-        let kept = (L.page["same"] as? String) == "same page" && (L.page["hash"] as? String) == "#paper-boat"
+        let kept = (L.page["same"] as? String) == "same page" && (L.page["hash"] as? String) == "#weather-widget"
             && js("return document.body.innerText.includes('ipad one: it ran');") == "true"
-        mark("sideways: same page, paper-boat open, its card shown: \(kept) (\(L.page))")
+        mark("sideways: same page, weather-widget open, its card shown: \(kept) (\(L.page))")
         XCTAssertTrue(kept, "the rotation kept the page, the open project and its card")
         noMacOnly("sideways")
         if side >= 1000 {
@@ -687,13 +687,13 @@ final class FlowTests: XCTestCase {
         rotate(.portrait)
         layoutIs(a, "upright again")
         L = layout(a)
-        XCTAssertTrue((L.page["same"] as? String) == "same page" && (L.page["hash"] as? String) == "#paper-boat", "upright again: the same page, paper-boat open")
+        XCTAssertTrue((L.page["same"] as? String) == "same page" && (L.page["hash"] as? String) == "#weather-widget", "upright again: the same page, weather-widget open")
         rotate(.landscapeLeft)
         layoutIs(a, "sideways again")
 
         // A card arriving live in the wide layout, run there with Face ID.
-        guard let two = newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"ipad two: it ran\"", "why": "A card on the iPad, sideways."]) else { XCTFail("no card"); return }
-        XCTAssertTrue(onBoard("paper-boat", "ipad two: it ran"), "a card arriving live shows sideways")
+        guard let two = newCard(["kind": "approve", "project": "weather-widget", "command": "echo \"ipad two: it ran\"", "why": "A card on the iPad, sideways."]) else { XCTFail("no card"); return }
+        XCTAssertTrue(onBoard("weather-widget", "ipad two: it ran"), "a card arriving live shows sideways")
         let run = until(10) { self.js("const b = document.querySelector('[data-act=\"cp-run\"][data-cp=\"\(two)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
         XCTAssertTrue(run, "Run on the card, sideways")
         // iOS's first ask for Face ID on this install (test4 is the iPhone run's; this run has none before): Allow.
