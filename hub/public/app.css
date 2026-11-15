@@ -945,6 +945,14 @@ div.mk-tile.working{background:var(--sheet);box-shadow:inset 0 0 0 1px var(--sep
 .gl-cell{display:flex;flex-direction:column;gap:5px;min-width:0;flex:0 1 132px}
 .gl-thumb{all:unset;box-sizing:border-box;cursor:pointer;display:block;position:relative;border-radius:6px;aspect-ratio:16/9;overflow:hidden;opacity:.72;background:var(--card2)}
 .gl-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+/* A pick's pictures (cpTopHtml, gallery.js openPick): whole on a dark well, never cropped, each with its letter. */
+.pk-tiles{display:grid;gap:8px}
+.pk-tile{all:unset;box-sizing:border-box;cursor:zoom-in;position:relative;display:block;aspect-ratio:16/10;border-radius:6px;overflow:hidden;background:#0B0B0C;box-shadow:0 0 0 1px var(--sep)}
+.pk-tile img{display:block;width:100%;height:100%;object-fit:contain}
+.pk-tile:focus-visible{outline:2px solid var(--work);outline-offset:2px}
+.pk-lt{position:absolute;left:6px;top:6px;font:700 11px/18px system-ui,sans-serif;color:#fff;background:rgba(20,20,22,.82);padding:0 6px;border-radius:5px;pointer-events:none}
+.gl-thumb.pk-th{background:#0B0B0C}
+.gl-thumb.pk-th img{object-fit:contain}
 .gl-thumb::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(127,127,127,.22);pointer-events:none}
 .mc.light .gl-thumb:not(.on){opacity:.85}
 .gl-thumb:hover{opacity:1}

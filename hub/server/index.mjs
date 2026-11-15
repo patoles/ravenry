@@ -2572,6 +2572,15 @@ function cpWords(cp, projects = snapshot.projects || []) {
   const out = cpwords.withWords(cp, { platform: process.platform, hubName: phone.hubName(), paneName: (pane) => sidebar.paneNameIn(projects, pane) });
   // A command's Run in a phone app asks for the phone's own check first, in each platform's word (shared/strings phone.runFirst.*).
   if (out.words && out.words.kind === 'approve') out.words.runFirst = { android: word('phone.runFirst.android'), ios: word('phone.runFirst.ios') };
+  // The board in a browser shows a secret, a pick or a drive but answers none (server/person.mjs): where to answer it, and a pick's
+  // pictures to look at up close (public/gallery.js openPick), in the shared words (shared/strings pick.*).
+  if (out.words && ['secret', 'pick', 'drive'].includes(out.words.kind)) {
+    const n = (cp.variants || []).length;
+    out.words.board = {
+      elsewhere: word(out.words.kind === 'secret' ? 'pick.typeElsewhere' : 'pick.answerElsewhere'),
+      ...(out.words.kind === 'pick' ? { look: word('pick.look'), sub: word('pick.viewerSub', { top: out.words.top || '', n }), keys: word('pick.keysHint'), close: word('pick.close'), fit: word('pick.fit') } : {}),
+    };
+  }
   return out;
 }
 

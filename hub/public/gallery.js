@@ -9,6 +9,12 @@
 // wheel, a double click or tap; a drag pans while zoomed, Fit or the first
 // Esc goes back, and each picture opens whole.
 //
+// A pick's pictures open in the same viewer (openPick, from the answer
+// card's tiles; the pickzoom round, 2026-11-15): the question in the bar,
+// each variant's letter, name and the agent's words under the picture, the
+// variants in the strip by letter and name, and no Pick: a browser does not
+// answer a checkpoint (server/person.mjs), so the caption says where to.
+//
 // The server sends the 6 with the card's picture (brief.pictures[auto]
 // .gallery: key, name, url, at, by, made, w, h, rel, path) and serves each
 // only while it passes the picture rules (server/pictures.mjs).
@@ -48,8 +54,8 @@ export function cardPicture(p, x, { esc, escRaw }) {
 }
 
 export function createGallery(d) {
-  // d: { $, esc, escRaw, post, toast, project, ui, serverNow, phone (a MediaQueryList) }
-  const g = { pid: null, key: null, list: [], phone: null, strip: '', back: null, touch: null };
+  // d: { $, esc, escRaw, post, toast, project, ui, serverNow, phone (a MediaQueryList), checkpoint (id -> the open checkpoint) }
+  const g = { pid: null, key: null, list: [], phone: null, strip: '', back: null, touch: null, pick: null };
   let layer = null;
 
   const isOpen = () => !!g.pid;
@@ -96,6 +102,8 @@ export function createGallery(d) {
     // events in WebKit) zoom around the pointer; a double click or double
     // tap toggles. The view has touch-action: none, so the browser leaves
     // the fingers to this.
+    // A pick's caption says the picture's size once it is in.
+    layer.addEventListener('load', (e) => { if (g.pick && e.target && e.target.id === 'gl-im') draw(); }, true);
     layer.addEventListener('pointerdown', zoomDown);
     layer.addEventListener('pointermove', zoomMove);
     layer.addEventListener('pointerup', zoomUp);
@@ -265,20 +273,30 @@ export function createGallery(d) {
   function draw() {
     if (!isOpen() || !layer) return;
     if (g.phone !== d.phone.matches) build();
-    const p = d.project(g.pid);
+    const p = g.pick ? null : d.project(g.pid);
     const name = p ? p.name : '';
+    const pw = g.pick ? (g.pick.words || {}) : null;
+    const pb = pw ? pw.board || {} : null;
     const x = cur();
     const i = idx();
     const n = g.list.length;
     const { esc, escRaw } = d;
-    setHtml(layer.querySelector('#gl-bar'), g.phone
+    if (pw) setHtml(layer.querySelector('#gl-bar'), g.phone
+      ? `<button class="x-btn" data-gl-close aria-label="${esc(pb.close || 'Close')}">${ICON.x}</button><span class="fs-name" style="min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">${esc(pw.head || '')}</span><span style="flex: 1"></span><span class="num t2" style="font-size: 13px; white-space: nowrap">${esc(x ? x.letter : '')}, ${i + 1} of ${n}</span>`
+      : `<span class="fs-name">${esc(pw.head || '')}</span><span class="t2" style="font-size: 13px">${esc(pb.sub || '')}</span><span style="flex: 1"></span><span class="t3" style="font-size: 12px">${esc(pb.keys || '')}</span><button class="btn sm" data-gl-close>${esc(pb.close || 'Close')}</button>`);
+    else setHtml(layer.querySelector('#gl-bar'), g.phone
       ? `<button class="x-btn" data-gl-close aria-label="Close the pictures">${ICON.x}</button><span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures</span><span style="flex: 1"></span><span class="num t2" style="font-size: 13px">${i + 1} of ${n}</span>`
       : `<span class="fs-name">${esc(name)}</span><span class="t2" style="font-size: 13px">Pictures from this session</span><span style="flex: 1"></span><span class="t3" style="font-size: 12px">Left and right arrows to move, Esc to close</span><button class="btn sm" data-gl-close>Close</button>`);
     const im = layer.querySelector('#gl-im');
     if (x && im.getAttribute('src') !== x.url) { zoomClear(); im.setAttribute('src', x.url); } // each picture opens whole
     if (x) im.alt = x.name;
     for (const b of layer.querySelectorAll('[data-gl-step]')) b.disabled = Number(b.dataset.glStep) < 0 ? i <= 0 : i >= n - 1;
-    if (x) {
+    if (x && pw) {
+      const size = im.naturalWidth && im.getAttribute('src') === x.url ? `${im.naturalWidth} x ${im.naturalHeight}` : '';
+      setHtml(layer.querySelector('#gl-cap'), g.phone
+        ? `<div><span class="ga-file">${esc(x.name)}</span></div>${x.says ? `<div class="t2" style="font-size: 12px">${esc(x.says)}</div>` : ''}<div class="t3" style="font-size: 12px">${esc(pb.elsewhere || '')}</div>`
+        : `<span class="ga-file">${esc(x.name)}</span>${x.says ? `<span class="t2">${esc(x.says)}</span>` : ''}${size ? `<span class="t2 num">${size}</span>` : ''}<span style="flex: 1"></span><span class="t2">${esc(pb.elsewhere || '')}</span>`);
+    } else if (x) {
       const by = byWords(x);
       const ago = agoWords(x.at);
       setHtml(layer.querySelector('#gl-cap'), g.phone
@@ -291,7 +309,9 @@ export function createGallery(d) {
     const strip = layer.querySelector('#gl-strip');
     if (g.strip !== keys) {
       g.strip = keys;
-      strip.innerHTML = g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb" data-gl-go="${k}" aria-label="${esc(`${y.name}${y.at ? ', ' + agoWords(y.at) : ''}`)}"><img src="${escRaw(y.url)}" alt=""></button>${g.phone ? '' : `<span class="gl-time num"></span>`}</span>`).join('');
+      strip.innerHTML = g.pick
+        ? g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb pk-th" data-gl-go="${k}" aria-label="${esc(y.name)}"><img src="${escRaw(y.url)}" alt=""><span class="pk-lt">${esc(y.letter)}</span></button>${g.phone ? '' : `<span class="gl-time pk-nm">${esc(y.label)}</span>`}</span>`).join('')
+        : g.list.map((y, k) => `<span class="gl-cell"><button class="gl-thumb" data-gl-go="${k}" aria-label="${esc(`${y.name}${y.at ? ', ' + agoWords(y.at) : ''}`)}"><img src="${escRaw(y.url)}" alt=""></button>${g.phone ? '' : `<span class="gl-time num"></span>`}</span>`).join('');
     }
     strip.querySelectorAll('.gl-cell').forEach((c, k) => {
       const on = k === i;
@@ -299,7 +319,7 @@ export function createGallery(d) {
       b.classList.toggle('on', on);
       if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
       const t = c.querySelector('.gl-time');
-      if (t) { t.classList.toggle('on', on); const a = age(g.list[k].at); if (t.textContent !== a) t.textContent = a; }
+      if (t) { t.classList.toggle('on', on); if (g.pick) return; const a = age(g.list[k].at); if (t.textContent !== a) t.textContent = a; }
     });
   }
 
@@ -309,6 +329,8 @@ export function createGallery(d) {
     const list = galleryOf(p);
     if (!list.length) return;
     ensureLayer();
+    g.pick = null;
+    layer.setAttribute('aria-label', 'Pictures from this session');
     g.pid = pid;
     g.list = list;
     g.key = key && list.some((x) => x.key === key) ? key : list[list.length - 1].key;
@@ -323,9 +345,37 @@ export function createGallery(d) {
     layer.focus({ preventScroll: true });
   }
 
+  // A pick's variants as the viewer's list: its letter and name, the agent's words, the hub's copy.
+  function pickList(cp) {
+    const w = cp.words || {};
+    return (cp.variants || []).map((v, k) => {
+      const nm = (w.variants || [])[k] || {};
+      const letter = nm.letter || String(k + 1);
+      return { key: `v${k}`, letter, label: nm.name || v.label || '', name: `${letter}. ${nm.name || v.label || ''}`, says: nm.says || null, url: `/api/checkpoints/${encodeURIComponent(cp.id)}/variants/${k}` };
+    });
+  }
+  // Opens a pick's picture n up close (a tile on its answer card).
+  function openPick(id, n) {
+    const cp = d.checkpoint && d.checkpoint(id);
+    if (!cp || !(cp.variants || []).length) return;
+    ensureLayer();
+    g.pick = cp;
+    g.pid = `pick:${cp.id}`;
+    g.list = pickList(cp);
+    g.key = (g.list[n] || g.list[0]).key;
+    g.back = document.activeElement;
+    build();
+    layer.setAttribute('aria-label', (cp.words && cp.words.head) || 'Pictures');
+    layer.hidden = false;
+    document.documentElement.classList.add('lv-lock');
+    draw();
+    try { history.pushState({ glOpen: 1 }, ''); } catch { /* sandboxed */ }
+    layer.focus({ preventScroll: true });
+  }
+
   function close({ back = true } = {}) {
     if (!isOpen()) return;
-    g.pid = null; g.list = []; g.key = null; g.strip = '';
+    g.pid = null; g.list = []; g.key = null; g.strip = ''; g.pick = null;
     layer.hidden = true;
     layer.innerHTML = '';
     zoomClear();
@@ -350,6 +400,8 @@ export function createGallery(d) {
   // None left (another session): closed.
   function sync() {
     if (!isOpen()) return;
+    // A pick: open while it is open; answered, gone or cancelled, closed.
+    if (g.pick) { const cp = d.checkpoint && d.checkpoint(g.pick.id); if (!cp || cp.state !== 'open') close(); else { g.pick = cp; draw(); } return; }
     const list = [...galleryOf(d.project(g.pid))];
     if (!list.length) { close(); return; }
     const shown = cur();
@@ -368,6 +420,8 @@ export function createGallery(d) {
     const t = e.target;
     const card = t.closest('[data-gallery]');
     if (card) { open(card.dataset.gallery, card.dataset.galleryKey); return; }
+    const pv = t.closest('[data-pick-view]');
+    if (pv) { openPick(pv.dataset.pickView, Number(pv.dataset.n) || 0); return; }
     if (!isOpen()) return;
     if (t.closest('[data-gl-close]')) { close(); return; }
     if (t.closest('[data-gl-fit]')) { z.s = 1; zoomApply({ animate: true }); return; }
@@ -390,5 +444,5 @@ export function createGallery(d) {
   window.addEventListener('popstate', () => { if (isOpen()) close({ back: false }); });
   d.phone.addEventListener('change', () => { if (isOpen()) draw(); });
 
-  return { open, close, sync, isOpen };
+  return { open, openPick, close, sync, isOpen };
 }

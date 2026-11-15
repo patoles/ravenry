@@ -1898,12 +1898,22 @@ ${line(runs)}
 ${line(w.body)}
 ${(cp.options || []).length ? `<div class="q-opts" style="display: flex; flex-wrap: wrap; gap: 8px">${cp.options.map((o, k) => `<button class="btn ${k === 0 ? 'pri' : ''}" data-act="cp-choice" data-cp="${escRaw(cp.id)}" data-k="${k}">${esc(o)}</button>`).join('')}</div>` : ''}`;
   }
-  // A secret, a pick, a drive: their own screens in the app.
+  // A secret, a pick, a drive: their own screens in the app. In a browser
+  // none is answered (server/person.mjs); a pick shows its pictures, each
+  // opening the gallery's viewer up close (gallery.js openPick).
   const what = cp.kind === 'secret' ? 'Type it' : cp.kind === 'pick' ? 'Compare' : 'Open';
+  const bw = w.board || {};
+  const vs = cp.kind === 'pick' && !app ? cp.variants || [] : [];
+  const tiles = vs.length ? `<div class="pk-tiles" style="grid-template-columns: repeat(${Math.min(4, vs.length)}, minmax(0, 1fr))">${vs.map((v, k) => {
+    const nm = (w.variants || [])[k] || {};
+    const letter = nm.letter || String(k + 1);
+    return `<button class="pk-tile" data-pick-view="${escRaw(cp.id)}" data-n="${k}" aria-label="${esc(`${letter}. ${nm.name || v.label || ''}`)}">${v.type === 'html' ? '' : `<img src="/api/checkpoints/${escRaw(encodeURIComponent(cp.id))}/variants/${k}" alt="" loading="lazy">`}<span class="pk-lt">${esc(letter)}</span></button>`;
+  }).join('')}</div>` : '';
   return `${head}
 <div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(w.head || cp.title || '')}</div>
 ${line(w.body)}
-${app ? `<div class="cp-row"><button class="btn pri" data-act="cp-open" data-cp="${escRaw(cp.id)}">${what}</button></div>` : line(cp.kind === 'secret' ? 'Type it on the Mac or in the Ravenry app on your phone.' : 'Answer it on the Mac or in the Ravenry app on your phone.')}`;
+${tiles}
+${app ? `<div class="cp-row"><button class="btn pri" data-act="cp-open" data-cp="${escRaw(cp.id)}">${what}</button></div>` : line([vs.length ? bw.look : '', bw.elsewhere].filter(Boolean).join(' '))}`;
 }
 
 async function answerCp(id, reply, said) {
@@ -4519,7 +4529,7 @@ async function openFolder(pid) {
   try { await post('/api/project/open-folder', { projectId: pid }); } catch (e) { say.error(e.message, 4500); }
 }
 
-gallery = createGallery({ $, esc, escRaw, post, toast, project, ui, serverNow, phone: LV_PHONE });
+gallery = createGallery({ $, esc, escRaw, post, toast, project, ui, serverNow, phone: LV_PHONE, checkpoint: (id) => ((ui.snap && ui.snap.checkpoints) || []).find((c) => c && c.id === id) || null });
 
 // Sessions page: a tick changed.
 document.addEventListener('change', (e) => {
