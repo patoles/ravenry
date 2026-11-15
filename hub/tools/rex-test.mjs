@@ -115,9 +115,18 @@ check('processes: an iTerm2 tab with Rex\'s variables inherited stays iTerm2; tm
 // The hook records it.
 const HOOK_HOME = path.join(T, 'hook-home');
 const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CMUX_|ITERM_|REX_|TERM_PROGRAM|TERM_SESSION_ID|TMUX|WEZTERM_|KITTY_|RAVENRY_|MC_|PORT$)/.test(k)));
+// The sessions run with a stand-in claude first on their PATH (the hook
+// records it): every tab the board opens runs it, found there, never the real one.
+const SIN = path.join(T, 'standin-bin');
+fs.mkdirSync(SIN, { recursive: true });
+fs.writeFileSync(path.join(SIN, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const SPATH = `${SIN}:/usr/bin:/bin`;
+const SCLAUDE = path.join(SIN, 'claude');
+// The tab's program (server/launch.mjs wrapped): the folder, the PATH, then the assistant's argv.
+const runs = (o, cwd, ...argv) => !!o && Array.isArray(o.command) && o.shell === 'none' && o.command[0] === '/bin/zsh' && o.command[4] === 'ravenry-start' && o.command[5] === cwd && o.command[6] === SPATH && JSON.stringify(o.command.slice(8)) === JSON.stringify([SCLAUDE, ...argv]);
 function hook(input, env, home = HOOK_HOME, board = 'http://127.0.0.1:9') {
   return new Promise((resolve) => {
-    const c = spawn(process.execPath, [path.join(ROOT, 'hooks', 'events.mjs')], { env: { ...cleanEnv, TEST_RAVENRY: '1', RAVENRY_HOME: home, MC_BOARD_URL: board, ...env } });
+    const c = spawn(process.execPath, [path.join(ROOT, 'hooks', 'events.mjs')], { env: { ...cleanEnv, PATH: SPATH, TEST_RAVENRY: '1', RAVENRY_HOME: home, MC_BOARD_URL: board, ...env } });
     c.on('close', (code) => resolve(code));
     c.stdin.end(JSON.stringify(input));
   });
@@ -326,13 +335,18 @@ try {
   const hand = path.join(MC, 'handoffs');
   fs.mkdirSync(hand, { recursive: true });
   fs.writeFileSync(path.join(hand, SID_A + '.json'), JSON.stringify({ sessionId: SID_A, state: 'written', writtenAt: new Date().toISOString(), handoffFile: path.join(PROJ, 'BRIEF.md'), cwd: PROJ, folder: PROJ, projectId: 'rexproj' }));
+  const readM = () => { try { return JSON.parse(fs.readFileSync(path.join(hand, SID_A + '.json'), 'utf8')); } catch { return null; } };
   let m = null;
-  for (let i = 0; i < 60; i++) { await sleep(150); try { m = JSON.parse(fs.readFileSync(path.join(hand, SID_A + '.json'), 'utf8')); } catch { /* writing */ } if (m && (m.state === 'resumed' || m.resumeError)) break; }
+  for (let i = 0; i < 60; i++) { await sleep(150); m = readM(); if (m && (m.resumeLaunchedAt || m.resumeError || m.state === 'resumed')) break; }
   st = fst();
   const ho = (st.opened || [])[opened0];
   const hk = ho ? st.keys[ho.block] || [] : [];
-  check('board: the hand-off\'s fresh session opens in a new tab in the old Rex session, in the folder', m && m.state === 'resumed' && ho && ho.session === SA && ho.cwd === PROJ && m.resumeSurfaceId === 'rex:' + ho.block.slice(6), m ? JSON.stringify({ state: m.state, err: m.resumeError, ho }) : 'no marker');
-  check('board: it runs cd <folder> && claude \'<prompt>\', then Enter', hk.length === 2 && hk[0] === `text:cd '${PROJ}' && claude 'Read the Hand-off section of BRIEF.md and continue from it.'` && hk[1] === 'key:enter', JSON.stringify(hk));
+  check('board: the hand-off\'s fresh session opens in a new tab in the old Rex session, in the folder', m && m.resumeLaunchedAt && ho && ho.session === SA && ho.cwd === PROJ && m.resumeSurfaceId === 'rex:' + ho.block.slice(6), m ? JSON.stringify({ state: m.state, err: m.resumeError, ho: ho && { ...ho, command: undefined } }) : 'no marker');
+  check('board: the tab runs claude \'<prompt>\' as its program (--shell=none), nothing typed', runs(ho, PROJ, 'Read the Hand-off section of BRIEF.md and continue from it.') && hk.length === 0 && m.resumeHow === 'program', JSON.stringify({ command: ho && ho.command && [...ho.command.slice(0, 3), ...ho.command.slice(4)], shell: ho && ho.shell, keys: hk }));
+  check('board: not resumed before the fresh session is seen', m && m.state === 'written' && !m.resumeError, JSON.stringify(m && { state: m.state, err: m.resumeError }));
+  if (ho) await hook({ hook_event_name: 'SessionStart', session_id: 'f1f1f1f1-0000-4000-8000-0000000000f1', cwd: PROJ, source: 'startup' }, REXENV(ho.block, SA), MC, BASE);
+  for (let i = 0; i < 60; i++) { await sleep(150); m = readM(); if (m && m.state === 'resumed') break; }
+  check('board: resumed once its session shows in the new tab', m && m.state === 'resumed' && m.resumedBy === 'seen', JSON.stringify(m && { state: m.state, by: m.resumedBy }));
   check('board: the old pane got nothing from the hand-off', (fst().keys[BA] || []).length === keysBefore);
 
   // Close idle: the idle Claude in pane BS (its process names REX_BLOCK).
@@ -348,7 +362,7 @@ try {
   res = await post('/api/sessions/reopen', { id: SID_S });
   st = fst();
   const ro = (st.opened || [])[op1];
-  check('Reopen: a new tab in the closed pane\'s Rex session runs cd <folder> && claude --resume <id>', res.status === 200 && ro && ro.session === SA && JSON.stringify(st.keys[ro.block]) === JSON.stringify([`text:cd '${PROJ}' && claude --resume ${SID_S}`, 'key:enter']), `${res.status} ${JSON.stringify(res.j)} ${ro ? JSON.stringify(st.keys[ro.block]) : 'no tab'}`);
+  check('Reopen: a new tab in the closed pane\'s Rex session runs claude --resume <id> as its program, in the folder', res.status === 200 && ro && ro.session === SA && runs(ro, PROJ, '--resume', SID_S) && !(st.keys || {})[ro.block], `${res.status} ${JSON.stringify(res.j)} ${ro ? JSON.stringify({ command: ro.command && ro.command.slice(5), keys: (st.keys || {})[ro.block] }) : 'no tab'}`);
 } finally {
   if (browser) await browser.close();
   server.kill();
@@ -429,13 +443,15 @@ try {
   const FRESH = path.join(ROOT4, 'fresh-one');
   const nc = (st4.created || [])[0];
   check('New project: a NEW Rex session named after the project, in its folder, and it says so', r.status === 200 && nc && nc.label === 'Fresh One' && nc.cwd === FRESH && /new Rex session/.test(r.j.message || ''), JSON.stringify({ j: r.j, nc }));
-  check('New project: the new session got cd <folder> && claude <prompt>, then Enter', nc && JSON.stringify(st4.keys[nc.block]) === JSON.stringify([`text:cd '${FRESH}' && claude 'Read BRIEF.md and start on the first milestone.'`, 'key:enter']), nc ? JSON.stringify(st4.keys[nc.block]) : 'none');
+  check('New project: the new session runs claude <prompt> as its program, in its folder', runs(nc, FRESH, 'Read BRIEF.md and start on the first milestone.') && !(st4.keys || {})[nc.block], nc ? JSON.stringify({ command: nc.command && nc.command.slice(5), keys: (st4.keys || {})[nc.block] }) : 'none');
   r = await post4('/api/project/revive', { projectId: 'rexproj' });
   st4 = fst(FAKE4);
   const rt = (st4.opened || [])[0];
   check('Revive: a new tab in the project\'s own Rex session, in its folder', r.status === 200 && rt && rt.session === SA && rt.cwd === PROJ && /New Rex tab for Rex Test/.test(r.j.message || ''), JSON.stringify({ j: r.j, rt }));
-  check('Revive: it runs cd <folder> && claude \'Read BRIEF.md (Hand-off section first) and continue.\'', rt && (st4.keys[rt.block] || [])[0] === `text:cd '${PROJ}' && claude 'Read BRIEF.md (Hand-off section first) and continue.'`, rt ? JSON.stringify(st4.keys[rt.block]) : 'none');
-  const fresh = (await stateOf(BASE4)()).projects.find((p) => p.folder === FRESH);
+  check('Revive: it runs claude \'Read BRIEF.md (Hand-off section first) and continue.\' as its program, in the folder', runs(rt, PROJ, 'Read BRIEF.md (Hand-off section first) and continue.'), rt ? JSON.stringify({ command: rt.command && rt.command.slice(5), keys: (st4.keys || {})[rt.block] }) : 'none');
+  // (The tab now opens at once, with no typing pause: the next tick lists the project.)
+  let fresh = null;
+  for (let i = 0; i < 40 && !fresh; i++) { fresh = (await stateOf(BASE4)()).projects.find((p) => p.folder === FRESH); if (!fresh) await sleep(150); }
   r = await post4('/api/open', { projectId: fresh.id, surfaceId: null });
   check('Open: a project with no Rex tab says so in Rex\'s words', r.status === 409 && /no open Rex tab/.test(r.j.error) && !/cmux/.test(r.j.error), r.j.error);
 

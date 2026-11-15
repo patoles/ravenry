@@ -18,6 +18,7 @@ import net from 'node:net';
 import { RAVENRY_HOME } from '../server/home.mjs';
 import { assistantOf, codexDaemon, hookParent } from '../server/assistanthook.mjs';
 import { record } from '../server/hookrecord.mjs';
+import * as sessionenv from '../server/sessionenv.mjs';
 
 const DIR = path.join(RAVENRY_HOME, 'events');
 // The board's port: MC_BOARD_URL, else the one the running board wrote to
@@ -96,6 +97,15 @@ async function main() {
   let input;
   try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return; }
   if (!input || !SAFE_ID.test(String(input.session_id || '')) || !input.hook_event_name) return;
+  // The PATH this session runs with (the assistant's, which this hook
+  // inherits), so the board can start a session after it as a program of
+  // its new tab, never typed into a shell (server/sessionenv.mjs). Also in
+  // a ravenryd pane, before this copy stands down. Not from Codex's daemon,
+  // whose environment is another terminal's.
+  if (input.hook_event_name === 'SessionStart' && process.env.PATH && !(ASSISTANT === 'codex' && await codexDaemon(hookParent()))) {
+    sessionenv.write(RAVENRY_HOME, input.session_id, { assistant: ASSISTANT, PATH: process.env.PATH });
+    sessionenv.prune(RAVENRY_HOME);
+  }
   // In a ravenryd pane whose hooks also run `ravenryd hook` (the hook
   // command says so with --ravenryd), the daemon reports the event: this
   // copy stands down so the board does not get it twice.

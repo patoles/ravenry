@@ -64,8 +64,8 @@ A Mac has one of them in practice, so the modes do not mix:
   project's own Rex tab, else a new Rex session named after the project;
   a hand-off's fresh session opens a new tab in the old tab's Rex session;
   Reopen opens a new tab in the closed tab's Rex session while it is
-  there, else a new Rex session. Each runs `cd <folder> && claude ...`
-  typed into its shell, as in iTerm2. Nothing is shown in the Rex app:
+  there, else a new Rex session. Each runs the assistant as the tab's own
+  program (below, "Starting an assistant"). Nothing is shown in the Rex app:
   `rex new` and `rex window new --focus=false` change nothing on screen.
   iTerm2 sessions are still driven in Rex mode, as in cmux mode, and Rex
   sessions in iTerm2 mode.
@@ -141,10 +141,29 @@ pane Claude runs in.
 | **Open tab** | `openTab(kind, opts)` | `new-surface` in the workspace, next to the old pane, in the folder, not focused | AppleScript `create tab with default profile` in the old session's window (else the current window, else a new window); iTerm2 selects the new tab in that window but is not brought forward | `rex window new -s <session> <label> -c <folder> --focus=false --json` in the Rex session of `near` (a pane), else of `session`; with neither open, `rex new <label> -c <folder> --json`, a new Rex session. Neither shows anything in the app | The hand-off's fresh session; Reopen; New project and Revive outside cmux mode |
 | **Close** | `close(tab)` | `close-surface` with both ids, the board's own tab variables left out | AppleScript `close` on that session | `rex block close <block>`; the Rex session stays, empty when that was its last tab (Reopen opens its tab there again) | Close idle sessions |
 
-The board then types the command into the new tab and presses Enter, the
-same for every terminal. A new iTerm2 tab starts where its profile says, so
-its command is `cd <folder> && claude ...`; a Rex tab opens in the folder
-already, and gets the same command line.
+**Starting an assistant** (`server/launch.mjs`, every place a tab opens
+for one: a hand-off's fresh session, New project, Revive, New session,
+Reopen, Continue in Ravenry). The board never types into a shell that may
+not be ready: a startup file can ask something first (oh-my-zsh's "Would
+you like to update? [Y/n]") and take the typed command as its answer.
+
+- A Ravenry pane (`pane.new` with `command`), a Rex window (`-- COMMAND`
+  with `--shell=none`) and an iTerm2 tab (AppleScript's `create tab with
+  default profile command`) run the assistant as their own program: its
+  absolute path, found on the PATH the session it follows ran with (the
+  hook records it, `server/sessionenv.mjs`), else the newest session's of
+  that assistant, else the board's. A `zsh -f` (no startup file) starts it
+  in the folder with that PATH, and becomes the person's login shell
+  (`exec -l $SHELL`) when it exits; in a Ravenry pane that shell keeps
+  Ravenry's shell integration.
+- cmux's CLI only types a command into a new tab (`new-workspace
+  --command`, `respawn-pane`), and a pane on another machine runs an
+  assistant the board cannot find from here: the tab opens with its shell,
+  and the board types `cd <folder> && claude ...` and Enter once the
+  screen shows a quiet prompt (unchanged for 0.7 s, at most 15 s). A screen
+  that ends on a question ([Y/n], (y/n), a line ending in "?") is never
+  answered: nothing is typed, and the start says so, with the command to
+  copy.
 
 Every `rex` call passes `--autostart=false`, so the board never starts a
 Rex server. A full block id needs no `-s <session>` (measured), so the

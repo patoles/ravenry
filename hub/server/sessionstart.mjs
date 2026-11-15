@@ -22,7 +22,8 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // Claude Code 2.1.319 and Codex 0.166.0), with no prompt.
 // project: the registry's (or null); launch(project, assistant): { kind,
 // command }; briefPath(project): its BRIEF.md or null; briefExists(p).
-// Returns { ok, cwd, machine, line, label, labels, cols, rows, kind, env } or
+// Returns { ok, cwd, machine, line, command, args, label, labels, cols, rows,
+// kind, env } or
 // { ok: false, status, error }.
 // binPath(name): the PATH a pane on this machine starts the assistant with,
 // its own folder first, or null when it is not found here. The board finds
@@ -61,12 +62,15 @@ export function plan(body, { project = null, launch, briefPath = () => null, bri
   const resume = b.resume ? b.resume.toLowerCase() : null;
   const line = resume ? (L.kind === 'codex' ? `${L.command} resume ${resume}` : `${L.command} --resume ${resume}`)
     : prompt ? `${L.command} ${prompt.startsWith('-') ? '-- ' : ''}${shellWord(prompt)}` : L.command;
+  // The same as the command and its words, for a pane that runs the
+  // assistant as its program (server/launch.mjs).
+  const args = resume ? (L.kind === 'codex' ? ['resume', resume] : ['--resume', resume]) : prompt ? [...(prompt.startsWith('-') ? ['--'] : []), prompt] : [];
   const first = String(L.command).trim().split(/\s+/)[0];
   const PATH = !machine && ASSISTANTS.has(first) ? binPath(first) : null;
   const size = (n) => (Number.isInteger(n) && n >= 1 && n <= 4096 ? n : null);
   const cols = size(b.cols), rows = size(b.rows);
   return {
-    ok: true, cwd: folder, machine, line, kind: L.kind, ...(PATH ? { env: { PATH } } : {}),
+    ok: true, cwd: folder, machine, line, command: L.command, args, kind: L.kind, ...(PATH ? { env: { PATH } } : {}),
     label: String((project && project.name) || path.basename(folder) || 'Session').slice(0, 60),
     labels: { 'ravenry.session': L.kind, ...(project ? { 'ravenry.project': project.id.slice(0, 256) } : {}) },
     ...(cols && rows ? { cols, rows } : {}),

@@ -94,7 +94,7 @@ switch (op) {
     const u = crypto.randomUUID().toUpperCase();
     st.sessions.push({ uuid: u, windowId: near ? near.windowId : '1', tty: '/dev/ttys998', title: '' });
     st.screens[u] = '➜  ~\n';
-    (st.opened = st.opened || []).push({ uuid: u, near: args[0] || null, windowId: near ? near.windowId : '1' });
+    (st.opened = st.opened || []).push({ uuid: u, near: args[0] || null, windowId: near ? near.windowId : '1', ...(args[1] ? { command: args[1] } : {}) });
     save();
     done(u + '\n');
     break;

@@ -1631,6 +1631,8 @@ function handoffButton(s) {
   const h = s && s.handoff;
   if (!s || !s.live || !s.sessionId || !h) return '';
   if (h.state === 'written' && !h.autoStart && !h.resumeError) return '<button class="btn sm pri" data-act="handoff-start">Start fresh session</button>';
+  // Its start failed: Retry (the same start, by hand) and the command to copy.
+  if (h.state === 'written' && h.resumeError) return `<button class="btn sm pri" data-act="handoff-start">Retry</button>${h.resumeCommand ? '<button class="btn sm" data-act="handoff-copy" title="Copy the command that starts the fresh session, to run it yourself">Copy command</button>' : ''}`;
   if (h.state === 'written' || h.state === 'resumed') return '';
   if (h.manual) return '<button class="btn sm" disabled title="Asked for. It hands off at the next clean point.">Hand-off queued</button>';
   return `<button class="btn sm" data-act="handoff" title="Hand off at the next clean point: task finished, work committed, nothing running">Hand off now</button>`;
@@ -1649,7 +1651,10 @@ function handoffCard(p, s) {
     if (h.state === 'requested') notes.push(`Asked at ${h.asks > 1 ? 'its last ' + h.asks + ' stops' : 'its last stop'}. It writes the hand-off to ${name} when the task is done.`);
     else if (h.atRest) notes.push("It asks at this session's next stop. Send it any message to get there sooner.");
   } else if (h.state === 'written') {
-    if (h.resumeError) line = `Hand-off written to ${name}, but the fresh session did not start: ${h.resumeError}`;
+    if (h.resumeError) {
+      line = `Hand-off written to ${name}. ${h.resumeError}`;
+      if (h.resumeQuestion) notes.push(`Its tab asks: "${h.resumeQuestion}". Ravenry never answers that for you.`);
+    }
     else if (h.autoStart) line = `Hand-off written to ${name}. Opening a fresh session in this workspace.`;
     else line = `Hand-off written to ${name}. Start the fresh session when you are ready.`;
   } else {
@@ -1687,6 +1692,16 @@ async function handoffStart() {
   } catch (e) {
     say.error(e.message);
   }
+}
+
+// A failed start's command, to run by hand.
+async function handoffCopy() {
+  const say = toaster();
+  const p = project(ui.sel);
+  const s = p && view(p).s;
+  const cmd = s && s.handoff && s.handoff.resumeCommand;
+  if (!cmd) return;
+  say((await lvCopyText(cmd)) ? 'Command copied. Paste it in a terminal to start the fresh session.' : 'Could not copy the command.');
 }
 
 function joinNames(a) {
@@ -4481,6 +4496,7 @@ document.addEventListener('click', (e) => {
   if (act === 'open') openInCmux();
   if (act === 'handoff') handoffNow();
   if (act === 'handoff-start') handoffStart();
+  if (act === 'handoff-copy') handoffCopy();
   if (act === 'session') {
     ui.selSession[ui.sel] = a.dataset.surface;
     // Picked while a new session was starting: theirs, not moved again.

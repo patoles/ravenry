@@ -177,8 +177,13 @@ const RULE = '─'.repeat(W);
 const atRest = `\n⏺ Done.\n\n✻ Worked for 2m 3s\n\n${RULE}\n❯ \n${RULE}\n  ⏵⏵ auto mode on (shift+tab to cycle)\n`;
 setFake({ running: true, sessions: [{ uuid: A, windowId: '7', tty: '/dev/ttys009', title: '✳ Found work' }], screens: { [A]: atRest } });
 
+// A stand-in claude first on the board's PATH: a new tab's program is found there (server/launch.mjs).
+const SIN = path.join(T, 'standin-bin');
+fs.mkdirSync(SIN, { recursive: true });
+fs.writeFileSync(path.join(SIN, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const runsIn = (t, dir, prompt) => !!t && (t.command || '').includes(` 'ravenry-start' '${dir}' `) && (t.command || '').endsWith(` '${path.join(SIN, 'claude')}' '${prompt}'`);
 const env = {
-  ...cleanEnv, RAVENRY_TERMINAL: 'iterm', RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0',
+  ...cleanEnv, PATH: `${SIN}:/usr/bin:/bin:${path.dirname(process.execPath)}`, RAVENRY_TERMINAL: 'iterm', RAVENRY_HOME: MC, PORT: String(PORT), MC_NO_EVENTS: '1', MC_REPEATS_AUTO: '0',
   CMUX_BIN: TRIP, MC_CLAUDE_PROJECTS: CLAUDE, ITERM_OSASCRIPT_BIN: FAKE_BIN, RAVENRY_ITERM_PYTHON: FAKE_BIN, FAKE_ITERM_STATE: FAKE_IT,
   MC_PROJECTS_ROOT: ROOTDIR, MC_GLOBAL_CLAUDE_MD: path.join(T, 'CLAUDE.md'), MC_BACKUP_DIR: path.join(T, 'backups'), MC_OSASCRIPT_BIN: path.join(ROOT, 'tools', 'stub-osascript.mjs'),
 };
@@ -199,7 +204,7 @@ async function until(cond, ms = 8000) {
 }
 function hook(input, envx) {
   return new Promise((resolve) => {
-    const c = spawn(process.execPath, [path.join(ROOT, 'hooks', 'events.mjs')], { env: { ...cleanEnv, RAVENRY_HOME: MC, MC_BOARD_URL: BASE, ...envx } });
+    const c = spawn(process.execPath, [path.join(ROOT, 'hooks', 'events.mjs')], { env: { ...cleanEnv, PATH: env.PATH, RAVENRY_HOME: MC, MC_BOARD_URL: BASE, ...envx } });
     c.on('close', resolve);
     c.stdin.end(JSON.stringify(input));
   });
@@ -229,7 +234,7 @@ try {
   const nt = (st.opened || [])[opened0];
   const FRESH = path.join(ROOTDIR, 'fresh-one');
   check('New project: ok, and says it opened a new iTerm2 tab', r.status === 200 && /new iTerm2 tab/.test(r.j.message || ''), JSON.stringify(r.j));
-  check('New project: one new iTerm2 tab, which got cd <folder> && claude <prompt>, then Enter', !!nt && JSON.stringify(st.keys[nt.uuid]) === JSON.stringify([`text:cd '${FRESH}' && claude 'Read BRIEF.md and start on the first milestone.'`, 'osa:enter']), nt ? JSON.stringify(st.keys[nt.uuid]) : 'no tab');
+  check('New project: one new iTerm2 tab, whose own program is claude <prompt> in the folder, nothing typed', runsIn(nt, FRESH, 'Read BRIEF.md and start on the first milestone.') && !(st.keys || {})[nt.uuid], nt ? JSON.stringify({ keys: (st.keys || {})[nt.uuid], command: (nt.command || '').slice(-200) }) : 'no tab');
   check('New project: folder, brief and a registry entry with no cmux workspace', fs.existsSync(path.join(FRESH, 'BRIEF.md')) && reg().projects.some((p) => p.folder === FRESH && p.workspaces.length === 0));
 
   // Revive: a new tab in the window of the project's own iTerm2 session.
@@ -237,10 +242,12 @@ try {
   st = fst();
   const rt = st.opened[st.opened.length - 1];
   check('Revive: a new iTerm2 tab in the window of the project\'s session', r.status === 200 && rt.near === A && rt.windowId === '7' && /New iTerm2 tab for other-repo/.test(r.j.message || ''), JSON.stringify({ r: r.j, rt }));
-  check('Revive: it runs cd <folder> && claude \'Read BRIEF.md (Hand-off section first) and continue.\'', (st.keys[rt.uuid] || [])[0] === `text:cd '${OTHERDIR}' && claude 'Read BRIEF.md (Hand-off section first) and continue.'`, JSON.stringify(st.keys[rt.uuid]));
+  check('Revive: its program is claude \'Read BRIEF.md (Hand-off section first) and continue.\' in the folder', runsIn(rt, OTHERDIR, 'Read BRIEF.md (Hand-off section first) and continue.') && !(st.keys || {})[rt.uuid], JSON.stringify({ keys: (st.keys || {})[rt.uuid], command: (rt.command || '').slice(-200) }));
 
   // Open with no session: iTerm2's words, not cmux's.
-  const fresh = (await state()).projects.find((p) => p.folder === FRESH);
+  // (The tab now opens at once, with no typing pause: the next tick lists the project.)
+  let fresh = null;
+  for (let i = 0; i < 40 && !fresh; i++) { fresh = (await state()).projects.find((p) => p.folder === FRESH); if (!fresh) await sleep(150); }
   r = await post('/api/open', { projectId: fresh.id, surfaceId: null });
   check('Open: a project with no iTerm2 tab says so in iTerm2\'s words', r.status === 409 && /no open iTerm2 tab/.test(r.j.error) && !/cmux/.test(r.j.error), r.j.error);
   r = await post('/api/open', { projectId: other.id, surfaceId: 'iterm:' + A });

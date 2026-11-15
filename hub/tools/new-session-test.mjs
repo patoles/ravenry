@@ -27,8 +27,8 @@
 //   no words is unchanged.
 //
 // A second board on :4687 in iTerm2 mode (tools/fake-iterm.mjs, a cmux
-// tripwire): Start session opens a new iTerm2 tab that runs
-// `cd <folder> && claude '<the words>'`.
+// tripwire): Start session opens a new iTerm2 tab whose own program is
+// claude (a stand-in on the board's PATH) with the words, in the folder.
 //
 // --shots <dir>: the box at 1440x900 and 390x844, dark and light, with the
 // switch off, on with words, on with file chips, and after starting.
@@ -474,12 +474,17 @@ try {
   fs.writeFileSync(FAKE_IT, JSON.stringify({ running: true, sessions: [], screens: {} }));
   const MI = path.join(T, 'mc-iterm');
   registry(MI, [{ id: 'paper-boat', name: 'Paper Boat', folder: BOAT, workspaces: [], brief: 'BRIEF.md' }]);
-  const bi = await startBoard({ port: 4687, mc: MI, env: { RAVENRY_TERMINAL: 'iterm', CMUX_BIN: TRIP, ITERM_OSASCRIPT_BIN: FAKE_BIN, RAVENRY_ITERM_PYTHON: FAKE_BIN, FAKE_ITERM_STATE: FAKE_IT, MC_OSASCRIPT_BIN: path.join(ROOT, 'tools', 'stub-osascript.mjs') } });
+  // A stand-in claude first on the board's PATH: the tab's program is found there.
+  const SIN = path.join(T, 'standin-bin');
+  fs.mkdirSync(SIN, { recursive: true });
+  fs.writeFileSync(path.join(SIN, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const bi = await startBoard({ port: 4687, mc: MI, env: { PATH: `${SIN}:/usr/bin:/bin:${path.dirname(process.execPath)}`, RAVENRY_TERMINAL: 'iterm', CMUX_BIN: TRIP, ITERM_OSASCRIPT_BIN: FAKE_BIN, RAVENRY_ITERM_PYTHON: FAKE_BIN, FAKE_ITERM_STATE: FAKE_IT, MC_OSASCRIPT_BIN: path.join(ROOT, 'tools', 'stub-osascript.mjs') } });
   try {
     const r = await bi.post('/api/project/revive', { projectId: 'paper-boat', text: "Say hi, it's a test", paths: ['/tmp/a b.png'] });
     const st = JSON.parse(fs.readFileSync(FAKE_IT, 'utf8'));
     const t = (st.opened || [])[0];
-    check('iTerm2: Start session opens a new iTerm2 tab that goes to the folder and runs claude with the words and the path', r.status === 200 && !!t && (st.keys[t.uuid] || [])[0] === `text:cd '${BOAT}' && claude 'Say hi, it'\\''s a test /tmp/a\\ b.png'`, JSON.stringify({ r: r.j, keys: t && st.keys[t.uuid] }));
+    // The tab's own program (server/launch.mjs): claude by its path, in the folder, the words one argument.
+    check('iTerm2: Start session opens a new iTerm2 tab that runs claude in the folder with the words and the path', r.status === 200 && !!t && !(st.keys || {})[t.uuid] && (t.command || '').includes(` 'ravenry-start' '${BOAT}' `) && (t.command || '').endsWith(` '${path.join(SIN, 'claude')}' 'Say hi, it'\\''s a test /tmp/a\\ b.png'`), JSON.stringify({ r: r.j, keys: t && (st.keys || {})[t.uuid], command: t && t.command && t.command.slice(-160) }));
     check('iTerm2: cmux is never asked', !fs.existsSync(TRIP_LOG), fs.existsSync(TRIP_LOG) ? fs.readFileSync(TRIP_LOG, 'utf8') : '');
   } catch (err) {
     console.error(err);

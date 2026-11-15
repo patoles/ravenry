@@ -16,7 +16,8 @@
 // prompt does. Every key and text is appended to "keys" (by surface) and the
 // file is written back. `notify` (a Mac notification) is appended to
 // <fixture>.notify.log instead of shown, or refused when "notifyFail" is set.
-// `new-workspace` is appended to <fixture>.new-workspace.log, then refused.
+// `new-workspace` is appended to <fixture>.new-workspace.log, then refused
+// (or made, under "newWorkspaces": true, below).
 // `new-surface` (Revive's new tab) is appended to <fixture>.new-surface.log,
 // then refused, unless the fixture has "newSurfaces": true: then the tab is
 // added to its workspace as a prompt surface (below) with an empty body, so
@@ -101,9 +102,22 @@ switch (args[0]) {
   }
   case 'new-workspace': {
     // Recorded (one JSON line in <fixture>.new-workspace.log), then refused
-    // like every write, so a test can read the command a Revive would run.
+    // like every write, unless the fixture has "newWorkspaces": true: then
+    // the workspace is made with one tab, a prompt surface as new-surface
+    // makes (a shell prompt under "newSurfacesShell"), so the command the
+    // board types into it once it is ready lands in its "sent".
     fs.appendFileSync(process.env.FAKE_CMUX_STATE + '.new-workspace.log', JSON.stringify({ argv: args }) + '\n');
-    refuse();
+    if (!st.newWorkspaces) refuse();
+    const n = st.workspaces.length + 1;
+    const tail = String(Date.now()).slice(-12).padStart(12, '0');
+    const wid = `${String(n).padStart(8, '0')}-1111-4000-8000-${tail}`;
+    const sid = `${String(n).padStart(8, '0')}-2222-4000-8000-${tail}`;
+    const ref = `workspace:${50 + n}`;
+    st.workspaces.push({ id: wid, ref, title: opt('--name') || 'zsh', cwd: opt('--cwd') || '', surfaces: [{ id: sid, ref: `surface:${80 + n}`, title: 'zsh' }] });
+    (st.prompts = st.prompts || {})[sid] = st.newSurfacesShell ? { body: '', shell: true } : { body: '' };
+    render(sid);
+    save();
+    out(`OK ${ref}\n`);
     break;
   }
   case 'new-surface': {

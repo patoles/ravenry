@@ -14,7 +14,9 @@
 //    watch only with a plain reason; the Live screen, a message with a line
 //    break, a menu choice (arrows through Python, Enter through AppleScript),
 //    "Open in iTerm2", and a written hand-off's fresh session opened in the
-//    old tab's window with `cd <folder> && claude '<prompt>'`. The page,
+//    old tab's window running `claude '<prompt>'` as its program (the
+//    stand-in on the PATH the session ran with), resumed once its session
+//    shows there. The page,
 //    headless: "Open in iTerm2" for the iTerm2 session, and the VS Code
 //    session's composer saying why it is off.
 //
@@ -161,6 +163,12 @@ setFake({
   menus: { [C]: { after: permAfter } },
 });
 
+// A stand-in claude, on the PATH session A ran with (its hook records it):
+// the fresh session's program is found there, never the real one.
+const SIN = path.join(T, 'standin-bin');
+fs.mkdirSync(SIN, { recursive: true });
+fs.writeFileSync(path.join(SIN, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
 const PORT = 4680;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SA = 'a1a1a1a1-0000-4000-8000-0000000000a1'; // iTerm2, tab A, at rest
@@ -195,7 +203,7 @@ try {
   const start = (sid, envx) => hook({ hook_event_name: 'SessionStart', session_id: sid, cwd: PROJ, source: 'startup' }, envx, MC, BASE);
   const stop = (sid, envx) => hook({ hook_event_name: 'Stop', session_id: sid, cwd: PROJ, last_assistant_message: 'Done.' }, envx, MC, BASE);
   await until(() => true, 15000);
-  for (const [sid, envx] of [[SA, { ITERM_SESSION_ID: 'w0t0p0:' + A, TERM_PROGRAM: 'iTerm.app' }], [SC, { ITERM_SESSION_ID: 'w0t1p0:' + C, TERM_PROGRAM: 'iTerm.app' }], [SV, { TERM_PROGRAM: 'vscode' }], [SG, { ITERM_SESSION_ID: 'w1t0p0:' + GONE, TERM_PROGRAM: 'iTerm.app' }]]) {
+  for (const [sid, envx] of [[SA, { ITERM_SESSION_ID: 'w0t0p0:' + A, TERM_PROGRAM: 'iTerm.app', PATH: `${SIN}:/usr/bin:/bin` }], [SC, { ITERM_SESSION_ID: 'w0t1p0:' + C, TERM_PROGRAM: 'iTerm.app' }], [SV, { TERM_PROGRAM: 'vscode' }], [SG, { ITERM_SESSION_ID: 'w1t0p0:' + GONE, TERM_PROGRAM: 'iTerm.app' }]]) {
     await start(sid, envx);
     await stop(sid, envx);
   }
@@ -272,13 +280,23 @@ try {
   const hand = path.join(MC, 'handoffs');
   fs.mkdirSync(hand, { recursive: true });
   fs.writeFileSync(path.join(hand, SA + '.json'), JSON.stringify({ sessionId: SA, state: 'written', writtenAt: new Date().toISOString(), handoffFile: path.join(PROJ, 'BRIEF.md'), cwd: PROJ, folder: PROJ, projectId: 'itproj' }));
+  const readM = () => { try { return JSON.parse(fs.readFileSync(path.join(hand, SA + '.json'), 'utf8')); } catch { return null; } };
   let m = null;
-  for (let i = 0; i < 60; i++) { await sleep(150); try { m = JSON.parse(fs.readFileSync(path.join(hand, SA + '.json'), 'utf8')); } catch { /* writing */ } if (m && (m.state === 'resumed' || m.resumeError)) break; }
+  for (let i = 0; i < 60; i++) { await sleep(150); m = readM(); if (m && (m.resumeLaunchedAt || m.resumeError || m.state === 'resumed')) break; }
   const st2 = fst();
   const opened = (st2.opened || [])[0];
   const newKeys = opened ? st2.keys[opened.uuid] || [] : [];
-  check('board: the fresh session opens in a new iTerm2 tab in the old tab\'s window', m && m.state === 'resumed' && opened && opened.near === A && opened.windowId === '7' && m.resumeSurfaceId === 'iterm:' + opened.uuid, m ? JSON.stringify({ state: m.state, err: m.resumeError, opened }) : 'no marker');
-  check('board: it runs cd <folder> && claude \'<prompt>\', then Enter', newKeys.length === 2 && newKeys[0] === `text:cd '${PROJ}' && claude 'Read the Hand-off section of BRIEF.md and continue from it.'` && newKeys[1] === 'osa:enter', JSON.stringify(newKeys));
+  check('board: the fresh session opens in a new iTerm2 tab in the old tab\'s window', m && m.resumeLaunchedAt && opened && opened.near === A && opened.windowId === '7' && m.resumeSurfaceId === 'iterm:' + opened.uuid, m ? JSON.stringify({ state: m.state, err: m.resumeError, opened: opened && { ...opened, command: undefined } }) : 'no marker');
+  // The tab's own program (server/launch.mjs): the stand-in by its path, the prompt one word, in the folder; nothing typed.
+  const want = ['/bin/zsh', '-f', '-c'].map((w) => `'${w}'`).join(' ');
+  const cmd = (opened && opened.command) || '';
+  check('board: the tab runs claude \'<prompt>\' as its program (no typing), in the folder, then the login shell', cmd.startsWith(want) && cmd.includes(` 'ravenry-start' '${PROJ}' '${SIN}:/usr/bin:/bin' `) && cmd.endsWith(` '${path.join(SIN, 'claude')}' 'Read the Hand-off section of BRIEF.md and continue from it.'`) && /exec -l \$s/.test(cmd) && newKeys.length === 0 && m.resumeHow === 'program',
+    JSON.stringify({ cmd: cmd.replace(/'cd -- .*?' 'ravenry-start'/, "'<script>' 'ravenry-start'"), keys: newKeys }));
+  check('board: the hand-off is not resumed before the fresh session is seen', m && m.state === 'written' && !m.resumeError, JSON.stringify(m && { state: m.state, err: m.resumeError }));
+  // The fresh session's first hook event, from the new tab: now it is resumed.
+  if (opened) await hook({ hook_event_name: 'SessionStart', session_id: 'f1f1f1f1-0000-4000-8000-0000000000f1', cwd: PROJ, source: 'startup' }, { ITERM_SESSION_ID: 'w0t3p0:' + opened.uuid, TERM_PROGRAM: 'iTerm.app' }, MC, BASE);
+  for (let i = 0; i < 60; i++) { await sleep(150); m = readM(); if (m && m.state === 'resumed') break; }
+  check('board: resumed once its session shows in the new tab', m && m.state === 'resumed' && m.resumedBy === 'seen' && m.resumeSessionId === 'f1f1f1f1-0000-4000-8000-0000000000f1', JSON.stringify(m && { state: m.state, by: m.resumedBy, sid: m.resumeSessionId }));
   check('board: the old tab got nothing from the hand-off', (fst().keys[A] || []).length === keysOnABefore);
 } finally {
   server.kill();

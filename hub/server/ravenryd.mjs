@@ -38,6 +38,7 @@ import { runningTasksAsync, logTasks } from './tasks.mjs';
 import { decideStop } from './handoffstop.mjs';
 import * as machines from './machines.mjs';
 import { answerKey } from './person.mjs';
+import { waitReady } from './launch.mjs';
 
 const env = process.env;
 export const PREFIX = 'ravenry:';
@@ -322,9 +323,10 @@ export async function focus(id) {
 // A NEW pane running the login shell in `cwd`, named `label`, on the
 // daemon of `near` (a pane's id) when it is there, else on the newest
 // daemon, which is started when none runs (RAVENRY_DAEMON_BIN or ravenryd
-// on the PATH). The caller types the command into it, so the pane outlives
-// the command. Returns { ok, surfaceId, surfaceRef }.
-export async function openTab({ near = null, cwd = null, label = null, machine = null, labels = null, env = null } = {}) {
+// on the PATH). With `command` (an argv, server/launch.mjs wrapped) the
+// pane runs that program instead, which ends in the login shell, so the
+// pane outlives the assistant. Returns { ok, surfaceId, surfaceRef }.
+export async function openTab({ near = null, cwd = null, label = null, machine = null, labels = null, env = null, command = null, cols = null, rows = null } = {}) {
   if (held()) return { ok: false, err: 'a test board does not reach the real ravenryd' };
   let d = near ? await daemonOf(near) : null;
   if (!d && machine) {
@@ -342,7 +344,7 @@ export async function openTab({ near = null, cwd = null, label = null, machine =
   const dir = d.machine ? cwd || undefined : cwd && fs.existsSync(cwd) ? cwd : os.homedir();
   const name = String(label || (cwd ? path.basename(cwd) : '') || 'Claude').slice(0, 60);
   try {
-    const { pane } = await d.c.request('pane.new', { ...(dir ? { cwd: dir } : {}), name, ...(labels && d.c.has('pane.update') ? { labels } : {}), ...(env ? { env } : {}) }, { timeoutMs: 10000 });
+    const { pane } = await d.c.request('pane.new', { ...(dir ? { cwd: dir } : {}), name, ...(labels && d.c.has('pane.update') ? { labels } : {}), ...(env ? { env } : {}), ...(command ? { command } : {}), ...(cols && rows ? { cols, rows } : {}) }, { timeoutMs: 10000 });
     where.set(pane.id, d.id);
     return { ok: true, surfaceId: PREFIX + pane.id, surfaceRef: d.machine ? `Ravenry tab on ${d.machine}` : 'Ravenry tab', machine: d.machine, pane };
   } catch (e) {
@@ -351,32 +353,45 @@ export async function openTab({ near = null, cwd = null, label = null, machine =
 }
 
 // A session started through the hub (server/sessionstart.mjs): a new pane
-// running the login shell in `cwd` on `machine` (or here), labelled, then
-// the assistant's line typed once the shell drew its prompt, so the pane
-// outlives the assistant. Returns { ok, surfaceId, pane, machine } or
-// { ok: false, err }.
-export async function startSession({ machine = null, cwd, line, label = null, labels = null, cols = null, rows = null, env = null }) {
+// in `cwd` on `machine` (or here), labelled. With `program` (an argv,
+// server/launch.mjs wrapped) the pane runs the assistant itself, then the
+// login shell, so nothing the shell's startup files ask can take the
+// command. Without (a remote machine, an assistant the board did not find),
+// it runs the login shell and the assistant's line is typed once the shell
+// drew its prompt (shell integration's mark, else a quiet screen); a screen
+// that asks something is never answered and nothing is typed. Either way
+// the pane outlives the assistant. Returns { ok, surfaceId, pane, machine,
+// how } or { ok: false, err, question?, surfaceId? }.
+export async function startSession({ machine = null, cwd, line, label = null, labels = null, cols = null, rows = null, env = null, program = null }) {
   const t0 = Date.now();
   const at = {};
-  const made = await openTab({ machine, cwd, label, labels, env });
+  const made = await openTab({ machine, cwd, label, labels, env: program ? null : env, command: program || null, ...(cols && rows ? { cols, rows } : {}) });
   at.pane = Date.now() - t0;
   if (!made.ok) return made;
   const d = await daemonOf(made.surfaceId);
   if (!d) return { ok: false, err: 'its pane closed at once' };
   const pane = paneOf(made.surfaceId);
+  if (program) return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine, how: 'program', timing: at };
   try {
-    if (cols && rows) await d.c.request('pane.resize', { pane, cols, rows }, { timeoutMs: 3000 });
-    // The shell's first prompt (shell integration); without it, a quiet moment.
+    // The shell's first prompt (shell integration): it came after every
+    // startup file. Without it, a quiet screen that asks nothing.
     const w = await d.c.request('pane.wait', { pane, prompt: true, since: 0, timeout_ms: 4000 }, { timeoutMs: 6000 });
     at.prompt = Date.now() - t0;
     at.promptBy = w.condition;
-    if (w.condition === 'timeout') { await d.c.request('pane.wait', { pane, quiet_ms: 300, timeout_ms: 3000 }, { timeoutMs: 5000 }); at.quiet = Date.now() - t0; }
+    if (w.condition === 'timeout') {
+      const r = await waitReady((n) => readScreen(made.surfaceId, n), { limitMs: 11000 });
+      at.quiet = Date.now() - t0;
+      if (!r.ok) {
+        return { ok: false, surfaceId: made.surfaceId, question: r.question,
+          err: r.question ? `the terminal was asking something ("${r.question}"), so nothing was typed` : 'the new pane showed no prompt, so nothing was typed' };
+      }
+    }
     await d.c.request('pane.send', { pane, input: [{ text: line, mode: 'paste' }, { key: 'Enter' }] }, { timeoutMs: 6000 });
     at.typed = Date.now() - t0;
   } catch (e) {
     return { ok: false, err: `the pane opened but the command was not typed: ${e.message}`, surfaceId: made.surfaceId };
   }
-  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine, timing: at };
+  return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, pane: made.pane, machine: d.machine, how: 'typed', timing: at };
 }
 
 // A page's run button (server/pages.mjs): an approve checkpoint on this

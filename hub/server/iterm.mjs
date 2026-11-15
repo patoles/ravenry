@@ -221,12 +221,15 @@ export async function focus(id) {
 
 // A NEW tab with the default profile: in the window of `near` (a session's
 // id) when it is open, else iTerm2's current window, else a new window. It
-// runs the login shell; the caller types the command into it (as for cmux),
-// so the tab outlives the command. iTerm2 selects a new tab in its window;
+// runs the login shell; with `command` (one command line, server/launch.mjs
+// asLine) it runs that program instead, which ends in the login shell, so
+// the tab outlives the assistant. iTerm2 selects a new tab in its window;
 // iTerm2 itself is not brought forward. Returns { ok, surfaceId, surfaceRef }.
-export async function openTab({ near = null } = {}) {
+export async function openTab({ near = null, command = null } = {}) {
   const u = uuidOf(near) || '';
+  const cmd = typeof command === 'string' ? command : '';
   const r = await osa('open', `  set nearId to item 1 of argv
+  set cmd to item 2 of argv
   set w to missing value
   if nearId is not "" then
     try
@@ -236,12 +239,20 @@ export async function openTab({ near = null } = {}) {
   tell ${APP}
     if w is missing value and (count of windows) > 0 then set w to current window
     if w is missing value then
-      set nw to (create window with default profile)
+      if cmd is "" then
+        set nw to (create window with default profile)
+      else
+        set nw to (create window with default profile command cmd)
+      end if
       return unique ID of current session of nw
     end if
-    tell w to set nt to (create tab with default profile)
+    if cmd is "" then
+      tell w to set nt to (create tab with default profile)
+    else
+      tell w to set nt to (create tab with default profile command cmd)
+    end if
     return unique ID of current session of nt
-  end tell`, [u]);
+  end tell`, [u, cmd]);
   if (!r.ok) return r;
   const id = uuidOf(r.out.trim());
   if (!id) return { ok: false, err: 'iTerm2 did not name the new tab' };

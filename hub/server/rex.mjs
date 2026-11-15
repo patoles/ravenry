@@ -260,9 +260,11 @@ export async function focus(id) {
 // A NEW tab running the login shell in `cwd`: a window in the session of
 // `near` (a pane's id) when it is open, else in `session` (a Rex session
 // id) when that is open, else a NEW Rex session named `label`. Never
-// focused in the app. The caller types the command into it (as for cmux),
-// so the tab outlives the command. Returns { ok, surfaceId, surfaceRef }.
-export async function openTab({ near = null, session = null, cwd = null, label = null } = {}) {
+// focused in the app. With `command` (an argv, server/launch.mjs wrapped)
+// the tab runs that program, started directly (`--shell=none`: no shell
+// startup file reads it), which ends in the login shell, so the tab
+// outlives the assistant. Returns { ok, surfaceId, surfaceRef }.
+export async function openTab({ near = null, session = null, cwd = null, label = null, command = null } = {}) {
   const no = await ready();
   if (no) return no;
   const name = String(label || (cwd ? path.basename(cwd) : '') || 'Claude').slice(0, 60);
@@ -275,13 +277,14 @@ export async function openTab({ near = null, session = null, cwd = null, label =
     if (v && (v.sessions || []).some((x) => x.session_id === session)) sid = session;
   }
   let made;
+  const prog = Array.isArray(command) && command.length ? ['--shell=none', '--json', '--', ...command.map(String)] : ['--json'];
   if (sid) {
-    const r = await run(['window', 'new', '-s', sid, name, '-c', dir, '--focus=false', '--json']);
+    const r = await run(['window', 'new', '-s', sid, name, '-c', dir, '--focus=false', ...prog]);
     if (!r.ok) return r;
     const v = json(r);
     made = v && v.block_ids && v.block_ids[0];
   } else {
-    const r = await run(['new', name, '-c', dir, '--json']);
+    const r = await run(['new', name, '-c', dir, ...prog]);
     if (!r.ok) return r;
     const v = json(r);
     made = v && v.initial_windows && v.initial_windows[0] && v.initial_windows[0].block_ids && v.initial_windows[0].block_ids[0];

@@ -23,6 +23,7 @@ import * as cmuxAdapter from './cmux.mjs';
 import * as iterm from './iterm.mjs';
 import * as rex from './rex.mjs';
 import * as ravenry from './ravenryd.mjs';
+import * as launch from './launch.mjs';
 
 // The board's own terminal (docs/TERMINALS.md, The board's terminal): the
 // one it opens new work in (New project, Revive, Reopen, a hand-off's
@@ -177,7 +178,7 @@ const ADAPTERS = {
     pressKey: (t, k) => iterm.pressKey(t.surfaceId, k),
     focus: (t) => iterm.focus(t.surfaceId),
     close: (t) => iterm.close(t.surfaceId),
-    openTab: (o) => iterm.openTab({ near: o.near || null }),
+    openTab: (o) => iterm.openTab({ near: o.near || null, command: Array.isArray(o.command) ? launch.asLine(o.command) : null }),
   },
   rex: {
     listTabs: () => rex.listTabs(),
@@ -190,7 +191,7 @@ const ADAPTERS = {
     pressKey: (t, k) => rex.pressKey(t.surfaceId, k),
     focus: (t) => rex.focus(t.surfaceId),
     close: (t) => rex.close(t.surfaceId),
-    openTab: (o) => rex.openTab({ near: o.near || null, session: o.session || null, cwd: o.cwd || null, label: o.label || null }),
+    openTab: (o) => rex.openTab({ near: o.near || null, session: o.session || null, cwd: o.cwd || null, label: o.label || null, command: o.command || null }),
   },
   // Ravenry's own panes, in ravenryd over protocol v1.
   ravenry: {
@@ -206,9 +207,21 @@ const ADAPTERS = {
     pressKey: (t, k) => ravenry.pressKey(t.surfaceId, k, t.by || null),
     focus: (t) => ravenry.focus(t.surfaceId),
     close: (t) => ravenry.close(t.surfaceId),
-    openTab: (o) => ravenry.openTab({ near: o.near || null, cwd: o.cwd || null, label: o.label || null }),
+    openTab: (o) => ravenry.openTab({ near: o.near || null, cwd: o.cwd || null, label: o.label || null, machine: o.machine || null, labels: o.labels || null, env: o.env || null, command: o.command || null }),
   },
 };
+
+// Terminals whose new tab can run a program of the board's instead of the
+// login shell (server/launch.mjs): a Ravenry pane (pane.new's command), a
+// Rex window (`-- COMMAND`), an iTerm2 tab (AppleScript's `command`). cmux's
+// CLI only types a command into a new tab's shell, so it is not one.
+const STARTS_COMMAND = new Set(['ravenry', 'rex', 'iterm']);
+export const startsCommand = (kind) => STARTS_COMMAND.has(kind);
+
+// Opens a NEW tab and starts an assistant in it (server/launch.mjs).
+export const startInTab = (o) => launch.startInTab({ openTab, readScreen, pasteText, pressKey, startsCommand }, o);
+// Types a command into a tab's shell once it shows a quiet prompt (a new cmux workspace's first tab).
+export const typeWhenReady = (tab, line, o) => launch.typeWhenReady({ readScreen, pasteText, pressKey }, tab, line, o);
 
 // Terminals the board can type into, read and open tabs in. A board in
 // iTerm2 mode or Rex mode leaves cmux alone, so its sessions there are watch only.

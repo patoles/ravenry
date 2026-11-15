@@ -152,6 +152,28 @@ second one. A session chosen on the Sessions card moves to the fresh one
 when it hands off, and the card lists sessions newest first, handed-off
 ones last.
 
+**Starting the fresh session** (2026-11-15: oh-my-zsh asked "Would you like
+to update? [Y/n]" while the board typed the command, and ate it). The board
+never types into a shell that may not be ready (`server/launch.mjs`). Where
+the terminal can open a tab with a program (a Ravenry pane, a Rex window,
+an iTerm2 tab), the assistant is that program: its absolute path, found on
+the PATH the old session ran with (the hook records it at SessionStart in
+`~/.ravenry/sessionenv/<session_id>.json`), started by a `zsh -f` that reads
+no startup file and becomes the person's login shell, in the same folder,
+when the assistant exits. Where it cannot (cmux, a pane on another
+machine, an assistant the board did not find), the tab opens with its
+shell and the command is typed once the screen shows a quiet prompt; a
+screen that asks something ([Y/n], (y/n), a line ending in "?") is never
+answered and gets nothing typed. The hand-off becomes `resumed` only once
+the fresh session is seen: a session that started in the new tab (its hook
+events), one with the hand-off's first prompt, or the assistant drawn on
+the tab's screen. Not seen within 20 s, or not started at all, it gets a
+`resumeError` in plain words ("The fresh session didn't start: the
+terminal was asking something. Retry, or copy the command."), the question
+the tab asks (`resumeQuestion`) and the command to run (`resumeCommand`).
+The board's hand-off card and the Mac app's panel show it with Retry (the
+same start, by hand) and Copy command.
+
 ## Markers
 
 `~/.ravenry/handoffs/<session_id>.json`, one per session, written
@@ -164,7 +186,10 @@ it, so a note added to the brief does not), `workspaceId` and `surfaceId`
 passes to its hooks), `manualAt`, `asks`, `lastCheck`, `deferredAt`,
 `deferredOver` (the deferral was taken past the ceiling), `deferrals`,
 `resumedAt`,
-`resumeSurfaceRef`, `resumeError`. Delete a marker to forget a hand-off.
+`resumeSurfaceRef`, `resumeError`, `resumeLaunchedAt` (the start the board
+waits to see), `resumeHow` (`program` or `typed`), `resumeCommand`,
+`resumeQuestion`, `resumedBy` (`seen`, `screen`, `found`). Delete a marker
+to forget a hand-off.
 
 ## Settings
 

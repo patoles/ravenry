@@ -80,6 +80,8 @@ import * as themeImport from './themeimport.mjs';
 import * as onboarding from './onboarding.mjs';
 import * as sessionNames from './sessionnames.mjs';
 import { openApp } from './openapp.mjs';
+import * as launch from './launch.mjs';
+import * as sessionenv from './sessionenv.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PUBLIC = path.join(ROOT, 'public');
@@ -1349,6 +1351,8 @@ async function tick() {
     tp.mark('projects');
     let projects = await build();
     if (noticeWritten(projects)) { boardTabs = []; projects = await build(); }
+    // A fresh session the board started: resumed once seen, else its error.
+    if ([...markers.values()].some((m) => m.state === 'written' && m.resumeLaunchedAt && !m.resumeError) && await confirmStarts()) { boardTabs = []; projects = await build(); }
     tp.mark('sessions view');
     if (cmuxOk) lastWorkspaces = workspaces;
     if (tickNo <= 3) console.log(`tick ${tickNo}: ${Date.now() - now} ms, ${Math.round(process.uptime() * 1000)} ms after start`);
@@ -1745,14 +1749,10 @@ async function reopenSession(body) {
     const k = rec.term && rec.term !== 'cmux' && term.canDrive(rec.term) ? rec.term : term.BOARD;
     if (k !== 'cmux') {
       const name = term.nameOf(k);
-      const made = await term.openTab(k, k === 'rex' || k === 'ravenry' ? { near: term.kindOf(rec.surfaceId) === k ? rec.surfaceId : null, session: rec.termSession || null, cwd: cwd0, label: rec.label || null } : {});
-      if (!made.ok) return { ok: false, status: 500, error: `${name} did not open a tab: ` + (made.err || 'no answer') };
-      await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
-      const tab = { kind: k, surfaceId: made.surfaceId };
-      const cmd = `cd ${shellQuote(cwd0)} && ${cfg().launchCommand || 'claude'} --resume ${id}`;
-      const a = await term.pasteText(tab, cmd);
-      const b = a.ok ? await term.pressKey(tab, 'enter') : a;
-      if (!b.ok) return { ok: false, status: 500, error: 'The new tab opened but the command was not typed: ' + (b.err || '') };
+      // The assistant as the tab's program, else typed at a quiet prompt (server/launch.mjs).
+      const made = await term.startInTab({ kind: k, open: k === 'rex' || k === 'ravenry' ? { near: term.kindOf(rec.surfaceId) === k ? rec.surfaceId : null, session: rec.termSession || null, label: rec.label || null } : {},
+        cwd: cwd0, command: cfg().launchCommand || 'claude', args: ['--resume', id], paths: launchPaths('claude', id) });
+      if (!made.ok) return { ok: false, status: 500, command: made.command, error: made.opened ? `The new ${name} tab opened, but ${made.err}. Copy the command and run it there.` : `${name} did not open a tab: ` + (made.err || 'no answer') };
       sess.dropClosed(id);
       console.log(`sessions: reopened ${id} in ${name}`);
       setTimeout(refreshProcs, 4000);
@@ -1769,14 +1769,9 @@ async function reopenSession(body) {
     }
     if (!ws) return { ok: false, status: 409, error: 'cmux shows no workspace to open it in.' };
     const cwd = cwd0;
-    const made = await term.openTab('cmux', { workspaceId: ws.id, paneId: null, cwd });
-    if (!made.ok) return { ok: false, status: 500, error: 'cmux did not open a tab: ' + (made.err || 'no answer') };
-    await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
-    const cmd = `cd ${shellQuote(cwd)} && ${cfg().launchCommand || 'claude'} --resume ${id}`;
-    const tab = { kind: 'cmux', workspaceId: ws.id, surfaceId: made.surfaceId };
-    const a = await term.pasteText(tab, cmd);
-    const b = a.ok ? await term.pressKey(tab, 'enter') : a;
-    if (!b.ok) return { ok: false, status: 500, error: 'The new tab opened but the command was not typed: ' + (b.err || '') };
+    // cmux only types a command: once the new tab shows a quiet prompt (server/launch.mjs).
+    const made = await term.startInTab({ kind: 'cmux', open: { workspaceId: ws.id, paneId: null }, cwd, command: cfg().launchCommand || 'claude', args: ['--resume', id] });
+    if (!made.ok) return { ok: false, status: 500, command: made.command, error: made.opened ? `The new cmux tab opened, but ${made.err}. Copy the command and run it there.` : 'cmux did not open a tab: ' + (made.err || 'no answer') };
     sess.dropClosed(id);
     console.log(`sessions: reopened ${id} in ${ws.ref} (${made.surfaceRef})`);
     setTimeout(refreshProcs, 4000);
@@ -1997,7 +1992,7 @@ async function resumeSession(body, { fresh = false } = {}) {
       binPath: assistantPath,
     });
     if (!pl.ok) return { ok: false, status: pl.status, error: pl.error };
-    const r = await term.ravenryStart(pl);
+    const r = await startPlanned(pl, sid);
     if (!r.ok) return { ok: false, status: 502, error: `Could not start it: ${r.err}` };
     watchOpened(r);
     resumed.set(sid, { at: Date.now(), surfaceId: r.surfaceId, pane: r.pane });
@@ -2248,6 +2243,10 @@ function handoffView(project, s, c, settings, now) {
     queuedAt: (m && m.queuedAt) || null, requestedAt: (m && m.requestedAt) || null,
     writtenAt: (m && m.writtenAt) || null, resumedAt: (m && m.resumedAt) || null,
     resumeError: (m && m.resumeError) || null, resumeSurfaceRef: (m && m.resumeSurfaceRef) || null,
+    // A start under way (not seen yet), and the command a person can copy
+    // when it did not start.
+    starting: state === 'written' && !!(m && m.resumeLaunchedAt) && !(m && m.resumeError),
+    resumeCommand: (m && m.resumeCommand) || null, resumeQuestion: (m && m.resumeQuestion) || null,
     over: enabled && pct != null && pct >= settings.handoffCeiling,
   };
 }
@@ -2305,17 +2304,25 @@ function fileStamp(f) {
 // A live session in the old one's cmux workspace, started after the old one
 // was queued, whose first prompt is the hand-off's "Read the Hand-off
 // section of ...".
+//
+// Once the board started it (resumeLaunchedAt), also: a live session that
+// started in the tab it opened, after it opened it; or one in the hand-off's
+// folder whose first prompt is the hand-off's.
 function freshSessionFor(sid, m) {
-  if (!m.workspaceId) return null;
   const since = Date.parse(m.queuedAt || m.requestedAt || m.writtenAt || '') || 0;
-  const cands = [...ev.all.values()]
-    .filter((e) => e.sessionId !== sid && e.workspaceId === m.workspaceId && !e.endedAt && e.startedAt && Date.parse(e.startedAt) >= since && e.transcriptPath)
+  const live = [...ev.all.values()]
+    .filter((e) => e.sessionId !== sid && !e.endedAt && e.startedAt && Date.parse(e.startedAt) >= since)
     .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
-  return cands.find((e) => handoff.isResumePrompt(asst.firstPrompt(asst.kindOf(e), e.transcriptPath))) || null;
-}
-
-function shellQuote(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+  const resumes = (e) => !!e.transcriptPath && handoff.isResumePrompt(asst.firstPrompt(asst.kindOf(e), e.transcriptPath));
+  if (m.resumeLaunchedAt) {
+    const after = Date.parse(m.resumeLaunchedAt) - 2000;
+    const inTab = m.resumeSurfaceId && live.find((e) => Date.parse(e.startedAt) >= after && (e.surfaceId === m.resumeSurfaceId || (e.terminal && term.tabIdFor(e.terminal, e.terminalId) === m.resumeSurfaceId)));
+    if (inTab) return inTab;
+    const here = m.resumeCwd && live.find((e) => Date.parse(e.startedAt) >= after && e.cwd === m.resumeCwd && resumes(e));
+    if (here) return here;
+  }
+  if (!m.workspaceId) return null;
+  return live.find((e) => e.workspaceId === m.workspaceId && resumes(e)) || null;
 }
 
 function resumePrompt(m, cwd) {
@@ -2326,46 +2333,36 @@ function resumePrompt(m, cwd) {
 }
 
 // Opens the fresh session for a written hand-off, ONCE per marker: the
-// marker records resumeStartedAt before cmux is asked for anything, so a
-// crash or a second board can never open a second one.
+// marker records resumeStartedAt before any terminal is asked for anything,
+// so a crash or a second board can never open a second one. The assistant
+// starts as the new tab's own program where the terminal can do that, else
+// its command is typed once the tab shows a quiet prompt (server/launch.mjs).
+// The hand-off is `resumed` only once the fresh session is seen
+// (confirmStarts); a start that fails, at once or after START_CONFIRM_MS,
+// records a resumeError, and Retry (`force` by hand) may start it again.
 async function startFresh(sid, workspaces, { force = false } = {}) {
   const settings = reg.settings;
   if (!force && settings.handoffAutoStart === false) return { ok: false, error: 'Auto-start is off.' };
   if (starting.has(sid)) return { ok: false, error: 'Already starting.' };
   const m = handoff.readMarker(sid);
   if (!m || m.state !== 'written') return { ok: false, error: 'No written hand-off for that session.' };
-  if (m.resumeStartedAt) return { ok: false, error: 'A fresh session was already started for this hand-off.' };
+  const retry = force && !!m.resumeError;
+  if (m.resumeStartedAt && !retry) return { ok: false, error: m.resumeLaunchedAt ? 'The fresh session is starting.' : 'A fresh session was already started for this hand-off.' };
   starting.add(sid);
   try {
     const at = new Date().toISOString();
-    handoff.writeMarker(sid, { resumeStartedAt: at });
-    const fail = (error) => { markers.set(sid, handoff.writeMarker(sid, { resumeError: error })); return { ok: false, error }; };
+    handoff.writeMarker(sid, { resumeStartedAt: at, resumeError: null, resumeQuestion: null, resumeLaunchedAt: null, ...(retry ? { retriedAt: at } : {}) });
+    // What the person sees: "The fresh session didn't start: <why>", with
+    // Retry and the command to copy (the board's hand-off card, the Mac
+    // app's panel).
+    const fail = (why, extra = {}) => {
+      const error = `The fresh session didn't start: ${why}`;
+      markers.set(sid, handoff.writeMarker(sid, { resumeError: error, ...extra }));
+      return { ok: false, error };
+    };
     // A session on a remote machine hands off there: its folder is checked
     // by that machine's daemon, not here.
     const cwd = m.machine ? m.cwd || m.folder || null : [m.cwd, m.folder].find((d) => d && fs.existsSync(d)) || null;
-    // The fresh session opens in the terminal the old one ran in: a new
-    // cmux tab next to it, a new iTerm2 tab in its window, or a new Rex tab
-    // in its Rex session.
-    const where = term.freshTerminal(sessionTerminal(sid, m));
-    let made, tab, whereRef;
-    if (where.kind === 'cmux' && term.canDrive('cmux')) {
-      const ws = workspaces.find((w) => w.id === m.workspaceId);
-      if (!m.workspaceId) return fail('The hand-off did not record its cmux workspace.');
-      if (!ws) return fail('Its cmux workspace is closed.');
-      const old = ws.surfaces.find((x) => x.id === m.surfaceId);
-      made = await term.openTab('cmux', { workspaceId: ws.id, paneId: old ? old.paneId : null, cwd });
-      if (!made.ok) return fail('cmux did not open a tab: ' + (made.err || 'no answer'));
-      tab = { kind: 'cmux', workspaceId: ws.id, surfaceId: made.surfaceId };
-      whereRef = ws.ref;
-    } else if (term.canDrive(where.kind)) {
-      made = await term.openTab(where.kind, { near: where.near, session: where.session || null, cwd, label: cwd ? path.basename(cwd) : null });
-      if (!made.ok) return fail(`${term.nameOf(where.kind)} did not open a tab: ` + (made.err || 'no answer'));
-      tab = { kind: where.kind, surfaceId: made.surfaceId };
-      whereRef = term.nameOf(where.kind);
-    } else {
-      return fail(`It ran in ${term.nameOf(where.kind)}, where the board cannot open a tab. Start the fresh session there yourself.`);
-    }
-    await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
     // A hand-off continues the same work, so the fresh session runs the
     // assistant of the session it hands off from, not continueChoice.
     // A plan running in the project's brief: the fresh session reads it
@@ -2373,14 +2370,37 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
     const owner = snapshot.projects.find((x) => x.sessions.some((y) => y.sessionId === sid));
     const runningPlan = owner && owner.plan && owner.plan.state !== 'done' && owner.plan.state !== 'stopped' ? owner.plan : null;
     const prompt = resumePrompt(m, cwd) + (runningPlan ? ` The brief has a running plan, "${runningPlan.title.replace(/'/g, '')}", under ## Plan: read it first${(runningPlan.refs || []).length ? ', and the References listed under its Goal' : ''}, and carry on from the first step not ticked, by the rules written in it.` : '');
-    // cmux opens the tab in the folder; another terminal's tab starts where
-    // its profile says, so the command goes there first.
-    const launch = `${asst.launchCommand(asst.kindOf(ev.all.get(sid) || m), settings)} ${shellQuote(prompt)}`;
-    const cmd = tab.kind !== 'cmux' && cwd ? `cd ${shellQuote(cwd)} && ${launch}` : launch;
-    const a = await term.pasteText(tab, cmd);
-    const b = a.ok ? await term.pressKey(tab, 'enter') : a;
-    if (!b.ok) return fail('The new tab opened but the command was not typed: ' + (b.err || ''));
-    markers.set(sid, handoff.writeMarker(sid, { state: 'resumed', resumedAt: new Date().toISOString(), resumeSurfaceId: made.surfaceId, resumeSurfaceRef: made.surfaceRef, resumeCommand: cmd, resumeCwd: cwd }));
+    const kind = asst.kindOf(ev.all.get(sid) || m);
+    const command = asst.launchCommand(kind, settings);
+    const copy = launch.typedLine({ cwd, command, args: [prompt] });
+    // The fresh session opens in the terminal the old one ran in: a new
+    // cmux tab next to it, a new iTerm2 tab in its window, or a new Rex tab
+    // in its Rex session.
+    const where = term.freshTerminal(sessionTerminal(sid, m));
+    let open, whereRef;
+    if (where.kind === 'cmux' && term.canDrive('cmux')) {
+      const ws = workspaces.find((w) => w.id === m.workspaceId);
+      if (!m.workspaceId) return fail('the hand-off did not record its cmux workspace.', { resumeCommand: copy });
+      if (!ws) return fail('its cmux workspace is closed.', { resumeCommand: copy });
+      const old = ws.surfaces.find((x) => x.id === m.surfaceId);
+      open = { workspaceId: ws.id, paneId: old ? old.paneId : null };
+      whereRef = ws.ref;
+    } else if (term.canDrive(where.kind)) {
+      open = { near: where.near, session: where.session || null, label: cwd ? path.basename(cwd) : null, ...(m.machine ? { machine: m.machine } : {}) };
+      whereRef = term.nameOf(where.kind);
+    } else {
+      return fail(`it ran in ${term.nameOf(where.kind)}, where the board cannot open a tab. Copy the command and start it there.`, { resumeCommand: copy });
+    }
+    // (cmux opens the tab in the folder itself, so its typed line has no cd.)
+    const made = await term.startInTab({ kind: where.kind, open, cwd, command, args: [prompt], paths: launchPaths(kind, sid), typeCd: where.kind !== 'cmux' });
+    const tabFields = made.surfaceId ? { resumeSurfaceId: made.surfaceId, resumeSurfaceRef: made.surfaceRef || null, ...(open.workspaceId ? { resumeWorkspaceId: open.workspaceId } : {}) } : {};
+    if (!made.ok) {
+      if (made.question) return fail('the terminal was asking something. Retry, or copy the command.', { resumeQuestion: made.question, resumeCommand: copy, ...tabFields });
+      if (made.opened) return fail(`${made.err}. Retry, or copy the command.`, { resumeCommand: copy, ...tabFields });
+      return fail(`${term.nameOf(where.kind)} did not open a tab (${made.err}). Retry, or copy the command.`, { resumeCommand: copy });
+    }
+    // Started: confirmStarts makes it `resumed` once the session is seen.
+    markers.set(sid, handoff.writeMarker(sid, { resumeLaunchedAt: new Date().toISOString(), resumeHow: made.how, resumeCommand: copy, resumeCwd: cwd, resumeKind: where.kind, ...tabFields }));
     if (runningPlan) {
       try {
         const proj = findProject(owner.id);
@@ -2389,12 +2409,88 @@ async function startFresh(sid, workspaces, { force = false } = {}) {
         if (n) console.log(`plans: "${runningPlan.title}" picked up after a hand-off at step ${n}`);
       } catch (e) { console.error('plans: pick-up log:', e.message); }
     }
-    console.log(`hand-off: fresh session for ${sid} in ${whereRef} (${made.surfaceRef})`);
+    console.log(`hand-off: fresh session for ${sid} in ${whereRef} (${made.surfaceRef}), ${made.how === 'program' ? 'as the tab\'s program' : 'typed at its prompt'}`);
     wantTick = true;
-    return { ok: true, surfaceRef: made.surfaceRef };
+    setTimeout(() => { confirmStarts(); }, 1500);
+    return { ok: true, surfaceRef: made.surfaceRef, how: made.how };
   } finally {
     starting.delete(sid);
   }
+}
+
+// How long a started fresh session has to show before its hand-off says it
+// did not start.
+const START_CONFIRM_MS = Number(process.env.MC_START_CONFIRM_MS) || 20000;
+
+// A started fresh session becomes `resumed` once it is seen: a session that
+// started in its tab after the start (its hook events), or one with the
+// hand-off's first prompt (freshSessionFor), or the assistant drawn on its
+// tab's screen. Not seen within START_CONFIRM_MS: a resumeError, with the
+// question the screen ends on when it asks one. Runs every tick.
+let confirming = false;
+async function confirmStarts() {
+  if (confirming) return false;
+  confirming = true;
+  let changed = false;
+  try {
+    for (const [sid, m] of markers) {
+      if (m.state !== 'written' || !m.resumeLaunchedAt || m.resumeError) continue;
+      const since = Date.parse(m.resumeLaunchedAt) || 0;
+      const fresh = freshSessionFor(sid, m);
+      const tab = m.resumeSurfaceId ? { kind: term.kindOf(m.resumeSurfaceId), surfaceId: m.resumeSurfaceId } : null;
+      let screen = null;
+      if (!fresh && tab && term.canDrive(tab.kind)) screen = await term.readScreen(m.resumeWorkspaceId ? { ...tab, workspaceId: m.resumeWorkspaceId } : tab, 40).catch(() => null);
+      const drawn = screen ? asst.detect(screen) : null;
+      if (fresh || drawn) {
+        markers.set(sid, handoff.writeMarker(sid, {
+          state: 'resumed', resumedAt: new Date().toISOString(), resumeSessionId: fresh ? fresh.sessionId : null, resumedBy: fresh ? 'seen' : 'screen',
+        }));
+        console.log(`hand-off: the fresh session for ${sid} is running (${fresh ? 'its session ' + fresh.sessionId : 'its screen'})`);
+        changed = true;
+        continue;
+      }
+      if (Date.now() - since < START_CONFIRM_MS) continue;
+      const q = screen ? launch.questionOf(screen) : null;
+      markers.set(sid, handoff.writeMarker(sid, {
+        resumeError: q ? "The fresh session didn't start: the terminal was asking something. Retry, or copy the command."
+          : `The fresh session didn't start: nothing ran in its tab within ${Math.round(START_CONFIRM_MS / 1000)} s. Retry, or copy the command.`,
+        ...(q ? { resumeQuestion: q } : {}),
+      }));
+      console.log(`hand-off: the fresh session for ${sid} was not seen within ${START_CONFIRM_MS} ms${q ? ` (its tab asks "${q}")` : ''}`);
+      changed = true;
+    }
+  } finally {
+    confirming = false;
+  }
+  if (changed) wantTick = true;
+  return changed;
+}
+
+// A session started in a Ravenry pane (server/sessionstart.mjs plan): its
+// assistant as the pane's program when the board finds it on this Mac
+// (`sid`: the session it continues, whose PATH comes first), else typed at
+// the pane's prompt (server/ravenryd.mjs startSession).
+function startPlanned(pl, sid = null) {
+  const prog = pl.machine ? null : launch.program({ command: pl.command, args: pl.args || [], paths: launchPaths(pl.kind, sid) });
+  return term.ravenryStart(prog ? { ...pl, program: launch.wrapped({ argv: prog.argv, path: prog.path, cwd: pl.cwd }) } : pl);
+}
+
+// Where the board looks for an assistant's program (server/launch.mjs
+// program): the PATH the session it follows ran with, the newest session's
+// of that assistant (server/sessionenv.mjs), the folder of the claudeBin or
+// codexBin setting, then the board's own PATH with the folders the
+// installers use.
+function launchPaths(kind, sid = null) {
+  const out = [];
+  const own = sid ? sessionenv.read(registry.RAVENRY_HOME, sid) : null;
+  if (own) out.push({ path: own.path, from: 'session' });
+  const last = sessionenv.newest(registry.RAVENRY_HOME, kind);
+  if (last && (!own || last.path !== own.path)) out.push({ path: last.path, from: 'newest' });
+  const set = reg && reg.settings ? (kind === 'codex' ? reg.settings.codexBin : reg.settings.claudeBin) : null;
+  if (set && path.isAbsolute(set)) out.push({ path: path.dirname(set), from: 'setting' });
+  const h = os.homedir();
+  out.push({ path: [process.env.PATH || '', path.join(h, '.local', 'bin'), path.join(h, '.claude', 'local'), '/opt/homebrew/bin', '/usr/local/bin'].join(':'), from: 'board' });
+  return out;
 }
 
 // The terminal a session ran in, for its fresh session: its events say
@@ -3255,7 +3351,7 @@ async function phaseD(req, res, p) {
       if (!u.folder || !body.existingFolder || real(String(body.existingFolder)) !== real(u.folder)) return sendJson(res, 400, { error: `A project made from ${u.name} starts in its folder. Pick Existing.` });
       adopt = u.workspaces[0];
     }
-    const r = await create.createProject(body, { cfg: c, settings: reg.settings, reserve, adopt, launch: launchFor(asst.startChoice(reg.settings, asst.isKind(body.assistant) ? body.assistant : null)) });
+    const r = await create.createProject(body, { cfg: c, settings: reg.settings, reserve, adopt, launch: launchFor(asst.startChoice(reg.settings, asst.isKind(body.assistant) ? body.assistant : null)), paths: (k) => launchPaths(k) });
     if (r.reg) afterRegistry(r.reg);
     if (r.ok && body.ideaId) { try { ideas.promoted(String(body.ideaId), r.id); } catch { /* idea gone */ } }
     const { reg: _r, ...out } = r;
@@ -3365,7 +3461,7 @@ async function phaseD(req, res, p) {
     // The message box's New session switch sends its text and files here:
     // they become the new session's first prompt. With neither, Revive.
     const firstMessage = withPaths(body.text, body.paths) || null;
-    const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, firstMessage, near: nearTab(project.id), launch: continueLaunch(project) });
+    const r = await create.revive(project, { cfg: c, settings: reg.settings, reserve, firstMessage, near: nearTab(project.id), launch: continueLaunch(project), paths: (k) => launchPaths(k) });
     watchOpened(r);
     if (r.ok) afterRegistry(r.reg);
     const { reg: _r, ...out } = r;
@@ -3451,7 +3547,7 @@ async function deliverPlan(project, text, mode) {
     return r.ok ? { ...r, via: 'session', surfaceId: s.surfaceId } : r;
   }
   if (mode === 'note') return { ok: true, via: 'brief' };
-  const r = await create.revive(project, { cfg: cfg(), settings: reg.settings, reserve, prompt: text, near: nearTab(project.id), launch: continueLaunch(project) });
+  const r = await create.revive(project, { cfg: cfg(), settings: reg.settings, reserve, prompt: text, near: nearTab(project.id), launch: continueLaunch(project), paths: (k) => launchPaths(k) });
   watchOpened(r);
   if (r.ok) afterRegistry(r.reg);
   const { reg: _r, ...out } = r;
@@ -4210,7 +4306,7 @@ async function handleRequest(req, res) {
           return sendJson(res, pl.status, { error: pl.error });
         }
         if (made) pl.labels = { ...pl.labels, 'ravenry.worktree': made.branch.slice(0, 256) };
-        const r = await term.ravenryStart(pl);
+        const r = await startPlanned(pl);
         if (!r.ok) {
           if (made) await worktrees.removeTree(made, { force: true });
           return sendJson(res, 502, { error: `Could not start it: ${r.err}` });

@@ -12,6 +12,7 @@ import os from 'node:os';
 import { execFileSync, spawn } from 'node:child_process';
 
 import * as term from './terminal.mjs';
+import { typedLine } from './launch.mjs';
 
 const { cmux } = term;
 import * as registry from './registry.mjs';
@@ -86,9 +87,6 @@ export function quoteWord(s) {
 // `claude` (the launchCommand setting) or `codex`. Both take a prompt that
 // starts with a dash only after `--` (measured for Codex 0.166.0: `codex
 // '-x hi'` is "unexpected argument '-x'", `codex -- '-x hi'` is the prompt).
-function launchLine(command, prompt) {
-  return `${command} ${quoteWord(prompt)}`;
-}
 
 // What a launch runs: the assistant the board chose (`launch`: { kind,
 // command, note }, from server/index.mjs), else cfg.launchCommand as before.
@@ -97,14 +95,27 @@ const chosen = (l) => ({ assistant: l.kind, ...(l.note ? { assistantNote: l.note
 
 // Opens a NEW workspace and returns its UUID (cmux prints only the ref, and
 // refs can move, so it is resolved at once).
+//
+// `command` is never cmux's --command, which only types it into the new
+// tab's shell at once, before the shell's startup files may have asked
+// something (2026-11-15): the workspace opens with its shell, and the line
+// is typed into its first tab once that shows a quiet prompt
+// (server/launch.mjs). A screen that asks something gets nothing typed, and
+// the workspace is still returned with `error` saying so.
 async function openWorkspace({ name, cwd, command, focus }) {
-  const r = await cmux.newWorkspace({ name, cwd, command, focus });
+  const r = await cmux.newWorkspace({ name, cwd, focus });
   if (!r.ok) return { ok: false, error: 'cmux did not open a workspace: ' + (r.err || r.out || 'no answer') };
   const ref = (r.out.match(/workspace:\d+/) || [])[0];
   for (let i = 0; i < 10; i++) {
     const all = await cmux.listWorkspaces();
     const ws = all.find((w) => w.ref === ref && (w.title === name || !name)) || all.find((w) => w.ref === ref);
-    if (ws) return { ok: true, workspaceId: ws.id, workspaceRef: ws.ref };
+    if (ws) {
+      const first = (ws.surfaces || []).find((x) => !x.type || x.type === 'terminal');
+      if (!command) return { ok: true, workspaceId: ws.id, workspaceRef: ws.ref };
+      if (!first) return { ok: true, workspaceId: ws.id, workspaceRef: ws.ref, typed: false, error: `cmux opened ${ws.ref} with no terminal tab, so nothing was typed. Run this there: ${command}` };
+      const t = await term.typeWhenReady({ kind: 'cmux', workspaceId: ws.id, surfaceId: first.id }, command);
+      return { ok: true, workspaceId: ws.id, workspaceRef: ws.ref, typed: t.ok, ...(t.ok ? {} : { error: `cmux opened ${ws.ref}, but ${t.err}. Run this there: ${command}` }) };
+    }
     await new Promise((res) => setTimeout(res, 250));
   }
   return { ok: false, error: `cmux opened ${ref || 'a workspace'} but it did not show in its tree.` };
@@ -119,20 +130,18 @@ export function shellWord(s) {
 
 // iTerm2 mode: a NEW tab (in the window of `near`, a session of the
 // project, when it is open, else iTerm2's current window, else a new
-// window) that goes to the folder and runs the command. Rex mode: a NEW
-// tab in the Rex session of `near` when it is open, else a NEW Rex session
-// named after the project (`label`), in the folder. Returns
-// { ok, surfaceId, surfaceRef, where, place } or { ok: false, error }.
-async function openBoardTab({ cwd, command, near = null, label = null }) {
+// window). Rex mode: a NEW tab in the Rex session of `near` when it is
+// open, else a NEW Rex session named after the project (`label`). Ravenry
+// mode: a new pane. The assistant (`command` with `args`) is the tab's own
+// program in the folder, or typed there once its shell shows a quiet prompt
+// (server/launch.mjs startInTab; `paths` says where to find it). Returns
+// { ok, surfaceId, surfaceRef, where, place } or { ok: false, error,
+// command }.
+async function openBoardTab({ cwd, command, args = [], near = null, label = null, paths = [] }) {
   const kind = term.BOARD;
   const name = term.nameOf(kind);
-  const made = await term.openTab(kind, { near, cwd, label });
-  if (!made.ok) return { ok: false, error: `${name} did not open a tab: ` + (made.err || 'no answer') };
-  await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
-  const tab = { kind, surfaceId: made.surfaceId };
-  const a = await term.pasteText(tab, `cd ${shellWord(cwd)} && ${command}`);
-  const b = a.ok ? await term.pressKey(tab, 'enter') : a;
-  if (!b.ok) return { ok: false, error: 'the new tab opened but the command was not typed: ' + (b.err || '') };
+  const made = await term.startInTab({ kind, open: { near, label }, cwd, command, args, paths });
+  if (!made.ok) return { ok: false, command: made.command, error: made.opened ? `the new ${name} tab opened, but ${made.err}. Run this there: ${made.command}` : `${name} did not open a tab: ` + (made.err || 'no answer') };
   return { ok: true, surfaceId: made.surfaceId, surfaceRef: made.surfaceRef, where: name, place: made.surfaceRef === 'Rex session' ? 'Rex session' : `${name} tab` };
 }
 
@@ -297,7 +306,9 @@ export function takenIn(dir) {
 // section 1): the id of a cmux workspace no project lists, whose folder is
 // the Existing folder. The project lists that workspace and nothing is
 // opened: the session already running there joins the project.
-export async function createProject(form, { cfg, settings, reserve, launch = null, adopt = null }) {
+// `paths(kind)`: where the assistant's program is looked for
+// (server/index.mjs launchPaths, server/launch.mjs program).
+export async function createProject(form, { cfg, settings, reserve, launch = null, adopt = null, paths = () => [] }) {
   const err = validate(form);
   if (err) return { ok: false, status: 400, error: err };
   if (form.assistant != null && form.assistant !== '' && !registry.ASSISTANT_KINDS.includes(form.assistant)) return { ok: false, status: 400, error: 'The assistant must be claude or codex.' };
@@ -351,19 +362,20 @@ export async function createProject(form, { cfg, settings, reserve, launch = nul
   if (adopt) return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), adopted: true, ...chosen(L), message: `${name} is in ${short(folder)}, with the session already running there. The brief is ${briefRel}.` };
   const prompt = `Read ${briefRel} and start on the first milestone.`;
   if (term.BOARD !== 'cmux') {
-    const t = await openBoardTab({ cwd: folder, command: launchLine(L.command, prompt), label: name });
+    const t = await openBoardTab({ cwd: folder, command: L.command, args: [prompt], label: name, paths: paths(L.kind) });
     if (!t.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), ...chosen(L), error: `Folder and brief are ready, but ${t.error}` };
     return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: t.where, surfaceId: t.surfaceId, gitInit: made, ...chosen(L), message: `${name} is in ${short(folder)}. ${L.short} is reading the brief in a new ${t.place}.` };
   }
   const release = reserve(name);
   let ws;
   try {
-    ws = await openWorkspace({ name, cwd: folder, command: launchLine(L.command, prompt), focus: settings.focusNewWorkspace === true });
+    ws = await openWorkspace({ name, cwd: folder, command: typedLine({ command: L.command, args: [prompt] }), focus: settings.focusNewWorkspace === true });
     if (ws.ok) reg = registry.update((r) => { const p = r.projects.find((x) => x.id === id); if (p) p.workspaces = [ws.workspaceId]; });
   } finally {
     release();
   }
   if (!ws.ok) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), ...chosen(L), error: `Folder and brief are ready, but ${ws.error}` };
+  if (ws.error) return { ok: true, partial: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: ws.workspaceRef, gitInit: made, ...chosen(L), error: `Folder and brief are ready, but ${ws.error}` };
   return { ok: true, id, reg, folder: short(folder), brief: short(briefAbs), workspaceRef: ws.workspaceRef, gitInit: made, ...chosen(L) };
 }
 
@@ -397,7 +409,7 @@ export function writeBrief(project, form) {
 // `launch`: the assistant the new session starts ({ kind, command, note,
 // short }, server/assistant.mjs continueChoice: the project's own, else
 // startWith, else Claude Code), else cfg.launchCommand.
-export async function revive(project, { cfg, settings, reserve, prompt: custom = null, firstMessage = null, near = null, launch = null }) {
+export async function revive(project, { cfg, settings, reserve, prompt: custom = null, firstMessage = null, near = null, launch = null, paths = () => [] }) {
   const L = launchOf(cfg, launch);
   const fm = firstMessage ? String(firstMessage) : null;
   const bp = registry.briefPath(project);
@@ -412,13 +424,15 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   // (server/decisions.mjs); a prompt of the person's own stays as written.
   const dl = custom ? '' : decisions.promptLine(project.id);
   const prompt = custom || `Read ${briefRel} (Hand-off section first) and continue.${dl ? ' ' + dl : ''}`;
-  // `typed`: the line is pasted into a new tab's shell; else it is cmux's
-  // --command for a new workspace, which reads backslashes (quoteWord).
-  const line = (typed) => (fm ? `${L.command} ${fm.startsWith('-') ? '-- ' : ''}${typed ? shellWord(fm) : quoteWord(fm)}` : launchLine(L.command, prompt));
-  const cmd = line(true);
+  // The assistant's words after its command: the person's first message
+  // (after `--` when it starts with a dash), else the brief's prompt. Typed
+  // into a shell they are one shell word each (shellWord); as a tab's
+  // program they are its argv as they are.
+  const args = fm ? [...(fm.startsWith('-') ? ['--'] : []), fm] : [prompt];
+  const cmd = typedLine({ command: L.command, args });
   if (term.BOARD !== 'cmux') {
-    const t = await openBoardTab({ cwd: project.folder, command: cmd, near, label: project.name });
-    if (!t.ok) return { ok: false, status: 500, error: t.error.charAt(0).toUpperCase() + t.error.slice(1) };
+    const t = await openBoardTab({ cwd: project.folder, command: L.command, args, near, label: project.name, paths: paths(L.kind) });
+    if (!t.ok) return { ok: false, status: 500, command: t.command, error: t.error.charAt(0).toUpperCase() + t.error.slice(1) };
     return { ok: true, where: 'tab', workspaceRef: t.where, surfaceRef: t.surfaceRef, surfaceId: t.surfaceId, command: cmd, ...chosen(L), message: `New ${t.place} for ${project.name}. ${fm ? 'It starts with your first message.' : 'It reads the brief first.'}` };
   }
   const all = await cmux.listWorkspaces();
@@ -426,20 +440,20 @@ export async function revive(project, { cfg, settings, reserve, prompt: custom =
   if (ws) {
     // A new tab next to the first terminal tab; the old tabs are never touched.
     const first = ws.surfaces.find((s) => s.type === 'terminal');
-    const made = await term.openTab('cmux', { workspaceId: ws.id, paneId: first ? first.paneId : null, cwd: project.folder });
-    if (!made.ok) return { ok: false, status: 500, error: 'cmux did not open a tab: ' + (made.err || 'no answer') };
-    await new Promise((r) => setTimeout(r, 900)); // let the shell draw its prompt
-    const tab = { kind: 'cmux', workspaceId: ws.id, surfaceId: made.surfaceId };
-    const a = await term.pasteText(tab, cmd);
-    const b = a.ok ? await term.pressKey(tab, 'enter') : a;
-    if (!b.ok) return { ok: false, status: 500, error: 'The new tab opened but the command was not typed: ' + (b.err || '') };
+    // cmux only types a command: once the new tab shows a quiet prompt (server/launch.mjs).
+    const made = await term.startInTab({ kind: 'cmux', open: { workspaceId: ws.id, paneId: first ? first.paneId : null }, cwd: project.folder, command: L.command, args, typeCd: false });
+    if (!made.ok) return { ok: false, status: 500, command: made.command, error: made.opened ? `The new cmux tab opened, but ${made.err}. Run this there: ${made.command}` : 'cmux did not open a tab: ' + (made.err || 'no answer') };
     return { ok: true, where: 'tab', workspaceRef: ws.ref, workspaceId: ws.id, surfaceRef: made.surfaceRef, surfaceId: made.surfaceId, command: cmd, ...chosen(L) };
   }
   const release = reserve(project.name);
   try {
-    const wcmd = line(false);
+    const wcmd = cmd;
     const nw = await openWorkspace({ name: project.name, cwd: project.folder, command: wcmd, focus: settings.focusNewWorkspace === true });
     if (!nw.ok) return { ok: false, status: 500, error: nw.error };
+    if (nw.error) {
+      const reg = registry.update((r) => { const p = r.projects.find((x) => x.id === project.id); if (p) p.workspaces = [...(p.workspaces || []), nw.workspaceId]; });
+      return { ok: false, status: 500, reg, command: wcmd, error: nw.error.charAt(0).toUpperCase() + nw.error.slice(1) };
+    }
     const reg = registry.update((r) => { const p = r.projects.find((x) => x.id === project.id); if (p) p.workspaces = [...(p.workspaces || []), nw.workspaceId]; });
     return { ok: true, where: 'workspace', workspaceRef: nw.workspaceRef, workspaceId: nw.workspaceId, command: wcmd, reg, ...chosen(L) };
   } finally {

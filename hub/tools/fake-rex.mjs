@@ -7,7 +7,8 @@
 //   block inspect B --json, capture -b B --trim, send -b B -- TEXT,
 //   send-key -b B KEY, focus -s S TARGET, client ls --json,
 //   -C CLIENT do session.select session_id=S window_id=W,
-//   window new -s S LABEL -c DIR --focus=false --json, new LABEL -c DIR --json,
+//   window new -s S LABEL -c DIR --focus=false --json, new LABEL -c DIR --json
+//   (either with --shell=none -- COMMAND..., recorded as `command` and `shell`),
 //   block close B, events (ends at once).
 //
 // Fixture: $FAKE_REX_STATE (JSON), re-read on every call and written back
@@ -155,7 +156,7 @@ switch (cmd) {
       const b = newBlock(opts['-c']);
       const w = { id: id('window'), label: words[2] || 'Window', blocks: [b] };
       s.windows.push(w);
-      (st.opened = st.opened || []).push({ session: s.id, label: words[2] || null, cwd: opts['-c'] || null, focus: opts['--focus'] ?? null, block: b });
+      (st.opened = st.opened || []).push({ session: s.id, label: words[2] || null, cwd: opts['-c'] || null, focus: opts['--focus'] ?? null, block: b, ...(opts['--'] ? { command: opts['--'], shell: opts['--shell'] ?? null } : {}) });
       out({ window_id: w.id, block_ids: [b], revision: 2 });
       break;
     }
@@ -163,7 +164,7 @@ switch (cmd) {
       const b = newBlock(opts['-c']);
       const s = { id: id('session'), label: words[1] || 'Session', windows: [{ id: id('window'), label: 'Window', blocks: [b] }] };
       st.sessions.push(s);
-      (st.created = st.created || []).push({ session: s.id, label: words[1] || null, cwd: opts['-c'] || null, block: b });
+      (st.created = st.created || []).push({ session: s.id, label: words[1] || null, cwd: opts['-c'] || null, block: b, ...(opts['--'] ? { command: opts['--'], shell: opts['--shell'] ?? null } : {}) });
       out({ session_id: s.id, initial_windows: [{ window_id: s.windows[0].id, block_ids: [b], revision: 1 }] });
       break;
     }

@@ -139,7 +139,8 @@ async function board(name, port, extraEnv = {}) {
   const mc = path.join(T, name, 'mc');
   fs.mkdirSync(mc, { recursive: true });
   const fake = path.join(T, name, 'fake-cmux.json');
-  fs.writeFileSync(fake, JSON.stringify({ workspaces: [], screens: {} }));
+  // newWorkspaces: a plan's start opens its workspace, and its command is typed into the first tab once that is ready.
+  fs.writeFileSync(fake, JSON.stringify({ workspaces: [], screens: {}, newWorkspaces: true }));
   fs.writeFileSync(path.join(T, name, 'CLAUDE.md'), '# Rules\n\n## Pictures\n- Show me a picture before building anything visual.\n');
   fs.writeFileSync(path.join(mc, 'projects.json'), JSON.stringify({ version: 1, settings: { autoImport: false, ruleSources: [], globalClaudeMd: path.join(T, name, 'CLAUDE.md'), backupDir: path.join(T, name, 'backups'), launchCommand: 'claude' }, projects: [
     { id: 'scratch', name: 'Scratch', folder: PROJ, workspaces: [], brief: 'BRIEF.md' },
@@ -165,6 +166,8 @@ async function board(name, port, extraEnv = {}) {
     mc, base, fake, log: () => log,
     calls: () => lines(env.STUB_PLAN_ARGV_FILE),
     launches: () => lines(fake + '.new-workspace.log'),
+    // What the board typed into each new workspace's first tab.
+    typed: () => { try { const f = JSON.parse(fs.readFileSync(fake, 'utf8')); return Object.values(f.prompts || {}).flatMap((x) => x.sent || []); } catch { return []; } },
     state: async () => (await fetch(base + '/api/state')).json(),
     get: async (p) => { const r = await fetch(base + p); return { status: r.status, type: r.headers.get('content-type'), j: await r.json().catch(() => null) }; },
     post: async (p, body, headers = { 'X-Ravenry': '1' }) => { const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body || {}) }); return { status: res.status, j: await res.json() }; },
@@ -234,7 +237,7 @@ try {
   const md = fs.readFileSync(path.join(PROJ, 'BRIEF.md'), 'utf8');
   const bp = brief.readBrief(path.join(PROJ, 'BRIEF.md')).plan.find((o) => o.plan);
   check('start: the plan is in the brief with References, relative paths and his words', !!bp && JSON.stringify(bp.refs.map((x) => x.path)) === JSON.stringify(['.inbox/cozy-look.png', '.inbox/cozy-look-2.png', '.inbox/copy.txt']) && bp.refs[1].note === 'I like this style' && /References:\n {2}- \.inbox\/cozy-look\.png: Make the menu feel cozy\. I like this style\n/.test(md), md.split('\n').filter((l) => /References|\.inbox/.test(l)).join(' | '));
-  const launch = b.launches().map((x) => x.argv.join(' ')).join('\n');
+  const launch = b.typed().join('\n');
   check('start: the start prompt a new session gets names the References to read first', /read the References listed under the Goal of the plan/.test(launch) && launch.includes('.inbox/cozy-look-2.png ("I like this style")') && launch.includes('.inbox/copy.txt ("Use these words on the buttons")'), `${r.status} ${launch.slice(0, 200) || r.j.error}`);
   await sleep(2400);
   const st = await b.state();

@@ -232,7 +232,7 @@ fs.writeFileSync(path.join(MC, 'projects.json'), JSON.stringify({
 }, null, 2));
 const FAKE = path.join(T, 'fake-cmux.json');
 fs.writeFileSync(FAKE, JSON.stringify({
-  newSurfaces: true,
+  newSurfaces: true, newWorkspaces: true,
   workspaces: ['boat', 'kite', 'mill'].map((n, i) => ({ id: 'ws-' + n, ref: `workspace:${i + 1}`, title: n, cwd: P(n), surfaces: [] })),
   screens: {}, prompts: {},
 }));
@@ -240,6 +240,8 @@ const fst = () => JSON.parse(fs.readFileSync(FAKE, 'utf8'));
 const sentIn = (id) => ((fst().prompts || {})[id] || {}).sent || [];
 const newWorkspaces = () => { try { return fs.readFileSync(FAKE + '.new-workspace.log', 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).argv); } catch { return []; } };
 const optOf = (argv, k) => argv[argv.indexOf(k) + 1];
+// What the board typed into a new workspace's first tab (never cmux's --command, which types at once).
+const sentInWorkspace = (title) => { const w = (fst().workspaces || []).find((x) => x.title === title); return w && w.surfaces[0] ? sentIn(w.surfaces[0].id) : []; };
 
 const BCXH = path.join(T, 'codex-home-board');
 fs.mkdirSync(BCXH, { recursive: true });
@@ -297,14 +299,14 @@ try {
   await sleep(2500);
   r = await b.post('/api/project/revive', { projectId: 'mill' });
   check('Revive: ...and with a newer Codex session it is still startWith (Codex)', r.status === 200 && r.j.assistant === 'codex' && /^codex 'Read BRIEF/.test(sentIn(r.j.surfaceId)[0] || ''), `${JSON.stringify(r.j)} ${JSON.stringify(sentIn(r.j && r.j.surfaceId))}`);
-  // New project: cmux's new-workspace is recorded, then refused (fake cmux).
+  // New project: cmux's new workspace (fake cmux), its command typed into its first tab once that is ready.
   r = await b.post('/api/project/new', { name: 'Pond', goal: 'A pond for the boat.' });
   let nw = newWorkspaces().pop() || [];
-  check('New project: startWith codex runs `codex \'Read BRIEF.md ...\'` in the new workspace', r.j && r.j.assistant === 'codex' && optOf(nw, '--command') === "codex 'Read BRIEF.md and start on the first milestone.'", `${r.status} ${JSON.stringify(r.j)} ${JSON.stringify(nw)}`);
+  check('New project: startWith codex runs `codex \'Read BRIEF.md ...\'` in the new workspace', r.j && r.j.assistant === 'codex' && !nw.includes('--command') && sentInWorkspace('Pond')[0] === "codex 'Read BRIEF.md and start on the first milestone.'", `${r.status} ${JSON.stringify(r.j)} ${JSON.stringify(nw)} ${JSON.stringify(sentInWorkspace('Pond'))}`);
   r = await b.post('/api/project/new', { name: 'Pier', goal: 'A pier.', assistant: 'claude' });
   nw = newWorkspaces().pop() || [];
   const pier = JSON.parse(fs.readFileSync(path.join(MC, 'projects.json'), 'utf8')).projects.find((x) => x.id === 'pier');
-  check('New project: the form\'s Claude Code wins over startWith and is kept on the project', r.j && r.j.assistant === 'claude' && optOf(nw, '--command') === "claude 'Read BRIEF.md and start on the first milestone.'" && pier && pier.assistant === 'claude', `${JSON.stringify(r.j)} ${JSON.stringify(nw)} ${JSON.stringify(pier)}`);
+  check('New project: the form\'s Claude Code wins over startWith and is kept on the project', r.j && r.j.assistant === 'claude' && sentInWorkspace('Pier')[0] === "claude 'Read BRIEF.md and start on the first milestone.'" && pier && pier.assistant === 'claude', `${JSON.stringify(r.j)} ${JSON.stringify(nw)} ${JSON.stringify(sentInWorkspace('Pier'))} ${JSON.stringify(pier)}`);
   r = await b.post('/api/project/new', { name: 'Dock', goal: 'A dock.', assistant: 'gemini' });
   check('New project: an unknown assistant is refused, nothing written', r.status === 400 && /claude or codex/.test(r.j.error) && !fs.existsSync(P('dock')), JSON.stringify(r));
 
@@ -492,7 +494,7 @@ async function noStartWithChecks() {
     fs.writeFileSync(path.join(NMC, 'handoffs', CX_SID + '.json'), JSON.stringify({ sessionId: CX_SID, state: 'written', assistant: 'codex', cwd: P('raven'), folder: P('raven'), workspaceId: 'ws-raven', writtenAt: new Date().toISOString(), history: [{ state: 'written', at: new Date().toISOString() }] }, null, 2));
     let m = null;
     for (let i = 0; i < 40; i++) { await sleep(250); try { m = JSON.parse(fs.readFileSync(path.join(NMC, 'handoffs', CX_SID + '.json'), 'utf8')); } catch { m = null; } if (m && (m.state === 'resumed' || m.resumeError)) break; }
-    check('hand-off: a Codex session\'s fresh session starts Codex, under no startWith and a project with no assistant', m && m.state === 'resumed' && /^codex 'Read the Hand-off section/.test(m.resumeCommand || '') && /^codex 'Read the Hand-off/.test(nsent(m.resumeSurfaceId)[0] || ''), JSON.stringify(m && { state: m.state, cmd: m.resumeCommand, err: m.resumeError }));
+    check('hand-off: a Codex session\'s fresh session starts Codex, under no startWith and a project with no assistant', m && m.state === 'resumed' && /&& codex 'Read the Hand-off section/.test(m.resumeCommand || '') && /^codex 'Read the Hand-off/.test(nsent(m.resumeSurfaceId)[0] || ''), JSON.stringify(m && { state: m.state, cmd: m.resumeCommand, err: m.resumeError }));
     // Settings to Codex: the same project now starts Codex and says so.
     await nb.post('/api/settings/assistant', { startWith: 'codex' });
     await sleep(1500);
