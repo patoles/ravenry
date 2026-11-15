@@ -16,6 +16,7 @@
 //   and nowhere in the web view's storage.
 //
 //   node tools/ios-e2e.mjs --udid <booted simulator> --out <dir> [--theme dark|light] [--shots-only]
+//     [--hub DIR] (a packaged app's hub folder in place of ../../hub, as it ships)
 //
 // Pictures go to <out>/shots, the app's log and the marks to <out>.
 import fs from 'node:fs';
@@ -60,7 +61,7 @@ const STUB = `http://127.0.0.1:${ntfy.address().port}`;
 
 const DEMO = path.join(OUT, `demo-${THEME}`);
 fs.rmSync(DEMO, { recursive: true, force: true });
-const demo = spawn(process.execPath, [path.join(REPO, 'apps/phone/tools/demo.mjs'), '--phone', '--phone-hosts', '127.0.0.1', '--dir', DEMO], { env: cleanEnv, stdio: ['ignore', fs.openSync(path.join(OUT, `demo-${THEME}.log`), 'w'), 'inherit'] });
+const demo = spawn(process.execPath, [path.join(REPO, 'apps/phone/tools/demo.mjs'), '--phone', '--phone-hosts', '127.0.0.1', '--dir', DEMO, ...(opt('--hub') ? ['--hub', path.resolve(opt('--hub'))] : [])], { env: cleanEnv, stdio: ['ignore', fs.openSync(path.join(OUT, `demo-${THEME}.log`), 'w'), 'inherit'] });
 let info = null;
 for (let i = 0; i < 120 && !info; i++) { await sleep(500); try { info = JSON.parse(fs.readFileSync(path.join(DEMO, 'demo.json'), 'utf8')); } catch { /* not yet */ } }
 if (!info || !info.phone) { console.error('the demo hub did not start'); demo.kill(); process.exit(1); }
@@ -103,10 +104,63 @@ simctl('spawn', UDID, 'notifyutil', '-s', 'com.apple.BiometricKit.enrollmentChan
 bio('com.apple.BiometricKit.enrollmentChanged');
 let watching = true;
 const faceLog = [];
+// A new card while the board is open (test9): the test names it in
+// card.wait, and a ravenryd of the demo opens it in the pane of that
+// project's session (as `ravenry approve`, `ask` or `pick` typed there
+// does); the card it opened there before is cancelled first, so the board
+// shows this one. Its id goes back in card.out.
+const BIN = path.resolve(process.env.RAVENRYD || path.join(REPO, 'daemon', 'ravenryd'));
+const demoEnv = { HOME: DEMO, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: info.runtime, RAVENRY_STATE_DIR: path.join(DEMO, 'state') };
+const PICTURE = path.join(REPO, 'packages', 'page-format', 'fixtures', 'playtest', 'playtest', 'shots');
+const cardsOpened = new Map();
+async function openCard(c) {
+  const st = (await mac('GET', '/api/state')).body;
+  const pr = (st.projects || []).find((p) => p.id === c.project);
+  const s = pr && (pr.sessions || []).find((x) => String(x.surfaceId || '').startsWith('ravenry:'));
+  if (!s) throw new Error(`no session pane in ${c.project}`);
+  const env = { ...demoEnv, RAVENRY_PANE: s.surfaceId.slice('ravenry:'.length) };
+  const run = (a) => { try { return execFileSync(BIN, a, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch (x) { throw new Error(String(x.stderr || x.message).trim().slice(0, 400)); } };
+  for (const id of cardsOpened.get(c.project) || []) { try { run(['checkpoint', id, '--cancel']); } catch { /* answered or gone */ } }
+  // A large state (as a busy Mac's, 100 KB and more): that many more cards first, each with a long why, in another project.
+  if (c.fill) {
+    const other = (st.projects || []).find((p) => p.id === c.fill.project);
+    const os = other && (other.sessions || []).find((x) => String(x.surfaceId || '').startsWith('ravenry:'));
+    const long = 'The import keeps every recipe, its pictures and its notes, and checks each one twice. '.repeat(12).slice(0, 990);
+    for (let i = 0; i < c.fill.cards; i++) execFileSync(BIN, ['approve', `echo "filler ${i}"`, '--why', long, '--no-wait', '--timeout', '30m'], { env: { ...demoEnv, RAVENRY_PANE: os.surfaceId.slice('ravenry:'.length) }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+  const why = c.why;
+  if (c.fill) await sleep(2500);
+  if (c.fill) console.log(`  the board's state: ${(await (await fetch(BOARD + '/api/state')).text()).length} bytes with ${c.fill.cards} more cards`);
+  let a;
+  if (c.kind === 'ask') a = ['ask', c.title, ...(c.options || []).flatMap((o) => ['--option', o])];
+  else if (c.kind === 'pick') {
+    const pics = fs.readdirSync(PICTURE).filter((x) => /\.(png|jpe?g)$/i.test(x)).slice(0, 2).map((x) => path.join(PICTURE, x));
+    a = ['pick', c.title, ...c.variants.flatMap((v, i) => ['--variant', `${v.label}=${pics[i % pics.length]}`, '--describe', `${v.label}=${v.describe}`])];
+  } else a = ['approve', c.command, ...(why ? ['--why', why] : [])];
+  const id = run([...a, '--no-wait', '--timeout', '30m']);
+  cardsOpened.set(c.project, [id]);
+  return id;
+}
 (async () => {
   const f = path.join(SIG, 'faceid.wait');
   const sh = path.join(SIG, 'shot.wait');
+  const cw = path.join(SIG, 'card.wait');
+  // The Mac going silent (test9): the test hub stopped for that many seconds,
+  // its connections left open and unanswered, as a phone sees a network that
+  // drops or a Mac that sleeps; then it goes on.
+  const pw = path.join(SIG, 'pause.wait');
   while (watching) {
+    if (fs.existsSync(pw)) {
+      const secs = Number(fs.readFileSync(pw, 'utf8')) || 10;
+      fs.rmSync(pw, { force: true });
+      try { process.kill(info.pid, 'SIGSTOP'); setTimeout(() => { try { process.kill(info.pid, 'SIGCONT'); } catch { /* gone */ } }, secs * 1000); } catch { /* gone */ }
+    }
+    if (fs.existsSync(cw)) {
+      let out;
+      try { out = await openCard(JSON.parse(fs.readFileSync(cw, 'utf8'))); } catch (x) { out = 'error: ' + String(x.message).slice(0, 300); }
+      fs.writeFileSync(path.join(SIG, 'card.out'), out);
+      fs.rmSync(cw, { force: true });
+    }
     if (fs.existsSync(sh)) {
       const to = fs.readFileSync(sh, 'utf8').trim();
       try { simctl('io', UDID, 'screenshot', to); } catch { /* the test says */ }
@@ -191,6 +245,7 @@ if (!SHOTS_ONLY) {
   check('nothing went to a real ntfy server (the stand-in got what was published)', true, `${published.length} publish(es) on the stand-in`);
 }
 
+try { process.kill(info.pid, 'SIGCONT'); } catch { /* gone */ }
 demo.kill('SIGTERM'); await new Promise((r) => { demo.on('exit', r); setTimeout(r, 8000); });
 try { process.kill(info.pid, 'SIGTERM'); } catch { /* gone */ }
 ntfy.close();

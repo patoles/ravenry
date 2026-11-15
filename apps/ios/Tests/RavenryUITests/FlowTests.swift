@@ -290,4 +290,150 @@ final class FlowTests: XCTestCase {
         shot("ink-end")
         mark("ink: board shown after the ink")
     }
+
+    // ------------------------------------------------------------ cards that arrive while the board is open
+
+    /// Asks tools/ios-e2e.mjs to open a card on the test hub (as `ravenry approve`, `ask` or `pick` in that project): its id.
+    func newCard(_ spec: [String: Any]) -> String? {
+        guard let dir = env["RAVENRY_SIG"] else { return nil }
+        let out = URL(fileURLWithPath: "\(dir)/card.out")
+        try? FileManager.default.removeItem(at: out)
+        try? JSONSerialization.data(withJSONObject: spec).write(to: URL(fileURLWithPath: "\(dir)/card.wait"))
+        var id: String?
+        _ = until(15) { id = try? String(contentsOf: out, encoding: .utf8); return id != nil }
+        mark("card opened: \(spec["kind"] ?? "?") in \(spec["project"] ?? "?"): \(id ?? "nothing")")
+        return id.flatMap { $0.hasPrefix("error") ? nil : $0 }
+    }
+
+    /// Whether the board shows this text on the project's own screen (the
+    /// board's own route, no reload), within the time a person waits.
+    func onBoard(_ project: String, _ text: String, timeout: TimeInterval = 12) -> Bool {
+        let p = project.replacingOccurrences(of: "'", with: "\\'")
+        let t = text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        let code = """
+        if (location.hash !== '#\(p)') location.hash = '#\(p)';
+        return !!document.body && document.body.innerText.includes('\(t)');
+        """
+        return until(timeout) { js(code) == "true" }
+    }
+
+    /// Asks tools/ios-e2e.mjs to stop the test hub for that many seconds (its connections stay open, unanswered).
+    func silent(_ seconds: Int) {
+        guard let dir = env["RAVENRY_SIG"] else { return }
+        try? Data("\(seconds)".utf8).write(to: URL(fileURLWithPath: "\(dir)/pause.wait"))
+        _ = until(5) { !FileManager.default.fileExists(atPath: "\(dir)/pause.wait") }
+        mark("the Mac silent for \(seconds) s")
+    }
+
+    /// The app in the background for that long (Home), then in front again. Nothing
+    /// keeps the keyboard's focus across it: XCUITest's own hook crashes the app when a
+    /// text field's session starts again as the app comes back.
+    func away(_ a: XCUIApplication, seconds: TimeInterval, during: () -> Void = {}) {
+        _ = js("if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return true;")
+        XCUIDevice.shared.press(.home)
+        let t0 = Date()
+        during()
+        let left = seconds - Date().timeIntervalSince(t0)
+        if left > 0 { Thread.sleep(forTimeInterval: left) }
+        a.activate()
+    }
+
+    /// Whether the board's connection chip says connected within that time.
+    func connUp(within s: TimeInterval) -> Bool {
+        until(s) { js("return (window.ravenryApp && window.ravenryApp.conn && window.ravenryApp.conn.state) || null;", timeout: 3) == "\"up\"" }
+    }
+
+    /// What the page heard from the shell so far (only to say why, when a card did not show).
+    func heard() -> String { js("return JSON.stringify(window.__rvHeard || null);") ?? "nothing" }
+
+    func test9_ANewCardArrivesLiveOnTheOpenBoard() throws {
+        if shotsOnly { return }
+        // Every case measured, not only up to the first that fails.
+        continueAfterFailure = true
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        Thread.sleep(forTimeInterval: 2)
+        // A mark in the page (a reload would lose it), and a count of what the shell hands the page.
+        _ = js("""
+        window.__rvLive = 'same page';
+        if (!window.__rvHeard) { const o = window.__rvRecv; const h = window.__rvHeard = { n: 0, hub: 0, textOnly: 0, names: {} };
+          window.__rvRecv = function (s) { h.n++; try { const m = typeof s === 'string' ? JSON.parse(s) : s; if (m && m.event === 'hub') { h.hub++; h.names[m.name] = (h.names[m.name] || 0) + 1; if (typeof m.data === 'string') h.textOnly++; } } catch (e) { h.err = String(e); } return o(s); }; }
+        return true;
+        """)
+        let samePage = { self.js("return window.__rvLive || null;") == "\"same page\"" }
+
+        // 1. An approve card.
+        XCTAssertNotNil(newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"live one: it ran\"", "why": "A card that arrives while the board is open."]))
+        let one = onBoard("paper-boat", "live one: it ran")
+        mark("live approve on the board: \(one); heard \(heard())")
+        // The card in sight for the picture (it sits under the project's head on a phone).
+        _ = js("const hit = [...document.querySelectorAll('button')].find((b) => (b.innerText || '').trim() === 'Run'); if (hit) hit.scrollIntoView({ block: 'center' }); return !!hit;")
+        Thread.sleep(forTimeInterval: 4)
+        shot("live-approve")
+        XCTAssertTrue(one, "a new approve card shows on the open board")
+
+        // 2. An ask, its words with quotes, an apostrophe, accents, a line separator and a sign outside the BMP.
+        let askTitle = "Ship \"Caf\u{e9} cr\u{e8}me\" to l'\u{e9}quipe? \u{65e5}\u{672c} \u{1F680}"
+        XCTAssertNotNil(newCard(["kind": "ask", "project": "weather-widget", "title": askTitle + "\u{2028}It goes to the 12 testers.", "options": ["Ship it now", "Not yet"]]))
+        let two = onBoard("weather-widget", "Caf\u{e9} cr\u{e8}me")
+        mark("live ask with quotes and accents: \(two); heard \(heard())")
+        XCTAssertTrue(two, "a new ask with quotes and non-ASCII words shows")
+        XCTAssertTrue(onBoard("weather-widget", "Ship it now", timeout: 3), "the ask's answers")
+
+        // 4. A card in a large state (60 more cards with a long why each: the board's state goes over 150 KB, as a busy Mac's).
+        XCTAssertNotNil(newCard(["kind": "approve", "project": "weather-widget", "command": "echo \"live big: it ran\"", "why": "A large state.", "fill": ["project": "garden-planner", "cards": 60]]))
+        let four = onBoard("weather-widget", "live big: it ran", timeout: 20)
+        mark("live approve in a large state: \(four); heard \(heard())")
+        XCTAssertTrue(four, "a new card shows with a large state")
+
+        // 5. A card opened while the app is in the background shows when it comes back; 6. one after that, live.
+        away(a, seconds: 5, during: { XCTAssertNotNil(self.newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"live five: it ran\"", "why": "Opened while the app was away."])) })
+        let five = onBoard("paper-boat", "live five: it ran", timeout: 10)
+        mark("card opened in the background, after coming back: \(five); heard \(heard())")
+        XCTAssertTrue(five, "a card opened while the app was in the background shows when it comes back")
+        XCTAssertNotNil(newCard(["kind": "ask", "project": "weather-widget", "title": "After coming back: one more?", "options": ["Yes", "No"]]))
+        let six = onBoard("weather-widget", "After coming back: one more?")
+        mark("live ask after coming back: \(six); heard \(heard())")
+        XCTAssertTrue(six, "a new card shows live after the app came back")
+
+        // 7. The network goes silent with the app in front (the Mac stops answering, its
+        // connections left open, as a Wi-Fi that drops): when it answers again, the
+        // board is connected and live within seconds.
+        silent(50)
+        Thread.sleep(forTimeInterval: 51)
+        let back7 = connUp(within: 10)
+        XCTAssertNotNil(newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"live seven: it ran\"", "why": "After the network came back."]))
+        let seven = onBoard("paper-boat", "live seven: it ran", timeout: 10)
+        mark("after 50 s of silence in front: connected \(back7), card \(seven); heard \(heard())")
+        XCTAssertTrue(back7, "connected again within 10 s of the Mac answering")
+        XCTAssertTrue(seven, "a new card shows live after the network came back")
+
+        // 8. Away while the network is silent (an iPad that sleeps), then back.
+        away(a, seconds: 40, during: { self.silent(30) })
+        let back8 = connUp(within: 10)
+        XCTAssertNotNil(newCard(["kind": "ask", "project": "weather-widget", "title": "Back from sleep: still there?", "options": ["Yes", "No"]]))
+        let eight = onBoard("weather-widget", "Back from sleep: still there?", timeout: 10)
+        mark("back after 40 s away, 30 s of it silent: connected \(back8), card \(eight); heard \(heard())")
+        shot("live-after-foreground")
+        XCTAssertTrue(back8, "connected again within 10 s of coming back")
+        XCTAssertTrue(eight, "a new card shows live after coming back from sleep")
+
+        // 9. An idea named at the Mac with an emoji where the hub cuts names (80
+        // characters): half of the emoji, alone, goes in the hub's ideas event
+        // (JSON.stringify writes it as \\udXXX, JSON.parse reads it). The idea shows
+        // in Ideas, and a card after it still arrives live.
+        let name = "Trail map " + String(repeating: "\u{2501}", count: 69) + "\u{1F5FA} more"
+        let (st, made) = hub("POST", "/api/ideas/add", ["name": name])
+        mark("idea added on the hub: \(st) \((made["idea"] as? [String: Any])?["id"] ?? made["id"] ?? "?")")
+        let idea = until(10) { self.js("const b = [...document.querySelectorAll('#bnav [data-pnav]')].find((x) => x.dataset.pnav === 'ideas'); if (b && !b.classList.contains('on')) b.click(); return document.body.innerText.includes('Trail map ');") == "true" }
+        mark("an idea with half an emoji alone in Ideas: \(idea); heard \(heard())")
+        shot("live-idea-cut-emoji")
+        XCTAssertTrue(idea, "an idea whose name the hub cut in the middle of an emoji shows in Ideas")
+        _ = js("const b = [...document.querySelectorAll('#bnav [data-pnav]')].find((x) => x.dataset.pnav === 'projects'); if (b) b.click(); return true;")
+        XCTAssertNotNil(newCard(["kind": "approve", "project": "weather-widget", "command": "echo \"live nine: it ran\"", "why": "After the idea."]))
+        let nine = onBoard("weather-widget", "live nine: it ran", timeout: 10)
+        mark("live approve after the idea: \(nine); heard \(heard())")
+        XCTAssertTrue(nine, "a new card shows after the idea")
+        mark("same page throughout: \(samePage())")
+    }
 }

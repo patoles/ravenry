@@ -38,7 +38,10 @@ node tools/ios-e2e.mjs --udid <udid> --out <dir> [--theme light] [--shots-only]
 with their live cases against it, then the app driven as a person would
 (`Tests/RavenryUITests`): pairing by the typed code and by the link, Which
 iPhone is this, the board, an answer, Run with Face ID (enrolled and
-answered on the simulator), the secret, a wrong pin, the launch's Ink; then
+answered on the simulator), the secret, a wrong pin, the launch's Ink, then
+cards that arrive while the board is open (quotes and accents, a 250 KB
+state, after the background, after 50 s of a silent Mac in front and 30 s
+of one while away, an idea whose name the hub cut in half of an emoji); then
 the token in the simulator's Keychain and the secret in no log and nowhere
 in the app's data. The pairing screens, the secure field, iOS's own sheets
 and Face ID are driven natively; the board's buttons are pressed by a line
