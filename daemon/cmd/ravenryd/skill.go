@@ -140,11 +140,17 @@ person never needs to come back to your chat.
   waits for input (or given in ` + "`--env`" + `); you get the command's output and
   status. ` + "`--pane`" + ` can never be your own pane.
 - **Exit status** of ask, approve, secret and ` + "`checkpoint ID --wait`" + `:
-  0 answered (for a command: the command's own status), 124 nobody answered
-  in time, 125 the person declined (or it was cancelled), 1 anything else.
+  0 answered (for a command: the command's own status), 123 the person
+  answered you in the terminal instead (Ravenry withdrew the card: read
+  their message and go on from it), 124 nobody answered in time, 125 the
+  person declined (or it was cancelled), 1 anything else.
 - ` + "`--no-wait`" + ` prints the checkpoint id and returns: arm it, do other work,
   then ` + "`ravenry checkpoint ID --wait`" + `. Withdraw one you no longer need with
   ` + "`ravenry checkpoint ID --cancel`" + `.
+- **If the person answers in the chat instead, withdraw the card at once:**
+  ` + "`ravenry checkpoint ID --cancel`" + `. Ravenry also withdraws your open ask,
+  approve and pick cards by itself when the person writes to your
+  session, so the card does not stay on their board and phone.
 - **Only the person answers.** You cannot answer a checkpoint, yours or
   another agent's: ` + "`checkpoint ID --answer`" + `, ` + "`--approve`" + ` and ` + "`--decline`" + ` are for
   the person at a terminal, and the daemon and the hub refuse an answer
