@@ -314,8 +314,8 @@ try {
   try { await browser?.close(); } catch { /* gone */ }
   serve?.kill();
   hub?.stop();
-  try { execFileSync(BIN, ['kill-server'], { env: localEnv, stdio: 'ignore' }); } catch { /* gone */ }
-  try { execFileSync('pkill', ['-f', RT]); } catch { /* none */ }
+  // The test's daemons (and with them their panes), as pick-shots stops them.
+  try { for (const d of JSON.parse(execFileSync(BIN, ['daemons', '--json', '--no-start'], { env: localEnv, encoding: 'utf8' }))) { try { process.kill(d.pid, 'SIGTERM'); } catch { /* gone */ } } } catch { /* none */ }
   fs.rmSync(RT, { recursive: true, force: true });
 }
 fs.writeFileSync(path.join(OUT, 'pickzoom-check.json'), JSON.stringify({ failed, checks: results }, null, 1));
