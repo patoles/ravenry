@@ -421,8 +421,23 @@ final class PanelView: Box {
             buttons["handoff"] = hand
             // A written hand-off whose fresh session waits for the person, or did not start (SESS-044).
             let fresh = FreshStart.state(s)
-            let startB: RButton? = fresh.offer ? RButton(t("panel.startFresh"), .primary, small: true) { [weak self] in FreshStart.start(self?.host?.hub, p, s) { self?.host?.toast($0) } } : nil
-            if let b = startB { b.toolTip = t("panel.startFreshTip"); buttons["startFresh"] = b }
+            var startB: NSView? = fresh.offer ? RButton(t("panel.startFresh"), .primary, small: true) { [weak self] in FreshStart.start(self?.host?.hub, p, s) { self?.host?.toast($0) } } : nil
+            if let b = startB as? RButton { b.toolTip = t("panel.startFreshTip"); buttons["startFresh"] = b }
+            // Its start failed (SESS-052): Retry, the same start by hand, where Start fresh session goes, and
+            // Copy command under the line that says why (one row would be wider than the panel).
+            var copyB: RButton? = nil
+            if fresh.retry {
+                let retry = RButton(t("panel.retryFresh"), .primary, small: true) { [weak self] in FreshStart.start(self?.host?.hub, p, s) { self?.host?.toast($0) } }
+                retry.toolTip = t("panel.retryFreshTip")
+                buttons["retryFresh"] = retry
+                startB = retry
+                if let cmd = fresh.copy {
+                    let copy = RButton(t("panel.copyFresh"), small: true) { [weak self] in FreshStart.copy(cmd) { self?.host?.toast($0) } }
+                    copy.toolTip = t("panel.copyFreshTip")
+                    buttons["copyFresh"] = copy
+                    copyB = copy
+                }
+            }
             // The line itself is the way to where it is set: Settings, Hand-off.
             let line = RButton(on ? t("panel.handsOffAt", ["pct": "\(Int(th))"]) : t("panel.handOffOff"), .link) { [weak self] in self?.host?.openPage("settings:handoff", t("side.settings")) }
             line.titleSize = 12
@@ -430,7 +445,7 @@ final class PanelView: Box {
             line.setAccessibilityHelp(t("panel.handOffChangeTip"))
             buttons["handoffSettings"] = line
             out.append(sec(t("panel.context"), right: label(t("panel.tokensOf", ["used": When.tokens(c.tokens), "window": When.tokens(c.window)]), Fonts.pt(12, .semibold).withTabularDigits),
-                           [bar, hstack([line, spring(), startB ?? (fresh.line == nil ? hand : nil)], spacing: 6), fresh.line.map { para($0, "tx2", size: 12) }]))
+                           [bar, hstack([line, spring(), startB ?? (fresh.line == nil ? hand : nil)], spacing: 6), fresh.line.map { para($0, "tx2", size: 12) }, fresh.asks.map { para($0, "tx3", size: 11.5) }, copyB.map { hstack([$0, spring()]) }]))
         }
         // Over the terminal on a narrow window, a card keeps the panel short.
         if cp != nil, superview.map({ _ in isOverlay }) ?? false { return out }
@@ -865,7 +880,7 @@ final class PanelView: Box {
         }
         // Where it runs and what (shellPanel's Folder and Runs).
         if !pn.cwd.isEmpty || !pn.command.isEmpty {
-            var rows: [NSView?] = [kv(t("panel.folder"), tilde(pn.cwd), mono: true), kv(t("panel.runs"), pn.command.isEmpty ? t("panel.loginShell") : pn.command.joined(separator: " "), mono: true)]
+            var rows: [NSView?] = [kv(t("panel.folder"), tilde(pn.cwd), mono: true), kv(t("panel.runs"), pn.command.isEmpty ? t("panel.loginShell") : shownCommand(pn.command), mono: true)]
             // A folder no project uses: a project can start from it (SESS-023).
             if folderFree(pn.cwd, host?.hub.state) {
                 let b = RButton(t("panel.newFromFolder"), small: true) { [weak self] in

@@ -170,7 +170,9 @@ export async function sessbDo(req, { hub, sb, sock, APP, env, startHub }) {
   if (req.do === 'marker') {
     const d = path.join(hub.current.home, '.ravenry', 'handoffs');
     fs.mkdirSync(d, { recursive: true });
-    fs.writeFileSync(path.join(d, `${req.sid}.json`), JSON.stringify({ sessionId: req.sid, state: 'written', writtenAt: new Date().toISOString(), cwd: req.cwd, folder: req.cwd, surfaceId: req.surfaceId || null, workspaceId: req.workspaceId || null, handoffFile: path.join(req.cwd, 'BRIEF.md'), history: [{ state: 'written', at: new Date().toISOString() }] }, null, 2));
+    // With `error` (and `question`, `command`): a hand-off whose fresh session did not start, as the hub records one.
+    const failed = req.error ? { resumeStartedAt: new Date().toISOString(), resumeError: req.error, resumeQuestion: req.question || null, resumeCommand: req.command || null } : {};
+    fs.writeFileSync(path.join(d, `${req.sid}.json`), JSON.stringify({ sessionId: req.sid, state: 'written', writtenAt: new Date().toISOString(), cwd: req.cwd, folder: req.cwd, surfaceId: req.surfaceId || null, workspaceId: req.workspaceId || null, handoffFile: path.join(req.cwd, 'BRIEF.md'), ...failed, history: [{ state: 'written', at: new Date().toISOString() }] }, null, 2));
   }
   if (req.do === 'pane') {
     // A pane's screen as the daemon holds it, and what each stand-in was asked.

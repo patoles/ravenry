@@ -399,14 +399,45 @@ extension SelfTestBoard {
         picture("native-sessb-lease-1280-dark.png")
     }
 
+    // MARK: SESS-024 a fresh session that did not start (the shell asked something): the line, Retry, Copy command
+
+    private func sbFreshNotStarted(key: String, sid: String, folder: String, surfaceId: String) {
+        let err = "The fresh session didn't start: the terminal was asking something. Retry, or copy the command."
+        let q = "[oh-my-zsh] Would you like to update? [Y/n]"
+        let cmd = "cd '\(folder)' && claude 'Read the Hand-off section of BRIEF.md and continue from it.'"
+        _ = ask(["do": "marker", "sid": sid, "cwd": folder, "surfaceId": surfaceId, "error": err, "question": q, "command": cmd])
+        let failed = wait(20) { self.board.hub.state?.find(key)?.session.handoff?["resumeError"] as? String == err }
+        board.pickSession(key, why: "test")
+        if !board.panelVisible { _ = self.key("b", [.command, .option]) }
+        let shown = wait(8) { self.board.render(force: true); return self.board.panel.buttons["retryFresh"] != nil && self.board.panel.buttons["copyFresh"] != nil }
+        check("sb_fresh_not_started_line", failed && shown && shows(board.panel, "Hand-off written to BRIEF.md. " + err) && shows(board.panel, "Its tab asks: \"\(q)\". Ravenry never answers that for you.")
+              && board.panel.buttons["startFresh"] == nil,
+              "failed \(failed), buttons \(board.panel.buttons.keys.sorted()); " + texts(board.panel).prefix(18).joined(separator: " | "))
+        pictures("sessb-fresh-not-started")
+        // Copy command: the hub's command to the clipboard (off every screen recorded, the clipboard untouched).
+        let n0c = Outside.record?.count ?? 0
+        if let b = board.panel.buttons["copyFresh"] { click(b) }
+        let copied = wait(3) { (Outside.record ?? []).dropFirst(n0c).contains("copy \(cmd)") }
+        check("sb_fresh_copy_command", copied, (Outside.record ?? []).dropFirst(n0c).joined(separator: " | "))
+        // Retry: the same start, by hand (POST /api/handoff/start): the stand-in starts, and the hand-off is resumed once it is seen.
+        let n0 = standIns().count
+        if let b = board.panel.buttons["retryFresh"] { click(b) }
+        let posted = wait(20) { self.board.hub.sentBodies.contains { $0.path == "/api/handoff/start" && $0.body["sessionId"] as? String == sid } && self.board.hub.inFlight == 0 }
+        let started = wait(25) { self.standIns().count > n0 }
+        let rec = standIns().dropFirst(n0).first ?? [:]
+        let resumed = wait(25) { self.board.hub.state?.projects.flatMap(\.sessions).contains { $0.sessionId == sid && $0.handoff?["state"] as? String == "resumed" } == true }
+        check("sb_fresh_retry", posted && started && resumed && ((rec["args"] as? [String]) ?? []).joined(separator: " ").contains("Read the Hand-off section"), "posted \(posted), started \(started), resumed \(resumed); \(rec)")
+    }
+
     // MARK: SESS-044 Start fresh session, SESS-024 the fresh session started by itself
 
     private func sbFreshStart() {
         guard let st = board.hub.state, let f = st.projects.lazy.compactMap({ p in p.sessions.first { $0.sessionId != nil && $0.ctx != nil && $0.pane == nil && p.machine == nil && $0.machine == nil }.map { (p, $0) } }).first,
               let sid = f.1.sessionId, let folder = f.0.folder else { check("sb_fresh_offered", false, "no session with a context"); return }
         let key = "\(f.0.id)/\(f.1.surfaceId)"
+        sbFreshNotStarted(key: key, sid: sid, folder: folder, surfaceId: f.1.surfaceId)
         _ = ask(["do": "marker", "sid": sid, "cwd": folder, "surfaceId": f.1.surfaceId])
-        let written = wait(20) { self.board.hub.state?.find(key)?.session.handoff?["state"] as? String == "written" }
+        let written = wait(20) { self.board.hub.state?.find(key)?.session.handoff?["state"] as? String == "written" && (self.board.hub.state?.find(key)?.session.handoff?["resumeError"] as? String) == nil }
         board.pickSession(key, why: "test")
         if !board.panelVisible { _ = self.key("b", [.command, .option]) }
         let offered = wait(8) { self.board.render(force: true); return self.board.panel.buttons["startFresh"] != nil }

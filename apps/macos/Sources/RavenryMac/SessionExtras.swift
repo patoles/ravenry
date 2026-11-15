@@ -41,15 +41,37 @@ func reasonLine(_ p: HubProject, _ s: HubSession, width: CGFloat) -> NSTextField
     return l
 }
 
+/// A pane's command as the panel's "Runs" shows it: an assistant the hub started as the pane's program
+/// (hub/server/launch.mjs wrapped: zsh -f -c <script> ravenry-start <folder> <PATH> <shell> <argv>) shows
+/// as its own command, not the small zsh around it.
+func shownCommand(_ c: [String]) -> String {
+    if c.count > 8, c[0] == "/bin/zsh", c[1] == "-f", c[2] == "-c", c[4] == "ravenry-start" {
+        var argv = Array(c[8...])
+        argv[0] = (argv[0] as NSString).lastPathComponent
+        return argv.joined(separator: " ")
+    }
+    return c.joined(separator: " ")
+}
+
 /// A written hand-off's line and its Start fresh session (app.js handoffButton, handoffCard).
 enum FreshStart {
-    /// "written" with the fresh session left to the person, or with its start failed.
-    static func state(_ s: HubSession) -> (offer: Bool, line: String?) {
-        guard let h = s.handoff, h["state"] as? String == "written" else { return (false, nil) }
+    /// "written" with the fresh session left to the person, or with its start failed: then Retry, and the
+    /// command to copy (`copy`), and the question its tab asks (`asks`) when that is why.
+    static func state(_ s: HubSession) -> (offer: Bool, line: String?, retry: Bool, copy: String?, asks: String?) {
+        guard let h = s.handoff, h["state"] as? String == "written" else { return (false, nil, false, nil, nil) }
         let file = h["fileName"] as? String ?? "BRIEF.md"
-        if let e = h["resumeError"] as? String, !e.isEmpty { return (false, t("panel.handOffNotStarted", ["file": file, "why": e])) }
-        if h["autoStart"] as? Bool == false { return (true, t("panel.handOffWritten", ["file": file])) }
-        return (false, nil)
+        if let e = h["resumeError"] as? String, !e.isEmpty {
+            let cmd = (h["resumeCommand"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let q = (h["resumeQuestion"] as? String).flatMap { $0.isEmpty ? nil : t("panel.handOffAsks", ["question": $0]) }
+            return (false, t("panel.handOffNotStarted", ["file": file, "why": e]), true, cmd, q)
+        }
+        if h["autoStart"] as? Bool == false { return (true, t("panel.handOffWritten", ["file": file]), false, nil, nil) }
+        return (false, nil, false, nil, nil)
+    }
+
+    static func copy(_ cmd: String, say: (String) -> Void) {
+        Outside.copy(cmd)
+        say(t("panel.freshCopied"))
     }
 
     static func start(_ hub: HubClient?, _ p: HubProject, _ s: HubSession, say: @escaping (String) -> Void) {
