@@ -35,7 +35,8 @@ struct CardCtx {
     var answer: (String, [String: Any]) -> Void
     /// Something on the card changed (editing, refusing): it is built again.
     var changed: (String) -> Void
-    var openPicker: (String) -> Void
+    /// The pick side by side in the middle, or one of its pictures up close (its index).
+    var openPicker: (String, Int?) -> Void
     /// The hub alerts the phone too.
     var phoneToo: Bool
     /// A pane's name as the tabs say it, when this window has it.
@@ -411,7 +412,7 @@ final class CheckpointCard: Box {
             return true
         case "pick":
             if n > (cp["variants"] as? [Any] ?? []).count || n > 4 { return false }
-            ctx.openPicker(id)
+            ctx.openPicker(id, nil)
             return true
         case "ask":
             let options = cp["options"] as? [String] ?? []
@@ -819,8 +820,9 @@ final class CheckpointCard: Box {
             let img = CoverImage()
             img.radius = 6
             img.fillColor = Design.color("card2")
-            img.toolTip = "Open \(name) side by side"
-            img.onClick = { [weak self] in self.map { $0.ctx.openPicker($0.id) } }
+            img.toolTip = t("pick.lookTip", ["name": name])
+            img.onClick = { [weak self] in self.map { $0.ctx.openPicker($0.id, n) } }
+            img.setAccessibilityRole(.button)
             img.setAccessibilityLabel(name)
             img.translatesAutoresizingMaskIntoConstraints = false
             img.heightAnchor.constraint(equalTo: img.widthAnchor, multiplier: 10.0 / 16).isActive = true
@@ -840,7 +842,7 @@ final class CheckpointCard: Box {
             let cap = label("\(letter). \(name)", Fonts.pt(12), "tx2")
             cells.append(vstack([frame, cap], spacing: 5))
         }
-        let openB = button("openPicker", t("pick.openSide"), .primary) { [weak self] in self.map { $0.ctx.openPicker($0.id) } }
+        let openB = button("openPicker", t("pick.openSide"), .primary) { [weak self] in self.map { $0.ctx.openPicker($0.id, nil) } }
         let open = vstack([openB, label(t("pick.orPress", ["keys": vs.indices.map { "\($0 + 1)" }.joined(separator: ", ")]), Fonts.pt(11.5), "tx3")], spacing: 6)
         open.alignment = .centerX
         if vs.count % 2 == 1 { cells.append(vstack([spring(), open, spring()], spacing: 0)) }

@@ -252,7 +252,9 @@ extension SelfTestBoard {
         if pk.images.count > 1 {
             let im = pk.images[1]
             window.contentView?.layoutSubtreeIfNeeded()
-            let at = { (x: CGFloat, y: CGFloat) in im.convert(NSPoint(x: im.bounds.width * x, y: im.bounds.height * y), to: nil) }
+            // In fractions of the picture as drawn (whole, in the middle of its well).
+            let pr = im.pictureRect
+            let at = { (x: CGFloat, y: CGFloat) in im.convert(NSPoint(x: pr.minX + pr.width * x, y: pr.minY + pr.height * y), to: nil) }
             for (type, p) in [(NSEvent.EventType.leftMouseDown, at(0.3, 0.3)), (.leftMouseDragged, at(0.5, 0.5)), (.leftMouseUp, at(0.6, 0.7))] {
                 guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
                 switch type {

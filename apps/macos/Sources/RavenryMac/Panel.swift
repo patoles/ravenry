@@ -28,7 +28,7 @@ final class PanelView: Box {
         /// A pane's name as the tabs say it, when this window has it.
         var paneName: (String) -> String? = { _ in nil }
         /// A pick opens side by side in the middle.
-        var openPicker: (String) -> Void = { _ in }
+        var openPicker: (String, Int?) -> Void = { _, _ in }
         /// "Who can type here" for a pane of this daemon, and taking a grant back (Lent.swift).
         var whoCanType: (String) -> [WhoRow] = { _ in [] }
         var revoke: (String, String) -> Void = { _, _ in }
@@ -962,7 +962,7 @@ final class PanelView: Box {
         let ctx = CardCtx(hub: h.hub,
                           answer: { [weak self] id, reply in self?.answer(id, reply) },
                           changed: { [weak self] id in self?.cardChanged(id) },
-                          openPicker: { id in h.openPicker(id) },
+                          openPicker: { id, n in h.openPicker(id, n) },
                           phoneToo: phoneToo,
                           paneName: { h.paneName($0) },
                           showPane: { h.showPane($0) },

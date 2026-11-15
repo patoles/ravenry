@@ -512,12 +512,12 @@ if (SCREEN === 'alerts') {
 // as the fixture's cards, never as loose ones of its own daemon.
 const AGENT_RUN = path.join(tmp, 'arun');
 let agentSock = null;
-if (SCREEN === 'cards') {
+if (SCREEN === 'cards' || SCREEN === 'pickzoom') {
   fs.mkdirSync(AGENT_RUN, { recursive: true, mode: 0o700 });
   daemonsUp.push(spawn(path.join(APP, 'Contents', 'MacOS', 'ravenryd'), ['serve'], { env: { ...env, RAVENRY_RUNTIME_DIR: AGENT_RUN }, stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'daemon-agents.log'), 'w')] }));
   for (let i = 0; !agentSock; i++) { const f = fs.readdirSync(AGENT_RUN).find((n) => /^ravenryd-.+\.sock$/.test(n)); if (f) agentSock = path.join(AGENT_RUN, f); else { if (i > 100) throw new Error('the agents\' daemon did not start'); await sleep(50); } }
 }
-if (SCREEN === 'cards') Object.assign(screenHub, { runtime: AGENT_RUN, env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
+if (SCREEN === 'cards' || SCREEN === 'pickzoom') Object.assign(screenHub, { runtime: AGENT_RUN, env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: path.join(APP, 'Contents', 'MacOS', 'ravenryd') } });
 if (DAEMONS) Object.assign(screenHub, { runtime: run, panes: ['recipe-box'], env: { ...screenHub.env, MC_NO_EVENTS: '0', RAVENRY_DAEMON_BIN: NEW }, settings: { launchCommand: NEW_CLAUDE } });
 // --screen write (write-fixture.mjs): the board in Ravenry mode on this test's daemon, the app behind a proxy that logs the hub's answers.
 const WRITE = SCREEN === 'write';
@@ -756,6 +756,54 @@ if (SCREEN === 'cards') {
   for (const c of cps) c.real = (AGENTS[c.kind] || []).map((a) => a.id);
   fs.writeFileSync(CARDS, JSON.stringify(cps));
 }
+// --screen pickzoom (SelfTestPickZoom.swift): an agent in a pane of the test
+// daemon waits on a real `ravenry pick` of four big pictures, each with its
+// words; the fixture is the hub's own copy of it, put on a demo session so
+// the panel shows its card. SIDETEST_PICK_PICTURES (four paths, ":" between)
+// picks the pictures; else four are drawn here, three wide and one tall.
+const PZ = { name: 'pickzoom', out: path.join(tmp, 'pickzoom.out'), idFile: path.join(tmp, 'pickzoom.id') };
+/** A w x h PNG: bands of colour with a grid every 100 px, so a crop or a squeeze shows. */
+function gridPng(w, h, a, b) {
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 3 + 1)] = 0;
+    for (let x = 0; x < w; x++) {
+      const c = x % 100 < 3 || y % 100 < 3 ? [240, 240, 240] : (Math.floor(x / 300) + Math.floor(y / 300)) % 2 ? a : b;
+      raw.set(c, y * (w * 3 + 1) + 1 + x * 3);
+    }
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(td) >>> 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+if (SCREEN === 'pickzoom') {
+  const dir = path.join(tmp, 'pz');
+  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
+  const rd = path.join(APP, 'Contents', 'MacOS', 'ravenryd');
+  fs.symlinkSync(rd, path.join(dir, 'bin', 'ravenry'));
+  let pics = (process.env.SIDETEST_PICK_PICTURES || '').split(':').filter(Boolean);
+  if (pics.length !== 4) pics = [[3030, 2364, [70, 110, 170], [40, 60, 90]], [3030, 2364, [180, 90, 60], [90, 45, 30]], [1530, 2364, [80, 150, 90], [40, 75, 45]], [2530, 2364, [150, 150, 60], [75, 75, 30]]].map(([w, h, a, b], n) => { const f = path.join(dir, `sheet-${n}.png`); fs.writeFileSync(f, gridPng(w, h, a, b)); return f; });
+  const labels = ['Pairing', 'Alerts', 'Run and secret', 'Launch Ink'];
+  const says = ['Scan the QR code, or type the code, then Connected.', 'The ask, the iOS sheet, and alerts on the lock screen.', 'Face ID before Run, and the secret field.', 'The Mac\u2019s Ink on the iPhone, dark and light.'];
+  const pick = `ravenry pick ${sq('Which iPhone screens should I build first?')} ${labels.map((l, i) => `--variant ${sq(`${l}=${pics[i]}`)} --describe ${sq(`${l}=${says[i]}`)}`).join(' ')}`;
+  const sh = `export PATH=${sq(path.join(dir, 'bin'))}:/usr/bin:/bin; ${pick} --no-wait > ${sq(PZ.idFile)} 2>&1; ravenry checkpoint "$(cat ${sq(PZ.idFile)})" --wait > ${sq(PZ.out)} 2>&1; echo "EXIT $?" >> ${sq(PZ.out)}; exec sleep 100000`;
+  execFileSync(rd, ['new', '--socket', agentSock, '--cwd', user, '--name', 'pickzoom', '--json', '--', '/bin/sh', '-c', sh], { env: { ...env, RAVENRY_RUNTIME_DIR: AGENT_RUN } });
+  for (let i = 0; i < 100 && !/^c[a-z0-9]{6,}$/.test((() => { try { return fs.readFileSync(PZ.idFile, 'utf8').trim(); } catch { return ''; } })()); i++) await sleep(100);
+  PZ.id = fs.readFileSync(PZ.idFile, 'utf8').trim();
+  let cp = null;
+  for (let i = 0; i < 100 && !cp; i++) { const st = await hub.state(); cp = (st.checkpoints || []).find((c) => c.id === PZ.id) || null; if (!cp) await sleep(200); }
+  if (!cp) console.log(`sidetest: the hub does not list the pick ${PZ.id}`);
+  const st = await hub.state();
+  const p = (st.projects || []).find((x) => (x.sessions || []).length) || {};
+  const s = (p.sessions || [])[0] || {};
+  fs.writeFileSync(CARDS, JSON.stringify(cp ? [{ ...cp, projectId: p.id, project: p.name, surfaceId: s.surfaceId }] : []));
+}
 // --screen review: the worktree's record, as the hub keeps it, and the project's files as the hub works them out.
 const FILES = path.join(OUT, 'review-files.json');
 // --screen controls sweeps the review, the cards and the picker too (A11Y-003), on the same fixtures.
@@ -829,7 +877,7 @@ function lockedRoot() { const d = path.join(tmp, 'p'); fs.mkdirSync(d, { recursi
 function settingsRoot() { const d = path.join(hub.home, 'Work'); fs.mkdirSync(d, { recursive: true }); return d; }
 // --screen daemons: no --socket (every daemon of the runtime folder).
 const app = spawn(EXE, ['--offscreen', ...(DAEMONS || GONE ? [] : ['--socket', sock]), '--sidetest', result, ...(SCREEN ? ['--screen', SCREEN] : [])], {
-  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(ANSWERS ? { RAVENRY_MAC_ANSWERS: JSON.stringify({ fake: hub.fake, argv: STAND_IN + '.argv' }) } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
+  env: { ...env, RAVENRY_HUB_URL: proxy ? proxy.url : hub.url, ...(WRITE ? { RAVENRY_MAC_WRITE: writeEnv(hub, OUT, path.join(OUT, 'hub-traffic.jsonl')) } : {}), RAVENRY_MAC_EVENTS_LOG: path.join(tmp, 'events.log'), ...(SCREEN === 'machines' ? { RAVENRY_MAC_FIXTURE: FIXTURE } : {}), ...(SCREEN === 'cards' || SCREEN === 'controls' || SCREEN === 'pickzoom' ? { RAVENRY_MAC_CARDS: CARDS } : {}), ...(PROOFS ? { RAVENRY_MAC_CARDS: CARDS, RAVENRY_MAC_PROOFS: PROOFS_FILE } : {}), ...(PAGES ? { RAVENRY_MAC_RULES: RULES_FILE } : {}), ...(ANSWERS ? { RAVENRY_MAC_ANSWERS: JSON.stringify({ fake: hub.fake, argv: STAND_IN + '.argv' }) } : {}), ...(process.env.SIDETEST_FILM_CONTENT ? { RAVENRY_MAC_FILM_CONTENT: process.env.SIDETEST_FILM_CONTENT } : {}), ...(SCREEN === 'review' || SCREEN === 'controls' ? { RAVENRY_MAC_FILES: FILES } : {}), ...(SCREEN === 'settings' || SCREEN === 'controls' ? { RAVENRY_SETTINGS_IMPORT: path.join(tmp, 'Harbour_Night.conf'), RAVENRY_SETTINGS_PROJECTS_ROOT: settingsRoot() } : {}), RAVENRY_MAC_HUB_HOME: hub.home, ...(SCREEN === 'ideastop' ? { RAVENRY_MAC_IDEA_STOP_MS: String(IDEA_STOP_MS) } : {}), ...(SCREEN === 'settingsroot' ? { RAVENRY_MAC_LOCKED_ROOT: lockedRoot() } : {}), ...(NTFY ? { RAVENRY_MAC_NTFY_SERVER: NTFY.url, RAVENRY_MAC_NTFY_LOG: NTFY.log } : {}), ...(LAB ? { RAVENRY_MAC_TAILNET_LAB: LAB.admin } : {}) },
   stdio: ['ignore', 'ignore', fs.openSync(path.join(tmp, 'app.log'), 'w')],
 });
 let exited = false;
@@ -923,6 +971,7 @@ try { fs.writeFileSync(path.join(tmp, 'hub.log'), hub.log()); } catch { /* none 
 // --screen cards: what each agent printed, read before its daemon stops: an
 // agent still waiting (PANEL-027's) then ends with "the daemon is stopping",
 // which a check read after the stop took for an answer (2026-11-12).
+if (SCREEN === 'pickzoom') { try { PZ.seen = fs.readFileSync(PZ.out, 'utf8').trim(); } catch { PZ.seen = ''; } }
 if (SCREEN === 'cards') for (const a of Object.values(AGENTS).flat()) { try { a.seen = fs.readFileSync(a.out, 'utf8').trim(); } catch { a.seen = ''; } }
 hub.stop();
 daemon?.kill();
@@ -977,6 +1026,16 @@ if (DAEMONS) {
   add('older_move_resumed_once', moves.length === 1 && fs.realpathSync(moves[0].split('|')[0]) === fs.realpathSync(OLDER.folder), resumed.join(' / '));
   const conts = resumed.filter((l) => l.endsWith(`|--resume ${CONTINUED}`));
   add('continue_resumed_once', conts.length === 1 && conts[0].split('|')[0].endsWith(`${path.sep}lighthouse`), conts.join(' / '));
+}
+// --screen pickzoom: the agent got Alerts, the ring the app sent (in fractions of the whole picture) and the note.
+if (SCREEN === 'pickzoom') {
+  const sent = (r.checks.find((c) => c.name.startsWith('pz_region_for_agent ')) || { name: '' }).name.replace('pz_region_for_agent ', '');
+  let want = null; try { want = JSON.parse(sent); } catch { /* none */ }
+  const seen = PZ.seen || '';
+  const nums = want ? ['x', 'y', 'w', 'h'].every((k) => seen.includes(String(want[k]))) : false;
+  const ok = /Alerts/.test(seen) && /Make Allow the bigger button/.test(seen) && nums && /EXIT 0/.test(seen);
+  r.checks.push({ name: 'pz_agent_got_pick_region_note', ok, detail: `${seen.replace(/\n/g, ' / ').slice(0, 300)} | region sent ${sent}` });
+  if (!ok) r.failed++;
 }
 // --screen cards: what each agent got, where it lands (its command's output, the file its program wrote).
 if (SCREEN === 'cards') {

@@ -38,9 +38,10 @@ extension SelfTestBoard {
 
     /// Whether the pick's pictures and its question are drawn in the window
     /// a person sees: each picture's place matches the
-    /// picture the hub sent drawn there as the picker draws it (cover,
-    /// centred), 48 points wide, in at least 60% of its points (the letter, a ring and its
-    /// note cover the rest), and the question's line is not one colour.
+    /// picture the hub sent drawn there as the picker draws it (the whole
+    /// picture, as big as fits, centred: never cropped), 48 points wide, in
+    /// at least 60% of its points (the letter, a ring and its note cover the
+    /// rest), and the question's line is not one colour.
     func pickDrawn(_ pk: PickerView) -> (ok: Bool, detail: String) {
         window.contentView?.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
@@ -61,16 +62,16 @@ extension SelfTestBoard {
         var ok = pk.images.count >= 2
         for (i, v) in pk.images.enumerated() {
             guard let pic = v.image, let cg = pic.cgImage(forProposedRect: nil, context: nil, hints: nil), v.bounds.width > 20, v.bounds.height > 20 else { ok = false; parts.append("\(i): no picture"); continue }
-            let r = place(v)
+            // The picture's own place in its well: a picture cropped to the well (cover) is not the whole picture there.
+            let pr = v.pictureRect
+            let r: CGRect = { let a = v.convert(pr, to: root); let y = root.isFlipped ? a.minY : root.bounds.height - a.maxY; return CGRect(x: a.minX * k, y: y * k, width: a.width * k, height: a.height * k).integral }()
             let W = 48, H = max(8, Int((48 * r.height / max(1, r.width)).rounded()))
             let seen = rgba(win, W, H, crop: r)
-            // The picture as PickImage.draw puts it: cover, centred.
+            // The whole picture, filling its place.
             var want = [UInt8](repeating: 0, count: W * H * 4)
             want.withUnsafeMutableBytes { b in
                 guard let ctx = CGContext(data: b.baseAddress, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
-                let s = max(CGFloat(W) / pic.size.width, CGFloat(H) / pic.size.height)
-                let w = pic.size.width * s, h = pic.size.height * s
-                ctx.draw(cg, in: CGRect(x: (CGFloat(W) - w) / 2, y: (CGFloat(H) - h) / 2, width: w, height: h))
+                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: W, height: H))
             }
             var same = 0
             for p in 0..<(W * H) {

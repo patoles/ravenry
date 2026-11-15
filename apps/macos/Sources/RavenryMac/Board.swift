@@ -361,7 +361,7 @@ final class Board: NSObject {
                 self.render(force: true)
             })
         panel.host?.paneName = { [weak self] id in self.flatMap { $0.ws.paneInfo(id) != nil ? $0.ws.label(id).name : nil } }
-        panel.host?.openPicker = { [weak self] id in self?.openPicker(id) }
+        panel.host?.openPicker = { [weak self] id, n in self?.openPicker(id, at: n) }
         panel.host?.redraw = { [weak self] in self?.render(force: true) }
         panel.host?.whoCanType = { [weak self] pane in self?.whoCanType(pane) ?? [] }
         panel.host?.revoke = { [weak self] pane, g in self?.revokeGrant(pane, g) }
@@ -1087,15 +1087,15 @@ final class Board: NSObject {
         render()
     }
 
-    /// A pick side by side in the middle, the panel beside it on its card.
-    func openPicker(_ id: String) {
+    /// A pick side by side in the middle, the panel beside it on its card; with `at`, that picture up close.
+    func openPicker(_ id: String, at n: Int? = nil) {
         guard let cp = hub.state?.checkpoints.first(where: { $0["id"] as? String == id }) else { return }
         markUsed("pick")
         overlay = false
         enter(.page("pick:\(id)", t("pick.tab"))) { [weak self] in self?.openPicker(id) }
         front = .page("pick:\(id)", t("pick.tab"))
         showMiddle(picker)
-        picker.show(cp)
+        picker.show(cp, at: n)
         ws.window.makeFirstResponder(picker)
         log.append("pick \(id)")
         render()
