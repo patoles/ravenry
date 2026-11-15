@@ -278,6 +278,31 @@ try {
     const z4 = await st();
     check(`phone_fit_chip_then_pinch_zooms_${th}`, z3.s === 1 && !z3.chip && z4.s > 2.5 && z4.chip, `fit ${JSON.stringify(z3)}, pinched ${JSON.stringify(z4)}`);
     await p.screenshot({ path: path.join(OUT, `phone-zoom-${th}.png`) });
+    // The note beside the ring, never over it: rings drawn near each edge of the picture's area and
+    // in its middle, each with the note typed; the note's box and the ring's do not meet, and the
+    // note stays inside the area.
+    const spots = { left: [0.03, 0.45], right: [0.97, 0.45], top: [0.5, 0.03], bottom: [0.5, 0.97], middle: [0.5, 0.5] };
+    const overs = [], seen = [];
+    for (const [name, [fx, fy]] of Object.entries(spots)) {
+      await p.click('.pzv-ctl .btn:not(.pri)');
+      await sleep(250);
+      const R = 26, x0 = sr.x + Math.min(Math.max(fx * sr.w, R + 4), sr.w - R - 4), y0 = sr.y + Math.min(Math.max(fy * sr.h, R + 4), sr.h - R - 4);
+      await drag([[x0 - R, y0 - R / 2], [x0 + R, y0 - R / 2], [x0 + R, y0 + R / 2], [x0 - R, y0 + R / 2], [x0 - R, y0 - R / 2 + 2]], 5);
+      await sleep(300);
+      if (!(await p.$('.pzv-nf textarea'))) { overs.push(`${name}: no note field`); continue; }
+      await p.fill('.pzv-nf textarea', 'Make Allow the bigger button');
+      await sleep(200);
+      const g = await p.evaluate(() => { const n = document.querySelector('.pzv-note'), ring = document.querySelector('.pzv-box svg.ov polyline'), st = document.querySelector('.pzv-stage'); const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; }; return n && !n.hidden && ring ? { note: box(n), ring: box(ring), stage: box(st), text: n.innerText.replace(/\s+/g, ' ') } : null; });
+      if (!g) { overs.push(`${name}: no pinned note`); continue; }
+      const meet = g.note.l < g.ring.r && g.ring.l < g.note.r && g.note.t < g.ring.b && g.ring.t < g.note.b;
+      const out = g.note.l < g.stage.l || g.note.r > g.stage.r || g.note.t < g.stage.t || g.note.b > g.stage.b;
+      const say = `${name}: ring ${[g.ring.l, g.ring.t, g.ring.r, g.ring.b].map(Math.round).join(',')} note ${[g.note.l, g.note.t, g.note.r, g.note.b].map(Math.round).join(',')}`;
+      seen.push(say);
+      if (meet || out || !g.text.endsWith('Make Allow the bigger button')) overs.push(`${say} "${g.text}"`);
+      await p.evaluate(() => document.activeElement && document.activeElement.blur());
+      if (name === 'left') await p.screenshot({ path: path.join(OUT, `phone-note-left-${th}.png`) });
+    }
+    check(`phone_note_beside_ring_${th}`, overs.length === 0, (overs.length ? overs : seen).join('; '));
     // Circle a part while zoomed: one finger around a rectangle; its fractions of the whole picture from what the screen shows.
     await p.click('.pzv-ctl .btn:not(.pri)');
     await sleep(300);

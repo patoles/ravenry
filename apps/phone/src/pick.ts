@@ -209,16 +209,24 @@ function viewer(cp: HubCheckpoint, w: CheckpointWords, ui: PickUI, x: PickCtx, c
     stage.classList.toggle('zoomed', z.s > 1);
     placePin();
   }
-  // The note beside the ring as it shows now.
+  // The note beside the ring as it shows now: on its right, its left, under or over it, the
+  // first that fits in the picture's area without touching the ring; when none fits whole, the
+  // one that covers the least of it.
   function placePin() {
     if (!pin || pin.hidden) return;
     const r = regionOf(ui.path);
     if (!r) return;
     const b = box.getBoundingClientRect(), s = stage.getBoundingClientRect();
-    const right = b.left + (r.x + r.w) * b.width - s.left + 10, top = b.top + r.y * b.height - s.top - 6;
-    const pw = pin.offsetWidth, ph = pin.offsetHeight;
-    pin.style.left = `${Math.max(8, Math.min(right + pw > s.width - 8 ? b.left + r.x * b.width - s.left - pw - 10 : right, s.width - pw - 8))}px`;
-    pin.style.top = `${Math.max(8, Math.min(top, s.height - ph - 8))}px`;
+    const ring = { l: b.left + r.x * b.width - s.left, t: b.top + r.y * b.height - s.top, w: r.w * b.width, h: r.h * b.height };
+    pin.style.left = '0px'; pin.style.top = '0px';
+    const pw = pin.offsetWidth, ph = pin.offsetHeight, gap = 10, m = 8, W = s.width, H = s.height;
+    const cx = (x: number) => Math.max(m, Math.min(x, W - pw - m)), cy = (y: number) => Math.max(m, Math.min(y, H - ph - m));
+    const sides: [number, number][] = [[ring.l + ring.w + gap, cy(ring.t - 6)], [ring.l - gap - pw, cy(ring.t - 6)], [cx(ring.l + ring.w / 2 - pw / 2), ring.t + ring.h + gap], [cx(ring.l + ring.w / 2 - pw / 2), ring.t - gap - ph]];
+    const inside = ([x, y]: [number, number]) => x >= m && y >= m && x + pw <= W - m && y + ph <= H - m;
+    const covers = ([x, y]: [number, number]) => Math.max(0, Math.min(x + pw, ring.l + ring.w + 2) - Math.max(x, ring.l - 2)) * Math.max(0, Math.min(y + ph, ring.t + ring.h + 2) - Math.max(y, ring.t - 2));
+    const at = sides.find((p) => inside(p) && covers(p) === 0) || sides.map(([x, y]) => [cx(x), cy(y)] as [number, number]).sort((p, q) => covers(p) - covers(q))[0];
+    pin.style.left = `${at[0]}px`;
+    pin.style.top = `${at[1]}px`;
   }
   // To scale s, the picture's spot under the screen point (px, py) kept there.
   function zoomAt(s: number, px: number, py: number, animate = false) {
