@@ -94,6 +94,71 @@ const store = {
   set(k, v) { try { localStorage.setItem('mc.' + k, JSON.stringify(v)); } catch { /* private window */ } },
 };
 
+// Where the board opens (server/openon.mjs, docs/FEATURES.md NAV-012): the
+// hub's openOn, the project of the session the person used last on any
+// device (typed to, answered a card of, opened), when nothing more specific
+// was asked (a link to a project or card, an alert tapped). This device's
+// own last pick (store 'pick': { id, at } on the hub's clock) wins only
+// while it is newer than openOn.at, which happens when the hub never heard
+// of it (its POST failed). A pick from days ago, or a project that sorts
+// first, never decides it. At a load or reload, and when the page comes
+// back in front after a while (the phone app reopened) and openOn moved on.
+const OPEN_AGAIN_MS = 60000;
+const hubNow = () => Date.now() - (ui.skew || 0);
+// Where this board runs, for the hub's openOn.device: the phone app's form, else a browser.
+const pickDevice = () => { const f = window.ravenryApp && window.ravenryApp.form; return typeof f === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(f) ? f : 'browser'; };
+// The person opened a project (or one of its sessions) here: kept, and told to the hub.
+function notePick(id, surfaceId = null) {
+  if (!id) return;
+  const pick = { id, at: hubNow() };
+  store.set('pick', pick);
+  ui.openSeen = Math.max(ui.openSeen || 0, pick.at);
+  post('/api/opened', { projectId: id, ...(surfaceId ? { surfaceId } : {}), device: pickDevice() }).then((r) => {
+    const cur = store.get('pick', null);
+    const at = r && r.opened ? Date.parse(r.opened.at) : NaN;
+    if (cur && cur.id === id && cur.at === pick.at && Number.isFinite(at)) store.set('pick', { id, at });
+  }).catch(() => { /* kept here: newer than the hub's answer, it wins on this device */ });
+}
+function openOnTarget() {
+  const o = ui.snap && ui.snap.openOn;
+  const oAt = o ? Date.parse(o.at) || 0 : 0;
+  const mine = store.get('pick', null);
+  if (mine && typeof mine.id === 'string' && project(mine.id) && (Number(mine.at) || 0) > oAt) return { pid: mine.id, surfaceId: null, at: Number(mine.at), why: 'this device' };
+  if (o && project(o.projectId)) return { pid: o.projectId, surfaceId: o.surfaceId || null, at: oAt, why: o.why };
+  return null;
+}
+function applyOpenOn() {
+  const t = openOnTarget();
+  if (!t) return false;
+  ui.openSeen = Math.max(ui.openSeen || 0, t.at);
+  if (t.surfaceId) ui.selSession[t.pid] = t.surfaceId;
+  ui.sel = t.pid;
+  ui.openedOn = { pid: t.pid, surfaceId: t.surfaceId, why: t.why };
+  // A hash the board wrote for an older pick no longer says where it is.
+  const h = location.hash.slice(1);
+  if (h && !h.startsWith('/') && h !== 'iphone' && h !== encodeURIComponent(t.pid)) history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+// Back in front after a while: openOn again, if it moved on since this page last showed it.
+function openAgain() {
+  if (!ui.snap || ui.view !== 'projects' || ui.modal || lv.full || pl.pid) return;
+  const t = openOnTarget();
+  if (!t || t.at <= (ui.openSeen || 0)) return;
+  if (t.pid === ui.sel) { ui.openSeen = t.at; return; }
+  hideToast();
+  applyOpenOn();
+  render();
+}
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (!hiddenAt || Date.now() - hiddenAt < OPEN_AGAIN_MS) { hiddenAt = 0; return; }
+  hiddenAt = 0;
+  // The stream may have dropped while hidden: its next state decides too.
+  ui.openAgainAt = Date.now();
+  openAgain();
+});
+
 // ------------------------------------------------------------ time words
 
 function parseT(iso) { return iso ? new Date(iso) : null; }
@@ -932,7 +997,7 @@ async function unAdd(fromId, projectId) {
     const r = await post('/api/project/add-workspace', { from: fromId, projectId });
     say(`${p ? p.name : 'The session'} joined ${r.project}. Its sessions show there from now on.`);
     ui.sel = r.projectId;
-    store.set('sel', r.projectId);
+    notePick(r.projectId);
     history.replaceState(null, '', '#' + encodeURIComponent(r.projectId));
   } catch (e) { say.error(e.message, 4500); }
   render();
@@ -3479,7 +3544,7 @@ async function submitModal() {
       const r = await post('/api/project/new', { ...v, kind: m.kind, stage: m.stage, existingFolder: pick ? pick.folder : undefined, parentFolder: !pick && m.parent ? m.parent.folder : undefined, ideaId: m.ideaId, ...(fromHere ? { workspaceId: m.from.workspaceId } : {}), assistant: m.from || m.assistant !== m.asDefault ? m.assistant : undefined });
       closeModal();
       ui.sel = r.id;
-      store.set('sel', r.id);
+      notePick(r.id);
       setView('projects');
       history.replaceState(null, '', '#' + encodeURIComponent(r.id));
       toast(r.partial ? r.error : r.message || `${v.name.trim()} is in ${r.folder}. ${r.assistant === 'codex' ? 'Codex' : 'Claude'} is reading the brief in cmux ${r.workspaceRef}.`);
@@ -3806,7 +3871,7 @@ function openPlanPage(pid) {
   if (ui.view !== 'plan' || ui.planFor !== pid) hideToast();
   ui.planFor = pid;
   ui.sel = pid;
-  store.set('sel', pid);
+  notePick(pid);
   ui.view = 'plan';
   showKept();
   ui.built = null;
@@ -4423,6 +4488,7 @@ function render() {
   renderMemchip();
   paintBell();
   followNew();
+  if (ui.openPending) { ui.openPending = false; applyOpenOn(); }
   if (!ui.sel || !project(ui.sel)) {
     const ps = ui.snap.projects;
     const first = ORDER.map((k) => ps.filter((p) => p.state === k)).find((a) => a.length);
@@ -4446,12 +4512,13 @@ function select(id) {
   // The phone's planning page stands in for the project; picking another
   // project leaves it (the draft is kept).
   if (pl.pid && pl.pid !== id) closePlanSheet();
-  if (ui.view !== 'projects') { ui.sel = id; store.set('sel', id); setView('projects'); return; }
+  ui.openPending = false;
+  notePick(id);
+  if (ui.view !== 'projects') { ui.sel = id; setView('projects'); return; }
   if (ui.sel === id) return;
   hideToast();
   ui.sel = id;
   showKept();
-  store.set('sel', id);
   history.replaceState(null, '', '#' + encodeURIComponent(id));
   render();
   // At phone width the detail sits right under the chips and replaces the
@@ -4520,6 +4587,7 @@ document.addEventListener('click', (e) => {
   if (act === 'handoff-copy') handoffCopy();
   if (act === 'session') {
     ui.selSession[ui.sel] = a.dataset.surface;
+    notePick(ui.sel, a.dataset.surface);
     // Picked while a new session was starting: theirs, not moved again.
     delete ui.follow[ui.sel];
     // Chose a session that already handed off: keep it chosen.
@@ -5589,6 +5657,7 @@ function connect() {
     if (snap.generatedAt && ui.skew == null) ui.skew = Date.now() - Date.parse(snap.generatedAt);
     ui.lastStates = Object.fromEntries(snap.projects.map((p) => [p.id, p.state]));
     if (Object.keys(prev).length) announce(prev, snap);
+    if (ui.openAgainAt && Date.now() - ui.openAgainAt < 15000) openAgain(); else ui.openAgainAt = 0;
     render();
     if (hs.open && snap.alerts) { pa.status = snap.alerts; paPaintCard(); }
     if (snap.projectsRoot) { pr.view = snap.projectsRoot; if (hs.open && !pr.waiting) prPaint(); prFirstRun(); }
@@ -5725,7 +5794,14 @@ ui.view = h0.startsWith('/') ? h0.slice(1) : (q.get('view') || (h0 ? 'projects' 
 if (ui.view.startsWith('plan/')) { ui.planFor = ui.view.slice(5); ui.view = 'plan'; }
 else if (!PAGES.some(([k]) => k === ui.view) && !ui.view.startsWith('page/')) ui.view = 'projects';
 $('#mc').classList.toggle('not-projects', ui.view !== 'projects' && ui.view !== 'plan');
-ui.sel = ui.planFor || (!h0.startsWith('/') && h0) || q.get('p') || store.get('sel', null);
+// Asked: the plan of a project, a link to a project or one of its sessions
+// (an alert's), ?p=. A #<project> that is only this board's own last pick
+// (written by select below, kept by a reload or the phone app's saved
+// page) asks nothing: openOn decides, with that pick as this device's.
+const echo = !hs0 && h0 && !h0.startsWith('/') && (store.get('pick', null) || {}).id === h0;
+ui.sel = ui.planFor || (!echo && !h0.startsWith('/') && h0) || q.get('p') || null;
+ui.openPending = !ui.sel;
+if (ui.sel) notePick(ui.sel, null);
 ui.selIdea = q.get('idea') || store.get('selIdea', null);
 if (ui.view === 'ideas') loadIdeas();
 if (ui.view === 'rules') loadRules();
