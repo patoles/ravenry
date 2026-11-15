@@ -567,11 +567,18 @@ Nothing for the person to switch, and no duplicates:
 
 - **Which iPhone is this?** At pairing, when the person has iPhones through
   ntfy, the app asks once: "Which iPhone is this?" with each by its name
-  and "A new iPhone". The only one is offered first. The answer goes with
-  the pairing (`replaces: <id>`).
+  and "A new iPhone". The only one is offered first. The pairing's answer
+  lists them for an iPhone app (`iphones: [{ id, name }]`, those with no app
+  signed in), and the app sends the answer as the paired device: `POST
+  /api/phone/takeover { id }` (a person row).
 - **The takeover.** The hub keeps the same record (same id, same name, same
-  row): the token's `hash`, `app`, and `push` becomes the `apns` target,
-  the ntfy target moving to `push.was`. One last ntfy line goes on the old
+  row) and gives it the app's sign-in (the token's `hash`, `app`); the
+  app's own new record goes. Built (2026-11-15): until the app has a push
+  target of its own the record keeps its ntfy one, so no alert is lost; the
+  app signing out (or New key) leaves that iPhone through ntfy as it was,
+  and Remove on the Mac forgets it whole (`hub/tools/phone-app-test.mjs`).
+  Later, with APNs: `push` becomes the `apns` target, the ntfy target
+  moving to `push.was`. One last ntfy line goes on the old
   topic: "Alerts for this iPhone now come from the Ravenry app. You can
   delete ntfy." From then on alerts go through the app only, encrypted, with
   the agent's words and the buttons. The row reads "iPhone · Ravenry app,

@@ -291,7 +291,9 @@ export function copyTopic() {
 // and a code nobody confirmed in an hour goes.
 const PENDING_MS = 60 * 60 * 1000;
 const ntfyServerOf = (d) => String((d.ntfy && d.ntfy.server) || DEFAULT_NTFY).replace(/\/+$/, '');
-const isNtfyIphone = (r) => !!(r && r.hash === null && r.push && r.push.kind === 'ntfy');
+// An iPhone through ntfy: one with no sign-in, or one the iPhone app took
+// over (phone.takeover), which keeps its ntfy target until the app has its own.
+const isNtfyIphone = (r) => !!(r && r.push && r.push.kind === 'ntfy' && (r.hash === null || r.platform === 'ios'));
 
 function pending(by) {
   return phone.unsignedRecords().find((r) => isNtfyIphone(r) && !r.push.confirmed && r.by === by && Date.now() - Date.parse(r.created) < PENDING_MS) || null;
@@ -347,7 +349,7 @@ export async function iphoneCopy() {
 export function iphoneRemove(id) {
   const r = iphoneFor(id, 'mac');
   if (!r) return fail(404, 'No such iPhone.');
-  phone.revoke(r.id);
+  phone.forget(r.id);
   console.log(`alerts: ${r.name} removed (${r.id})`);
   return { ok: true };
 }

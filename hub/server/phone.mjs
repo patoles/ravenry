@@ -197,7 +197,7 @@ export function phoneCount() { return load().tokens.filter((t) => t.hash).length
 // without a sign-in (no token to forget).
 export function rotate() {
   const d = load();
-  data = { ...d, key: newSecret(), tokens: d.tokens.filter((t) => t.hash === null) };
+  data = { ...d, key: newSecret(), tokens: d.tokens.filter((t) => t.hash === null || ntfyIphone(t)).map((t) => (t.hash === null ? t : signedOff(t))) };
   pairing = null;
   save();
 }
@@ -254,14 +254,55 @@ export function device(id) { const t = load().tokens.find((x) => x.id === id); r
 // The device record itself (push.mjs reads its target).
 export function deviceRecord(id) { return load().tokens.find((x) => x.id === id) || null; }
 
-// Signs one device out. Returns whether it was there.
+// Signs one device out. Returns whether it was there. An iPhone app that
+// took over an iPhone through ntfy (takeover below) goes back to that
+// iPhone through ntfy: its sign-in is forgotten, its alerts keep coming.
 export function revoke(id) {
+  const d = load();
+  const t = d.tokens.find((x) => x.id === id);
+  if (!t) return false;
+  if (t.hash && ntfyIphone(t)) Object.assign(t, signedOff(t));
+  else d.tokens = d.tokens.filter((x) => x !== t);
+  save();
+  return true;
+}
+
+// Forgets a device's record whatever it is (Remove of an iPhone through ntfy).
+export function forget(id) {
   const d = load();
   const n = d.tokens.length;
   d.tokens = d.tokens.filter((t) => t.id !== id);
   if (d.tokens.length === n) return false;
   save();
   return true;
+}
+
+// An iPhone whose alerts go through ntfy, confirmed (docs/PHONE.md section 4).
+const ntfyIphone = (t) => !!(t && t.platform === 'ios' && t.push && t.push.kind === 'ntfy' && t.push.confirmed);
+// The same record with its app sign-in forgotten.
+const signedOff = (t) => ({ ...t, hash: null, app: null, ua: '' });
+
+// "Which iPhone is this?" (docs/PHONE.md section 4): the iPhones that get
+// alerts through ntfy with no app signed in on them, by id and name.
+export const ntfyIphones = () => load().tokens.filter((t) => t.hash === null && ntfyIphone(t)).map((t) => ({ id: t.id, name: t.name }));
+
+// The takeover: the iPhone app just paired as `deviceId` is the iPhone
+// `into` that gets alerts through ntfy. The ntfy record keeps its id, name
+// and row and takes the app's sign-in (its token's hash, the app's
+// version); the app's own new record goes. Its push target stays ntfy
+// until the app sets one of its own (APNs, later), so no alert is lost in
+// between. Returns { ok, device } or { ok: false, status, error }.
+export function takeover(deviceId, into) {
+  const d = load();
+  const me = d.tokens.find((t) => t.id === deviceId);
+  const old = d.tokens.find((t) => t.id === into);
+  if (!me || !me.hash || me.platform !== 'ios') return { ok: false, status: 400, error: 'Only the iPhone app takes over an iPhone through ntfy.' };
+  if (!old || old === me || old.hash !== null || !ntfyIphone(old)) return { ok: false, status: 404, error: 'That iPhone is not in the phones list any more.' };
+  Object.assign(old, { hash: me.hash, app: me.app, ua: me.ua, lastSeen: me.lastSeen, tookOver: new Date().toISOString() });
+  delete old.by;
+  d.tokens = d.tokens.filter((t) => t !== me);
+  save();
+  return { ok: true, device: { id: old.id, name: old.name } };
 }
 
 // Gives a device the name the person chose on the Mac's card.

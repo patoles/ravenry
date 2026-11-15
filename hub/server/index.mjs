@@ -3853,7 +3853,21 @@ async function phoneDeviceRoute(req, res, p) {
     const r = phone.pair({ ...body, ua: req.headers['user-agent'] });
     if (!r.ok) return sendJson(res, r.status, { error: r.error }), true;
     console.log(`phone: paired ${r.device.name} (${r.device.id})`);
-    return sendJson(res, 200, { ok: true, device: r.device, token: r.token, hub: { name: phone.hubName(), pin: phonetls.identity().pin, port: PHONE_PORT, api: 1 } }), true;
+    // An iPhone app is asked "Which iPhone is this?" when iPhones get alerts through ntfy (docs/PHONE.md section 4).
+    const iphones = body && body.platform === 'ios' ? phone.ntfyIphones() : undefined;
+    return sendJson(res, 200, { ok: true, device: r.device, token: r.token, hub: { name: phone.hubName(), pin: phonetls.identity().pin, port: PHONE_PORT, api: 1 }, ...(iphones ? { iphones } : {}) }), true;
+  }
+  // The answer to "Which iPhone is this?": this iPhone app takes over that iPhone's record (phone.takeover).
+  if (req.method === 'POST' && p === '/api/phone/takeover') {
+    if (!allowedWrite(req)) return sendJson(res, 403, { error: 'Writes are only accepted from the board itself.' }), true;
+    if (await refusedAsPerson(req, res, p)) return true;
+    if (!req.mcDevice) return sendJson(res, 401, { error: phone.NOT_SIGNED_IN, signedOut: true }), true;
+    let body;
+    try { body = await jsonBody(req, 1e4); } catch { return sendJson(res, 400, { error: 'Send JSON.' }), true; }
+    const r = phone.takeover(req.mcDevice, String((body && body.id) || ''));
+    if (!r.ok) return sendJson(res, r.status, { error: r.error }), true;
+    console.log(`phone: ${req.mcDevice} is ${r.device.name} (${r.device.id}), through ntfy until now`);
+    return sendJson(res, 200, { ok: true, device: r.device }), true;
   }
   if (req.method === 'GET' && p === '/api/phone/me') {
     if (!req.mcDevice) return sendJson(res, 401, { error: phone.NOT_SIGNED_IN, signedOut: true }), true;

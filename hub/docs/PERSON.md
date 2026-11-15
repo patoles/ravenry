@@ -161,6 +161,7 @@ session's review comments and the agent's replies).
 | `/api/phone/new-key` | person | A new key signs the phone out. |
 | `/api/phone/pair` | person | Pairing gives a device the person's power. On the phone port the one-time code from the computer proves it is the person's phone; from this machine it is judged like every person row. |
 | `/api/phone/unpair` | person | It signs the device out, so its alerts stop: an agent could cut the person off. |
+| `/api/phone/takeover` | person | It moves an iPhone's row and alerts to the device that asks: an agent could take the person's alerts over. |
 | `/api/phone/push` | person | It sets where the device's alerts go: an agent could send the person's alerts to itself. |
 | `/api/phone/devices/rename` | person | Judged (ambiguous): it changes the name the person reads on the phone card and on the phone itself, which an agent could use to pass one device off as another. |
 | `/api/phone/devices/revoke` | person | Signing a device out is the person's call; an agent could cut the person off. |

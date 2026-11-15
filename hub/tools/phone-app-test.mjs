@@ -176,7 +176,7 @@ const auth = crypto.randomBytes(16);
   check('a device\'s token from another address is the person', a.ok);
   check('the same token from this machine is judged (here: refused, nobody could say who)', !b.ok);
   check('a pairing on the phone port from another address is taken (its code is checked after); from here it is judged', c.ok && !d.ok);
-  check('the new routes are person rows', ['/api/phone/pair', '/api/phone/unpair', '/api/phone/push', '/api/phone/devices/revoke', '/api/phone/devices/rename', '/api/phone/access'].every((p) => person.personRoute('POST', p)) && !!person.personRoute('GET', '/api/term') && !person.personRoute('GET', '/api/phone/me'));
+  check('the new routes are person rows', ['/api/phone/pair', '/api/phone/unpair', '/api/phone/takeover', '/api/phone/push', '/api/phone/devices/revoke', '/api/phone/devices/rename', '/api/phone/access'].every((p) => person.personRoute('POST', p)) && !!person.personRoute('GET', '/api/term') && !person.personRoute('GET', '/api/phone/me'));
 }
 
 // ------------------------------------------------------------ a board
@@ -288,6 +288,32 @@ check('the same code a second time: 401', reuse.status === 401);
 const code2 = (await mac('GET', '/api/phone?code=new')).body.app.code;
 const paired2 = await phoneReq('POST', '/api/phone/pair', { body: { code: code2, name: 'Second', platform: 'android', app: '0.1.0' } });
 const TOKEN2 = paired2.body && paired2.body.token;
+// The iPhone app takes over an iPhone through ntfy (docs/PHONE.md section 4, "Which iPhone is this?").
+{
+  const st = await mac('POST', '/api/alerts/iphone/start', {});
+  const cf = await mac('POST', '/api/alerts/iphone/confirm', { id: st.body && st.body.id });
+  const NTFY = st.body && st.body.id;
+  const code3 = (await mac('GET', '/api/phone?code=new')).body.app.code;
+  const ios = await phoneReq('POST', '/api/phone/pair', { body: { code: code3, name: 'iPhone 17', platform: 'ios', app: '0.1.0' } });
+  const T3 = ios.body && ios.body.token;
+  const list = ios.body && ios.body.iphones;
+  check('an iPhone app pairing hears of the iPhones through ntfy, by id and name (an Android one does not)', st.status === 200 && cf.status === 200 && ios.status === 200 && Array.isArray(list) && list.length === 1 && list[0].id === NTFY && list[0].name === 'iPhone' && paired.body.iphones === undefined, ios.text);
+  const wrongId = await phoneReq('POST', '/api/phone/takeover', { token: T3, body: { id: 'nobody' } });
+  const asAndroid = await phoneReq('POST', '/api/phone/takeover', { token: TOKEN, body: { id: NTFY } });
+  const take = await phoneReq('POST', '/api/phone/takeover', { token: T3, body: { id: NTFY } });
+  const me3 = await phoneReq('GET', '/api/phone/me', { token: T3 });
+  const recs = JSON.parse(fs.readFileSync(path.join(MC, 'phone.json'), 'utf8')).tokens.filter((t) => t.platform === 'ios');
+  check('the takeover: the ntfy iPhone keeps its id, name and ntfy target and takes the app\'s sign-in; the app\'s own record goes', wrongId.status === 404 && asAndroid.status === 400 && take.status === 200 && take.body.device.id === NTFY && me3.status === 200 && me3.body.device.id === NTFY && me3.body.device.push === 'ntfy' && recs.length === 1 && recs[0].hash && recs[0].push.kind === 'ntfy' && recs[0].app === '0.1.0', `${wrongId.status} ${asAndroid.status} ${take.text} ${JSON.stringify(recs.map((r) => ({ id: r.id, push: r.push && r.push.kind, hash: !!r.hash })))}`);
+  const setup = await mac('GET', '/api/alerts/setup');
+  const row = setup.body && (setup.body.phones || []).filter((x) => x.id === NTFY);
+  const devs = await mac('GET', '/api/phone/devices');
+  check('after the takeover the iPhone is one row in the phones list, and the phone card lists its app sign-in', row && row.length === 1 && devs.status === 200 && (devs.body.devices || []).some((x) => x.id === NTFY && x.platform === 'ios'), JSON.stringify(row) + ' ' + JSON.stringify(devs.body).slice(0, 300));
+  const out = await phoneReq('POST', '/api/phone/unpair', { token: T3, body: {} });
+  const after = await phoneReq('GET', '/api/phone/me', { token: T3 });
+  const kept = JSON.parse(fs.readFileSync(path.join(MC, 'phone.json'), 'utf8')).tokens.find((t) => t.id === NTFY);
+  check('the iPhone app signing out leaves that iPhone through ntfy as it was (its alerts keep coming)', out.status === 200 && after.status === 401 && kept && kept.hash === null && kept.push.kind === 'ntfy' && !!kept.push.confirmed, JSON.stringify(kept));
+  await mac('POST', '/api/alerts/iphone/remove', { id: NTFY });
+}
 const fresh = (await mac('GET', '/api/phone?code=new')).body.app.code;
 for (let i = 0; i < 5; i++) await phoneReq('POST', '/api/phone/pair', { body: { code: 'ZZZZZZZZZZZZZZZ' + i } });
 const locked = await phoneReq('POST', '/api/phone/pair', { body: { code: fresh } });
