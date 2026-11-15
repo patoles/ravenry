@@ -58,6 +58,7 @@ import * as machines from './machines.mjs';
 import * as remoteinstall from './remoteinstall.mjs';
 import * as checkpoints from './checkpoints.mjs';
 import * as terminalanswer from './terminalanswer.mjs';
+import * as cardanswer from './cardanswer.mjs';
 import * as gates from './gates.mjs';
 import * as person from './person.mjs';
 import * as sessionstart from './sessionstart.mjs';
@@ -2650,6 +2651,41 @@ function withdrawAnswered(projects) {
   }
 }
 
+// An answer on a card reaches the agent that asked (server/cardanswer.mjs):
+// a card that closed with nobody waiting on it is typed into the session
+// its pane runs, through the composer's send path (as Reply does), so a
+// session mid-turn gets it the way a typed message would (Claude Code
+// queues it). A session that is gone gets nothing and the card's record
+// says so; one that cannot take it yet (half-typed text, a choice open on
+// screen) is tried again for a while. A page's run has no agent to tell.
+const delivering = new Set();
+checkpoints.onClosed((cp) => { if (cardanswer.wants(cp) && !pageRuns.has(cp.id)) void deliverAnswer(cp); });
+async function deliverAnswer(cp) {
+  if (delivering.has(cp.id)) return;
+  delivering.add(cp.id);
+  const text = cardanswer.lineFor(cp);
+  const end = Date.now() + cardanswer.RETRY_MS;
+  const done = (how, why = '') => {
+    checkpoints.markDelivered(cp.id, how);
+    console.log(`checkpoints: ${cp.id} (${cp.kind}) closed with nobody waiting: ${how === 'session' ? 'its answer was typed into its session' : `not delivered (${how}${why ? `: ${why}` : ''})`}`);
+    wantTick = true; setTimeout(tick, 30);
+  };
+  try {
+    for (;;) {
+      const tab = term.tabIdFor('ravenry', cp.pane);
+      const p = tab ? (snapshot.projects || []).find((x) => x.sessions.some((y) => y.surfaceId === tab)) : null;
+      if (!p) return done('ended', 'no session in its pane');
+      const r = await sendMessage({ projectId: p.id, surfaceId: tab, text, by: 'card' });
+      if (r.ok) return done('session');
+      if (r.gone) return done('ended', r.error);
+      if (Date.now() > end) return done('failed', r.error);
+      await new Promise((ok) => setTimeout(ok, cardanswer.RETRY_EVERY_MS));
+    }
+  } catch (e) {
+    done('failed', e.message);
+  } finally { delivering.delete(cp.id); }
+}
+
 // A drive's pane and asker as people know them, by checkpoint id, for the
 // board's checkpoints and the phone's alert: { name, session }.
 const driveNames = new Map();
@@ -2997,10 +3033,10 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill 
     // project's whether or not its hooks reported yet (server/worktrees.mjs).
     const wt = worktrees.bySurface(surfaceId);
     const ours = wt && wt.projectId === projectId && wt.state === 'open';
-    if (!ours && (!snap || !snap.sessions.some((x) => x.surfaceId === surfaceId && x.terminal))) return { ok: false, status: 400, error: 'That session is not in this project.' };
+    if (!ours && (!snap || !snap.sessions.some((x) => x.surfaceId === surfaceId && x.terminal))) return { ok: false, status: 400, gone: true, error: 'That session is not in this project.' };
     let t = null;
     try { t = await freshTab(surfaceId); } catch (e) { return { ok: false, status: 502, error: String(e.message || e) }; }
-    if (!t) return { ok: false, status: 409, error: `That ${term.nameOf(term.kindOf(surfaceId))} tab is closed, so nothing was typed.` };
+    if (!t) return { ok: false, status: 409, gone: true, error: `That ${term.nameOf(term.kindOf(surfaceId))} tab is closed, so nothing was typed.` };
     tab = t;
   }
   if (by) tab = { ...tab, by: String(by).slice(0, 64) };
@@ -3011,7 +3047,7 @@ async function sendMessage({ projectId, surfaceId, text, paths, choice, prefill 
   const kind = assistantOf(projectId, surfaceId, raw);
   const screen = asst.parseScreen(raw, kind);
   const anySurface = project.sendToAnySurface === true; // test registry only
-  if (!screen.claudeLive && !anySurface) return { ok: false, status: 409, error: `No ${asst.of(kind).SHORT} session is running in that tab, so nothing was typed.` };
+  if (!screen.claudeLive && !anySurface) return { ok: false, status: 409, gone: true, error: `No ${asst.of(kind).SHORT} session is running in that tab, so nothing was typed.` };
   // Text in the prompt: a half-typed reply is never mixed in; what else it
   // can be is the assistant's to say (Claude Code's suggested reply,
   // server/suggestion.mjs).
@@ -4269,7 +4305,9 @@ async function handleRequest(req, res) {
         const list = body && Array.isArray(body.checkpoints) ? body.checkpoints.filter((c) => c && typeof c.id === 'string').slice(0, 200) : null;
         if (!list) return sendJson(res, 400, { error: 'Send { checkpoints: [checkpoint, ...] }.' });
         const words = {};
-        for (const c of list) words[c.id] = cpWords(withPageRun({ ...c, answer: c.answer ? (({ secret: _s, ...a }) => a)(c.answer) : c.answer })).words;
+        // How a card nobody waited on reached its session is the hub's to say (deliverAnswer).
+        const deliveredOf = (id) => { const h = checkpoints.get(id); return h && h.delivered ? { delivered: h.delivered } : { delivered: undefined }; };
+        for (const c of list) words[c.id] = cpWords(withPageRun({ ...c, answer: c.answer ? (({ secret: _s, ...a }) => a)(c.answer) : c.answer, ...deliveredOf(c.id) })).words;
         return sendJson(res, 200, { ok: true, words });
       }
       if (p === '/api/checkpoints/answer') {

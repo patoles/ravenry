@@ -11,6 +11,7 @@ import { breathe } from './slice.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import { hasTag, DEFERRED } from './handoff.mjs';
+import { isCardLine } from './cardanswer.mjs';
 
 // MC_CLAUDE_PROJECTS points a test server at fake transcripts.
 export const PROJECTS_DIR = process.env.MC_CLAUDE_PROJECTS || path.join(os.homedir(), '.claude', 'projects');
@@ -102,8 +103,12 @@ function fresh() {
     usage: null, model: null, usageAt: null,
     lastText: null, lastTextAt: null,
     lastPromptAt: null, lastPrompt: null,
+    // The last prompt the person wrote: one Ravenry typed with a card's
+    // answer (server/cardanswer.mjs) is not theirs.
+    lastPersonPromptAt: null,
     // A message the person typed while a turn ran (Claude Code queues it,
-    // `queue-operation` enqueue): when, never what.
+    // `queue-operation` enqueue): when, never what. A card's answer
+    // Ravenry typed is not one.
     lastQueuedAt: null,
     lastTurnEndAt: null, lastActivityAt: null,
     lastTool: null, lastToolAt: null,
@@ -135,7 +140,7 @@ function feed(r, text) {
     if (rec.type === 'last-prompt' && rec.lastPrompt) r.lastPrompt = rec.lastPrompt;
     // The person typed while the agent worked: queued, read once the turn
     // can take it. A task's notification queues the same way, as a tag.
-    if (rec.type === 'queue-operation' && rec.operation === 'enqueue' && at && typeof rec.content === 'string' && rec.content.trim() && !/^\s*</.test(rec.content) && !hasTag(rec.content)) r.lastQueuedAt = at;
+    if (rec.type === 'queue-operation' && rec.operation === 'enqueue' && at && typeof rec.content === 'string' && rec.content.trim() && !/^\s*</.test(rec.content) && !hasTag(rec.content) && !isCardLine(rec.content)) r.lastQueuedAt = at;
     if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) { r.recap = String(rec.content); r.recapAt = at; }
     if (rec.type === 'system' && rec.subtype === 'turn_duration') {
       r.lastTurnEndAt = at;
@@ -170,6 +175,7 @@ function feed(r, text) {
         r.lastPromptAt = at;
         const t = textOf(rec.message.content).trim();
         if (t) { r.lastPrompt = t; turnAsk = t; }
+        if (!isCardLine(t)) r.lastPersonPromptAt = at;
       }
     }
   }

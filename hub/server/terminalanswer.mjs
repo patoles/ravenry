@@ -22,10 +22,16 @@
 
 export const KINDS = new Set(['ask', 'approve', 'pick']);
 
-/** When the person last wrote to the session (ms), from its transcript's summary, or null. */
+/**
+ * When the person last wrote to the session (ms), from its transcript's
+ * summary, or null. A card's answer Ravenry typed into it
+ * (server/cardanswer.mjs) is not the person writing: it never withdraws
+ * the session's other cards.
+ */
 export function personAt(t) {
   if (!t) return null;
-  const at = [t.lastPromptAt, t.lastQueuedAt].map((x) => (x ? Date.parse(x) : NaN)).filter(Number.isFinite);
+  const prompt = t.lastPersonPromptAt !== undefined ? t.lastPersonPromptAt : t.lastPromptAt;
+  const at = [prompt, t.lastQueuedAt].map((x) => (x ? Date.parse(x) : NaN)).filter(Number.isFinite);
   return at.length ? Math.max(...at) : null;
 }
 

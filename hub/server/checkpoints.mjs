@@ -57,11 +57,16 @@ function save() {
 
 // Only the fields the protocol defines, so nothing else a daemon might send
 // is ever stored or shown.
-const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'drive', 'variants', 'created_at', 'expires_at', 'closed_at', 'reason', 'answered_in', 'answer', 'run', 'machine', 'daemon'];
+// `delivered` is the hub's own (deliver): how a card nobody waited on
+// reached its session.
+const FIELDS = ['id', 'kind', 'state', 'title', 'pane', 'assistant', 'options', 'free_text', 'command', 'cwd', 'why', 'warning', 'env', 'secret', 'drive', 'variants', 'created_at', 'expires_at', 'closed_at', 'reason', 'answered_in', 'nobody_waiting', 'answer', 'run', 'machine', 'daemon', 'delivered'];
+const DELIVERED = new Set(['session', 'ended', 'failed']);
 function clean(cp) {
   const out = {};
   for (const k of FIELDS) if (cp[k] !== undefined) out[k] = cp[k];
   if (out.answered_in !== undefined && out.answered_in !== 'terminal') delete out.answered_in;
+  if (out.nobody_waiting !== undefined && out.nobody_waiting !== true) delete out.nobody_waiting;
+  if (out.delivered !== undefined && !DELIVERED.has(out.delivered)) delete out.delivered;
   if (out.secret) out.secret = { to: out.secret.to, ...(out.secret.pane ? { pane: out.secret.pane } : {}), ...(out.secret.env ? { env: out.secret.env } : {}), ...(out.secret.enter === false ? { enter: false } : {}) };
   if (out.answer) {
     const a = out.answer;
@@ -113,11 +118,31 @@ export function take(cp, { machine = null, daemon = null } = {}) {
   // Withdrawn by the hub as answered in the terminal, through a daemon too
   // old to keep answered_in (withdrawAnswered): said here instead.
   const mark = cp.state === 'cancelled' && !cp.answered_in && withdrawnHere.has(cp.id) ? { answered_in: 'terminal' } : {};
-  const next = clean({ ...cp, ...mark, machine, daemon });
+  // How it was delivered is the hub's alone: never a daemon's word, kept as the daemon's copy changes.
+  const { delivered: _d, ...from } = cp;
+  const next = clean({ ...from, ...mark, machine, daemon, ...(had && had.delivered ? { delivered: had.delivered } : {}) });
   byId.set(cp.id, next);
   const fresh = next.state === 'open' && !seen.has(cp.id);
-  if (fresh || (FINAL.has(next.state) && !(had && FINAL.has(had.state)))) { seen.add(cp.id); save(); }
+  const closed = FINAL.has(next.state) && !(had && FINAL.has(had.state));
+  if (fresh || closed) { seen.add(cp.id); save(); }
+  // A card the hub showed open has just closed: its listeners (the
+  // delivery of an answer nobody waited on, server/cardanswer.mjs).
+  if (closed && had) for (const fn of closedListeners) { try { fn(next); } catch (e) { console.error('checkpoints:', e.message); } }
   return fresh;
+}
+
+const closedListeners = [];
+/** `fn(cp)` once each card the hub knew open closes (answered, declined, cancelled, expired or lost). */
+export function onClosed(fn) { closedListeners.push(fn); }
+
+/** How a card's answer reached the asking session (server/cardanswer.mjs): session, ended (its session was gone) or failed. Kept in its record. */
+export function markDelivered(id, how) {
+  load();
+  const cp = byId.get(id);
+  if (!cp || !DELIVERED.has(how)) return false;
+  byId.set(id, { ...cp, delivered: how });
+  save();
+  return true;
 }
 
 // The open checkpoints of a daemon the hub lost are lost: kept closed, so

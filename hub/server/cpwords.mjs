@@ -311,6 +311,17 @@ function whereOf(by) {
 }
 
 /**
+ * The sentence for an answer that did not reach the agent: nobody waited
+ * on the card and the hub could not type it into the asking session
+ * (cp.delivered, server/cardanswer.mjs), or null.
+ */
+function untoldOf(cp) {
+  if (cp.delivered === 'ended') return `Its session had ended, so nothing was delivered: ${whoMid(cp)} was not told.`;
+  if (cp.delivered === 'failed') return `Ravenry could not type it into its session, so nothing was delivered: ${whoMid(cp)} was not told.`;
+  return null;
+}
+
+/**
  * What a running or closed checkpoint says afterwards, or null while it is
  * open. `at` is the time its header shows (ISO, or null); `text` may hold
  * {where}, {time} and {machine}, `head` {machine}.
@@ -330,13 +341,15 @@ export function afterOf(cp) {
   if (cp.state === 'cancelled' && cp.answered_in === 'terminal') return { ...base, head: 'Answered in the terminal', small: k === 'ask' || k === 'pick' ? head0 : null, command: k === 'approve' ? cp.command || null : null, text: `You answered ${whoMid(cp)} in the terminal, so this card was withdrawn.` };
   if (cp.state === 'cancelled') return { ...base, head: 'Withdrawn', text: `${w} withdrew it${cp.reason ? `: ${cp.reason}` : '.'}` };
   if (cp.state === 'expired') return { ...base, at: base.at || cp.expires_at || null, head: 'Nobody answered', text: `${w} gave up waiting at {time}.` };
+  // A card nobody waited on whose session was gone (server/cardanswer.mjs): the agent was not told.
+  const untold = untoldOf(cp);
   if (cp.state === 'declined' || (a && a.declined)) {
     const why = a && a.reason ? `: "${a.reason}"` : '';
-    return { ...base, head: 'Refused', small: k === 'ask' ? head0 : null, command: k === 'approve' ? cp.command || null : null, text: pg ? `You said no {where}${why}. Nothing ran.` : `You said no {where}${why}. ${w} was told.` };
+    return { ...base, head: 'Refused', small: k === 'ask' ? head0 : null, command: k === 'approve' ? cp.command || null : null, text: pg ? `You said no {where}${why}. Nothing ran.` : `You said no {where}${why}. ${untold || `${w} was told.`}` };
   }
   if (k === 'ask') {
     const answer = a ? a.option ?? a.text ?? (a.choice != null && cp.options ? cp.options[a.choice] : null) : null;
-    return { ...base, ok: true, head: 'Answered', small: head0, big: answer ?? null, text: 'You answered {where}.' };
+    return { ...base, ok: true, head: 'Answered', small: head0, big: answer ?? null, text: `You answered {where}.${untold ? ` ${untold}` : ''}` };
   }
   if (k === 'approve') {
     const edited = !!(a && a.command);
@@ -351,11 +364,11 @@ export function afterOf(cp) {
       : exit.code === 0 ? `Finished${took ? ` in ${took}` : ''} with no errors.`
         : exit.signal ? `Stopped by ${exit.signal}${took ? ` after ${took}` : ''}.`
           : `Ended with exit code ${exit.code}${took ? ` after ${took}` : ''}.`;
-    return { ...base, ok: !!exit && exit.code === 0, head: 'Ran on {ranOn}', command: ran(), edited, text: pg ? `${how} ${approved}.` : `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane };
+    return { ...base, ok: !!exit && exit.code === 0, head: 'Ran on {ranOn}', command: ran(), edited, text: pg ? `${how} ${approved}.` : untold ? `${how} ${approved}. ${untold}` : `${how} ${approved}; ${whoMid(cp)} has the output${edited ? ' and knows you changed it' : ''}.`, runPane };
   }
   if (k === 'secret') {
     const to = cp.secret && cp.secret.to === 'input' ? 'the program in its pane' : shortCommand(cp.command) || 'its command';
-    return { ...base, ok: true, head: 'Secret sent', big: head0, text: `Sent to ${to}. Ravenry didn't keep a copy, so it can't be shown again. To change it, ${whoMid(cp)} has to ask again.` };
+    return { ...base, ok: true, head: 'Secret sent', big: head0, text: `Sent to ${to}. Ravenry didn't keep a copy, so it can't be shown again. To change it, ${whoMid(cp)} has to ask again.${untold ? ` ${untold}` : ''}` };
   }
   if (k === 'drive') {
     const v = driveVerb(cp);
@@ -365,7 +378,7 @@ export function afterOf(cp) {
   }
   if (k === 'pick') {
     const pk = a && a.pick;
-    return { ...base, ok: true, head: 'Picked', small: head0, big: pk && pk.label ? `${pk.label}${pk.note ? `, with a note: "${pk.note}"` : ''}` : null, text: 'You picked {where}.' };
+    return { ...base, ok: true, head: 'Picked', small: head0, big: pk && pk.label ? `${pk.label}${pk.note ? `, with a note: "${pk.note}"` : ''}` : null, text: `You picked {where}.${untold ? ` ${untold}` : ''}` };
   }
   return { ...base, ok: true, head: 'Answered', small: head0, text: 'You answered {where}.' };
 }

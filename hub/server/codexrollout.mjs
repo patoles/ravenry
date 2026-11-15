@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { isCardLine } from './cardanswer.mjs';
 
 // Codex's data folder: CODEX_HOME, else ~/.codex. MC_CODEX_HOME points a
 // test at a scratch one.
@@ -80,6 +81,8 @@ function freshRollout() {
     usage: null, model: null, usageAt: null, contextWindow: null,
     lastText: null, lastTextAt: null,
     lastPromptAt: null, lastPrompt: null,
+    // The last prompt the person wrote: not a card's answer Ravenry typed (server/cardanswer.mjs).
+    lastPersonPromptAt: null,
     lastTurnEndAt: null, lastActivityAt: null,
     lastTool: null, lastToolAt: null,
     lastInterruptAt: null,
@@ -106,7 +109,7 @@ function feedRollout(r, text) {
         if (at) r.lastActivityAt = at;
       } else if (p.type === 'message' && p.role === 'user') {
         const t = textOf(p.content, 'input_text').trim();
-        if (isUserText(t)) { r.lastPromptAt = at; r.lastPrompt = t; if (at) r.lastActivityAt = at; }
+        if (isUserText(t)) { r.lastPromptAt = at; r.lastPrompt = t; if (at) r.lastActivityAt = at; if (!isCardLine(t)) r.lastPersonPromptAt = at; }
       } else if (p.type === 'custom_tool_call' || p.type === 'function_call' || p.type === 'local_shell_call') {
         r.lastTool = { name: p.name || p.type, what: toolWhat(p) };
         r.lastToolAt = at;
