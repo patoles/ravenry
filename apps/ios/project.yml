@@ -1,0 +1,101 @@
+# XcodeGen spec for the iPhone app (scripts/build.sh generates the Xcode
+# project from it; the .xcodeproj is not committed, as apps/macos does).
+name: Ravenry
+options:
+  bundleIdPrefix: dev.ravenry
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+targets:
+  Ravenry:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/Ravenry
+        excludes:
+          - Info.plist
+      # The Mac app's shaders, as they are: the launch's Ink (InkLaunch.swift).
+      - path: ../macos/Sources/RavenryMac/Shaders.swift
+      # The phone board's own screens and the app's layer over the board
+      # (apps/phone, built by scripts/build.sh into build/phone).
+      - path: build/phone
+        type: folder
+        buildPhase: resources
+      # The words and the colours every client shares (Design.swift).
+      - path: ../../shared/strings/en.json
+        buildPhase: resources
+      - path: ../../shared/tokens/tokens.json
+        buildPhase: resources
+    dependencies:
+      - sdk: Metal.framework
+      - sdk: WebKit.framework
+    settings:
+      base:
+        PRODUCT_NAME: Ravenry
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ravenry.ios
+        INFOPLIST_FILE: Sources/Ravenry/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # The simulator only, signed ad hoc: no Apple account, no team.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGNING_REQUIRED: NO
+  RavenryTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/RavenryTests
+        excludes:
+          - Fixtures
+      - path: Tests/RavenryTests/Fixtures
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - target: Ravenry
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ravenry.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGNING_REQUIRED: NO
+  # The app driven as a person would, against a test hub (tools/ios-e2e.mjs).
+  RavenryUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/RavenryUITests
+    dependencies:
+      - target: Ravenry
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.ravenry.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGNING_REQUIRED: NO
+schemes:
+  Ravenry:
+    build:
+      targets:
+        Ravenry: all
+        RavenryTests: [test]
+    test:
+      targets:
+        - RavenryTests
+  RavenryE2E:
+    build:
+      targets:
+        Ravenry: all
+        RavenryUITests: [test]
+    test:
+      targets:
+        - RavenryUITests

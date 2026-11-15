@@ -33,7 +33,8 @@
 // alone took that suggestion for a half-typed reply and turned Send off.
 //
 // --phone turns phone access on, so the hub listens with TLS on the phone
-// port (docs/PHONE.md section 2) for an emulator (10.0.2.2), and prints the
+// port (docs/PHONE.md section 2) for an emulator (10.0.2.2; --phone-hosts
+// 127.0.0.1 for the iPhone simulator, which shares this Mac's network), and prints the
 // pairing link. It runs until stopped, and writes what it started to
 // .tmp/demo/demo.json (the hub's url, its pid, the link).
 import { guardSpawns } from '../../../tools/test-env.mjs';
@@ -147,7 +148,7 @@ Object.assign(extraEnv, { RAVENRY_HUB_NAME: 'MacBook Pro' });
 if (E2E) Object.assign(extraEnv, { RAVENRY_TERMINAL: 'ravenry', PATH: `${STAND}:${process.env.PATH}` });
 // MC_NO_STYLED_READ=1: the board without its styled read (the history alone).
 if (process.env.MC_NO_STYLED_READ === '1') extraEnv.MC_NO_STYLED_READ = '1';
-if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: '10.0.2.2', RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
+if (PHONE) Object.assign(extraEnv, { RAVENRY_PHONE_HOSTS: opt('--phone-hosts', '10.0.2.2'), RAVENRY_PHONE_PORT: String(Number(opt('--phone-port', PORT + 1))) });
 const hub = await startDemoHub({
   dir: path.join(WORK, 'hub'), port: PORT, runtime: RT, alerts: false, ...(opt('--hub') ? { hubDir: path.resolve(opt('--hub')) } : {}),
   panes: ['notes-app', 'recipe-box', 'garden-planner', 'weather-widget', 'paper-boat'],

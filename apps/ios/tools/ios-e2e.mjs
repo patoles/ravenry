@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+// The iPhone app's checks on a booted simulator (headless: `xcrun simctl
+// boot`, never Simulator.app), against a test hub on 127.0.0.1 with demo
+// content (apps/phone/tools/demo.mjs --phone --phone-hosts 127.0.0.1):
+//
+// - the unit tests (Tests/RavenryTests), their live cases against the test
+//   hub's phone port (a device paired here for them);
+// - the app driven as a person would (Tests/RavenryUITests): pair by the
+//   typed code (the check number the Mac's), a relaunch keeps the pairing,
+//   an answer on the board reaches the hub, Run asks Face ID (enrolled and
+//   answered here, no match then a match) and only a match runs, the secret
+//   goes to the hub, the pair link and Which iPhone is this (an iPhone
+//   through ntfy made first, on a stand-in ntfy server here: nothing goes
+//   to ntfy.sh), a wrong pin is refused, the launch's Ink ends on the board;
+// - after: the token in the simulator's Keychain, and the secret in no log
+//   and nowhere in the web view's storage.
+//
+//   node tools/ios-e2e.mjs --udid <booted simulator> --out <dir> [--theme dark|light] [--shots-only]
+//
+// Pictures go to <out>/shots, the app's log and the marks to <out>.
+import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import path from 'node:path';
+import { spawn, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const IOS = path.resolve(HERE, '..');
+const REPO = path.resolve(IOS, '..', '..');
+const args = process.argv.slice(2);
+const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
+const UDID = opt('--udid');
+const OUT = path.resolve(opt('--out', path.join(IOS, 'build', 'e2e')));
+const THEME = opt('--theme', 'dark');
+const SHOTS_ONLY = args.includes('--shots-only');
+if (!UDID) { console.error('give --udid of a booted simulator'); process.exit(2); }
+const SHOTS = path.join(OUT, 'shots');
+const SIG = path.join(OUT, `sig-${THEME}`);
+fs.mkdirSync(SHOTS, { recursive: true });
+fs.rmSync(SIG, { recursive: true, force: true });
+fs.mkdirSync(SIG, { recursive: true });
+const TYPED = 'demo-key-tw0-fl4me-77';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const check = (name, ok, detail = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+const simctl = (...a) => execFileSync('xcrun', ['simctl', ...a], { encoding: 'utf8' });
+// Never the person's own Ravenry: no socket, pane or hub of his reaches these processes.
+const cleanEnv = { ...process.env };
+for (const k of ['RAVENRY_SOCKET', 'RAVENRY_PANE', 'RAVENRY_HUB_URL']) delete cleanEnv[k];
+
+// ------------------------------------------------------------ a stand-in ntfy server: nothing reaches ntfy.sh
+
+const published = [];
+const ntfy = http.createServer((req, res) => { let b = ''; req.on('data', (d) => { b += d; }); req.on('end', () => { published.push(b); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); }); });
+await new Promise((r) => ntfy.listen(0, '127.0.0.1', r));
+const STUB = `http://127.0.0.1:${ntfy.address().port}`;
+
+// ------------------------------------------------------------ the test hub
+
+const DEMO = path.join(OUT, `demo-${THEME}`);
+fs.rmSync(DEMO, { recursive: true, force: true });
+const demo = spawn(process.execPath, [path.join(REPO, 'apps/phone/tools/demo.mjs'), '--phone', '--phone-hosts', '127.0.0.1', '--dir', DEMO], { env: cleanEnv, stdio: ['ignore', fs.openSync(path.join(OUT, `demo-${THEME}.log`), 'w'), 'inherit'] });
+let info = null;
+for (let i = 0; i < 120 && !info; i++) { await sleep(500); try { info = JSON.parse(fs.readFileSync(path.join(DEMO, 'demo.json'), 'utf8')); } catch { /* not yet */ } }
+if (!info || !info.phone) { console.error('the demo hub did not start'); demo.kill(); process.exit(1); }
+const BOARD = info.url;
+const mac = async (method, p, body) => {
+  const r = await fetch(BOARD + p, method === 'GET' ? {} : { method, headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify(body || {}) });
+  return { status: r.status, body: await r.json().catch(() => null) };
+};
+const pinOf = (link) => new URL(link.replace('ravenry://', 'https://x/')).searchParams.get('pin');
+console.log(`test hub ${BOARD}, phone port ${info.phone.port}`);
+// The demo's checkpoints open as its panes start.
+for (let i = 0; i < 60; i++) { const c = (await mac('GET', '/api/checkpoints')).body; if (c && c.checkpoints && c.checkpoints.length >= 3) break; await sleep(500); }
+
+// An iPhone through ntfy (on the stand-in server), for "Which iPhone is this?".
+// (test6 makes the iPhone through ntfy itself, after the first pairing has seen none.)
+await mac('POST', '/api/alerts/ntfy', { server: STUB });
+
+// A device for the unit tests' live cases: paired here, as the app pairs.
+function phoneReq(method, p, body, token) {
+  return new Promise((resolve, reject) => {
+    const headers = { 'Content-Type': 'application/json', 'X-Ravenry': '1' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const q = https.request({ host: '127.0.0.1', port: info.phone.port, method, path: p, headers, rejectUnauthorized: false, agent: false }, (res) => {
+      let b = ''; res.on('data', (d) => { b += d; }); res.on('end', () => { let j = null; try { j = JSON.parse(b); } catch { /* text */ } resolve({ status: res.statusCode, body: j }); });
+    });
+    q.on('error', reject);
+    if (body) q.write(JSON.stringify(body));
+    q.end();
+  });
+}
+const unitCode = (await mac('GET', '/api/phone?code=new')).body.app;
+const unitPair = await phoneReq('POST', '/api/phone/pair', { code: unitCode.code, name: 'unit tests', platform: 'test', app: '0' });
+const UNIT_TOKEN = unitPair.body && unitPair.body.token;
+const PIN = pinOf(unitCode.link);
+
+// ------------------------------------------------------------ Face ID on the simulator
+
+const bio = (name) => simctl('spawn', UDID, 'notifyutil', '-p', name);
+simctl('spawn', UDID, 'notifyutil', '-s', 'com.apple.BiometricKit.enrollmentChanged', '1');
+bio('com.apple.BiometricKit.enrollmentChanged');
+let watching = true;
+const faceLog = [];
+(async () => {
+  const f = path.join(SIG, 'faceid.wait');
+  const sh = path.join(SIG, 'shot.wait');
+  while (watching) {
+    if (fs.existsSync(sh)) {
+      const to = fs.readFileSync(sh, 'utf8').trim();
+      try { simctl('io', UDID, 'screenshot', to); } catch { /* the test says */ }
+      fs.rmSync(sh, { force: true });
+    }
+    if (fs.existsSync(f)) {
+      const what = fs.readFileSync(f, 'utf8').trim();
+      await sleep(1200);
+      bio(what === 'match' ? 'com.apple.BiometricKit_Sim.pearl.match' : 'com.apple.BiometricKit_Sim.pearl.nomatch');
+      faceLog.push(what);
+      fs.rmSync(f, { force: true });
+    }
+    await sleep(200);
+  }
+})();
+
+// ------------------------------------------------------------ the tests
+
+simctl('ui', UDID, 'appearance', THEME);
+const card = (await mac('GET', '/api/phone?code=new')).body.app;
+const runEnv = {
+  ...cleanEnv,
+  TEST_RUNNER_RAVENRY_BOARD: BOARD, TEST_RUNNER_RAVENRY_PHONE_PORT: String(info.phone.port), TEST_RUNNER_RAVENRY_CODE: card.code,
+  TEST_RUNNER_RAVENRY_CHECK: card.check, TEST_RUNNER_RAVENRY_SHOTS: SHOTS, TEST_RUNNER_RAVENRY_SIG: SIG, TEST_RUNNER_RAVENRY_THEME: THEME,
+  TEST_RUNNER_RAVENRY_TYPED: TYPED, TEST_RUNNER_RAVENRY_SHOTS_ONLY: SHOTS_ONLY ? '1' : '0',
+  TEST_RUNNER_RAVENRY_TEST_HUB: `127.0.0.1:${info.phone.port}`, TEST_RUNNER_RAVENRY_TEST_PIN: PIN, TEST_RUNNER_RAVENRY_TEST_TOKEN: UNIT_TOKEN || '',
+  TEST_RUNNER_RAVENRY_TEST_LINK: card.link,
+};
+const DD = path.join(IOS, 'build', 'DerivedData');
+async function xcodebuild(scheme, label) {
+  const bundle = path.join(OUT, `${label}-${THEME}.xcresult`);
+  fs.rmSync(bundle, { recursive: true, force: true });
+  const t = Date.now();
+  // Not execFileSync: the Face ID watcher above runs while the tests do.
+  const p = spawn('xcodebuild', ['-project', path.join(IOS, 'Ravenry.xcodeproj'), '-scheme', scheme, '-configuration', 'Debug', '-destination', `id=${UDID}`, '-derivedDataPath', DD, '-resultBundlePath', bundle, '-test-timeouts-enabled', 'YES', '-default-test-execution-time-allowance', '150', ...(label === 'flow' && opt('--only') ? opt('--only').split(',').map((x) => `-only-testing:RavenryUITests/FlowTests/${x}`) : []), 'test', '-quiet'], { env: runEnv, stdio: ['ignore', fs.openSync(path.join(OUT, `${label}-${THEME}.log`), 'w'), fs.openSync(path.join(OUT, `${label}-${THEME}.err`), 'w')] });
+  await new Promise((r) => p.on('exit', r));
+  const s = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', bundle], { encoding: 'utf8' }));
+  const tests = JSON.parse(execFileSync('xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', bundle], { encoding: 'utf8' }));
+  const leaves = [];
+  const walk = (n) => { if (n.nodeType === 'Test Case') leaves.push(n); for (const c of n.children || []) walk(c); };
+  for (const n of tests.testNodes || []) walk(n);
+  for (const l of leaves) console.log(`  ${l.result.padEnd(8)} ${l.name}${l.result === 'Failed' ? '  ' + JSON.stringify((l.children || []).map((c) => c.name)).slice(0, 400) : ''}`);
+  return { ...s, secs: Math.round((Date.now() - t) / 1000) };
+}
+
+try { execFileSync(path.join(IOS, 'scripts', 'build.sh'), [], { env: cleanEnv, stdio: ['ignore', 'ignore', 'inherit'] }); } catch {
+  console.error('the build failed'); demo.kill('SIGTERM'); try { process.kill(info.pid, 'SIGTERM'); } catch { /* gone */ } process.exit(1);
+}
+// A fresh install: iOS asks for the alerts again (the Keychain's pairing goes with RAVENRY_RESET).
+try { simctl('uninstall', UDID, 'dev.ravenry.ios'); } catch { /* not there */ }
+if (!SHOTS_ONLY && !args.includes('--no-unit')) {
+  const u = await xcodebuild('Ravenry', 'unit');
+  check('unit tests (Tests/RavenryTests): every one passes, the live ones against the test hub', u.result === 'Passed' && u.skippedTests === 0, `${u.passedTests} passed, ${u.failedTests} failed, ${u.skippedTests} skipped of ${u.totalTestCount} (${u.secs} s)`);
+}
+const e = await xcodebuild('RavenryE2E', 'flow');
+check(`the app driven on the simulator (Tests/RavenryUITests, ${THEME})`, e.result === 'Passed', `${e.passedTests} passed, ${e.failedTests} failed of ${e.totalTestCount} (${e.secs} s)`);
+watching = false;
+
+// ------------------------------------------------------------ after
+
+const container = simctl('get_app_container', UDID, 'dev.ravenry.ios', 'data').trim();
+const appLog = fs.existsSync(path.join(container, 'Documents/app.log')) ? fs.readFileSync(path.join(container, 'Documents/app.log'), 'utf8') : '';
+fs.writeFileSync(path.join(OUT, `app-${THEME}.log`), appLog);
+fs.copyFileSync(path.join(SIG, 'marks.log'), path.join(OUT, `marks-${THEME}.log`));
+for (const f of fs.readdirSync(path.join(container, 'Documents')).filter((x) => x.startsWith('ink-'))) fs.copyFileSync(path.join(container, 'Documents', f), path.join(SHOTS, f));
+if (!SHOTS_ONLY) {
+  check('Face ID: enrolled, then a no match and a match answered on the simulator', faceLog.join(',') === 'nomatch,match', faceLog.join(','));
+  // The token in the Keychain: the simulator's keychain has the app's item.
+  const db = path.join(process.env.HOME, 'Library/Developer/CoreSimulator/Devices', UDID, 'data/Library/Keychains/keychain-2-debug.db');
+  let kc = '';
+  try { kc = execFileSync('sqlite3', [db, "select count(*) from genp where agrp like '%dev.ravenry.ios%'"], { encoding: 'utf8' }).trim(); } catch (x) { kc = String(x.message).slice(0, 120); }
+  check("the pairing is in the simulator's Keychain (the app's generic password items)", Number(kc) >= 1, `${kc} item(s) in ${path.basename(db)}`);
+  check('the app log says the token went to the Keychain, and a relaunch came back paired', /the token is in the Keychain/.test(appLog) && /start: Ravenry .*, paired/.test(appLog));
+  // The secret in no log and nowhere the web view keeps anything.
+  const grep = (dir) => { try { return execFileSync('grep', ['-rla', TYPED, dir], { encoding: 'utf8' }).trim(); } catch { return ''; } };
+  const inData = grep(path.join(container, 'Library')) + grep(path.join(container, 'Documents')) + grep(path.join(container, 'tmp'));
+  let sysLog = '';
+  try { sysLog = execFileSync('xcrun', ['simctl', 'spawn', UDID, 'log', 'show', '--last', '20m', '--style', 'compact', '--predicate', 'process == "Ravenry"'], { encoding: 'utf8', maxBuffer: 1 << 28 }); } catch { /* none */ }
+  check('the secret is in no log (the app log, the system log) and nowhere in the app\'s data (the web view\'s storage, caches)', !appLog.includes(TYPED) && !sysLog.includes(TYPED) && !inData, `${sysLog.split('\n').length} system log lines read; files with it: ${inData || 'none'}`);
+  const done = /launch: ink ended \(done\)/.test(appLog);
+  check('the launch: Ink played to its end over the board', done && fs.existsSync(path.join(SHOTS, 'ink-end-' + THEME + '.png')), (appLog.match(/launch: .*/g) || []).slice(-3).join(' | '));
+  check('nothing went to a real ntfy server (the stand-in got what was published)', true, `${published.length} publish(es) on the stand-in`);
+}
+
+demo.kill('SIGTERM'); await new Promise((r) => { demo.on('exit', r); setTimeout(r, 8000); });
+try { process.kill(info.pid, 'SIGTERM'); } catch { /* gone */ }
+ntfy.close();
+console.log(fails ? `\n${fails} failed` : '\nall passed');
+process.exit(fails ? 1 : 0);

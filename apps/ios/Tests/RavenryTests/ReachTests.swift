@@ -1,0 +1,110 @@
+// The words when the Mac does not answer (Android ReachTest.kt, case for
+// case), the iPhone's own Local Network case, and the order the Mac's
+// addresses are tried in (Android HubOrderTest.kt's order cases).
+
+import XCTest
+@testable import Ravenry
+
+final class ReachTests: XCTestCase {
+    let away = ["192.168.1.20", "ravenry.tail1234.ts.net", "100.64.0.2"]
+
+    func testKnowsTheTailnetsHosts() {
+        XCTAssertTrue(Reach.tailnetHost("ravenry.tailabcdef.ts.net"))
+        XCTAssertTrue(Reach.tailnetHost("100.64.0.2"))
+        XCTAssertTrue(Reach.tailnetHost("100.127.255.1"))
+        XCTAssertTrue(Reach.tailnetHost("fd7a:115c:a1e0::1"))
+        XCTAssertTrue(Reach.tailnetHost("[fd7a:115c:a1e0:ab12::5]"))
+        XCTAssertFalse(Reach.tailnetHost("100.128.0.1"))
+        XCTAssertFalse(Reach.tailnetHost("192.168.1.20"))
+        XCTAssertFalse(Reach.tailnetHost("10.0.2.2"))
+        XCTAssertFalse(Reach.tailnetHost("studio.local"))
+    }
+
+    func testTailscaleOffOrMissingWhenOnlyTheTailnetCouldAnswer() {
+        XCTAssertEqual(Reach.decide(away, vpnUp: false, tailscaleInstalled: true), Reach.tailscaleOff)
+        XCTAssertEqual(Reach.decide(away, vpnUp: false, tailscaleInstalled: false), Reach.tailscaleMissing)
+        // Another VPN is up, but the tailnet's name did not resolve: Tailscale is still off.
+        XCTAssertEqual(Reach.decide(away, vpnUp: true, tailscaleInstalled: true, tailnetNameUnresolved: true), Reach.tailscaleOff)
+    }
+
+    func testTheMacWhenTailscaleIsUpOrNotInTheLink() {
+        XCTAssertEqual(Reach.decide(away, vpnUp: true, tailscaleInstalled: true), Reach.macAway)
+        XCTAssertEqual(Reach.decide(["192.168.1.20"], vpnUp: false, tailscaleInstalled: false), Reach.macWifi)
+    }
+
+    /// iOS keeps an app off the local network until the person allows it (Settings, Privacy, Local Network).
+    func testLocalNetworkOffWhenIOSKeptThePhoneOffTheWifi() {
+        XCTAssertEqual(Reach.decide(away, vpnUp: false, tailscaleInstalled: true, localNetworkDenied: true), Reach.localNetworkOff)
+        XCTAssertEqual(Reach.decide(["192.168.1.20"], vpnUp: true, tailscaleInstalled: true, localNetworkDenied: true), Reach.localNetworkOff)
+        // Only tailnet addresses or this phone itself: the local network is not the reason.
+        XCTAssertEqual(Reach.decide(["ravenry.tail1234.ts.net"], vpnUp: false, tailscaleInstalled: true, localNetworkDenied: true), Reach.tailscaleOff)
+        XCTAssertEqual(Reach.decide(["127.0.0.1"], vpnUp: false, tailscaleInstalled: true, localNetworkDenied: true), Reach.macWifi)
+        XCTAssertEqual(Reach.localNetworkOff.reason, "local-network-off")
+    }
+
+    func testNeverAHostInTheWords() throws {
+        let re = try NSRegularExpression(pattern: #"\d+\.\d+|ts\.net|:\d"#)
+        for w in [Reach.tailscaleOff, Reach.tailscaleMissing, Reach.macAway, Reach.macWifi, Reach.localNetworkOff] {
+            XCTAssertNil(re.firstMatch(in: w.words, range: NSRange(w.words.startIndex..., in: w.words)), w.words)
+            XCTAssertFalse(w.words.contains("\u{2014}"), "no em dash: \(w.words)")
+        }
+        XCTAssertEqual(Reach.tailscaleOff.words, "Tailscale is off on this phone. Turn it on, then try again.")
+    }
+
+    func testSkipsTailnetHostsWithNoVpn() {
+        let c = HubClient(hosts: away, port: 4601, pin: nil, token: nil, skip: { Reach.tailnetHost($0) })
+        XCTAssertEqual(c.route.order(), ["192.168.1.20"])
+        let none = HubClient(hosts: ["ravenry.tail1234.ts.net"], port: 4601, pin: nil, token: nil, skip: { Reach.tailnetHost($0) })
+        XCTAssertEqual(none.route.order(), [])
+    }
+
+    /// The path the chip names (docs/PHONE.md, The connection).
+    func testThePathAHostIs() {
+        let hosts = ["192.168.1.20", "ravenry.tail1234.ts.net", "100.101.102.103", "studio.tail1234.ts.net", "100.90.1.2"]
+        XCTAssertEqual(Reach.via("192.168.1.20", hosts), "wifi")
+        XCTAssertEqual(Reach.via("10.0.2.2", hosts), "wifi")
+        XCTAssertEqual(Reach.via("ravenry.tail1234.ts.net", hosts), "tailscale")
+        XCTAssertEqual(Reach.via("100.101.102.103", hosts), "tailscale")
+        XCTAssertEqual(Reach.via("studio.tail1234.ts.net", hosts), "tailscale-mac")
+        XCTAssertEqual(Reach.via("100.90.1.2", hosts), "tailscale-mac")
+        XCTAssertEqual(Reach.via("127.0.0.1", hosts), "local")
+    }
+
+    // ------------------------------------------------------------ Wi-Fi first (HubOrderTest)
+
+    let tail = "ravenry.tail0000.ts.net"
+
+    func testTheOrderIsHomeThenTailscaleTheLastThatAnsweredFirstWithinEach() {
+        // Paired away from home: the tailnet name answered last.
+        let c = Route([tail, "100.64.0.2", "192.168.1.36", "10.0.0.5"])
+        XCTAssertEqual(c.order(), ["192.168.1.36", "10.0.0.5", tail, "100.64.0.2"])
+        XCTAssertEqual(c.order(), c.order(check: true))
+        // The second home address answered last: it goes first among the home ones.
+        let d = Route(["10.0.0.5", "192.168.1.36", tail])
+        XCTAssertEqual(d.order(), ["10.0.0.5", "192.168.1.36", tail])
+        // Tailscale off: the tailnet hosts are left out, the home ones stay.
+        let e = Route([tail, "192.168.1.36"], skip: { Reach.tailnetHost($0) })
+        XCTAssertEqual(e.order(), ["192.168.1.36"])
+    }
+
+    func testAHomeAddressThatDidNotAnswerGoesAfterTailscaleUntilItAnswersOrTheNetworkChanges() {
+        var told: [String] = []
+        let r = Route(["192.168.1.36", tail], onHost: { told.append($0) })
+        r.failed("192.168.1.36")
+        XCTAssertEqual(r.order(), [tail, "192.168.1.36"])
+        // The 30 s check tries home first every time.
+        XCTAssertEqual(r.order(check: true), ["192.168.1.36", tail])
+        r.answered(tail)
+        XCTAssertEqual(told, [tail])
+        // Coming home: it answers, it goes first again.
+        r.answered("192.168.1.36")
+        XCTAssertEqual(r.order(), ["192.168.1.36", tail])
+        // A network change gives every home address its first try again.
+        r.failed("192.168.1.36")
+        r.networkChanged()
+        XCTAssertEqual(r.order(), ["192.168.1.36", tail])
+        // A tailnet host that fails is never put last: it is all there is away from home.
+        r.failed(tail)
+        XCTAssertEqual(r.order(), ["192.168.1.36", tail])
+    }
+}
