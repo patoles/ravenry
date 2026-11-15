@@ -68,6 +68,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func showBoard(cold: Bool) {
         guard let w = window else { return }
+        // Nothing of the pairing keeps the keyboard (see PairModel.step).
+        w.endEditing(true)
         let b = BoardController()
         b.pending = Self.pendingAlert
         Self.pendingAlert = nil

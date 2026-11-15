@@ -23,7 +23,16 @@ final class PairModel: ObservableObject {
     }
     struct Iphone: Equatable, Identifiable { let id: String; let name: String }
 
-    @Published var step: Step = .scan
+    /// A screen without fields lets go of the keyboard: a field of the typed code left
+    /// focused under the next screens began a text session again each time the app came
+    /// back to the front (iOS's alerts ask), which stalled the app on an iPad under XCUITest.
+    @Published var step: Step = .scan {
+        didSet {
+            if case .typing = step { return }
+            let off = { _ = UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+            if Thread.isMainThread { off() } else { DispatchQueue.main.async(execute: off) }
+        }
+    }
     @Published var error: String?
     /// Why the computer did not answer, when there is something to open for it (Tailscale, Settings).
     @Published var reach: Reach.Why?

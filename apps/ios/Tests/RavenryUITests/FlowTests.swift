@@ -144,6 +144,9 @@ final class FlowTests: XCTestCase {
         shot("alerts-sheet")
         allow.tap()
         XCTAssertTrue(shows("recipe-box", timeout: 30), "the board after pairing")
+        // The typed code's field let go of the keyboard: none over the board (left focused, it began a text
+        // session each time the app came back to the front, which stalled the app on an iPad).
+        XCTAssertFalse(a.keyboards.firstMatch.exists, "no keyboard over the board after pairing")
         Thread.sleep(forTimeInterval: 1.5)
         shot("board")
         if !shotsOnly {
