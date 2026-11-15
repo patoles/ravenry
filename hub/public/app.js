@@ -1871,7 +1871,7 @@ async function startSession() {
 
 // A checkpoint in the project's answer card (the approved card, with what a
 // checkpoint adds): an ask's options and its words in the box; a command with
-// Refuse and Run (the phone app asks for a fingerprint first); a secret, a
+// Refuse and Run (the phone app asks for its fingerprint or Face ID first); a secret, a
 // pick or a drive opens the app's full-screen screen for it, where the
 // secret is typed on the phone's private keyboard and a pick is compared.
 function cpTopHtml(p, cp) {
@@ -1882,7 +1882,9 @@ function cpTopHtml(p, cp) {
   const where = cp.machine || (w.machine && w.machine.remote) ? (w.machine && w.machine.here) || cp.machine : null;
   if (cp.kind === 'approve') {
     const folder = cp.cwd ? (p.folder && cp.cwd === p.folder ? p.folderShort || cp.cwd : cp.cwd.replace(/^.*\/([^/]+\/[^/]+)$/, '\u2026/$1')) : null;
-    const runs = [folder ? `Runs in ${folder}` : 'Runs', where ? ` on ${where}.` : '.'].join('') + (app ? ' Your fingerprint first.' : '');
+    // In the phone app, its own check first: the hub's words per platform (shared/strings phone.runFirst.*).
+    const first = app && w.runFirst ? w.runFirst[window.ravenryApp.platform] || w.runFirst.android || '' : '';
+    const runs = [folder ? `Runs in ${folder}` : 'Runs', where ? ` on ${where}.` : '.'].join('') + (first ? ` ${first}` : '');
     return `${head}
 <div style="font-size: 16px; line-height: 1.45; font-weight: 500; overflow-wrap: anywhere">${esc(cp.why || w.head || 'Run this command?')}</div>
 <pre class="cpcmd">${esc(cp.command || '')}</pre>

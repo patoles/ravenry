@@ -10,3 +10,6 @@ export function t(key: StringKey, vars?: Record<string, string | number>): strin
   if (s === undefined) return key;
   return vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s;
 }
+
+/** The phone's own check before Run (shared/strings phone.bio.*): "a fingerprint" on Android, "Face ID" on an iPhone. */
+export const bioWord = (platform: string): string => t(platform === 'ios' ? 'phone.bio.ios' : 'phone.bio.android');

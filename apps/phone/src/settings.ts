@@ -13,6 +13,7 @@ import { current } from './shell.ts';
 import { back, sheet, toast } from './main.ts';
 import { distributorName } from './logic.ts';
 import type { Screen } from './main.ts';
+import { bioWord, t } from './strings.ts';
 
 interface Me { device?: { id: string; name: string; push?: string | null } | null; hub?: { name: string } | null; access?: boolean }
 interface PushStatus { distributors: string[]; current: string | null; off: boolean }
@@ -20,7 +21,7 @@ interface PushStatus { distributors: string[]; current: string | null; off: bool
 export function settingsScreen(): Screen {
   const el = h('div.scr.settings');
   const sh = current();
-  const st: { me: Me | null; push: PushStatus | null; conn: boolean | null; busy: boolean } = { me: null, push: null, conn: null, busy: false };
+  const st: { me: Me | null; push: PushStatus | null; conn: boolean | null; alerts: boolean | null; busy: boolean } = { me: null, push: null, conn: null, alerts: null, busy: false };
 
   const toggle = (on: boolean, enabled: boolean, flip: () => void, label: string) =>
     h(`button.tg${on ? '' : '.off'}`, { role: 'switch', 'aria-checked': on ? 'true' : 'false', 'aria-label': label, disabled: !enabled || st.busy, on: { click: flip } });
@@ -30,6 +31,7 @@ export function settingsScreen(): Screen {
     if (r && r.status === 200) st.me = r.body as Me;
     st.push = await sh.call<PushStatus>('push.status').catch(() => null);
     st.conn = await sh.call<{ on: boolean }>('connection.get').then((x) => x.on, () => null);
+    st.alerts = await sh.call<{ on: boolean }>('alerts.state').then((x) => x.on, () => null);
     paint();
   }
 
@@ -54,6 +56,8 @@ export function settingsScreen(): Screen {
 
   function paint(): void {
     const name = st.me?.hub?.name || sh.hello.hub.name;
+    // An iPhone has no UnifiedPush and no held connection: its alerts are iOS's own, while the app is open (docs/PHONE.md section 9).
+    const ios = sh.hello.platform === 'ios';
     const up = hub.live.link === 'up';
     const device = st.me?.device?.name || sh.hello.device?.name || 'this phone';
     const dist = st.push ? distributorName(st.push.current || st.push.distributors[0]) : null;
@@ -67,10 +71,11 @@ export function settingsScreen(): Screen {
       h('div.scroll', h('div.setgs',
         h('div.setg',
           h('div.setr', h('div.tx', h('div', name), h('div.s', `Paired as ${device}`)), h(`span.r${up ? '.ok' : ''}`, up ? 'Connected' : 'Not connected')),
-          h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', pushSub)), toggle(pushOn, !!st.push && st.push.distributors.length > 0, () => void setPush(!pushOn), 'Alerts by push')),
-          h('div.setr', h('div.tx', h('div', 'Stay connected'), h('div.s', 'Shows alerts at once without push; a silent notification says so')), toggle(!!st.conn, st.conn !== null, () => void setConn(!st.conn), 'Stay connected'))),
+          ...(ios ? [h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', 'While Ravenry is open, as iOS allows them')), h('span.r', st.alerts ? 'On' : 'Off'))] : [
+            h('div.setr', h('div.tx', h('div', 'Alerts'), h('div.s', pushSub)), toggle(pushOn, !!st.push && st.push.distributors.length > 0, () => void setPush(!pushOn), 'Alerts by push')),
+            h('div.setr', h('div.tx', h('div', 'Stay connected'), h('div.s', 'Shows alerts at once without push; a silent notification says so')), toggle(!!st.conn, st.conn !== null, () => void setConn(!st.conn), 'Stay connected'))])),
         h('div.setg',
-          h('div.setr', h('div.tx', h('div', 'Run asks for a fingerprint'), h('div.s', 'Always, from the shade and in the app')), h('span.r', 'Always'))),
+          h('div.setr', h('div.tx', h('div', t('phone.runAsks', { bio: bioWord(sh.hello.platform) })), h('div.s', 'Always, from the alert and in the app')), h('span.r', 'Always'))),
         h('div.setg', h('button.setr.red', { on: { click: () => void signOut(name) } }, `Sign out of ${name}`)),
         h('p.setn', `${name} can sign this phone out too, from its phone button.`))));
   }

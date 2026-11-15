@@ -36,7 +36,7 @@ import { keyParts } from '../../../hub/public/keys.mjs';
 import type { Drop } from './logic.ts';
 import { back, go, toast } from './main.ts';
 import type { Screen } from './main.ts';
-import { t as say } from './strings.ts';
+import { bioWord, t as say, t as word } from './strings.ts';
 
 /** Every checkpoint the hub lists, closed ones it still holds included. */
 function find(id: string): HubCheckpoint | null {
@@ -152,7 +152,7 @@ function approveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () 
   const run = async () => {
     const edited = ui.editing && ui.edit.trim() !== String(cp.command || '').trim();
     if (ui.busy) return;
-    if (!sh.has('biometric')) { ui.error = 'Run from the phone asks for a fingerprint, and this app cannot ask for one here. Run it on the computer.'; repaint(); return; }
+    if (!sh.has('biometric')) { ui.error = word('phone.runNeedsApp', { bio: bioWord(sh.hello.platform) }); repaint(); return; }
     try {
       await sh.call('biometric', { title: `Run on ${machine}`, subtitle: (ui.editing ? ui.edit : String(cp.command || '')).split('\n')[0].slice(0, 120) });
     } catch (e) { ui.error = (e as Error).message; repaint(); return; }
@@ -261,7 +261,7 @@ function driveView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () =>
     // Letting an agent act on a pane it did not start is as strong as
     // running a command there: a fingerprint first, always (docs/PHONE.md
     // section 5).
-    if (!sh.has('biometric')) { ui.error = 'Allowing it from the phone asks for a fingerprint, and this app cannot ask for one here. Answer it on the computer.'; repaint(); return; }
+    if (!sh.has('biometric')) { ui.error = word('phone.allowNeedsApp', { bio: bioWord(sh.hello.platform) }); repaint(); return; }
     try { await sh.call('biometric', { title: y.label, subtitle: words.title }); } catch (e) { ui.error = (e as Error).message; repaint(); return; }
     ui.busy = true; ui.error = null; repaint();
     try { await answer(cp, { approve: true, allow: y.allow }); toast(y.said); back(); } catch (e) { ui.busy = false; ui.error = (e as Error).message; repaint(); }

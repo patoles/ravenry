@@ -9,7 +9,7 @@
 //   (`http` and `hub.events`), so every byte to the hub has the pinned key
 //   and the device token; pictures and the board's own files come through
 //   the shell's request handler.
-// - Run on a command asks for a fingerprint first (as in the shade).
+// - Run on a command asks for a fingerprint (Face ID on an iPhone) first (as in the shade).
 // - The board's menu gets This phone (the app's own settings: window.ravenryApp);
 //   the Mac's bell and phone button are the Mac's and stay hidden.
 // - Back goes one level up: the board's own window.ravenryBack (a layer
@@ -34,6 +34,7 @@
 
 import { connect, b64 } from './shell.ts';
 import type { Alert, Shell } from './shell.ts';
+import { t } from './strings.ts';
 
 /** What the shell says about the connection to the Mac (MainActivity's ConnWatch). */
 export interface Conn { state: 'up' | 'reconnecting' | 'offline'; via: string; since: number | null; rtt: number | null; reason?: string | null; words?: string | null; mac?: string | null }
@@ -131,7 +132,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const bytes = method === 'GET' || method === 'HEAD' ? null : await bodyBytes(input, init);
   const path = url.pathname + url.search;
   if (!(await confirmRun(sh, url.pathname, bytes))) {
-    return new Response(JSON.stringify({ error: 'Not run: the fingerprint was not confirmed.' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: t(sh.hello.platform === 'ios' ? 'phone.bioNotConfirmed.ios' : 'phone.bioNotConfirmed.android') }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   }
   let r: { status: number; type?: string; b64?: string };
   try {
@@ -275,6 +276,8 @@ function reached(sh: Shell, now = false): void {
 
 function start(sh: Shell): void {
   document.documentElement.dataset.app = sh.hello.platform;
+  // The board reads which app it is in (its words for Run's check, this phone's alerts).
+  if (window.ravenryApp) window.ravenryApp.platform = sh.hello.platform;
   sh.on('back', () => { const handled = goBack(); void sh.call('back.done', { handled }).catch(() => {}); });
   sh.on('open', (m) => openAlert(m.alert as Alert));
   sh.on('reach', (m) => { if ((m as Reach).words) showReach(sh, m as Reach); else reached(sh); });

@@ -6,6 +6,7 @@
 
 // First: the start-up record (hub.log: phases, stalls; a CPU profile of a
 // new version's first 90 s), so it covers every module's own loading too.
+import { t as word } from './strings.mjs';
 import * as startlog from './startlog.mjs';
 import * as slice from './slice.mjs';
 import http from 'node:http';
@@ -2568,7 +2569,10 @@ const pageRuns = new Map();
 // with the sidebar's names for panes: attached to every checkpoint the hub
 // hands out, as `words`.
 function cpWords(cp, projects = snapshot.projects || []) {
-  return cpwords.withWords(cp, { platform: process.platform, hubName: phone.hubName(), paneName: (pane) => sidebar.paneNameIn(projects, pane) });
+  const out = cpwords.withWords(cp, { platform: process.platform, hubName: phone.hubName(), paneName: (pane) => sidebar.paneNameIn(projects, pane) });
+  // A command's Run in a phone app asks for the phone's own check first, in each platform's word (shared/strings phone.runFirst.*).
+  if (out.words && out.words.kind === 'approve') out.words.runFirst = { android: word('phone.runFirst.android'), ios: word('phone.runFirst.ios') };
+  return out;
 }
 
 /** A checkpoint a page's run button opened carries its page's name and button (its heading says them, never "The agent"). */
