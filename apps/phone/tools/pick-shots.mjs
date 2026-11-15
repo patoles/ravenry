@@ -258,7 +258,8 @@ try {
     const port = adb('forward', 'tcp:0', `localabstract:webview_devtools_remote_${pid}`).trim();
     try {
       const pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-      const page = pages.find((p) => p.type === 'page' && /\/phone\//.test(p.url));
+      // The app's own screens (/phone/), else the board (the hub's page at the app's origin, after a sent answer).
+      const page = pages.find((p) => p.type === 'page' && /\/phone\//.test(p.url)) || pages.find((p) => p.type === 'page' && /^https:\/\/appassets\.androidplatform\.net\//.test(p.url));
       if (!page) return null;
       const ws = new WebSocket(page.webSocketDebuggerUrl);
       await new Promise((ok, no) => { ws.onopen = ok; ws.onerror = no; });
@@ -290,6 +291,8 @@ try {
   }
 
   const go = (route) => board(`location.replace('#${route}')`);
+  // A checkpoint's screen from wherever the page is: a sent answer leaves for the board (the hub's page), where a hash is the board's own.
+  const openCp = (id) => board(`location.href = '/phone/index.html#/cp/${id}'`);
   const hubCps = async (all = false) => ((await (await fetch(`${hub.url}/api/checkpoints${all ? '?all' : ''}`)).json()).checkpoints || []);
   const alertShown = (id) => adb('shell', 'dumpsys', 'notification', '--noredact').includes(`|${APP}|2|${id}|`);
 
@@ -370,6 +373,8 @@ try {
     // A pick opened again keeps its place: from its picture up close, the X goes back to the swipe screen.
     if (await until(() => board('document.querySelector(".pzv") ? true : null'), 3000, 400)) { await tapBoard('.pzv-bar .icon-btn'); await sleep(600); }
     await until(() => board('document.querySelector(".ppick .ptrack img") && document.querySelector(".ppick .ptrack img").complete ? true : null'), 20000, 500);
+    // A theme switch rebuilt the activity, then Home: back in front the board shows, never "Your Mac didn't answer" for a Mac that answered.
+    if (scheme === 'light') { await sleep(1500); const gone = screen().map((n) => n.text).filter((t) => /didn.t answer|Reaching your Mac/.test(t || '')); check(gone.length === 0, 'after a theme switch on the pick\'s screen and Home, the app back in front shows the screen, not "Your Mac didn\'t answer"', gone.join(' | ')); }
     await sleep(800);
     // A swipe to B, as a finger does.
     const t = await onScreen('.ppick .ptrack');
@@ -455,7 +460,8 @@ try {
   adb('shell', 'cmd', 'uimode', 'night', 'no');
   await sleep(2500);
   adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
-  await sleep(1000);
+  // Longer than the launch's 12 s wait for the board, which the rebuilt activity began behind the launcher.
+  await sleep(14000);
   await shade('light');
   const last = await screens('light');
   console.log('light:', last);
@@ -474,7 +480,7 @@ try {
   shot('phone-32-after-light.png');
 
   // The typing, allowed once with a fingerprint: the prompt, then the sensor.
-  await go(`/cp/${TYPE}`);
+  await openCp(TYPE);
   await tapText('Allow once');
   const prompt = await until(() => find((n) => n.pkg === 'com.android.systemui' && /fingerprint|Allow once/i.test(n.text || n.desc)), 15000, 700);
   check(!!prompt, 'the fingerprint prompt opens before the yes', prompt ? (prompt.text || prompt.desc) : screen().map((x) => x.text).filter(Boolean).join(' | '));
@@ -486,7 +492,7 @@ try {
   check(allowed && allowed.state === 'answered' && allowed.answer && allowed.answer.approved && allowed.answer.allow === 'once' && /exit 0/.test(typedOut || '') && /npm run dev -- --host/.test(screenNow), 'the typing allowed once with a fingerprint: ravenry send went through and the dev server pane shows it', JSON.stringify(allowed && allowed.answer));
 
   // The close refused from the phone: the dev server stays.
-  await go(`/cp/${CLOSE}`);
+  await openCp(CLOSE);
   await sleep(4000); // the last answer's toast sits over the bottom buttons for a few seconds
   await tapText('Refuse');
   const refused = await until(async () => (await hubCps(true)).find((x) => x.id === CLOSE && x.state === 'declined') || null, 15000, 500);
@@ -517,6 +523,9 @@ try {
   if (hub) fs.writeFileSync(path.join(WORK, 'board.log'), hub.log());
   process.exitCode = 1;
 } finally {
+  // The emulator's log and the board's, beside the pictures, for a run that went wrong.
+  try { fs.writeFileSync(path.join(OUT, 'logcat.txt'), adbRaw('logcat', '-d', '-v', 'time')); } catch { /* gone */ }
+  if (hub) try { fs.writeFileSync(path.join(OUT, 'board.log'), hub.log()); } catch { /* gone */ }
   try { adb('shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', '-e', 'command', 'exit'); } catch { /* gone */ }
   try { adb('emu', 'kill'); } catch { /* gone */ }
   if (emu) { await sleep(3000); try { emu.kill('SIGTERM'); } catch { /* gone */ } }
