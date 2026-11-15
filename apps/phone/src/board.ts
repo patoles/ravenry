@@ -21,7 +21,12 @@
 //   ravenry:conn event, for its chip in the top bar.
 // - The launch (docs/PHONE.md, The launch): once the board has drawn its top
 //   bar, the shell learns where the bar's mark is (ink.ready), for the
-//   mark's flight out of the splash.
+//   mark's flight out of the splash: the phone bar's, or the wide board's
+//   (an iPad from 1000 pt, where the phone bar is not shown).
+// - An iPad (the iOS app's hello says `form`): the board's words for this
+//   device (window.ravenryApp.words, from shared/strings device.*), and
+//   html[data-form="ipad"] for board.css, which keeps the Mac's own controls
+//   off it.
 // - An alert tapped opens its checkpoint (the app's full-screen screens
 //   for a secret, a pick or a drive) or its project.
 // - When the computer cannot be reached, a bar says why in plain words
@@ -34,13 +39,13 @@
 
 import { connect, b64 } from './shell.ts';
 import type { Alert, Shell } from './shell.ts';
-import { t } from './strings.ts';
+import { deviceWord, t } from './strings.ts';
 
 /** What the shell says about the connection to the Mac (MainActivity's ConnWatch). */
 export interface Conn { state: 'up' | 'reconnecting' | 'offline'; via: string; since: number | null; rtt: number | null; reason?: string | null; words?: string | null; mac?: string | null }
 declare global {
   interface Window {
-    ravenryApp?: { openCheckpoint(id: string): void; openSettings(): void; openTailscale(): void; reconnect(): void; platform: string; conn?: Conn | null; alerts?: { on: boolean } | null; openAlertSettings?(): void };
+    ravenryApp?: { openCheckpoint(id: string): void; openSettings(): void; openTailscale(): void; reconnect(): void; platform: string; conn?: Conn | null; alerts?: { on: boolean } | null; openAlertSettings?(): void; form?: string; words?: { thisDevice: string } };
     ravenryBack?: () => boolean;
   }
 }
@@ -278,6 +283,12 @@ function start(sh: Shell): void {
   document.documentElement.dataset.app = sh.hello.platform;
   // The board reads which app it is in (its words for Run's check, this phone's alerts).
   if (window.ravenryApp) window.ravenryApp.platform = sh.hello.platform;
+  // Which device: "This phone" or "This iPad" in the board's menu and top bar.
+  document.documentElement.dataset.form = sh.hello.form || 'phone';
+  if (window.ravenryApp) {
+    window.ravenryApp.form = sh.hello.form || 'phone';
+    window.ravenryApp.words = { thisDevice: t('device.this', { device: deviceWord(sh.hello.form) }) };
+  }
   sh.on('back', () => { const handled = goBack(); void sh.call('back.done', { handled }).catch(() => {}); });
   sh.on('open', (m) => openAlert(m.alert as Alert));
   sh.on('reach', (m) => { if ((m as Reach).words) showReach(sh, m as Reach); else reached(sh); });
@@ -302,8 +313,17 @@ function start(sh: Shell): void {
   // The connection, for the board's chip.
   const mac = sh.hello.hub && sh.hello.hub.name ? sh.hello.hub.name : null;
   sh.on('conn', (m) => { setConn(m as unknown as Conn, mac); if ((m as unknown as Conn).state === 'up') reached(sh); });
-  // The launch: where the top bar's mark is, once the board drew it.
-  const mark = () => document.querySelector('#pbar .pn-ttl svg') as SVGElement | null;
+  // The launch: where the top bar's mark is, once the board drew it (its bar
+  // is filled from its first state): the phone bar's, or at the board's wide
+  // width (an iPad) the wide top bar's, whichever is on the screen.
+  const mark = (): SVGElement | null => {
+    if (!document.querySelector('#pbar > *')) return null;
+    for (const sel of ['#pbar .pn-ttl svg', '.mc-top .mc-mark']) {
+      const el = document.querySelector(sel) as SVGElement | null;
+      if (el && el.getBoundingClientRect().width) return el;
+    }
+    return null;
+  };
   const tellMark = (): boolean => {
     const el = mark();
     if (!el) return false;

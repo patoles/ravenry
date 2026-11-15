@@ -949,4 +949,5 @@ them.
 | Hand-off | the hub's board | the hub's board |
 | A secret, a pick, a drive | the app's own screens (`apps/phone`) | the app's own screens |
 | The sidebar's pages | the hub's board (Pages) | the hub's board |
+| A tablet | the phone board at the tablet's width | an iPad full screen (C, picked 2026-11-15), by the room the app has, live on a rotation and in Split View: from 1000 pt (an 11-inch sideways, a 13-inch both ways) the hub's board at its wide width (the projects beside the open project), with the connection chip beside the name and This iPad (the app's settings) among its tools; narrower (an 11-inch upright, Split View, Slide Over) the phone board in a centred column of 700 pt. The app's own pages and the pairing in a centred column of 640 pt. Open in <terminal> is not shown (it brings a tab forward on the Mac); New project is the phone's form. The words say iPad (shared/strings `device.*`) |
 | Store | F-Droid, then Play | App Store |

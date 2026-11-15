@@ -45,6 +45,20 @@ enum Shared {
     }
 }
 
+/// This device in the shared words (shared/strings device.*): "phone" and
+/// "iPhone" on an iPhone, "iPad" on an iPad, where the app runs full screen
+/// (C, picked 2026-11-15).
+enum Device {
+    /// Read first at the app's start, on the main thread (AppDelegate).
+    static let pad = UIDevice.current.userInterfaceIdiom == .pad
+    /// For the page's hello: "ipad" or "iphone".
+    static var form: String { pad ? "ipad" : "iphone" }
+    /// In a sentence: "this phone", "this iPad".
+    static var word: String { Shared.t(pad ? "device.word.ipad" : "device.word.phone") }
+    /// The model: "Which iPhone is this?", "Which iPad is this?".
+    static var model: String { Shared.t(pad ? "device.model.ipad" : "device.model.iphone") }
+}
+
 /// The pairing screens' palette (round 1's drawings, from the tokens): the window,
 /// a raised surface (the dark card, the light sheet), text, the states.
 struct T {

@@ -27,7 +27,7 @@ struct PairLink: Equatable {
         let raw = s.split(separator: "?", maxSplits: 1).dropFirst().first.map(String.init) ?? ""
         let q = query(raw)
         guard let v = q["v"].flatMap({ Int($0) }) else { return no("This pairing code has no version.") }
-        if v > version { return no("This pairing code is newer than this app. Update Ravenry on the phone.") }
+        if v > version { return no("This pairing code is newer than this app. Update Ravenry on the \(Device.word).") }
         if v < 1 { return no("This pairing code is not one Ravenry makes.") }
         let hosts = (q["hosts"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if hosts.isEmpty { return no("This pairing code has no address.") }
@@ -167,10 +167,10 @@ enum MacName {
 enum Reach {
     struct Why: Equatable { let reason: String; let words: String }
 
-    static let tailscaleOff = Why(reason: "tailscale-off", words: "Tailscale is off on this phone. Turn it on, then try again.")
-    static let tailscaleMissing = Why(reason: "tailscale-missing", words: "This phone doesn't have Tailscale. Install it and sign in, then try again.")
+    static var tailscaleOff: Why { Why(reason: "tailscale-off", words: "Tailscale is off on this \(Device.word). Turn it on, then try again.") }
+    static var tailscaleMissing: Why { Why(reason: "tailscale-missing", words: "This \(Device.word) doesn't have Tailscale. Install it and sign in, then try again.") }
     static let macAway = Why(reason: "unreachable", words: "Your Mac didn't answer. Check that it's on and awake, and that Tailscale is connected on both.")
-    static let macWifi = Why(reason: "unreachable", words: "Your Mac didn't answer. Check that it's on and awake, and that this phone is on its Wi-Fi.")
+    static var macWifi: Why { Why(reason: "unreachable", words: "Your Mac didn't answer. Check that it's on and awake, and that this \(Device.word) is on its Wi-Fi.") }
     static let localNetworkOff = Why(reason: "local-network-off", words: "Local Network is off for Ravenry, so it can't reach your Mac on this Wi-Fi. Turn it on in Settings, then try again.")
 
     /// A host only the tailnet reaches: a MagicDNS name, a 100.64/10 or fd7a:115c:a1e0:: address.

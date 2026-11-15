@@ -6,6 +6,8 @@
 // sits under the status bar and runs to the screen's foot, where its bottom
 // bar keeps clear of the home indicator (viewport-fit=cover), as round 1
 // drew it; with the keyboard up the web view shrinks to the keyboard's top.
+// On an iPad (C, picked 2026-11-15) its width follows the room the app
+// has, live on a rotation and in Split View: see `width(of:page:pad:)`.
 
 import UIKit
 import WebKit
@@ -102,11 +104,34 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
         layoutWeb()
     }
 
+    /// The web view's width in the room the app has (C, picked 2026-11-15). On
+    /// an iPad: the board's own wide layout (the projects beside the open project)
+    /// where it fits, from 1000 pt (an 11-inch sideways, a 13-inch either way); else
+    /// the phone board in a centred column of 700 pt, the widest its phone layout
+    /// takes (an 11-inch upright, Split View, Slide Over). The app's own pages (a
+    /// checkpoint's screen, settings) in a centred column of 640 pt. An iPhone: the
+    /// whole width, as before.
+    static func width(of room: CGFloat, page: Bool, pad: Bool) -> CGFloat {
+        guard pad else { return room }
+        if page { return min(room, 640) }
+        return room >= 1000 ? room : min(room, 700)
+    }
+
+    #if DEBUG
+    /// For the checks only (TestDrive): the room of a Split View or Slide Over, drawn from the left.
+    var testRoom: CGFloat?
+    #endif
+
     /// Under the status bar; to the screen's foot, or to the keyboard's top while it is up.
     private func layoutWeb() {
         let top = view.safeAreaInsets.top
         let bottom = keyboardTop.map { min($0, view.bounds.height) } ?? view.bounds.height
-        let f = CGRect(x: 0, y: top, width: view.bounds.width, height: max(0, bottom - top))
+        var room = view.bounds.width, left: CGFloat = 0
+        #if DEBUG
+        if let r = testRoom { room = min(r, room); left = 0 }
+        #endif
+        let w = Self.width(of: room, page: web.url?.path.hasPrefix("/phone/") == true, pad: Device.pad)
+        let f = CGRect(x: left + ((room - w) / 2).rounded(), y: top, width: w, height: max(0, bottom - top))
         if web.frame != f { web.frame = f }
     }
 
@@ -241,7 +266,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             helloed = true
             let hubInfo: [String: Any] = ["name": MacName.say(p?.hubName), "port": (p?.port).map { $0 as Any } ?? NSNull()]
             let device: [String: Any] = ["id": (p?.deviceId).map { $0 as Any } ?? NSNull(), "name": (p?.deviceName).map { $0 as Any } ?? NSNull()]
-            var hello: [String: Any] = ["v": 1, "platform": "ios", "app": PairModel.appVersion, "hub": hubInfo, "device": device, "features": features]
+            var hello: [String: Any] = ["v": 1, "platform": "ios", "form": Device.form, "app": PairModel.appVersion, "hub": hubInfo, "device": device, "features": features]
             hello["pending"] = pending.map { $0 as Any } ?? NSNull()
             hello["launch"] = ink != nil ? "ink" : "warm"
             reply(id, hello)
@@ -254,7 +279,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             for (k, v) in o["headers"] as? [String: Any] ?? [:] where ["content-type", "x-filename", "accept"].contains(k.lowercased()) { headers[k] = v as? String }
             let asked = Date()
             Task {
-                guard let c = hub() else { fail(id, "This phone is not paired."); return }
+                guard let c = hub() else { fail(id, "This \(Device.word) is not paired."); return }
                 do {
                     let r = try await c.execute(method, path, body: method == "GET" || method == "HEAD" ? nil : (body ?? Data()), headers: headers)
                     answered()
@@ -267,7 +292,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             let b = o["body"]
             let asked = Date()
             Task {
-                guard let c = hub() else { fail(id, "This phone is not paired."); return }
+                guard let c = hub() else { fail(id, "This \(Device.word) is not paired."); return }
                 do {
                     let r = try await c.call(method, path, json: b is NSNull ? nil : b)
                     answered()
@@ -332,7 +357,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
             Revokes.signOut()
             (view.window?.windowScene?.delegate as? SceneDelegate)?.showPairing()
         case "back.done": reply(id)
-        default: fail(id, "This iPhone app does not do \(op) yet.")
+        default: fail(id, "This \(Device.model) app does not do \(op) yet.")
         }
     }
 
@@ -362,7 +387,7 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     func restartEventsIfWanted() { if eventsWanted { startEvents() } }
 
     private func openSocket(_ id: Int, _ o: [String: Any]) {
-        guard let c = hub(), let path = o["path"] as? String else { fail(id, "This phone is not paired."); return }
+        guard let c = hub(), let path = o["path"] as? String else { fail(id, "This \(Device.word) is not paired."); return }
         let sid = nextSid; nextSid += 1
         let ws = c.socket(path, protocol: o["protocol"] as? String)
         sockets[sid] = ws
@@ -448,6 +473,8 @@ final class BoardController: UIViewController, WKScriptMessageHandler, WKNavigat
     func webView(_ w: WKWebView, didCommit n: WKNavigation!) {
         // Above the app's own pages, the window's colour of the phone's dark or light (the board says its own).
         if w.url?.path.hasPrefix("/phone/") == true { view.backgroundColor = Shared.dynamic("win") }
+        // The board and the app's own pages each have their width on an iPad.
+        layoutWeb()
         setNeedsStatusBarAppearanceUpdate()
     }
 }
@@ -587,8 +614,8 @@ enum Biometrics {
         guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &e) else {
             let none = (e?.code == LAError.biometryNotEnrolled.rawValue)
             Log.say("face id: not available (\(none ? "none set up" : "no Face ID"))")
-            done(false, none ? "Run needs Face ID, and none is set up on this iPhone. Set it up in Settings, or run it on the computer."
-                             : "Run needs Face ID, and this iPhone can't use it now. Run it on the computer.")
+            done(false, none ? "Run needs Face ID, and none is set up on this \(Device.model). Set it up in Settings, or run it on the computer."
+                             : "Run needs Face ID, and this \(Device.model) can't use it now. Run it on the computer.")
             return
         }
         ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { ok, err in
@@ -640,6 +667,13 @@ enum TestDrive {
         Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak b] t in
             guard let b, b.view.window != nil else { if b == nil { t.invalidate() }; return }
             let fm = FileManager.default
+            // A Split View or Slide Over's room, in points ("0": the whole window again).
+            if let r = try? String(contentsOfFile: "\(dir)/room", encoding: .utf8) {
+                try? fm.removeItem(atPath: "\(dir)/room")
+                let v = Double(r.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+                b.testRoom = v > 0 ? CGFloat(v) : nil
+                b.view.setNeedsLayout()
+            }
             for f in (try? fm.contentsOfDirectory(atPath: dir)) ?? [] where f.hasSuffix(".js") {
                 let p = "\(dir)/\(f)"
                 guard let code = try? String(contentsOfFile: p, encoding: .utf8) else { continue }

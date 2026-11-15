@@ -48,7 +48,8 @@ final class ReachTests: XCTestCase {
             XCTAssertNil(re.firstMatch(in: w.words, range: NSRange(w.words.startIndex..., in: w.words)), w.words)
             XCTAssertFalse(w.words.contains("\u{2014}"), "no em dash: \(w.words)")
         }
-        XCTAssertEqual(Reach.tailscaleOff.words, "Tailscale is off on this phone. Turn it on, then try again.")
+        // This device in the shared words: "phone" on an iPhone, "iPad" on an iPad.
+        XCTAssertEqual(Reach.tailscaleOff.words, "Tailscale is off on this \(Device.pad ? "iPad" : "phone"). Turn it on, then try again.")
     }
 
     func testSkipsTailnetHostsWithNoVpn() {

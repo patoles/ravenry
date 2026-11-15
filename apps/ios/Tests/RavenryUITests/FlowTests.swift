@@ -241,6 +241,10 @@ final class FlowTests: XCTestCase {
         a.buttons["pair-confirm"].tap()
         XCTAssertTrue(a.buttons["which-continue"].waitForExistence(timeout: 20), "Which iPhone is this?")
         XCTAssertTrue(a.staticTexts["Connected to MacBook Pro"].exists)
+        // In this device's words (shared/strings device.model.*): "Which iPad is this?" on an iPad.
+        let model = pad ? "iPad" : "iPhone"
+        XCTAssertTrue(a.staticTexts["Which \(model) is this?"].exists && a.staticTexts["A new \(model)"].exists, "Which \(model) is this?, A new \(model)")
+        mark("which: Which \(model) is this? \(a.staticTexts["Which \(model) is this?"].exists)")
         shot("which")
         a.buttons["which-continue"].tap()
         XCTAssertTrue(shows("recipe-box", timeout: 30), "the board after the takeover")
@@ -547,5 +551,242 @@ final class FlowTests: XCTestCase {
         shot("alert-warm-ask")
         mark("a tap on the ask's alert with the app in the background: its screen \(shown), the app still running \(alive)")
         XCTAssertTrue(shown && alive, "the ask's screen after its alert, with the app running")
+    }
+
+    // ------------------------------------------------------------ the iPad (C, picked 2026-11-15)
+
+    var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
+    /// A line of script whose answer is an object.
+    func jsObject(_ body: String) -> [String: Any] {
+        guard let s = js(body), let o = try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any] else { return [:] }
+        return o
+    }
+
+    /// The width the board should have in this room (Board.swift BoardController.width).
+    func want(_ room: Double, page: Bool = false) -> Double { page ? min(room, 640) : room >= 1000 ? room : min(room, 700) }
+
+    /// Where the board is and how it lays out: the web view's frame on the screen, and what the page draws.
+    func layout(_ a: XCUIApplication) -> (x: Double, w: Double, room: Double, page: [String: Any]) {
+        let f = a.webViews.firstMatch.frame
+        let o = jsObject("""
+        const vis = (s) => { const e = document.querySelector(s); return !!e && e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden'; };
+        return { w: innerWidth, list: vis('#list'), bnav: vis('#bnav'), path: location.pathname, hash: location.hash, same: window.__rvIpad || null };
+        """)
+        return (Double(f.minX), Double(f.width), Double(a.windows.firstMatch.frame.width), o)
+    }
+
+    /// The board in the room it has: the wide layout (the projects' list beside the open project) from 1000 pt, else
+    /// the phone board in its column (its bottom bar, no list), centred; `room` names a simulated Split View's.
+    @discardableResult
+    func layoutIs(_ a: XCUIApplication, _ label: String, room: Double? = nil) -> Bool {
+        var L = layout(a)
+        let r = room ?? L.room
+        let w = want(r)
+        _ = until(10) { L = self.layout(a); return abs(L.w - w) < 1 && abs((L.page["w"] as? Double ?? 0) - w) < 1 }
+        let wide = w >= 1000
+        let x = room != nil ? 0 : ((r - w) / 2).rounded()
+        let ok = abs(L.w - w) < 1 && abs(L.x - x) < 1 && abs((L.page["w"] as? Double ?? 0) - w) < 1
+            && (L.page["list"] as? Bool) == wide && (L.page["bnav"] as? Bool) == !wide
+        mark("layout \(label): room \(r), web view x \(L.x) w \(L.w), page \(L.page); wanted w \(w) x \(x) \(wide ? "wide" : "column"): \(ok)")
+        XCTAssertTrue(ok, "\(label): \(wide ? "the board's wide layout" : "the phone board's column") at \(w) of \(r) pt (got x \(L.x) w \(L.w), \(L.page))")
+        return ok
+    }
+
+    /// The Mac's own controls are not on the iPad: Open in <terminal>, the Mac's notifications bell, its phone button.
+    func noMacOnly(_ label: String) {
+        let o = jsObject("""
+        const vis = (e) => e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none';
+        const hits = [...document.querySelectorAll('[data-act="open"], #alerts, #phone-anchor, #phone, button')].filter(vis)
+          .filter((e) => e.matches('[data-act="open"], #alerts, #phone-anchor, #phone') || /^Open in /.test((e.innerText || '').trim()));
+        return { n: hits.length, what: hits.map((e) => e.id || (e.innerText || '').trim()).join(', ') };
+        """)
+        mark("Mac-only controls \(label): \(o)")
+        XCTAssertEqual(o["n"] as? Int, 0, "no Mac-only control (\(label)): \(o["what"] ?? "?")")
+    }
+
+    func cp(_ id: String) -> [String: Any]? {
+        let (_, j) = hub("GET", "/api/checkpoints?all")
+        return (j["checkpoints"] as? [[String: Any]] ?? []).first { $0["id"] as? String == id }
+    }
+
+    /// The room of a simulated Split View or Slide Over (the app's debug TestDrive draws the board in it); 0: the whole window.
+    func room(_ pt: Int) {
+        guard let sig = env["RAVENRY_SIG"] else { return }
+        try? Data("\(pt)".utf8).write(to: URL(fileURLWithPath: "\(sig)/drive/room"))
+        _ = until(5) { !FileManager.default.fileExists(atPath: "\(sig)/drive/room") }
+    }
+
+    func rotate(_ o: UIDeviceOrientation) {
+        XCUIDevice.shared.orientation = o
+        Thread.sleep(forTimeInterval: 1.5)
+    }
+
+    /// The app on an iPad, full screen (C, picked 2026-11-15): the phone board in a centred column upright and in Split
+    /// View, the board's wide layout sideways (and on a 13-inch both ways), switched live by a rotation with the
+    /// open project and its card kept; cards arriving live, Run with Face ID, a pick opened and zoomed and an
+    /// alert's screen in the wide layout; no launch hold in either; none of the Mac's own controls; iPad words.
+    func test9c_TheIPadLayoutsFollowTheRoom() throws {
+        guard pad else { throw XCTSkip("an iPad's check") }
+        continueAfterFailure = true
+        rotate(.portrait)
+        var a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        let upright = layout(a).room
+        layoutIs(a, "upright")
+        _ = js("window.__rvIpad = 'same page'; return true;")
+
+        // A card arriving live, upright, on the open project.
+        let one = newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"ipad one: it ran\"", "why": "A card on the iPad, upright."])
+        XCTAssertNotNil(one)
+        XCTAssertTrue(onBoard("paper-boat", "ipad one: it ran"), "a card arriving live shows upright")
+        noMacOnly("upright")
+        if upright < 1000 {
+            // The phone board's menu: This iPad (the app's own settings), and the connection chip in its bar.
+            let menu = jsObject("const b = document.querySelector('#pb-more'); if (b) b.click(); return { more: !!b };")
+            let words = until(5) { self.js("const m = document.querySelector('#pmenu'); return !!m && m.innerText.includes('This iPad');") == "true" }
+            mark("upright menu: \(menu), This iPad \(words)")
+            XCTAssertTrue(words, "the menu says This iPad")
+            _ = js("const s = document.querySelector('#pmenu [data-act=\"pn-menu-close\"]'); if (s) s.click(); return true;")
+            XCTAssertEqual(js("const c = document.querySelector('#cx-chip'); return !!c && c.getClientRects().length > 0;"), "true", "the connection chip upright")
+        }
+        Thread.sleep(forTimeInterval: 1)
+        shot("ipad-upright-board")
+
+        // Sideways: the wide layout, live, the same page, the open project and its card kept.
+        rotate(.landscapeLeft)
+        let side = layout(a).room
+        layoutIs(a, "sideways")
+        var L = layout(a)
+        let kept = (L.page["same"] as? String) == "same page" && (L.page["hash"] as? String) == "#paper-boat"
+            && js("return document.body.innerText.includes('ipad one: it ran');") == "true"
+        mark("sideways: same page, paper-boat open, its card shown: \(kept) (\(L.page))")
+        XCTAssertTrue(kept, "the rotation kept the page, the open project and its card")
+        noMacOnly("sideways")
+        if side >= 1000 {
+            let chip = jsObject("const c = document.querySelector('.mc-top .cx-chip'); return { shown: !!c && c.getClientRects().length > 0, says: c ? c.innerText.trim() : null };")
+            mark("the wide layout's connection chip: \(chip)")
+            XCTAssertEqual(chip["shown"] as? Bool, true, "the connection chip beside the name in the wide layout")
+            let mine = jsObject("const b = document.querySelector('.mc-tools [data-act=\"pn-app\"]'); return { shown: !!b && b.getClientRects().length > 0, label: b ? b.getAttribute('aria-label') : null };")
+            mark("the wide layout's This iPad: \(mine)")
+            XCTAssertEqual(mine["label"] as? String, "This iPad", "This iPad among the wide layout's tools")
+            // New project: the same form as the phone's +.
+            let form = until(5) { self.js("const b = document.querySelector('#new-project'); if (b && !document.querySelector('#modal-form')) b.click(); return !!document.querySelector('#modal-form [name=name]');") == "true" }
+            _ = js("if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); const x = document.querySelector('#modal-close'); if (x) x.click(); return true;")
+            let closed = until(5) { self.js("return !document.querySelector('#modal-form');") == "true" }
+            mark("New project in the wide layout: the form \(form), closed \(closed)")
+            XCTAssertTrue(form && closed, "New project opens the phone's New project form, and it closes")
+        }
+        Thread.sleep(forTimeInterval: 1)
+        shot("ipad-sideways-board")
+
+        // Back upright: the column again, the same page.
+        rotate(.portrait)
+        layoutIs(a, "upright again")
+        L = layout(a)
+        XCTAssertTrue((L.page["same"] as? String) == "same page" && (L.page["hash"] as? String) == "#paper-boat", "upright again: the same page, paper-boat open")
+        rotate(.landscapeLeft)
+        layoutIs(a, "sideways again")
+
+        // A card arriving live in the wide layout, run there with Face ID.
+        guard let two = newCard(["kind": "approve", "project": "paper-boat", "command": "echo \"ipad two: it ran\"", "why": "A card on the iPad, sideways."]) else { XCTFail("no card"); return }
+        XCTAssertTrue(onBoard("paper-boat", "ipad two: it ran"), "a card arriving live shows sideways")
+        let run = until(10) { self.js("const b = document.querySelector('[data-act=\"cp-run\"][data-cp=\"\(two)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
+        XCTAssertTrue(run, "Run on the card, sideways")
+        // iOS's first ask for Face ID on this install (test4 is the iPhone run's; this run has none before): Allow.
+        let sbFace = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for allow in [sbFace.alerts.buttons["Allow"], a.alerts.buttons["Allow"], sbFace.buttons["Allow"]] where allow.waitForExistence(timeout: 2) {
+            mark("Face ID's first ask: Allow")
+            allow.tap()
+            break
+        }
+        Thread.sleep(forTimeInterval: 1.2)
+        shot("ipad-sideways-faceid")
+        faceID("match")
+        let ran = until(10) { (self.cp(two)?["state"] as? String) != "open" }
+        let ans = cp(two)?["answer"] as? [String: Any] ?? [:]
+        mark("Run with Face ID sideways: \(cp(two)?["state"] ?? "?") \(ans)")
+        XCTAssertTrue(ran && (ans["approved"] as? NSNumber)?.boolValue == true, "Face ID matched, the command approved from the wide layout")
+
+        // A simulated Split View and Slide Over: the column.
+        for r in [590, 375] {
+            room(r)
+            layoutIs(a, "Split View \(r)", room: Double(r))
+            if r == 590 { Thread.sleep(forTimeInterval: 1); shot("ipad-split-590") }
+        }
+        room(0)
+        layoutIs(a, "the whole window again")
+
+        // This iPad (the app's own settings) from the wide layout: its page in a centred column of 640.
+        if side >= 1000 {
+            _ = js("const b = document.querySelector('.mc-tools [data-act=\"pn-app\"]'); if (b) b.click(); return !!b;")
+            let settings = until(10) { self.js("return location.pathname.startsWith('/phone/') && document.body.innerText.includes('Paired as');") == "true" }
+            Thread.sleep(forTimeInterval: 1)
+            let f = a.webViews.firstMatch.frame
+            let words = js("return document.body.innerText.includes('sign this iPad out');") == "true"
+            mark("This iPad's settings: \(settings), web view x \(f.minX) w \(f.width), iPad words \(words)")
+            XCTAssertTrue(settings && abs(Double(f.width) - want(side, page: true)) < 1 && abs(Double(f.minX) - ((side - want(side, page: true)) / 2).rounded()) < 1, "the app's settings in a centred column of 640")
+            XCTAssertTrue(words, "the settings say iPad")
+            shot("ipad-sideways-settings")
+            _ = js("const b = document.querySelector('[aria-label=\"Back\"]'); if (b) b.click(); return !!b;")
+            XCTAssertTrue(until(10) { self.js("return location.pathname === '/' && !!document.querySelector('#list');") == "true" }, "back on the board")
+        }
+
+        // A pick opened from its card in the wide layout, a picture opened and zoomed by a pinch.
+        guard let pick = newCard(["kind": "pick", "project": "paper-boat", "title": "Which boat for the iPad?",
+                                  "variants": [["label": "Sail", "describe": "The boat with its sail up"], ["label": "Oars", "describe": "The boat rowed"]]]) else { XCTFail("no pick"); return }
+        XCTAssertTrue(onBoard("paper-boat", "Which boat for the iPad?"), "the pick on the board, sideways")
+        _ = js("const b = document.querySelector('[data-act=\"cp-open\"][data-cp=\"\(pick)\"]'); if (b) { b.scrollIntoView({ block: 'center' }); b.click(); } return !!b;")
+        let opened = until(15) { self.js("return location.pathname.startsWith('/phone/') && !!document.querySelector('img') && document.body.innerText.includes('Which boat for the iPad?');") == "true" }
+        Thread.sleep(forTimeInterval: 1.5)
+        let pf = a.webViews.firstMatch.frame
+        mark("the pick's screen sideways: \(opened), web view x \(pf.minX) w \(pf.width)")
+        XCTAssertTrue(opened && abs(Double(pf.width) - want(side, page: true)) < 1, "the pick's own screen in its column")
+        shot("ipad-sideways-pick")
+        let viewer = until(8) { self.js("if (document.querySelector('.pzv')) return true; const im = [...document.querySelectorAll('img')].find((x) => x.offsetParent !== null && x.getBoundingClientRect().width > 100); if (im) im.click(); return false;") == "true" }
+        Thread.sleep(forTimeInterval: 1)
+        a.webViews.firstMatch.pinch(withScale: 2.4, velocity: 2)
+        Thread.sleep(forTimeInterval: 1)
+        let scale = js("const b = document.querySelector('.pzv-box'); const m = b && /scale\\(([\\d.]+)\\)/.exec(b.style.transform || ''); return m ? Number(m[1]) : 1;").flatMap(Double.init) ?? 0
+        mark("the pick's viewer sideways: open \(viewer), zoomed to \(scale)")
+        XCTAssertTrue(viewer && scale > 1.2, "the picture zoomed by a pinch in the wide layout (scale \(scale))")
+        shot("ipad-sideways-pick-zoom")
+        a.terminate()
+
+        // An alert tapped with the app stopped, sideways: its screen.
+        let title = "Ship the boat from the iPad?"
+        if let ask = newCard(["kind": "ask", "project": "notes-app", "title": title, "options": ["Ship it", "Not yet"]]) {
+            pushAlert(ask, kind: "ask", project: "notes-app", banner: "Ravenry iPad check: ask")
+            let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let note = sb.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Ravenry iPad check: ask")).firstMatch
+            XCTAssertTrue(note.waitForExistence(timeout: 15), "iOS shows the alert")
+            note.tap()
+            XCTAssertTrue(a.wait(for: .runningForeground, timeout: 15), "the alert opens the app")
+            let shown = until(20) { self.appShows(a, title) }
+            // (After the launch's Ink, 3.4 s.)
+            Thread.sleep(forTimeInterval: 4)
+            mark("an alert tapped sideways: its screen \(shown), web view w \(a.webViews.firstMatch.frame.width)")
+            XCTAssertTrue(shown, "the alert's own screen, sideways")
+            shot("ipad-sideways-alert")
+            a.terminate()
+        } else { XCTFail("no ask card") }
+
+        // The launch in each layout: the board, never the hold's words (they stayed until 17 s over the wide board before).
+        for (o, name) in [(UIDeviceOrientation.landscapeLeft, "sideways"), (.portrait, "upright")] {
+            rotate(o)
+            a = launch(reset: false, ink: true)
+            let t0 = Date()
+            var held: [Double] = []
+            while Date().timeIntervalSince(t0) < 18 {
+                if appShows(a, "Reaching your Mac") || appShows(a, "didn't answer") { held.append(Date().timeIntervalSince(t0)) }
+                Thread.sleep(forTimeInterval: 0.4)
+            }
+            let board = shows("recipe-box", timeout: 5)
+            mark(String(format: "launch %@: the hold's words seen %d times, last at %.1f s; the board %@", name, held.count, held.last ?? 0, board ? "shown" : "NOT shown"))
+            XCTAssertTrue(held.isEmpty && board, "the launch \(name): no hold over the board (seen \(held.count) times, last at \(held.last ?? 0) s)")
+            layoutIs(a, "after the launch \(name)")
+            a.terminate()
+        }
+        rotate(.portrait)
     }
 }

@@ -13,7 +13,7 @@ import { current } from './shell.ts';
 import { back, sheet, toast } from './main.ts';
 import { distributorName } from './logic.ts';
 import type { Screen } from './main.ts';
-import { bioWord, t } from './strings.ts';
+import { bioWord, deviceWord, t } from './strings.ts';
 
 interface Me { device?: { id: string; name: string; push?: string | null } | null; hub?: { name: string } | null; access?: boolean }
 interface PushStatus { distributors: string[]; current: string | null; off: boolean }
@@ -49,7 +49,8 @@ export function settingsScreen(): Screen {
   }
 
   async function signOut(name: string): Promise<void> {
-    const i = await sheet(`Sign out of ${name}? This phone forgets the computer, and the computer forgets this phone.`, [{ label: `Sign out of ${name}`, danger: true }, { label: 'Keep it' }]);
+    const me = deviceWord(sh.hello.form);
+    const i = await sheet(`Sign out of ${name}? ${t('device.this', { device: me })} forgets the computer, and the computer forgets this ${me}.`, [{ label: `Sign out of ${name}`, danger: true }, { label: 'Keep it' }]);
     if (i !== 0) return;
     try { await sh.call('pair.reset'); } catch (e) { toast((e as Error).message); }
   }
@@ -59,7 +60,8 @@ export function settingsScreen(): Screen {
     // An iPhone has no UnifiedPush and no held connection: its alerts are iOS's own, while the app is open (docs/PHONE.md section 9).
     const ios = sh.hello.platform === 'ios';
     const up = hub.live.link === 'up';
-    const device = st.me?.device?.name || sh.hello.device?.name || 'this phone';
+    const me = deviceWord(sh.hello.form);
+    const device = st.me?.device?.name || sh.hello.device?.name || `this ${me}`;
     const dist = st.push ? distributorName(st.push.current || st.push.distributors[0]) : null;
     const pushOn = !!st.push && !st.push.off && st.me?.device?.push === 'unifiedpush';
     const pushSub = !st.push ? 'Not available here'
@@ -77,7 +79,7 @@ export function settingsScreen(): Screen {
         h('div.setg',
           h('div.setr', h('div.tx', h('div', t('phone.runAsks', { bio: bioWord(sh.hello.platform) })), h('div.s', 'Always, from the alert and in the app')), h('span.r', 'Always'))),
         h('div.setg', h('button.setr.red', { on: { click: () => void signOut(name) } }, `Sign out of ${name}`)),
-        h('p.setn', `${name} can sign this phone out too, from its phone button.`))));
+        h('p.setn', `${name} can sign this ${me} out too, from its phone button.`))));
   }
 
   paint();

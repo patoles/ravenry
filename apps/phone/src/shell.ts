@@ -11,6 +11,8 @@
 export interface Hello {
   v: number;
   platform: string;
+  /** Which device the shell runs on, where it says: "iphone" or "ipad" (the iOS app). */
+  form?: string;
   app: string;
   hub: { name: string; port?: number };
   device: { id: string; name: string } | null;

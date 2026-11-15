@@ -244,7 +244,8 @@ const appLog = fs.existsSync(path.join(container, 'Documents/app.log')) ? fs.rea
 fs.writeFileSync(path.join(OUT, `app-${THEME}.log`), appLog);
 fs.copyFileSync(path.join(SIG, 'marks.log'), path.join(OUT, `marks-${THEME}.log`));
 for (const f of fs.readdirSync(path.join(container, 'Documents')).filter((x) => x.startsWith('ink-'))) fs.copyFileSync(path.join(container, 'Documents', f), path.join(SHOTS, f));
-if (!SHOTS_ONLY) {
+// The whole run's checks (not a run of some flows with --only, which leaves out the steps they read).
+if (!SHOTS_ONLY && !opt('--only')) {
   check('Face ID: enrolled, then a no match and a match answered on the simulator', faceLog.join(',') === 'nomatch,match', faceLog.join(','));
   // The token in the Keychain: the simulator's keychain has the app's item.
   const db = path.join(process.env.HOME, 'Library/Developer/CoreSimulator/Devices', UDID, 'data/Library/Keychains/keychain-2-debug.db');
@@ -262,6 +263,9 @@ if (!SHOTS_ONLY) {
   check('the launch: Ink played to its end over the board', done && fs.existsSync(path.join(SHOTS, 'ink-end-' + THEME + '.png')), (appLog.match(/launch: .*/g) || []).slice(-3).join(' | '));
   check('nothing went to a real ntfy server (the stand-in got what was published)', true, `${published.length} publish(es) on the stand-in`);
 }
+// No launch held its words to the end over a working board or screen (the wide board on an iPad did before 2026-11-15).
+const held = (appLog.match(/launch: ink ended \(held too long\)/g) || []).length;
+check('no launch held "Reaching your Mac..." until it gave up', held === 0, `${(appLog.match(/launch: ink ended \([^)]*\)/g) || []).join(', ') || 'no launch in the log'}`);
 
 try { process.kill(info.pid, 'SIGCONT'); } catch { /* gone */ }
 demo.kill('SIGTERM'); await new Promise((r) => { demo.on('exit', r); setTimeout(r, 8000); });

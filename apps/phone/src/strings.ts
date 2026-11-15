@@ -13,3 +13,6 @@ export function t(key: StringKey, vars?: Record<string, string | number>): strin
 
 /** The phone's own check before Run (shared/strings phone.bio.*): "a fingerprint" on Android, "Face ID" on an iPhone. */
 export const bioWord = (platform: string): string => t(platform === 'ios' ? 'phone.bio.ios' : 'phone.bio.android');
+
+/** This device in a sentence (shared/strings device.word.*): "phone", or "iPad" in the iOS app on an iPad. */
+export const deviceWord = (form?: string | null): string => t(form === 'ipad' ? 'device.word.ipad' : 'device.word.phone');

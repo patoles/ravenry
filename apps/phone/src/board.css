@@ -10,3 +10,15 @@
 .rv-reach button.q { background: var(--card2, #3A3A3C); color: var(--tx, #F2F2F4); }
 .rv-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); z-index: 61; padding: 10px 16px; border-radius: 12px; background: var(--card2, #3A3A3C); color: var(--tx, #F2F2F4); font: 14px/1.35 -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; box-shadow: 0 6px 18px rgba(0,0,0,.4); max-width: 90vw; }
 .mc .lv-scroll, .mc .lv-scroll *, .mc .cpcmd, .mc .kb button { font-family: 'Roboto Mono', 'DejaVu Sans Mono', 'Droid Sans Mono', 'Ravenry Glyphs', ui-monospace, monospace; }
+/* An iPad (html[data-form="ipad"], C, picked 2026-11-15): the Mac's own
+   controls stay off it. Open in <terminal> brings a tab forward on the Mac's
+   screen. (New project opens the same form as the phone's +.) */
+html[data-form="ipad"] .mc [data-act="open"] { display: none !important; }
+/* The board's wide layout (an iPad from 1000 pt): its foot clear of the home
+   indicator and its sides of the screen's corners, sideways too; the bar
+   that says why the Mac does not answer, centred. */
+@media (min-width: 701px) {
+  .mc { padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); box-sizing: border-box; }
+  .mc .toast { bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+  .rv-reach { left: 50%; right: auto; width: min(480px, calc(100vw - 20px)); transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 56px); }
+}

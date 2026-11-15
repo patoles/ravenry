@@ -34,7 +34,7 @@ final class PairModel: ObservableObject {
     private var scanned = false
 
     init(signedOut: Bool = false) {
-        if signedOut { error = "This phone was signed out. Scan the code on the Mac again." }
+        if signedOut { error = "This \(Device.word) was signed out. Scan the code on the Mac again." }
     }
 
     static var appVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0" }
@@ -239,12 +239,13 @@ struct Trouble: View { @ObservedObject var m: PairModel; let t: T
     }
 }
 
+/// A pairing screen: the phone's, and on an iPad's width a centred column of 640 pt (C, picked 2026-11-15).
 struct Page<C: View>: View { let t: T; var scroll = true; @ViewBuilder var content: C
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Brand(t: t).padding(.top, 14).padding(.bottom, 26)
             content
-        }.padding(.horizontal, 20).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).background(t.win.ignoresSafeArea())
+        }.padding(.horizontal, 20).frame(maxWidth: 640, maxHeight: .infinity, alignment: .topLeading).frame(maxWidth: .infinity).background(t.win.ignoresSafeArea())
     }
 }
 
@@ -279,10 +280,11 @@ struct PairScan: View { @ObservedObject var m: PairModel; let t: T; let busy: Bo
                 Corners().stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round)).frame(width: 200, height: 200)
                 VStack { Spacer(); HStack(spacing: 6) { Image(systemName: "qrcode").font(.system(size: 14, weight: .semibold)); Text("Hold it inside the corners").font(.system(size: 14, weight: .semibold)) }
                     .foregroundStyle(.white).padding(.horizontal, 14).padding(.vertical, 8).background(Capsule().fill(.black.opacity(0.75))).padding(.bottom, 14) }
-            }.frame(maxWidth: .infinity).aspectRatio(1, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 20)).padding(.top, 20)
+            // At most 400 pt square (a phone's whole width), so the screen fits an iPad sideways.
+            }.frame(maxWidth: 400).aspectRatio(1, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 20)).frame(maxWidth: .infinity).padding(.top, 20)
             Trouble(m: m, t: t)
             Button { UIApplication.shared.open(URL(string: "https://tailscale.com/download")!) } label: {
-                (Text("Not on your Mac's Wi-Fi? The phone reaches it through Tailscale. ").foregroundStyle(t.tx2) + Text("Set up Tailscale").foregroundStyle(t.work).bold()).font(.system(size: 15)).multilineTextAlignment(.leading)
+                (Text("Not on your Mac's Wi-Fi? The \(Device.word) reaches it through Tailscale. ").foregroundStyle(t.tx2) + Text("Set up Tailscale").foregroundStyle(t.work).bold()).font(.system(size: 15)).multilineTextAlignment(.leading)
             }.buttonStyle(.plain).padding(.top, 18)
             Button { m.error = nil; m.reach = nil; m.step = .typing(address: "", code: "") } label: {
                 (Text("Camera not working? ").foregroundStyle(t.tx2) + Text("Type the code instead").foregroundStyle(t.work).bold()).font(.system(size: 15))
@@ -381,13 +383,13 @@ struct WhichIPhone: View { @ObservedObject var m: PairModel; let t: T; let list:
     var body: some View {
         Page(t: t) {
             if let c = m.connected { ConnectedLine(t: t, text: c).padding(.bottom, 22) }
-            Title(t: t, title: "Which iPhone is this?", sub: "Your Mac already sends alerts to an iPhone through ntfy. If it is this one, its alerts move to this app.").padding(.bottom, 22)
+            Title(t: t, title: "Which \(Device.model) is this?", sub: "Your Mac already sends alerts to an \(Device.model) through ntfy. If it is this one, its alerts move to this app.").padding(.bottom, 22)
             VStack(spacing: 0) {
                 ForEach(list) { x in
                     Row(t: t, title: x.name, sub: "Gets alerts through ntfy", on: m.choice == x.id, id: "which-\(x.id)") { m.choice = x.id }
                     Divider().overlay(t.line).padding(.leading, 52)
                 }
-                Row(t: t, title: "A new iPhone", sub: "Keep the other one as it is", on: m.choice == nil, id: "which-new") { m.choice = nil }
+                Row(t: t, title: "A new \(Device.model)", sub: "Keep the other one as it is", on: m.choice == nil, id: "which-new") { m.choice = nil }
             }.background(RoundedRectangle(cornerRadius: 16).fill(t.card)).padding(.top, 22)
             Trouble(m: m, t: t)
             Spacer()
@@ -413,7 +415,7 @@ struct AlertsAsk: View { @ObservedObject var m: PairModel; let t: T
         Page(t: t) {
             if let c = m.connected { ConnectedLine(t: t, text: c).padding(.bottom, 22) }
             ZStack { RoundedRectangle(cornerRadius: 16).fill(t.card); Mark(ink: t.tx, size: 48) }.frame(width: 70, height: 70).padding(.bottom, 24)
-            Title(t: t, title: "Get an alert when a session needs you", sub: "A question, a command to approve or a finished task reaches this phone at once, with buttons to answer it from the alert.")
+            Title(t: t, title: "Get an alert when a session needs you", sub: "A question, a command to approve or a finished task reaches this \(Device.word) at once, with buttons to answer it from the alert.")
             HStack(spacing: 12) {
                 ZStack { Circle().fill(t.you); Mark(ink: .white, eye: .white, size: 22) }.frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) { Text("paper-boat needs you").font(.system(size: 15, weight: .semibold)).foregroundStyle(t.tx); Text("The hull now follows the wave height.").font(.system(size: 14)).foregroundStyle(t.tx2) }

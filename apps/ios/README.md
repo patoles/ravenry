@@ -3,6 +3,12 @@
 A thin Swift shell around the shared phone board (`../phone`, the same
 board the Android app shows), its plumbing written again from the Android
 app's tested behaviour (`../android/app/src/main/java/dev/ravenry/app`).
+On an iPad it runs full screen (C, picked 2026-11-15): the hub's
+board at its wide width (the projects beside the open project) from 1000
+pt, an 11-inch sideways or a 13-inch either way; the phone board in a
+centred column of 700 pt narrower (an 11-inch upright, Split View, Slide
+Over), live on a rotation (`Board.swift` BoardController.width); the app's
+own pages and the pairing in a column of 640 pt; the words say iPad.
 The contract is `../../docs/PHONE.md`; what it does and does not do yet is
 the iOS column of `../../docs/FEATURES.md`. iOS 18 and later.
 
@@ -43,7 +49,13 @@ cards that arrive while the board is open (quotes and accents, a 250 KB
 state, after the background, after 50 s of a silent Mac in front and 30 s
 of one while away, an idea whose name the hub cut in half of an emoji), and
 a launch from an alert (a pick, a secret, a command, shown by `simctl push`
-and tapped with the app stopped, then one with it in the background); then
+and tapped with the app stopped, then one with it in the background); on an
+iPad simulator, test9c: upright the column, sideways the wide layout and
+back, live, the page and the open project kept, a card arriving live in
+both, Run with Face ID, a pick opened and zoomed and an alert's screen
+sideways, a Split View's room (simulated) the column, no launch hold in
+either layout, none of the Mac's own controls, the iPad words (run it with
+`--only test1_PairByTheTypedCode,test6_ThePairLinkAndWhichIPhone,test9c_TheIPadLayoutsFollowTheRoom`); then
 the token in the simulator's Keychain and the secret in no log and nowhere
 in the app's data. The pairing screens, the secure field, iOS's own sheets
 and Face ID are driven natively; the board's buttons are pressed by a line

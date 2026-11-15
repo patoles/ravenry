@@ -36,7 +36,7 @@ import { keyParts } from '../../../hub/public/keys.mjs';
 import type { Drop } from './logic.ts';
 import { back, go, toast } from './main.ts';
 import type { Screen } from './main.ts';
-import { bioWord, t as say, t as word } from './strings.ts';
+import { bioWord, deviceWord, t as say, t as word } from './strings.ts';
 
 /** Every checkpoint the hub lists, closed ones it still holds included. */
 function find(id: string): HubCheckpoint | null {
@@ -239,7 +239,7 @@ function secretView(cp: HubCheckpoint, w: CheckpointWords, ui: UI, repaint: () =
     h('h2.sm', t.head),
     cp.command ? h('p.det', 'For ', h('span.mono', cp.command)) : t.body ? h('p.det', t.body) : null,
     fld,
-    h('ul.pprom', h('li', svg(DI.LOCK), `Goes straight to ${goes}, not to ${w.who}`), h('li', svg(DI.LOCK), 'Not kept in logs, history or on this phone')),
+    h('ul.pprom', h('li', svg(DI.LOCK), `Goes straight to ${goes}, not to ${w.who}`), h('li', svg(DI.LOCK), `Not kept in logs, history or on this ${deviceWord(sh.hello.form)}`)),
     ui.count && native ? h('p.t2.small', characters(ui.count)) : null,
     ui.error ? h('p.err', ui.error) : null,
     h('div.pcp-b', h('button.btn.pri.big', { disabled: ui.busy, on: { click: () => void send() } }, say('checkpoint.secretSend'))));

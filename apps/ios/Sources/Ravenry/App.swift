@@ -10,6 +10,10 @@ import SwiftUI
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ app: UIApplication, didFinishLaunchingWithOptions o: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Read here first, on the main thread: UIDevice is the main thread's, and a first read
+        // from another thread (a request's reach words) can wait on the main thread while the
+        // main thread waits on that same first read (the board's layout): the app stood still.
+        _ = Device.pad
         #if DEBUG
         if ProcessInfo.processInfo.environment["RAVENRY_RESET"] == "1" { Store.shared.wipe(); Log.say("start: wiped for a check") }
         #endif
@@ -86,7 +90,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         board = nil
         AlertCenter.shared.board = nil
         let m = pairing ?? PairModel(signedOut: signedOut)
-        if signedOut { m.error = "This phone was signed out. Scan the code on the Mac again."; m.step = .scan }
+        if signedOut { m.error = "This \(Device.word) was signed out. Scan the code on the Mac again."; m.step = .scan }
         m.onDone = { [weak self] in self?.showBoard(cold: false) }
         if pairing == nil {
             pairing = m
