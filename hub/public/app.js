@@ -4491,8 +4491,9 @@ document.addEventListener('click', (e) => {
   if (act === 'write-brief') { openModal({ mode: 'brief', projectId: a.dataset.pid }); return; }
   if (act === 'quick') sendQuick(Number(a.dataset.k));
   if (act === 'cp-choice') { const c = ((ui.snap && ui.snap.checkpoints) || []).find((x) => x.id === a.dataset.cp); const o = c && (c.options || [])[Number(a.dataset.k)]; if (o != null) answerCp(a.dataset.cp, { choice: Number(a.dataset.k) }, `Sent "${o}"`); return; }
-  if (act === 'cp-run') { a.disabled = true; answerCp(a.dataset.cp, { approve: true }, 'Allowed: it runs now'); return; }
-  if (act === 'cp-refuse') { a.disabled = true; answerCp(a.dataset.cp, { decline: true }, 'Refused: nothing ran'); return; }
+  // Pressed again after an answer that did not go (the phone's Face ID or fingerprint not confirmed, the Mac away).
+  if (act === 'cp-run') { a.disabled = true; void answerCp(a.dataset.cp, { approve: true }, 'Allowed: it runs now').then((ok) => { if (!ok) a.disabled = false; }); return; }
+  if (act === 'cp-refuse') { a.disabled = true; void answerCp(a.dataset.cp, { decline: true }, 'Refused: nothing ran').then((ok) => { if (!ok) a.disabled = false; }); return; }
   if (act === 'cp-open') { if (window.ravenryApp) window.ravenryApp.openCheckpoint(a.dataset.cp); return; }
   if (act === 'lv-key') { pressKey(a.dataset.key); return; }
   if (act === 'open') openInCmux();
