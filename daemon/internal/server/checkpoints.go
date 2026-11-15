@@ -84,6 +84,10 @@ type cpoint struct {
 	c     proto.Checkpoint
 	done  chan struct{} // closed once the checkpoint is closed
 	timer *time.Timer
+	// waiting: the checkpoint.wait requests blocked on it now (under
+	// checkpoints.mu). None as it closes: the closed one says
+	// nobody_waiting, and the hub delivers the answer to the session.
+	waiting int
 }
 
 func newCheckpoints() *checkpoints { return &checkpoints{all: map[string]*cpoint{}} }
@@ -426,6 +430,7 @@ func (s *Server) closeCheckpointIn(id, from, to string, answer *proto.Checkpoint
 	if answeredIn != "" {
 		x.c.AnsweredIn = answeredIn
 	}
+	x.c.NobodyWaiting = x.waiting == 0
 	if x.timer != nil {
 		x.timer.Stop()
 	}
@@ -496,6 +501,16 @@ func (c *conn) checkpointWait(id uint64, data []byte) {
 		}
 	}
 	c.track(id, func(ctx context.Context) {
+		// Counted while it waits: an answer given meanwhile reaches this
+		// client, so nobody types it into the session as well.
+		c.s.cps.mu.Lock()
+		x.waiting++
+		c.s.cps.mu.Unlock()
+		defer func() {
+			c.s.cps.mu.Lock()
+			x.waiting--
+			c.s.cps.mu.Unlock()
+		}()
 		t := time.NewTimer(timeout)
 		defer t.Stop()
 		select {

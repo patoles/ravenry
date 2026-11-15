@@ -861,7 +861,9 @@ last 64 closed ones, and at most 64 open at a time.
 `pane`, `enter`, `env`), then `created_at`, `expires_at`, `closed_at`,
 `reason` (why it was cancelled, or why an approved command did not run),
 `answered_in` (a cancelled one the person answered another way instead:
-`terminal`, in the agent's own terminal), `answer` (`choice` and `option`, `text`, `approved`, `command` (the
+`terminal`, in the agent's own terminal), `nobody_waiting` (true on a
+closed one no client was waiting on as it closed, with `checkpoint.wait`:
+the hub then types the answer into the asking session), `answer` (`choice` and `option`, `text`, `approved`, `command` (the
 command as the person edited it, only when it differs from the proposed
 one: what ran), `delivered`, `declined`, `reason` (why they declined,
 when they said), `by`, `at`) and `run` (`pane`, and once it ended `exit`,
@@ -915,7 +917,11 @@ Result: `checkpoint`. Event subscribers get `checkpoint.opened`.
 | `timeout_ms` | integer, optional | At most 24 hours. Default: until it closes. |
 
 Result: `checkpoint` once it is closed, or as it is (`open` or `running`)
-when `timeout_ms` ran out first. `cancel` stops it.
+when `timeout_ms` ran out first. `cancel` stops it. While it waits, the
+checkpoint has a client waiting: one that closes with none (the agent
+used `--no-wait`, or its wait ended) says `nobody_waiting`, and the hub
+types the person's answer into the asking session instead (a secret's
+value never: only that it is ready). A wait after that still gets it.
 
 #### checkpoint.answer
 

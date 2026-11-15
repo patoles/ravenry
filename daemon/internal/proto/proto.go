@@ -794,6 +794,10 @@ type Checkpoint struct {
 	AnsweredIn string            `json:"answered_in,omitempty"`
 	Answer     *CheckpointAnswer `json:"answer,omitempty"`
 	Run        *CheckpointRun    `json:"run,omitempty"`
+	// NobodyWaiting: a closed one no client was waiting on as it closed
+	// (no checkpoint.wait, as after ask --no-wait): the hub then types the
+	// answer into the asking session.
+	NobodyWaiting bool `json:"nobody_waiting,omitempty"`
 }
 
 type CheckpointNewRequest struct {

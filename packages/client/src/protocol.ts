@@ -379,6 +379,8 @@ export interface Checkpoint {
   reason?: string;
   /** A cancelled one the person answered another way instead: terminal, in the agent's own terminal. */
   answered_in?: 'terminal';
+  /** A closed one no client was waiting on as it closed (checkpoint.wait): the hub types the answer into the asking session. */
+  nobody_waiting?: boolean;
   answer?: CheckpointAnswer;
   run?: CheckpointRun;
 }

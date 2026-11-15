@@ -646,6 +646,10 @@
           "const": "terminal",
           "description": "A cancelled one the person answered another way instead: terminal, in the agent's own terminal."
         },
+        "nobody_waiting": {
+          "type": "boolean",
+          "description": "A closed one no client was waiting on as it closed (no checkpoint.wait, as after ask --no-wait): the hub types the answer into the asking session."
+        },
         "answer": {
           "$ref": "#/$defs/CheckpointAnswer"
         },

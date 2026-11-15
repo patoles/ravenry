@@ -42,6 +42,61 @@ func waitCheckpoint(t *testing.T, c *client.Client, id string) <-chan proto.Chec
 	return out
 }
 
+// An answer nobody waits on (ask --no-wait, or an ask whose client went
+// away) closes with nobody_waiting, for the hub to deliver it to the
+// session; one a client waits on does not; a wait after it still gets it.
+func TestCheckpointNobodyWaiting(t *testing.T) {
+	d := startDaemon(t)
+	agent := d.dial(client.Options{Name: "agent"})
+	person := d.dial(client.Options{Name: "app"})
+	if err := person.SubscribeEvents(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	ask := map[string]any{"kind": "ask", "title": "Publish now?", "options": []string{"Publish now", "Wait"}}
+	cp := newCheckpoint(t, agent, ask)
+	if a := answer(t, person, map[string]any{"checkpoint": cp.ID, "choice": 0}); a.State != "answered" || !a.NobodyWaiting {
+		t.Fatalf("answered with nobody waiting %+v", a)
+	}
+	if ev := eventAbout(t, person, cp.ID, "checkpoint.closed"); !ev.Checkpoint.NobodyWaiting {
+		t.Fatalf("its closed event %+v", ev.Checkpoint)
+	}
+	if w := <-waitCheckpoint(t, agent, cp.ID); w.State != "answered" || w.Answer.Option != "Publish now" {
+		t.Fatalf("a wait after the answer got %+v", w)
+	}
+	// A client waiting on it: it gets the answer, nobody else has to.
+	cp = newCheckpoint(t, agent, ask)
+	got := waitCheckpoint(t, agent, cp.ID)
+	time.Sleep(200 * time.Millisecond)
+	if a := answer(t, person, map[string]any{"checkpoint": cp.ID, "choice": 1}); a.NobodyWaiting {
+		t.Fatalf("answered while a client waits %+v", a)
+	}
+	if w := <-got; w.Answer == nil || w.Answer.Option != "Wait" {
+		t.Fatalf("the waiting client got %+v", w)
+	}
+	// A wait that ended (its client went away) waits no more.
+	cp = newCheckpoint(t, agent, ask)
+	gone := d.dial(client.Options{Name: "agent-killed"})
+	wctx, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		var r proto.CheckpointResult
+		done <- gone.Call(wctx, "checkpoint.wait", map[string]any{"checkpoint": cp.ID}, &r)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	gone.Close()
+	stop()
+	<-done
+	time.Sleep(200 * time.Millisecond)
+	if a := answer(t, person, map[string]any{"checkpoint": cp.ID, "choice": 0}); a.State != "answered" || !a.NobodyWaiting {
+		t.Fatalf("answered after its waiter went away %+v", a)
+	}
+	// Declined with nobody waiting says so too.
+	cp = newCheckpoint(t, agent, ask)
+	if a := answer(t, person, map[string]any{"checkpoint": cp.ID, "decline": true}); a.State != "declined" || !a.NobodyWaiting {
+		t.Fatalf("declined with nobody waiting %+v", a)
+	}
+}
+
 func TestCheckpointAskWaitsForAPerson(t *testing.T) {
 	d := startDaemon(t)
 	agent := d.dial(client.Options{Name: "agent"})
@@ -68,7 +123,7 @@ func TestCheckpointAskWaitsForAPerson(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 	a := answer(t, person, map[string]any{"checkpoint": cp.ID, "choice": 1, "by": "phone"})
-	if a.State != "answered" || a.Answer.Option != "Didn't work" || *a.Answer.Choice != 1 || a.Answer.By != "phone" {
+	if a.State != "answered" || a.Answer.Option != "Didn't work" || *a.Answer.Choice != 1 || a.Answer.By != "phone" || a.NobodyWaiting {
 		t.Fatalf("answer %+v", a)
 	}
 	if w := <-got; w.State != "answered" || w.Answer.Option != "Didn't work" {
