@@ -522,9 +522,10 @@ final class PickerView: Box, BackLinked {
         pickRing.region = picked == i ? region : nil
         // The bar.
         let sayLine = i < says.count ? says[i]["says"] as? String : nil
-        let nm = hstack([label("\(letter(i)). \(name(i))", Fonts.pt(13.5, Fonts.w650)), sayLine.map { label($0, Fonts.pt(12.5), "tx2") }, picked == i ? pill(t("pick.yourPick"), "work") : nil], spacing: 10)
+        // The letter and name and Your pick always show; the agent's words give way (cut at the end) in a narrow window.
+        let sayL = sayLine.map { l -> NSTextField in let f = label(l, Fonts.pt(12.5), "tx2"); f.lineBreakMode = .byTruncatingTail; f.setContentCompressionResistancePriority(.init(1), for: .horizontal); return f }
+        let nm = hstack([label("\(letter(i)). \(name(i))", Fonts.pt(13.5, Fonts.w650)), sayL, picked == i ? pill(t("pick.yourPick"), "work") : nil], spacing: 10)
         nm.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        for l in nm.arrangedSubviews { l.setContentCompressionResistancePriority(.init(1), for: .horizontal) }
         let prev = RButton(t("gallery.previous")) { [weak self] in self?.step(-1) }
         prev.isEnabled = i > 0
         let next = RButton(t("gallery.next")) { [weak self] in self?.step(1) }
