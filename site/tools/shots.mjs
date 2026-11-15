@@ -107,6 +107,7 @@ for (const width of [1440, 390]) {
 
 if (OG) {
   // The hero alone, set for a 1200x630 card: the headline over the product.
+  // The phone whole, its bottom bar included, above the card's bottom edge.
   const page = await open({ width: 1200, height: 630 }, 1);
   await page.addStyleTag({ content: `
     nav, .eyebrow, .lede, .ctas, .fine { display:none !important; }
@@ -114,7 +115,7 @@ if (OG) {
     h1 { font-size:72px; margin-bottom:0; }
     .stage { margin-top:34px; max-width:1060px; } .stage .callout { display:none; }
     .stage .tilt { transform:rotateX(10deg); margin-right:120px; }
-    .stage .phone { width:270px; right:0; top:-4px; bottom:auto; }` });
+    .stage .phone { width:236px; right:20px; top:-34px; bottom:auto; }` });
   await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(SITE, 'assets', 'og-image.png') });
   await page.close();

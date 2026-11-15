@@ -156,10 +156,14 @@
 .rv-live h6 span { font-weight:400; color:#A1A1A8; font-size:12px; }
 .rv-live h6 span::before { content:""; display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--ok); margin-right:5px; }
 .rv-live .scr { background:#0B0B0C; border-radius:8px; padding:9px 10px; font-size:11px; line-height:1.5; white-space:pre-wrap; color:#E6E6EA; }
-.rv-tabbar { position:absolute; bottom:0; left:0; right:0; height:62px; background:#1E1E21; border-top:1px solid #2A2A2E; display:flex; justify-content:space-around; align-items:center; font-size:11px; color:#A1A1A8; }
-.rv-tabbar div { display:flex; flex-direction:column; align-items:center; gap:3px; }
-.rv-tabbar div i { width:20px; height:16px; border:2px solid currentColor; border-radius:4px; }
-.rv-tabbar div.on { color:#fff; } .rv-tabbar div.on i { border-color:var(--work); }
+/* The bottom bar as the app draws it (hub/public/app.css, .bnav and .pn-d). */
+.rv-tabbar { position:absolute; bottom:0; left:0; right:0; height:80px; background:#1E1E21; box-shadow:0 -1px 0 #36363B; display:flex; z-index:1; }
+.rv-tabbar > div { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:12px; font-weight:600; color:#A1A1A8; }
+.rv-tabbar .pill { width:64px; height:32px; border-radius:16px; display:flex; align-items:center; justify-content:center; position:relative; }
+.rv-tabbar svg { display:block; flex:none; }
+.rv-tabbar > div.on { color:#F2F2F4; } .rv-tabbar > div.on .pill { background:rgba(10,132,255,.11); color:#0A84FF; }
+.rv-tabbar b { position:absolute; top:-2px; left:36px; min-width:18px; height:18px; border-radius:9px; padding:0 5px; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; line-height:1; background:#313136; color:#A1A1A8; }
+.rv-tabbar b.you { background:var(--you); color:#1D1D1F; }
 
 /* Android notification shade, as stock Android 14 draws Ravenry's alerts
    (dark): measured from the app's own alerts on an emulator, 1080 px wide
@@ -187,11 +191,34 @@
 .rv-n.c .r1 .tt { overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; min-width:0; }
 .rv-n.c .r1 span { font-size:10.5px; flex:none; }
 .rv-n.c .bd { margin-top:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-/* The reply line Android opens on Answer: the buttons give way to it. */
-.rv-reply { display:flex; align-items:center; margin:21px 0 0 -30px; padding-bottom:13px; }
-.rv-reply span { flex:1; background:#505355; border-radius:21px; padding:11px 13px; font-size:13px; line-height:16px; color:#F0F0F3; }
-.rv-reply i { display:inline-block; width:1.5px; height:15px; background:#C1E8FF; vertical-align:-3px; margin-left:1px; }
-.rv-reply svg { width:19px; height:19px; margin-left:15px; color:#C1E8FF; flex:none; }
 
 /* The hero's phone frame */
 .rv-phone-a { background:#050506; box-shadow:0 0 0 1.5px #3a3a3f, 0 0 0 8px #0d0d0f, 0 0 0 9px rgba(255,255,255,.14); }
+
+/* The hero's phone: the app answering the question (cpTopHtml and the composer). */
+.rv-phone-q { height:780px; }
+.rv-phone-q .rv-screen { background:#161618; }
+.rv-ah .rv-ib { width:40px; height:40px; display:grid; place-items:center; color:#A1A1A8; flex:none; }
+.rv-ah .rv-ib:first-of-type { margin-left:auto; }
+.rv-ah .rv-ib + .rv-ib { margin-left:-6px; }
+.rv-phone-q .rv-ah { gap:6px; padding:8px 8px 8px 14px; }
+.rv-phone-q .rv-ah .rv-pill { margin-left:2px; }
+.rv-phone-q .rv-fab { margin-left:2px; width:40px; height:40px; }
+.rv-phone-q .rv-pc { background:#1E1E21; padding:10px 12px 12px; box-shadow:0 0 0 1px #2A2A2E; }
+.rv-phone-q .rv-pc .since { margin-top:8px; } .rv-phone-q .rv-pc h3 { margin:2px 0 10px; }
+.rv-live.sm .scr { white-space:pre-wrap; }
+.rv-ak { margin-top:10px; background:rgba(255,159,10,.11); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:11px; }
+.rv-ak .hd { display:flex; align-items:center; gap:7px; color:var(--you); font-size:12.5px; font-weight:600; }
+.rv-ak .q { font-size:16px; line-height:1.4; font-weight:500; }
+.rv-ak .b { color:#A1A1A8; font-size:13.5px; line-height:1.45; margin-top:-4px; }
+.rv-ak .opts { display:flex; flex-wrap:wrap; gap:8px; }
+.rv-ak .rv-btn { box-shadow:none; padding:7px 13px; min-height:32px; font-size:13px; border-radius:7px; }
+.rv-ak .rv-btn.sm { padding:4px 10px; min-height:28px; font-size:12px; }
+.rv-ak .cmp { background:#1A1A1D; border:1px solid #36363B; border-radius:10px; padding:10px 10px 8px 12px; display:flex; flex-direction:column; gap:8px; }
+.rv-ak .ph { color:#6E6E75; font-size:13.5px; line-height:1.45; min-height:40px; }
+.rv-ak .ns { display:flex; align-items:center; gap:6px; font-size:12.5px; color:#6E6E75; padding:0 6px; }
+.rv-ak .ns .sw { position:relative; width:24px; height:14px; border-radius:7px; background:#313136; box-shadow:inset 0 0 0 1px #36363B; }
+.rv-ak .ns .sw i { position:absolute; top:2px; left:2px; width:10px; height:10px; border-radius:50%; background:#fff; }
+.rv-ak .row { display:flex; align-items:center; gap:6px; }
+.rv-ak .row .at { display:inline-flex; align-items:center; gap:5px; color:#A1A1A8; font-size:12.5px; padding:4px 6px; }
+.rv-ak .row .sp { flex:1; }

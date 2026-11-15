@@ -23,10 +23,10 @@ h1 span { background:linear-gradient(100deg,#FFC14D 0%,#FF9F0A 55%,#FF7A1A 100%)
 .stage::before { content:""; position:absolute; left:10%; right:10%; top:20%; bottom:-6%; background:radial-gradient(50% 60% at 30% 50%,rgba(255,159,10,.35),transparent 70%),radial-gradient(50% 60% at 72% 50%,rgba(10,132,255,.4),transparent 70%); filter:blur(60px); }
 .stage .tilt { transform:rotateX(14deg) translateZ(0); transform-origin:50% 100%; position:relative; border-radius:14px; box-shadow:0 60px 120px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.08); }
 .stage .tilt > div { border-radius:12px; overflow:hidden; }
-.stage { padding-bottom:150px; }
+.stage { padding-bottom:260px; }
 .stage .callout { position:absolute; top:-46px; left:50%; transform:translateX(-50%); white-space:nowrap; display:flex; align-items:center; gap:8px; background:rgba(28,28,30,.92); color:#F5F5F7; font-size:14px; font-weight:600; border-radius:20px; padding:7px 14px 7px 11px; box-shadow:0 0 0 1px rgba(255,255,255,.12); z-index:2; }
 .stage .callout i { width:9px; height:9px; border-radius:50%; background:var(--ok); box-shadow:0 0 10px var(--ok); }
-.stage .phone { position:absolute; right:5%; bottom:10px; width:340px; filter:drop-shadow(0 40px 60px rgba(0,0,0,.9)) drop-shadow(0 0 50px rgba(255,159,10,.18)); }
+.stage .phone { position:absolute; right:4%; bottom:10px; width:300px; filter:drop-shadow(0 40px 60px rgba(0,0,0,.9)) drop-shadow(0 0 50px rgba(255,159,10,.18)); }
 
 section.big { padding:150px 0 40px; text-align:center; border-top:1px solid var(--line); }
 section.big .eyebrow { font-size:17px; }
@@ -64,7 +64,7 @@ footer .wrap { display:flex; justify-content:space-between; gap:20px; flex-wrap:
   nav .l { display:none; }
   .hero { padding-top:64px; }
   .stage { margin-top:44px; perspective:1200px; overflow:hidden; padding:0 0 0 16px; height:600px; } .stage .tilt { transform:rotateX(6deg); width:200%; margin-left:-92%; }
-  .stage { height:770px; } .stage .tilt { margin-left:-4% !important; } .stage .phone { width:280px; right:auto; left:50%; margin-left:-118px; top:300px; bottom:auto; } .stage .phone [data-rv] { -webkit-mask-image:linear-gradient(#000 82%,transparent); mask-image:linear-gradient(#000 82%,transparent); } .stage .callout { font-size:13px; top:auto; bottom:22px; }
+  .stage { height:900px; } .stage .tilt { margin-left:-4% !important; } .stage .phone { width:280px; right:auto; left:50%; margin-left:-118px; top:230px; bottom:auto; } .stage .callout { font-size:13px; top:610px; }
   section.big { padding:100px 0 30px; }
   .cards4 figcaption { min-height:0; }
   .cards4 { grid-template-columns:1fr; gap:36px; max-width:380px; margin-top:48px; }
