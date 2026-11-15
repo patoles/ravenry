@@ -46,6 +46,14 @@
 //   node build.mjs && (cd ../android && ./gradlew assembleDebug)
 //   node tools/phone-e2e.mjs <outDir> [--port 5584] [--avd ravenry-pixel] [--keep] [--launch-only]
 //
+// --openon-only: pair with the real link, then where the app opens only
+// (docs/FEATURES.md NAV-009, hub/server/openon.mjs): the first open is the
+// hub's openOn; a chip tapped tells the hub (opened, phone); a project the
+// person opened on the Mac since, with the app in the background for over a
+// minute, is the one shown when it comes back (the launcher's warm start),
+// not after 5 s only; a cold start opens on the hub's openOn too.
+// --hub DIR: the board's hub folder (an older tree's, to see the checks fail there).
+//
 // --launch-only: pair with the real link, then the launch's checks only (an
 // AVD of Android 12 or older for today's version, where the rest is not run).
 //
@@ -72,6 +80,8 @@ const PORT = Number(opt('--port', 5584));
 const SERIAL = `emulator-${PORT}`;
 const AVD = opt('--avd', 'ravenry-pixel');
 const LAUNCH_ONLY = args.includes('--launch-only');
+const OPENON_ONLY = args.includes('--openon-only');
+const HUB_DIR = opt('--hub', null);
 // The host's GPU, headless all the same (no window): frame times mean something.
 const GPU = opt('--gpu', 'host');
 const SDK = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || path.join(os.homedir(), 'Library/Android/sdk');
@@ -103,7 +113,7 @@ const adbBin = (...a) => execFileSync(ADB, ['-s', SERIAL, ...a], { timeout: 6000
 let info = null;
 try {
   // ------------------------------------------------------------ the board
-  demo = spawn(process.execPath, [path.join(HERE, 'demo.mjs'), '--phone', '--e2e', '--dir', WORK], { env: { ...process.env, RAVENRYD: BIN }, stdio: ['ignore', 'pipe', 'pipe'] });
+  demo = spawn(process.execPath, [path.join(HERE, 'demo.mjs'), '--phone', '--e2e', '--dir', WORK, ...(HUB_DIR ? ['--hub', path.resolve(HUB_DIR)] : [])], { env: { ...process.env, RAVENRYD: BIN }, stdio: ['ignore', 'pipe', 'pipe'] });
   let demoLog = '';
   demo.stdout.on('data', (d) => { demoLog += d; });
   demo.stderr.on('data', (d) => { demoLog += d; });
@@ -165,7 +175,7 @@ try {
   const shot = (name) => { const f = path.join(OUT, name); fs.writeFileSync(f, adbBin('exec-out', 'screencap', '-p')); console.log('shot', f); return f; };
   // A fingerprint, enrolled as a person does in Settings after a PIN (as
   // tools/pick-shots.mjs does; the sensor is touched with `adb emu finger touch`).
-  if (!LAUNCH_ONLY) {
+  if (!LAUNCH_ONLY && !OPENON_ONLY) {
     const fp = () => screen();
     adb('shell', 'locksettings', 'set-pin', '1234');
     adb('shell', 'am', 'start', '-a', 'android.settings.FINGERPRINT_ENROLL');
@@ -334,7 +344,56 @@ try {
     await until(() => page('document.querySelector("#pchips .pchip") ? 1 : null'), 15000, 500);
   }
 
+  // Where the app opens (NAV-009): the chip it marks current against the hub's openOn.
+  async function openOnSection() {
+    const openOn = async () => ((await (await fetch(`${HUB}/api/state`)).json()).openOn || null);
+    const onChip = () => page('(() => { const e = document.querySelector("#pchips [aria-current=\\"true\\"][data-id]"); return e ? e.dataset.id : null; })()');
+    // As the launcher's icon does: MAIN and LAUNCHER, a new task reset if needed (the running one comes to the front).
+    const front = () => adb('shell', 'am', 'start', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER', '-f', '0x10200000', '-n', `${APP}/.MainActivity`);
+    const o0 = await openOn();
+    const c0 = await until(onChip, 15000, 500);
+    check(o0 && c0 === o0.projectId, 'Android, the first open after pairing: the chip of the hub\'s openOn (the session used last)', `${c0}, openOn ${o0 && o0.projectId} (${o0 && o0.why})`);
+    const ids = JSON.parse(await page('JSON.stringify([...document.querySelectorAll("#pchips .pchip[data-id]")].map((e) => e.dataset.id))') || '[]');
+    const [a, b] = ids.filter((id) => id !== c0);
+    await tapUntil(`#pchips .pchip[data-id="${a}"]`, async () => ((await onChip()) === a ? 1 : null));
+    const o1 = await until(async () => { const o = await openOn(); return o && o.projectId === a ? o : null; }, 10000, 500);
+    check(o1 && o1.why === 'opened' && o1.device === 'phone', `a chip tapped (${a}) tells the hub: opened, on the phone`, JSON.stringify(o1));
+    shot('openon-tapped-dark.png');
+    const openOnMac = (id) => fetch(`${HUB}/api/opened`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Ravenry': '1' }, body: JSON.stringify({ projectId: id, device: 'mac' }) });
+    // Opened on the Mac; the app back after 5 s only: it stays.
+    await openOnMac(b);
+    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+    await sleep(5000);
+    front();
+    await sleep(4000);
+    const c2 = await onChip();
+    check(c2 === a, `back in front after 5 s, ${b} opened on the Mac meanwhile: it stays on ${a}`, String(c2));
+    // In the background over a minute: back on the one opened on the Mac.
+    adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+    await sleep(65000);
+    front();
+    const c3 = await until(async () => ((await onChip()) === b ? b : null), 20000, 700);
+    check(c3 === b, `back in front after 65 s (the launcher's warm start): ${b}, opened on the Mac since`, String(c3 || await onChip()));
+    shot('openon-back-dark.png');
+    // A cold start: the hub's openOn.
+    await openOnMac(c0);
+    adb('shell', 'am', 'force-stop', APP);
+    await sleep(1000);
+    front();
+    const c4 = await until(async () => ((await onChip()) === c0 ? c0 : null), 30000, 700);
+    check(c4 === c0, `a cold start: ${c0}, opened on the Mac last`, String(c4 || await onChip()));
+  }
+
   sections: {
+  if (OPENON_ONLY) {
+    adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
+    await tapWhen('Pair', 30000);
+    const paired = await until(() => page('document.querySelector("#pchips .pchip") ? location.pathname : null'), 40000, 1000);
+    check(paired === '/', 'the real link pairs, and the home is the board (the project chips)', String(paired));
+    await sleep(1500);
+    await openOnSection();
+    break sections;
+  }
   if (LAUNCH_ONLY) {
     // Paired with the real link, then the launch only.
     adb('shell', `am start -a android.intent.action.VIEW -d '${info.phone.link}' ${APP}`);
