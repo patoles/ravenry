@@ -348,7 +348,7 @@ try {
   async function shade(scheme) {
     snoozeOthers([`cp:${PICK}`, `cp:${ASK}`]);
     await openShade();
-    await expand('Tilting the hull wants you to pick');
+    await expand('paper-boat wants you to pick');
     await until(() => find('Compare'), 10000, 500);
     await sleep(1500); // the pictures, fetched over the pinned connection
     shot(`phone-32-shade-${scheme}.png`);
@@ -356,7 +356,7 @@ try {
 
   async function screens(scheme) {
     // Compare, on the boat pick's alert, opens its swipe screen.
-    const title = await until(() => find('Tilting the hull wants you to pick'), 10000, 500);
+    const title = await until(() => find('paper-boat wants you to pick'), 10000, 500);
     const cmp = await until(() => screen().filter((n) => n.text === 'Compare' && title && n.y > title.y).sort((x, y2) => x.y - y2.y)[0] || null, 10000, 500);
     if (cmp) tap(cmp);
     else {
@@ -367,6 +367,8 @@ try {
       await sleep(1500);
       await go(`/cp/${PICK}`);
     }
+    // A pick opened again keeps its place: from its picture up close, the X goes back to the swipe screen.
+    if (await until(() => board('document.querySelector(".pzv") ? true : null'), 3000, 400)) { await tapBoard('.pzv-bar .icon-btn'); await sleep(600); }
     await until(() => board('document.querySelector(".ppick .ptrack img") && document.querySelector(".ppick .ptrack img").complete ? true : null'), 20000, 500);
     await sleep(800);
     // A swipe to B, as a finger does.
@@ -423,7 +425,7 @@ try {
   await until(() => alertShown(`cp:${HTML}`), 15000, 500);
   check(alertShown(`cp:${HTML}`), 'the HTML pick has its alert in the shade');
   await openShade();
-  const ht = await expand('Recipe card layout wants you to pick');
+  const ht = await expand('recipe-box wants you to pick');
   const notNow = await until(() => screen().filter((n) => n.text === 'Not now' && n.y > ht.y).sort((x, y2) => x.y - y2.y)[0] || null, 10000, 500);
   shot('phone-32-html-shade-dark.png');
   if (notNow) tap(notNow);
