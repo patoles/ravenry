@@ -175,6 +175,26 @@ try {
     check('board_answered_nothing', await stillOpen());
     await ctx.close();
   }
+  // ---------------------------------------------------------- an open board when the Mac's hub updates
+  // (an iPad opened before 0.1.59 never showed a card in no project): the
+  // board's files change on disk (their time, as an update's new ones), and
+  // the open page loads the new board by itself; nothing typed is lost.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+    const p = await ctx.newPage();
+    p.on('pageerror', (e) => check('board_update_no_page_error', false, e.message));
+    await p.goto(`${hub.url}/#cp:${ID}`);
+    await until(() => p.evaluate(() => !!window.__rvBoardBuild || null), 15000);
+    await p.evaluate(() => { window.__rvMark = 'before the update'; return true; });
+    const b0 = await p.evaluate(() => window.__rvBoardBuild || null);
+    const css = path.join(REPO, 'hub', 'public', 'app.css');
+    const st = fs.statSync(css);
+    fs.utimesSync(css, st.atime, new Date());
+    const again = await until(() => p.evaluate(() => (!window.__rvMark && window.__rvBoardBuild ? window.__rvBoardBuild : null)).catch(() => null), 20000, 500);
+    const row = await until(() => p.evaluate((id) => !!document.querySelector(`#list .row[data-id="cp:${id}"]`), ID).catch(() => null), 10000);
+    check('board_loads_again_when_the_hub_updates', !!b0 && !!again && again !== b0 && !!row, `board ${b0} then ${again}, the card's row ${row}`);
+    await ctx.close();
+  }
   // ---------------------------------------------------------- the board at a phone's width (the phone and iPad apps open on it)
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: 'dark', isMobile: true, hasTouch: true });

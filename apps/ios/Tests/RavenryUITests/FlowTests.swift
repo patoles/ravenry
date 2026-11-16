@@ -556,6 +556,131 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(shown && alive, "the ask's screen after its alert, with the app running")
     }
 
+    // ------------------------------------------------------------ a card in no project, its videos (the pickvideo round, 2026-11-16)
+
+    /// The video elements a selector finds: each one's time, whether it plays, its frame's state, its width, its source.
+    func videos(_ sel: String) -> [[String: Any]] {
+        guard let s = js("return [...document.querySelectorAll('\(sel)')].map((v) => ({ t: v.currentTime, paused: v.paused, rs: v.readyState, w: v.videoWidth, src: v.getAttribute('src') || '', err: v.error ? v.error.code : 0 }));"),
+              let o = try? JSONSerialization.jsonObject(with: Data(s.utf8)) as? [[String: Any]] else { return [] }
+        return o
+    }
+
+    /// The card's row (the wide layout) or chip (the column, an iPhone), shown, with the pane's name.
+    func looseCardShown(_ id: String, _ label: String) -> Bool {
+        let code = "const vis = (e) => !!e && e.getClientRects().length > 0 && getComputedStyle(e).display !== 'none'; const r = document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), c = document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'); return (vis(r) && r.innerText.includes('Video test')) || (vis(c) && c.innerText.includes('Video test'));"
+        let ok = until(20) { self.js(code) == "true" }
+        mark("the card in no project, \(label): \(ok); \(jsObject("return { w: innerWidth, row: !!document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), chip: !!document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'), cps: ((window.__rvSnapCps) || null), title: document.title };"))")
+        return ok
+    }
+
+    /// The pairing for test9d and test9e alone (`--only test9a_PairByTheLinkAlone,test9d_...`): by the link, no
+    /// field typed (a typed field's text session, then iOS's alerts ask taking the app away and back, crashed
+    /// XCTest's own runtime-issue hook in the app on 2026-11-16, iPad, iOS 18.3), Not now to the alerts.
+    func test9a_PairByTheLinkAlone() throws {
+        let (_, card) = hub("GET", "/api/phone?code=new")
+        let link = (card["app"] as? [String: Any])?["link"] as? String ?? ""
+        let a = launch(reset: true)
+        XCTAssertTrue(a.buttons["type-instead"].waitForExistence(timeout: 10))
+        a.open(URL(string: link)!)
+        XCTAssertTrue(a.buttons["pair-confirm"].waitForExistence(timeout: 10), "the link asks first")
+        a.buttons["pair-confirm"].tap()
+        let next = a.buttons["which-continue"], later = a.buttons["alerts-not-now"]
+        _ = until(20) { next.exists || later.exists }
+        if next.exists { next.tap(); _ = later.waitForExistence(timeout: 10) }
+        if later.exists { later.tap() }
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board after pairing by the link")
+        a.terminate()
+    }
+
+    /// A card asked from a pane in no project reaches every layout (the iPad's wide board and its column, an
+    /// iPhone), its page opens the pick's screen, and its videos show their first frames and play there, through
+    /// the app's shell (a player's parts, 206): A plays inline, a seek plays on, B (a page's video) plays.
+    func test9d_ACardInNoProjectAndItsVideos() throws {
+        if shotsOnly { return }
+        continueAfterFailure = true
+        if pad { rotate(.landscapeLeft) }
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board")
+        guard let id = newCard(["kind": "pickvideo", "name": "Video test"]) else { XCTFail("no card"); return }
+        if pad {
+            XCTAssertTrue(looseCardShown(id, "sideways, the wide layout"), "the card in no project shows in the wide layout")
+            shot("ipad-wide-card-no-project")
+            rotate(.portrait)
+            XCTAssertTrue(looseCardShown(id, "upright, the column"), "the card in no project shows in the column")
+            shot("ipad-column-card-no-project")
+        } else {
+            XCTAssertTrue(looseCardShown(id, "an iPhone"), "the card in no project shows on an iPhone")
+            shot("iphone-card-no-project")
+        }
+        // Its page: the card; its Compare opens the pick's own screen.
+        _ = js("const vis = (x) => !!x && x.getClientRects().length > 0; const r = document.querySelector('#list .row[data-id=\"cp:\(id)\"]'), c = document.querySelector('#pchips .pchip[data-id=\"cp:\(id)\"]'); const e = vis(r) ? r : c; if (e) e.click(); return !!e;")
+        let compare = until(15) { self.js("const b = document.querySelector('[data-act=\"cp-open\"][data-cp=\"\(id)\"]'); if (!b || !b.getClientRects().length) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true;") == "true" }
+        XCTAssertTrue(compare, "its page shows the card, with Compare")
+        // The pick's screen: each video's first frame.
+        var first: [[String: Any]] = []
+        let frames = until(40) { first = self.videos(".ptrack video"); return first.count == 3 && first.allSatisfy { ($0["rs"] as? Int ?? 0) >= 2 && ($0["w"] as? Int ?? 0) > 0 } }
+        mark("first frames on the pick's screen: \(first)")
+        XCTAssertTrue(frames, "each video's first frame on the pick's screen")
+        Thread.sleep(forTimeInterval: 0.5)
+        shot("pick-video-track")
+        // A tap on A: the viewer, where it plays inline.
+        _ = js("const s = document.querySelector('.ptrack .pimg'); if (s) s.click(); return !!s;")
+        var p0: [[String: Any]] = []
+        let started = until(20) { p0 = self.videos(".pzv-box video.pzv-vid"); return (p0.first?["t"] as? Double ?? 0) > 0.2 }
+        Thread.sleep(forTimeInterval: 1.5)
+        let p1 = videos(".pzv-box video.pzv-vid")
+        let moved = (p1.first?["t"] as? Double ?? 0) > (p0.first?["t"] as? Double ?? 0) + 0.8 && (p1.first?["paused"] as? Bool) == false
+        mark("A in the viewer: \(p0) then \(p1)")
+        XCTAssertTrue(started && moved, "A plays inline in the viewer (its time moves on)")
+        shot("pick-video-playing")
+        // A seek (the scrub bar's job: its parts asked through the app's shell), and it plays on.
+        _ = js("const v = document.querySelector('.pzv-box video.pzv-vid'); if (v) v.currentTime = 4.5; return !!v;")
+        var sk: [String: Any] = [:]
+        let sought = until(10) { sk = self.videos(".pzv-box video.pzv-vid").first ?? [:]; let t = sk["t"] as? Double ?? 0; return t > 4.7 && t < 6 && (sk["paused"] as? Bool) == false }
+        mark("a seek to 4.5 s: \(sk)")
+        XCTAssertTrue(sought, "a seek, and it plays on")
+        // B: the page's video, from the strip.
+        _ = js("const t = document.querySelectorAll('.pzv-th')[1]; if (t) t.click(); return !!t;")
+        var b0: [[String: Any]] = []
+        let bs = until(20) { b0 = self.videos(".pzv-box video.pzv-vid"); return ((b0.first?["src"] as? String) ?? "").hasSuffix("as=video") && (b0.first?["t"] as? Double ?? 0) > 0.2 }
+        Thread.sleep(forTimeInterval: 1.2)
+        let b1 = videos(".pzv-box video.pzv-vid")
+        mark("B, the page's video: \(b0) then \(b1)")
+        XCTAssertTrue(bs && (b1.first?["t"] as? Double ?? 0) > (b0.first?["t"] as? Double ?? 0) + 0.6, "B, the page's video, plays")
+        a.terminate()
+        if pad { rotate(.portrait) }
+    }
+
+    /// A board opened before the Mac's hub updated (test9e): the board files of an older Mac, then a newer
+    /// one's swapped over the test hub's (tools/ios-e2e.mjs, a --hub copy), as an update of the Mac does with
+    /// the page left open. The page takes the new board at once, with no relaunch: a card in no project, which
+    /// only the newer board shows, appears on it.
+    func test9e_ABoardOpenedBeforeTheMacUpdated() throws {
+        if shotsOnly { return }
+        guard let old = env["RAVENRY_BOARD_OLD"], let new = env["RAVENRY_BOARD_NEW"], !old.isEmpty, !new.isEmpty, let sig = env["RAVENRY_SIG"] else { throw XCTSkip("no older and newer board files (RAVENRY_BOARD_OLD, RAVENRY_BOARD_NEW)") }
+        continueAfterFailure = true
+        let swap = { (dir: String) in
+            try? Data(dir.utf8).write(to: URL(fileURLWithPath: "\(sig)/swap.wait"))
+            _ = self.until(10) { !FileManager.default.fileExists(atPath: "\(sig)/swap.wait") }
+        }
+        swap(old)
+        if pad { rotate(.landscapeLeft) }
+        let a = launch(reset: false)
+        XCTAssertTrue(shows("recipe-box", timeout: 30), "the board, the older Mac's")
+        _ = js("window.__rvOld = 'page before the update'; return true;")
+        guard let id = newCard(["kind": "pickvideo", "name": "Video test"]) else { XCTFail("no card"); return }
+        let before = looseCardShown(id, "the older board")
+        mark("before the update: the card in no project shown \(before) (the older board has no row for it)")
+        swap(new)
+        let after = looseCardShown(id, "after the Mac's update, the page left open")
+        let reloaded = js("return window.__rvOld || null;") != "\"page before the update\""
+        mark("after the update: the card shown \(after), the page loaded again \(reloaded)")
+        XCTAssertTrue(after, "after the Mac's update, the open board shows the card in no project with no relaunch")
+        shot("after-update-card-no-project")
+        a.terminate()
+        if pad { rotate(.portrait) }
+    }
+
     // ------------------------------------------------------------ the iPad (C, picked 2026-11-15)
 
     var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad }

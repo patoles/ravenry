@@ -19,6 +19,8 @@
 //
 //   node tools/ios-e2e.mjs --udid <booted simulator> --out <dir> [--theme dark|light] [--shots-only]
 //     [--hub DIR] (a packaged app's hub folder in place of ../../hub, as it ships)
+//     [--board-swap] (test9e: a copy of the hub, its board files swapped as an update of the Mac does)
+//     PICKVIDEO_CLIP, PICKVIDEO_CLIP2: the videos of test9d's pick (else made here with ffmpeg)
 //
 // Pictures go to <out>/shots, the app's log and the marks to <out>.
 import fs from 'node:fs';
@@ -63,7 +65,27 @@ const STUB = `http://127.0.0.1:${ntfy.address().port}`;
 
 const DEMO = path.join(OUT, `demo-${THEME}`);
 fs.rmSync(DEMO, { recursive: true, force: true });
-const demo = spawn(process.execPath, [path.join(REPO, 'apps/phone/tools/demo.mjs'), '--phone', '--phone-hosts', '127.0.0.1', '--dir', DEMO, ...(opt('--hub') ? ['--hub', path.resolve(opt('--hub'))] : [])], { env: cleanEnv, stdio: ['ignore', fs.openSync(path.join(OUT, `demo-${THEME}.log`), 'w'), 'inherit'] });
+// --board-swap (test9e): the test hub runs from a copy of ../../hub, whose
+// board files the test swaps as an update of the Mac does: an older board
+// (this one's app.js without the row of a card in no project) and this one.
+let HUB_DIR = opt('--hub') ? path.resolve(opt('--hub')) : null;
+const SWAP = {};
+if (args.includes('--board-swap')) {
+  const src = HUB_DIR || path.join(REPO, 'hub');
+  // A tree of its own, the shared files and packages linked from this one (the hub reads them at ../../).
+  const tree = path.join(OUT, `swap-tree-${THEME}`);
+  fs.rmSync(tree, { recursive: true, force: true });
+  fs.mkdirSync(tree, { recursive: true });
+  for (const d of ['shared', 'packages']) fs.symlinkSync(path.join(REPO, d), path.join(tree, d));
+  HUB_DIR = path.join(tree, 'hub');
+  fs.cpSync(src, HUB_DIR, { recursive: true, filter: (f) => !/\/(node_modules|\.tmp)(\/|$)/.test(path.relative(src, f) ? '/' + path.relative(src, f) : '') });
+  fs.symlinkSync(path.join(src, 'node_modules'), path.join(HUB_DIR, 'node_modules'));
+  const app = fs.readFileSync(path.join(HUB_DIR, 'public', 'app.js'), 'utf8');
+  const older = app.replace(/  \/\/ A card asked from a pane in no project[\s\S]*?\n(?=  const open = \(snap\.checkpoints)/, '');
+  if (older === app) { console.error('--board-swap: the board has no row for a card in no project to take out'); process.exit(2); }
+  for (const [k, text] of [['old', older], ['new', app]]) { const d = path.join(OUT, `board-${k}-${THEME}`); fs.rmSync(d, { recursive: true, force: true }); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'app.js'), text); SWAP[k] = d; }
+}
+const demo = spawn(process.execPath, [path.join(REPO, 'apps/phone/tools/demo.mjs'), '--phone', '--phone-hosts', '127.0.0.1', '--dir', DEMO, ...(HUB_DIR ? ['--hub', HUB_DIR] : [])], { env: cleanEnv, stdio: ['ignore', fs.openSync(path.join(OUT, `demo-${THEME}.log`), 'w'), 'inherit'] });
 let info = null;
 for (let i = 0; i < 120 && !info; i++) { await sleep(500); try { info = JSON.parse(fs.readFileSync(path.join(DEMO, 'demo.json'), 'utf8')); } catch { /* not yet */ } }
 if (!info || !info.phone) { console.error('the demo hub did not start'); demo.kill(); process.exit(1); }
@@ -118,7 +140,35 @@ const BIN = path.resolve(process.env.RAVENRYD || path.join(REPO, 'daemon', 'rave
 const demoEnv = { HOME: DEMO, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh', LANG: 'en_US.UTF-8', RAVENRY_RUNTIME_DIR: info.runtime, RAVENRY_STATE_DIR: path.join(DEMO, 'state') };
 const PICTURE = path.join(REPO, 'packages', 'page-format', 'fixtures', 'playtest', 'playtest', 'shots');
 const cardsOpened = new Map();
+// A pick of videos asked from a plain shell pane in no project (the
+// pickvideo round, 2026-11-16, as one was on the person's Mac): a video (A,
+// PICKVIDEO_CLIP or made here), a page that holds it as a data: URI (B), a
+// picture (C), a second video (D, PICKVIDEO_CLIP2 or made here).
+const VDIR = path.join(OUT, `videos-${THEME}`);
+function videoFiles() {
+  if (fs.existsSync(path.join(VDIR, 'd.mp4'))) return VDIR;
+  fs.mkdirSync(VDIR, { recursive: true });
+  const ff = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((f) => fs.existsSync(f)) || 'ffmpeg';
+  const made = (name, src) => { const f = path.join(VDIR, name); if (src) fs.copyFileSync(src, f); else execFileSync(ff, ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', f]); return f; };
+  const a = made('a.mp4', process.env.PICKVIDEO_CLIP || '');
+  made('d.mp4', process.env.PICKVIDEO_CLIP2 || '');
+  fs.writeFileSync(path.join(VDIR, 'b.html'), `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000"><video src="data:video/mp4;base64,${fs.readFileSync(a).toString('base64')}" controls autoplay muted loop playsinline style="width:100%"></video></body></html>`);
+  fs.copyFileSync(path.join(PICTURE, fs.readdirSync(PICTURE).find((x) => /\.png$/i.test(x))), path.join(VDIR, 'c.png'));
+  return VDIR;
+}
+async function openLooseVideoPick(c) {
+  const dir = videoFiles();
+  const scratch = path.join(DEMO, 'scratch');
+  fs.mkdirSync(scratch, { recursive: true });
+  const pane = execFileSync(BIN, ['new', '--cwd', scratch, '--name', c.name || 'Video test', '--', '/bin/sh', '-c', 'exec sleep 100000'], { env: demoEnv, encoding: 'utf8' }).trim().split(/\s+/)[0];
+  const vs = [['Take one', 'a.mp4'], ['Take two', 'b.html'], ['Still', 'c.png'], ['Take three', 'd.mp4']];
+  const id = execFileSync(BIN, ['pick', c.title || 'Which take should I keep?', ...vs.flatMap(([l, f]) => ['--variant', `${l}=${path.join(dir, f)}`]), '--no-wait', '--timeout', '30m'], { env: { ...demoEnv, RAVENRY_PANE: pane }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  // The hub keeps the copies and names the pane; then the agent's files go (its copies are the only source).
+  for (let i = 0; i < 100; i++) { const x = ((await mac('GET', '/api/checkpoints')).body.checkpoints || []).find((y) => y.id === id); if (x && x.paneName && x.pick_record && x.pick_record.variants.every((v) => v.kept) && x.variants[1].video) break; await sleep(300); }
+  return id;
+}
 async function openCard(c) {
+  if (c.kind === 'pickvideo') return openLooseVideoPick(c);
   const st = (await mac('GET', '/api/state')).body;
   const pr = (st.projects || []).find((p) => p.id === c.project);
   const s = pr && (pr.sessions || []).find((x) => String(x.surfaceId || '').startsWith('ravenry:'));
@@ -160,7 +210,17 @@ async function openCard(c) {
   // switch, as the person's Control Centre makes it.
   const pu = path.join(SIG, 'push.wait');
   const ap = path.join(SIG, 'appearance.wait');
+  // The Mac's hub updated (test9e): the test hub's board files swapped for
+  // another version's (only a --hub copy, never the tree's): swap.wait names
+  // a folder whose files go over its public/.
+  const sw = path.join(SIG, 'swap.wait');
   while (watching) {
+    if (fs.existsSync(sw)) {
+      const from = fs.readFileSync(sw, 'utf8').trim();
+      const hubDir = HUB_DIR;
+      if (hubDir && from) for (const f of fs.readdirSync(from)) fs.copyFileSync(path.join(from, f), path.join(hubDir, 'public', f));
+      fs.rmSync(sw, { force: true });
+    }
     if (fs.existsSync(pu)) {
       const f2 = path.join(SIG, 'push.json');
       fs.renameSync(pu, f2);
@@ -209,6 +269,8 @@ const runEnv = {
   TEST_RUNNER_RAVENRY_TYPED: TYPED, TEST_RUNNER_RAVENRY_SHOTS_ONLY: SHOTS_ONLY ? '1' : '0',
   TEST_RUNNER_RAVENRY_TEST_HUB: `127.0.0.1:${info.phone.port}`, TEST_RUNNER_RAVENRY_TEST_PIN: PIN, TEST_RUNNER_RAVENRY_TEST_TOKEN: UNIT_TOKEN || '',
   TEST_RUNNER_RAVENRY_TEST_LINK: card.link,
+  // test9e: the board files of an older and a newer Mac (folders swapped over the test hub's, a --hub copy).
+  TEST_RUNNER_RAVENRY_BOARD_OLD: SWAP.old || '', TEST_RUNNER_RAVENRY_BOARD_NEW: SWAP.new || '',
 };
 const DD = path.join(IOS, 'build', 'DerivedData');
 async function xcodebuild(scheme, label) {
