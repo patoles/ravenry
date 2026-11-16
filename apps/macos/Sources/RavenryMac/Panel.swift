@@ -1069,7 +1069,9 @@ final class PanelView: Box {
         // The heading and the after line too: a page's run is worded by the hub after the daemon's copy came (PAGE-006, cards.ts cardFor).
         // Whether its run's pane is one this window has (Show in the terminal): the pane can come after the card was built.
         let runShown = ((cp["run"] as? [String: Any])?["pane"] as? String ?? (w["after"] as? [String: Any])?["runPane"] as? String).map { host?.paneName($0) != nil } ?? false
-        let key = "\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(w["heading"] as? String ?? "")|\((w["after"] as? [String: Any])?["head"] as? String ?? "")|\(u.stamp)|\(phoneToo)|\((cp["checked"] as? [[String: Any]])?.compactMap { $0["id"] as? String }.joined(separator: ",") ?? "")|\(runShown)"
+        // A pick's videos are part of it: a page's video the hub found after the card was built builds it again.
+        let videos = (0..<(cp["variants"] as? [Any] ?? []).count).map { pickVideoPath(cp, $0) ?? "" }.joined(separator: ",")
+        let key = "\(videos)|\(cp["state"] as? String ?? "")|\(w["state"] as? String ?? "")|\(w["heading"] as? String ?? "")|\((w["after"] as? [String: Any])?["head"] as? String ?? "")|\(u.stamp)|\(phoneToo)|\((cp["checked"] as? [[String: Any]])?.compactMap { $0["id"] as? String }.joined(separator: ",") ?? "")|\(runShown)"
         if let had = cardViews[id], had.key == key { had.refresh(); shownCard = had; return had }
         guard let h = host else { return NSView() }
         let ctx = CardCtx(hub: h.hub,

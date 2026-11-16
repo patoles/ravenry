@@ -17,6 +17,18 @@ import AVFoundation
 import AVKit
 import CryptoKit
 
+/// The hub's URL of the video variant n of a pick plays, else nil: the hub's
+/// `video` (a video's own file, a page's video), else, for a copy that has
+/// none (a daemon's own, which reaches the window before the hub's), a
+/// video's own URL from its type. Never the agent's path: the hub's kept
+/// copy is the only source once the card is made.
+func pickVideoPath(_ cp: [String: Any], _ n: Int) -> String? {
+    let vs = cp["variants"] as? [[String: Any]] ?? []
+    guard n >= 0, n < vs.count, let id = cp["id"] as? String else { return nil }
+    if let v = vs[n]["video"] as? String, v.hasPrefix("/api/") { return v }
+    return vs[n]["type"] as? String == "video" ? "/api/checkpoints/\(id)/variants/\(n)" : nil
+}
+
 /// The round play mark in the middle of a video's first frame.
 func drawPlayMark(in r: NSRect, size: CGFloat = 34) {
     let c = NSRect(x: r.midX - size / 2, y: r.midY - size / 2, width: size, height: size)

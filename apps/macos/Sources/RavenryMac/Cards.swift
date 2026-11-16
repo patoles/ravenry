@@ -828,7 +828,7 @@ final class CheckpointCard: Box {
             img.heightAnchor.constraint(equalTo: img.widthAnchor, multiplier: 10.0 / 16).isActive = true
             // Read once (HubClient.picture): a card built again draws them at once. A video (or a page
             // that holds one) shows its first frame with the play mark; a click plays it up close.
-            if let vp = v["video"] as? String {
+            if let vp = pickVideoPath(cp, n) {
                 img.playMark = true
                 img.image = PickVideos.shared.frame(ctx.hub, vp) { [weak img] i in img?.image = i }
                 img.toolTip = t("pick.playTip", ["name": name])

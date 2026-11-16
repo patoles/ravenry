@@ -243,6 +243,8 @@ final class PickerView: Box, BackLinked {
     let video = PickPlayer()
     /// On a video: the second of the frame the ring is drawn on.
     private(set) var regionT: Double?
+    /// The video each variant plays, as last shown.
+    private var shownVideos: [String] = []
     let chip = FitChip()
     private let viewer = Flipped()
     private var vhead: NSView?
@@ -305,6 +307,10 @@ final class PickerView: Box, BackLinked {
     func show(_ cp: [String: Any], at: Int? = nil) {
         let cid = cp["id"] as? String
         let n = (cp["variants"] as? [Any] ?? []).count
+        // The videos it plays: a page's video the hub found after the pick was first shown reads its first frame again.
+        let videos = (0..<n).map { pickVideoPath(cp, $0) ?? "" }
+        if cid == id, videos != shownVideos { id = nil }
+        shownVideos = videos
         if cid != id {
             id = cid; picked = nil; circling = false; region = nil; regionT = nil; pin = ""; editingPin = false; busy = false; error = nil
             extra.stringValue = ""; pictures = [:]; viewing = nil
@@ -312,7 +318,7 @@ final class PickerView: Box, BackLinked {
             let vs = cp["variants"] as? [[String: Any]] ?? []
             // Read once (HubClient.picture): the card's pictures are drawn here at once. A video's: its first frame.
             for i in 0..<n {
-                if let vp = i < vs.count ? vs[i]["video"] as? String : nil {
+                if let vp = pickVideoPath(cp, i) {
                     pictures[i] = PickVideos.shared.frame(hub, vp) { [weak self] img in
                         guard let self, self.id == cid, let img else { return }
                         self.pictures[i] = img
@@ -338,10 +344,7 @@ final class PickerView: Box, BackLinked {
 
     private func pictureURL(_ cid: String, _ i: Int) -> String { "/api/checkpoints/\(cid)/variants/\(i)?as=png" }
     /// The hub's URL of the video variant n plays (a video, a page that holds one), else nil.
-    func videoPath(_ n: Int) -> String? {
-        let vs = cp["variants"] as? [[String: Any]] ?? []
-        return n >= 0 && n < vs.count ? vs[n]["video"] as? String : nil
-    }
+    func videoPath(_ n: Int) -> String? { pickVideoPath(cp, n) }
     /// The video up close plays on while it is on screen only.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
